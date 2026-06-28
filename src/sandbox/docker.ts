@@ -18,8 +18,13 @@ const DEFAULT_TIMEOUT = 600_000;
 // 容器内工作目录。
 const CONTAINER_WORKDIR = "/home/sandbox/workspace";
 
-// 容器「主日志」文件:PID1 tail 它 → `docker logs` 实时显示;appendLog 往里写。
+// 容器「主日志」文件:PID1 tail 它 → `docker logs` 实时显示;agent 命令的 stream 输出 tee 进来。
 const CONTAINER_LOG = "/tmp/fastevals-agent.log";
+
+/** 单引号包裹 + 转义,把一个参数安全嵌进 shell 命令串。 */
+function shellQuote(s: string): string {
+  return `'${s.replace(/'/g, "'\\''")}'`;
+}
 
 // 非 root 用户:安全 + 兼容(如 Claude Code 在 root 下拒绝 --dangerously-skip-permissions)。
 // node:*-slim 镜像自带 UID/GID 1000 的 node 用户。
@@ -164,6 +169,13 @@ export class DockerSandbox implements Sandbox {
     args: string[] = [],
     opts: CommandOptions = {},
   ): Promise<CommandResult> {
+    // stream:把本命令输出也接到容器主日志(PID1 tail 它)→ Docker Logs 看到原始输出。
+    // 实现:把 cmd+args 安全拼成 shell 串,经 runShell 走 tee(只 tee stdout,保留 stderr 分离 + 退出码)。
+    if (opts.stream) {
+      const joined = [cmd, ...args].map(shellQuote).join(" ");
+      return this.runShell(joined, { env: opts.env, cwd: opts.cwd, stream: true });
+    }
+
     // 保证 npm 全局 bin 在 PATH 里;固定 HOME/USER,让 codex(~/.codex)、npm 全局、
     // bash 的 ~ 展开都落在 node 用户家目录,不依赖 docker exec 是否注入 HOME。
     const env = {
@@ -292,6 +304,11 @@ export class DockerSandbox implements Sandbox {
 
   /** 经 bash -c 跑一段 shell 脚本。opts 为选项对象。 */
   async runShell(script: string, opts: CommandOptions = {}): Promise<CommandResult> {
+    if (opts.stream) {
+      // 只 tee stdout 到容器主日志:保留 stderr 分离(解析器要)+ pipefail 保留命令退出码。
+      const wrapped = `set -o pipefail; { ${script} ; } | tee -a ${CONTAINER_LOG}`;
+      return this.runCommand("bash", ["-c", wrapped], { env: opts.env, cwd: opts.cwd });
+    }
     return this.runCommand("bash", ["-c", script], opts);
   }
 

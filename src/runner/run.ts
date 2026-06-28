@@ -194,16 +194,14 @@ async function runAttempt(
     return { ...base, error: `runner 暂只支持沙箱型 agent(收到 ${run.agent.kind})` };
   }
 
-  // 流式进度:让「跑起来」可观测 —— 每个 attempt 起停、每一轮 send 都打到 stderr
-  //(结果走 stdout,互不干扰);同时镜像进容器主日志(Docker 的 Logs 标签页可见 agent 逐轮活动)。
+  // 流式进度打到宿主 stderr(结果走 stdout,互不干扰)。
+  // 注意:容器主日志【不】放这些 harness 进度标记 —— 那里留给 agent 的【原始输出】
+  //(adapter 给 agent 命令开 { stream: true },见各 adapter)。
   const who = run.model ? `${run.agent.name}/${run.model}` : run.agent.name;
   let sandbox: Sandbox | undefined;
   let agentCleanup: Cleanup | void = undefined;
   let agentSetupCtx: AgentContext | undefined;
-  const log = (m: string) => {
-    process.stderr.write(`  · ${evalDef.id} [${who}] ${m}\n`);
-    void sandbox?.appendLog?.(m)?.catch(() => {});
-  };
+  const log = (m: string) => process.stderr.write(`  · ${evalDef.id} [${who}] ${m}\n`);
   try {
     log("起沙箱…");
     sandbox = await createSandbox({

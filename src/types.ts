@@ -204,6 +204,13 @@ export type SandboxBackend = "docker" | "vercel" | "auto" | string;
 export interface CommandOptions {
   env?: Record<string, string>;
   cwd?: string;
+  /**
+   * 把本命令的输出也送进沙箱的「原生日志流」(于是 `docker logs` / Docker UI 的 Logs
+   * 标签页能实时看到它)。给 agent 命令(codex exec / bub run / claude)开它,就能在容器
+   * 日志里看到 agent 的【原始输出】。后端各自实现(docker:tee 到 PID1 tail 的文件;
+   * 不支持的后端忽略)—— 日志怎么浮现是 backend 的事,adapter 只声明意图。
+   */
+  stream?: boolean;
 }
 
 export interface Sandbox {
