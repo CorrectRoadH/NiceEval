@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>fastevals experiment view</title>
+  <!-- __FASTEVALS_STYLES__ -->
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="mark"></span><span>fastevals</span></div>
+    <nav class="nav" aria-label="Report">
+      <strong>Experiments</strong>
+      <span>Runs</span>
+      <span>Traces</span>
+    </nav>
+  </header>
+  <main>
+    <section class="hero">
+      <h1>Eval Run Results</h1>
+      <p class="subtitle">Local experiment results for coding agents, comparing pass rate, execution time, token usage, and estimated cost.</p>
+      <div class="meta">
+        <span><b>Last run:</b> __FASTEVALS_LAST_RUN__</span>
+        <span class="slash">/</span>
+        <span><b>Sources:</b> __FASTEVALS_SOURCE_LIST__</span>
+      </div>
+    </section>
+
+    <section class="summary" aria-label="Run summary">
+      <div class="metric"><div class="label">Pass Rate</div><div class="value">__FASTEVALS_PASS_RATE__</div></div>
+      <div class="metric"><div class="label">Eval Results</div><div class="value">__FASTEVALS_RESULT_COUNT__</div></div>
+      <div class="metric"><div class="label">Duration</div><div class="value">__FASTEVALS_DURATION__</div></div>
+      <div class="metric"><div class="label">Estimated Cost</div><div class="value">__FASTEVALS_COST__</div></div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>Experiment Performance Results</h2>
+        <div class="controls">
+          <input id="search" class="search" type="search" placeholder="Filter experiment, agent, model, or eval..." autocomplete="off">
+        </div>
+      </div>
+      <!-- __FASTEVALS_RESULTS_BODY__ -->
+    </section>
+  </main>
+  <script>
+    const rows = __FASTEVALS_ROWS_JSON__;
+    const state = { sort: "passRate", dir: -1, query: "", open: new Set() };
+    const tbody = document.querySelector("#results-body");
+    const search = document.querySelector("#search");
+
+    function render() {
+      if (!tbody) return;
+      const q = state.query.trim().toLowerCase();
+      const filtered = rows.filter((row) => {
+        if (!q) return true;
+        return [row.label, row.group || "", row.experimentId || "", row.agent, row.model || "", ...row.results.map((r) => r.id)]
+          .join(" ")
+          .toLowerCase()
+          .includes(q);
+      });
+      filtered.sort((a, b) => compareRows(a, b, state.sort) * state.dir);
+      tbody.innerHTML = filtered.map((row) => renderRow(row)).join("");
+    }
+
+    function compareRows(a, b, key) {
+      const av = valueFor(a, key);
+      const bv = valueFor(b, key);
+      if (typeof av === "string" || typeof bv === "string") return String(av).localeCompare(String(bv));
+      return Number(av) - Number(bv);
+    }
+
+    function valueFor(row, key) {
+      if (key === "experiment") return row.label;
+      if (key === "model") return row.model || "";
+      if (key === "agent") return row.agent;
+      if (key === "cost") return row.estimatedCostUSD || 0;
+      return row[key] || 0;
+    }
+
+    function renderRow(row) {
+      const open = state.open.has(row.key);
+      const tone = row.passRate >= 0.8 ? "good" : row.passRate >= 0.5 ? "warn" : "bad";
+      return `
+        <tr class="main-row ${open ? "is-open" : ""}" data-key="${escapeAttr(row.key)}" tabindex="0">
+          <td><span class="chev"></span><span class="name">${escapeHtml(row.label)}</span><div class="sub">${escapeHtml(row.group ? row.group + " · " : "")}${row.runs} eval result${row.runs === 1 ? "" : "s"}</div></td>
+          <td>${escapeHtml(row.model || "default")}</td>
+          <td>${escapeHtml(row.agent)}</td>
+          <td class="num">${formatDuration(row.avgDurationMs)}</td>
+          <td class="num ${tone}">${formatPercent(row.passRate)}</td>
+          <td class="num">${formatTokens(totalTokens(row.usage))}</td>
+          <td class="num">${formatCost(row.estimatedCostUSD)}</td>
+          <td><span class="pill">${row.passed} passed / ${row.failed} failed</span></td>
+        </tr>
+        ${open ? renderDetail(row) : ""}
+      `;
+    }
+
+    function renderDetail(row) {
+      const totalDuration = row.results.reduce((sum, r) => sum + (r.durationMs || 0), 0);
+      const sampleResult = row.results.find((r) => r.verdict === "failed") || row.results[0] || {};
+      const details = row.results
+        .slice()
+        .sort((a, b) => a.id.localeCompare(b.id) || a.attempt - b.attempt)
+        .map((r) => {
+          const bad = (r.assertions || []).filter((a) => !a.passed).map((a) => a.name).join(", ");
+          const statusClass = r.verdict === "passed" ? "good" : r.verdict === "failed" ? "bad" : "warn";
+          const reason = r.error || bad;
+          const item = `<div class="eval-item"><span class="${statusClass}">${r.verdict}</span><span class="eval-id">${escapeHtml(r.id)}</span><span class="assertions">${reason ? escapeHtml(reason) : '<span class="reason-empty">all assertions passed</span>'}</span><span class="num">${formatDuration(r.durationMs)}</span><span class="num">${formatTokens(totalTokens(r.usage))}</span><span class="num">${formatCost(r.estimatedCostUSD)}</span><span class="num">#${r.attempt}</span></div>`;
+          const trace = (r.trace && r.trace.length)
+            ? `<details class="trace-details"><summary>trace · ${r.trace.length} span${r.trace.length === 1 ? "" : "s"}</summary>${renderTrace(r.trace)}</details>`
+            : "";
+          return item + trace;
+        })
+        .join("");
+      const sample = JSON.stringify(sampleResult, null, 2);
+      return `
+        <tr class="detail-row">
+          <td class="detail-cell" colspan="8">
+            <div class="detail">
+              <div class="config-strip">${renderConfigChips(row)}</div>
+              <div class="detail-kpis">
+                <div class="detail-kpi"><span>Attempts</span><b>${row.runs}</b></div>
+                <div class="detail-kpi"><span>Passed</span><b class="good">${row.passed}</b></div>
+                <div class="detail-kpi"><span>Failed</span><b class="${row.failed ? "bad" : ""}">${row.failed}</b></div>
+                <div class="detail-kpi"><span>Total Time</span><b>${formatDuration(totalDuration)}</b></div>
+                <div class="detail-kpi"><span>Total Cost</span><b>${formatCost(row.estimatedCostUSD)}</b></div>
+              </div>
+              <h3>Evaluation Attempts</h3>
+              <div class="eval-list"><div class="eval-grid-head"><span>Status</span><span>Eval</span><span>Reason</span><span>Time</span><span>Tokens</span><span>Cost</span><span>Run</span></div>${details}</div>
+              <details class="raw-details">
+                <summary>Raw sample result <span class="raw-note">debug JSON, defaults to first failure when available</span></summary>
+                <pre>${escapeHtml(sample)}</pre>
+              </details>
+            </div>
+          </td>
+        </tr>
+      `;
+    }
+
+    function renderConfigChips(row) {
+      const exp = row.experiment || {};
+      const flags = exp.flags && Object.keys(exp.flags).length
+        ? Object.entries(exp.flags).map(([k, v]) => k + "=" + formatConfigValue(v)).join(", ")
+        : "none";
+      const chips = [
+        ["experiment", row.experimentId || row.label],
+        ["model", row.model || "default"],
+        ["agent", row.agent],
+        ["runs", exp.runs ?? row.runs],
+        ["earlyExit", exp.earlyExit === undefined ? "n/a" : String(exp.earlyExit)],
+        ["sandbox", exp.sandbox || "default"],
+        ["budget", exp.budget === undefined ? "none" : "$" + exp.budget],
+        ["flags", flags],
+      ];
+      return chips.map(([label, value]) => `<span class="config-chip"><span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b></span>`).join("");
+    }
+
+    function renderTrace(spans) {
+      if (!spans || !spans.length) return "";
+      const t0 = Math.min(...spans.map((s) => s.startMs));
+      const t1 = Math.max(...spans.map((s) => s.endMs));
+      const total = Math.max(1, t1 - t0);
+      const byId = new Map(spans.map((s) => [s.spanId, s]));
+      const depthOf = (s) => {
+        let d = 0, cur = s; const seen = new Set();
+        while (cur && cur.parentSpanId && byId.has(cur.parentSpanId) && !seen.has(cur.spanId)) {
+          seen.add(cur.spanId); cur = byId.get(cur.parentSpanId); d++;
+          if (d > 40) break;
+        }
+        return d;
+      };
+      // 先按起点、再按深度排序,父在子前 —— 读起来像调用栈。
+      const ordered = spans.slice().sort((a, b) => a.startMs - b.startMs || depthOf(a) - depthOf(b));
+      const rows = ordered.map((s) => {
+        const left = ((s.startMs - t0) / total) * 100;
+        const width = Math.max(0.6, ((s.endMs - s.startMs) / total) * 100);
+        const tone = s.status === "error" ? "bad" : "";
+        const dur = formatDuration(s.endMs - s.startMs);
+        const indent = depthOf(s) * 12;
+        return `<div class="trace-row"><div class="trace-label" style="padding-left:${indent}px" title="${escapeAttr(s.name)}">${escapeHtml(s.name)}</div><div class="trace-track"><div class="trace-bar ${tone}" style="left:${left}%;width:${width}%"></div></div><div class="trace-dur num">${dur}</div></div>`;
+      }).join("");
+      return `<div class="trace"><div class="trace-span-meta">total ${formatDuration(total)}</div>${rows}</div>`;
+    }
+    function formatConfigValue(value) {
+      if (value === null) return "null";
+      if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
+      return JSON.stringify(value);
+    }
+    function totalTokens(usage) {
+      return (usage?.inputTokens || 0) + (usage?.outputTokens || 0) + (usage?.cacheReadTokens || 0) + (usage?.cacheWriteTokens || 0);
+    }
+    function formatPercent(v) { return Math.round(v * 100) + "%"; }
+    function formatDuration(ms) {
+      if (!Number.isFinite(ms) || ms <= 0) return "0ms";
+      if (ms >= 60000) return (ms / 60000).toFixed(1) + "m";
+      if (ms >= 1000) return (ms / 1000).toFixed(2) + "s";
+      return Math.round(ms) + "ms";
+    }
+    function formatTokens(n) {
+      if (!Number.isFinite(n) || n <= 0) return "0";
+      if (n >= 1000000) return (n / 1000000).toFixed(2) + "M";
+      if (n >= 1000) return (n / 1000).toFixed(1) + "k";
+      return String(Math.round(n));
+    }
+    function formatCost(n) {
+      if (!Number.isFinite(n) || n <= 0) return "$0";
+      return "$" + n.toFixed(n < 1 ? 3 : 2);
+    }
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
+    }
+    function escapeAttr(value) { return escapeHtml(value); }
+
+    document.addEventListener("click", (event) => {
+      const sort = event.target.closest("[data-sort]");
+      if (sort) {
+        const key = sort.dataset.sort;
+        if (state.sort === key) state.dir *= -1;
+        else { state.sort = key; state.dir = key === "experiment" || key === "agent" ? 1 : -1; }
+        render();
+        return;
+      }
+      const row = event.target.closest(".main-row");
+      if (!row) return;
+      const key = row.dataset.key;
+      if (state.open.has(key)) state.open.delete(key);
+      else state.open.add(key);
+      render();
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      const row = event.target.closest(".main-row");
+      if (!row) return;
+      event.preventDefault();
+      row.click();
+    });
+    search?.addEventListener("input", (event) => {
+      state.query = event.target.value;
+      render();
+    });
+    render();
+  </script>
+</body>
+</html>

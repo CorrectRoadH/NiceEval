@@ -2,6 +2,12 @@
 // 可链式改严重级 / 阈值。链式方法返回全新的不可变 ValueAssertion,复用同一个 score。
 
 import type { Severity, ValueAssertion } from "../types.ts";
+import { stripComments } from "../util.ts";
+
+/** includes / excludes 的可选项。stripComments:先剥注释再匹配(只对真实代码生效)。 */
+export interface MatchOptions {
+  stripComments?: boolean;
+}
 
 // ───────────────────────── 内部工厂 ─────────────────────────
 
@@ -109,13 +115,31 @@ function levenshtein(a: string, b: string): number {
 
 // ───────────────────────── 匹配器 ─────────────────────────
 
-/** String(value) 含子串 / 命中正则则 1,否则 0。默认硬门槛。 */
-export function includes(needle: string | RegExp): ValueAssertion {
+/** 把 value 转成待匹配字符串;opts.stripComments 时先剥注释。 */
+function toMatchTarget(value: unknown, opts?: MatchOptions): string {
+  const s = String(value);
+  return opts?.stripComments ? stripComments(s) : s;
+}
+
+/** String(value) 含子串 / 命中正则则 1,否则 0。默认硬门槛。opts.stripComments 时只看真实代码。 */
+export function includes(needle: string | RegExp, opts?: MatchOptions): ValueAssertion {
   const label = needle instanceof RegExp ? needle.toString() : safeLabel(needle);
-  return createAssertion(`includes(${label})`, "gate", (value) => {
-    const s = String(value);
+  const suffix = opts?.stripComments ? ", stripComments" : "";
+  return createAssertion(`includes(${label}${suffix})`, "gate", (value) => {
+    const s = toMatchTarget(value, opts);
     if (needle instanceof RegExp) return needle.test(s) ? 1 : 0;
     return s.includes(needle) ? 1 : 0;
+  });
+}
+
+/** includes 的取反:不含子串 / 不命中正则则 1,否则 0。默认硬门槛。opts.stripComments 时只看真实代码。 */
+export function excludes(needle: string | RegExp, opts?: MatchOptions): ValueAssertion {
+  const label = needle instanceof RegExp ? needle.toString() : safeLabel(needle);
+  const suffix = opts?.stripComments ? ", stripComments" : "";
+  return createAssertion(`excludes(${label}${suffix})`, "gate", (value) => {
+    const s = toMatchTarget(value, opts);
+    if (needle instanceof RegExp) return needle.test(s) ? 0 : 1;
+    return s.includes(needle) ? 0 : 1;
   });
 }
 
@@ -182,6 +206,24 @@ export function similarity(expected: string): ValueAssertion {
 export function satisfies(predicate: (v: unknown) => boolean, label?: string): ValueAssertion {
   const name = label ? `satisfies(${label})` : "satisfies(predicate)";
   return createAssertion(name, "gate", (value) => (predicate(value) ? 1 : 0));
+}
+
+/** value 非 null / 非 undefined 则 1,否则 0。省掉 `x !== undefined` + isTrue 的样板。 */
+export function isDefined(label?: string): ValueAssertion {
+  const name = label ? `isDefined(${label})` : "isDefined()";
+  return createAssertion(name, "gate", (value) => (value != null ? 1 : 0));
+}
+
+/** value === true 则 1,否则 0。带 label 的布尔断言(fileExists 等检查用)。 */
+export function isTrue(label?: string): ValueAssertion {
+  const name = label ? `isTrue(${label})` : "isTrue()";
+  return createAssertion(name, "gate", (value) => (value === true ? 1 : 0));
+}
+
+/** value === false 则 1,否则 0。带 label 的布尔断言。 */
+export function isFalse(label?: string): ValueAssertion {
+  const name = label ? `isFalse(${label})` : "isFalse()";
+  return createAssertion(name, "gate", (value) => (value === false ? 1 : 0));
 }
 
 /** 自定义断言工厂:直接给名字 / 严重级 / 阈值 / score。severity 省略默认 gate。 */

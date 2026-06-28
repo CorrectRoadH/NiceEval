@@ -38,11 +38,17 @@ export function Console(): Reporter {
       if (result.error) {
         process.stdout.write(`      ! error: ${truncate(result.error, 400)}\n`);
       }
+      let lastGroup: string | undefined;
       for (const a of result.assertions) {
         if (a.passed) continue;
+        if (a.group !== undefined && a.group !== lastGroup) {
+          process.stdout.write(`      ▸ ${a.group}\n`);
+        }
+        lastGroup = a.group;
         const sev = a.severity === "gate" ? "gate" : "soft";
         const thr = a.threshold !== undefined ? ` (got ${a.score.toFixed(2)} < ${a.threshold})` : "";
-        process.stdout.write(`      - ${sev}: ${a.name}${thr}${a.detail ? ` — ${truncate(a.detail, 300)}` : ""}\n`);
+        const indent = a.group !== undefined ? "        " : "      ";
+        process.stdout.write(`${indent}- ${sev}: ${a.name}${thr}${a.detail ? ` — ${truncate(a.detail, 300)}` : ""}\n`);
       }
     },
     onRunComplete(summary: RunSummary) {

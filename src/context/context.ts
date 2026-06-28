@@ -50,6 +50,8 @@ export interface ContextDeps {
   signal: AbortSignal;
   log(msg: string): void;
   judge: JudgeConfig | undefined;
+  /** tracing agent 的 OTLP 端点(运行器起接收器后注入);经 send ctx 透给 adapter。 */
+  telemetry?: { endpoint: string };
 }
 
 export function createEvalContext(deps: ContextDeps): { context: TestContext; state: ContextState } {
@@ -61,6 +63,7 @@ export function createEvalContext(deps: ContextDeps): { context: TestContext; st
     shared: deps.shared,
     signal: deps.signal,
     log: deps.log,
+    telemetry: deps.telemetry,
   });
   const collector = new AssertionCollector();
   const state: ContextState = {
@@ -120,6 +123,7 @@ export function createEvalContext(deps: ContextDeps): { context: TestContext; st
           threshold: assertion.threshold,
           evaluate: async (sc) => assertion.score(await resolveValue(value, sc)),
         }),
+      group: (title, fn) => collector.withGroup(title, fn),
       require: async (value, assertion) => {
         const v = value instanceof FileRef ? await deps.sandbox.readFile(value.path).catch(() => "") : value;
         const score = await assertion.score(v);

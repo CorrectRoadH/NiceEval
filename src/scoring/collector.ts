@@ -9,6 +9,8 @@ export interface Spec {
   severity: Severity;
   threshold?: number;
   detail?: string;
+  /** 所属分组(t.group 标题,可嵌套用 › 连接)。纯组织用,不影响打分。 */
+  group?: string;
   evaluate(ctx: ScoringContext): number | Promise<number>;
 }
 
@@ -21,12 +23,26 @@ export interface RecordHandle {
 
 export class AssertionCollector {
   private readonly specs: Spec[] = [];
+  private readonly groupStack: string[] = [];
 
   get hasEntries(): boolean {
     return this.specs.length > 0;
   }
 
+  /** t.group(title, fn) 期间入栈;栈内 record 的断言都打上当前(嵌套则 › 连接)分组标题。 */
+  async withGroup<T>(title: string, fn: () => Promise<T> | T): Promise<T> {
+    this.groupStack.push(title);
+    try {
+      return await fn();
+    } finally {
+      this.groupStack.pop();
+    }
+  }
+
   record(spec: Spec): RecordHandle {
+    if (spec.group === undefined && this.groupStack.length > 0) {
+      spec.group = this.groupStack.join(" › ");
+    }
     this.specs.push(spec);
     const handle: RecordHandle = {
       atLeast(threshold) {
@@ -66,6 +82,7 @@ export class AssertionCollector {
         score,
         passed: computePassed(spec.severity, spec.threshold, score),
         detail,
+        group: spec.group,
       });
     }
     return out;

@@ -92,6 +92,24 @@ export interface DerivedFacts {
   readonly compactions: number;
 }
 
+/**
+ * 一条分布式追踪的 span(从 agent 经 OpenTelemetry 导出的 OTLP traces 归一而来)。
+ * 与 StreamEvent 不同:它带【时间】(起止 epoch 毫秒)与【父子】(parentSpanId),
+ * 所以 view 能画成瀑布图。事件流回答「做了什么」,trace 回答「各花了多久、谁套谁」。
+ */
+export interface TraceSpan {
+  traceId: string;
+  spanId: string;
+  parentSpanId?: string;
+  name: string;
+  /** span 起点 / 终点(epoch 毫秒)。 */
+  startMs: number;
+  endMs: number;
+  status?: "ok" | "error" | "unset";
+  /** OTLP span 属性(gen_ai.* / tool 名 / token 等),按 key 摊平。 */
+  attributes?: Record<string, JsonValue>;
+}
+
 /** 给人 / 给 EVAL.ts 看的 o11y 摘要(注入沙箱 __fastevals__/results.json)。 */
 export interface O11ySummary {
   totalTurns: number;
@@ -128,6 +146,12 @@ export interface AgentCapabilities {
   toolObservability?: boolean;
   workspace?: boolean;
   compactionObservability?: boolean;
+  /**
+   * agent 能经 OpenTelemetry 导出 OTLP traces。声明它,运行器就在每个沙箱起一个
+   * 本机 OTLP 接收器,并经 ctx.telemetry.endpoint 把端点交给 agent(setup 写进
+   * config / send 注入 env);跑完把收到的 span 挂到 EvalResult.trace,view 画成瀑布图。
+   */
+  tracing?: boolean;
 }
 
 /** 多轮 resume / newSession 用。id 可写(adapter 回传供下轮续接)。 */
@@ -145,6 +169,12 @@ export interface AgentContext {
   readonly session: AgentSession;
   /** hooks.run.setup 经 run.share 放进来的只读共享物。 */
   readonly shared: Readonly<Record<string, unknown>>;
+  /**
+   * 仅当 agent 声明 capabilities.tracing 时有:本次运行的 OTLP traces 接收端点
+   *(完整路径,形如 http://host.docker.internal:PORT/v1/traces)。codex 写进
+   * config.toml 的 [otel.trace_exporter.otlp-http];bub 注入 OTEL_EXPORTER_OTLP_TRACES_ENDPOINT。
+   */
+  readonly telemetry?: { readonly endpoint: string };
   log(msg: string): void;
 }
 
@@ -199,6 +229,39 @@ export interface SandboxFile {
   content: string | Buffer;
 }
 
+/** 一个源码文件:相对工作区根的路径 + 文本内容。readSourceFiles 的返回元素。 */
+export interface SourceFile {
+  path: string;
+  content: string;
+}
+
+/**
+ * readSourceFiles 的返回值:仍是一个 SourceFile 数组(.filter/.some/.map 照用),
+ * 额外挂上整体匹配 / 按文件匹配的便利方法,省掉 eval 目录里手写的 source-helpers。
+ */
+export interface SourceFiles extends ReadonlyArray<SourceFile> {
+  /** 全部文件内容拼接(每段前带 `// path` 注释),用于整体 regex。 */
+  text(): string;
+  /** 同 text() 但先剥注释,只看真实代码。 */
+  code(): string;
+  /** 第一个内容命中 pattern 的文件。 */
+  fileMatching(pattern: RegExp): SourceFile | undefined;
+  /** 第一个内容命中全部 patterns 的文件(同文件共现,per-file 而非拼接源码)。 */
+  fileMatchingAll(patterns: RegExp[]): SourceFile | undefined;
+  /** 是否存在路径命中 pattern 的文件。 */
+  hasPath(pattern: RegExp): boolean;
+}
+
+/** readSourceFiles 的可选项;不传则用一套合理默认。 */
+export interface ReadSourceFilesOptions {
+  /** 文件扩展名(不带点)。默认 ts/tsx/js/jsx。 */
+  extensions?: string[];
+  /** 按目录名(任意深度)剪枝。默认 .git/.next/node_modules/dist/build/coverage。 */
+  ignoreDirs?: string[];
+  /** 按文件 basename 忽略。默认 EVAL.ts/PROMPT.md。 */
+  ignoreFiles?: string[];
+}
+
 export type SandboxBackend = "docker" | "vercel" | "auto" | string;
 
 export interface CommandOptions {
@@ -218,6 +281,11 @@ export interface Sandbox {
   runShell(script: string, opts?: CommandOptions): Promise<CommandResult>;
   readFile(path: string): Promise<string>;
   fileExists(path: string): Promise<boolean>;
+  /**
+   * 一次 shell 往返读全部源码文件(按扩展名收、按目录/文件名忽略)。
+   * 取代每个 eval 目录里手写的 find + 逐文件 readFile。
+   */
+  readSourceFiles(opts?: ReadSourceFilesOptions): Promise<SourceFiles>;
   writeFiles(files: Record<string, string>): Promise<void>;
   uploadFiles(files: SandboxFile[]): Promise<void>;
   getWorkingDirectory(): string;
@@ -261,6 +329,8 @@ export interface AssertionResult {
   score: number;
   passed: boolean;
   detail?: string;
+  /** 所属分组(t.group 标题)。纯报告用,不影响 passed/score。 */
+  group?: string;
 }
 
 /** eval 作者拿到的可链式句柄(t.judge.agent(...).atLeast(0.7))。 */
@@ -338,6 +408,8 @@ export interface EvalResult {
   skipReason?: string;
   events?: StreamEvent[];
   o11y?: O11ySummary;
+  /** agent 经 OpenTelemetry 导出的运行追踪(有 tracing 能力且收到 span 时)。 */
+  trace?: TraceSpan[];
   diff?: DiffData;
   rawTranscript?: string;
 }
@@ -514,6 +586,11 @@ export interface TestContext {
   // 值级断言
   check(value: unknown, assertion: ValueAssertion): AssertionHandle;
   require(value: unknown, assertion: ValueAssertion): Promise<unknown>;
+  /**
+   * 把一组断言归到一个有标题的分组下(对照 vitest 的 test('title', ...))。纯组织/报告用,
+   * 不改打分:组里每条断言仍独立计分。可嵌套(标题用 › 连接)。
+   */
+  group<T>(title: string, fn: () => Promise<T> | T): Promise<T>;
 
   // 作用域断言(工具 / 会话)
   succeeded(): AssertionHandle;

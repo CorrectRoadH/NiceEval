@@ -4,6 +4,8 @@
 
 import { resolve as resolvePath } from "node:path";
 import { createSandbox } from "../sandbox/resolve.ts";
+import { createTraceReceiver, type TraceReceiver } from "../o11y/otlp/receiver.ts";
+import { selectTraceSpans } from "../o11y/otlp/select.ts";
 import { createEvalContext } from "../context/context.ts";
 import { EvalRequirementFailed, EvalSkipped, TurnFailed } from "../context/control-flow.ts";
 import { computeVerdict } from "../scoring/verdict.ts";
@@ -29,6 +31,7 @@ import type {
   Sandbox,
   ScoringContext,
   ScriptResult,
+  TraceSpan,
   Verdict,
 } from "../types.ts";
 
@@ -203,6 +206,8 @@ async function runAttempt(
   let sandbox: Sandbox | undefined;
   let agentCleanup: Cleanup | void = undefined;
   let agentSetupCtx: AgentContext | undefined;
+  let receiver: TraceReceiver | undefined;
+  let telemetry: { endpoint: string } | undefined;
   const log = (m: string) => process.stderr.write(`  · ${evalDef.id} [${who}] ${m}\n`);
   try {
     log("起沙箱…");
@@ -211,6 +216,14 @@ async function runAttempt(
       timeout: timeoutMs,
       runtime: "node24",
     });
+
+    // tracing agent:起一个本机 OTLP 接收器,端点经 ctx.telemetry 交给 agent。
+    if (run.agent.capabilities.tracing) {
+      receiver = await createTraceReceiver();
+      const host = process.env.FASTEVALS_OTLP_HOST ?? "host.docker.internal";
+      telemetry = { endpoint: receiver.endpoint(host) };
+      log(`OTLP 接收器 → ${telemetry.endpoint}`);
+    }
 
     // 上传 workspace + git 基线
     const wsDir = await resolveWorkspace(evalDef, config);
@@ -237,6 +250,7 @@ async function runAttempt(
         sandbox,
         session: { id: undefined, isNew: true },
         shared: {},
+        telemetry,
         log,
       };
       agentCleanup = await run.agent.setup(sandbox, agentSetupCtx);
@@ -254,6 +268,7 @@ async function runAttempt(
       signal,
       log,
       judge,
+      telemetry,
     });
 
     let error: string | undefined;
@@ -317,6 +332,20 @@ async function runAttempt(
     const assertions = skipReason ? [] : await state.collector.finalize(scoringContext);
     const verdict: Verdict = computeVerdict({ error, assertions, skipReason });
 
+    // 收 OTLP trace:给最后一批导出留点落地时间,再 collect(空则不挂)。
+    // codex 的 OTLP 把内部 Rust tracing 全导出来(handle_responses / append_items … 上万条),
+    // selectTraceSpans 按语义挑出回合/模型调用/工具调用,丢掉每-chunk 噪声(干净小 trace 整段保留)。
+    let trace: TraceSpan[] | undefined;
+    if (receiver) {
+      await receiver.settle(250, 1500);
+      const spans = receiver.collect();
+      if (spans.length) {
+        trace = selectTraceSpans(spans);
+        const note = spans.length > trace.length ? ` → 留 ${trace.length}(按语义)` : "";
+        log(`trace:${spans.length} span${note}`);
+      }
+    }
+
     const durationMs = Date.now() - t0;
     const o11y = buildO11ySummary(events, usage, durationMs);
     const cost = estimateCost(usage, run.model, config.pricing);
@@ -338,6 +367,7 @@ async function runAttempt(
       skipReason,
       events,
       o11y,
+      trace,
       diff,
     };
   } catch (e) {
@@ -354,6 +384,7 @@ async function runAttempt(
     } catch {
       // teardown 失败只是 diagnostic,不影响已出的结果
     }
+    if (receiver) await receiver.close().catch(() => {});
     if (sandbox) await sandbox.stop().catch(() => {});
   }
 }

@@ -20,6 +20,8 @@ export interface SessionDeps {
   shared: Record<string, unknown>;
   signal: AbortSignal;
   log(msg: string): void;
+  /** tracing agent 的 OTLP 端点(经 send ctx 透给 adapter,用于注入导出 env)。 */
+  telemetry?: { endpoint: string };
 }
 
 export class SessionManager {
@@ -52,6 +54,7 @@ export class SessionManager {
       sandbox: this.deps.sandbox,
       session: session as unknown as AgentContext["session"],
       shared: this.deps.shared,
+      telemetry: this.deps.telemetry,
       log: this.deps.log,
     };
 

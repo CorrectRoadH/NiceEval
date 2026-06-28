@@ -15,6 +15,11 @@ export function getEnv(name: string): string | undefined {
   return v === undefined || v === "" ? undefined : v;
 }
 
+/** 去掉 JS/TS 注释(块注释 + 行注释),好让断言只对真实代码生效,不被注释里的迁移说明误伤。 */
+export function stripComments(code: string): string {
+  return code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+}
+
 /** 零填充到 4 位(数据集扇出的 id:sql/0000)。 */
 export function pad4(n: number): string {
   return String(n).padStart(4, "0");

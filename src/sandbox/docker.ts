@@ -4,7 +4,22 @@
 
 import Docker from "dockerode";
 import * as tar from "tar-stream";
-import type { Sandbox, CommandResult, CommandOptions, SandboxFile } from "../types.ts";
+import type {
+  Sandbox,
+  CommandResult,
+  CommandOptions,
+  SandboxFile,
+  SourceFile,
+  SourceFiles,
+  ReadSourceFilesOptions,
+} from "../types.ts";
+import { makeSourceFiles } from "./source-files.ts";
+
+const DEFAULT_SOURCE_EXTENSIONS = ["ts", "tsx", "js", "jsx"];
+const DEFAULT_IGNORE_DIRS = [".git", ".next", "node_modules", "dist", "build", "coverage"];
+const DEFAULT_IGNORE_FILES = ["EVAL.ts", "PROMPT.md"];
+// 行首哨兵:源码文件几乎不可能出现这一串,用来切分单次 shell 输出里的多份文件。
+const SOURCE_FILE_MARKER = "::FE-SRC-7b3f9c::";
 
 // 各 Node 运行时对应的镜像。用 -slim 变体下载更快、兼容性够用。
 const DOCKER_IMAGES: Record<string, string> = {
@@ -95,6 +110,9 @@ export class DockerSandbox implements Sandbox {
       Tty: true,
       HostConfig: {
         AutoRemove: true, // 停止即清理
+        // 容器经 host.docker.internal 回连宿主上的 OTLP 接收器(tracing agent 用)。
+        // Docker Desktop 自带这个名字;Linux 需显式映到 host-gateway,这里统一加上。
+        ExtraHosts: ["host.docker.internal:host-gateway"],
       },
     });
 
@@ -331,6 +349,36 @@ export class DockerSandbox implements Sandbox {
   async fileExists(path: string): Promise<boolean> {
     const result = await this.runCommand("test", ["-f", path]);
     return result.exitCode === 0;
+  }
+
+  /**
+   * 一次 shell 往返读全部源码文件。find 按目录名(任意深度)剪枝、按扩展名收,
+   * 每份文件前打一行哨兵 + 相对路径,再 cat 内容;在宿主侧按哨兵切分。
+   */
+  async readSourceFiles(opts: ReadSourceFilesOptions = {}): Promise<SourceFiles> {
+    const extensions = opts.extensions ?? DEFAULT_SOURCE_EXTENSIONS;
+    const ignoreDirs = opts.ignoreDirs ?? DEFAULT_IGNORE_DIRS;
+    const ignoreFiles = new Set(opts.ignoreFiles ?? DEFAULT_IGNORE_FILES);
+
+    const dirPrune = ignoreDirs.map((d) => `-name '${d}'`).join(" -o ");
+    const nameTests = extensions.map((e) => `-name '*.${e}'`).join(" -o ");
+    const script =
+      `find . \\( -type d \\( ${dirPrune} \\) \\) -prune -o -type f \\( ${nameTests} \\) -print | ` +
+      `while IFS= read -r f; do printf '%s%s\\n' '${SOURCE_FILE_MARKER}' "$f"; cat "$f"; printf '\\n'; done`;
+    const result = await this.runShell(script);
+
+    const files: SourceFile[] = [];
+    for (const chunk of result.stdout.split(SOURCE_FILE_MARKER)) {
+      const newline = chunk.indexOf("\n");
+      if (newline < 0) continue; // 第一段(哨兵前的空串)或畸形段
+      const path = chunk.slice(0, newline).trim().replace(/^\.\//, "");
+      if (!path || ignoreFiles.has(path.split("/").at(-1) ?? "")) continue;
+      // 去掉我们额外追加的那个结尾换行,还原文件原始内容。
+      const body = chunk.slice(newline + 1);
+      const content = body.endsWith("\n") ? body.slice(0, -1) : body;
+      files.push({ path, content });
+    }
+    return makeSourceFiles(files);
   }
 
   /** 批量写文件(路径 -> 文本内容)。 */

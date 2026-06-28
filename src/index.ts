@@ -11,7 +11,7 @@ export {
 export { shared } from "./agents/shared.ts";
 export type { Shared } from "./agents/shared.ts";
 
-export { requireEnv, getEnv } from "./util.ts";
+export { requireEnv, getEnv, stripComments } from "./util.ts";
 
 // 类型(沙箱 adapter / eval 作者会用到)
 export type {
@@ -30,6 +30,9 @@ export type {
   RemoteAgentDef,
   Sandbox,
   SandboxFile,
+  SourceFile,
+  SourceFiles,
+  ReadSourceFilesOptions,
   SandboxBackend,
   CommandResult,
   CommandOptions,
@@ -46,6 +49,7 @@ export type {
   EvalResult,
   RunSummary,
   O11ySummary,
+  TraceSpan,
   DerivedFacts,
   LifecycleHooks,
   RunContext,

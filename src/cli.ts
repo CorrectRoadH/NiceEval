@@ -196,6 +196,21 @@ async function main(): Promise<void> {
       }
     }
   } else {
+    // 给了 pattern 却匹配不到任何 eval:别静默跑 0 个。多半是把实验组/实验名当成了 eval
+    // (例:`fastevals dev` 实为 run 命令 + pattern "dev")—— 明确报错并指路 `exp`。
+    if (positionals.length > 0 && !evals.some((e) => makeFilter(positionals)(e.id))) {
+      const experiments = await discoverExperiments(cwd);
+      const asExp = experiments.filter((e) =>
+        positionals.some((p) => e.group === p || e.id === p || e.id.startsWith(p + "/")),
+      );
+      process.stderr.write(`没有匹配的 eval:${positionals.join(" ")}。\n`);
+      if (asExp.length > 0) {
+        process.stderr.write(`提示:"${positionals[0]}" 是实验${asExp.length > 1 ? "组" : ""},你大概想跑:fastevals exp ${positionals[0]}\n`);
+      } else {
+        process.stderr.write(`已发现 ${evals.length} 个 eval:${evals.map((e) => e.id).join(", ") || "(无)"}\n`);
+      }
+      process.exit(1);
+    }
     const agentName = flags.agent ?? config.defaultAgent;
     if (!agentName) {
       process.stderr.write("未指定 agent(用 --agent <name> 或 config.defaultAgent)。\n");
