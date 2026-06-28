@@ -18,6 +18,8 @@ import {
 import { estimateCost } from "./pricing.ts";
 import type {
   Agent,
+  AgentContext,
+  Cleanup,
   Config,
   DiscoveredEval,
   EvalResult,
@@ -195,6 +197,8 @@ async function runAttempt(
   const log = (m: string) => process.stderr.write(`  · ${evalDef.id} [${who}] ${m}\n`);
 
   let sandbox: Sandbox | undefined;
+  let agentCleanup: Cleanup | void = undefined;
+  let agentSetupCtx: AgentContext | undefined;
   try {
     log("起沙箱…");
     sandbox = await createSandbox({
@@ -214,8 +218,23 @@ async function runAttempt(
 
     // eval 级 setup(starter prep:npm install 等)
     if (evalDef.setup) {
-      log("setup(装依赖)…");
+      log("eval setup(装依赖)…");
       await evalDef.setup(sandbox);
+    }
+
+    // agent 自己的 lifecycle:装 CLI、写 config(每个沙箱一次,不在每轮 send 里)。
+    if (run.agent.setup) {
+      log("agent setup(装 CLI / 写配置)…");
+      agentSetupCtx = {
+        signal,
+        model: run.model,
+        flags: run.flags,
+        sandbox,
+        session: { id: undefined, isNew: true },
+        shared: {},
+        log,
+      };
+      agentCleanup = await run.agent.setup(sandbox, agentSetupCtx);
     }
 
     // 构造 t,跑 test
@@ -321,6 +340,13 @@ async function runAttempt(
       error: e instanceof Error ? `${e.name}: ${e.message}` : String(e),
     };
   } finally {
+    // agent teardown / cleanup 一律在 finally 跑(失败也跑),不改判决。
+    try {
+      if (typeof agentCleanup === "function") await agentCleanup();
+      if (sandbox && agentSetupCtx) await run.agent.teardown?.(sandbox, agentSetupCtx);
+    } catch {
+      // teardown 失败只是 diagnostic,不影响已出的结果
+    }
     if (sandbox) await sandbox.stop().catch(() => {});
   }
 }

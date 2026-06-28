@@ -148,24 +148,42 @@ export interface AgentContext {
   log(msg: string): void;
 }
 
+/**
+ * agent 自己的沙箱生命周期(每个沙箱一次,与「每轮 send」分开):
+ * `setup` 装 CLI、写配置(model/base/auth 等本轮内不变的东西),`send` 只管把一轮 prompt
+ * 跑起来(第一次 fresh / 后续 resume)+ 解析 transcript,`teardown` 清理。
+ * 运行器在备好沙箱(上传 / 基线 / eval.setup)后、第一次 send 前调一次 `setup`;
+ * `setup` 可返回 cleanup 闭包,与 `teardown` 都在 finally 跑。
+ */
+export type AgentSetup = (sandbox: Sandbox, ctx: AgentContext) => Promise<void | Cleanup> | void | Cleanup;
+export type AgentTeardown = (sandbox: Sandbox, ctx: AgentContext) => Promise<void> | void;
+
 /** 注册表里的 agent(defineAgent / defineSandboxAgent 产出)。 */
 export interface Agent {
   readonly name: string;
   readonly kind: "sandbox" | "remote";
   readonly capabilities: AgentCapabilities;
+  setup?: AgentSetup;
   send(input: TurnInput, ctx: AgentContext): Promise<Turn>;
+  teardown?: AgentTeardown;
 }
 
 export interface SandboxAgentDef {
   name: string;
   capabilities?: AgentCapabilities;
+  /** 每个沙箱一次:装 CLI、写 config.toml / 鉴权配置。 */
+  setup?: AgentSetup;
+  /** 每轮一次:跑 prompt(fresh / resume)+ 解析成 events。 */
   send(input: TurnInput, ctx: AgentContext): Promise<Turn>;
+  teardown?: AgentTeardown;
 }
 
 export interface RemoteAgentDef {
   name: string;
   capabilities?: AgentCapabilities;
+  setup?: AgentSetup;
   send(input: TurnInput, ctx: AgentContext): Promise<Turn>;
+  teardown?: AgentTeardown;
 }
 
 // ───────────────────────── Sandbox ─────────────────────────
