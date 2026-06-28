@@ -90,7 +90,7 @@ export class DockerSandbox implements Sandbox {
     // slim 镜像可能缺 CA 证书和 git,补装。
     await this.runCommandAsRoot("bash", [
       "-c",
-      "apt-get update -qq && apt-get install -y -qq ca-certificates git > /dev/null 2>&1",
+      "apt-get update -qq && apt-get install -y -qq ca-certificates git curl > /dev/null 2>&1",
     ]);
 
     // 工作目录交给非 root 用户(node:node)。node 用户(UID 1000)在 slim 镜像里已存在。
