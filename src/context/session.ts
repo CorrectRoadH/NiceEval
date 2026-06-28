@@ -7,6 +7,7 @@ import type { Agent, AgentContext, Sandbox, StreamEvent, Turn, Usage } from "../
 export class RunSession {
   id: string | undefined = undefined;
   isNew = true;
+  index = 1;
   lastMessage = "";
   lastStatus: "completed" | "failed" | "waiting" = "completed";
 }
@@ -29,6 +30,8 @@ export class SessionManager {
 
   readonly primary: RunSession;
   private readonly sessions: RunSession[] = [];
+  private turnCount = 0;
+  private sessionCount = 0;
 
   constructor(private readonly deps: SessionDeps) {
     this.primary = this.newSession();
@@ -36,6 +39,7 @@ export class SessionManager {
 
   newSession(): RunSession {
     const s = new RunSession();
+    s.index = ++this.sessionCount;
     this.sessions.push(s);
     return s;
   }
@@ -51,6 +55,11 @@ export class SessionManager {
       log: this.deps.log,
     };
 
+    const n = ++this.turnCount;
+    const preview = text.replace(/\s+/g, " ").slice(0, 36);
+    this.deps.log(`s${session.index}·t${n} → "${preview}…"`);
+    const t0 = Date.now();
+
     const turn = await this.deps.agent.send({ text }, ctx);
 
     this.allEvents.push(...turn.events);
@@ -60,6 +69,12 @@ export class SessionManager {
     this.lastStatus = turn.status;
     const reply = lastAssistantText(turn.events);
     if (reply !== undefined) session.lastMessage = reply;
+
+    const tok = (turn.usage?.inputTokens ?? 0) + (turn.usage?.outputTokens ?? 0);
+    const tools = turn.events.filter((e) => e.type === "action.called").length;
+    this.deps.log(
+      `s${session.index}·t${n} ← ${turn.status} · ${tools} 工具 · ${tok} tok · ${Math.round((Date.now() - t0) / 1000)}s`,
+    );
     return turn;
   }
 }

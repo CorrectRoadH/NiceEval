@@ -189,8 +189,14 @@ async function runAttempt(
     return { ...base, error: `runner 暂只支持沙箱型 agent(收到 ${run.agent.kind})` };
   }
 
+  // 流式进度:让「跑起来」可观测 —— 每个 attempt 起停、每一轮 send 都打到 stderr
+  //(结果走 stdout,互不干扰)。
+  const who = run.model ? `${run.agent.name}/${run.model}` : run.agent.name;
+  const log = (m: string) => process.stderr.write(`  · ${evalDef.id} [${who}] ${m}\n`);
+
   let sandbox: Sandbox | undefined;
   try {
+    log("起沙箱…");
     sandbox = await createSandbox({
       backend: run.sandbox ?? config.sandbox,
       timeout: timeoutMs,
@@ -202,15 +208,18 @@ async function runAttempt(
     if (wsDir) {
       const files = await collectWorkspaceFiles(wsDir);
       await sandbox.uploadFiles(files);
+      log(`上传 workspace(${files.length} 文件)`);
     }
     await initGitAndCommit(sandbox);
 
     // eval 级 setup(starter prep:npm install 等)
     if (evalDef.setup) {
+      log("setup(装依赖)…");
       await evalDef.setup(sandbox);
     }
 
     // 构造 t,跑 test
+    log("驱动 agent…");
     const judge = resolveJudge(evalDef.judge, config.judge);
     const { context, state } = createEvalContext({
       agent: run.agent,
@@ -219,7 +228,7 @@ async function runAttempt(
       flags: run.flags,
       shared: {},
       signal,
-      log: () => {},
+      log,
       judge,
     });
 
@@ -238,16 +247,21 @@ async function runAttempt(
       }
     }
 
+    if (skipReason) log(`skip:${skipReason}`);
+
     // 采 diff(脚本如 next build 在采集后才跑,避免 .next 污染 diff)
     const diff = skipReason ? { generatedFiles: {}, deletedFiles: [] } : await captureGeneratedFiles(sandbox);
     state.late.diff = diff;
+    if (!skipReason) log(`采 diff:${Object.keys(diff.generatedFiles).length} 改 / ${diff.deletedFiles.length} 删`);
 
     // 跑 test 请求过的脚本
     const scripts: Record<string, ScriptResult> = {};
     if (!skipReason) {
       for (const s of state.requestedScripts) {
+        log(`npm run ${s}…`);
         const r = await sandbox.runCommand("npm", ["run", s]);
         scripts[s] = { success: r.exitCode === 0, output: tail(r.stdout + r.stderr) };
+        log(`npm run ${s} → ${r.exitCode === 0 ? "✓" : "✗"}`);
       }
       if (state.needsVitest) {
         const r = await sandbox.runCommand("npx", ["vitest", "run", "EVAL.ts"]);
@@ -275,6 +289,7 @@ async function runAttempt(
         }
       },
     };
+    if (!skipReason) log("评分 / judge…");
     const assertions = skipReason ? [] : await state.collector.finalize(scoringContext);
     const verdict: Verdict = computeVerdict({ error, assertions, skipReason });
 
