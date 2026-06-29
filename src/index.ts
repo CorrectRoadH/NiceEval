@@ -12,6 +12,7 @@ export { shared } from "./agents/shared.ts";
 export type { Shared } from "./agents/shared.ts";
 
 export { requireEnv, getEnv, stripComments } from "./util.ts";
+export { createCheckpoint, restoreCheckpoint } from "./sandbox/checkpoint.ts";
 
 // 类型(沙箱 adapter / eval 作者会用到)
 export type {

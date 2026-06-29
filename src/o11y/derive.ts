@@ -10,6 +10,7 @@ import type {
   SubagentCall,
   InputRequest,
   O11ySummary,
+  TraceSpan,
   Usage,
   ToolName,
   JsonValue,
@@ -163,6 +164,40 @@ export function deriveRunFacts(events: readonly StreamEvent[]): DerivedFacts {
     messageCount,
     compactions,
   };
+}
+
+// ───────────────────────── extractUsageFromSpans ─────────────────────────
+
+/**
+ * adapter 未报 usage 时的兜底:从 OTLP span 属性里提取 token 用量。
+ * 按 OpenTelemetry GenAI 语义约定累加所有模型调用 span 的用量字段。
+ * 返回 undefined 表示 span 里也没有用量信息。
+ */
+export function extractUsageFromSpans(spans: readonly TraceSpan[]): Usage | undefined {
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let cacheReadTokens = 0;
+
+  for (const span of spans) {
+    const a = span.attributes ?? {};
+    // OpenTelemetry GenAI 语义约定(新旧两套 key 都认)
+    inputTokens += numAttr(a, "gen_ai.usage.input_tokens", "gen_ai.usage.prompt_tokens");
+    outputTokens += numAttr(a, "gen_ai.usage.output_tokens", "gen_ai.usage.completion_tokens");
+    cacheReadTokens += numAttr(a, "gen_ai.usage.cache_read_input_tokens");
+  }
+
+  if (inputTokens === 0 && outputTokens === 0) return undefined;
+  const u: Usage = { inputTokens, outputTokens };
+  if (cacheReadTokens > 0) u.cacheReadTokens = cacheReadTokens;
+  return u;
+}
+
+function numAttr(attrs: Record<string, JsonValue>, ...keys: string[]): number {
+  for (const k of keys) {
+    const v = attrs[k];
+    if (typeof v === "number" && v > 0) return v;
+  }
+  return 0;
 }
 
 // ───────────────────────── buildO11ySummary ─────────────────────────

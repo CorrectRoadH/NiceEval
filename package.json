@@ -5,7 +5,7 @@
   "type": "module",
   "license": "MIT",
   "bin": {
-    "fasteval": "bin/fasteval.mjs"
+    "fasteval": "bin/fasteval.js"
   },
   "exports": {
     ".": "./src/index.ts",
@@ -19,7 +19,7 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "fasteval": "node bin/fasteval.mjs",
+    "fasteval": "node bin/fasteval.js",
     "site:dev": "vite site --host 127.0.0.1 --port 5174",
     "site:build": "vite build site"
   },

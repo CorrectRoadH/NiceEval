@@ -26,10 +26,12 @@ export function Console(): Reporter {
     },
     onEvalComplete(result: EvalResult) {
       const sym = SYMBOL[result.verdict] ?? "?";
-      const tok = result.usage ? (result.usage.inputTokens ?? 0) + (result.usage.outputTokens ?? 0) : 0;
+      const tok = (result.usage?.inputTokens ?? 0) + (result.usage?.outputTokens ?? 0);
+      // requests > 0 但 tokens = 0 → agent 跑了但不上报用量(如 bub);显示 — 而非误导性的 0
+      const tokStr = tok > 0 ? `${fmtTokens(tok)} tok` : (result.usage?.requests ?? 0) > 0 ? `— tok` : `0 tok`;
       const cost = result.estimatedCostUSD !== undefined ? `  $${result.estimatedCostUSD.toFixed(3)}` : "";
       const who = result.model ? `${result.agent}/${result.model}` : result.agent;
-      const meta = `(${fmtDuration(result.durationMs)}  ${fmtTokens(tok)} tok${cost})`;
+      const meta = `(${fmtDuration(result.durationMs)}  ${tokStr}${cost})`;
       process.stdout.write(`  ${sym} ${result.id}  [${who}]  ${meta}\n`);
 
       if (result.skipReason) {
@@ -53,10 +55,11 @@ export function Console(): Reporter {
     },
     onRunComplete(summary: RunSummary) {
       const tok = (summary.usage?.inputTokens ?? 0) + (summary.usage?.outputTokens ?? 0);
+      const tokStr = tok > 0 ? `${fmtTokens(tok)} tok` : "— tok";
       const cost = summary.estimatedCostUSD !== undefined ? ` · $${summary.estimatedCostUSD.toFixed(2)}` : "";
       process.stdout.write(
         `\n结果:${summary.passed} passed, ${summary.failed} failed, ${summary.scored} scored, ${summary.skipped} skipped` +
-          `  (${fmtDuration(summary.durationMs)} · ${fmtTokens(tok)} tok${cost})\n\n`,
+          `  (${fmtDuration(summary.durationMs)} · ${tokStr}${cost})\n\n`,
       );
     },
   };

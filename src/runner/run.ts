@@ -10,8 +10,7 @@ import { selectTraceSpans, enrichTraceWithIO } from "../o11y/otlp/select.ts";
 import { createEvalContext } from "../context/context.ts";
 import { EvalRequirementFailed, EvalSkipped, TurnFailed } from "../context/control-flow.ts";
 import { computeVerdict } from "../scoring/verdict.ts";
-import { deriveRunFacts } from "../o11y/derive.ts";
-import { buildO11ySummary } from "../o11y/derive.ts";
+import { deriveRunFacts, buildO11ySummary } from "../o11y/derive.ts";
 import {
   captureGeneratedFiles,
   collectWorkspaceFiles,
@@ -56,6 +55,9 @@ export interface RunOptions {
   agentRuns: AgentRun[];
   reporters: Reporter[];
   maxConcurrency: number;
+  /** 同时起沙箱(Docker create + 镜像拉取)的上限,独立于 agent 并发。
+   *  默认 min(maxConcurrency, 4)——高并发时防 Docker daemon 过载。*/
+  sandboxConcurrency?: number;
   signal?: AbortSignal;
 }
 
@@ -96,6 +98,11 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
   // reporter 的 onEvalComplete 要「每个 attempt 完成即时触发」(保流式输出),又不能让
   // 并发 worker 交错写 → 用一个 permit=1 的信号量串起来(替代原先手搓的 reportQueue 链)。
   const reportMutex = Effect.runSync(Effect.makeSemaphore(1));
+  // 沙箱启动(Docker create / 镜像拉取)单独限流:与 agent 并发(maxConcurrency)解耦,
+  // 防高并发下 Docker daemon 过载。默认 min(max, 4)——4 个容器同时起对本地 Docker 友好。
+  const sandboxSem = Effect.runSync(
+    Effect.makeSemaphore(opts.sandboxConcurrency ?? Math.min(opts.maxConcurrency, 4)),
+  );
 
   // 有界并发调度:Effect.forEach({ concurrency }) 取代手写 queue / inFlight / Promise.race。
   // 每个 attempt 跑在自己的 fiber;runAttemptEffect 永不 fail(错误已收进 EvalResult.error),
@@ -107,7 +114,7 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
         Effect.gen(function* () {
           // 早停:同 key 已通过且开了 earlyExit → 跳过(语义同原 launch 时的检查)。
           if (a.run.earlyExit && passedKeys.has(a.key)) return;
-          const result = yield* runAttemptEffect(a, opts.config, opts.signal);
+          const result = yield* runAttemptEffect(a, opts.config, sandboxSem, opts.signal);
           results.push(result);
           if (result.verdict === "passed") passedKeys.add(a.key);
           yield* reportMutex.withPermits(1)(
@@ -174,6 +181,7 @@ function summarize(
 function runAttemptEffect(
   a: Attempt,
   config: Config,
+  sandboxSem: Effect.Semaphore,
   parentSignal?: AbortSignal,
 ): Effect.Effect<EvalResult> {
   const { evalDef, run, attempt } = a;
@@ -187,6 +195,7 @@ function runAttemptEffect(
     model: run.model,
     verdict: "failed",
     attempt,
+    startedAt: new Date(t0).toISOString(),
     durationMs: 0,
     assertions: [],
   };
@@ -207,8 +216,11 @@ function runAttemptEffect(
   return Effect.scoped(
     Effect.gen(function* () {
       // ── 沙箱:acquire=起,release=stop(成功 / 失败 / 中断都跑)──
+      // sandboxSem 只覆盖「容器创建」阶段;容器起好后立即释放,后续 npm install / agent 不占位。
       log("起沙箱…");
-      const sandbox = yield* createSandbox({ backend: run.sandbox ?? config.sandbox, timeout: timeoutMs, runtime: "node24" });
+      const sandbox = yield* sandboxSem.withPermits(1)(
+        createSandbox({ backend: run.sandbox ?? config.sandbox, timeout: timeoutMs, runtime: "node24" }),
+      );
 
       // ── tracing:本机 OTLP 接收器同样用 Scope 接管(release=close,免端口泄漏)──
       let receiver: TraceReceiver | undefined;
@@ -379,6 +391,7 @@ async function runAttemptBody(
         trace = enrichTraceWithIO(selectTraceSpans(spans), facts.toolCalls);
         const note = spans.length > trace.length ? ` → 留 ${trace.length}(按语义)` : "";
         log(`trace:${spans.length} span${note}`);
+
       }
     }
 
@@ -395,6 +408,7 @@ async function runAttemptBody(
       model: run.model,
       verdict,
       attempt,
+      startedAt: new Date(t0).toISOString(),
       durationMs,
       assertions,
       usage,

@@ -2,6 +2,8 @@
 // 改编自 agent-eval 的 docker-sandbox.ts,签名对齐 ../types.ts 的 Sandbox 契约
 //(runShell/runCommand 的 opts 一律是选项对象,不再用位置参数)。
 
+import { basename, dirname } from "node:path";
+import { Readable } from "node:stream";
 import Docker from "dockerode";
 import * as tar from "tar-stream";
 import type {
@@ -51,6 +53,39 @@ const NPM_GLOBAL_DIR = "/home/node/.npm-global";
 
 // 命令执行时注入的 PATH:把 npm 全局 bin 放最前。
 const SANDBOX_PATH = `${NPM_GLOBAL_DIR}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`;
+
+/** Readable stream → Buffer。 */
+async function readableToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    stream.on("data", (chunk: Buffer | string) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+    stream.on("end", () => resolve(Buffer.concat(chunks)));
+    stream.on("error", reject);
+  });
+}
+
+/** 从单文件 tar 包里提取第一个 entry 的内容。 */
+async function extractFileFromTar(tarBuf: Buffer): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const extract = tar.extract();
+    let found = false;
+    extract.on("entry", (header, stream, next) => {
+      if (!found) {
+        found = true;
+        const chunks: Buffer[] = [];
+        stream.on("data", (c: Buffer) => chunks.push(c));
+        stream.on("end", () => { resolve(Buffer.concat(chunks)); next(); });
+        stream.on("error", reject);
+      } else {
+        stream.resume();
+        next();
+      }
+    });
+    extract.on("finish", () => { if (!found) reject(new Error("tar: no entries found")); });
+    extract.on("error", reject);
+    extract.end(tarBuf);
+  });
+}
 
 /** 创建 Docker 沙箱的选项。 */
 export interface DockerSandboxOptions {
@@ -413,6 +448,29 @@ export class DockerSandbox implements Sandbox {
   /** 设当前工作目录。 */
   setWorkingDirectory(path: string): void {
     this._workingDirectory = path;
+  }
+
+  /**
+   * 从容器任意路径读文件 → Buffer。
+   * 用 Docker getArchive API(原生二进制,无 base64 开销);tar 只有一个 entry,直接解包取内容。
+   */
+  async downloadFile(path: string): Promise<Buffer> {
+    if (!this.container) throw new Error("Container not initialized");
+    const stream = await (this.container as Docker.Container).getArchive({ path });
+    const tarBuf = await readableToBuffer(stream as NodeJS.ReadableStream);
+    return extractFileFromTar(tarBuf);
+  }
+
+  /**
+   * 向容器任意路径写文件(二进制)。
+   * 打成单文件 tar → putArchive 到目标目录,与 uploadFiles 同一机制但目标路径自由。
+   */
+  async uploadFile(destPath: string, content: Buffer): Promise<void> {
+    if (!this.container) throw new Error("Container not initialized");
+    const pack = tar.pack();
+    pack.entry({ name: basename(destPath) }, content);
+    pack.finalize();
+    await (this.container as Docker.Container).putArchive(pack, { path: dirname(destPath) });
   }
 
   /** 停止并清理容器(AutoRemove 负责销毁)。 */

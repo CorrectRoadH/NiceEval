@@ -297,6 +297,18 @@ export interface Sandbox {
    * Docker UI 的 Logs 标签页能实时看到 agent 逐轮活动。docker 后端实现,其它可省略。
    */
   appendLog?(line: string): Promise<void>;
+
+  /**
+   * 从沙箱内任意路径读取文件,返回二进制 Buffer。
+   * 对应各 backend:Docker getArchive / Vercel readFileToBuffer / e2b files.read(bytes) / …
+   */
+  downloadFile(path: string): Promise<Buffer>;
+
+  /**
+   * 向沙箱内任意路径写入文件(二进制)。
+   * 对应各 backend:Docker putArchive / Vercel fs.writeFile(Buffer) / e2b files.write / …
+   */
+  uploadFile(path: string, content: Buffer): Promise<void>;
 }
 
 // ───────────────────────── 评分 / 断言 ─────────────────────────
@@ -400,6 +412,8 @@ export interface EvalResult {
   model?: string;
   verdict: Verdict;
   attempt: number;
+  /** 本 attempt 开始的墙钟时刻(ISO);view 按 eval 粒度展示「何时跑的」。 */
+  startedAt?: string;
   durationMs: number;
   assertions: AssertionResult[];
   usage?: Usage;
@@ -524,6 +538,7 @@ export interface Config {
   pricing?: Record<string, PriceEntry>;
   reporters?: Reporter[];
   maxConcurrency?: number;
+  sandboxConcurrency?: number;
   timeoutMs?: number;
   copyFiles?: "none" | "changed" | "all";
   hooks?: LifecycleHooks;

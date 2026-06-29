@@ -23,6 +23,7 @@ interface Flags {
   model?: string;
   runs?: number;
   maxConcurrency?: number;
+  sandboxConcurrency?: number;
   timeout?: number;
   earlyExit?: boolean;
   dry: boolean;
@@ -72,6 +73,7 @@ function parseArgs(argv: string[]): { command: string; positionals: string[]; fl
         case "model": flags.model = value; break;
         case "runs": flags.runs = Number(value); break;
         case "max-concurrency": flags.maxConcurrency = Number(value); break;
+        case "sandbox-concurrency": flags.sandboxConcurrency = Number(value); break;
         case "timeout": flags.timeout = Number(value); break;
         case "out": flags.out = value; break;
         case "port": flags.port = Number(value); break;
@@ -249,6 +251,7 @@ async function main(): Promise<void> {
     agentRuns,
     reporters,
     maxConcurrency: flags.maxConcurrency ?? config.maxConcurrency ?? 4,
+    sandboxConcurrency: flags.sandboxConcurrency ?? config.sandboxConcurrency,
   });
 
   const failedExit = summary.failed > 0 || (flags.strict && summary.scored > 0);
