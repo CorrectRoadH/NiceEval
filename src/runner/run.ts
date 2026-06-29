@@ -208,21 +208,13 @@ function runAttemptEffect(
     Effect.gen(function* () {
       // ── 沙箱:acquire=起,release=stop(成功 / 失败 / 中断都跑)──
       log("起沙箱…");
-      const sandbox = yield* Effect.acquireRelease(
-        Effect.promise(() =>
-          createSandbox({ backend: run.sandbox ?? config.sandbox, timeout: timeoutMs, runtime: "node24" }),
-        ),
-        (sb) => Effect.promise(() => sb.stop().catch(() => {})),
-      );
+      const sandbox = yield* createSandbox({ backend: run.sandbox ?? config.sandbox, timeout: timeoutMs, runtime: "node24" });
 
       // ── tracing:本机 OTLP 接收器同样用 Scope 接管(release=close,免端口泄漏)──
       let receiver: TraceReceiver | undefined;
       let telemetry: { endpoint: string } | undefined;
       if (run.agent.capabilities.tracing) {
-        receiver = yield* Effect.acquireRelease(
-          Effect.promise(() => createTraceReceiver()),
-          (r) => Effect.promise(() => r.close().catch(() => {})),
-        );
+        receiver = yield* createTraceReceiver();
         const host = process.env.FASTEVAL_OTLP_HOST ?? "host.docker.internal";
         telemetry = { endpoint: receiver.endpoint(host) };
         log(`OTLP 接收器 → ${telemetry.endpoint}`);

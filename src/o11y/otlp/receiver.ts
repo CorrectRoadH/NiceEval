@@ -4,6 +4,7 @@
 
 import { createServer } from "node:http";
 import { gunzipSync } from "node:zlib";
+import { Effect } from "effect";
 import type { TraceSpan } from "../../types.ts";
 import { parseOtlpTraces } from "./parse.ts";
 
@@ -17,7 +18,17 @@ export interface TraceReceiver {
   close(): Promise<void>;
 }
 
-export async function createTraceReceiver(): Promise<TraceReceiver> {
+/**
+ * 创建 OTLP 接收器,并把 close() 注册为 Scope 回收动作(免端口泄漏)。
+ * 在 Effect.scoped / Effect.gen 里 yield* 即可。
+ */
+export function createTraceReceiver() {
+  return Effect.acquireRelease(Effect.promise(makeReceiver), (r) =>
+    Effect.promise(() => r.close().catch(() => {})),
+  );
+}
+
+async function makeReceiver(): Promise<TraceReceiver> {
   const spans: TraceSpan[] = [];
   let lastAt = 0;
 
