@@ -18,6 +18,7 @@ interface Sandbox {
   runCommand(cmd: string, args?: string[], opts?: {
     env?: Record<string, string>;
     cwd?: string;
+    root?: boolean;   // 以 root 跑(默认 false → 非 root);见下「用户与 root」
   }): Promise<{ stdout: string; stderr: string; exitCode: number }>;
 
   runShell(script: string, opts?): Promise<CommandResult>;   // 整段 shell
@@ -34,6 +35,28 @@ interface Sandbox {
 ```
 
 接口刻意只暴露"跑命令 + 读写文件 + 工作目录 + 起停"这几样 —— 所有后端都能实现,且足够支撑 agent 评测的全流程。
+
+## 用户与 root
+
+**默认非 root,按需提 root** —— 命令默认以沙箱的标准**非 root** 用户跑(agent 的自然环境:安全,且 Claude Code 等在 root 下会拒绝 `--dangerously-skip-permissions`)。需要 root 的命令(setup 装系统依赖:`apt-get install …`、`pip install --break-system-packages …`)给 `runCommand` 传 `{ root: true }`。
+
+```typescript
+// eval setup:只有装系统依赖这步提 root;其余(含 agent、验证)默认非 root。
+await sandbox.runCommand("apt-get", ["install", "-y", "openjdk-17-jdk"], { root: true });
+await sandbox.runCommand("npm", ["install"]);   // 默认非 root
+```
+
+**这套语义跨后端一致**,且与主流沙箱服务同构 —— 各后端把 `{ root: true }` 映射到自己的原生机制:
+
+| 后端 | 默认用户 | `{ root: true }` 映射 |
+| --- | --- | --- |
+| docker | `node`(UID 1000) | `exec --user root` |
+| E2B | 非 root(`user`) | `commands.run(cmd, { user: "root" })` |
+| Vercel Sandbox | 非 root(`vercel-sandbox`) | `runCommand(cmd, { sudo: true })` |
+| Daytona | create 时 `os_user` | per-command `user`(规划中) |
+| Modal | root | 已是 root → no-op |
+
+约定:**默认值(非 root)与 `root` 的语义在所有后端保持一致**,不因后端而变。本就全程 root 的后端把提 root 视作 no-op;完全无法提 root 的后端可不支持(抛错)—— 但这是"不支持",不是"语义不同"。eval 因此不必感知底下是哪个后端。
 
 ## 后端选择
 
@@ -65,7 +88,7 @@ export async function createSandbox(opts): Promise<Sandbox> {
 最常用、最便宜:无需任何云 token,本地有 Docker 即可。要点:
 
 - **保活容器** —— 用 `node:24-slim` 起一个 `sleep infinity` 容器,后续命令用 `docker exec` 进去跑(`AutoRemove` 在 stop 时清理)。
-- **非 root 用户** —— 以 `1000:1000` 跑命令;全局 npm 装到用户目录并入 `PATH`,避免权限问题。
+- **非 root 用户(默认)** —— 默认以 `1000:1000`(node)跑命令;全局 npm 装到用户目录并入 `PATH`,避免权限问题。命令传 `{ root: true }` 时改以 root 跑(见「用户与 root」)。
 - **slim 镜像补全** —— `apt-get install ca-certificates git`(slim 不带)。
 - **文件上传** —— 用 tar 打包 `putArchive` 进容器,随后 `chown` 修正属主(putArchive 以 root 写入)。
 - **多路复用流** —— Docker 的 exec 流把 stdout/stderr 复用在一条流上(8 字节头 + payload),需要按帧解析。

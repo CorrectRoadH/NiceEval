@@ -50,10 +50,14 @@ function shellQuote(s: string): string {
   return `'${s.replace(/'/g, "'\\''")}'`;
 }
 
-// 非 root 用户:安全 + 兼容(如 Claude Code 在 root 下拒绝 --dangerously-skip-permissions)。
-// node:*-slim 镜像自带 UID/GID 1000 的 node 用户。
+// 命令默认以非 root 的 node 用户跑:安全 + 兼容(如 Claude Code 在 root 下拒绝
+// --dangerously-skip-permissions)。node:*-slim 镜像自带 UID/GID 1000 的 node 用户。
+// 需要 root 的命令(setup 装系统依赖)走 runCommand 的 `{ root: true }`;此默认非 root + 按需提
+// root 的模型与 E2B / Vercel / Daytona 一致(见 types.ts 的 CommandOptions.root)。
 const SANDBOX_UID = 1000;
 const SANDBOX_GID = 1000;
+const SANDBOX_USER = `${SANDBOX_UID}:${SANDBOX_GID}`;
+const ROOT_USER = "root";
 
 // npm 全局包安装目录(非 root 可写)。
 const NPM_GLOBAL_DIR = "/home/node/.npm-global";
@@ -173,13 +177,13 @@ export class DockerSandbox implements Sandbox {
 
     // 工作目录交给非 root 用户(node:node)。node 用户(UID 1000)在 slim 镜像里已存在。
     await this.runCommandAsRoot("mkdir", ["-p", CONTAINER_WORKDIR]);
-    await this.runCommandAsRoot("chown", ["-R", `${SANDBOX_UID}:${SANDBOX_GID}`, CONTAINER_WORKDIR]);
+    await this.runCommandAsRoot("chown", ["-R", SANDBOX_USER, CONTAINER_WORKDIR]);
 
     // 为非 root 全局安装准备 npm 目录。
     await this.runCommandAsRoot("mkdir", ["-p", NPM_GLOBAL_DIR]);
-    await this.runCommandAsRoot("chown", ["-R", `${SANDBOX_UID}:${SANDBOX_GID}`, NPM_GLOBAL_DIR]);
+    await this.runCommandAsRoot("chown", ["-R", SANDBOX_USER, NPM_GLOBAL_DIR]);
 
-    // 让 npm 用这个目录当全局前缀。
+    // 让 npm 用这个目录当全局前缀(默认非 root,配置落在 node 家目录,供 agent 全局装 CLI 用)。
     await this.runCommand("npm", ["config", "set", "prefix", NPM_GLOBAL_DIR]);
   }
 
@@ -226,7 +230,10 @@ export class DockerSandbox implements Sandbox {
     return this._containerId.slice(0, 12);
   }
 
-  /** 以非 root 用户在容器里跑一条命令。 */
+  /**
+   * 在容器里跑一条命令。默认以非 root 的 node 用户跑;`opts.root` 为真则以 root 跑
+   * (setup 装系统依赖用)。
+   */
   async runCommand(
     cmd: string,
     args: string[] = [],
@@ -236,27 +243,31 @@ export class DockerSandbox implements Sandbox {
     // 实现:把 cmd+args 安全拼成 shell 串,经 runShell 走 tee(只 tee stdout,保留 stderr 分离 + 退出码)。
     if (opts.stream) {
       const joined = [cmd, ...args].map(shellQuote).join(" ");
-      return this.runShell(joined, { env: opts.env, cwd: opts.cwd, stream: true });
+      return this.runShell(joined, { env: opts.env, cwd: opts.cwd, stream: true, root: opts.root });
     }
 
     // 保证 npm 全局 bin 在 PATH 里;固定 HOME/USER,让 codex(~/.codex)、npm 全局、
-    // bash 的 ~ 展开都落在 node 用户家目录,不依赖 docker exec 是否注入 HOME。
+    // bash 的 ~ 展开都落在当前身份的家目录,不依赖 docker exec 是否注入 HOME。
+    const isRoot = opts.root === true;
     const env = {
-      HOME: "/home/node",
-      USER: "node",
-      LOGNAME: "node",
+      HOME: isRoot ? "/root" : "/home/node",
+      USER: isRoot ? "root" : "node",
+      LOGNAME: isRoot ? "root" : "node",
       ...opts.env,
       PATH: SANDBOX_PATH,
+      // root 跑 npm 时让 install 脚本也以 root 跑(否则 npm 会把脚本降权到目录属主,可能写不进)。
+      // 非 root 时此变量无影响。
+      ...(isRoot ? { npm_config_unsafe_perm: "true" } : {}),
     };
 
     return this.execCommand(cmd, args, {
       env,
       cwd: opts.cwd,
-      user: `${SANDBOX_UID}:${SANDBOX_GID}`,
+      user: isRoot ? ROOT_USER : SANDBOX_USER,
     });
   }
 
-  /** 以 root 跑命令(仅内部初始化用)。 */
+  /** 以 root 跑命令(后端内部用:容器初始化、属主收敛)。 */
   private async runCommandAsRoot(
     cmd: string,
     args: string[] = [],
@@ -265,8 +276,13 @@ export class DockerSandbox implements Sandbox {
     return this.execCommand(cmd, args, {
       env: opts.env,
       cwd: opts.cwd,
-      user: "root",
+      user: ROOT_USER,
     });
+  }
+
+  /** 把工作区属主收敛回非 root 的沙箱用户(putArchive 以 root 解包后用)。 */
+  private async chownWorkspaceToSandboxUser(): Promise<void> {
+    await this.runCommandAsRoot("chown", ["-R", SANDBOX_USER, CONTAINER_WORKDIR]);
   }
 
   /** 真正在容器里 exec 一条命令,demux stdout/stderr 并带超时。 */
@@ -355,7 +371,7 @@ export class DockerSandbox implements Sandbox {
     if (opts.stream) {
       // 只 tee stdout 到容器主日志:保留 stderr 分离(解析器要)+ pipefail 保留命令退出码。
       const wrapped = `set -o pipefail; { ${script} ; } | tee -a ${CONTAINER_LOG}`;
-      return this.runCommand("bash", ["-c", wrapped], { env: opts.env, cwd: opts.cwd });
+      return this.runCommand("bash", ["-c", wrapped], { env: opts.env, cwd: opts.cwd, root: opts.root });
     }
     return this.runCommand("bash", ["-c", script], opts);
   }
@@ -447,7 +463,7 @@ export class DockerSandbox implements Sandbox {
     await this.container.putArchive(pack, { path: CONTAINER_WORKDIR });
 
     // 修正属主:putArchive 上传成 root,改回 node 用户,agent 才能编辑。
-    await this.runCommandAsRoot("chown", ["-R", `${SANDBOX_UID}:${SANDBOX_GID}`, CONTAINER_WORKDIR]);
+    await this.chownWorkspaceToSandboxUser();
   }
 
   /** 取当前工作目录。 */

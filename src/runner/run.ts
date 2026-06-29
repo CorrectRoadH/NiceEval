@@ -302,7 +302,8 @@ async function runAttemptBody(
     }
     await initGitAndCommit(sandbox);
 
-    // eval 级 setup(starter prep:npm install 等)
+    // eval 级 setup(starter prep:npm install / 装系统依赖等)。命令默认非 root;
+    // setup 里需要 root 的(apt/pip)自己传 { root: true }。
     if (evalDef.setup) {
       log("eval setup(装依赖)…");
       await evalDef.setup(sandbox);

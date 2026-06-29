@@ -274,6 +274,16 @@ export interface CommandOptions {
    * 不支持的后端忽略)—— 日志怎么浮现是 backend 的事,adapter 只声明意图。
    */
   stream?: boolean;
+  /**
+   * 以 root 跑本命令。默认 `false` —— 命令以沙箱的标准**非 root** 用户跑(agent 的自然环境)。
+   * 给 setup 阶段装系统依赖用(`apt-get install …`、`pip install --break-system-packages …`)。
+   *
+   * 语义跨后端一致:"本命令以 root 跑,否则以标准非 root 用户跑"。各后端映射到自己的原生机制
+   * (docker:`exec --user root`;E2B:`{ user: "root" }`;Vercel:`{ sudo: true }`;Daytona:`{ user }`)。
+   * 本就全程 root 的后端(如 Modal)视作 no-op;完全无法提权的后端可不支持(抛错)—— 但**默认值与
+   * 语义保持一致**,不因后端而变。
+   */
+  root?: boolean;
 }
 
 export interface Sandbox {
@@ -497,7 +507,11 @@ export interface EvalDef {
   metadata?: Record<string, unknown>;
   /** starter repo 目录(相对项目根),拷进沙箱当工作区。 */
   workspace?: string;
-  /** eval 级预置:拿到沙箱(已上传 workspace + git 基线 + 装好依赖前)。 */
+  /**
+   * eval 级预置:拿到沙箱(已上传 workspace + git 基线 + 装好依赖前)。
+   * 默认命令以非 root 跑(agent 的自然环境);装系统依赖时给 `runCommand` 传 `{ root: true }`
+   * (如 `runCommand("apt-get", ["install", …], { root: true })`),跨后端语义一致。
+   */
   setup?: (sandbox: Sandbox) => Promise<void | Cleanup> | void | Cleanup;
   test(t: TestContext): Promise<void> | void;
 }
