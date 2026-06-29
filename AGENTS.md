@@ -55,4 +55,6 @@ CLI 只有两类输入：位置参数选择“跑哪些 eval”（eval id 前缀
 
 ## Git & Collaboration
 
+直接在 `main` 上开发，不要为改动新建 feature 分支；若已有分支则合回 `main`。
+
 不要用 `git reset --hard`、`git clean`、`git checkout -- <path>` 或 `git restore` 去丢弃工作树改动，除非用户明确要求。工作树里出现你没写的改动时，把它当成用户或其他 agent 的工作，不要覆盖。提交前用 `git status` 和 `git diff` 确认只包含本次任务相关文件。
