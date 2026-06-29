@@ -96,7 +96,6 @@ h1 {
   font-size: 14px;
 }
 .meta b { color: var(--text); font-weight: 570; }
-.slash { color: var(--line-strong); }
 .summary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -335,6 +334,12 @@ tbody tr:last-child td { border-bottom: 0; }
   color: color-mix(in oklch, var(--muted), var(--text) 6%);
   overflow-wrap: anywhere;
   line-height: 1.25;
+  /* 长 reason 不撑高行:最多 2 行,溢出省略;完整文本见 title 悬浮。 */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
 }
 .raw-details {
   margin-top: 16px;
@@ -356,6 +361,7 @@ tbody tr:last-child td { border-bottom: 0; }
   font-weight: 400;
 }
 .reason-empty { color: var(--soft); }
+.ran-at { display: block; margin-top: 2px; color: var(--soft); font-size: 11px; font-variant-numeric: tabular-nums; }
 .trace-details {
   border-bottom: 1px solid color-mix(in oklch, var(--line), transparent 35%);
   padding: 4px 0 10px;

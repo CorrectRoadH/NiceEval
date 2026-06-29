@@ -21,8 +21,6 @@
       <p class="subtitle">Local experiment results for coding agents, comparing pass rate, execution time, token usage, and estimated cost.</p>
       <div class="meta">
         <span><b>Last run:</b> __FASTEVAL_LAST_RUN__</span>
-        <span class="slash">/</span>
-        <span><b>Sources:</b> __FASTEVAL_SOURCE_LIST__</span>
       </div>
     </section>
 
@@ -83,7 +81,7 @@
       const tone = row.passRate >= 0.8 ? "good" : row.passRate >= 0.5 ? "warn" : "bad";
       return `
         <tr class="main-row ${open ? "is-open" : ""}" data-key="${escapeAttr(row.key)}" tabindex="0">
-          <td><span class="chev"></span><span class="name">${escapeHtml(row.label)}</span><div class="sub">${escapeHtml(row.group ? row.group + " · " : "")}${row.runs} eval result${row.runs === 1 ? "" : "s"}</div></td>
+          <td><span class="chev"></span><span class="name">${escapeHtml(row.label)}</span><div class="sub">${escapeHtml(row.group ? row.group + " · " : "")}${row.runs} eval result${row.runs === 1 ? "" : "s"}${row.lastRunAt ? " · " + escapeHtml(formatDateTime(row.lastRunAt)) : ""}</div></td>
           <td>${escapeHtml(row.model || "default")}</td>
           <td>${escapeHtml(row.agent)}</td>
           <td class="num">${formatDuration(row.avgDurationMs)}</td>
@@ -106,7 +104,7 @@
           const bad = (r.assertions || []).filter((a) => !a.passed).map((a) => a.name).join(", ");
           const statusClass = r.verdict === "passed" ? "good" : r.verdict === "failed" ? "bad" : "warn";
           const reason = r.error || bad;
-          const item = `<div class="eval-item"><span class="${statusClass}">${r.verdict}</span><span class="eval-id">${escapeHtml(r.id)}</span><span class="assertions">${reason ? escapeHtml(reason) : '<span class="reason-empty">all assertions passed</span>'}</span><span class="num">${formatDuration(r.durationMs)}</span><span class="num">${formatTokens(totalTokens(r.usage))}</span><span class="num">${formatCost(r.estimatedCostUSD)}</span><span class="num">#${r.attempt}</span></div>`;
+          const item = `<div class="eval-item"><span class="${statusClass}">${r.verdict}</span><span class="eval-id">${escapeHtml(r.id)}</span><span class="assertions"${reason ? ` title="${escapeAttr(reason)}"` : ""}>${reason ? escapeHtml(reason) : '<span class="reason-empty">all assertions passed</span>'}</span><span class="num">${formatDuration(r.durationMs)}${r.startedAt ? `<small class="ran-at">${escapeHtml(formatClock(r.startedAt))}</small>` : ""}</span><span class="num">${formatTokens(totalTokens(r.usage))}</span><span class="num">${formatCost(r.estimatedCostUSD)}</span><span class="num" title="attempt ${r.attempt + 1} of ${row.runs}">#${r.attempt + 1}</span></div>`;
           // trace 按需懒加载:展开时才 fetch 该 eval 的 trace.json(见下方 toggle 处理)。
           const trace = (r.hasTrace && r.artifactBase)
             ? `<details class="trace-details trace-lazy" data-src="${escapeAttr(r.artifactBase + "/trace.json")}"><summary>trace</summary><div class="trace-slot"><div class="trace-span-meta">loading…</div></div></details>`
@@ -126,6 +124,7 @@
                 <div class="detail-kpi"><span>Failed</span><b class="${row.failed ? "bad" : ""}">${row.failed}</b></div>
                 <div class="detail-kpi"><span>Total Time</span><b>${formatDuration(totalDuration)}</b></div>
                 <div class="detail-kpi"><span>Total Cost</span><b>${formatCost(row.estimatedCostUSD)}</b></div>
+                <div class="detail-kpi"><span>Ran</span><b title="${escapeAttr(row.lastRunAt || '')}">${formatDateTime(row.lastRunAt)}</b></div>
               </div>
               <h3>Evaluation Attempts</h3>
               <div class="eval-list"><div class="eval-grid-head"><span>Status</span><span>Eval</span><span>Reason</span><span>Time</span><span>Tokens</span><span>Cost</span><span>Run</span></div>${details}</div>
@@ -236,6 +235,18 @@
     function formatCost(n) {
       if (!Number.isFinite(n) || n <= 0) return "$0";
       return "$" + n.toFixed(n < 1 ? 3 : 2);
+    }
+    function formatDateTime(iso) {
+      if (!iso) return "—";
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return "—";
+      return d.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    }
+    function formatClock(iso) {
+      if (!iso) return "";
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return "";
+      return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
     }
     function escapeHtml(value) {
       return String(value).replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);

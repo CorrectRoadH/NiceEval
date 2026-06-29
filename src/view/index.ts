@@ -3,7 +3,7 @@
 import { existsSync, statSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
-import { basename, dirname, extname, join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import type { EvalResult, RunSummary, Usage, Verdict } from "../types.ts";
 
 export interface ViewOptions {
@@ -39,6 +39,8 @@ interface LeaderboardRow {
   avgDurationMs: number;
   usage: Usage;
   estimatedCostUSD?: number;
+  /** 该实验组里最新一次 run 的 startedAt(ISO);详情展示「运行时间」。 */
+  lastRunAt?: string;
   results: EvalResult[];
 }
 
@@ -52,7 +54,6 @@ const VERDICT_ORDER: Record<Verdict, number> = {
 const TEMPLATE_PLACEHOLDERS = {
   styles: "<!-- __FASTEVAL_STYLES__ -->",
   lastRun: "__FASTEVAL_LAST_RUN__",
-  sourceList: "__FASTEVAL_SOURCE_LIST__",
   passRate: "__FASTEVAL_PASS_RATE__",
   resultCount: "__FASTEVAL_RESULT_COUNT__",
   duration: "__FASTEVAL_DURATION__",
@@ -144,10 +145,6 @@ async function renderHtml(loaded: LoadedSummary[]): Promise<string> {
   return template
     .replace(TEMPLATE_PLACEHOLDERS.styles, `<style>\n${styles}\n</style>`)
     .replace(TEMPLATE_PLACEHOLDERS.lastRun, escapeHtml(latest ? formatDate(latest.startedAt) : "No runs yet"))
-    .replace(
-      TEMPLATE_PLACEHOLDERS.sourceList,
-      escapeHtml(loaded.slice(0, 6).map((s) => relativeName(s.path)).join(", ") || ".fasteval"),
-    )
     .replace(TEMPLATE_PLACEHOLDERS.passRate, formatPercent(totals.passRate))
     .replace(TEMPLATE_PLACEHOLDERS.resultCount, String(totals.results))
     .replace(TEMPLATE_PLACEHOLDERS.duration, formatDuration(totals.durationMs))
@@ -274,10 +271,13 @@ function renderEmptyState(): string {
 
 function aggregateRows(loaded: LoadedSummary[]): LeaderboardRow[] {
   const groups = new Map<string, EvalResult[]>();
+  const lastRunAt = new Map<string, string>();
   for (const item of loaded) {
     for (const result of item.summary.results) {
       const key = result.experimentId ? `exp|||${result.experimentId}` : `legacy|||${result.agent}|||${result.model ?? ""}`;
       groups.set(key, [...(groups.get(key) ?? []), result]);
+      const prev = lastRunAt.get(key);
+      if (!prev || item.summary.startedAt > prev) lastRunAt.set(key, item.summary.startedAt);
     }
   }
 
@@ -293,6 +293,7 @@ function aggregateRows(loaded: LoadedSummary[]): LeaderboardRow[] {
       label: displayExperimentName(experimentId) ?? fallbackExperimentLabel(first),
       agent: first.agent,
       model: first.model,
+      lastRunAt: lastRunAt.get(key),
       runs: results.length,
       passed: results.filter((r) => r.verdict === "passed").length,
       failed: results.filter((r) => r.verdict === "failed").length,
@@ -379,11 +380,6 @@ function formatDuration(ms: number): string {
 function formatCost(n: number | undefined): string {
   if (n === undefined || n <= 0) return "$0";
   return `$${n.toFixed(n < 1 ? 3 : 2)}`;
-}
-
-function relativeName(path: string): string {
-  const dir = basename(dirname(path));
-  return extname(dir) ? basename(path) : `${dir}/${basename(path)}`;
 }
 
 function escapeHtml(value: unknown): string {
