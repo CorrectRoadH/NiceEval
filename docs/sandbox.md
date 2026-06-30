@@ -61,27 +61,38 @@ await sandbox.runCommand("npm", ["install"]);   // 默认非 root
 ## 后端选择
 
 ```typescript
-type SandboxBackend = "docker" | "vercel" | "auto" | string;
+type SandboxBackend = "docker" | "vercel" | "e2b" | "auto" | string;
 ```
 
-`auto` 按环境探测:有云 token(如 `VERCEL_TOKEN`)→ 用云;否则 → 用 Docker。也可显式 `--sandbox docker`。解析逻辑收在 `sandbox/resolve.ts`,**核心不按后端名分支**,只调 `createSandbox(opts)` 拿回一个 `Sandbox`。
+`auto` 按环境探测:有 `VERCEL_TOKEN` → vercel;否则有 `E2B_API_KEY` → e2b;否则 → docker。也可显式 `--sandbox docker`。解析逻辑收在 `sandbox/resolve.ts`,**核心不按后端名分支**,只调 `createSandbox(opts)` 拿回一个 `Sandbox`。
 
 ```typescript
 // sandbox/resolve.ts
 export function resolveBackend(opts): SandboxBackend {
   if (opts.backend && opts.backend !== "auto") return opts.backend;
   if (process.env.VERCEL_TOKEN || process.env.VERCEL_OIDC_TOKEN) return "vercel";
+  if (process.env.E2B_API_KEY) return "e2b";
   return "docker";
 }
-
-export async function createSandbox(opts): Promise<Sandbox> {
-  switch (resolveBackend(opts)) {
-    case "docker": return DockerSandbox.create(opts);
-    case "vercel": return VercelSandbox.create(opts);
-    default:       return loadThirdPartySandbox(opts);   // 插件式三方后端
-  }
-}
 ```
+
+## Sandbox 作为数据结构(带参数)
+
+后端名只是个字符串,带不了参数。和 [agent](agents-and-adapters.md) 一样,sandbox 也能用**数据结构**定义,于是每个后端可带自己的参数。工厂函数(从 `fasteval` 导出)产出 spec,放进 `config.sandbox` 或 `experiment.sandbox`;字符串后端名仍然兼容。
+
+```typescript
+import { dockerSandbox, vercelSandbox, e2bSandbox } from "fasteval";
+
+dockerSandbox({ image: "fasteval-agents:node24" })  // docker:指定镜像
+vercelSandbox({ snapshotId: "snap_xxx" })            // vercel:从快照起
+e2bSandbox({ template: "fasteval-agents" })          // e2b:指定模板
+
+// 仍可用字符串:sandbox: "docker" / "vercel" / "e2b"
+```
+
+`sandbox: SandboxBackend | SandboxSpec`。`sandbox/resolve.ts` 把两种形式都归一化成 `{ backend, image?, snapshotId?, template?, runtime? }`,再按 `backend` 派发到各后端的 `create()` —— **核心仍不按后端名分支**,参数只在对应后端的 `create()` 里消费。
+
+参数的典型用途是**预制模板**:把 agent CLI 烘焙进镜像/模板,让后续 eval 跳过安装直接开跑(见 [`src/sandbox/templates/`](../src/sandbox/templates/README.md))。
 
 ## Docker 后端(默认,零云依赖)
 
@@ -110,11 +121,20 @@ await sandbox.runCommand("npm", ["install"]);
 
 接口与 Docker 完全一致,所以 Adapter 代码一字不改就能在两种后端间切换。
 
-## 三方后端(插件式)
+## E2B 后端(云,微 VM)
 
-`createSandbox` 的 `default` 分支留给三方沙箱服务(E2B、Modal、Daytona、Anthropic Sandbox Runtime 等)。约定:三方后端实现同一个 `Sandbox` 接口并以包名注册,`--sandbox e2b` 即用。
+需要 `E2B_API_KEY`(team 级;`e2b auth login` 后 CLI 也会用它)。要点:
 
-这与 crabbox 的 provider 模型同构:**核心定义接口,后端各自实现**,新后端不改核心。fasteval 的沙箱抽象刻意保持小(只需 run/read/write/cwd/stop),让接一个三方后端的成本最低。
+- `E2BSandbox.create({ template, timeout })` 起一台 [E2B](https://e2b.dev) 微 VM;省略 `template` 用 e2b 默认 `base`(自带 node20)。
+- 命令经 `commands.run`(走 bash,支持 `&&` / 管道);`{ root: true }` → `{ user: "root" }`。
+- 文件用 `files.read` / `files.write`(文本 + 二进制)。
+- node 版本由模板决定 —— `runtime` 字段对 e2b 仅作记录。要 node24 / 烘焙好 agent CLI,用[预制模板](../src/sandbox/templates/README.md) `e2bSandbox({ template: "fasteval-agents" })`。
+
+## 再接一个后端
+
+新后端只需:实现 `Sandbox` 接口的一个类(`create()` + run/read/write/cwd/stop/up-down-load),在 `sandbox/resolve.ts` 的 `resolveSandbox` / `createBackend` 加一个 `case`,需要带参数就在 `types.ts` 加一个 `XxxSandboxSpec` 并在 `define.ts` 加工厂。
+
+**核心定义接口,后端各自实现**,新后端不改核心其余部分。fasteval 的沙箱抽象刻意保持小(只需 run/read/write/cwd/stop),让接一个新后端的成本最低。
 
 ## 沙箱在生命周期里的位置
 

@@ -342,7 +342,40 @@ export interface ReadSourceFilesOptions {
   ignoreFiles?: string[];
 }
 
-export type SandboxBackend = "docker" | "vercel" | "auto" | string;
+export type SandboxBackend = "docker" | "vercel" | "e2b" | "auto" | string;
+
+/** 镜像/模板里的 Node 运行时版本。 */
+export type SandboxRuntime = "node20" | "node24";
+
+/**
+ * Sandbox 的「数据结构」定义 —— 与 agent 一样可带参数(见 docs/sandbox.md)。
+ * 用工厂函数构造(`dockerSandbox()` / `vercelSandbox()` / `e2bSandbox()`),
+ * 放进 config / experiment 的 `sandbox` 字段;字符串后端名(`"docker"` 等)仍兼容。
+ * 各后端的参数互不相同 —— 这是个按 `backend` 区分的可辨识联合(discriminated union)。
+ */
+export interface DockerSandboxSpec {
+  readonly backend: "docker";
+  /** 覆盖默认镜像;默认按 runtime 选 `node:*-slim`。预制模板:传烘焙好 agent CLI 的镜像名。 */
+  readonly image?: string;
+  readonly runtime?: SandboxRuntime;
+}
+export interface VercelSandboxSpec {
+  readonly backend: "vercel";
+  /** 从已有快照起 microVM。预制模板:烘焙好 agent CLI 的 snapshotId。 */
+  readonly snapshotId?: string;
+  readonly runtime?: SandboxRuntime;
+}
+export interface E2BSandboxSpec {
+  readonly backend: "e2b";
+  /** e2b 模板名/ID。预制模板:烘焙好 agent CLI 的模板(如 `"fasteval-agents"`)。省略用 e2b 默认 `"base"`。 */
+  readonly template?: string;
+  /** 仅作记录;e2b 的 node 版本由模板决定,不在创建时选。 */
+  readonly runtime?: SandboxRuntime;
+}
+export type SandboxSpec = DockerSandboxSpec | VercelSandboxSpec | E2BSandboxSpec;
+
+/** config / experiment 的 `sandbox` 字段:后端名(字符串)或带参数的 spec 数据结构。 */
+export type SandboxOption = SandboxBackend | SandboxSpec;
 
 export interface CommandOptions {
   env?: Record<string, string>;
@@ -623,7 +656,7 @@ export interface ExperimentDef {
   earlyExit?: boolean;
   evals?: "*" | string[] | ((id: string) => boolean);
   timeoutMs?: number;
-  sandbox?: SandboxBackend;
+  sandbox?: SandboxOption;
   budget?: number;
   maxConcurrency?: number;
   hooks?: LifecycleHooks;
@@ -637,7 +670,7 @@ export interface DiscoveredExperiment extends ExperimentDef {
 export interface Config {
   agents?: Agent[];
   defaultAgent?: string;
-  sandbox?: SandboxBackend;
+  sandbox?: SandboxOption;
   workspace?: string;
   judge?: JudgeConfig;
   pricing?: Record<string, PriceEntry>;

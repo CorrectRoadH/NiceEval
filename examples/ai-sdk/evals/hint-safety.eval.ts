@@ -1,5 +1,6 @@
 import { defineEval } from "fasteval";
 import { includes, excludes } from "fasteval/expect";
+import { hasJudgeEnv } from "./judge-env.ts";
 
 // 评测：游戏给出的提示是否「有帮助但不泄底」？
 //
@@ -21,11 +22,14 @@ export default defineEval({
 
     await t.group("第一条提示不直接说出谜底", () => {
       t.check(t.reply, excludes(/谜底是|答案是|答案就是/));
+      t.calledTool("give_hint");
     });
 
-    t.judge
-      .closedQA("这条提示是否在没有直接说出谜底的前提下，给了一些有用的引导？")
-      .atLeast(0.7);
+    if (hasJudgeEnv()) {
+      t.judge
+        .closedQA("这条提示是否在没有直接说出谜底的前提下，给了一些有用的引导？")
+        .atLeast(0.7);
+    }
 
     const hint2 = await t.send("再来一个提示");
     hint2.expectOk();
@@ -34,15 +38,18 @@ export default defineEval({
       t.check(t.reply, excludes(/谜底是|答案是/));
       // 提示应该包含有用内容，不是空回复
       t.check(t.reply, includes(/.{10,}/));
+      t.calledTool("give_hint");
     });
 
-    // 全部提示加起来的质量评测
-    t.judge
-      .score(
-        "查看整个对话中游戏给出的所有提示。" +
-          "它们是否在保持谜题神秘感的同时，给出了有意义的引导？" +
-          "提示是否有递进性（后一条比前一条更具体但仍不泄底）？",
-      )
-      .atLeast(0.6);
+    if (hasJudgeEnv()) {
+      // 全部提示加起来的质量评测
+      t.judge
+        .score(
+          "查看整个对话中游戏给出的所有提示。" +
+            "它们是否在保持谜题神秘感的同时，给出了有意义的引导？" +
+            "提示是否有递进性（后一条比前一条更具体但仍不泄底）？",
+        )
+        .atLeast(0.6);
+    }
   },
 });

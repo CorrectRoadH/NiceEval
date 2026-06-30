@@ -301,9 +301,8 @@ function summarize(
 }
 
 // 单个 attempt 的资源生命周期用 Effect.Scope 接管:沙箱 + OTLP 接收器经 acquireRelease
-// 注册,无论 body 成功 / 抛错 / 被中断,stop() / close() 都保证执行(治容器与端口泄漏)——
-// 这是手写 try/finally 在并发+中断下很难做对的部分。adapter 的 Promise 边界(setup/send)
-// 原样保留:body 仍是个 async,经 Effect.promise 接进来。
+// 注册,无论 body 成功 / 抛错 / 被中断,stop() / close() 都保证执行(治容器与端口泄漏)。
+// remote agent 没有沙箱资源,但仍走同一条 Promise 边界 / 超时 / 评分路径。
 function runAttemptEffect(
   a: Attempt,
   config: Config,
@@ -327,10 +326,6 @@ function runAttemptEffect(
     assertions: [],
   };
 
-  if (run.agent.kind !== "sandbox") {
-    return Effect.succeed({ ...base, error: `runner 暂只支持沙箱型 agent(收到 ${run.agent.kind})` });
-  }
-
   const timeoutMs = run.timeoutMs ?? evalDef.timeoutMs ?? config.timeoutMs ?? 600_000;
   // timeoutSignal:给协作式 adapter / docker 命令的「软」截止信号(到点 abort,让能看 signal 的
   // 提前优雅停)。但它【不是】attempt 总超时的硬保证 —— 真正的硬边界是下面的 Effect.timeoutTo:
@@ -345,19 +340,30 @@ function runAttemptEffect(
 
   return Effect.scoped(
     Effect.gen(function* () {
-      // ── 沙箱:acquire=起,release=stop(成功 / 失败 / 中断都跑)──
-      // sandboxSem 只覆盖「容器创建」阶段;容器起好后立即释放,后续 npm install / agent 不占位。
-      log("起沙箱…");
-      const sandbox = yield* sandboxSem.withPermits(1)(
-        createSandbox({ sandbox: run.sandbox ?? config.sandbox, timeout: timeoutMs, runtime: "node24" }),
-      );
+      const sandbox =
+        run.agent.kind === "sandbox"
+          ? yield* sandboxSem.withPermits(1)(
+              Effect.gen(function* () {
+                // ── 沙箱:acquire=起,release=stop(成功 / 失败 / 中断都跑)──
+                // sandboxSem 只覆盖「容器创建」阶段;容器起好后立即释放,后续 npm install / agent 不占位。
+                log("起沙箱…");
+                return yield* createSandbox({
+                  sandbox: run.sandbox ?? config.sandbox,
+                  timeout: timeoutMs,
+                  runtime: "node24",
+                });
+              }),
+            )
+          : createRemoteSandbox();
+      if (run.agent.kind === "remote") log("使用 remote agent(不创建沙箱)…");
 
       // ── tracing:本机 OTLP 接收器同样用 Scope 接管(release=close,免端口泄漏)──
       let receiver: TraceReceiver | undefined;
       let telemetry: Telemetry | undefined;
       if (run.agent.capabilities.tracing) {
         receiver = yield* createTraceReceiver();
-        const host = process.env.FASTEVAL_OTLP_HOST ?? "host.docker.internal";
+        const defaultHost = run.agent.kind === "sandbox" ? "host.docker.internal" : "127.0.0.1";
+        const host = process.env.FASTEVAL_OTLP_HOST ?? defaultHost;
         const endpoint = receiver.endpoint(host);
         // env-based 导出:把 agent 声明的 env(OTEL_* 等)算出来塞进 telemetry,send 直接 spread。
         const env = run.agent.tracing?.env?.(endpoint);
@@ -431,6 +437,7 @@ async function runAttemptBody(
 ): Promise<EvalResult> {
   const { evalDef, run, attempt } = a;
   const { sandbox, receiver, telemetry, signal, shared, log } = res;
+  const usesSandbox = run.agent.kind === "sandbox";
   // 整个 attempt 共用一份 agent ctx(sandbox 钩子 / agent setup / tracing configure / teardown 都用它)。
   const attemptCtx: AgentContext = {
     signal,
@@ -447,33 +454,35 @@ async function runAttemptBody(
   // sandbox 作用域钩子的回收闭包(config + 实验,叠加);finally 里 LIFO 跑(必跑,各自兜错)。
   const sandboxTeardowns: Array<() => Promise<void> | void> = [];
   try {
-    // 上传 workspace + git 基线
-    const wsDir = await resolveWorkspace(evalDef, config);
-    if (wsDir) {
-      const files = await collectWorkspaceFiles(wsDir);
-      await sandbox.uploadFiles(files);
-      log(`上传 workspace(${files.length} 文件)`);
-    }
-    await initGitAndCommit(sandbox);
+    if (usesSandbox) {
+      // 上传 workspace + git 基线
+      const wsDir = await resolveWorkspace(evalDef, config);
+      if (wsDir) {
+        const files = await collectWorkspaceFiles(wsDir);
+        await sandbox.uploadFiles(files);
+        log(`上传 workspace(${files.length} 文件)`);
+      }
+      await initGitAndCommit(sandbox);
 
-    // sandbox 作用域 setup(每个 attempt 一次):写 .env / 起 mock 服务 / 连外部 DB 等。
-    // 顺序同 docs/architecture.md:git 基线之后、装依赖之前。config.hooks 先、实验 hooks 叠加在后。
-    for (const h of [config.hooks?.sandbox, run.hooks?.sandbox]) {
-      if (!h) continue;
-      let cleanup: Cleanup | void = undefined;
-      log("sandbox setup(钩子)…");
-      cleanup = await h.setup?.(sandbox, attemptCtx);
-      sandboxTeardowns.push(async () => {
-        if (typeof cleanup === "function") await cleanup();
-        await h.teardown?.(sandbox, attemptCtx);
-      });
-    }
+      // sandbox 作用域 setup(每个 attempt 一次):写 .env / 起 mock 服务 / 连外部 DB 等。
+      // 顺序同 docs/architecture.md:git 基线之后、装依赖之前。config.hooks 先、实验 hooks 叠加在后。
+      for (const h of [config.hooks?.sandbox, run.hooks?.sandbox]) {
+        if (!h) continue;
+        let cleanup: Cleanup | void = undefined;
+        log("sandbox setup(钩子)…");
+        cleanup = await h.setup?.(sandbox, attemptCtx);
+        sandboxTeardowns.push(async () => {
+          if (typeof cleanup === "function") await cleanup();
+          await h.teardown?.(sandbox, attemptCtx);
+        });
+      }
 
-    // eval 级 setup(starter prep:npm install / 装系统依赖等)。命令默认非 root;
-    // setup 里需要 root 的(apt/pip)自己传 { root: true }。
-    if (evalDef.setup) {
-      log("eval setup(装依赖)…");
-      await evalDef.setup(sandbox);
+      // eval 级 setup(starter prep:npm install / 装系统依赖等)。命令默认非 root;
+      // setup 里需要 root 的(apt/pip)自己传 { root: true }。
+      if (evalDef.setup) {
+        log("eval setup(装依赖)…");
+        await evalDef.setup(sandbox);
+      }
     }
 
     // agent 自己的 lifecycle:装 CLI、写 config(每个沙箱一次,不在每轮 send 里)。
@@ -522,14 +531,19 @@ async function runAttemptBody(
 
     if (skipReason) log(`skip:${skipReason}`);
 
-    // 采 diff(脚本如 next build 在采集后才跑,避免 .next 污染 diff)
-    const diff = skipReason ? { generatedFiles: {}, deletedFiles: [] } : await captureGeneratedFiles(sandbox);
+    // 采 diff(脚本如 next build 在采集后才跑,避免 .next 污染 diff)。remote agent 没有 workspace。
+    const diff =
+      skipReason || !usesSandbox
+        ? { generatedFiles: {}, deletedFiles: [] }
+        : await captureGeneratedFiles(sandbox);
     state.late.diff = diff;
-    if (!skipReason) log(`采 diff:${Object.keys(diff.generatedFiles).length} 改 / ${diff.deletedFiles.length} 删`);
+    if (!skipReason && usesSandbox) {
+      log(`采 diff:${Object.keys(diff.generatedFiles).length} 改 / ${diff.deletedFiles.length} 删`);
+    }
 
     // 跑 test 请求过的脚本
     const scripts: Record<string, ScriptResult> = {};
-    if (!skipReason) {
+    if (!skipReason && usesSandbox) {
       for (const s of state.requestedScripts) {
         log(`npm run ${s}…`);
         const r = await sandbox.runCommand("npm", ["run", s]);
@@ -540,6 +554,9 @@ async function runAttemptBody(
         const r = await sandbox.runCommand("npx", ["vitest", "run", "EVAL.ts"]);
         scripts.__vitest__ = { success: r.exitCode === 0, output: tail(r.stdout + r.stderr) };
       }
+    } else if (!skipReason && (state.requestedScripts.size > 0 || state.needsVitest)) {
+      error =
+        "remote agent 没有沙箱 workspace,不能运行 t.scriptPassed()/t.testsPassed();请改用 sandbox agent。";
     }
     state.late.scripts = scripts;
 
@@ -626,6 +643,52 @@ async function runAttemptBody(
     }
     for (const td of sandboxTeardowns.reverse()) await runReporter("sandbox.teardown", td);
   }
+}
+
+function createRemoteSandbox(): Sandbox {
+  const unavailable = (method: string): never => {
+    throw new Error(`remote agent 没有 sandbox.${method};请改用 sandbox agent 或移除 workspace 断言。`);
+  };
+
+  return {
+    sandboxId: "remote",
+    async runCommand() {
+      return unavailable("runCommand");
+    },
+    async runShell() {
+      return unavailable("runShell");
+    },
+    async readFile() {
+      return unavailable("readFile");
+    },
+    async fileExists() {
+      return unavailable("fileExists");
+    },
+    async readSourceFiles() {
+      return unavailable("readSourceFiles");
+    },
+    async writeFiles() {
+      unavailable("writeFiles");
+    },
+    async uploadFiles() {
+      unavailable("uploadFiles");
+    },
+    getWorkingDirectory() {
+      return "";
+    },
+    setWorkingDirectory() {
+      unavailable("setWorkingDirectory");
+    },
+    async stop() {
+      // no-op:remote agent 生命周期由它自己的进程管理。
+    },
+    async downloadFile() {
+      return unavailable("downloadFile");
+    },
+    async uploadFile() {
+      unavailable("uploadFile");
+    },
+  };
 }
 
 function experimentRunInfo(run: AgentRun): EvalResult["experiment"] {

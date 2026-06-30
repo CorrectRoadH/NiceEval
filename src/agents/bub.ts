@@ -34,7 +34,9 @@ export interface BubConfig {
 const SANDBOX_WORKSPACE = "/home/sandbox/workspace";
 
 const UV = "$HOME/.local/bin/uv";
-const BUB = "$HOME/.local/bin/bub";
+// bub 二进制:优先用镜像里(预制模板)烘焙在 PATH 上的 bub,否则用 uv 装到 $HOME/.local/bin 的那个。
+// 预制模板把 bub 装到 /usr/local/bin(见 sandbox/templates/Dockerfile),command -v 命中即用 → 跳过安装。
+const BUB = "$(command -v bub || echo $HOME/.local/bin/bub)";
 
 const BUB_OVERRIDE = "bub @ git+https://github.com/CorrectRoadH/bub.git@fix/streaming-usage-include-usage";
 const BUB_OVERRIDE_FILE = "/tmp/bub-override.txt";
@@ -56,6 +58,9 @@ const memCheckpoints = new Map<string, Buffer>();
 const installsInProgress = new Map<string, Promise<void>>();
 
 async function ensureBub(sb: Sandbox, home: string): Promise<void> {
+  // 预制模板已把 bub 烘焙进镜像(PATH 上)→ 直接用,跳过 uv 安装 + checkpoint 全套。
+  if ((await sb.runShell("command -v bub >/dev/null 2>&1")).exitCode === 0) return;
+
   const checkpointPaths = [`${home}/.local`, `${home}/.cache/uv`];
   const cachePath = diskCachePath(home);
 

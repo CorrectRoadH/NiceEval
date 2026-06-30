@@ -4,10 +4,13 @@
 import type {
   Agent,
   Config,
+  DockerSandboxSpec,
+  E2BSandboxSpec,
   EvalDef,
   ExperimentDef,
   RemoteAgentDef,
   SandboxAgentDef,
+  VercelSandboxSpec,
 } from "./types.ts";
 
 const SANDBOX_DEFAULT_CAPS = {
@@ -72,4 +75,23 @@ export function defineExperiment(def: ExperimentDef): ExperimentDef {
 /** 项目级配置。 */
 export function defineConfig(config: Config): Config {
   return config;
+}
+
+// ───────────────────────── Sandbox 工厂 ─────────────────────────
+// Sandbox 与 agent 一样用数据结构带参数(见 docs/sandbox.md)。这些工厂只是把
+// 后端 + 参数包成 spec 对象;真正的行为在 sandbox/<backend>.ts 里,由 resolve.ts 派发。
+
+/** Docker 沙箱:本地容器。`image` 可覆盖默认 `node:*-slim`(预制模板:烘焙好 agent CLI 的镜像)。 */
+export function dockerSandbox(opts: Omit<DockerSandboxSpec, "backend"> = {}): DockerSandboxSpec {
+  return { backend: "docker", ...opts };
+}
+
+/** Vercel Sandbox:microVM。`snapshotId` 从已有快照起(预制模板:烘焙好 agent CLI 的快照)。 */
+export function vercelSandbox(opts: Omit<VercelSandboxSpec, "backend"> = {}): VercelSandboxSpec {
+  return { backend: "vercel", ...opts };
+}
+
+/** E2B 沙箱。`template` 选 e2b 模板名/ID(预制模板:如 `"fasteval-agents"`);省略用 e2b 默认 `"base"`。 */
+export function e2bSandbox(opts: Omit<E2BSandboxSpec, "backend"> = {}): E2BSandboxSpec {
+  return { backend: "e2b", ...opts };
 }

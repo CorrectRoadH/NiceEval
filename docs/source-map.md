@@ -74,6 +74,6 @@
 ## 与设计文档的已知差异(实现取舍)
 
 - **judge 走 OpenAI 兼容 `/chat/completions`**,base/key 解析顺序:`judge.baseUrl/apiKeyEnv` → `FASTEVAL_JUDGE_BASE`/`CODEX_BASE_URL` → OpenAI 官方。这样在只有 OpenAI 兼容代理(无 Anthropic key)的环境里 judge 自动复用代理。
-- **MVP 范围**:`fasteval view` 已实现为本地 web 查看器;`init`、`watch`、指纹缓存、Vercel/三方沙箱、生命周期 `hooks` 的完整接线、失败分类暂未实现(`init`/`watch` 打印未实现提示)。运行器目前只跑沙箱型 agent(remote agent 的 `send` 已可定义,但调度路径待补)。
+- **MVP 范围**:`fasteval view` 已实现为本地 web 查看器;`init`、`watch`、指纹缓存、Vercel/三方沙箱、失败分类暂未实现(`init`/`watch` 打印未实现提示)。运行器已支持 remote `defineAgent` 的会话型 eval；workspace 上传、diff、脚本验证仍只属于沙箱型 agent。
 - **compaction 可观测性**:codex 的 `codex exec --json` stdout 流不暴露压缩事件(压缩只在 rollout 文件、且 exec 模式覆盖不全),所以 `t.transcript.compactions()` 对 codex 恒为 0 → 长程压缩类 eval 对 codex 自动 skip(诚实降级,不误判)。
 - **TestContext 类型**:用一个宽接口承载全部动作(运行时按 capability 守卫),而非文档设想的 TS 条件类型 —— 因为被测项目经 `tsx` 运行(不做类型检查),宽接口更省心且不影响运行时正确性。

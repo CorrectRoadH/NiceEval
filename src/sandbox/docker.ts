@@ -104,6 +104,8 @@ export interface DockerSandboxOptions {
   timeout?: number;
   /** Node 运行时。 */
   runtime?: "node20" | "node24";
+  /** 覆盖默认镜像(默认按 runtime 选 `node:*-slim`)。预制模板:烘焙好 agent CLI 的镜像名。 */
+  image?: string;
 }
 
 /**
@@ -116,12 +118,14 @@ export class DockerSandbox implements Sandbox {
   private _containerId = "";
   private timeout: number;
   private runtime: string;
+  private image?: string;
   private _workingDirectory: string = CONTAINER_WORKDIR;
 
   constructor(options: DockerSandboxOptions = {}) {
     this.docker = new Docker();
     this.timeout = options.timeout ?? DEFAULT_TIMEOUT;
     this.runtime = options.runtime ?? "node24";
+    this.image = options.image;
   }
 
   /** 创建并启动一个 Docker 沙箱。 */
@@ -133,7 +137,8 @@ export class DockerSandbox implements Sandbox {
 
   /** 拉镜像、起容器、装基础工具、备好工作区与 npm 前缀。 */
   private async initialize(): Promise<void> {
-    const imageName = DOCKER_IMAGES[this.runtime];
+    // 显式 image(预制模板)优先;否则按 runtime 选默认 node:*-slim。
+    const imageName = this.image ?? DOCKER_IMAGES[this.runtime];
     if (!imageName) {
       throw new Error(`Unsupported runtime: ${this.runtime}`);
     }

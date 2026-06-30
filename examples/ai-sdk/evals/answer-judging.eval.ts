@@ -1,5 +1,6 @@
 import { defineEval } from "fasteval";
 import { includes, excludes } from "fasteval/expect";
+import { hasJudgeEnv } from "./judge-env.ts";
 
 // 评测：游戏的判题逻辑是否准确？
 //
@@ -23,6 +24,7 @@ export default defineEval({
       t.check(t.reply, includes(/猜错|不对|再想想|不是/));
       // 答错时不应该直接公布谜底
       t.check(t.reply, excludes(/谜底是|答案是/));
+      t.calledTool("judge_guess");
     });
 
     // ── 第三轮：猜对 ────────────────────────────────
@@ -32,11 +34,14 @@ export default defineEval({
     await t.group("答对时游戏应该确认正确并公布谜底", () => {
       t.check(t.reply, includes(/答对|正确|对了/));
       t.check(t.reply, includes(/谜底|是镜子/));
+      t.calledTool("judge_guess");
     });
 
-    // 整体流程质量评判
-    t.judge
-      .agent("游戏在整个对话中是否正确地区分了对错？判题逻辑是否前后一致？")
-      .atLeast(0.8);
+    if (hasJudgeEnv()) {
+      // 整体流程质量评判
+      t.judge
+        .agent("游戏在整个对话中是否正确地区分了对错？判题逻辑是否前后一致？")
+        .atLeast(0.8);
+    }
   },
 });

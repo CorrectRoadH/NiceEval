@@ -5,7 +5,7 @@
 | 目录 | 用途 |
 |---|---|
 | [`claude-code-skill/`](claude-code-skill/) | 评测 Claude Code **Skill 插件**对编码任务的实际提升 |
-| [`ai-sdk-game/`](ai-sdk-game/) | 评测用 **Vercel AI SDK** 构建的游戏 Agent |
+| [`ai-sdk/`](ai-sdk/) | 评测用 **Vercel AI SDK** 构建的 HTTP web agent |
 
 ## 前提
 

@@ -6,6 +6,9 @@ export {
   defineExperiment,
   defineAgent,
   defineSandboxAgent,
+  dockerSandbox,
+  vercelSandbox,
+  e2bSandbox,
 } from "./define.ts";
 
 export { shared } from "./agents/shared.ts";
@@ -46,6 +49,12 @@ export type {
   SourceFiles,
   ReadSourceFilesOptions,
   SandboxBackend,
+  SandboxOption,
+  SandboxSpec,
+  SandboxRuntime,
+  DockerSandboxSpec,
+  VercelSandboxSpec,
+  E2BSandboxSpec,
   CommandResult,
   CommandOptions,
   TestContext,

@@ -41,7 +41,9 @@ export class VercelSandbox implements Sandbox {
     this.runtime = runtime;
   }
 
-  static async create(opts: { timeout?: number; runtime?: "node20" | "node24" } = {}): Promise<VercelSandbox> {
+  static async create(
+    opts: { timeout?: number; runtime?: "node20" | "node24"; snapshotId?: string } = {},
+  ): Promise<VercelSandbox> {
     // Vercel 支持 node22/node24/node26/python3.13;node20 回退到 node22。
     const runtime = opts.runtime === "node20" ? "node22" : (opts.runtime ?? "node24");
     const commandTimeoutMs = opts.timeout ?? DEFAULT_COMMAND_TIMEOUT_MS;
@@ -53,10 +55,13 @@ export class VercelSandbox implements Sandbox {
     const projectId = process.env.VERCEL_PROJECT_ID ?? "vercel-sandbox-default-project";
     const credParams = token && teamId ? { token, teamId, projectId } : {};
 
+    // 给了 snapshotId 就从快照起 microVM(预制模板:烘焙好 agent CLI 的快照)。
+    const sourceParams = opts.snapshotId ? { source: { type: "snapshot", snapshotId: opts.snapshotId } } : {};
+
     // session timeout 固定为 1200000ms (20 min)。不随 commandTimeoutMs 放大:
     // 实测发现超大的 timeout 值(>1200s)会导致 Vercel 返回实际更短的 session。
     // 1200000ms 是经验证能跑完 ~355s eval 的上限。
-    const vsb = await VSandbox.create({ runtime, timeout: SESSION_TIMEOUT_MS, ...credParams } as Parameters<typeof VSandbox.create>[0]);
+    const vsb = await VSandbox.create({ runtime, timeout: SESSION_TIMEOUT_MS, ...sourceParams, ...credParams } as Parameters<typeof VSandbox.create>[0]);
     const id = vsb.currentSession().sessionId;
     return new VercelSandbox(vsb, id, commandTimeoutMs, runtime);
   }

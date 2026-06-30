@@ -46,7 +46,8 @@ export function claudeCodeAgent(config?: ClaudeCodeConfig): Agent {
     capabilities: { conversation: true, toolObservability: true, workspace: true, compactionObservability: true },
 
     async setup(sb) {
-      await sb.runCommand("npm", ["install", "-g", "@anthropic-ai/claude-code"]);
+      // 预制模板已把 claude 烘焙进镜像(PATH 上)就跳过安装;否则 npm 全局装。
+      await sb.runShell("command -v claude >/dev/null 2>&1 || npm install -g @anthropic-ai/claude-code");
 
       if (config?.mcpServers?.length) {
         const servers: Record<string, object> = {};

@@ -1,5 +1,5 @@
 import { defineExperiment } from "fasteval";
-import { riddleGameAgent } from "../agents/riddle-game.ts";
+import { riddleWebAgent } from "../agents/riddle-game.ts";
 
 // 对比不同 LLM 的游戏质量。
 //
@@ -10,7 +10,7 @@ import { riddleGameAgent } from "../agents/riddle-game.ts";
 // 跑完 `npx fasteval view` 可以并排对比各模型表现。
 export default defineExperiment({
   description: "谜语游戏：多模型质量对比",
-  agent: riddleGameAgent,
+  agent: riddleWebAgent,
   model: [
     "gpt-4o-mini",
     "gpt-4o",

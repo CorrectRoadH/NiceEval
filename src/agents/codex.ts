@@ -38,7 +38,8 @@ export function codexAgent(config?: CodexConfig): Agent {
     capabilities: { conversation: true, toolObservability: true, workspace: true, compactionObservability: true, tracing: true },
 
     async setup(sb, ctx) {
-      await sb.runCommand("npm", ["install", "-g", "@openai/codex"]);
+      // 预制模板已把 codex 烘焙进镜像(PATH 上)就跳过安装;否则 npm 全局装。
+      await sb.runShell("command -v codex >/dev/null 2>&1 || npm install -g @openai/codex");
 
       const model = ctx.model ?? "gpt-5.4";
       const effort = (ctx.flags.effort as string | undefined) ?? "medium";
