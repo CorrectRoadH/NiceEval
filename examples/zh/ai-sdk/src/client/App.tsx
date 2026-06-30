@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport, isToolUIPart, type UIMessage } from "ai";
+import { DefaultChatTransport, getToolName, isToolUIPart, type UIMessage } from "ai";
 import "./App.css";
 
 type ModelDef = { id: string; label: string; contextTokens: number };
@@ -209,17 +209,18 @@ function MessageBubble({ message }: { message: UIMessage }) {
         }
         if (isToolUIPart(part)) {
           const state = part.state;
+          const name = getToolName(part);
           if (state === "input-streaming" || state === "input-available") {
             return (
               <div key={part.toolCallId} className="tool-bubble">
-                ⚙ {part.toolName}({state === "input-streaming" ? "…" : JSON.stringify(part.input)})
+                ⚙ {name}({state === "input-streaming" ? "…" : JSON.stringify(part.input)})
               </div>
             );
           }
           if (state === "output-available") {
             return (
               <div key={part.toolCallId} className="tool-bubble">
-                ⚙ {part.toolName} → {JSON.stringify((part as { output?: unknown }).output)}
+                ⚙ {name} → {JSON.stringify((part as { output?: unknown }).output)}
               </div>
             );
           }

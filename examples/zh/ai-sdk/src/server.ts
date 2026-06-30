@@ -45,7 +45,7 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     };
     const signal = abortSignalFor(req);
     const result = streamChat(body.messages ?? [], body.model, body.images, signal);
-    result.pipeDataStreamToResponse(res);
+    result.pipeUIMessageStreamToResponse(res);
     return;
   }
 

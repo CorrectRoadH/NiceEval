@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "fasteval": "^0.1.0-alpha.0",
+    "fasteval": "file:../../..",
     "@ai-sdk/openai": "^3.0.26",
     "@ai-sdk/react": "^3.0.203",
     "@langfuse/tracing": "^5.4.1",
