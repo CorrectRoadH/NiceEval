@@ -4,6 +4,7 @@
 import { Effect } from "effect";
 import type { Sandbox, SandboxBackend } from "../types.ts";
 import { DockerSandbox } from "./docker.ts";
+import { VercelSandbox } from "./vercel.ts";
 
 /**
  * 决定用哪个后端:
@@ -33,12 +34,14 @@ export function createSandbox(opts: {
 }) {
   const backend = resolveBackend(opts);
   return Effect.acquireRelease(
-    Effect.promise(() => {
+    Effect.promise<Sandbox>(() => {
       switch (backend) {
         case "docker":
           return DockerSandbox.create({ timeout: opts.timeout, runtime: opts.runtime });
+        case "vercel":
+          return VercelSandbox.create({ timeout: opts.timeout, runtime: opts.runtime });
         default:
-          throw new Error(`${backend} sandbox backend not implemented; use docker`);
+          throw new Error(`${backend} sandbox backend not implemented; use docker or vercel`);
       }
     }),
     (sb) => Effect.promise(() => sb.stop().catch(() => {})),
