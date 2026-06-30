@@ -50,7 +50,7 @@ Results:  2 passed, 1 failed, 0 scored, 0 skipped
 npx fasteval view
 ```
 
-这会打开本地结果查看器，默认指向最近一次运行。你可以浏览 eval、查看 transcript、读 diff、检查 event stream 和断言结果。数据不会上传到外部服务。
+这会打开本地结果查看器，默认展示最近一次运行的结果。你可以浏览 eval、查看 transcript、读 diff、检查 event stream 和断言结果。数据不会上传到外部服务。
 
 <Tip>
   失败后立刻运行 `npx fasteval view`，可以直接打开刚刚那次运行的 artifacts。
@@ -64,11 +64,11 @@ npx fasteval view
 
 ### `events.jsonl`
 
-标准事件流，是工具调用、消息、命令和错误的低层事实来源。
+标准事件流，是工具调用、消息、命令和错误的底层事实来源。
 
 ### `transcript.jsonl`
 
-面向人阅读的对话或 agent transcript。
+便于人工阅读的对话或 agent transcript。
 
 ### `diff.json`
 
@@ -90,6 +90,6 @@ Sandbox eval 中 agent 改动的文件 diff。
 ## 调试建议
 
 - 先看 `result.json` 找到失败断言。
-- 再看 `transcript.jsonl` 理解 agent 的决策过程。
+- 再看 `transcript.jsonl`，了解 agent 的决策过程。
 - coding-agent 失败时看 `diff.json` 和 `test-output.txt`。
 - 工具调用问题看 `events.jsonl`。

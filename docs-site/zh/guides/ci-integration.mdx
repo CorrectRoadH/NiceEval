@@ -8,7 +8,7 @@ Evals 应该和测试一样进入 CI。它们能在 PR 阶段发现 agent 行为
 
 ## 退出码
 
-默认情况下，只要存在失败的 gate，fasteval 就应该让命令非零退出。CI 中通常使用 `--strict`，让失败更明确。
+默认情况下，只要存在失败的 gate，fasteval 将以非零状态码退出。CI 中通常使用 `--strict`，让失败更明确。
 
 ```bash
 npx fasteval --strict
@@ -91,7 +91,7 @@ npx fasteval --max-concurrency 2
   <Card title="PR runs" icon="code-pull-request">
     只跑关键 eval 和高风险路径，保持反馈快。
   </Card>
-  <Card title="Nightly full matrix" icon="moon">
-    跑完整 experiment，记录 pass rate、成本和延迟趋势。
+  <Card title="Nightly 全量矩阵运行" icon="moon">
+    运行完整 experiment，记录 pass rate、成本和延迟趋势。
   </Card>
 </CardGroup>

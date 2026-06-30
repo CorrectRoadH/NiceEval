@@ -1,12 +1,12 @@
 ---
-title: "数据集扇出: 用多个 case 运行同一套 eval"
-sidebarTitle: "数据集"
-description: "从 .eval.ts 文件导出数组，将一套 eval 逻辑扇出成多个 case。用 loadYaml 或 loadJson 读取外部数据集，并获得稳定 ID。"
+title: "Dataset Fanout: 用多份数据运行同一套 eval"
+sidebarTitle: "Dataset Fanout"
+description: "从 .eval.ts 文件导出数组，将一套 eval 逻辑展开为多个 case。用 loadYaml 或 loadJson 读取外部数据集，并获得稳定 ID。"
 ---
 
-数据集扇出适合大量结构相同、输入不同的测试。例如 SQL 生成、意图分类、检索问答和工具选择。
+Dataset Fanout 适合大量结构相同、输入不同的测试。例如 SQL 生成、意图分类、检索问答和工具选择。
 
-## 扇出如何工作
+## 工作原理
 
 一个 `.eval.ts` 文件默认导出数组：
 

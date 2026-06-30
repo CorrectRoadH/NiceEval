@@ -4,7 +4,7 @@ sidebarTitle: "Fixtures"
 description: "fixture 是包含 PROMPT.md 和 EVAL.ts 的目录，fasteval 用它在隔离环境中运行 coding agent，并用 Vitest 测试验证输出。"
 ---
 
-Fixture 是评估 coding agent 的推荐格式。它把“给 agent 的任务”和“验证结果的测试”放在同一个目录里，但验证文件对 agent 隐藏。
+Fixture 是评估 coding agent 的推荐方式。它把”给 agent 的任务”和”验证结果的测试”放在同一个目录里，但 agent 无法看到验证文件。
 
 ## 目录结构
 
@@ -59,7 +59,7 @@ test("accepts label and onClick", () => {
 npx fasteval --agent claude-code --sandbox docker fixtures/button
 ```
 
-位置参数仍然是 eval ID 前缀，不是 agent 名。
+位置参数是 eval ID 前缀，不是 agent 名。
 
 ## 验证 agent 行为
 
@@ -79,7 +79,7 @@ test("used project test script", () => {
 ## 何时用 fixture
 
 - 需要 agent 修改真实文件。
-- 需要跑项目测试、构建或 lint。
+- 需要运行项目测试、构建或 lint。
 - 需要比较生成 diff。
 - 任务适合批量收集 pass rate。
 
