@@ -15,6 +15,7 @@ import { EvalRequirementFailed, EvalSkipped, TurnFailed } from "../context/contr
 import { computeOutcome, computeVerdict } from "../scoring/verdict.ts";
 import { probeJudge } from "../scoring/judge.ts";
 import { deriveRunFacts, buildO11ySummary } from "../o11y/derive.ts";
+import { estimateCost } from "../o11y/cost.ts";
 import { t } from "../i18n/index.ts";
 import {
   captureGeneratedFiles,
@@ -718,7 +719,8 @@ async function runAttemptBody(
 
     const durationMs = Date.now() - t0;
     const o11y = buildO11ySummary(events, usage, durationMs);
-    const cost = usage.costUSD;
+    // 实测成本(网关带回)优先,缺则按 model + 用量查价格表估算(见 o11y/cost.ts)。
+    const cost = usage.costUSD ?? estimateCost(run.model, usage);
     if (cost !== undefined) o11y.estimatedCostUSD = cost;
 
     // 收 test 引用到的 eval 源码(按 send / 断言的 loc 去重),供 view 渲染代码视图。
