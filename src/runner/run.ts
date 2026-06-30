@@ -117,9 +117,7 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
   const reportMutex = Effect.runSync(Effect.makeSemaphore(1));
   // 沙箱启动单独限流:与 agent 并发(maxConcurrency)解耦,防高并发下 daemon/API 过载。
   // 未显式指定时跟 maxConcurrency 走——各 backend 的推荐值已在 cli 层写进 maxConcurrency 默认值。
-  const sandboxSem = Effect.runSync(
-    Effect.makeSemaphore(Math.min(opts.maxConcurrency, 4)),
-  );
+  const sandboxSem = Effect.runSync(Effect.makeSemaphore(opts.maxConcurrency));
 
   // earlyExit:为每个 key 各建一个 AbortController。某 attempt 通过时 abort 它,
   // 让并发进行中的同 key attempt 通过 signal 尽早退出,而不只是等排队的才能被跳过。
