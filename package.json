@@ -36,6 +36,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "fasteval": "node bin/fasteval.js",
+    "view:build": "vite build --config src/view/app/vite.config.js",
     "site:dev": "vite site --host 127.0.0.1 --port 5174",
     "site:build": "vite build site",
     "docs:dev": "cd docs-site && npx --yes mint@latest dev",

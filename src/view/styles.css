@@ -266,6 +266,15 @@ tbody tr:last-child td { border-bottom: 0; }
   transition: transform 160ms ease;
 }
 .is-open .chev { transform: rotate(45deg); }
+.chev-icon {
+  width: 14px;
+  height: 14px;
+  margin-right: 9px;
+  color: var(--muted);
+  vertical-align: -2px;
+  transition: transform 160ms ease;
+}
+.is-open .chev-icon { transform: rotate(90deg); }
 .name { font-weight: 610; }
 .sub { color: var(--muted); font-size: 12px; margin-top: 3px; }
 .num {

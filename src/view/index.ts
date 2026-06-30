@@ -54,13 +54,8 @@ const VERDICT_ORDER: Record<Verdict, number> = {
 
 const TEMPLATE_PLACEHOLDERS = {
   styles: "<!-- __FASTEVAL_STYLES__ -->",
-  lastRun: "__FASTEVAL_LAST_RUN__",
-  passRate: "__FASTEVAL_PASS_RATE__",
-  resultCount: "__FASTEVAL_RESULT_COUNT__",
-  duration: "__FASTEVAL_DURATION__",
-  cost: "__FASTEVAL_COST__",
-  resultsBody: "<!-- __FASTEVAL_RESULTS_BODY__ -->",
-  rowsJson: "__FASTEVAL_ROWS_JSON__",
+  appCode: "__FASTEVAL_APP_CODE__",
+  viewData: "__FASTEVAL_VIEW_DATA_JSON__",
 } as const;
 
 export async function buildView(opts: ViewOptions = {}): Promise<string> {
@@ -141,17 +136,21 @@ async function renderHtml(loaded: LoadedSummary[]): Promise<string> {
   const rows = aggregateRows(loaded);
   const totals = summarizeAll(loaded);
   const template = await readViewAsset("template.html");
-  const styles = await readViewAsset("styles.css");
+  const styles = await readViewAsset("client-dist/app.css");
+  const app = await readViewAsset("client-dist/app.js");
+  const viewData = {
+    rows,
+    lastRun: latest ? formatDate(latest.startedAt) : "No runs yet",
+    passRate: formatPercent(totals.passRate),
+    resultCount: String(totals.results),
+    duration: formatDuration(totals.durationMs),
+    cost: formatCost(totals.cost),
+  };
 
   return template
-    .replace(TEMPLATE_PLACEHOLDERS.styles, `<style>\n${styles}\n</style>`)
-    .replace(TEMPLATE_PLACEHOLDERS.lastRun, escapeHtml(latest ? formatDate(latest.startedAt) : "No runs yet"))
-    .replace(TEMPLATE_PLACEHOLDERS.passRate, formatPercent(totals.passRate))
-    .replace(TEMPLATE_PLACEHOLDERS.resultCount, String(totals.results))
-    .replace(TEMPLATE_PLACEHOLDERS.duration, formatDuration(totals.durationMs))
-    .replace(TEMPLATE_PLACEHOLDERS.cost, formatCost(totals.cost))
-    .replace(TEMPLATE_PLACEHOLDERS.resultsBody, rows.length ? renderTable() : renderEmptyState())
-    .replace(TEMPLATE_PLACEHOLDERS.rowsJson, JSON.stringify(rows).replace(/</g, "\\u003c"));
+    .replace(TEMPLATE_PLACEHOLDERS.styles, () => `<style>\n${styles}\n</style>`)
+    .replace(TEMPLATE_PLACEHOLDERS.viewData, () => JSON.stringify(viewData).replace(/</g, "\\u003c"))
+    .replace(TEMPLATE_PLACEHOLDERS.appCode, () => JSON.stringify(app).replace(/</g, "\\u003c"));
 }
 
 async function readViewAsset(name: string): Promise<string> {
@@ -244,30 +243,6 @@ async function readSummary(path: string): Promise<RunSummary> {
     throw new Error(`${path} is not a fasteval summary`);
   }
   return data;
-}
-
-function renderTable(): string {
-  return `<div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th><button data-sort="experiment">Experiment</button></th>
-          <th><button data-sort="model">Model</button></th>
-          <th><button data-sort="agent">Agent</button></th>
-          <th><button data-sort="avgDurationMs">Avg Duration</button></th>
-          <th><button data-sort="passRate">Success Rate</button></th>
-          <th><button data-sort="tokens">Tokens</button></th>
-          <th><button data-sort="cost">Est. Cost</button></th>
-          <th>Outcomes</th>
-        </tr>
-      </thead>
-      <tbody id="results-body"></tbody>
-    </table>
-  </div>`;
-}
-
-function renderEmptyState(): string {
-  return `<div class="empty">No summary.json files found. Run <code>fasteval</code> or pass <code>fasteval view path/to/summary.json</code>.</div>`;
 }
 
 function aggregateRows(loaded: LoadedSummary[]): LeaderboardRow[] {
@@ -386,23 +361,4 @@ function formatDuration(ms: number): string {
 function formatCost(n: number | undefined): string {
   if (n === undefined || n <= 0) return "$0";
   return `$${n.toFixed(n < 1 ? 3 : 2)}`;
-}
-
-function escapeHtml(value: unknown): string {
-  return String(value).replace(/[&<>"']/g, (ch) => {
-    switch (ch) {
-      case "&":
-        return "&amp;";
-      case "<":
-        return "&lt;";
-      case ">":
-        return "&gt;";
-      case "\"":
-        return "&quot;";
-      case "'":
-        return "&#39;";
-      default:
-        return ch;
-    }
-  });
 }
