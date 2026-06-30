@@ -276,6 +276,7 @@ tbody tr:last-child td { border-bottom: 0; }
 .good { color: var(--good); }
 .bad { color: var(--bad); }
 .warn { color: var(--warn); }
+.infra-err { color: var(--warn); }
 .pill {
   display: inline-flex;
   align-items: center;

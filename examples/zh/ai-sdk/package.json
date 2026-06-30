@@ -3,9 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "fasteval ai-sdk example: evaluate an AI SDK tool-loop assistant web agent",
   "scripts": {
-    "dev": "node --env-file .env --import tsx/esm --watch src/server.ts",
+    "dev": "concurrently -k -n server,web -c blue,green \"pnpm dev:server\" \"pnpm dev:web\"",
+    "dev:server": "node --env-file .env --import tsx/esm --watch src/server.ts",
+    "dev:web": "wait-on -t 30000 tcp:127.0.0.1:5188 && vite",
+    "build": "vite build",
     "start": "node --env-file .env --import tsx/esm src/server.ts",
     "eval": "fasteval",
     "typecheck": "tsc --noEmit"
@@ -13,13 +15,22 @@
   "dependencies": {
     "fasteval": "^0.1.0-alpha.0",
     "@ai-sdk/openai": "^3.0.26",
+    "@ai-sdk/react": "^3.0.203",
     "@langfuse/tracing": "^5.4.1",
     "ai": "^6.0.78",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "concurrently": "^9.0.0",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vite": "^7.0.0",
+    "wait-on": "^9.0.0"
   }
 }

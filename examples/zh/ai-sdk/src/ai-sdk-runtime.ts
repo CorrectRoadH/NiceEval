@@ -40,6 +40,12 @@ function buildTools(
   };
 }
 
+// 无副作用版本的工具集，供 streamChat (UI 流式端点) 使用。
+function buildSimpleTools(): ToolSet {
+  const noop = <T extends JsonValue>(_name: string, _input: JsonValue, run: () => T): T => run();
+  return buildTools(noop);
+}
+
 function makeRecorder(events: AgentEvent[]) {
   return function record<T extends JsonValue>(name: string, input: JsonValue, run: () => T): T {
     const callId = `${name}-${randomUUID()}`;
@@ -58,6 +64,53 @@ function makeRecorder(events: AgentEvent[]) {
       throw error;
     }
   };
+}
+
+/**
+ * UI 流式端点：接受 useChat 发来的完整 messages 数组，直接 pipe 到客户端。
+ * 调用方负责 pipeDataStreamToResponse。
+ */
+export function streamChat(
+  rawMessages: unknown[],
+  modelId?: string,
+  images?: Array<{ mimeType: string; dataBase64: string }>,
+  signal?: AbortSignal,
+) {
+  const resolvedModel = resolveModel(modelId ?? process.env.AGENT_MODEL ?? "gpt-4o-mini");
+
+  // 把前端传来的 messages 当做 ModelMessage[]，如有图片则追加到最后一条 user 消息。
+  let messages = rawMessages as ModelMessage[];
+  if (images?.length) {
+    const last = messages[messages.length - 1];
+    if (last?.role === "user") {
+      const textContent = typeof last.content === "string" ? last.content : "";
+      const textParts = typeof last.content === "string"
+        ? [{ type: "text" as const, text: last.content }]
+        : (Array.isArray(last.content) ? last.content : [{ type: "text" as const, text: textContent }]);
+      messages = [
+        ...messages.slice(0, -1),
+        {
+          role: "user",
+          content: [
+            ...textParts,
+            ...images.map((img) => ({
+              type: "image" as const,
+              image: `data:${img.mimeType};base64,${img.dataBase64}`,
+            })),
+          ],
+        },
+      ];
+    }
+  }
+
+  return streamText({
+    model: resolvedModel,
+    system: SYSTEM_PROMPT,
+    messages,
+    tools: buildSimpleTools(),
+    stopWhen: stepCountIs(5),
+    abortSignal: signal,
+  });
 }
 
 /** eval adapter 用：等完整结果，返回 AgentResponse JSON。 */
@@ -102,66 +155,6 @@ export async function handleAiSdkTurn(request: AgentRequest, signal?: AbortSigna
   turn.end({ "assistant.last_action": lastAction });
   await trace.flush();
 
-  return { sessionId: session.id, reply, events, data: { lastAction }, usage };
-}
-
-/** UI 用：流式输出 text delta，工具调用时推送事件，结束后返回完整 AgentResponse。 */
-export async function streamAiSdkTurn(
-  request: AgentRequest,
-  signal: AbortSignal | undefined,
-  onDelta: (text: string) => void,
-  onToolEvent: (event: AgentEvent) => void,
-): Promise<AgentResponse> {
-  const session = getSession(request.sessionId);
-  const events: AgentEvent[] = [];
-  const modelId = request.model ?? process.env.AGENT_MODEL ?? "gpt-4o-mini";
-  const model = resolveModel(modelId);
-
-  const record = <T extends JsonValue>(name: string, input: JsonValue, run: () => T): T => {
-    const callId = `${name}-${randomUUID()}`;
-    const called: AgentEvent = { type: "action.called", callId, name, input, tool: "unknown" };
-    events.push(called);
-    onToolEvent(called);
-    try {
-      const output = run();
-      const result: AgentEvent = { type: "action.result", callId, output, status: "completed" };
-      events.push(result);
-      onToolEvent(result);
-      return output;
-    } catch (error) {
-      const result: AgentEvent = {
-        type: "action.result",
-        callId,
-        output: { error: error instanceof Error ? error.message : String(error) },
-        status: "failed",
-      };
-      events.push(result);
-      onToolEvent(result);
-      throw error;
-    }
-  };
-
-  const stream = streamText({
-    model,
-    system: SYSTEM_PROMPT,
-    messages: [...sessionMessages(session), userMessage(request.message, request.files)],
-    tools: buildTools(record),
-    stopWhen: stepCountIs(5),
-    abortSignal: signal,
-  });
-
-  let fullText = "";
-  for await (const chunk of stream.textStream) {
-    fullText += chunk;
-    onDelta(chunk);
-  }
-
-  const usage = normalizeUsage(await stream.usage);
-  const reply = fullText.trim() || "我已经处理了这一步。";
-  rememberAiTurn(session, request.message, reply);
-  events.push({ type: "message", role: "assistant", text: reply });
-
-  const lastAction = events.findLast((e) => e.type === "action.called")?.name ?? "chat";
   return { sessionId: session.id, reply, events, data: { lastAction }, usage };
 }
 

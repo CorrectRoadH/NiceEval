@@ -1,13 +1,9 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
-import { handleAiSdkTurn, streamAiSdkTurn } from "./ai-sdk-runtime.ts";
+import { handleAiSdkTurn, streamChat } from "./ai-sdk-runtime.ts";
 import { startAppTrace } from "./app-observability.ts";
 import { MODELS } from "./models.ts";
 import type { AgentRequest } from "./protocol.ts";
 
-const here = dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT ?? 5188);
 
 const server = createServer(async (req, res) => {
@@ -19,20 +15,13 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(port, "127.0.0.1", () => {
-  process.stdout.write(`Assistant web agent listening on http://127.0.0.1:${port}\n`);
+  process.stdout.write(`Assistant server listening on http://127.0.0.1:${port}\n`);
 });
 
 async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   if (req.method === "OPTIONS") {
     res.writeHead(204, corsHeaders());
     res.end();
-    return;
-  }
-
-  if (req.method === "GET" && (req.url === "/" || req.url === "/index.html")) {
-    const html = await readFile(join(here, "index.html"), "utf8");
-    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-    res.end(html);
     return;
   }
 
@@ -47,32 +36,16 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     return;
   }
 
-  // 流式端点 — UI 用，SSE 逐 token 推送。
+  // 流式聊天端点 — React useChat 用，AI SDK data stream 格式。
   if (req.method === "POST" && req.url === "/api/chat") {
-    const body = await readJson(req);
-    const request = parseAgentRequest(body);
-    res.writeHead(200, {
-      ...corsHeaders(),
-      "content-type": "text/event-stream; charset=utf-8",
-      "cache-control": "no-cache",
-      "connection": "keep-alive",
-    });
-
+    const body = await readJson(req) as {
+      messages?: unknown[];
+      model?: string;
+      images?: Array<{ mimeType: string; dataBase64: string }>;
+    };
     const signal = abortSignalFor(req);
-    try {
-      const response = await streamAiSdkTurn(
-        request,
-        signal,
-        (delta) => res.write(`data: ${JSON.stringify({ delta })}\n\n`),
-        (event) => res.write(`data: ${JSON.stringify({ event })}\n\n`),
-      );
-      res.write(`data: ${JSON.stringify({ done: true, response })}\n\n`);
-    } catch (error) {
-      if (!signal.aborted) {
-        res.write(`data: ${JSON.stringify({ error: error instanceof Error ? error.message : String(error) })}\n\n`);
-      }
-    }
-    res.end();
+    const result = streamChat(body.messages ?? [], body.model, body.images, signal);
+    result.pipeDataStreamToResponse(res);
     return;
   }
 

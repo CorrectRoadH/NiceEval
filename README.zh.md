@@ -134,3 +134,11 @@ READ xxxx and install fasteval for this repo.
 - [Observability](docs/observability.md)
 - [CLI](docs/cli.md)
 - [Source Map](docs/source-map.md)
+
+# 感谢
+该项目受下面项目所启发或者是由AI从下面项目中学习代码所写
+[eve](https://eve.dev)
+[agent eval](https://github.com/vercel-labs/agent-eval)
+[ponytail](https://github.com/DietrichGebert/ponytail)
+
+感谢下列社区
