@@ -505,8 +505,8 @@ function ConversationTurns({ src }) {
 
 function AttemptModal({ result, onClose }) {
   const allAssertions = result.assertions || [];
-  const hasScores = allAssertions.some((a) => a.score !== undefined && a.score !== null);
-  const hasConversation = result.hasEvents && result.artifactBase;
+  const base = result.artifactBase;
+  const [data, setData] = useState({ sources: null, events: null, status: "loading" });
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
@@ -514,28 +514,315 @@ function AttemptModal({ result, onClose }) {
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  useEffect(() => {
+    if (!base) { setData({ sources: null, events: null, status: "none" }); return; }
+    let alive = true;
+    const grab = (name, has) =>
+      has
+        ? fetch("/artifact?p=" + encodeURIComponent(`${base}/${name}`))
+            .then((r) => (r.ok ? r.json() : null))
+            .catch(() => null)
+        : Promise.resolve(null);
+    Promise.all([grab("sources.json", result.hasSources), grab("events.json", result.hasEvents)]).then(
+      ([sources, events]) => { if (alive) setData({ sources, events, status: "ready" }); },
+    );
+    return () => { alive = false; };
+  }, [base, result.hasSources, result.hasEvents]);
+
+  const outcome = outcomeOf(result);
+  const hasCode = data.sources && data.sources.length;
+
   return createPortal(
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <div className="modal-title-block">
+            <span className={`modal-outcome ${outcomeClass(outcome)}`}>{outcomeLabel(outcome)}</span>
             <span className="modal-title">{result.id}</span>
             {result.description ? <span className="modal-desc">{result.description}</span> : null}
           </div>
           <button className="modal-close" onClick={onClose} aria-label="Close">✕</button>
         </div>
         <div className="modal-body">
-          {hasScores ? <AssertionScores assertions={allAssertions} /> : null}
-          {hasConversation ? (
-            <ConversationTurns src={`${result.artifactBase}/events.json`} />
+          {result.error ? <div className="modal-error">{result.error}</div> : null}
+          {data.status === "loading" ? <div className="conv-loading">loading…</div> : null}
+          {hasCode ? (
+            <CodeView sources={data.sources} events={data.events || []} assertions={allAssertions} />
+          ) : data.status !== "loading" ? (
+            <FallbackBody result={result} assertions={allAssertions} />
           ) : null}
-          {result.hasTrace && result.artifactBase ? (
-            <LazyArtifact type="trace" src={`${result.artifactBase}/trace.json`} />
-          ) : null}
+          {result.hasTrace && base ? <LazyArtifact type="trace" src={`${base}/trace.json`} /> : null}
         </div>
       </div>
     </div>,
     document.body,
+  );
+}
+
+// ───────────────────────── 源码对齐的代码视图(github-diff 式)─────────────────────────
+// 拿 sources.json(eval 源码)+ events.json(带 loc 的 send),把每条 send / 断言的运行结果
+// 叠回真实源码行:send 行折叠→展开看回复;断言行绿(过)/红(不过),judge 行带分数,展开看 CoT。
+
+function locKey(file, line) {
+  return `${file}:${line}`;
+}
+
+/** events → 按 send 的 loc 聚成「轮」:每轮含 sent 文本 + 后续 thinking/assistant/tool 回复。 */
+function indexTurns(events) {
+  const byKey = new Map();
+  const noloc = [];
+  let cur = null;
+  for (const ev of events || []) {
+    if (ev.type === "message" && ev.role === "user") {
+      cur = { loc: ev.loc, sent: ev.text || "", replies: [] };
+      if (ev.loc) byKey.set(locKey(ev.loc.file, ev.loc.line), cur);
+      else noloc.push(cur);
+    } else if (!cur) {
+      continue;
+    } else if (ev.type === "message" && ev.role === "assistant") {
+      cur.replies.push({ kind: "text", text: ev.text || "" });
+    } else if (ev.type === "thinking") {
+      cur.replies.push({ kind: "thinking", text: ev.text || "" });
+    } else if (ev.type === "action.called") {
+      cur.replies.push({ kind: "tool", ev });
+    } else if (ev.type === "action.result") {
+      const tool = [...cur.replies].reverse().find((r) => r.kind === "tool" && r.ev.callId === ev.callId);
+      if (tool) tool.result = ev;
+    } else if (ev.type === "error") {
+      cur.replies.push({ kind: "error", text: ev.message || "error" });
+    }
+  }
+  return { byKey, noloc };
+}
+
+/** assertions → 按 loc 聚到行。有 loc 的进 byKey,没 loc 的进 noloc(底部兜底列)。 */
+function indexAsserts(assertions) {
+  const byKey = new Map();
+  const noloc = [];
+  for (const a of assertions || []) {
+    if (a.loc) {
+      const k = locKey(a.loc.file, a.loc.line);
+      if (!byKey.has(k)) byKey.set(k, []);
+      byKey.get(k).push(a);
+    } else {
+      noloc.push(a);
+    }
+  }
+  return { byKey, noloc };
+}
+
+function CodeView({ sources, events, assertions }) {
+  const turns = useMemo(() => indexTurns(events), [events]);
+  const asserts = useMemo(() => indexAsserts(assertions), [assertions]);
+  const [open, setOpen] = useState(() => new Set());
+  const toggle = useCallback((k) => {
+    setOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k); else next.add(k);
+      return next;
+    });
+  }, []);
+
+  // 哪些 loc 被源码行覆盖到了;没覆盖到的(读不到源码的文件)放底部兜底。
+  const sourceKeys = new Set();
+  for (const f of sources) {
+    const n = f.content.split("\n").length;
+    for (let i = 1; i <= n; i++) sourceKeys.add(locKey(f.path, i));
+  }
+  const orphanAsserts = [...asserts.byKey.entries()]
+    .filter(([k]) => !sourceKeys.has(k))
+    .flatMap(([, v]) => v)
+    .concat(asserts.noloc);
+
+  return (
+    <div className="codeview">
+      {sources.map((file) => (
+        <CodeFile
+          key={file.path}
+          file={file}
+          turns={turns.byKey}
+          asserts={asserts.byKey}
+          open={open}
+          toggle={toggle}
+        />
+      ))}
+      {orphanAsserts.length ? (
+        <div className="code-orphans">
+          <div className="code-orphans-head">other assertions</div>
+          <AssertDetail asserts={orphanAsserts} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function CodeFile({ file, turns, asserts, open, toggle }) {
+  const lines = file.content.replace(/\n$/, "").split("\n");
+  return (
+    <div className="code-file">
+      <div className="code-file-head">{file.path}</div>
+      <div className="code-lines">
+        {lines.map((text, i) => {
+          const n = i + 1;
+          const k = locKey(file.path, n);
+          return (
+            <CodeLine
+              key={n}
+              n={n}
+              text={text}
+              turn={turns.get(k)}
+              asserts={asserts.get(k)}
+              isOpen={open.has(k)}
+              onToggle={() => toggle(k)}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function CodeLine({ n, text, turn, asserts, isOpen, onToggle }) {
+  const hasReply = !!turn;
+  const hasAsserts = !!(asserts && asserts.length);
+  const status = hasAsserts ? (asserts.every((a) => a.passed) ? "pass" : "fail") : null;
+  const clickable = hasReply || hasAsserts;
+  const rowCls =
+    "code-line" +
+    (status ? ` line-${status}` : "") +
+    (hasReply && !status ? " line-send" : "") +
+    (clickable ? " line-clickable" : "") +
+    (isOpen ? " is-open" : "");
+  return (
+    <>
+      <div
+        className={rowCls}
+        onClick={clickable ? onToggle : undefined}
+        role={clickable ? "button" : undefined}
+        tabIndex={clickable ? 0 : undefined}
+        onKeyDown={clickable ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onToggle(); } } : undefined}
+      >
+        <span className="ln">{n}</span>
+        <span className="gmark">
+          {hasAsserts ? (
+            <span className={`gstat ${status === "pass" ? "good" : "bad"}`}>{status === "pass" ? "✓" : "✗"}</span>
+          ) : hasReply ? (
+            <ChevronRight className={`gchev${isOpen ? " is-open" : ""}`} aria-hidden="true" />
+          ) : null}
+        </span>
+        <code className="ctext">{highlightTs(text)}</code>
+        <span className="lbadges">
+          {hasAsserts ? asserts.map((a, i) => <AssertBadge key={i} a={a} />) : null}
+          {hasReply ? <span className="reply-hint">{isOpen ? "hide" : "reply"}</span> : null}
+        </span>
+      </div>
+      {isOpen && hasReply ? <ReplyPanel turn={turn} /> : null}
+      {isOpen && hasAsserts ? <AssertDetail asserts={asserts} /> : null}
+    </>
+  );
+}
+
+/** 行尾分数徽章:judge / 带阈值的断言显示分数(过绿不过红);纯 gate 断言靠行色 + gutter 勾叉。 */
+function AssertBadge({ a }) {
+  const showPct = a.threshold !== undefined || (a.score > 0 && a.score < 1);
+  if (!showPct) return null;
+  return (
+    <span className={`abadge ${a.passed ? "good" : "bad"}`}>
+      {formatPercent(a.score)}
+      {a.threshold !== undefined ? <span className="abadge-th">/{formatPercent(a.threshold)}</span> : null}
+    </span>
+  );
+}
+
+function ReplyPanel({ turn }) {
+  if (!turn.replies.length) return <div className="line-detail reply-empty">(no reply)</div>;
+  return (
+    <div className="line-detail reply-panel">
+      {turn.replies.map((r, j) => {
+        if (r.kind === "text")
+          return (
+            <div key={j} className="reply-assistant">
+              <span className="reply-role">assistant</span>
+              <div className="reply-text">{r.text}</div>
+            </div>
+          );
+        if (r.kind === "thinking")
+          return (
+            <details key={j} className="reply-think">
+              <summary>thinking</summary>
+              <div className="reply-think-text">{r.text}</div>
+            </details>
+          );
+        if (r.kind === "error")
+          return <div key={j} className="reply-err">! {r.text}</div>;
+        if (r.kind === "tool") {
+          const verb = TOOL_VERB[r.ev.tool] || r.ev.name || r.ev.tool || "tool";
+          const arg = toolPrimaryArg(r.ev);
+          const out = r.result ? resultBody(r.result.output) : "";
+          return (
+            <div key={j} className="reply-tool">
+              <span className="reply-tool-name">{arg ? `${verb}(${truncate(arg, 80)})` : verb}</span>
+              {out ? <span className="reply-tool-out">→ {truncate(previewText(out), 100)}</span> : null}
+            </div>
+          );
+        }
+        return null;
+      })}
+    </div>
+  );
+}
+
+function AssertDetail({ asserts }) {
+  return (
+    <div className="line-detail assert-detail">
+      {asserts.map((a, i) => (
+        <div key={i} className="assert-row">
+          <span className={`abadge ${a.passed ? "good" : "bad"}`}>{a.passed ? "pass" : "fail"}</span>
+          <span className="assert-name">{a.name}</span>
+          {a.severity === "soft" ? <span className="assert-sev">soft</span> : null}
+          {a.threshold !== undefined ? (
+            <span className="assert-score">
+              {formatPercent(a.score)} / {formatPercent(a.threshold)}
+            </span>
+          ) : null}
+          {a.detail ? <div className="assert-reason">{a.detail}</div> : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const TS_HL_RE =
+  /(\/\/[^\n]*)|(\/\*[^]*?\*\/)|(`(?:\\.|[^`\\])*`|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|\b(import|from|export|default|const|let|var|async|await|function|return|if|else|for|of|in|new|class|extends|typeof|void|true|false|null|undefined)\b|\b(\d[\d_.]*)\b|([A-Za-z_$][\w$]*)(?=\s*\()/g;
+
+/** 轻量 TS 着色(逐行,零依赖):注释 / 字符串 / 关键字 / 数字 / 函数名。 */
+function highlightTs(line) {
+  const out = [];
+  let last = 0;
+  let i = 0;
+  let m;
+  TS_HL_RE.lastIndex = 0;
+  while ((m = TS_HL_RE.exec(line))) {
+    if (m.index > last) out.push(line.slice(last, m.index));
+    const cls = m[1] || m[2] ? "tok-comment" : m[3] ? "tok-str" : m[4] ? "tok-kw" : m[5] ? "tok-num" : m[6] ? "tok-fn" : null;
+    out.push(cls ? <span key={i++} className={cls}>{m[0]}</span> : m[0]);
+    last = m.index + m[0].length;
+    if (m[0].length === 0) TS_HL_RE.lastIndex++;
+  }
+  if (last < line.length) out.push(line.slice(last));
+  return out;
+}
+
+/** 没源码可叠时的兜底:断言清单 + 会话流(老视图)。 */
+function FallbackBody({ result, assertions }) {
+  const hasScores = (assertions || []).some((a) => a.score !== undefined && a.score !== null);
+  return (
+    <>
+      {hasScores ? <AssertionScores assertions={assertions} /> : null}
+      {result.hasEvents && result.artifactBase ? (
+        <ConversationTurns src={`${result.artifactBase}/events.json`} />
+      ) : null}
+    </>
   );
 }
 
@@ -556,7 +843,8 @@ function AssertionScores({ assertions }) {
   }
 
   const renderRow = (a, i) => {
-    const cls = a.passed ? "good" : a.severity === "gate" ? "bad" : "warn";
+    // 状态只有 pass / fail(绿 / 红);soft / gate 是严重级,作为弱化标签单列,不当状态词。
+    const cls = a.passed ? "good" : "bad";
     const inner = (
       <>
         <span className={`al-score ${cls}`}>
@@ -564,7 +852,8 @@ function AssertionScores({ assertions }) {
           {a.threshold !== undefined ? <span className="al-threshold">/{formatPercent(a.threshold)}</span> : null}
         </span>
         <span className="al-name">{a.name}</span>
-        <span className={`al-badge al-badge-${cls}`}>{a.passed ? "pass" : a.severity === "gate" ? "fail" : "soft"}</span>
+        {a.severity === "soft" ? <span className="al-sev">soft</span> : null}
+        <span className={`al-badge al-badge-${cls}`}>{a.passed ? "pass" : "fail"}</span>
       </>
     );
     return a.detail ? (

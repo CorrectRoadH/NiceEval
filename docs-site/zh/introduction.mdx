@@ -4,60 +4,70 @@ sidebarTitle: "介绍"
 description: "fasteval 是一个 TypeScript eval 库。用一套统一 API 评估 coding agents、HTTP 服务和进程内函数。"
 ---
 
-fasteval 是一个轻量的 TypeScript 库，为 AI agents 提供结构化、可重复的评测。你不需要手动点几次 agent 再凭感觉判断好坏，而是写声明式 eval 文件描述“什么算好结果”。fasteval 负责运行、评分，并产出可读报告。
+fasteval 是一个受[eve](eve.dev)启发的通用型 agent eval 工具。首先有非常优秀的 DX 设计，任何人可以在 10 分钟左右上手并配置。并且设计非常的通用。即可以用来 eval 给 Claude Code/Codex 写的 coding agent 的插件、Hook还有Skill。更可以直接 eval 自己的 AI Agent 框架(无论是基于 AI SDK、LangGraph、Pi还是什么接口都可以轻松接入)。
 
-它可以用于 Claude Code 插件、对外提供的 HTTP agent 服务，也可以用于内部函数或 LLM wrapper。三类对象都通过同一个 `defineEval` API 接入。
+## 解决什么问题
+
+1. 太重，langfuse与bruist
+2. 非常友好的DX
 
 ## 你可以评什么
 
 <CardGroup cols={3}>
-  <Card title="Coding agents" icon="code">
-    把 Claude Code、Codex、bub 或任何兼容 CLI 放进 Docker 沙箱，给它任务，再用真实测试和文件断言验证结果。
+  <Card title="AI Agent" icon="code">
+    把 Claude Code、Codex、bub 放进 Sandbox，给它任务，再用真实测试和文件断言验证结果。
   </Card>
-  <Card title="HTTP 服务与部署后的 agent" icon="globe">
-    对任意运行中的 HTTP endpoint 或已部署 agent 发请求，断言回复、工具调用和结构化输出。
-  </Card>
-  <Card title="进程内函数" icon="function">
-    直接在 eval 进程里调用你的 TypeScript 函数。把 eval 当作语义层面的单元测试纳入 CI。
+  <Card title="Web Agent" icon="globe">
+    对任意运行中的 Web Agent 进行评估，断言回复、工具调用和结构化输出。
   </Card>
 </CardGroup>
 
-## 为什么叫 fast
-
-**写得快。** 每个 eval 是一个文件，ID 自动从路径推导：`evals/weather/brooklyn.eval.ts` 变成 `weather/brooklyn`。断言写在一条线性的 `async test(t)` 里。数据集可以用一行 `.map` 展开为多个 case。
-
-**跑得快。** runner 以受控并发上限并行执行，不会压垮被测 agent。基于 fingerprint 的缓存会跳过已经通过的 case。沙箱可以复用和预热。`earlyExit` 会在某次尝试成功后停止同一任务的剩余重试。
-
-**看得快。** 控制台实时流式输出。每次运行都会生成事件流、完整 transcript、文件 diff 和断言结果，落在 `.fasteval/<timestamp>/` 目录里。统一 trace 让你能还原 agent 到底做了什么。
 
 ## 整体架构
 
-```
-   your evals/ directory            fasteval core               agent adapter
-   ─────────────────────           ──────────────             ─────────────────
-   weather.eval.ts   ──discover──>  Runner  ──send──>  Agent  ─── in-process
-   sql.eval.ts                        │                        ─── remote HTTP
-   fixtures/button/  ──fixture──>     │                        ─── sandbox ──> Docker
-     PROMPT.md                        ▼
-     EVAL.ts                       Scorers ──> Reporters ──> .fasteval/<run>/
+```text
+   evals/*.eval.ts
+        │
+        ▼
+   ┌─────────────────────┐
+   │     fasteval        │
+   └─────────────────────┘
+        │
+        │ Agent 适配器(官方)
+        ▼
+   ┌──────────────────────────────┐
+   │        Docker Sandbox         │
+   │   ┌────────────────────────┐  │
+   │   │ Codex / Claude Code /  │  │
+   │   │ 需要隔离工作区的应用    │  │
+   │   └────────────────────────┘  │
+   └──────────────────────────────┘
 ```
 
-- **fasteval core** 负责所有被测对象共通的部分：eval 发现、断言收集、评分、并发调度、缓存、报告和 artifact 落盘。
-- **Agent adapter** 是 core 和被测系统之间的开放边界。fasteval 内置 Claude Code、Codex 和 bub 的适配器，你也可以写自己的 adapter。
-- **Sandbox** 负责隔离运行 coding agent。默认使用 Docker，也支持第三方沙箱后端。
+```text
+   evals/*.eval.ts
+        │
+        ▼
+   ┌─────────────────────┐
+   │     fasteval        │
+   └─────────────────────┘
+        │
+        │ Agent 适配器(官方，或者自己实现)
+        ▼
+   ┌──────────────────────────────┐
+   │       你自己的 Web Agent       │
+   │   (HTTP / AI SDK·LangGraph·   │
+   │    Pi 等自有框架，无需 Docker) │
+   └──────────────────────────────┘
+```
 
-<Note>
-  fasteval core 不预设任何具体 agent 的行为。新增 agent 类型应该通过 adapter 完成，而不是改 runner 或 scorers。
-</Note>
 
 ## 两种接入模式
 
 **Sandbox mode** 适合 Codex、Claude Code 这类必须在真实文件系统中改代码、跑命令的 coding agent。
 
-**Direct mode** 适合 HTTP 服务和进程内函数，不需要 Docker，也不需要隔离工作区。
+**Direct mode** 适合 Web Agent，不需要 Docker。
 
 ## 接下来读什么
 
-[快速开始](/zh/quickstart) 会带你安装 fasteval、运行 `npx fasteval init`，并完成函数、对话 agent 和 coding-agent 三种 eval。
-
-如果你想先配置环境，读 [安装](/zh/installation)。如果你想理解边界，读 [架构概览](/zh/concepts/overview)。
+[快速开始](/zh/quickstart) 会带你安装 fasteval、构建 eval、得到 eval 报告。
