@@ -12,6 +12,7 @@ import { mapSpansToCanonical } from "../o11y/otlp/mappers/index.ts";
 import { createEvalContext } from "../context/context.ts";
 import { EvalRequirementFailed, EvalSkipped, TurnFailed } from "../context/control-flow.ts";
 import { computeOutcome, computeVerdict } from "../scoring/verdict.ts";
+import { probeJudge } from "../scoring/judge.ts";
 import { deriveRunFacts, buildO11ySummary } from "../o11y/derive.ts";
 import {
   captureGeneratedFiles,
@@ -77,6 +78,26 @@ interface Attempt {
 export async function runEvals(opts: RunOptions): Promise<RunSummary> {
   const startedAt = new Date().toISOString();
   const t0 = Date.now();
+
+  // 预检 judge:有显式配置时在第一步验证 API key + 端点可达,避免跑完 agent 才发现 judge 不通。
+  {
+    const seen = new Set<string>();
+    const toProbe: JudgeConfig[] = [];
+    for (const jc of [opts.config.judge, ...opts.evals.map((e) => e.judge)]) {
+      if (!jc) continue;
+      const key = `${jc.model ?? ""}|${jc.baseUrl ?? ""}|${jc.apiKeyEnv ?? ""}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      toProbe.push(jc);
+    }
+    if (toProbe.length > 0) {
+      process.stderr.write("  · 预检 judge 配置…\n");
+      for (const jc of toProbe) {
+        const err = await probeJudge(jc, opts.signal);
+        if (err) throw new Error(err);
+      }
+    }
+  }
 
   // 展开 attempts
   const attempts: Attempt[] = [];

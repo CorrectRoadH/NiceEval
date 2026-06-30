@@ -134,6 +134,22 @@ function noOpJudge(): JudgeNamespace {
   return { agent: skip, score: skip, closedQA: skip, factuality: skip, summarizes: skip, autoevals: noOpAutoevals };
 }
 
+/** 预检显式配置的 judge:验证 API key 存在并发最小请求确认端点可达。
+ *  返回错误描述字符串,可达则返回 undefined。*/
+export async function probeJudge(judge: JudgeConfig, signal?: AbortSignal): Promise<string | undefined> {
+  const resolved = resolveJudge(judge);
+  if (!resolved.apiKey) {
+    const envHint = judge.apiKeyEnv ?? "FASTEVAL_JUDGE_KEY / OPENAI_API_KEY";
+    return `judge 模型 ${resolved.model} 缺少 API key —— 请配置 ${envHint}`;
+  }
+  try {
+    await callJudge(resolved, "Reply with the number 1 only.", "1", signal);
+  } catch (e) {
+    return `judge 预检失败(${resolved.model}): ${e instanceof Error ? e.message : String(e)}`;
+  }
+  return undefined;
+}
+
 /** 构造 t.judge 命名空间。每个方法 record 一条延迟 soft 断言。 */
 export function buildJudge(deps: JudgeDeps): JudgeNamespace {
   const resolved = resolveJudge(deps.judge);
