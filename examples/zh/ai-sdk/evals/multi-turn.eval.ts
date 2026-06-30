@@ -1,4 +1,5 @@
 import { defineEval } from "fasteval";
+import { includes } from "fasteval/evals/expect";
 
 // 评测：多轮对话。
 //
@@ -8,19 +9,14 @@ export default defineEval({
   description: "AI 助手：多轮对话",
 
   async test(t) {
-    (await t.send("你好，你能做什么？")).expectOk();
-    (await t.send("北京今天天气怎么样？")).expectOk();
-    (await t.send("谢谢，就这些")).expectOk();
+    await t.send("1+1=?")
+    t.succeeded();
+    t.check(t.reply,includes("2"));
 
-    await t.group("三轮都正常收发", () => {
-      t.succeeded();
-      t.event("message", { count: 3 }); // 三轮 → 三条 assistant 回复
-    });
+    const second = await t.send("北京今天天气怎么样？")
+    t.calledTool("get_weather", { input: { city: "北京" } });
+    second.messageIncludes("北京");
 
-    await t.group("中间那轮按需调了 get_weather", () => {
-      t.calledTool("get_weather", { input: { city: "北京" } });
-    });
-
-    t.judge.agent("助手在这段多轮对话里是否自始至终切题、有礼貌、前后连贯？").atLeast(0.7);
+    t.judge.autoevals.closedQA("有回答对算数是，并且回答了北京天气的问题").atLeast(0.8);
   },
 });

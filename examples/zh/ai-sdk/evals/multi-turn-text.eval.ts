@@ -22,6 +22,6 @@ export default defineEval({
       t.messageIncludes(/中文|汉语|Chinese/i);
     });
 
-    t.judge.agent("助手在三轮对话中是否保持了上下文连贯，第二轮能够联系第一轮的回答？").atLeast(0.7);
+    t.judge.autoevals.factuality(reference).gate(0.8);
   },
 });

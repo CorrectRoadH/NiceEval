@@ -726,6 +726,15 @@ export interface TurnHandle {
   expectOk(): TurnHandle;
   outputEquals(value: unknown): AssertionHandle;
   outputMatches(schema: unknown): AssertionHandle;
+  /** 断言本轮助手回复包含 token(仅限本轮事件流,不跨轮)。 */
+  messageIncludes(token: string | RegExp): AssertionHandle;
+}
+
+/** autoevals 子命名空间:结构化的参考材料对照评估(closedQA / factuality / summarizes)。 */
+export interface AutoevalsNamespace {
+  closedQA(question: string, opts?: { on?: string; model?: string }): AssertionHandle;
+  factuality(expected: string, opts?: { on?: string; model?: string }): AssertionHandle;
+  summarizes(source: string, opts?: { on?: string; model?: string }): AssertionHandle;
 }
 
 export interface JudgeNamespace {
@@ -735,6 +744,8 @@ export interface JudgeNamespace {
   closedQA(question: string, opts?: { on?: string; model?: string }): AssertionHandle;
   factuality(expected: string, opts?: { on?: string; model?: string }): AssertionHandle;
   summarizes(source: string, opts?: { on?: string; model?: string }): AssertionHandle;
+  /** 结构化对照评估的子命名空间(t.judge.autoevals.closedQA / .factuality / .summarizes)。 */
+  autoevals: AutoevalsNamespace;
 }
 
 export interface TranscriptNamespace {

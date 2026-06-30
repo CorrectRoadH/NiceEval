@@ -9,6 +9,7 @@ export class RunSession {
   isNew = true;
   index = 1;
   lastMessage = "";
+  lastInput = "";
   lastStatus: "completed" | "failed" | "waiting" = "completed";
 }
 
@@ -64,6 +65,7 @@ export class SessionManager {
     this.deps.log(`s${session.index}·t${n} → "${preview}…"`);
     const t0 = Date.now();
 
+    session.lastInput = text;
     const turn = await this.deps.agent.send({ text, files }, ctx);
 
     this.allEvents.push(...turn.events);

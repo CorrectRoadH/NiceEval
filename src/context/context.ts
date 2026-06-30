@@ -100,6 +100,7 @@ export function createEvalContext(deps: ContextDeps): { context: TestContext; st
       collector,
       judge: deps.judge,
       getReply: () => session.lastMessage,
+      getInput: () => session.lastInput,
       signal: deps.signal,
     });
 
@@ -247,6 +248,18 @@ function makeTurnHandle(turn: Turn, collector: AssertionCollector): TurnHandle {
         name: "outputMatches",
         severity: "gate",
         evaluate: () => (validateSchema(turn.data, schema) ? 1 : 0),
+      }),
+    messageIncludes: (token) =>
+      collector.record({
+        name: `messageIncludes(${token})`,
+        severity: "gate",
+        evaluate: () => {
+          const text = turn.events
+            .filter((e): e is Extract<StreamEvent, { type: "message" }> => e.type === "message")
+            .map((e) => e.text)
+            .join("\n");
+          return (token instanceof RegExp ? token.test(text) : text.includes(token)) ? 1 : 0;
+        },
       }),
   };
   return handle;

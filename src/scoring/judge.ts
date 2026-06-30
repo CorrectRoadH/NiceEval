@@ -3,10 +3,13 @@
 //
 // 评判模型走 OpenAI 兼容的 /chat/completions。base_url + key 解析优先级:
 //   judge.baseUrl / judge.apiKeyEnv  →  FASTEVAL_JUDGE_BASE / CODEX_BASE_URL  →  OpenAI 官方
-// 这样在只有 s2a 代理(无 Anthropic key)的环境里,judge 自动复用代理。
+//
+// closedQA / factuality / summarizes 直接用 autoevals 库(braintrust),与 t.judge.autoevals.*
+// 共享同一套实现。agent / score 是我们自己的开放式评判,不在 autoevals 里。
 
+import { ClosedQA, Factuality, Summary } from "autoevals";
 import type { AssertionCollector } from "./collector.ts";
-import type { AssertionHandle, JudgeConfig, JudgeNamespace, ScoringContext } from "../types.ts";
+import type { AssertionHandle, AutoevalsNamespace, JudgeConfig, JudgeNamespace, ScoringContext } from "../types.ts";
 import { getEnv } from "../util.ts";
 
 interface ResolvedJudge {
@@ -114,6 +117,8 @@ export interface JudgeDeps {
   collector: AssertionCollector;
   judge: JudgeConfig | undefined;
   getReply: () => string;
+  /** 最后一条用户消息,作为 autoevals 的 input 字段。 */
+  getInput: () => string;
   signal?: AbortSignal;
 }
 
@@ -125,7 +130,8 @@ function noOpJudge(): JudgeNamespace {
     soft: () => handle,
   };
   const skip = () => handle;
-  return { agent: skip, score: skip, closedQA: skip, factuality: skip, summarizes: skip };
+  const noOpAutoevals: AutoevalsNamespace = { closedQA: skip, factuality: skip, summarizes: skip };
+  return { agent: skip, score: skip, closedQA: skip, factuality: skip, summarizes: skip, autoevals: noOpAutoevals };
 }
 
 /** 构造 t.judge 命名空间。每个方法 record 一条延迟 soft 断言。 */
@@ -157,6 +163,66 @@ export function buildJudge(deps: JudgeDeps): JudgeNamespace {
     return diffMaterial(ctx);
   };
 
+  /** autoevals 公共参数:模型走 judge config,baseUrl + apiKey 透给 autoevals 内部建的 OpenAI client。 */
+  const autoevalsBase = {
+    model: resolved.model,
+    openAiBaseUrl: resolved.baseUrl,
+    openAiApiKey: resolved.apiKey,
+  } as const;
+
+  const closedQA = (criteria: string, opts?: { on?: string; model?: string }) =>
+    deps.collector.record({
+      name: "judge:autoevals:closedQA",
+      severity: "soft",
+      evaluate: async (ctx) => {
+        const output = opts?.on ? await materialFor(ctx, opts.on) : deps.getReply();
+        const result = await ClosedQA({
+          input: deps.getInput(),
+          output,
+          criteria,
+          ...autoevalsBase,
+          ...(opts?.model ? { model: opts.model } : {}),
+        });
+        return clamp01(result.score ?? 0);
+      },
+    });
+
+  const factuality = (expected: string, opts?: { on?: string; model?: string }) =>
+    deps.collector.record({
+      name: "judge:autoevals:factuality",
+      severity: "soft",
+      evaluate: async (ctx) => {
+        const output = opts?.on ? await materialFor(ctx, opts.on) : deps.getReply();
+        const result = await Factuality({
+          input: deps.getInput(),
+          output,
+          expected,
+          ...autoevalsBase,
+          ...(opts?.model ? { model: opts.model } : {}),
+        });
+        return clamp01(result.score ?? 0);
+      },
+    });
+
+  const summarizes = (expected: string, opts?: { on?: string; model?: string }) =>
+    deps.collector.record({
+      name: "judge:autoevals:summarizes",
+      severity: "soft",
+      evaluate: async (ctx) => {
+        const output = opts?.on ? await materialFor(ctx, opts.on) : deps.getReply();
+        const result = await Summary({
+          input: deps.getInput(),
+          output,
+          expected,
+          ...autoevalsBase,
+          ...(opts?.model ? { model: opts.model } : {}),
+        });
+        return clamp01(result.score ?? 0);
+      },
+    });
+
+  const autoevalsNs: AutoevalsNamespace = { closedQA, factuality, summarizes };
+
   return {
     agent: (question, opts) =>
       record("agent", SYSTEM_PROMPT, async (ctx) => {
@@ -168,20 +234,9 @@ export function buildJudge(deps: JudgeDeps): JudgeNamespace {
         const material = opts?.on ? await materialFor(ctx, opts.on) : deps.getReply();
         return `【评分标准】\n${rubric}\n\n【被评内容】\n${material}`;
       }),
-    closedQA: (question, opts) =>
-      record("closedQA", SYSTEM_PROMPT, async (ctx) => {
-        const material = opts?.on ? await materialFor(ctx, opts.on) : deps.getReply();
-        return `【内容】\n${material}\n\n【判断】\n${question}`;
-      }),
-    factuality: (expected, opts) =>
-      record("factuality", SYSTEM_PROMPT, async (ctx) => {
-        const material = opts?.on ? await materialFor(ctx, opts.on) : deps.getReply();
-        return `【期望事实】\n${expected}\n\n【实际回答】\n${material}\n\n两者事实是否一致?`;
-      }),
-    summarizes: (source, opts) =>
-      record("summarizes", SYSTEM_PROMPT, async (ctx) => {
-        const material = opts?.on ? await materialFor(ctx, opts.on) : deps.getReply();
-        return `【原文】\n${source}\n\n【摘要】\n${material}\n\n摘要是否忠实于原文?`;
-      }),
+    closedQA,
+    factuality,
+    summarizes,
+    autoevals: autoevalsNs,
   };
 }
