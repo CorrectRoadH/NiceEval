@@ -11,7 +11,6 @@ import { defineEval } from "fasteval";
 
 export default defineEval({
   description: "Brooklyn weather query",
-  agent: "my-agent",
   async test(t) {
     await t.send("What's the weather like in Brooklyn today?");
     t.succeeded();

@@ -11,7 +11,7 @@ import { defineEval } from "fasteval";
 
 export default defineEval({
   description?: string;            // 人读的描述,出现在报告里
-  agent?: string;                  // 连哪个 agent(按名字);省略则用配置 defaultAgent 或 --agent
+  agent?: string;                  // 可选 eval-local 默认;常规运行由 experiment 选择 agent
   tags?: string[];                 // 供 --tag 过滤
   judge?: JudgeConfig;             // 覆盖默认评判模型
   reporters?: Reporter[];          // 这个 eval 专用的报告器
@@ -110,25 +110,19 @@ cases:
 
 生成的 id:`sql/0000`、`sql/0001`……(零填充 4 位,稳定可引用)。`loadJson` 同理。
 
-## 选择 Agent
+## Agent 由 experiment 选择
 
-`agent` 按名字选一条连到 AI 的连接,它的能力决定 `t` 能干什么。agent 由你自己写(`defineAgent` / `defineSandboxAgent`)并在配置里注册,eval 里只用名字引用:
+eval 默认保持 agent-neutral,只描述"测什么"和"怎么算对"。agent 由 `experiments/` 里的 `defineExperiment` 选择,它的能力决定 `t` 能干什么:
 
 ```typescript
-export default defineEval({
-  description: "...",
-  agent: "my-agent",        // 引用一个进程内 / 远程 agent
-  async test(t) { /* ... */ },
-});
-
-// 沙箱里的 coding agent(通常配合 defineAgentEval / fixture,见下)
-export default defineEval({
-  agent: "claude-code",     // 内置沙箱 agent,跑在哪由 --sandbox 决定
-  async test(t) { /* ... */ },
+// experiments/local.ts
+export default defineExperiment({
+  agent: myAgent,
+  runs: 1,
 });
 ```
 
-省略 `agent` 时,用配置的 `defaultAgent` 或 CLI 的 `--agent` 提供的连接 —— 这让同一份 eval 能换着被测对象跑(本地 vs 部署、agent A vs agent B)。怎么写一个 agent,详见 [Agents 与 Adapters](agents-and-adapters.md)。
+常规运行时,agent 由 experiment 提供 —— 这让同一份 eval 能换着被测对象跑(本地 vs 部署、agent A vs agent B),同时运行配置可签入、可复现。怎么写一个 agent,详见 [Agents 与 Adapters](agents-and-adapters.md)。
 
 ## 沙箱型:Fixture
 

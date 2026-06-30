@@ -15,7 +15,7 @@ import { defineEval } from "fasteval";
 
 export default defineEval({
   description?: string;            // Human-readable label shown in reports
-  agent?: string;                  // Agent to use by name; falls back to defaultAgent or --agent
+  agent?: string;                  // Optional eval-local default; normal runs select agent via experiment
   tags?: string[];                 // Used with --tag to filter runs
   judge?: JudgeConfig;             // Override the default judge model for this eval
   reporters?: Reporter[];          // Reporters scoped to this eval only
@@ -171,7 +171,7 @@ cases:
     sql: SELECT * FROM orders ORDER BY created_at DESC LIMIT 10;
 ```
 
-fasteval generates stable, zero-padded IDs for each element: `sql/0000`, `sql/0001`, and so on. You can filter to a single case by passing its full ID, or run the whole file by passing the file-level prefix (`npx fasteval sql`).
+fasteval generates stable, zero-padded IDs for each element: `sql/0000`, `sql/0001`, and so on. You can filter to a single case by passing its full ID after the experiment selector, or run the whole file by passing the file-level prefix (`npx fasteval exp local sql`).
 
 <Note>
   `loadYaml` and `loadJson` are both available from `fasteval/loaders`. Both return the parsed document as a plain JavaScript object.

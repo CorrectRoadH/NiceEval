@@ -1,10 +1,49 @@
-import React, { useMemo, useState, useEffect, useCallback } from "react";
+import React, { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { createPortal } from "react-dom";
 import { Check, ChevronRight, Copy } from "lucide-react";
+import { detectLocale, makeTranslator, persistLocale, setDocumentLocale } from "./i18n.ts";
+import type { MessageKey } from "./i18n.ts";
+import type {
+  ActionCalledEvent,
+  ActionResultEvent,
+  Assertion,
+  CodeSource,
+  Indexed,
+  IndexedTurns,
+  Locale,
+  ObjectRecord,
+  Outcome,
+  SortKey,
+  SortState,
+  SourceTurn,
+  Span,
+  Tab,
+  TranscriptEvent,
+  ToolResultEvent,
+  ViewData,
+  ViewJson,
+  ViewResult,
+  ViewRow,
+  ViewUsage,
+} from "./types.ts";
 import "../styles.css";
 
-const initialData = window.__FASTEVAL_VIEW_DATA__ ?? {
+type T = (key: MessageKey) => string;
+type OpenModal = (result: ViewResult) => void;
+type ArtifactLoadState =
+  | { sources: CodeSource[] | null; events: TranscriptEvent[] | null; status: "loading" | "ready" | "none" };
+type RowRun = ViewResult & { rowLabel: string; rowAgent: string; rowModel?: string };
+type LazyArtifactType = "trace" | "transcript";
+type ToolBlockCall = { tool?: string; name: string; input: ViewJson };
+
+const navItems: { id: Tab; label: MessageKey }[] = [
+  { id: "experiments", label: "nav.experiments" },
+  { id: "runs", label: "nav.runs" },
+  { id: "traces", label: "nav.traces" },
+];
+
+const initialData: ViewData = window.__FASTEVAL_VIEW_DATA__ ?? {
   rows: [],
   lastRun: "No runs yet",
   passRate: "0%",
@@ -13,7 +52,7 @@ const initialData = window.__FASTEVAL_VIEW_DATA__ ?? {
   cost: "$0",
 };
 
-function resultFromUrl(rows) {
+function resultFromUrl(rows: ViewRow[]): ViewResult | null {
   const p = new URLSearchParams(location.search);
   const id = p.get("modal");
   if (!id) return null;
@@ -29,19 +68,26 @@ function resultFromUrl(rows) {
   return null;
 }
 
-function App({ data }) {
+function App({ data }: { data: ViewData }) {
   const rows = data.rows ?? [];
-  const [tab, setTab] = useState("experiments");
-  const [sort, setSort] = useState({ key: "passRate", dir: -1 });
+  const [locale, setLocale] = useState<Locale>(() => detectLocale());
+  const t = useMemo(() => makeTranslator(locale), [locale]);
+  const [tab, setTab] = useState<Tab>("experiments");
+  const [sort, setSort] = useState<SortState>({ key: "passRate", dir: -1 });
   const [query, setQuery] = useState("");
-  const [openRows, setOpenRows] = useState(() => new Set());
+  const [openRows, setOpenRows] = useState<Set<string>>(() => new Set());
   const [selectedGroup, setSelectedGroup] = useState(() => {
     const groups = [...new Set(rows.map((r) => r.group).filter(Boolean))].sort();
     return groups[0] ?? null;
   });
-  const [modalResult, setModalResult] = useState(() => resultFromUrl(rows));
+  const [modalResult, setModalResult] = useState<ViewResult | null>(() => resultFromUrl(rows));
 
-  const openModal = useCallback((result) => {
+  useEffect(() => {
+    setDocumentLocale(locale);
+    persistLocale(locale);
+  }, [locale]);
+
+  const openModal = useCallback((result: ViewResult) => {
     setModalResult(result);
     const p = new URLSearchParams();
     p.set("modal", result.id);
@@ -55,12 +101,12 @@ function App({ data }) {
     history.replaceState(null, "", location.pathname);
   }, []);
 
-  const groupMap = useMemo(() => buildGroupMap(rows), [rows]);
+  const groupMap = useMemo<Map<string, ViewRow[]>>(() => buildGroupMap(rows), [rows]);
   const pool = selectedGroup ? groupMap.get(selectedGroup) ?? [] : rows;
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return pool
-      .filter((row) => {
+      .filter((row: ViewRow) => {
         if (!q) return true;
         return [
           row.label,
@@ -68,22 +114,22 @@ function App({ data }) {
           row.experimentId || "",
           row.agent,
           row.model || "",
-          ...(row.results ?? []).map((r) => r.id),
+          ...(row.results ?? []).map((r: ViewResult) => r.id),
         ]
           .join(" ")
           .toLowerCase()
           .includes(q);
       })
-      .sort((a, b) => compareRows(a, b, sort.key) * sort.dir);
+      .sort((a: ViewRow, b: ViewRow) => compareRows(a, b, sort.key) * sort.dir);
   }, [pool, query, sort]);
 
-  const setSortKey = (key) => {
+  const setSortKey = (key: SortKey) => {
     setSort((prev) =>
-      prev.key === key ? { key, dir: prev.dir * -1 } : { key, dir: key === "experiment" || key === "agent" ? 1 : -1 },
+      prev.key === key ? { key, dir: prev.dir === 1 ? -1 : 1 } : { key, dir: key === "experiment" || key === "agent" ? 1 : -1 },
     );
   };
 
-  const toggleRow = (key) => {
+  const toggleRow = (key: string) => {
     setOpenRows((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
@@ -99,49 +145,62 @@ function App({ data }) {
           <span className="mark" />
           <span>fasteval</span>
         </a>
-        <nav className="nav" aria-label="Report">
-          {["experiments", "runs", "traces"].map((name) => (
-            <button key={name} className={`nav-tab${tab === name ? " is-active" : ""}`} onClick={() => setTab(name)}>
-              {name[0].toUpperCase() + name.slice(1)}
+        <nav className="nav" aria-label={t("nav.label")}>
+          {navItems.map((item) => (
+            <button key={item.id} className={`nav-tab${tab === item.id ? " is-active" : ""}`} onClick={() => setTab(item.id)}>
+              {t(item.label)}
             </button>
           ))}
         </nav>
+        <div className="lang-switch" aria-label="Language">
+          {(["en", "zh-CN"] satisfies Locale[]).map((item) => (
+            <button
+              key={item}
+              className={locale === item ? "is-active" : ""}
+              type="button"
+              onClick={() => setLocale(item)}
+              aria-pressed={locale === item}
+            >
+              {item === "zh-CN" ? "中文" : "EN"}
+            </button>
+          ))}
+        </div>
       </header>
       <main>
         <section className="hero">
-          <h1>Eval Run Results</h1>
+          <h1>{t("hero.title")}</h1>
           <div className="meta">
             <span>
-              <b>Last run:</b> {data.lastRun}
+              <b>{t("hero.lastRun")}</b> {data.lastRun}
             </span>
           </div>
         </section>
 
         <section className="summary" aria-label="Run summary">
-          <Metric label="Pass Rate" value={data.passRate} />
-          <Metric label="Eval Results" value={data.resultCount} />
-          <Metric label="Duration" value={data.duration} />
-          <Metric label="Estimated Cost" value={data.cost} />
+          <Metric label={t("metric.passRate")} value={data.passRate} />
+          <Metric label={t("metric.evalResults")} value={data.resultCount} />
+          <Metric label={t("metric.duration")} value={data.duration} />
+          <Metric label={t("metric.cost")} value={data.cost} />
         </section>
 
         {tab === "experiments" && (
           <section id="tab-experiments">
             <div className="section-head">
-              <h2>Experiments</h2>
+              <h2>{t("section.experiments")}</h2>
             </div>
-            <GroupSelector groupMap={groupMap} selectedGroup={selectedGroup} onSelect={setSelectedGroup} />
+            <GroupSelector groupMap={groupMap} selectedGroup={selectedGroup} onSelect={setSelectedGroup} t={t} />
             <div className="section-sub-head">
               <span className="group-detail-label">{selectedGroup ?? ""}</span>
               <div className="controls">
                 <input
                   className="search"
                   type="search"
-                  placeholder="Filter experiment, agent, model, or eval..."
+                  placeholder={t("search.experiments")}
                   autoComplete="off"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                 />
-                <CopyAllErrors rows={filtered} />
+                <CopyAllErrors rows={filtered} t={t} />
               </div>
             </div>
             {rows.length ? (
@@ -152,25 +211,25 @@ function App({ data }) {
                 openRows={openRows}
                 toggleRow={toggleRow}
                 openModal={openModal}
+                t={t}
               />
             ) : (
               <div className="empty">
-                No summary.json files found. Run <code>fasteval</code> or pass{" "}
-                <code>fasteval view path/to/summary.json</code>.
+                {t("empty.summary")}
               </div>
             )}
           </section>
         )}
 
-        {tab === "runs" && <RunsView rows={rows} />}
-        {tab === "traces" && <TracesView rows={rows} />}
+        {tab === "runs" && <RunsView rows={rows} t={t} />}
+        {tab === "traces" && <TracesView rows={rows} t={t} />}
       </main>
-      {modalResult && <AttemptModal result={modalResult} onClose={closeModal} />}
+      {modalResult && <AttemptModal result={modalResult} onClose={closeModal} t={t} />}
     </>
   );
 }
 
-function Metric({ label, value }) {
+function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="metric">
       <div className="label">{label}</div>
@@ -179,22 +238,32 @@ function Metric({ label, value }) {
   );
 }
 
-function GroupSelector({ groupMap, selectedGroup, onSelect }) {
+function GroupSelector({
+  groupMap,
+  selectedGroup,
+  onSelect,
+  t,
+}: {
+  groupMap: Map<string, ViewRow[]>;
+  selectedGroup: string | null;
+  onSelect: (group: string) => void;
+  t: T;
+}) {
   if (!groupMap.size) return <div id="group-selector" className="group-selector" />;
   return (
     <div id="group-selector" className="group-selector">
       {[...groupMap.keys()].sort().map((group) => {
         const groupRows = groupMap.get(group) ?? [];
-        const allResults = groupRows.flatMap((r) => r.results ?? []);
-        const passed = allResults.filter((r) => outcomeOf(r) === "passed").length;
-        const failed = allResults.filter((r) => outcomeOf(r) === "failed").length;
-        const errored = allResults.filter((r) => outcomeOf(r) === "errored").length;
+        const allResults = groupRows.flatMap((r: ViewRow) => r.results ?? []);
+        const passed = allResults.filter((r: ViewResult) => outcomeOf(r) === "passed").length;
+        const failed = allResults.filter((r: ViewResult) => outcomeOf(r) === "failed").length;
+        const errored = allResults.filter((r: ViewResult) => outcomeOf(r) === "errored").length;
         const passRate = allResults.length ? passed / allResults.length : 0;
         const tone = passRate >= 0.8 ? "good" : passRate >= 0.5 ? "warn" : "bad";
-        const totalCost = groupRows.reduce((s, r) => s + (r.estimatedCostUSD || 0), 0);
+        const totalCost = groupRows.reduce((s: number, r: ViewRow) => s + (r.estimatedCostUSD || 0), 0);
         const lastRun = groupRows
-          .map((r) => r.lastRunAt)
-          .filter(Boolean)
+          .map((r: ViewRow) => r.lastRunAt)
+          .filter((value): value is string => Boolean(value))
           .sort()
           .at(-1);
         const selected = selectedGroup === group;
@@ -215,8 +284,8 @@ function GroupSelector({ groupMap, selectedGroup, onSelect }) {
             <div className="group-card-name">{group}</div>
             <div className={`group-card-rate ${tone}`}>{formatPercent(passRate)}</div>
             <div className="group-card-meta">
-              {groupRows.length} experiment{groupRows.length === 1 ? "" : "s"} · {failed} failed
-              {errored ? ` · ${errored} errors` : ""} · {formatCost(totalCost)}
+              {groupRows.length} {groupRows.length === 1 ? t("detail.evalResult") : t("detail.evalResults")} · {failed} {t("outcome.failed")}
+              {errored ? ` · ${errored} ${t("outcome.errored")}` : ""} · {formatCost(totalCost)}
             </div>
             {lastRun ? <div className="group-card-time">{formatDateTime(lastRun)}</div> : null}
           </div>
@@ -226,27 +295,43 @@ function GroupSelector({ groupMap, selectedGroup, onSelect }) {
   );
 }
 
-function ExperimentTable({ rows, sort, setSortKey, openRows, toggleRow, openModal }) {
+function ExperimentTable({
+  rows,
+  sort,
+  setSortKey,
+  openRows,
+  toggleRow,
+  openModal,
+  t,
+}: {
+  rows: ViewRow[];
+  sort: SortState;
+  setSortKey: (key: SortKey) => void;
+  openRows: Set<string>;
+  toggleRow: (key: string) => void;
+  openModal: OpenModal;
+  t: T;
+}) {
   return (
     <div className="table-wrap">
       <table>
         <thead>
           <tr>
-            <SortHeader name="Experiment" sortKey="experiment" sort={sort} onSort={setSortKey} />
-            <SortHeader name="Model" sortKey="model" sort={sort} onSort={setSortKey} />
-            <SortHeader name="Agent" sortKey="agent" sort={sort} onSort={setSortKey} />
-            <SortHeader name="Avg Duration" sortKey="avgDurationMs" sort={sort} onSort={setSortKey} />
-            <SortHeader name="Success Rate" sortKey="passRate" sort={sort} onSort={setSortKey} />
-            <SortHeader name="Tokens" sortKey="tokens" sort={sort} onSort={setSortKey} />
-            <SortHeader name="Est. Cost" sortKey="cost" sort={sort} onSort={setSortKey} />
-            <th>Outcomes</th>
+            <SortHeader name={t("table.experiment")} sortKey="experiment" sort={sort} onSort={setSortKey} />
+            <SortHeader name={t("table.model")} sortKey="model" sort={sort} onSort={setSortKey} />
+            <SortHeader name={t("table.agent")} sortKey="agent" sort={sort} onSort={setSortKey} />
+            <SortHeader name={t("table.avgDuration")} sortKey="avgDurationMs" sort={sort} onSort={setSortKey} />
+            <SortHeader name={t("table.successRate")} sortKey="passRate" sort={sort} onSort={setSortKey} />
+            <SortHeader name={t("table.tokens")} sortKey="tokens" sort={sort} onSort={setSortKey} />
+            <SortHeader name={t("table.estCost")} sortKey="cost" sort={sort} onSort={setSortKey} />
+            <th>{t("table.outcomes")}</th>
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
+          {rows.map((row: ViewRow) => (
             <React.Fragment key={row.key}>
-              <ExperimentRow row={row} open={openRows.has(row.key)} onToggle={() => toggleRow(row.key)} />
-              {openRows.has(row.key) ? <ExperimentDetail row={row} openModal={openModal} /> : null}
+              <ExperimentRow row={row} open={openRows.has(row.key)} onToggle={() => toggleRow(row.key)} t={t} />
+              {openRows.has(row.key) ? <ExperimentDetail row={row} openModal={openModal} t={t} /> : null}
             </React.Fragment>
           ))}
         </tbody>
@@ -255,7 +340,17 @@ function ExperimentTable({ rows, sort, setSortKey, openRows, toggleRow, openModa
   );
 }
 
-function SortHeader({ name, sortKey, sort, onSort }) {
+function SortHeader({
+  name,
+  sortKey,
+  sort,
+  onSort,
+}: {
+  name: string;
+  sortKey: SortKey;
+  sort: SortState;
+  onSort: (key: SortKey) => void;
+}) {
   const sorted = sort.key === sortKey ? (sort.dir === 1 ? "asc" : "desc") : undefined;
   return (
     <th>
@@ -266,7 +361,7 @@ function SortHeader({ name, sortKey, sort, onSort }) {
   );
 }
 
-function ExperimentRow({ row, open, onToggle }) {
+function ExperimentRow({ row, open, onToggle, t }: { row: ViewRow; open: boolean; onToggle: () => void; t: T }) {
   const tone = row.passRate >= 0.8 ? "good" : row.passRate >= 0.5 ? "warn" : "bad";
   return (
     <tr
@@ -284,28 +379,28 @@ function ExperimentRow({ row, open, onToggle }) {
         <ChevronRight className="chev-icon" aria-hidden="true" />
         <span className="name">{row.label}</span>
         <div className="sub">
-          {row.runs} eval result{row.runs === 1 ? "" : "s"}
+          {row.runs} {row.runs === 1 ? t("detail.evalResult") : t("detail.evalResults")}
           {row.lastRunAt ? ` · ${formatDateTime(row.lastRunAt)}` : ""}
         </div>
       </td>
-      <td>{row.model || "default"}</td>
+      <td>{row.model || t("config.default")}</td>
       <td>{row.agent}</td>
       <td className="num">{formatDuration(row.avgDurationMs)}</td>
       <td className={`num ${tone}`}>{formatPercent(row.passRate)}</td>
       <td className="num">{formatTokens(totalTokens(row.usage))}</td>
       <td className="num">{formatCost(row.estimatedCostUSD)}</td>
       <td>
-        <span className="pill">{outcomeSummary(row)}</span>
+        <span className="pill">{outcomeSummary(row, t)}</span>
       </td>
     </tr>
   );
 }
 
-function ExperimentDetail({ row, openModal }) {
-  const totalDuration = (row.results ?? []).reduce((sum, r) => sum + (r.durationMs || 0), 0);
+function ExperimentDetail({ row, openModal, t }: { row: ViewRow; openModal: OpenModal; t: T }) {
+  const totalDuration = (row.results ?? []).reduce((sum: number, r: ViewResult) => sum + (r.durationMs || 0), 0);
   const sampleResult =
-    row.results?.find((r) => outcomeOf(r) === "errored") ||
-    row.results?.find((r) => outcomeOf(r) === "failed") ||
+    row.results?.find((r: ViewResult) => outcomeOf(r) === "errored") ||
+    row.results?.find((r: ViewResult) => outcomeOf(r) === "failed") ||
     row.results?.[0] ||
     {};
   const results = [...(row.results ?? [])].sort((a, b) => a.id.localeCompare(b.id) || a.attempt - b.attempt);
@@ -314,7 +409,7 @@ function ExperimentDetail({ row, openModal }) {
       <td className="detail-cell" colSpan={8}>
         <div className="detail">
           <div className="config-strip">
-            {configChips(row).map(([label, value]) => (
+            {configChips(row, t).map(([label, value]) => (
               <span className="config-chip" key={label}>
                 <span>{label}</span>
                 <b>{value}</b>
@@ -322,32 +417,32 @@ function ExperimentDetail({ row, openModal }) {
             ))}
           </div>
           <div className="detail-kpis">
-            <Kpi label="Attempts" value={row.runs} />
-            <Kpi label="Passed" value={row.passed} className="good" />
-            <Kpi label="Failed" value={row.failed} className={row.failed ? "bad" : ""} />
-            <Kpi label="Errored" value={row.errored} className={row.errored ? "infra-err" : ""} />
-            <Kpi label="Total Time" value={formatDuration(totalDuration)} />
-            <Kpi label="Total Cost" value={formatCost(row.estimatedCostUSD)} />
-            <Kpi label="Ran" value={formatDateTime(row.lastRunAt)} title={row.lastRunAt || ""} />
+            <Kpi label={t("detail.attempts")} value={row.runs} />
+            <Kpi label={t("detail.passed")} value={row.passed} className="good" />
+            <Kpi label={t("detail.failed")} value={row.failed} className={row.failed ? "bad" : ""} />
+            <Kpi label={t("detail.errored")} value={row.errored} className={row.errored ? "infra-err" : ""} />
+            <Kpi label={t("detail.totalTime")} value={formatDuration(totalDuration)} />
+            <Kpi label={t("detail.totalCost")} value={formatCost(row.estimatedCostUSD)} />
+            <Kpi label={t("detail.ran")} value={formatDateTime(row.lastRunAt)} title={row.lastRunAt || ""} />
           </div>
-          <h3>Evaluation Attempts</h3>
+          <h3>{t("detail.evaluationAttempts")}</h3>
           <div className="eval-list">
             <div className="eval-grid-head">
-              <span>Status</span>
-              <span>Eval</span>
-              <span>Reason</span>
-              <span>Time</span>
-              <span>Tokens</span>
-              <span>Cost</span>
-              <span>Run</span>
+              <span>{t("detail.status")}</span>
+              <span>{t("detail.eval")}</span>
+              <span>{t("detail.reason")}</span>
+              <span>{t("detail.time")}</span>
+              <span>{t("table.tokens")}</span>
+              <span>{t("table.estCost")}</span>
+              <span>{t("detail.run")}</span>
             </div>
             {results.map((result) => (
-              <Attempt key={`${result.id}-${result.attempt}`} result={result} totalRuns={row.runs} openModal={openModal} />
+              <Attempt key={`${result.id}-${result.attempt}`} result={result} totalRuns={row.runs} openModal={openModal} t={t} />
             ))}
           </div>
           <details className="raw-details">
             <summary>
-              Raw sample result <span className="raw-note">debug JSON, defaults to first error/failure when available</span>
+              {t("detail.rawSample")} <span className="raw-note">{t("detail.rawNote")}</span>
             </summary>
             <pre>{JSON.stringify(sampleResult, null, 2)}</pre>
           </details>
@@ -357,7 +452,7 @@ function ExperimentDetail({ row, openModal }) {
   );
 }
 
-function Kpi({ label, value, className = "", title }) {
+function Kpi({ label, value, className = "", title }: { label: string; value: ReactNode; className?: string; title?: string }) {
   return (
     <div className="detail-kpi">
       <span>{label}</span>
@@ -368,30 +463,30 @@ function Kpi({ label, value, className = "", title }) {
   );
 }
 
-function Attempt({ result, totalRuns, openModal }) {
+function Attempt({ result, totalRuns, openModal, t }: { result: ViewResult; totalRuns: number; openModal: OpenModal; t: T }) {
   const outcome = outcomeOf(result);
   const gates = failingAssertions(result);
   const reason = reasonFor(result, gates);
   const allAssertions = result.assertions || [];
-  const hasScores = allAssertions.some((a) => a.score !== undefined && a.score !== null);
+  const hasScores = allAssertions.some((a: Assertion) => a.score !== undefined && a.score !== null);
   const hasBody = result.hasEvents || result.hasTrace || hasScores;
 
   const inlineScores = !reason && outcome === "passed" ? scoresSummary(allAssertions) : "";
   const displayReason = reason || inlineScores;
 
-  const handleOpen = hasBody ? () => openModal(result) : null;
+  const handleOpen = () => openModal(result);
 
   const cells = (
     <>
       <span className="attempt-status">
-        <span className={outcomeClass(outcome)}>{outcomeLabel(outcome)}</span>
+        <span className={outcomeClass(outcome)}>{outcomeLabel(outcome, t)}</span>
       </span>
       <span className="eval-id">{result.id}</span>
       <div className="assertions-cell">
         <span
           className={`assertions${hasBody ? " assertions-link" : ""}`}
           title={displayReason || undefined}
-          onClick={handleOpen ? (e) => { e.stopPropagation(); handleOpen(); } : undefined}
+          onClick={hasBody ? (e) => { e.stopPropagation(); handleOpen(); } : undefined}
         >
           {displayReason || <span className="reason-empty">—</span>}
         </span>
@@ -427,89 +522,13 @@ function Attempt({ result, totalRuns, openModal }) {
   );
 }
 
-function buildTurns(events) {
-  const turns = [];
-  let userText = null;
-  let replies = [];
-  for (const ev of events) {
-    if (ev.type === "message" && ev.role === "user") {
-      if (userText !== null) turns.push({ user: userText, replies });
-      userText = ev.text || "";
-      replies = [];
-    } else if (ev.type === "message" && ev.role === "assistant") {
-      replies.push({ kind: "text", text: ev.text || "" });
-    } else if (ev.type === "thinking") {
-      replies.push({ kind: "thinking", text: ev.text || "" });
-    } else if (ev.type === "action.called") {
-      replies.push({ kind: "tool", ev });
-    }
-  }
-  if (userText !== null) turns.push({ user: userText, replies });
-  return turns;
-}
-
-function ConversationTurns({ src }) {
-  const [turns, setTurns] = useState(null);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    fetch("/artifact?p=" + encodeURIComponent(src))
-      .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
-      .then((events) => setTurns(buildTurns(events)))
-      .catch((e) => setError(String(e)));
-  }, [src]);
-
-  if (error) return <div className="conv-error">{error}</div>;
-  if (!turns) return <div className="conv-loading">loading…</div>;
-  if (!turns.length) return null;
-
-  return (
-    <div className="conv-turns">
-      {turns.map((turn, i) => (
-        <details key={i} className="conv-turn">
-          <summary className="conv-user">
-            <span className="conv-label">user</span>
-            <span className="conv-text">{truncate(turn.user, 200)}</span>
-          </summary>
-          <div className="conv-replies">
-            {turn.replies.map((r, j) => {
-              if (r.kind === "text") return (
-                <div key={j} className="conv-assistant">
-                  <span className="conv-label">assistant</span>
-                  <span className="conv-text">{r.text}</span>
-                </div>
-              );
-              if (r.kind === "thinking") return (
-                <details key={j} className="conv-think">
-                  <summary>thinking</summary>
-                  <div className="conv-think-text">{r.text}</div>
-                </details>
-              );
-              if (r.kind === "tool") {
-                const verb = TOOL_VERB[r.ev.tool] || r.ev.name || r.ev.tool || "tool";
-                const arg = toolPrimaryArg(r.ev);
-                return (
-                  <div key={j} className="conv-tool">
-                    <span className="conv-tool-name">{arg ? `${verb}(${truncate(arg, 60)})` : verb}</span>
-                  </div>
-                );
-              }
-              return null;
-            })}
-          </div>
-        </details>
-      ))}
-    </div>
-  );
-}
-
-function AttemptModal({ result, onClose }) {
+function AttemptModal({ result, onClose, t }: { result: ViewResult; onClose: () => void; t: T }) {
   const allAssertions = result.assertions || [];
   const base = result.artifactBase;
-  const [data, setData] = useState({ sources: null, events: null, status: "loading" });
+  const [data, setData] = useState<ArtifactLoadState>({ sources: null, events: null, status: "loading" });
 
   useEffect(() => {
-    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
@@ -517,41 +536,41 @@ function AttemptModal({ result, onClose }) {
   useEffect(() => {
     if (!base) { setData({ sources: null, events: null, status: "none" }); return; }
     let alive = true;
-    const grab = (name, has) =>
+    const grab = (name: string, has?: boolean): Promise<unknown> =>
       has
         ? fetch("/artifact?p=" + encodeURIComponent(`${base}/${name}`))
             .then((r) => (r.ok ? r.json() : null))
             .catch(() => null)
         : Promise.resolve(null);
-    Promise.all([grab("sources.json", result.hasSources), grab("events.json", result.hasEvents)]).then(
-      ([sources, events]) => { if (alive) setData({ sources, events, status: "ready" }); },
-    );
+    Promise.all([grab("sources.json", result.hasSources), grab("events.json", result.hasEvents)]).then(([sources, events]) => {
+      if (alive) setData({ sources: asSources(sources), events: asEvents(events), status: "ready" });
+    });
     return () => { alive = false; };
   }, [base, result.hasSources, result.hasEvents]);
 
   const outcome = outcomeOf(result);
-  const hasCode = data.sources && data.sources.length;
+  const hasCode = Boolean(data.sources?.length);
 
   return createPortal(
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <div className="modal-title-block">
-            <span className={`modal-outcome ${outcomeClass(outcome)}`}>{outcomeLabel(outcome)}</span>
+            <span className={`modal-outcome ${outcomeClass(outcome)}`}>{outcomeLabel(outcome, t)}</span>
             <span className="modal-title">{result.id}</span>
             {result.description ? <span className="modal-desc">{result.description}</span> : null}
           </div>
-          <button className="modal-close" onClick={onClose} aria-label="Close">✕</button>
+          <button className="modal-close" onClick={onClose} aria-label={t("action.close")}>x</button>
         </div>
         <div className="modal-body">
           {result.error ? <div className="modal-error">{result.error}</div> : null}
-          {data.status === "loading" ? <div className="conv-loading">loading…</div> : null}
+          {data.status === "loading" ? <div className="conv-loading">{t("trace.loading")}</div> : null}
           {hasCode ? (
-            <CodeView sources={data.sources} events={data.events || []} assertions={allAssertions} />
+            <CodeView sources={data.sources ?? []} events={data.events || []} assertions={allAssertions} t={t} />
           ) : data.status !== "loading" ? (
-            <FallbackBody result={result} assertions={allAssertions} />
+            <NoSourceBody assertions={allAssertions} events={data.events || []} t={t} />
           ) : null}
-          {result.hasTrace && base ? <LazyArtifact type="trace" src={`${base}/trace.json`} /> : null}
+          {result.hasTrace && base ? <LazyArtifact type="trace" src={`${base}/trace.json`} t={t} /> : null}
         </div>
       </div>
     </div>,
@@ -563,15 +582,15 @@ function AttemptModal({ result, onClose }) {
 // 拿 sources.json(eval 源码)+ events.json(带 loc 的 send),把每条 send / 断言的运行结果
 // 叠回真实源码行:send 行折叠→展开看回复;断言行绿(过)/红(不过),judge 行带分数,展开看 CoT。
 
-function locKey(file, line) {
+function locKey(file: string, line: number): string {
   return `${file}:${line}`;
 }
 
 /** events → 按 send 的 loc 聚成「轮」:每轮含 sent 文本 + 后续 thinking/assistant/tool 回复。 */
-function indexTurns(events) {
-  const byKey = new Map();
-  const noloc = [];
-  let cur = null;
+function indexTurns(events: TranscriptEvent[]): IndexedTurns {
+  const byKey = new Map<string, SourceTurn>();
+  const noloc: SourceTurn[] = [];
+  let cur: SourceTurn | null = null;
   for (const ev of events || []) {
     if (ev.type === "message" && ev.role === "user") {
       cur = { loc: ev.loc, sent: ev.text || "", replies: [] };
@@ -586,7 +605,9 @@ function indexTurns(events) {
     } else if (ev.type === "action.called") {
       cur.replies.push({ kind: "tool", ev });
     } else if (ev.type === "action.result") {
-      const tool = [...cur.replies].reverse().find((r) => r.kind === "tool" && r.ev.callId === ev.callId);
+      const tool = [...cur.replies].reverse().find(
+        (r): r is Extract<SourceTurn["replies"][number], { kind: "tool" }> => r.kind === "tool" && r.ev.callId === ev.callId,
+      );
       if (tool) tool.result = ev;
     } else if (ev.type === "error") {
       cur.replies.push({ kind: "error", text: ev.message || "error" });
@@ -596,14 +617,14 @@ function indexTurns(events) {
 }
 
 /** assertions → 按 loc 聚到行。有 loc 的进 byKey,没 loc 的进 noloc(底部兜底列)。 */
-function indexAsserts(assertions) {
-  const byKey = new Map();
-  const noloc = [];
+function indexAsserts(assertions: Assertion[]): Indexed<Assertion> {
+  const byKey = new Map<string, Assertion[]>();
+  const noloc: Assertion[] = [];
   for (const a of assertions || []) {
     if (a.loc) {
       const k = locKey(a.loc.file, a.loc.line);
       if (!byKey.has(k)) byKey.set(k, []);
-      byKey.get(k).push(a);
+      byKey.get(k)?.push(a);
     } else {
       noloc.push(a);
     }
@@ -611,11 +632,11 @@ function indexAsserts(assertions) {
   return { byKey, noloc };
 }
 
-function CodeView({ sources, events, assertions }) {
+function CodeView({ sources, events, assertions, t }: { sources: CodeSource[]; events: TranscriptEvent[]; assertions: Assertion[]; t: T }) {
   const turns = useMemo(() => indexTurns(events), [events]);
   const asserts = useMemo(() => indexAsserts(assertions), [assertions]);
-  const [open, setOpen] = useState(() => new Set());
-  const toggle = useCallback((k) => {
+  const [open, setOpen] = useState<Set<string>>(() => new Set());
+  const toggle = useCallback((k: string) => {
     setOpen((prev) => {
       const next = new Set(prev);
       if (next.has(k)) next.delete(k); else next.add(k);
@@ -624,7 +645,7 @@ function CodeView({ sources, events, assertions }) {
   }, []);
 
   // 哪些 loc 被源码行覆盖到了;没覆盖到的(读不到源码的文件)放底部兜底。
-  const sourceKeys = new Set();
+  const sourceKeys = new Set<string>();
   for (const f of sources) {
     const n = f.content.split("\n").length;
     for (let i = 1; i <= n; i++) sourceKeys.add(locKey(f.path, i));
@@ -644,25 +665,40 @@ function CodeView({ sources, events, assertions }) {
           asserts={asserts.byKey}
           open={open}
           toggle={toggle}
+          t={t}
         />
       ))}
       {orphanAsserts.length ? (
         <div className="code-orphans">
-          <div className="code-orphans-head">other assertions</div>
-          <AssertDetail asserts={orphanAsserts} />
+          <div className="code-orphans-head">{t("code.otherAssertions")}</div>
+          <AssertDetail asserts={orphanAsserts} t={t} />
         </div>
       ) : null}
     </div>
   );
 }
 
-function CodeFile({ file, turns, asserts, open, toggle }) {
+function CodeFile({
+  file,
+  turns,
+  asserts,
+  open,
+  toggle,
+  t,
+}: {
+  file: CodeSource;
+  turns: Map<string, SourceTurn>;
+  asserts: Map<string, Assertion[]>;
+  open: Set<string>;
+  toggle: (key: string) => void;
+  t: T;
+}) {
   const lines = file.content.replace(/\n$/, "").split("\n");
   return (
     <div className="code-file">
       <div className="code-file-head">{file.path}</div>
       <div className="code-lines">
-        {lines.map((text, i) => {
+        {lines.map((text: string, i: number) => {
           const n = i + 1;
           const k = locKey(file.path, n);
           return (
@@ -674,6 +710,7 @@ function CodeFile({ file, turns, asserts, open, toggle }) {
               asserts={asserts.get(k)}
               isOpen={open.has(k)}
               onToggle={() => toggle(k)}
+              t={t}
             />
           );
         })}
@@ -682,10 +719,26 @@ function CodeFile({ file, turns, asserts, open, toggle }) {
   );
 }
 
-function CodeLine({ n, text, turn, asserts, isOpen, onToggle }) {
+function CodeLine({
+  n,
+  text,
+  turn,
+  asserts,
+  isOpen,
+  onToggle,
+  t,
+}: {
+  n: number;
+  text: string;
+  turn?: SourceTurn;
+  asserts?: Assertion[];
+  isOpen: boolean;
+  onToggle: () => void;
+  t: T;
+}) {
   const hasReply = !!turn;
   const hasAsserts = !!(asserts && asserts.length);
-  const status = hasAsserts ? (asserts.every((a) => a.passed) ? "pass" : "fail") : null;
+  const status = hasAsserts ? (asserts?.every((a: Assertion) => a.passed) ? "pass" : "fail") : null;
   const clickable = hasReply || hasAsserts;
   const rowCls =
     "code-line" +
@@ -712,51 +765,55 @@ function CodeLine({ n, text, turn, asserts, isOpen, onToggle }) {
         </span>
         <code className="ctext">{highlightTs(text)}</code>
         <span className="lbadges">
-          {hasAsserts ? asserts.map((a, i) => <AssertBadge key={i} a={a} />) : null}
-          {hasReply ? <span className="reply-hint">{isOpen ? "hide" : "reply"}</span> : null}
+          {hasAsserts ? asserts?.map((a: Assertion, i: number) => <AssertBadge key={i} a={a} />) : null}
+          {hasReply ? (
+            <span className="reply-hint">{isOpen ? t("code.hide") : t("code.reply")}</span>
+          ) : clickable ? (
+            <ChevronRight className={`line-chev${isOpen ? " is-open" : ""}`} aria-hidden="true" />
+          ) : null}
         </span>
       </div>
-      {isOpen && hasReply ? <ReplyPanel turn={turn} /> : null}
-      {isOpen && hasAsserts ? <AssertDetail asserts={asserts} /> : null}
+      {isOpen && hasReply && turn ? <ReplyPanel turn={turn} t={t} /> : null}
+      {isOpen && hasAsserts && asserts ? <AssertDetail asserts={asserts} t={t} /> : null}
     </>
   );
 }
 
 /** 行尾分数徽章:judge / 带阈值的断言显示分数(过绿不过红);纯 gate 断言靠行色 + gutter 勾叉。 */
-function AssertBadge({ a }) {
+function AssertBadge({ a }: { a: Assertion }) {
   const showPct = a.threshold !== undefined || (a.score > 0 && a.score < 1);
   if (!showPct) return null;
   return (
     <span className={`abadge ${a.passed ? "good" : "bad"}`}>
-      {formatPercent(a.score)}
-      {a.threshold !== undefined ? <span className="abadge-th">/{formatPercent(a.threshold)}</span> : null}
+      {formatScore(a.score)}
+      {a.threshold !== undefined ? <span className="abadge-th">/{formatScore(a.threshold)}</span> : null}
     </span>
   );
 }
 
-function ReplyPanel({ turn }) {
-  if (!turn.replies.length) return <div className="line-detail reply-empty">(no reply)</div>;
+function ReplyPanel({ turn, t }: { turn: SourceTurn; t: T }) {
+  if (!turn.replies.length) return <div className="line-detail reply-empty">{t("code.noReply")}</div>;
   return (
     <div className="line-detail reply-panel">
       {turn.replies.map((r, j) => {
         if (r.kind === "text")
           return (
             <div key={j} className="reply-assistant">
-              <span className="reply-role">assistant</span>
+              <span className="reply-role">{t("transcript.assistant")}</span>
               <div className="reply-text">{r.text}</div>
             </div>
           );
         if (r.kind === "thinking")
           return (
             <details key={j} className="reply-think">
-              <summary>thinking</summary>
+              <summary>{t("transcript.thinking")}</summary>
               <div className="reply-think-text">{r.text}</div>
             </details>
           );
         if (r.kind === "error")
           return <div key={j} className="reply-err">! {r.text}</div>;
         if (r.kind === "tool") {
-          const verb = TOOL_VERB[r.ev.tool] || r.ev.name || r.ev.tool || "tool";
+          const verb = (r.ev.tool ? TOOL_VERB[r.ev.tool] : undefined) || r.ev.name || r.ev.tool || "tool";
           const arg = toolPrimaryArg(r.ev);
           const out = r.result ? resultBody(r.result.output) : "";
           return (
@@ -772,17 +829,17 @@ function ReplyPanel({ turn }) {
   );
 }
 
-function AssertDetail({ asserts }) {
+function AssertDetail({ asserts, t }: { asserts: Assertion[]; t: T }) {
   return (
     <div className="line-detail assert-detail">
-      {asserts.map((a, i) => (
+      {asserts.map((a: Assertion, i: number) => (
         <div key={i} className="assert-row">
-          <span className={`abadge ${a.passed ? "good" : "bad"}`}>{a.passed ? "pass" : "fail"}</span>
+          <span className={`abadge ${a.passed ? "good" : "bad"}`}>{a.passed ? t("assert.pass") : t("assert.fail")}</span>
           <span className="assert-name">{a.name}</span>
-          {a.severity === "soft" ? <span className="assert-sev">soft</span> : null}
+          {a.severity === "soft" ? <span className="assert-sev">{t("assert.soft")}</span> : null}
           {a.threshold !== undefined ? (
             <span className="assert-score">
-              {formatPercent(a.score)} / {formatPercent(a.threshold)}
+              {formatScore(a.score)} / {formatScore(a.threshold)}
             </span>
           ) : null}
           {a.detail ? <div className="assert-reason">{a.detail}</div> : null}
@@ -796,11 +853,11 @@ const TS_HL_RE =
   /(\/\/[^\n]*)|(\/\*[^]*?\*\/)|(`(?:\\.|[^`\\])*`|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|\b(import|from|export|default|const|let|var|async|await|function|return|if|else|for|of|in|new|class|extends|typeof|void|true|false|null|undefined)\b|\b(\d[\d_.]*)\b|([A-Za-z_$][\w$]*)(?=\s*\()/g;
 
 /** 轻量 TS 着色(逐行,零依赖):注释 / 字符串 / 关键字 / 数字 / 函数名。 */
-function highlightTs(line) {
-  const out = [];
+function highlightTs(line: string): ReactNode[] {
+  const out: ReactNode[] = [];
   let last = 0;
   let i = 0;
-  let m;
+  let m: RegExpExecArray | null;
   TS_HL_RE.lastIndex = 0;
   while ((m = TS_HL_RE.exec(line))) {
     if (m.index > last) out.push(line.slice(last, m.index));
@@ -813,87 +870,36 @@ function highlightTs(line) {
   return out;
 }
 
-/** 没源码可叠时的兜底:断言清单 + 会话流(老视图)。 */
-function FallbackBody({ result, assertions }) {
-  const hasScores = (assertions || []).some((a) => a.score !== undefined && a.score !== null);
+/**
+ * 没源码可叠时(此 run 早于 source-loc,或源码不可读:远程沙箱等)。不退回老的分组视图——
+ * 用代码视图同一套视觉语言:一句说明 + checks(绿过/红不过)+ 原始会话流。重跑即可看到代码视图。
+ */
+function NoSourceBody({ assertions, events, t }: { assertions: Assertion[]; events: TranscriptEvent[]; t: T }) {
+  const checks = assertions || [];
   return (
-    <>
-      {hasScores ? <AssertionScores assertions={assertions} /> : null}
-      {result.hasEvents && result.artifactBase ? (
-        <ConversationTurns src={`${result.artifactBase}/events.json`} />
-      ) : null}
-    </>
-  );
-}
-
-function AssertionScores({ assertions }) {
-  const all = (assertions || []).filter((a) => a.score !== undefined && a.score !== null);
-  if (!all.length) return null;
-
-  // 按代码顺序分组，保留首次出现顺序
-  const groups = [];
-  const seen = new Map();
-  for (const a of all) {
-    const key = a.group ?? "\0ungrouped";
-    if (!seen.has(key)) {
-      seen.set(key, []);
-      groups.push({ key, label: a.group ?? null, items: seen.get(key) });
-    }
-    seen.get(key).push(a);
-  }
-
-  const renderRow = (a, i) => {
-    // 状态只有 pass / fail(绿 / 红);soft / gate 是严重级,作为弱化标签单列,不当状态词。
-    const cls = a.passed ? "good" : "bad";
-    const inner = (
-      <>
-        <span className={`al-score ${cls}`}>
-          {formatPercent(a.score)}
-          {a.threshold !== undefined ? <span className="al-threshold">/{formatPercent(a.threshold)}</span> : null}
-        </span>
-        <span className="al-name">{a.name}</span>
-        {a.severity === "soft" ? <span className="al-sev">soft</span> : null}
-        <span className={`al-badge al-badge-${cls}`}>{a.passed ? "pass" : "fail"}</span>
-      </>
-    );
-    return a.detail ? (
-      <details key={i} className="al-row al-row-detail">
-        <summary className="al-row-inner">{inner}</summary>
-        <pre className="al-detail">{a.detail}</pre>
-      </details>
-    ) : (
-      <div key={i} className="al-row">
-        <div className="al-row-inner">{inner}</div>
+    <div className="nosource">
+      <div className="nosource-note">
+        {t("code.noSource")}
       </div>
-    );
-  };
-
-  return (
-    <div className="assertion-list">
-      {groups.map(({ key, label, items }) =>
-        label ? (
-          <details key={key} className="al-group-block">
-            <summary className="al-group-header">
-              {label}
-              {(() => {
-                const allPass = items.every((a) => a.passed);
-                const cls = allPass ? "good" : "bad";
-                return <span className={`al-badge al-badge-${cls} al-group-badge`}>{allPass ? "pass" : "fail"}</span>;
-              })()}
-            </summary>
-            {items.map(renderRow)}
-          </details>
-        ) : (
-          <React.Fragment key={key}>{items.map(renderRow)}</React.Fragment>
-        )
-      )}
+      {checks.length ? (
+        <div className="nosource-block">
+          <div className="nosource-head">{t("code.checks")}</div>
+          <AssertDetail asserts={checks} t={t} />
+        </div>
+      ) : null}
+      {events?.length ? (
+        <div className="nosource-block">
+          <div className="nosource-head">{t("code.conversation")}</div>
+          <Transcript events={events} t={t} />
+        </div>
+      ) : null}
     </div>
   );
 }
 
-function CopyReason({ text }) {
+function CopyReason({ text, t }: { text: string; t: T }) {
   const [copied, setCopied] = useState(false);
-  const copy = async (event) => {
+  const copy = async (event: React.MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
     try {
       await copyText(text);
@@ -904,22 +910,22 @@ function CopyReason({ text }) {
     }
   };
   return (
-    <button className={`copy-reason${copied ? " is-copied" : ""}`} onClick={copy} aria-label="Copy reason" title="Copy reason">
+    <button className={`copy-reason${copied ? " is-copied" : ""}`} onClick={copy} aria-label={t("action.copyReason")} title={t("action.copyReason")}>
       {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
     </button>
   );
 }
 
-function CopyAllErrors({ rows }) {
+function CopyAllErrors({ rows, t }: { rows: ViewRow[]; t: T }) {
   const [copied, setCopied] = useState(false);
 
-  const errorEntries = rows.flatMap((row) =>
+  const errorEntries = rows.flatMap((row: ViewRow) =>
     (row.results ?? [])
-      .filter((r) => {
+      .filter((r: ViewResult) => {
         const outcome = outcomeOf(r);
         return outcome === "failed" || outcome === "errored";
       })
-      .map((r) => {
+      .map((r: ViewResult) => {
         const failedAssertions = failingAssertions(r);
         const reason = reasonFor(r, failedAssertions);
         const traceBase = r.artifactAbsBase || r.artifactBase;
@@ -930,10 +936,10 @@ function CopyAllErrors({ rows }) {
 
   if (!errorEntries.length) return null;
 
-  const copy = async (event) => {
+  const copy = async (event: React.MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
     const text = errorEntries
-      .map(({ experimentName, evalId, reason, tracePath }) =>
+      .map(({ experimentName, evalId, reason, tracePath }: { experimentName: string; evalId: string; reason: string; tracePath: string | null }) =>
         [
           `实验: ${experimentName}  Eval: ${evalId}`,
           reason ? `错误: ${reason}` : null,
@@ -953,17 +959,17 @@ function CopyAllErrors({ rows }) {
   };
 
   return (
-    <button className={`copy-all-errors${copied ? " is-copied" : ""}`} onClick={copy} title="复制所有失败/报错的 eval 信息">
+    <button className={`copy-all-errors${copied ? " is-copied" : ""}`} onClick={copy} title={t("action.copyErrors")}>
       {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
-      <span>{copied ? "已复制" : `复制错误 (${errorEntries.length})`}</span>
+      <span>{copied ? t("action.copied") : `${t("action.copyErrors")} (${errorEntries.length})`}</span>
     </button>
   );
 }
 
-function LazyArtifact({ type, src, autoLoad = false }) {
+function LazyArtifact({ type, src, autoLoad = false, t }: { type: LazyArtifactType; src: string; autoLoad?: boolean; t: T }) {
   const [open, setOpen] = useState(autoLoad);
   const [loaded, setLoaded] = useState(false);
-  const [content, setContent] = useState(null);
+  const [content, setContent] = useState<unknown>(null);
   const [error, setError] = useState("");
 
   const load = async () => {
@@ -972,11 +978,12 @@ function LazyArtifact({ type, src, autoLoad = false }) {
     try {
       const resp = await fetch("/artifact?p=" + encodeURIComponent(src));
       if (!resp.ok) throw new Error("HTTP " + resp.status);
-      setContent(await resp.json());
+      const body = await resp.json();
+      setContent(body);
       setError("");
     } catch (e) {
       setLoaded(false);
-      setError(`load failed (static report has no server - use fasteval view): ${String(e)}`);
+      setError(`${t("trace.loadFailed")} ${String(e)}`);
     }
   };
 
@@ -994,29 +1001,31 @@ function LazyArtifact({ type, src, autoLoad = false }) {
         if (isOpen) void load();
       }}
     >
-      <summary>{type === "transcript" ? "transcript" : "timing trace"}</summary>
+      <summary>{type === "transcript" ? t("trace.transcript") : t("trace.timing")}</summary>
       <div className="trace-slot">
-        {error ? <div className="trace-span-meta">{error}</div> : !content ? <div className="trace-span-meta">loading...</div> : null}
-        {content && type === "transcript" ? <Transcript events={content} /> : null}
-        {content && type === "trace" ? <Trace spans={content} /> : null}
+        {error ? <div className="trace-span-meta">{error}</div> : !content ? <div className="trace-span-meta">{t("trace.loading")}</div> : null}
+        {content && type === "transcript" ? <Transcript events={asEvents(content) ?? []} t={t} /> : null}
+        {content && type === "trace" ? <Trace spans={asSpans(content) ?? []} t={t} /> : null}
       </div>
     </details>
   );
 }
 
-function Trace({ spans }) {
-  if (!spans?.length) return <div className="trace-span-meta">no spans</div>;
+function Trace({ spans, t }: { spans: Span[]; t: T }) {
+  if (!spans?.length) return <div className="trace-span-meta">{t("trace.noSpans")}</div>;
   const t0 = Math.min(...spans.map((s) => s.startMs));
   const t1 = Math.max(...spans.map((s) => s.endMs));
   const total = Math.max(1, t1 - t0);
   const byId = new Map(spans.map((s) => [s.spanId, s]));
-  const depthOf = (span) => {
+  const depthOf = (span: Span): number => {
     let depth = 0;
     let cur = span;
     const seen = new Set();
     while (cur && cur.parentSpanId && byId.has(cur.parentSpanId) && !seen.has(cur.spanId)) {
       seen.add(cur.spanId);
-      cur = byId.get(cur.parentSpanId);
+      const next = byId.get(cur.parentSpanId);
+      if (!next) break;
+      cur = next;
       depth++;
       if (depth > 40) break;
     }
@@ -1026,7 +1035,7 @@ function Trace({ spans }) {
   return (
     <div className="trace">
       <div className="trace-span-meta">
-        total {formatDuration(total)} · {spans.length} spans · click a row for details
+        {t("trace.total")} {formatDuration(total)} · {spans.length} {t("trace.spans")} · {t("trace.clickDetails")}
       </div>
       {ordered.map((span) => {
         const left = ((span.startMs - t0) / total) * 100;
@@ -1061,7 +1070,7 @@ function Trace({ spans }) {
   );
 }
 
-function spanAttrs(attrs) {
+function spanAttrs(attrs?: Record<string, ViewJson>): ReactNode {
   if (!attrs) return null;
   const hide = /^(code\.|thread\.|target$|busy_ns$|idle_ns$|rpc\.|app_server\.)/;
   const keys = Object.keys(attrs).filter((k) => !hide.test(k));
@@ -1089,7 +1098,7 @@ function spanAttrs(attrs) {
   );
 }
 
-function AttrRow({ label, value }) {
+function AttrRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="attr-row">
       <span className="attr-k">{label}</span>
@@ -1098,7 +1107,7 @@ function AttrRow({ label, value }) {
   );
 }
 
-const TOOL_VERB = {
+const TOOL_VERB: Record<string, string> = {
   file_read: "Read",
   file_write: "Write",
   file_edit: "Edit",
@@ -1111,25 +1120,25 @@ const TOOL_VERB = {
   agent_task: "Task",
 };
 
-function Transcript({ events }) {
-  if (!Array.isArray(events) || !events.length) return <div className="trace-span-meta">no events</div>;
-  const resultByCall = new Map();
+function Transcript({ events, t }: { events: TranscriptEvent[]; t: T }) {
+  if (!Array.isArray(events) || !events.length) return <div className="trace-span-meta">{t("transcript.noEvents")}</div>;
+  const resultByCall = new Map<string, ToolResultEvent>();
   for (const event of events) {
     if (event.type === "action.result" || event.type === "subagent.completed") resultByCall.set(event.callId, event);
   }
-  const pairedResult = new Set();
+  const pairedResult = new Set<string>();
   return (
     <div className="transcript">
       {events.map((event, index) => {
         switch (event.type) {
           case "message":
-            return <MessageBlock event={event} key={index} />;
+            return <MessageBlock event={event} t={t} key={index} />;
           case "thinking":
-            return <ThinkBlock event={event} key={index} />;
+            return <ThinkBlock event={event} t={t} key={index} />;
           case "action.called": {
             const result = resultByCall.get(event.callId);
             if (result) pairedResult.add(event.callId);
-            return <ToolBlock call={event} result={result} key={index} />;
+            return <ToolBlock call={event} result={result} t={t} key={index} />;
           }
           case "subagent.called": {
             const result = resultByCall.get(event.callId);
@@ -1138,6 +1147,7 @@ function Transcript({ events }) {
               <ToolBlock
                 call={{ tool: "agent_task", name: event.name, input: { description: event.name, ...(event.remoteUrl ? { remoteUrl: event.remoteUrl } : {}) } }}
                 result={result}
+                t={t}
                 key={index}
               />
             );
@@ -1145,14 +1155,14 @@ function Transcript({ events }) {
           case "action.result":
           case "subagent.completed":
             return pairedResult.has(event.callId) ? null : (
-              <ToolBlock call={{ tool: "unknown", name: "result", input: null }} result={event} key={index} />
+              <ToolBlock call={{ tool: "unknown", name: "result", input: null }} result={event} t={t} key={index} />
             );
           case "input.requested":
-            return <InputBlock event={event} key={index} />;
+            return <InputBlock event={event} t={t} key={index} />;
           case "compaction":
             return (
               <div className="ts-compaction" key={index}>
-                context compacted{event.reason ? " · " + event.reason : ""}
+                {t("transcript.contextCompacted")}{event.reason ? " · " + event.reason : ""}
               </div>
             );
           case "error":
@@ -1169,46 +1179,46 @@ function Transcript({ events }) {
   );
 }
 
-function MessageBlock({ event }) {
+function MessageBlock({ event, t }: { event: Extract<TranscriptEvent, { type: "message" }>; t: T }) {
   const who = event.role === "assistant" ? "assistant" : "user";
   return (
     <div className={`ts-msg ts-${who}`}>
-      <span className="ts-role">{who}</span>
+      <span className="ts-role">{who === "assistant" ? t("transcript.assistant") : t("transcript.user")}</span>
       <div className="ts-text">{event.text || ""}</div>
     </div>
   );
 }
 
-function ThinkBlock({ event }) {
+function ThinkBlock({ event, t }: { event: Extract<TranscriptEvent, { type: "thinking" }>; t: T }) {
   return (
     <details className="ts-think">
-      <summary>thinking</summary>
+      <summary>{t("transcript.thinking")}</summary>
       <div className="ts-think-text">{event.text || ""}</div>
     </details>
   );
 }
 
-function InputBlock({ event }) {
+function InputBlock({ event, t }: { event: Extract<TranscriptEvent, { type: "input.requested" }>; t: T }) {
   const request = event.request || {};
-  const opts = (request.options || []).map((o) => o.label || o.id).filter(Boolean).join("  /  ");
-  const body = (request.prompt || "(awaiting input)") + (opts ? "\n[ " + opts + " ]" : "");
+  const opts = (request.options || []).map((o: { id: string; label?: string }) => o.label || o.id).filter(Boolean).join("  /  ");
+  const body = (request.prompt || t("transcript.awaitingInput")) + (opts ? "\n[ " + opts + " ]" : "");
   return (
     <div className="ts-msg ts-input">
-      <span className="ts-role">input requested</span>
+      <span className="ts-role">{t("transcript.inputRequested")}</span>
       <div className="ts-text">{body}</div>
     </div>
   );
 }
 
-function ToolBlock({ call, result }) {
-  const verb = TOOL_VERB[call.tool] || call.name || call.tool || "tool";
+function ToolBlock({ call, result, t }: { call: ToolBlockCall; result?: ToolResultEvent; t: T }) {
+  const verb = (call.tool ? TOOL_VERB[call.tool] : undefined) || call.name || call.tool || "tool";
   const arg = toolPrimaryArg(call);
   const label = arg ? `${verb}(${arg})` : verb;
   const status = result ? result.status : "pending";
   const dot = status === "failed" ? "bad" : status === "rejected" ? "warn" : status === "pending" ? "pending" : "good";
   const inputStr = call.input == null ? "" : prettyJson(call.input);
   const outBody = result ? resultBody(result.output) : "";
-  const preview = result ? previewText(outBody) : "running...";
+  const preview = result ? previewText(outBody) : t("transcript.running");
   return (
     <details className="ts-tool-d">
       <summary className="ts-row">
@@ -1221,14 +1231,14 @@ function ToolBlock({ call, result }) {
       <div className="ts-body">
         {inputStr ? (
           <div className="ts-field">
-            <span className="ts-k">input</span>
+            <span className="ts-k">{t("transcript.input")}</span>
             <pre className="attr-pre">{truncate(inputStr, 4000)}</pre>
           </div>
         ) : null}
         {result ? (
           <div className="ts-field">
-            <span className="ts-k">output{result.status && result.status !== "completed" ? " · " + result.status : ""}</span>
-            <pre className="attr-pre">{outBody ? truncate(outBody, 8000) : <span className="reason-empty">(empty)</span>}</pre>
+            <span className="ts-k">{t("transcript.output")}{result.status && result.status !== "completed" ? " · " + result.status : ""}</span>
+            <pre className="attr-pre">{outBody ? truncate(outBody, 8000) : <span className="reason-empty">{t("transcript.empty")}</span>}</pre>
           </div>
         ) : null}
       </div>
@@ -1236,25 +1246,25 @@ function ToolBlock({ call, result }) {
   );
 }
 
-function RunsView({ rows }) {
+function RunsView({ rows, t }: { rows: ViewRow[]; t: T }) {
   const [query, setQuery] = useState("");
   const allRuns = useMemo(
-    () => rows.flatMap((row) => (row.results ?? []).map((r) => ({ ...r, rowLabel: row.label, rowAgent: row.agent, rowModel: row.model }))),
+    () => rows.flatMap((row: ViewRow) => (row.results ?? []).map((r: ViewResult): RowRun => ({ ...r, rowLabel: row.label, rowAgent: row.agent, rowModel: row.model }))),
     [rows],
   );
-  const filtered = allRuns.filter((r) => {
+  const filtered = allRuns.filter((r: RowRun) => {
     const q = query.trim().toLowerCase();
     return !q || `${r.id} ${r.rowLabel} ${r.rowAgent} ${r.rowModel || ""}`.toLowerCase().includes(q);
   });
   return (
     <section id="tab-runs">
       <div className="section-head">
-        <h2>Individual Runs</h2>
+        <h2>{t("section.individualRuns")}</h2>
         <div className="controls">
           <input
             className="search"
             type="search"
-            placeholder="Filter eval ID or experiment..."
+            placeholder={t("search.runs")}
             autoComplete="off"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -1262,26 +1272,26 @@ function RunsView({ rows }) {
         </div>
       </div>
       {!allRuns.length ? (
-        <div className="empty">No individual runs found.</div>
+        <div className="empty">{t("empty.individualRuns")}</div>
       ) : (
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Eval ID</th>
-                <th>Experiment</th>
-                <th>Outcome</th>
-                <th>Agent</th>
-                <th>Model</th>
-                <th>Duration</th>
-                <th>Tokens</th>
-                <th>Cost</th>
-                <th>Ran At</th>
+                <th>{t("table.evalId")}</th>
+                <th>{t("table.experiment")}</th>
+                <th>{t("table.outcome")}</th>
+                <th>{t("table.agent")}</th>
+                <th>{t("table.model")}</th>
+                <th>{t("metric.duration")}</th>
+                <th>{t("table.tokens")}</th>
+                <th>{t("table.estCost")}</th>
+                <th>{t("table.ranAt")}</th>
               </tr>
             </thead>
             <tbody>
               {filtered.length ? (
-                filtered.map((r) => {
+                filtered.map((r: RowRun) => {
                   const outcome = outcomeOf(r);
                   return (
                     <tr key={`${r.id}-${r.rowLabel}-${r.attempt}`}>
@@ -1289,9 +1299,9 @@ function RunsView({ rows }) {
                         <span className="name">{r.id}</span>
                       </td>
                       <td>{r.rowLabel}</td>
-                      <td className={outcomeClass(outcome)}>{outcomeLabel(outcome)}</td>
+                      <td className={outcomeClass(outcome)}>{outcomeLabel(outcome, t)}</td>
                       <td>{r.rowAgent}</td>
-                      <td>{r.rowModel || "default"}</td>
+                      <td>{r.rowModel || t("config.default")}</td>
                       <td className="num">{formatDuration(r.durationMs)}</td>
                       <td className="num">{formatTokens(totalTokens(r.usage))}</td>
                       <td className="num">{formatCost(r.estimatedCostUSD)}</td>
@@ -1302,7 +1312,7 @@ function RunsView({ rows }) {
               ) : (
                 <tr>
                   <td colSpan={9} style={{ textAlign: "center", color: "var(--muted)" }}>
-                    No results match the filter.
+                    {t("empty.runsFilter")}
                   </td>
                 </tr>
               )}
@@ -1314,32 +1324,32 @@ function RunsView({ rows }) {
   );
 }
 
-function TracesView({ rows }) {
+function TracesView({ rows, t }: { rows: ViewRow[]; t: T }) {
   const allRuns = useMemo(
-    () => rows.flatMap((row) => (row.results ?? []).map((r) => ({ ...r, rowLabel: row.label, rowAgent: row.agent, rowModel: row.model }))),
+    () => rows.flatMap((row: ViewRow) => (row.results ?? []).map((r: ViewResult): RowRun => ({ ...r, rowLabel: row.label, rowAgent: row.agent, rowModel: row.model }))),
     [rows],
   );
-  const traceable = allRuns.filter((r) => r.hasEvents || r.hasTrace);
+  const traceable = allRuns.filter((r: RowRun) => r.hasEvents || r.hasTrace);
   return (
     <section id="tab-traces">
       <div className="section-head">
-        <h2>Traces</h2>
+        <h2>{t("section.traces")}</h2>
       </div>
       {!traceable.length ? (
-        <div className="empty">No traces available. Traces are collected during eval runs when artifacts are saved.</div>
+        <div className="empty">{t("empty.traces")}</div>
       ) : (
-        traceable.map((r) => {
+        traceable.map((r: RowRun) => {
           const outcome = outcomeOf(r);
           return (
             <div className="traces-entry" key={`${r.id}-${r.rowLabel}-${r.attempt}`}>
               <div className="traces-entry-head">
-                <span className={`${outcomeClass(outcome)} traces-verdict`}>{outcomeLabel(outcome)}</span>
+                <span className={`${outcomeClass(outcome)} traces-verdict`}>{outcomeLabel(outcome, t)}</span>
                 <span className="eval-id">{r.id}</span>
                 <span className="traces-exp">{r.rowLabel}</span>
                 <span className="num traces-dur">{formatDuration(r.durationMs)}</span>
               </div>
-              {r.hasEvents && r.artifactBase ? <LazyArtifact type="transcript" src={`${r.artifactBase}/events.json`} /> : null}
-              {r.hasTrace && r.artifactBase ? <LazyArtifact type="trace" src={`${r.artifactBase}/trace.json`} /> : null}
+              {r.hasEvents && r.artifactBase ? <LazyArtifact type="transcript" src={`${r.artifactBase}/events.json`} t={t} /> : null}
+              {r.hasTrace && r.artifactBase ? <LazyArtifact type="trace" src={`${r.artifactBase}/trace.json`} t={t} /> : null}
             </div>
           );
         })
@@ -1348,24 +1358,24 @@ function TracesView({ rows }) {
   );
 }
 
-function buildGroupMap(rows) {
-  const map = new Map();
+function buildGroupMap(rows: ViewRow[]): Map<string, ViewRow[]> {
+  const map = new Map<string, ViewRow[]>();
   for (const row of rows) {
     if (!row.group) continue;
     if (!map.has(row.group)) map.set(row.group, []);
-    map.get(row.group).push(row);
+    map.get(row.group)?.push(row);
   }
   return map;
 }
 
-function compareRows(a, b, key) {
+function compareRows(a: ViewRow, b: ViewRow, key: SortKey): number {
   const av = valueFor(a, key);
   const bv = valueFor(b, key);
   if (typeof av === "string" || typeof bv === "string") return String(av).localeCompare(String(bv));
   return Number(av) - Number(bv);
 }
 
-function valueFor(row, key) {
+function valueFor(row: ViewRow, key: SortKey): string | number {
   if (key === "experiment") return row.label;
   if (key === "model") return row.model || "";
   if (key === "agent") return row.agent;
@@ -1374,98 +1384,101 @@ function valueFor(row, key) {
   return row[key] || 0;
 }
 
-function configChips(row) {
+function configChips(row: ViewRow, t: T): [string, ReactNode][] {
   const exp = row.experiment || {};
   const flags = exp.flags && Object.keys(exp.flags).length
     ? Object.entries(exp.flags).map(([k, v]) => k + "=" + formatConfigValue(v)).join(", ")
-    : "none";
+    : t("config.flagsNone");
   return [
-    ["experiment", row.experimentId || row.label],
-    ["model", row.model || "default"],
+    [t("config.experiment"), row.experimentId || row.label],
+    [t("table.model"), row.model || t("config.default")],
     ["agent", row.agent],
     ["runs", exp.runs ?? row.runs],
-    ["earlyExit", exp.earlyExit === undefined ? "n/a" : String(exp.earlyExit)],
-    ["sandbox", exp.sandbox || "default"],
-    ["budget", exp.budget === undefined ? "none" : "$" + exp.budget],
+    ["earlyExit", exp.earlyExit === undefined ? t("config.notApplicable") : String(exp.earlyExit)],
+    ["sandbox", exp.sandbox || t("config.default")],
+    ["budget", exp.budget === undefined ? t("config.none") : "$" + exp.budget],
     ["flags", flags],
   ];
 }
 
-function outcomeOf(result) {
-  const raw = result.outcome || (result.error ? "errored" : result.verdict);
+function outcomeOf(result: ViewResult): Outcome {
+  const raw: string = result.outcome || (result.error ? "errored" : result.verdict);
   // "scored" = soft-only failures, no gate failed → counts as pass
   return raw === "scored" ? "passed" : raw;
 }
 
-function outcomeClass(outcome) {
+function outcomeClass(outcome: Outcome): string {
   return outcome === "passed" ? "good" : outcome === "errored" ? "infra-err" : outcome === "failed" ? "bad" : "warn";
 }
 
-function outcomeLabel(outcome) {
-  if (outcome === "passed") return "pass";
-  if (outcome === "failed") return "fail";
-  if (outcome === "errored") return "error";
+function outcomeLabel(outcome: Outcome, t: T): string {
+  if (outcome === "passed") return t("status.pass");
+  if (outcome === "failed") return t("status.fail");
+  if (outcome === "errored") return t("status.error");
+  if (outcome === "skipped") return t("status.skipped");
   return outcome || "—";
 }
 
 // Only gate-severity failures are eval "failure reasons"; soft failures show as scores
-function failingAssertions(result) {
-  return (result.assertions || []).filter((a) => !a.passed && a.severity === "gate");
+function failingAssertions(result: ViewResult): Assertion[] {
+  return (result.assertions || []).filter((a: Assertion) => !a.passed && a.severity === "gate");
 }
 
-function reasonFor(result, failedGates) {
+function reasonFor(result: ViewResult, failedGates: Assertion[]): string {
   if (result.error) return result.error;
   if (result.skipReason) return result.skipReason;
-  return failedGates.map((a) => (a.detail ? `${a.name}: ${a.detail}` : a.name)).join(", ");
+  return failedGates.map((a: Assertion) => (a.detail ? `${a.name}: ${a.detail}` : a.name)).join(", ");
 }
 
-function scoresSummary(assertions) {
-  const scored = (assertions || []).filter((a) => a.score !== undefined && a.score !== null);
+function scoresSummary(assertions: Assertion[]): string {
+  const scored = (assertions || []).filter((a: Assertion) => a.score !== undefined && a.score !== null);
   if (!scored.length) return "";
   return scored
-    .map((a) => {
-      const pct = formatPercent(a.score);
-      return a.threshold !== undefined ? `${a.name} ${pct}/${formatPercent(a.threshold)}` : `${a.name} ${pct}`;
+    .map((a: Assertion) => {
+      const s = formatScore(a.score);
+      return a.threshold !== undefined ? `${a.name} ${s}/${formatScore(a.threshold)}` : `${a.name} ${s}`;
     })
     .join(" · ");
 }
 
-function outcomeSummary(row) {
+function outcomeSummary(row: ViewRow, t: T): string {
   // fold "scored" (soft-only) into passed count
   const passed = (row.passed || 0) + (row.scored || 0);
-  const parts = [`${passed} passed`, `${row.failed} failed`];
-  if (row.errored) parts.push(`${row.errored} errors`);
-  if (row.skipped) parts.push(`${row.skipped} skipped`);
+  const parts = [`${passed} ${t("outcome.passed")}`, `${row.failed} ${t("outcome.failed")}`];
+  if (row.errored) parts.push(`${row.errored} ${t("outcome.errored")}`);
+  if (row.skipped) parts.push(`${row.skipped} ${t("outcome.skipped")}`);
   return parts.join(" / ");
 }
 
-function toolPrimaryArg(call) {
+function toolPrimaryArg(call: ToolBlockCall): string {
   const input = call.input;
   if (typeof input === "string") return input;
-  if (!input || typeof input !== "object" || Array.isArray(input)) return "";
+  if (!isObjectRecord(input)) return "";
   if (call.tool === "shell") {
     const command = input.command ?? input.cmd;
     if (typeof command === "string") return command;
-    if (Array.isArray(command)) return command.filter((x) => typeof x === "string").join(" ");
+    if (Array.isArray(command)) return command.filter((x: ViewJson) => typeof x === "string").join(" ");
   }
   for (const key of ["path", "file", "file_path", "filename", "pattern", "query", "url", "uri", "prompt", "description", "command", "remoteUrl"]) {
-    if (typeof input[key] === "string" && input[key]) return input[key];
+    const value = input[key];
+    if (typeof value === "string" && value) return value;
   }
   return "";
 }
 
-function resultBody(output) {
+function resultBody(output: ViewJson | undefined): string {
   if (output == null) return "";
   if (typeof output === "string") return output;
-  if (typeof output === "object" && !Array.isArray(output)) {
+  if (isObjectRecord(output)) {
     for (const key of ["output", "stdout", "content", "text", "result", "body"]) {
-      if (typeof output[key] === "string") return output[key];
+      const value = output[key];
+      if (typeof value === "string") return value;
     }
   }
   return prettyJson(output);
 }
 
-function prettyJson(value) {
+function prettyJson(value: unknown): string {
   if (typeof value === "string") return value;
   try {
     return JSON.stringify(value, null, 2);
@@ -1474,63 +1487,130 @@ function prettyJson(value) {
   }
 }
 
-function previewText(value) {
+function previewText(value: string): string {
   return String(value).split("\n").find((line) => line.trim()) || "";
 }
 
-function truncate(value, n) {
+function truncate(value: unknown, n: number): string {
   const str = String(value);
   return str.length > n ? str.slice(0, n) + " ... [+" + (str.length - n) + " chars]" : str;
 }
 
-function formatConfigValue(value) {
+function formatConfigValue(value: unknown): string {
   if (value === null) return "null";
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
   return JSON.stringify(value);
 }
 
-function totalTokens(usage) {
+function totalTokens(usage?: ViewUsage): number {
   return (usage?.inputTokens || 0) + (usage?.outputTokens || 0) + (usage?.cacheReadTokens || 0) + (usage?.cacheWriteTokens || 0);
 }
 
-function formatPercent(value) {
+function formatPercent(value?: number): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "0%";
   return Math.round(value * 100) + "%";
 }
 
-function formatDuration(ms) {
-  if (!Number.isFinite(ms) || ms <= 0) return "0ms";
+/** 断言 / judge 分数本就是 0–1,直接展示原值(去掉末尾零),不转百分比。pass-rate 之类的「比率」仍用 formatPercent。 */
+function formatScore(value?: number): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "0";
+  return String(Number(value.toFixed(2)));
+}
+
+function formatDuration(ms?: number): string {
+  if (typeof ms !== "number" || !Number.isFinite(ms) || ms <= 0) return "0ms";
   if (ms >= 60000) return (ms / 60000).toFixed(1) + "m";
   if (ms >= 1000) return (ms / 1000).toFixed(2) + "s";
   return Math.round(ms) + "ms";
 }
 
-function formatTokens(value) {
+function formatTokens(value: number): string {
   if (!Number.isFinite(value) || value <= 0) return "0";
   if (value >= 1000000) return (value / 1000000).toFixed(2) + "M";
   if (value >= 1000) return (value / 1000).toFixed(1) + "k";
   return String(Math.round(value));
 }
 
-function formatCost(value) {
-  if (!Number.isFinite(value) || value <= 0) return "$0";
+function formatCost(value?: number): string {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return "$0";
   return "$" + value.toFixed(value < 1 ? 3 : 2);
 }
 
-function formatDateTime(iso) {
+function formatDateTime(iso?: string): string {
   if (!iso) return "-";
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "-";
   return date.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
-function formatClock(iso) {
+function formatClock(iso?: string): string {
   if (!iso) return "";
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "";
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
-async function copyText(text) {
+function asSources(value: unknown): CodeSource[] | null {
+  if (!Array.isArray(value)) return null;
+  return value.every(isCodeSource) ? value : null;
+}
+
+function isCodeSource(value: unknown): value is CodeSource {
+  return isObjectRecord(value) && typeof value.path === "string" && typeof value.content === "string";
+}
+
+function asEvents(value: unknown): TranscriptEvent[] | null {
+  if (!Array.isArray(value)) return null;
+  return value.every(isTranscriptEvent) ? value : null;
+}
+
+function asSpans(value: unknown): Span[] | null {
+  if (!Array.isArray(value)) return null;
+  return value.every(isSpan) ? value : null;
+}
+
+function isTranscriptEvent(value: unknown): value is TranscriptEvent {
+  if (!isObjectRecord(value) || typeof value.type !== "string") return false;
+  switch (value.type) {
+    case "message":
+      return (value.role === "assistant" || value.role === "user") && typeof value.text === "string";
+    case "action.called":
+      return typeof value.callId === "string" && typeof value.name === "string";
+    case "action.result":
+      return typeof value.callId === "string";
+    case "subagent.called":
+      return typeof value.callId === "string" && typeof value.name === "string";
+    case "subagent.completed":
+      return typeof value.callId === "string";
+    case "input.requested":
+      return isObjectRecord(value.request);
+    case "thinking":
+      return typeof value.text === "string";
+    case "compaction":
+      return true;
+    case "error":
+      return typeof value.message === "string";
+    default:
+      return false;
+  }
+}
+
+function isSpan(value: unknown): value is Span {
+  return (
+    isObjectRecord(value) &&
+    typeof value.traceId === "string" &&
+    typeof value.spanId === "string" &&
+    typeof value.name === "string" &&
+    typeof value.startMs === "number" &&
+    typeof value.endMs === "number"
+  );
+}
+
+function isObjectRecord(value: unknown): value is ObjectRecord {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+async function copyText(text: string): Promise<void> {
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(text);
     return;
@@ -1545,4 +1625,6 @@ async function copyText(text) {
   ta.remove();
 }
 
-createRoot(document.getElementById("root")).render(<App data={initialData} />);
+const rootEl = document.getElementById("root");
+if (!rootEl) throw new Error("Missing #root element");
+createRoot(rootEl).render(<App data={initialData} />);

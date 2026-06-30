@@ -107,13 +107,13 @@ Because each eval in a fan-out set shares the same file-level ID prefix, you can
 
 ```bash
 # Run all evals from evals/sql.eval.ts
-npx fasteval sql
+npx fasteval exp local sql
 
 # Run only the first case
-npx fasteval sql/0000
+npx fasteval exp local sql/0000
 
 # Run cases 0–2
-npx fasteval sql/0000 sql/0001 sql/0002
+npx fasteval exp local sql/0000 sql/0001 sql/0002
 ```
 
 This makes it easy to re-run just the failing cases after a fix, or to run a subset during development without touching the dataset file.

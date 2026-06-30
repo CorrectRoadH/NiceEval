@@ -105,7 +105,6 @@ import { equals } from "fasteval/expect";
 
 export default defineEval({
   description: "Intent classification: refund request",
-  agent: "classify",
   async test(t) {
     const turn = await t.send("I'd like to return my order and get a refund.");
     t.check(turn.data, equals({ intent: "refund" }));
@@ -113,10 +112,10 @@ export default defineEval({
 });
 ```
 
-Register the `classify` agent in `fasteval.config.ts` under `agents: [...]` (or set it as `defaultAgent`), then run:
+Add the `classify` agent to an experiment file such as `experiments/local.ts`, then run:
 
 ```shell
-npx fasteval classify
+npx fasteval exp local classify
 ```
 
 <Tip>
@@ -157,7 +156,6 @@ import { includes } from "fasteval/expect";
 
 export default defineEval({
   description: "Brooklyn weather query",
-  agent: "weather-bot",
   async test(t) {
     await t.send("What's the weather like in Brooklyn today?");
     t.succeeded();
@@ -171,7 +169,7 @@ export default defineEval({
 Run it by passing your service URL as an environment variable:
 
 ```shell
-AGENT_URL=https://my-agent.example.com npx fasteval weather --agent weather-bot
+AGENT_URL=https://my-agent.example.com npx fasteval exp local weather
 ```
 
 The four assertions above illustrate the main scoring tools available in the `test(t)` body:
@@ -236,13 +234,13 @@ Run the coding-agent eval with Docker as the sandbox:
 
 ```shell
 export ANTHROPIC_API_KEY=sk-ant-...
-npx fasteval --agent claude-code --sandbox docker fixtures/button
+npx fasteval exp local fixtures/button --sandbox docker
 ```
 
 To measure pass rate over multiple attempts with early stopping on first success:
 
 ```shell
-npx fasteval --agent claude-code --runs 10 --early-exit fixtures/button
+npx fasteval exp local fixtures/button --runs 10 --early-exit
 ```
 
 <Warning>
@@ -285,7 +283,7 @@ Add fasteval to your GitHub Actions workflow with two lines:
 
 ```yaml
 # .github/workflows/evals.yml
-- run: npx fasteval --strict --junit .fasteval/junit.xml
+- run: npx fasteval exp ci --strict --junit .fasteval/junit.xml
   env:
     ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 ```

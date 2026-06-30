@@ -17,7 +17,7 @@
 - 找所有 `*.eval.ts`,`import` 后看默认导出 —— 单个 eval 用文件 id;数组则扇出,id 加零填充索引(`sql/0000`)。
 - 找所有含 `PROMPT.md` 的目录(fixture),据相对路径推导 id。
 - 按相对路径排序,保证 id 稳定、输出可比。
-- 应用过滤:位置参数(id 前缀,如 `weather` 命中 `weather/*`)、`--tag`。
+- 应用过滤:`fasteval exp <组|配置>` 后的位置参数(id 前缀,如 `weather` 命中 `weather/*`)、`--tag`。
 - `fasteval exp` 时另从 `experiments/` 扫实验文件(默认导出 `defineExperiment` 的 `.ts`),据路径推导实验 id;**目录段即"可对比组"** —— `fasteval exp <组>` 跑整个文件夹、同组互为对照(见 [实验怎么组织](experiments.md#实验怎么组织文件夹--一组可对比的实验))。实验的 `evals` 字段再筛要跑哪些 eval(见[矩阵展开](#矩阵展开与通过率))。
 
 ## 调度:有界并发
@@ -28,7 +28,7 @@
 
 ## 矩阵展开与通过率
 
-一次 `exp` 运行把一批配置展成 attempt:既可来自**一组文件夹里的多个单一配置**(`compare/bub-gpt-5.4` + `compare/codex-gpt-5.4`,见 [实验怎么组织](experiments.md#实验怎么组织文件夹--一组可对比的实验)),也可来自**单文件内的 `agent × model` 数组**笛卡尔展开;两者再 × `eval × runs`。比如 `agent: [claude-code, codex]` × `runs: 5` × 3 个 eval = 30 个 attempt。汇总按 `(agent, model, eval)` 分组,不再是单一判决,而是**通过率** + 平均耗时 / token / 成本:
+一次 `exp` 运行把一批配置展成 attempt:通常来自**一组文件夹里的多个单一配置**(`compare/bub-gpt-5.4` + `compare/codex-gpt-5.4`,见 [实验怎么组织](experiments.md#实验怎么组织文件夹--一组可对比的实验));再 × `eval × runs`。比如 2 个实验配置 × `runs: 5` × 3 个 eval = 30 个 attempt。汇总按 `(agent, model, eval)` 分组,不再是单一判决,而是**通过率** + 平均耗时 / token / 成本:
 
 ```text
 fixtures/button   claude-code   pass@5 = 4/5 (80%)   mean 34s · 58k tok · $0.44

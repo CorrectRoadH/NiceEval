@@ -1,16 +1,16 @@
 ---
 title: "fasteval CLI: commands, flags, and exit codes reference"
 sidebarTitle: "CLI"
-description: "Complete fasteval CLI reference: run, init, list, exp, and view commands. Covers agent selection, sandbox, concurrency, budget, and JUnit CI output."
+description: "Complete fasteval CLI reference: exp, init, list, clean, and view commands. Covers experiment selection, eval filtering, sandbox, concurrency, budget, and JUnit CI output."
 ---
 
-The fasteval CLI is your single entry point for discovering, running, and inspecting evals. Every command follows the same two-part input model: **positional arguments** select which evals to run (by eval ID prefix), and **flags** control how they run — which agent to use, which sandbox backend to spin up, and how results are reported.
+The fasteval CLI is your single entry point for discovering, running, and inspecting evals. Actual eval execution is experiment-first: **`exp` selects the signed-in run configuration**, and any positional arguments after the experiment select evals by ID prefix. Agent, model, and feature flags live in `experiments/`, not in ad-hoc CLI arguments.
 
 ## Commands
 
 <CardGroup cols={2}>
-  <Card title="npx fasteval [id-prefix]" icon="play">
-    Discover and run evals. An optional positional argument filters by ID prefix.
+  <Card title="npx fasteval exp &lt;group&gt; [id-prefix]" icon="flask">
+    Run a named experiment group or config. Optional trailing positionals filter eval IDs.
   </Card>
   <Card title="npx fasteval init" icon="wand-magic-sparkles">
     Scaffold `evals/`, `fasteval.config.ts`, and example eval files.
@@ -18,8 +18,8 @@ The fasteval CLI is your single entry point for discovering, running, and inspec
   <Card title="npx fasteval list" icon="list">
     Discover and print all evals without running them.
   </Card>
-  <Card title="npx fasteval exp &lt;group&gt;" icon="flask">
-    Run a named experiment group from the `experiments/` directory.
+  <Card title="npx fasteval clean" icon="trash">
+    Delete `.fasteval/` historical run artifacts.
   </Card>
   <Card title="npx fasteval view" icon="eye">
     Open the result viewer to inspect artifacts from the last run.
@@ -46,50 +46,44 @@ translated.
 
 ---
 
-## `npx fasteval [id-prefix]`
+## `npx fasteval exp [group|config] [id-prefix...]`
 
-The default command discovers all `*.eval.ts` files and fixture directories under `evals/`, then runs the matching evals. Pass an ID prefix as the first positional argument to narrow the run to only evals whose ID starts with that prefix.
+The `exp` command runs configs from `experiments/`. The first positional argument selects an experiment group or a single config; any remaining positionals narrow the run to evals whose IDs match those prefixes.
 
 ```bash
-# Run all evals
-npx fasteval
+# Run every experiment under experiments/
+npx fasteval exp
 
-# Run only evals whose ID starts with "weather"
-npx fasteval weather
+# Run one experiment group
+npx fasteval exp compare-models
 
-# Run only the fixtures/button eval
-npx fasteval fixtures/button
+# Run only evals whose ID starts with "weather" inside that group
+npx fasteval exp compare-models weather
 ```
 
 <Note>
-  The positional argument is an **eval ID prefix**, not an agent name. IDs are derived from the file path (e.g. `evals/weather/brooklyn.eval.ts` → `weather/brooklyn`). Use `npx fasteval list` to see all discovered IDs.
+  Eval filters only appear after the experiment selector. Bare `npx fasteval weather` does not run; use `npx fasteval exp local weather` or `npx fasteval exp compare weather`.
 </Note>
 
 ### Flags
 
-#### Agent & sandbox
+#### Experiment & sandbox
 
 <ParamField query="--agent" type="string">
-  Select which agent adapter to use for this run. Overrides `defaultAgent` from
-  your config. Built-in values include `claude-code` and `codex`; any name
-  registered in `fasteval.config.ts` is valid.
-
-  ```bash
-  npx fasteval --agent claude-code
-  npx fasteval --agent codex fixtures/button
-  ```
+  Not supported for experiment runs. Add or copy an experiment file and set the
+  agent there so the run configuration is reviewable and reproducible.
 </ParamField>
 
 <ParamField query="--sandbox" type="string">
-  Choose the sandbox backend. Accepted values: `docker`, `vercel`, `auto`.
+  Temporarily choose the sandbox backend for the selected experiment. Accepted values: `docker`, `vercel`, `auto`.
 
   - `docker` — spin up a local Docker container (no cloud credentials needed).
   - `vercel` — use Vercel Sandbox (requires `VERCEL_TOKEN` or `VERCEL_OIDC_TOKEN`).
   - `auto` — detect automatically: use `vercel` when a Vercel token is present, otherwise fall back to `docker`.
 
   ```bash
-  npx fasteval --agent claude-code --sandbox docker
-  npx fasteval --agent claude-code --sandbox auto
+  npx fasteval exp local --sandbox docker
+  npx fasteval exp local --sandbox auto
   ```
 </ParamField>
 
@@ -100,7 +94,7 @@ npx fasteval fixtures/button
   to get instant feedback as you edit.
 
   ```bash
-  npx fasteval weather --watch
+  npx fasteval exp local weather --watch
   ```
 </ParamField>
 
@@ -109,8 +103,8 @@ npx fasteval fixtures/button
   Good for verifying your ID prefix and tag filters before a long run.
 
   ```bash
-  npx fasteval --dry
-  npx fasteval fixtures --dry
+  npx fasteval exp compare --dry
+  npx fasteval exp compare fixtures --dry
   ```
 </ParamField>
 
@@ -120,7 +114,7 @@ npx fasteval fixtures/button
   Use `--force` to always re-run everything regardless of cached results.
 
   ```bash
-  npx fasteval --force
+  npx fasteval exp compare --force
   ```
 </ParamField>
 
@@ -131,7 +125,7 @@ npx fasteval fixtures/button
 
   ```bash
   # Run each eval 5 times and report pass@5
-  npx fasteval --runs 5 fixtures/button
+  npx fasteval exp compare fixtures/button --runs 5
   ```
 </ParamField>
 
@@ -142,7 +136,7 @@ npx fasteval fixtures/button
   distribution.
 
   ```bash
-  npx fasteval --runs 10 --no-early-exit fixtures/button
+  npx fasteval exp compare fixtures/button --runs 10 --no-early-exit
   ```
 </ParamField>
 
@@ -151,7 +145,7 @@ npx fasteval fixtures/button
   will be included in the run.
 
   ```bash
-  npx fasteval --tag smoke
+  npx fasteval exp compare --tag smoke
   ```
 </ParamField>
 
@@ -162,7 +156,7 @@ npx fasteval fixtures/button
   how many eval attempts run in parallel.
 
   ```bash
-  npx fasteval --max-concurrency 4
+  npx fasteval exp compare --max-concurrency 4
   ```
 </ParamField>
 
@@ -173,7 +167,7 @@ npx fasteval fixtures/button
 
   ```bash
   # 10-minute timeout per eval
-  npx fasteval --timeout 600000
+  npx fasteval exp compare --timeout 600000
   ```
 </ParamField>
 
@@ -184,7 +178,7 @@ npx fasteval fixtures/button
   config.
 
   ```bash
-  npx fasteval --budget 2.50
+  npx fasteval exp compare --budget 2.50
   ```
 </ParamField>
 
@@ -198,7 +192,7 @@ npx fasteval fixtures/button
   this flag in CI to enforce quality thresholds.
 
   ```bash
-  npx fasteval --strict --junit .fasteval/junit.xml
+  npx fasteval exp ci --strict --junit .fasteval/junit.xml
   ```
 </ParamField>
 
@@ -207,7 +201,7 @@ npx fasteval fixtures/button
   Actions, CircleCI, and any CI system that ingests JUnit reports.
 
   ```bash
-  npx fasteval --junit .fasteval/junit.xml
+  npx fasteval exp ci --junit .fasteval/junit.xml
   ```
 </ParamField>
 
@@ -235,8 +229,8 @@ npx fasteval init
 ```
 
 <Tip>
-  After running `init`, open `fasteval.config.ts` and set your `defaultAgent`
-  and `sandbox` values before running your first eval.
+  After running `init`, add an experiment under `experiments/` that selects the
+  agent, model, runs, and sandbox for your first run.
 </Tip>
 
 ---
@@ -255,13 +249,7 @@ npx fasteval list
 # fixtures/button
 ```
 
-You can combine `list` with a positional prefix to preview which evals a filtered run would include:
-
-```bash
-npx fasteval list weather
-# weather/brooklyn
-# weather/manhattan
-```
+Use `npx fasteval exp <group> --dry` to preview how a specific experiment will filter and expand evals.
 
 ---
 
@@ -310,20 +298,20 @@ fasteval's exit code lets CI systems gate on eval results without parsing output
   <Tab title="Local development">
     ```bash
     # Watch a specific eval while you develop
-    npx fasteval fixtures/button --agent claude-code --sandbox docker --watch
+    npx fasteval exp local fixtures/button --sandbox docker --watch
 
     # Dry-run to check which evals will run
-    npx fasteval --dry
+    npx fasteval exp local --dry
 
     # Force a re-run ignoring the cache
-    npx fasteval --force fixtures/button
+    npx fasteval exp local fixtures/button --force
     ```
   </Tab>
   <Tab title="CI pipeline">
     ```yaml
     # .github/workflows/evals.yml
     - name: Run evals
-      run: npx fasteval --strict --junit .fasteval/junit.xml
+      run: npx fasteval exp ci --strict --junit .fasteval/junit.xml
       env:
         ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     ```
@@ -331,10 +319,10 @@ fasteval's exit code lets CI systems gate on eval results without parsing output
   <Tab title="Pass rate measurement">
     ```bash
     # Run each eval 10 times; stop early once one attempt passes
-    npx fasteval --runs 10 fixtures/button --agent claude-code --sandbox docker
+    npx fasteval exp local fixtures/button --runs 10 --sandbox docker
 
     # Run all 10 attempts regardless (full distribution)
-    npx fasteval --runs 10 --no-early-exit fixtures/button
+    npx fasteval exp local fixtures/button --runs 10 --no-early-exit
     ```
   </Tab>
   <Tab title="Cost-guarded experiment">

@@ -11,9 +11,9 @@ Connecting fasteval to the thing you want to evaluate is the part of the system 
 - **Agent** is the abstraction. From fasteval's perspective, an agent is a named object with capability flags and a single `send` method. The runner interacts with nothing but this interface. It never branches on `if (agent === "claude-code")`.
 - **Adapter** is the concrete implementation. You write it (or use one of fasteval's built-ins). It knows how to authenticate, how to call your service, and how to translate whatever your AI returns into the standard event stream.
 
-You select an agent by name — `--agent <name>` — not by URL. The URL, API key, or CLI invocation is the adapter's private configuration. fasteval never sees it.
+Experiments reference agents directly. The URL, API key, or CLI invocation is the adapter's private configuration. fasteval never sees it.
 
-## Why `--agent` and not `--url`
+## Why experiment agent, not `--url`
 
 Some eval frameworks define a wire protocol and let you point at any compatible endpoint with a URL. fasteval deliberately does not do this, because **there is no single protocol that every AI agent speaks**. Forcing your agent to conform to an external protocol would mean wrapping it in a compatibility shim instead of testing it as it actually runs.
 
@@ -21,8 +21,8 @@ Instead, you write a small adapter that knows your agent's protocol and normaliz
 
 ```shell
 # Evaluate local and production with the same adapter; URL is its private config
-MY_BOT_URL=http://localhost:3000  npx fasteval weather --agent my-bot   # local
-MY_BOT_URL=https://prod.example.com npx fasteval weather --agent my-bot # production
+npx fasteval exp local weather   # local
+npx fasteval exp prod weather    # production
 ```
 
 ## The Agent contract
@@ -195,14 +195,14 @@ fasteval ships built-in adapters for common coding agents. You can use them dire
 | `codex` | `@openai/codex` | via `codex login` |
 | `bub` | bub CLI | bub credentials |
 
-Use them from the CLI: `--agent claude-code`, `--agent codex`, `--agent bub`.
+Use them from experiment files, for example `agent: claudeCodeAgent()` or `agent: codexAgent()`.
 
 ## Agent × Sandbox orthogonality
 
-The `--agent` and `--sandbox` flags are fully independent:
+The experiment's `agent` and the sandbox backend are independent:
 
 ```shell
---agent <name>       selects which system under test to connect to
+experiment.agent     selects which system under test to connect to
 --sandbox <backend>  selects where sandbox agents run (docker / vercel / third-party)
 ```
 
@@ -223,21 +223,20 @@ The one-line rule: **the adapter only configures "how to reach me"; the experime
 
 ## Registering your own agent
 
-Add your adapter to `fasteval.config.ts` and it becomes available to all evals and to the `--agent` flag:
+Reference your adapter from an experiment file:
 
 ```ts
-// fasteval.config.ts
-import { defineConfig } from "fasteval";
+// experiments/local.ts
+import { defineExperiment } from "fasteval";
 import myAgent from "./agents/my-agent.js";
-import supportBot from "./agents/support-bot.js";
 
-export default defineConfig({
-  agents: [myAgent, supportBot],   // register your adapters
-  defaultAgent: "my-agent",        // used when --agent is omitted
+export default defineExperiment({
+  agent: myAgent,
+  runs: 1,
 });
 ```
 
-Built-in coding agents (`claude-code`, `codex`, `bub`) are available without registration — use them directly with `--agent <name>`.
+Built-in coding agents (`claude-code`, `codex`, `bub`) can be imported directly into experiment files.
 
 ## Writing a new adapter: checklist
 

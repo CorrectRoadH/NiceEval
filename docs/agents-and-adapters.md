@@ -2,12 +2,12 @@
 
 这一篇讲 fasteval 如何"连到一个被测对象"。这是整个库最容易被想歪的地方,先把两个核心论点摆出来:
 
-> 1. **fasteval 不定义任何 agent 协议。** 每一个被测对象 —— 你自己的 agent、你的后端服务、Claude Code / Codex 这种 coding agent —— **都是自己实现的 adapter**。你按**名字**选(`--agent <name>`),而不是给一个 url。
+> 1. **fasteval 不定义任何 agent 协议。** 每一个被测对象 —— 你自己的 agent、你的后端服务、Claude Code / Codex 这种 coding agent —— **都是自己实现的 adapter**。experiment 引用 agent,而不是给一个 url。
 > 2. **adapter 真正的难点不是"连上",而是把各 agent 五花八门的原始返回归一化成一套标准的[事件流](#标准事件流adapter-的核心难点)。** 归一化之后,整套断言都是免费的、与 agent 无关的。
 
 两个词:
 
-- **Agent** —— 抽象。fasteval 眼里"一个被测对象",带[能力位](#能力位决定-t-的形状),按名字选。运行器只认 Agent 契约。
+- **Agent** —— 抽象。fasteval 眼里"一个被测对象",带[能力位](#能力位决定-t-的形状),由 experiment 引用。运行器只认 Agent 契约。
 - **Adapter** —— 实现。某个 agent 的具体代码,**由用户编写**(fasteval 也内置几个常用 coding agent)。一个 Adapter 实现一个 Agent。
 
 按 transport 分两种,但**能力完全一样**(都能 `send`、都返回同一套标准结果):
@@ -15,16 +15,16 @@
 - **remote agent**(`defineAgent`)—— 你在 `send` 里直接驱动:进程内调你的函数,或按你服务的协议发 HTTP。
 - **sandbox agent**(`defineSandboxAgent`)—— 在沙箱里 spawn 一个 coding agent 的 CLI,跑完读回 transcript。
 
-## 为什么有 `--agent` 却没有 `--url`
+## 为什么是 experiment 选 agent,不是 `--url`
 
 eve 能用一个 url 当被测对象,是因为它**定义了一套自己的协议**、被测 agent 恰好会说 —— 于是"连哪"退化成"哪个 url"。fasteval 没有这个前提:不存在一套通用协议让任意 agent 都会说。所以:
 
 - **没有 `--url`、没有通用的 "http agent"。** 要连你的 HTTP 服务,你写一个 agent,它内部知道你服务的协议(URL、鉴权、消息格式都是它的私事)。
-- **只有 `--agent <name>`。** 一个 flag,选任意一个自实现的 agent。"评本地 vs 评线上"靠 agent 自己读 env,或注册成两个 agent:
+- **agent 写进 experiment。** "评本地 vs 评线上"靠 agent 自己读 env,或写成两个 experiment / 两个 agent 配置:
 
 ```sh
-MY_BOT_URL=http://localhost:3000    npx fasteval weather --agent my-bot   # 评本地
-MY_BOT_URL=https://prod.example.com npx fasteval weather --agent my-bot   # 评线上
+npx fasteval exp local weather   # 评本地
+npx fasteval exp prod weather    # 评线上
 ```
 
 ## Agent 契约
@@ -263,11 +263,11 @@ export default defineSandboxAgent({
 ## Agent × Sandbox 正交
 
 ```text
---agent <name>      选「连哪个被测对象」(自实现的 adapter)
+experiment.agent    选「连哪个被测对象」(自实现的 adapter)
 --sandbox <backend> 选「沙箱型 agent 在哪跑」(docker / vercel / 三方)
 ```
 
-任意沙箱型 agent × 任意 sandbox 后端自由组合:`claude-code` 可跑 docker 也可跑 vercel;同一个 docker 沙箱可跑 `claude-code` 也可跑 `bub`。运行器按 `--sandbox` 备好 `Sandbox` 交给 `ctx.sandbox`,二者只通过 `Sandbox` 接口交互。remote agent 忽略 `--sandbox`。详见 [Sandbox](sandbox.md)。
+任意沙箱型 agent × 任意 sandbox 后端自由组合:`claude-code` 可跑 docker 也可跑 vercel;同一个 docker 沙箱可跑 `claude-code` 也可跑 `bub`。运行器按 experiment / `--sandbox` 备好 `Sandbox` 交给 `ctx.sandbox`,二者只通过 `Sandbox` 接口交互。remote agent 忽略 sandbox。详见 [Sandbox](sandbox.md)。
 
 ## shared:沙箱型 adapter 的共享工具
 
@@ -291,11 +291,11 @@ import supportBot from "./agents/support-bot.js";
 
 export default defineConfig({
   agents: [myAgent, supportBot],     // 你的自实现 agent
-  defaultAgent: "my-agent",          // 省略 --agent 时用哪个
+  // 在 experiments/ 里引用要跑的 agent
 });
 ```
 
-内置 coding-agent(`claude-code` / `codex` / `bub` …)开箱即用,直接 `--agent claude-code`。`--agent` 优先于 `defaultAgent`。
+内置 coding-agent(`claude-code` / `codex` / `bub` …)从 `fasteval` 导出,在 experiment 文件里引用。要换 agent 或 model,复制一个 experiment 文件改配置。
 
 ## 接一个新 agent 要写什么
 

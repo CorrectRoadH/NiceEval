@@ -64,4 +64,4 @@ fixtures/button   codex         pass@5 = 3/5 (60%)   mean 41s
 
 ## 与普通运行的关系
 
-普通 `npx fasteval` 关注“这一批 eval 是否通过”；experiment 关注“多组配置谁更好”。两者使用同一套 eval、agent adapter、scoring 和 artifacts。
+`npx fasteval exp <实验>` 关注“这一批 eval 在某个配置下是否通过”；实验组关注“多组配置谁更好”。两者使用同一套 eval、agent adapter、scoring 和 artifacts。

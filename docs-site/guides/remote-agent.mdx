@@ -4,7 +4,7 @@ sidebarTitle: "Remote Agent"
 description: "Use defineAgent to wrap any function or HTTP service as a fasteval agent. Map responses to the standard event stream and register the agent by name."
 ---
 
-Every system under test in fasteval is an **agent** — a named object that receives a prompt, drives your code or service, and returns a structured result. You connect your own logic by writing an *adapter* with `defineAgent`. The adapter owns all the details of how to call your system: in-process function references, HTTP endpoints, authentication headers, and message formats are entirely private to the adapter. fasteval selects agents by name (`--agent <name>`), not by URL, because there is no universal protocol that every agent speaks.
+Every system under test in fasteval is an **agent** — a named object that receives a prompt, drives your code or service, and returns a structured result. You connect your own logic by writing an *adapter* with `defineAgent`. The adapter owns all the details of how to call your system: in-process function references, HTTP endpoints, authentication headers, and message formats are entirely private to the adapter. Experiments reference agents directly rather than passing URLs on the CLI, because there is no universal protocol that every agent speaks.
 
 ## When to use `defineAgent`
 
@@ -25,7 +25,7 @@ Every system under test in fasteval is an **agent** — a named object that rece
 import { defineAgent } from "fasteval";
 
 defineAgent({
-  name: string;                          // matches --agent <name> on the CLI
+  name: string;                          // used for reports and grouping
   capabilities: AgentCapabilities;       // declares what this agent can do
   async send(input: TurnInput, ctx: AgentContext): Promise<Turn>;
 });
@@ -180,23 +180,20 @@ function toStreamEvents(body: { reply: string; tools?: any[] }): StreamEvent[] {
 
 ---
 
-## Registering an agent in `fasteval.config.ts`
+## Referencing an agent from an experiment
 
-Import your adapter files and pass them to the `agents` array. Set `defaultAgent` to the name that should be used when `--agent` is not supplied on the CLI.
+Import your adapter from an experiment file so the run configuration is signed in and reviewable.
 
 ```ts
-// fasteval.config.ts
-import { defineConfig } from "fasteval";
+// experiments/local.ts
+import { defineExperiment } from "fasteval";
 import classifyAgent from "./agents/classify.js";
-import weatherBot from "./agents/weather-bot.js";
 
-export default defineConfig({
-  agents: [classifyAgent, weatherBot],
-  defaultAgent: "classify",
+export default defineExperiment({
+  agent: classifyAgent,
+  runs: 1,
 });
 ```
-
-`--agent` on the CLI overrides `defaultAgent` at runtime.
 
 ---
 
@@ -206,13 +203,13 @@ Because the adapter reads `process.env` internally, you can point it at any envi
 
 ```shell
 # Evaluate against your local dev server
-MY_BOT_URL=http://localhost:3000 npx fasteval --agent my-bot
+MY_BOT_URL=http://localhost:3000 npx fasteval exp local
 
 # Evaluate against production
-MY_BOT_URL=https://prod.example.com npx fasteval --agent my-bot
+MY_BOT_URL=https://prod.example.com npx fasteval exp prod
 ```
 
-You can also register two separate adapters — one hardcoded to local, one to production — and switch between them with `--agent local-bot` vs `--agent prod-bot`.
+You can also create two experiment files — one for local, one for production — and switch between them with `npx fasteval exp local` vs `npx fasteval exp prod`.
 
 ---
 

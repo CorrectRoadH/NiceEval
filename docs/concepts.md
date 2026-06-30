@@ -14,7 +14,7 @@
 
 **Task** —— 要让被测对象完成的"那件事"。会话型里它是一串 `t.send(...)` 的输入;沙箱型里它是 `PROMPT.md` 里的提示词。Task 描述意图,不描述如何判分。
 
-**Agent** —— "一条连到 AI 的连接"的抽象,按名字选(`--agent <name>`)。按 transport 分三类:进程内(调你的函数)、远程(按你自己服务的协议)、沙箱(在 [Sandbox](#sandbox) 里 spawn coding agent 的 CLI)。运行器只认统一动词 `send`,核心按 Agent 的[能力](#capability)决定 `t` 上下文暴露哪些动作。fasteval 不定义任何 agent 协议,所以没有 `--url`、没有通用 http target —— 连你自己的服务也是写一个 agent,URL 是它的内部配置。详见 [Agents 与 Adapters](agents-and-adapters.md)。
+**Agent** —— "一条连到 AI 的连接"的抽象,由 experiment 引用。按 transport 分三类:进程内(调你的函数)、远程(按你自己服务的协议)、沙箱(在 [Sandbox](#sandbox) 里 spawn coding agent 的 CLI)。运行器只认统一动词 `send`,核心按 Agent 的[能力](#capability)决定 `t` 上下文暴露哪些动作。fasteval 不定义任何 agent 协议,所以没有 `--url`、没有通用 http target —— 连你自己的服务也是写一个 agent,URL 是它的内部配置。详见 [Agents 与 Adapters](agents-and-adapters.md)。
 
 **Scorer** / **评分器** —— 把"结果"映射成分数的东西。三类:**值级断言**(`expect` 里的 `includes`/`equals`/`matches`…,就地评估)、**作用域断言**(`t.succeeded()`/`t.calledTool()`…,在 `test` 结束后对整次运行评估)、**LLM-as-judge**(用一个评判模型给开放式回答打分)。沙箱型里,跑 `EVAL.ts` 测试本身也是一种 Scorer。
 
@@ -52,7 +52,7 @@
 
 **Runner** / **运行器** —— 调度引擎。负责发现、有界并发执行、重试、早停、缓存,以及把结果交给报告器。详见 [Runner](runner.md)。
 
-**Experiment** / **实验** —— 一份可签入的**运行配置**,描述「怎么跑这批 eval」:用哪些 [Agent](#agent)、跑几次、过滤哪些、预算多少。由 `defineExperiment` 定义在 `experiments/` 下,id 从路径推导。**一文件 = 一个单一配置**;**一个文件夹 = 一组要并排对比的实验**(`fasteval exp <组>` 跑整组),可比性由目录表达——单文件内也可用 `agent: [...]` 数组随手扇出。它**不碰评分**——「怎么算对」是 eval 的事。详见 [Experiments](experiments.md)。
+**Experiment** / **实验** —— 一份可签入的**运行配置**,描述「怎么跑这批 eval」:用哪个 [Agent](#agent)、跑几次、过滤哪些、预算多少。由 `defineExperiment` 定义在 `experiments/` 下,id 从路径推导。**一文件 = 一个单一配置**;**一个文件夹 = 一组要并排对比的实验**(`fasteval exp <组>` 跑整组),可比性由目录表达。它**不碰评分**——「怎么算对」是 eval 的事。详见 [Experiments](experiments.md)。
 
 **Comparison group** / **可对比组** —— `experiments/` 下的一个文件夹,装一组"要并排比较"的单一配置(如同模型下 bub vs codex)。同组互为对照、`fasteval view` 并列展示;不同组是不同的对比维度。比文件内数组多表达了"可比性"语义。详见 [实验怎么组织](experiments.md#实验怎么组织文件夹--一组可对比的实验)。
 

@@ -55,7 +55,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
       - run: npm ci
-      - run: npx fasteval --agent claude-code --sandbox docker --strict
+      - run: npx fasteval exp ci --sandbox docker --strict
 ```
 
 <Tip>

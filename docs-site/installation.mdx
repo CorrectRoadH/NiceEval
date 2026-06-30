@@ -101,16 +101,15 @@ export default defineConfig({
 | `timeoutMs` | `number` | Per-eval timeout in milliseconds |
 | `sandbox` | `"auto"` \| `"docker"` | Sandbox backend for coding-agent evals |
 
-You can also register agent adapters and set a default agent directly in the config:
+Select agents in experiment files:
 
 ```ts
-import { defineConfig } from "fasteval";
+import { defineExperiment } from "fasteval";
 import myAgent from "./agents/my-agent.js";
 
-export default defineConfig({
-  agents: [myAgent],
-  defaultAgent: myAgent.name,
-  // ... other options
+export default defineExperiment({
+  agent: myAgent,
+  runs: 1,
 });
 ```
 
@@ -144,7 +143,7 @@ For CI, pass the relevant secrets through the workflow `env` block:
 
 ```yaml
 # .github/workflows/evals.yml
-- run: npx fasteval --strict --junit .fasteval/junit.xml
+- run: npx fasteval exp ci --strict --junit .fasteval/junit.xml
   env:
     ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -155,9 +154,6 @@ For CI, pass the relevant secrets through the workflow `env` block:
 Confirm that the CLI is reachable and can discover your evals:
 
 ```shell
-# print all CLI flags and commands
-npx fasteval --help
-
 # list all discovered evals without running them
 npx fasteval list
 ```
@@ -167,7 +163,7 @@ npx fasteval list
 You can also do a dry run — this resolves every eval and prints what would execute, without calling any agent or sandbox:
 
 ```shell
-npx fasteval --dry
+npx fasteval exp local --dry
 ```
 
 Once `list` and `--dry` both succeed, you're ready to run your first eval. Head to the [Quickstart](/quickstart) for a step-by-step walkthrough of all three eval types.

@@ -19,8 +19,7 @@ import { defineAgent } from "fasteval";
 ### Options
 
 <ParamField body="name" type="string" required>
-  A unique identifier for this agent. Referenced by name in `defineEval({ agent: "..." })`,
-  `defineConfig({ defaultAgent: "..." })`, and the `--agent` CLI flag.
+  A unique identifier for this agent. Experiment files reference agent objects directly, and reports use this name for grouping.
 
   ```ts
   name: "my-agent",
@@ -415,30 +414,27 @@ type StreamEvent =
 Once you've written your adapters, register them in `fasteval.config.ts`:
 
 ```ts
-// fasteval.config.ts
-import { defineConfig } from "fasteval";
+// experiments/local.ts
+import { defineExperiment } from "fasteval";
 import myAgent from "./agents/my-agent.js";
-import supportBot from "./agents/support-bot.js";
 
-export default defineConfig({
-  agents: [myAgent, supportBot],
-  defaultAgent: "my-agent",   // used when --agent is not specified
+export default defineExperiment({
+  agent: myAgent,
+  runs: 1,
 });
 ```
 
-<ParamField body="agents" type="AgentAdapter[]">
-  Array of agent adapter instances created with `defineAgent` or
-  `defineSandboxAgent`. Each adapter's `name` must be unique.
+<ParamField body="agent" type="AgentAdapter">
+  Agent adapter instance created with `defineAgent` or `defineSandboxAgent`.
 </ParamField>
 
-<ParamField body="defaultAgent" type="string">
-  The `name` of the agent to use when neither the eval's `agent` field nor the
-  `--agent` CLI flag specifies one.
+<ParamField body="runs" type="number">
+  Number of attempts for each matched eval in this experiment.
 </ParamField>
 
 ### Built-in agents
 
-The following coding agent adapters are built into fasteval and require no registration. Use them directly with `--agent`:
+The following coding agent adapters are exported by fasteval and can be referenced from experiment files:
 
 <CardGroup cols={3}>
   <Card title="claude-code" icon="terminal">
@@ -456,8 +452,8 @@ The following coding agent adapters are built into fasteval and require no regis
 </CardGroup>
 
 ```shell
-npx fasteval --agent claude-code --sandbox docker evals/fixtures/button
-npx fasteval --agent codex --sandbox docker evals/fixtures/button
+npx fasteval exp claude-code-local evals/fixtures/button --sandbox docker
+npx fasteval exp codex-local evals/fixtures/button --sandbox docker
 ```
 
 ---

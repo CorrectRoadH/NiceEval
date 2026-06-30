@@ -58,7 +58,7 @@ jobs:
           restore-keys: fasteval-
 
       - name: Run evals
-        run: npx fasteval --strict --junit .fasteval/junit.xml
+        run: npx fasteval exp ci --strict --junit .fasteval/junit.xml
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -84,7 +84,7 @@ fasteval itself doesn't manage API keys — each agent adapter reads the keys it
     Reference them under the `env` key of the step that runs `npx fasteval`:
     ```yaml
     - name: Run evals
-      run: npx fasteval --strict
+      run: npx fasteval exp ci --strict
       env:
         ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -100,7 +100,7 @@ fasteval itself doesn't manage API keys — each agent adapter reads the keys it
 Pass `--junit <path>` to write a JUnit XML report alongside the run. Most CI systems can ingest JUnit XML and display per-test results in their UI:
 
 ```bash
-npx fasteval --junit .fasteval/junit.xml
+npx fasteval exp ci --junit .fasteval/junit.xml
 ```
 
 You can also configure the reporter permanently in `fasteval.config.ts` so you never have to remember the flag:
@@ -122,8 +122,8 @@ export default defineConfig({
 Use `--dry` to verify that your eval files are discovered correctly — it prints the full list of evals that would run, without executing any of them or making any API calls:
 
 ```bash
-npx fasteval --dry
-npx fasteval memory/ --dry   # check a subset
+npx fasteval exp ci --dry
+npx fasteval exp ci memory/ --dry   # check a subset
 ```
 
 This is useful for debugging filter expressions and confirming that new evals appear in CI before you burn tokens on a full run.
@@ -153,10 +153,10 @@ CI runners have fixed CPU and memory budgets. Use `--max-concurrency` to keep sa
 
 ```bash
 # Conservative setting for a standard 2-CPU GitHub-hosted runner
-npx fasteval --max-concurrency 2
+npx fasteval exp ci --max-concurrency 2
 
 # Higher value for large runners or cloud sandbox backends
-npx fasteval --max-concurrency 8
+npx fasteval exp ci --max-concurrency 8
 ```
 
 You can also set `maxConcurrency` in `fasteval.config.ts` and override it per CI environment.
@@ -168,7 +168,7 @@ You can also set `maxConcurrency` in `fasteval.config.ts` and override it per CI
     Run evals on every pull request without `--strict` and with a moderate `--max-concurrency`. Focus on fast feedback: use `--tag smoke` to run only a subset of critical evals if the full suite is too slow for PRs.
 
     ```yaml
-    run: npx fasteval --tag smoke --max-concurrency 4
+    run: npx fasteval exp ci --tag smoke --max-concurrency 4
     ```
   </Card>
   <Card title="Nightly full matrix" icon="moon">

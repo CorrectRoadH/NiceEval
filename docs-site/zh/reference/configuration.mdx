@@ -37,9 +37,7 @@ export default defineConfig({
   ```
 </ParamField>
 
-<ParamField body="defaultAgent" type="string">
-  CLI 未传 `--agent`、eval 也未指定 `agent` 时使用的默认 agent 名。
-</ParamField>
+agent、model 和 flags 写在 `experiments/` 下的 `defineExperiment` 文件里,不写进 `defineConfig`。
 
 ### Judge
 

@@ -59,7 +59,7 @@ Every system under test — your own agent, a deployed HTTP service, Claude Code
 - **Agent** is the abstraction. From the core's perspective an agent is a named object with a set of capabilities and a single `send` method that accepts a `TurnInput` and returns a `Turn`. The runner only ever calls this interface.
 - **Adapter** is the concrete implementation you write (or use from fasteval's built-ins). It knows how to authenticate, how to call your service, and — critically — how to map whatever your AI returns into the standard event stream the core expects.
 
-You select an agent by name with `--agent <name>`, not by URL. The URL (or API key, or CLI invocation) is the adapter's private configuration, invisible to the core and to your evals.
+Experiments reference agents directly. The URL (or API key, or CLI invocation) is the adapter's private configuration, invisible to the core and to your evals.
 
 ### Why there is no `--url` flag
 

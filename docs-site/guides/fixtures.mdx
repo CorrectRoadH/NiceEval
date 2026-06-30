@@ -80,7 +80,7 @@ fasteval scans your eval directory for any subdirectory that contains a `PROMPT.
 | `evals/fixtures/button/` | `fixtures/button` |
 | `evals/fixtures/api/auth/` | `fixtures/api/auth` |
 
-You can filter to a specific fixture using its ID prefix: `npx fasteval fixtures/button`.
+You can filter to a specific fixture using its ID prefix after the experiment selector: `npx fasteval exp local fixtures/button`.
 
 ## Running a fixture
 
@@ -94,10 +94,10 @@ You can filter to a specific fixture using its ID prefix: `npx fasteval fixtures
   </Step>
 
   <Step title="Run with a sandbox backend">
-    Pass `--agent` to select the coding agent and `--sandbox` to choose the isolation backend.
+    Select the coding agent in your experiment file and use `--sandbox` only when you need to override the isolation backend.
 
     ```bash
-    npx fasteval --agent claude-code --sandbox docker fixtures/button
+    npx fasteval exp local fixtures/button --sandbox docker
     ```
 
     fasteval will start a fresh Docker container, upload the workspace files (excluding `EVAL.ts`), run the agent, upload `EVAL.ts`, execute the Vitest tests, collect the diff, and tear down the container.
@@ -107,7 +107,7 @@ You can filter to a specific fixture using its ID prefix: `npx fasteval fixtures
     Use `--runs` to measure reliability. Add `--early-exit` to stop as soon as one run passes.
 
     ```bash
-    npx fasteval --agent claude-code --runs 10 --early-exit fixtures/button
+    npx fasteval exp local fixtures/button --runs 10 --early-exit
     ```
   </Step>
 </Steps>

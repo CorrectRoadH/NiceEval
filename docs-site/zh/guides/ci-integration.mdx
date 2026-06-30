@@ -11,7 +11,7 @@ Evals 应该和测试一样进入 CI。它们能在 PR 阶段发现 agent 行为
 默认情况下，只要存在失败的 gate，fasteval 将以非零状态码退出。CI 中通常使用 `--strict`，让失败更明确。
 
 ```bash
-npx fasteval --strict
+npx fasteval exp ci --strict
 ```
 
 ## GitHub Actions 示例
@@ -32,7 +32,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npx fasteval --strict
+      - run: npx fasteval exp ci --strict
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -80,7 +80,7 @@ npx fasteval list
 ## 控制并发
 
 ```bash
-npx fasteval --max-concurrency 2
+npx fasteval exp ci --max-concurrency 2
 ```
 
 标准 GitHub-hosted runner 上，sandbox eval 并发不宜过高。远程 HTTP eval 可以按服务限流能力调高。

@@ -65,7 +65,6 @@ import { equals } from "fasteval/expect";
 
 export default defineEval({
   description: "意图分类:退款",
-  agent: "classify",                            // 引用上面注册的 agent
   async test(t) {
     const turn = await t.send("我想退货退款");
     t.check(turn.data, equals({ intent: "refund" }));
@@ -73,10 +72,10 @@ export default defineEval({
 });
 ```
 
-(把 `classify` 加进 `fasteval.config.ts` 的 `agents: [...]`,或设成 `defaultAgent`。)
+(把 `classify` agent 放进一个 `experiments/local.ts` 运行配置。)
 
 ```sh
-npx fasteval classify
+npx fasteval exp local classify
 ```
 
 ## 2. 评一个会话型 agent(本地或远程)
@@ -109,7 +108,6 @@ import { includes } from "fasteval/expect";
 
 export default defineEval({
   description: "布鲁克林天气",
-  agent: "weather-bot",
   async test(t) {
     await t.send("布鲁克林今天天气怎么样?");
     t.succeeded();
@@ -121,7 +119,7 @@ export default defineEval({
 ```
 
 ```sh
-AGENT_URL=https://my-agent.example.com npx fasteval weather --agent weather-bot
+AGENT_URL=https://my-agent.example.com npx fasteval exp local weather
 ```
 
 ## 3. 评一个塞进沙箱的 coding agent
@@ -172,10 +170,10 @@ test("没有暴力删库", () => {
 ```sh
 # 直连 API + 本地 Docker,不需要任何云 token
 export ANTHROPIC_API_KEY=sk-ant-...
-npx fasteval --agent claude-code --sandbox docker fixtures/button
+npx fasteval exp local fixtures/button --sandbox docker
 
 # 跑 10 次取通过率,先过一次就早停
-npx fasteval --agent claude-code --runs 10 --early-exit fixtures/button
+npx fasteval exp local fixtures/button --runs 10 --early-exit
 ```
 
 ## 看结果
@@ -200,7 +198,7 @@ Results:  2 passed, 1 failed, 0 scored, 0 skipped
 
 ```yaml
 # .github/workflows/evals.yml
-- run: npx fasteval --strict --junit .fasteval/junit.xml
+- run: npx fasteval exp ci --strict --junit .fasteval/junit.xml
   env:
     ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 ```

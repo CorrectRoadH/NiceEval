@@ -31,7 +31,7 @@ The full set of fields `defineEval` accepts:
 ```ts
 defineEval({
   description?: string;            // shown in reports
-  agent?: string;                  // named agent; omit to use defaultAgent or --agent
+  agent?: string;                  // optional eval-local default; normal runs select agent via experiment
   tags?: string[];                 // for --tag filtering on the CLI
   judge?: JudgeConfig;             // override the default judge model for this eval
   reporters?: Reporter[];          // eval-specific reporters
@@ -60,15 +60,15 @@ This convention has an important consequence: **renaming the file changes the ev
 You use the ID to filter which evals to run from the CLI:
 
 ```shell
-npx fasteval weather          # runs all evals whose ID starts with "weather"
-npx fasteval weather/brooklyn # runs exactly this one eval
+npx fasteval exp local weather          # runs all evals whose ID starts with "weather"
+npx fasteval exp local weather/brooklyn # runs exactly this one eval
 ```
 
 ## The eval lifecycle
 
 <Steps>
   <Step title="Discovery">
-    When you run `npx fasteval`, the runner recursively scans the `evals/` directory for files ending in `.eval.ts` and for fixture directories (those containing a `PROMPT.md`). Default exports of `defineEval(...)` or an array of `defineEval(...)` calls are registered as individual evals.
+    When you run `npx fasteval exp ...`, the runner recursively scans the `evals/` directory for files ending in `.eval.ts` and for fixture directories (those containing a `PROMPT.md`). Default exports of `defineEval(...)` or an array of `defineEval(...)` calls are registered as individual evals.
   </Step>
   <Step title="Scheduling">
     The runner dispatches evals up to `maxConcurrency` at a time. Before dispatching an eval, it checks the fingerprint cache: if the eval's source, its inputs, and the active agent haven't changed since the last passing run, the cached result is replayed and the eval is skipped — saving both time and API cost.

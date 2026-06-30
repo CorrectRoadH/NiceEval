@@ -1,7 +1,7 @@
 ---
 title: "defineConfig: 配置 fasteval 项目"
 sidebarTitle: "defineConfig"
-description: "defineConfig 参考：设置 agents、judge 模型、并发、sandbox 后端、reporters、生命周期 hooks 和成本预算。"
+description: "defineConfig 参考：设置 judge 模型、并发、sandbox 后端、reporters、生命周期 hooks 和成本预算。"
 ---
 
 `defineConfig` 是项目级配置入口。你从根目录的 `fasteval.config.ts` 默认导出它。
@@ -12,13 +12,7 @@ import { defineConfig } from "fasteval";
 
 ## 所有常用选项
 
-<ParamField body="agents" type="AgentAdapter[]" default="[]">
-  当前项目可用的自定义 agent adapters。每个 adapter 的 `name` 必须唯一。内置 coding agents 不需要注册。
-</ParamField>
-
-<ParamField body="defaultAgent" type="string">
-  eval 未指定 `agent` 且 CLI 未传 `--agent` 时使用的 agent 名。
-</ParamField>
+agent、model 和 flags 写在 `experiments/` 下的 `defineExperiment` 文件里,不写进 `defineConfig`。
 
 <ParamField body="judge" type="{ model: string }">
   配置 `t.judge.*` 使用的默认 judge 模型。
@@ -58,11 +52,7 @@ import { defineConfig } from "fasteval";
 ```ts
 import { defineConfig } from "fasteval";
 import { Console, JUnit } from "fasteval/reporters";
-import supportApi from "./agents/support-api";
-
 export default defineConfig({
-  agents: [supportApi],
-  defaultAgent: "support-api",
   judge: { model: "anthropic/claude-haiku-4-5" },
   reporters: [Console(), JUnit(".fasteval/junit.xml")],
   maxConcurrency: 4,

@@ -136,9 +136,8 @@ cd examples/zh/ai-sdk && pnpm install && pnpm dev
 
 ```bash
 cd examples/zh/ai-sdk
-pnpm exec fasteval                  # 全跑
-pnpm exec fasteval weather-tool     # 只跑某个
-pnpm exec fasteval exp compare-models   # 跨模型对比(需 OPENAI_API_KEY)
+pnpm exec fasteval exp compare-models   # 跑模型对比实验组
+pnpm exec fasteval exp compare-models weather-tool   # 在实验组里只跑某个 eval
 ```
 
 ## 下一步

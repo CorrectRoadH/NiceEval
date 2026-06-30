@@ -15,7 +15,7 @@ import { defineAgent } from "fasteval";
 ```
 
 <ParamField body="name" type="string" required>
-  agent 唯一名字。可在 `defineEval({ agent })`、`defaultAgent` 和 `--agent` 中引用。
+  agent 唯一名字。experiment 引用 agent 对象,报告按这个名字分组。
 </ParamField>
 
 <ParamField body="capabilities" type="AgentCapabilities">
@@ -120,12 +120,12 @@ export default defineSandboxAgent({
 ## 注册
 
 ```ts
-import { defineConfig } from "fasteval";
+import { defineExperiment } from "fasteval";
 import echo from "./agents/echo";
 
-export default defineConfig({
-  agents: [echo],
-  defaultAgent: "echo",
+export default defineExperiment({
+  agent: echo,
+  runs: 1,
 });
 ```
 

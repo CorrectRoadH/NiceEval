@@ -4,14 +4,13 @@ sidebarTitle: "defineEval"
 description: "Complete reference for defineEval and defineAgentEval. Covers all options, the test context t, Turn return value, and dataset array exports."
 ---
 
-`defineEval` is the primary building block for writing evals in fasteval. You call it once per file, pass a configuration object describing your eval, and export the result as the default export. The runner discovers your file, derives its ID from the file path, and executes the `test` function against the configured agent.
+`defineEval` is the primary building block for writing evals in fasteval. You call it once per file, pass a configuration object describing what to test, and export the result as the default export. The runner discovers your file, derives its ID from the file path, and executes the `test` function under the selected experiment's agent.
 
 ```ts
 import { defineEval } from "fasteval";
 
 export default defineEval({
   description: "Brooklyn weather query",
-  agent: "my-agent",
   async test(t) {
     await t.send("What's the weather like in Brooklyn today?");
     t.succeeded();
@@ -34,19 +33,6 @@ export default defineEval({
 <ParamField body="description" type="string">
   A human-readable label for this eval. Appears in console output and reports.
   Does not affect the ID — that comes from the file path.
-</ParamField>
-
-<ParamField body="agent" type="string">
-  Name of the agent adapter to use for this eval. Must match a `name` registered
-  in `defineConfig({ agents: [...] })`. When omitted, fasteval falls back to
-  `defaultAgent` in your config, or the value of `--agent` on the CLI.
-
-  ```ts
-  export default defineEval({
-    agent: "my-agent",  // references a named agent adapter
-    async test(t) { /* ... */ },
-  });
-  ```
 </ParamField>
 
 <ParamField body="tags" type="string[]">

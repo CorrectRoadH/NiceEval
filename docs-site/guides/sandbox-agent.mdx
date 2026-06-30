@@ -8,7 +8,7 @@ A sandbox agent spawns a coding-agent CLI inside an isolated environment — a D
 
 ## Built-in sandbox agents
 
-fasteval ships three sandbox adapters out of the box. You select them with `--agent <name>`; no configuration file entry is required.
+fasteval ships three sandbox adapters out of the box. Import one into an experiment file and run that experiment.
 
 <CardGroup cols={3}>
   <Card title="claude-code" icon="code">
@@ -22,21 +22,21 @@ fasteval ships three sandbox adapters out of the box. You select them with `--ag
   </Card>
 </CardGroup>
 
-## Running a built-in agent
+## Running a sandbox agent
 
-Pass `--agent` and `--sandbox` on the CLI. The sandbox flag tells fasteval where to spin up the isolated environment (see [Sandbox Backends](/guides/sandbox-backends) for the full list of options).
+Select the agent in an experiment file, then run that experiment. The optional `--sandbox` flag only overrides where fasteval spins up the isolated environment (see [Sandbox Backends](/guides/sandbox-backends) for the full list of options).
 
 ```shell
 # Evaluate the button fixture with Claude Code in a local Docker container
 export ANTHROPIC_API_KEY=sk-ant-...
-npx fasteval --agent claude-code --sandbox docker fixtures/button
+npx fasteval exp local fixtures/button --sandbox docker
 
 # Run 10 times and stop as soon as one pass is recorded
-npx fasteval --agent claude-code --runs 10 --early-exit fixtures/button
+npx fasteval exp local fixtures/button --runs 10 --early-exit
 ```
 
 <Note>
-  The `--sandbox docker` flag is optional if Docker is your default backend. Run `npx fasteval --agent codex fixtures/button` and fasteval will use Docker automatically unless a cloud token is detected in the environment.
+  The `--sandbox docker` flag is optional if Docker is your default backend. Keep the agent choice in `experiments/local.ts` or another signed-in experiment file.
 </Note>
 
 ### Environment variables by agent
@@ -215,23 +215,23 @@ if (ctx.flags.webResearch) args.push("--allowedTools", "WebSearch,WebFetch");
 
 ## Registering a custom sandbox agent
 
-Built-in agents (`claude-code`, `codex`, `bub`) require no configuration — they are available immediately via `--agent <name>`. Custom adapters must be added to `fasteval.config.ts`:
+Built-in agents (`claude-code`, `codex`, `bub`) can be imported into experiment files. Custom adapters follow the same pattern:
 
 ```ts
-// fasteval.config.ts
-import { defineConfig } from "fasteval";
+// experiments/local.ts
+import { defineExperiment } from "fasteval";
 import myCustomAgent from "./agents/my-custom-agent.js";
 
-export default defineConfig({
-  agents: [myCustomAgent],
-  defaultAgent: "my-custom-agent",
+export default defineExperiment({
+  agent: myCustomAgent,
+  runs: 1,
 });
 ```
 
-Then run it exactly like a built-in:
+Then run that experiment:
 
 ```shell
-npx fasteval --agent my-custom-agent --sandbox docker fixtures/my-task
+npx fasteval exp local fixtures/my-task --sandbox docker
 ```
 
 <Warning>

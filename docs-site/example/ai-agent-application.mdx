@@ -136,9 +136,8 @@ Open a second terminal and run evals:
 
 ```bash
 cd examples/zh/ai-sdk
-pnpm exec fasteval                  # run everything
-pnpm exec fasteval weather-tool     # run one eval
-pnpm exec fasteval exp compare-models   # cross-model comparison (requires OPENAI_API_KEY)
+pnpm exec fasteval exp compare-models   # run the model comparison experiment
+pnpm exec fasteval exp compare-models weather-tool   # run one eval inside that experiment
 ```
 
 ## Next steps

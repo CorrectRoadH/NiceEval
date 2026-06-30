@@ -92,20 +92,20 @@ function toStreamEvents(body: { reply: string }) {
 ## 注册 agent
 
 ```ts
-import { defineConfig } from "fasteval";
+import { defineExperiment } from "fasteval";
 import supportApi from "./agents/support-api";
 
-export default defineConfig({
-  agents: [supportApi],
-  defaultAgent: "support-api",
+export default defineExperiment({
+  agent: supportApi,
+  runs: 1,
 });
 ```
 
 ## 本地和生产切换
 
 ```bash
-SUPPORT_API_URL=http://localhost:3000/api/agent npx fasteval support
-SUPPORT_API_URL=https://api.example.com/agent npx fasteval support
+SUPPORT_API_URL=http://localhost:3000/api/agent npx fasteval exp local support
+SUPPORT_API_URL=https://api.example.com/agent npx fasteval exp prod support
 ```
 
-不要把 URL 放进 CLI 位置参数；位置参数只用于过滤 eval ID。
+不要把 URL 放进 CLI 位置参数；experiment 名之后的位置参数只用于过滤 eval ID。

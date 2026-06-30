@@ -68,11 +68,10 @@ test("plugin tool was used", () => {
 ## 运行
 
 ```bash
-npx fasteval --agent claude-code --sandbox docker fixtures/plugin/create-button
-npx fasteval --agent codex --sandbox docker fixtures/plugin/create-button
+npx fasteval exp plugin-regression fixtures/plugin/create-button
 ```
 
-位置参数 `fixtures/plugin/create-button` 是 eval ID 前缀，不是 agent 名。agent 用 `--agent` 选择。
+实验组选择 agent 配置。尾随的 `fixtures/plugin/create-button` 只作为 eval ID 前缀过滤。
 
 ## 比较插件效果
 

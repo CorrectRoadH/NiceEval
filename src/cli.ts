@@ -1,17 +1,13 @@
-// fasteval CLI 入口。两类输入:位置参数选「哪些 eval」(id 前缀),flag 选「怎么跑」。
-//   fasteval [pattern...]            发现并运行(默认 agent)
+// fasteval CLI 入口。执行 eval 必须以 experiment 为单位;位置参数只在 exp 后筛 eval id 前缀。
 //   fasteval exp [组|配置] [pattern]  跑实验
 //   fasteval list                    只列出发现到的 eval
 //   fasteval clean                   删除 .fasteval/ 历史运行工件
-//   fasteval --agent <name> ...
 
 import { spawn } from "node:child_process";
 import { readFile, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { buildRegistry, resolveAgent } from "./agents/registry.ts";
-import { BUILTIN_AGENTS } from "./agents/builtin.ts";
 import { discoverEvals, discoverExperiments, makeFilter } from "./runner/discover.ts";
 import { runEvals, type AgentRun } from "./runner/run.ts";
 import { stopAllSandboxes, liveSandboxCount } from "./sandbox/registry.ts";
@@ -206,7 +202,6 @@ async function main(): Promise<void> {
   }
 
   const config = await loadConfig(cwd);
-  const registry = buildRegistry(BUILTIN_AGENTS);
   const evals = await discoverEvals(cwd);
 
   if (command === "list") {
@@ -219,6 +214,10 @@ async function main(): Promise<void> {
   let expMaxConcurrency: number | undefined;
 
   if (command === "exp") {
+    if (flags.agent || flags.model) {
+      process.stderr.write(t("cli.exp.agentModelFlagUnsupported"));
+      process.exit(1);
+    }
     const experiments = await discoverExperiments(cwd);
     const expArg = positionals[0];
     const extraPatterns = positionals.slice(1);
@@ -251,42 +250,24 @@ async function main(): Promise<void> {
     const vals = selected.map((e) => e.maxConcurrency).filter((v): v is number => v !== undefined);
     if (vals.length > 0) expMaxConcurrency = Math.min(...vals);
   } else {
-    // 给了 pattern 却匹配不到任何 eval:别静默跑 0 个。多半是把实验组/实验名当成了 eval
-    // (例:`fasteval dev` 实为 run 命令 + pattern "dev")—— 明确报错并指路 `exp`。
-    if (positionals.length > 0 && !evals.some((e) => makeFilter(positionals)(e.id))) {
-      const experiments = await discoverExperiments(cwd);
-      const asExp = experiments.filter((e) =>
-        positionals.some((p) => e.group === p || e.id === p || e.id.startsWith(p + "/")),
-      );
-      process.stderr.write(t("cli.eval.noMatch", { patterns: positionals.join(" ") }));
-      if (asExp.length > 0) {
-        process.stderr.write(t("cli.eval.noMatchHintExperiment", {
-          pattern: positionals[0],
-          kind: asExp.length > 1 ? t("cli.experimentGroup") : "",
-        }));
-      } else {
-        process.stderr.write(t("cli.eval.noMatchKnown", {
-          count: evals.length,
-          evals: evals.map((e) => e.id).join(", ") || t("cli.none"),
-        }));
-      }
-      process.exit(1);
+    // 裸 run / `fasteval <eval>` 不再执行。运行配置必须来自 experiments/,
+    // 这样 agent/model/flags/runs/budget 与结果聚合都有可签入的身份。
+    const experiments = await discoverExperiments(cwd);
+    const asExp = experiments.filter((e) =>
+      positionals.some((p) => e.group === p || e.id === p || e.id.startsWith(p + "/")),
+    );
+    process.stderr.write(t("cli.run.experimentRequired"));
+    if (asExp.length > 0) {
+      process.stderr.write(t("cli.run.experimentRequiredHint", {
+        pattern: positionals[0] ?? "",
+        kind: asExp.length > 1 ? t("cli.experimentGroup") : "",
+      }));
+    } else {
+      process.stderr.write(t("cli.run.experimentRequiredKnown", {
+        experiments: experiments.map((e) => e.id).join(", ") || t("cli.none"),
+      }));
     }
-    const agentName = flags.agent;
-    if (!agentName) {
-      process.stderr.write(t("cli.noAgent"));
-      process.exit(1);
-    }
-    agentRuns.push({
-      agent: resolveAgent(registry, agentName),
-      model: flags.model,
-      flags: {},
-      runs: flags.runs ?? 1,
-      earlyExit: flags.earlyExit ?? true,
-      sandbox: flags.sandbox ?? config.sandbox,
-      timeoutMs: flags.timeout ?? config.timeoutMs,
-      evalFilter: makeFilter(positionals),
-    });
+    process.exit(1);
   }
 
   if (flags.dry) {

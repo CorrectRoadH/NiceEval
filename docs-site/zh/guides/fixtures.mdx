@@ -56,10 +56,10 @@ test("accepts label and onClick", () => {
 ## 运行 fixture
 
 ```bash
-npx fasteval --agent claude-code --sandbox docker fixtures/button
+npx fasteval exp local fixtures/button --sandbox docker
 ```
 
-位置参数是 eval ID 前缀，不是 agent 名。
+实验名之后的位置参数是 eval ID 前缀，不是 agent 名。
 
 ## 验证 agent 行为
 

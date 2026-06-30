@@ -4,20 +4,20 @@ sidebarTitle: "Experiments"
 description: "Use fasteval experiments to run the same evals across multiple agents, models, and feature flags. Measure pass rates, cost, and latency side by side."
 ---
 
-A single eval run tells you whether an agent passed today. An experiment tells you which agent passes most reliably, at what cost, and how performance changes when you swap models or toggle feature flags. Experiments expand a configuration matrix — agents × models × feature flags × runs — into a batch of attempts, then aggregate results into pass rates, mean latency, token usage, and estimated cost, side by side across every configuration.
+A single eval run tells you whether an agent passed today. An experiment tells you which agent passes most reliably, at what cost, and how performance changes when you swap models or toggle feature flags. Each experiment file is one run configuration; experiment folders group comparable configs side by side.
 
 ## What an experiment is
 
-An experiment is a `defineExperiment` configuration that describes one or more agents, one or more models, how many times to run each eval, and which evals to include. When you run `npx fasteval exp <group>`, the runner expands the matrix, executes every attempt under the same bounded-concurrency scheduler as a regular run, and produces a comparative report.
+An experiment is a `defineExperiment` configuration that describes one agent, one model, how many times to run each eval, and which evals to include. When you run `npx fasteval exp <group>`, the runner executes each config in that group under the same bounded-concurrency scheduler and produces a comparative report.
 
 ```ts
 import { defineExperiment } from "fasteval";
-import { claudeCode, codex } from "fasteval";
+import { codexAgent } from "fasteval";
 
 export default defineExperiment({
-  agent: [claudeCode, codex],           // compare two agents
-  model: ["gpt-5.4", "gpt-5.4-mini"],  // across two models
-  runs: 5,                              // 5 attempts per (agent, model, eval) cell
+  agent: codexAgent(),                  // one agent per experiment file
+  model: "gpt-5.4",                    // one model per experiment file
+  runs: 5,                              // 5 attempts per eval
   earlyExit: false,                     // run all 5 to get the full distribution
   evals: "memory/",                     // only evals whose ID starts with "memory/"
   budget: 20.00,                        // stop dispatching after ~$20
@@ -41,11 +41,11 @@ export default defineExperiment({
 ## The `defineExperiment` shape
 
 <Accordion title="agent">
-  An array of agent objects or agent names to include in the matrix. Each value references an agent registered in your config or one of the built-in coding agents (`claude-code`, `codex`, `bub`).
+  The agent adapter instance to run, such as `codexAgent()` or your own `defineAgent(...)` result.
 </Accordion>
 
 <Accordion title="model">
-  An array of model identifiers (e.g. `"gpt-5.4"`, `"anthropic/claude-opus-4-8"`). Each model is passed to the agent as `ctx.model`. If the agent doesn't accept a model override, this field is ignored by that agent.
+  A single model identifier (e.g. `"gpt-5.4"` or `"anthropic/claude-opus-4-8"`). The model is passed to the agent as `ctx.model`. To compare models, create multiple experiment files in the same group.
 </Accordion>
 
 <Accordion title="runs">
@@ -109,8 +109,8 @@ import { defineExperiment } from "fasteval";
 import { bubAgent } from "fasteval";
 
 export default defineExperiment({
-  agent: [bubAgent],
-  model: ["gpt-5.4"],
+  agent: bubAgent(),
+  model: "gpt-5.4",
   runs: 5,
   evals: "memory/",
 });
@@ -118,10 +118,11 @@ export default defineExperiment({
 
 ```ts experiments/compare/codex-gpt-5.4.ts
 import { defineExperiment } from "fasteval";
+import { codexAgent } from "fasteval";
 
 export default defineExperiment({
-  agent: ["codex"],
-  model: ["gpt-5.4"],
+  agent: codexAgent(),
+  model: "gpt-5.4",
   runs: 5,
   evals: "memory/",
 });
@@ -130,7 +131,7 @@ export default defineExperiment({
 
 ## Matrix expansion
 
-The runner expands the full Cartesian product of agents × models, then multiplies by evals × runs. For example: `agent: [claude-code, codex]` × `runs: 5` × 3 evals = **30 attempts**. All 30 run through the same bounded-concurrency pool.
+The runner expands selected experiment files × evals × runs. For example: 2 experiment files × `runs: 5` × 3 evals = **30 attempts**. All 30 run through the same bounded-concurrency pool.
 
 ## Pass rate reporting
 
@@ -186,8 +187,8 @@ For production stability measurements you typically want two things together: a 
 
 ```ts
 export default defineExperiment({
-  agent: ["claude-code", "codex"],
-  model: ["gpt-5.4"],
+  agent: codexAgent(),
+  model: "gpt-5.4",
   runs: 10,
   earlyExit: false,    // collect all 10 results per cell
   budget: 50.00,       // but stop if accumulated cost hits $50

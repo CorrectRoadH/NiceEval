@@ -78,7 +78,7 @@ The `root: true` semantics are consistent across every backend:
     - Docker's multiplexed exec stream (8-byte frame header) is parsed correctly
 
     ```shell
-    npx fasteval --agent claude-code --sandbox docker fixtures/button
+    npx fasteval exp local fixtures/button --sandbox docker
     ```
 
     ```ts
@@ -94,7 +94,7 @@ The `root: true` semantics are consistent across every backend:
     **Requirements:** set `VERCEL_TOKEN` or `VERCEL_OIDC_TOKEN` in your environment.
 
     ```shell
-    VERCEL_TOKEN=... npx fasteval --agent claude-code --sandbox vercel fixtures/button
+    VERCEL_TOKEN=... npx fasteval exp local fixtures/button --sandbox vercel
     ```
 
     ```ts
@@ -124,7 +124,7 @@ The `root: true` semantics are consistent across every backend:
     Currently documented third-party integrations include E2B, Modal, and Daytona. Because the `Sandbox` interface is intentionally small (run / read / write / stop), integrating a new provider requires minimal code.
 
     ```shell
-    npx fasteval --agent claude-code --sandbox e2b fixtures/button
+    npx fasteval exp local fixtures/button --sandbox e2b
     ```
   </Tab>
 </Tabs>
@@ -138,8 +138,8 @@ You can select the backend on the CLI, in config, or by relying on auto-detectio
 <Steps>
   <Step title="CLI flag (highest priority)">
     ```shell
-    npx fasteval --sandbox docker fixtures/button
-    npx fasteval --sandbox vercel fixtures/button
+    npx fasteval exp local fixtures/button --sandbox docker
+    npx fasteval exp local fixtures/button --sandbox vercel
     ```
   </Step>
   <Step title="Config file">
@@ -178,7 +178,7 @@ The Vercel backend requires one of:
 
 ```shell
 export VERCEL_TOKEN=vercel_...
-npx fasteval --sandbox vercel --agent claude-code fixtures/button
+npx fasteval exp local fixtures/button --sandbox vercel
 ```
 
 The interface exposed to adapters is identical to Docker. You can switch an entire eval suite from Docker to Vercel by changing one line in `fasteval.config.ts` — no adapter code changes required.

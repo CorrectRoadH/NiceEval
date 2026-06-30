@@ -68,11 +68,10 @@ test("plugin tool was used", () => {
 ## Run
 
 ```bash
-npx fasteval --agent claude-code --sandbox docker fixtures/plugin/create-button
-npx fasteval --agent codex --sandbox docker fixtures/plugin/create-button
+npx fasteval exp plugin-regression fixtures/plugin/create-button
 ```
 
-The positional argument `fixtures/plugin/create-button` is an eval ID prefix, not an agent name. Select the agent with `--agent`.
+The experiment group selects the agent configs. The trailing `fixtures/plugin/create-button` argument is only an eval ID prefix filter.
 
 ## Compare plugin impact
 

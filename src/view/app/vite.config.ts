@@ -14,7 +14,7 @@ export default defineConfig({
     copyPublicDir: false,
     minify: true,
     rollupOptions: {
-      input: resolve(here, "main.jsx"),
+      input: resolve(here, "main.tsx"),
       output: {
         entryFileNames: "app.js",
         chunkFileNames: "[name].js",

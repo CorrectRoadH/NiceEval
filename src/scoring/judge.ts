@@ -198,7 +198,11 @@ export function buildJudge(deps: JudgeDeps): JudgeNamespace {
       if (fromFile !== undefined) return `----- ${on} -----\n${fromFile}`;
       return on;
     }
-    return diffMaterial(ctx);
+    // 默认材料 = agent 的「产出」。coding agent 往沙箱写文件 → 用 diff;对话型 agent 不产文件 → 退回最后回复。
+    // 不能写死成 diff:fasteval 是通用 agent eval,judge.agent 不该假设被测对象一定写文件,否则纯对话
+    // eval 的 judge 永远只看到「没有文件改动」→ 把描述清楚的回答误判成答非所问(0 分)。
+    if (Object.keys(ctx.diff.generatedFiles).length > 0) return diffMaterial(ctx);
+    return deps.getReply();
   };
 
   /** autoevals 公共参数:模型走 judge config,baseUrl + apiKey 透给 autoevals 内部建的 OpenAI client。 */

@@ -1,7 +1,7 @@
 ---
 title: "fasteval.config.ts: project configuration reference"
 sidebarTitle: "Configuration"
-description: "Complete reference for fasteval.config.ts. Configure agents, judge model, sandbox backend, concurrency, timeouts, budget, reporters, and lifecycle hooks."
+description: "Complete reference for fasteval.config.ts. Configure judge model, sandbox backend, concurrency, timeouts, reporters, and lifecycle hooks."
 ---
 
 `fasteval.config.ts` is the single file that controls how fasteval discovers, runs, and reports your evals. You export a configuration object from it using `defineConfig`, which provides type-safety and autocompletion for every option. Place the file at the root of your repository alongside `package.json`.
@@ -26,35 +26,11 @@ export default defineConfig({
 
 ## Top-level options
 
-### Agent registration
+### Agent selection
 
-<ParamField body="agents" type="Agent[]" default="[]">
-  An array of agent adapters to register with fasteval. Each entry is an object
-  created with `defineAgent` or `defineSandboxAgent`. Built-in coding agents
-  (`claude-code`, `codex`) do not need to be listed here — they are available
-  by name automatically.
-
-  ```ts
-  import myAgent from "./agents/my-agent.js";
-  import supportBot from "./agents/support-bot.js";
-
-  export default defineConfig({
-    agents: [myAgent, supportBot],
-  });
-  ```
-</ParamField>
-
-<ParamField body="defaultAgent" type="string">
-  The name of the agent to use when `--agent` is not passed on the CLI. Must
-  match the `name` field of a registered agent, or be a built-in agent name
-  such as `"claude-code"` or `"codex"`.
-
-  ```ts
-  export default defineConfig({
-    defaultAgent: "claude-code",
-  });
-  ```
-</ParamField>
+Agents are selected by `defineExperiment` files under `experiments/`, not by
+`fasteval.config.ts`. Keep project-wide defaults here; put agent/model/flags in
+experiment files so runs are reproducible.
 
 ---
 
@@ -358,16 +334,8 @@ The following config shows all commonly used options together with explanatory c
 // fasteval.config.ts
 import { defineConfig } from "fasteval";
 import { Console, JUnit } from "fasteval/reporters";
-import myAgent from "./agents/my-agent.js";
 
 export default defineConfig({
-  // Register your own agent adapters.
-  // Built-in agents (claude-code, codex) don't need to be listed.
-  agents: [myAgent],
-
-  // Use this agent when --agent is not passed on the CLI.
-  defaultAgent: "claude-code",
-
   // LLM-as-judge model — keep this separate from the agent under test.
   judge: { model: "gpt-5.4-mini" },
 
@@ -425,7 +393,6 @@ This is the actual `fasteval.config.ts` from the [coding-agent-memory-evals](htt
 import { defineConfig } from "fasteval";
 
 export default defineConfig({
-  defaultAgent: "claude-code",
   sandbox: "docker",
   workspace: "./workspaces/next-app",
   judge: { model: "gpt-5.4-mini" },
@@ -437,7 +404,6 @@ export default defineConfig({
 
 Key decisions in this config:
 
-- **`defaultAgent: "claude-code"`** — no need to pass `--agent` on every invocation; `claude-code` is a built-in adapter so it does not appear in `agents: [...]`.
 - **`sandbox: "docker"`** — all evals run in local Docker containers; no cloud credentials required.
 - **`workspace: "./workspaces/next-app"`** — the Next.js starter is uploaded into every sandbox before the agent runs.
 - **`judge: { model: "gpt-5.4-mini" }`** — a cheap, fast model is used for judge scoring, independent of the agent under test.

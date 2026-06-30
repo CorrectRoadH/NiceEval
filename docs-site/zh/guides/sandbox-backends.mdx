@@ -24,9 +24,9 @@ Adapter 常用操作包括：
 ## 选择后端
 
 ```bash
-npx fasteval --agent claude-code --sandbox docker fixtures/button
-npx fasteval --agent claude-code --sandbox vercel fixtures/button
-npx fasteval --agent claude-code --sandbox auto fixtures/button
+npx fasteval exp local fixtures/button --sandbox docker
+npx fasteval exp local fixtures/button --sandbox vercel
+npx fasteval exp local fixtures/button --sandbox auto
 ```
 
 `auto` 通常在检测到云端凭据时使用云端后端，否则回退到 Docker。

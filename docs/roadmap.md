@@ -16,10 +16,10 @@
 
 ### M0 —— 竖切:进程内函数 eval(最薄能跑)
 
-目标:`npx fasteval` 能发现并跑一个进程内 agent 的会话型 eval,出控制台结果与 `summary.json`。
+目标:`npx fasteval exp local` 能发现并跑一个进程内 agent 的会话型 eval,出控制台结果与 `summary.json`。
 
 - `defineEval` + `defineConfig` + 路径推导 id + 数组扇出。
-- `defineAgent`(进程内)+ `agents` 注册 + `defaultAgent`;`t.send` / `t.reply` / `t.check`。
+- `defineAgent`(进程内)+ `defineExperiment` 引用 agent;`t.send` / `t.reply` / `t.check`。
 - `expect`:`includes` / `equals` / `matches` / `satisfies`。
 - 作用域断言最小集:`succeeded` / `messageIncludes`。
 - `verdict.ts` 判决;有界并发 runner;`Console` reporter;工件落盘。
@@ -40,11 +40,11 @@
 ### M2 —— 远程 agent
 
 - 远程 `defineAgent`:用户在 `send` 里按**自己服务的协议**发请求、收响应(fasteval 不定协议;URL 等是 agent 私事)。
-- `--agent` 覆盖默认连接;"同一批 eval 换着对象跑"成立。
+- experiment 切换 agent/model;"同一批 eval 换着对象跑"成立。
 
 ### M3 —— 竖切:沙箱里的 coding agent(第二条主轴)
 
-目标:`fasteval --agent claude-code --sandbox docker fixtures/x` 端到端跑通一个 fixture。
+目标:`fasteval exp local fixtures/x --sandbox docker` 端到端跑通一个 fixture。
 
 - `Sandbox` 接口 + **Docker 后端**(默认,零云依赖)。
 - `Adapter` 接口 + **`claude-code` adapter**(先做直连 API 一个变体)。
