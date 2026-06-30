@@ -27,7 +27,6 @@ interface Flags {
   model?: string;
   runs?: number;
   maxConcurrency?: number;
-  sandboxConcurrency?: number;
   timeout?: number;
   earlyExit?: boolean;
   dry: boolean;
@@ -98,8 +97,7 @@ function parseArgs(argv: string[]): { command: string; positionals: string[]; fl
         case "model": flags.model = value; break;
         case "runs": flags.runs = Number(value); break;
         case "max-concurrency": flags.maxConcurrency = Number(value); break;
-        case "sandbox-concurrency": flags.sandboxConcurrency = Number(value); break;
-        case "timeout": flags.timeout = Number(value); break;
+case "timeout": flags.timeout = Number(value); break;
         case "out": flags.out = value; break;
         case "port": flags.port = Number(value); break;
         default: break; // 未知 flag 忽略
@@ -344,7 +342,6 @@ async function main(): Promise<void> {
     agentRuns,
     reporters,
     maxConcurrency: flags.maxConcurrency ?? expMaxConcurrency ?? config.maxConcurrency ?? sandboxDefaultConcurrency,
-    sandboxConcurrency: flags.sandboxConcurrency ?? config.sandboxConcurrency,
     signal: ctrl.signal,
   });
 

@@ -1,5 +1,5 @@
 import { defineEval } from "fasteval";
-import { includes } from "fasteval/evals/expect";
+import { includes } from "fasteval/expect";
 
 // 评测：多轮对话。
 //

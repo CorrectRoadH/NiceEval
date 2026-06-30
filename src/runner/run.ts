@@ -19,7 +19,6 @@ import {
   initGitAndCommit,
   isDirectory,
 } from "./sandbox-prep.ts";
-import { estimateCost } from "./pricing.ts";
 import type {
   Agent,
   AgentContext,
@@ -65,9 +64,6 @@ export interface RunOptions {
   agentRuns: AgentRun[];
   reporters: Reporter[];
   maxConcurrency: number;
-  /** 同时起沙箱(Docker create + 镜像拉取)的上限,独立于 agent 并发。
-   *  默认 min(maxConcurrency, 4)——高并发时防 Docker daemon 过载。*/
-  sandboxConcurrency?: number;
   signal?: AbortSignal;
 }
 
@@ -122,7 +118,7 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
   // 沙箱启动单独限流:与 agent 并发(maxConcurrency)解耦,防高并发下 daemon/API 过载。
   // 未显式指定时跟 maxConcurrency 走——各 backend 的推荐值已在 cli 层写进 maxConcurrency 默认值。
   const sandboxSem = Effect.runSync(
-    Effect.makeSemaphore(opts.sandboxConcurrency ?? opts.maxConcurrency),
+    Effect.makeSemaphore(Math.min(opts.maxConcurrency, 4)),
   );
 
   // earlyExit:为每个 key 各建一个 AbortController。某 attempt 通过时 abort 它,
@@ -655,7 +651,7 @@ async function runAttemptBody(
 
     const durationMs = Date.now() - t0;
     const o11y = buildO11ySummary(events, usage, durationMs);
-    const cost = estimateCost(usage, run.model, config.pricing);
+    const cost = usage.costUSD;
     if (cost !== undefined) o11y.estimatedCostUSD = cost;
 
     return {

@@ -537,13 +537,6 @@ export interface JudgeConfig {
 
 // ───────────────────────── 价格 / 报告 ─────────────────────────
 
-export interface PriceEntry {
-  inputPerMTok: number;
-  outputPerMTok: number;
-  cacheReadPerMTok?: number;
-  cacheWritePerMTok?: number;
-}
-
 export interface ExperimentRunInfo {
   id?: string;
   flags?: Record<string, unknown>;
@@ -704,12 +697,9 @@ export interface Config {
   sandbox?: SandboxOption;
   workspace?: string;
   judge?: JudgeConfig;
-  pricing?: Record<string, PriceEntry>;
   reporters?: Reporter[];
   maxConcurrency?: number;
-  sandboxConcurrency?: number;
   timeoutMs?: number;
-  copyFiles?: "none" | "changed" | "all";
   hooks?: LifecycleHooks;
 }
 
