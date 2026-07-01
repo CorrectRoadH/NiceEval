@@ -7,7 +7,7 @@
 无论做到哪一步,这几条是承重墙,见 [Vision](vision.md):
 
 1. 核心永不按 agent / sandbox 名字做**行为**分支 —— 只按能力分发。
-2. `defineEval`(会话型)与 `defineAgentEval`/fixture(沙箱型)共享同一套 Scorer / Verdict / Runner / Reporter。
+2. `defineEval` 的会话型与沙箱型共享同一套 Scorer / Outcome / Runner / Reporter——`t` 的形状由 agent 能力决定,不是两个定义函数。
 3. 路径即身份;禁止手写 id。
 4. 接新 agent = 一个 `Adapter` + 一个 transcript 解析器,核心零改动。
 5. 接新 sandbox = 一个 `Sandbox` 实现,核心零改动。
@@ -44,17 +44,16 @@
 
 ### M3 —— 竖切:沙箱里的 coding agent(第二条主轴)
 
-目标:`fasteval exp local fixtures/x --sandbox docker` 端到端跑通一个 fixture。
+目标:`fasteval exp local fixtures/x --sandbox docker` 端到端跑通一个沙箱型 eval。
 
 - `Sandbox` 接口 + **Docker 后端**(默认,零云依赖)。
 - `Adapter` 接口 + **`claude-code` adapter**(先做直连 API 一个变体)。
-- `adapters/shared.ts`:上传 / git 基线 / `collectGeneratedFiles` / `runValidation`(Vitest)。
-- Fixture 发现(含 `PROMPT.md` 的目录);`splitTestFiles` 防作弊。
+- `adapters/shared.ts`:git 基线 / `collectGeneratedFiles` / transcript 注入。起始文件与验证测试都是 `test(t)` 里手工 `t.sandbox.writeFiles`/`uploadFiles`,没有目录约定自动发现。
 - transcript 归一化框架 + `o11y/parsers/claude-code.ts` + o11y 派生 + 注入 `__fasteval__/results.json`。
-- 沙箱型作用域断言:`fileChanged` / `testsPassed` / `scriptPassed`。
+- 沙箱型作用域断言:`fileChanged` / `scriptPassed` / `diff`。
 - 工件:`events.ndjson`(标准事件流)/ `transcript-raw.jsonl` / `outputs/` / `project/`。
 
-这是把第二种范式接进同一套下游 —— 复用 M0/M1 的 Scorer/Verdict/Runner/Reporter,只新增"如何产生结果"。
+这是把第二种范式接进同一套下游 —— 复用 M0/M1 的 Scorer/Outcome/Runner/Reporter,只新增"如何产生结果"。
 
 ### M4 —— agent 评测的工程化
 
@@ -63,7 +62,6 @@
 - 指纹缓存(`--force`)。
 - [生命周期钩子](lifecycle.md):`hooks.run` / `hooks.sandbox` 各 `setup` / `teardown`(`teardown` 必在 finally 跑);下游分析走 reporter,不设 `onRunComplete` 实验钩子(对照 [Experiments 砍字段](experiments.md))。
 - 双层超时。
-- `defineAgentEval` 程序化写法(fixture 的代码等价物)。
 - **用量与成本**:`Turn.usage` 累加 + transcript 解析器抠 token + 价格表换算 `estimatedCostUSD`;`t.maxTokens()` / `t.maxCost()` 断言;`--budget` 预算护栏;报告里出每 eval / 整轮的 tokens + $,跨 agent 对比「质量 × 成本」。
 
 ### M5 —— 加宽适配器
@@ -86,7 +84,7 @@
 - **两条竖切(M0、M3)先于任何加宽。** 先证明"主轴成立",再让 adapter/sandbox/scorer 各自变多。避免先建一堆抽象却没跑通过一次。
 - **Docker 先于云。** 默认零依赖能本地跑,是采用门槛最低的路径;云后端是并发扩展,不是首发必需。
 - **claude-code 先于其它 agent。** 一个 adapter 跑通,接口才算被验证;之后接 bub/codex 是复制范式。
-- **会话型先于沙箱型。** 会话型不需要沙箱,反馈最快,且它定义了所有下游(Scorer/Verdict/Runner/Reporter),沙箱型只是再接一种 Agent。
+- **会话型先于沙箱型。** 会话型不需要沙箱,反馈最快,且它定义了所有下游(Scorer/Outcome/Runner/Reporter),沙箱型只是再接一种 Agent。
 
 ## 开放问题(实现前需定)
 

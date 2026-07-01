@@ -138,23 +138,23 @@ await sandbox.runCommand("npm", ["install"]);
 
 ## 沙箱在生命周期里的位置
 
-一次 agent eval 中,核心(而非 Adapter)编排沙箱:
+一次 agent eval 中,核心只固定两头,中间全部交给这条 eval 的 `test(t)`:
 
 ```text
 createSandbox(backend, timeout)
-  → uploadFiles(workspaceFiles)          # 只传 agent 可见的(藏起 EVAL.ts)
-  → git init && git commit               # 打基线,供之后 diff
+  → git init && git commit               # 打一次空基线,供之后 diff——不管 test() 里 seed 了什么
   → hooks.sandbox.setup?.(sandbox, ctx)  # 用户预置钩子,可返回 cleanup 闭包
-  → npm install                          # 装 fixture 依赖
-  → Adapter.run({ sandbox, ... })        # ← 唯一交给 Adapter 的一段
-  → uploadFiles(testFiles)               # 现在才传 EVAL.ts
-  → runValidation()                      # 跑测试 + scripts
+  → test(t)                              # ← 交给 eval 作者,顺序由它自己决定:
+  │    t.sandbox.writeFiles/uploadFiles    #   手工 seed 起始文件,放哪个路径你说了算
+  │    t.send()                            #   驱动 agent(Adapter 在沙箱里跑 CLI,解析成 events)
+  │    t.sandbox.runCommand()              #   手工跑校验命令(可以晚于 t.send(),agent 天然看不到)
+  │    断言…                               #   t.fileChanged / t.diff / t.scriptPassed / t.judge.agent
   → collectGeneratedFiles()              # git diff HEAD
   → hooks.sandbox.teardown?.() / cleanup()  # 用户清理钩子(finally,失败也跑)
   → sandbox.stop()                       # 销毁
 ```
 
-把沙箱编排放在核心(`adapters/shared.ts`)而非每个 Adapter 里,是为了让"传文件、打基线、采 diff、跑验证"对所有 agent 严格一致 —— Adapter 只管"在沙箱里把 agent 跑起来"这一段。`hooks.sandbox.setup` / `teardown` 是留给用户在这条固定编排里插自己环境逻辑的缝,成对出现、`teardown` 必在 `finally` 跑,完整模型见 [Lifecycle](lifecycle.md)。
+核心只固定两件事:**沙箱创建时打一次空 git 基线**,和**销毁前采一次 diff**——这两件事跟"里面放了什么文件"无关,核心不需要知道也不需要预设目录约定。中间"传什么文件、传到哪、什么时候调 agent、什么时候手工跑测试"全部是 `test(t)` 里的普通代码决定,不是核心的固定编排,详见 [Eval Authoring · 沙箱型](eval-authoring.md#沙箱型手工把文件放进沙箱)——Adapter 也只管 `t.send()` 触发的那一次"在沙箱里把 agent 跑起来"。`hooks.sandbox.setup` / `teardown` 是留给用户在"创建"和"销毁"这两头插自己环境逻辑的缝,成对出现、`teardown` 必在 `finally` 跑,完整模型见 [Lifecycle](lifecycle.md)。
 
 ## 性能:复用与预热
 

@@ -41,7 +41,7 @@ interface Agent {
 interface AgentCapabilities {
   conversation?: boolean;        // 支持多轮 send → t.send 多次
   toolObservability?: boolean;   // 能产出 action.* 事件 → t.calledTool
-  workspace?: boolean;           // 在文件系统上工作 → t.sandbox(工作区断言 + diff + 句柄)
+  workspace?: boolean;           // 在文件系统上工作 → t.sandbox(原始句柄)+ 工作区断言/diff(平铺在 t 上)
 }
 
 interface AgentContext {
@@ -50,6 +50,7 @@ interface AgentContext {
   readonly flags: Readonly<Record<string, unknown>>; // experiment 的 feature flags,透传给 agent
   readonly sandbox?: Sandbox;            // 仅沙箱型 agent 有(运行器按 --sandbox 备好)
   readonly session: { id?: string; readonly isNew: boolean }; // 多轮 resume / newSession 用
+  readonly shared: Readonly<Record<string, unknown>>; // hooks.run.setup 经 run.share() 放入的东西,见 Lifecycle
   log(msg: string): void;
 }
 
@@ -238,7 +239,7 @@ export default defineSandboxAgent({
 - 任意 agent → `t.send` / `t.check` / `t.require` / `t.judge` / `t.log` / `t.skip`。
 - `conversation` → `t.send` 可多次、`t.reply`、`t.newSession`。
 - `toolObservability` → `t.calledTool` / `t.toolOrder` / `t.usedNoTools` / `t.calledSubagent` / `t.event`…。
-- `workspace`(沙箱型)→ `t.sandbox`(工作区断言 + `t.sandbox.diff` + 句柄 + `t.sandbox.judge`)/ `t.transcript` / 跑 `EVAL.ts`。
+- `workspace`(沙箱型)→ `t.sandbox`(沙箱原始句柄)/ 工作区断言(`t.fileChanged` / `t.diff` / `t.judge.agent`,平铺在 `t` 上)/ `t.transcript` / 手工在沙箱里跑测试。
 
 作者写 `t.calledTool` 时若 agent 没声明 `toolObservability`,在类型层面就拿不到这个方法,不会跑起来才报错。
 
@@ -252,8 +253,9 @@ export default defineSandboxAgent({
 | 模型 | `ctx.model`(用来拼 `--model`) | `t.model`(只读,知道在测谁) | 同一份 |
 | 取消信号 | `ctx.signal` | `t.signal` | 同一份 |
 | 日志 | `ctx.log()` | `t.log()` | 同一个 |
+| 共享数据 | `ctx.shared`(只读) | `t.shared`(只读) | **同一份**(`hooks.run.setup` 经 `run.share()` 放入,run 作用域,见 [Lifecycle](lifecycle.md)) |
 | 会话 | `ctx.session`(`id`/`isNew`,用来 resume) | `t.newSession()`(发起新会话) | `t` 发起 → 运行器置 `isNew` → `ctx` 执行 |
-| 沙箱 | `ctx.sandbox`(底层 `Sandbox` 句柄) | `t.sandbox`(句柄 + 工作区断言 + `t.sandbox.diff`)/`t.transcript`(高层视图) | `t.sandbox.*` 是 `ctx.sandbox` 的高层封装 |
+| 沙箱 | `ctx.sandbox`(底层 `Sandbox` 句柄) | `t.sandbox`(同一个原始句柄)+ 工作区断言(`t.fileChanged`/`t.diff`/…,平铺在 `t` 上,不在 `t.sandbox` 下)/`t.transcript`(高层视图) | `t.sandbox` 就是 `ctx.sandbox`;工作区断言是核心在其上另加的一层,不是 `ctx.sandbox` 的方法 |
 | 一轮结果 | `send` 返回的 `Turn`(`events` 为核心) | `t.send()` 的返回 / `t.reply` / `turn.outputEquals` | core 把 `Turn` 转交给 eval |
 | 鉴权 / CLI 细节 | agent 本地(**不在 ctx**) | — | 谁都不暴露给对方 |
 | 断言 / judge / transcript 派生 | — | `t.check`/`t.calledTool`/`t.judge`/`t.transcript`/`t.maxTokens`… | 只在 eval 侧 |
@@ -271,15 +273,14 @@ experiment.agent    选「连哪个被测对象」(自实现的 adapter)
 
 ## shared:沙箱型 adapter 的共享工具
 
-跨所有沙箱 adapter 复用、不属于任何单个 agent 的逻辑,由 fasteval 提供(对应 agent-eval 的 `shared.ts`),保证所有 coding agent 的"上传 / 基线 / 采 diff / 验证"严格一致:
+跨所有沙箱 adapter 复用、不属于任何单个 agent 的逻辑,由 fasteval 提供(对应 agent-eval 的 `shared.ts`),保证所有 coding agent 的"打基线 / 采 diff / 抓 transcript"严格一致:
 
-- **`prepareWorkspace(sandbox, fixture)`** —— 上传 workspace files(藏起 `EVAL.ts` 等 test files,防作弊),`git init && commit` 打基线。
+- **`initGitBaseline(sandbox)`** —— `git init && commit` 打一次空基线,供之后 `t.diff` / `t.fileChanged` 对比。跟"放了什么文件"无关——不管你在 `test()` 里 seed 了什么、seed 了没有,基线随沙箱创建自动打好。
 - **`captureGeneratedFiles(sandbox)`** —— `git diff HEAD` 得到 `{ generated, deleted }`。
-- **`runValidation(sandbox, scripts, mode)`** —— 上传 test files,跑 `EVAL.ts`(Vitest)+ npm scripts。
-- **`injectO11yContext(sandbox, events)`** —— 由标准事件流派生 o11y,写 `__fasteval__/results.json`,供 `EVAL.ts` 断言行为。
+- **`injectO11yContext(sandbox, events)`** —— 由标准事件流派生 o11y,写 `__fasteval__/results.json`,供你在沙箱里手工跑的验证测试断言 agent 的行为。
 - **`captureLatestJsonl(sandbox, dir)`** / transcript 定位辅助。
 
-运行器对沙箱型 agent 的编排:`prepareWorkspace` → `agent.send`(adapter 在沙箱里跑 + 解析成 events)→ `runValidation` → `captureGeneratedFiles` → `sandbox.stop`。adapter 只填中间那一段。
+这些都是**给 adapter 作者复用的工具函数**,不是运行器包在 `agent.send()` 外面的固定编排——除了"沙箱创建时打一次 git 基线、销毁前采一次 diff"这两头是核心自动做的,中间"什么时候 seed 文件、什么时候调 `t.send()`、什么时候手工跑校验命令"全部是 eval 的 `test(t)` 自己决定,见 [Eval Authoring · 沙箱型](eval-authoring.md#沙箱型手工把文件放进沙箱)。
 
 ## 注册与选择
 

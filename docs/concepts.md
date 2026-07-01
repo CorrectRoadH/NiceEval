@@ -10,21 +10,19 @@
 
 ## 评测核心词汇
 
-**Eval** —— 评测的最小单元。一个 Eval = 一个 [Task](#task) 跑在一个 [Agent](#agent) 上,由若干 [Scorer](#scorer) 判分。由 `defineEval`(会话型)或 `defineAgentEval`(沙箱型)定义,或由磁盘上的 [Fixture](#fixture) 隐式定义。每个 Eval 有一个从路径推导的 **id**。
+**Eval** —— 评测的最小单元。一个 Eval = 一个 [Task](#task) 跑在一个 [Agent](#agent) 上,由若干 [Scorer](#scorer) 判分。统一由 `defineEval` 定义——会话型和沙箱型不是两个定义函数,`test(t)` 里 `t` 要不要带工作区能力,取决于引用的 [Agent](#agent) 声明的[能力位](#capability),不取决于用哪个 define 函数。每个 Eval 有一个从路径推导的 **id**。
 
-**Task** —— 要让被测对象完成的"那件事"。会话型里它是一串 `t.send(...)` 的输入;沙箱型里它是 `PROMPT.md` 里的提示词。Task 描述意图,不描述如何判分。
+**Task** —— 要让被测对象完成的"那件事"。不管会话型还是沙箱型,都是一串 `t.send(...)` 的输入——沙箱型只是 `t` 多了工作区能力,任务本身照样写在 `t.send(...)` 里。Task 描述意图,不描述如何判分。
 
 **Agent** —— "一条连到 AI 的连接"的抽象,由 experiment 引用。按 transport 分三类:进程内(调你的函数)、远程(按你自己服务的协议)、沙箱(在 [Sandbox](#sandbox) 里 spawn coding agent 的 CLI)。运行器只认统一动词 `send`,核心按 Agent 的[能力](#capability)决定 `t` 上下文暴露哪些动作。fasteval 不定义任何 agent 协议,所以没有 `--url`、没有通用 http target —— 连你自己的服务也是写一个 agent,URL 是它的内部配置。详见 [Agents 与 Adapters](agents-and-adapters.md)。
 
-**Scorer** / **评分器** —— 把"结果"映射成分数的东西。三类:**值级断言**(`expect` 里的 `includes`/`equals`/`matches`…,就地评估)、**作用域断言**(`t.succeeded()`/`t.calledTool()`…,在 `test` 结束后对整次运行评估)、**LLM-as-judge**(用一个评判模型给开放式回答打分)。沙箱型里,跑 `EVAL.ts` 测试本身也是一种 Scorer。
+**Scorer** / **评分器** —— 把"结果"映射成分数的东西。三类:**值级断言**(`expect` 里的 `includes`/`equals`/`matches`…,就地评估)、**作用域断言**(`t.succeeded()`/`t.calledTool()`…,在 `test` 结束后对整个 [Attempt](#运行与结果) 评估,同一套断言挂在 [Turn](#运行与结果) 上则收窄成只看这一轮)、**LLM-as-judge**(用一个评判模型给开放式回答打分)。沙箱型里,手工在沙箱内跑的验证测试(经 `t.scriptPassed` 等断言判定)本身也是一种 Scorer。
 
 **Assertion** / **断言** —— Scorer 的一次具体应用,带名字、严重级([gate / soft](#severity))、可选阈值,产出一个 0–1 的分数和过/挂。
 
-**Verdict** / **判决** —— 一个 Eval 的评分结论:`passed` / `failed` / `scored` / `skipped`。规则:执行出错或任一 gate 挂 → `failed`;显式跳过 → `skipped`;gate 全过但有 soft 低于阈值 → `scored`(仅 `--strict` 下才算失败);否则 `passed`。它保留评分兼容语义,所以执行错误仍会折叠到 `failed` verdict。
+**Outcome** / **判决** —— 一个 Eval 的评分结论,只有四态:`passed` / `failed` / `errored` / `skipped`。规则:显式 `t.skip(reason)` → `skipped`;执行出错(超时、异常、作者错误)→ `errored`;任一 gate 断言不过,或 `--strict` 下有 soft 断言低于阈值 → `failed`;否则 → `passed`。**没有 `scored` 这个中间态**——soft 断言没达标,在非 `--strict` 下就是 `passed`,分数照样如实记录、供横向对比,只是不影响这四态判定。`failed` 只表示断言/评分不通过,`errored` 是环境、超时、adapter、agent runtime 等执行问题,两者互斥,报告、JUnit、CI 都按这个口径分开统计,别把 `errored` 当成 agent 任务做错了。
 
-**Outcome** / **结果分类** —— 一个 Eval 的报告 / CI 结论:`passed` / `failed` / `errored` / `scored` / `skipped`。其中 `failed` 只表示断言或评分不通过,`errored` 表示环境、超时、adapter、agent runtime 等执行问题。看报告、JUnit 或 `fasteval view` 时优先看 outcome,不要用 `verdict === "failed"` 判断是不是 agent 做错了任务。**用户视角只有三个出口:pass(`passed`+`scored` 合并,gate 全通过)、fail、error**;`scored` 仅是内部精度词,视图里不单独展示。
-
-**Severity** / **严重级** —— 断言的两档。**gate**:硬性要求,不过即判 `failed`。**soft**:带阈值的质量分,低于阈值降级为 `scored` 而非直接挂。
+**Severity** / **严重级** —— 断言的两档。**gate**:硬性要求,不过即判 `failed`,任何时候都生效。**soft**:质量分,不会单独让 eval 立即 `failed`——**没有 `.soft()` 方法**,`.atLeast(x)` 本身就是 soft:非 `--strict` 下低于阈值仍判 `passed`(分数如实记录),`--strict` 下才降级为 `failed`;不调 `.atLeast()` 时走匹配器自己的默认档(如 judge 默认 soft、无阈值,纯记分永不 fail)。
 
 ## 被测对象与适配器
 
@@ -36,17 +34,13 @@
 
 **Capability** / **能力** —— Agent / Adapter / Sandbox 通过一组能力位声明自己支持什么(会话、工具调用观测、文件 diff、transcript、桌面…)。核心**按能力分发**,不按名字分支。这是 [Vision](vision.md) 的承重墙。
 
-**Model tier** / **模型档** —— 给 agent 指定模型的标识(如 `opus`、`vendor/model?reasoningEffort=high`)。`modelPolicy` 决定用 agent 自带默认还是 fasteval 指定的模型。
+**Model tier** / **模型档** —— 给 agent 指定模型的标识(如 `opus`、`vendor/model?reasoningEffort=high`)。由 [Experiment](#experiment) 的 `model` 字段指定;省略则用 agent 原生默认,不经额外的策略层决定。
 
-## Fixture 与数据集
-
-**Fixture** —— 磁盘上一个目录,定义一个沙箱型 eval。约定包含:`PROMPT.md`(给 agent 的任务)、`EVAL.ts` 或 `EVAL.tsx`(验证测试,Vitest 风格)、`package.json`,以及可选的起始代码。Fixture 通过"目录里有 `PROMPT.md`"被发现,支持嵌套组织。
-
-**Workspace files vs Test files** —— Fixture 里的文件分两类:**workspace files** 对 agent 可见(它要改的代码);**test files**(`EVAL.ts`、隐藏的评分逻辑)只在验证阶段才上传,防止 agent 看到答案作弊。
+## 数据集与发现
 
 **Dataset** / **数据集** —— 一组共享同一 `test` 逻辑、只有输入不同的 case。用 `loadYaml`/`loadJson` 读进来,`.map(row => defineEval(...))` 扇出。生成的 id 形如 `sql/0000`、`sql/0001`(零填充 4 位)。
 
-**Discovery** / **发现** —— 运行器扫 `evals/` 找 `*.eval.ts` 文件和含 `PROMPT.md` 的 fixture 目录,据路径推导 id 并排序。
+**Discovery** / **发现** —— 运行器扫 `evals/` 找 `*.eval.ts` 文件,据路径推导 id 并排序。没有目录层面的隐式发现——沙箱型 eval 和会话型 eval 一样,必须有一个 `.eval.ts` 文件;起始文件靠 `test()` 里手工 `t.sandbox.writeFiles`/`uploadFiles` 放进沙箱(见 [Eval Authoring](eval-authoring.md#沙箱型手工把文件放进沙箱)),不靠运行器扫目录。
 
 ## 运行与结果
 
@@ -58,15 +52,17 @@
 
 **Run** —— 一次 `fasteval` 调用对一批 eval 的完整执行,产出一份 **summary**。
 
-**Attempt** / **尝试** —— 同一个 eval 的第 i 次重复运行(`runs > 1` 时取通过率用)。
+**Attempt** / **尝试** —— 同一个 eval 的第 i 次重复运行(`runs > 1` 时取通过率用)。`t` 上的作用域断言就是在一个 Attempt 的范围内聚合(全部轮次 + `t.newSession()` 开的会话),不跨 Attempt、也不是上面 Run 那么大的范围。
+
+**Turn** —— `t.send()` 的一次返回值,对应这一轮的标准事件流片段。带 `message` / `data` / `toolCalls` / `status` / `usage` 等只读字段,以及和 `t` 同名的一套作用域断言(`turn.calledTool`/`turn.succeeded`/…),作用域收窄成只看这一轮,详见 [Assertions](assertions.md#作用域两层同一套词汇)。
 
 **EarlyExit** / **早停** —— 一个 eval 取通过率时,先过一次即中止其余 attempt 的策略(可关)。
 
-**Fingerprint** / **指纹** —— `(fixture 内容 + 配置)` 的哈希,用于缓存去重:指纹未变且已通过的,默认跳过。
+**Fingerprint** / **指纹** —— `(eval 代码 + 配置)` 的哈希,用于缓存去重:指纹未变且已通过的,默认跳过。
 
 **Transcript** —— agent 一次运行的逐事件记录。原始形态是各 agent 自己的 JSONL,被**归一化**成统一事件模型(message / tool_call / tool_result / thinking / error)后供断言和报告消费。详见 [Observability](observability.md)。
 
-**o11y summary** —— 从**标准事件流**(见 [Observability](observability.md))派生的统计:工具调用计数、读/改的文件、shell 命令、web 请求、思考块数、**耗时、token 用量、估算成本**等。会注入沙箱(`__fasteval__/results.json`),让 `EVAL.ts` 能断言 agent 的**行为**而不只是结果。
+**o11y summary** —— 从**标准事件流**(见 [Observability](observability.md))派生的统计:工具调用计数、读/改的文件、shell 命令、web 请求、思考块数、**耗时、token 用量、估算成本**等。会注入沙箱(`__fasteval__/results.json`),让你在沙箱内手工跑的验证测试能断言 agent 的**行为**而不只是结果。
 
 **Usage** / **用量** —— 一次运行的 token 计数(`inputTokens` / `outputTokens` / 可选 cache 读写)。随结果带回:进程内由 `send` 返回,沙箱型由 transcript 解析器从 agent 的 JSONL 抠出累加。可经 `t.usage` 读、`t.maxTokens()` 断言。
 
@@ -80,9 +76,7 @@
 
 **`fasteval.config.ts`** —— 项目级配置,`defineConfig` 默认导出。设默认 judge 模型、全局 reporter、最大并发、超时、默认 sandbox 后端等。
 
-**Strict mode** / **严格模式** —— `--strict` 下,soft 断言低于阈值(本会判 `scored`)也算运行失败。用于 CI 把质量回归当成红灯。
-
-**Validation mode** / **验证模式** —— 沙箱型里,`vitest`(跑 `EVAL.ts`)或 `none`(只跑配置的 npm scripts)。
+**Strict mode** / **严格模式** —— 默认情况下 soft 断言低于阈值仍判 `passed`;`--strict` 下同样的情况改判 `failed`。用于 CI 把质量回归当成红灯。
 
 **Setup hook** / **Teardown hook** —— 生命周期钩子的两个**阶段**动词。`setup` 在被测对象运行前预置环境(写 `.env`、装依赖、起服务),`teardown` 在跑完清理。`setup` 可返回一个 cleanup 闭包代替独立 `teardown`;`teardown` / cleanup 一律在 `finally` 跑,失败也跑。两者在每个作用域下成对出现(`hooks.run.setup`、`hooks.sandbox.teardown`…)。
 
@@ -93,5 +87,5 @@
 ## 相关阅读
 
 - [Architecture](architecture.md) —— 这些名词在模块图里各自的位置。
-- [Authoring](eval-authoring.md) —— Eval / Task / Fixture / Dataset 怎么写。
-- [Scoring](scoring.md) —— Scorer / Assertion / Severity / Verdict 的完整手册。
+- [Authoring](eval-authoring.md) —— Eval / Task / Dataset 怎么写。
+- [Scoring](scoring.md) —— Scorer / Assertion / Severity / Outcome 的完整手册。

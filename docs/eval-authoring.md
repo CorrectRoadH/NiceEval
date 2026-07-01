@@ -1,6 +1,6 @@
 # Authoring —— 编写 eval
 
-写一个 eval 应该像写一个测试:一个文件、一个 `test(t)` 函数,断言写在你观察结果的地方。这一篇按这个顺序教:单轮、多轮、数据集扇出,以及沙箱型 eval 的 workspace seed。评分手段(judge、匹配器、gate/soft)单独成篇,见 [Scoring](scoring.md)。
+写一个 eval 应该像写一个测试:一个文件、一个 `test(t)` 函数,断言写在你观察结果的地方。这一篇按这个顺序教:单轮、多轮、数据集扇出,以及沙箱型 eval 怎么手工把文件放进沙箱。评分手段(judge、匹配器、gate/soft)单独成篇,见 [Scoring](scoring.md)。
 
 核心 DX 参考  eve
 
@@ -33,23 +33,23 @@ export default rows.map((row) =>
 ```
 <--end-->
 
-### 补充:哪些 API 是作用域断言,哪些是值级 / 轮级
+### 补充:作用域只有两层,一套词汇,对齐 eve
 
-查了 eve 源码(`packages/eve/src/evals/`)和 fasteval 自己的实现(`src/`),把 1.1 说的"作用域"坐实成具体名单,并核对两边是不是真的同一套东西(不发明新名字,直接用两边源码里各自的名字):
+核对 eve 源码(本机 `/Users/ctrdh/Code/eve/packages/eve/src/evals/`)后,把 1.1 说的"作用域"坐实成经验证的设计,订正上一版的误读。
 
-**eve**:`assertions/scoped.ts` 的 `createScopedAssertions` 是**一份实现**,靠调用时绑定的 `scope` 决定看多少轮:
+**eve 的真实实现**:`assertions/scoped.ts` 的 `createScopedAssertions` 是**一份实现**,导出 `succeeded` / `messageIncludes` / `calledTool` / `notCalledTool` / `toolOrder` / `usedNoTools` / `maxToolCalls` / `calledSubagent` / `noFailedActions` / `event` / `notEvent` / `eventOrder` / `eventsSatisfy` / `parked` 这一整套,靠调用时绑定的 `scope` 决定读哪份数据,一共绑在两个地方:
 
-- `context.ts:77`:`t` 上绑 `{ timing: "final", select: (result) => result }` —— 整次运行的聚合结果,`messageIncludes`/`calledTool`/... 在这个绑定下扫**全部轮**。
-- `session.ts:75-83`、`session.ts:300-305`:每个 turn handle 上绑 `{ timing: "snapshot", select: () => 这一轮 }` —— **同一批函数**(`succeeded` / `messageIncludes` / `calledTool` / `toolOrder` / `usedNoTools` / `maxToolCalls` / `loadedSkill` / `calledSubagent` / `noFailedActions` / `event` / `notEvent` / `eventOrder` / `eventsSatisfy`),换成只看这一轮。
+- `context.ts:77`:`t` 自己绑 `{ timing: "final", select: (result) => result }`。`result` 是 `EveEvalTaskResult`,由 `runner/execute-task.ts:98`(`buildTaskResult`)构造:`events: input.sessions.flatMap(session => session.events)` —— **把这次 eval 执行涉及的全部 session(含 `t.newSession()` 开的)的全部轮次拍平合并**,在 `test()` 跑完、`collector.finalize(result)` 时才求值。
+- `session.ts:298-308`(`EvalTurn` 构造函数):`t.send()` 返回的 turn 对象绑 `{ timing: "snapshot", select: () => this.#assertionSubject() }`,`#assertionSubject()` 只读**这一轮自己的** `events`(`session.ts:221-243` 的 `#recordTurn` 传入的就是这次 `send()` 的 `result.events`,不含之前轮次)。
 
-所以在 eve 里,`messageIncludes` 不是"天生等于全部轮",而是**同一份实现,挂在 `t` 上就是整次运行、挂在某个 turn 上就是这一轮**——语义没变,变的是绑定的数据范围。
+两处绑定共享**同一套完整函数**,区别只是"挂在哪个对象上",不是"叫什么名字"——eve 没有"`messageIncludes` 天生看全部、`calledTool` 天生看单轮"这种按名字区分的不一致。1.1 要避免的正是这种不一致,eve 靠"位置决定作用域、每个位置给全套词汇"解决,不是靠"取消聚合"解决。
 
-**fasteval 不是这样实现的**——这是我上一版说错的地方,这里订正:
+**fasteval 对齐到这个设计,不是取消聚合**:
 
-- `src/scoring/scoped.ts` + `src/context/context.ts:150-193`:`t` 上的 `succeeded`/`messageIncludes`/`calledTool`/… 全部走 `import * as Scoped from "../scoring/scoped.ts"`,名字直接对应 eve 的 `scoped.ts`,这是"作用域断言"这个叫法的来源,不是我们发明的词。这批函数固定只在整次运行的聚合数据上求值,代码里**没有** `timing`/`scope` 这种参数化概念。
-- `src/context/context.ts:225-272` 的 `makeTurnHandle`:`turn.messageIncludes` 是**单独手写**的一份 `collector.record({...})`,直接过滤 `turn.events`——跟 `Scoped.messageIncludes` 是两份不同的代码,**没有复用**。`turn` 上只有 `expectOk` / `outputEquals` / `outputMatches` / `messageIncludes` 四个,`TurnHandle`(`src/types.ts:745`)没有 `calledTool`/`succeeded`/`toolOrder` 之类的轮级版本。
+- `t.*` 保留"聚合整个 attempt"的语义——这次 eval 执行至今的全部轮次、含 `t.newSession()` 开的额外会话,直接对应 eve 的 `timing: "final"` 层。`t` 就是 attempt 的句柄,这一层聚合是有意为之,不是要移除的"黑箱"。
+- `turn.*`(`t.send()` 的返回值)补全成跟 `t.*` **同一套完整词汇**(`turn.calledTool` / `turn.succeeded` / `turn.notCalledTool` / `turn.toolOrder` / `turn.usedNoTools` / `turn.maxToolCalls` / `turn.noFailedActions` / `turn.event` / `turn.notEvent` / `turn.eventOrder` / `turn.eventsSatisfy` / `turn.calledSubagent` / `turn.parked`),不再是旧版文档里的 4 个手写方法。`turn.expectOk` / `turn.outputEquals` / `turn.outputMatches` 是 turn 独有的(只对单轮有意义,聚合层不需要),继续保留。
 
-也就是说 fasteval 目前没有 eve 那种"一份实现、两种绑定"的复用——作用域断言(`Scoped` 模块,扫全部轮)和轮级断言(`makeTurnHandle`,只看这一轮)是两块完全独立的代码,轮级能力也比 eve 窄。要按 eve 的对称设计补齐(比如加 `turn.calledTool`),是一次要改 `TurnHandle` 接口 + 实现的真实变更,不是文档措辞问题。
+也就是:**只有两层——`t`(attempt 全程聚合)和 `turn`(这一轮)——每层给同一套断言名字,作用域由你调用在哪个对象上决定,不由断言叫什么名字决定。** 不引入第三层"session 级"(eve 的 `newSession()` 返回值也带这套词汇,但 fasteval 目前不需要跟进这一层——`t.newSession()` 只用来开一条新会话线,不额外暴露带作用域断言的 session 句柄)。完整清单见 [Assertions · 作用域](assertions.md#作用域两层同一套词汇)。
 
 ## `defineEval` 的形状
 
@@ -82,7 +82,7 @@ export default defineEval({
   async test(t) {
     await t.send("布鲁克林今天天气怎么样?");
 
-    // 作用域断言:在 test 结束后,对整次运行评估
+    // 作用域断言:在 test 结束后,对整个 attempt 评估
     t.succeeded();
     t.calledTool("get_weather", { input: { city: "Brooklyn" }, count: 1 });
 
@@ -121,7 +121,7 @@ export default defineEval({
 
 ### 多轮里评整段对话
 
-多轮最容易踩的坑:**judge 默认只看最后一轮**(`t.reply`),而 `t.messageIncludes` 这类作用域断言看的是**所有轮**——作用域不一致。完整的「三层作用域」规则与每条断言看哪一轮,见 [Assertions · 作用域:三层](assertions.md#作用域三层看哪一轮)。
+多轮最容易踩的坑:**judge 默认只看最后一轮**(`t.reply`),而 `t.messageIncludes` 这类作用域断言看的是**整个 attempt**——这是两条独立的默认规则,不是同一套语义。完整的「两层作用域」规则与每条断言看哪一轮,见 [Assertions · 作用域:两层](assertions.md#作用域两层同一套词汇)。
 
 要让 judge 评「整段多轮对话」(典型:跨轮一致性),别用默认材料,把全程对话拼出来显式喂进去:
 
@@ -136,7 +136,7 @@ t.judge
   .atLeast(0.7);
 ```
 
-`t.transcript.text()` 把整次运行的对话拼成 `role: text` 多行文本;需要更原始的控制就用 `t.transcript.events()` 自己过滤拼接。
+`t.transcript.text()` 把这个 attempt 的对话拼成 `role: text` 多行文本;需要更原始的控制就用 `t.transcript.events()` 自己过滤拼接。
 
 ## 数据集扇出
 
@@ -190,30 +190,62 @@ export default defineExperiment({
 
 常规运行时,agent 由 experiment 提供 —— 这让同一份 eval 能换着被测对象跑(本地 vs 部署、agent A vs agent B),同时运行配置可签入、可复现。怎么写一个 agent,详见 [Agents 与 Adapters](agents-and-adapters.md)。
 
-## 沙箱型:workspace 起始文件 + 动态 seed
+## 沙箱型:手工把文件放进沙箱
 
-评一个 coding agent 时,eval 仍然是普通的 `defineEval`,只是多了沙箱能力:`test(t)` 里的 `t` 多出工作区断言和 `t.sandbox`(前提是 agent/sandbox 声明了 workspace capability;见 [Sandbox](sandbox.md))。seed 沙箱起始文件有两种方式,按需组合:
+评一个 coding agent 时,eval 仍然是普通的 `defineEval`,只是多了沙箱能力:`test(t)` 里的 `t` 多出工作区断言和 `t.sandbox`(前提是 agent/sandbox 声明了 workspace capability;见 [Sandbox](sandbox.md))。
 
-**静态 seed —— `workspace` 字段**:结构固定、跟着仓库签入的起始代码,直接在 `defineEval` 上指一个目录,运行器会在 agent 跑之前把它拷进沙箱(并打 git 基线,供之后 diff):
+**没有自动发现,也没有隐式拷贝**——seed 起始文件只有一种方式:在 `test(t)` 里显式调用 `t.sandbox.writeFiles` / `t.sandbox.uploadFiles`。`t.sandbox` 是沙箱的原始句柄(`runCommand` / `runShell` / `readFile` / `writeFiles` / `uploadFiles` / `getWorkingDirectory` / `setWorkingDirectory` / `stop`,完整列表见 [Sandbox · 统一接口](sandbox.md#统一接口)),不是一层包装。文件从哪读、写到沙箱里哪个路径,全部是你写在 `test(t)` 里的普通代码——不存在"运行器悄悄拷贝一个目录"这种黑箱,你想放哪就写哪,不想放的就不写:
 
 ```typescript
 // evals/refactor.eval.ts
 import { defineEval } from "fasteval";
 import { includes } from "fasteval/expect";
+import { readFileSync } from "node:fs";
 
 export default defineEval({
   description: "把回调改写成 async/await",
-  workspace: "./fixtures/legacy-callbacks",   // 起始文件相对项目根
   async test(t) {
+    await t.sandbox.writeFiles({
+      "src/legacy.js": readFileSync("fixtures/legacy-callbacks/legacy.js", "utf-8"),
+    });
+
     await t.send("把 src/legacy.js 里的回调全部改写成 async/await,保持行为不变。");
     t.fileChanged("src/legacy.js");
     t.check(t.diff.get("src/legacy.js"), includes("await"));
+
     t.scriptPassed("test");                    // 跑 npm run test,断言退出 0
   },
 });
 ```
 
-**动态 seed —— `t.sandbox.writeFiles` / `uploadFiles`**:内容要跟着数据行算(比如数组扇出的多个变体,每个 seed 内容不同),`workspace` 这种指向固定目录的字段做不到,直接调 `t.sandbox` 上的原语——`t.sandbox` 就是沙箱的原始句柄(`runCommand` / `runShell` / `readFile` / `writeFiles` / `uploadFiles` / `getWorkingDirectory` / `setWorkingDirectory` / `stop`,完整列表见 [Sandbox · 统一接口](sandbox.md#统一接口)),不是一层包装:
+**要放一整个文件夹**(比如带 `package.json` + 多个源文件的起始项目),`t.sandbox` 没有单独的"传文件夹"方法——`writeFiles` / `uploadFiles` 拿的都是一份**文件清单**(路径 → 内容),所以自己用 `node:fs` 把本地目录读成清单,一次性传给 `writeFiles`。目的路径就是清单的 key,想保留目录结构、想拍平、想改名都在这段代码里决定,不是框架的隐藏行为:
+
+```typescript
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
+
+function readDirAsFiles(dir: string): Record<string, string> {
+  const files: Record<string, string> = {};
+  for (const entry of readdirSync(dir, { recursive: true }) as string[]) {
+    const abs = join(dir, entry);
+    if (statSync(abs).isFile()) files[entry] = readFileSync(abs, "utf-8");
+  }
+  return files;
+}
+
+export default defineEval({
+  description: "实现 Button 组件",
+  async test(t) {
+    await t.sandbox.writeFiles(readDirAsFiles("fixtures/button-starter"));
+    await t.send("在 src/components/Button.tsx 导出一个 Button 组件,接受 label 和 onClick 两个 prop。");
+    // ...
+  },
+});
+```
+
+`readDirAsFiles` 是普通函数,项目里写一次、到处复用;不是 fasteval 的 API——fasteval 不需要为"传文件夹"单独开方法,`writeFiles` 的文件清单形状已经够表达。二进制文件(图片等)改用 `uploadFiles`(接受 `SandboxFile[]`,可带 `Buffer`),不能用只收文本的 `writeFiles`。
+
+数据集扇出时,seed 内容跟着数据行算是同一套写法,不需要另一种"动态 seed"概念:
 
 ```typescript
 const rows = [{ file: "a.ts", content: "..." }, { file: "b.ts", content: "..." }];
@@ -224,23 +256,35 @@ export default rows.map((row) =>
     async test(t) {
       await t.sandbox.writeFiles({ [row.file]: row.content });
       await t.send(`审查 ${row.file}`);
-      t.testsPassed();
+      t.scriptPassed("test");
     },
   }),
 );
 ```
 
-两种方式不冲突:`workspace` 负责"跟仓库签入的起始状态",`t.sandbox.writeFiles` / `uploadFiles` 负责"运行时按参数算出来的补充文件"——都走同一条上传路径,没有黑箱转换。工作区断言(`t.fileChanged` / `t.fileDeleted` / `t.notInDiff` / `t.testsPassed` / `t.scriptPassed` / `t.noFailedShellCommands` / `t.diff`)和 agent-as-judge(`t.judge.agent`)都挂在 `t` 顶层,不在 `t.sandbox` 下 —— `t.sandbox` 专指沙箱原始句柄。完整列表见 [Assertions · 工作区断言](assertions.md#工作区断言t-顶层仅-workspace-能力)。
+**防作弊靠调用顺序,不靠框架黑箱**:验证用的测试文件(比如 `button.test.ts`)在 `t.send(...)` **之后**才写进沙箱、才运行——agent 那一轮已经结束,天然看不到,不需要"workspace files vs test files"这种运行器自动拆分/隐藏的机制:
 
-### 磁盘型 fixture(路线图,未实现)
+```typescript
+export default defineEval({
+  description: "实现 Button 组件",
+  async test(t) {
+    await t.sandbox.writeFiles({ "package.json": PACKAGE_JSON });
+    await t.send("在 src/components/Button.tsx 导出一个 Button 组件,接受 label 和 onClick 两个 prop。");
 
-"一个目录一个 eval"(`evals/fixtures/create-button/` 下放 `PROMPT.md` + `EVAL.ts`,靠目录结构自动发现、无需 `.eval.ts`)和它的编程式等价物 `defineAgentEval` 是设计中的沙箱型第二条主轴,规划在 [Roadmap · M3](roadmap.md#m3--竖切沙箱里的-coding-agent第二条主轴) / [M4](roadmap.md#m4--agent-评测的工程化),**当前代码里都不存在** —— `src/` 没有 `PROMPT.md` 扫描、没有 `defineAgentEval`、也没有把 o11y 摘要注入沙箱的 `__fasteval__/results.json`。现在要评 coding agent,用上面的 `defineEval` + `workspace` + `t.sandbox` 组合。
+    // agent 跑完之后才放测试文件、才跑测试——全程手工可见,没有隐藏逻辑
+    await t.sandbox.writeFiles({ "button.test.ts": BUTTON_TEST_SOURCE });
+    t.scriptPassed("test");
+  },
+});
+```
+
+工作区断言(`t.fileChanged` / `t.fileDeleted` / `t.notInDiff` / `t.scriptPassed` / `t.noFailedShellCommands` / `t.diff`)和 agent-as-judge(`t.judge.agent`)都挂在 `t` 顶层,不在 `t.sandbox` 下 —— `t.sandbox` 专指沙箱原始句柄。完整列表见 [Assertions · 工作区断言](assertions.md#工作区断言t-顶层仅-workspace-能力)。沙箱创建时运行器已经打好一次空 git 基线,所以 `t.diff` / `t.fileChanged` 不依赖你怎么 seed、seed 了没有,随时可读。
 
 ## 命名与组织约定
 
 - 文件名以 `.eval.ts` 结尾才会被发现。
 - 用目录表达分组:`evals/billing/refund.eval.ts` → `billing/refund`。
-- 数据集放 `evals/data/`,沙箱型 eval 的起始文件放 `evals/fixtures/`(约定,非强制)。
+- 数据集放 `evals/data/`,沙箱型 eval 要 seed 的起始文件素材放 `evals/fixtures/`(纯目录命名约定,运行器不会扫描或自动加载它——仍要在 `test()` 里手工 `t.sandbox.writeFiles`/`uploadFiles` 读取写入)。
 - `description` 写给人看,id 给机器引用。
 
 ## 相关阅读

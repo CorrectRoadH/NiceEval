@@ -34,11 +34,10 @@ RUN(一次 fasteval 调用 = 一个实验矩阵)
 │
 ├── ATTEMPT(eval × model × run 的一次运行)—— 沙箱作用域
 │   │  Sandbox.create / 从池中领取
-│   │  prepareWorkspace(上传 workspace,藏起 EVAL.ts,git 基线)
+│   │  git init && git commit(打一次空基线,不管后面 seed 了什么)
 │   │  hooks.sandbox.setup(sandbox, ctx) → 可选 cleanup 闭包   ← 单次预置(写 .env、起服务、装依赖)
-│   │  npm install
-│   │  agent.send(adapter 在沙箱里跑 agent)
-│   │  runValidation(上传 EVAL.ts,跑测试 + scripts)
+│   │  test(t) 全程 —— 手工 t.sandbox.writeFiles/uploadFiles seed、t.send() 驱动 agent、
+│   │             手工跑校验命令,顺序由 eval 作者的 test() 决定,不是核心的固定编排
 │   │  captureGeneratedFiles(git diff HEAD)
 │   │  hooks.sandbox.teardown(sandbox, ctx) / cleanup()       ← 单次清理(finally,必跑)
 │   │  Sandbox.stop / 重置回池
@@ -170,8 +169,8 @@ interface RunContext {
 
 ```text
 Sandbox.create(或从池领取)
-│  ├─ ATTEMPT A: prepareWorkspace → sandbox.setup → … → sandbox.teardown → reset
-│  └─ ATTEMPT B: prepareWorkspace → sandbox.setup → … → sandbox.teardown → reset
+│  ├─ ATTEMPT A: git 基线 → sandbox.setup → test(t) → sandbox.teardown → reset
+│  └─ ATTEMPT B: git 基线 → sandbox.setup → test(t) → sandbox.teardown → reset
 Sandbox.stop(或还池)
 ```
 
@@ -221,7 +220,7 @@ attempt 级 `hooks.sandbox.setup` 的开始 / 结束并入既有 `eval:start` / 
 | 一条 eval 的全部 attempt 共享一次预置 | `hooks.eval.setup`(预留扩展点) | config / experiment |
 | 定制容器基础镜像 / 预装包 | sandbox 后端选项,**不是钩子** | `config.sandbox` |
 | 跑完上报 / 打印 / 二次评分 | reporter,**不是钩子** | `config.reporters` |
-| 决定"怎么算对" | eval 的 `test()` / `EVAL.ts`,**不是钩子** | `evals/` |
+| 决定"怎么算对" | eval 的 `test()`(含手工在沙箱里跑的验证测试),**不是钩子** | `evals/` |
 
 ## 相关阅读
 

@@ -66,12 +66,12 @@ fasteval exp compare --tag <tag>              # 按标签过滤(可重复)
 
 ```sh
 fasteval exp compare --strict     # soft 低于阈值也判红(CI 用)
-fasteval exp compare --validation <mode>      # vitest | none(沙箱型)
-fasteval exp compare --scripts build,lint     # 沙箱型额外要跑的 npm scripts
 fasteval exp compare --budget <usd>           # 整轮估算成本上限,累计超了就停止派发新 attempt
 ```
 
-退出码:有 `failed` → 非零;`--strict` 下有 `scored` → 也非零;否则 `0`。
+沙箱型里跑什么校验命令、跑不跑,是 `test(t)` 里的普通代码(`t.sandbox.runCommand` + `t.scriptPassed`),没有单独的 `--validation` / `--scripts` 调度开关。
+
+退出码:有 `outcome=failed`(含 `--strict` 下 soft 未达标而改判的)→ 非零;否则 `0`。
 
 每个 eval 的 token 用量与估算成本会出现在控制台和 `summary.json`,跨 agent 对比即得「质量 × 成本」。详见 [Observability](observability.md#用量与成本token--计费)。
 

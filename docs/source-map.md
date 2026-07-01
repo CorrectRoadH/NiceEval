@@ -40,7 +40,7 @@
 | `Sandbox` 统一接口 | `src/types.ts`(`Sandbox`) |
 | Docker 后端(dockerode,node:24-slim,非 root,tar 上传,流解复用) | `src/sandbox/docker.ts` |
 | 后端选择(`auto` / `docker` / `vercel`,核心不按名字分支) | `src/sandbox/resolve.ts` |
-| 沙箱编排固定段(上传 / git 基线 / 采 diff) | `src/runner/sandbox-prep.ts` |
+| 沙箱编排固定段(git 基线 / 采 diff;起始文件上传已改为 `test()` 里手工调用,不再是固定段) | `src/runner/sandbox-prep.ts` |
 
 ## Scoring([scoring.md](scoring.md))
 
@@ -50,7 +50,7 @@
 | 作用域断言(succeeded / calledTool / notInDiff / scriptPassed / fileChanged …) | `src/scoring/scoped.ts` |
 | 断言收集器(延迟评估 + 链式 gate/soft/atLeast) | `src/scoring/collector.ts` |
 | LLM-as-judge / agent-as-judge(OpenAI 兼容 /chat/completions) | `src/scoring/judge.ts` |
-| 判决规则(failed / scored / skipped / passed) | `src/scoring/verdict.ts` |
+| 判决规则(passed / failed / errored / skipped,无 `scored` 中间态) | `src/scoring/verdict.ts` |
 
 ## `t` 上下文与会话([eval-authoring.md](eval-authoring.md))
 
@@ -77,3 +77,4 @@
 - **MVP 范围**:`fasteval view` 已实现为本地 web 查看器;`init`、`watch`、指纹缓存、Vercel/三方沙箱、失败分类暂未实现(`init`/`watch` 打印未实现提示)。运行器已支持 remote `defineAgent` 的会话型 eval；workspace 上传、diff、脚本验证仍只属于沙箱型 agent。
 - **compaction 可观测性**:codex 的 `codex exec --json` stdout 流不暴露压缩事件(压缩只在 rollout 文件、且 exec 模式覆盖不全),所以 `t.transcript.compactions()` 对 codex 恒为 0 → 长程压缩类 eval 对 codex 自动 skip(诚实降级,不误判)。
 - **TestContext 类型**:用一个宽接口承载全部动作(运行时按 capability 守卫),而非文档设想的 TS 条件类型 —— 因为被测项目经 `tsx` 运行(不做类型检查),宽接口更省心且不影响运行时正确性。
+- **本轮文档修订先于代码**:作用域断言对齐 eve 的两层模型(`t` = attempt 全程聚合、turn = 只看这一轮,同一套词汇)、Verdict/Outcome 合并成单一 `Outcome`(无 `scored`)、gate/soft/`atLeast` 的语义订正(`atLeast(x)` 就是 soft 带阈值,不是 gate)、移除 Fixture(`PROMPT.md` 自动发现 / `defineAgentEval`)与 `defineEval` 的 `workspace` 字段(起始文件改为 `test()` 里手工 `t.sandbox.writeFiles`/`uploadFiles`)——这些是刚定下的目标设计,`src/` 尚未跟着改,读到这里的人先按文档为准,别以为代码已经这样实现。

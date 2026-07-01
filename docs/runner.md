@@ -14,8 +14,7 @@
 
 `runner/discover.ts` 扫 `evals/`:
 
-- 找所有 `*.eval.ts`,`import` 后看默认导出 —— 单个 eval 用文件 id;数组则扇出,id 加零填充索引(`sql/0000`)。
-- 找所有含 `PROMPT.md` 的目录(fixture),据相对路径推导 id。
+- 找所有 `*.eval.ts`,`import` 后看默认导出 —— 单个 eval 用文件 id;数组则扇出,id 加零填充索引(`sql/0000`)。没有另一种基于目录约定的隐式发现——沙箱型 eval 也必须有一个 `.eval.ts` 文件。
 - 按相对路径排序,保证 id 稳定、输出可比。
 - 应用过滤:`fasteval exp <组|配置>` 后的位置参数(id 前缀,如 `weather` 命中 `weather/*`)、`--tag`。
 - `fasteval exp` 时另从 `experiments/` 扫实验文件(默认导出 `defineExperiment` 的 `.ts`),据路径推导实验 id;**目录段即"可对比组"** —— `fasteval exp <组>` 跑整个文件夹、同组互为对照(见 [实验怎么组织](experiments.md#实验怎么组织文件夹--一组可对比的实验))。实验的 `evals` 字段再筛要跑哪些 eval(见[矩阵展开](#矩阵展开与通过率))。
@@ -61,7 +60,7 @@ fixtures/button   codex         pass@5 = 3/5 (60%)   mean 41s · 72k tok · $0.3
 
 ## 缓存:指纹去重
 
-`runner/fingerprint.ts` 对每个 eval 算 `(fixture 内容 + 相关配置)` 的哈希:
+`runner/fingerprint.ts` 对每个 eval 算 `(eval 代码 + 相关配置)` 的哈希:
 
 - 上次已 `passed` 且指纹未变 → 默认**跳过**,直接复用结果。
 - 改了 fixture、改了配置、或 `--force` → 重跑。
@@ -98,23 +97,23 @@ run:start          { total, agent, model }
 run:setup          { }                          # hooks.run.setup 开始(见 Lifecycle)
 run:setupComplete  { durationMs }
 eval:start         { id, attempt }
-eval:complete      { id, attempt, verdict, outcome, durationMs, usage, costUSD }
+eval:complete      { id, attempt, outcome, durationMs, usage, estimatedCostUSD }
 run:earlyExit      { id }
 run:budgetExceeded { spentUSD, budgetUSD }
 run:teardown       { }                          # hooks.run.teardown 开始
 run:saved          { outputDir }
-run:summary        { passed, failed, scored, skipped, errored, durationMs, usage, estimatedCostUSD }
+run:summary        { passed, failed, skipped, errored, durationMs, usage, estimatedCostUSD }
 ```
 
-`verdict` 保留评分折叠语义;`outcome` 是互斥报告分类。`run:summary.failed` 只统计断言/评分不通过,环境、超时、adapter 或 agent runtime 问题统计到 `errored`。
+`outcome` 是互斥的判决分类:`passed` / `failed` / `errored` / `skipped`,没有 `scored` 中间态。`run:summary.failed` 只统计断言/评分不通过,环境、超时、adapter 或 agent runtime 问题统计到 `errored`。
 
 起停失败另发 `run:setupFailed` / `attempt:teardownFailed` / `run:teardownFailed`,完整事件表见 [Lifecycle:生命周期事件](lifecycle.md#生命周期事件)。
 
 ## 退出码
 
-- 全 `passed` / `scored`(非 strict)→ `0`。
-- 任一 `failed` → 非零。
-- `--strict` 下任一 `scored` → 也非零。
+- 全 `passed` → `0`。
+- 任一 `failed`(含 `--strict` 下 soft 未达标而改判的)→ 非零。
+- 任一 `errored` → 非零。
 
 供 CI 直接判红绿。
 

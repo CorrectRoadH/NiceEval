@@ -19,10 +19,7 @@ your-project/
 └─ evals/
    ├─ hello.eval.ts            # 示例:会话型
    └─ fixtures/
-      └─ button/               # 示例:沙箱型
-         ├─ PROMPT.md
-         ├─ EVAL.ts
-         └─ package.json
+      └─ button.eval.ts        # 示例:沙箱型,起始文件在 test() 里手工 seed
 ```
 
 ## 配置
@@ -124,18 +121,21 @@ AGENT_URL=https://my-agent.example.com npx fasteval exp local weather
 
 ## 3. 评一个塞进沙箱的 coding agent
 
-给一个编码任务,让 Claude Code / bub 在隔离环境里改代码,再用测试验证。
-
-**Fixture 三件套:**
-
-```markdown
-<!-- evals/fixtures/button/PROMPT.md -->
-用项目现有的样式系统,在 src/components/Button.tsx 导出一个 Button 组件,
-接受 label 和 onClick 两个 prop,并实现 hover 态。
-```
+给一个编码任务,让 Claude Code / bub 在隔离环境里改代码,再用测试验证。起始文件、验证测试都是 `test(t)` 里手工放进沙箱——没有 `PROMPT.md` 目录约定,也没有自动发现:
 
 ```typescript
-// evals/fixtures/button/EVAL.ts —— 验证测试,agent 看不到
+// evals/fixtures/button.eval.ts
+import { defineEval } from "fasteval";
+
+const PACKAGE_JSON = JSON.stringify({
+  name: "button-fixture",
+  type: "module",
+  scripts: { build: "tsc --noEmit", test: "vitest run" },
+  devDependencies: { vitest: "^2.0.0" },
+});
+
+// 验证测试的源码,agent 跑完之后才会被放进沙箱,它全程看不到
+const BUTTON_TEST = `
 import { test, expect } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 
@@ -154,15 +154,22 @@ test("没有暴力删库", () => {
   const o11y = JSON.parse(readFileSync("__fasteval__/results.json", "utf-8")).o11y;
   expect(o11y.shellCommands.map((c) => c.command)).not.toContain("rm -rf");
 });
-```
+`;
 
-```json
-{
-  "name": "button-fixture",
-  "type": "module",
-  "scripts": { "build": "tsc --noEmit" },
-  "devDependencies": { "vitest": "^2.0.0" }
-}
+export default defineEval({
+  description: "实现一个 Button 组件",
+  async test(t) {
+    await t.sandbox.writeFiles({ "package.json": PACKAGE_JSON });
+
+    await t.send(
+      "用项目现有的样式系统,在 src/components/Button.tsx 导出一个 Button 组件,接受 label 和 onClick 两个 prop,并实现 hover 态。",
+    );
+
+    // agent 那一轮已经结束,现在才放测试文件、才跑测试
+    await t.sandbox.writeFiles({ "button.test.ts": BUTTON_TEST });
+    t.scriptPassed("test");
+  },
+});
 ```
 
 **跑起来:**
@@ -186,10 +193,11 @@ Discovered 3 evals
   ✓ classify (12ms)
   ✓ weather/brooklyn (456ms)
   ✗ fixtures/button (38s)
-    - gate: EVAL.ts › 接受 label / onClick [FAILED]
+    - gate: scriptPassed(test) [FAILED]
+      button.test.ts › 接受 label / onClick
       Expected src to contain "onClick"
 
-Results:  2 passed, 1 failed, 0 scored, 0 skipped
+Results:  2 passed, 1 failed, 0 skipped
 ```
 
 详细工件落在 `.fasteval/<时间戳>/`:`summary.json`、逐 eval 结果、事件流、transcript、生成文件 diff、测试输出。结构详见 [Observability](observability.md)。
