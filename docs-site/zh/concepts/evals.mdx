@@ -1,5 +1,5 @@
 ---
-title: "fasteval 中的 eval: 生命周期、verdict 与文件"
+title: "fasteval 中的 eval: 生命周期、outcome 与文件"
 sidebarTitle: "Evals"
 description: "eval 是一个测试用例：描述、agent 引用和 test 函数。了解 eval 如何被发现、调度、评分和报告。"
 ---
@@ -61,15 +61,15 @@ npx fasteval exp local weather/brooklyn
   <Step title="Scoring">
     fasteval 收集值断言、作用域断言、judge 分数和测试结果。
   </Step>
-  <Step title="Verdict">
-    所有断言结果折叠成一个最终 verdict。
+  <Step title="Outcome">
+    所有断言结果折叠成一个最终 outcome。
   </Step>
   <Step title="Report">
     控制台和 reporters 输出结果，同时写入 `.fasteval/` artifacts。
   </Step>
 </Steps>
 
-## Verdict 类型
+## Outcome 类型
 
 <CardGroup cols={2}>
   <Card title="passed" icon="circle-check" color="#22c55e">
@@ -78,7 +78,7 @@ npx fasteval exp local weather/brooklyn
   <Card title="failed" icon="circle-xmark" color="#ef4444">
     至少一个 gate 断言失败，或运行本身失败。
   </Card>
-  <Card title="scored" icon="chart-bar" color="#f59e0b">
+  <Card title="passed" icon="chart-bar" color="#f59e0b">
     没有 gate 失败，但 soft 分数需要保留为分值。
   </Card>
   <Card title="skipped" icon="forward" color="#6b7280">

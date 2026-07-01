@@ -97,7 +97,7 @@ export default defineEval({
     t.succeeded();
     t.fileChanged("src/components/Button.tsx");
     t.check(t.file("src/components/Button.tsx"), includes("onClick"));
-    t.testsPassed();
+    t.check(await t.sandbox.runCommand("npm", ["test"], { cwd: "/workspace" }), commandSucceeded());
   },
 });
 ```

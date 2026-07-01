@@ -5,6 +5,8 @@
 // 模板:opts.template 选 e2b 模板名/ID;省略用 e2b 默认 "base"。预制模板(烘焙好
 //       codex/claude-code/bub 的 "fasteval-agents")见 sandbox/e2b/。
 
+import { readdir, readFile, stat } from "node:fs/promises";
+import { join, relative, sep } from "node:path";
 import { Sandbox as E2BSdkSandbox, CommandExitError } from "e2b";
 import type {
   Sandbox,
@@ -36,7 +38,6 @@ function shellQuote(s: string): string {
 export class E2BSandbox implements Sandbox {
   readonly otlpHost = null;
   private sbx: E2BSdkSandbox;
-  private workDir: string = E2B_WORKDIR;
   private commandTimeoutMs: number;
   readonly sandboxId: string;
 
@@ -72,7 +73,7 @@ export class E2BSandbox implements Sandbox {
     // 否则用模板默认(非 root)用户 —— 跨后端语义一致(见 types.ts 的 CommandOptions.root)。
     try {
       const res = await this.sbx.commands.run(script, {
-        cwd: opts.cwd ?? this.workDir,
+        cwd: opts.cwd ?? E2B_WORKDIR,
         envs: opts.env,
         user: opts.root ? "root" : undefined,
         timeoutMs: this.commandTimeoutMs,
@@ -89,7 +90,11 @@ export class E2BSandbox implements Sandbox {
   }
 
   private abs(path: string): string {
-    return path.startsWith("/") ? path : `${this.workDir}/${path}`;
+    return path.startsWith("/") ? path : `${E2B_WORKDIR}/${path}`;
+  }
+
+  private targetPath(path: string, targetDir: string): string {
+    return path.startsWith("/") ? path : `${targetDir.replace(/\/$/, "")}/${path}`;
   }
 
   async readFile(path: string): Promise<string> {
@@ -126,7 +131,7 @@ export class E2BSandbox implements Sandbox {
     await Promise.all(
       paths.map(async (path) => {
         try {
-          const content = await this.sbx.files.read(`${this.workDir}/${path}`, { format: "text" });
+          const content = await this.sbx.files.read(`${E2B_WORKDIR}/${path}`, { format: "text" });
           files.push({ path, content });
         } catch {
           // skip unreadable files (binary, permissions, etc.)
@@ -136,28 +141,24 @@ export class E2BSandbox implements Sandbox {
     return makeSourceFiles(files);
   }
 
-  async writeFiles(files: Record<string, string>): Promise<void> {
-    const entries = Object.entries(files).map(([p, data]) => ({ path: this.abs(p), data }));
+  async writeFiles(files: Record<string, string>, targetDir = E2B_WORKDIR): Promise<void> {
+    const entries = Object.entries(files).map(([p, data]) => ({ path: this.targetPath(p, targetDir), data }));
     if (entries.length === 0) return;
     await this.sbx.files.write(entries);
   }
 
-  async uploadFiles(files: SandboxFile[]): Promise<void> {
+  async uploadFiles(files: SandboxFile[], targetDir = E2B_WORKDIR): Promise<void> {
     if (files.length === 0) return;
     await this.sbx.files.write(
       files.map((f) => ({
-        path: this.abs(f.path),
+        path: this.targetPath(f.path, targetDir),
         data: Buffer.isBuffer(f.content) ? toArrayBuffer(f.content) : f.content,
       })),
     );
   }
 
-  getWorkingDirectory(): string {
-    return this.workDir;
-  }
-
-  setWorkingDirectory(path: string): void {
-    this.workDir = path;
+  async uploadDirectory(localDir: string, targetDir: string, opts: { ignore?: string[] } = {}): Promise<void> {
+    await this.uploadFiles(await collectLocalFiles(localDir, opts.ignore), targetDir);
   }
 
   async stop(): Promise<void> {
@@ -172,6 +173,28 @@ export class E2BSandbox implements Sandbox {
   async uploadFile(path: string, content: Buffer): Promise<void> {
     await this.sbx.files.write(this.abs(path), toArrayBuffer(content));
   }
+}
+
+async function collectLocalFiles(localDir: string, ignore: readonly string[] = []): Promise<SandboxFile[]> {
+  const ignored = new Set(ignore);
+  const out: SandboxFile[] = [];
+  async function walk(dir: string): Promise<void> {
+    for (const entry of await readdir(dir)) {
+      if (ignored.has(entry)) continue;
+      const abs = join(dir, entry);
+      const st = await stat(abs);
+      if (st.isDirectory()) {
+        await walk(abs);
+      } else if (st.isFile()) {
+        out.push({
+          path: relative(localDir, abs).split(sep).join("/"),
+          content: await readFile(abs),
+        });
+      }
+    }
+  }
+  await walk(localDir);
+  return out;
 }
 
 /** Buffer → ArrayBuffer(e2b files.write 接受 string | ArrayBuffer | Blob | ReadableStream)。 */

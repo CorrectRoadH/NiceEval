@@ -44,7 +44,7 @@ interface AgentCapabilities {
 ```
 
 <Note>
-  The `workspace` capability — which enables `t.diff`, `t.fileChanged`, and related assertions — is only meaningful for **sandbox agents** that run in an isolated filesystem. Remote and in-process agents should declare only `conversation` and `toolObservability`.
+  The `workspace` capability — which enables `t.sandbox.diff`, `t.fileChanged`, and related assertions — is only meaningful for **sandbox agents** that run in an isolated filesystem. Remote and in-process agents should declare only `conversation` and `toolObservability`.
 </Note>
 
 ### `AgentContext`

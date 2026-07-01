@@ -1,6 +1,8 @@
 import { defineEval } from "fasteval";
 import { includes, excludes } from "fasteval/expect";
 
+const WORKSPACE = new URL("../workspaces/ts-starter/", import.meta.url).pathname;
+
 // 评测任务：用 Zod 解析并验证环境变量。
 //
 // 没有 zod skill 的 agent 通常会用 process.env.X ?? "default" 直接读取，
@@ -8,9 +10,10 @@ import { includes, excludes } from "fasteval/expect";
 // 一次性验证所有变量，并通过 z.infer<> 获得正确类型。
 export default defineEval({
   description: "用 Zod 定义 EnvSchema 解析环境变量，类型安全地导出 env 对象",
-  workspace: "./workspaces/ts-starter",
 
   async test(t) {
+    await t.sandbox.uploadDirectory(WORKSPACE, "/home/sandbox/workspace");
+
     await t
       .send(
         `在 src/config/env.ts 里实现环境变量校验。
@@ -60,10 +63,11 @@ export default defineEval({
 
     t.fileChanged("src/config/env.ts");
 
-    t.judge
-      .score(
+    t.judge.autoevals
+      .closedQA(
         "是否正确使用了 Zod 解析环境变量？PORT 的类型转换是否到位？" +
           "NODE_ENV 是否用 z.enum() 并有默认值？JWT_SECRET 是否有长度约束？",
+        { on: config?.content ?? "" },
       )
       .atLeast(0.75);
   },

@@ -147,43 +147,22 @@ The runner emits a structured event stream as it executes, consumed by the CLI d
 
 ```
 run:start           { total, agent, model }
-run:setup           { }                         # hooks.run.setup begins
-run:setupComplete   { durationMs }
 eval:start          { id, attempt }
-eval:complete       { id, attempt, verdict, durationMs, usage, costUSD }
+eval:complete       { id, attempt, outcome, durationMs, usage, costUSD }
 run:earlyExit       { id }
 run:budgetExceeded  { spentUSD, budgetUSD }
-run:teardown        { }                         # hooks.run.teardown begins
 run:saved           { outputDir }
-run:summary         { passed, failed, scored, skipped, errored, durationMs, usage, estimatedCostUSD }
+run:summary         { passed, failed, skipped, errored, durationMs, usage, estimatedCostUSD }
 ```
 
-Failure events (`run:setupFailed`, `attempt:teardownFailed`, `run:teardownFailed`) are also emitted when hooks encounter errors.
-
-## Lifecycle hooks
-
-Environment setup and teardown are handled through a layered hooks system. All hooks live in a single `hooks` object with consistent `setup` / `teardown` verbs, scoped by a structural key:
-
-<Accordion title="hooks.run.setup / hooks.run.teardown — run scope">
-  These run **once per run**: `setup` fires before the first attempt, `teardown` fires after the last. Use them to start and stop shared resources like mock APIs, shared databases, or warm pools.
-
-  If `hooks.run.setup` throws, the **entire run is aborted**.
-</Accordion>
-
-<Accordion title="hooks.sandbox.setup / hooks.sandbox.teardown — per-attempt scope">
-  These run **once per attempt**: `setup` prepares the sandbox before each eval (writing `.env` files, starting services, installing dependencies), and `teardown` cleans up afterward.
-
-  `setup` can read `ctx.flags` to branch on feature flags, and it may return a cleanup closure. If `hooks.sandbox.setup` throws, that eval is marked failed — other evals are unaffected. `teardown` always runs in `finally` and its errors are recorded as diagnostics only, never changing the verdict.
-</Accordion>
-
-Config-level hooks and experiment-level hooks are merged, with teardown running in reverse order. Lifecycle hooks manage **resource lifecycle**; reporters handle **result consumption** — the two are orthogonal.
+Environment setup is ordinary eval or adapter code: upload starter files and run setup commands inside `test(t)`, and keep agent-specific installation or authentication in the adapter's `setup`.
 
 ## Exit codes
 
 | Condition | Exit code |
 |-----------|-----------|
-| All evals `passed` or `scored` (without `--strict`) | `0` |
+| All evals `passed` or `passed` (without `--strict`) | `0` |
 | Any eval `failed` | Non-zero |
-| Any eval `scored` with `--strict` enabled | Non-zero |
+| Any eval `passed` with `--strict` enabled | Non-zero |
 
 Use this directly in CI: a non-zero exit turns the step red without any extra scripting.

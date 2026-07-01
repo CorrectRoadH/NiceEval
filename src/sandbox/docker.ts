@@ -2,7 +2,8 @@
 // 改编自 agent-eval 的 docker-sandbox.ts,签名对齐 ../types.ts 的 Sandbox 契约
 //(runShell/runCommand 的 opts 一律是选项对象,不再用位置参数)。
 
-import { basename, dirname } from "node:path";
+import { readdir, readFile, stat } from "node:fs/promises";
+import { basename, dirname, join, relative, sep } from "node:path";
 import { Readable } from "node:stream";
 import Docker from "dockerode";
 import * as tar from "tar-stream";
@@ -121,7 +122,6 @@ export class DockerSandbox implements Sandbox {
   private timeout: number;
   private runtime: string;
   private image?: string;
-  private _workingDirectory: string = CONTAINER_WORKDIR;
 
   constructor(options: DockerSandboxOptions = {}) {
     this.docker = new Docker();
@@ -287,9 +287,9 @@ export class DockerSandbox implements Sandbox {
     });
   }
 
-  /** 把工作区属主收敛回非 root 的沙箱用户(putArchive 以 root 解包后用)。 */
-  private async chownWorkspaceToSandboxUser(): Promise<void> {
-    await this.runCommandAsRoot("chown", ["-R", SANDBOX_USER, CONTAINER_WORKDIR]);
+  /** 把目录属主收敛回非 root 的沙箱用户(putArchive 以 root 解包后用)。 */
+  private async chownToSandboxUser(path: string): Promise<void> {
+    await this.runCommandAsRoot("chown", ["-R", SANDBOX_USER, path]);
   }
 
   /** 真正在容器里 exec 一条命令,demux stdout/stderr 并带超时。 */
@@ -311,7 +311,7 @@ export class DockerSandbox implements Sandbox {
       Cmd: fullCmd,
       AttachStdout: true,
       AttachStderr: true,
-      WorkingDir: opts.cwd ?? this._workingDirectory,
+      WorkingDir: opts.cwd ?? CONTAINER_WORKDIR,
       Env: env,
       User: opts.user,
     });
@@ -435,17 +435,17 @@ export class DockerSandbox implements Sandbox {
   }
 
   /** 批量写文件(路径 -> 文本内容)。 */
-  async writeFiles(files: Record<string, string>): Promise<void> {
+  async writeFiles(files: Record<string, string>, targetDir?: string): Promise<void> {
     const sandboxFiles: SandboxFile[] = Object.entries(files).map(([path, content]) => ({
       path,
       content: Buffer.from(content, "utf-8"),
     }));
 
-    await this.uploadFiles(sandboxFiles);
+    await this.uploadFiles(sandboxFiles, targetDir);
   }
 
   /** 用 tar 归档把文件灌进容器。 */
-  async uploadFiles(files: SandboxFile[]): Promise<void> {
+  async uploadFiles(files: SandboxFile[], targetDir = CONTAINER_WORKDIR): Promise<void> {
     if (!this.container) {
       throw new Error(t("docker.containerNotInitialized"));
     }
@@ -466,21 +466,18 @@ export class DockerSandbox implements Sandbox {
 
     pack.finalize();
 
-    // putArchive 以 root 身份解包到工作区。
-    await this.container.putArchive(pack, { path: CONTAINER_WORKDIR });
+    await this.runCommandAsRoot("mkdir", ["-p", targetDir]);
+
+    // putArchive 以 root 身份解包到目标目录。
+    await this.container.putArchive(pack, { path: targetDir });
 
     // 修正属主:putArchive 上传成 root,改回 node 用户,agent 才能编辑。
-    await this.chownWorkspaceToSandboxUser();
+    await this.chownToSandboxUser(targetDir);
   }
 
-  /** 取当前工作目录。 */
-  getWorkingDirectory(): string {
-    return this._workingDirectory;
-  }
-
-  /** 设当前工作目录。 */
-  setWorkingDirectory(path: string): void {
-    this._workingDirectory = path;
+  async uploadDirectory(localDir: string, targetDir: string, opts: { ignore?: string[] } = {}): Promise<void> {
+    const files = await collectLocalFiles(localDir, opts.ignore);
+    await this.uploadFiles(files, targetDir);
   }
 
   /**
@@ -517,4 +514,26 @@ export class DockerSandbox implements Sandbox {
       this.container = null;
     }
   }
+}
+
+async function collectLocalFiles(localDir: string, ignore: readonly string[] = []): Promise<SandboxFile[]> {
+  const ignored = new Set(ignore);
+  const out: SandboxFile[] = [];
+  async function walk(dir: string): Promise<void> {
+    for (const entry of await readdir(dir)) {
+      if (ignored.has(entry)) continue;
+      const abs = join(dir, entry);
+      const st = await stat(abs);
+      if (st.isDirectory()) {
+        await walk(abs);
+      } else if (st.isFile()) {
+        out.push({
+          path: relative(localDir, abs).split(sep).join("/"),
+          content: await readFile(abs),
+        });
+      }
+    }
+  }
+  await walk(localDir);
+  return out;
 }

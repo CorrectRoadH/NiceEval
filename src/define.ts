@@ -18,6 +18,7 @@ const SANDBOX_DEFAULT_CAPS = {
   conversation: true,
   toolObservability: true,
   workspace: true,
+  sandbox: true,
 } as const;
 
 const REMOTE_DEFAULT_CAPS = {
@@ -30,7 +31,6 @@ export function defineSandboxAgent(def: SandboxAgentDef): Agent {
   if (!def.name) throw new Error(t("define.sandboxAgentNameRequired"));
   return {
     name: def.name,
-    kind: "sandbox",
     capabilities: { ...SANDBOX_DEFAULT_CAPS, ...(def.capabilities ?? {}) },
     setup: def.setup,
     tracing: def.tracing,
@@ -44,7 +44,6 @@ export function defineAgent(def: RemoteAgentDef): Agent {
   if (!def.name) throw new Error(t("define.agentNameRequired"));
   return {
     name: def.name,
-    kind: "remote",
     capabilities: { ...REMOTE_DEFAULT_CAPS, ...(def.capabilities ?? {}) },
     setup: def.setup,
     tracing: def.tracing,

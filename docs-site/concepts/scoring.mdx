@@ -1,10 +1,10 @@
 ---
-title: "fasteval scoring: assertions, judge calls, and verdicts"
+title: "fasteval scoring: assertions, judge calls, and outcomes"
 sidebarTitle: "Scoring"
 description: "fasteval scoring: five mechanisms — value assertions, scoped assertions, LLM-as-judge, test-as-scoring, and efficiency checks. Gate vs soft severity."
 ---
 
-Scoring is the process of taking everything an agent did during an eval — every message, tool call, file change, and token spent — and folding it into a single, actionable verdict. fasteval gives you five scoring mechanisms that complement each other: some check values immediately, some assess the whole run after it completes, some ask a language model to judge open-ended quality, some execute tests inside the sandbox, and some measure efficiency. All five produce the same `Assertion` type, and all five feed into the same verdict rules.
+Scoring is the process of taking everything an agent did during an eval — every message, tool call, file change, and token spent — and folding it into a single, actionable outcome. fasteval gives you five scoring mechanisms that complement each other: some check values immediately, some assess the whole run after it completes, some ask a language model to judge open-ended quality, some execute tests inside the sandbox, and some measure efficiency. All five produce the same `Assertion` type, and all five feed into the same outcome rules.
 
 ## The five scoring mechanisms
 
@@ -16,7 +16,7 @@ Scoring is the process of taking everything an agent did during an eval — ever
     `t.succeeded()`, `t.calledTool()`, `t.messageIncludes()`, and friends are registered during `test(t)` but evaluated **after** the function returns, against the complete turn data. Use these for whole-run facts.
   </Card>
   <Card title="3. LLM-as-judge" icon="gavel">
-    `t.judge.factuality()`, `t.judge.closedQA()`, `t.judge.summarizes()`, and `t.judge.score()` ask a separate evaluator model to score open-ended output. The judge model is fully independent from the agent under test.
+    `t.judge.autoevals.factuality()`, `t.judge.autoevals.closedQA()`, `t.judge.autoevals.summarizes()`, and `t.judge.autoevals.closedQA()` ask a separate evaluator model to score open-ended output. The judge model is fully independent from the agent under test.
   </Card>
   <Card title="4. Test-as-scoring" icon="flask">
     For sandbox evals, `EVAL.ts` is a Vitest test file that runs inside the sandbox after the agent finishes. Every `test()` in `EVAL.ts` becomes a gate assertion. Use this for coding tasks where file content and build results are the ground truth.
@@ -28,16 +28,16 @@ Scoring is the process of taking everything an agent did during an eval — ever
 
 ## Gate vs soft severity
 
-Every assertion carries a **severity** that determines how it influences the final verdict. There are exactly two severities:
+Every assertion carries a **severity** that determines how it influences the final outcome. There are exactly two severities:
 
 <Tabs>
   <Tab title="gate">
-    A gate assertion is a hard requirement. If it fails, the entire eval is immediately classified as `failed` — regardless of how well every other assertion scored. Use gate for facts that must be true: "the agent called the correct tool", "the response parsed as valid JSON", "no shell commands errored."
+    A gate assertion is a hard requirement. If it fails, the entire eval is immediately classified as `failed` — regardless of how well every other assertion passed. Use gate for facts that must be true: "the agent called the correct tool", "the response parsed as valid JSON", "no shell commands errored."
     
     Most matchers in `fasteval/expect` (`includes`, `equals`, `matches`, `satisfies`) default to gate. Scoped assertions like `t.succeeded()` and `t.calledTool()` also default to gate.
   </Tab>
   <Tab title="soft">
-    A soft assertion is a quality score with a numeric threshold. If the score falls below the threshold, the eval becomes `scored` rather than `passed` — a signal that there is a quality regression, but not a hard breakage. Soft failures only count as failures when you run with `--strict`.
+    A soft assertion is a quality score with a numeric threshold. If the score falls below the threshold, the eval becomes `passed` rather than `passed` — a signal that there is a quality regression, but not a hard breakage. Soft failures only count as failures when you run with `--strict`.
     
     Use soft for continuous judgments where the answer is "how good" rather than "correct or not": similarity scoring, LLM-as-judge factuality ratings, cost budgets you want to track without blocking CI.
     
@@ -50,19 +50,19 @@ You can override the default severity with a chain method on any matcher or asse
 ```ts
 t.check(t.reply, includes("confirmed"));          // gate (default)
 t.check(t.reply, similarity(expected).gate());    // promote to gate
-t.judge.closedQA("Is the tone professional?").atLeast(0.7);  // soft, threshold 0.7
-t.maxTokens(80_000).soft();                       // demote to soft
+t.judge.autoevals.closedQA("Is the tone professional?").atLeast(0.7);  // soft, threshold 0.7
+t.maxTokens(80_000).atLeast(0.7);                       // demote to soft
 ```
 
-## Verdict rules
+## Outcome rules
 
-Once all assertions are collected, `verdict.ts` folds them into a single verdict in this order:
+Once all assertions are collected, `outcome.ts` folds them into a single outcome in this order:
 
 ```
 Execution error (timeout / thrown exception / author mistake)  →  failed
 Any gate assertion failed                                       →  failed
 Explicit t.skip(reason) was called                             →  skipped
-All gates passed, but at least one soft is below its threshold →  scored
+All gates passed, but at least one soft is below its threshold →  passed
 Otherwise                                                       →  passed
 ```
 
@@ -73,7 +73,7 @@ Otherwise                                                       →  passed
   <Card title="failed" icon="circle-xmark" color="#ef4444">
     Execution error **or** at least one gate assertion did not pass. Hard failure.
   </Card>
-  <Card title="scored" icon="chart-bar" color="#f59e0b">
+  <Card title="passed" icon="chart-bar" color="#f59e0b">
     All gates passed, but at least one soft fell below its threshold. Quality regression — silent by default, red under `--strict`.
   </Card>
   <Card title="skipped" icon="forward" color="#6b7280">
@@ -81,7 +81,7 @@ Otherwise                                                       →  passed
   </Card>
 </CardGroup>
 
-When you run an eval more than once (`runs > 1`), the per-eval summary becomes a **pass rate** (the fraction of runs that produced `passed`) and an average latency, rather than a single verdict.
+When you run an eval more than once (`runs > 1`), the per-eval summary becomes a **pass rate** (the fraction of runs that produced `passed`) and an average latency, rather than a single outcome.
 
 ## 1. Value assertions — `fasteval/expect` matchers
 
@@ -175,24 +175,24 @@ turn.outputMatches(z.object({ status: z.string() }));        // Standard Schema 
 ```ts
 t.fileChanged("src/Button.tsx");
 t.fileDeleted("src/old.ts");
-t.diff.isEmpty();                      // no repository files were modified this turn
+t.sandbox.diff.isEmpty();                      // no repository files were modified this turn
 t.notInDiff(/sk-[A-Za-z0-9]/);         // diff contains no secrets / inline styles
-t.testsPassed();                       // EVAL.ts ran and all test() cases passed
-t.scriptPassed("build");              // npm run build exited 0
+t.check(await t.sandbox.runCommand("npm", ["test"], { cwd: "/workspace" }), commandSucceeded());                       // EVAL.ts ran and all test() cases passed
+t.check(await t.sandbox.runCommand("npm", ["run", "build"], { cwd: "/workspace" }), commandSucceeded());              // npm run build exited 0
 t.noFailedShellCommands();
 ```
 
-`t.diff` is a queryable object. `t.diff.get("src/Button.tsx")` returns the file's post-change content; `t.diff.isEmpty()` checks whether any files changed; `t.diff.matches(re)` and `t.notInDiff(re)` run a regex over the full diff text.
+`t.sandbox.diff` is a queryable object. `t.sandbox.diff.get("src/Button.tsx")` returns the file's post-change content; `t.sandbox.diff.isEmpty()` checks whether any files changed; `t.sandbox.diff.matches(re)` and `t.notInDiff(re)` run a regex over the full diff text.
 
 ## 3. LLM-as-judge
 
 Use judge assertions when correctness cannot be expressed as a rule — for open-ended prose, tone, factual consistency, or summarization quality. The evaluator model is **entirely separate** from the agent under test, preventing self-evaluation bias.
 
 ```ts
-t.judge.factuality(reference).atLeast(0.8);   // factual consistency with a reference text
-t.judge.closedQA("Is the response appropriate for a 10-year-old?");
-t.judge.summarizes(sourceDocument);            // faithful summarization check
-t.judge.score("Custom scoring rubric description", { on: t.reply });
+t.judge.autoevals.factuality(reference).atLeast(0.8);   // factual consistency with a reference text
+t.judge.autoevals.closedQA("Is the response appropriate for a 10-year-old?");
+t.judge.autoevals.summarizes(sourceDocument);            // faithful summarization check
+t.judge.autoevals.closedQA("Custom scoring rubric description", { on: t.reply });
 ```
 
 The `{ on }` option specifies which value to evaluate (defaults to `t.reply`). The `{ model }` option lets you override the judge model for a single call.
@@ -217,12 +217,12 @@ defineConfig({ judge: { model: "anthropic/claude-haiku-4-5" } });
 defineEval({
   judge: { model: "anthropic/claude-opus-4-8" },
   async test(t) {
-    t.judge.factuality(reference);  // uses claude-opus-4-8 for this eval
+    t.judge.autoevals.factuality(reference);  // uses claude-opus-4-8 for this eval
   },
 });
 
 // A single call override
-t.judge.score("rubric", { on: t.reply, model: "openai/gpt-4o" });
+t.judge.autoevals.closedQA("rubric", { on: t.reply, model: "openai/gpt-4o" });
 ```
 
 ## 4. Test-as-scoring (sandbox evals)
@@ -264,7 +264,7 @@ Token usage is a first-class scoring dimension. An agent that answers correctly 
 ```ts
 t.maxTokens(50_000);            // hard token limit for the entire run (gate by default)
 t.maxCost(0.5);                 // estimated cost cap in USD (requires a price table in config)
-t.maxTokens(80_000).soft();     // soft variant — tracked but only red under --strict
+t.maxTokens(80_000).atLeast(0.7);     // soft variant — tracked but only red under --strict
 t.check(t.usage.outputTokens, satisfies((n) => n < 10_000, "not verbose"));
 ```
 
@@ -292,10 +292,10 @@ function jsonValid(): Assertion {
 t.check(t.reply, jsonValid());
 ```
 
-Custom matchers compose with the same chain methods as built-ins: `.gate()`, `.soft()`, `.atLeast(threshold)`.
+Custom matchers compose with the same chain methods as built-ins: `.gate()`, `.atLeast(0.7)`, `.atLeast(threshold)`.
 
 ## Related pages
 
-- [Evals](/concepts/evals) — how assertions fold into the eval lifecycle and verdict types.
+- [Evals](/concepts/evals) — how assertions fold into the eval lifecycle and outcome types.
 - [Agents & Adapters](/concepts/agents-adapters) — how the standard event stream is produced, which scoped assertions depend on.
 - [Overview](/concepts/overview) — the full architecture and where scoring fits.

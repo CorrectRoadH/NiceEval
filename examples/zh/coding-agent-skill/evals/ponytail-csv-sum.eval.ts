@@ -1,6 +1,8 @@
 import { defineEval } from "fasteval";
 import { includes } from "fasteval/expect";
 
+const WORKSPACE = new URL("../workspaces/ts-starter/", import.meta.url).pathname;
+
 // 改编自 ponytail 的 csv-sum 测试。
 //
 // 任务故意很简单：读 CSV、求 amount 列的和。
@@ -8,9 +10,10 @@ import { includes } from "fasteval/expect";
 // 有 skill 的 agent 会先问"标准库能解决吗？"然后用 csv.DictReader 一次性搞定。
 export default defineEval({
   description: "读取 sales.csv 并求 amount 列的和（应用标准库，不引入 pandas）",
-  workspace: "./workspaces/ts-starter",
 
   async test(t) {
+    await t.sandbox.uploadDirectory(WORKSPACE, "/home/sandbox/workspace");
+
     await t.sandbox.writeFiles({
       "sales.csv": ["id,product,amount", "1,Widget A,100.5", "2,Widget B,200.0", "3,Widget C,50.5"].join("\n"),
     });
@@ -38,10 +41,11 @@ export default defineEval({
 
     t.fileChanged("sum_sales.py");
 
-    t.judge
-      .score(
+    t.judge.autoevals
+      .closedQA(
         "实现是否简洁？是否用了 csv 标准库而非 pandas？" +
           "代码行数是否在合理范围内（理想 ≤ 10 行）？",
+        { on: code },
       )
       .atLeast(0.7);
   },

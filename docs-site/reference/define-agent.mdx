@@ -51,7 +51,7 @@ import { defineAgent } from "fasteval";
   </ParamField>
 
   <ParamField body="workspace" type="boolean">
-    The agent works on a file system. Enables `t.diff`, `t.fileChanged`,
+    The agent works on a file system. Enables `t.sandbox.diff`, `t.fileChanged`,
     `t.fileDeleted`, `t.testsPassed`, and `t.scriptPassed`. This flag is
     automatically set for `defineSandboxAgent` adapters.
   </ParamField>
@@ -274,11 +274,11 @@ import { defineSandboxAgent, shared } from "fasteval";
   by `shared.prepareWorkspace` to upload workspace fixture files.
 </ResponseField>
 
-<ResponseField name="getWorkingDirectory()" type="() => string">
+<ResponseField name="runCommand(..., { cwd })" type="() => string">
   Returns the current working directory path inside the sandbox.
 </ResponseField>
 
-<ResponseField name="setWorkingDirectory(path)" type="(path: string) => void">
+<ResponseField name="runCommand(..., { cwd: path })" type="(path: string) => void">
   Sets the default working directory for subsequent commands.
 </ResponseField>
 
@@ -469,6 +469,6 @@ The `ctx` object in your adapter's `send` function and the `t` object in your ev
 | Abort signal | `ctx.signal` | `t.signal` |
 | Logging | `ctx.log()` | `t.log()` |
 | Session | `ctx.session.id` / `isNew` | `t.newSession()` |
-| Sandbox | `ctx.sandbox` (raw `Sandbox` handle) | `t.diff`, `t.fileChanged`, etc. (high-level view) |
+| Sandbox | `ctx.sandbox` (raw `Sandbox` handle) | `t.sandbox.diff`, `t.fileChanged`, etc. (high-level view) |
 
 Authentication details, CLI flags, and transcript locations are **agent-local** — they live inside `send` and are never exposed via `ctx` or `t`.

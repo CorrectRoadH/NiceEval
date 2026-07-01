@@ -120,7 +120,7 @@ npx fasteval exp compare-models weather
 
 <ParamField query="--runs" type="number">
   Number of times to run each matched eval. Use this when you care about
-  pass rate rather than a single pass/fail verdict. Results are grouped and
+  pass rate rather than a single pass/fail outcome. Results are grouped and
   reported as `pass@N`.
 
   ```bash
@@ -185,9 +185,9 @@ npx fasteval exp compare-models weather
 #### CI & reporting
 
 <ParamField query="--strict" type="boolean">
-  Treat `scored` verdicts (where the LLM-as-judge score falls below the
-  configured threshold) as failures. Without `--strict`, scored-but-below-
-  threshold evals produce a non-zero exit code only when their verdict is
+  Treat `passed` outcomes (where the LLM-as-judge score falls below the
+  configured threshold) as failures. Without `--strict`, passed-but-below-
+  threshold evals produce a non-zero exit code only when their outcome is
   explicitly `failed`. With `--strict`, they also cause a non-zero exit. Use
   this flag in CI to enforce quality thresholds.
 
@@ -265,7 +265,7 @@ npx fasteval exp compare
 <Note>
   Experiments expand into a matrix of `agent × model × eval × runs` attempts.
   Results are reported as pass rates grouped by `(agent, model, eval)`, rather
-  than single pass/fail verdicts.
+  than single pass/fail outcomes.
 </Note>
 
 ---
@@ -286,9 +286,9 @@ fasteval's exit code lets CI systems gate on eval results without parsing output
 
 | Condition | Exit code |
 |---|---|
-| All evals passed or scored (without `--strict`) | `0` |
+| All evals passed or passed (without `--strict`) | `0` |
 | Any eval failed | non-zero |
-| Any eval scored below threshold with `--strict` | non-zero |
+| Any eval passed below threshold with `--strict` | non-zero |
 
 ---
 

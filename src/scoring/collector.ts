@@ -28,8 +28,7 @@ export interface Spec {
 /** 作者拿到的可链式句柄,改严重级 / 阈值(回头改 spec)。 */
 export interface RecordHandle {
   atLeast(threshold: number): RecordHandle;
-  gate(): RecordHandle;
-  soft(threshold?: number): RecordHandle;
+  gate(threshold?: number): RecordHandle;
 }
 
 export class AssertionCollector {
@@ -58,19 +57,13 @@ export class AssertionCollector {
     this.specs.push(spec);
     const handle: RecordHandle = {
       atLeast(threshold) {
-        // 写了阈值 = 硬性下限:不够就 fail(gate)。只想记分不挂用 .soft(threshold)。
-        spec.severity = "gate";
+        spec.severity = "soft";
         spec.threshold = threshold;
         return handle;
       },
-      gate() {
+      gate(threshold) {
         spec.severity = "gate";
-        spec.threshold = undefined;
-        return handle;
-      },
-      soft(threshold) {
-        spec.severity = "soft";
-        if (threshold !== undefined) spec.threshold = threshold;
+        spec.threshold = threshold;
         return handle;
       },
     };
@@ -115,6 +108,6 @@ export class AssertionCollector {
 }
 
 export function computePassed(severity: Severity, threshold: number | undefined, score: number): boolean {
-  if (severity === "gate") return score >= (threshold ?? 1);
+  if (severity === "gate") return threshold === undefined ? score > 0 : score >= threshold;
   return threshold === undefined ? true : score >= threshold;
 }

@@ -1,132 +1,38 @@
 ---
-title: "fasteval.config.ts: 项目配置参考"
+title: "fasteval.config.ts"
 sidebarTitle: "配置"
-description: "fasteval.config.ts 完整参考：配置 agents、judge 模型、sandbox 后端、并发、超时、预算、reporters 和生命周期 hooks。"
+description: "fasteval 项目配置参考。"
 ---
 
-`fasteval.config.ts` 控制 fasteval 如何发现、运行和报告 eval。它通常放在项目根目录，与 `package.json` 同级。
-
-## 基本配置
+`fasteval.config.ts` 只保存项目级默认值；具体怎么跑由 `experiments/` 下的 `defineExperiment` 决定。
 
 ```ts
 import { defineConfig } from "fasteval";
-import { Console, JUnit } from "fasteval/reporters";
 
 export default defineConfig({
-  judge: { model: "anthropic/claude-haiku-4-5" },
-  reporters: [Console(), JUnit(".fasteval/junit.xml")],
-  maxConcurrency: 8,
-  timeoutMs: 300_000,
+  judge: { model: "gpt-5.4-mini" },
   sandbox: "auto",
+  maxConcurrency: 4,
+  timeoutMs: 300_000,
 });
 ```
 
-## 顶层选项
-
-### Agent 注册
-
-<ParamField body="agents" type="Agent[]" default="[]">
-  注册自定义 agent adapters。每项通常由 `defineAgent` 或 `defineSandboxAgent` 创建。
-
-  ```ts
-  import myAgent from "./agents/my-agent";
-
-  export default defineConfig({
-    agents: [myAgent],
-  });
-  ```
+<ParamField body="judge" type="JudgeConfig">
+  `t.judge.autoevals.*` 使用的默认 judge 配置。
 </ParamField>
 
-agent、model 和 flags 写在 `experiments/` 下的 `defineExperiment` 文件里,不写进 `defineConfig`。
-
-### Judge
-
-<ParamField body="judge.model" type="string">
-  `t.judge.*` 使用的默认评判模型。通常应该与被测 agent 使用的模型不同。
+<ParamField body="reporters" type="Reporter[]">
+  自定义 reporter 列表。
 </ParamField>
 
-### Reporters
-
-<ParamField body="reporters" type="Reporter[]" default="[Console()]">
-  接收 eval 结果的 reporters。内置常用项包括 `Console()` 和 `JUnit(path)`。
+<ParamField body="maxConcurrency" type="number">
+  最大并发 attempt 数。
 </ParamField>
 
-### 并发与性能
-
-<ParamField body="maxConcurrency" type="number" default="4">
-  同时运行多少个 eval。远程 agent 可适当调高，sandbox eval 通常需要保守。
+<ParamField body="timeoutMs" type="number">
+  单个 attempt 超时时间。
 </ParamField>
 
-<ParamField body="sandboxConcurrency" type="number">
-  sandbox eval 的并发上限。用于保护本地 Docker 或云端 quota。
+<ParamField body="sandbox" type="SandboxOption">
+  默认 sandbox 后端。文件上传由 eval 自己显式调用 `t.sandbox.uploadDirectory(...)` 等 API。
 </ParamField>
-
-### 超时与预算
-
-<ParamField body="timeoutMs" type="number" default="300000">
-  单个 eval 的超时时间，单位毫秒。
-</ParamField>
-
-<ParamField body="budget" type="number">
-  整次运行允许消耗的成本预算。
-</ParamField>
-
-### Sandbox
-
-<ParamField body="sandbox" type='"docker" | "vercel" | "auto"' default='"auto"'>
-  选择 sandbox backend。`auto` 会根据环境和凭据选择合适后端。
-</ParamField>
-
-### Workspace
-
-<ParamField body="workspace" type="string">
-  eval 运行时的工作区根目录。
-</ParamField>
-
-## 生命周期 hooks
-
-Run-scoped hooks 作用于整次运行：
-
-```ts
-hooks: {
-  run: {
-    async setup(ctx) {},
-    async teardown(ctx) {},
-  },
-}
-```
-
-Sandbox-scoped hooks 作用于每个 sandbox：
-
-```ts
-hooks: {
-  sandbox: {
-    async setup(sandbox, ctx) {},
-    async teardown(sandbox, ctx) {},
-  },
-}
-```
-
-## 内置 reporters
-
-<Accordion title="Console()">
-  默认控制台 reporter，实时显示 eval 完成状态和失败原因。
-</Accordion>
-
-<Accordion title="JUnit(path)">
-  写出 JUnit XML，适合 CI 测试报告。
-</Accordion>
-
-## 环境变量
-
-常见变量：
-
-```shell
-OPENAI_API_KEY=...
-ANTHROPIC_API_KEY=...
-VERCEL_TOKEN=...
-```
-
-<Warning>
-  机密信息应该放在环境变量或 CI secrets，不要写进配置文件。
-</Warning>

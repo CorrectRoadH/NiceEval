@@ -16,6 +16,8 @@ export default defineEval({
       t.messageIncludes(/°C|气温|天气|晴|多云|雨/);
     });
 
-    t.judge.agent("助手是否基于工具返回的天气数据作答，而不是凭空编造温度？").atLeast(0.7);
+    t.judge.autoevals
+      .closedQA("助手是否基于工具返回的天气数据作答，而不是凭空编造温度？")
+      .atLeast(0.7);
   },
 });

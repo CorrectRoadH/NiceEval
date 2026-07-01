@@ -35,7 +35,7 @@ The fasteval core is everything that looks the same regardless of which AI you'r
     Dispatches evals up to `maxConcurrency` at a time, respects `timeoutMs`, and manages `earlyExit` across retries of the same task.
   </Card>
   <Card title="Assertion collection & scoring" icon="chart-bar">
-    Gathers every assertion registered by `t.check`, `t.require`, scoped assertions, and judge calls, then folds them into a single verdict per eval.
+    Gathers every assertion registered by `t.check`, `t.require`, scoped assertions, and judge calls, then folds them into a single outcome per eval.
   </Card>
   <Card title="Caching" icon="database">
     Fingerprints each eval. If the eval, its inputs, and the agent haven't changed since the last run, the cached result is returned and the eval is skipped.
@@ -89,7 +89,7 @@ The runner selects a sandbox with `--sandbox <backend>` and passes a prepared `S
 
 <AccordionGroup>
   <Accordion title="Eval">
-    A single test case: one description, one agent reference, and one `async test(t)` function. Evals are the unit of discovery, scheduling, scoring, and reporting. Each eval produces exactly one verdict (or a pass-rate summary when `runs > 1`).
+    A single test case: one description, one agent reference, and one `async test(t)` function. Evals are the unit of discovery, scheduling, scoring, and reporting. Each eval produces exactly one outcome (or a pass-rate summary when `runs > 1`).
   </Accordion>
   <Accordion title="Agent">
     The abstraction for a system under test. An agent has a name, a set of capability flags, and a `send` method. The runner only sees this interface.
@@ -124,10 +124,10 @@ The runner selects a sandbox with `--sandbox <backend>` and passes a prepared `S
     For each eval, the runner calls `agent.send(input, ctx)`. The adapter drives the subject under test and returns a `Turn` containing the standard event stream.
   </Step>
   <Step title="Scoring">
-    The core evaluates all registered assertions against the `Turn`. Gate assertions that fail mark the eval `failed`. Soft assertions below their threshold mark it `scored`.
+    The core evaluates all registered assertions against the `Turn`. Gate assertions that fail mark the eval `failed`. Soft assertions below their threshold mark it `passed`.
   </Step>
-  <Step title="Verdict">
-    One verdict per eval: `passed`, `failed`, `scored`, or `skipped`. When `runs > 1`, the summary is a pass-rate and average latency.
+  <Step title="Outcome">
+    One outcome per eval: `passed`, `failed`, `passed`, or `skipped`. When `runs > 1`, the summary is a pass-rate and average latency.
   </Step>
   <Step title="Reporting & artifacts">
     Results stream to the console in real time. Once complete, reporters write structured output and `.fasteval/<run>/` is populated with the full artifact set.
@@ -138,4 +138,4 @@ The runner selects a sandbox with `--sandbox <backend>` and passes a prepared `S
 
 - [Evals](/concepts/evals) — what an eval is and how the lifecycle works in detail.
 - [Agents & Adapters](/concepts/agents-adapters) — how to write and register an adapter.
-- [Scoring](/concepts/scoring) — the full assertion vocabulary and verdict rules.
+- [Scoring](/concepts/scoring) — the full assertion vocabulary and outcome rules.

@@ -83,7 +83,7 @@ export default defineEval({
   ```ts
   async test(t) {
     const turn = await t.send("Summarize this document.");
-    t.judge.summarizes(document).atLeast(0.8);
+    t.judge.autoevals.summarizes(document).atLeast(0.8);
     t.check(turn.message, includes("key finding"));
   },
   ```
@@ -113,7 +113,7 @@ These methods are available regardless of which agent or capabilities are config
 <ParamField body="t.check(value, assertion)" type="(value: unknown, assertion: Assertion) => void">
   Evaluates `assertion` against `value` immediately and records the result. On
   failure, the eval is marked according to the assertion's severity (`gate`
-  → `failed`, `soft` → `scored`). Does **not** throw — execution continues.
+  → `failed`, `soft` → `passed`). Does **not** throw — execution continues.
 
   ```ts
   t.check(t.reply, includes("Paris"));
@@ -321,30 +321,30 @@ Available for sandbox agents (those using `defineSandboxAgent`).
   Asserts the agent deleted the file at the given path.
 </ParamField>
 
-<ParamField body="t.diff" type="DiffView">
+<ParamField body="t.sandbox.diff" type="DiffView">
   A queryable view of all changes the agent made to the workspace:
 
-  - `t.diff.get(path)` — returns the post-run content of the file at `path`
-  - `t.diff.isEmpty()` — asserts no files were changed
-  - `t.diff.matches(re)` — asserts the full diff text matches a regex
+  - `t.sandbox.diff.get(path)` — returns the post-run content of the file at `path`
+  - `t.sandbox.diff.isEmpty()` — asserts no files were changed
+  - `t.sandbox.diff.matches(re)` — asserts the full diff text matches a regex
   - `t.notInDiff(re)` — asserts the diff does **not** match the regex (useful for detecting leaked secrets or banned patterns)
 
   ```ts
-  t.check(t.diff.get("src/Button.tsx"), includes("onClick"));
+  t.check(t.sandbox.diff.get("src/Button.tsx"), includes("onClick"));
   t.notInDiff(/sk-[A-Za-z0-9]/); // no API keys in diff
   ```
 </ParamField>
 
-<ParamField body="t.testsPassed()" type="() => void">
-  Asserts the `EVAL.ts` Vitest suite passed (all tests green). This is the
-  primary gate assertion for fixture-based evals.
+<ParamField body="commandSucceeded()" type="ValueAssertion">
+  Use this matcher with `t.check(await t.sandbox.runCommand(...), commandSucceeded())`
+  to assert that a verification command exited with code 0.
 </ParamField>
 
-<ParamField body="t.scriptPassed(scriptName)" type="(scriptName: string) => void">
+<ParamField body="t.sandbox.runCommand(command, args, opts)" type="Promise<CommandResult>">
   Asserts a specific npm script (e.g. `"build"`, `"lint"`) exited with code 0.
 
   ```ts
-  t.scriptPassed("build");
+  t.check(await t.sandbox.runCommand("npm", ["run", "build"], { cwd: "/workspace" }), commandSucceeded());
   ```
 </ParamField>
 
@@ -354,36 +354,36 @@ Available for sandbox agents (those using `defineSandboxAgent`).
 
 Available on any eval that has a judge model configured (globally or per-eval).
 
-<ParamField body="t.judge.factuality(expected, opts?)" type="(expected: string, opts?) => JudgeAssertion">
+<ParamField body="t.judge.autoevals.factuality(expected, opts?)" type="(expected: string, opts?) => JudgeAssertion">
   Uses the judge model to score factual consistency between the agent's reply
   and the `expected` reference text. Returns a `JudgeAssertion` with
   `.atLeast(threshold)` for setting a soft threshold.
 
   ```ts
-  t.judge.factuality("Paris is the capital of France.").atLeast(0.8);
+  t.judge.autoevals.factuality("Paris is the capital of France.").atLeast(0.8);
   ```
 </ParamField>
 
-<ParamField body="t.judge.closedQA(question, opts?)" type="(question: string, opts?) => JudgeAssertion">
+<ParamField body="t.judge.autoevals.closedQA(question, opts?)" type="(question: string, opts?) => JudgeAssertion">
   Asks the judge model a yes/no question about the reply. Returns a score
   between 0 and 1. Use `.atLeast(threshold)` to set a minimum passing score.
 
   ```ts
-  t.judge.closedQA("Is the tone professional and on-topic?").atLeast(0.7);
+  t.judge.autoevals.closedQA("Is the tone professional and on-topic?").atLeast(0.7);
   ```
 </ParamField>
 
-<ParamField body="t.judge.summarizes(source, opts?)" type="(source: string, opts?) => JudgeAssertion">
+<ParamField body="t.judge.autoevals.summarizes(source, opts?)" type="(source: string, opts?) => JudgeAssertion">
   Asks the judge whether the agent's reply faithfully summarizes the `source`
   text.
 </ParamField>
 
-<ParamField body="t.judge.score(rubric, opts?)" type="(rubric: string, opts?) => JudgeAssertion">
+<ParamField body="t.judge.autoevals.closedQA(rubric, opts?)" type="(rubric: string, opts?) => JudgeAssertion">
   Free-form scoring against a custom rubric string. Useful when none of the
   built-in judge methods fit your evaluation criteria.
 
   ```ts
-  t.judge.score("Does the answer use simple language suitable for a 10-year-old?", {
+  t.judge.autoevals.closedQA("Does the answer use simple language suitable for a 10-year-old?", {
     on: turn.message,
   }).atLeast(0.6);
   ```
@@ -399,11 +399,11 @@ Available on any eval that has a judge model configured (globally or per-eval).
 
 <ParamField body="t.maxTokens(n)" type="(n: number) => TokenAssertion">
   Asserts the total token usage (input + output) for this run did not exceed
-  `n`. Defaults to `gate` severity. Chain `.soft()` to downgrade.
+  `n`. Defaults to `gate` severity. Chain `.atLeast(0.7)` to downgrade.
 
   ```ts
   t.maxTokens(50_000);          // gate: fails if over
-  t.maxTokens(80_000).soft();   // soft: scored but not failed
+  t.maxTokens(80_000).atLeast(0.7);   // soft: passed but not failed
   ```
 </ParamField>
 
@@ -505,8 +505,8 @@ export default defineAgentEval({
   async test(t) {
     await t.run();                        // drives the sandbox agent
     t.fileChanged("src/legacy.js");
-    t.check(t.diff.get("src/legacy.js"), includes("await"));
-    t.testsPassed();
+    t.check(t.sandbox.diff.get("src/legacy.js"), includes("await"));
+    t.check(await t.sandbox.runCommand("npm", ["test"], { cwd: "/workspace" }), commandSucceeded());
   },
 });
 ```

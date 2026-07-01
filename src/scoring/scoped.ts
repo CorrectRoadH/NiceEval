@@ -2,7 +2,7 @@
 // 每个 builder 产一个延迟 Spec,context 负责 record。规则覆盖不到的奇怪断言可直接落 events。
 
 import type { Spec } from "./collector.ts";
-import type { DiffData, ScoringContext, ToolCall, ToolMatch } from "../types.ts";
+import type { DiffData, ScoringContext, StreamEvent, SubagentCall, SubagentMatch, ToolCall, ToolMatch } from "../types.ts";
 
 // ── 工具匹配小语言 ──
 
@@ -51,6 +51,17 @@ function toolMatches(tc: ToolCall, name: string, match?: ToolMatch): boolean {
 
 function countMatches(toolCalls: readonly ToolCall[], name: string, match?: ToolMatch): number {
   return toolCalls.filter((tc) => toolMatches(tc, name, match)).length;
+}
+
+function subagentMatches(call: SubagentCall, name: string, match?: SubagentMatch): boolean {
+  if (call.name !== name) return false;
+  if (match?.status && call.status !== match.status) return false;
+  if (match?.remoteUrl !== undefined) {
+    const actual = call.remoteUrl ?? "";
+    const expected = match.remoteUrl;
+    if (expected instanceof RegExp ? !expected.test(actual) : actual !== expected) return false;
+  }
+  return true;
 }
 
 // ── builders ──
@@ -149,6 +160,18 @@ export function noFailedActions(): Spec {
   };
 }
 
+export function calledSubagent(name: string, match?: SubagentMatch): Spec {
+  return {
+    name: `calledSubagent(${name})`,
+    severity: "gate",
+    evaluate: (ctx) => {
+      const n = ctx.facts.subagentCalls.filter((call) => subagentMatches(call, name, match)).length;
+      if (match?.count !== undefined) return n === match.count ? 1 : 0;
+      return n >= 1 ? 1 : 0;
+    },
+  };
+}
+
 export function eventOfType(type: string, opts?: { count?: number }): Spec {
   return {
     name: `event(${type})`,
@@ -166,6 +189,31 @@ export function notEventOfType(type: string): Spec {
     name: `notEvent(${type})`,
     severity: "gate",
     evaluate: (ctx) => (ctx.events.some((e) => e.type === type) ? 0 : 1),
+  };
+}
+
+export function eventOrder(types: StreamEvent["type"][]): Spec {
+  return {
+    name: `eventOrder(${types.join("→")})`,
+    severity: "gate",
+    evaluate: (ctx) => {
+      let i = 0;
+      for (const ev of ctx.events) {
+        if (i < types.length && ev.type === types[i]) i++;
+      }
+      return i === types.length ? 1 : 0;
+    },
+  };
+}
+
+export function eventsSatisfy(
+  predicate: (events: readonly StreamEvent[]) => boolean,
+  label = "predicate",
+): Spec {
+  return {
+    name: `eventsSatisfy(${label})`,
+    severity: "gate",
+    evaluate: (ctx) => (predicate(ctx.events) ? 1 : 0),
   };
 }
 
@@ -202,27 +250,6 @@ export function notInDiff(re: RegExp): Spec {
     name: `notInDiff(${re})`,
     severity: "gate",
     evaluate: (ctx) => (diffMatchesRe(ctx.diff, re) ? 0 : 1),
-  };
-}
-
-export function scriptPassed(script: string): Spec {
-  return {
-    name: `scriptPassed(${script})`,
-    severity: "gate",
-    evaluate: (ctx) => {
-      const r = ctx.scripts[script];
-      if (!r) return 0;
-      return r.success ? 1 : 0;
-    },
-    detail: undefined,
-  };
-}
-
-export function testsPassed(): Spec {
-  return {
-    name: "testsPassed",
-    severity: "gate",
-    evaluate: (ctx) => (ctx.scripts.__vitest__?.success ? 1 : 0),
   };
 }
 

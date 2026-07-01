@@ -4,7 +4,7 @@ import { existsSync, statSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
-import type { EvalResult, RunSummary, Usage, Verdict } from "../types.ts";
+import type { EvalResult, RunSummary, Usage } from "../types.ts";
 
 export interface ViewOptions {
   input?: string;
@@ -45,7 +45,8 @@ interface LeaderboardRow {
   results: EvalResult[];
 }
 
-const VERDICT_ORDER: Record<Verdict, number> = {
+const OUTCOME_ORDER: Record<EvalResult["outcome"], number> = {
+  errored: 0,
   failed: 0,
   skipped: 1,
   passed: 2,
@@ -293,13 +294,13 @@ function aggregateRows(loaded: LoadedSummary[]): LeaderboardRow[] {
       estimatedCostUSD: cost,
       results: results
         .slice()
-        .sort((a, b) => VERDICT_ORDER[a.verdict] - VERDICT_ORDER[b.verdict] || a.id.localeCompare(b.id)),
+        .sort((a, b) => OUTCOME_ORDER[a.outcome] - OUTCOME_ORDER[b.outcome] || a.id.localeCompare(b.id)),
     };
   });
 }
 
 function resultOutcome(result: EvalResult): EvalResult["outcome"] {
-  return result.outcome ?? (result.error !== undefined ? "errored" : result.verdict);
+  return result.outcome;
 }
 
 /**

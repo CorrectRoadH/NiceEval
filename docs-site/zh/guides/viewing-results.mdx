@@ -16,10 +16,10 @@ Discovered 3 evals
   ✗ fixtures/button (38s)
     - gate: EVAL.ts › Button accepts label / onClick [FAILED]
 
-Results:  2 passed, 1 failed, 0 scored, 0 skipped
+Results:  2 passed, 1 failed, 0 passed, 0 skipped
 ```
 
-每行包含 eval ID、verdict 和耗时。失败项会显示断言类型和错误信息。
+每行包含 eval ID、outcome 和耗时。失败项会显示断言类型和错误信息。
 
 ## `.fasteval/<timestamp>/`
 
@@ -78,12 +78,12 @@ Sandbox eval 中 agent 改动的文件 diff。
 
 `EVAL.ts` 或项目测试脚本输出。
 
-## Verdict 含义
+## Outcome 含义
 
 <Tabs>
   <Tab title="passed">所有 gate 通过。</Tab>
   <Tab title="failed">至少一个 gate 失败，或运行失败。</Tab>
-  <Tab title="scored">主要结果是 soft 分数。</Tab>
+  <Tab title="passed">主要结果是 soft 分数。</Tab>
   <Tab title="skipped">eval 被主动跳过。</Tab>
 </Tabs>
 

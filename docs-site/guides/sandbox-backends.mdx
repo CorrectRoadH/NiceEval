@@ -24,8 +24,8 @@ interface Sandbox {
   writeFiles(files: Record<string, string>): Promise<void>;
   uploadFiles(files: SandboxFile[]): Promise<void>;         // batch upload, supports binary
 
-  getWorkingDirectory(): string;
-  setWorkingDirectory(path: string): void;
+  runCommand(cmd: string, args?: string[], opts?: { cwd?: string }): Promise<CommandResult>;
+  runShell(script: string, opts?: { cwd?: string }): Promise<CommandResult>;
 
   stop(): Promise<void>;
 }

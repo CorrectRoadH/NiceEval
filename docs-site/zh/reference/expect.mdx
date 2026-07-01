@@ -1,7 +1,7 @@
 ---
 title: "fasteval/expect matchers 与自定义断言参考"
 sidebarTitle: "Expect"
-description: "fasteval/expect 参考：includes、equals、matches、similarity、satisfies。可链式调用 .gate() 或 .soft()，也可以用 makeAssertion 构建自定义 matcher。"
+description: "fasteval/expect 参考：includes、equals、matches、similarity、satisfies。可链式调用 .gate() 或 .atLeast(0.7)，也可以用 makeAssertion 构建自定义 matcher。"
 ---
 
 `fasteval/expect` 提供一组可组合 matcher，传给 `t.check()` 或 `t.require()`。matcher 会返回一个 `Assertion`，并带有默认严重性：`gate` 或 `soft`。
@@ -90,7 +90,7 @@ t.check(turn.data, satisfies((value) => Array.isArray(value)));
 
 ```ts
 t.check(t.reply, includes("required").gate());
-t.check(t.reply, includes("nice to have").soft());
+t.check(t.reply, includes("nice to have").atLeast(0.7));
 ```
 
 - `gate()`：失败会让 eval 失败。

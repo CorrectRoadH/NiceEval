@@ -96,7 +96,7 @@ export default defineEval({
     const draft = await t.send("Draft a follow-up email for me.");
     draft.expectOk();                          // Throws here if the turn failed
     t.check(draft.message, includes("regards"));
-    t.judge.closedQA("Is the tone professional?", { on: draft.message }).atLeast(0.6);
+    t.judge.autoevals.closedQA("Is the tone professional?", { on: draft.message }).atLeast(0.6);
 
     await t.send("Good, send it.");
     t.calledTool("send_email");

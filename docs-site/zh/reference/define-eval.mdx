@@ -106,16 +106,16 @@ export default defineEval({
   断言文件被修改。
 </ParamField>
 
-<ParamField body="t.testsPassed()" type="function">
+<ParamField body="t.check(await t.sandbox.runCommand("npm", ["test"], { cwd: "/workspace" }), commandSucceeded())" type="function">
   断言 sandbox 验证测试通过。
 </ParamField>
 
 ## Judge 断言
 
 ```ts
-t.judge.factuality(expected, { on: t.reply }).atLeast(0.8);
-t.judge.closedQA(question, { on: t.reply }).atLeast(0.7);
-t.judge.score(rubric, { on: t.reply }).atLeast(0.75);
+t.judge.autoevals.factuality(expected, { on: t.reply }).atLeast(0.8);
+t.judge.autoevals.closedQA(question, { on: t.reply }).atLeast(0.7);
+t.judge.autoevals.closedQA(rubric, { on: t.reply }).atLeast(0.75);
 ```
 
 ## `Turn` 返回类型

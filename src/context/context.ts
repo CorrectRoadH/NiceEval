@@ -1,11 +1,11 @@
-// 构造 eval 作者拿到的高层上下文 t。把会话驱动(SessionManager)、断言收集
-// (AssertionCollector)、作用域断言、judge 命名空间接到一起,并实现 newSession 的
-// 「同沙箱、新会话」语义。t.file 返回一个延迟引用,到 finalize 时才真正读沙箱文件。
+// 构造 eval 作者拿到的高层上下文 t。这里把会话驱动(SessionManager)、
+// 断言收集(AssertionCollector)、作用域断言、judge 命名空间接到一起。
 
 import { readFile } from "node:fs/promises";
 import { basename, extname } from "node:path";
 import { SessionManager, RunSession, lastAssistantText } from "./session.ts";
 import { AssertionCollector } from "../scoring/collector.ts";
+import type { Spec } from "../scoring/collector.ts";
 import * as Scoped from "../scoring/scoped.ts";
 import { buildJudge } from "../scoring/judge.ts";
 import { EvalSkipped, EvalRequirementFailed, TurnFailed } from "./control-flow.ts";
@@ -16,15 +16,20 @@ import type {
   DiffData,
   DiffView,
   InputFile,
+  InputRequest,
+  InputRequestFilter,
   JudgeConfig,
   Sandbox,
+  SandboxHandle,
   ScoringContext,
   ScriptResult,
+  SessionHandle,
   StreamEvent,
   Telemetry,
   TestContext,
   Turn,
   TurnHandle,
+  Usage,
 } from "../types.ts";
 
 /** t.file(path) 返回它,延迟到 finalize 再读沙箱文件;t.check 识别并解析它。 */
@@ -32,7 +37,7 @@ export class FileRef {
   constructor(public readonly path: string) {}
 }
 
-/** 运行器在 test 跑完后填进来的「迟到结果」(diff / 脚本),供 t.diff 与 finalize 用。 */
+/** 运行器在 test 跑完后填进来的「迟到结果」(diff / 脚本),供 finalize 用。 */
 export interface LateResult {
   diff: DiffData;
   scripts: Record<string, ScriptResult>;
@@ -41,8 +46,6 @@ export interface LateResult {
 export interface ContextState {
   readonly collector: AssertionCollector;
   readonly manager: SessionManager;
-  readonly requestedScripts: Set<string>;
-  needsVitest: boolean;
   skipReason?: string;
   readonly late: LateResult;
 }
@@ -52,7 +55,6 @@ export interface ContextDeps {
   sandbox: Sandbox;
   model?: string;
   flags: Record<string, unknown>;
-  shared: Record<string, unknown>;
   signal: AbortSignal;
   log(msg: string): void;
   judge: JudgeConfig | undefined;
@@ -66,7 +68,6 @@ export function createEvalContext(deps: ContextDeps): { context: TestContext; st
     sandbox: deps.sandbox,
     model: deps.model,
     flags: deps.flags,
-    shared: deps.shared,
     signal: deps.signal,
     log: deps.log,
     telemetry: deps.telemetry,
@@ -75,12 +76,8 @@ export function createEvalContext(deps: ContextDeps): { context: TestContext; st
   const state: ContextState = {
     collector,
     manager,
-    requestedScripts: new Set(),
-    needsVitest: false,
     late: { diff: { generatedFiles: {}, deletedFiles: [] }, scripts: {} },
   };
-
-  const compactionsObservable = deps.agent.capabilities.compactionObservability === true;
 
   async function resolveValue(value: unknown, sc: ScoringContext): Promise<unknown> {
     if (value instanceof FileRef) return (await sc.readFile(value.path)) ?? "";
@@ -96,108 +93,159 @@ export function createEvalContext(deps: ContextDeps): { context: TestContext; st
       Object.entries(state.late.diff.generatedFiles).some(([p, c]) => re.test(p) || re.test(c)),
   };
 
-  function makeContext(session: RunSession): TestContext {
-    const judge = buildJudge({
-      collector,
+  const sandboxHandle: SandboxHandle = {
+    get sandboxId() {
+      return deps.sandbox.sandboxId;
+    },
+    get diff() {
+      return diffView;
+    },
+    runCommand: (cmd, args, opts) => deps.sandbox.runCommand(cmd, args, opts),
+    runShell: (script, opts) => deps.sandbox.runShell(script, opts),
+    readFile: (path) => deps.sandbox.readFile(path),
+    fileExists: (path) => deps.sandbox.fileExists(path),
+    readSourceFiles: (opts) => deps.sandbox.readSourceFiles(opts),
+    writeFiles: (files, targetDir) => deps.sandbox.writeFiles(files, targetDir),
+    uploadFiles: (files, targetDir) => deps.sandbox.uploadFiles(files, targetDir),
+    uploadDirectory: (localDir, targetDir, opts) => deps.sandbox.uploadDirectory(localDir, targetDir, opts),
+    downloadFile: (path) => deps.sandbox.downloadFile(path),
+    uploadFile: (path, content) => deps.sandbox.uploadFile(path, content),
+  };
+
+  function recordScoped(
+    spec: Spec,
+    getEvents: () => readonly StreamEvent[],
+    getStatus: () => "completed" | "failed" | "waiting",
+    getUsage: () => Usage,
+  ) {
+    return collector.record({
+      ...spec,
+      evaluate: (ctx) => {
+        const events = getEvents();
+        return spec.evaluate({
+          ...ctx,
+          events,
+          facts: deriveRunFacts(events),
+          status: getStatus(),
+          usage: getUsage(),
+        });
+      },
+    });
+  }
+
+  function makeJudge(session: RunSession) {
+    return buildJudge({
+      record: (spec) => collector.record(spec),
       judge: deps.judge,
-      getReply: () => session.lastMessage,
+      getOutput: () => conversationText(session.events),
       getInput: () => session.lastInput,
       signal: deps.signal,
     });
+  }
 
-    const ctx: TestContext = {
-      send: async (text) => makeTurnHandle(await manager.send(session, text), collector),
+  function makeSessionHandle(session: RunSession): SessionHandle {
+    const scoped = (spec: Spec) =>
+      recordScoped(spec, () => session.events, () => session.lastStatus, () => session.usage);
+
+    const handle: SessionHandle = {
+      send: async (text) => makeTurnHandle(await manager.send(session, text), collector, deps),
       sendFile: async (path, text) =>
-        makeTurnHandle(await manager.send(session, text ?? "", [await readInputFile(path)]), collector),
+        makeTurnHandle(await manager.send(session, text ?? "", [await readInputFile(path)]), collector, deps),
+      requireInputRequest: (filter) => requireInputRequest(session, filter),
+      respond: async (...responses) => {
+        if (responses.length === 0) throw new Error("respond() requires at least one response");
+        session.pendingInputRequests.length = 0;
+        return makeTurnHandle(await manager.send(session, responses.join("\n")), collector, deps);
+      },
+      respondAll: async (optionId) => {
+        if (session.pendingInputRequests.length === 0) {
+          throw new Error("respondAll() requires at least one pending input request");
+        }
+        const responses = session.pendingInputRequests.map(() => optionId);
+        session.pendingInputRequests.length = 0;
+        return makeTurnHandle(await manager.send(session, responses.join("\n")), collector, deps);
+      },
       get reply() {
         return session.lastMessage;
       },
-      newSession: () => makeContext(manager.newSession()),
-
-      signal: deps.signal,
-      model: deps.model,
-      flags: deps.flags,
-      shared: deps.shared,
-      log: deps.log,
-      skip: (reason) => {
-        if (reason.trim().length === 0) throw new Error(t("context.skipEmpty"));
-        state.skipReason = reason;
-        throw new EvalSkipped(reason);
+      get sessionId() {
+        return session.id;
       },
-
-      check: (value, assertion) =>
-        collector.record({
-          name: assertion.name,
-          severity: assertion.severity,
-          threshold: assertion.threshold,
-          evaluate: async (sc) => assertion.score(await resolveValue(value, sc)),
-        }),
-      group: (title, fn) => collector.withGroup(title, fn),
-      require: async (value, assertion) => {
-        const v = value instanceof FileRef ? await deps.sandbox.readFile(value.path).catch(() => "") : value;
-        const score = await assertion.score(v);
-        const passed = score >= (assertion.threshold ?? 1);
-        collector.record({
-          name: assertion.name,
-          severity: "gate",
-          threshold: assertion.threshold,
-          evaluate: () => score,
-        });
-        if (!passed) throw new EvalRequirementFailed(assertion.name);
-        return value;
+      get events() {
+        return session.events.slice();
       },
-
-      succeeded: () => collector.record(Scoped.succeeded()),
-      parked: () => collector.record(Scoped.parked()),
-      messageIncludes: (token) => collector.record(Scoped.messageIncludes(token)),
-      calledTool: (name, match) => collector.record(Scoped.calledTool(name, match)),
-      notCalledTool: (name, match) => collector.record(Scoped.notCalledTool(name, match)),
-      toolOrder: (names) => collector.record(Scoped.toolOrder(names)),
-      usedNoTools: () => collector.record(Scoped.usedNoTools()),
-      maxToolCalls: (max) => collector.record(Scoped.maxToolCalls(max)),
-      loadedSkill: (skill) => collector.record(Scoped.loadedSkill(skill)),
-      noFailedActions: () => collector.record(Scoped.noFailedActions()),
-      event: (type, opts) => collector.record(Scoped.eventOfType(type, opts)),
-      notEvent: (type) => collector.record(Scoped.notEventOfType(type)),
-
-      sandbox: deps.sandbox,
-      diff: diffView,
-      transcript: {
-        compactions: () =>
-          compactionsObservable ? deriveRunFacts(manager.allEvents).compactions : undefined,
-        events: () => manager.allEvents.slice(),
-        text: () =>
-          manager.allEvents
-            .filter((e): e is Extract<StreamEvent, { type: "message" }> => e.type === "message")
-            .map((e) => `${e.role}: ${e.text}`)
-            .join("\n"),
-      },
-      file: (path) => new FileRef(path) as unknown as string,
-      fileChanged: (path) => collector.record(Scoped.fileChanged(path)),
-      fileDeleted: (path) => collector.record(Scoped.fileDeleted(path)),
-      notInDiff: (re) => collector.record(Scoped.notInDiff(re)),
-      testsPassed: () => {
-        state.needsVitest = true;
-        return collector.record(Scoped.testsPassed());
-      },
-      scriptPassed: (script) => {
-        state.requestedScripts.add(script);
-        return collector.record(Scoped.scriptPassed(script));
-      },
-      noFailedShellCommands: () => collector.record(Scoped.noFailedShellCommands()),
-
+      succeeded: () => scoped(Scoped.succeeded()),
+      parked: () => scoped(Scoped.parked()),
+      messageIncludes: (token) => scoped(Scoped.messageIncludes(token)),
+      calledTool: (name, match) => scoped(Scoped.calledTool(name, match)),
+      notCalledTool: (name, match) => scoped(Scoped.notCalledTool(name, match)),
+      toolOrder: (names) => scoped(Scoped.toolOrder(names)),
+      usedNoTools: () => scoped(Scoped.usedNoTools()),
+      maxToolCalls: (max) => scoped(Scoped.maxToolCalls(max)),
+      loadedSkill: (skill) => scoped(Scoped.loadedSkill(skill)),
+      noFailedActions: () => scoped(Scoped.noFailedActions()),
+      event: (type, opts) => scoped(Scoped.eventOfType(type, opts)),
+      notEvent: (type) => scoped(Scoped.notEventOfType(type)),
+      calledSubagent: (name, match) => scoped(Scoped.calledSubagent(name, match)),
+      eventOrder: (types) => scoped(Scoped.eventOrder(types)),
+      eventsSatisfy: (predicate, label) => scoped(Scoped.eventsSatisfy(predicate, label)),
+      maxTokens: (max) => scoped(Scoped.maxTokens(max)),
+      maxCost: (usd) => scoped(Scoped.maxCost(usd)),
       get usage() {
-        return manager.usage;
+        return session.usage;
       },
-      maxTokens: (max) => collector.record(Scoped.maxTokens(max)),
-      maxCost: (usd) => collector.record(Scoped.maxCost(usd)),
-
-      judge,
+      get judge() {
+        return makeJudge(session);
+      },
     };
-    return ctx;
+    return handle;
   }
 
-  return { context: makeContext(manager.primary), state };
+  const primary = makeSessionHandle(manager.primary);
+  const context: TestContext = {
+    ...primary,
+    newSession: () => makeSessionHandle(manager.newSession()),
+    signal: deps.signal,
+    model: deps.model,
+    flags: deps.flags,
+    log: deps.log,
+    skip: (reason) => {
+      if (reason.trim().length === 0) throw new Error(t("context.skipEmpty"));
+      state.skipReason = reason;
+      throw new EvalSkipped(reason);
+    },
+
+    check: (value, assertion) =>
+      collector.record({
+        name: assertion.name,
+        severity: assertion.severity,
+        threshold: assertion.threshold,
+        evaluate: async (sc) => assertion.score(await resolveValue(value, sc)),
+      }),
+    group: (title, fn) => collector.withGroup(title, fn),
+    require: async (value, assertion) => {
+      const v = value instanceof FileRef ? await deps.sandbox.readFile(value.path).catch(() => "") : value;
+      const score = await assertion.score(v);
+      const passed = assertion.threshold === undefined ? score > 0 : score >= assertion.threshold;
+      collector.record({
+        name: assertion.name,
+        severity: "gate",
+        threshold: assertion.threshold,
+        evaluate: () => score,
+      });
+      if (!passed) throw new EvalRequirementFailed(assertion.name);
+      return value;
+    },
+
+    sandbox: sandboxHandle,
+    file: (path) => new FileRef(path) as unknown as string,
+    fileChanged: (path) => collector.record(Scoped.fileChanged(path)),
+    fileDeleted: (path) => collector.record(Scoped.fileDeleted(path)),
+    notInDiff: (re) => collector.record(Scoped.notInDiff(re)),
+    noFailedShellCommands: () => collector.record(Scoped.noFailedShellCommands()),
+  };
+
+  return { context, state };
 }
 
 /** 读本地文件(相对项目根)成 InputFile:推断 MIME + base64 编码,供 t.sendFile。 */
@@ -222,18 +270,33 @@ function mimeTypeFor(path: string): string {
   }
 }
 
-function makeTurnHandle(turn: Turn, collector: AssertionCollector): TurnHandle {
+function makeTurnHandle(turn: Turn, collector: AssertionCollector, deps: ContextDeps): TurnHandle {
   const message = lastAssistantText(turn.events) ?? "";
+  const facts = deriveRunFacts(turn.events);
+  const usage = turn.usage ?? { inputTokens: 0, outputTokens: 0 };
+
+  const scoped = (spec: Spec) =>
+    collector.record({
+      ...spec,
+      evaluate: (ctx) =>
+        spec.evaluate({
+          ...ctx,
+          events: turn.events,
+          facts,
+          status: turn.status,
+          usage,
+        }),
+    });
+
   const handle: TurnHandle = {
     events: turn.events,
+    toolCalls: facts.toolCalls,
     status: turn.status,
     message,
     data: turn.data,
     usage: turn.usage,
     expectOk() {
       if (turn.status === "failed") {
-        // 把 adapter 在事件流里留下的诊断(provider 超时 / stream 断 / 退出码…)带进 TurnFailed,
-        // 否则 EvalResult.error 只剩泛泛的「本轮 send 返回 failed」,看不出到底是谁、为什么挂。
         const lastError = [...turn.events]
           .reverse()
           .find((e): e is Extract<StreamEvent, { type: "error" }> => e.type === "error");
@@ -255,20 +318,69 @@ function makeTurnHandle(turn: Turn, collector: AssertionCollector): TurnHandle {
         severity: "gate",
         evaluate: () => (validateSchema(turn.data, schema) ? 1 : 0),
       }),
-    messageIncludes: (token) =>
-      collector.record({
-        name: `messageIncludes(${token})`,
-        severity: "gate",
-        evaluate: () => {
-          const text = turn.events
-            .filter((e): e is Extract<StreamEvent, { type: "message" }> => e.type === "message")
-            .map((e) => e.text)
-            .join("\n");
-          return (token instanceof RegExp ? token.test(text) : text.includes(token)) ? 1 : 0;
-        },
-      }),
+    messageIncludes: (token) => scoped(Scoped.messageIncludes(token)),
+    succeeded: () => scoped(Scoped.succeeded()),
+    calledTool: (name, match) => scoped(Scoped.calledTool(name, match)),
+    notCalledTool: (name, match) => scoped(Scoped.notCalledTool(name, match)),
+    toolOrder: (names) => scoped(Scoped.toolOrder(names)),
+    usedNoTools: () => scoped(Scoped.usedNoTools()),
+    maxToolCalls: (max) => scoped(Scoped.maxToolCalls(max)),
+    event: (type, opts) => scoped(Scoped.eventOfType(type, opts)),
+    notEvent: (type) => scoped(Scoped.notEventOfType(type)),
+    calledSubagent: (name, match) => scoped(Scoped.calledSubagent(name, match)),
+    eventOrder: (types) => scoped(Scoped.eventOrder(types)),
+    eventsSatisfy: (predicate, label) => scoped(Scoped.eventsSatisfy(predicate, label)),
+    judge: buildJudge({
+      record: (spec) => collector.record(spec),
+      judge: deps.judge,
+      getOutput: () => message,
+      getInput: () => "",
+      signal: deps.signal,
+    }),
   };
   return handle;
+}
+
+function conversationText(events: readonly StreamEvent[]): string {
+  return events
+    .filter((e): e is Extract<StreamEvent, { type: "message" }> => e.type === "message")
+    .map((e) => `${e.role}: ${e.text}`)
+    .join("\n");
+}
+
+function requireInputRequest(session: RunSession, filter?: InputRequestFilter): InputRequest {
+  const matches = session.pendingInputRequests.filter((request) => inputRequestMatches(request, filter));
+  if (matches.length !== 1) {
+    throw new Error(`Expected exactly one pending input request, found ${matches.length}`);
+  }
+  return matches[0] as InputRequest;
+}
+
+function inputRequestMatches(request: InputRequest, filter?: InputRequestFilter): boolean {
+  if (!filter) return true;
+  if (filter.id !== undefined && !stringMatches(request.id ?? "", filter.id)) return false;
+  if (filter.prompt !== undefined && !stringMatches(request.prompt ?? "", filter.prompt)) return false;
+  if (filter.display !== undefined && !stringMatches(request.display ?? "", filter.display)) return false;
+  if (filter.action !== undefined && !stringMatches(request.action ?? "", filter.action)) return false;
+  if (filter.optionIds !== undefined) {
+    const optionIds = new Set((request.options ?? []).map((o) => o.id));
+    if (!filter.optionIds.every((id) => optionIds.has(id))) return false;
+  }
+  if (filter.input !== undefined && !partialObjectMatches(request.input, filter.input)) return false;
+  return true;
+}
+
+function stringMatches(actual: string, expected: string | RegExp): boolean {
+  return expected instanceof RegExp ? expected.test(actual) : actual === expected;
+}
+
+function partialObjectMatches(actual: unknown, expected: Record<string, unknown>): boolean {
+  if (actual === null || typeof actual !== "object") return false;
+  const obj = actual as Record<string, unknown>;
+  for (const [key, value] of Object.entries(expected)) {
+    if (!deepEqual(obj[key], value)) return false;
+  }
+  return true;
 }
 
 function deepEqual(a: unknown, b: unknown): boolean {

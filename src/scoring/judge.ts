@@ -1,14 +1,12 @@
-// LLM-as-judge:用一个与被测 agent 完全分离的评判模型给开放式回答打分。
-// agent-as-judge(t.judge.agent)= 让评判模型读沙箱里 agent 的产出再判。
+// LLM-as-judge:用一个与被测 agent 完全分离的评判模型做结构化 autoevals 评分。
 //
 // 评判模型走 OpenAI 兼容的 /chat/completions。base_url + key 解析优先级:
 //   judge.baseUrl / judge.apiKeyEnv  →  FASTEVAL_JUDGE_BASE / CODEX_BASE_URL  →  OpenAI 官方
 //
-// closedQA / factuality / summarizes 直接用 autoevals 库(braintrust),与 t.judge.autoevals.*
-// 共享同一套实现。agent / score 是我们自己的开放式评判,不在 autoevals 里。
+// closedQA / factuality / summarizes 直接用 autoevals 库(braintrust)。
 
 import { ClosedQA, Factuality, Summary } from "autoevals";
-import type { AssertionCollector, EvalScore } from "./collector.ts";
+import type { EvalScore } from "./collector.ts";
 import type { AssertionHandle, AutoevalsNamespace, JudgeConfig, JudgeNamespace, ScoringContext } from "../types.ts";
 import { getEnv } from "../util.ts";
 import { t } from "../i18n/index.ts";
@@ -118,29 +116,14 @@ function clamp01(n: number): number {
   return Math.max(0, Math.min(1, n));
 }
 
-const SYSTEM_PROMPT =
-  "你是严格的评测裁判。阅读给定材料,按问题/评分标准判断。先用一两句给出判断理由,再给出一个 " +
-  "0 到 1 之间的小数分数(0=完全不符,1=完全符合)。务必只输出一段 JSON,形如 " +
-  '{"reasoning": "<判断理由>", "score": <0到1的小数>},不要任何额外文字。';
-
-/** 把 diff 里 agent 产出的文件拼成评判材料(截断防爆 token)。 */
-function diffMaterial(ctx: ScoringContext, perFile = 4000, total = 16000): string {
-  const parts: string[] = [];
-  let used = 0;
-  for (const [path, content] of Object.entries(ctx.diff.generatedFiles)) {
-    if (used >= total) break;
-    const body = content.length > perFile ? content.slice(0, perFile) + "\n…(截断)" : content;
-    const chunk = `----- ${path} -----\n${body}\n`;
-    parts.push(chunk);
-    used += chunk.length;
-  }
-  return parts.join("\n") || "(本次运行没有产生任何文件改动)";
-}
-
 export interface JudgeDeps {
-  collector: AssertionCollector;
+  record(spec: {
+    name: string;
+    severity: "soft";
+    evaluate(ctx: ScoringContext): Promise<EvalScore>;
+  }): AssertionHandle;
   judge: JudgeConfig | undefined;
-  getReply: () => string;
+  getOutput: () => string;
   /** 最后一条用户消息,作为 autoevals 的 input 字段。 */
   getInput: () => string;
   signal?: AbortSignal;
@@ -151,11 +134,10 @@ function noOpJudge(): JudgeNamespace {
   const handle: AssertionHandle = {
     atLeast: () => handle,
     gate: () => handle,
-    soft: () => handle,
   };
   const skip = () => handle;
   const noOpAutoevals: AutoevalsNamespace = { closedQA: skip, factuality: skip, summarizes: skip };
-  return { agent: skip, score: skip, closedQA: skip, factuality: skip, summarizes: skip, autoevals: noOpAutoevals };
+  return { autoevals: noOpAutoevals };
 }
 
 /** 预检显式配置的 judge:验证 API key 存在并发最小请求确认端点可达。
@@ -180,19 +162,6 @@ export function buildJudge(deps: JudgeDeps): JudgeNamespace {
   // 没 key 就静默跳过 judge —— eval 不必再手动 gate「环境里有没有 judge key」。
   if (!resolved.apiKey) return noOpJudge();
 
-  const record = (
-    label: string,
-    system: string,
-    buildUser: (ctx: ScoringContext) => string | Promise<string>,
-  ) => {
-    return deps.collector.record({
-      name: `judge:${label}`,
-      severity: "soft",
-      threshold: undefined,
-      evaluate: async (ctx) => callJudge(resolved, system, await buildUser(ctx), deps.signal),
-    });
-  };
-
   const materialFor = async (ctx: ScoringContext, on?: string): Promise<string> => {
     if (on) {
       // on 既可能是沙箱里的文件路径,也可能是一段字面文本
@@ -200,11 +169,7 @@ export function buildJudge(deps: JudgeDeps): JudgeNamespace {
       if (fromFile !== undefined) return `----- ${on} -----\n${fromFile}`;
       return on;
     }
-    // 默认材料 = agent 的「产出」。coding agent 往沙箱写文件 → 用 diff;对话型 agent 不产文件 → 退回最后回复。
-    // 不能写死成 diff:fasteval 是通用 agent eval,judge.agent 不该假设被测对象一定写文件,否则纯对话
-    // eval 的 judge 永远只看到「没有文件改动」→ 把描述清楚的回答误判成答非所问(0 分)。
-    if (Object.keys(ctx.diff.generatedFiles).length > 0) return diffMaterial(ctx);
-    return deps.getReply();
+    return deps.getOutput();
   };
 
   /** autoevals 公共参数:模型走 judge config,baseUrl + apiKey 透给 autoevals 内部建的 OpenAI client。 */
@@ -215,11 +180,11 @@ export function buildJudge(deps: JudgeDeps): JudgeNamespace {
   } as const;
 
   const closedQA = (criteria: string, opts?: { on?: string; model?: string }) =>
-    deps.collector.record({
+    deps.record({
       name: "judge:autoevals:closedQA",
       severity: "soft",
       evaluate: async (ctx) => {
-        const output = opts?.on ? await materialFor(ctx, opts.on) : deps.getReply();
+        const output = await materialFor(ctx, opts?.on);
         const result = await ClosedQA({
           input: deps.getInput(),
           output,
@@ -232,11 +197,11 @@ export function buildJudge(deps: JudgeDeps): JudgeNamespace {
     });
 
   const factuality = (expected: string, opts?: { on?: string; model?: string }) =>
-    deps.collector.record({
+    deps.record({
       name: "judge:autoevals:factuality",
       severity: "soft",
       evaluate: async (ctx) => {
-        const output = opts?.on ? await materialFor(ctx, opts.on) : deps.getReply();
+        const output = await materialFor(ctx, opts?.on);
         const result = await Factuality({
           input: deps.getInput(),
           output,
@@ -249,11 +214,11 @@ export function buildJudge(deps: JudgeDeps): JudgeNamespace {
     });
 
   const summarizes = (expected: string, opts?: { on?: string; model?: string }) =>
-    deps.collector.record({
+    deps.record({
       name: "judge:autoevals:summarizes",
       severity: "soft",
       evaluate: async (ctx) => {
-        const output = opts?.on ? await materialFor(ctx, opts.on) : deps.getReply();
+        const output = await materialFor(ctx, opts?.on);
         const result = await Summary({
           input: deps.getInput(),
           output,
@@ -267,20 +232,5 @@ export function buildJudge(deps: JudgeDeps): JudgeNamespace {
 
   const autoevalsNs: AutoevalsNamespace = { closedQA, factuality, summarizes };
 
-  return {
-    agent: (question, opts) =>
-      record("agent", SYSTEM_PROMPT, async (ctx) => {
-        const material = await materialFor(ctx, opts?.on);
-        return `【材料】\n${material}\n\n【问题】\n${question}`;
-      }),
-    score: (rubric, opts) =>
-      record("score", SYSTEM_PROMPT, async (ctx) => {
-        const material = opts?.on ? await materialFor(ctx, opts.on) : deps.getReply();
-        return `【评分标准】\n${rubric}\n\n【被评内容】\n${material}`;
-      }),
-    closedQA,
-    factuality,
-    summarizes,
-    autoevals: autoevalsNs,
-  };
+  return { autoevals: autoevalsNs };
 }

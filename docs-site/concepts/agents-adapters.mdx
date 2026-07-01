@@ -39,7 +39,7 @@ interface Agent {
 interface AgentCapabilities {
   conversation?: boolean;        // supports multiple t.send() calls per eval
   toolObservability?: boolean;   // can produce action.* events → t.calledTool()
-  workspace?: boolean;           // works on a filesystem → t.diff / t.sandbox
+  workspace?: boolean;           // works on a filesystem → t.sandbox.diff / t.sandbox
 }
 
 interface AgentContext {
@@ -70,7 +70,7 @@ The `AgentCapabilities` flags you declare in your adapter determine which method
 | *(any agent)* | `t.send`, `t.check`, `t.require`, `t.judge`, `t.log`, `t.skip` |
 | `conversation` | multiple `t.send()` calls, `t.reply`, `t.newSession()` |
 | `toolObservability` | `t.calledTool()`, `t.notCalledTool()`, `t.toolOrder()`, `t.usedNoTools()`, `t.loadedSkill()`, `t.calledSubagent()`, `t.noFailedActions()`, `t.event()`, `t.notEvent()`, `t.maxToolCalls()` |
-| `workspace` *(sandbox agents)* | `t.sandbox`, `t.diff`, `t.transcript`, `t.fileChanged()`, `t.testsPassed()`, `t.scriptPassed()` |
+| `sandbox` *(sandbox agents)* | `t.sandbox`, `t.sandbox.diff`, `t.fileChanged()`, command checks via `t.sandbox.runCommand(...)` + `commandSucceeded()` |
 
 ## The standard event stream
 

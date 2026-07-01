@@ -1,66 +1,40 @@
 ---
-title: "defineConfig: 配置 fasteval 项目"
+title: "defineConfig: 项目默认配置"
 sidebarTitle: "defineConfig"
-description: "defineConfig 参考：设置 judge 模型、并发、sandbox 后端、reporters、生命周期 hooks 和成本预算。"
+description: "defineConfig 参考：judge、reporters、并发、超时和 sandbox 默认值。"
 ---
 
-`defineConfig` 是项目级配置入口。你从根目录的 `fasteval.config.ts` 默认导出它。
+`defineConfig` 从根目录的 `fasteval.config.ts` 默认导出，只放项目级默认值。agent、model、flags、runs 和实验预算写在 `experiments/` 下的 `defineExperiment` 文件里。
 
 ```ts
 import { defineConfig } from "fasteval";
-```
 
-## 所有常用选项
-
-agent、model 和 flags 写在 `experiments/` 下的 `defineExperiment` 文件里,不写进 `defineConfig`。
-
-<ParamField body="judge" type="{ model: string }">
-  配置 `t.judge.*` 使用的默认 judge 模型。
-
-  优先级从高到低：
-  1. 单次 `t.judge.*` 调用的 `{ model }`
-  2. 单个 `defineEval` 上的 `judge.model`
-  3. `defineConfig` 中的 `judge.model`
-</ParamField>
-
-<ParamField body="reporters" type="Reporter[]" default="[Console()]">
-  接收 eval 结果的 reporters。
-</ParamField>
-
-<ParamField body="maxConcurrency" type="number" default="4">
-  eval 级别的最大并发。
-</ParamField>
-
-<ParamField body="timeoutMs" type="number" default="300000">
-  单个 eval 的超时时间。
-</ParamField>
-
-<ParamField body="sandbox" type='"docker" | "vercel" | "auto"'>
-  默认 sandbox 后端。
-</ParamField>
-
-<ParamField body="budget" type="number">
-  整次运行的预算上限。
-</ParamField>
-
-<ParamField body="hooks" type="object">
-  生命周期 hooks，用于准备环境、启动服务、清理资源或给 sandbox 注入依赖。
-</ParamField>
-
-## 示例
-
-```ts
-import { defineConfig } from "fasteval";
-import { Console, JUnit } from "fasteval/reporters";
 export default defineConfig({
-  judge: { model: "anthropic/claude-haiku-4-5" },
-  reporters: [Console(), JUnit(".fasteval/junit.xml")],
+  judge: { model: "gpt-5.4-mini" },
+  sandbox: "auto",
   maxConcurrency: 4,
   timeoutMs: 300_000,
-  sandbox: "auto",
 });
 ```
 
-## 配置放哪里
+<ParamField body="judge" type="JudgeConfig">
+  `t.judge.autoevals.*` 的默认评判模型和端点。
+</ParamField>
 
-`fasteval.config.ts` 应放在项目根目录。CLI 会从当前工作目录向上查找配置。
+<ParamField body="reporters" type="Reporter[]">
+  额外 reporter。临时生成 JUnit 可用 CLI 的 `--junit <path>`。
+</ParamField>
+
+<ParamField body="maxConcurrency" type="number">
+  最大并发 attempt 数。
+</ParamField>
+
+<ParamField body="timeoutMs" type="number">
+  单个 attempt 的超时时间，单位毫秒。
+</ParamField>
+
+<ParamField body="sandbox" type="SandboxOption">
+  默认 sandbox 后端。起始文件不会自动上传；sandbox eval 在 `test(t)` 里调用 `t.sandbox.uploadDirectory(...)`、`uploadFiles(...)` 或 `writeFiles(...)`。
+</ParamField>
+
+fasteval 不提供框架级 lifecycle hooks。环境准备写在 eval 的 `test(t)` 或 agent adapter 的 `setup` 中。

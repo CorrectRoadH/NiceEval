@@ -1,6 +1,8 @@
 import { defineEval } from "fasteval";
 import { includes, excludes } from "fasteval/expect";
 
+const WORKSPACE = new URL("../workspaces/ts-starter/", import.meta.url).pathname;
+
 // 改编自 ponytail 的 reuse-slug 质量测试。
 //
 // 工作区里已有一个 textutils.slugify() 工具函数，能正确处理 Unicode 和重音字母。
@@ -8,9 +10,10 @@ import { includes, excludes } from "fasteval/expect";
 // 有 skill 的 agent 先检查现有工具（"已在 codebase 里？"），发现 textutils.slugify，直接调用。
 export default defineEval({
   description: "生成文章 URL slug——应复用现有 textutils.slugify 而非重写",
-  workspace: "./workspaces/ts-starter",
 
   async test(t) {
+    await t.sandbox.uploadDirectory(WORKSPACE, "/home/sandbox/workspace");
+
     await t.sandbox.writeFiles({
       "textutils.py": [
         "import unicodedata, re",
@@ -62,11 +65,12 @@ export default defineEval({
 
     t.fileChanged("articles.py");
 
-    t.judge
-      .score(
+    t.judge.autoevals
+      .closedQA(
         "是否复用了现有的 textutils.slugify 而非重写？" +
           "是否通过了 Unicode 重音测试（café → cafe）？" +
           "实现是否简洁（理想情况下只需一行）？",
+        { on: articles?.content ?? "" },
       )
       .atLeast(0.8);
   },

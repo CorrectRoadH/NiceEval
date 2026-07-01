@@ -1,361 +1,42 @@
 ---
-title: "defineConfig: configure your fasteval project settings"
+title: "defineConfig: configure project defaults"
 sidebarTitle: "defineConfig"
-description: "Complete reference for defineConfig. Set judge model, concurrency, sandbox backend, reporters, lifecycle hooks, and cost budget."
+description: "Reference for project-wide fasteval defaults: judge, reporters, concurrency, timeout, and sandbox backend."
 ---
 
-`defineConfig` is the single entry point for project-wide fasteval configuration. You export it as the default from `fasteval.config.ts` at your project root. Every option has a sensible default, so you can start with a minimal config and add options incrementally as your eval suite grows.
+`defineConfig` is the default export from `fasteval.config.ts`. Keep it for project-wide defaults. Agent, model, flags, runs, and per-experiment budget live in `experiments/` files via `defineExperiment`.
 
 ```ts
 import { defineConfig } from "fasteval";
-```
-
----
-
-## All options
-
-Agents are selected by `defineExperiment` files under `experiments/`. Keep
-agent/model/flags out of `defineConfig` so each run configuration is reviewable
-and reproducible.
-
-<ParamField body="judge" type="{ model: string }">
-  Configuration for the LLM-as-judge used by `t.judge.*` assertions. The
-  `model` string is passed to your LLM provider. Any individual eval or single
-  judge call can override this.
-
-  **Model resolution priority** (highest first):
-  1. `{ model }` option on a single `t.judge.*` call
-  2. `judge.model` on the specific `defineEval`
-  3. `judge.model` here in `defineConfig`
-
-  ```ts
-  judge: { model: "anthropic/claude-haiku-4-5" },
-  ```
-</ParamField>
-
-<ParamField body="reporters" type="Reporter[]" default="[Console()]">
-  The list of reporters that receive eval results. Reporters run in parallel
-  after each eval completes. Built-in reporters: `Console()` and `JUnit(path)`.
-  See the Reporters section below for details on each.
-
-  ```ts
-  import { Console, JUnit } from "fasteval/reporters";
-
-  reporters: [Console(), JUnit(".fasteval/junit.xml")],
-  ```
-</ParamField>
-
-<ParamField body="maxConcurrency" type="number" default="4">
-  The maximum number of evals that run in parallel. The runner maintains a
-  bounded pool of this size — when the pool is full, new evals wait until a
-  slot opens. Increase this for fast remote agents; keep it low for
-  resource-heavy sandbox evals on local Docker.
-
-  ```ts
-  maxConcurrency: 8,
-  ```
-</ParamField>
-
-<ParamField body="timeoutMs" type="number" default="300000">
-  Per-eval timeout in milliseconds. If an eval exceeds this duration, the
-  runner aborts it, marks it `failed` with `error: timeout`, and moves on.
-  Individual evals can override this via `defineEval({ timeoutMs })`.
-
-  ```ts
-  timeoutMs: 300_000,  // 5 minutes
-  ```
-</ParamField>
-
-<ParamField body="sandbox" type="SandboxBackend" default='"auto"'>
-  The sandbox backend to use for coding-agent evals. Accepts:
-
-  - `"docker"` — runs sandbox containers on your local Docker daemon. Zero cloud
-    dependencies; requires Docker to be installed and running.
-  - `"vercel"` — provisions micro-VMs on Vercel Sandbox. Requires
-    `VERCEL_TOKEN` or `VERCEL_OIDC_TOKEN` in the environment.
-  - `"auto"` — uses Vercel if a token is present in the environment, otherwise
-    falls back to Docker.
-  - Any string matching a registered third-party sandbox plugin.
-
-  The `--sandbox` CLI flag overrides this value at runtime.
-
-  ```ts
-  sandbox: "auto",
-  ```
-</ParamField>
-
-<ParamField body="sandboxConcurrency" type="number">
-  The maximum number of sandbox instances that may run in parallel. Defaults
-  to `maxConcurrency`. Lower this independently if sandbox startup is the
-  bottleneck rather than CPU or network.
-
-  ```ts
-  sandboxConcurrency: 4,
-  ```
-</ParamField>
-
-<ParamField body="workspace" type="string">
-  The default workspace directory path for sandbox evals. When a fixture or
-  `defineAgentEval` does not specify a `files` path, this directory is used as
-  the agent's starting workspace.
-</ParamField>
-
-<ParamField body="hooks" type="HooksConfig">
-  Lifecycle hooks for environment setup and teardown. See the Hooks section
-  below for the full interface and execution semantics.
-
-  ```ts
-  hooks: {
-    run: {
-      setup: async () => { /* start shared mock server */ },
-      teardown: async () => { /* stop mock server */ },
-    },
-    sandbox: {
-      setup: async (sandbox, ctx) => {
-        await sandbox.writeFiles({ "/workspace/.env": "API_KEY=test" });
-      },
-    },
-  },
-  ```
-</ParamField>
-
-<ParamField body="budget" type="number">
-  A cost ceiling in USD for a single run. The runner tracks estimated spend
-  (token usage × price table) as evals complete. Once the cumulative cost
-  exceeds `budget`, the runner stops dispatching new evals (in-flight evals
-  complete normally), emits a `run:budgetExceeded` event, and exits. This
-  prevents a misconfigured experiment from running up an unexpectedly large
-  bill.
-
-  The `--budget` CLI flag overrides this value.
-
-  ```ts
-  budget: 10.00,  // stop after spending $10
-  ```
-</ParamField>
-
----
-
-## Reporters
-
-Reporters consume eval results and produce output. They are independent of scoring: a reporter cannot change a verdict.
-
-### Console()
-
-```ts
-import { Console } from "fasteval/reporters";
-
-reporters: [Console()],
-```
-
-Writes a human-readable summary to stdout as evals complete. Shows pass/fail
-status, timing, and any gate-assertion failures. In CI environments with no
-TTY, output is simplified. This is the default reporter when `reporters` is
-not specified.
-
-### JUnit(path)
-
-```ts
 import { JUnit } from "fasteval/reporters";
 
-reporters: [JUnit(".fasteval/junit.xml")],
-```
-
-Writes a JUnit-compatible XML report to the given path. Each eval becomes a
-`<testcase>`. Failed gate assertions become `<failure>` elements. This format
-is understood by GitHub Actions, Jenkins, CircleCI, and most other CI
-platforms for native test-result visualization.
-
-<Tip>
-  Use both reporters together in CI: `Console()` for real-time log streaming
-  and `JUnit(path)` for the structured artifact that your CI platform annotates
-  on pull requests.
-</Tip>
-
----
-
-## Hooks
-
-Hooks let you set up and tear down external resources at two different scopes: once per run (e.g. starting a shared mock server) and once per sandbox instance (e.g. writing fixture-specific environment files).
-
-### Hook scopes
-
-<Accordion title="run scope — hooks.run.setup / hooks.run.teardown">
-  Run-scope hooks execute **once for the entire fasteval run** — `setup` before
-  any eval starts, and `teardown` after all evals finish. Use these to manage
-  shared infrastructure that all evals depend on: mock API servers, test
-  databases, shared authentication tokens.
-
-  ```ts
-  hooks: {
-    run: {
-      setup: async () => {
-        server = await startMockApiServer({ port: 4000 });
-      },
-      teardown: async () => {
-        await server.close();
-      },
-    },
-  },
-  ```
-
-  **Error semantics:** If `hooks.run.setup` throws, the **entire run is aborted**
-  before any eval executes. If `hooks.run.teardown` throws, the error is recorded
-  as a diagnostic but does not change any eval verdict.
-</Accordion>
-
-<Accordion title="sandbox scope — hooks.sandbox.setup / hooks.sandbox.teardown">
-  Sandbox-scope hooks execute **once per sandbox instance** (i.e. once per eval
-  that uses a sandbox). `setup` runs after the sandbox is provisioned and
-  workspace files are uploaded, but before the agent starts. `teardown` runs
-  after the agent finishes and results are collected.
-
-  `setup` receives the `Sandbox` object and the `AgentContext`, giving you access
-  to `ctx.flags` so you can branch on experiment feature flags.
-
-  `setup` may optionally **return a cleanup function** (a no-argument async
-  function). If it does, that function is called in the `finally` block just like
-  `teardown` — giving you a closure over resources you created in `setup`.
-
-  ```ts
-  hooks: {
-    sandbox: {
-      setup: async (sandbox, ctx) => {
-        // Write a .env file specific to this eval's flags
-        const apiKey = ctx.flags.useTestKey ? "test-key" : process.env.API_KEY!;
-        await sandbox.writeFiles({ "/workspace/.env": `API_KEY=${apiKey}` });
-
-        // Start an in-sandbox service
-        await sandbox.runCommand("node", ["mock-server.js"], { cwd: "/workspace" });
-
-        // Return a cleanup function (optional)
-        return async () => {
-          await sandbox.runCommand("pkill", ["-f", "mock-server.js"]);
-        };
-      },
-      teardown: async (sandbox, ctx) => {
-        // teardown always runs, even if the agent failed
-      },
-    },
-  },
-  ```
-
-  **Error semantics:** If `hooks.sandbox.setup` throws, that eval is marked
-  `failed` and **all other evals continue unaffected**. If `teardown` or the
-  returned cleanup function throws, the error is recorded as a diagnostic but
-  does not change the eval's verdict.
-</Accordion>
-
-### teardown is always called
-
-Both `teardown` and any cleanup function returned from `sandbox.setup` are
-called inside a `finally` block. They run whether the agent succeeded, failed,
-timed out, or threw an unexpected exception. This guarantees that external
-resources are always released.
-
-<Warning>
-  Do not put assertions or scoring logic in hooks. Hooks manage **resources**
-  (servers, files, credentials). All assertions belong in the eval's `test`
-  function. For post-run analysis and custom metrics, use a custom Reporter.
-</Warning>
-
----
-
-## Complete annotated example
-
-```ts
-// fasteval.config.ts
-import { defineConfig } from "fasteval";
-import { Console, JUnit } from "fasteval/reporters";
-import myAgent from "./agents/my-agent.js";
-import supportBot from "./agents/support-bot.js";
-
 export default defineConfig({
-  // ── Judge ─────────────────────────────────────────────────────────────────
-  // LLM-as-judge model used by t.judge.* assertions. Can be overridden per
-  // eval or per individual judge call.
-  judge: { model: "anthropic/claude-haiku-4-5" },
-
-  // ── Reporters ─────────────────────────────────────────────────────────────
-  // Console() for human-readable stdout. JUnit for CI artifact upload.
-  reporters: [Console(), JUnit(".fasteval/junit.xml")],
-
-  // ── Concurrency ───────────────────────────────────────────────────────────
-  // Run up to 8 evals in parallel. For sandbox evals on local Docker,
-  // consider lowering sandboxConcurrency independently.
-  maxConcurrency: 8,
-  sandboxConcurrency: 4,
-
-  // ── Timeouts ──────────────────────────────────────────────────────────────
-  // Abort any single eval after 5 minutes. Per-eval timeoutMs overrides this.
-  timeoutMs: 300_000,
-
-  // ── Sandbox ───────────────────────────────────────────────────────────────
-  // "auto" = use Vercel Sandbox if VERCEL_TOKEN is set, otherwise Docker.
-  sandbox: "auto",
-
-  // ── Cost guard ────────────────────────────────────────────────────────────
-  // Stop dispatching new evals once estimated spend reaches $25.
-  budget: 25.00,
-
-  // ── Lifecycle hooks ───────────────────────────────────────────────────────
-  hooks: {
-    // Run-level: start/stop shared infrastructure for the whole run.
-    run: {
-      setup: async () => {
-        // e.g. start a shared mock API server
-        globalThis.__mockServer = await startMockServer({ port: 4321 });
-      },
-      teardown: async () => {
-        await globalThis.__mockServer?.close();
-      },
-    },
-
-    // Sandbox-level: configure each sandbox instance before the agent starts.
-    sandbox: {
-      setup: async (sandbox, ctx) => {
-        // Write a .env file with the right credentials for this run
-        await sandbox.writeFiles({
-          "/workspace/.env": [
-            `MOCK_API_URL=http://host.docker.internal:4321`,
-            `FEATURE_FLAG=${ctx.flags.betaFeature ? "1" : "0"}`,
-          ].join("\n"),
-        });
-      },
-      // teardown always runs (even if the agent failed)
-      teardown: async (sandbox, _ctx) => {
-        // e.g. collect extra diagnostics from the sandbox
-        const log = await sandbox.readFile("/workspace/.agent.log").catch(() => "");
-        if (log) console.debug("[agent log]", log.slice(-500));
-      },
-    },
-  },
-});
-```
-
----
-
-## Real-world example
-
-This is the actual `fasteval.config.ts` from the [coding-agent-memory-evals](https://github.com/CorrectRoadH/coding-agent-memory-evals) project. It evaluates Claude Code against a Next.js workspace using a local Docker sandbox and a GPT judge model:
-
-```ts
-import { defineConfig } from "fasteval";
-
-export default defineConfig({
-  sandbox: "docker",
-  workspace: "./workspaces/next-app",
   judge: { model: "gpt-5.4-mini" },
-  timeoutMs: 600_000,
-  maxConcurrency: 3,
-  sandboxConcurrency: 2,
+  reporters: [JUnit(".fasteval/junit.xml")],
+  maxConcurrency: 4,
+  timeoutMs: 300_000,
+  sandbox: "auto",
 });
 ```
 
-Key decisions in this config:
+<ParamField body="judge" type="{ model: string; baseUrl?: string; apiKeyEnv?: string }">
+  Default judge configuration for `t.judge.autoevals.*`. Individual evals can override this with `defineEval({ judge })`.
+</ParamField>
 
-- **`sandbox: "docker"`** — all evals run in local Docker containers; no cloud credentials required.
-- **`workspace: "./workspaces/next-app"`** — the Next.js starter directory is uploaded into every sandbox before the agent runs.
-- **`judge: { model: "gpt-5.4-mini" }`** — a cheap, fast model scores judge assertions, independent of the agent under test.
-- **`timeoutMs: 600_000`** — coding tasks on a real Next.js project can take up to 10 minutes.
-- **`maxConcurrency: 3` / `sandboxConcurrency: 2`** — keeps local Docker resource usage manageable while still running multiple evals in parallel.
+<ParamField body="reporters" type="Reporter[]">
+  Additional reporters. Built-ins include `JUnit(path)`. The CLI always writes structured `.fasteval/` artifacts.
+</ParamField>
+
+<ParamField body="maxConcurrency" type="number">
+  Maximum concurrent attempts. Sandbox backends may choose a lower default when this is omitted.
+</ParamField>
+
+<ParamField body="timeoutMs" type="number">
+  Per-attempt timeout in milliseconds.
+</ParamField>
+
+<ParamField body="sandbox" type='"auto" | "docker" | "vercel" | "e2b" | SandboxSpec'>
+  Default sandbox backend for sandbox agents. Override per experiment or with `--sandbox`.
+</ParamField>
+
+fasteval does not provide framework-level lifecycle hooks. Prepare files inside `test(t)` with `t.sandbox.writeFiles`, `uploadFiles`, or `uploadDirectory`; put adapter setup in the agent adapter.

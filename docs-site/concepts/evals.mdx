@@ -1,7 +1,7 @@
 ---
-title: "Evals in fasteval: lifecycle, verdicts, and eval files"
+title: "Evals in fasteval: lifecycle, outcomes, and eval files"
 sidebarTitle: "Evals"
-description: "An eval is a single test case: a description, an agent reference, and a test function. Learn how evals are discovered, scheduled, scored, and reported."
+description: "An eval is a single test case: a description, an agent reference, and a test function. Learn how evals are discovered, scheduled, passed, and reported."
 ---
 
 An eval is the atomic unit of everything fasteval does. At its simplest, it is a TypeScript file that says: "send this input to this agent, and verify that what comes back meets these conditions." Everything else — discovery, concurrency, caching, reporting, artifact persistence — exists to run evals reliably and give you clear answers about whether your agent is behaving correctly.
@@ -79,17 +79,17 @@ npx fasteval exp local weather/brooklyn # runs exactly this one eval
   <Step title="Scoring">
     Once your `test(t)` function completes, the core evaluates every registered assertion — value assertions (`t.check`, `t.require`), scoped assertions (`t.succeeded()`, `t.calledTool()`, etc.), and LLM-as-judge calls — against the collected turn data.
   </Step>
-  <Step title="Verdict">
-    All assertion results are folded into a single verdict by `verdict.ts`. The rules are deterministic and described in full in the [Scoring](/concepts/scoring) page.
+  <Step title="Outcome">
+    All assertion results are folded into a single outcome by `outcome.ts`. The rules are deterministic and described in full in the [Scoring](/concepts/scoring) page.
   </Step>
   <Step title="Report">
-    The verdict and all assertion details stream to the console in real time. When the full run finishes, reporters write structured output (JUnit, JSON, etc.) and the `.fasteval/<run>/` directory is populated with artifacts: `summary.json`, per-eval results, the event stream, transcript, generated-file diffs, and test output.
+    The outcome and all assertion details stream to the console in real time. When the full run finishes, reporters write structured output (JUnit, JSON, etc.) and the `.fasteval/<run>/` directory is populated with artifacts: `summary.json`, per-eval results, the event stream, transcript, generated-file diffs, and test output.
   </Step>
 </Steps>
 
-## Verdict types
+## Outcome types
 
-Each eval ends with exactly one verdict. Understanding what each verdict means helps you interpret run output and configure CI thresholds correctly.
+Each eval ends with exactly one outcome. Understanding what each outcome means helps you interpret run output and configure CI thresholds correctly.
 
 <CardGroup cols={2}>
   <Card title="passed" icon="circle-check" color="#22c55e">
@@ -98,7 +98,7 @@ Each eval ends with exactly one verdict. Understanding what each verdict means h
   <Card title="failed" icon="circle-xmark" color="#ef4444">
     An execution error occurred (timeout, thrown exception, author mistake), **or** at least one gate assertion did not pass. A failed eval is a hard signal that something is broken.
   </Card>
-  <Card title="scored" icon="chart-bar" color="#f59e0b">
+  <Card title="passed" icon="chart-bar" color="#f59e0b">
     All gate assertions passed, but at least one soft assertion fell below its threshold. This means "usable but there is a quality regression." Scored evals do not fail the run by default — only under `--strict`.
   </Card>
   <Card title="skipped" icon="forward" color="#6b7280">
@@ -106,24 +106,24 @@ Each eval ends with exactly one verdict. Understanding what each verdict means h
   </Card>
 </CardGroup>
 
-When you run an eval more than once (`runs > 1`), the summary for that eval becomes a **pass rate** (percentage of runs that produced `passed`) and an average latency, rather than a single verdict.
+When you run an eval more than once (`runs > 1`), the summary for that eval becomes a **pass rate** (percentage of runs that produced `passed`) and an average latency, rather than a single outcome.
 
 ## Gate vs soft assertions (brief introduction)
 
-Every assertion carries a **severity** that determines how it affects the verdict:
+Every assertion carries a **severity** that determines how it affects the outcome:
 
 - **Gate** assertions are hard requirements. If a gate assertion fails, the entire eval is `failed`. Use gate for facts that must be true: "the agent called the right tool", "the output parsed as valid JSON", "no shell commands failed."
-- **Soft** assertions are quality scores with a numeric threshold. If a soft assertion's score falls below its threshold, the eval becomes `scored` rather than `passed`. Use soft for continuous judgments: similarity scoring, LLM-as-judge factuality, efficiency budgets you want to track without blocking CI.
+- **Soft** assertions are quality scores with a numeric threshold. If a soft assertion's score falls below its threshold, the eval becomes `passed` rather than `passed`. Use soft for continuous judgments: similarity scoring, LLM-as-judge factuality, efficiency budgets you want to track without blocking CI.
 
 Matchers from `fasteval/expect` carry sensible defaults (`includes` and `equals` default to gate; `similarity` and judge calls default to soft), and you can override the severity with a chain method:
 
 ```ts
 t.check(t.reply, includes("confirmed"));          // gate by default
 t.check(t.reply, similarity(expected).gate());    // promote similarity to gate
-t.judge.factuality(reference).atLeast(0.8);       // soft with explicit threshold
+t.judge.autoevals.factuality(reference).atLeast(0.8);       // soft with explicit threshold
 ```
 
-Full details on all matchers, scoped assertions, LLM-as-judge, and the verdict folding rules are on the [Scoring](/concepts/scoring) page.
+Full details on all matchers, scoped assertions, LLM-as-judge, and the outcome folding rules are on the [Scoring](/concepts/scoring) page.
 
 ## The `*.eval.ts` naming convention
 
@@ -168,5 +168,5 @@ Dataset fan-out is the fastest way to go from a spreadsheet of expected inputs a
 ## Related pages
 
 - [Agents & Adapters](/concepts/agents-adapters) — how the `agent` field connects your eval to a subject under test.
-- [Scoring](/concepts/scoring) — the complete assertion vocabulary and verdict rules.
+- [Scoring](/concepts/scoring) — the complete assertion vocabulary and outcome rules.
 - [Overview](/concepts/overview) — the full architecture diagram and layer responsibilities.

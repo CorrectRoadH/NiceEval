@@ -51,19 +51,15 @@ npx fasteval exp local fixtures/button --runs 10 --early-exit
 
 ## How a sandbox agent works
 
-The runner prepares the environment, then hands control to the adapter for exactly one segment. Everything else — uploading files, committing a git baseline, running validation, collecting diffs — is handled by fasteval's shared infrastructure so that results are consistent across all agents.
+The runner creates the sandbox and commits a baseline, then your eval and adapter decide what to do. Starter files are uploaded explicitly from `test(t)`; validation commands are ordinary `t.sandbox.runCommand(...)` calls.
 
 ```
 createSandbox(backend, timeout)
-  → uploadFiles(workspaceFiles)        # EVAL.ts is hidden from the agent
   → git init && git commit             # baseline for later diff
-  → hooks.sandbox.setup?(sandbox, ctx) # optional user hook
-  → npm install                        # fixture dependencies
+  → test(t): uploadDirectory/writeFiles and run setup commands
   → adapter.send(input, ctx)           # ← the adapter's only segment
-  → uploadFiles(testFiles)             # EVAL.ts appears now
-  → runValidation()                    # run EVAL.ts + npm scripts
+  → test(t): run validation commands and record assertions
   → collectGeneratedFiles()            # git diff HEAD
-  → hooks.sandbox.teardown?()/cleanup() # user teardown hook (runs even on failure)
   → sandbox.stop()                     # destroy the environment
 ```
 
@@ -146,7 +142,7 @@ fasteval provides helpers that all sandbox adapters can reuse. Using them ensure
 | `shared.captureLatestJsonl(sandbox, dir)` | Finds and reads the most recent JSONL transcript in the given directory |
 | `shared.runValidation(sandbox, scripts, mode)` | Uploads test files and runs `EVAL.ts` (Vitest) plus any npm scripts |
 | `shared.injectO11yContext(sandbox, events)` | Derives the o11y summary from the event stream and writes it to `__fasteval__/results.json` so `EVAL.ts` can assert on agent behavior |
-| `shared.captureGeneratedFiles(sandbox)` | Runs `git diff HEAD` and returns `{ generated, deleted }` — the file-level diff used for `t.fileChanged`, `t.fileDeleted`, and `t.diff` |
+| `shared.captureGeneratedFiles(sandbox)` | Runs `git diff HEAD` and returns `{ generated, deleted }` — the file-level diff used for `t.fileChanged`, `t.fileDeleted`, and `t.sandbox.diff` |
 
 ---
 

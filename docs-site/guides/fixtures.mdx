@@ -156,9 +156,9 @@ export default defineAgentEval({
   async test(t) {
     await t.run();                          // Drive the agent
     t.fileChanged("src/legacy.js");
-    t.check(t.diff.get("src/legacy.js"), includes("await"));
+    t.check(t.sandbox.diff.get("src/legacy.js"), includes("await"));
     await t.script("test");                 // Run npm run test
-    t.testsPassed();
+    t.check(await t.sandbox.runCommand("npm", ["test"], { cwd: "/workspace" }), commandSucceeded());
   },
 });
 ```
@@ -183,10 +183,10 @@ When you use `defineAgentEval`, the `t` context exposes workspace-level assertio
 ```ts
 t.fileChanged("src/Button.tsx");        // Assert the file was modified
 t.fileDeleted("src/old.ts");            // Assert the file was removed
-t.testsPassed();                        // Assert EVAL.ts tests all pass
-t.scriptPassed("build");               // Assert npm run build exits 0
-t.diff.isEmpty();                       // Assert no repository files were changed
+t.check(await t.sandbox.runCommand("npm", ["test"], { cwd: "/workspace" }), commandSucceeded());                        // Assert EVAL.ts tests all pass
+t.check(await t.sandbox.runCommand("npm", ["run", "build"], { cwd: "/workspace" }), commandSucceeded());               // Assert npm run build exits 0
+t.sandbox.diff.isEmpty();                       // Assert no repository files were changed
 t.notInDiff(/sk-[A-Za-z0-9]/);         // Assert no secrets appear in the diff
 ```
 
-`t.diff` is a queryable object: `t.diff.get(path)` returns the post-change contents of a file, `t.diff.isEmpty()` checks for no changes, and `t.diff.matches(re)` / `t.notInDiff(re)` test the full diff text against a regular expression.
+`t.sandbox.diff` is a queryable object: `t.sandbox.diff.get(path)` returns the post-change contents of a file, `t.sandbox.diff.isEmpty()` checks for no changes, and `t.sandbox.diff.matches(re)` / `t.notInDiff(re)` test the full diff text against a regular expression.

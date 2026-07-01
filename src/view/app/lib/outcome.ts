@@ -3,9 +3,7 @@ import type { T } from "../shared.ts";
 import { formatScore } from "./format.ts";
 
 export function outcomeOf(result: ViewResult): Outcome {
-  const raw: string = result.outcome || (result.error ? "errored" : result.verdict);
-  // "scored" = soft-only failures, no gate failed → counts as pass
-  return raw === "scored" ? "passed" : raw;
+  return result.outcome;
 }
 
 /**

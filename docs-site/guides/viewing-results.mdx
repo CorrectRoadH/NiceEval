@@ -19,10 +19,10 @@ Discovered 3 evals
     - gate: EVAL.ts › Button accepts label / onClick [FAILED]
       Expected src to contain "onClick"
 
-Results:  2 passed, 1 failed, 0 scored, 0 skipped
+Results:  2 passed, 1 failed, 0 passed, 0 skipped
 ```
 
-Each line tells you the eval ID, its verdict, and wall-clock duration. Failed evals show the specific assertion that didn't pass, including the assertion type (`gate` or `soft`) and the failure message.
+Each line tells you the eval ID, its outcome, and wall-clock duration. Failed evals show the specific assertion that didn't pass, including the assertion type (`gate` or `soft`) and the failure message.
 
 For experiment runs, the summary shows pass rates per `(agent, model, eval)` cell:
 
@@ -41,7 +41,7 @@ Every run produces a timestamped output directory containing:
    ├─ summary.json           # top-level run summary
    ├─ weather/
    │  └─ brooklyn/
-   │     ├─ result.json      # per-eval verdict and assertions
+   │     ├─ result.json      # per-eval outcome and assertions
    │     ├─ events.jsonl     # raw StreamEvent[] stream
    │     ├─ transcript.jsonl # agent conversation transcript
    │     └─ diff.json        # generated file diff (sandbox evals)
@@ -77,7 +77,7 @@ The top-level summary captures aggregate statistics for the entire run:
   "runId": "2025-01-15T14-23-00",
   "passed": 2,
   "failed": 1,
-  "scored": 0,
+  "passed": 0,
   "skipped": 0,
   "errored": 0,
   "durationMs": 38912,
@@ -115,13 +115,13 @@ For sandbox evals (coding agents), the transcript is the raw JSONL log produced 
 
 ### Generated file diff (`diff.json`)
 
-For sandbox evals, `diff.json` captures the git diff between the workspace's initial state and the state after the agent finished. It includes the list of changed, added, and deleted files along with their content. This is what `t.fileChanged()`, `t.diff.get()`, and `t.notInDiff()` assertions query.
+For sandbox evals, `diff.json` captures the git diff between the workspace's initial state and the state after the agent finished. It includes the list of changed, added, and deleted files along with their content. This is what `t.fileChanged()`, `t.sandbox.diff.get()`, and `t.notInDiff()` assertions query.
 
 ### Test output (`test-output.txt`)
 
 For sandbox evals that include an `EVAL.ts`, `test-output.txt` contains the full Vitest output from running the validation tests inside the sandbox. This shows exactly which test cases passed and failed, with the same detail you'd see running Vitest locally.
 
-## Verdict meanings
+## Outcome meanings
 
 <Tabs>
   <Tab title="passed">
@@ -130,7 +130,7 @@ For sandbox evals that include an `EVAL.ts`, `test-output.txt` contains the full
   <Tab title="failed">
     A gate assertion failed, the eval timed out, or an unhandled error occurred. This is a hard failure — the agent did not complete the task correctly.
   </Tab>
-  <Tab title="scored">
+  <Tab title="passed">
     All gate assertions passed, but at least one soft assertion (typically an LLM-as-judge score) fell below its threshold. The agent completed the task but with a quality regression. Without `--strict` this does not fail the build.
   </Tab>
   <Tab title="skipped">
@@ -147,7 +147,7 @@ fixtures/button   claude-code   pass@5 = 4/5 (80%)   mean 34s · 58k tok · $0.4
 fixtures/button   codex         pass@5 = 3/5 (60%)   mean 41s · 72k tok · $0.39
 ```
 
-`pass@5 = 4/5` means 4 of the 5 attempts for that cell produced a `passed` verdict. The mean time, token usage, and cost are averages across those 5 attempts. Use these numbers to compare agent reliability and cost efficiency side by side.
+`pass@5 = 4/5` means 4 of the 5 attempts for that cell produced a `passed` outcome. The mean time, token usage, and cost are averages across those 5 attempts. Use these numbers to compare agent reliability and cost efficiency side by side.
 
 ## Using artifacts for debugging
 

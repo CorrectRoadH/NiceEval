@@ -57,7 +57,11 @@ export type ToolName =
   | "unknown";
 
 export interface InputRequest {
+  readonly id?: string;
   readonly prompt?: string;
+  readonly display?: string;
+  readonly action?: string;
+  readonly input?: JsonValue;
   readonly options?: readonly { id: string; label?: string }[];
 }
 
@@ -205,6 +209,7 @@ export interface AgentCapabilities {
   conversation?: boolean;
   toolObservability?: boolean;
   workspace?: boolean;
+  sandbox?: boolean;
   compactionObservability?: boolean;
   /**
    * agent 能经 OpenTelemetry 导出 OTLP traces。声明它,运行器就在每个沙箱起一个
@@ -270,8 +275,6 @@ export interface AgentContext {
   /** 仅沙箱型 agent 有(运行器按 --sandbox 备好)。 */
   readonly sandbox: Sandbox;
   readonly session: AgentSession;
-  /** hooks.run.setup 经 run.share 放进来的只读共享物。 */
-  readonly shared: Readonly<Record<string, unknown>>;
   /**
    * 仅当 agent 声明 capabilities.tracing 时有:本次运行的 OTLP traces 接收信息
    *(endpoint + env-based 导出 env)。怎么把它交给 CLI 由 agent 的 `tracing` 块声明:
@@ -294,7 +297,6 @@ export type AgentTeardown = (sandbox: Sandbox, ctx: AgentContext) => Promise<voi
 /** 注册表里的 agent(defineAgent / defineSandboxAgent 产出)。 */
 export interface Agent {
   readonly name: string;
-  readonly kind: "sandbox" | "remote";
   readonly capabilities: AgentCapabilities;
   setup?: AgentSetup;
   /** OTLP 导出配置(仅 capabilities.tracing 时有意义);与 setup 分开,见 AgentTracing。 */
@@ -437,10 +439,9 @@ export interface Sandbox {
    * 取代每个 eval 目录里手写的 find + 逐文件 readFile。
    */
   readSourceFiles(opts?: ReadSourceFilesOptions): Promise<SourceFiles>;
-  writeFiles(files: Record<string, string>): Promise<void>;
-  uploadFiles(files: SandboxFile[]): Promise<void>;
-  getWorkingDirectory(): string;
-  setWorkingDirectory(path: string): void;
+  writeFiles(files: Record<string, string>, targetDir?: string): Promise<void>;
+  uploadFiles(files: SandboxFile[], targetDir?: string): Promise<void>;
+  uploadDirectory(localDir: string, targetDir: string, opts?: { ignore?: string[] }): Promise<void>;
   stop(): Promise<void>;
   readonly sandboxId: string;
   /**
@@ -470,6 +471,22 @@ export interface Sandbox {
   uploadFile(path: string, content: Buffer): Promise<void>;
 }
 
+/** eval 作者可见的受限沙箱视图:能执行命令 / 文件 IO / 读最终 diff,但不能 stop。 */
+export interface SandboxHandle {
+  runCommand(cmd: string, args?: string[], opts?: CommandOptions): Promise<CommandResult>;
+  runShell(script: string, opts?: CommandOptions): Promise<CommandResult>;
+  readFile(path: string): Promise<string>;
+  fileExists(path: string): Promise<boolean>;
+  readSourceFiles(opts?: ReadSourceFilesOptions): Promise<SourceFiles>;
+  writeFiles(files: Record<string, string>, targetDir?: string): Promise<void>;
+  uploadFiles(files: SandboxFile[], targetDir?: string): Promise<void>;
+  uploadDirectory(localDir: string, targetDir: string, opts?: { ignore?: string[] }): Promise<void>;
+  downloadFile(path: string): Promise<Buffer>;
+  uploadFile(path: string, content: Buffer): Promise<void>;
+  readonly sandboxId: string;
+  readonly diff: DiffView;
+}
+
 // ───────────────────────── 评分 / 断言 ─────────────────────────
 
 /** 值级断言(expect 匹配器)。纯函数 score + 可链式改严重级 / 阈值。 */
@@ -478,8 +495,7 @@ export interface ValueAssertion {
   readonly severity: Severity;
   readonly threshold?: number;
   score(value: unknown): number | Promise<number>;
-  gate(): ValueAssertion;
-  soft(threshold?: number): ValueAssertion;
+  gate(threshold?: number): ValueAssertion;
   atLeast(threshold: number): ValueAssertion;
 }
 
@@ -508,11 +524,10 @@ export interface AssertionResult {
   loc?: SourceLoc;
 }
 
-/** eval 作者拿到的可链式句柄(t.judge.agent(...).atLeast(0.7))。 */
+/** eval 作者拿到的可链式句柄(t.judge.autoevals.closedQA(...).atLeast(0.7))。 */
 export interface AssertionHandle {
   atLeast(threshold: number): AssertionHandle;
-  gate(): AssertionHandle;
-  soft(threshold?: number): AssertionHandle;
+  gate(threshold?: number): AssertionHandle;
 }
 
 /** scoped / judge 断言在 final 评估时拿到的运行结果。 */
@@ -537,13 +552,6 @@ export interface DiffData {
   deletedFiles: string[];
 }
 
-export type Verdict = "passed" | "failed" | "skipped";
-
-/**
- * 面向报告 / CI 的互斥结果分类。
- * `verdict` 保留评分语义:执行错误为了兼容仍折叠为 failed。
- * `outcome` 则把“断言没过”和“环境/执行错误”拆开。
- */
 export type ResultOutcome = "passed" | "failed" | "errored" | "skipped";
 
 // ───────────────────────── Judge ─────────────────────────
@@ -574,8 +582,8 @@ export interface EvalResult {
   experiment?: ExperimentRunInfo;
   agent: string;
   model?: string;
-  verdict: Verdict;
   outcome: ResultOutcome;
+  fingerprint?: string;
   attempt: number;
   /** 本 attempt 开始的墙钟时刻(ISO);view 按 eval 粒度展示「何时跑的」。 */
   startedAt?: string;
@@ -642,35 +650,24 @@ export interface RunShape {
 }
 
 export interface Reporter {
+  onEvent?(event: ReporterEvent): void | Promise<void>;
   onRunStart?(evals: { id: string }[], agent: Agent, shape?: RunShape): void | Promise<void>;
   onEvalComplete?(result: EvalResult): void | Promise<void>;
   onRunComplete?(summary: RunSummary): void | Promise<void>;
 }
 
+export type ReporterEvent =
+  | { type: "run:start"; evals: { id: string }[]; agent: Agent; shape: RunShape }
+  | { type: "eval:start"; eval: { id: string }; agent: Agent; attempt: number; experimentId?: string }
+  | { type: "eval:complete"; result: EvalResult }
+  | { type: "run:earlyExit"; evalId: string; experimentId?: string }
+  | { type: "run:budgetExceeded"; budget: number; spent: number }
+  | { type: "run:saved"; summary: RunSummary }
+  | { type: "run:summary"; summary: RunSummary };
+
 // ───────────────────────── 生命周期 ─────────────────────────
 
 export type Cleanup = () => Promise<void> | void;
-
-export interface RunContext {
-  readonly experimentId?: string;
-  readonly evals: readonly string[];
-  readonly agents: readonly string[];
-  readonly flags: Readonly<Record<string, unknown>>;
-  readonly signal: AbortSignal;
-  log(msg: string): void;
-  share(key: string, value: unknown): void;
-}
-
-export interface LifecycleHooks {
-  run?: {
-    setup?: (run: RunContext) => Promise<void | Cleanup> | void | Cleanup;
-    teardown?: (run: RunContext) => Promise<void> | void;
-  };
-  sandbox?: {
-    setup?: (sandbox: Sandbox, ctx: AgentContext) => Promise<void | Cleanup> | void | Cleanup;
-    teardown?: (sandbox: Sandbox, ctx: AgentContext) => Promise<void> | void;
-  };
-}
 
 // ───────────────────────── eval / experiment / config 定义 ─────────────────────────
 
@@ -684,8 +681,6 @@ export interface EvalDef {
   reporters?: Reporter[];
   timeoutMs?: number;
   metadata?: Record<string, unknown>;
-  /** starter repo 目录(相对项目根),拷进沙箱当工作区。 */
-  workspace?: string;
   /**
    * eval 级预置:拿到沙箱(已上传 workspace + git 基线 + 装好依赖前)。
    * 默认命令以非 root 跑(agent 的自然环境);装系统依赖时给 `runCommand` 传 `{ root: true }`
@@ -700,6 +695,8 @@ export interface DiscoveredEval extends EvalDef {
   id: string;
   /** 定义文件所在目录(解析相对 workspace 用)。 */
   baseDir: string;
+  /** 定义文件绝对路径,用于内容指纹缓存。 */
+  sourcePath: string;
 }
 
 export interface ExperimentDef {
@@ -716,7 +713,6 @@ export interface ExperimentDef {
   sandbox?: SandboxOption;
   budget?: number;
   maxConcurrency?: number;
-  hooks?: LifecycleHooks;
 }
 
 export interface DiscoveredExperiment extends ExperimentDef {
@@ -736,7 +732,6 @@ export interface Config {
   reporters?: Reporter[];
   maxConcurrency?: number;
   timeoutMs?: number;
-  hooks?: LifecycleHooks;
 }
 
 // ───────────────────────── TestContext(t)与子句柄 ─────────────────────────
@@ -744,6 +739,7 @@ export interface Config {
 /** t.send() 返回的句柄:从事件流派生便利字段 + expectOk。 */
 export interface TurnHandle {
   readonly events: StreamEvent[];
+  readonly toolCalls: readonly ToolCall[];
   readonly status: "completed" | "failed" | "waiting";
   readonly message: string;
   readonly data?: unknown;
@@ -754,6 +750,18 @@ export interface TurnHandle {
   outputMatches(schema: unknown): AssertionHandle;
   /** 断言本轮助手回复包含 token(仅限本轮事件流,不跨轮)。 */
   messageIncludes(token: string | RegExp): AssertionHandle;
+  succeeded(): AssertionHandle;
+  calledTool(name: string, match?: ToolMatch): AssertionHandle;
+  notCalledTool(name: string, match?: ToolMatch): AssertionHandle;
+  toolOrder(names: string[]): AssertionHandle;
+  usedNoTools(): AssertionHandle;
+  maxToolCalls(max: number): AssertionHandle;
+  event(type: StreamEvent["type"], opts?: { count?: number }): AssertionHandle;
+  notEvent(type: StreamEvent["type"]): AssertionHandle;
+  calledSubagent(name: string, match?: SubagentMatch): AssertionHandle;
+  eventOrder(types: StreamEvent["type"][]): AssertionHandle;
+  eventsSatisfy(predicate: (events: readonly StreamEvent[]) => boolean, label?: string): AssertionHandle;
+  readonly judge: JudgeNamespace;
 }
 
 /** autoevals 子命名空间:结构化的参考材料对照评估(closedQA / factuality / summarizes)。 */
@@ -764,26 +772,8 @@ export interface AutoevalsNamespace {
 }
 
 export interface JudgeNamespace {
-  /** agent-as-judge:让评判模型读沙箱回答开放式问题,打 0–1 分。 */
-  agent(question: string, opts?: { on?: string; model?: string }): AssertionHandle;
-  score(rubric: string, opts?: { on?: string; model?: string }): AssertionHandle;
-  closedQA(question: string, opts?: { on?: string; model?: string }): AssertionHandle;
-  factuality(expected: string, opts?: { on?: string; model?: string }): AssertionHandle;
-  summarizes(source: string, opts?: { on?: string; model?: string }): AssertionHandle;
   /** 结构化对照评估的子命名空间(t.judge.autoevals.closedQA / .factuality / .summarizes)。 */
   autoevals: AutoevalsNamespace;
-}
-
-export interface TranscriptNamespace {
-  /** 本会话自动压缩次数;capability 未声明 / 不可观测 → undefined。 */
-  compactions(): number | undefined;
-  events(): StreamEvent[];
-  /**
-   * 把整次运行(所有轮)的对话拼成一段可读文本:每条 message 一行 `role: text`。
-   * 给 judge 喂「整段多轮对话」用 —— judge 默认只看最后一轮(`t.reply`),
-   * 要评跨轮一致性就传 `{ on: t.transcript.text() }`。
-   */
-  text(): string;
 }
 
 export interface DiffView {
@@ -799,6 +789,51 @@ export interface ToolMatch {
   status?: "completed" | "failed" | "rejected";
 }
 
+export interface SubagentMatch {
+  count?: number;
+  status?: "completed" | "failed";
+  remoteUrl?: string | RegExp;
+}
+
+export interface InputRequestFilter {
+  id?: string | RegExp;
+  prompt?: string | RegExp;
+  display?: string | RegExp;
+  action?: string | RegExp;
+  input?: Record<string, unknown>;
+  optionIds?: readonly string[];
+}
+
+export interface SessionHandle {
+  send(text: string): Promise<TurnHandle>;
+  sendFile(path: string, text?: string): Promise<TurnHandle>;
+  requireInputRequest(filter?: InputRequestFilter): InputRequest;
+  respond(...responses: string[]): Promise<TurnHandle>;
+  respondAll(optionId: string): Promise<TurnHandle>;
+  readonly reply: string;
+  readonly sessionId: string | undefined;
+  readonly events: readonly StreamEvent[];
+  succeeded(): AssertionHandle;
+  parked(): AssertionHandle;
+  messageIncludes(token: string | RegExp): AssertionHandle;
+  calledTool(name: string, match?: ToolMatch): AssertionHandle;
+  notCalledTool(name: string, match?: ToolMatch): AssertionHandle;
+  toolOrder(names: string[]): AssertionHandle;
+  usedNoTools(): AssertionHandle;
+  maxToolCalls(max: number): AssertionHandle;
+  loadedSkill(skill: string): AssertionHandle;
+  noFailedActions(): AssertionHandle;
+  event(type: StreamEvent["type"], opts?: { count?: number }): AssertionHandle;
+  notEvent(type: StreamEvent["type"]): AssertionHandle;
+  calledSubagent(name: string, match?: SubagentMatch): AssertionHandle;
+  eventOrder(types: StreamEvent["type"][]): AssertionHandle;
+  eventsSatisfy(predicate: (events: readonly StreamEvent[]) => boolean, label?: string): AssertionHandle;
+  maxTokens(max: number): AssertionHandle;
+  maxCost(usd: number): AssertionHandle;
+  readonly usage: Usage;
+  readonly judge: JudgeNamespace;
+}
+
 /**
  * eval 作者拿到的高层上下文。运行器按 agent 能力组装;tsx 不做类型检查,所以这里
  * 用一个宽接口承载全部动作(运行时按 capability 守卫)。
@@ -808,14 +843,18 @@ export interface TestContext {
   send(text: string): Promise<TurnHandle>;
   /** 发一条带文件(图片等多模态输入)的消息。`path` 相对项目根;读出后 base64 随 TurnInput.files 交给 adapter。 */
   sendFile(path: string, text?: string): Promise<TurnHandle>;
+  requireInputRequest(filter?: InputRequestFilter): InputRequest;
+  respond(...responses: string[]): Promise<TurnHandle>;
+  respondAll(optionId: string): Promise<TurnHandle>;
   readonly reply: string;
-  newSession(): TestContext;
+  readonly sessionId: string | undefined;
+  readonly events: readonly StreamEvent[];
+  newSession(): SessionHandle;
 
   // 运行上下文
   readonly signal: AbortSignal;
   readonly model?: string;
   readonly flags: Readonly<Record<string, unknown>>;
-  readonly shared: Readonly<Record<string, unknown>>;
   log(msg: string): void;
   skip(reason: string): never;
 
@@ -841,17 +880,16 @@ export interface TestContext {
   noFailedActions(): AssertionHandle;
   event(type: StreamEvent["type"], opts?: { count?: number }): AssertionHandle;
   notEvent(type: StreamEvent["type"]): AssertionHandle;
+  calledSubagent(name: string, match?: SubagentMatch): AssertionHandle;
+  eventOrder(types: StreamEvent["type"][]): AssertionHandle;
+  eventsSatisfy(predicate: (events: readonly StreamEvent[]) => boolean, label?: string): AssertionHandle;
 
   // 工作区 / 沙箱
-  readonly sandbox: Sandbox;
-  readonly diff: DiffView;
-  readonly transcript: TranscriptNamespace;
+  readonly sandbox: SandboxHandle;
   file(path: string): string;
   fileChanged(path: string): AssertionHandle;
   fileDeleted(path: string): AssertionHandle;
   notInDiff(re: RegExp): AssertionHandle;
-  testsPassed(): AssertionHandle;
-  scriptPassed(script: string): AssertionHandle;
   noFailedShellCommands(): AssertionHandle;
 
   // 效率 / 成本

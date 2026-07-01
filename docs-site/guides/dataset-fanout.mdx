@@ -4,7 +4,7 @@ sidebarTitle: "Datasets"
 description: "Export an array from a .eval.ts file to fan out into many evals. Use loadYaml or loadJson to drive evals from external datasets with stable IDs."
 ---
 
-Sometimes one eval scenario isn't enough — you want to verify that your agent handles dozens of inputs correctly, with each case getting its own pass/fail verdict in the report. fasteval's **dataset fan-out** lets you express this without creating dozens of individual files. When you export an array from a `.eval.ts` file, fasteval treats each element as a separate eval, assigns it a stable ID, and runs them all with the same concurrency and reporting as any other eval suite.
+Sometimes one eval scenario isn't enough — you want to verify that your agent handles dozens of inputs correctly, with each case getting its own pass/fail outcome in the report. fasteval's **dataset fan-out** lets you express this without creating dozens of individual files. When you export an array from a `.eval.ts` file, fasteval treats each element as a separate eval, assigns it a stable ID, and runs them all with the same concurrency and reporting as any other eval suite.
 
 ## How fan-out works
 
@@ -175,7 +175,7 @@ export default rows.map((row) =>
       }
 
       // Soft: judge whether the reply is well-formed SQL
-      t.judge.closedQA("Is this valid, syntactically correct SQL?").atLeast(0.8);
+      t.judge.autoevals.closedQA("Is this valid, syntactically correct SQL?").atLeast(0.8);
     },
   }),
 );

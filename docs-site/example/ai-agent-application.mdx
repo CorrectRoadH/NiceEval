@@ -92,7 +92,7 @@ export default defineEval({
       t.calledTool("get_weather", { input: { city: "Brooklyn" } });
       t.messageIncludes(/°[CF]|temperature|weather/i);
     });
-    t.judge.agent("Does the assistant answer based on the tool's returned weather data, not a hallucination?").atLeast(0.7);
+    t.judge.autoevals.closedQA("Does the assistant answer based on the tool's returned weather data, not a hallucination?").atLeast(0.7);
   },
 });
 ```

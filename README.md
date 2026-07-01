@@ -114,9 +114,9 @@ Start from the scenario that matches what you need to evaluate:
 ## Roadmap
 Official Adapters
 - [ ] Agent Software
-  - [ ] Claude Code
-  - [ ] Codex
-  - [ ] Bub
+  - [x] Claude Code
+  - [x] Codex
+  - [x] Bub
   - [ ] OpenClaw
   - [ ] Hermess Agent
   - [ ] Alma

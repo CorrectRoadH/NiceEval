@@ -30,7 +30,7 @@ import { defineAgent } from "fasteval";
   </ParamField>
 
   <ParamField body="workspace" type="boolean">
-    能操作文件系统，启用 `t.fileChanged()`、`t.testsPassed()` 等断言。
+    能操作文件系统，启用 `t.fileChanged()`、`t.check(await t.sandbox.runCommand("npm", ["test"], { cwd: "/workspace" }), commandSucceeded())` 等断言。
   </ParamField>
 </ParamField>
 

@@ -16,11 +16,11 @@ fasteval's exit codes map directly to CI pass/fail:
 
 | Condition | Exit code | CI result |
 |-----------|-----------|-----------|
-| All evals `passed` (or `scored` without `--strict`) | `0` | ✅ Green |
+| All evals `passed` (or `passed` without `--strict`) | `0` | ✅ Green |
 | Any eval `failed` | Non-zero | ❌ Red |
-| Any eval `scored` with `--strict` | Non-zero | ❌ Red |
+| Any eval `passed` with `--strict` | Non-zero | ❌ Red |
 
-The distinction between `scored` and `failed` matters: a `scored` verdict means all hard gate assertions passed but a soft quality threshold (e.g. an LLM-as-judge score) fell below its target. Without `--strict`, this is yellow — it surfaces in the report but doesn't break the build. With `--strict`, it turns red.
+The distinction between `passed` and `failed` matters: a `passed` outcome means all hard gate assertions passed but a soft quality threshold (e.g. an LLM-as-judge score) fell below its target. Without `--strict`, this is yellow — it surfaces in the report but doesn't break the build. With `--strict`, it turns red.
 
 <Tip>
   Use `--strict` on nightly runs or release branches where quality regressions matter. Leave it off on PR runs so soft-assertion noise doesn't block routine development.

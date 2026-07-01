@@ -1,6 +1,8 @@
 import { defineEval } from "fasteval";
 import { includes, excludes } from "fasteval/expect";
 
+const WORKSPACE = new URL("../workspaces/ts-starter/", import.meta.url).pathname;
+
 // 评测任务：给 Express 路由添加请求体校验。
 //
 // 没有 zod skill 的 agent 通常会：手写 if/typeof 类型守卫、直接信任 req.body、
@@ -8,9 +10,10 @@ import { includes, excludes } from "fasteval/expect";
 // 并在校验失败时返回 422 + ZodError.issues。
 export default defineEval({
   description: "用 Zod 校验 POST /users 的请求体，失败时返回结构化错误",
-  workspace: "./workspaces/ts-starter",
 
   async test(t) {
+    await t.sandbox.uploadDirectory(WORKSPACE, "/home/sandbox/workspace");
+
     await t
       .send(
         `在 src/routes/users.ts 里实现 POST /users 路由。
@@ -50,10 +53,11 @@ export default defineEval({
 
     t.fileChanged("src/routes/users.ts");
 
-    t.judge
-      .score(
+    t.judge.autoevals
+      .closedQA(
         "代码是否正确使用了 Zod 的惯用校验模式？" +
           ".safeParse() 使用是否正确？422 错误响应是否包含 issues？类型是否通过 z.infer<> 派生？",
+        { on: route?.content ?? "" },
       )
       .atLeast(0.75);
   },

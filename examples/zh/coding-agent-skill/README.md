@@ -83,10 +83,10 @@ ponytail 原始 benchmark 有两个套件：
 |-------------|--------------|
 | `seed` 字段写文件 | `t.sandbox.writeFiles({})` |
 | `tasks.py` 里的 prompt | `t.send("...")` |
-| `correctness.js` 运行子进程断言 | `t.sandbox.exec("python3", [...])` |
-| `judge.py` LLM judge | `t.judge.score("...").atLeast(n)` |
+| `correctness.js` 运行子进程断言 | `t.sandbox.runCommand("python3", [...])` |
+| `judge.py` LLM judge | `t.judge.autoevals.closedQA("...", { on }).atLeast(n)` |
 | promptfoo `arms`（baseline/ponytail） | fasteval `experiments/` |
-| `--plugin-dir` 注入 skill | `hooks.sandbox.setup` 写 `CLAUDE.md` |
+| `--plugin-dir` 注入 skill | experiment-local agent wrapper 在 `setup` 写 `CLAUDE.md` |
 
 **运行对比**：
 
@@ -151,11 +151,11 @@ export default defineEval({
     await t.send("实现 get_user(conn, username) 函数...").then(r => r.expectOk());
 
     // 3. 功能测试：用对抗性输入跑子进程
-    const r = await t.sandbox.exec("python3", ["-c", "..."]);
+    const r = await t.sandbox.runCommand("python3", ["-c", "..."]);
     t.check(r.stdout.trim(), includes(/ok/));
 
     // 4. LLM judge 打分（简洁度 + 正确性）
-    t.judge.score("...").atLeast(0.8);
+    t.judge.autoevals.closedQA("...", { on: await t.sandbox.readFile("task.py") }).atLeast(0.8);
   },
 });
 ```

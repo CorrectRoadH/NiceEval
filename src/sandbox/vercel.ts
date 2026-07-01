@@ -1,6 +1,8 @@
 // Vercel Sandbox 后端:用 @vercel/sandbox SDK 把 Vercel microVM 当隔离工作区跑 eval。
 // 契约对齐 ../types.ts 的 Sandbox 接口,与 DockerSandbox 可互换。
 
+import { readdir, readFile, stat } from "node:fs/promises";
+import { join, relative, sep } from "node:path";
 import { Sandbox as VSandbox } from "@vercel/sandbox";
 import type {
   Sandbox,
@@ -29,7 +31,6 @@ const SESSION_TIMEOUT_MS = 1_200_000;
 export class VercelSandbox implements Sandbox {
   readonly otlpHost = null;
   private vsb: InstanceType<typeof VSandbox>;
-  private workDir: string = VERCEL_WORKDIR;
   private commandTimeoutMs: number;
   private sessionCreatedAt: number;
   private runtime: string;
@@ -107,7 +108,7 @@ export class VercelSandbox implements Sandbox {
     const finished = await this.vsb.runCommand({
       cmd,
       args,
-      cwd: opts.cwd ?? this.workDir,
+      cwd: opts.cwd ?? VERCEL_WORKDIR,
       env: opts.env,
       sudo: opts.root ?? false,
       // 显式设 per-command timeout 防止长跑命令(npm build/install)被流截断。
@@ -125,14 +126,14 @@ export class VercelSandbox implements Sandbox {
   }
 
   async readFile(path: string): Promise<string> {
-    const absPath = path.startsWith("/") ? path : `${this.workDir}/${path}`;
+    const absPath = path.startsWith("/") ? path : `${VERCEL_WORKDIR}/${path}`;
     const buf = await this.vsb.readFileToBuffer({ path: absPath });
     if (!buf) throw new Error(t("vercel.fileNotFound", { path: absPath }));
     return buf.toString("utf8");
   }
 
   async fileExists(path: string): Promise<boolean> {
-    const absPath = path.startsWith("/") ? path : `${this.workDir}/${path}`;
+    const absPath = path.startsWith("/") ? path : `${VERCEL_WORKDIR}/${path}`;
     const buf = await this.vsb.readFileToBuffer({ path: absPath });
     return buf !== null;
   }
@@ -159,7 +160,7 @@ export class VercelSandbox implements Sandbox {
     const files: { path: string; content: string }[] = [];
     await Promise.all(
       paths.map(async (path) => {
-        const absPath = `${this.workDir}/${path}`;
+        const absPath = `${VERCEL_WORKDIR}/${path}`;
         try {
           const buf = await this.vsb.readFileToBuffer({ path: absPath });
           if (buf) files.push({ path, content: buf.toString("utf8") });
@@ -171,32 +172,28 @@ export class VercelSandbox implements Sandbox {
     return makeSourceFiles(files);
   }
 
-  async writeFiles(files: Record<string, string>): Promise<void> {
+  async writeFiles(files: Record<string, string>, targetDir = VERCEL_WORKDIR): Promise<void> {
     const entries = Object.entries(files).map(([p, content]) => ({
       // 相对路径 → Vercel SDK 自动 prepend /vercel/sandbox;绝对路径原样传。
-      path: p.startsWith("/") ? p : `${this.workDir}/${p}`,
+      path: p.startsWith("/") ? p : `${targetDir.replace(/\/$/, "")}/${p}`,
       content,
     }));
     if (entries.length === 0) return;
     await this.vsb.writeFiles(entries);
   }
 
-  async uploadFiles(files: SandboxFile[]): Promise<void> {
+  async uploadFiles(files: SandboxFile[], targetDir = VERCEL_WORKDIR): Promise<void> {
     if (files.length === 0) return;
     await this.vsb.writeFiles(
       files.map((f) => ({
-        path: f.path.startsWith("/") ? f.path : `${this.workDir}/${f.path}`,
+        path: f.path.startsWith("/") ? f.path : `${targetDir.replace(/\/$/, "")}/${f.path}`,
         content: f.content,
       })),
     );
   }
 
-  getWorkingDirectory(): string {
-    return this.workDir;
-  }
-
-  setWorkingDirectory(path: string): void {
-    this.workDir = path;
+  async uploadDirectory(localDir: string, targetDir: string, opts: { ignore?: string[] } = {}): Promise<void> {
+    await this.uploadFiles(await collectLocalFiles(localDir, opts.ignore), targetDir);
   }
 
   async stop(): Promise<void> {
@@ -204,14 +201,36 @@ export class VercelSandbox implements Sandbox {
   }
 
   async downloadFile(path: string): Promise<Buffer> {
-    const absPath = path.startsWith("/") ? path : `${this.workDir}/${path}`;
+    const absPath = path.startsWith("/") ? path : `${VERCEL_WORKDIR}/${path}`;
     const buf = await this.vsb.readFileToBuffer({ path: absPath });
     if (!buf) throw new Error(t("vercel.fileNotFound", { path: absPath }));
     return buf;
   }
 
   async uploadFile(path: string, content: Buffer): Promise<void> {
-    const absPath = path.startsWith("/") ? path : `${this.workDir}/${path}`;
+    const absPath = path.startsWith("/") ? path : `${VERCEL_WORKDIR}/${path}`;
     await this.vsb.writeFiles([{ path: absPath, content }]);
   }
+}
+
+async function collectLocalFiles(localDir: string, ignore: readonly string[] = []): Promise<SandboxFile[]> {
+  const ignored = new Set(ignore);
+  const out: SandboxFile[] = [];
+  async function walk(dir: string): Promise<void> {
+    for (const entry of await readdir(dir)) {
+      if (ignored.has(entry)) continue;
+      const abs = join(dir, entry);
+      const st = await stat(abs);
+      if (st.isDirectory()) {
+        await walk(abs);
+      } else if (st.isFile()) {
+        out.push({
+          path: relative(localDir, abs).split(sep).join("/"),
+          content: await readFile(abs),
+        });
+      }
+    }
+  }
+  await walk(localDir);
+  return out;
 }

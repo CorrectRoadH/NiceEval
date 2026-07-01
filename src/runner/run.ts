@@ -4,6 +4,7 @@
 
 import { resolve as resolvePath } from "node:path";
 import { readFile as readSourceFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { Effect, Cause, Duration, Exit } from "effect";
 import { createSandbox, sandboxLabel } from "../sandbox/resolve.ts";
 import { createTraceReceiver, type TraceReceiver } from "../o11y/otlp/receiver.ts";
@@ -12,16 +13,14 @@ import { selectTraceSpans, enrichTraceWithIO } from "../o11y/otlp/select.ts";
 import { mapSpansToCanonical } from "../o11y/otlp/mappers/index.ts";
 import { createEvalContext } from "../context/context.ts";
 import { EvalRequirementFailed, EvalSkipped, TurnFailed } from "../context/control-flow.ts";
-import { computeOutcome, computeVerdict } from "../scoring/verdict.ts";
+import { computeOutcome } from "../scoring/verdict.ts";
 import { probeJudge } from "../scoring/judge.ts";
 import { deriveRunFacts, buildO11ySummary } from "../o11y/derive.ts";
 import { estimateCost } from "../o11y/cost.ts";
 import { t } from "../i18n/index.ts";
 import {
   captureGeneratedFiles,
-  collectWorkspaceFiles,
   initGitAndCommit,
-  isDirectory,
 } from "./sandbox-prep.ts";
 import type {
   Agent,
@@ -31,11 +30,10 @@ import type {
   DiscoveredEval,
   EvalResult,
   JudgeConfig,
-  LifecycleHooks,
   LocalizedText,
   Reporter,
+  ReporterEvent,
   RunShape,
-  RunContext,
   RunSummary,
   Sandbox,
   SandboxOption,
@@ -45,7 +43,6 @@ import type {
   StreamEvent,
   Telemetry,
   TraceSpan,
-  Verdict,
 } from "../types.ts";
 
 /** 一个 (agent, model, flags) 的运行配置 —— 由 CLI / 实验展开。 */
@@ -60,9 +57,7 @@ export interface AgentRun {
   budget?: number;
   evalFilter: (id: string) => boolean;
   experimentId?: string;
-  /** 实验级生命周期钩子(叠加在 config.hooks 之上);run 作用域按 experimentId 各跑一次,
-   *  sandbox 作用域每个 attempt 跑一次。来自 ExperimentDef.hooks,由 CLI 透传。 */
-  hooks?: LifecycleHooks;
+  strict?: boolean;
 }
 
 export interface RunOptions {
@@ -74,7 +69,7 @@ export interface RunOptions {
   signal?: AbortSignal;
   /** TTY live display 的进度回调;设置后 attempt 的 log 消息路由到它而不是 stderr。 */
   onProgress?: (evalId: string, who: string, msg: string) => void;
-  /** 上次运行的结果。outcome === "passed"/"scored" 的 (experimentId, evalId) 组合跳过重跑,结果直接合入本次汇总。 */
+  /** 上次运行的结果。outcome === "passed" 的 (experimentId, evalId) 组合跳过重跑,结果直接合入本次汇总。 */
   priorResults?: EvalResult[];
 }
 
@@ -83,6 +78,7 @@ interface Attempt {
   run: AgentRun;
   attempt: number;
   key: string; // agent+model+evalId,用于早停
+  fingerprint: string;
 }
 
 export async function runEvals(opts: RunOptions): Promise<RunSummary> {
@@ -109,15 +105,23 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
     }
   }
 
-  // 跨实验结果复用:上次已跑过且非 errored 的 (experimentId, evalId) 组合直接携入,不重跑。
-  // errored 的重跑;从来没跑过的也进入队列。--fresh 跳过此逻辑。
+  const plannedFingerprints = new Map<string, string>();
+  for (const run of opts.agentRuns) {
+    for (const evalDef of opts.evals.filter((e) => run.evalFilter(e.id))) {
+      plannedFingerprints.set(cacheKey(run, evalDef.id), await computeFingerprint(evalDef, run));
+    }
+  }
+
+  // 跨实验结果复用:只有上次 passed 且 fingerprint 匹配的 (experimentId, evalId) 组合直接携入。
+  // 失败/错误/跳过/fingerprint 不匹配都会重跑。--force 跳过此逻辑。
   const priorRunKeys = new Set<string>();
   const carriedResults: EvalResult[] = [];
   if (opts.priorResults?.length) {
     for (const r of opts.priorResults) {
       if (!r.experimentId) continue;
-      if (r.outcome !== "errored") {
-        priorRunKeys.add(`${r.experimentId}|${r.id}`);
+      const key = `${r.experimentId}|${r.id}`;
+      if (r.outcome === "passed" && r.fingerprint !== undefined && r.fingerprint === plannedFingerprints.get(key)) {
+        priorRunKeys.add(key);
       }
     }
     for (const r of opts.priorResults) {
@@ -139,7 +143,13 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
       for (const evalDef of evals) {
         if (run.experimentId && priorRunKeys.has(`${run.experimentId}|${evalDef.id}`)) continue;
         const key = `${run.agent.name}|${run.model ?? ""}|${evalDef.id}`;
-        attempts.push({ evalDef, run, attempt: i, key });
+        attempts.push({
+          evalDef,
+          run,
+          attempt: i,
+          key,
+          fingerprint: plannedFingerprints.get(cacheKey(run, evalDef.id)) ?? "",
+        });
       }
     }
   }
@@ -162,14 +172,17 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
     // reporter 只是结果消费方:单个 reporter 抛错记 diagnostic,不能让整次调度崩(P2)。
     await runReporter("onRunStart", () => r.onRunStart?.(runningEvals, firstAgent as Agent, shape));
   }
-
-  // run 作用域生命周期钩子(整轮一次)产出的共享物:经 run.share() 写进来,透给每个 attempt 的
-  // ctx.shared。每个 attempt 不再各起一个空 {},而是读这同一份(语义同 docs/lifecycle.md)。
-  const runShared: Record<string, unknown> = {};
-  const runTeardowns = await setupRunHooks(opts, runShared);
+  await emitReporterEvent(opts.reporters, {
+    type: "run:start",
+    evals: runningEvals,
+    agent: firstAgent as Agent,
+    shape,
+  });
 
   const results: EvalResult[] = [];
   const passedKeys = new Set<string>();
+  const budgetSpent = new Map<string, number>();
+  const budgetReported = new Set<string>();
 
   // reporter 的 onEvalComplete 要「每个 attempt 完成即时触发」(保流式输出),又不能让
   // 并发 worker 交错写 → 用一个 permit=1 的信号量串起来(替代原先手搓的 reportQueue 链)。
@@ -200,14 +213,35 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
   // 一条「fasteval 出错」崩溃栈、并跳过下面的部分汇总。runPromiseExit 返回 Exit 不抛,我们据此
   // 把「中断/signal 已 abort」当正常的部分结果收尾,只有真·非中断缺陷才上抛。
   let interrupted = false;
-  try {
-    const exit = await Effect.runPromiseExit(
-      Effect.forEach(
-        attempts,
-        (a) =>
-          Effect.gen(function* () {
+  const exit = await Effect.runPromiseExit(
+    Effect.forEach(
+      attempts,
+      (a) =>
+        Effect.gen(function* () {
             // 早停:同 key 已通过且开了 earlyExit → 跳过未启动的 attempt。
-            if (a.run.earlyExit && passedKeys.has(a.key)) return;
+            if (a.run.earlyExit && passedKeys.has(a.key)) {
+              yield* Effect.promise(() =>
+                emitReporterEvent(opts.reporters, {
+                  type: "run:earlyExit",
+                  evalId: a.evalDef.id,
+                  experimentId: a.run.experimentId,
+                }),
+              );
+              return;
+            }
+
+            const budget = a.run.budget;
+            const budgetKey = a.run.experimentId ?? a.run.agent.name;
+            const spent = budgetSpent.get(budgetKey) ?? 0;
+            if (budget !== undefined && spent >= budget) {
+              if (!budgetReported.has(budgetKey)) {
+                budgetReported.add(budgetKey);
+                yield* Effect.promise(() =>
+                  emitReporterEvent(opts.reporters, { type: "run:budgetExceeded", budget, spent }),
+                );
+              }
+              return;
+            }
 
             // 合并全局信号与本 eval 的早停信号:任一 abort → 本 attempt 的信号 abort。
             const evalAc = evalAbortControllers.get(a.key);
@@ -216,9 +250,19 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
                 ? AbortSignal.any([opts.signal, evalAc.signal])
                 : (evalAc?.signal ?? opts.signal);
 
-            const result = yield* runAttemptEffect(a, opts, sandboxSem, runShared, attemptSignal);
+            yield* Effect.promise(() =>
+              emitReporterEvent(opts.reporters, {
+                type: "eval:start",
+                eval: { id: a.evalDef.id },
+                agent: a.run.agent,
+                attempt: a.attempt,
+                experimentId: a.run.experimentId,
+              }),
+            );
+            const result = yield* runAttemptEffect(a, opts, sandboxSem, attemptSignal);
+            budgetSpent.set(budgetKey, (budgetSpent.get(budgetKey) ?? 0) + (result.estimatedCostUSD ?? 0));
 
-            if (result.verdict === "passed") {
+            if (result.outcome === "passed") {
               passedKeys.add(a.key);
               evalAc?.abort(); // 让同 key 并发 attempt 尽早退出
             } else if (a.run.earlyExit && passedKeys.has(a.key)) {
@@ -239,34 +283,31 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
                 ),
               ),
             );
+            yield* Effect.promise(() => emitReporterEvent(opts.reporters, { type: "eval:complete", result }));
           }),
-        { concurrency: opts.maxConcurrency, discard: true },
-      ).pipe(
-        // 中断(用户 Ctrl+C):finalizer 已在中断过程中跑完(容器已停),这里只是把它咽下,
-        // 好让流程走到 summarize / onRunComplete,用已完成的 results 出一份部分汇总,而不是抛栈。
-        Effect.catchAllCause((cause) => {
-          if (Cause.isInterrupted(cause)) {
-            interrupted = true;
-            return Effect.void;
-          }
-          return Effect.failCause(cause); // 非中断的意外缺陷:照常抛出
-        }),
-      ),
-      { signal: opts.signal },
-    );
-    if (Exit.isFailure(exit)) {
-      // signal abort 或 cause 含中断 → 当作用户中断,走部分汇总;否则是真·缺陷,照常抛出。
-      if (opts.signal?.aborted || Cause.isInterrupted(exit.cause)) {
-        interrupted = true;
-      } else {
-        throw Cause.squash(exit.cause);
-      }
+      { concurrency: opts.maxConcurrency, discard: true },
+    ).pipe(
+      // 中断(用户 Ctrl+C):finalizer 已在中断过程中跑完(容器已停),这里只是把它咽下,
+      // 好让流程走到 summarize / onRunComplete,用已完成的 results 出一份部分汇总,而不是抛栈。
+      Effect.catchAllCause((cause) => {
+        if (Cause.isInterrupted(cause)) {
+          interrupted = true;
+          return Effect.void;
+        }
+        return Effect.failCause(cause); // 非中断的意外缺陷:照常抛出
+      }),
+    ),
+    { signal: opts.signal },
+  );
+  if (Exit.isFailure(exit)) {
+    // signal abort 或 cause 含中断 → 当作用户中断,走部分汇总;否则是真·缺陷,照常抛出。
+    if (opts.signal?.aborted || Cause.isInterrupted(exit.cause)) {
+      interrupted = true;
+    } else {
+      throw Cause.squash(exit.cause);
     }
-    if (interrupted) process.stderr.write(t("runner.interrupted"));
-  } finally {
-    // run 作用域 teardown / cleanup 必跑(成功 / 失败 / 中断都跑),LIFO,各自兜错。
-    for (const td of runTeardowns.reverse()) await runReporter("run.teardown", td);
   }
+  if (interrupted) process.stderr.write(t("runner.interrupted"));
 
   // 稳定排序:按发现顺序 + attempt;携带结果并入后一起排
   const order = new Map(opts.evals.map((e, i) => [e.id, i]));
@@ -279,9 +320,11 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
   );
 
   const summary = summarize(allResults, firstAgent?.name ?? "", startedAt, Date.now() - t0, opts.config.name);
+  await emitReporterEvent(opts.reporters, { type: "run:summary", summary });
   for (const r of opts.reporters) {
     await runReporter("onRunComplete", () => r.onRunComplete?.(summary));
   }
+  await emitReporterEvent(opts.reporters, { type: "run:saved", summary });
   return summary;
 }
 
@@ -296,55 +339,8 @@ async function runReporter(stage: string, fn: () => unknown): Promise<void> {
   }
 }
 
-// run 作用域生命周期钩子(整轮一次):config.hooks(全局)+ 每个实验各一次(叠加在 config 之上)。
-// 每个 provider 的 setup 立即跑,返回的 cleanup 与 teardown 收成一个闭包入栈;调用方在 finally 里
-// LIFO 跑这些闭包(见 docs/lifecycle.md)。setup 失败只记 diagnostic,不阻断后续 provider / 调度。
-async function setupRunHooks(
-  opts: RunOptions,
-  shared: Record<string, unknown>,
-): Promise<Array<() => Promise<void> | void>> {
-  const signal = opts.signal ?? new AbortController().signal;
-  const mkCtx = (runs: AgentRun[], experimentId?: string): RunContext => ({
-    experimentId,
-    evals: [
-      ...new Set(opts.evals.filter((e) => runs.some((r) => r.evalFilter(e.id))).map((e) => e.id)),
-    ],
-    agents: [...new Set(runs.map((r) => r.agent.name))],
-    flags: runs[0]?.flags ?? {},
-    signal,
-    log: (m) => process.stderr.write(t("runner.hooksLog", { message: m })),
-    share: (k, v) => {
-      shared[k] = v;
-    },
-  });
-
-  // 收集 run-scope 提供方:config 覆盖全部 run;每个带 hooks.run 的实验各一组(按 experimentId 去重)。
-  const providers: Array<{ hooks: LifecycleHooks; runs: AgentRun[]; experimentId?: string }> = [];
-  if (opts.config.hooks?.run) providers.push({ hooks: opts.config.hooks, runs: opts.agentRuns });
-  const seen = new Set<string>();
-  for (const r of opts.agentRuns) {
-    if (!r.hooks?.run || !r.experimentId || seen.has(r.experimentId)) continue;
-    seen.add(r.experimentId);
-    providers.push({
-      hooks: r.hooks,
-      runs: opts.agentRuns.filter((x) => x.experimentId === r.experimentId),
-      experimentId: r.experimentId,
-    });
-  }
-
-  const teardowns: Array<() => Promise<void> | void> = [];
-  for (const p of providers) {
-    const ctx = mkCtx(p.runs, p.experimentId);
-    let cleanup: Cleanup | void = undefined;
-    await runReporter("run.setup", async () => {
-      cleanup = await p.hooks.run?.setup?.(ctx);
-    });
-    teardowns.push(async () => {
-      if (typeof cleanup === "function") await cleanup();
-      await p.hooks.run?.teardown?.(ctx);
-    });
-  }
-  return teardowns;
+async function emitReporterEvent(reporters: readonly Reporter[], event: ReporterEvent): Promise<void> {
+  await Promise.all(reporters.map((r) => runReporter(`event:${event.type}`, () => r.onEvent?.(event))));
 }
 
 function summarize(
@@ -387,7 +383,6 @@ function runAttemptEffect(
   a: Attempt,
   opts: RunOptions,
   sandboxSem: Effect.Semaphore,
-  runShared: Record<string, unknown>,
   parentSignal?: AbortSignal,
 ): Effect.Effect<EvalResult> {
   const config = opts.config;
@@ -401,8 +396,8 @@ function runAttemptEffect(
     experiment: experimentRunInfo(run),
     agent: run.agent.name,
     model: run.model,
-    verdict: "failed",
     outcome: "errored",
+    fingerprint: a.fingerprint,
     attempt,
     startedAt: new Date(t0).toISOString(),
     durationMs: 0,
@@ -434,7 +429,7 @@ function runAttemptEffect(
   return Effect.scoped(
     Effect.gen(function* () {
       const sandbox =
-        run.agent.kind === "sandbox"
+        run.agent.capabilities.sandbox === true
           ? yield* sandboxSem.withPermits(1)(
               Effect.gen(function* () {
                 // ── 沙箱:acquire=起,release=stop(成功 / 失败 / 中断都跑)──
@@ -448,7 +443,7 @@ function runAttemptEffect(
               }),
             )
           : createRemoteSandbox();
-      if (run.agent.kind === "remote") log(t("runner.useRemoteAgent"));
+      if (run.agent.capabilities.sandbox !== true) log(t("runner.useRemoteAgent"));
 
       // ── tracing ──────────────────────────────────────────────────────────────────
       // sandbox.otlpHost:
@@ -494,7 +489,6 @@ function runAttemptEffect(
           receiver,
           telemetry,
           signal: AbortSignal.any([signal, interruptSignal]),
-          shared: runShared,
           log,
         }),
       );
@@ -537,8 +531,6 @@ interface AttemptResources {
   receiver?: TraceReceiver;
   telemetry?: Telemetry;
   signal: AbortSignal;
-  /** run 作用域钩子(hooks.run.setup → run.share)产出的共享物;透给 ctx.shared。 */
-  shared: Record<string, unknown>;
   log: (m: string) => void;
 }
 
@@ -552,8 +544,8 @@ async function runAttemptBody(
   res: AttemptResources,
 ): Promise<EvalResult> {
   const { evalDef, run, attempt } = a;
-  const { sandbox, receiver, telemetry, signal, shared, log } = res;
-  const usesSandbox = run.agent.kind === "sandbox";
+  const { sandbox, receiver, telemetry, signal, log } = res;
+  const usesSandbox = run.agent.capabilities.sandbox === true;
   // 整个 attempt 共用一份 agent ctx(sandbox 钩子 / agent setup / tracing configure / teardown 都用它)。
   const attemptCtx: AgentContext = {
     signal,
@@ -561,37 +553,14 @@ async function runAttemptBody(
     flags: run.flags,
     sandbox,
     session: { id: undefined, isNew: true },
-    shared,
     telemetry,
     log,
   };
   let agentCleanup: Cleanup | void = undefined;
   let agentDidSetup = false;
-  // sandbox 作用域钩子的回收闭包(config + 实验,叠加);finally 里 LIFO 跑(必跑,各自兜错)。
-  const sandboxTeardowns: Array<() => Promise<void> | void> = [];
   try {
     if (usesSandbox) {
-      // 上传 workspace + git 基线
-      const wsDir = await resolveWorkspace(evalDef, config);
-      if (wsDir) {
-        const files = await collectWorkspaceFiles(wsDir);
-        await sandbox.uploadFiles(files);
-        log(t("runner.uploadWorkspace", { count: files.length }));
-      }
       await initGitAndCommit(sandbox);
-
-      // sandbox 作用域 setup(每个 attempt 一次):写 .env / 起 mock 服务 / 连外部 DB 等。
-      // 顺序同 docs/architecture.md:git 基线之后、装依赖之前。config.hooks 先、实验 hooks 叠加在后。
-      for (const h of [config.hooks?.sandbox, run.hooks?.sandbox]) {
-        if (!h) continue;
-        let cleanup: Cleanup | void = undefined;
-        log(t("runner.sandboxSetup"));
-        cleanup = await h.setup?.(sandbox, attemptCtx);
-        sandboxTeardowns.push(async () => {
-          if (typeof cleanup === "function") await cleanup();
-          await h.teardown?.(sandbox, attemptCtx);
-        });
-      }
 
       // eval 级 setup(starter prep:npm install / 装系统依赖等)。命令默认非 root;
       // setup 里需要 root 的(apt/pip)自己传 { root: true }。
@@ -623,7 +592,6 @@ async function runAttemptBody(
       sandbox,
       model: run.model,
       flags: run.flags,
-      shared,
       signal,
       log,
       judge,
@@ -660,23 +628,7 @@ async function runAttemptBody(
       }));
     }
 
-    // 跑 test 请求过的脚本
     const scripts: Record<string, ScriptResult> = {};
-    if (!skipReason && usesSandbox) {
-      for (const s of state.requestedScripts) {
-        log(`npm run ${s}…`);
-        const r = await sandbox.runCommand("npm", ["run", s]);
-        scripts[s] = { success: r.exitCode === 0, output: tail(r.stdout + r.stderr) };
-        log(`npm run ${s} → ${r.exitCode === 0 ? "✓" : "✗"}`);
-      }
-      if (state.needsVitest) {
-        const r = await sandbox.runCommand("npx", ["vitest", "run", "EVAL.ts"]);
-        scripts.__vitest__ = { success: r.exitCode === 0, output: tail(r.stdout + r.stderr) };
-      }
-    } else if (!skipReason && (state.requestedScripts.size > 0 || state.needsVitest)) {
-      error =
-        t("runner.noRemoteWorkspace");
-    }
     state.late.scripts = scripts;
 
     // 评分
@@ -700,8 +652,7 @@ async function runAttemptBody(
     };
     if (!skipReason) log(t("runner.scoreJudge"));
     const assertions = skipReason ? [] : await state.collector.finalize(scoringContext);
-    const verdict: Verdict = computeVerdict({ error, assertions, skipReason });
-    const outcome = computeOutcome({ error, verdict });
+    const outcome = computeOutcome({ error, assertions, skipReason, strict: run.strict });
 
     // 收 OTLP trace:给最后一批导出留点落地时间,再 collect(空则不挂)。
     // codex 的 OTLP 把内部 Rust tracing 全导出来(handle_responses / append_items … 上万条);
@@ -736,8 +687,8 @@ async function runAttemptBody(
       experiment: experimentRunInfo(run),
       agent: run.agent.name,
       model: run.model,
-      verdict,
       outcome,
+      fingerprint: a.fingerprint,
       attempt,
       startedAt: new Date(t0).toISOString(),
       durationMs,
@@ -760,7 +711,7 @@ async function runAttemptBody(
     };
   } finally {
     // teardown / cleanup 一律在 finally 跑(失败也跑),不改判决,各自兜错(diagnostic)。
-    // LIFO:先 agent(setup 最晚),再 sandbox 钩子(实验 → config)。
+    // LIFO:先 agent(setup 最晚),再沙箱 Scope。
     // 沙箱 stop / 接收器 close 不在这里 —— 由 runAttemptEffect 的 Scope 在本函数返回后回收。
     try {
       if (typeof agentCleanup === "function") await agentCleanup();
@@ -768,7 +719,6 @@ async function runAttemptBody(
     } catch {
       // teardown 失败只是 diagnostic,不影响已出的结果
     }
-    for (const td of sandboxTeardowns.reverse()) await runReporter("sandbox.teardown", td);
   }
 }
 
@@ -801,11 +751,8 @@ function createRemoteSandbox(): Sandbox {
     async uploadFiles() {
       unavailable("uploadFiles");
     },
-    getWorkingDirectory() {
-      return "";
-    },
-    setWorkingDirectory() {
-      unavailable("setWorkingDirectory");
+    async uploadDirectory() {
+      unavailable("uploadDirectory");
     },
     async stop() {
       // no-op:remote agent 生命周期由它自己的进程管理。
@@ -853,14 +800,41 @@ function experimentRunInfo(run: AgentRun): EvalResult["experiment"] {
   };
 }
 
-async function resolveWorkspace(
-  evalDef: DiscoveredEval,
-  config: Config,
-): Promise<string | undefined> {
-  const ws = evalDef.workspace ?? config.workspace;
-  if (!ws) return undefined;
-  const abs = resolvePath(process.cwd(), ws);
-  return (await isDirectory(abs)) ? abs : undefined;
+function cacheKey(run: AgentRun, evalId: string): string {
+  return `${run.experimentId ?? ""}|${evalId}`;
+}
+
+async function computeFingerprint(evalDef: DiscoveredEval, run: AgentRun): Promise<string> {
+  const source = await readSourceFile(evalDef.sourcePath, "utf-8");
+  const payload = {
+    source,
+    eval: {
+      id: evalDef.id,
+      tags: evalDef.tags ?? [],
+      metadata: evalDef.metadata ?? {},
+      timeoutMs: evalDef.timeoutMs,
+    },
+    run: {
+      experimentId: run.experimentId,
+      agent: run.agent.name,
+      model: run.model,
+      flags: run.flags,
+      sandbox: run.sandbox === undefined ? undefined : sandboxLabel(run.sandbox),
+      timeoutMs: run.timeoutMs,
+      strict: run.strict,
+    },
+  };
+  return createHash("sha256").update(stableJson(payload)).digest("hex");
+}
+
+function stableJson(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  const obj = value as Record<string, unknown>;
+  return `{${Object.keys(obj)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableJson(obj[key])}`)
+    .join(",")}}`;
 }
 
 function resolveJudge(

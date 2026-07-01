@@ -1,10 +1,10 @@
 ---
 title: "fasteval/expect matchers and custom assertion reference"
 sidebarTitle: "Expect"
-description: "Reference for fasteval/expect: includes, equals, matches, similarity, satisfies. Chain .gate() or .soft(), and build custom matchers with makeAssertion."
+description: "Reference for fasteval/expect: includes, equals, matches, similarity, satisfies. Chain .gate() or .atLeast(0.7), and build custom matchers with makeAssertion."
 ---
 
-The `fasteval/expect` module provides a small set of composable matchers that you pass to `t.check()` and `t.require()`. Each matcher is a function that returns an `Assertion` — a typed scoring function of shape `(value: unknown) => number | Promise<number>` — and carries a default severity (`gate` or `soft`) that determines how a failure affects the eval verdict. You can override the severity on any matcher by chaining `.gate()` or `.soft()`.
+The `fasteval/expect` module provides a small set of composable matchers that you pass to `t.check()` and `t.require()`. Each matcher is a function that returns an `Assertion` — a typed scoring function of shape `(value: unknown) => number | Promise<number>` — and carries a default severity (`gate` or `soft`) that determines how a failure affects the eval outcome. You can override the severity on any matcher by chaining `.gate()` or `.atLeast(0.7)`.
 
 ```ts
 import { includes, equals, matches, similarity, satisfies } from "fasteval/expect";
@@ -53,10 +53,10 @@ t.check(t.reply, includes("Paris"));
 t.check(t.reply, includes(/order #\d+/i));
 ```
 
-Chain `.soft()` if you want this to score rather than hard-fail:
+Chain `.atLeast(0.7)` if you want this to score rather than hard-fail:
 
 ```ts
-t.check(t.reply, includes("recommended").soft());
+t.check(t.reply, includes("recommended").atLeast(0.7));
 ```
 
 ---
@@ -169,23 +169,23 @@ inside the function. Return `true` for pass, `false` for fail.
 
 ## Chaining severity
 
-Every matcher returns an `Assertion` object that exposes `.gate()` and `.soft()`
+Every matcher returns an `Assertion` object that exposes `.gate()` and `.atLeast(0.7)`
 methods, letting you override the default severity inline:
 
 ```ts
 // Downgrade an includes assertion from gate to soft:
-t.check(t.reply, includes("optional detail").soft());
+t.check(t.reply, includes("optional detail").atLeast(0.7));
 
 // Upgrade a similarity assertion from soft to gate:
 t.check(t.reply, similarity(expected).gate());
 ```
 
-Severity controls how a failure affects the eval **verdict**:
+Severity controls how a failure affects the eval **outcome**:
 
 | Severity | Failure effect | Strict mode (`--strict`) |
 |----------|---------------|--------------------------|
 | `gate` | Eval is `failed` | Same |
-| `soft` | Eval is `scored` (not `failed`) | Eval is `failed` |
+| `soft` | Eval is `passed` (not `failed`) | Eval is `failed` |
 
 Use `gate` for correctness requirements and `soft` for quality metrics you want
 to track but not block on by default.
@@ -252,7 +252,7 @@ t.check(t.reply, jsonValid());
 
 <ParamField body="severity" type='"gate" | "soft"' required>
   The default severity for this assertion. Can be overridden by callers via
-  `.gate()` and `.soft()` chaining, just like built-in matchers.
+  `.gate()` and `.atLeast(0.7)` chaining, just like built-in matchers.
 </ParamField>
 
 <ParamField body="score" type="(value: unknown) => number | Promise<number>" required>
@@ -271,7 +271,7 @@ t.check(t.reply, jsonValid());
 ### Async custom matchers
 
 Custom matchers support `async` scoring natively. The runner awaits all
-assertions before computing the final verdict.
+assertions before computing the final outcome.
 
 ```ts
 function semanticallySimilar(reference: string): Assertion {

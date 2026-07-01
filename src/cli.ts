@@ -4,7 +4,7 @@
 //   fasteval clean                   删除 .fasteval/ 历史运行工件
 
 import { spawn } from "node:child_process";
-import { readFile, rm } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -13,6 +13,7 @@ import { runEvals, type AgentRun } from "./runner/run.ts";
 import { stopAllSandboxes, liveSandboxCount } from "./sandbox/registry.ts";
 import { sandboxRecommendedConcurrency } from "./sandbox/resolve.ts";
 import { Console as ConsoleReporter } from "./runner/reporters/console.ts";
+import { JUnit } from "./runner/reporters/json.ts";
 import { Live as LiveReporter, type LiveRow } from "./runner/reporters/live.ts";
 import { Artifacts as ArtifactsReporter } from "./runner/reporters/artifacts.ts";
 import { buildView, startViewServer, loadMostRecentResults } from "./view/index.ts";
@@ -29,7 +30,11 @@ interface Flags {
   earlyExit?: boolean;
   dry: boolean;
   quiet: boolean;
-  fresh: boolean;
+  force: boolean;
+  strict: boolean;
+  budget?: number;
+  tag?: string;
+  junit?: string;
   open?: boolean;
   out?: string;
   port?: number;
@@ -38,7 +43,8 @@ interface Flags {
 const BOOL_FLAGS = new Set([
   "dry",
   "quiet",
-  "fresh",
+  "force",
+  "strict",
   "early-exit",
   "no-early-exit",
   "open",
@@ -51,7 +57,7 @@ const BOOL_FLAGS = new Set([
 function parseArgs(argv: string[]): { command: string; positionals: string[]; flags: Flags } {
   if (argv[0] === "--") argv = argv.slice(1);
   const positionals: string[] = [];
-  const flags: Flags = { dry: false, quiet: false, fresh: false };
+  const flags: Flags = { dry: false, quiet: false, force: false, strict: false };
   let command = "run";
   let i = 0;
 
@@ -85,7 +91,8 @@ function parseArgs(argv: string[]): { command: string; positionals: string[]; fl
       if (BOOL_FLAGS.has(name)) {
         if (name === "dry") flags.dry = true;
         else if (name === "quiet") flags.quiet = true;
-        else if (name === "fresh") flags.fresh = true;
+        else if (name === "force") flags.force = true;
+        else if (name === "strict") flags.strict = true;
         continue;
       }
       const value = argv[++i];
@@ -96,6 +103,9 @@ function parseArgs(argv: string[]): { command: string; positionals: string[]; fl
         case "runs": flags.runs = Number(value); break;
         case "max-concurrency": flags.maxConcurrency = Number(value); break;
 case "timeout": flags.timeout = Number(value); break;
+        case "budget": flags.budget = Number(value); break;
+        case "tag": flags.tag = value; break;
+        case "junit": flags.junit = value; break;
         case "out": flags.out = value; break;
         case "port": flags.port = Number(value); break;
         default: break; // 未知 flag 忽略
@@ -134,6 +144,25 @@ async function loadConfig(cwd: string): Promise<Config> {
   const mod = (await import(pathToFileURL(path).href)) as { default?: Config };
   if (!mod.default) throw new Error(t("cli.config.noDefault"));
   return mod.default;
+}
+
+async function initProject(cwd: string): Promise<void> {
+  await mkdir(join(cwd, "evals"), { recursive: true });
+  const configPath = join(cwd, "fasteval.config.ts");
+  if (!existsSync(configPath)) {
+    await writeFile(
+      configPath,
+      [
+        'import { defineConfig } from "fasteval";',
+        "",
+        "export default defineConfig({",
+        "  // Add experiments/ with defineExperiment(...) to run evals.",
+        "});",
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+  }
 }
 
 async function openBrowser(url: string): Promise<boolean> {
@@ -196,13 +225,20 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  if (command === "init" || command === "watch") {
+  if (command === "init") {
+    await initProject(cwd);
+    process.stdout.write(t("cli.init.done"));
+    process.exit(0);
+  }
+
+  if (command === "watch") {
     process.stdout.write(t("cli.unimplemented", { command }));
     process.exit(0);
   }
 
   const config = await loadConfig(cwd);
-  const evals = await discoverEvals(cwd);
+  const allEvals = await discoverEvals(cwd);
+  const evals = flags.tag ? allEvals.filter((e) => e.tags?.includes(flags.tag as string)) : allEvals;
 
   if (command === "list") {
     process.stdout.write(t("cli.list.header", { count: evals.length }));
@@ -241,10 +277,10 @@ async function main(): Promise<void> {
         earlyExit: flags.earlyExit ?? exp.earlyExit ?? true,
         sandbox: flags.sandbox ?? exp.sandbox ?? config.sandbox,
         timeoutMs: flags.timeout ?? exp.timeoutMs ?? config.timeoutMs,
-        budget: exp.budget,
+        budget: flags.budget ?? exp.budget,
         evalFilter: evalsFilterFromExperiment(exp.evals, extraPatterns),
         experimentId: exp.id,
-        hooks: exp.hooks,
+        strict: flags.strict,
       });
     }
     const vals = selected.map((e) => e.maxConcurrency).filter((v): v is number => v !== undefined);
@@ -310,6 +346,7 @@ async function main(): Promise<void> {
     }
   }
   reporters.push(ArtifactsReporter());
+  if (flags.junit) reporters.push(JUnit(flags.junit));
   reporters.push(...(config.reporters ?? []));
 
   // Ctrl+C / kill 的三级响应,核心目标:任何情况下都不留下孤儿沙箱。
@@ -355,7 +392,7 @@ async function main(): Promise<void> {
   const sandboxRecs = agentRuns.map((r) => sandboxRecommendedConcurrency(r.sandbox));
   const sandboxDefaultConcurrency = sandboxRecs.length > 0 ? Math.min(...sandboxRecs) : 10;
 
-  const priorResults = flags.fresh ? undefined : await loadMostRecentResults(join(cwd, ".fasteval"));
+  const priorResults = flags.force ? undefined : await loadMostRecentResults(join(cwd, ".fasteval"));
 
   const summary = await runEvals({
     config,

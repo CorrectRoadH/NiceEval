@@ -1,7 +1,7 @@
 // 会话驱动:把 t.send(text) 翻成 agent.send(input, ctx),在同一沙箱里多轮 resume /
 // newSession,并把每轮的标准事件流与用量累加进整次运行(供作用域断言 / o11y)。
 
-import type { Agent, AgentContext, InputFile, Sandbox, StreamEvent, Telemetry, Turn, Usage } from "../types.ts";
+import type { Agent, AgentContext, InputFile, InputRequest, Sandbox, StreamEvent, Telemetry, Turn, Usage } from "../types.ts";
 import { captureLoc } from "../source-loc.ts";
 import { t } from "../i18n/index.ts";
 
@@ -13,6 +13,9 @@ export class RunSession {
   lastMessage = "";
   lastInput = "";
   lastStatus: "completed" | "failed" | "waiting" = "completed";
+  readonly events: StreamEvent[] = [];
+  readonly pendingInputRequests: InputRequest[] = [];
+  readonly usage: Usage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, requests: 0 };
 }
 
 export interface SessionDeps {
@@ -20,7 +23,6 @@ export interface SessionDeps {
   sandbox: Sandbox;
   model?: string;
   flags: Record<string, unknown>;
-  shared: Record<string, unknown>;
   signal: AbortSignal;
   log(msg: string): void;
   /** tracing agent 的 OTLP 端点(经 send ctx 透给 adapter,用于注入导出 env)。 */
@@ -58,7 +60,6 @@ export class SessionManager {
       flags: this.deps.flags,
       sandbox: this.deps.sandbox,
       session: session as unknown as AgentContext["session"],
-      shared: this.deps.shared,
       telemetry: this.deps.telemetry,
       log: this.deps.log,
     };
@@ -73,11 +74,23 @@ export class SessionManager {
     const t0 = Date.now();
 
     session.lastInput = text;
-    this.allEvents.push({ type: "message", role: "user", text, loc });
+    const userEvent: StreamEvent = { type: "message", role: "user", text, loc };
+    this.allEvents.push(userEvent);
+    session.events.push(userEvent);
+    session.pendingInputRequests.length = 0;
     const turn = await this.deps.agent.send({ text, files }, ctx);
 
     this.allEvents.push(...turn.events);
-    if (turn.usage) accumulateUsage(this.usage, turn.usage);
+    session.events.push(...turn.events);
+    session.pendingInputRequests.push(
+      ...turn.events
+        .filter((e): e is Extract<StreamEvent, { type: "input.requested" }> => e.type === "input.requested")
+        .map((e) => e.request),
+    );
+    if (turn.usage) {
+      accumulateUsage(this.usage, turn.usage);
+      accumulateUsage(session.usage, turn.usage);
+    }
     session.isNew = false;
     session.lastStatus = turn.status;
     this.lastStatus = turn.status;

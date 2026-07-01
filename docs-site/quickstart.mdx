@@ -161,7 +161,7 @@ export default defineEval({
     t.succeeded();
     t.calledTool("get_weather", { input: { city: "Brooklyn" } });
     t.check(t.reply, includes("sunny"));
-    t.judge.closedQA("Is the answer polite and on-topic?").atLeast(0.7);
+    t.judge.autoevals.closedQA("Is the answer polite and on-topic?").atLeast(0.7);
   },
 });
 ```
@@ -179,7 +179,7 @@ The four assertions above illustrate the main scoring tools available in the `te
 | `t.succeeded()` | The agent completed without an error |
 | `t.calledTool(name, args)` | A specific tool was invoked with matching arguments |
 | `t.check(value, matcher)` | An exact value-level comparison |
-| `t.judge.closedQA(question).atLeast(score)` | An LLM judge grades the response on a 0–1 scale |
+| `t.judge.autoevals.closedQA(question).atLeast(score)` | An LLM judge grades the response on a 0–1 scale |
 
 ## Eval 3 — a coding agent in a sandbox
 
@@ -260,7 +260,7 @@ Discovered 3 evals
     - gate: EVAL.ts › accepts label / onClick [FAILED]
       Expected src to contain "onClick"
 
-Results:  2 passed, 1 failed, 0 scored, 0 skipped
+Results:  2 passed, 1 failed, 0 passed, 0 skipped
 ```
 
 Full artifacts are written to `.fasteval/<timestamp>/` after every run. The directory contains:

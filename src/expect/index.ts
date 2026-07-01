@@ -12,8 +12,8 @@ export interface MatchOptions {
 // ───────────────────────── 内部工厂 ─────────────────────────
 
 /**
- * 唯一的内部工厂。gate()/soft()/atLeast() 都基于它返回新的不可变实例,
- * 三者共享同一个 score(只换 severity / threshold)。
+ * 唯一的内部工厂。gate()/atLeast() 都基于它返回新的不可变实例,
+ * 共享同一个 score(只换 severity / threshold)。
  */
 function createAssertion(
   name: string,
@@ -27,11 +27,9 @@ function createAssertion(
     threshold,
     score,
     // 转成硬门槛(失败即整条 eval 不通过)。
-    gate: () => createAssertion(name, "gate", score, threshold),
-    // 转成软分(threshold 省略则沿用现有阈值);软分不够也不挂,只记录。
-    soft: (t?: number) => createAssertion(name, "soft", score, t ?? threshold),
-    // 硬门槛 + 显式阈值:不够就 fail(写了阈值=硬性下限)。只想记分用 .soft(t)。
-    atLeast: (t: number) => createAssertion(name, "gate", score, t),
+    gate: (t?: number) => createAssertion(name, "gate", score, t),
+    // 软阈值:默认不改变 outcome;--strict 下软阈值失败也会使 outcome=failed。
+    atLeast: (t: number) => createAssertion(name, "soft", score, t),
   };
   return Object.freeze(self);
 }
@@ -218,6 +216,14 @@ export function isDefined(label?: string): ValueAssertion {
 export function isTrue(label?: string): ValueAssertion {
   const name = label ? `isTrue(${label})` : "isTrue()";
   return createAssertion(name, "gate", (value) => (value === true ? 1 : 0));
+}
+
+/** CommandResult.exitCode === 0 则通过。 */
+export function commandSucceeded(): ValueAssertion {
+  return createAssertion("commandSucceeded()", "gate", (value) => {
+    if (value === null || typeof value !== "object") return 0;
+    return (value as { exitCode?: unknown }).exitCode === 0 ? 1 : 0;
+  });
 }
 
 /** value === false 则 1,否则 0。带 label 的布尔断言。 */

@@ -43,9 +43,9 @@ export async function discoverEvals(root: string): Promise<DiscoveredEval[]> {
     const baseId = relative(dir, file).replace(/\.eval\.tsx?$/, "").split(sep).join("/");
     const baseDir = dirname(file);
     if (Array.isArray(def)) {
-      def.forEach((d, i) => out.push({ ...d, id: `${baseId}/${pad4(i)}`, baseDir }));
+      def.forEach((d, i) => out.push({ ...d, id: `${baseId}/${pad4(i)}`, baseDir, sourcePath: file }));
     } else {
-      out.push({ ...def, id: baseId, baseDir });
+      out.push({ ...def, id: baseId, baseDir, sourcePath: file });
     }
   }
   return out;

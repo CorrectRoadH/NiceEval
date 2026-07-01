@@ -24,13 +24,6 @@ export default defineExperiment({
   flags: {
     webResearch: false,                 // feature flags injected via ctx.flags / t.flags
   },
-  hooks: {
-    sandbox: {
-      async setup(sb, ctx) {
-        await sb.writeFile(".env", `MODEL=${ctx.model}`);
-      },
-    },
-  },
 });
 ```
 
@@ -49,7 +42,7 @@ export default defineExperiment({
 </Accordion>
 
 <Accordion title="runs">
-  How many times to run each `(agent, model, eval)` cell. With `runs: 5`, each cell produces 5 attempts. Results are aggregated into a pass rate rather than a single verdict.
+  How many times to run each `(agent, model, eval)` cell. With `runs: 5`, each cell produces 5 attempts. Results are aggregated into a pass rate rather than a single outcome.
 </Accordion>
 
 <Accordion title="earlyExit">
@@ -68,9 +61,7 @@ export default defineExperiment({
   An estimated cost ceiling in USD. The runner stops dispatching new attempts once accumulated cost exceeds this value. Can be overridden at runtime with `--budget`.
 </Accordion>
 
-<Accordion title="hooks">
-  Per-experiment lifecycle hooks. `hooks.sandbox.setup` and `hooks.sandbox.teardown` run around each attempt and receive the sandbox handle and `ctx` (including `ctx.flags` and `ctx.model`).
-</Accordion>
+fasteval does not provide framework-level lifecycle hooks. Upload starter files and run setup commands inside `test(t)`, or put adapter-specific preparation in the agent adapter's `setup`.
 
 ## Running experiments
 
@@ -135,7 +126,7 @@ The runner expands selected experiment files × evals × runs. For example: 2 ex
 
 ## Pass rate reporting
 
-Results are aggregated per `(agent, model, eval)` cell into a pass rate rather than a single pass/fail verdict:
+Results are aggregated per `(agent, model, eval)` cell into a pass rate rather than a single pass/fail outcome:
 
 ```
 fixtures/button   claude-code   pass@5 = 4/5 (80%)   mean 34s · 58k tok · $0.44

@@ -194,7 +194,7 @@ export function Live(rows: LiveRow[], totalAttempts: number): LiveReporter {
         const cost = result.estimatedCostUSD !== undefined ? `  $${result.estimatedCostUSD.toFixed(3)}` : "";
         const who = result.model ? `${result.agent}/${result.model}` : result.agent;
         const meta = `(${fmtDuration(result.durationMs)}  ${tokStr}${cost})`;
-        const label = result.outcome === result.verdict ? "" : ` ${formatOutcome(result.outcome)}`;
+        const label = result.outcome === "passed" ? "" : ` ${formatOutcome(result.outcome)}`;
         process.stdout.write(`  ${sym} ${result.id}${label}  [${who}]  ${meta}\n`);
 
         if (result.skipReason) process.stdout.write(`      ○ ${t("report.skipped")}: ${result.skipReason}\n`);
