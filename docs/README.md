@@ -85,7 +85,7 @@ import { includes } from "fasteval/expect";
 export default defineEval({
   description: "实现一个 Button 组件",
   async test(t) {
-    await t.sandbox.writeFiles({ "package.json": BUTTON_PACKAGE_JSON });
+    await t.sandbox.writeFiles({ "package.json": BUTTON_PACKAGE_JSON }, "/workspace");
     await t.send("用项目现有的样式系统,在 src/components/Button.tsx 导出一个 Button 组件,接受 label 和 onClick 两个 prop,并实现 hover 态。");
 
     t.sandbox.fileChanged("src/components/Button.tsx");

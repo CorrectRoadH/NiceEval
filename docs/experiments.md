@@ -65,7 +65,7 @@ export default defineExperiment({
   hooks: {
     sandbox: {
       setup: async (sb, ctx) => {                    // setup 也能读 flags
-        if (ctx.flags.skill) await sb.writeFiles({ ".agent/skill.md": loadSkill(ctx.flags.skill) });
+        if (ctx.flags.skill) await sb.writeFiles({ ".agent/skill.md": loadSkill(ctx.flags.skill) }, "/workspace");
       },
     },
   },

@@ -87,7 +87,7 @@ export default defineEval({
     t.sandbox.fileChanged("src/components/Button.tsx");
     t.check(t.sandbox.file("src/components/Button.tsx"), includes("onClick"));
 
-    const test = await t.sandbox.runCommand("npm", ["test"]);
+    const test = await t.sandbox.runCommand("npm", ["test"], { cwd: "/workspace" });
     t.check(test, commandSucceeded());
   },
 });

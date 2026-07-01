@@ -90,7 +90,7 @@ hooks: {
   sandbox: {
     setup: async (sb, ctx) => {
       const server = await startMockApi();
-      await sb.writeFiles({ ".env": `API_URL=${server.url}\n` });
+      await sb.writeFiles({ ".env": `API_URL=${server.url}\n` }, "/workspace");
       return async () => { await server.close(); };   // ← 跑完自动调用
     },
   },
@@ -127,7 +127,7 @@ export default defineConfig({
     },
     sandbox: {
       setup: async (sb, ctx) => {
-        await sb.writeFiles({ ".env": `API_URL=${ctx.shared.apiUrl}\n` });
+        await sb.writeFiles({ ".env": `API_URL=${ctx.shared.apiUrl}\n` }, "/workspace");
       },
     },
   },

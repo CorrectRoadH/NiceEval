@@ -6,16 +6,17 @@
 
 断言是 eval 给 `test(t)` 的产出打分的方式。每条记录一个结果、返回可链式 handle;runner 收齐**所有**记录再算判决,所以一次运行会报告每一条失败断言,而不是遇到第一个就停。
 
-## Attempt 和 Turn
+## t、Session 和 Turn
 
-`Attempt` 和 `Turn` 不是同一个东西。
+写 eval 时只有三个接收者需要分清:`t`、`session` 和 `turn`。`Attempt` 是 runner/result 里的执行单位,不是一个 author-facing API 对象。
 
-| 概念 | 含义 | 断言作用域 |
+| 接收者 | 含义 | 断言作用域 |
 |---|---|---|
-| **Attempt** | 一个 eval 在一个 agent / model / run index 下的一次完整执行 | `t.succeeded()` / `t.calledTool()` 等看这个 attempt 的全部轮次和全部 `newSession()` |
+| **`t`** | 当前 eval run 的主上下文,同时驱动主 session | `t.succeeded()` / `t.calledTool()` 等看本次运行的全部 session 和全部 turn |
+| **Session** | `t.newSession()` 返回的一条独立会话线 | `session.succeeded()` / `session.calledTool()` 等看这个 session 当时已经发生的事件 |
 | **Turn** | 一次 `t.send()` 返回的一轮交互结果 | `turn.succeeded()` / `turn.calledTool()` 等只看这一轮自己的事件 |
 
-它们共享一套断言词汇,但绑定的数据不同。规则是:**作用域由你调用在哪个对象上决定,不由断言名字决定。**
+它们共享一套断言词汇,但绑定的数据不同。规则是:**作用域由你调用在哪个对象上决定,不由断言名字决定。** `t.newSession()` 返回的是独立 session,但仍属于同一次 eval run;这些 session 的事件会一起进入 `t.succeeded()` / `t.calledTool()` / `t.eventsSatisfy()` 等 `t.*` 断言。
 
 ## API 分组速查
 
@@ -23,23 +24,31 @@
 
 | API | 作用 | 备注 |
 |---|---|---|
-| `await t.send(text)` | 给 agent 发一轮输入 | 返回 `turn`,用于单轮断言 |
-| `await t.sendFile(path, text?)` | 给 agent 发带文件的一轮输入 | 文件从宿主项目读取 |
+| `await t.send(input)` | 给 agent 发一轮输入并等待稳定 | `input` 可以是字符串或结构化消息;返回 `turn` |
+| `await t.sendFile(text, path, mediaType?)` | 给 agent 发带本地文件的一轮输入 | 文件从宿主项目读取,作为 data URL 附加 |
+| `t.requireInputRequest(filter?)` | 断言恰好有一个待处理输入请求,并返回它 | gate;filter 可匹配工具名、action input、prompt、display、option ids |
+| `await t.respond(...responses)` | 回答指定待处理输入请求 | 响应会作为下一轮发送 |
+| `await t.respondAll(optionId)` | 用同一 option 回答所有待处理输入请求 | 响应会作为下一轮发送 |
 | `t.reply` | 最后一条 assistant 消息 | 值级 judge / matcher 的默认材料 |
-| `t.newSession()` | 开一条独立会话线 | `t.*` attempt 级断言会聚合全部 session |
+| `t.sessionId` | 当前主会话 id | adapter 返回时填入;用于 resume / 调试 |
+| `t.events` | 主 session 目前已捕获的强类型事件流 | 即时读取主 session;`t.*` 最终断言会聚合全部 session |
+| `t.newSession()` | 开一条独立会话线 | 返回 `session`;事件仍汇入 `t.*` run 级断言 |
+| `session.send(input)` | 给独立 session 发一轮输入 | 返回 `turn`;不影响主 session 的 resume 状态 |
+| `session.events` | 这个 session 已捕获的事件流 | `session.*` 作用域断言读同一份材料 |
+| `session.sessionId` | 这个 session 的 id | adapter 返回时填入;用于 resume / 调试 |
 | `turn.message` | 这一轮 assistant 消息 | 多轮 judge 时建议自己收集这些值 |
 | `turn.data` | 这一轮结构化输出 | 配 `turn.outputEquals` / `turn.outputMatches` |
 | `turn.status` | 这一轮状态 | `completed` / `failed` / `waiting` |
 | `turn.events` | 这一轮标准事件流 | 只含这一轮,不含之前轮次 |
 | `turn.usage` | 这一轮 token 用量 | 可选,取决于 adapter 能否带回 |
 
-### Attempt 级作用域断言
+### t 级作用域断言
 
 | API | 作用 | 来源 |
 |---|---|---|
 | `t.succeeded()` | 运行没失败、且没卡在未回答的 HITL | eve.dev |
 | `t.parked()` | 干净停在 HITL 输入上 | eve.dev |
-| `t.messageIncludes(token)` | attempt 全程 assistant 文本拼接后含 token | eve.dev |
+| `t.messageIncludes(token)` | 本次运行全程 assistant 文本拼接后含 token | eve.dev |
 | `t.calledTool(name, match?)` | 有匹配 name / input / status 的工具调用 | eve.dev |
 | `t.notCalledTool(name, match?)` | 没有匹配的工具调用 | eve.dev |
 | `t.toolOrder(names)` | 工具调用按给定子序出现 | eve.dev |
@@ -78,6 +87,10 @@
 | `turn.outputEquals(value)` | `turn.data` 深度相等 | turn 独有 |
 | `turn.outputMatches(schema)` | `turn.data` 通过 schema | turn 独有 |
 
+### Session 级作用域断言
+
+`session = t.newSession()` 返回的对象也带同一套作用域断言:`session.succeeded()` / `session.messageIncludes()` / `session.calledTool()` / `session.event()` 等。它只看这个 session 在断言记录时已经发生的事件,不看主 session,也不看其它 `newSession()`。
+
 ### 值级断言
 
 | API | 作用 | 备注 |
@@ -98,22 +111,23 @@
 
 ### Sandbox:文件 IO
 
-| API | 作用 | 备注 |
+| API | 作用 | 路径 / 目标 |
 |---|---|---|
-| `t.sandbox.writeFiles(files)` | 写入文本文件清单 | 立即写入 sandbox |
-| `t.sandbox.uploadFiles(files)` | 写入文本 / 二进制文件清单 | 立即写入 sandbox |
-| `t.sandbox.readFile(path)` | 读取 sandbox 文件 | 立即读取 |
-| `t.sandbox.fileExists(path)` | 判断 sandbox 文件是否存在 | 立即读取 |
-| `t.sandbox.readSourceFiles(root?)` | 批量读取源码文件 | 立即读取 |
+| `t.sandbox.writeFiles(files, targetDir)` | 写入文本文件清单 | `targetDir` 是 sandbox 内目标目录;key 是相对 `targetDir` 的路径 |
+| `t.sandbox.uploadFiles(files, targetDir)` | 写入文本 / 二进制文件清单 | `targetDir` 是 sandbox 内目标目录;每个文件的 `path` 是相对 `targetDir` 的路径 |
+| `t.sandbox.uploadDirectory(localDir, targetDir, opts?)` | 递归上传宿主机目录 | `localDir` 是本地目录;`targetDir` 是 sandbox 内目标目录,推荐 `/workspace` |
+| `t.sandbox.readFile(path)` | 读取 sandbox 文件 | `path` 是 sandbox 内路径;相对路径按 `/workspace` 解析 |
+| `t.sandbox.fileExists(path)` | 判断 sandbox 文件是否存在 | `path` 是 sandbox 内路径;相对路径按 `/workspace` 解析 |
+| `t.sandbox.readSourceFiles(root?)` | 批量读取源码文件 | `root` 是 sandbox 内目录;默认 `/workspace` |
+
+文件 IO 不限制只能写某个目录:只要后端允许、权限允许,`targetDir` 可以是 sandbox 内任何可写目录。但文档和示例推荐把项目文件放在 `/workspace`,并把 `/workspace` 当成沙箱型 eval 的通用项目根目录。`writeFiles` / `uploadFiles` 的文件 key 不建议写绝对路径;目标目录用 `targetDir` 表达,文件 key 只表达该目标目录下的相对路径。这样 Docker、Vercel Sandbox、E2B 等后端的路径语义能保持一致。
 
 ### Sandbox:命令执行
 
 | API | 作用 | 备注 |
 |---|---|---|
-| `t.sandbox.runCommand(cmd, args?, opts?)` | 执行命令并返回结果 | 不自动评分 |
-| `t.sandbox.runShell(script, opts?)` | 执行 shell 脚本并返回结果 | 不自动评分 |
-| `t.sandbox.getWorkingDirectory()` | 读取当前工作目录 | author-facing sandbox 句柄 |
-| `t.sandbox.setWorkingDirectory(path)` | 设置当前工作目录 | author-facing sandbox 句柄 |
+| `t.sandbox.runCommand(cmd, args?, opts?)` | 执行命令并返回结果 | `opts.cwd` 控制工作目录;默认 `/workspace`;不自动评分 |
+| `t.sandbox.runShell(script, opts?)` | 执行 shell 脚本并返回结果 | `opts.cwd` 控制工作目录;默认 `/workspace`;不自动评分 |
 
 `Sandbox.stop()` 是运行器生命周期职责,不暴露给 eval 作者。eval 只描述“测什么、怎么判分”,不负责销毁沙箱。
 
@@ -124,10 +138,10 @@
 | `t.sandbox.fileChanged(path)` | 文件出现在生成 diff 里 | 延迟断言 |
 | `t.sandbox.fileDeleted(path)` | 文件被删除 | 延迟断言 |
 | `t.sandbox.notInDiff(re)` | diff 不含某模式 | 延迟断言 |
-| `t.sandbox.diff.get(path)` | 读取某文件 diff 内容 | 值级断言材料 |
+| `t.sandbox.diff.get(path)` | 读取某文件 diff 内容 | `path` 建议写相对 `/workspace` 的项目路径 |
 | `t.sandbox.diff.isEmpty()` | diff 是否为空 | 值级断言材料 |
 | `t.sandbox.diff.matches(re)` | diff 是否命中正则 | 值级断言材料 |
-| `t.sandbox.file(path)` | 延迟读取 sandbox 文件 | 配 `t.check` 使用 |
+| `t.sandbox.file(path)` | 延迟读取 sandbox 文件 | `path` 是 sandbox 内路径;配 `t.check` 使用 |
 
 同一个 `t.sandbox` 下同时有“放文件”和“断言文件变化”,但文档按类别区分:
 
@@ -139,11 +153,14 @@
 
 | API | 作用 | 备注 |
 |---|---|---|
-| `t.judge.autoevals.closedQA(criteria, opts?)` | 闭合式判断 | autoevals |
-| `t.judge.autoevals.factuality(expected, opts?)` | 事实一致性 | autoevals |
-| `t.judge.autoevals.summarizes(source, opts?)` | 是否忠实摘要 | autoevals |
+| `t.judge.autoevals.closedQA(criteria, opts?)` | 闭合式判断 | 默认材料是 `t.reply` |
+| `t.judge.autoevals.factuality(expected, opts?)` | 事实一致性 | 默认材料是 `t.reply` |
+| `t.judge.autoevals.summarizes(source, opts?)` | 是否忠实摘要 | 默认材料是 `t.reply` |
+| `turn.judge.autoevals.closedQA(criteria, opts?)` | 闭合式判断 | 默认材料是 `turn.message` |
+| `turn.judge.autoevals.factuality(expected, opts?)` | 事实一致性 | 默认材料是 `turn.message` |
+| `turn.judge.autoevals.summarizes(source, opts?)` | 是否忠实摘要 | 默认材料是 `turn.message` |
 
-judge 默认材料是 `t.reply`。评多轮对话时,自己收集每轮 `turn.message` 再传 `{ on }`;评 sandbox 产物时,显式传 `t.sandbox.diff.get(path)` 或 `await t.sandbox.readFile(path)`。
+judge 是值级评分,不是作用域断言:`t.judge` 不会像 `t.calledTool()` 那样聚合所有消息。它默认只评 `t.reply`(最后一条 assistant 消息);`turn.judge` 默认只评 `turn.message`。评多轮对话时,自己收集每轮 `turn.message` 再传 `{ on }`;评 sandbox 产物时,显式传 `t.sandbox.diff.get(path)` 或 `await t.sandbox.readFile(path)`。
 
 ## 作用域规则
 
@@ -152,11 +169,12 @@ judge 默认材料是 `t.reply`。评多轮对话时,自己收集每轮 `turn.me
 | 层 | 谁 | 作用域 |
 |---|---|---|
 | **值级** | `t.check(value, matcher)`、judge 的 `{ on }` | 只评你传进去的值;默认值通常是 `t.reply` |
-| **attempt 级** | `t.succeeded()`、`t.calledTool()`、`t.event()` 等 | `test` 跑完后,看这个 attempt 的全部轮次和全部 `newSession()` |
+| **t 级 / run 级** | `t.succeeded()`、`t.calledTool()`、`t.event()` 等 | `test` 跑完后,看本次运行的全部 session 和全部 turn |
+| **session 级** | `session.succeeded()`、`session.calledTool()`、`session.event()` 等 | 只看这个 session 在断言记录时已有的事件 |
 | **turn 级** | `turn.succeeded()`、`turn.calledTool()`、`turn.event()` 等 | 只看这一轮自己的事件 |
-| **sandbox 结果级** | `t.sandbox.fileChanged()`、`t.sandbox.diff` 等 | 只看这个 attempt 最终 sandbox diff,不按轮次切分 |
+| **sandbox 结果级** | `t.sandbox.fileChanged()`、`t.sandbox.diff` 等 | 只看本次 eval run 最终 sandbox diff,不按轮次切分 |
 
-值级 judge / matcher 默认看最后一轮,和 `t.*` 默认看全程不是一套规则。要评整段多轮对话,显式收集材料:
+值级 judge / matcher 默认看你给的材料;`t.judge` 的默认材料是 `t.reply`,和 `t.*` 作用域断言默认看全程不是一套规则。要评整段多轮对话,显式收集材料:
 
 ```typescript
 const turns = [
@@ -176,7 +194,7 @@ t.judge.autoevals.closedQA("助手是否始终基于第一轮的图片作答?", 
 ```typescript
 import { commandSucceeded, excludes } from "fasteval/expect";
 
-const test = await t.sandbox.runCommand("npm", ["test"]);
+const test = await t.sandbox.runCommand("npm", ["test"], { cwd: "/workspace" });
 
 t.check(test, commandSucceeded());
 t.check(test.stderr, excludes("TypeError"));
@@ -222,7 +240,7 @@ t.judge.autoevals.closedQA("语气是否礼貌").atLeast(0.7);   // soft 阈值
 
 | 来源 | 给了 fasteval 什么 | 出处 |
 |---|---|---|
-| **eve.dev evals** | 声明式 DX、路径即身份、gate/soft 分层、scoped / value / turn 断言形态、`t.check` / `t.require`、匹配器、LLM-judge 接口 | `docs/architecture.md`、`docs/README.md` |
+| **eve.dev evals** | 声明式 DX、路径即身份、gate/soft 分层、t / session / turn 接收者模型、`t.check` / `t.require`、匹配器、LLM-judge 接口 | `docs/architecture.md`、`docs/README.md` |
 | **Vercel agent-eval** | Adapter / Sandbox 工程形状、sandbox diff、transcript 归一化与可观测、experiment 层、本地 `fasteval view` | `docs/vision.md`、`docs/experiments.md` |
 | **crabbox** | capability 分发纪律、`--budget` / `maxCost` 的 spend cap、source-map 文档观 | `docs/vision.md`、`docs/runner.md` |
 | **autoevals(Braintrust)** | `closedQA` / `factuality` / `summarizes` 评判器 | `src/scoring/judge.ts` |

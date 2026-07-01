@@ -160,15 +160,15 @@ test("没有暴力删库", () => {
 export default defineEval({
   description: "实现一个 Button 组件",
   async test(t) {
-    await t.sandbox.writeFiles({ "package.json": PACKAGE_JSON });
+    await t.sandbox.writeFiles({ "package.json": PACKAGE_JSON }, "/workspace");
 
     await t.send(
       "用项目现有的样式系统,在 src/components/Button.tsx 导出一个 Button 组件,接受 label 和 onClick 两个 prop,并实现 hover 态。",
     );
 
     // agent 那一轮已经结束,现在才放测试文件、才跑测试
-    await t.sandbox.writeFiles({ "button.test.ts": BUTTON_TEST });
-    const test = await t.sandbox.runCommand("npm", ["test"]);
+    await t.sandbox.writeFiles({ "button.test.ts": BUTTON_TEST }, "/workspace");
+    const test = await t.sandbox.runCommand("npm", ["test"], { cwd: "/workspace" });
     t.check(test, commandSucceeded());
   },
 });

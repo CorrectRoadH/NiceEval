@@ -24,11 +24,9 @@ interface Sandbox {
   runShell(script: string, opts?): Promise<CommandResult>;   // 整段 shell
 
   readFile(path: string): Promise<string>;
-  writeFiles(files: Record<string, string>): Promise<void>;
-  uploadFiles(files: SandboxFile[]): Promise<void>;          // 批量(可含二进制)
-
-  getWorkingDirectory(): string;
-  setWorkingDirectory(path: string): void;
+  writeFiles(files: Record<string, string>, targetDir: string): Promise<void>;
+  uploadFiles(files: SandboxFile[], targetDir: string): Promise<void>; // 批量(可含二进制)
+  uploadDirectory(localDir: string, targetDir: string, opts?): Promise<void>;
 
   stop(): Promise<void>;
 }
@@ -43,7 +41,7 @@ interface Sandbox {
 ```typescript
 // eval setup:只有装系统依赖这步提 root;其余(含 agent、验证)默认非 root。
 await sandbox.runCommand("apt-get", ["install", "-y", "openjdk-17-jdk"], { root: true });
-await sandbox.runCommand("npm", ["install"]);   // 默认非 root
+await sandbox.runCommand("npm", ["install"], { cwd: "/workspace" });   // 默认非 root
 ```
 
 **这套语义跨后端一致**,且与主流沙箱服务同构 —— 各后端把 `{ root: true }` 映射到自己的原生机制:
@@ -107,8 +105,8 @@ e2bSandbox({ template: "fasteval-agents" })          // e2b:指定模板
 
 ```typescript
 const sandbox = await createSandbox({ backend: "docker", runtime: "node24", timeout });
-await sandbox.uploadFiles(workspaceFiles);
-await sandbox.runCommand("npm", ["install"]);
+await sandbox.uploadFiles(workspaceFiles, "/workspace");
+await sandbox.runCommand("npm", ["install"], { cwd: "/workspace" });
 ```
 
 ## Vercel Sandbox 后端(云,可弹性扩并发)
@@ -132,29 +130,29 @@ await sandbox.runCommand("npm", ["install"]);
 
 ## 再接一个后端
 
-新后端只需:实现 `Sandbox` 接口的一个类(`create()` + run/read/write/cwd/stop/up-down-load),在 `sandbox/resolve.ts` 的 `resolveSandbox` / `createBackend` 加一个 `case`,需要带参数就在 `types.ts` 加一个 `XxxSandboxSpec` 并在 `define.ts` 加工厂。
+新后端只需:实现 `Sandbox` 接口的一个类(`create()` + run/read/write/stop/up-down-load),在 `sandbox/resolve.ts` 的 `resolveSandbox` / `createBackend` 加一个 `case`,需要带参数就在 `types.ts` 加一个 `XxxSandboxSpec` 并在 `define.ts` 加工厂。
 
-**核心定义接口,后端各自实现**,新后端不改核心其余部分。fasteval 的沙箱抽象刻意保持小(只需 run/read/write/cwd/stop),让接一个新后端的成本最低。
+**核心定义接口,后端各自实现**,新后端不改核心其余部分。fasteval 的沙箱抽象刻意保持小(只需 run/read/write/stop),让接一个新后端的成本最低。
 
 ## 沙箱在生命周期里的位置
 
 一次 agent eval 中,核心只固定两头,中间全部交给这条 eval 的 `test(t)`:
 
 ```text
-createSandbox(backend, timeout)
+ createSandbox(backend, timeout)
   → git init && git commit               # 打一次空基线,供之后 diff——不管 test() 里写了什么
   → hooks.sandbox.setup?.(sandbox, ctx)  # 用户预置钩子,可返回 cleanup 闭包
   → test(t)                              # ← 交给 eval 作者,顺序由它自己决定:
-  │    t.sandbox.writeFiles/uploadFiles    #   手工写入起始文件,放哪个路径你说了算
+  │    t.sandbox.writeFiles(..., "/workspace") / uploadFiles(..., "/workspace") / uploadDirectory(..., "/workspace")
   │    t.send()                            #   驱动 agent(Adapter 在沙箱里跑 CLI,解析成 events)
-  │    t.sandbox.runCommand()              #   手工跑校验命令(可以晚于 t.send(),agent 天然看不到)
+  │    t.sandbox.runCommand(..., { cwd: "/workspace" }) # 手工跑校验命令(可以晚于 t.send(),agent 天然看不到)
   │    断言…                               #   t.sandbox.fileChanged / t.sandbox.diff / t.check(commandSucceeded)
   → collectGeneratedFiles()              # git diff HEAD
   → hooks.sandbox.teardown?.() / cleanup()  # 用户清理钩子(finally,失败也跑)
   → sandbox.stop()                       # 销毁
 ```
 
-核心只固定两件事:**沙箱创建时打一次空 git 基线**,和**销毁前采一次 diff**——这两件事跟"里面放了什么文件"无关,核心不需要知道也不需要预设目录约定。中间"传什么文件、传到哪、什么时候调 agent、什么时候手工跑测试"全部是 `test(t)` 里的普通代码决定,不是核心的固定编排,详见 [Eval Authoring · 沙箱型](eval-authoring.md#沙箱型手工把文件放进沙箱)——Adapter 也只管 `t.send()` 触发的那一次"在沙箱里把 agent 跑起来"。author-facing 的 `t.sandbox` 同时承载立即 IO / 命令执行和最终 diff / 文件变化视图,但不暴露 `stop()`。`hooks.sandbox.setup` / `teardown` 是留给用户在"创建"和"销毁"这两头插自己环境逻辑的缝,成对出现、`teardown` 必在 `finally` 跑,完整模型见 [Lifecycle](lifecycle.md)。
+核心只固定两件事:**沙箱创建时打一次空 git 基线**,和**销毁前采一次 diff**——这两件事跟"里面放了什么文件"无关,核心不需要知道也不需要预设目录约定。中间"传什么文件、传到哪、什么时候调 agent、什么时候手工跑测试"全部是 `test(t)` 里的普通代码决定,不是核心的固定编排,详见 [Eval Authoring · 沙箱型](eval-authoring.md#沙箱型手工把文件放进沙箱)——Adapter 也只管 `t.send()` 触发的那一次"在沙箱里把 agent 跑起来"。author-facing 的 `t.sandbox` 同时承载立即 IO / 命令执行和最终 diff / 文件变化视图,但不暴露 `stop()`。后端应保证 `/workspace` 可写;命令工作目录用 `runCommand` / `runShell` 的 `cwd` option 表达,默认 `/workspace`,不提供可变的 `setWorkingDirectory`。`hooks.sandbox.setup` / `teardown` 是留给用户在"创建"和"销毁"这两头插自己环境逻辑的缝,成对出现、`teardown` 必在 `finally` 跑,完整模型见 [Lifecycle](lifecycle.md)。
 
 ## 性能:复用与预热
 

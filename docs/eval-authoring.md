@@ -33,23 +33,25 @@ export default rows.map((row) =>
 ```
 <--end-->
 
-### 补充:作用域只有两层,一套词汇,对齐 eve
+### 补充:作用域按接收者决定,对齐 eve
 
 核对 eve 源码(本机 `/Users/ctrdh/Code/eve/packages/eve/src/evals/`)后,把 1.1 说的"作用域"坐实成经验证的设计,订正上一版的误读。
 
-**eve 的真实实现**:`assertions/scoped.ts` 的 `createScopedAssertions` 是**一份实现**,导出 `succeeded` / `messageIncludes` / `calledTool` / `notCalledTool` / `toolOrder` / `usedNoTools` / `maxToolCalls` / `calledSubagent` / `noFailedActions` / `event` / `notEvent` / `eventOrder` / `eventsSatisfy` / `parked` 这一整套,靠调用时绑定的 `scope` 决定读哪份数据,一共绑在两个地方:
+**eve 的真实实现**:`assertions/scoped.ts` 的 `createScopedAssertions` 是**一份实现**,导出 `succeeded` / `messageIncludes` / `calledTool` / `notCalledTool` / `toolOrder` / `usedNoTools` / `maxToolCalls` / `calledSubagent` / `noFailedActions` / `event` / `notEvent` / `eventOrder` / `eventsSatisfy` / `parked` 这一整套,靠调用时绑定的 `scope` 决定读哪份数据,一共绑在三个地方:
 
-- `context.ts:77`:`t` 自己绑 `{ timing: "final", select: (result) => result }`。`result` 是 `EveEvalTaskResult`,由 `runner/execute-task.ts:98`(`buildTaskResult`)构造:`events: input.sessions.flatMap(session => session.events)` —— **把这次 eval 执行涉及的全部 session(含 `t.newSession()` 开的)的全部轮次拍平合并**,在 `test()` 跑完、`collector.finalize(result)` 时才求值。
+- `context.ts:77`:`t` 自己绑 `{ timing: "final", select: (result) => result }`。`result` 是 `EveEvalTaskResult`,由 `runner/execute-task.ts:98`(`buildTaskResult`)构造:`events: input.sessions.flatMap(session => session.events)` —— **把这次 eval run 涉及的全部 session(含 `t.newSession()` 开的)的全部轮次拍平合并**,在 `test()` 跑完、`collector.finalize(result)` 时才求值。
+- `session.ts:73-83`:`t.newSession()` 返回的 session 也绑同一套断言,但它是 snapshot scope,只看这个 session 在断言记录时已经发生的事件。
 - `session.ts:298-308`(`EvalTurn` 构造函数):`t.send()` 返回的 turn 对象绑 `{ timing: "snapshot", select: () => this.#assertionSubject() }`,`#assertionSubject()` 只读**这一轮自己的** `events`(`session.ts:221-243` 的 `#recordTurn` 传入的就是这次 `send()` 的 `result.events`,不含之前轮次)。
 
 两处绑定共享**同一套完整函数**,区别只是"挂在哪个对象上",不是"叫什么名字"——eve 没有"`messageIncludes` 天生看全部、`calledTool` 天生看单轮"这种按名字区分的不一致。1.1 要避免的正是这种不一致,eve 靠"位置决定作用域、每个位置给全套词汇"解决,不是靠"取消聚合"解决。
 
 **fasteval 对齐到这个设计,不是取消聚合**:
 
-- `t.*` 保留"聚合整个 attempt"的语义——这次 eval 执行至今的全部轮次、含 `t.newSession()` 开的额外会话,直接对应 eve 的 `timing: "final"` 层。`t` 就是 attempt 的句柄,这一层聚合是有意为之,不是要移除的"黑箱"。
+- `t.*` 保留"聚合整个 eval run"的语义——这次 eval 执行的全部轮次、含 `t.newSession()` 开的额外 session,直接对应 eve 的 `timing: "final"` 层。这一层聚合是有意为之,不是要移除的"黑箱"。
+- `session.*`(`t.newSession()` 的返回值)补全成跟 `t.*` 同一套词汇,但只看这个 session 在断言记录时已有的事件。
 - `turn.*`(`t.send()` 的返回值)补全成跟 `t.*` **同一套完整词汇**(`turn.calledTool` / `turn.succeeded` / `turn.notCalledTool` / `turn.toolOrder` / `turn.usedNoTools` / `turn.maxToolCalls` / `turn.noFailedActions` / `turn.event` / `turn.notEvent` / `turn.eventOrder` / `turn.eventsSatisfy` / `turn.calledSubagent` / `turn.parked`),不再是旧版文档里的 4 个手写方法。`turn.expectOk` / `turn.outputEquals` / `turn.outputMatches` 是 turn 独有的(只对单轮有意义,聚合层不需要),继续保留。
 
-也就是:**只有两层——`t`(attempt 全程聚合)和 `turn`(这一轮)——每层给同一套断言名字,作用域由你调用在哪个对象上决定,不由断言叫什么名字决定。** 不引入第三层"session 级"(eve 的 `newSession()` 返回值也带这套词汇,但 fasteval 目前不需要跟进这一层——`t.newSession()` 只用来开一条新会话线,不额外暴露带作用域断言的 session 句柄)。完整清单见 [Assertions · 作用域](assertions.md#作用域两层同一套词汇)。
+也就是:**接收者决定作用域,不是断言名字决定作用域。** author-facing 接收者是 `t` / `session` / `turn`;`Attempt` 只作为 runner/result 里的执行单位存在,不是写 eval 时要操作的一层。完整清单见 [Assertions · 作用域规则](assertions.md#作用域规则)。
 
 ## `defineEval` 的形状
 
@@ -82,7 +84,7 @@ export default defineEval({
   async test(t) {
     await t.send("布鲁克林今天天气怎么样?");
 
-    // 作用域断言:在 test 结束后,对整个 attempt 评估
+    // t 级作用域断言:在 test 结束后,对本次 eval run 聚合评估
     t.succeeded();
     t.calledTool("get_weather", { input: { city: "Brooklyn" }, count: 1 });
 
@@ -92,7 +94,7 @@ export default defineEval({
 });
 ```
 
-`t.reply` 是最后一条 assistant 消息;`t.send(...)` 返回一个不可变的 **Turn**,带 `message` / `data`(结构化输出)/ `toolCalls` / `status`。
+`t.reply` 是最后一条 assistant 消息;`t.sessionId` 是当前主会话 id;`t.events` 是主 session 目前捕获到的强类型事件流。`t.send(input)` 接受字符串或结构化消息,返回一个不可变的 **Turn**,带 `message` / `data`(结构化输出)/ `toolCalls` / `status` / `events` / `expectOk()`。带本地文件的一轮用 `t.sendFile(text, path, mediaType?)`,文件会作为 data URL 附加到这一轮输入里。
 
 ## 多轮
 
@@ -109,7 +111,7 @@ export default defineEval({
     const draft = await t.send("帮我拟一封跟进邮件。");
     draft.expectOk();                          // 上一轮若失败,这里抛
     t.check(draft.message, includes("此致"));
-    t.judge.autoevals.closedQA("语气是否专业", { on: draft.message }).atLeast(0.6);
+    draft.judge.autoevals.closedQA("语气是否专业").atLeast(0.6);
 
     await t.send("好,发出去。");
     t.calledTool("send_email");
@@ -117,11 +119,38 @@ export default defineEval({
 });
 ```
 
-需要并行的独立会话时用 `t.newSession()` 开一条互不干扰的对话线。
+需要并行的独立会话时用 `t.newSession()` 开一条互不干扰的对话线。新 session 有同一套 drive API(`send` / `sendFile` / `respond` / `events`)和同一套作用域断言;它自己的 `session.*` 只看这条 session,但事件仍会汇入 `t.*` run 级断言。
+
+### HITL / 待输入请求
+
+当 agent 停在用户输入、审批或选项选择上时,用 `requireInputRequest` 把这个状态变成 gate,再用 `respond` 或 `respondAll` 继续下一轮:
+
+```typescript
+const draft = await t.send("先拟稿,发出前让我确认。");
+draft.parked();
+
+const request = t.requireInputRequest({
+  prompt: /是否发送/,
+  optionIds: ["approve", "reject"],
+});
+
+await t.respond({ request, optionId: "approve" });
+t.calledTool("send_email");
+```
+
+如果当前轮有多个同类待处理请求,并且都选同一个选项,用 `respondAll(optionId)`:
+
+```typescript
+await t.send("把这批改动逐项提交审批。");
+t.requireInputRequest({ display: /审批/ });
+
+await t.respondAll("approve");
+t.succeeded();
+```
 
 ### 多轮里评整段对话
 
-多轮最容易踩的坑:**judge 默认只看最后一轮**(`t.reply`),而 `t.messageIncludes` 这类作用域断言看的是**整个 attempt**——这是两条独立的默认规则,不是同一套语义。完整的「两层作用域」规则与每条断言看哪一轮,见 [Assertions · 作用域:两层](assertions.md#作用域两层同一套词汇)。
+多轮最容易踩的坑:**judge 默认只看最后一轮**(`t.reply`),而 `t.messageIncludes` 这类作用域断言看的是**整个 eval run**——这是两条独立的默认规则,不是同一套语义。完整的作用域规则与每条断言看哪一轮,见 [Assertions · 作用域规则](assertions.md#作用域规则)。
 
 要让 judge 评「整段多轮对话」(典型:跨轮一致性),别用默认材料,把全程对话拼出来显式喂进去:
 
@@ -195,7 +224,7 @@ export default defineExperiment({
 
 评一个 coding agent 时,eval 仍然是普通的 `defineEval`,只是多了沙箱能力:`test(t)` 里的 `t` 多出 `t.sandbox`(前提是 agent 声明了 sandbox capability;见 [Sandbox](sandbox.md))。
 
-**没有自动发现,也没有隐式拷贝**——起始文件只有一种方式:在 `test(t)` 里显式调用 `t.sandbox.writeFiles` / `t.sandbox.uploadFiles` 写进沙箱。`t.sandbox` 是 eval 作者使用的沙箱 API,分三类:文件 IO(`writeFiles` / `readFile`)、命令执行(`runCommand` / `runShell`)和结果断言 / diff(`fileChanged` / `diff` / `file`)。文件从哪读、写到沙箱里哪个路径,全部是你写在 `test(t)` 里的普通代码——不存在"运行器悄悄拷贝一个目录"这种黑箱,你想放哪就写哪,不想放的就不写:
+**没有自动发现,也没有隐式拷贝**——起始文件只有一种方式:在 `test(t)` 里显式调用 `t.sandbox.writeFiles` / `t.sandbox.uploadFiles` / `t.sandbox.uploadDirectory` 写进沙箱。`t.sandbox` 是 eval 作者使用的沙箱 API,分三类:文件 IO(`writeFiles` / `uploadDirectory` / `readFile`)、命令执行(`runCommand` / `runShell`)和结果断言 / diff(`fileChanged` / `diff` / `file`)。文件从哪读、写到沙箱里哪个路径,全部是你写在 `test(t)` 里的普通代码——不存在"运行器悄悄拷贝一个目录"这种黑箱,你想放哪就写哪,不想放的就不写。推荐把项目根放在 `/workspace`;需要命令在项目根执行时,给 `runCommand` / `runShell` 传 `{ cwd: "/workspace" }`:
 
 ```typescript
 // evals/refactor.eval.ts
@@ -206,12 +235,13 @@ import { readFileSync } from "node:fs";
 export default defineEval({
   description: "把回调改写成 async/await",
   async test(t) {
-    await t.sandbox.writeFiles({
-      "src/legacy.js": readFileSync("fixtures/legacy-callbacks/legacy.js", "utf-8"),
-    });
+    await t.sandbox.writeFiles(
+      { "src/legacy.js": readFileSync("fixtures/legacy-callbacks/legacy.js", "utf-8") },
+      "/workspace",
+    );
 
     await t.send("把 src/legacy.js 里的回调全部改写成 async/await,保持行为不变。");
-    const test = await t.sandbox.runCommand("npm", ["test"]);
+    const test = await t.sandbox.runCommand("npm", ["test"], { cwd: "/workspace" });
 
     t.sandbox.fileChanged("src/legacy.js");
     t.check(t.sandbox.diff.get("src/legacy.js"), includes("await"));
@@ -220,32 +250,21 @@ export default defineEval({
 });
 ```
 
-**要放一整个文件夹**(比如带 `package.json` + 多个源文件的起始项目),`t.sandbox` 没有单独的"传文件夹"方法——`writeFiles` / `uploadFiles` 拿的都是一份**文件清单**(路径 → 内容),所以自己用 `node:fs` 把本地目录读成清单,一次性传给 `writeFiles`。目的路径就是清单的 key,想保留目录结构、想拍平、想改名都在这段代码里决定,不是框架的隐藏行为:
+**要放一整个文件夹**(比如带 `package.json` + 多个源文件的起始项目),用 `uploadDirectory(localDir, targetDir)`。第一个参数是宿主机上的本地目录,第二个参数是 sandbox 内目标目录。推荐把完整起始项目上传到 `/workspace`:
 
 ```typescript
-import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
-
-function readDirAsFiles(dir: string): Record<string, string> {
-  const files: Record<string, string> = {};
-  for (const entry of readdirSync(dir, { recursive: true }) as string[]) {
-    const abs = join(dir, entry);
-    if (statSync(abs).isFile()) files[entry] = readFileSync(abs, "utf-8");
-  }
-  return files;
-}
-
 export default defineEval({
   description: "实现 Button 组件",
   async test(t) {
-    await t.sandbox.writeFiles(readDirAsFiles("fixtures/button-starter"));
+    await t.sandbox.uploadDirectory("fixtures/button-starter", "/workspace");
+
     await t.send("在 src/components/Button.tsx 导出一个 Button 组件,接受 label 和 onClick 两个 prop。");
     // ...
   },
 });
 ```
 
-`readDirAsFiles` 是普通函数,项目里写一次、到处复用;不是 fasteval 的 API——fasteval 不需要为"传文件夹"单独开方法,`writeFiles` 的文件清单形状已经够表达。二进制文件(图片等)改用 `uploadFiles`(接受 `SandboxFile[]`,可带 `Buffer`),不能用只收文本的 `writeFiles`。
+`writeFiles` 适合少量内联文本文件;`uploadFiles` 适合已经组织成文件数组的文本 / 二进制文件;`uploadDirectory` 适合直接把宿主机上的 fixture 项目、模板项目或测试目录递归放进 sandbox。
 
 数据集扇出时,要写入沙箱的内容跟着数据行走,仍然是同一套写法,不需要另一种"动态 fixture"概念:
 
@@ -256,9 +275,9 @@ export default rows.map((row) =>
   defineEval({
     description: `写入 ${row.file}`,
     async test(t) {
-      await t.sandbox.writeFiles({ [row.file]: row.content });
+      await t.sandbox.writeFiles({ [row.file]: row.content }, "/workspace");
       await t.send(`审查 ${row.file}`);
-      const test = await t.sandbox.runCommand("npm", ["test"]);
+      const test = await t.sandbox.runCommand("npm", ["test"], { cwd: "/workspace" });
       t.check(test, commandSucceeded());
     },
   }),
@@ -271,12 +290,12 @@ export default rows.map((row) =>
 export default defineEval({
   description: "实现 Button 组件",
   async test(t) {
-    await t.sandbox.writeFiles({ "package.json": PACKAGE_JSON });
+    await t.sandbox.writeFiles({ "package.json": PACKAGE_JSON }, "/workspace");
     await t.send("在 src/components/Button.tsx 导出一个 Button 组件,接受 label 和 onClick 两个 prop。");
 
     // agent 跑完之后才放测试文件、才跑测试——全程手工可见,没有隐藏逻辑
-    await t.sandbox.writeFiles({ "button.test.ts": BUTTON_TEST_SOURCE });
-    const test = await t.sandbox.runCommand("npm", ["test"]);
+    await t.sandbox.writeFiles({ "button.test.ts": BUTTON_TEST_SOURCE }, "/workspace");
+    const test = await t.sandbox.runCommand("npm", ["test"], { cwd: "/workspace" });
     t.check(test, commandSucceeded());
   },
 });
