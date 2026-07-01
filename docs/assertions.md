@@ -24,6 +24,8 @@
 
 ### 会话驱动与控制 API
 
+`t` 与 `session` 共享同一套会话驱动接口:`send` / `sendFile` / `requireInputRequest` / `respond` / `respondAll`。区别是 `t` 驱动主 session,`session` 驱动一条独立 session;只有 `t` 能 `newSession()`。
+
 | API | 作用 | 备注 |
 |---|---|---|
 | `await t.send(input)` | 给 agent 发一轮输入并等待稳定 | `input` 可以是字符串或结构化消息;返回 `turn` |
@@ -40,6 +42,23 @@
 
 `turn` 是一次 `send` 的不可变结果,不负责继续驱动会话。下一轮仍然从 `t` 或对应 `session` 调 `send` / `respond`。
 
+```typescript
+import { defineEval } from "fasteval";
+
+export default defineEval({
+  description: "主 session 与独立 session 分开驱动",
+  async test(t) {
+    const mainTurn = await t.send("查一下布鲁克林天气。");
+
+    const other = t.newSession();
+    const otherTurn = await other.send("查一下旧金山天气。");
+
+    mainTurn.messageIncludes("Brooklyn");
+    otherTurn.messageIncludes("San Francisco");
+  },
+});
+```
+
 ### 结果读取字段
 
 | API | 作用 | 备注 |
@@ -55,6 +74,26 @@
 | `turn.status` | 这一轮状态 | `completed` / `failed` / `waiting` |
 | `turn.events` | 这一轮标准事件流 | 只含这一轮,不含之前轮次 |
 | `turn.usage` | 这一轮 token 用量 | 可选,取决于 adapter 能否带回 |
+
+```typescript
+import { defineEval } from "fasteval";
+import { includes } from "fasteval/expect";
+
+export default defineEval({
+  description: "读取主 session、独立 session 与单轮结果",
+  async test(t) {
+    const mainTurn = await t.send("查一下布鲁克林天气。");
+
+    const other = t.newSession();
+    const otherTurn = await other.send("查一下旧金山天气。");
+
+    t.check(t.reply, includes("Brooklyn"));             // 主 session 最后一条回复
+    t.check(other.reply, includes("San Francisco"));    // 独立 session 最后一条回复
+    t.check(mainTurn.message, includes("Brooklyn"));    // 第一轮自己的回复
+    t.check(otherTurn.message, includes("San Francisco"));
+  },
+});
+```
 
 ### 作用域断言共享词汇
 
@@ -124,10 +163,19 @@ export default defineEval({
 
 ### 值级断言
 
+`check` 和 `require` 都记录值级断言,但它们不是等价 API。`check` 是"记录并继续":同步返回一个断言句柄,不阻塞后续代码,适合尽量收集多条失败信号。`require` 是"前置条件":立即等待 matcher 结果,通过后返回原 value,不通过就抛出 eval 控制流异常并中止依赖它的后续代码。只有后续逻辑确实依赖这个值或条件时才用 `require`。
+
+**记录 API:**
+
 | API | 作用 | 备注 |
 |---|---|---|
-| `t.check(value, matcher)` | 记录一条值级断言 | 可延迟读取 `t.sandbox.file()` |
-| `t.require(value, matcher)` | 立即评估前置条件 | 不过就抛,中止后续 |
+| `t.check(value, matcher)` | 同步记录一条值级断言 | 返回 `AssertionHandle`;不等待结果;失败不阻止后续代码 |
+| `await t.require(value, matcher)` | 立即等待并要求值通过 matcher | 返回原 `value`;不通过就抛,按 gate 中止后续 |
+
+**Matcher 函数:**
+
+| API | 作用 | 备注 |
+|---|---|---|
 | `includes(needle, opts?)` | 含子串 / 命中正则 | 默认 gate |
 | `excludes(needle, opts?)` | 不含子串 / 不命中正则 | 默认 gate |
 | `equals(expected)` | 深度相等 | 默认 gate |
@@ -139,6 +187,22 @@ export default defineEval({
 | `isFalse(label?)` | 严格等于 `false` | 默认 gate |
 | `commandSucceeded()` | 命令退出码为 0 | 用来替代 `scriptPassed` |
 | `makeAssertion(spec)` | 自定义 matcher | 复杂评分逃生舱 |
+
+```typescript
+import { defineEval } from "fasteval";
+import { includes, isDefined } from "fasteval/expect";
+
+export default defineEval({
+  description: "check 记录断言,require 作为前置条件",
+  async test(t) {
+    await t.send("查一下布鲁克林天气。");
+
+    const reply = await t.require(t.reply, isDefined("reply")); // 不满足就中止后续
+    t.check(reply, includes("Brooklyn"));                       // 记录一条断言,继续收集其它断言
+    t.check(reply, includes("weather"));
+  },
+});
+```
 
 ### Sandbox:文件 IO
 
@@ -164,11 +228,18 @@ export default defineEval({
 
 ### Sandbox:结果断言与 diff
 
+**Sandbox 结果断言:**
+
 | API | 作用 | 备注 |
 |---|---|---|
 | `t.sandbox.fileChanged(path)` | 文件出现在生成 diff 里 | 延迟断言 |
 | `t.sandbox.fileDeleted(path)` | 文件被删除 | 延迟断言 |
 | `t.sandbox.notInDiff(re)` | diff 不含某模式 | 延迟断言 |
+
+**Sandbox 结果材料:**
+
+| API | 作用 | 备注 |
+|---|---|---|
 | `t.sandbox.diff.get(path)` | 读取某文件 diff 内容 | `path` 建议写相对 `/workspace` 的项目路径 |
 | `t.sandbox.diff.isEmpty()` | diff 是否为空 | 值级断言材料 |
 | `t.sandbox.diff.matches(re)` | diff 是否命中正则 | 值级断言材料 |
@@ -182,19 +253,42 @@ export default defineEval({
 
 ### Judge
 
-| API | 作用 | 备注 |
+`t.judge` / `session.judge` / `turn.judge` 共享同一套 judge 函数,只换默认材料:
+
+- `t.judge`:默认评主 session 对话。
+- `session.judge`:默认评这个独立 session 对话。
+- `turn.judge`:默认评这一轮的 `turn.message`。
+- `{ on }`:显式覆盖被评材料,用于 sandbox diff、文件内容或其它自定义值。
+
+| API 后缀 | 作用 | 默认材料 |
 |---|---|---|
-| `t.judge.autoevals.closedQA(criteria, opts?)` | 闭合式判断 | 默认材料是当前 session 对话 |
-| `t.judge.autoevals.factuality(expected, opts?)` | 事实一致性 | 默认材料是当前 session 对话 |
-| `t.judge.autoevals.summarizes(source, opts?)` | 是否忠实摘要 | 默认材料是当前 session 对话 |
-| `session.judge.autoevals.closedQA(criteria, opts?)` | 闭合式判断 | 默认材料是这个 session 对话 |
-| `session.judge.autoevals.factuality(expected, opts?)` | 事实一致性 | 默认材料是这个 session 对话 |
-| `session.judge.autoevals.summarizes(source, opts?)` | 是否忠实摘要 | 默认材料是这个 session 对话 |
-| `turn.judge.autoevals.closedQA(criteria, opts?)` | 闭合式判断 | 默认材料是 `turn.message` |
-| `turn.judge.autoevals.factuality(expected, opts?)` | 事实一致性 | 默认材料是 `turn.message` |
-| `turn.judge.autoevals.summarizes(source, opts?)` | 是否忠实摘要 | 默认材料是 `turn.message` |
+| `judge.autoevals.closedQA(criteria, opts?)` | 闭合式判断 | 接收者默认材料,或 `opts.on` |
+| `judge.autoevals.factuality(expected, opts?)` | 事实一致性 | 接收者默认材料,或 `opts.on` |
+| `judge.autoevals.summarizes(source, opts?)` | 是否忠实摘要 | 接收者默认材料,或 `opts.on` |
 
 judge 是评分器,默认材料也由接收者决定:`t.judge` / `session.judge` 是 session 级,默认评对应 session 的对话文本;`turn.judge` 是 turn 级,默认只评 `turn.message`。评 sandbox 产物或其它自定义值时,显式传 `t.sandbox.diff.get(path)`、`await t.sandbox.readFile(path)` 或其它 `{ on }` 材料。
+
+```typescript
+import { defineEval } from "fasteval";
+
+export default defineEval({
+  description: "judge 默认材料按接收者决定",
+  async test(t) {
+    const firstTurn = await t.send("解释今天布鲁克林天气,给出穿衣建议。");
+
+    const other = t.newSession();
+    await other.send("解释今天旧金山天气,给出穿衣建议。");
+
+    t.judge.autoevals.closedQA("主 session 的建议是否具体?").atLeast(0.7);
+    other.judge.autoevals.closedQA("独立 session 的建议是否具体?").atLeast(0.7);
+    firstTurn.judge.autoevals.closedQA("这一轮是否提到了穿衣建议?").gate();
+
+    // 沙箱型 eval 里,也可以用 { on } 显式评 diff / 文件内容。
+    const diff = t.sandbox.diff.get("src/weather.ts");
+    t.judge.autoevals.closedQA("diff 是否只改了天气逻辑?", { on: diff }).atLeast(0.7);
+  },
+});
+```
 
 ## 作用域规则
 
@@ -202,7 +296,7 @@ judge 是评分器,默认材料也由接收者决定:`t.judge` / `session.judge`
 
 | 层 | 谁 | 作用域 |
 |---|---|---|
-| **值级** | `t.check(value, matcher)`、judge 的 `{ on }` | 只评你传进去的值 |
+| **值级** | `t.check(value, matcher)` / `await t.require(value, matcher)`、judge 的 `{ on }` | 只评你传进去的值;`require` 额外承担前置条件控制流 |
 | **run 级聚合** | `t.succeeded()`、`t.calledTool()`、`t.event()` 等 | `test` 跑完后,看本次运行的全部 session 和全部 turn |
 | **session 级会话** | `session.succeeded()`、`session.calledTool()`、`session.event()` 等 | 只看这个 session 在断言记录时已有的事件 |
 | **turn 级单轮** | `turn.succeeded()`、`turn.calledTool()`、`turn.event()` 等 | 只看这一轮自己的事件 |

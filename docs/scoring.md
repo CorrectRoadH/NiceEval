@@ -4,7 +4,7 @@
 
 五类(详情见 Assertions 对应小节):
 
-1. **值级断言** —— `t.check` / `t.require` 配 `expect` 里的匹配器,就地评估。见 [Assertions · 值级断言](assertions.md#值级断言)。
+1. **值级断言** —— `t.check` / `t.require` 配 `expect` 里的匹配器。`check` 同步记录并继续收集其它断言;`require` 立即等待 matcher 结果,作为前置条件失败中止。见 [Assertions · 值级断言](assertions.md#值级断言)。
 2. **作用域断言** —— `t.succeeded()` / `t.calledTool()` 等,在 `test` 结束后对本次 eval run 聚合评估;同一套断言挂在 `session` 上看单条 session,挂在 `turn` 上只看这一轮。见 [Assertions · API 分组速查](assertions.md#api-分组速查)。
 3. **LLM-as-judge** —— 用一个评判模型给开放式回答打分,`t.judge` / `session.judge` 默认评对应 session,`turn.judge` 默认评当前 turn,细节见下文。
 4. **测试即评分**(沙箱型) —— 手工在沙箱里跑测试与命令,把命令结果交给 `t.check`。
