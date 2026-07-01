@@ -45,19 +45,16 @@ npx fasteval exp local fixtures/button --runs 10 --early-exit
 
 ```text
 createSandbox
-  → uploadFiles(workspaceFiles)
   → git init && git commit
-  → hooks.sandbox.setup?
-  → npm install
+  → adapter.setup?                 # 装 CLI / 写 agent 配置
+  → test(t): uploadDirectory(...)   # 写入这条 eval 的起始文件
   → adapter.send(input, ctx)
-  → uploadFiles(testFiles)
-  → runValidation()
-  → collectGeneratedFiles()
-  → hooks.sandbox.teardown?
+  → test(t): runCommand(...)        # 手工运行验证命令
+  → collectGeneratedFiles()         # git diff HEAD
   → sandbox.stop()
 ```
 
-`EVAL.ts` 在 agent 执行阶段不可见，验证阶段才上传。
+起始文件和验证命令都写在 `test(t)` 中。agent 执行阶段只能看到你已经写进 sandbox 的文件。
 
 ## 自定义 sandbox agent
 
@@ -81,14 +78,15 @@ export default defineSandboxAgent({
 
 CLI 传入的模型和自定义 flags 会出现在 adapter context 中。adapter 可以决定如何把它们转成 CLI 参数或 HTTP payload。
 
-## 注册自定义 agent
+## 在 experiment 中使用自定义 agent
 
 ```ts
-import { defineConfig } from "fasteval";
+import { defineExperiment } from "fasteval";
 import myAgent from "./agents/my-agent";
 
-export default defineConfig({
-  agents: [myAgent],
+export default defineExperiment({
+  agent: myAgent,
+  runs: 3,
 });
 ```
 

@@ -39,4 +39,4 @@ export default defineConfig({
   Default sandbox backend for sandbox agents. Override per experiment or with `--sandbox`.
 </ParamField>
 
-fasteval does not provide framework-level lifecycle hooks. Prepare files inside `test(t)` with `t.sandbox.writeFiles`, `uploadFiles`, or `uploadDirectory`; put adapter setup in the agent adapter.
+fasteval keeps environment preparation in ordinary code. Prepare files inside `test(t)` with `t.sandbox.writeFiles`, `uploadFiles`, or `uploadDirectory`; put adapter setup in the agent adapter.

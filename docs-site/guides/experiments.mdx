@@ -61,7 +61,7 @@ export default defineExperiment({
   An estimated cost ceiling in USD. The runner stops dispatching new attempts once accumulated cost exceeds this value. Can be overridden at runtime with `--budget`.
 </Accordion>
 
-fasteval does not provide framework-level lifecycle hooks. Upload starter files and run setup commands inside `test(t)`, or put adapter-specific preparation in the agent adapter's `setup`.
+Keep environment preparation in ordinary code. Upload starter files and run setup commands inside `test(t)`, or put adapter-specific preparation in the agent adapter's `setup`.
 
 ## Running experiments
 

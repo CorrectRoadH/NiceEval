@@ -37,4 +37,4 @@ export default defineConfig({
   默认 sandbox 后端。起始文件不会自动上传；sandbox eval 在 `test(t)` 里调用 `t.sandbox.uploadDirectory(...)`、`uploadFiles(...)` 或 `writeFiles(...)`。
 </ParamField>
 
-fasteval 不提供框架级 lifecycle hooks。环境准备写在 eval 的 `test(t)` 或 agent adapter 的 `setup` 中。
+fasteval 把环境准备放在普通代码里：eval 自己需要的文件写在 `test(t)`，agent 自己的准备写在 adapter 的 `setup`。

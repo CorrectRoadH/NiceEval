@@ -16,7 +16,8 @@ fasteval 是一个 TypeScript evals 库。CLI 入口在 `bin/fasteval.mjs`，运
 - `docs/eval-authoring.md`：如何编写 eval。
 - `docs/assertions.md`：断言参考——每条断言的作用、作用域(看哪一轮)和来源(eve.dev / Vercel agent-eval / crabbox / autoevals / fasteval 自创)。
 - `docs/scoring.md`：gate / soft、匹配器、judge、判决规则。
-- `docs/agents-and-adapters.md`：如何接被测对象、如何写 agent adapter。
+- `docs/adapters/README.md`：如何接被测对象、如何写 agent adapter、分档能力表(send / 事件流 / 会话 / HITL / tracing)。
+- `docs/adapters/ref/agent-eval.md`：Vercel agent-eval 具体怎么写 adapter(采集/转换/落地、canonical tool name、暗号字段)——学习记录,不是 fasteval 的实现。
 - `docs/sandbox.md`：沙箱接口和 Docker / 三方后端边界。
 - `docs/runner.md`：发现、调度、并发、缓存、attempt 编排。
 - `docs/experiments.md`：实验矩阵、可对比组、`fasteval exp`。

@@ -39,12 +39,12 @@ Declaring capabilities lets fasteval shape the `t` context that eval authors rec
 interface AgentCapabilities {
   conversation?: boolean;       // supports multiple send() calls per eval (t.reply, t.newSession)
   toolObservability?: boolean;  // produces action.* events  →  t.calledTool, t.toolOrder, etc.
-  // workspace is for sandbox agents only — do not set it on a remote agent
+  sandbox?: boolean;            // sandbox agents only — do not set it on a remote agent
 }
 ```
 
 <Note>
-  The `workspace` capability — which enables `t.sandbox.diff`, `t.fileChanged`, and related assertions — is only meaningful for **sandbox agents** that run in an isolated filesystem. Remote and in-process agents should declare only `conversation` and `toolObservability`.
+  The `sandbox` capability — which enables `t.sandbox.diff`, `t.fileChanged`, and related assertions — is only meaningful for **sandbox agents** that run in an isolated filesystem. Remote and in-process agents should declare only `conversation` and `toolObservability`.
 </Note>
 
 ### `AgentContext`

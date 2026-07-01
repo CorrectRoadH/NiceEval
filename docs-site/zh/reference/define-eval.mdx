@@ -106,7 +106,7 @@ export default defineEval({
   断言文件被修改。
 </ParamField>
 
-<ParamField body="t.check(await t.sandbox.runCommand("npm", ["test"], { cwd: "/workspace" }), commandSucceeded())" type="function">
+<ParamField body="t.check(commandResult, commandSucceeded())" type="function">
   断言 sandbox 验证测试通过。
 </ParamField>
 

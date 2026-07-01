@@ -14,7 +14,7 @@
 
 **Task** —— 要让被测对象完成的"那件事"。不管会话型还是沙箱型,都是一串 `t.send(...)` 的输入——沙箱型只是 `t` 多了 `t.sandbox`,任务本身照样写在 `t.send(...)` 里。Task 描述意图,不描述如何判分。
 
-**Agent** —— "一条连到 AI 的连接"的抽象,由 experiment 引用。按 transport 分三类:进程内(调你的函数)、远程(按你自己服务的协议)、沙箱(在 [Sandbox](#sandbox) 里 spawn coding agent 的 CLI)。运行器只认统一动词 `send`,核心按 Agent 的[能力](#capability)决定 `t` 上下文暴露哪些动作。fasteval 不定义任何 agent 协议,所以没有 `--url`、没有通用 http target —— 连你自己的服务也是写一个 agent,URL 是它的内部配置。详见 [Agents 与 Adapters](agents-and-adapters.md)。
+**Agent** —— "一条连到 AI 的连接"的抽象,由 experiment 引用。按 transport 分三类:进程内(调你的函数)、远程(按你自己服务的协议)、沙箱(在 [Sandbox](#sandbox) 里 spawn coding agent 的 CLI)。运行器只认统一动词 `send`,核心按 Agent 的[能力](#capability)决定 `t` 上下文暴露哪些动作。fasteval 不定义任何 agent 协议,所以没有 `--url`、没有通用 http target —— 连你自己的服务也是写一个 agent,URL 是它的内部配置。详见 [Agents 与 Adapters](adapters/README.md)。
 
 **Scorer** / **评分器** —— 把"结果"映射成分数的东西。三类:**值级断言**(`expect` 里的 `includes`/`equals`/`matches`…;`check` 记录并继续,`require` 作为前置条件立即等待并失败中止)、**作用域断言**(`t.succeeded()`/`t.calledTool()`…,在 `test` 结束后对本次 eval run 聚合评估;同一套断言挂在 [Session](#运行与结果) 上则只看这条 session,挂在 [Turn](#运行与结果) 上则只看这一轮)、**LLM-as-judge**(用一个评判模型给开放式回答打分)。沙箱型里,手工在沙箱内跑验证命令,再用 `t.check(result, commandSucceeded())` 判定,本身也是一种 Scorer。
 
@@ -72,7 +72,7 @@
 
 **Cost** / **成本** —— 用量经配置的价格表(模型 → 每百万 token 单价)换算的估算金额(`estimatedCostUSD`)。让跨 agent 对比从 pass-rate 升级为**质量 × 成本**。`--budget <usd>` 给整轮设上限。详见 [Observability](observability.md#用量与成本token--计费)。
 
-**Reporter** / **报告器** —— 消费运行结果的插件,实现 `onRunStart` / `onEvalComplete` / `onRunComplete`。内置控制台、JUnit、JSON;可接第三方实验跟踪平台。报告器在独立的串行队列上回调,不阻塞执行池。详见 [Reporters](observability.md#reporters)。
+**Reporter** / **报告器** —— 消费运行结果的插件,可实现分阶段 `onEvent`(`run:start` / `eval:start` / `eval:complete` / `run:summary` 等),也兼容 `onRunStart` / `onEvalComplete` / `onRunComplete`。内置控制台、JUnit、JSON;可接第三方实验跟踪平台。报告器在独立的串行队列上回调,不阻塞执行池。详见 [Reporters](observability.md#reporters)。
 
 **Artifact** / **工件** —— 落盘的结构化产物,位于 `.fasteval/<时间戳>/`:`summary.json`、逐 eval 的结果 JSON、事件流 ndjson、transcript、生成文件 diff、测试输出。
 
@@ -82,18 +82,18 @@
 
 | 字段 | 类型 | 作用 |
 |---|---|---|
-| `agents` | `Agent[]` | 注册自实现 agent(见 [Agents 与 Adapters](agents-and-adapters.md#注册与选择)) |
 | `judge` | `JudgeConfig` | 默认评判模型(见 [Scoring](scoring.md#3-llm-as-judge)) |
 | `reporters` | `Reporter[]` | 全局报告器(见 [Observability](observability.md#reporters)) |
 | `maxConcurrency` | `number` | 并发上限(见 [Runner](runner.md#调度有界并发)) |
 | `timeoutMs` | `number` | 单 eval 超时 |
+| `sandbox` | `SandboxOption` | 项目默认 sandbox 后端;experiment 或 `--sandbox` 可覆盖 |
 | `pricing` | `Record<string, Price>` | 价格表覆盖,合并在内置快照之上(见 [Observability](observability.md#换算成本价格表从哪来)) |
 
-沙箱后端**不在 config**:它由 experiment 的 `sandbox` 字段决定(见 [Experiments](experiments.md#definexperiment-的形状)),`--sandbox` 可临时覆盖。config 只管项目级默认与全局资源。
+agent 不在 config 里注册:每个 experiment 直接引用一个 agent adapter(见 [Experiments](experiments.md#defineexperiment-的形状))。config 只管项目级默认与全局资源。
 
 **Strict mode** / **严格模式** —— 默认情况下 soft 断言低于阈值仍判 `passed`;`--strict` 下同样的情况改判 `failed`。用于 CI 把质量回归当成红灯。
 
-**环境预置** —— fasteval **不提供框架级生命周期钩子**。要在跑 agent 前准备环境,放三处之一:这条 eval 的沙箱预置写在 `test(t)` 里(手工 `t.sandbox.writeFiles` / `runCommand`),连 agent / 装 CLI 写在 [`SandboxAgent.setup`](agents-and-adapters.md#sandboxagent-契约),整轮共享的外部服务(mock API、DB)用外部编排(`docker compose` / CI 脚本)起停、经 env 传入。详见 [Sandbox · 环境预置放哪](sandbox.md#环境预置放哪)。
+**环境预置** —— fasteval 把准备逻辑放在普通代码里。要在跑 agent 前准备环境,放三处之一:这条 eval 的沙箱预置写在 `test(t)` 里(手工 `t.sandbox.writeFiles` / `runCommand`),连 agent / 装 CLI 写在 [`SandboxAgent.setup`](adapters/README.md#sandboxagent-契约),整轮共享的外部服务(mock API、DB)用外部编排(`docker compose` / CI 脚本)起停、经 env 传入。详见 [Sandbox · 环境预置放哪](sandbox.md#环境预置放哪)。
 
 ## 相关阅读
 

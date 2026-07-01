@@ -138,7 +138,7 @@ Official Adapters
 - [Getting Started](docs/getting-started.md)
 - [Authoring](docs/eval-authoring.md)
 - [Scoring](docs/scoring.md)
-- [Agents and Adapters](docs/agents-and-adapters.md)
+- [Agents and Adapters](docs/adapters/README.md)
 - [Sandbox](docs/sandbox.md)
 - [Runner](docs/runner.md)
 - [Experiments](docs/experiments.md)

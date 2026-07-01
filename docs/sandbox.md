@@ -1,6 +1,6 @@
 # Sandbox —— 在哪里跑
 
-沙箱回答"在哪里、如何隔离地运行 agent 命令"。它把隔离环境的全部特殊性关进一个统一接口,让 [Adapter](agents-and-adapters.md) 和核心都不必知道底下是 Docker 还是某个三方服务。
+沙箱回答"在哪里、如何隔离地运行 agent 命令"。它把隔离环境的全部特殊性关进一个统一接口,让 [Adapter](adapters/README.md) 和核心都不必知道底下是 Docker 还是某个三方服务。
 
 ## 为什么需要沙箱
 
@@ -84,7 +84,7 @@ export function resolveBackend(opts): SandboxBackend {
 
 ## Sandbox 作为数据结构(带参数)
 
-后端名只是个字符串,带不了参数。和 [agent](agents-and-adapters.md) 一样,sandbox 也能用**数据结构**定义,于是每个后端可带自己的参数。工厂函数(从 `fasteval` 导出)产出 spec,放进 `experiment.sandbox`;字符串后端名仍然兼容。
+后端名只是个字符串,带不了参数。和 [agent](adapters/README.md) 一样,sandbox 也能用**数据结构**定义,于是每个后端可带自己的参数。工厂函数(从 `fasteval` 导出)产出 spec,放进 `experiment.sandbox`;字符串后端名仍然兼容。
 
 ```typescript
 import { dockerSandbox, vercelSandbox, e2bSandbox } from "fasteval";
@@ -159,15 +159,15 @@ await sandbox.runCommand("npm", ["install"], { cwd: "/workspace" });
   → sandbox.stop()                       # 销毁
 ```
 
-核心只固定两件事:**沙箱创建时打一次空 git 基线**,和**销毁前采一次 diff**——这两件事跟"里面放了什么文件"无关,核心不需要知道也不需要预设目录约定。中间"传什么文件、传到哪、什么时候调 agent、什么时候手工跑测试"全部是 `test(t)` 里的普通代码决定,不是核心的固定编排,详见 [Eval Authoring · 沙箱型](eval-authoring.md#沙箱型手工把文件放进沙箱)——Adapter 也只管 `t.send()` 触发的那一次"在沙箱里把 agent 跑起来"。author-facing 的 `t.sandbox` 同时承载立即 IO / 命令执行和最终 diff / 文件变化视图,但不暴露 `stop()`。后端应保证 `/workspace` 可写;命令工作目录用 `runCommand` / `runShell` 的 `cwd` option 表达,默认 `/workspace`,不提供可变的 `setWorkingDirectory`。fasteval **不提供框架级生命周期钩子**在这两头插东西——预置放哪见下节。
+核心只固定两件事:**沙箱创建时打一次空 git 基线**,和**销毁前采一次 diff**——这两件事跟"里面放了什么文件"无关,核心不需要知道也不需要预设目录约定。中间"传什么文件、传到哪、什么时候调 agent、什么时候手工跑测试"全部是 `test(t)` 里的普通代码决定,不是核心的固定编排,详见 [Eval Authoring · 沙箱型](eval-authoring.md#沙箱型手工把文件放进沙箱)——Adapter 也只管 `t.send()` 触发的那一次"在沙箱里把 agent 跑起来"。author-facing 的 `t.sandbox` 同时承载立即 IO / 命令执行和最终 diff / 文件变化视图,但不暴露 `stop()`。后端应保证 `/workspace` 可写;命令工作目录用 `runCommand` / `runShell` 的 `cwd` option 表达,默认 `/workspace`,不提供可变的 `setWorkingDirectory`。预置放哪见下节。
 
 ## 环境预置放哪
 
-fasteval 没有 `hooks` / `setup` / `teardown` 这类框架级生命周期钩子。要在跑 agent 前准备环境,按职责分摊到三处已有的地方——**每一处都是普通代码,不是框架编排**:
+要在跑 agent 前准备环境,按职责分摊到三处已有的地方——**每一处都是普通代码,不是框架编排**:
 
 | 要准备的东西 | 放哪 | 怎么清理 |
 |---|---|---|
-| 连 agent、装 CLI、写 agent 自己的主配置(每 attempt 一次) | [`SandboxAgent.setup`](agents-and-adapters.md#sandboxagent-契约) | 随沙箱销毁,无需手工清 |
+| 连 agent、装 CLI、写 agent 自己的主配置(每 attempt 一次) | [`SandboxAgent.setup`](adapters/README.md#sandboxagent-契约) | 随沙箱销毁,无需手工清 |
 | **这条 eval** 的沙箱预置(写 `.env`、装依赖、按 `t.flags` 注入 skill) | `test(t)` 里的普通代码(`t.sandbox.writeFiles` / `runCommand`) | 随沙箱销毁;要清沙箱外的东西用 `try/finally` |
 | **整轮共享**的外部服务(mock API、共享 DB、license) | 外部编排:`docker compose up -d && fasteval exp … && docker compose down`,或 CI 脚本 | 外部编排负责,URL 经 env 传入 agent / eval |
 
@@ -184,6 +184,6 @@ fasteval 没有 `hooks` / `setup` / `teardown` 这类框架级生命周期钩子
 
 ## 相关阅读
 
-- [Agents 与 Adapters](agents-and-adapters.md) —— Adapter 如何通过 `Sandbox` 接口驱动 agent,以及 `SandboxAgent.setup`。
+- [Agents 与 Adapters](adapters/README.md) —— Adapter 如何通过 `Sandbox` 接口驱动 agent,以及 `SandboxAgent.setup`。
 - [Runner](runner.md) —— 并发、预热、复用的调度。
 - [Vision](vision.md) —— 后端名只用于路由,不进核心行为。
