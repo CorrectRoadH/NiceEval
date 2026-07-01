@@ -31,7 +31,7 @@
 
 - `t.require`;`similarity`;`satisfies`。
 - 工具观测:`calledTool` / `notCalledTool` / `toolOrder` / `usedNoTools` / `maxToolCalls`,配工具匹配小语言。
-- LLM-as-judge:`closedQA` / `factuality` / `summarizes` / `score`,三级模型解析。
+- LLM-as-judge:`closedQA` / `factuality` / `summarizes`,三级模型解析。
 - gate/soft 链式改写;`--strict`。
 - `JUnit` reporter;`--junit`、`--tag`、`--timeout`。
 

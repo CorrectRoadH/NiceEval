@@ -157,7 +157,7 @@ interface RunContext {
 | 钩子抛错 | 处置 |
 |---|---|
 | `hooks.run.setup` | **中止整轮** —— 共享环境起不来,没法跑。已跑过的 run.setup cleanup 反序执行,发 `run:setupFailed`,非零退出。 |
-| `hooks.sandbox.setup` | **隔离成该 eval `failed`** —— 和执行器异常同级,其余 eval 照跑。已经起来的部分照样进 teardown 清理。 |
+| `hooks.sandbox.setup` | **隔离成该 attempt / eval `errored`** —— 属于环境预置失败,和执行器异常同级,其余 eval 照跑。已经起来的部分照样进 teardown 清理。 |
 | `teardown` / cleanup(任一作用域) | **不改判决** —— 评分已定。错误记成该结果的 diagnostic,发 `*:teardownFailed`,并 log 警告。资源可能泄漏,所以要显眼,但不能让"清理失败"把一个已经 `passed` 的 eval 翻成 `failed`。 |
 | `hooks.run.teardown` | 同上:log + `run:teardownFailed`,不改已出的 summary。 |
 
@@ -229,4 +229,3 @@ attempt 级 `hooks.sandbox.setup` 的开始 / 结束并入既有 `eval:start` / 
 - [Runner](runner.md) —— 钩子在调度里的执行顺序与事件。
 - [Observability](observability.md#reporters) —— reporter:消费结果而非起停资源。
 - [Vision](vision.md) —— 为什么钩子是中性的、核心不按名字分支。
-</content>

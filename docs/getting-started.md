@@ -2,7 +2,7 @@
 
 这一篇带你从零跑通三种 eval:一个进程内函数 eval、一个会话型 agent eval、一个沙箱里的 coding-agent eval。读完你就有了能在 CI 里跑的最小骨架。
 
-> 注:fasteval 目前处于设计阶段,本篇描述的是目标用法(目标 DX),作为实现依据。
+> 注:本篇描述推荐 DX 和目标用法。若代码实现与这里的设计不一致,应进一步讨论并决定是修代码、修设计,还是记录为明确的阶段性差异。
 
 ## 安装
 
@@ -187,7 +187,7 @@ npx fasteval exp local fixtures/button --runs 10 --early-exit
 
 ## 看结果
 
-控制台实时出行:
+控制台实时输出:
 
 ```text
 Discovered 3 evals
@@ -213,7 +213,7 @@ Results:  2 passed, 1 failed, 0 skipped
     ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
 
-`--strict` 让 soft 断言低于阈值也判红;有任何 `failed` 即非零退出。
+`--strict` 让 soft 断言低于阈值也判为 `failed`;有任何 `failed` 或 `errored` 即非零退出。
 
 ## 接着读
 

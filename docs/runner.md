@@ -71,7 +71,7 @@ fixtures/button   codex         pass@5 = 3/5 (60%)   mean 41s · 72k tok · $0.3
 ## 超时:双层保护
 
 - **Adapter 内层超时** —— agent CLI 自己的超时。
-- **运行器外层超时** —— `Promise.race` 一个 `AbortSignal.timeout`,即使 agent 卡死也能强行收尾,标记该 eval `failed`(error: timeout)并触发 abort。
+- **运行器外层超时** —— `Promise.race` 一个 `AbortSignal.timeout`,即使 agent 卡死也能强行收尾,标记该 attempt / eval 为 `errored`(error: timeout)并触发 abort。
 
 外层是兜底,保证一个卡死的 case 不会挂起整批。
 
@@ -84,7 +84,7 @@ fixtures/button   codex         pass@5 = 3/5 (60%)   mean 41s · 72k tok · $0.3
 - **`hooks.run.setup` / `hooks.run.teardown`**(run 作用域) —— 整轮一次,在第一个 attempt 之前 / 最后一个 attempt 之后跑;用来起停共享环境(mock API、共享 DB、预热池)。
 - **`hooks.sandbox.setup` / `hooks.sandbox.teardown`**(sandbox 作用域,每个 attempt) —— 每次运行前预置沙箱(写 `.env`、起服务、装额外依赖)、跑完清理;能读 `ctx.flags` 按 feature flag 分支,`setup` 可返回 cleanup 闭包。
 
-执行顺序:config 钩子先于 experiment 钩子叠加,teardown 反序;**`teardown` / cleanup 一律在 `finally` 里跑**,失败也跑。错误隔离按作用域分级:`hooks.run.setup` 抛错**中止整轮**,`hooks.sandbox.setup` 抛错**隔离成该 eval 失败**(不影响别人),`teardown` 抛错只记 diagnostic、不改判决。
+执行顺序:config 钩子先于 experiment 钩子叠加,teardown 反序;**`teardown` / cleanup 一律在 `finally` 里跑**,失败也跑。错误隔离按作用域分级:`hooks.run.setup` 抛错**中止整轮**,`hooks.sandbox.setup` 抛错**隔离成该 attempt / eval `errored`**(不影响别人),`teardown` 抛错只记 diagnostic、不改判决。
 
 **下游分析**(二次评分、自定义指标、品牌提及统计)走 [reporter](observability.md#reporters),不另设运行钩子 —— 这是从 agent-eval 的 `onRunComplete` 收敛过来的(见 [Experiments 砍字段](experiments.md#从-agent-eval-砍掉了什么以及为什么))。生命周期钩子管**资源起停**、reporter 管**结果消费**,两者正交,见 [资源 vs 分析](lifecycle.md#不和-reporter-冲突--资源-vs-分析)。
 
