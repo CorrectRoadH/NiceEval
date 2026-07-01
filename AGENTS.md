@@ -6,7 +6,7 @@ fasteval 是一个 TypeScript evals 库。CLI 入口在 `bin/fasteval.mjs`，运
 
 ## Documentation Index
 
-文档位于 `docs/`，主要用于建立项目心智模型和查具体行为：
+项目文档位于 `docs/`，主要是给 Agent 与 开发者看的。这里讨论应该如何设计，如何设计。
 
 - `docs/README.md`：文档首页，先读这里了解 fasteval 是什么、如何快速开始。
 - `docs/vision.md`：产品原则，尤其是 core / Agent(Adapter) / Sandbox 的边界。
@@ -25,6 +25,8 @@ fasteval 是一个 TypeScript evals 库。CLI 入口在 `bin/fasteval.mjs`，运
 - `docs/cli.md`：CLI 参数模型和命令参考。
 - `docs/getting-started.md`：目标 DX 示例。
 - `docs/roadmap.md`：MVP 范围和后续计划。
+
+用户文档位于 `docs-site`，主要是给用户看的。用户应该如何使用 fasteval
 
 ## Public Docs, Examples & README
 

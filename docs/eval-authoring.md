@@ -1,8 +1,38 @@
 # Authoring —— 编写 eval
 
-这一篇是写 eval 的手册:单轮、多轮、数据集扇出,以及沙箱型 fixture 的写法。评分手段单独成篇,见 [Scoring](scoring.md)。
+写一个 eval 应该像写一个测试:一个文件、一个 `test(t)` 函数,断言写在你观察结果的地方。这一篇按这个顺序教:单轮、多轮、数据集扇出,以及沙箱型 fixture。评分手段(judge、匹配器、gate/soft)单独成篇,见 [Scoring](scoring.md)。
 
-核心 DX 原则(继承自 eve):**路径即身份、一文件一 eval、线性书写就地断言**。理由见 [Vision](vision.md)。
+核心 DX 参考  eve
+
+<--手动维护不允许删本段内容-->
+# 核心原因
+1. API应该容易理解，不会有二义性
+1.1 负面例子，`t.messageIncludes(token)` 和 `t.calledTool(name, opts?)` 其它同样的断言API应该都是有同样语义的(比如同指是最后一次t.send，返回的消息，而不是有的是全部，有的是单轮)。如果用户想对整个消息进行评估，可以自己拼接、保存每轮的回复。
+1.2 API唯一，如无必要，不应该有两个做一样事的API。
+
+2. 给用户自组织的能力，而不是约定大于配置。用户不想学太多约定。
+2.1 比如能不能把fixture、workspace(拷文件。通过基本API让用户自己去处理，而不是我们给一个值，让过程黑箱)
+2.2 用户在用 langfuse、promptfoo 这种传统的 prompt 评估，有一些问题，像 dataset、golden，不是很适用于 Agent 的 case。 Agent eval可能更关注多轮对话、同时可能不同case的评估内容也不一样。所以统一的dataset。input与execpt output不太行。
+2.2.1 如果用户真的需要dataset，可以通过for来实现这个功能
+eve是怎么做到这个的
+```ts
+import { defineEval } from "eve/evals";
+import { loadYaml } from "eve/evals/loaders";
+import { equals } from "eve/evals/expect";
+const doc = await loadYaml("evals/data/cases.yaml");
+const rows = doc.evals as readonly { task: string; prompt: string; sql: string }[];
+export default rows.map((row) =>
+  defineEval({
+    description: row.task,
+    async test(t) {
+      await t.send(row.prompt);
+      t.succeeded();
+      t.check(t.reply, equals(row.sql));
+    },
+  }),
+```
+<--end-->
+
 
 ## `defineEval` 的形状
 
@@ -181,7 +211,7 @@ test("用脚手架命令初始化,而不是手搓", () => {
 
 ### 程序化定义(可选)
 
-不想用磁盘约定时,可显式定义并复用一套断言:
+fixture 目录是磁盘约定,天生「一个目录一个 eval」,扇不出数组——想要 50 个结构相同、只换 prompt/断言参数的 coding-task 变体,要么手写 50 个目录,要么就需要能在 TS 里 `rows.map()` 生成的等价物。`defineAgentEval` 补的就是这个洞:把「数组即扇出」这条已经在会话型 eval 上成立的原则,延伸到沙箱型 eval,同时保持和 `defineEval` 一样的心智模型(同一个壳子,`t.send` 换成 `t.run()`)。
 
 ```typescript
 // evals/refactor.eval.ts
@@ -201,7 +231,7 @@ export default defineAgentEval({
 });
 ```
 
-`defineAgentEval` 和 fixture 是同一件事的两种写法:fixture 适合大批量、跨语言;`defineAgentEval` 适合要精细控制流程或复用断言。两者共享同一套评分 / 运行 / 报告。
+`defineAgentEval` 和 fixture 是同一件事的两种写法,分工看任务是异构还是同构:fixture 适合彼此**不同**的一次性任务(不同语言、真实项目脚手架);`defineAgentEval` 适合结构**相同、只换参数**的批量变体,复用同一套断言模板,靠数组扇出。两者共享同一套评分 / 运行 / 报告。
 
 ## 命名与组织约定
 
@@ -212,6 +242,7 @@ export default defineAgentEval({
 
 ## 相关阅读
 
-- [Scoring](scoring.md) —— `t.check` / 作用域断言 / judge / 测试 的完整能力。
+- [Assertions](assertions.md) —— `t.check` / 作用域断言的完整速查表(看哪一轮、来源哪里)。
+- [Scoring](scoring.md) —— judge 细节、测试即评分、判决规则。
 - [Agents 与 Adapters](agents-and-adapters.md) —— agent 三类 transport 与 agent 适配。
 - [CLI](cli.md) —— 过滤、重试、并发等运行标志。

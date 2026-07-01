@@ -33,11 +33,16 @@
 | `t.usedNoTools()` | 完全没调工具 | eve.dev |
 | `t.maxToolCalls(n)` | 工具调用数 ≤ n | eve.dev |
 | `t.loadedSkill(skill)` | = `calledTool("load_skill", { input: { skill } })` 的糖 | eve.dev |
+| `t.calledSubagent(name, match?)` ⚠ | 子 agent 委派匹配(同 `ToolMatch` 小语言) | 待核实 —— 未见于 `src/types.ts` |
 | `t.noFailedActions()` | 没有 failed 的工具 / 子 agent 动作 | eve.dev |
 | `t.event(type, { count? })` | 出现(或恰好 count 个)某类型事件 | eve.dev |
 | `t.notEvent(type)` | 没出现某类型事件 | eve.dev |
+| `t.eventOrder([...types])` ⚠ | 事件分组按给定顺序出现 | 待核实 —— 未见于 `src/types.ts` |
+| `t.eventsSatisfy(label, predicate)` ⚠ | 自定义谓词直接查 `events` | 待核实 —— 未见于 `src/types.ts` |
 | `t.maxTokens(n)` | 整次 input + output token ≤ n | fasteval(用量聚合,补 agent-eval 的 TODO) |
 | `t.maxCost(usd)` | 估算成本 ≤ usd(需价格表) | **fasteval 自创**(预算护栏思路借鉴 crabbox) |
+
+⚠ 标记的三条抄自旧版 `scoring.md`,但当前 `src/types.ts` 的 `TestContext` 上没有对应方法 —— 不像 `t.sandbox.*` 那样有「设计文档先行,代码待迁移」的迁移记录(见下方来源一览),状态不明。发现这篇文档的人先按「未实现」处理,别当已有能力用;要不要保留 / 实现 / 删除,找项目负责人确认。
 
 ## 工作区断言(`t.sandbox.*`,仅 workspace 能力)
 
@@ -104,7 +109,7 @@
 - `t.transcript.events()` —— 整次运行所有 `StreamEvent`(`t.event` / `t.notEvent` 是它的语法糖)。来源:`t.events` 逃生舱思路 **eve.dev**,transcript 归一化 **Vercel agent-eval**。
 - `t.transcript.text()` —— 把全程拼成 `role: text` 多行,给 judge 喂整段多轮对话用。**fasteval 自创**。
 - `t.transcript.compactions()` —— 自动压缩次数(capability 不可观测时 `undefined`)。
-- `t.usage` —— 累计用量(平铺,agent 中立)。工作区相关的访问器(`t.sandbox.diff` / 句柄 / `t.sandbox.file`)见[工作区断言](#工作区断言tsandbox仅-workspace-能力)。
+- `t.usage`(`{ inputTokens, outputTokens, cacheReadTokens?, … }`)—— 累计用量(平铺,agent 中立),`test` 里随时可读,不止 `maxTokens`/`maxCost` 两条断言用得上,也能自己拿字段配 `t.check` 写别的效率断言(如 `t.check(t.usage.outputTokens, satisfies((n) => n < 10_000, "输出不啰嗦"))`)。工作区相关的访问器(`t.sandbox.diff` / 句柄 / `t.sandbox.file`)见[工作区断言](#工作区断言tsandbox仅-workspace-能力)。
 
 ## 严重级:gate vs soft
 
