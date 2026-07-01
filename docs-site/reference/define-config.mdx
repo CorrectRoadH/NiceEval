@@ -1,18 +1,18 @@
 ---
 title: "defineConfig: configure project defaults"
 sidebarTitle: "defineConfig"
-description: "Reference for project-wide fasteval defaults: judge, reporters, concurrency, timeout, and sandbox backend."
+description: "Reference for project-wide niceeval defaults: judge, reporters, concurrency, timeout, and sandbox backend."
 ---
 
-`defineConfig` is the default export from `fasteval.config.ts`. Keep it for project-wide defaults. Agent, model, flags, runs, and per-experiment budget live in `experiments/` files via `defineExperiment`.
+`defineConfig` is the default export from `niceeval.config.ts`. Keep it for project-wide defaults. Agent, model, flags, runs, and per-experiment budget live in `experiments/` files via `defineExperiment`.
 
 ```ts
-import { defineConfig } from "fasteval";
-import { JUnit } from "fasteval/reporters";
+import { defineConfig } from "niceeval";
+import { JUnit } from "niceeval/reporters";
 
 export default defineConfig({
   judge: { model: "gpt-5.4-mini" },
-  reporters: [JUnit(".fasteval/junit.xml")],
+  reporters: [JUnit(".niceeval/junit.xml")],
   maxConcurrency: 4,
   timeoutMs: 300_000,
   sandbox: "auto",
@@ -24,7 +24,7 @@ export default defineConfig({
 </ParamField>
 
 <ParamField body="reporters" type="Reporter[]">
-  Additional reporters. Built-ins include `JUnit(path)`. The CLI always writes structured `.fasteval/` artifacts.
+  Additional reporters. Built-ins include `JUnit(path)`. The CLI always writes structured `.niceeval/` artifacts.
 </ParamField>
 
 <ParamField body="maxConcurrency" type="number">
@@ -39,4 +39,4 @@ export default defineConfig({
   Default sandbox backend for sandbox agents. Override per experiment or with `--sandbox`.
 </ParamField>
 
-fasteval keeps environment preparation in ordinary code. Prepare files inside `test(t)` with `t.sandbox.writeFiles`, `uploadFiles`, or `uploadDirectory`; put adapter setup in the agent adapter.
+niceeval keeps environment preparation in ordinary code. Prepare files inside `test(t)` with `t.sandbox.writeFiles`, `uploadFiles`, or `uploadDirectory`; put adapter setup in the agent adapter.

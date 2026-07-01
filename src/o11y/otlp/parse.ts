@@ -1,4 +1,4 @@
-// OTLP traces → fasteval TraceSpan[]。两种线编码都吃,无外部依赖:
+// OTLP traces → niceeval TraceSpan[]。两种线编码都吃,无外部依赖:
 //   · OTLP/JSON ——— codex 的 trace_exporter protocol="json";id 是 hex、纳秒是十进制字符串。
 //   · OTLP/protobuf — bub-tapestore-otel(Python 的 HTTP 出口只有 protobuf)。
 // 只抠瀑布图要的字段:traceId / spanId / parentSpanId / name / 起止纳秒 / status / attributes。

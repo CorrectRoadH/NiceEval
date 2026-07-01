@@ -1,10 +1,10 @@
 ---
 title: "Sandbox fixtures: evaluate coding agents with tasks"
 sidebarTitle: "Fixtures"
-description: "A fixture is a directory with PROMPT.md and EVAL.ts that fasteval uses to run a coding agent in isolation and validate its output with Vitest tests."
+description: "A fixture is a directory with PROMPT.md and EVAL.ts that niceeval uses to run a coding agent in isolation and validate its output with Vitest tests."
 ---
 
-When you evaluate a coding agent — one that reads files, writes code, and runs shell commands — you need more than a chat assertion. You need to give the agent a real workspace, let it do its work in isolation, and then inspect the result. fasteval handles this through **sandbox fixtures**: directories on disk that describe the task, provide starting files, and contain hidden validation tests. The framework discovers them automatically, runs the agent in a fresh sandbox, and grades the output.
+When you evaluate a coding agent — one that reads files, writes code, and runs shell commands — you need more than a chat assertion. You need to give the agent a real workspace, let it do its work in isolation, and then inspect the result. niceeval handles this through **sandbox fixtures**: directories on disk that describe the task, provide starting files, and contain hidden validation tests. The framework discovers them automatically, runs the agent in a fresh sandbox, and grades the output.
 
 ## What a fixture is
 
@@ -19,7 +19,7 @@ evals/fixtures/create-button/
 └─ tsconfig.json
 ```
 
-fasteval discovers fixtures by looking for any directory containing a `PROMPT.md`. You don't need to write a `.eval.ts` wrapper or register the fixture anywhere. Nested directories work fine: `fixtures/api/auth/` is discovered and gets the ID `fixtures/api/auth`.
+niceeval discovers fixtures by looking for any directory containing a `PROMPT.md`. You don't need to write a `.eval.ts` wrapper or register the fixture anywhere. Nested directories work fine: `fixtures/api/auth/` is discovered and gets the ID `fixtures/api/auth`.
 
 ## PROMPT.md
 
@@ -55,7 +55,7 @@ test("Accepts label and onClick props", () => {
 ```
 
 <Warning>
-  `EVAL.ts` is **hidden from the agent** during execution. fasteval only uploads it to the sandbox after the agent has finished running. This prevents the agent from reading the expected answers and writing code that trivially passes without solving the actual task.
+  `EVAL.ts` is **hidden from the agent** during execution. niceeval only uploads it to the sandbox after the agent has finished running. This prevents the agent from reading the expected answers and writing code that trivially passes without solving the actual task.
 </Warning>
 
 ## Workspace files
@@ -68,19 +68,19 @@ Every file in the fixture directory other than `EVAL.ts` is part of the agent's 
 - Any configuration files the agent might need (`eslint.config.js`, `.prettierrc`, etc.)
 
 <Note>
-  `package.json` must include `"type": "module"` for fasteval's module loading to work correctly inside the sandbox.
+  `package.json` must include `"type": "module"` for niceeval's module loading to work correctly inside the sandbox.
 </Note>
 
 ## Auto-discovery
 
-fasteval scans your eval directory for any subdirectory that contains a `PROMPT.md` file. There is no registration step. The fixture's ID is derived from its path relative to the eval root, the same way `.eval.ts` IDs are derived:
+niceeval scans your eval directory for any subdirectory that contains a `PROMPT.md` file. There is no registration step. The fixture's ID is derived from its path relative to the eval root, the same way `.eval.ts` IDs are derived:
 
 | Fixture path | Eval ID |
 |---|---|
 | `evals/fixtures/button/` | `fixtures/button` |
 | `evals/fixtures/api/auth/` | `fixtures/api/auth` |
 
-You can filter to a specific fixture using its ID prefix after the experiment selector: `npx fasteval exp local fixtures/button`.
+You can filter to a specific fixture using its ID prefix after the experiment selector: `npx niceeval exp local fixtures/button`.
 
 ## Running a fixture
 
@@ -97,24 +97,24 @@ You can filter to a specific fixture using its ID prefix after the experiment se
     Select the coding agent in your experiment file and use `--sandbox` only when you need to override the isolation backend.
 
     ```bash
-    npx fasteval exp local fixtures/button --sandbox docker
+    npx niceeval exp local fixtures/button --sandbox docker
     ```
 
-    fasteval will start a fresh Docker container, upload the workspace files (excluding `EVAL.ts`), run the agent, upload `EVAL.ts`, execute the Vitest tests, collect the diff, and tear down the container.
+    niceeval will start a fresh Docker container, upload the workspace files (excluding `EVAL.ts`), run the agent, upload `EVAL.ts`, execute the Vitest tests, collect the diff, and tear down the container.
   </Step>
 
   <Step title="Run multiple times for a pass rate">
     Use `--runs` to measure reliability. Add `--early-exit` to stop as soon as one run passes.
 
     ```bash
-    npx fasteval exp local fixtures/button --runs 10 --early-exit
+    npx niceeval exp local fixtures/button --runs 10 --early-exit
     ```
   </Step>
 </Steps>
 
 ## Asserting agent behavior with o11y
 
-Beyond asserting file contents, you can assert **what the agent did** — which shell commands it ran, which tools it called, and how it navigated the task. After the agent finishes, fasteval injects an observability summary into the sandbox at `__fasteval__/results.json`. Your `EVAL.ts` can read this file.
+Beyond asserting file contents, you can assert **what the agent did** — which shell commands it ran, which tools it called, and how it navigated the task. After the agent finishes, niceeval injects an observability summary into the sandbox at `__niceeval__/results.json`. Your `EVAL.ts` can read this file.
 
 ```ts
 import { test, expect } from "vitest";
@@ -122,7 +122,7 @@ import { readFileSync } from "node:fs";
 
 test("Used the scaffold command instead of writing files by hand", () => {
   const o11y = JSON.parse(
-    readFileSync("__fasteval__/results.json", "utf-8")
+    readFileSync("__niceeval__/results.json", "utf-8")
   ).o11y;
   const cmds = o11y.shellCommands.map((c: { command: string }) => c.command);
   expect(cmds.some((c) => c.includes("create-next-app"))).toBe(true);
@@ -130,7 +130,7 @@ test("Used the scaffold command instead of writing files by hand", () => {
 
 test("Did not run a destructive command", () => {
   const o11y = JSON.parse(
-    readFileSync("__fasteval__/results.json", "utf-8")
+    readFileSync("__niceeval__/results.json", "utf-8")
   ).o11y;
   expect(
     o11y.shellCommands.map((c: { command: string }) => c.command)
@@ -146,8 +146,8 @@ If you prefer to define fixture-style evals in code — for example, to share as
 
 ```ts
 // evals/refactor.eval.ts
-import { defineAgentEval } from "fasteval";
-import { includes } from "fasteval/expect";
+import { defineAgentEval } from "niceeval";
+import { includes } from "niceeval/expect";
 
 export default defineAgentEval({
   description: "Rewrite callbacks to async/await",
@@ -170,7 +170,7 @@ export default defineAgentEval({
 | Discovery | Automatic | Requires a `.eval.ts` file |
 | Validation | Vitest tests in `EVAL.ts` | Programmatic assertions in `test(t)` |
 | Best for | Large suites, multi-language projects | Fine-grained control, shared assertion logic |
-| Assertion style | Vitest `expect` | fasteval `t.*` methods |
+| Assertion style | Vitest `expect` | niceeval `t.*` methods |
 
 Both approaches share the same scoring, running, and reporting pipeline.
 

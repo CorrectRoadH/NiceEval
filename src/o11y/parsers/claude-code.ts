@@ -3,7 +3,7 @@
 //   - 每行 { type:"user"|"assistant", message:{ content:[...], usage:{...} } };
 //   - assistant 行的 content 里混着 text / tool_use / thinking 块;
 //   - 工具结果以 user 行里的 tool_result 块回来(按 tool_use_id 配对)。
-// 目标:归一成 fasteval StreamEvent[]。
+// 目标:归一成 niceeval StreamEvent[]。
 
 import type { StreamEvent, Usage, ToolName, JsonValue } from "../../types.ts";
 import type { ParsedTranscript } from "./index.ts";

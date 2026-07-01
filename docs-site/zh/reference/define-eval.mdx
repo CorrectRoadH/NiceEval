@@ -1,5 +1,5 @@
 ---
-title: "defineEval: 声明、配置并运行 fasteval eval"
+title: "defineEval: 声明、配置并运行 niceeval eval"
 sidebarTitle: "defineEval"
 description: "defineEval 和 defineAgentEval 参考：选项、test context t、Turn 返回值和数据集数组导出。"
 ---
@@ -7,7 +7,7 @@ description: "defineEval 和 defineAgentEval 参考：选项、test context t、
 `defineEval` 是编写 eval 的主要入口。每个 eval 文件调用一次，传入描述和 `test(t)`，并默认导出结果。
 
 ```ts
-import { defineEval } from "fasteval";
+import { defineEval } from "niceeval";
 
 export default defineEval({
   description: "Brooklyn weather query",
@@ -19,7 +19,7 @@ export default defineEval({
 ```
 
 <Note>
-  不要提供 `id` 或 `name`。fasteval 从文件路径推导 eval ID。
+  不要提供 `id` 或 `name`。niceeval 从文件路径推导 eval ID。
 </Note>
 
 ## `defineEval` 选项

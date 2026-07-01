@@ -1,16 +1,16 @@
 ---
-title: "fasteval: lightweight TypeScript evals for AI agents"
+title: "NiceEval: lightweight TypeScript evals for AI agents"
 sidebarTitle: "Home"
-description: "fasteval is a lightweight, general-purpose TypeScript eval tool for agents, services, functions, and coding-agent fixtures."
+description: "NiceEval is a lightweight, general-purpose TypeScript eval tool for agents, services, functions, and coding-agent fixtures."
 ---
 
-fasteval is a lightweight eval tool for AI agents. It gives you one TypeScript surface for checking conversational agents, Claude Code or Codex-style coding agents, HTTP services, and in-process functions.
+NiceEval is a lightweight eval tool for AI agents. It gives you one TypeScript surface for checking conversational agents, Claude Code or Codex-style coding agents, HTTP services, and in-process functions.
 
 The goal is low-friction evals that are still inspectable: `defineEval`, built-in scoring, bounded concurrency, run matrices, traces, cost, diffs, artifacts, and sandbox support when a task needs a real workspace.
 
 <CardGroup cols={3}>
   <Card title="Quickstart" icon="bolt" href="/quickstart">
-    Install fasteval, scaffold a project, and run your first eval in minutes.
+    Install niceeval, scaffold a project, and run your first eval in minutes.
   </Card>
   <Card title="Sandbox agents" icon="box" href="/guides/sandbox-agent">
     Evaluate coding agents inside isolated workspaces with hidden validation.
@@ -64,8 +64,8 @@ Choose the boundary that matches the system under test. The eval and scoring mod
 ## Example
 
 ```ts evals/weather/brooklyn.eval.ts
-import { defineEval } from "fasteval";
-import { includes } from "fasteval/expect";
+import { defineEval } from "niceeval";
+import { includes } from "niceeval/expect";
 
 export default defineEval({
   description: "Brooklyn weather query",
@@ -80,27 +80,27 @@ export default defineEval({
 ```
 
 ```bash
-npx fasteval exp local weather
-npx fasteval view
+npx niceeval exp local weather
+npx niceeval view
 ```
 
 ## Get started
 
 <Steps>
-  <Step title="Install fasteval">
+  <Step title="Install niceeval">
     ```bash
-    npm install -D fasteval
+    npm install -D niceeval
     ```
   </Step>
   <Step title="Initialize your eval suite">
     ```bash
-    npx fasteval init
+    npx niceeval init
     ```
-    This generates `evals/`, `fasteval.config.ts`, and starter examples.
+    This generates `evals/`, `niceeval.config.ts`, and starter examples.
   </Step>
   <Step title="Run an eval">
     ```bash
-    npx fasteval exp local
+    npx niceeval exp local
     ```
   </Step>
 </Steps>
@@ -108,7 +108,7 @@ npx fasteval view
 ## Give this to your coding agent
 
 ```text
-READ docs-site/quickstart.mdx and install fasteval for this repo.
+READ docs-site/quickstart.mdx and install niceeval for this repo.
 Create one eval for a real regression-prone workflow, run it locally, and show the generated artifacts.
 ```
 

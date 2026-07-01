@@ -19,7 +19,7 @@ evals/fixtures/plugin/create-button/
 └─ src/
 ```
 
-`PROMPT.md` is the task description the agent reads. `EVAL.ts` is the verification script fasteval runs after the agent finishes. Plugin installation, configuration, or tokens can live in the fixture files, in a sandbox lifecycle hook, or in your agent adapter's `setup()`.
+`PROMPT.md` is the task description the agent reads. `EVAL.ts` is the verification script niceeval runs after the agent finishes. Plugin installation, configuration, or tokens can live in the fixture files, in a sandbox lifecycle hook, or in your agent adapter's `setup()`.
 
 ## Write the task
 
@@ -53,14 +53,14 @@ test("supports required props", () => {
 });
 ```
 
-If your plugin triggers a specific tool, you can also inspect `__fasteval__/results.json`:
+If your plugin triggers a specific tool, you can also inspect `__niceeval__/results.json`:
 
 ```ts
 import { test, expect } from "vitest";
 import { readFileSync } from "node:fs";
 
 test("plugin tool was used", () => {
-  const result = JSON.parse(readFileSync("__fasteval__/results.json", "utf-8"));
+  const result = JSON.parse(readFileSync("__niceeval__/results.json", "utf-8"));
   expect(result.o11y.totalToolCalls).toBeGreaterThan(0);
 });
 ```
@@ -68,7 +68,7 @@ test("plugin tool was used", () => {
 ## Run
 
 ```bash
-npx fasteval exp plugin-regression fixtures/plugin/create-button
+npx niceeval exp plugin-regression fixtures/plugin/create-button
 ```
 
 The experiment group selects the agent configs. The trailing `fixtures/plugin/create-button` argument is only an eval ID prefix filter.
@@ -78,7 +78,7 @@ The experiment group selects the agent configs. The trailing `fixtures/plugin/cr
 Model "plugin on" vs "plugin off" as two agents or two experiment cells:
 
 ```bash
-npx fasteval exp plugin-regression fixtures/plugin/create-button
+npx niceeval exp plugin-regression fixtures/plugin/create-button
 ```
 
 Key things to look at:
@@ -91,7 +91,7 @@ Key things to look at:
 ## Copy to your agent
 
 ```text
-READ docs-site/example/claude-code-codex-plugin.mdx and install fasteval for this repo.
+READ docs-site/example/claude-code-codex-plugin.mdx and install niceeval for this repo.
 Create the first fixture from one real plugin workflow, then run it with both claude-code and codex.
 ```
 

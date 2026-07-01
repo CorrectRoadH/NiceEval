@@ -104,7 +104,7 @@ type Dictionary = Record<MessageKey, string>;
 
 const dictionaries: Record<Locale, Dictionary> = {
   en: {
-    "app.title": "fasteval experiment view",
+    "app.title": "niceeval experiment view",
     "nav.label": "Report",
     "nav.experiments": "Experiments",
     "nav.runs": "Runs",
@@ -120,7 +120,7 @@ const dictionaries: Record<Locale, Dictionary> = {
     "section.traces": "Traces",
     "search.experiments": "Filter experiment, agent, model, or eval...",
     "search.runs": "Filter eval ID or experiment...",
-    "empty.summary": "No summary.json files found. Run fasteval or pass fasteval view path/to/summary.json.",
+    "empty.summary": "No summary.json files found. Run niceeval or pass niceeval view path/to/summary.json.",
     "empty.individualRuns": "No individual runs found.",
     "empty.runsFilter": "No results match the filter.",
     "empty.traces": "No traces available. Traces are collected during eval runs when artifacts are saved.",
@@ -169,7 +169,7 @@ const dictionaries: Record<Locale, Dictionary> = {
     "action.copyErrors": "Copy errors",
     "action.copied": "Copied",
     "trace.loading": "loading...",
-    "trace.loadFailed": "load failed (static report has no server - use fasteval view):",
+    "trace.loadFailed": "load failed (static report has no server - use niceeval view):",
     "trace.transcript": "transcript",
     "trace.timing": "timing trace",
     "trace.noSpans": "no spans",
@@ -204,7 +204,7 @@ const dictionaries: Record<Locale, Dictionary> = {
     "outcome.skipped": "skipped",
   },
   "zh-CN": {
-    "app.title": "fasteval 实验查看器",
+    "app.title": "niceeval 实验查看器",
     "nav.label": "报告",
     "nav.experiments": "实验",
     "nav.runs": "运行",
@@ -220,7 +220,7 @@ const dictionaries: Record<Locale, Dictionary> = {
     "section.traces": "追踪",
     "search.experiments": "筛选实验、agent、model 或 eval...",
     "search.runs": "筛选 eval ID 或实验...",
-    "empty.summary": "没有找到 summary.json。请先运行 fasteval，或传入 fasteval view path/to/summary.json。",
+    "empty.summary": "没有找到 summary.json。请先运行 niceeval，或传入 niceeval view path/to/summary.json。",
     "empty.individualRuns": "没有单次运行结果。",
     "empty.runsFilter": "没有匹配筛选条件的结果。",
     "empty.traces": "没有可用追踪。保存工件的 eval run 会收集 traces。",
@@ -269,7 +269,7 @@ const dictionaries: Record<Locale, Dictionary> = {
     "action.copyErrors": "复制错误",
     "action.copied": "已复制",
     "trace.loading": "加载中...",
-    "trace.loadFailed": "加载失败(静态报告没有服务端 - 请用 fasteval view):",
+    "trace.loadFailed": "加载失败(静态报告没有服务端 - 请用 niceeval view):",
     "trace.transcript": "会话",
     "trace.timing": "耗时追踪",
     "trace.noSpans": "没有 span",
@@ -305,7 +305,7 @@ const dictionaries: Record<Locale, Dictionary> = {
   },
 };
 
-const storageKey = "fasteval:view:locale";
+const storageKey = "niceeval:view:locale";
 
 export function detectLocale(): Locale {
   const stored = readStoredLocale();

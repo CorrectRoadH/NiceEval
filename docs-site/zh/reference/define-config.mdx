@@ -4,10 +4,10 @@ sidebarTitle: "defineConfig"
 description: "defineConfig 参考：judge、reporters、并发、超时和 sandbox 默认值。"
 ---
 
-`defineConfig` 从根目录的 `fasteval.config.ts` 默认导出，只放项目级默认值。agent、model、flags、runs 和实验预算写在 `experiments/` 下的 `defineExperiment` 文件里。
+`defineConfig` 从根目录的 `niceeval.config.ts` 默认导出，只放项目级默认值。agent、model、flags、runs 和实验预算写在 `experiments/` 下的 `defineExperiment` 文件里。
 
 ```ts
-import { defineConfig } from "fasteval";
+import { defineConfig } from "niceeval";
 
 export default defineConfig({
   judge: { model: "gpt-5.4-mini" },
@@ -37,4 +37,4 @@ export default defineConfig({
   默认 sandbox 后端。起始文件不会自动上传；sandbox eval 在 `test(t)` 里调用 `t.sandbox.uploadDirectory(...)`、`uploadFiles(...)` 或 `writeFiles(...)`。
 </ParamField>
 
-fasteval 把环境准备放在普通代码里：eval 自己需要的文件写在 `test(t)`，agent 自己的准备写在 adapter 的 `setup`。
+niceeval 把环境准备放在普通代码里：eval 自己需要的文件写在 `test(t)`，agent 自己的准备写在 adapter 的 `setup`。

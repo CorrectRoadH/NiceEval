@@ -1,14 +1,14 @@
 ---
 title: "Sandbox agents: evaluate Claude Code, Codex, and bub"
 sidebarTitle: "Sandbox Agent"
-description: "Use fasteval's built-in agents (claude-code, codex, bub) or write a custom adapter to run a coding-agent CLI in an isolated Docker or cloud sandbox."
+description: "Use niceeval's built-in agents (claude-code, codex, bub) or write a custom adapter to run a coding-agent CLI in an isolated Docker or cloud sandbox."
 ---
 
-A sandbox agent spawns a coding-agent CLI inside an isolated environment — a Docker container or cloud micro-VM — gives it a workspace, lets it run freely, then reads back the transcript and validates the result. This is how you evaluate tools like Claude Code, Codex, and bub: they need a real filesystem to write code, execute builds, and call tools, so fasteval provides that filesystem in a throwaway container your host machine never sees.
+A sandbox agent spawns a coding-agent CLI inside an isolated environment — a Docker container or cloud micro-VM — gives it a workspace, lets it run freely, then reads back the transcript and validates the result. This is how you evaluate tools like Claude Code, Codex, and bub: they need a real filesystem to write code, execute builds, and call tools, so niceeval provides that filesystem in a throwaway container your host machine never sees.
 
 ## Built-in sandbox agents
 
-fasteval ships three sandbox adapters out of the box. Import one into an experiment file and run that experiment.
+niceeval ships three sandbox adapters out of the box. Import one into an experiment file and run that experiment.
 
 <CardGroup cols={3}>
   <Card title="claude-code" icon="code">
@@ -24,15 +24,15 @@ fasteval ships three sandbox adapters out of the box. Import one into an experim
 
 ## Running a sandbox agent
 
-Select the agent in an experiment file, then run that experiment. The optional `--sandbox` flag only overrides where fasteval spins up the isolated environment (see [Sandbox Backends](/guides/sandbox-backends) for the full list of options).
+Select the agent in an experiment file, then run that experiment. The optional `--sandbox` flag only overrides where niceeval spins up the isolated environment (see [Sandbox Backends](/guides/sandbox-backends) for the full list of options).
 
 ```shell
 # Evaluate the button fixture with Claude Code in a local Docker container
 export ANTHROPIC_API_KEY=sk-ant-...
-npx fasteval exp local fixtures/button --sandbox docker
+npx niceeval exp local fixtures/button --sandbox docker
 
 # Run 10 times and stop as soon as one pass is recorded
-npx fasteval exp local fixtures/button --runs 10 --early-exit
+npx niceeval exp local fixtures/button --runs 10 --early-exit
 ```
 
 <Note>
@@ -70,7 +70,7 @@ createSandbox(backend, timeout)
 A sandbox adapter receives a `ctx` whose `ctx.sandbox` is the live `Sandbox` handle for the current isolated environment. Your `send` function uses that handle to install the CLI, authenticate, run the agent, and read back the transcript.
 
 ```ts
-import { defineSandboxAgent } from "fasteval/adapter";
+import { defineSandboxAgent } from "niceeval/adapter";
 
 defineSandboxAgent({
   name: string;
@@ -95,8 +95,8 @@ The source for the built-in Claude Code adapter illustrates all five steps and h
 
 ```ts
 // agents/claude-code.ts  (built-in; custom agents follow the same shape)
-import { defineSandboxAgent, shared } from "fasteval/adapter";
-import { requireEnv } from "fasteval";
+import { defineSandboxAgent, shared } from "niceeval/adapter";
+import { requireEnv } from "niceeval";
 
 // Authentication is the adapter's private business — never passed through ctx
 const auth = () => ({ ANTHROPIC_API_KEY: requireEnv("ANTHROPIC_API_KEY") });
@@ -135,25 +135,25 @@ export default defineSandboxAgent({
 
 ## Shared helpers
 
-fasteval provides helpers that all sandbox adapters can reuse. Using them ensures that workspace preparation, diff collection, and validation are identical across every agent — results are always apples-to-apples.
+niceeval provides helpers that all sandbox adapters can reuse. Using them ensures that workspace preparation, diff collection, and validation are identical across every agent — results are always apples-to-apples.
 
 | Helper | What it does |
 |---|---|
 | `shared.prepareWorkspace(sandbox, fixture)` | Uploads workspace files (hiding `EVAL.ts`), runs `git init` and commits a baseline |
 | `shared.captureLatestJsonl(sandbox, dir)` | Finds and reads the most recent JSONL transcript in the given directory |
 | `shared.runValidation(sandbox, scripts, mode)` | Uploads test files and runs `EVAL.ts` (Vitest) plus any npm scripts |
-| `shared.injectO11yContext(sandbox, events)` | Derives the o11y summary from the event stream and writes it to `__fasteval__/results.json` so `EVAL.ts` can assert on agent behavior |
+| `shared.injectO11yContext(sandbox, events)` | Derives the o11y summary from the event stream and writes it to `__niceeval__/results.json` so `EVAL.ts` can assert on agent behavior |
 | `shared.captureGeneratedFiles(sandbox)` | Runs `git diff HEAD` and returns `{ generated, deleted }` — the file-level diff used for `t.fileChanged`, `t.fileDeleted`, and `t.sandbox.diff` |
 
 ---
 
 ## Transcript parsing: JSONL → `StreamEvent[]`
 
-Each coding agent writes its own native transcript format. Your adapter's fifth step is converting that format into the standard `StreamEvent[]` vocabulary that all fasteval assertions understand.
+Each coding agent writes its own native transcript format. Your adapter's fifth step is converting that format into the standard `StreamEvent[]` vocabulary that all niceeval assertions understand.
 
 ```ts
 // Minimal transcript parser skeleton
-import type { StreamEvent } from "fasteval";
+import type { StreamEvent } from "niceeval";
 
 function parseClaudeCode(rawJsonl: string): StreamEvent[] {
   const events: StreamEvent[] = [];
@@ -187,7 +187,7 @@ function parseClaudeCode(rawJsonl: string): StreamEvent[] {
 ```
 
 <Tip>
-  Once you normalize the transcript into `StreamEvent[]`, the entire suite of fasteval assertions becomes available: `t.calledTool`, `t.toolOrder`, `t.noFailedActions`, `t.messageIncludes`, and more — no extra work required.
+  Once you normalize the transcript into `StreamEvent[]`, the entire suite of niceeval assertions becomes available: `t.calledTool`, `t.toolOrder`, `t.noFailedActions`, `t.messageIncludes`, and more — no extra work required.
 </Tip>
 
 ---
@@ -216,7 +216,7 @@ Built-in agents (`claude-code`, `codex`, `bub`) can be imported into experiment 
 
 ```ts
 // experiments/local.ts
-import { defineExperiment } from "fasteval";
+import { defineExperiment } from "niceeval";
 import myCustomAgent from "./agents/my-custom-agent.js";
 
 export default defineExperiment({
@@ -228,7 +228,7 @@ export default defineExperiment({
 Then run that experiment:
 
 ```shell
-npx fasteval exp local fixtures/my-task --sandbox docker
+npx niceeval exp local fixtures/my-task --sandbox docker
 ```
 
 <Warning>

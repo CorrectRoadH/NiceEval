@@ -25,15 +25,15 @@ vercel `vercel-sandbox`)都在 `PATH` 上。agent adapter 的 `setup()` 会 `com
 
 ```bash
 cd sandbox/docker
-docker build -t fasteval-agents:node24 .
+docker build -t niceeval-agents:node24 .
 ```
 
 用(eval / experiment 里):
 
 ```ts
-import { dockerSandbox } from "fasteval/sandbox";
+import { dockerSandbox } from "niceeval/sandbox";
 export default defineExperiment({
-  sandbox: dockerSandbox({ image: "fasteval-agents:node24" }),
+  sandbox: dockerSandbox({ image: "niceeval-agents:node24" }),
   // …
 });
 ```
@@ -43,12 +43,12 @@ export default defineExperiment({
 ## E2B
 
 需先 `e2b auth login`。`e2b template create` 从 `sandbox/docker` 目录读 `Dockerfile`(+ 同目录
-`bub-override.txt`)构建模板 `fasteval-agents`(内存必须显式给大 —— e2b 默认 base 只有 ~481MB,
+`bub-override.txt`)构建模板 `niceeval-agents`(内存必须显式给大 —— e2b 默认 base 只有 ~481MB,
 跑 `npm install` Next.js 依赖会 OOM):
 
 ```bash
 cd sandbox/docker
-e2b template create fasteval-agents \
+e2b template create niceeval-agents \
   --memory-mb 4096 --cpu-count 2 \
   -c "tail -f /dev/null" \
   --ready-cmd "command -v codex && command -v claude && command -v bub"
@@ -60,9 +60,9 @@ e2b template create fasteval-agents \
 用:
 
 ```ts
-import { e2bSandbox } from "fasteval/sandbox";
+import { e2bSandbox } from "niceeval/sandbox";
 export default defineExperiment({
-  sandbox: e2bSandbox({ template: "fasteval-agents" }),
+  sandbox: e2bSandbox({ template: "niceeval-agents" }),
   // …
 });
 ```
@@ -83,7 +83,7 @@ node --import tsx sandbox/vercel/build-vercel-snapshot.mts
 用:
 
 ```ts
-import { vercelSandbox } from "fasteval/sandbox";
+import { vercelSandbox } from "niceeval/sandbox";
 export default defineExperiment({
   sandbox: vercelSandbox({ snapshotId: "snap_xxx" }),
   // …

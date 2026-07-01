@@ -1,22 +1,22 @@
-import { defineEval } from "fasteval";
-import { includes } from "fasteval/expect";
+import { defineEval } from "niceeval";
+import { includes } from "niceeval/expect";
 
-// 评测：多轮对话。
+// 这条 eval 验证同一个 session 里连续发消息时，agent 能保持会话并在需要时调用工具。
 //
-// 同一个会话里连发多轮 t.send(自动续接 sessionId),作用域断言看的是【整段会话累计】的事件流:
-// 跨多轮一共发了几条回复、中间那轮有没有调对工具。考的是助手能正常多轮收发、且按需调用工具。
+// 第一轮是纯文本算术，检查上一轮回复会被 t.reply 正确暴露出来。
+// 第二轮切到实时天气，检查同一会话里的后续问题仍能触发 get_weather。
 export default defineEval({
-  description: "AI 助手：多轮对话",
+  description: "测试 agent 在多轮对话中保持会话并按需调用工具的能力",
 
   async test(t) {
-    await t.send("1+1=?")
+    await t.send("1+1=?");
     t.succeeded();
-    t.check(t.reply,includes("2"));
+    t.check(t.reply, includes("2"));
 
-    const second = await t.send("北京今天天气怎么样？")
+    const second = await t.send("北京今天天气怎么样？");
     t.calledTool("get_weather", { input: { city: "北京" } });
     second.messageIncludes("北京");
 
-    t.judge.autoevals.closedQA("有回答对算数是，并且回答了北京天气的问题").gate(0.8);
+    t.judge.autoevals.closedQA("是否先正确回答了 1+1=2，又基于天气工具回答了北京天气问题？").gate(0.8);
   },
 });

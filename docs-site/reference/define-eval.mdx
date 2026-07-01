@@ -1,13 +1,13 @@
 ---
-title: "defineEval: declare, configure, and run evals in fasteval"
+title: "defineEval: declare, configure, and run evals in niceeval"
 sidebarTitle: "defineEval"
 description: "Complete reference for defineEval and defineAgentEval. Covers all options, the test context t, Turn return value, and dataset array exports."
 ---
 
-`defineEval` is the primary building block for writing evals in fasteval. You call it once per file, pass a configuration object describing what to test, and export the result as the default export. The runner discovers your file, derives its ID from the file path, and executes the `test` function under the selected experiment's agent.
+`defineEval` is the primary building block for writing evals in niceeval. You call it once per file, pass a configuration object describing what to test, and export the result as the default export. The runner discovers your file, derives its ID from the file path, and executes the `test` function under the selected experiment's agent.
 
 ```ts
-import { defineEval } from "fasteval";
+import { defineEval } from "niceeval";
 
 export default defineEval({
   description: "Brooklyn weather query",
@@ -21,7 +21,7 @@ export default defineEval({
 ```
 
 <Note>
-  You must **not** provide an `id` or `name` field. fasteval derives the eval ID
+  You must **not** provide an `id` or `name` field. niceeval derives the eval ID
   from the file path: `evals/weather/brooklyn.eval.ts` becomes `weather/brooklyn`.
   Rename the file to rename the ID — it never goes stale.
 </Note>
@@ -132,7 +132,7 @@ These methods are available regardless of which agent or capabilities are config
 </ParamField>
 
 <ParamField body="t.log(msg)" type="(msg: string) => void">
-  Writes a diagnostic message to the eval's output log. Appears in `.fasteval/`
+  Writes a diagnostic message to the eval's output log. Appears in `.niceeval/`
   artifacts and in verbose console output. Useful for debugging flaky evals.
 </ParamField>
 
@@ -495,8 +495,8 @@ Available on any eval that has a judge model configured (globally or per-eval).
 `defineAgentEval` is a convenience wrapper for **coding-agent evals** that you want to define programmatically rather than via a fixture directory. It is equivalent to a fixture (`PROMPT.md` + `EVAL.ts`) but expressed entirely in TypeScript.
 
 ```ts
-import { defineAgentEval } from "fasteval";
-import { includes } from "fasteval/expect";
+import { defineAgentEval } from "niceeval";
+import { includes } from "niceeval/expect";
 
 export default defineAgentEval({
   description: "Rewrite callbacks to async/await",
@@ -541,13 +541,13 @@ export default defineAgentEval({
 
 ## Dataset export (fan-out)
 
-When a single eval file exports an **array** as its default export, fasteval fans it out into one eval per element. This is the canonical way to write parameterized test suites.
+When a single eval file exports an **array** as its default export, niceeval fans it out into one eval per element. This is the canonical way to write parameterized test suites.
 
 ```ts
 // evals/sql.eval.ts
-import { defineEval } from "fasteval";
-import { loadYaml } from "fasteval/loaders";
-import { equals } from "fasteval/expect";
+import { defineEval } from "niceeval";
+import { loadYaml } from "niceeval/loaders";
+import { equals } from "niceeval/expect";
 
 const doc = await loadYaml("evals/data/sql-cases.yaml");
 const rows = doc.cases as { task: string; prompt: string; sql: string }[];
@@ -572,4 +572,4 @@ export default rows.map((row) =>
 | 1           | `sql/0001`    |
 | 12          | `sql/0012`    |
 
-IDs are stable as long as the array order doesn't change, making them safe to reference in CI history, dashboards, and issue trackers. `loadJson` from `fasteval/loaders` works the same way as `loadYaml`.
+IDs are stable as long as the array order doesn't change, making them safe to reference in CI history, dashboards, and issue trackers. `loadJson` from `niceeval/loaders` works the same way as `loadYaml`.

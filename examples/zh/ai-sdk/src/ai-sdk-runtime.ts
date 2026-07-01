@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { generateText, streamText, stepCountIs, tool, convertToModelMessages, type ModelMessage, type UIMessage, type ToolSet } from "ai";
 import { z } from "zod/v4";
 import type { AgentEvent, AgentRequest, AgentResponse, AgentUsage, JsonValue, RequestFile } from "./protocol.ts";
-import { createFastevalTrace } from "./fasteval-observability.ts";
+import { createFastevalTrace } from "./niceeval-observability.ts";
 import { calculate, getSession, getWeather, rememberAiTurn, sessionMessages, webSearch } from "./assistant.ts";
 import { modelSupportsVision, resolveModel } from "./models.ts";
 

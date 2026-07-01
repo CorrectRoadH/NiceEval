@@ -1,10 +1,10 @@
 ---
 title: "评分指南: 断言、judge 和成本限制"
 sidebarTitle: "评分指南"
-description: "用 fasteval 的五种评分机制评估任意 eval：值断言、作用域断言、LLM-as-judge、test-as-scoring 和效率检查。"
+description: "用 niceeval 的五种评分机制评估任意 eval：值断言、作用域断言、LLM-as-judge、test-as-scoring 和效率检查。"
 ---
 
-好的 eval 应该尽量把“是否成功”拆成可解释的信号。fasteval 允许你混合精确断言、语义 judge、事件流检查和真实测试。
+好的 eval 应该尽量把“是否成功”拆成可解释的信号。niceeval 允许你混合精确断言、语义 judge、事件流检查和真实测试。
 
 ## 选择断言类型
 
@@ -20,7 +20,7 @@ description: "用 fasteval 的五种评分机制评估任意 eval：值断言、
 ## 值断言
 
 ```ts
-import { includes, equals, matches } from "fasteval/expect";
+import { includes, equals, matches } from "niceeval/expect";
 
 t.check(t.reply, includes("refund"));
 t.check(turn.data, equals({ intent: "refund" }));

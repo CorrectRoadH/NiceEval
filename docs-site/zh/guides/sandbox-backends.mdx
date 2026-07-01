@@ -1,10 +1,10 @@
 ---
 title: "Sandbox backends: Docker、Vercel 与第三方"
 sidebarTitle: "Sandbox Backends"
-description: "fasteval 在 Docker 或 Vercel sandbox 中运行 coding agents。了解如何选择后端、配置权限，并通过 warm pools 改善性能。"
+description: "niceeval 在 Docker 或 Vercel sandbox 中运行 coding agents。了解如何选择后端、配置权限，并通过 warm pools 改善性能。"
 ---
 
-Sandbox backend 是创建和管理隔离运行环境的基础设施。fasteval 把它们包装成同一个 `Sandbox` 接口，所以 adapter 不需要知道当前用的是本地 Docker、Vercel micro-VM 还是第三方云服务。
+Sandbox backend 是创建和管理隔离运行环境的基础设施。niceeval 把它们包装成同一个 `Sandbox` 接口，所以 adapter 不需要知道当前用的是本地 Docker、Vercel micro-VM 还是第三方云服务。
 
 ## `Sandbox` 接口
 
@@ -24,9 +24,9 @@ Adapter 常用操作包括：
 ## 选择后端
 
 ```bash
-npx fasteval exp local fixtures/button --sandbox docker
-npx fasteval exp local fixtures/button --sandbox vercel
-npx fasteval exp local fixtures/button --sandbox auto
+npx niceeval exp local fixtures/button --sandbox docker
+npx niceeval exp local fixtures/button --sandbox vercel
+npx niceeval exp local fixtures/button --sandbox auto
 ```
 
 `auto` 通常在检测到云端凭据时使用云端后端，否则回退到 Docker。

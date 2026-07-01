@@ -1,4 +1,4 @@
-import { defineConfig } from "fasteval";
+import { defineConfig } from "niceeval";
 
 export default defineConfig({
   // 评判模型：用轻量模型做 judge，与被测 agent 解耦。

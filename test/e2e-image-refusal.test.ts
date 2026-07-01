@@ -1,5 +1,5 @@
 // e2e 回归:image-understanding 这条 eval 配一个「永远拒绝识图」的 mock agent 跑一遍真实 CLI
-// (`fasteval exp`),断言最终 outcome 必须是 "failed"。
+// (`niceeval exp`),断言最终 outcome 必须是 "failed"。
 //
 // 复现的真实 bug(见 examples/zh/ai-sdk 跑 deepseek-v4-pro 的记录):模型完全没看图、
 // 明确说"不支持图像输入",但 `t.messageIncludes(/蓝|blue|白|方块|图片|颜色/i)` 这条 gate
@@ -24,7 +24,7 @@ let judgeServer: Server;
 let judgePort: number;
 
 beforeAll(async () => {
-  await rm(join(fixtureDir, ".fasteval"), { recursive: true, force: true });
+  await rm(join(fixtureDir, ".niceeval"), { recursive: true, force: true });
   judgeServer = await new Promise<Server>((resolve) => {
     const server = createServer((req, res) => {
       let body = "";
@@ -44,16 +44,16 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await new Promise((resolve) => judgeServer.close(resolve));
-  await rm(join(fixtureDir, ".fasteval"), { recursive: true, force: true });
+  await rm(join(fixtureDir, ".niceeval"), { recursive: true, force: true });
 });
 
 async function runFixtureCli(): Promise<void> {
-  const child = spawn(process.execPath, [join(repoRoot, "bin", "fasteval.js"), "exp", "--force", "--quiet"], {
+  const child = spawn(process.execPath, [join(repoRoot, "bin", "niceeval.js"), "exp", "--force", "--quiet"], {
     cwd: fixtureDir,
     env: {
       ...process.env,
-      FASTEVAL_JUDGE_BASE: `http://127.0.0.1:${judgePort}/v1`,
-      FASTEVAL_JUDGE_KEY: "mock-key",
+      NICEEVAL_JUDGE_BASE: `http://127.0.0.1:${judgePort}/v1`,
+      NICEEVAL_JUDGE_KEY: "mock-key",
     },
     stdio: "pipe",
   });
@@ -62,15 +62,15 @@ async function runFixtureCli(): Promise<void> {
   const code = await new Promise<number>((resolve) => child.on("exit", (c) => resolve(c ?? 1)));
   // 这条夹具就是设计成"该 fail"的:退出码非 0 是预期的,这里只兜底真正的崩溃(比如 eval 发现失败)。
   if (code !== 0 && code !== 1) {
-    throw new Error(`fasteval exp exited ${code}\n${stderr}`);
+    throw new Error(`niceeval exp exited ${code}\n${stderr}`);
   }
 }
 
 async function readLatestSummary(): Promise<{ results: Array<{ id: string; outcome: string }> }> {
-  const runDirRoot = join(fixtureDir, ".fasteval");
+  const runDirRoot = join(fixtureDir, ".niceeval");
   const runs = (await readdir(runDirRoot)).sort();
   const latest = runs.at(-1);
-  if (!latest) throw new Error(`no .fasteval run under ${runDirRoot}`);
+  if (!latest) throw new Error(`no .niceeval run under ${runDirRoot}`);
   const raw = await readFile(join(runDirRoot, latest, "summary.json"), "utf-8");
   return JSON.parse(raw);
 }

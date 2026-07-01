@@ -4,18 +4,18 @@ sidebarTitle: "Eval AI Agent Applications"
 description: ""
 ---
 
-This example shows how to use fasteval to evaluate your own AI agent application.
+This example shows how to use niceeval to evaluate your own AI agent application.
 
-See the full example code: https://github.com/CorrectRoadH/fasteval/tree/main/examples/zh/ai-sdk
+See the full example code: https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/ai-sdk
 
-The system under test is a general-purpose AI assistant HTTP service built with an AI SDK tool loop. It handles messages, calls tools (weather / calculator / search), understands images, and uses Langfuse for its own observability. The application doesn't need a sandbox during testing — fasteval reaches it directly through its HTTP protocol via an adapter.
+The system under test is a general-purpose AI assistant HTTP service built with an AI SDK tool loop. It handles messages, calls tools (weather / calculator / search), understands images, and uses Langfuse for its own observability. The application doesn't need a sandbox during testing — niceeval reaches it directly through its HTTP protocol via an adapter.
 
 ## Directory structure
 
 ```text
 examples/zh/ai-sdk/
   ai-sdk-agent/            # web agent under test (POST /api/turn, 3 tools + image understanding)
-  agents/web-agent.ts      # fasteval adapter: factory webAgent({ baseUrl })
+  agents/web-agent.ts      # niceeval adapter: factory webAgent({ baseUrl })
   evals/                   # conversational evals
     weather-tool.eval.ts        # ask about weather → calls get_weather
     image-understanding.eval.ts # image understanding
@@ -23,18 +23,18 @@ examples/zh/ai-sdk/
     compare-models/        # experiment group: one file per model
       gpt-4o-mini.ts
       gpt-4o.ts
-  fasteval.config.ts       # register adapter, judge, concurrency
+  niceeval.config.ts       # register adapter, judge, concurrency
 ```
 
 ## Define the adapter
 
-The adapter tells fasteval how to send requests to the AI agent and how to read responses as a standard event stream. It's a factory function: `baseUrl` (where the service runs) is passed in from the outside so the adapter never hardcodes it or reads from env.
+The adapter tells niceeval how to send requests to the AI agent and how to read responses as a standard event stream. It's a factory function: `baseUrl` (where the service runs) is passed in from the outside so the adapter never hardcodes it or reads from env.
 
 ```ts
 // agents/web-agent.ts
-import { defineAgent } from "fasteval/adapter";
-import type { Agent } from "fasteval/adapter";
-import type { StreamEvent } from "fasteval";
+import { defineAgent } from "niceeval/adapter";
+import type { Agent } from "niceeval/adapter";
+import type { StreamEvent } from "niceeval";
 import type { AgentEvent, AgentResponse } from "../ai-sdk-agent/src/protocol.ts";
 
 export function webAgent(opts: { baseUrl: string }): Agent {
@@ -50,7 +50,7 @@ export function webAgent(opts: { baseUrl: string }): Agent {
           sessionId: ctx.session.id,
           message: input.text,
           model: ctx.model,
-          otelEndpoint: ctx.telemetry?.endpoint, // dual observability: let the app send this turn's spans back to fasteval
+          otelEndpoint: ctx.telemetry?.endpoint, // dual observability: let the app send this turn's spans back to niceeval
         }),
         signal: ctx.signal,
       });
@@ -82,7 +82,7 @@ Each eval sends a message and asserts on the reply, tool calls, and image unders
 
 ```ts
 // evals/weather-tool.eval.ts
-import { defineEval } from "fasteval";
+import { defineEval } from "niceeval";
 
 export default defineEval({
   description: "AI assistant: asking about weather calls get_weather",
@@ -114,7 +114,7 @@ t.messageIncludes(/cat/i); // the sample image is a cat
 
 ```ts
 // experiments/compare-models/gpt-4o.ts
-import { defineExperiment } from "fasteval";
+import { defineExperiment } from "niceeval";
 import { webAgent } from "../../agents/web-agent.ts";
 
 export default defineExperiment({
@@ -127,7 +127,7 @@ export default defineExperiment({
 
 ## Start evaluating
 
-First start the service under test (defaults to mock mode — no API key required). This example is a standalone npm project where `fasteval` is a local dependency:
+First start the service under test (defaults to mock mode — no API key required). This example is a standalone npm project where `niceeval` is a local dependency:
 
 ```bash
 cd examples/zh/ai-sdk && pnpm install && pnpm dev
@@ -137,8 +137,8 @@ Open a second terminal and run evals:
 
 ```bash
 cd examples/zh/ai-sdk
-pnpm exec fasteval exp compare-models   # run the model comparison experiment
-pnpm exec fasteval exp compare-models weather-tool   # run one eval inside that experiment
+pnpm exec niceeval exp compare-models   # run the model comparison experiment
+pnpm exec niceeval exp compare-models weather-tool   # run one eval inside that experiment
 ```
 
 ## Next steps

@@ -1,6 +1,6 @@
-# fasteval Examples
+# niceeval Examples
 
-两个完整可运行的例子，展示 fasteval 的两种典型用法。
+两个完整可运行的例子，展示 niceeval 的两种典型用法。
 
 | 目录 | 用途 |
 |---|---|
@@ -10,7 +10,7 @@
 ## 前提
 
 ```sh
-npm install -D fasteval
+npm install -D niceeval
 ```
 
 每个例子目录下都有独立的 `README.md`，说明如何配置环境变量并运行。

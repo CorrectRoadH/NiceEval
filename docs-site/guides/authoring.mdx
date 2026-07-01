@@ -1,17 +1,17 @@
 ---
 title: "Authoring evals: single-turn and multi-turn patterns"
 sidebarTitle: "Authoring"
-description: "Learn how to write fasteval evals using defineEval. Cover single-turn assertions, multi-turn conversations, dataset fan-out, and sandbox fixtures."
+description: "Learn how to write niceeval evals using defineEval. Cover single-turn assertions, multi-turn conversations, dataset fan-out, and sandbox fixtures."
 ---
 
-Every fasteval eval is a TypeScript file that exports a `defineEval` call. The framework follows three core principles: **path-as-identity** (the file path is the eval's ID), **one file, one eval** (or one array for dataset fan-out), and **linear writing with inline assertions** (you write checks right where the conversation happens). This page walks you through the full surface area of `defineEval`, from the simplest single-turn check to multi-turn conversations and dataset-driven suites.
+Every niceeval eval is a TypeScript file that exports a `defineEval` call. The framework follows three core principles: **path-as-identity** (the file path is the eval's ID), **one file, one eval** (or one array for dataset fan-out), and **linear writing with inline assertions** (you write checks right where the conversation happens). This page walks you through the full surface area of `defineEval`, from the simplest single-turn check to multi-turn conversations and dataset-driven suites.
 
 ## The `defineEval` shape
 
 `defineEval` accepts a configuration object with the following fields:
 
 ```ts
-import { defineEval } from "fasteval";
+import { defineEval } from "niceeval";
 
 export default defineEval({
   description?: string;            // Human-readable label shown in reports
@@ -39,8 +39,8 @@ A single-turn eval sends one message and asserts the agent's response. Use `t.se
 
 ```ts
 // evals/weather/brooklyn.eval.ts
-import { defineEval } from "fasteval";
-import { includes } from "fasteval/expect";
+import { defineEval } from "niceeval";
+import { includes } from "niceeval/expect";
 
 export default defineEval({
   description: "Brooklyn weather query",
@@ -87,8 +87,8 @@ For multi-turn conversations, assign each `t.send()` call to a variable and asse
 
 ```ts
 // evals/draft-then-send.eval.ts
-import { defineEval } from "fasteval";
-import { includes } from "fasteval/expect";
+import { defineEval } from "niceeval";
+import { includes } from "niceeval/expect";
 
 export default defineEval({
   description: "Draft an email, then send it on confirmation",
@@ -137,13 +137,13 @@ The `t` argument passed to `test()` is the **eval context**. Its available metho
 
 ## Dataset fan-out
 
-When a `.eval.ts` file's default export is an **array**, fasteval fans it out into one eval per element. This is the idiomatic way to run many test cases from a single file.
+When a `.eval.ts` file's default export is an **array**, niceeval fans it out into one eval per element. This is the idiomatic way to run many test cases from a single file.
 
 ```ts
 // evals/sql.eval.ts
-import { defineEval } from "fasteval";
-import { loadYaml } from "fasteval/loaders";
-import { equals } from "fasteval/expect";
+import { defineEval } from "niceeval";
+import { loadYaml } from "niceeval/loaders";
+import { equals } from "niceeval/expect";
 
 const doc = await loadYaml("evals/data/sql-cases.yaml");
 const rows = doc.cases as { task: string; prompt: string; sql: string }[];
@@ -171,15 +171,15 @@ cases:
     sql: SELECT * FROM orders ORDER BY created_at DESC LIMIT 10;
 ```
 
-fasteval generates stable, zero-padded IDs for each element: `sql/0000`, `sql/0001`, and so on. You can filter to a single case by passing its full ID after the experiment selector, or run the whole file by passing the file-level prefix (`npx fasteval exp local sql`).
+niceeval generates stable, zero-padded IDs for each element: `sql/0000`, `sql/0001`, and so on. You can filter to a single case by passing its full ID after the experiment selector, or run the whole file by passing the file-level prefix (`npx niceeval exp local sql`).
 
 <Note>
-  `loadYaml` and `loadJson` are both available from `fasteval/loaders`. Both return the parsed document as a plain JavaScript object.
+  `loadYaml` and `loadJson` are both available from `niceeval/loaders`. Both return the parsed document as a plain JavaScript object.
 </Note>
 
 ## Sandbox fixtures
 
-When evaluating a coding agent, the task lives on disk rather than in code. A **fixture** is a directory that fasteval discovers automatically — no `.eval.ts` wrapper needed.
+When evaluating a coding agent, the task lives on disk rather than in code. A **fixture** is a directory that niceeval discovers automatically — no `.eval.ts` wrapper needed.
 
 ```
 evals/fixtures/create-button/
@@ -207,7 +207,7 @@ For programmatic control over fixtures, use `defineAgentEval` instead. See the [
     Store YAML and JSON datasets under `evals/data/`. This is a convention, not a requirement, but it keeps data files out of the eval index.
   </Card>
   <Card title="Fixtures" icon="box">
-    Store sandbox fixtures under `evals/fixtures/`. Again, convention only — fasteval finds any directory with `PROMPT.md`.
+    Store sandbox fixtures under `evals/fixtures/`. Again, convention only — niceeval finds any directory with `PROMPT.md`.
   </Card>
 </CardGroup>
 

@@ -53,13 +53,13 @@ const OUTCOME_ORDER: Record<EvalResult["outcome"], number> = {
 };
 
 const TEMPLATE_PLACEHOLDERS = {
-  styles: "<!-- __FASTEVAL_STYLES__ -->",
-  appCode: "__FASTEVAL_APP_CODE__",
-  viewData: "__FASTEVAL_VIEW_DATA_JSON__",
+  styles: "<!-- __NICEEVAL_STYLES__ -->",
+  appCode: "__NICEEVAL_APP_CODE__",
+  viewData: "__NICEEVAL_VIEW_DATA_JSON__",
 } as const;
 
 /** 读最近一次运行的所有 EvalResult，供 --resume 跳过已通过的 eval。 */
-export async function loadMostRecentResults(root = ".fasteval"): Promise<EvalResult[]> {
+export async function loadMostRecentResults(root = ".niceeval"): Promise<EvalResult[]> {
   const summaries = await loadSummaries(root);
   // loadSummaries 已按 startedAt 降序，第一个是最新的
   return summaries[0]?.summary.results ?? [];
@@ -67,7 +67,7 @@ export async function loadMostRecentResults(root = ".fasteval"): Promise<EvalRes
 
 export async function buildView(opts: ViewOptions = {}): Promise<string> {
   const summaries = await loadSummaries(opts.input);
-  const out = resolve(opts.out ?? ".fasteval/report.html");
+  const out = resolve(opts.out ?? ".niceeval/report.html");
   await mkdir(dirname(out), { recursive: true });
   await writeFile(out, await renderHtml(summaries), "utf-8");
   return out;
@@ -195,7 +195,7 @@ async function listen(server: Server, preferredPort: number): Promise<number> {
 
 /** 服务/解析工件的根目录:输入是目录就用它,是文件就用其所在目录。 */
 function viewRoot(input?: string): string {
-  const t = resolve(input ?? ".fasteval");
+  const t = resolve(input ?? ".niceeval");
   try {
     return statSync(t).isFile() ? dirname(t) : t;
   } catch {
@@ -204,7 +204,7 @@ function viewRoot(input?: string): string {
 }
 
 async function loadSummaries(input?: string): Promise<LoadedSummary[]> {
-  const target = resolve(input ?? ".fasteval");
+  const target = resolve(input ?? ".niceeval");
   if (!existsSync(target)) return [];
   const root = viewRoot(input);
   const s = await stat(target);
@@ -222,7 +222,7 @@ async function loadSummaries(input?: string): Promise<LoadedSummary[]> {
       attachArtifactBase(summary, path, root);
       loaded.push({ path, summary });
     } catch {
-      // Ignore unrelated JSON files under .fasteval.
+      // Ignore unrelated JSON files under .niceeval.
     }
   }
   loaded.sort((a, b) => b.summary.startedAt.localeCompare(a.summary.startedAt));
@@ -250,7 +250,7 @@ async function findSummaryFiles(dir: string): Promise<string[]> {
 async function readSummary(path: string): Promise<RunSummary> {
   const data = JSON.parse(await readFile(path, "utf-8")) as RunSummary;
   if (!Array.isArray(data.results) || typeof data.startedAt !== "string") {
-    throw new Error(`${path} is not a fasteval summary`);
+    throw new Error(`${path} is not a niceeval summary`);
   }
   return data;
 }

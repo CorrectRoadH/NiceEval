@@ -1,15 +1,15 @@
-# View —— 本地结果查看器(`fasteval view`)
+# View —— 本地结果查看器(`niceeval view`)
 
-控制台和 `summary.json` 是「当下」的;`fasteval view` 是「事后看图」——不连任何外部服务,只读 `.fasteval/<时间戳>/` 这些结构化工件(见 [Observability](observability.md#结果可视化fasteval-view))。
+控制台和 `summary.json` 是「当下」的;`niceeval view` 是「事后看图」——不连任何外部服务,只读 `.niceeval/<时间戳>/` 这些结构化工件(见 [Observability](observability.md#结果可视化niceeval-view))。
 
 ```sh
-fasteval view                         # 起本地 web,自动打开浏览器,读 .fasteval/ 下所有历史运行
-fasteval view .fasteval/<run>/summary.json
-fasteval view --no-open               # 只打印 URL,不打开浏览器
-fasteval view --out .fasteval/report.html  # 导出静态 HTML
+niceeval view                         # 起本地 web,自动打开浏览器,读 .niceeval/ 下所有历史运行
+niceeval view .niceeval/<run>/summary.json
+niceeval view --no-open               # 只打印 URL,不打开浏览器
+niceeval view --out .niceeval/report.html  # 导出静态 HTML
 ```
 
-架构上是**一次性烘焙进单个 HTML+JSON 的静态产物**(`src/view/index.ts` 的 `renderHtml`),不是常驻的多页面 server——`fasteval view` 起的 web 服务每次请求现读现渲染,`--out` 则直接导出成一个可以当 CI 附件传、单文件分享的 HTML。这是刻意的取舍,详见 [References](references.md#调研过判断不值得抄的及理由)。
+架构上是**一次性烘焙进单个 HTML+JSON 的静态产物**(`src/view/index.ts` 的 `renderHtml`),不是常驻的多页面 server——`niceeval view` 起的 web 服务每次请求现读现渲染,`--out` 则直接导出成一个可以当 CI 附件传、单文件分享的 HTML。这是刻意的取舍,详见 [References](references.md#调研过判断不值得抄的及理由)。
 
 ## 现状(已实现)
 
@@ -22,7 +22,7 @@ fasteval view --out .fasteval/report.html  # 导出静态 HTML
 
 这两条之前被 [Observability](observability.md) 的能力列表当成已实现的写了,这次审查代码(`src/view/index.ts`、`src/view/app/`)发现对不上,已经从那边挪过来,归到下面「计划中」:
 
-- **"跨运行趋势"实际是合并,不是可对比的历史。** `aggregateRows`(`src/view/index.ts`)把 `.fasteval/` 下**所有**历史 `summary.json` 按 `experimentId` 揉进同一行——通过率、平均耗时、成本都是跨全部历史 run 的累计值,不是"最新一次"或"某一次"的快照,更谈不上画成随时间变化的线。
+- **"跨运行趋势"实际是合并,不是可对比的历史。** `aggregateRows`(`src/view/index.ts`)把 `.niceeval/` 下**所有**历史 `summary.json` 按 `experimentId` 揉进同一行——通过率、平均耗时、成本都是跨全部历史 run 的累计值,不是"最新一次"或"某一次"的快照,更谈不上画成随时间变化的线。
 - **"质量 × 成本散点图"没有实现。** `src/view/app` 下没有任何图表 / scatter / canvas 组件,现有可视化都是表格和文字指标。
 
 ## 外部参考
@@ -41,7 +41,7 @@ fasteval view --out .fasteval/report.html  # 导出静态 HTML
 - `/compare`(`components/ComparePage.tsx`,client component)两个下拉框选"某个 experiment 的某次 run",候选项和对应的完整 `ExperimentDetail` 都由服务端预先读好、一次性传给客户端(不是选中后才 fetch)。选中两边后纯前端算 delta:整体 `avgPassRate`/`avgDuration` 对两边的 `evals[]` 取平均相减;per-eval 按 eval name 取并集,逐行对比 `passRate`/`meanDuration`,delta 用颜色区分涨跌。
 - **关键点:** "能任意选两次运行对比"完全建立在**目录结构天然保留时间戳身份**上——`results/<experiment>/<ISO-timestamp>/` 从不合并,每次 run 落一个新目录,`getExperiment` 返回的 `timestamps: string[]` 就是完整历史列表,`/compare` 只是在这份现成的列表上做了个下拉选择器 + 前端减法。
 
-**跟 fasteval 的差异(为什么不能直接照搬这套形状):** playground 是多页面、每次请求都读 fs 的 live Next server;fasteval `view` 是一次性烘焙进单个 HTML+JSON 的静态产物(见上文"架构上"一段)。playground 靠"存储层本来就是每次 run 一个新目录"天然拿到历史身份;fasteval 现在的 `aggregateRows` 反而是**主动把**同一个 `experimentId` 的所有历史 run **合并**成一行(见上文"已知的文档 vs 实现差异")。所以 fasteval 要做 Compare,抄的是"保留快照身份、不要提前合并"这个**原则**,不是 playground 的目录结构或 API 形状——数据仍然得在生成 HTML 那一刻就把所有候选快照的统计算好塞进 `viewData`,不能假设前端能像 playground 一样随时再去问 fs。
+**跟 niceeval 的差异(为什么不能直接照搬这套形状):** playground 是多页面、每次请求都读 fs 的 live Next server;niceeval `view` 是一次性烘焙进单个 HTML+JSON 的静态产物(见上文"架构上"一段)。playground 靠"存储层本来就是每次 run 一个新目录"天然拿到历史身份;niceeval 现在的 `aggregateRows` 反而是**主动把**同一个 `experimentId` 的所有历史 run **合并**成一行(见上文"已知的文档 vs 实现差异")。所以 niceeval 要做 Compare,抄的是"保留快照身份、不要提前合并"这个**原则**,不是 playground 的目录结构或 API 形状——数据仍然得在生成 HTML 那一刻就把所有候选快照的统计算好塞进 `viewData`,不能假设前端能像 playground 一样随时再去问 fs。
 
 调研时更完整的"抄了什么 / 为什么不抄"决策记录见 [References](references.md#vercel-agent-eval--packagesplayground)。
 
@@ -69,6 +69,6 @@ fasteval view --out .fasteval/report.html  # 导出静态 HTML
 
 ## 相关阅读
 
-- [Observability](observability.md#结果可视化fasteval-view) —— 事件流、trace、usage/cost 这些 view 渲染的数据从哪来。
+- [Observability](observability.md#结果可视化niceeval-view) —— 事件流、trace、usage/cost 这些 view 渲染的数据从哪来。
 - [References](references.md#vercel-agent-eval--packagesplayground) —— 这次调研 agent-eval playground 的完整记录。
-- [Experiments](experiments.md) —— `experimentId`、可对比组、`fasteval exp` 怎么产生这些历史快照。
+- [Experiments](experiments.md) —— `experimentId`、可对比组、`niceeval exp` 怎么产生这些历史快照。

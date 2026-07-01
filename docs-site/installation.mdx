@@ -1,39 +1,39 @@
 ---
-title: "Install fasteval: setup, scaffolding, and configuration"
+title: "Install niceeval: setup, scaffolding, and configuration"
 sidebarTitle: "Installation"
-description: "Install fasteval as a dev dependency, scaffold evals/ and fasteval.config.ts with npx fasteval init, and configure your agent credentials."
+description: "Install niceeval as a dev dependency, scaffold evals/ and niceeval.config.ts with npx niceeval init, and configure your agent credentials."
 ---
 
-Setting up fasteval takes three steps: verify your prerequisites, install the package, and run `npx fasteval init` to scaffold your eval directory and config file. This page walks through each step in detail and covers every configuration option you're likely to need before your first run.
+Setting up niceeval takes three steps: verify your prerequisites, install the package, and run `npx niceeval init` to scaffold your eval directory and config file. This page walks through each step in detail and covers every configuration option you're likely to need before your first run.
 
 ## Prerequisites
 
-Before installing fasteval, make sure your environment meets the following requirements.
+Before installing niceeval, make sure your environment meets the following requirements.
 
-**Node.js** — fasteval requires a modern version of Node.js with ESM support. Use the version specified in your project's `.nvmrc` or `package.json` `engines` field, or install the current LTS release from [nodejs.org](https://nodejs.org).
+**Node.js** — niceeval requires a modern version of Node.js with ESM support. Use the version specified in your project's `.nvmrc` or `package.json` `engines` field, or install the current LTS release from [nodejs.org](https://nodejs.org).
 
 **Docker** — required only for sandbox evals (coding agents like Claude Code, Codex, and bub that need an isolated filesystem). Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) or Docker Engine and confirm it's running before you attempt a sandbox eval. In-process and HTTP agent evals work without Docker.
 
 <Note>
-  If Docker is unavailable when you run a sandbox eval, fasteval stops immediately with a clear error message. It will not silently fall back to a different backend.
+  If Docker is unavailable when you run a sandbox eval, niceeval stops immediately with a clear error message. It will not silently fall back to a different backend.
 </Note>
 
-## Install fasteval
+## Install niceeval
 
-Add fasteval as a dev dependency using your preferred package manager:
+Add niceeval as a dev dependency using your preferred package manager:
 
 <CodeGroup>
 
 ```shell npm
-npm install -D fasteval
+npm install -D niceeval
 ```
 
 ```shell yarn
-yarn add --dev fasteval
+yarn add --dev niceeval
 ```
 
 ```shell pnpm
-pnpm add -D fasteval
+pnpm add -D niceeval
 ```
 
 </CodeGroup>
@@ -43,14 +43,14 @@ pnpm add -D fasteval
 Run the init command to generate your eval directory and config file:
 
 ```shell
-npx fasteval init
+npx niceeval init
 ```
 
 `init` inspects your project layout and creates a minimal but functional starting point. After it completes, your project contains:
 
 ```
 your-project/
-├─ fasteval.config.ts           ← central configuration
+├─ niceeval.config.ts           ← central configuration
 └─ evals/
    ├─ hello.eval.ts             ← example: conversational eval
    └─ fixtures/
@@ -66,21 +66,21 @@ The generated `hello.eval.ts` and `fixtures/button/` are illustrative examples �
   Eval IDs are derived automatically from file paths. The file `evals/weather/brooklyn.eval.ts` gets the ID `weather/brooklyn`. You never declare an ID by hand — renaming the file is all it takes to change it.
 </Tip>
 
-## Configure fasteval
+## Configure niceeval
 
-Open the generated `fasteval.config.ts` and review the available options:
+Open the generated `niceeval.config.ts` and review the available options:
 
 ```ts
-// fasteval.config.ts
-import { defineConfig } from "fasteval";
-import { Console, JUnit } from "fasteval/reporters";
+// niceeval.config.ts
+import { defineConfig } from "niceeval";
+import { Console, JUnit } from "niceeval/reporters";
 
 export default defineConfig({
   // LLM used for t.judge.* assertions
   judge: { model: "anthropic/claude-haiku-4-5" },
 
   // reporters that run after every eval suite
-  reporters: [Console(), JUnit(".fasteval/junit.xml")],
+  reporters: [Console(), JUnit(".niceeval/junit.xml")],
 
   // how many evals to run in parallel
   maxConcurrency: 8,
@@ -104,7 +104,7 @@ export default defineConfig({
 Select agents in experiment files:
 
 ```ts
-import { defineExperiment } from "fasteval";
+import { defineExperiment } from "niceeval";
 import myAgent from "./agents/my-agent.js";
 
 export default defineExperiment({
@@ -115,7 +115,7 @@ export default defineExperiment({
 
 ## Set environment variables
 
-fasteval does not manage secrets — it reads them from environment variables that your agent adapters reference at runtime.
+niceeval does not manage secrets — it reads them from environment variables that your agent adapters reference at runtime.
 
 **For Claude Code** (Anthropic coding agent):
 
@@ -143,7 +143,7 @@ For CI, pass the relevant secrets through the workflow `env` block:
 
 ```yaml
 # .github/workflows/evals.yml
-- run: npx fasteval exp ci --strict --junit .fasteval/junit.xml
+- run: npx niceeval exp ci --strict --junit .niceeval/junit.xml
   env:
     ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -155,15 +155,15 @@ Confirm that the CLI is reachable and can discover your evals:
 
 ```shell
 # list all discovered evals without running them
-npx fasteval list
+npx niceeval list
 ```
 
-`npx fasteval list` reads `fasteval.config.ts` and scans your `evals/` directory. A successful run prints each eval's ID, description, and registered agent. If it exits with an error, check that `fasteval.config.ts` exists at the repository root and that your `evals/` directory contains at least one `*.eval.ts` file.
+`npx niceeval list` reads `niceeval.config.ts` and scans your `evals/` directory. A successful run prints each eval's ID, description, and registered agent. If it exits with an error, check that `niceeval.config.ts` exists at the repository root and that your `evals/` directory contains at least one `*.eval.ts` file.
 
 You can also do a dry run — this resolves every eval and prints what would execute, without calling any agent or sandbox:
 
 ```shell
-npx fasteval exp local --dry
+npx niceeval exp local --dry
 ```
 
 Once `list` and `--dry` both succeed, you're ready to run your first eval. Head to the [Quickstart](/quickstart) for a step-by-step walkthrough of all three eval types.

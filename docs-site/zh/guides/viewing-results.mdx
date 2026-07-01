@@ -1,10 +1,10 @@
 ---
-title: "查看 fasteval 结果并调试 agent 行为"
+title: "查看 niceeval 结果并调试 agent 行为"
 sidebarTitle: "查看结果"
-description: "fasteval 每次运行后会在 .fasteval/ 写入结构化 artifacts。用 npx fasteval view 查看 transcript、diff、event stream 和 pass rate。"
+description: "niceeval 每次运行后会在 .niceeval/ 写入结构化 artifacts。用 npx niceeval view 查看 transcript、diff、event stream 和 pass rate。"
 ---
 
-每次运行后，fasteval 都会把结构化结果写入 `.fasteval/<timestamp>/`。控制台提供即时反馈，结果查看器用于深入分析失败原因。
+每次运行后，niceeval 都会把结构化结果写入 `.niceeval/<timestamp>/`。控制台提供即时反馈，结果查看器用于深入分析失败原因。
 
 ## 控制台输出
 
@@ -21,12 +21,12 @@ Results:  2 passed, 1 failed, 0 passed, 0 skipped
 
 每行包含 eval ID、outcome 和耗时。失败项会显示断言类型和错误信息。
 
-## `.fasteval/<timestamp>/`
+## `.niceeval/<timestamp>/`
 
 典型结构：
 
 ```text
-.fasteval/
+.niceeval/
 └─ 2025-01-15T14-23-00/
    ├─ summary.json
    ├─ weather/
@@ -44,16 +44,16 @@ Results:  2 passed, 1 failed, 0 passed, 0 skipped
          └─ test-output.txt
 ```
 
-## `fasteval view`
+## `niceeval view`
 
 ```bash
-npx fasteval view
+npx niceeval view
 ```
 
 这会打开本地结果查看器，默认展示最近一次运行的结果。你可以浏览 eval、查看 transcript、读 diff、检查 event stream 和断言结果。数据不会上传到外部服务。
 
 <Tip>
-  失败后立刻运行 `npx fasteval view`，可以直接打开刚刚那次运行的 artifacts。
+  失败后立刻运行 `npx niceeval view`，可以直接打开刚刚那次运行的 artifacts。
 </Tip>
 
 ## Artifact 说明

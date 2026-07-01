@@ -1,4 +1,4 @@
-import { defineExperiment } from "fasteval";
+import { defineExperiment } from "niceeval";
 import { refusalAgent } from "../../agents/refusal.ts";
 
 // 一个实验 = 一个配置:全程用「拒绝识图」的 mock agent 跑一遍 image-understanding。

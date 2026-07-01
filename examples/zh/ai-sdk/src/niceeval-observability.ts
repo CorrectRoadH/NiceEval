@@ -1,14 +1,14 @@
 import { randomBytes } from "node:crypto";
 
-// 双可观测的【第二路】:把本轮的 turn / model / tool span 按 OTLP/JSON 发到 fasteval
+// 双可观测的【第二路】:把本轮的 turn / model / tool span 按 OTLP/JSON 发到 niceeval
 // 为本次运行起的 OTLP 接收器。第一路是 app 自带的 langfuse(见 app-observability.ts);
-// 这一路让同一轮活动也出现在 fasteval `view` 的瀑布图里。
+// 这一路让同一轮活动也出现在 niceeval `view` 的瀑布图里。
 //
-// 端点由 fasteval 每轮经请求体 otelEndpoint 传进来(adapter 声明 capabilities.tracing →
+// 端点由 niceeval 每轮经请求体 otelEndpoint 传进来(adapter 声明 capabilities.tracing →
 // ctx.telemetry.endpoint),不读 env、不写默认。没端点(direct 跑没开 tracing)就 no-op。
 //
 // 刻意手搓 OTLP/JSON、不引 OpenTelemetry SDK:一来例子零额外依赖、好读;二来 span 属性
-// 直接按 fasteval 认的 canonical(OTel GenAI semconv)发 —— gen_ai.operation.name 决定
+// 直接按 niceeval 认的 canonical(OTel GenAI semconv)发 —— gen_ai.operation.name 决定
 // SpanKind(chat→model、execute_tool→tool),turn.id 让回合 span 归到 "turn"。
 
 type AttrValue = string | number | boolean;
@@ -79,7 +79,7 @@ export function createFastevalTrace(endpoint: string | undefined): FastevalTrace
       });
     } catch (error) {
       // 导出失败不该影响被测一轮:第二路可观测掉了就掉了。
-      process.stderr.write(`[fasteval-trace] export failed: ${error instanceof Error ? error.message : String(error)}\n`);
+      process.stderr.write(`[niceeval-trace] export failed: ${error instanceof Error ? error.message : String(error)}\n`);
     }
   }
 
@@ -93,7 +93,7 @@ function toOtlpJson(traceId: string, spans: SpanRecord[]): unknown {
         resource: { attributes: [kv("service.name", "assistant")] },
         scopeSpans: [
           {
-            scope: { name: "fasteval-assistant" },
+            scope: { name: "niceeval-assistant" },
             spans: spans.map((s) => ({
               traceId,
               spanId: s.spanId,

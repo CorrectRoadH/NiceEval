@@ -1,14 +1,14 @@
 # Agents 与 Adapters
 
-这一篇讲 fasteval 如何"连到一个被测对象"。这是整个库最容易被想歪的地方,先把两个核心论点摆出来:
+这一篇讲 niceeval 如何"连到一个被测对象"。这是整个库最容易被想歪的地方,先把两个核心论点摆出来:
 
-> 1. **fasteval 不定义任何 agent 协议。** 每一个被测对象 —— 你自己的 agent、你的后端服务、Claude Code / Codex 这种 coding agent —— **都是自己实现的 adapter**。experiment 引用 agent,而不是给一个 url。
+> 1. **niceeval 不定义任何 agent 协议。** 每一个被测对象 —— 你自己的 agent、你的后端服务、Claude Code / Codex 这种 coding agent —— **都是自己实现的 adapter**。experiment 引用 agent,而不是给一个 url。
 > 2. **adapter 真正的难点不是"连上",而是把各 agent 五花八门的原始返回归一化成一套标准的[事件流](#标准事件流adapter-的核心难点)。** 归一化之后,整套断言都是免费的、与 agent 无关的。
 
 两个词:
 
-- **Agent** —— 抽象。fasteval 眼里"一个被测对象",带[能力位](#能力位决定-t-的形状),由 experiment 引用。运行器只认 Agent 契约。
-- **Adapter** —— 实现。某个 agent 的具体代码,**由用户编写**(fasteval 也内置几个常用 coding agent)。一个 Adapter 实现一个 Agent。
+- **Agent** —— 抽象。niceeval 眼里"一个被测对象",带[能力位](#能力位决定-t-的形状),由 experiment 引用。运行器只认 Agent 契约。
+- **Adapter** —— 实现。某个 agent 的具体代码,**由用户编写**(niceeval 也内置几个常用 coding agent)。一个 Adapter 实现一个 Agent。
 
 按 transport 分两种,但**能力完全一样**(都能 `send`、都返回同一套标准结果):
 
@@ -17,14 +17,14 @@
 
 ## 为什么是 experiment 选 agent,不是 `--url`
 
-eve 能用一个 url 当被测对象,是因为它**定义了一套自己的协议**、被测 agent 恰好会说 —— 于是"连哪"退化成"哪个 url"。fasteval 没有这个前提:不存在一套通用协议让任意 agent 都会说。所以:
+eve 能用一个 url 当被测对象,是因为它**定义了一套自己的协议**、被测 agent 恰好会说 —— 于是"连哪"退化成"哪个 url"。niceeval 没有这个前提:不存在一套通用协议让任意 agent 都会说。所以:
 
 - **没有 `--url`、没有通用的 "http agent"。** 要连你的 HTTP 服务,你写一个 agent,它内部知道你服务的协议(URL、鉴权、消息格式都是它的私事)。
 - **agent 写进 experiment。** "评本地 vs 评线上"靠 agent 自己读 env,或写成两个 experiment / 两个 agent 配置:
 
 ```sh
-npx fasteval exp local weather   # 评本地
-npx fasteval exp prod weather    # 评线上
+npx niceeval exp local weather   # 评本地
+npx niceeval exp prod weather    # 评线上
 ```
 
 ## Agent 契约
@@ -42,7 +42,7 @@ interface AgentCapabilities {
   conversation?: boolean;        // 支持多轮 send → t.send 多次
   toolObservability?: boolean;   // 能产出 action.* 事件 → t.calledTool
   sandbox?: boolean;             // 在沙箱文件系统上工作 → t.sandbox(文件 IO / 命令 / 结果断言)
-  tracing?: boolean;             // 能经 OTLP 导出 trace → fasteval view 画瀑布图,见 Observability
+  tracing?: boolean;             // 能经 OTLP 导出 trace → niceeval view 画瀑布图,见 Observability
 }
 
 interface AgentContext {
@@ -154,7 +154,7 @@ interface DerivedFacts {
 2. **stdout/stderr 结构化捕获。** 给 CLI 传一个能让它打结构化日志的 flag(`--json` / `--format json`),把 `stdout + stderr` 拼起来当 transcript——本质上和"跑一条命令、把输出重定向到文件"没有区别。codex `codex exec --json` 走的是这条。
 3. **OTLP 网络接收。** 前两条给的是"做了什么"(`StreamEvent[]`);trace 走独立通道——agent 经 OpenTelemetry 把 span **推**给运行器起的本机接收器,不是从文件/输出里"读"出来的(见 [Observability · OTLP traces](../observability.md#otlp-traces--统一瀑布图))。
 
-**采集层允许脏,转换层必须干净。** 具体路径、CLI flag、文件在哪、版本升级导致的格式漂移——这些都是没办法的事,注定要写一堆 per-agent 的 hack 和 fallback。但只要采集层的产出**统一收窄成"一个原始字符串 + 一个 agent 标识"**再交给转换层,转换层就可以完全不碰沙箱、不碰 CLI 细节,只做纯数据变换、可独立单测——`o11y/parsers/<agent>.ts` 的解析函数只接收 `raw: string`,签名里没有 `sandbox` 或 `ctx`,就是这条边界的直接体现。这条边界不是 fasteval 独创的直觉,是从分析 Vercel agent-eval 的实现里得到印证的模式,细节见 [agent-eval 参考:采集 / 转换 / 落地三层](ref/agent-eval.md)。
+**采集层允许脏,转换层必须干净。** 具体路径、CLI flag、文件在哪、版本升级导致的格式漂移——这些都是没办法的事,注定要写一堆 per-agent 的 hack 和 fallback。但只要采集层的产出**统一收窄成"一个原始字符串 + 一个 agent 标识"**再交给转换层,转换层就可以完全不碰沙箱、不碰 CLI 细节,只做纯数据变换、可独立单测——`o11y/parsers/<agent>.ts` 的解析函数只接收 `raw: string`,签名里没有 `sandbox` 或 `ctx`,就是这条边界的直接体现。这条边界不是 niceeval 独创的直觉,是从分析 Vercel agent-eval 的实现里得到印证的模式,细节见 [agent-eval 参考:采集 / 转换 / 落地三层](ref/agent-eval.md)。
 
 **容错:一行解析失败,不拖垮整份 transcript。** JSONL 逐行 `JSON.parse`,每一行单独 try/catch;某一行失败只把 `parseSuccess` 标 `false`,不中断——继续解析剩下的行,已经解析出的事件照常保留(见上文"归一化失败不崩")。
 
@@ -166,7 +166,7 @@ interface DerivedFacts {
 
 ```typescript
 // agents/my-agent.ts —— 进程内
-import { defineAgent } from "fasteval/adapter";
+import { defineAgent } from "niceeval/adapter";
 import { myAgent } from "../src/agent.js";
 
 export default defineAgent({
@@ -181,7 +181,7 @@ export default defineAgent({
 ```
 
 ```typescript
-// agents/support-bot.ts —— 远程,URL 是它的私事(fasteval 不定协议)
+// agents/support-bot.ts —— 远程,URL 是它的私事(niceeval 不定协议)
 export default defineAgent({
   name: "support-bot",
   capabilities: { conversation: true, toolObservability: true },
@@ -213,12 +213,12 @@ claude-code 和 codex 用**同一套**模型,绝大部分**共享**,只有 5 个
 | 读 transcript → 解析成 events | ✗ | `~/.claude/projects/.../{session}.jsonl` 最新一个 | `--json` stdout 即 JSONL |
 | 归一化 events → diff → 验证 | ✅ 共享 | — | — |
 
-"共享"的部分由 fasteval 提供成可复用工具(下文 [shared](#shared沙箱型-adapter-的共享工具)),所以**每个沙箱 adapter 真正要写的,就是中间那 5 行差异 + 一个 transcript 解析器**。
+"共享"的部分由 niceeval 提供成可复用工具(下文 [shared](#shared沙箱型-adapter-的共享工具)),所以**每个沙箱 adapter 真正要写的,就是中间那 5 行差异 + 一个 transcript 解析器**。
 
 ```typescript
 // agents/claude-code.ts(内置;接 bub 照抄此形状)
-import { defineSandboxAgent, shared } from "fasteval/adapter";
-import { requireEnv } from "fasteval";
+import { defineSandboxAgent, shared } from "niceeval/adapter";
+import { requireEnv } from "niceeval";
 
 // 本地配:这个 agent 怎么连它自己 —— 鉴权在这里读;注意「没有 model」(留空,实验决定)
 const auth = () => ({ ANTHROPIC_API_KEY: requireEnv("ANTHROPIC_API_KEY") });
@@ -306,20 +306,20 @@ experiment.agent    选「连哪个被测对象」(自实现的 adapter)
 
 ## shared:沙箱型 adapter 的共享工具
 
-跨所有沙箱 adapter 复用、不属于任何单个 agent 的逻辑,由 fasteval 提供(对应 agent-eval 的 `shared.ts`),保证所有 coding agent 的"打基线 / 采 diff / 抓 transcript"严格一致:
+跨所有沙箱 adapter 复用、不属于任何单个 agent 的逻辑,由 niceeval 提供(对应 agent-eval 的 `shared.ts`),保证所有 coding agent 的"打基线 / 采 diff / 抓 transcript"严格一致:
 
 - **`initGitBaseline(sandbox)`** —— `git init && commit` 打一次空基线,供之后 `t.sandbox.diff` / `t.sandbox.fileChanged` 对比。跟"放了什么文件"无关——不管你在 `test()` 里写入了什么、写了没有,基线随沙箱创建自动打好。
 - **`captureGeneratedFiles(sandbox)`** —— `git diff HEAD` 得到 `{ generated, deleted }`。
-- **`injectO11yContext(sandbox, events)`** —— 由标准事件流派生 o11y,写 `__fasteval__/results.json`,供你在沙箱里手工跑的验证测试断言 agent 的行为。
+- **`injectO11yContext(sandbox, events)`** —— 由标准事件流派生 o11y,写 `__niceeval__/results.json`,供你在沙箱里手工跑的验证测试断言 agent 的行为。
 - **`captureLatestJsonl(sandbox, dir)`** / transcript 定位辅助。
 
 这些都是**给 adapter 作者复用的工具函数**,不是运行器包在 `agent.send()` 外面的固定编排——除了"沙箱创建时打一次 git 基线、销毁前采一次 diff"这两头是核心自动做的,中间"什么时候写入文件、什么时候调 `t.send()`、什么时候手工跑校验命令"全部是 eval 的 `test(t)` 自己决定,见 [Eval Authoring · 沙箱型](../eval-authoring.md#沙箱型手工把文件放进沙箱)。
 
-没有按名字选 agent 的注册表——一个 config 文件对应一个(或一组固定的)agent,内置 coding-agent(`claude-code` / `codex` / `bub` …)从 `fasteval/adapter` 导出,在 experiment 文件里直接引用。要换 agent 或 model,复制一个 experiment 文件改配置,不是靠 `--agent` 这类运行时选择器。
+没有按名字选 agent 的注册表——一个 config 文件对应一个(或一组固定的)agent,内置 coding-agent(`claude-code` / `codex` / `bub` …)从 `niceeval/adapter` 导出,在 experiment 文件里直接引用。要换 agent 或 model,复制一个 experiment 文件改配置,不是靠 `--agent` 这类运行时选择器。
 
 ## 接一个新 agent:分档递进,不用一次做全套
 
-`AgentCapabilities` 每个位都是独立开关:先声明你已经做到的,其余留到需要时再补——**每一档解锁的是具体的 `t` 函数和断言,不是笼统的"更多能力"**,断言词汇和 `fasteval view` 随你声明的能力自动增减,不用改核心一行,也不用推翻已经写好的 eval。
+`AgentCapabilities` 每个位都是独立开关:先声明你已经做到的,其余留到需要时再补——**每一档解锁的是具体的 `t` 函数和断言,不是笼统的"更多能力"**,断言词汇和 `niceeval view` 随你声明的能力自动增减,不用改核心一行,也不用推翻已经写好的 eval。
 
 | 档位 | adapter 要做什么 | 解锁的 `t` 函数 / 断言 |
 |---|---|---|
@@ -327,7 +327,7 @@ experiment.agent    选「连哪个被测对象」(自实现的 adapter)
 | **T1 · 工具可观测** | 声明 `capabilities.toolObservability`,把原始返回映射成非空 `StreamEvent[]`。remote agent 在 `send` 里直接翻译;sandbox agent 加一个 [transcript 解析器](../observability.md#transcript--标准事件流)(`o11y/parsers/<name>.ts`) | [标准事件流](#标准事件流adapter-的核心难点)整套:`calledTool` / `toolOrder` / `usedNoTools` / `maxToolCalls` / `messageIncludes` / `noFailedActions` / `calledSubagent` / `event` / `notEvent` / `eventOrder` / `eventsSatisfy` |
 | **T2 · 多轮会话** | 声明 `capabilities.conversation`,`send` 按 `ctx.session.id` 支持 resume。CLI 有原生 `--resume <id>` 之类的续接参数就直接接;没有就每轮老实带上下文 | `t.send()` 可调用多次、`t.reply`、`t.newSession()` |
 | **HITL(T1 + T2 的交集)** | 在 T1、T2 都做到的基础上,再加一条 T1/T2 都没单独要求的行为:agent 停下等人输入时,`send` 要返回 `status: "waiting"`,并在 `events` 里专门吐一条 `input.requested`(带 `InputRequest`:工具名 / input / prompt / display / optionIds) | `t.parked()`、`t.requireInputRequest(filter?)`、`t.respond(...)` / `t.respondAll(optionId)`(内部就是拿用户选的 option 再调一次 `send`,靠 T2 的 resume 续上) |
-| **T3 · tracing/OTel** | 声明 `capabilities.tracing` + 一个 `tracing` 块(env-based 或 file-based 导出配置)+ 一个 span mapper。remote agent 少见(没有独立进程可挂 exporter,一般跳过);sandbox agent 的 mapper(`o11y/otlp/mappers/<name>.ts`)把原生 span 归一到 canonical GenAI semconv,没有 OTel 输出的(如 claude-code)可从 transcript 时间戳合成 span,见 [Observability · OTLP traces](../observability.md#otlp-traces--统一瀑布图) | `EvalResult.trace`、`fasteval view` 的瀑布图,可跨 agent 叠加对比 |
+| **T3 · tracing/OTel** | 声明 `capabilities.tracing` + 一个 `tracing` 块(env-based 或 file-based 导出配置)+ 一个 span mapper。remote agent 少见(没有独立进程可挂 exporter,一般跳过);sandbox agent 的 mapper(`o11y/otlp/mappers/<name>.ts`)把原生 span 归一到 canonical GenAI semconv,没有 OTel 输出的(如 claude-code)可从 transcript 时间戳合成 span,见 [Observability · OTLP traces](../observability.md#otlp-traces--统一瀑布图) | `EvalResult.trace`、`niceeval view` 的瀑布图,可跨 agent 叠加对比 |
 
 **HITL 容易被错当成"多轮会话的附赠功能",其实不是。** `respond` / `respondAll` 能工作,靠的是 T1(专门产出 `input.requested` 事件——不是随便什么事件都行)和 T2(resume——`respond` 本质是拿着用户的选择再发一轮,得靠同一条 session 续上)同时具备,再加 adapter 自己要能识别"agent 正等着人"并把 `status` 置成 `"waiting"`。三者缺一,`requireInputRequest` 要么读不到待处理请求,要么 `respond` 之后接不上下一轮。
 
@@ -342,4 +342,4 @@ T0/T1 是"接得上"的门槛——不做 T1,`toolObservability` 相关断言在
 - [Sandbox](../sandbox.md) —— 沙箱接口与后端。
 - [Coding Agent Skills / Plugins DX](coding-agent-skills-plugins.md) —— Claude Code / Codex / bub 如何安装本地 skill、repo skill 与 plugin,并组织 A/B 实验。
 - [Vision](../vision.md) —— 为什么名字只能用于路由、为什么没有通用协议。
-- [agent-eval 参考:它是怎么做适配的](ref/agent-eval.md) —— 学习记录,不是 fasteval 的实现。
+- [agent-eval 参考:它是怎么做适配的](ref/agent-eval.md) —— 学习记录,不是 niceeval 的实现。

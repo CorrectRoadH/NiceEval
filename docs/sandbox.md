@@ -40,7 +40,7 @@ interface Sandbox {
 
 这不是两个方法碰巧长得像,是故意保留的两种不同意图:eval 里的命令参数经常来自数据集字段或 agent 生成的输出,内容不可控——比如 `runCommand("./verify.sh", [row.filename])`,`row.filename` 就算是 `"a; rm -rf /workspace"` 这种字符串,argv 形式下也只是一个普通参数值,不会被解释成两条命令。如果合并成一个走 shell 的 `run(cmd: string)`,调用者就必须自己把每个动态值转义成安全的 shell 字符串才能拼进去,一旦漏转义就是真实的命令注入。
 
-参考过 eve.dev 的 `sandbox.run({ command })`(它下面所有后端都固定走 `bash -lc`,靠调用者自己用 `shellQuote()` 转义)——那套设计合理,是因为 eve 的调用方几乎都是 AI agent 自己的 bash 工具或内部工具核心,生成一整段 shell 命令本来就是它们的原生表达方式,shell 语义是刚需。fasteval 的调用方是写 eval 的人,大多数调用(`runCommand("npm", ["test"])`)根本不需要 shell 语义,不该为了少数需要管道/`&&`的场景让所有调用都背上手动转义的心智负担。
+参考过 eve.dev 的 `sandbox.run({ command })`(它下面所有后端都固定走 `bash -lc`,靠调用者自己用 `shellQuote()` 转义)——那套设计合理,是因为 eve 的调用方几乎都是 AI agent 自己的 bash 工具或内部工具核心,生成一整段 shell 命令本来就是它们的原生表达方式,shell 语义是刚需。niceeval 的调用方是写 eval 的人,大多数调用(`runCommand("npm", ["test"])`)根本不需要 shell 语义,不该为了少数需要管道/`&&`的场景让所有调用都背上手动转义的心智负担。
 
 ## 用户与 root
 
@@ -84,14 +84,14 @@ export function resolveBackend(opts): SandboxBackend {
 
 ## Sandbox 作为数据结构(带参数)
 
-后端名只是个字符串,带不了参数。和 [agent](adapters/README.md) 一样,sandbox 也能用**数据结构**定义,于是每个后端可带自己的参数。工厂函数(从 `fasteval/sandbox` 导出)产出 spec,放进 `experiment.sandbox`;字符串后端名仍然兼容。
+后端名只是个字符串,带不了参数。和 [agent](adapters/README.md) 一样,sandbox 也能用**数据结构**定义,于是每个后端可带自己的参数。工厂函数(从 `niceeval/sandbox` 导出)产出 spec,放进 `experiment.sandbox`;字符串后端名仍然兼容。
 
 ```typescript
-import { dockerSandbox, vercelSandbox, e2bSandbox } from "fasteval/sandbox";
+import { dockerSandbox, vercelSandbox, e2bSandbox } from "niceeval/sandbox";
 
-dockerSandbox({ image: "fasteval-agents:node24" })  // docker:指定镜像
+dockerSandbox({ image: "niceeval-agents:node24" })  // docker:指定镜像
 vercelSandbox({ snapshotId: "snap_xxx" })            // vercel:从快照起
-e2bSandbox({ template: "fasteval-agents" })          // e2b:指定模板
+e2bSandbox({ template: "niceeval-agents" })          // e2b:指定模板
 
 // 仍可用字符串:sandbox: "docker" / "vercel" / "e2b"
 ```
@@ -134,17 +134,17 @@ await sandbox.runCommand("npm", ["install"], { cwd: "/workspace" });
 - `E2BSandbox.create({ template, timeout })` 起一台 [E2B](https://e2b.dev) 微 VM;省略 `template` 用 e2b 默认 `base`(自带 node20)。
 - 命令经 `commands.run`(走 bash,支持 `&&` / 管道);`{ root: true }` → `{ user: "root" }`。
 - 文件用 `files.read` / `files.write`(文本 + 二进制)。
-- node 版本由模板决定 —— `runtime` 字段对 e2b 仅作记录。要 node24 / 烘焙好 agent CLI,用[预制模板](../sandbox/README.md) `e2bSandbox({ template: "fasteval-agents" })`。
+- node 版本由模板决定 —— `runtime` 字段对 e2b 仅作记录。要 node24 / 烘焙好 agent CLI,用[预制模板](../sandbox/README.md) `e2bSandbox({ template: "niceeval-agents" })`。
 
 ## 再接一个后端
 
-两条路,取决于新后端是不是打算贡献回 fasteval:
+两条路,取决于新后端是不是打算贡献回 niceeval:
 
-- **贡献进 fasteval**(像 docker/vercel/e2b 那样内置):实现 `Sandbox` 接口的一个类(`create()` + run/read/write/stop/up-down-load),在 `sandbox/resolve.ts` 的 `resolveSandbox` / `createBackend` 加一个 `case`,需要带参数就在 `types.ts` 加一个 `XxxSandboxSpec` 并在 `define.ts` 加工厂。
-- **只在自己项目里用,不改 fasteval**:用 [`defineSandbox`](adapters/README.md)(`fasteval/sandbox` 导出)——传 `create()` 直接产出一个实现 `Sandbox` 接口的实例,`resolve.ts` 认到 `create` 就直接调用,跳过内置 backend switch,不需要 fasteval 认识这个后端的名字:
+- **贡献进 niceeval**(像 docker/vercel/e2b 那样内置):实现 `Sandbox` 接口的一个类(`create()` + run/read/write/stop/up-down-load),在 `sandbox/resolve.ts` 的 `resolveSandbox` / `createBackend` 加一个 `case`,需要带参数就在 `types.ts` 加一个 `XxxSandboxSpec` 并在 `define.ts` 加工厂。
+- **只在自己项目里用,不改 niceeval**:用 [`defineSandbox`](adapters/README.md)(`niceeval/sandbox` 导出)——传 `create()` 直接产出一个实现 `Sandbox` 接口的实例,`resolve.ts` 认到 `create` 就直接调用,跳过内置 backend switch,不需要 niceeval 认识这个后端的名字:
 
 ```typescript
-import { defineSandbox } from "fasteval/sandbox";
+import { defineSandbox } from "niceeval/sandbox";
 
 export default defineSandbox({
   name: "modal",                          // 只用于展示 / 日志,不参与分发
@@ -156,7 +156,7 @@ export default defineSandbox({
 });
 ```
 
-**核心定义接口,后端各自实现**,两条路都不改核心其余部分。fasteval 的沙箱抽象刻意保持小(只需 run/read/write/stop),让接一个新后端的成本最低。
+**核心定义接口,后端各自实现**,两条路都不改核心其余部分。niceeval 的沙箱抽象刻意保持小(只需 run/read/write/stop),让接一个新后端的成本最低。
 
 ## 沙箱在生命周期里的位置
 
@@ -185,9 +185,9 @@ export default defineSandbox({
 |---|---|---|
 | 连 agent、装 CLI、写 agent 自己的主配置(每 attempt 一次) | [`SandboxAgent.setup`](adapters/README.md#sandboxagent-契约) | 随沙箱销毁,无需手工清 |
 | **这条 eval** 的沙箱预置(写 `.env`、装依赖、按 `t.flags` 注入 skill) | `test(t)` 里的普通代码(`t.sandbox.writeFiles` / `runCommand`) | 随沙箱销毁;要清沙箱外的东西用 `try/finally` |
-| **整轮共享**的外部服务(mock API、共享 DB、license) | 外部编排:`docker compose up -d && fasteval exp … && docker compose down`,或 CI 脚本 | 外部编排负责,URL 经 env 传入 agent / eval |
+| **整轮共享**的外部服务(mock API、共享 DB、license) | 外部编排:`docker compose up -d && niceeval exp … && docker compose down`,或 CI 脚本 | 外部编排负责,URL 经 env 传入 agent / eval |
 
-为什么这样够用:沙箱内的东西随沙箱销毁自动没了,不需要 teardown;整轮共享的外部资源用 `docker compose` / CI 脚本起停是业界通行做法,比一个 fasteval 专属钩子更少要维护、也不把资源起停逻辑锁进框架。这与"没有隐式 fixture 发现、起始文件手工写进 `test()`"是同一条纪律:**能用更基础的机制表达的,就不在框架里再造一层。**
+为什么这样够用:沙箱内的东西随沙箱销毁自动没了,不需要 teardown;整轮共享的外部资源用 `docker compose` / CI 脚本起停是业界通行做法,比一个 niceeval 专属钩子更少要维护、也不把资源起停逻辑锁进框架。这与"没有隐式 fixture 发现、起始文件手工写进 `test()`"是同一条纪律:**能用更基础的机制表达的,就不在框架里再造一层。**
 
 ## 性能:复用与预热
 

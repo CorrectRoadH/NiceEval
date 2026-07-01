@@ -1,10 +1,10 @@
 ---
-title: "Viewing fasteval results and debugging agent behavior"
+title: "Viewing niceeval results and debugging agent behavior"
 sidebarTitle: "Viewing Results"
-description: "fasteval stores structured artifacts in .fasteval/ after every run. Use npx fasteval view to explore transcripts, diffs, event streams, and pass rates."
+description: "niceeval stores structured artifacts in .niceeval/ after every run. Use npx niceeval view to explore transcripts, diffs, event streams, and pass rates."
 ---
 
-After every run, fasteval writes a complete set of structured artifacts to `.fasteval/<timestamp>/`. The console gives you instant feedback while the run is in progress, and the local result viewer lets you drill into exactly what the agent did — which tools it called, what files it changed, what the LLM said turn by turn — when you need to debug a failure or understand why an eval's score dropped.
+After every run, niceeval writes a complete set of structured artifacts to `.niceeval/<timestamp>/`. The console gives you instant feedback while the run is in progress, and the local result viewer lets you drill into exactly what the agent did — which tools it called, what files it changed, what the LLM said turn by turn — when you need to debug a failure or understand why an eval's score dropped.
 
 ## Console output
 
@@ -31,12 +31,12 @@ fixtures/button   claude-code   pass@5 = 4/5 (80%)   mean 34s · 58k tok · $0.4
 fixtures/button   codex         pass@5 = 3/5 (60%)   mean 41s · 72k tok · $0.39
 ```
 
-## The `.fasteval/<timestamp>/` directory
+## The `.niceeval/<timestamp>/` directory
 
 Every run produces a timestamped output directory containing:
 
 ```
-.fasteval/
+.niceeval/
 └─ 2025-01-15T14-23-00/
    ├─ summary.json           # top-level run summary
    ├─ weather/
@@ -54,16 +54,16 @@ Every run produces a timestamped output directory containing:
          └─ test-output.txt  # EVAL.ts Vitest output
 ```
 
-## The `fasteval view` command
+## The `niceeval view` command
 
 ```bash
-npx fasteval view
+npx niceeval view
 ```
 
-This opens the local result viewer, pointed at the most recent run in `.fasteval/`. The viewer lets you browse evals, inspect transcripts, read diffs, explore the event stream, and navigate the assertion results — all without leaving your machine. No data is uploaded anywhere.
+This opens the local result viewer, pointed at the most recent run in `.niceeval/`. The viewer lets you browse evals, inspect transcripts, read diffs, explore the event stream, and navigate the assertion results — all without leaving your machine. No data is uploaded anywhere.
 
 <Tip>
-  Run `npx fasteval view` immediately after a failed run to open the results for the exact run that just finished.
+  Run `npx niceeval view` immediately after a failed run to open the results for the exact run that just finished.
 </Tip>
 
 ## Artifacts explained
@@ -93,7 +93,7 @@ For experiment runs, `summary.json` also contains the per-cell pass rate table.
 
 ### Event stream (`events.jsonl`)
 
-Each line in `events.jsonl` is a `StreamEvent` — the normalized, agent-agnostic event representation that fasteval uses as the source of truth for all assertions:
+Each line in `events.jsonl` is a `StreamEvent` — the normalized, agent-agnostic event representation that niceeval uses as the source of truth for all assertions:
 
 ```ts
 type StreamEvent =
@@ -163,9 +163,9 @@ For sandbox (coding agent) evals, `diff.json` shows every file the agent touched
 
 If a `t.calledTool()` assertion fails, read `events.jsonl` to see what tools the agent actually called. You'll see every `action.called` and `action.result` event in order, with the exact inputs and outputs. This makes it easy to spot cases where an agent called the right tool with the wrong arguments, or called a different tool than expected.
 
-### Using `__fasteval__/results.json` in EVAL.ts
+### Using `__niceeval__/results.json` in EVAL.ts
 
-For sandbox evals, fasteval injects an observability summary into the sandbox at `__fasteval__/results.json` before running `EVAL.ts`. Your test code can read it to make assertions about agent behavior rather than just file outcomes:
+For sandbox evals, niceeval injects an observability summary into the sandbox at `__niceeval__/results.json` before running `EVAL.ts`. Your test code can read it to make assertions about agent behavior rather than just file outcomes:
 
 ```ts
 // evals/fixtures/button/EVAL.ts
@@ -173,7 +173,7 @@ import { test, expect } from "vitest";
 import { readFileSync } from "node:fs";
 
 test("did not run destructive commands", () => {
-  const o11y = JSON.parse(readFileSync("__fasteval__/results.json", "utf-8")).o11y;
+  const o11y = JSON.parse(readFileSync("__niceeval__/results.json", "utf-8")).o11y;
   const commands = o11y.shellCommands.map((c: { command: string }) => c.command);
   expect(commands).not.toContain("rm -rf");
 });

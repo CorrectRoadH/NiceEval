@@ -1,7 +1,7 @@
 ---
-title: "把远程或进程内 agent 接到 fasteval"
+title: "把远程或进程内 agent 接到 niceeval"
 sidebarTitle: "远程 Agent"
-description: "用 defineAgent 包装任意函数或 HTTP 服务为 fasteval agent，把响应映射到标准事件流，并按名字注册。"
+description: "用 defineAgent 包装任意函数或 HTTP 服务为 niceeval agent，把响应映射到标准事件流，并按名字注册。"
 ---
 
 `defineAgent` 用于连接不需要 sandbox 的被测对象：进程内函数、本地服务、远程 HTTP endpoint、WebSocket agent 或任何自定义框架。
@@ -20,7 +20,7 @@ description: "用 defineAgent 包装任意函数或 HTTP 服务为 fasteval agen
 ## `defineAgent` 形状
 
 ```ts
-import { defineAgent } from "fasteval/adapter";
+import { defineAgent } from "niceeval/adapter";
 
 export default defineAgent({
   name: "my-agent",
@@ -92,7 +92,7 @@ function toStreamEvents(body: { reply: string }) {
 ## 注册 agent
 
 ```ts
-import { defineExperiment } from "fasteval";
+import { defineExperiment } from "niceeval";
 import supportApi from "./agents/support-api";
 
 export default defineExperiment({
@@ -104,8 +104,8 @@ export default defineExperiment({
 ## 本地和生产切换
 
 ```bash
-SUPPORT_API_URL=http://localhost:3000/api/agent npx fasteval exp local support
-SUPPORT_API_URL=https://api.example.com/agent npx fasteval exp prod support
+SUPPORT_API_URL=http://localhost:3000/api/agent npx niceeval exp local support
+SUPPORT_API_URL=https://api.example.com/agent npx niceeval exp prod support
 ```
 
 不要把 URL 放进 CLI 位置参数；experiment 名之后的位置参数只用于过滤 eval ID。

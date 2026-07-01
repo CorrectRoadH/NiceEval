@@ -29,7 +29,7 @@
 **现象**：Ctrl+C 中断后，`sandbox list` 里沙箱仍 `running`，要手动 `sandbox stop && rm`。终端只打印「收到中断,正在清理沙箱容器…」，没有任何清理失败的痕迹。
 
 **根因**（三处叠加）：
-1. `Effect.runPromise(effect, { signal })` 在 signal abort 时**直接 reject** —— 内层 `catchAllCause` 咽不住 signal 级中断（整个 Exit 被标记为 interrupted）。于是 `runEvals` 抛栈、走 `main().catch()` 打「fasteval 出错」，原计划的「中断→部分汇总」成了死代码。
+1. `Effect.runPromise(effect, { signal })` 在 signal abort 时**直接 reject** —— 内层 `catchAllCause` 咽不住 signal 级中断（整个 Exit 被标记为 interrupted）。于是 `runEvals` 抛栈、走 `main().catch()` 打「niceeval 出错」，原计划的「中断→部分汇总」成了死代码。
 2. `createSandbox` 的 release 里 `sb.stop().catch(() => {})` **静默吞**异常，孤儿无痕。
 3. graceful 清理无超时、无兜底：`vsb.stop()` 是远端调用，慢/挂时用户二次 Ctrl+C 触发裸 `process.exit(130)`，把在飞的 stop 一起杀掉 —— 这才是真正漏孤儿的根因。
 

@@ -1,10 +1,10 @@
 ---
-title: "Run fasteval evals in GitHub Actions and CI pipelines"
+title: "Run niceeval evals in GitHub Actions and CI pipelines"
 sidebarTitle: "CI Integration"
-description: "Integrate fasteval into GitHub Actions or any CI system. Evals exit non-zero on failure, report JUnit XML, and cache results to speed up repeat runs."
+description: "Integrate niceeval into GitHub Actions or any CI system. Evals exit non-zero on failure, report JUnit XML, and cache results to speed up repeat runs."
 ---
 
-Evals are most valuable when they run on every change, not just locally before a deploy. Integrating fasteval into CI gives you an automatic regression gate: the pipeline turns red if any agent behavior regresses, the JUnit XML report surfaces exactly which eval failed in your test dashboard, and fingerprint-based caching keeps repeat runs fast by skipping evals whose fixtures and config haven't changed.
+Evals are most valuable when they run on every change, not just locally before a deploy. Integrating niceeval into CI gives you an automatic regression gate: the pipeline turns red if any agent behavior regresses, the JUnit XML report surfaces exactly which eval failed in your test dashboard, and fingerprint-based caching keeps repeat runs fast by skipping evals whose fixtures and config haven't changed.
 
 ## Why evals belong in CI
 
@@ -12,7 +12,7 @@ Agent behavior can regress just like any other code. A prompt template change, a
 
 ## Exit codes
 
-fasteval's exit codes map directly to CI pass/fail:
+niceeval's exit codes map directly to CI pass/fail:
 
 | Condition | Exit code | CI result |
 |-----------|-----------|-----------|
@@ -53,12 +53,12 @@ jobs:
       - name: Restore eval cache
         uses: actions/cache@v4
         with:
-          path: .fasteval
-          key: fasteval-${{ hashFiles('evals/**', 'fasteval.config.ts') }}
-          restore-keys: fasteval-
+          path: .niceeval
+          key: niceeval-${{ hashFiles('evals/**', 'niceeval.config.ts') }}
+          restore-keys: niceeval-
 
       - name: Run evals
-        run: npx fasteval exp ci --strict --junit .fasteval/junit.xml
+        run: npx niceeval exp ci --strict --junit .niceeval/junit.xml
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -67,12 +67,12 @@ jobs:
         uses: mikepenz/action-junit-report@v4
         if: always()
         with:
-          report_paths: .fasteval/junit.xml
+          report_paths: .niceeval/junit.xml
 ```
 
 ## Setting up secrets
 
-fasteval itself doesn't manage API keys — each agent adapter reads the keys it needs from environment variables. Add your keys as repository secrets in GitHub, then pass them as `env` in the workflow step:
+niceeval itself doesn't manage API keys — each agent adapter reads the keys it needs from environment variables. Add your keys as repository secrets in GitHub, then pass them as `env` in the workflow step:
 
 <Steps>
   <Step title="Add secrets to your repository">
@@ -81,10 +81,10 @@ fasteval itself doesn't manage API keys — each agent adapter reads the keys it
     - `OPENAI_API_KEY` — for Codex and GPT-based agents
   </Step>
   <Step title="Pass secrets as env in the workflow">
-    Reference them under the `env` key of the step that runs `npx fasteval`:
+    Reference them under the `env` key of the step that runs `npx niceeval`:
     ```yaml
     - name: Run evals
-      run: npx fasteval exp ci --strict
+      run: npx niceeval exp ci --strict
       env:
         ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -100,18 +100,18 @@ fasteval itself doesn't manage API keys — each agent adapter reads the keys it
 Pass `--junit <path>` to write a JUnit XML report alongside the run. Most CI systems can ingest JUnit XML and display per-test results in their UI:
 
 ```bash
-npx fasteval exp ci --junit .fasteval/junit.xml
+npx niceeval exp ci --junit .niceeval/junit.xml
 ```
 
-You can also configure the reporter permanently in `fasteval.config.ts` so you never have to remember the flag:
+You can also configure the reporter permanently in `niceeval.config.ts` so you never have to remember the flag:
 
 ```ts
-// fasteval.config.ts
-import { defineConfig } from "fasteval";
-import { Console, JUnit } from "fasteval/reporters";
+// niceeval.config.ts
+import { defineConfig } from "niceeval";
+import { Console, JUnit } from "niceeval/reporters";
 
 export default defineConfig({
-  reporters: [Console(), JUnit(".fasteval/junit.xml")],
+  reporters: [Console(), JUnit(".niceeval/junit.xml")],
   judge: { model: "anthropic/claude-haiku-4-5" },
   maxConcurrency: 4,
 });
@@ -122,15 +122,15 @@ export default defineConfig({
 Use `--dry` to verify that your eval files are discovered correctly — it prints the full list of evals that would run, without executing any of them or making any API calls:
 
 ```bash
-npx fasteval exp ci --dry
-npx fasteval exp ci memory/ --dry   # check a subset
+npx niceeval exp ci --dry
+npx niceeval exp ci memory/ --dry   # check a subset
 ```
 
 This is useful for debugging filter expressions and confirming that new evals appear in CI before you burn tokens on a full run.
 
-## Caching `.fasteval/` between runs
+## Caching `.niceeval/` between runs
 
-fasteval stores fingerprinted results in `.fasteval/`. On the next run, any eval whose fixture and config fingerprint is unchanged is skipped and its cached result is reused. Persisting `.fasteval/` in CI makes repeated runs dramatically faster — only changed evals re-run.
+niceeval stores fingerprinted results in `.niceeval/`. On the next run, any eval whose fixture and config fingerprint is unchanged is skipped and its cached result is reused. Persisting `.niceeval/` in CI makes repeated runs dramatically faster — only changed evals re-run.
 
 In GitHub Actions, cache the directory using the file hash of your evals and config as the cache key:
 
@@ -138,13 +138,13 @@ In GitHub Actions, cache the directory using the file hash of your evals and con
 - name: Restore eval cache
   uses: actions/cache@v4
   with:
-    path: .fasteval
-    key: fasteval-${{ hashFiles('evals/**', 'fasteval.config.ts') }}
-    restore-keys: fasteval-
+    path: .niceeval
+    key: niceeval-${{ hashFiles('evals/**', 'niceeval.config.ts') }}
+    restore-keys: niceeval-
 ```
 
 <Note>
-  The `restore-keys` fallback lets a run start from the most recent partial cache even when the exact key doesn't match. fasteval will re-run only the evals that have actually changed.
+  The `restore-keys` fallback lets a run start from the most recent partial cache even when the exact key doesn't match. niceeval will re-run only the evals that have actually changed.
 </Note>
 
 ## Controlling concurrency in CI
@@ -153,13 +153,13 @@ CI runners have fixed CPU and memory budgets. Use `--max-concurrency` to keep sa
 
 ```bash
 # Conservative setting for a standard 2-CPU GitHub-hosted runner
-npx fasteval exp ci --max-concurrency 2
+npx niceeval exp ci --max-concurrency 2
 
 # Higher value for large runners or cloud sandbox backends
-npx fasteval exp ci --max-concurrency 8
+npx niceeval exp ci --max-concurrency 8
 ```
 
-You can also set `maxConcurrency` in `fasteval.config.ts` and override it per CI environment.
+You can also set `maxConcurrency` in `niceeval.config.ts` and override it per CI environment.
 
 ## Recommended CI patterns
 
@@ -168,14 +168,14 @@ You can also set `maxConcurrency` in `fasteval.config.ts` and override it per CI
     Run evals on every pull request without `--strict` and with a moderate `--max-concurrency`. Focus on fast feedback: use `--tag smoke` to run only a subset of critical evals if the full suite is too slow for PRs.
 
     ```yaml
-    run: npx fasteval exp ci --tag smoke --max-concurrency 4
+    run: npx niceeval exp ci --tag smoke --max-concurrency 4
     ```
   </Card>
   <Card title="Nightly full matrix" icon="moon">
     Run the full eval suite nightly with `--strict` and `--no-early-exit` to collect complete pass-rate distributions. Use experiments to compare agents and models and track stability over time.
 
     ```yaml
-    run: npx fasteval exp compare --strict --no-early-exit
+    run: npx niceeval exp compare --strict --no-early-exit
     ```
   </Card>
 </CardGroup>

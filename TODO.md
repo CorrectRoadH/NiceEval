@@ -103,7 +103,7 @@
 - [x] **E2. 实现 budget 护栏**:调度器里累计已花费成本,超过 experiment/run 级 `budget` 就停止派发新 attempt,报告 `run:budgetExceeded`。加 `--budget` CLI flag。
 - [x] **E3. 把 `Reporter` 扩展成分阶段事件流**(`run:start`/`eval:start`/`eval:complete`/`run:earlyExit`/`run:budgetExceeded`/`run:saved`/`run:summary`),替代现在的 3 方法接口 —— 已确认有下游消费方(实时进度条/第三方 dashboard 类)需要更细粒度。
 - [x] **E4. 实现 `--strict`**:`src/cli.ts` 加 flag,`src/scoring/verdict.ts` 的 `computeOutcome` 加 strict 开关,开了让 soft 断言失败也导致 `outcome=failed`。
-- [x] **E5. 实现 `fasteval init`**:生成 `evals/` 目录 + `fasteval.config.ts` 起始文件,和 `getting-started.md` 第一步对齐。
+- [x] **E5. 实现 `niceeval init`**:生成 `evals/` 目录 + `niceeval.config.ts` 起始文件,和 `getting-started.md` 第一步对齐。
 - [x] **E6. 实现 `--tag`**(按 `EvalDef.tags` 筛选 discover 出来的 eval 列表)**和 `--junit <path>`**(接现有 `JUnit()` reporter,`src/runner/reporters/json.ts`)。
 
 ### F. Agent 能力模型 —— `src/types.ts`、`src/runner/run.ts`、`src/define.ts`
@@ -127,7 +127,7 @@
 
 ## 已决定维持现状(仅记录)
 
-- ~~`runCommand`/`runShell` 是否合并成一个 `run()`~~ —— **不合并**。查了 eve.dev 的 `sandbox.run({ command })`:它下面所有后端都固定走 `bash -lc`,不做任何注入防护,靠调用者自己用 `shellQuote()` 转义;这套设计合理是因为 eve 的调用方几乎都是 AI agent 自己的 bash 工具,生成整段 shell 命令是它们的原生表达方式。fasteval 的调用方是写 eval 的人,命令参数经常来自数据集字段或 agent 输出、内容不可控——`runCommand` 的 argv 数组形式天生不经过 shell 解析,没有注入面;合并成 shell-string 版会让每次调用都要手动转义,一旦漏转义就是真实的命令注入。已把这条理由写进 `docs/sandbox.md`("为什么 `runCommand` 和 `runShell` 不合并成一个"一节),代码不用改。
+- ~~`runCommand`/`runShell` 是否合并成一个 `run()`~~ —— **不合并**。查了 eve.dev 的 `sandbox.run({ command })`:它下面所有后端都固定走 `bash -lc`,不做任何注入防护,靠调用者自己用 `shellQuote()` 转义;这套设计合理是因为 eve 的调用方几乎都是 AI agent 自己的 bash 工具,生成整段 shell 命令是它们的原生表达方式。niceeval 的调用方是写 eval 的人,命令参数经常来自数据集字段或 agent 输出、内容不可控——`runCommand` 的 argv 数组形式天生不经过 shell 解析,没有注入面;合并成 shell-string 版会让每次调用都要手动转义,一旦漏转义就是真实的命令注入。已把这条理由写进 `docs/sandbox.md`("为什么 `runCommand` 和 `runShell` 不合并成一个"一节),代码不用改。
 
 ---
 

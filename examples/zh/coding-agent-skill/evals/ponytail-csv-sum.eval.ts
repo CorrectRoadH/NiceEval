@@ -1,5 +1,5 @@
-import { defineEval } from "fasteval";
-import { includes } from "fasteval/expect";
+import { defineEval } from "niceeval";
+import { includes } from "niceeval/expect";
 
 const WORKSPACE = new URL("../workspaces/ts-starter/", import.meta.url).pathname;
 

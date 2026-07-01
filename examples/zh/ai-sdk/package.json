@@ -1,5 +1,5 @@
 {
-  "name": "fasteval-ai-sdk-example",
+  "name": "niceeval-ai-sdk-example",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -9,11 +9,11 @@
     "dev:web": "wait-on -t 30000 tcp:127.0.0.1:5188 && vite",
     "build": "vite build",
     "start": "node --env-file .env --import tsx/esm src/server.ts",
-    "eval": "fasteval",
+    "eval": "niceeval",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "fasteval": "file:../../..",
+    "niceeval": "file:../../..",
     "@ai-sdk/openai": "^3.0.26",
     "@ai-sdk/react": "^3.0.203",
     "@langfuse/tracing": "^5.4.1",

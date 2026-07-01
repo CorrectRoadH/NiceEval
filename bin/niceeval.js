@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// fasteval 入口:注册 tsx 的 ESM loader(让我们能直接 import 用户的 .ts:
-// fasteval.config.ts、evals/*.eval.ts、agents/*.ts),再加载真正的 CLI。
+// niceeval 入口:注册 tsx 的 ESM loader(让我们能直接 import 用户的 .ts:
+// niceeval.config.ts、evals/*.eval.ts、agents/*.ts),再加载真正的 CLI。
 // 这样框架与被测项目都不需要编译步骤。
 import { fileURLToPath } from "node:url";
 import { register } from "tsx/esm/api";

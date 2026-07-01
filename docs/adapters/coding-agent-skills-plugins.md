@@ -1,6 +1,6 @@
 # Coding Agent Skills / Plugins DX
 
-这篇只讨论沙箱型 coding agent adapter:Claude Code、Codex、bub 这类 CLI agent 如何在 fasteval 里安装 skill 与 plugin,并让实验可以 A/B 对比它们的收益。
+这篇只讨论沙箱型 coding agent adapter:Claude Code、Codex、bub 这类 CLI agent 如何在 niceeval 里安装 skill 与 plugin,并让实验可以 A/B 对比它们的收益。
 
 先定词:
 
@@ -12,7 +12,7 @@
 ## 设计目标
 
 1. **实验决定装什么。** base agent 只知道怎么跑 Claude Code / Codex / bub;某次实验要不要加 skill / plugin,在 experiment 里表达,而不是 CLI 位置参数或全局 config。
-2. **adapter 负责翻译。** fasteval core 不知道 Claude Code 怎么读 skill、Codex 配置文件在哪、bub 插件怎么装。统一配置只到 adapter 边界,再由具体 adapter 翻译成它自己的安装动作。
+2. **adapter 负责翻译。** niceeval core 不知道 Claude Code 怎么读 skill、Codex 配置文件在哪、bub 插件怎么装。统一配置只到 adapter 边界,再由具体 adapter 翻译成它自己的安装动作。
 3. **安装发生在 `setup`。** 每个 attempt 的沙箱建好后、第一次 `send` 前安装。多轮会话不能在每轮 `send` 里重装。
 4. **结果可对比。** 同一组 eval 应该能跑 `baseline`、`with-local-skill`、`with-installed-skill`、`with-plugin` 四类实验,报告里 agent 名字要带出变体。
 5. **选择要显式。** 一个 repo 里有多个 skill 时,必须能选择其中几个;不要默认把整个 repo 全部启用。
@@ -58,8 +58,8 @@ type PluginSpec =
 在 experiment 里使用:
 
 ```typescript
-import { defineExperiment } from "fasteval";
-import { claudeCodeAgent, codexAgent, bubAgent } from "fasteval/adapter";
+import { defineExperiment } from "niceeval";
+import { claudeCodeAgent, codexAgent, bubAgent } from "niceeval/adapter";
 
 export default defineExperiment({
   description: "codex + local zod skill",
@@ -128,7 +128,7 @@ npx skill add Effect-TS/skills --ref 8f3c1a2 --only effect --only effect-sql
 - `source` 指明装哪个 repo;
 - `ref` 固定版本,保证 eval 可复现;
 - `skills` 在多 skill repo 中选择启用集合;
-- 安装后写 lock/artifact,让 `.fasteval/<run>/` 能看见实际安装了什么。
+- 安装后写 lock/artifact,让 `.niceeval/<run>/` 能看见实际安装了什么。
 
 选择规则:
 
@@ -241,7 +241,7 @@ export default defineExperiment({
 });
 ```
 
-这样 `fasteval exp skill-ab` 的含义清楚:同一批任务,不同 agent 上下文 / runtime 变体。`fasteval view` 里也能直接按 agent 名比较通过率、成本、工具调用和 diff 质量。
+这样 `niceeval exp skill-ab` 的含义清楚:同一批任务,不同 agent 上下文 / runtime 变体。`niceeval view` 里也能直接按 agent 名比较通过率、成本、工具调用和 diff 质量。
 
 ## 安装 Manifest
 
@@ -262,8 +262,8 @@ adapter 在 setup 结束后应写一份标准 manifest 到沙箱和结果工件,
 
 建议路径:
 
-- 沙箱内:`__fasteval__/agent-setup.json`
-- 结果目录:`.fasteval/<run>/<eval>/<attempt>/agent-setup.json`
+- 沙箱内:`__niceeval__/agent-setup.json`
+- 结果目录:`.niceeval/<run>/<eval>/<attempt>/agent-setup.json`
 
 这份 manifest 不参与评分,但用于复现和诊断:"这次失败到底有没有装 skill"应该能从 artifact 一眼确认。
 

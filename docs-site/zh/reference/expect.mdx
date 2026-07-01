@@ -1,13 +1,13 @@
 ---
-title: "fasteval/expect matchers 与自定义断言参考"
+title: "niceeval/expect matchers 与自定义断言参考"
 sidebarTitle: "Expect"
-description: "fasteval/expect 参考：includes、equals、matches、similarity、satisfies。可链式调用 .gate() 或 .atLeast(0.7)，也可以用 makeAssertion 构建自定义 matcher。"
+description: "niceeval/expect 参考：includes、equals、matches、similarity、satisfies。可链式调用 .gate() 或 .atLeast(0.7)，也可以用 makeAssertion 构建自定义 matcher。"
 ---
 
-`fasteval/expect` 提供一组可组合 matcher，传给 `t.check()` 或 `t.require()`。matcher 会返回一个 `Assertion`，并带有默认严重性：`gate` 或 `soft`。
+`niceeval/expect` 提供一组可组合 matcher，传给 `t.check()` 或 `t.require()`。matcher 会返回一个 `Assertion`，并带有默认严重性：`gate` 或 `soft`。
 
 ```ts
-import { includes, equals, matches, similarity, satisfies } from "fasteval/expect";
+import { includes, equals, matches, similarity, satisfies } from "niceeval/expect";
 ```
 
 ## 使用方式
@@ -99,7 +99,7 @@ t.check(t.reply, includes("nice to have").atLeast(0.7));
 ## 自定义 matcher
 
 ```ts
-import { makeAssertion } from "fasteval/expect";
+import { makeAssertion } from "niceeval/expect";
 
 const validEmail = makeAssertion("valid email", (value) => {
   return typeof value === "string" && value.includes("@") ? 1 : 0;

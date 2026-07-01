@@ -1,18 +1,18 @@
 {
-  "name": "fasteval",
+  "name": "niceeval",
   "version": "0.1.0-alpha.2",
   "description": "Lightweight TypeScript agent eval tool — eval agents, services, functions, and coding-agent fixtures",
   "type": "module",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/CorrectRoadH/fasteval"
+    "url": "https://github.com/CorrectRoadH/niceeval"
   },
   "engines": {
     "node": ">=18"
   },
   "bin": {
-    "fasteval": "bin/fasteval.js"
+    "niceeval": "bin/niceeval.js"
   },
   "types": "./src/index.ts",
   "exports": {
@@ -49,7 +49,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "fasteval": "node bin/fasteval.js",
+    "niceeval": "node bin/niceeval.js",
     "view:build": "vite build --config src/view/app/vite.config.ts",
     "prepare": "pnpm run view:build",
     "site:dev": "vite site --host 127.0.0.1 --port 5174",
@@ -83,6 +83,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.21.0",
+    "prism-react-renderer": "^2.4.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-grab": "^0.1.47",

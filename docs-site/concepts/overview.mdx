@@ -1,22 +1,22 @@
 ---
-title: "fasteval architecture: evals, agents, and sandboxes"
+title: "niceeval architecture: evals, agents, and sandboxes"
 sidebarTitle: "Overview"
-description: "Understand how fasteval's core, agent adapters, and sandbox backends fit together to evaluate any AI agent with a unified TypeScript API."
+description: "Understand how niceeval's core, agent adapters, and sandbox backends fit together to evaluate any AI agent with a unified TypeScript API."
 ---
 
-fasteval is organized around three concerns that stay permanently separated: **what to test** (your `evals/` directory), **how to run and score it** (the fasteval core), and **how to reach the thing being tested** (the agent adapter and sandbox). Understanding where each boundary falls makes it much easier to write evals, build adapters, and interpret results — so this page walks the full architecture before you write a single line of eval code.
+niceeval is organized around three concerns that stay permanently separated: **what to test** (your `evals/` directory), **how to run and score it** (the niceeval core), and **how to reach the thing being tested** (the agent adapter and sandbox). Understanding where each boundary falls makes it much easier to write evals, build adapters, and interpret results — so this page walks the full architecture before you write a single line of eval code.
 
 ## The four-layer architecture
 
 ```
-   Your evals/ directory            fasteval core              Connect to AI (self-authored adapters)
+   Your evals/ directory            niceeval core              Connect to AI (self-authored adapters)
    ----------------------           --------------             ------------------------------------
    weather.eval.ts  --discover-->   Runner  --send-->  Agent   ┬─ in-process adapter  (your agent)
    sql.eval.ts                        │                        ├─ remote adapter      (your service)
    fixtures/button/ --fixture-->      │                        └─ sandbox adapter ─── Sandbox
      PROMPT.md                        │                           (claude-code          (docker /
      EVAL.ts                          ▼                            codex / bub …)        third-party)
-                                  Scorers ── Reporters ── .fasteval/<run>/
+                                  Scorers ── Reporters ── .niceeval/<run>/
                                   (expect / scoped /     (summary.json / event stream /
                                    judge / tests)         transcript / diff)
 ```
@@ -25,7 +25,7 @@ Each layer owns a distinct slice of the problem. The **core never reaches throug
 
 ## What the core owns
 
-The fasteval core is everything that looks the same regardless of which AI you're testing:
+The niceeval core is everything that looks the same regardless of which AI you're testing:
 
 <CardGroup cols={2}>
   <Card title="Eval discovery" icon="magnifying-glass">
@@ -44,26 +44,26 @@ The fasteval core is everything that looks the same regardless of which AI you'r
     Streams live output to the console and hands off to configured reporters (JUnit, JSON, custom) once a run completes.
   </Card>
   <Card title="Artifact persistence" icon="folder-open">
-    Writes the full run record to `.fasteval/<run>/` — `summary.json`, per-eval results, event streams, transcripts, diffs, and test output.
+    Writes the full run record to `.niceeval/<run>/` — `summary.json`, per-eval results, event streams, transcripts, diffs, and test output.
   </Card>
 </CardGroup>
 
 ## What the Agent / Adapter boundary means
 
 <Note>
-fasteval **does not define a universal agent protocol**. There is no `--url` flag, no shared wire format, and no assumption that your AI can speak a particular API shape.
+niceeval **does not define a universal agent protocol**. There is no `--url` flag, no shared wire format, and no assumption that your AI can speak a particular API shape.
 </Note>
 
 Every system under test — your own agent, a deployed HTTP service, Claude Code, Codex, bub — is connected through a **self-authored adapter**. Two terms name two sides of the same concept:
 
 - **Agent** is the abstraction. From the core's perspective an agent is a named object with a set of capabilities and a single `send` method that accepts a `TurnInput` and returns a `Turn`. The runner only ever calls this interface.
-- **Adapter** is the concrete implementation you write (or use from fasteval's built-ins). It knows how to authenticate, how to call your service, and — critically — how to map whatever your AI returns into the standard event stream the core expects.
+- **Adapter** is the concrete implementation you write (or use from niceeval's built-ins). It knows how to authenticate, how to call your service, and — critically — how to map whatever your AI returns into the standard event stream the core expects.
 
 Experiments reference agents directly. The URL (or API key, or CLI invocation) is the adapter's private configuration, invisible to the core and to your evals.
 
 ### Why there is no `--url` flag
 
-Some eval frameworks define a protocol and let you point at any compatible endpoint with `--url`. fasteval explicitly rejects this model: there is no single protocol that all AI agents speak. Rather than forcing you to wrap your agent in a compatibility shim, fasteval puts the adaptation work where it belongs — inside the adapter — and keeps the core protocol-agnostic. The result is that any AI, any transport, and any framework can be evaluated with the same `defineEval` + assertion vocabulary.
+Some eval frameworks define a protocol and let you point at any compatible endpoint with `--url`. niceeval explicitly rejects this model: there is no single protocol that all AI agents speak. Rather than forcing you to wrap your agent in a compatibility shim, niceeval puts the adaptation work where it belongs — inside the adapter — and keeps the core protocol-agnostic. The result is that any AI, any transport, and any framework can be evaluated with the same `defineEval` + assertion vocabulary.
 
 ## What the Sandbox owns
 
@@ -71,7 +71,7 @@ A **sandbox** is where a sandbox-type agent runs — the isolated execution envi
 
 <Tabs>
   <Tab title="Docker">
-    The default local sandbox. fasteval spins up a container, uploads the workspace fixture, runs the agent CLI inside it, then reads back the transcript and diff. No cloud credentials required beyond the agent's own API key.
+    The default local sandbox. niceeval spins up a container, uploads the workspace fixture, runs the agent CLI inside it, then reads back the transcript and diff. No cloud credentials required beyond the agent's own API key.
   </Tab>
   <Tab title="Vercel Sandbox">
     A cloud-hosted sandbox backend. Useful when you want to avoid managing Docker locally or run evals in a serverless CI environment. Requires a Vercel token.
@@ -104,7 +104,7 @@ The runner selects a sandbox with `--sandbox <backend>` and passes a prepared `S
     The result of one `t.send(...)` call: a standard event stream, an optional structured-output field (`data`), a `status`, and optional token usage. All scoped assertions read from `Turn.events`.
   </Accordion>
   <Accordion title="Artifact">
-    Any file written to `.fasteval/<run>/` after a run: `summary.json`, per-eval results, event streams, transcripts, generated-file diffs, and test output. Artifacts are the source of truth for debugging and regression analysis.
+    Any file written to `.niceeval/<run>/` after a run: `summary.json`, per-eval results, event streams, transcripts, generated-file diffs, and test output. Artifacts are the source of truth for debugging and regression analysis.
   </Accordion>
   <Accordion title="Experiment">
     A named configuration matrix — a combination of evals, agent, sandbox, model, feature flags, run count, and budget — that produces a comparable, replayable run. Experiments are how you compare agent A vs agent B, or model X vs model Y, over the same eval suite.
@@ -130,7 +130,7 @@ The runner selects a sandbox with `--sandbox <backend>` and passes a prepared `S
     One outcome per eval: `passed`, `failed`, `passed`, or `skipped`. When `runs > 1`, the summary is a pass-rate and average latency.
   </Step>
   <Step title="Reporting & artifacts">
-    Results stream to the console in real time. Once complete, reporters write structured output and `.fasteval/<run>/` is populated with the full artifact set.
+    Results stream to the console in real time. Once complete, reporters write structured output and `.niceeval/<run>/` is populated with the full artifact set.
   </Step>
 </Steps>
 

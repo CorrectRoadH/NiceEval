@@ -1,7 +1,7 @@
 ---
-title: "fasteval quickstart: run your first eval in 10 minutes"
+title: "niceeval quickstart: run your first eval in 10 minutes"
 sidebarTitle: "Quickstart"
-description: "Install fasteval, scaffold your project, and run your first three evals — function, conversational, and coding-agent — in under 10 minutes."
+description: "Install niceeval, scaffold your project, and run your first three evals — function, conversational, and coding-agent — in under 10 minutes."
 ---
 
 This guide takes you from a blank project to three working evals: one that calls an in-process function, one that drives a conversational agent over HTTP, and one that drops a coding agent into a Docker sandbox to write real code. By the end you'll have a runnable eval suite with CI-ready output.
@@ -22,16 +22,16 @@ If you already know what you want to evaluate, jump straight to the relevant exa
 
 <Steps>
 
-### Install fasteval
+### Install niceeval
 
-Add fasteval as a dev dependency, then run the scaffold command:
+Add niceeval as a dev dependency, then run the scaffold command:
 
 ```shell
-npm install -D fasteval
-npx fasteval init
+npm install -D niceeval
+npx niceeval init
 ```
 
-`npx fasteval init` reads your project layout and generates everything you need to run your first eval immediately.
+`npx niceeval init` reads your project layout and generates everything you need to run your first eval immediately.
 
 ### Explore the generated files
 
@@ -39,7 +39,7 @@ After `init` completes, your project contains the following new entries:
 
 ```
 your-project/
-├─ fasteval.config.ts
+├─ niceeval.config.ts
 └─ evals/
    ├─ hello.eval.ts            # example: conversational eval
    └─ fixtures/
@@ -49,7 +49,7 @@ your-project/
          └─ package.json
 ```
 
-`fasteval.config.ts` is your central configuration — it sets the judge model, reporters, concurrency, timeout, and sandbox backend. `evals/` is where all your eval files live; the file path automatically becomes the eval's ID.
+`niceeval.config.ts` is your central configuration — it sets the judge model, reporters, concurrency, timeout, and sandbox backend. `evals/` is where all your eval files live; the file path automatically becomes the eval's ID.
 
 <Note>
   You can safely delete or replace the generated example files once you've read through them. They're there to illustrate the shape of each eval type, not to run against a real agent.
@@ -57,16 +57,16 @@ your-project/
 
 ### Configure your project
 
-Open `fasteval.config.ts` and review the defaults:
+Open `niceeval.config.ts` and review the defaults:
 
 ```ts
-// fasteval.config.ts
-import { defineConfig } from "fasteval";
-import { Console, JUnit } from "fasteval/reporters";
+// niceeval.config.ts
+import { defineConfig } from "niceeval";
+import { Console, JUnit } from "niceeval/reporters";
 
 export default defineConfig({
   judge: { model: "anthropic/claude-haiku-4-5" },
-  reporters: [Console(), JUnit(".fasteval/junit.xml")],
+  reporters: [Console(), JUnit(".niceeval/junit.xml")],
   maxConcurrency: 8,
   timeoutMs: 300_000,
   sandbox: "auto",  // uses cloud token if available, otherwise Docker
@@ -85,7 +85,7 @@ First, create the agent adapter that wraps your function:
 
 ```ts
 // agents/classify.ts
-import { defineAgent } from "fasteval/adapter";
+import { defineAgent } from "niceeval/adapter";
 import { classifyIntent } from "../src/agent.js"; // your own code
 
 export default defineAgent({
@@ -100,8 +100,8 @@ Then write the eval file:
 
 ```ts
 // evals/classify.eval.ts
-import { defineEval } from "fasteval";
-import { equals } from "fasteval/expect";
+import { defineEval } from "niceeval";
+import { equals } from "niceeval/expect";
 
 export default defineEval({
   description: "Intent classification: refund request",
@@ -115,7 +115,7 @@ export default defineEval({
 Add the `classify` agent to an experiment file such as `experiments/local.ts`, then run:
 
 ```shell
-npx fasteval exp local classify
+npx niceeval exp local classify
 ```
 
 <Tip>
@@ -124,13 +124,13 @@ npx fasteval exp local classify
 
 ## Eval 2 — a conversational agent
 
-To eval an agent that lives behind an HTTP endpoint, you write an adapter that handles the request/response cycle. The URL and any credentials are the adapter's concern — fasteval has no `--url` flag and imposes no protocol requirements.
+To eval an agent that lives behind an HTTP endpoint, you write an adapter that handles the request/response cycle. The URL and any credentials are the adapter's concern — niceeval has no `--url` flag and imposes no protocol requirements.
 
 Define the remote agent adapter:
 
 ```ts
 // agents/weather-bot.ts
-import { defineAgent } from "fasteval/adapter";
+import { defineAgent } from "niceeval/adapter";
 
 export default defineAgent({
   name: "weather-bot",
@@ -151,8 +151,8 @@ Write the eval:
 
 ```ts
 // evals/weather/brooklyn.eval.ts
-import { defineEval } from "fasteval";
-import { includes } from "fasteval/expect";
+import { defineEval } from "niceeval";
+import { includes } from "niceeval/expect";
 
 export default defineEval({
   description: "Brooklyn weather query",
@@ -169,7 +169,7 @@ export default defineEval({
 Run it by passing your service URL as an environment variable:
 
 ```shell
-AGENT_URL=https://my-agent.example.com npx fasteval exp local weather
+AGENT_URL=https://my-agent.example.com npx niceeval exp local weather
 ```
 
 The four assertions above illustrate the main scoring tools available in the `test(t)` body:
@@ -183,7 +183,7 @@ The four assertions above illustrate the main scoring tools available in the `te
 
 ## Eval 3 — a coding agent in a sandbox
 
-For coding agents like Claude Code, Codex, or bub that need to write real files, fasteval uses a **fixture** — a small directory containing a prompt, hidden validation tests, and a minimal project to work in.
+For coding agents like Claude Code, Codex, or bub that need to write real files, niceeval uses a **fixture** — a small directory containing a prompt, hidden validation tests, and a minimal project to work in.
 
 <CodeGroup>
 
@@ -211,7 +211,7 @@ test("accepts label and onClick props", () => {
 
 test("no destructive shell commands", () => {
   const o11y = JSON.parse(
-    readFileSync("__fasteval__/results.json", "utf-8")
+    readFileSync("__niceeval__/results.json", "utf-8")
   ).o11y;
   expect(o11y.shellCommands.map((c) => c.command)).not.toContain("rm -rf");
 });
@@ -234,22 +234,22 @@ Run the coding-agent eval with Docker as the sandbox:
 
 ```shell
 export ANTHROPIC_API_KEY=sk-ant-...
-npx fasteval exp local fixtures/button --sandbox docker
+npx niceeval exp local fixtures/button --sandbox docker
 ```
 
 To measure pass rate over multiple attempts with early stopping on first success:
 
 ```shell
-npx fasteval exp local fixtures/button --runs 10 --early-exit
+npx niceeval exp local fixtures/button --runs 10 --early-exit
 ```
 
 <Warning>
-  Sandbox evals require Docker to be running on your machine. If Docker is not available, fasteval will stop with a clear error rather than silently falling back to a different backend.
+  Sandbox evals require Docker to be running on your machine. If Docker is not available, niceeval will stop with a clear error rather than silently falling back to a different backend.
 </Warning>
 
 ## Viewing results
 
-After any run, fasteval prints a live summary to the console:
+After any run, niceeval prints a live summary to the console:
 
 ```
 Discovered 3 evals
@@ -263,7 +263,7 @@ Discovered 3 evals
 Results:  2 passed, 1 failed, 0 passed, 0 skipped
 ```
 
-Full artifacts are written to `.fasteval/<timestamp>/` after every run. The directory contains:
+Full artifacts are written to `.niceeval/<timestamp>/` after every run. The directory contains:
 
 - `summary.json` — machine-readable pass/fail summary
 - Per-eval result files with assertion details
@@ -274,16 +274,16 @@ Full artifacts are written to `.fasteval/<timestamp>/` after every run. The dire
 To open the interactive artifact viewer:
 
 ```shell
-npx fasteval view
+npx niceeval view
 ```
 
 ## Running in CI
 
-Add fasteval to your GitHub Actions workflow with two lines:
+Add niceeval to your GitHub Actions workflow with two lines:
 
 ```yaml
 # .github/workflows/evals.yml
-- run: npx fasteval exp ci --strict --junit .fasteval/junit.xml
+- run: npx niceeval exp ci --strict --junit .niceeval/junit.xml
   env:
     ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 ```

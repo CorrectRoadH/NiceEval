@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { Highlight, themes } from "prism-react-renderer";
 import {
   BookOpen,
   CheckCircle2,
@@ -7,6 +8,7 @@ import {
   Clipboard,
   FileCode2,
   Folder,
+  GitCompare,
   GitFork,
   Play,
   Terminal,
@@ -14,16 +16,16 @@ import {
 } from "lucide-react";
 import "./styles.css";
 
-const githubUrl = "https://github.com/CorrectRoadH/fasteval";
+const githubUrl = "https://github.com/CorrectRoadH/niceeval";
 
 // 文档站按语言分入口：en 是默认语言走根路径，zh 走 /zh 前缀。
 const docsUrl = {
-  en: "https://fasteval.mintlify.site/quickstart",
-  zh: "https://fasteval.mintlify.site/zh/quickstart",
+  en: "https://niceeval.mintlify.site/quickstart",
+  zh: "https://niceeval.mintlify.site/zh/quickstart",
 };
 
 const initPrompt =
-  "READ https://raw.githubusercontent.com/CorrectRoadH/fasteval/refs/heads/main/INIT.md and install fasteval for this repo.";
+  "READ https://raw.githubusercontent.com/CorrectRoadH/niceeval/refs/heads/main/INIT.md and install niceeval for this repo.";
 
 const fileTree = {
   humans: [
@@ -32,12 +34,12 @@ const fileTree = {
     { path: "weather-tool.eval.ts", depth: 1, kind: "file" },
     { path: "image-understanding.eval.ts", depth: 1, kind: "file" },
     { path: "experiments/compare-models/", depth: 0, kind: "folder" },
-    { path: "fasteval.config.ts", depth: 0, kind: "file", note: "config" },
+    { path: "niceeval.config.ts", depth: 0, kind: "file", note: "config" },
   ],
   agents: [
     { path: "PROMPT.md", depth: 0, kind: "file" },
     { path: "EVAL.ts", depth: 0, kind: "file" },
-    { path: "__fasteval__/results.json", depth: 0, kind: "file" },
+    { path: "__niceeval__/results.json", depth: 0, kind: "file" },
   ],
 };
 
@@ -48,9 +50,77 @@ function fileIcon(item) {
   return <FileCode2 size={14} />;
 }
 
+// 呼应 fileTree.humans 里的 experiments/compare-models/：同一个 agent 换模型跑同一批 eval，
+// 通过率并排对比。agent/model 名和文件夹名一样是标识符，不随语言切换翻译。
+const compareCard = {
+  group: "compare-models",
+  rows: [
+    { name: "gpt-5.4", score: 100 },
+    { name: "deepseek-v4-pro", score: 60 },
+  ],
+};
+
+// 原样取自 examples/zh/ai-sdk/evals/multi-turn-image.eval.ts —— 代码是标识符/真实源码，不随语言切换翻译；
+// 只有卡片外壳的文案(状态、描述、逐行注解)按 locale 走 copy。
+const evalSourceLines = [
+  'import { defineEval } from "niceeval";',
+  "",
+  "// 评测：先发图片，后续两轮纯文字追问。",
+  "//",
+  "// 第一轮：图片（蓝底白方块）+ 文字问题，考图片理解。",
+  "// 第二、三轮：纯文字追问，考助手是否记住了第一轮的图片内容（跨轮图片上下文）。",
+  "// 图片文件与本 eval 同目录：evals/sample.png。",
+  "export default defineEval({",
+  '  description: "测试 agent 在多轮对话中基于图片内容作答的能力",',
+  "",
+  "  async test(t) {",
+  '    (await t.sendFile("evals/sample.png", "这张图片里有什么？")).expectOk();',
+  '    (await t.send("图片里的背景是什么颜色？")).expectOk();',
+  '    await t.send("中间那个形状是什么颜色的？");',
+  "",
+  '    await t.group("三轮都正常收发", () => {',
+  "      // 每轮 send 已各自 .expectOk();succeeded() 再确认整次运行没失败 / 没卡在 HITL。",
+  '      // (注:事件流现在也含 user 消息,所以不要再用 event("message",{count}) 数"轮数"。)',
+  "      t.succeeded();",
+  "    });",
+  "",
+  '    await t.group("第一轮识别出图片内容", () => {',
+  "      t.messageIncludes(/蓝|blue|白|方块|square/i);",
+  "    });",
+  "",
+  '    await t.group("后续追问能联系图片上下文", () => {',
+  '      // 第二轮问背景色，助手应答"蓝"；第三轮问形状颜色，应答"白"',
+  "      // 注意：t.messageIncludes 是 run 级断言，拼接整次运行所有 assistant 消息（不只最后一轮）。",
+  "      t.messageIncludes(/白|white/i);",
+  "    });",
+  "",
+  "    t.judge.autoevals",
+  '      .closedQA("助手是否在三轮对话中始终基于第一轮发送的图片内容作答，而不是凭空发挥？")',
+  "      .gate(0.7);",
+  "  },",
+  "});",
+];
+
+const evalFile = {
+  gateBadge: "1/0.7",
+  gateLine: 34,
+  highlights: {
+    19: "succeeded",
+    23: "recognize",
+    29: "followup",
+    34: "gate",
+  },
+  source: evalSourceLines.join("\n"),
+};
+
+const codeTheme = {
+  ...themes.vsDark,
+  plain: { ...themes.vsDark.plain, backgroundColor: "transparent" },
+};
+
 const copy = {
   en: {
-    meta: "fasteval is a lightweight TypeScript agent eval tool for agents, services, functions, and coding-agent fixtures.",
+    meta: "NiceEval is a lightweight TypeScript agent eval tool for agents, services, functions, and coding-agent fixtures.",
     navStart: "Start",
     docs: "Docs",
     languageLabel: "Switch language",
@@ -63,55 +133,48 @@ const copy = {
       agents: {
         label: "For agents",
         command: initPrompt,
-        caption: "Paste this prompt into your coding agent so it installs and wires up fasteval on its own.",
+        caption: "Paste this prompt into your coding agent so it installs and wires up NiceEval on its own.",
       },
     },
-    heroTitle: "Lightweight agent evals for every project.",
+    heroTitle: "An eval that's actually built for agents.",
     copyCommand: "Copy command",
     copied: "copied",
     primaryAction: "Start",
     github: "GitHub",
-    visualLabel: "fasteval product diagram",
+    visualLabel: "NiceEval product diagram",
     fileCardRoot: "your-project/",
     fileNotes: {
       adapter: "adapter",
       config: "config",
     },
     runStatusPassed: "passed",
-    scoreLabel: "Pass rate",
-    workflowLabel: "fasteval workflow",
+    workflowLabel: "NiceEval workflow",
     steps: [
       ["Define", "Describe correct behavior in a small TypeScript file."],
       ["Run", "Use the same eval for agents, services, functions, or fixtures."],
       ["Inspect", "Read verdicts, traces, costs, and workspace evidence."],
     ],
-    setupEyebrow: "Start",
-    setupTitle: "Install. Init. Evaluate.",
-    setupCard: {
-      status: "ready",
-      title: "fasteval quickstart",
-      subtitle: "Three commands, zero config.",
-      panelLabel: "terminal",
-      rows: [
-        {
-          command: "npm install -D fasteval",
-          note: "Adds fasteval as a dev dependency — no runtime deps land in your shipped app.",
-        },
-        {
-          command: "npx fasteval init",
-          note: "Scaffolds evals/weather.eval.ts and fasteval.config.ts to get you started.",
-        },
-        {
-          command: "npx fasteval",
-          note: "Runs every eval and prints pass rate, cost, and duration.",
-        },
+    setupEyebrow: "Eval example",
+    setupTitle: "Evals can have elegant DX too.",
+    evalCard: {
+      notes: {
+        succeeded: "Each send() already called expectOk() per turn; this confirms the whole run finished without failing or stalling on a human-in-the-loop prompt.",
+        recognize: "The regex matches Chinese and English keywords together, so this only passes if the assistant actually named the blue background and white square.",
+        followup: "This assertion runs at the run level — it scans every assistant message across all three turns, not just the last reply.",
+        gate: "A closedQA judge checks whether the assistant kept grounding every answer in turn one's image; the run only passes with a score at or above 0.7.",
+      },
+      timingLabel: "Timing trace",
+      timingRows: [
+        { label: "Turn 1 · sendFile(image)", value: "2.1s" },
+        { label: "Turn 2 · send(follow-up)", value: "1.3s" },
+        { label: "Turn 3 · send(follow-up)", value: "1.5s" },
+        { label: "judge.autoevals.closedQA", value: "0.9s" },
       ],
-      moreLabel: "What you get",
-      moreBody: "A local viewer with verdicts, traces, cost, and diffs for every run.",
+      timingTotal: "5.8s total · $0.006 est.",
     },
   },
   zh: {
-    meta: "fasteval 是轻量、通用、DX 体验好的 TypeScript agent eval 工具，适合评 agents、services、functions 和 coding-agent fixtures。",
+    meta: "NiceEval 是轻量、通用、DX 体验好的 TypeScript agent eval 工具，适合评 agents、services、functions 和 coding-agent fixtures。",
     navStart: "开始",
     docs: "文档",
     languageLabel: "切换语言",
@@ -124,51 +187,44 @@ const copy = {
       agents: {
         label: "给 Agent",
         command: initPrompt,
-        caption: "把这段 prompt 粘贴给你的 coding agent，让它自己安装并接入 fasteval。",
+        caption: "把这段 prompt 粘贴给你的 coding agent，让它自己安装并接入 NiceEval。",
       },
     },
-    heroTitle: "适合每个项目的轻量 Agent Evals。",
+    heroTitle: "更适合 Agent 的 Eval。",
     copyCommand: "复制命令",
     copied: "已复制",
     primaryAction: "开始",
     github: "GitHub",
-    visualLabel: "fasteval 产品示意图",
+    visualLabel: "NiceEval 产品示意图",
     fileCardRoot: "你的项目/",
     fileNotes: {
       adapter: "适配器",
       config: "配置",
     },
     runStatusPassed: "通过",
-    scoreLabel: "通过率",
-    workflowLabel: "fasteval 工作流",
+    workflowLabel: "NiceEval 工作流",
     steps: [
       ["定义", "用一个小 TypeScript 文件描述什么算正确。"],
       ["运行", "同一个 eval 可评 agents、services、functions 或 fixtures。"],
       ["检查", "查看判决、trace、成本和工作区证据。"],
     ],
-    setupEyebrow: "开始",
-    setupTitle: "安装。初始化。开始评测。",
-    setupCard: {
-      status: "就绪",
-      title: "fasteval 快速开始",
-      subtitle: "三条命令，无需配置。",
-      panelLabel: "终端",
-      rows: [
-        {
-          command: "npm install -D fasteval",
-          note: "把 fasteval 加为开发依赖——不给你部署的应用引入任何运行时依赖。",
-        },
-        {
-          command: "npx fasteval init",
-          note: "生成 evals/weather.eval.ts 和 fasteval.config.ts 脚手架，直接改着用。",
-        },
-        {
-          command: "npx fasteval",
-          note: "运行所有 eval，打印通过率、成本和耗时。",
-        },
+    setupEyebrow: "Eval 示例",
+    setupTitle: "eval 也能有优雅的 DX。",
+    evalCard: {
+      notes: {
+        succeeded: "每轮 send 已各自调用 expectOk()；这里再确认整次运行没有失败，也没有卡在人工介入(HITL)。",
+        recognize: "正则同时匹配中英文关键词，只有助手真的说出蓝色背景和白色方块才算通过。",
+        followup: "这是 run 级断言——会扫描整次运行里所有 assistant 消息，而不只是最后一轮回复。",
+        gate: "closedQA judge 检查助手是否全程都基于第一轮的图片作答；分数达到 0.7 才算通过。",
+      },
+      timingLabel: "耗时追踪",
+      timingRows: [
+        { label: "第 1 轮 · sendFile(图片)", value: "2.1s" },
+        { label: "第 2 轮 · send(追问)", value: "1.3s" },
+        { label: "第 3 轮 · send(追问)", value: "1.5s" },
+        { label: "judge.autoevals.closedQA", value: "0.9s" },
       ],
-      moreLabel: "你会得到什么",
-      moreBody: "一个本地查看器，展示每次运行的判决、trace、成本和 diff。",
+      timingTotal: "共 5.8s · 预估 $0.006",
     },
   },
 };
@@ -176,7 +232,7 @@ const copy = {
 function detectLocale() {
   let saved;
   try {
-    saved = window.localStorage.getItem("fasteval-locale");
+    saved = window.localStorage.getItem("niceeval-locale");
   } catch {
     saved = undefined;
   }
@@ -190,7 +246,7 @@ function App() {
 
   useEffect(() => {
     try {
-      window.localStorage.setItem("fasteval-locale", locale);
+      window.localStorage.setItem("niceeval-locale", locale);
     } catch {
       // Language selection still works for the current session.
     }
@@ -215,9 +271,9 @@ function Header({ locale, setLocale, t }) {
 
   return (
     <header className="topbar shell">
-      <a className="brand" href="#top" aria-label="fasteval home">
+      <a className="brand" href="#top" aria-label="NiceEval home">
         <span className="mark" />
-        <span>fasteval</span>
+        <span>NiceEval</span>
       </a>
       <nav className="nav" aria-label="Primary">
         <a href="#setup">{t.navStart}</a>
@@ -320,7 +376,7 @@ function ProductVisual({ mode, t }) {
         </ul>
       </div>
       <div className="run-card">
-        <code>$ fasteval</code>
+        <code>$ niceeval</code>
         <div className="run-line">
           <CheckCircle2 size={16} />
           <span>weather</span>
@@ -333,14 +389,23 @@ function ProductVisual({ mode, t }) {
         </div>
       </div>
       <div className="score-card">
-        <span>{t.scoreLabel}</span>
-        <strong>91.7%</strong>
-        <div className="score-bars" aria-hidden="true">
-          <i />
-          <i />
-          <i />
-          <i />
+        <div className="compare-head">
+          <GitCompare size={14} />
+          <span>{compareCard.group}</span>
         </div>
+        <ul className="compare-rows">
+          {compareCard.rows.map((row) => (
+            <li key={row.name} className={row.score < 90 ? "warn" : undefined}>
+              <div className="compare-row-top">
+                <span>{row.name}</span>
+                <b>{row.score}%</b>
+              </div>
+              <div className="compare-bar">
+                <i style={{ width: `${row.score}%` }} />
+              </div>
+            </li>
+          ))}
+        </ul>
       </div>
     </div>
   );
@@ -369,24 +434,24 @@ function Step({ k, title, text }) {
 function Setup({ t }) {
   return (
     <section id="setup" className="setup shell">
-      <div>
+      <div className="setup-intro">
         <p className="eyebrow">{t.setupEyebrow}</p>
         <h2>{t.setupTitle}</h2>
       </div>
-      <SetupCard card={t.setupCard} />
+      <EvalCard t={t} card={t.evalCard} />
     </section>
   );
 }
 
-function SetupCard({ card }) {
-  const [openRows, setOpenRows] = useState(() => new Set());
-  const [moreOpen, setMoreOpen] = useState(false);
+function EvalCard({ t, card }) {
+  const [openLines, setOpenLines] = useState(() => new Set());
+  const [timingOpen, setTimingOpen] = useState(false);
 
-  const toggleRow = (index) => {
-    setOpenRows((prev) => {
+  const toggleLine = (lineNo) => {
+    setOpenLines((prev) => {
       const next = new Set(prev);
-      if (next.has(index)) next.delete(index);
-      else next.add(index);
+      if (next.has(lineNo)) next.delete(lineNo);
+      else next.add(lineNo);
       return next;
     });
   };
@@ -394,41 +459,69 @@ function SetupCard({ card }) {
   return (
     <div className="setup-card">
       <div className="setup-card-head">
-        <span className="pill">{card.status}</span>
-        <h3>{card.title}</h3>
-        <p>{card.subtitle}</p>
+        <span className="pill">{t.runStatusPassed}</span>
       </div>
       <div className="setup-panel">
-        <div className="setup-panel-head">
-          <Terminal size={14} />
-          <span>{card.panelLabel}</span>
-        </div>
-        <ol>
-          {card.rows.map((row, index) => {
-            const open = openRows.has(index);
-            return (
-              <li key={row.command}>
-                <button type="button" className="setup-row" aria-expanded={open} onClick={() => toggleRow(index)}>
-                  <span className="num">{index + 1}</span>
-                  <ChevronRight size={14} className={open ? "chev open" : "chev"} />
-                  <code>{row.command}</code>
-                </button>
-                {open ? (
-                  <p className="setup-note">
-                    <CheckCircle2 size={13} />
-                    <span>{row.note}</span>
-                  </p>
-                ) : null}
-              </li>
-            );
-          })}
-        </ol>
+        <Highlight code={evalFile.source} language="tsx" theme={codeTheme}>
+          {({ className, style, tokens, getLineProps, getTokenProps }) => (
+            <pre className={`eval-code ${className}`} style={style}>
+              {tokens.map((line, i) => {
+                const lineNo = i + 1;
+                const noteKey = evalFile.highlights[lineNo];
+                const open = openLines.has(lineNo);
+                return (
+                  <React.Fragment key={lineNo}>
+                    <div {...getLineProps({ line, className: noteKey ? "code-line assertion" : "code-line" })}>
+                      <span className="code-line-no">{noteKey ? <CheckCircle2 size={12} /> : lineNo}</span>
+                      <span className="code-line-content">
+                        {line.map((token, tokenIndex) => (
+                          <span key={tokenIndex} {...getTokenProps({ token })} />
+                        ))}
+                      </span>
+                      {noteKey ? (
+                        <span className="code-line-actions">
+                          {lineNo === evalFile.gateLine ? <span className="gate-badge">{evalFile.gateBadge}</span> : null}
+                          <button
+                            type="button"
+                            className="code-expand"
+                            aria-expanded={open}
+                            onClick={() => toggleLine(lineNo)}
+                          >
+                            <ChevronRight size={12} className={open ? "chev open" : "chev"} />
+                          </button>
+                        </span>
+                      ) : null}
+                    </div>
+                    {noteKey && open ? (
+                      <div className="code-note">
+                        <CheckCircle2 size={13} />
+                        <span>{card.notes[noteKey]}</span>
+                      </div>
+                    ) : null}
+                  </React.Fragment>
+                );
+              })}
+            </pre>
+          )}
+        </Highlight>
       </div>
-      <button type="button" className="setup-more" aria-expanded={moreOpen} onClick={() => setMoreOpen((v) => !v)}>
-        <ChevronRight size={13} className={moreOpen ? "chev open" : "chev"} />
-        {card.moreLabel}
+      <button type="button" className="eval-more" aria-expanded={timingOpen} onClick={() => setTimingOpen((v) => !v)}>
+        <ChevronRight size={13} className={timingOpen ? "chev open" : "chev"} />
+        {card.timingLabel}
       </button>
-      {moreOpen ? <p className="setup-more-body">{card.moreBody}</p> : null}
+      {timingOpen ? (
+        <div className="eval-more-body">
+          <ul className="eval-timing">
+            {card.timingRows.map((row) => (
+              <li key={row.label}>
+                <span>{row.label}</span>
+                <b>{row.value}</b>
+              </li>
+            ))}
+          </ul>
+          <p className="eval-timing-total">{card.timingTotal}</p>
+        </div>
+      ) : null}
     </div>
   );
 }

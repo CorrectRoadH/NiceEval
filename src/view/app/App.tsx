@@ -98,9 +98,9 @@ export function App({ data }: { data: ViewData }) {
   return (
     <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)}>
       <header className="topbar">
-        <a className="brand" href="https://github.com/CorrectRoadH/fasteval" target="_blank" rel="noreferrer">
+        <a className="brand" href="https://github.com/CorrectRoadH/niceeval" target="_blank" rel="noreferrer">
           <span className="mark" />
-          <span>fasteval</span>
+          <span>NiceEval</span>
         </a>
         <TabsList aria-label={t("nav.label")}>
           {navItems.map((item) => (

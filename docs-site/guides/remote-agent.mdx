@@ -1,10 +1,10 @@
 ---
-title: "Connect a remote or in-process agent to fasteval"
+title: "Connect a remote or in-process agent to niceeval"
 sidebarTitle: "Remote Agent"
-description: "Use defineAgent to wrap any function or HTTP service as a fasteval agent. Map responses to the standard event stream and register the agent by name."
+description: "Use defineAgent to wrap any function or HTTP service as a niceeval agent. Map responses to the standard event stream and register the agent by name."
 ---
 
-Every system under test in fasteval is an **agent** — a named object that receives a prompt, drives your code or service, and returns a structured result. You connect your own logic by writing an *adapter* with `defineAgent`. The adapter owns all the details of how to call your system: in-process function references, HTTP endpoints, authentication headers, and message formats are entirely private to the adapter. Experiments reference agents directly rather than passing URLs on the CLI, because there is no universal protocol that every agent speaks.
+Every system under test in niceeval is an **agent** — a named object that receives a prompt, drives your code or service, and returns a structured result. You connect your own logic by writing an *adapter* with `defineAgent`. The adapter owns all the details of how to call your system: in-process function references, HTTP endpoints, authentication headers, and message formats are entirely private to the adapter. Experiments reference agents directly rather than passing URLs on the CLI, because there is no universal protocol that every agent speaks.
 
 ## When to use `defineAgent`
 
@@ -13,7 +13,7 @@ Every system under test in fasteval is an **agent** — a named object that rece
     Call your own function directly inside `send`. Zero network overhead — the fastest possible eval loop, ideal for unit-level semantic tests in CI.
   </Card>
   <Card title="Remote HTTP service" icon="globe">
-    Issue a `fetch` inside `send` using whatever protocol your service speaks. The URL, auth, and request shape are your business; fasteval never sees them.
+    Issue a `fetch` inside `send` using whatever protocol your service speaks. The URL, auth, and request shape are your business; niceeval never sees them.
   </Card>
 </CardGroup>
 
@@ -22,7 +22,7 @@ Every system under test in fasteval is an **agent** — a named object that rece
 `defineAgent` accepts a plain object with three fields. The `send` function is the only place you need to write any logic.
 
 ```ts
-import { defineAgent } from "fasteval/adapter";
+import { defineAgent } from "niceeval/adapter";
 
 defineAgent({
   name: string;                          // used for reports and grouping
@@ -33,7 +33,7 @@ defineAgent({
 
 ### `AgentCapabilities`
 
-Declaring capabilities lets fasteval shape the `t` context that eval authors receive. If a capability is absent, the corresponding assertions are not available at the type level — you get a compile-time error rather than a runtime surprise.
+Declaring capabilities lets niceeval shape the `t` context that eval authors receive. If a capability is absent, the corresponding assertions are not available at the type level — you get a compile-time error rather than a runtime surprise.
 
 ```ts
 interface AgentCapabilities {
@@ -83,7 +83,7 @@ Use an in-process adapter when your agent is a TypeScript function you can impor
 
 ```ts
 // agents/classify.ts
-import { defineAgent } from "fasteval/adapter";
+import { defineAgent } from "niceeval/adapter";
 import { classifyIntent } from "../src/agent.js";
 
 export default defineAgent({
@@ -115,7 +115,7 @@ When your agent lives behind an HTTP endpoint, `send` is just a `fetch`. The URL
 
 ```ts
 // agents/weather-bot.ts
-import { defineAgent } from "fasteval/adapter";
+import { defineAgent } from "niceeval/adapter";
 
 export default defineAgent({
   name: "weather-bot",
@@ -142,7 +142,7 @@ export default defineAgent({
 
 ## `toStreamEvents` — mapping your response to the standard stream
 
-`toStreamEvents` is a small mapping function you write. Its job is to translate whatever your service returns into the standard `StreamEvent[]` vocabulary that fasteval understands. Here is what the standard types look like:
+`toStreamEvents` is a small mapping function you write. Its job is to translate whatever your service returns into the standard `StreamEvent[]` vocabulary that niceeval understands. Here is what the standard types look like:
 
 ```ts
 type StreamEvent =
@@ -175,7 +175,7 @@ function toStreamEvents(body: { reply: string; tools?: any[] }): StreamEvent[] {
 ```
 
 <Tip>
-  Emit `action.called` and `action.result` pairs with matching `callId` values. fasteval's `deriveRunFacts` stitches them into structured `toolCalls` facts, which power `t.calledTool`, `t.toolOrder`, `t.noFailedActions`, and more.
+  Emit `action.called` and `action.result` pairs with matching `callId` values. niceeval's `deriveRunFacts` stitches them into structured `toolCalls` facts, which power `t.calledTool`, `t.toolOrder`, `t.noFailedActions`, and more.
 </Tip>
 
 ---
@@ -186,7 +186,7 @@ Import your adapter from an experiment file so the run configuration is signed i
 
 ```ts
 // experiments/local.ts
-import { defineExperiment } from "fasteval";
+import { defineExperiment } from "niceeval";
 import classifyAgent from "./agents/classify.js";
 
 export default defineExperiment({
@@ -203,13 +203,13 @@ Because the adapter reads `process.env` internally, you can point it at any envi
 
 ```shell
 # Evaluate against your local dev server
-MY_BOT_URL=http://localhost:3000 npx fasteval exp local
+MY_BOT_URL=http://localhost:3000 npx niceeval exp local
 
 # Evaluate against production
-MY_BOT_URL=https://prod.example.com npx fasteval exp prod
+MY_BOT_URL=https://prod.example.com npx niceeval exp prod
 ```
 
-You can also create two experiment files — one for local, one for production — and switch between them with `npx fasteval exp local` vs `npx fasteval exp prod`.
+You can also create two experiment files — one for local, one for production — and switch between them with `npx niceeval exp local` vs `npx niceeval exp prod`.
 
 ---
 

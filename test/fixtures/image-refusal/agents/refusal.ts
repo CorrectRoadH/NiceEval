@@ -1,5 +1,5 @@
-import { defineAgent } from "fasteval/adapter";
-import type { Agent } from "fasteval/adapter";
+import { defineAgent } from "niceeval/adapter";
+import type { Agent } from "niceeval/adapter";
 
 // 确定性 mock agent:不管发了什么图片,永远用一句典型的"模型不支持视觉输入"拒绝语回复。
 // 用来复现真实场景(见 examples/zh/ai-sdk 跑 deepseek-v4-pro 的记录):模型压根没看图,

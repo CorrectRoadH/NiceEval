@@ -1,16 +1,16 @@
 ---
-title: "fasteval scoring: assertions, judge calls, and outcomes"
+title: "niceeval scoring: assertions, judge calls, and outcomes"
 sidebarTitle: "Scoring"
-description: "fasteval scoring: five mechanisms — value assertions, scoped assertions, LLM-as-judge, test-as-scoring, and efficiency checks. Gate vs soft severity."
+description: "niceeval scoring: five mechanisms — value assertions, scoped assertions, LLM-as-judge, test-as-scoring, and efficiency checks. Gate vs soft severity."
 ---
 
-Scoring is the process of taking everything an agent did during an eval — every message, tool call, file change, and token spent — and folding it into a single, actionable outcome. fasteval gives you five scoring mechanisms that complement each other: some check values immediately, some assess the whole run after it completes, some ask a language model to judge open-ended quality, some execute tests inside the sandbox, and some measure efficiency. All five produce the same `Assertion` type, and all five feed into the same outcome rules.
+Scoring is the process of taking everything an agent did during an eval — every message, tool call, file change, and token spent — and folding it into a single, actionable outcome. niceeval gives you five scoring mechanisms that complement each other: some check values immediately, some assess the whole run after it completes, some ask a language model to judge open-ended quality, some execute tests inside the sandbox, and some measure efficiency. All five produce the same `Assertion` type, and all five feed into the same outcome rules.
 
 ## The five scoring mechanisms
 
 <CardGroup cols={2}>
   <Card title="1. Value assertions" icon="equals">
-    `t.check(value, matcher)` and `t.require(value, matcher)` evaluate a specific value immediately against a matcher from `fasteval/expect`. Use these for facts you can verify inline.
+    `t.check(value, matcher)` and `t.require(value, matcher)` evaluate a specific value immediately against a matcher from `niceeval/expect`. Use these for facts you can verify inline.
   </Card>
   <Card title="2. Scoped assertions" icon="crosshairs">
     `t.succeeded()`, `t.calledTool()`, `t.messageIncludes()`, and friends are registered during `test(t)` but evaluated **after** the function returns, against the complete turn data. Use these for whole-run facts.
@@ -34,7 +34,7 @@ Every assertion carries a **severity** that determines how it influences the fin
   <Tab title="gate">
     A gate assertion is a hard requirement. If it fails, the entire eval is immediately classified as `failed` — regardless of how well every other assertion passed. Use gate for facts that must be true: "the agent called the correct tool", "the response parsed as valid JSON", "no shell commands errored."
     
-    Most matchers in `fasteval/expect` (`includes`, `equals`, `matches`, `satisfies`) default to gate. Scoped assertions like `t.succeeded()` and `t.calledTool()` also default to gate.
+    Most matchers in `niceeval/expect` (`includes`, `equals`, `matches`, `satisfies`) default to gate. Scoped assertions like `t.succeeded()` and `t.calledTool()` also default to gate.
   </Tab>
   <Tab title="soft">
     A soft assertion is a quality score with a numeric threshold. If the score falls below the threshold, the eval becomes `passed` rather than `passed` — a signal that there is a quality regression, but not a hard breakage. Soft failures only count as failures when you run with `--strict`.
@@ -83,11 +83,11 @@ Otherwise                                                       →  passed
 
 When you run an eval more than once (`runs > 1`), the per-eval summary becomes a **pass rate** (the fraction of runs that produced `passed`) and an average latency, rather than a single outcome.
 
-## 1. Value assertions — `fasteval/expect` matchers
+## 1. Value assertions — `niceeval/expect` matchers
 
 `t.check(value, assertion)` evaluates the assertion immediately and records the result. `t.require(value, assertion)` does the same but **throws immediately** if the assertion fails, aborting the rest of the test function. Use `t.require` for preconditions: if a required fact is false, there is no point continuing.
 
-The matchers available from `fasteval/expect`:
+The matchers available from `niceeval/expect`:
 
 ```ts
 import {
@@ -96,7 +96,7 @@ import {
   matches,     // Standard Schema (Zod etc.) check  (default: gate)
   similarity,  // normalized Levenshtein 0–1        (default: soft)
   satisfies,   // custom predicate + label          (default: gate)
-} from "fasteval/expect";
+} from "niceeval/expect";
 ```
 
 Usage examples:
@@ -210,7 +210,7 @@ Global config judge.model
 ```
 
 ```ts
-// fasteval.config.ts — global default
+// niceeval.config.ts — global default
 defineConfig({ judge: { model: "anthropic/claude-haiku-4-5" } });
 
 // A specific eval that needs a more capable judge
@@ -245,11 +245,11 @@ test("accepts label and onClick props", () => {
 });
 ```
 
-You can also assert **agent behavior** (not just output files) by reading the observability summary that fasteval injects into the sandbox:
+You can also assert **agent behavior** (not just output files) by reading the observability summary that niceeval injects into the sandbox:
 
 ```ts
 test("initialized with scaffold, not hand-written", () => {
-  const o11y = JSON.parse(readFileSync("__fasteval__/results.json", "utf-8")).o11y;
+  const o11y = JSON.parse(readFileSync("__niceeval__/results.json", "utf-8")).o11y;
   const cmds = o11y.shellCommands.map((c: { command: string }) => c.command);
   expect(cmds.some((c) => c.includes("create-next-app"))).toBe(true);
 });
@@ -275,8 +275,8 @@ t.check(t.usage.outputTokens, satisfies((n) => n < 10_000, "not verbose"));
 A value assertion is just a function `(value) => number | Promise<number>`. You can write custom matchers using `makeAssertion`:
 
 ```ts
-import { makeAssertion } from "fasteval/expect";
-import type { Assertion } from "fasteval/expect";
+import { makeAssertion } from "niceeval/expect";
+import type { Assertion } from "niceeval/expect";
 
 function jsonValid(): Assertion {
   return makeAssertion({

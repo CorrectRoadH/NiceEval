@@ -1,10 +1,10 @@
 ---
 title: "Scoring guide: assertions, judge, and cost limits"
 sidebarTitle: "Scoring Guide"
-description: "Use fasteval's five scoring mechanisms — value assertions, scoped assertions, LLM-as-judge, test-as-scoring, and efficiency checks — to grade any eval."
+description: "Use niceeval's five scoring mechanisms — value assertions, scoped assertions, LLM-as-judge, test-as-scoring, and efficiency checks — to grade any eval."
 ---
 
-Scoring is the process of folding a run's results into a **outcome**. fasteval provides five complementary mechanisms, each suited to different kinds of evidence: precise value checks, behavioral observations, open-ended quality judgments, test suite outcomes, and efficiency budgets. Every mechanism produces a named `Assertion` with a severity and a score. At the end of a run, fasteval aggregates all assertions into a single outcome. This guide covers all five mechanisms in depth, plus how to write custom assertions and how to control severity with `.atLeast(0.7)` and `.gate()`.
+Scoring is the process of folding a run's results into a **outcome**. niceeval provides five complementary mechanisms, each suited to different kinds of evidence: precise value checks, behavioral observations, open-ended quality judgments, test suite outcomes, and efficiency budgets. Every mechanism produces a named `Assertion` with a severity and a score. At the end of a run, niceeval aggregates all assertions into a single outcome. This guide covers all five mechanisms in depth, plus how to write custom assertions and how to control severity with `.atLeast(0.7)` and `.gate()`.
 
 ## Gate vs soft: how severity works
 
@@ -26,7 +26,7 @@ t.maxTokens(80_000).atLeast(0.7);                        // downgrade to soft
 
 ## 1. Value assertions
 
-Value assertions evaluate a specific value **in place**, at the moment you call them. Import matchers from `fasteval/expect` and pass them to `t.check()` or `t.require()`.
+Value assertions evaluate a specific value **in place**, at the moment you call them. Import matchers from `niceeval/expect` and pass them to `t.check()` or `t.require()`.
 
 ```ts
 import {
@@ -35,7 +35,7 @@ import {
   matches,      // Standard Schema validation      (default: gate)
   similarity,   // Normalized Levenshtein 0–1      (default: soft)
   satisfies,    // Custom predicate + label         (default: gate)
-} from "fasteval/expect";
+} from "niceeval/expect";
 ```
 
 <Tabs>
@@ -202,10 +202,10 @@ Use `{ model }` to override the judge model for a single call. The resolution or
 
 1. The `{ model }` option on the individual `t.judge.*` call
 2. The `judge.model` set on the `defineEval` for this eval
-3. The global `judge.model` in `fasteval.config.ts`
+3. The global `judge.model` in `niceeval.config.ts`
 
 ```ts
-// fasteval.config.ts — global default
+// niceeval.config.ts — global default
 defineConfig({ judge: { model: "anthropic/claude-haiku-4-5" } });
 ```
 
@@ -264,7 +264,7 @@ t.check(await t.sandbox.runCommand("npm", ["test"], { cwd: "/workspace" }), comm
 
 ## 5. Efficiency assertions
 
-Token usage is a first-class scoring dimension in fasteval. An agent that answers correctly but uses ten times more tokens than necessary shouldn't score identically to one that answers efficiently. Usage data is collected automatically from the run's transcript.
+Token usage is a first-class scoring dimension in niceeval. An agent that answers correctly but uses ten times more tokens than necessary shouldn't score identically to one that answers efficiently. Usage data is collected automatically from the run's transcript.
 
 ```ts
 t.maxTokens(50_000);            // Hard limit: > 50k tokens → failed (gate by default)
@@ -290,18 +290,18 @@ t.check(
 | `cacheReadTokens` | Cache-read tokens (when applicable) |
 
 <Note>
-  `t.maxCost()` requires a price table to be configured so fasteval can estimate costs from token counts. Check your `fasteval.config.ts` for cost configuration options.
+  `t.maxCost()` requires a price table to be configured so niceeval can estimate costs from token counts. Check your `niceeval.config.ts` for cost configuration options.
 </Note>
 
 ---
 
 ## 6. Custom assertions
 
-A value assertion is just a function `(value) => number | Promise<number>`. Use `makeAssertion` from `fasteval/expect` to wrap any scoring logic into a reusable matcher:
+A value assertion is just a function `(value) => number | Promise<number>`. Use `makeAssertion` from `niceeval/expect` to wrap any scoring logic into a reusable matcher:
 
 ```ts
-import { makeAssertion } from "fasteval/expect";
-import type { Assertion } from "fasteval/expect";
+import { makeAssertion } from "niceeval/expect";
+import type { Assertion } from "niceeval/expect";
 
 function jsonValid(): Assertion {
   return makeAssertion({
@@ -331,7 +331,7 @@ Custom matchers follow the same `.atLeast(0.7)` / `.gate()` / `.atLeast(n)` chai
 
 ## Outcome rules
 
-After all assertions are collected, fasteval folds them into a outcome in this order:
+After all assertions are collected, niceeval folds them into a outcome in this order:
 
 ```
 Execution error (timeout / exception / author bug)     → failed

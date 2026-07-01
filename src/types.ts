@@ -1,4 +1,4 @@
-// fasteval 的核心类型契约。所有模块对着这里编程;agents/ 与 sandbox/ 之外不出现
+// niceeval 的核心类型契约。所有模块对着这里编程;agents/ 与 sandbox/ 之外不出现
 // agent 名 / sandbox 名的行为分支(见 docs/architecture.md)。
 
 // ───────────────────────── 基础 ─────────────────────────
@@ -145,7 +145,7 @@ export interface TraceSpan {
   attributes?: Record<string, JsonValue>;
 }
 
-/** 给人 / 给 EVAL.ts 看的 o11y 摘要(注入沙箱 __fasteval__/results.json)。 */
+/** 给人 / 给 EVAL.ts 看的 o11y 摘要(注入沙箱 __niceeval__/results.json)。 */
 export interface O11ySummary {
   totalTurns: number;
   toolCalls: Record<string, number>;
@@ -397,7 +397,7 @@ export interface VercelSandboxSpec {
 }
 export interface E2BSandboxSpec {
   readonly backend: "e2b";
-  /** e2b 模板名/ID。预制模板:烘焙好 agent CLI 的模板(如 `"fasteval-agents"`)。省略用 e2b 默认 `"base"`。 */
+  /** e2b 模板名/ID。预制模板:烘焙好 agent CLI 的模板(如 `"niceeval-agents"`)。省略用 e2b 默认 `"base"`。 */
   readonly template?: string;
   /** 仅作记录;e2b 的 node 版本由模板决定,不在创建时选。 */
   readonly runtime?: SandboxRuntime;
@@ -459,7 +459,7 @@ export interface Sandbox {
    * 本地 OTLP 接收器的目标 host。
    * - `string`:沙箱内可通过该 hostname 回连宿主 OTLP 端口(如 docker 的 `host.docker.internal`)。
    * - `null`:沙箱运行在远程云端(如 e2b/vercel),无法访问宿主本地端口 → 跳过 tracing。
-   *   可通过环境变量 `FASTEVAL_OTLP_HOST` 强制覆盖(如配置 tunnel 时)。
+   *   可通过环境变量 `NICEEVAL_OTLP_HOST` 强制覆盖(如配置 tunnel 时)。
    */
   readonly otlpHost: string | null;
 
@@ -631,7 +631,7 @@ export interface EvalResult {
 export type LocalizedText = string | Record<string, string>;
 
 export interface RunSummary {
-  /** 项目名(来自 config.name),透传给 `fasteval view` 顶部 hero 显示。 */
+  /** 项目名(来自 config.name),透传给 `niceeval view` 顶部 hero 显示。 */
   name?: LocalizedText;
   agent: string;
   model?: string;
@@ -733,7 +733,7 @@ export interface DiscoveredExperiment extends ExperimentDef {
 
 export interface Config {
   /**
-   * 项目名,显示在 `fasteval view` 顶部 hero(`<h1>`),省略则回退到通用标题。
+   * 项目名,显示在 `niceeval view` 顶部 hero(`<h1>`),省略则回退到通用标题。
    * 可传字符串,或按 locale 提供多语言(如 `{ en: "...", "zh-CN": "..." }`),随 view 语言切换。
    */
   name?: LocalizedText;

@@ -1,4 +1,4 @@
-// o11y 解析器入口:把各 agent 的原始 transcript 归一成 fasteval StreamEvent[]。
+// o11y 解析器入口:把各 agent 的原始 transcript 归一成 niceeval StreamEvent[]。
 // 每个解析器都返回同一个 ParsedTranscript 形状,parseTranscript 按 agent 名分派。
 
 import type { StreamEvent, Usage } from "../../types.ts";

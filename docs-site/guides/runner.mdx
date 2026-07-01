@@ -1,10 +1,10 @@
 ---
-title: "How the fasteval runner schedules and executes evals"
+title: "How the niceeval runner schedules and executes evals"
 sidebarTitle: "Runner"
-description: "The fasteval runner discovers evals, schedules them with bounded concurrency, caches results, retries flaky infrastructure, and enforces budget guardrails."
+description: "The niceeval runner discovers evals, schedules them with bounded concurrency, caches results, retries flaky infrastructure, and enforces budget guardrails."
 ---
 
-The fasteval runner is the scheduling engine that turns a batch of evals into a finished result set. It handles everything that is the same across every eval — discovery, bounded concurrency, retry, early-exit, caching, reporting, and exit codes — while remaining completely indifferent to how any individual agent or scorer works. The runner drives every agent through the unified `send` verb and never branches on agent names or sandbox backends.
+The niceeval runner is the scheduling engine that turns a batch of evals into a finished result set. It handles everything that is the same across every eval — discovery, bounded concurrency, retry, early-exit, caching, reporting, and exit codes — while remaining completely indifferent to how any individual agent or scorer works. The runner drives every agent through the unified `send` verb and never branches on agent names or sandbox backends.
 
 ## What the runner does and doesn't own
 
@@ -25,22 +25,22 @@ You can narrow which evals run using two types of filter:
 <CodeGroup>
 ```bash ID prefix filter
 # Only runs evals whose ID starts with "weather"
-npx fasteval exp local weather
+npx niceeval exp local weather
 ```
 
 ```bash Tag filter
 # Only runs evals tagged "regression"
-npx fasteval exp local --tag regression
+npx niceeval exp local --tag regression
 ```
 
 ```bash Combined
 # Only evals under "fixtures/" tagged "smoke"
-npx fasteval exp local fixtures --tag smoke
+npx niceeval exp local fixtures --tag smoke
 ```
 </CodeGroup>
 
 <Tip>
-  The positional eval filter appears after the experiment selector. Passing `weather` in `npx fasteval exp local weather` matches `weather/brooklyn`, `weather/tokyo`, and any other eval whose ID starts with `weather`.
+  The positional eval filter appears after the experiment selector. Passing `weather` in `npx niceeval exp local weather` matches `weather/brooklyn`, `weather/tokyo`, and any other eval whose ID starts with `weather`.
 </Tip>
 
 ## Bounded concurrency
@@ -109,8 +109,8 @@ You can set a `budget` (an estimated cost ceiling in USD) either in your experim
 This prevents a single expensive run from generating an unexpectedly large bill.
 
 ```ts
-// fasteval.config.ts
-import { defineConfig } from "fasteval";
+// niceeval.config.ts
+import { defineConfig } from "niceeval";
 
 export default defineConfig({
   budget: 10.00,   // stop dispatching after ~$10 of accumulated cost

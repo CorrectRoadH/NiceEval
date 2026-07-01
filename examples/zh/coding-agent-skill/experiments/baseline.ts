@@ -1,5 +1,5 @@
-import { defineExperiment } from "fasteval";
-import { claudeCodeAgent } from "fasteval/adapter";
+import { defineExperiment } from "niceeval";
+import { claudeCodeAgent } from "niceeval/adapter";
 
 // 对照组：裸 Claude Code，没有任何 skill 注入。
 // 同一批 eval、同一模型，唯一差异是没有 zod skill。

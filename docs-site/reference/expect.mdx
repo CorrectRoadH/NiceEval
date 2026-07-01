@@ -1,13 +1,13 @@
 ---
-title: "fasteval/expect matchers and custom assertion reference"
+title: "niceeval/expect matchers and custom assertion reference"
 sidebarTitle: "Expect"
-description: "Reference for fasteval/expect: includes, equals, matches, similarity, satisfies. Chain .gate() or .atLeast(0.7), and build custom matchers with makeAssertion."
+description: "Reference for niceeval/expect: includes, equals, matches, similarity, satisfies. Chain .gate() or .atLeast(0.7), and build custom matchers with makeAssertion."
 ---
 
-The `fasteval/expect` module provides a small set of composable matchers that you pass to `t.check()` and `t.require()`. Each matcher is a function that returns an `Assertion` — a typed scoring function of shape `(value: unknown) => number | Promise<number>` — and carries a default severity (`gate` or `soft`) that determines how a failure affects the eval outcome. You can override the severity on any matcher by chaining `.gate()` or `.atLeast(0.7)`.
+The `niceeval/expect` module provides a small set of composable matchers that you pass to `t.check()` and `t.require()`. Each matcher is a function that returns an `Assertion` — a typed scoring function of shape `(value: unknown) => number | Promise<number>` — and carries a default severity (`gate` or `soft`) that determines how a failure affects the eval outcome. You can override the severity on any matcher by chaining `.gate()` or `.atLeast(0.7)`.
 
 ```ts
-import { includes, equals, matches, similarity, satisfies } from "fasteval/expect";
+import { includes, equals, matches, similarity, satisfies } from "niceeval/expect";
 ```
 
 ---
@@ -225,7 +225,7 @@ with `makeAssertion`. Your scoring function receives the raw value and must
 return a number (synchronously or as a Promise).
 
 ```ts
-import { makeAssertion } from "fasteval/expect";
+import { makeAssertion } from "niceeval/expect";
 
 function jsonValid(): Assertion {
   return makeAssertion({

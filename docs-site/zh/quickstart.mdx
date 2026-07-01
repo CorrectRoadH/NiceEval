@@ -4,7 +4,7 @@ sidebarTitle: "快速开始"
 description: ""
 ---
 
-这个教程会从零开始创建一个最小 fasteval 项目，并展示三种常见 eval：进程内函数、对话 agent、沙箱里的 coding agent。
+这个教程会从零开始创建一个最小 niceeval 项目，并展示三种常见 eval：进程内函数、对话 agent、沙箱里的 coding agent。
 
 如果你已经知道自己要评什么，可以直接从对应场景开始：
 
@@ -26,18 +26,18 @@ description: ""
 <Steps>
   <Step title="安装">
     ```text
-    READ https://raw.githubusercontent.com/CorrectRoadH/fasteval/refs/heads/main/INIT.md and install fasteval for this repo.
+    READ https://raw.githubusercontent.com/CorrectRoadH/niceeval/refs/heads/main/INIT.md and install niceeval for this repo.
 
     ```
   </Step>
   <Step title="运行测试">
     ```bash
-    pnpm exec fasteval exp 实验名
+    pnpm exec niceeval exp 实验名
     ```
   </Step>
   <Step title="查看结果">
     ```text
-    npx fasteval view
+    npx niceeval view
     ```
   </Step>
 </Steps>
@@ -55,7 +55,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
       - run: npm ci
-      - run: npx fasteval exp ci --sandbox docker --strict
+      - run: npx niceeval exp ci --sandbox docker --strict
 ```
 
 <Tip>

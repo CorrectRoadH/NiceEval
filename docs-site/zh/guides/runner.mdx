@@ -1,7 +1,7 @@
 ---
-title: "fasteval runner 如何调度和执行 eval"
+title: "niceeval runner 如何调度和执行 eval"
 sidebarTitle: "Runner"
-description: "fasteval runner 发现 eval，用有界并发调度，缓存结果，重试脆弱基础设施，并执行预算保护。"
+description: "niceeval runner 发现 eval，用有界并发调度，缓存结果，重试脆弱基础设施，并执行预算保护。"
 ---
 
 Runner 是把 eval 文件变成一次实际运行的执行引擎。它负责发现、过滤、调度、缓存、attempt、reporters 和 artifact 输出。
@@ -15,7 +15,7 @@ runner 会读取 `evals/` 下的：
 - 包含 `PROMPT.md` 和 `EVAL.ts` 的 fixture 目录
 
 ```bash
-npx fasteval list
+npx niceeval list
 ```
 
 `list` 只发现和打印 ID，不执行 eval。
@@ -25,9 +25,9 @@ npx fasteval list
 `exp` 命令中,实验名之后的位置参数是 eval ID 前缀：
 
 ```bash
-npx fasteval exp local
-npx fasteval exp local weather
-npx fasteval exp local fixtures/button
+npx niceeval exp local
+npx niceeval exp local weather
+npx niceeval exp local fixtures/button
 ```
 
 不要把 agent 名放进位置参数。agent/model/flags 写进 experiment。
@@ -35,7 +35,7 @@ npx fasteval exp local fixtures/button
 ## 并发
 
 ```bash
-npx fasteval exp local --max-concurrency 8
+npx niceeval exp local --max-concurrency 8
 ```
 
 远程 HTTP agent 可以用更高并发；本地 Docker sandbox 通常需要更低并发，避免 CPU、内存和磁盘竞争。
@@ -43,19 +43,19 @@ npx fasteval exp local --max-concurrency 8
 ## runs 与 early-exit
 
 ```bash
-npx fasteval exp local fixtures/button --runs 5 --early-exit
+npx niceeval exp local fixtures/button --runs 5 --early-exit
 ```
 
 `runs` 用于测 pass rate。`early-exit` 会在某个 attempt 通过后停止同一 eval 的剩余尝试。
 
 ## 缓存
 
-fasteval 可以根据输入、配置和相关文件 fingerprint 跳过已通过结果。缓存适合加速迭代，但如果你在调试非确定性行为，应该明确关闭或清理相关缓存。
+niceeval 可以根据输入、配置和相关文件 fingerprint 跳过已通过结果。缓存适合加速迭代，但如果你在调试非确定性行为，应该明确关闭或清理相关缓存。
 
 ## 超时和预算
 
 ```bash
-npx fasteval exp local --timeout-ms 300000 --budget 5
+npx niceeval exp local --timeout-ms 300000 --budget 5
 ```
 
 超时保护单个 eval，预算保护整次运行成本。
@@ -70,11 +70,11 @@ runner 在 eval 完成后把结果交给 reporters：
 
 ## 输出目录
 
-每次运行会写入 `.fasteval/<timestamp>/`，包括 summary、per-eval result、event stream、transcript、diff 和测试输出。
+每次运行会写入 `.niceeval/<timestamp>/`，包括 summary、per-eval result、event stream、transcript、diff 和测试输出。
 
 ## 推荐调试流程
 
-1. 先跑 `npx fasteval list` 确认发现结果。
-2. 用 `npx fasteval exp <实验> <ID 前缀>` 缩小到一个 eval。
-3. 失败后运行 `npx fasteval view` 查看 transcript 和 diff。
+1. 先跑 `npx niceeval list` 确认发现结果。
+2. 用 `npx niceeval exp <实验> <ID 前缀>` 缩小到一个 eval。
+3. 失败后运行 `npx niceeval view` 查看 transcript 和 diff。
 4. 再扩大到完整 suite 或 experiment。

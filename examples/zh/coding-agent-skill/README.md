@@ -1,8 +1,8 @@
-# 例子：用 fasteval 量化 Claude Code Skill / Plugin 的实际收益
+# 例子：用 niceeval 量化 Claude Code Skill / Plugin 的实际收益
 
 这个例子展示两件事：
 1. **如何编写本地 Skill** 并验证它让 agent 输出更好的代码
-2. **如何把第三方 Plugin 的 benchmark 迁移到 fasteval**
+2. **如何把第三方 Plugin 的 benchmark 迁移到 niceeval**
 
 两组实验独立运行，使用不同的 skill、eval 集和对照组。
 
@@ -12,7 +12,7 @@
 
 ```
 coding-agent-skill/
-├── fasteval.config.ts              # 全局配置（sandbox、judge）
+├── niceeval.config.ts              # 全局配置（sandbox、judge）
 ├── skills/
 │   ├── zod.md                      # 自编写的 Zod 校验 skill
 │   └── ponytail.md                 # 第三方 Ponytail plugin（MIT）
@@ -45,10 +45,10 @@ coding-agent-skill/
 
 ```sh
 # 跑两组（有 skill vs 无 skill），对比通过率
-npx fasteval exp compare
+npx niceeval exp compare
 
 # 看结果
-npx fasteval view
+npx niceeval view
 ```
 
 **期望结论**：有 skill 的组能正确使用 `z.object().safeParse()`，避免裸 `JSON.parse`
@@ -69,7 +69,7 @@ ponytail 原始 benchmark 有两个套件：
 - `promptfoo` 单轮测试（5 个编码 prompt + 3 个行为探针）
 - `agentic` 真实 Claude Code 会话（安全层 + 质量层 + 开放任务，共 40+ 个）
 
-我们从 `agentic` 套件中迁移了最有代表性的三个任务到 fasteval 格式：
+我们从 `agentic` 套件中迁移了最有代表性的三个任务到 niceeval 格式：
 
 | eval 文件 | 对应 agentic 任务 | 测什么 |
 |-----------|-------------------|--------|
@@ -77,25 +77,25 @@ ponytail 原始 benchmark 有两个套件：
 | `ponytail-reuse.eval.ts` | `reuse-slug` | 复用现有工具 vs 重写 |
 | `ponytail-csv-sum.eval.ts` | `csv-sum` | 用标准库 vs 引入 pandas |
 
-**迁移关键点**（原 benchmark → fasteval）：
+**迁移关键点**（原 benchmark → niceeval）：
 
-| 原 benchmark | fasteval 等价 |
+| 原 benchmark | niceeval 等价 |
 |-------------|--------------|
 | `seed` 字段写文件 | `t.sandbox.writeFiles({})` |
 | `tasks.py` 里的 prompt | `t.send("...")` |
 | `correctness.js` 运行子进程断言 | `t.sandbox.runCommand("python3", [...])` |
 | `judge.py` LLM judge | `t.judge.autoevals.closedQA("...", { on }).atLeast(n)` |
-| promptfoo `arms`（baseline/ponytail） | fasteval `experiments/` |
+| promptfoo `arms`（baseline/ponytail） | niceeval `experiments/` |
 | `--plugin-dir` 注入 skill | experiment-local agent wrapper 在 `setup` 写 `CLAUDE.md` |
 
 **运行对比**：
 
 ```sh
 # 跑 ponytail 实验组 + 对照组
-npx fasteval exp ponytail ponytail-baseline
+npx niceeval exp ponytail ponytail-baseline
 
 # 看报告
-npx fasteval view
+npx niceeval view
 ```
 
 ---
@@ -105,7 +105,7 @@ npx fasteval view
 ### 1. 安装依赖
 
 ```sh
-npm install -D fasteval
+npm install -D niceeval
 ```
 
 ### 2. 配置环境变量
@@ -124,13 +124,13 @@ docker info
 
 ```sh
 # Zod skill A/B 对比
-npx fasteval exp compare
+npx niceeval exp compare
 
 # Ponytail benchmark
-npx fasteval exp ponytail ponytail-baseline
+npx niceeval exp ponytail ponytail-baseline
 
 # 查看所有结果
-npx fasteval view
+npx niceeval view
 ```
 
 ---

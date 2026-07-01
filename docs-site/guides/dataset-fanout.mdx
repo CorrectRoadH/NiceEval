@@ -4,16 +4,16 @@ sidebarTitle: "Datasets"
 description: "Export an array from a .eval.ts file to fan out into many evals. Use loadYaml or loadJson to drive evals from external datasets with stable IDs."
 ---
 
-Sometimes one eval scenario isn't enough — you want to verify that your agent handles dozens of inputs correctly, with each case getting its own pass/fail outcome in the report. fasteval's **dataset fan-out** lets you express this without creating dozens of individual files. When you export an array from a `.eval.ts` file, fasteval treats each element as a separate eval, assigns it a stable ID, and runs them all with the same concurrency and reporting as any other eval suite.
+Sometimes one eval scenario isn't enough — you want to verify that your agent handles dozens of inputs correctly, with each case getting its own pass/fail outcome in the report. niceeval's **dataset fan-out** lets you express this without creating dozens of individual files. When you export an array from a `.eval.ts` file, niceeval treats each element as a separate eval, assigns it a stable ID, and runs them all with the same concurrency and reporting as any other eval suite.
 
 ## How fan-out works
 
-A normal `.eval.ts` file exports a single `defineEval`. A dataset file exports an **array** of `defineEval` calls. fasteval detects the array and creates one eval per element:
+A normal `.eval.ts` file exports a single `defineEval`. A dataset file exports an **array** of `defineEval` calls. niceeval detects the array and creates one eval per element:
 
 ```ts
 // evals/sql.eval.ts
-import { defineEval } from "fasteval";
-import { equals } from "fasteval/expect";
+import { defineEval } from "niceeval";
+import { equals } from "niceeval/expect";
 
 export default [
   defineEval({
@@ -48,14 +48,14 @@ The zero-padding ensures lexicographic sort order matches numeric order, making 
 
 ## Loading from YAML and JSON
 
-Writing every test case inline gets unwieldy fast. Use `loadYaml` or `loadJson` from `fasteval/loaders` to read cases from external files, then map them into `defineEval` calls:
+Writing every test case inline gets unwieldy fast. Use `loadYaml` or `loadJson` from `niceeval/loaders` to read cases from external files, then map them into `defineEval` calls:
 
 <CodeGroup>
 
 ```ts evals/sql.eval.ts
-import { defineEval } from "fasteval";
-import { loadYaml } from "fasteval/loaders";
-import { equals } from "fasteval/expect";
+import { defineEval } from "niceeval";
+import { loadYaml } from "niceeval/loaders";
+import { equals } from "niceeval/expect";
 
 const doc = await loadYaml("evals/data/sql-cases.yaml");
 const rows = doc.cases as { task: string; prompt: string; sql: string }[];
@@ -92,13 +92,13 @@ cases:
 The `loadYaml` call returns the parsed document as a plain object. Cast the cases array to the shape you need, then map normally. `loadJson` works identically but reads a `.json` file:
 
 ```ts
-import { loadJson } from "fasteval/loaders";
+import { loadJson } from "niceeval/loaders";
 
 const cases = await loadJson("evals/data/sql-cases.json");
 ```
 
 <Note>
-  The path you pass to `loadYaml` / `loadJson` is resolved relative to the project root (where `fasteval.config.ts` lives), not relative to the eval file. Use paths like `evals/data/my-dataset.yaml`.
+  The path you pass to `loadYaml` / `loadJson` is resolved relative to the project root (where `niceeval.config.ts` lives), not relative to the eval file. Use paths like `evals/data/my-dataset.yaml`.
 </Note>
 
 ## Filtering dataset evals
@@ -107,13 +107,13 @@ Because each eval in a fan-out set shares the same file-level ID prefix, you can
 
 ```bash
 # Run all evals from evals/sql.eval.ts
-npx fasteval exp local sql
+npx niceeval exp local sql
 
 # Run only the first case
-npx fasteval exp local sql/0000
+npx niceeval exp local sql/0000
 
 # Run cases 0–2
-npx fasteval exp local sql/0000 sql/0001 sql/0002
+npx niceeval exp local sql/0000 sql/0001 sql/0002
 ```
 
 This makes it easy to re-run just the failing cases after a fix, or to run a subset during development without touching the dataset file.
@@ -145,9 +145,9 @@ Here is the full pattern for a YAML-driven dataset eval with multiple assertion 
 
 ```ts
 // evals/sql.eval.ts
-import { defineEval } from "fasteval";
-import { loadYaml } from "fasteval/loaders";
-import { equals, includes } from "fasteval/expect";
+import { defineEval } from "niceeval";
+import { loadYaml } from "niceeval/loaders";
+import { equals, includes } from "niceeval/expect";
 
 const doc = await loadYaml("evals/data/sql-cases.yaml");
 const rows = doc.cases as {

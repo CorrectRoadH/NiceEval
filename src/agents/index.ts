@@ -1,4 +1,4 @@
-// fasteval/adapter 公开导出:「连到哪个 AI」相关的类型 + 内置 adapter + 自定义 adapter 的入口。
+// niceeval/adapter 公开导出:「连到哪个 AI」相关的类型 + 内置 adapter + 自定义 adapter 的入口。
 
 export { defineAgent, defineSandboxAgent } from "../define.ts";
 export { shared } from "./shared.ts";

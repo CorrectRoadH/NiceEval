@@ -1,5 +1,7 @@
 node_modules/
+.niceeval/
 .fasteval/
+.pnpm-store/
 *.log
 .DS_Store
 dist/

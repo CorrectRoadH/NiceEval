@@ -1,6 +1,6 @@
-import { defineAgent } from "fasteval/adapter";
-import type { Agent } from "fasteval/adapter";
-import type { StreamEvent, Usage } from "fasteval";
+import { defineAgent } from "niceeval/adapter";
+import type { Agent } from "niceeval/adapter";
+import type { StreamEvent, Usage } from "niceeval";
 import type { AgentEvent, AgentResponse } from "../src/protocol.ts";
 
 /**
@@ -14,17 +14,17 @@ export interface WebAgentOptions {
 }
 
 /**
- * 把一个 AI SDK 工具循环的 HTTP web agent(examples/zh/ai-sdk/ai-sdk-agent)接进 fasteval 的
+ * 把一个 AI SDK 工具循环的 HTTP web agent(examples/zh/ai-sdk/ai-sdk-agent)接进 niceeval 的
  * adapter 工厂。它的本质就是「对着一个 HTTP 端点的 send 里发 fetch、把响应映射成标准事件流」,
  * 跟具体业务(这里是个普通 AI 助手)无关。
  *
  * 响应直接按【同一 workspace 里共享的】`AgentResponse` 契约读 —— 自己的服务、自己的类型,
  * 不必把它当 `unknown` 再防御式重新校验一遍。adapter 唯一的硬活是把 `AgentEvent[]` 映射成
- * fasteval 的标准 `StreamEvent[]`。
+ * niceeval 的标准 `StreamEvent[]`。
  *
- * 声明 `tracing`:fasteval 为本次运行起一个本机 OTLP 接收器,把 endpoint 经 `ctx.telemetry`
+ * 声明 `tracing`:niceeval 为本次运行起一个本机 OTLP 接收器,把 endpoint 经 `ctx.telemetry`
  * 交给我们;我们随每轮请求把它带给 web agent,于是 app 自己的可观测(langfuse)之外,
- * 还能把这一轮的 turn / model / tool span 也导到 fasteval —— 双可观测,fasteval `view` 里
+ * 还能把这一轮的 turn / model / tool span 也导到 niceeval —— 双可观测,niceeval `view` 里
  * 直接出瀑布图。
  */
 export function webAgent(opts: WebAgentOptions): Agent {
@@ -50,7 +50,7 @@ export function webAgent(opts: WebAgentOptions): Agent {
             model: ctx.model,
             // t.sendFile 带来的图片等附件(base64),原样转发给 app。
             files: input.files,
-            // 把 fasteval 的 OTLP 接收端点交给 app,让它把本轮 span 也发到这儿(第二路可观测)。
+            // 把 niceeval 的 OTLP 接收端点交给 app,让它把本轮 span 也发到这儿(第二路可观测)。
             otelEndpoint: ctx.telemetry?.endpoint,
           }),
           signal: ctx.signal,
@@ -78,7 +78,7 @@ export function webAgent(opts: WebAgentOptions): Agent {
   });
 }
 
-/** AgentEvent → fasteval StreamEvent:只有 action.called 需要补 canonical 工具名;其余结构一致。 */
+/** AgentEvent → niceeval StreamEvent:只有 action.called 需要补 canonical 工具名;其余结构一致。 */
 function toStreamEvent(event: AgentEvent): StreamEvent {
   if (event.type === "action.called") return { ...event, tool: "unknown" };
   return event;

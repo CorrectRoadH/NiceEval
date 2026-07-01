@@ -90,7 +90,7 @@ export function codexAgent(config?: CodexConfig): Agent {
         const endpoint = ctx.telemetry!.endpoint;
         const otel =
           `\n[otel]\n` +
-          `environment = "fasteval"\n` +
+          `environment = "niceeval"\n` +
           `exporter = "none"\n` +
           `metrics_exporter = "none"\n\n` +
           `[otel.trace_exporter.otlp-http]\n` +

@@ -1,7 +1,7 @@
-// fasteval CLI 入口。执行 eval 必须以 experiment 为单位;位置参数只在 exp 后筛 eval id 前缀。
-//   fasteval exp [组|配置] [pattern]  跑实验
-//   fasteval list                    只列出发现到的 eval
-//   fasteval clean                   删除 .fasteval/ 历史运行工件
+// niceeval CLI 入口。执行 eval 必须以 experiment 为单位;位置参数只在 exp 后筛 eval id 前缀。
+//   niceeval exp [组|配置] [pattern]  跑实验
+//   niceeval list                    只列出发现到的 eval
+//   niceeval clean                   删除 .niceeval/ 历史运行工件
 
 import { spawn } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -137,7 +137,7 @@ async function loadDotenv(cwd: string): Promise<void> {
 }
 
 async function loadConfig(cwd: string): Promise<Config> {
-  const path = join(cwd, "fasteval.config.ts");
+  const path = join(cwd, "niceeval.config.ts");
   if (!existsSync(path)) {
     throw new Error(t("cli.config.missing"));
   }
@@ -148,12 +148,12 @@ async function loadConfig(cwd: string): Promise<Config> {
 
 async function initProject(cwd: string): Promise<void> {
   await mkdir(join(cwd, "evals"), { recursive: true });
-  const configPath = join(cwd, "fasteval.config.ts");
+  const configPath = join(cwd, "niceeval.config.ts");
   if (!existsSync(configPath)) {
     await writeFile(
       configPath,
       [
-        'import { defineConfig } from "fasteval";',
+        'import { defineConfig } from "niceeval";',
         "",
         "export default defineConfig({",
         "  // Add experiments/ with defineExperiment(...) to run evals.",
@@ -220,7 +220,7 @@ async function main(): Promise<void> {
   }
 
   if (command === "clean") {
-    await rm(join(cwd, ".fasteval"), { recursive: true, force: true });
+    await rm(join(cwd, ".niceeval"), { recursive: true, force: true });
     process.stdout.write(t("cli.clean.done"));
     process.exit(0);
   }
@@ -286,7 +286,7 @@ async function main(): Promise<void> {
     const vals = selected.map((e) => e.maxConcurrency).filter((v): v is number => v !== undefined);
     if (vals.length > 0) expMaxConcurrency = Math.min(...vals);
   } else {
-    // 裸 run / `fasteval <eval>` 不再执行。运行配置必须来自 experiments/,
+    // 裸 run / `niceeval <eval>` 不再执行。运行配置必须来自 experiments/,
     // 这样 agent/model/flags/runs/budget 与结果聚合都有可签入的身份。
     const experiments = await discoverExperiments(cwd);
     const asExp = experiments.filter((e) =>
@@ -392,7 +392,7 @@ async function main(): Promise<void> {
   const sandboxRecs = agentRuns.map((r) => sandboxRecommendedConcurrency(r.sandbox));
   const sandboxDefaultConcurrency = sandboxRecs.length > 0 ? Math.min(...sandboxRecs) : 10;
 
-  const priorResults = flags.force ? undefined : await loadMostRecentResults(join(cwd, ".fasteval"));
+  const priorResults = flags.force ? undefined : await loadMostRecentResults(join(cwd, ".niceeval"));
 
   const summary = await runEvals({
     config,

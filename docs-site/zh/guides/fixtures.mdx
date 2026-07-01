@@ -1,7 +1,7 @@
 ---
 title: "Sandbox fixtures: 用任务评估 coding agents"
 sidebarTitle: "Fixtures"
-description: "fixture 是包含 PROMPT.md 和 EVAL.ts 的目录，fasteval 用它在隔离环境中运行 coding agent，并用 Vitest 测试验证输出。"
+description: "fixture 是包含 PROMPT.md 和 EVAL.ts 的目录，niceeval 用它在隔离环境中运行 coding agent，并用 Vitest 测试验证输出。"
 ---
 
 Fixture 是评估 coding agent 的推荐方式。它把”给 agent 的任务”和”验证结果的测试”放在同一个目录里，但 agent 无法看到验证文件。
@@ -56,21 +56,21 @@ test("accepts label and onClick", () => {
 ## 运行 fixture
 
 ```bash
-npx fasteval exp local fixtures/button --sandbox docker
+npx niceeval exp local fixtures/button --sandbox docker
 ```
 
 实验名之后的位置参数是 eval ID 前缀，不是 agent 名。
 
 ## 验证 agent 行为
 
-fasteval 会把 o11y 摘要注入 `__fasteval__/results.json`，`EVAL.ts` 可以检查 agent 是否调用了预期命令：
+niceeval 会把 o11y 摘要注入 `__niceeval__/results.json`，`EVAL.ts` 可以检查 agent 是否调用了预期命令：
 
 ```ts
 import { test, expect } from "vitest";
 import { readFileSync } from "node:fs";
 
 test("used project test script", () => {
-  const result = JSON.parse(readFileSync("__fasteval__/results.json", "utf-8"));
+  const result = JSON.parse(readFileSync("__niceeval__/results.json", "utf-8"));
   const commands = result.o11y.shellCommands.map((c: { command: string }) => c.command);
   expect(commands.some((cmd) => cmd.includes("npm test"))).toBe(true);
 });

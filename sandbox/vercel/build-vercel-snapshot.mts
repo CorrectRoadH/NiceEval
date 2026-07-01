@@ -8,7 +8,7 @@
 //   node --import tsx sandbox/vercel/build-vercel-snapshot.mts
 //
 // 输出的 snapshotId 填进 eval:
-//   import { vercelSandbox } from "fasteval";
+//   import { vercelSandbox } from "niceeval";
 //   defineExperiment({ sandbox: vercelSandbox({ snapshotId: "snap_..." }), ... })
 
 import { Sandbox as VSandbox } from "@vercel/sandbox";

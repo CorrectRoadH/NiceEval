@@ -1,6 +1,6 @@
 // Canonical trace schema = OpenTelemetry GenAI 语义约定。
 //
-// 「定义我们的 OTel」不是发明 fasteval 私有 schema —— 我们控制不了 agent 的 instrumentation,
+// 「定义我们的 OTel」不是发明 niceeval 私有 schema —— 我们控制不了 agent 的 instrumentation,
 // 造私有约定也强迫不了 codex(Rust)/ claude 原生发它。所以 canonical 目标就是 OTel 官方的
 // GenAI semconv(https://opentelemetry.io/docs/specs/semconv/gen-ai/):一个公认标准,
 // codex 已部分遵循、bub 插件可配置直接发。
@@ -23,7 +23,7 @@ export const OP_EXECUTE_TOOL = "execute_tool";
 export const OP_INVOKE_AGENT = "invoke_agent";
 export const OP_CREATE_AGENT = "create_agent";
 
-/** gen_ai.operation.name → fasteval SpanKind(view 着色 / 分组的唯一依据)。 */
+/** gen_ai.operation.name → niceeval SpanKind(view 着色 / 分组的唯一依据)。 */
 export function kindFromOperation(op: string | undefined): SpanKind {
   switch (op) {
     case OP_CHAT:

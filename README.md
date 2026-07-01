@@ -1,6 +1,6 @@
 <div align="center">
 
-# Fast Eval
+# NiceEval
 
 **Progressive, full-featured, excellent DX lightweight ai agent evals tool**
 
@@ -12,13 +12,13 @@
 
 </div>
 
-fasteval is a general-purpose agent eval tool inspired by [eve](https://eve.dev). It has an excellent DX design — anyone can get started and configured in about 10 minutes. It's also very versatile: it can eval plugins, Hooks, and Skills written for Claude Code/Codex coding agents, and can directly eval your own AI Agent framework (no matter if it's based on AI SDK, LangGraph, Pi, or any other interface, it's easy to integrate).
+NiceEval is a general-purpose agent eval tool inspired by [eve](https://eve.dev). It has an excellent DX design — anyone can get started and configured in about 10 minutes. It's also very versatile: it can eval plugins, Hooks, and Skills written for Claude Code/Codex coding agents, and can directly eval your own AI Agent framework (no matter if it's based on AI SDK, LangGraph, Pi, or any other interface, it's easy to integrate).
 
 After the eval completes, it generates readable reports and lets you view agent behavior details. Convenient for debugging and optimization.
 
 ## Architecture
 
-fasteval supports two integration modes, depending on whether the system under test needs an isolated sandbox filesystem.
+NiceEval supports two integration modes, depending on whether the system under test needs an isolated sandbox filesystem.
 
 **Mode 1: Sandbox (Docker) — run coding agents like Codex and Claude Code that need a sandbox**
 
@@ -27,7 +27,7 @@ fasteval supports two integration modes, depending on whether the system under t
         │
         ▼
    ┌─────────────────────┐
-   │     fasteval        │
+   │     niceeval        │
    └─────────────────────┘
         │
         │ Agent adapter (official)
@@ -48,7 +48,7 @@ fasteval supports two integration modes, depending on whether the system under t
         │
         ▼
    ┌─────────────────────┐
-   │     fasteval        │
+   │     niceeval        │
    └─────────────────────┘
         │
         │ Agent adapter (official, or your own implementation)
@@ -61,7 +61,7 @@ fasteval supports two integration modes, depending on whether the system under t
    └──────────────────────────────┘
 ```
 
-- **fasteval core** owns discovery, scheduling, scoring, reporting, and artifacts.
+- **niceeval core** owns discovery, scheduling, scoring, reporting, and artifacts.
 - **Agent adapters** are the open boundary: you decide how to call the system under test.
 - Coding agents that need filesystem isolation run inside the **Docker Sandbox**; your own Web Agent can connect directly, without Docker.
 
@@ -70,8 +70,8 @@ fasteval supports two integration modes, depending on whether the system under t
 
 ```ts
 // evals/button-component.eval.ts
-import { defineEval } from "fasteval";
-import { commandSucceeded, includes } from "fasteval/expect";
+import { defineEval } from "niceeval";
+import { commandSucceeded, includes } from "niceeval/expect";
 
 export default defineEval({
   description: "Build a Button component with label and onClick props.",
@@ -89,21 +89,21 @@ export default defineEval({
 ```
 
 ```sh
-npx fasteval exp codex-docker button
-npx fasteval view
+npx niceeval exp codex-docker button
+npx niceeval view
 ```
 
 ## Quick Start
 
 ```text
-READ https://raw.githubusercontent.com/CorrectRoadH/fasteval/refs/heads/main/INIT.md and install fasteval for this repo.
+READ https://raw.githubusercontent.com/CorrectRoadH/niceeval/refs/heads/main/INIT.md and install niceeval for this repo.
 ```
 
 Start from the scenario that matches what you need to evaluate:
 
-- [Claude Code / Codex plugin eval](https://fasteval.mintlify.site/zh/example/claude-code-codex-plugin)
-- [Claude Code / Codex skill eval](https://fasteval.mintlify.site/zh/example/claude-code-codex-skill)
-- [AI Agent application eval](https://fasteval.mintlify.site/zh/example/ai-agent-application)
+- [Claude Code / Codex plugin eval](https://niceeval.mintlify.site/zh/example/claude-code-codex-plugin)
+- [Claude Code / Codex skill eval](https://niceeval.mintlify.site/zh/example/claude-code-codex-skill)
+- [AI Agent application eval](https://niceeval.mintlify.site/zh/example/ai-agent-application)
 
 
 ## Roadmap
@@ -127,7 +127,7 @@ Official Adapters
 
 ## Documentation
 
-- [Mintlify docs site](https://fasteval.mintlify.site/)
+- [Mintlify docs site](https://niceeval.mintlify.site/)
 - [Mintlify docs source](docs-site/index.mdx)
 - [Documentation home](docs/README.md)
 - [Getting Started](docs/getting-started.md)

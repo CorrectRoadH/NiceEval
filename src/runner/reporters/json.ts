@@ -36,7 +36,7 @@ export function JUnit(path: string): Reporter {
         .join("\n");
       const xml =
         `<?xml version="1.0" encoding="UTF-8"?>\n` +
-        `<testsuite name="fasteval" tests="${summary.results.length}" failures="${summary.failed}" errors="${summary.errored}" skipped="${summary.skipped}" time="${(summary.durationMs / 1000).toFixed(3)}">\n` +
+        `<testsuite name="niceeval" tests="${summary.results.length}" failures="${summary.failed}" errors="${summary.errored}" skipped="${summary.skipped}" time="${(summary.durationMs / 1000).toFixed(3)}">\n` +
         `${cases}\n</testsuite>\n`;
       await writeFile(path, xml, "utf-8");
     },

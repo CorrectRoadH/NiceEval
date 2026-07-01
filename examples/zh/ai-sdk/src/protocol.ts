@@ -17,7 +17,7 @@ export type AgentEvent =
     }
   | { type: "error"; message: string };
 
-/** 随消息附带的文件(图片等),由 fasteval 的 t.sendFile 经 adapter 带进来。 */
+/** 随消息附带的文件(图片等),由 niceeval 的 t.sendFile 经 adapter 带进来。 */
 export interface RequestFile {
   filename?: string;
   mimeType: string;
@@ -31,7 +31,7 @@ export interface AgentRequest {
   /** 本轮附带的文件(图片等多模态输入)。 */
   files?: RequestFile[];
   /**
-   * fasteval 的 OTLP 接收端点(本轮专属),由 adapter 经 ctx.telemetry.endpoint 带进来。
+   * niceeval 的 OTLP 接收端点(本轮专属),由 adapter 经 ctx.telemetry.endpoint 带进来。
    * 给了就把本轮 turn / model / tool span 也按 OTLP/JSON 发到这儿(双可观测的第二路)。
    */
   otelEndpoint?: string;

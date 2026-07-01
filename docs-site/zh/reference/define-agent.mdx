@@ -4,14 +4,14 @@ sidebarTitle: "defineAgent"
 description: "defineAgent 和 defineSandboxAgent 参考：AgentContext、Sandbox 接口、StreamEvent 类型和共享 sandbox helpers。"
 ---
 
-每个 fasteval agent 都是一个 adapter：一段知道如何驱动特定 backend，并把输出转成标准事件流的代码。runner 只调用 `agent.send(input, ctx)`。
+每个 niceeval agent 都是一个 adapter：一段知道如何驱动特定 backend，并把输出转成标准事件流的代码。runner 只调用 `agent.send(input, ctx)`。
 
 ## `defineAgent`
 
 用于进程内函数和 HTTP 服务：
 
 ```ts
-import { defineAgent } from "fasteval/adapter";
+import { defineAgent } from "niceeval/adapter";
 ```
 
 <ParamField body="name" type="string" required>
@@ -106,7 +106,7 @@ export default defineAgent({
 </ResponseField>
 
 ```ts
-import { defineSandboxAgent } from "fasteval/adapter";
+import { defineSandboxAgent } from "niceeval/adapter";
 
 export default defineSandboxAgent({
   name: "my-cli-agent",
@@ -120,7 +120,7 @@ export default defineSandboxAgent({
 ## 注册
 
 ```ts
-import { defineExperiment } from "fasteval";
+import { defineExperiment } from "niceeval";
 import echo from "./agents/echo";
 
 export default defineExperiment({

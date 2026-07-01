@@ -1,27 +1,27 @@
 ---
-title: "fasteval CLI: commands, flags, and exit codes reference"
+title: "niceeval CLI: commands, flags, and exit codes reference"
 sidebarTitle: "CLI"
-description: "Complete fasteval CLI reference: exp, init, list, clean, and view commands. Covers experiment selection, eval filtering, sandbox, concurrency, budget, and JUnit CI output."
+description: "Complete niceeval CLI reference: exp, init, list, clean, and view commands. Covers experiment selection, eval filtering, sandbox, concurrency, budget, and JUnit CI output."
 ---
 
-The fasteval CLI is your single entry point for discovering, running, and inspecting evals. Actual eval execution is experiment-first: **`exp` selects the signed-in run configuration**, and any positional arguments after the experiment select evals by ID prefix. Agent, model, and feature flags live in `experiments/`, not in ad-hoc CLI arguments.
+The niceeval CLI is your single entry point for discovering, running, and inspecting evals. Actual eval execution is experiment-first: **`exp` selects the signed-in run configuration**, and any positional arguments after the experiment select evals by ID prefix. Agent, model, and feature flags live in `experiments/`, not in ad-hoc CLI arguments.
 
 ## Commands
 
 <CardGroup cols={2}>
-  <Card title="npx fasteval exp &lt;group&gt; [id-prefix]" icon="flask">
+  <Card title="npx niceeval exp &lt;group&gt; [id-prefix]" icon="flask">
     Run a named experiment group or config. Optional trailing positionals filter eval IDs.
   </Card>
-  <Card title="npx fasteval init" icon="wand-magic-sparkles">
-    Scaffold `evals/`, `fasteval.config.ts`, and example eval files.
+  <Card title="npx niceeval init" icon="wand-magic-sparkles">
+    Scaffold `evals/`, `niceeval.config.ts`, and example eval files.
   </Card>
-  <Card title="npx fasteval list" icon="list">
+  <Card title="npx niceeval list" icon="list">
     Discover and print all evals without running them.
   </Card>
-  <Card title="npx fasteval clean" icon="trash">
-    Delete `.fasteval/` historical run artifacts.
+  <Card title="npx niceeval clean" icon="trash">
+    Delete `.niceeval/` historical run artifacts.
   </Card>
-  <Card title="npx fasteval view" icon="eye">
+  <Card title="npx niceeval view" icon="eye">
     Open the result viewer to inspect artifacts from the last run.
   </Card>
 </CardGroup>
@@ -30,39 +30,39 @@ The fasteval CLI is your single entry point for discovering, running, and inspec
 
 ## Output language
 
-fasteval localizes CLI and runtime messages without adding a config key. Set an
+niceeval localizes CLI and runtime messages without adding a config key. Set an
 environment variable when you want deterministic output:
 
 ```bash
-FASTEVAL_LANG=en npx fasteval list
-FASTEVAL_LANG=zh-CN npx fasteval list
+NICEEVAL_LANG=en npx niceeval list
+NICEEVAL_LANG=zh-CN npx niceeval list
 ```
 
-Locale detection order is `FASTEVAL_LANG`, `FASTEVAL_LOCALE`, `LC_ALL`,
+Locale detection order is `NICEEVAL_LANG`, `NICEEVAL_LOCALE`, `LC_ALL`,
 `LC_MESSAGES`, then `LANG`. Values starting with `zh` use `zh-CN`; other
-languages use `en`. If none are set, fasteval defaults to `zh-CN`. This affects
+languages use `en`. If none are set, niceeval defaults to `zh-CN`. This affects
 terminal/runtime text only; machine result fields and LLM judge prompts are not
 translated.
 
 ---
 
-## `npx fasteval exp [group|config] [id-prefix...]`
+## `npx niceeval exp [group|config] [id-prefix...]`
 
 The `exp` command runs configs from `experiments/`. The first positional argument selects an experiment group or a single config; any remaining positionals narrow the run to evals whose IDs match those prefixes.
 
 ```bash
 # Run every experiment under experiments/
-npx fasteval exp
+npx niceeval exp
 
 # Run one experiment group
-npx fasteval exp compare-models
+npx niceeval exp compare-models
 
 # Run only evals whose ID starts with "weather" inside that group
-npx fasteval exp compare-models weather
+npx niceeval exp compare-models weather
 ```
 
 <Note>
-  Eval filters only appear after the experiment selector. Bare `npx fasteval weather` does not run; use `npx fasteval exp local weather` or `npx fasteval exp compare weather`.
+  Eval filters only appear after the experiment selector. Bare `npx niceeval weather` does not run; use `npx niceeval exp local weather` or `npx niceeval exp compare weather`.
 </Note>
 
 ### Flags
@@ -82,8 +82,8 @@ npx fasteval exp compare-models weather
   - `auto` — detect automatically: use `vercel` when a Vercel token is present, otherwise fall back to `docker`.
 
   ```bash
-  npx fasteval exp local --sandbox docker
-  npx fasteval exp local --sandbox auto
+  npx niceeval exp local --sandbox docker
+  npx niceeval exp local --sandbox auto
   ```
 </ParamField>
 
@@ -94,7 +94,7 @@ npx fasteval exp compare-models weather
   to get instant feedback as you edit.
 
   ```bash
-  npx fasteval exp local weather --watch
+  npx niceeval exp local weather --watch
   ```
 </ParamField>
 
@@ -103,8 +103,8 @@ npx fasteval exp compare-models weather
   Good for verifying your ID prefix and tag filters before a long run.
 
   ```bash
-  npx fasteval exp compare --dry
-  npx fasteval exp compare fixtures --dry
+  npx niceeval exp compare --dry
+  npx niceeval exp compare fixtures --dry
   ```
 </ParamField>
 
@@ -114,7 +114,7 @@ npx fasteval exp compare-models weather
   Use `--force` to always re-run everything regardless of cached results.
 
   ```bash
-  npx fasteval exp compare --force
+  npx niceeval exp compare --force
   ```
 </ParamField>
 
@@ -125,18 +125,18 @@ npx fasteval exp compare-models weather
 
   ```bash
   # Run each eval 5 times and report pass@5
-  npx fasteval exp compare fixtures/button --runs 5
+  npx niceeval exp compare fixtures/button --runs 5
   ```
 </ParamField>
 
 <ParamField query="--no-early-exit" type="boolean">
   Disable early-exit. By default, once one attempt for a given eval passes,
-  fasteval cancels the remaining attempts for that eval. Pass this flag to run
+  niceeval cancels the remaining attempts for that eval. Pass this flag to run
   all `--runs` attempts regardless, which gives you the full pass rate
   distribution.
 
   ```bash
-  npx fasteval exp compare fixtures/button --runs 10 --no-early-exit
+  npx niceeval exp compare fixtures/button --runs 10 --no-early-exit
   ```
 </ParamField>
 
@@ -145,18 +145,18 @@ npx fasteval exp compare-models weather
   will be included in the run.
 
   ```bash
-  npx fasteval exp compare --tag smoke
+  npx niceeval exp compare --tag smoke
   ```
 </ParamField>
 
 #### Performance & limits
 
 <ParamField query="--max-concurrency" type="number">
-  Override the `maxConcurrency` value set in `fasteval.config.ts`. Controls
+  Override the `maxConcurrency` value set in `niceeval.config.ts`. Controls
   how many eval attempts run in parallel.
 
   ```bash
-  npx fasteval exp compare --max-concurrency 4
+  npx niceeval exp compare --max-concurrency 4
   ```
 </ParamField>
 
@@ -167,18 +167,18 @@ npx fasteval exp compare-models weather
 
   ```bash
   # 10-minute timeout per eval
-  npx fasteval exp compare --timeout 600000
+  npx niceeval exp compare --timeout 600000
   ```
 </ParamField>
 
 <ParamField query="--budget" type="number">
-  Cost limit in USD for the entire run. fasteval tracks cumulative estimated
+  Cost limit in USD for the entire run. niceeval tracks cumulative estimated
   spend across all attempts. Once the budget is exceeded, no new attempts are
   dispatched; in-flight attempts complete normally. Overrides `budget` from
   config.
 
   ```bash
-  npx fasteval exp compare --budget 2.50
+  npx niceeval exp compare --budget 2.50
   ```
 </ParamField>
 
@@ -192,7 +192,7 @@ npx fasteval exp compare-models weather
   this flag in CI to enforce quality thresholds.
 
   ```bash
-  npx fasteval exp ci --strict --junit .fasteval/junit.xml
+  npx niceeval exp ci --strict --junit .niceeval/junit.xml
   ```
 </ParamField>
 
@@ -201,19 +201,19 @@ npx fasteval exp compare-models weather
   Actions, CircleCI, and any CI system that ingests JUnit reports.
 
   ```bash
-  npx fasteval exp ci --junit .fasteval/junit.xml
+  npx niceeval exp ci --junit .niceeval/junit.xml
   ```
 </ParamField>
 
 ---
 
-## `npx fasteval init`
+## `npx niceeval init`
 
 Scaffolds the minimum files needed to start writing evals in the current repository. Running `init` creates:
 
 ```
 your-project/
-├─ fasteval.config.ts
+├─ niceeval.config.ts
 └─ evals/
    ├─ hello.eval.ts            # example: conversational eval
    └─ fixtures/
@@ -224,8 +224,8 @@ your-project/
 ```
 
 ```bash
-npm install -D fasteval
-npx fasteval init
+npm install -D niceeval
+npx niceeval init
 ```
 
 <Tip>
@@ -235,12 +235,12 @@ npx fasteval init
 
 ---
 
-## `npx fasteval list`
+## `npx niceeval list`
 
 Discovers all evals (and, if an `experiments/` directory exists, all experiment files) and prints their IDs. Does not run anything. Use this to verify discovery before a run.
 
 ```bash
-npx fasteval list
+npx niceeval list
 
 # Output:
 # classify
@@ -249,17 +249,17 @@ npx fasteval list
 # fixtures/button
 ```
 
-Use `npx fasteval exp <group> --dry` to preview how a specific experiment will filter and expand evals.
+Use `npx niceeval exp <group> --dry` to preview how a specific experiment will filter and expand evals.
 
 ---
 
-## `npx fasteval exp <group>`
+## `npx niceeval exp <group>`
 
-Runs an experiment group. fasteval scans the `experiments/` directory for TypeScript files whose default export is a `defineExperiment` call. The `<group>` argument is the folder name — all experiment files inside that folder are treated as one comparable group.
+Runs an experiment group. niceeval scans the `experiments/` directory for TypeScript files whose default export is a `defineExperiment` call. The `<group>` argument is the folder name — all experiment files inside that folder are treated as one comparable group.
 
 ```bash
 # Run all experiments in experiments/compare/
-npx fasteval exp compare
+npx niceeval exp compare
 ```
 
 <Note>
@@ -270,19 +270,19 @@ npx fasteval exp compare
 
 ---
 
-## `npx fasteval view`
+## `npx niceeval view`
 
-Opens the result viewer in your browser. The viewer reads artifacts from the most recent `.fasteval/<timestamp>/` output directory and lets you inspect per-eval results, transcripts, file diffs, and event streams.
+Opens the result viewer in your browser. The viewer reads artifacts from the most recent `.niceeval/<timestamp>/` output directory and lets you inspect per-eval results, transcripts, file diffs, and event streams.
 
 ```bash
-npx fasteval view
+npx niceeval view
 ```
 
 ---
 
 ## Exit codes
 
-fasteval's exit code lets CI systems gate on eval results without parsing output.
+niceeval's exit code lets CI systems gate on eval results without parsing output.
 
 | Condition | Exit code |
 |---|---|
@@ -298,20 +298,20 @@ fasteval's exit code lets CI systems gate on eval results without parsing output
   <Tab title="Local development">
     ```bash
     # Watch a specific eval while you develop
-    npx fasteval exp local fixtures/button --sandbox docker --watch
+    npx niceeval exp local fixtures/button --sandbox docker --watch
 
     # Dry-run to check which evals will run
-    npx fasteval exp local --dry
+    npx niceeval exp local --dry
 
     # Force a re-run ignoring the cache
-    npx fasteval exp local fixtures/button --force
+    npx niceeval exp local fixtures/button --force
     ```
   </Tab>
   <Tab title="CI pipeline">
     ```yaml
     # .github/workflows/evals.yml
     - name: Run evals
-      run: npx fasteval exp ci --strict --junit .fasteval/junit.xml
+      run: npx niceeval exp ci --strict --junit .niceeval/junit.xml
       env:
         ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     ```
@@ -319,16 +319,16 @@ fasteval's exit code lets CI systems gate on eval results without parsing output
   <Tab title="Pass rate measurement">
     ```bash
     # Run each eval 10 times; stop early once one attempt passes
-    npx fasteval exp local fixtures/button --runs 10 --sandbox docker
+    npx niceeval exp local fixtures/button --runs 10 --sandbox docker
 
     # Run all 10 attempts regardless (full distribution)
-    npx fasteval exp local fixtures/button --runs 10 --no-early-exit
+    npx niceeval exp local fixtures/button --runs 10 --no-early-exit
     ```
   </Tab>
   <Tab title="Cost-guarded experiment">
     ```bash
     # Run the comparison experiment but cap spend at $5
-    npx fasteval exp compare --budget 5.00
+    npx niceeval exp compare --budget 5.00
     ```
   </Tab>
 </Tabs>

@@ -1,28 +1,28 @@
 ---
-title: "fasteval agents and adapters: connect to any AI system"
+title: "niceeval agents and adapters: connect to any AI system"
 sidebarTitle: "Agents & Adapters"
-description: "Learn how fasteval connects to any AI through named agent adapters. Remote agents wrap HTTP or in-process calls; sandbox agents run CLI tools in isolation."
+description: "Learn how niceeval connects to any AI through named agent adapters. Remote agents wrap HTTP or in-process calls; sandbox agents run CLI tools in isolation."
 ---
 
-Connecting fasteval to the thing you want to evaluate is the part of the system most likely to be misunderstood, so it helps to state the two foundational claims upfront before going any further: **fasteval does not define any agent protocol**, and **the adapter is the open boundary where you own the integration**. Everything else on this page follows from those two facts.
+Connecting niceeval to the thing you want to evaluate is the part of the system most likely to be misunderstood, so it helps to state the two foundational claims upfront before going any further: **niceeval does not define any agent protocol**, and **the adapter is the open boundary where you own the integration**. Everything else on this page follows from those two facts.
 
 ## Two terms, one concept
 
-- **Agent** is the abstraction. From fasteval's perspective, an agent is a named object with capability flags and a single `send` method. The runner interacts with nothing but this interface. It never branches on `if (agent === "claude-code")`.
-- **Adapter** is the concrete implementation. You write it (or use one of fasteval's built-ins). It knows how to authenticate, how to call your service, and how to translate whatever your AI returns into the standard event stream.
+- **Agent** is the abstraction. From niceeval's perspective, an agent is a named object with capability flags and a single `send` method. The runner interacts with nothing but this interface. It never branches on `if (agent === "claude-code")`.
+- **Adapter** is the concrete implementation. You write it (or use one of niceeval's built-ins). It knows how to authenticate, how to call your service, and how to translate whatever your AI returns into the standard event stream.
 
-Experiments reference agents directly. The URL, API key, or CLI invocation is the adapter's private configuration. fasteval never sees it.
+Experiments reference agents directly. The URL, API key, or CLI invocation is the adapter's private configuration. niceeval never sees it.
 
 ## Why experiment agent, not `--url`
 
-Some eval frameworks define a wire protocol and let you point at any compatible endpoint with a URL. fasteval deliberately does not do this, because **there is no single protocol that every AI agent speaks**. Forcing your agent to conform to an external protocol would mean wrapping it in a compatibility shim instead of testing it as it actually runs.
+Some eval frameworks define a wire protocol and let you point at any compatible endpoint with a URL. niceeval deliberately does not do this, because **there is no single protocol that every AI agent speaks**. Forcing your agent to conform to an external protocol would mean wrapping it in a compatibility shim instead of testing it as it actually runs.
 
 Instead, you write a small adapter that knows your agent's protocol and normalizes its output. The adapter's URL (or any other connection detail) is read from environment variables or closure — the core never touches it:
 
 ```shell
 # Evaluate local and production with the same adapter; URL is its private config
-npx fasteval exp local weather   # local
-npx fasteval exp prod weather    # production
+npx niceeval exp local weather   # local
+npx niceeval exp prod weather    # production
 ```
 
 ## The Agent contract
@@ -107,7 +107,7 @@ Use `defineAgent` when your subject under test is a function you can call direct
 <CodeGroup>
 ```ts In-process adapter
 // agents/my-agent.ts
-import { defineAgent } from "fasteval/adapter";
+import { defineAgent } from "niceeval/adapter";
 import { myAgent } from "../src/agent.js";
 
 export default defineAgent({
@@ -126,7 +126,7 @@ export default defineAgent({
 
 ```ts Remote HTTP adapter
 // agents/support-bot.ts
-import { defineAgent } from "fasteval/adapter";
+import { defineAgent } from "niceeval/adapter";
 
 export default defineAgent({
   name: "support-bot",
@@ -156,8 +156,8 @@ Use `defineSandboxAgent` when the subject under test is a coding agent CLI (Clau
 
 ```ts
 // agents/claude-code.ts (built-in)
-import { defineSandboxAgent, shared } from "fasteval/adapter";
-import { requireEnv } from "fasteval";
+import { defineSandboxAgent, shared } from "niceeval/adapter";
+import { requireEnv } from "niceeval";
 
 const auth = () => ({ ANTHROPIC_API_KEY: requireEnv("ANTHROPIC_API_KEY") });
 
@@ -188,7 +188,7 @@ All coding agent adapters share the same structural skeleton — the parts that 
 
 ## Built-in agents
 
-fasteval ships built-in adapters for common coding agents. You can use them directly without writing any adapter code:
+niceeval ships built-in adapters for common coding agents. You can use them directly without writing any adapter code:
 
 | Agent name | CLI | Auth env var |
 |---|---|---|
@@ -228,7 +228,7 @@ Reference your adapter from an experiment file:
 
 ```ts
 // experiments/local.ts
-import { defineExperiment } from "fasteval";
+import { defineExperiment } from "niceeval";
 import myAgent from "./agents/my-agent.js";
 
 export default defineExperiment({
@@ -250,7 +250,7 @@ Built-in coding agents (`claude-code`, `codex`, `bub`) can be imported directly 
   </Card>
 </CardGroup>
 
-Neither kind of adapter touches the core. The adapter boundary is the design's structural load-bearer: adding a new agent never requires modifying fasteval itself.
+Neither kind of adapter touches the core. The adapter boundary is the design's structural load-bearer: adding a new agent never requires modifying niceeval itself.
 
 ## Related pages
 

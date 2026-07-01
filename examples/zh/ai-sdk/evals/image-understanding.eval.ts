@@ -1,12 +1,12 @@
-import { defineEval } from "fasteval";
+import { defineEval } from "niceeval";
 
-// 评测：图片理解。
+// 这条 eval 验证 agent 能读取用户随消息上传的图片，而不是只看文字问题。
 //
-// 用 t.sendFile 把本地真实图片(evals/fixtures/sample.png,蓝底中间一个白方块)发给助手:
-// fasteval 读文件 → base64 → 经 adapter 交给 app → AI 模式喂多模态视觉模型 / mock 模式给固定描述。
-// 助手应描述出图片内容(主色调蓝、有个白方块)。
+// t.sendFile 会把本地真实图片(evals/fixtures/sample.png,蓝底中间一个白方块)编码成 base64，
+// 经 adapter 转给被测 app；AI 模式交给多模态模型，mock 模式返回固定描述。
+// 断言只看图片里的具体特征，避免“我看不到图片”这类泛泛回复误通过。
 export default defineEval({
-  description: "AI 助手：理解图片内容",
+  description: "测试 agent 在图片理解上的能力",
 
   async test(t) {
     const turn = await t.sendFile("evals/fixtures/sample.png", "这张图片里有什么？主要是什么颜色？");
@@ -14,8 +14,7 @@ export default defineEval({
 
     await t.group("助手描述出图片内容", () => {
       t.succeeded();
-      // 必须同时提到两个具体特征(蓝色背景 + 白色方块),而不是任一宽泛关键词就算数——
-      // "图片"/"颜色"这类泛词连"我看不了图片"式的拒绝语都能命中,会把假阴性误判成通过。
+      // 必须同时提到两个具体特征(蓝色背景 + 白色方块)，而不是任一宽泛关键词就算数。
       t.messageIncludes(/蓝|blue/i);
       t.messageIncludes(/白|方块|square/i);
     });

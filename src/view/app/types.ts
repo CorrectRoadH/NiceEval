@@ -109,6 +109,6 @@ export type ObjectRecord = Record<string, JsonValue | undefined>;
 
 declare global {
   interface Window {
-    __FASTEVAL_VIEW_DATA__?: ViewData;
+    __NICEEVAL_VIEW_DATA__?: ViewData;
   }
 }

@@ -1,21 +1,21 @@
 ---
-title: "fasteval: TypeScript eval framework for AI agents and LLMs"
+title: "niceeval: TypeScript eval framework for AI agents and LLMs"
 sidebarTitle: "Introduction"
-description: "fasteval is a TypeScript eval library for AI agents. Evaluate coding agents, HTTP services, and in-process functions with one unified API."
+description: "niceeval is a TypeScript eval library for AI agents. Evaluate coding agents, HTTP services, and in-process functions with one unified API."
 ---
 
-fasteval is a lightweight TypeScript library that brings structured, repeatable evaluation to AI agents. Instead of manually poking at your agent and hoping for the best, you write declarative eval files that describe what a good result looks like — and fasteval takes care of running them, scoring the output, and producing readable reports. Whether you're shipping a Claude Code plugin, a customer-facing HTTP service, or an internal function wrapped in an LLM call, fasteval handles all three with the same `defineEval` API.
+niceeval is a lightweight TypeScript library that brings structured, repeatable evaluation to AI agents. Instead of manually poking at your agent and hoping for the best, you write declarative eval files that describe what a good result looks like — and niceeval takes care of running them, scoring the output, and producing readable reports. Whether you're shipping a Claude Code plugin, a customer-facing HTTP service, or an internal function wrapped in an LLM call, niceeval handles all three with the same `defineEval` API.
 
 ## What you can evaluate
 
-fasteval covers three categories of agent under test, all through a unified interface:
+niceeval covers three categories of agent under test, all through a unified interface:
 
 <CardGroup cols={3}>
   <Card title="Coding agents" icon="code">
     Drop a CLI agent — Claude Code, Codex, bub, or any compatible tool — into an isolated Docker sandbox, give it a task, and verify the result with real tests and file assertions.
   </Card>
   <Card title="HTTP services & deployed agents" icon="globe">
-    Point fasteval at any running HTTP endpoint or deployed agent. Assert on replies, tool calls, and structured output without touching the deployment.
+    Point niceeval at any running HTTP endpoint or deployed agent. Assert on replies, tool calls, and structured output without touching the deployment.
   </Card>
   <Card title="In-process functions" icon="function">
     Call your own TypeScript functions directly inside the eval process. Treat evals as semantic unit tests and run them in CI with zero network overhead.
@@ -30,36 +30,36 @@ The name captures three distinct kinds of speed that matter when you're iteratin
 
 **Fast to run.** The runner uses bounded concurrency so evals execute in parallel without overwhelming your agent. A fingerprint-based result cache skips cases that already passed. Sandboxes can be reused and pre-warmed between runs. The `earlyExit` flag stops retrying a task the moment one attempt succeeds.
 
-**Fast to read.** Console output streams in real time so you see failures as they happen. Every run produces structured artifacts — an event stream, full transcript, file diffs, and assertion results — in a `.fasteval/<timestamp>/` directory. A unified trace makes it easy to reconstruct exactly what the agent did.
+**Fast to read.** Console output streams in real time so you see failures as they happen. Every run produces structured artifacts — an event stream, full transcript, file diffs, and assertion results — in a `.niceeval/<timestamp>/` directory. A unified trace makes it easy to reconstruct exactly what the agent did.
 
-## How fasteval is structured
+## How niceeval is structured
 
-At a high level, your `evals/` directory is the input and `.fasteval/` artifacts are the output. Everything in between is owned by three collaborating pieces:
+At a high level, your `evals/` directory is the input and `.niceeval/` artifacts are the output. Everything in between is owned by three collaborating pieces:
 
 ```
-   your evals/ directory            fasteval core               agent adapter
+   your evals/ directory            niceeval core               agent adapter
    ─────────────────────           ──────────────             ─────────────────
    weather.eval.ts   ──discover──>  Runner  ──send──>  Agent  ─── in-process
    sql.eval.ts                        │                        ─── remote HTTP
    fixtures/button/  ──fixture──>     │                        ─── sandbox ──> Docker
      PROMPT.md                        ▼
-     EVAL.ts                       Scorers ──> Reporters ──> .fasteval/<run>/
+     EVAL.ts                       Scorers ──> Reporters ──> .niceeval/<run>/
                                    (expect / scoped /         (summary.json /
                                     judge / tests)             event stream /
                                                                transcript / diff)
 ```
 
-- **fasteval core** owns everything that is the same regardless of what you're evaluating: eval discovery, assertion collection, scoring, concurrency scheduling, caching, reporting, and artifact persistence.
+- **niceeval core** owns everything that is the same regardless of what you're evaluating: eval discovery, assertion collection, scoring, concurrency scheduling, caching, reporting, and artifact persistence.
 - **Agent adapters** are the open boundary between core and your system under test. Official adapters are included for Claude Code, Codex, and bub; you write your own adapter for any other agent or service.
 - **Sandbox** owns the details of running coding agents in isolation — Docker by default, with support for third-party sandbox providers.
 
 <Note>
-  fasteval never hardcodes agent-specific logic in its core. It dispatches entirely through the adapter interface, which means adding a new agent type never requires changes to the runner or scorers.
+  niceeval never hardcodes agent-specific logic in its core. It dispatches entirely through the adapter interface, which means adding a new agent type never requires changes to the runner or scorers.
 </Note>
 
 ## Two integration modes
 
-fasteval supports two top-level integration modes depending on whether the agent under test needs an isolated workspace.
+niceeval supports two top-level integration modes depending on whether the agent under test needs an isolated workspace.
 
 **Sandbox mode** — for coding agents like Codex and Claude Code that must operate on a real filesystem:
 
@@ -68,7 +68,7 @@ fasteval supports two top-level integration modes depending on whether the agent
         │
         ▼
    ┌─────────────────────┐
-   │     fasteval core    │
+   │     niceeval core    │
    │ discover·schedule·  │
    │    score·report     │
    └─────────────────────┘
@@ -90,7 +90,7 @@ fasteval supports two top-level integration modes depending on whether the agent
         │
         ▼
    ┌─────────────────────┐
-   │     fasteval core    │
+   │     niceeval core    │
    │ discover·schedule·  │
    │    score·report     │
    └─────────────────────┘
@@ -106,6 +106,6 @@ fasteval supports two top-level integration modes depending on whether the agent
 
 ## What comes next
 
-The [Quickstart](/quickstart) walks you through installing fasteval, scaffolding your project with `npx fasteval init`, and running all three eval types — function, conversational, and coding-agent — in under ten minutes.
+The [Quickstart](/quickstart) walks you through installing niceeval, scaffolding your project with `npx niceeval init`, and running all three eval types — function, conversational, and coding-agent — in under ten minutes.
 
 If you want to go deeper right away, the [Installation](/installation) page covers prerequisites, configuration options, and environment variables in full detail.

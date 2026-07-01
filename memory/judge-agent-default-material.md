@@ -30,5 +30,5 @@ return deps.getReply();
 ```
 
 coding agent(产文件)行为不变;对话型 agent 现在 judge 读到的是真实回复。适用于任何
-`judge.agent` 不显式传 `on` 的场景。教训:fasteval 是**通用** agent eval,judge/scoring 默认值不能
+`judge.agent` 不显式传 `on` 的场景。教训:niceeval 是**通用** agent eval,judge/scoring 默认值不能
 假设被测对象一定写文件(参见 [[events-user-message-and-source-loc]] 同类「core 不该绑定某种 agent 形态」)。

@@ -8,7 +8,7 @@
 - Codex 转换:`packages/agent-eval/src/lib/o11y/parsers/codex.ts`
 - 采集(怎么拿到原始 transcript):`packages/agent-eval/src/lib/agents/claude-code.ts`、`codex.ts`、`shared.ts`
 
-这是**学习笔记**,记录别人的具体实现,供设计归一化管线时对照;不是 fasteval 的实现描述——fasteval 自己的 Agent 契约、能力分档见 [Agents 与 Adapters](../README.md)。
+这是**学习笔记**,记录别人的具体实现,供设计归一化管线时对照;不是 niceeval 的实现描述——niceeval 自己的 Agent 契约、能力分档见 [Agents 与 Adapters](../README.md)。
 
 ## 目标层长什么样:`TranscriptEvent` / `Transcript`
 
@@ -46,7 +46,7 @@ interface Transcript {
 }
 ```
 
-`type` 只有五种(`message` / `tool_call` / `tool_result` / `thinking` / `error`),`tool_call` 和 `tool_result` 是**两条独立事件**,不像 fasteval 的 `action.called` / `action.result` 那样带 `callId` 配对——这一点直接影响了后面聚合层怎么把 call 和 result 对上号(见"聚合层"一节的问题)。
+`type` 只有五种(`message` / `tool_call` / `tool_result` / `thinking` / `error`),`tool_call` 和 `tool_result` 是**两条独立事件**,不像 niceeval 的 `action.called` / `action.result` 那样带 `callId` 配对——这一点直接影响了后面聚合层怎么把 call 和 result 对上号(见"聚合层"一节的问题)。
 
 ## 分发层:一个 agent 名对一个 parser 函数
 
@@ -201,15 +201,15 @@ await sandbox.writeFiles({ '__agent_eval__/results.json': JSON.stringify(context
 
 整个函数包在 `try/catch` 里静默失败("best-effort: don't fail the eval if context injection fails")。这一步在 `agent.run()` 里、跑 `EVAL.ts` 校验**之前**调用,`EVAL.ts` 读 `__agent_eval__/results.json` 拿到的就只有聚合后的 `summary`,拿不到原始 `events`——细粒度的"第几步调用了什么工具"在这一层已经不可见了,只剩计数和去重后的列表。
 
-## 这次读源码对 fasteval 的启发
+## 这次读源码对 niceeval 的启发
 
-- **`callId` 配对是比"数组里最后一条未配对记录"更稳的设计。** fasteval 的 `action.called` / `action.result` 靠显式 `callId` 配对,不依赖工具调用严格顺序发生这一假设——agent-eval 这份实现在并发/乱序工具调用下会错配,是个真实的设计取舍对比,不是理论问题。
+- **`callId` 配对是比"数组里最后一条未配对记录"更稳的设计。** niceeval 的 `action.called` / `action.result` 靠显式 `callId` 配对,不依赖工具调用严格顺序发生这一假设——agent-eval 这份实现在并发/乱序工具调用下会错配,是个真实的设计取舍对比,不是理论问题。
 - **"暗号字段 + 通用兜底"这个具体写法值得抄**,尤其是"提取"和"聚合"分离这一点;但**提取函数本身在多个 agent parser 间被复制而非共享**,是可以直接避免的重复,新写 parser 时不必照抄这一部分。
 - **一个 agent 的"采集"可以是多条互不相干的通道**(Codex 的 stdout 转写 vs 磁盘读实际模型),不是"一个 agent 一种采集方式"——设计 adapter 的采集逻辑时要按"这份数据要用来干什么"分别决定怎么采,而不是假设一种机制能满足所有需求。
-- **`Agent.run()` 是一个每个 agent 重写一遍的单体函数**(建沙箱、传文件、装 CLI、跑命令、抓 transcript、注入上下文、跑校验、采 diff、关沙箱,claude-code.ts 和 codex.ts 里这一整套流程几乎逐行重复),生命周期没有被收进一个共享的运行器骨架里。fasteval 把这套骨架收进运行器(`setup` 一次 / `send` 每轮一次 / git 基线与 diff 由 runner 统一管),adapter 只写"这几行不同"的部分——这是两边在"core 拥有多少"这条线上最大的架构分歧。
+- **`Agent.run()` 是一个每个 agent 重写一遍的单体函数**(建沙箱、传文件、装 CLI、跑命令、抓 transcript、注入上下文、跑校验、采 diff、关沙箱,claude-code.ts 和 codex.ts 里这一整套流程几乎逐行重复),生命周期没有被收进一个共享的运行器骨架里。niceeval 把这套骨架收进运行器(`setup` 一次 / `send` 每轮一次 / git 基线与 diff 由 runner 统一管),adapter 只写"这几行不同"的部分——这是两边在"core 拥有多少"这条线上最大的架构分歧。
 
 ## 相关阅读
 
-- [Agents 与 Adapters](../README.md) —— fasteval 自己的 Agent 契约、能力分档表、采集层设计。
-- [Observability](../../observability.md) —— fasteval 的标准事件流(`callId` 配对)、OTLP trace、工件落盘。
+- [Agents 与 Adapters](../README.md) —— niceeval 自己的 Agent 契约、能力分档表、采集层设计。
+- [Observability](../../observability.md) —— niceeval 的标准事件流(`callId` 配对)、OTLP trace、工件落盘。
 - [References](../../references.md) —— 调研其它外部项目(如 agent-eval 的 playground/view)学到什么。

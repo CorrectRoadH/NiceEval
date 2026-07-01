@@ -11,7 +11,7 @@ const IGNORE_DIRS = new Set([
   ".next",
   "dist",
   ".turbo",
-  ".fasteval",
+  ".niceeval",
   "coverage",
 ]);
 
@@ -54,10 +54,10 @@ export async function isDirectory(path: string): Promise<boolean> {
 /** 打 git 基线:gitignore 掉依赖 / 构建产物,提交一版,供之后 diff HEAD 采改动。 */
 export async function initGitAndCommit(sandbox: Sandbox): Promise<void> {
   await sandbox.writeFiles({
-    ".gitignore": "node_modules/\n.next/\ndist/\npackage-lock.json\n.fasteval/\n__fasteval__/\n",
+    ".gitignore": "node_modules/\n.next/\ndist/\npackage-lock.json\n.niceeval/\n__niceeval__/\n",
   });
   await sandbox.runShell(
-    'git init -q && git config user.email "fasteval@localhost" && git config user.name "fasteval" && git add -A && git commit -q -m "baseline" || true',
+    'git init -q && git config user.email "niceeval@localhost" && git config user.name "niceeval" && git add -A && git commit -q -m "baseline" || true',
   );
 }
 

@@ -4,7 +4,7 @@ sidebarTitle: "Eval Skills in Agents"
 description: ""
 ---
 
-A Skill's quality isn't just about whether the final answer is correct — it's also about whether the agent loads the Skill in the right context, follows the Skill's prescribed flow, and calls the tools it's supposed to call. fasteval lets you turn all of these into repeatable, automated evals.
+A Skill's quality isn't just about whether the final answer is correct — it's also about whether the agent loads the Skill in the right context, follows the Skill's prescribed flow, and calls the tools it's supposed to call. niceeval lets you turn all of these into repeatable, automated evals.
 
 This kind of eval typically uses **Sandbox mode** as well. You give the agent a real task, let it execute in an environment where the Skill is installed, then verify the artifact, test results, and behavioral traces in the assertion phase.
 
@@ -49,7 +49,7 @@ test("adds schema validation", () => {
 });
 
 test("project tests pass", async () => {
-  // If package.json already has a test script, fasteval will run it during the verify phase.
+  // If package.json already has a test script, niceeval will run it during the verify phase.
   expect(true).toBe(true);
 });
 ```
@@ -59,7 +59,7 @@ If the agent's transcript exposes Skill load events, you can check them via o11y
 ## Run
 
 ```bash
-pnpm exec fasteval exp experiment-name
+pnpm exec niceeval exp experiment-name
 ```
 
 ## Next steps

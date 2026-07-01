@@ -1,9 +1,9 @@
-# fasteval 预制 agent 镜像 —— 把 codex / claude-code / bub 三个 CLI 烘焙进来,
+# niceeval 预制 agent 镜像 —— 把 codex / claude-code / bub 三个 CLI 烘焙进来,
 # 让后续 eval 跳过 setup 阶段的安装(几十秒~几分钟)直接开跑。
 #
 # 一份 Dockerfile,三种后端共用(见 ../README.md):
-#   · docker  : docker build -t fasteval-agents:node24 .
-#   · e2b     : e2b template create fasteval-agents -d Dockerfile …(见 README)
+#   · docker  : docker build -t niceeval-agents:node24 .
+#   · e2b     : e2b template create niceeval-agents -d Dockerfile …(见 README)
 #   · vercel  : build-vercel-snapshot.mts 在 microVM 里跑等价安装后 snapshot
 #
 # 关键约定:三个 CLI 都装到 /usr/local/bin(对所有沙箱用户都在 PATH 上)——

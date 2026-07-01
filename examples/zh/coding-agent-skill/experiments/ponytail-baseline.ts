@@ -1,5 +1,5 @@
-import { defineExperiment } from "fasteval";
-import { claudeCodeAgent } from "fasteval/adapter";
+import { defineExperiment } from "niceeval";
+import { claudeCodeAgent } from "niceeval/adapter";
 
 // ponytail 基准组：裸 Claude Code，没有 ponytail skill。
 // 与 ponytail 实验组对比，衡量 skill 在安全性、复用率、代码精简度上的实际收益。

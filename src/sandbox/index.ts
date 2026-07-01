@@ -1,4 +1,4 @@
-// fasteval/sandbox 公开导出:「在哪里跑」相关的类型 + 工厂 + 扩展点。
+// niceeval/sandbox 公开导出:「在哪里跑」相关的类型 + 工厂 + 扩展点。
 // 具体后端实现类(DockerSandbox / VercelSandbox / E2BSandbox)是内部实现细节,不在此导出——
 // 需要自定义后端时用 defineSandbox(),不需要绕开 resolve.ts 直接 new 内置类。
 

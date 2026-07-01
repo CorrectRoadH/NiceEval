@@ -1,17 +1,17 @@
 ---
-title: "fasteval 架构: evals、agents 与 sandboxes"
+title: "niceeval 架构: evals、agents 与 sandboxes"
 sidebarTitle: "概览"
-description: "理解 fasteval core、agent adapters 和 sandbox backends 如何配合，用统一 TypeScript API 评估任意 AI agent。"
+description: "理解 niceeval core、agent adapters 和 sandbox backends 如何配合，用统一 TypeScript API 评估任意 AI agent。"
 ---
 
-fasteval 的核心设计是把“评测逻辑”与“如何连接被测对象”分开。core 只负责发现、调度、评分和报告；agent adapter 负责调用被测系统；sandbox backend 负责隔离文件系统。
+niceeval 的核心设计是把“评测逻辑”与“如何连接被测对象”分开。core 只负责发现、调度、评分和报告；agent adapter 负责调用被测系统；sandbox backend 负责隔离文件系统。
 
 ## 四层架构
 
 ```text
 Eval files / fixtures
         ↓
-fasteval core
+niceeval core
         ↓
 Agent adapter
         ↓
@@ -44,10 +44,10 @@ Subject under test / Sandbox backend
 ## Agent / Adapter 边界
 
 <Note>
-  `Agent` 是 fasteval core 看到的抽象；`Adapter` 是你写的具体实现。core 不知道你的 HTTP 协议、CLI 参数或鉴权方式。
+  `Agent` 是 niceeval core 看到的抽象；`Adapter` 是你写的具体实现。core 不知道你的 HTTP 协议、CLI 参数或鉴权方式。
 </Note>
 
-这条边界让 fasteval 保持通用。评估本地函数、远程服务、Claude Code、Codex 或自定义 agent 时，runner 和 scorers 的逻辑不需要改变。
+这条边界让 niceeval 保持通用。评估本地函数、远程服务、Claude Code、Codex 或自定义 agent 时，runner 和 scorers 的逻辑不需要改变。
 
 ### 为什么没有 `--url`
 

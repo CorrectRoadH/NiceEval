@@ -14,8 +14,8 @@ import type { TraceReceiver } from "./receiver.ts";
 import { parseOtlpTraces } from "./parse.ts";
 
 const COLLECTOR_PORT = 4318;
-const COLLECTOR_PATH = "/tmp/.fasteval-otlp-collector.cjs";
-const SPANS_PATH = "/tmp/.fasteval-otlp-spans.jsonl";
+const COLLECTOR_PATH = "/tmp/.niceeval-otlp-collector.cjs";
+const SPANS_PATH = "/tmp/.niceeval-otlp-spans.jsonl";
 
 // collector 脚本:纯 Node.js CJS,无外部依赖。
 // 每收一个 OTLP/HTTP 请求就把 { ct, body(base64) } 追加写一行到 SPANS_PATH,
@@ -64,7 +64,7 @@ async function makeInSandboxReceiver(sandbox: Sandbox): Promise<TraceReceiver> {
 
   // 后台启动,拿 PID(shell 的 & 返回后台 PID;echo $! 给我们)
   const startResult = await sandbox.runShell(
-    `node ${COLLECTOR_PATH} >/tmp/.fasteval-otlp-collector.log 2>&1 & echo $!`,
+    `node ${COLLECTOR_PATH} >/tmp/.niceeval-otlp-collector.log 2>&1 & echo $!`,
   );
   const pid = parseInt(startResult.stdout.trim(), 10);
 

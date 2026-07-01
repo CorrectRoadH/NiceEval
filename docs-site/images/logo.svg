@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 56" role="img" aria-label="fasteval">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 56" role="img" aria-label="niceeval">
   <rect width="56" height="56" rx="12" fill="#11161e"/>
   <path d="M15 14h28v7H25v7h15v7H25v13H15z" fill="#f8fafc"/>
   <path d="M31 35h14v7H31z" fill="#848c8e"/>
-  <text x="72" y="37" fill="#11161e" font-family="Inter, Arial, sans-serif" font-size="28" font-weight="700">fasteval</text>
+  <text x="72" y="37" fill="#11161e" font-family="Inter, Arial, sans-serif" font-size="28" font-weight="700">niceeval</text>
 </svg>

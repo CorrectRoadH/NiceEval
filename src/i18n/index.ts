@@ -22,8 +22,8 @@ function normalizeLocale(raw: string | undefined): Locale | undefined {
 
 export function detectLocale(env: NodeJS.ProcessEnv = process.env): Locale {
   return (
-    normalizeLocale(env.FASTEVAL_LANG) ??
-    normalizeLocale(env.FASTEVAL_LOCALE) ??
+    normalizeLocale(env.NICEEVAL_LANG) ??
+    normalizeLocale(env.NICEEVAL_LOCALE) ??
     normalizeLocale(env.LC_ALL) ??
     normalizeLocale(env.LC_MESSAGES) ??
     normalizeLocale(env.LANG) ??

@@ -1,7 +1,7 @@
 ---
 title: "Experiments: 用运行矩阵比较 agents 和 models"
 sidebarTitle: "Experiments"
-description: "使用 fasteval experiments 让同一批 eval 横跨多个 agents、models 和 feature flags，比较 pass rate、成本和延迟。"
+description: "使用 niceeval experiments 让同一批 eval 横跨多个 agents、models 和 feature flags，比较 pass rate、成本和延迟。"
 ---
 
 Experiment 用于比较多组运行配置。典型问题包括：Claude Code 和 Codex 谁在同一批 fixture 上 pass rate 更高？某个 prompt 改动是否降低成本？不同模型的延迟和质量如何取舍？
@@ -19,7 +19,7 @@ experiments/
 
 ```ts
 // experiments/compare-models/gpt-4o.ts
-import { defineExperiment } from "fasteval";
+import { defineExperiment } from "niceeval";
 import { webAgent } from "../../agents/web-agent.ts";
 
 export default defineExperiment({
@@ -31,7 +31,7 @@ export default defineExperiment({
 ```
 
 ```bash
-npx fasteval exp compare-models   # 把同组各 model 并排出报告
+npx niceeval exp compare-models   # 把同组各 model 并排出报告
 ```
 
 这样每个配置独立成文件：可命名、可 diff、可单独 review，"这一组就是对照"在文件结构上就讲清楚了。
@@ -64,4 +64,4 @@ fixtures/button   codex         pass@5 = 3/5 (60%)   mean 41s
 
 ## 与普通运行的关系
 
-`npx fasteval exp <实验>` 关注“这一批 eval 在某个配置下是否通过”；实验组关注“多组配置谁更好”。两者使用同一套 eval、agent adapter、scoring 和 artifacts。
+`npx niceeval exp <实验>` 关注“这一批 eval 在某个配置下是否通过”；实验组关注“多组配置谁更好”。两者使用同一套 eval、agent adapter、scoring 和 artifacts。

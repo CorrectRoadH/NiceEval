@@ -17,7 +17,7 @@
 
 - `messageIncludes`(`src/scoring/scoped.ts`)已改为只看 `role === "assistant"`。这是「断言助手说了什么」的本意,且避免扫到用户输入误判。
 - `event("message", { count })` 仍按**全部** message(含 user)计数 —— 写这类断言要么按真实(含 user)数,要么改用 `succeeded()` / `messageIncludes`。示例若用 `count:3` 表示「三轮助手回复」会误失败,需调整。
-- **user message 必须留在流里**:view 的代码视图靠 user message 上的 `loc`(`src/source-loc.ts` 的 `captureLoc()`,在 `SessionManager.send` / `AssertionCollector.record` 里栈回溯抓「第一帧非 fasteval src」)把 send / 断言叠回真实源码行。别为了修计数把 user message 移出流。
+- **user message 必须留在流里**:view 的代码视图靠 user message 上的 `loc`(`src/source-loc.ts` 的 `captureLoc()`,在 `SessionManager.send` / `AssertionCollector.record` 里栈回溯抓「第一帧非 niceeval src」)把 send / 断言叠回真实源码行。别为了修计数把 user message 移出流。
 
 ## 相关:source-loc / code view 数据结构
 
@@ -28,4 +28,4 @@
 ## 验证夹具
 
 `test/view-harness/`:mock 进程内 agent + 本机 mock judge(OpenAI 兼容),不联网/不起沙箱。
-`node test/view-harness/run.mjs` 重新生成 `.fasteval`,再 `node bin/fasteval.js view test/view-harness/.fasteval` 看效果。
+`node test/view-harness/run.mjs` 重新生成 `.niceeval`,再 `node bin/niceeval.js view test/view-harness/.niceeval` 看效果。

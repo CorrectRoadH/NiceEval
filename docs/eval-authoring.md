@@ -47,7 +47,7 @@ export default rows.map((row) =>
 
 这些绑定共享**同一套完整函数**,区别只是"挂在哪个对象上",不是"叫什么名字"——eve 没有"`messageIncludes` 天生看全部、`calledTool` 天生看单轮"这种按名字区分的不一致。1.1 要避免的正是这种不一致,eve 靠"位置决定作用域、每个位置给全套词汇"解决,不是靠"取消聚合"解决。
 
-**fasteval 对齐到这个设计,不是取消聚合**:
+**niceeval 对齐到这个设计,不是取消聚合**:
 
 - `t.*` 保留"聚合整个 eval run"的语义——这次 eval 执行的全部轮次、含 `t.newSession()` 开的额外 session,直接对应 eve 的 `timing: "final"` 层。这一层聚合是有意为之,不是要移除的"黑箱"。
 - `session.*`(`t.newSession()` 的返回值)复用 `t.*` 的同一套**作用域断言词汇**,但只看这个 session 在断言记录时已有的事件。
@@ -58,7 +58,7 @@ export default rows.map((row) =>
 ## `defineEval` 的形状
 
 ```typescript
-import { defineEval } from "fasteval";
+import { defineEval } from "niceeval";
 
 export default defineEval({
   description?: string;            // 人读的描述,出现在报告里
@@ -78,8 +78,8 @@ export default defineEval({
 
 ```typescript
 // evals/weather/brooklyn.eval.ts
-import { defineEval } from "fasteval";
-import { includes } from "fasteval/expect";
+import { defineEval } from "niceeval";
+import { includes } from "niceeval/expect";
 
 export default defineEval({
   description: "布鲁克林天气查询",
@@ -104,8 +104,8 @@ export default defineEval({
 
 ```typescript
 // evals/draft-then-send.eval.ts
-import { defineEval } from "fasteval";
-import { includes } from "fasteval/expect";
+import { defineEval } from "niceeval";
+import { includes } from "niceeval/expect";
 
 export default defineEval({
   description: "先拟稿,确认后再发送",
@@ -176,9 +176,9 @@ turn3.judge.autoevals.closedQA("这一轮是否回答了形状颜色?").gate();
 
 ```typescript
 // evals/sql.eval.ts
-import { defineEval } from "fasteval";
-import { loadYaml } from "fasteval/loaders";
-import { equals } from "fasteval/expect";
+import { defineEval } from "niceeval";
+import { loadYaml } from "niceeval/loaders";
+import { equals } from "niceeval/expect";
 
 const doc = await loadYaml("evals/data/sql-cases.yaml");
 const rows = doc.cases as { task: string; prompt: string; sql: string }[];
@@ -230,8 +230,8 @@ export default defineExperiment({
 
 ```typescript
 // evals/refactor.eval.ts
-import { defineEval } from "fasteval";
-import { commandSucceeded, includes } from "fasteval/expect";
+import { defineEval } from "niceeval";
+import { commandSucceeded, includes } from "niceeval/expect";
 import { readFileSync } from "node:fs";
 
 export default defineEval({

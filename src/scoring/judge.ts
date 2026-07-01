@@ -1,7 +1,7 @@
 // LLM-as-judge:用一个与被测 agent 完全分离的评判模型做结构化 autoevals 评分。
 //
 // 评判模型走 OpenAI 兼容的 /chat/completions。base_url + key 解析优先级:
-//   judge.baseUrl / judge.apiKeyEnv  →  FASTEVAL_JUDGE_BASE / CODEX_BASE_URL  →  OpenAI 官方
+//   judge.baseUrl / judge.apiKeyEnv  →  NICEEVAL_JUDGE_BASE / CODEX_BASE_URL  →  OpenAI 官方
 //
 // closedQA / factuality / summarizes 直接用 autoevals 库(braintrust)。
 
@@ -21,13 +21,13 @@ function resolveJudge(judge: JudgeConfig | undefined): ResolvedJudge {
   const model = judge?.model ?? "gpt-5.4-mini";
   const baseUrl =
     judge?.baseUrl ??
-    getEnv("FASTEVAL_JUDGE_BASE") ??
+    getEnv("NICEEVAL_JUDGE_BASE") ??
     getEnv("CODEX_BASE_URL") ??
     getEnv("OPENAI_BASE_URL") ??
     "https://api.openai.com/v1";
   const apiKey =
     (judge?.apiKeyEnv ? getEnv(judge.apiKeyEnv) : undefined) ??
-    getEnv("FASTEVAL_JUDGE_KEY") ??
+    getEnv("NICEEVAL_JUDGE_KEY") ??
     getEnv("CODEX_API_KEY") ??
     getEnv("OPENAI_API_KEY");
   return { model, baseUrl, apiKey };
@@ -145,7 +145,7 @@ function noOpJudge(): JudgeNamespace {
 export async function probeJudge(judge: JudgeConfig, signal?: AbortSignal): Promise<string | undefined> {
   const resolved = resolveJudge(judge);
   if (!resolved.apiKey) {
-    const envHint = judge.apiKeyEnv ?? "FASTEVAL_JUDGE_KEY / OPENAI_API_KEY";
+    const envHint = judge.apiKeyEnv ?? "NICEEVAL_JUDGE_KEY / OPENAI_API_KEY";
     return t("judge.probeMissingKey", { model: resolved.model, envHint });
   }
   try {

@@ -1,15 +1,15 @@
 ---
 title: "编写 eval: 单轮、多轮和数据集模式"
 sidebarTitle: "编写 eval"
-description: "学习如何用 defineEval 编写 fasteval eval，包括单轮断言、多轮对话、数据集扇出和 sandbox fixtures。"
+description: "学习如何用 defineEval 编写 niceeval eval，包括单轮断言、多轮对话、数据集扇出和 sandbox fixtures。"
 ---
 
-每个 fasteval eval 都是一个 TypeScript 文件，默认导出 `defineEval(...)`。核心原则是：**路径即身份**、**一个文件一个 eval**、**线性书写并就地断言**。
+每个 niceeval eval 都是一个 TypeScript 文件，默认导出 `defineEval(...)`。核心原则是：**路径即身份**、**一个文件一个 eval**、**线性书写并就地断言**。
 
 ## `defineEval` 的结构
 
 ```ts
-import { defineEval } from "fasteval";
+import { defineEval } from "niceeval";
 
 export default defineEval({
   description?: string;
@@ -30,8 +30,8 @@ export default defineEval({
 ## 单轮 eval
 
 ```ts
-import { defineEval } from "fasteval";
-import { includes } from "fasteval/expect";
+import { defineEval } from "niceeval";
+import { includes } from "niceeval/expect";
 
 export default defineEval({
   description: "Brooklyn weather query",

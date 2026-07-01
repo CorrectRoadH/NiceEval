@@ -1,4 +1,4 @@
-import { defineEval } from "fasteval";
+import { defineEval } from "niceeval";
 
 // 回归夹具:与 examples/zh/ai-sdk/evals/image-understanding.eval.ts 同款断言。
 // 配 refusal-agent(永远回复"模型不支持图像输入"),验证「模型没看图」这种明确失败

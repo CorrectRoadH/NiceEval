@@ -1,13 +1,13 @@
 ---
-title: "fasteval.config.ts"
+title: "niceeval.config.ts"
 sidebarTitle: "配置"
-description: "fasteval 项目配置参考。"
+description: "niceeval 项目配置参考。"
 ---
 
-`fasteval.config.ts` 只保存项目级默认值；具体怎么跑由 `experiments/` 下的 `defineExperiment` 决定。
+`niceeval.config.ts` 只保存项目级默认值；具体怎么跑由 `experiments/` 下的 `defineExperiment` 决定。
 
 ```ts
-import { defineConfig } from "fasteval";
+import { defineConfig } from "niceeval";
 
 export default defineConfig({
   judge: { model: "gpt-5.4-mini" },

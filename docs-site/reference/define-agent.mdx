@@ -4,7 +4,7 @@ sidebarTitle: "defineAgent"
 description: "Reference for defineAgent and defineSandboxAgent. Covers AgentContext, Sandbox interface, StreamEvent types, and shared sandbox helpers."
 ---
 
-Every agent in fasteval is an **adapter** — a piece of code you write that knows how to drive a specific backend and translate its output into a standard event stream. The runner knows nothing about your agent's wire protocol, CLI flags, or authentication; it only calls `agent.send(input, ctx)` and expects back a `Turn`. This page covers the two adapter factories: `defineAgent` for remote and in-process agents, and `defineSandboxAgent` for coding agents that run inside an isolated sandbox.
+Every agent in niceeval is an **adapter** — a piece of code you write that knows how to drive a specific backend and translate its output into a standard event stream. The runner knows nothing about your agent's wire protocol, CLI flags, or authentication; it only calls `agent.send(input, ctx)` and expects back a `Turn`. This page covers the two adapter factories: `defineAgent` for remote and in-process agents, and `defineSandboxAgent` for coding agents that run inside an isolated sandbox.
 
 ---
 
@@ -13,7 +13,7 @@ Every agent in fasteval is an **adapter** — a piece of code you write that kno
 Use `defineAgent` for any agent you can drive in-process or over HTTP. The `send` function is your responsibility: call your code, fire a `fetch`, stream from a WebSocket — whatever your backend requires. Map the result to the standard event stream and return a `Turn`.
 
 ```ts
-import { defineAgent } from "fasteval/adapter";
+import { defineAgent } from "niceeval/adapter";
 ```
 
 ### Options
@@ -145,7 +145,7 @@ Your `send` function must return an object satisfying the `Turn` interface.
 
 <ResponseField name="usage" type="Usage | undefined">
   Token counts for this turn. Provide these when your backend exposes them so
-  fasteval can report costs and power `t.maxTokens()` / `t.maxCost()` assertions.
+  niceeval can report costs and power `t.maxTokens()` / `t.maxCost()` assertions.
 
   - `inputTokens: number`
   - `outputTokens: number`
@@ -156,7 +156,7 @@ Your `send` function must return an object satisfying the `Turn` interface.
 
 ```ts
 // agents/my-agent.ts
-import { defineAgent } from "fasteval/adapter";
+import { defineAgent } from "niceeval/adapter";
 import { classifyIntent } from "../src/agent.js";
 
 export default defineAgent({
@@ -179,7 +179,7 @@ export default defineAgent({
 
 ```ts
 // agents/support-bot.ts
-import { defineAgent } from "fasteval/adapter";
+import { defineAgent } from "niceeval/adapter";
 
 export default defineAgent({
   name: "support-bot",
@@ -202,7 +202,7 @@ export default defineAgent({
 
 <Note>
   Authentication (API keys, base URLs, tokens) belongs **inside** the adapter —
-  read it from environment variables in the `send` closure. fasteval never sees
+  read it from environment variables in the `send` closure. niceeval never sees
   it and never passes it via `ctx`. This keeps credential scope tight and lets
   the same adapter be used across environments simply by changing env vars.
 </Note>
@@ -214,7 +214,7 @@ export default defineAgent({
 Use `defineSandboxAgent` for coding agents that run as a CLI inside an isolated sandbox (Docker container or cloud VM). The runner provisions the sandbox and passes it via `ctx.sandbox`. Your `send` function installs the CLI, runs the agent with the task prompt, reads back the transcript, and parses it into the standard event stream.
 
 ```ts
-import { defineSandboxAgent, shared } from "fasteval/adapter";
+import { defineSandboxAgent, shared } from "niceeval/adapter";
 ```
 
 `defineSandboxAgent` accepts exactly the same options as `defineAgent` (see above), plus `ctx.sandbox` is always populated.
@@ -290,7 +290,7 @@ import { defineSandboxAgent, shared } from "fasteval/adapter";
 
 ### shared helpers
 
-The `shared` object from `fasteval/adapter` provides utilities that are common across all sandbox agent adapters, ensuring that workspace preparation, diff collection, validation, and observability injection work consistently regardless of which agent CLI you're wrapping.
+The `shared` object from `niceeval/adapter` provides utilities that are common across all sandbox agent adapters, ensuring that workspace preparation, diff collection, validation, and observability injection work consistently regardless of which agent CLI you're wrapping.
 
 <ResponseField name="shared.prepareWorkspace(sandbox, fixture)" type="function">
   Uploads workspace files to the sandbox (hiding `EVAL.ts` and other test files
@@ -316,12 +316,12 @@ The `shared` object from `fasteval/adapter` provides utilities that are common a
 
 <ResponseField name="shared.injectO11yContext(sandbox, events)" type="function">
   Derives observability data from the standard event stream and writes it to
-  `__fasteval__/results.json` inside the sandbox. This makes agent behavior
+  `__niceeval__/results.json` inside the sandbox. This makes agent behavior
   visible to assertions in `EVAL.ts`.
 
   ```ts
   // In EVAL.ts — read what the agent did:
-  const o11y = JSON.parse(readFileSync("__fasteval__/results.json", "utf-8")).o11y;
+  const o11y = JSON.parse(readFileSync("__niceeval__/results.json", "utf-8")).o11y;
   expect(o11y.shellCommands.map(c => c.command)).not.toContain("rm -rf /");
   ```
 </ResponseField>
@@ -330,8 +330,8 @@ The `shared` object from `fasteval/adapter` provides utilities that are common a
 
 ```ts
 // agents/claude-code.ts
-import { defineSandboxAgent, shared } from "fasteval/adapter";
-import { requireEnv } from "fasteval";
+import { defineSandboxAgent, shared } from "niceeval/adapter";
+import { requireEnv } from "niceeval";
 
 const auth = () => ({ ANTHROPIC_API_KEY: requireEnv("ANTHROPIC_API_KEY") });
 
@@ -416,7 +416,7 @@ Once you've written an adapter, reference it from an experiment file:
 
 ```ts
 // experiments/local.ts
-import { defineExperiment } from "fasteval";
+import { defineExperiment } from "niceeval";
 import myAgent from "./agents/my-agent.js";
 
 export default defineExperiment({
@@ -435,7 +435,7 @@ export default defineExperiment({
 
 ### Built-in agents
 
-The following coding agent adapters are exported by fasteval and can be referenced from experiment files:
+The following coding agent adapters are exported by niceeval and can be referenced from experiment files:
 
 <CardGroup cols={3}>
   <Card title="claude-code" icon="terminal">
@@ -453,8 +453,8 @@ The following coding agent adapters are exported by fasteval and can be referenc
 </CardGroup>
 
 ```shell
-npx fasteval exp claude-code-local evals/fixtures/button --sandbox docker
-npx fasteval exp codex-local evals/fixtures/button --sandbox docker
+npx niceeval exp claude-code-local evals/fixtures/button --sandbox docker
+npx niceeval exp codex-local evals/fixtures/button --sandbox docker
 ```
 
 ---

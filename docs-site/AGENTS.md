@@ -1,6 +1,6 @@
 # Mintlify Documentation Guide
 
-This directory is the public Mintlify documentation site for `fasteval`.
+This directory is the public Mintlify documentation site for `niceeval`.
 
 ## Structure
 
@@ -15,7 +15,7 @@ This directory is the public Mintlify documentation site for `fasteval`.
 
 ## Writing Rules
 
-- Keep the product positioning consistent with the root `AGENTS.md`: `fasteval`
+- Keep the product positioning consistent with the root `AGENTS.md`: `niceeval`
   is a lightweight, general-purpose TypeScript agent eval tool.
 - When updating English pages, README links, or navigation based on Chinese
   content, sync from `zh/` and the current code instead of inventing new

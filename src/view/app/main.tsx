@@ -3,7 +3,7 @@ import type { ViewData } from "./types.ts";
 import { App } from "./App.tsx";
 import "../styles.css";
 
-const initialData: ViewData = window.__FASTEVAL_VIEW_DATA__ ?? {
+const initialData: ViewData = window.__NICEEVAL_VIEW_DATA__ ?? {
   rows: [],
   lastRun: "No runs yet",
   passRate: "0%",

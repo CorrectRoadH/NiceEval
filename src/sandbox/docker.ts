@@ -45,7 +45,7 @@ const TTL_FLOOR_MS = 1_200_000; // 20 分钟
 const CONTAINER_WORKDIR = "/home/sandbox/workspace";
 
 // 容器「主日志」文件:PID1 tail 它 → `docker logs` 实时显示;agent 命令的 stream 输出 tee 进来。
-const CONTAINER_LOG = "/tmp/fasteval-agent.log";
+const CONTAINER_LOG = "/tmp/niceeval-agent.log";
 
 /** 单引号包裹 + 转义,把一个参数安全嵌进 shell 命令串。 */
 function shellQuote(s: string): string {

@@ -14,5 +14,5 @@
     "noEmit": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["fasteval.config.ts", "adapter", "evals", "experiments", "src", "vite.config.ts"]
+  "include": ["niceeval.config.ts", "adapter", "evals", "experiments", "src", "vite.config.ts"]
 }

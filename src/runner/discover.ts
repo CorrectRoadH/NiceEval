@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url";
 import { pad4 } from "../util.ts";
 import type { DiscoveredEval, DiscoveredExperiment, EvalDef, ExperimentDef } from "../types.ts";
 
-const SKIP_DIRS = new Set(["node_modules", ".git", ".fasteval", "dist", ".next"]);
+const SKIP_DIRS = new Set(["node_modules", ".git", ".niceeval", "dist", ".next"]);
 
 async function walkFiles(dir: string, match: (name: string) => boolean): Promise<string[]> {
   const out: string[] = [];

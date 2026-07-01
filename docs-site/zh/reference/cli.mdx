@@ -1,57 +1,57 @@
 ---
-title: "fasteval CLI: 命令、flags 和退出码参考"
+title: "niceeval CLI: 命令、flags 和退出码参考"
 sidebarTitle: "CLI"
-description: "fasteval CLI 参考：exp、init、list、clean 和 view 命令，以及 experiment、eval 过滤、sandbox、并发、预算和 JUnit CI 输出。"
+description: "niceeval CLI 参考：exp、init、list、clean 和 view 命令，以及 experiment、eval 过滤、sandbox、并发、预算和 JUnit CI 输出。"
 ---
 
-fasteval CLI 是发现、运行和查看 eval 的入口。实际执行 eval 时采用 experiment-first 模型：**`exp` 选择可签入的运行配置**，experiment 后的位置参数才按 eval ID 前缀过滤。agent、model 和 feature flags 写在 `experiments/`，不靠临时 CLI 参数。
+niceeval CLI 是发现、运行和查看 eval 的入口。实际执行 eval 时采用 experiment-first 模型：**`exp` 选择可签入的运行配置**，experiment 后的位置参数才按 eval ID 前缀过滤。agent、model 和 feature flags 写在 `experiments/`，不靠临时 CLI 参数。
 
 ## 命令
 
 <CardGroup cols={2}>
-  <Card title="npx fasteval exp &lt;group&gt; [id-prefix]" icon="flask">
+  <Card title="npx niceeval exp &lt;group&gt; [id-prefix]" icon="flask">
     运行命名实验组或配置。可选尾随位置参数按 eval ID 前缀过滤。
   </Card>
-  <Card title="npx fasteval init" icon="wand-magic-sparkles">
-    生成 `evals/`、`fasteval.config.ts` 和示例文件。
+  <Card title="npx niceeval init" icon="wand-magic-sparkles">
+    生成 `evals/`、`niceeval.config.ts` 和示例文件。
   </Card>
-  <Card title="npx fasteval list" icon="list">
+  <Card title="npx niceeval list" icon="list">
     发现并打印所有 eval，不运行。
   </Card>
-  <Card title="npx fasteval clean" icon="trash">
-    删除 `.fasteval/` 历史运行 artifacts。
+  <Card title="npx niceeval clean" icon="trash">
+    删除 `.niceeval/` 历史运行 artifacts。
   </Card>
-  <Card title="npx fasteval view" icon="eye">
+  <Card title="npx niceeval view" icon="eye">
     打开结果查看器，查看最近一次运行的 artifacts。
   </Card>
 </CardGroup>
 
 ## 输出语言
 
-fasteval 的 CLI 和运行时文案支持本地化,不需要在 `fasteval.config.ts` 里加配置。需要固定输出语言时用环境变量：
+niceeval 的 CLI 和运行时文案支持本地化,不需要在 `niceeval.config.ts` 里加配置。需要固定输出语言时用环境变量：
 
 ```bash
-FASTEVAL_LANG=en npx fasteval list
-FASTEVAL_LANG=zh-CN npx fasteval list
+NICEEVAL_LANG=en npx niceeval list
+NICEEVAL_LANG=zh-CN npx niceeval list
 ```
 
-检测顺序是 `FASTEVAL_LANG`、`FASTEVAL_LOCALE`、`LC_ALL`、`LC_MESSAGES`、`LANG`。以 `zh` 开头的值使用 `zh-CN`,其它语言使用 `en`;都没有时默认 `zh-CN`。这只影响终端/runtime 文案,不改变结果 JSON 里的机器字段,也不翻译 LLM judge prompt。
+检测顺序是 `NICEEVAL_LANG`、`NICEEVAL_LOCALE`、`LC_ALL`、`LC_MESSAGES`、`LANG`。以 `zh` 开头的值使用 `zh-CN`,其它语言使用 `en`;都没有时默认 `zh-CN`。这只影响终端/runtime 文案,不改变结果 JSON 里的机器字段,也不翻译 LLM judge prompt。
 
-## `npx fasteval exp [group|config] [id-prefix...]`
+## `npx niceeval exp [group|config] [id-prefix...]`
 
 ```bash
 # 运行 experiments/ 下全部实验
-npx fasteval exp
+npx niceeval exp
 
 # 运行一个实验组
-npx fasteval exp compare-models
+npx niceeval exp compare-models
 
 # 在该组里只运行 ID 以 weather 开头的 eval
-npx fasteval exp compare-models weather
+npx niceeval exp compare-models weather
 ```
 
 <Note>
-  eval 过滤参数只出现在 experiment 选择之后。裸 `npx fasteval weather` 不会运行；请使用 `npx fasteval exp local weather` 或 `npx fasteval exp compare weather`。
+  eval 过滤参数只出现在 experiment 选择之后。裸 `npx niceeval weather` 不会运行；请使用 `npx niceeval exp local weather` 或 `npx niceeval exp compare weather`。
 </Note>
 
 ## 常用 flags
@@ -64,7 +64,7 @@ npx fasteval exp compare-models weather
   临时选择当前 experiment 的 sandbox 后端：`docker`、`vercel` 或 `auto`。
 
   ```bash
-  npx fasteval exp local --sandbox docker
+  npx niceeval exp local --sandbox docker
   ```
 </ParamField>
 
@@ -99,7 +99,7 @@ npx fasteval exp compare-models weather
 ## `list`
 
 ```bash
-npx fasteval list
+npx niceeval list
 ```
 
 用于检查 eval 发现、ID 和配置加载是否正常。
@@ -107,8 +107,8 @@ npx fasteval list
 ## `exp`
 
 ```bash
-npx fasteval exp compare-models
-npx fasteval exp compare-models weather-tool
+npx niceeval exp compare-models
+npx niceeval exp compare-models weather-tool
 ```
 
 运行命名 experiment，用矩阵比较 agents、models 或 flags。第二个参数开始是 eval ID 前缀过滤。
@@ -116,10 +116,10 @@ npx fasteval exp compare-models weather-tool
 ## `view`
 
 ```bash
-npx fasteval view
+npx niceeval view
 ```
 
-打开本地结果查看器。默认查看最近一次 `.fasteval/` 运行。
+打开本地结果查看器。默认查看最近一次 `.niceeval/` 运行。
 
 ## 退出码
 

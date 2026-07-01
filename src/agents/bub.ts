@@ -49,7 +49,7 @@ const DEFAULT_WORKSPACE = "/home/sandbox/workspace";
 
 function diskCachePath(home: string): string {
   const homeKey = createHash("md5").update(home).digest("hex").slice(0, 8);
-  return join(homedir(), ".cache", "fasteval", `bub-checkpoint-${homeKey}-${INSTALL_HASH}.bin`);
+  return join(homedir(), ".cache", "niceeval", `bub-checkpoint-${homeKey}-${INSTALL_HASH}.bin`);
 }
 
 // in-memory checkpoint + mutex keyed by sandbox $HOME,

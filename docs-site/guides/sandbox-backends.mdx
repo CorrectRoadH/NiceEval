@@ -1,10 +1,10 @@
 ---
 title: "Sandbox backends: Docker, Vercel, and third-party"
 sidebarTitle: "Sandbox Backends"
-description: "fasteval runs coding agents in Docker or Vercel sandboxes. Learn how to select a backend, configure root access, and improve performance with warm pools."
+description: "niceeval runs coding agents in Docker or Vercel sandboxes. Learn how to select a backend, configure root access, and improve performance with warm pools."
 ---
 
-A sandbox backend is the infrastructure that creates and manages the isolated environment where a coding agent runs. fasteval wraps every backend behind a single `Sandbox` interface, so your adapter code works identically regardless of whether the environment is a local Docker container, a Vercel micro-VM, or a third-party cloud service. You choose a backend at the CLI or in config; the adapter never needs to know which one is active.
+A sandbox backend is the infrastructure that creates and manages the isolated environment where a coding agent runs. niceeval wraps every backend behind a single `Sandbox` interface, so your adapter code works identically regardless of whether the environment is a local Docker container, a Vercel micro-VM, or a third-party cloud service. You choose a backend at the CLI or in config; the adapter never needs to know which one is active.
 
 ## The `Sandbox` interface
 
@@ -78,11 +78,11 @@ The `root: true` semantics are consistent across every backend:
     - Docker's multiplexed exec stream (8-byte frame header) is parsed correctly
 
     ```shell
-    npx fasteval exp local fixtures/button --sandbox docker
+    npx niceeval exp local fixtures/button --sandbox docker
     ```
 
     ```ts
-    // fasteval.config.ts
+    // niceeval.config.ts
     export default defineConfig({
       sandbox: "docker",
     });
@@ -94,11 +94,11 @@ The `root: true` semantics are consistent across every backend:
     **Requirements:** set `VERCEL_TOKEN` or `VERCEL_OIDC_TOKEN` in your environment.
 
     ```shell
-    VERCEL_TOKEN=... npx fasteval exp local fixtures/button --sandbox vercel
+    VERCEL_TOKEN=... npx niceeval exp local fixtures/button --sandbox vercel
     ```
 
     ```ts
-    // fasteval.config.ts
+    // niceeval.config.ts
     export default defineConfig({
       sandbox: "vercel",
     });
@@ -110,7 +110,7 @@ The `root: true` semantics are consistent across every backend:
     The `"auto"` mode inspects the environment and picks the best available backend. If `VERCEL_TOKEN` or `VERCEL_OIDC_TOKEN` is present, it uses Vercel; otherwise it falls back to Docker.
 
     ```ts
-    // fasteval.config.ts
+    // niceeval.config.ts
     export default defineConfig({
       sandbox: "auto",   // the recommended default for most teams
     });
@@ -119,12 +119,12 @@ The `root: true` semantics are consistent across every backend:
     This is the recommended setting if you want local runs to use Docker automatically and CI runs to use Vercel once you add a token to your secrets.
   </Tab>
   <Tab title="Third-party">
-    fasteval's `createSandbox` function has a plugin-style extension point for third-party sandboxing services. Any backend that implements the `Sandbox` interface can be registered by package name. Pass `--sandbox <name>` to activate it.
+    niceeval's `createSandbox` function has a plugin-style extension point for third-party sandboxing services. Any backend that implements the `Sandbox` interface can be registered by package name. Pass `--sandbox <name>` to activate it.
 
     Currently documented third-party integrations include E2B, Modal, and Daytona. Because the `Sandbox` interface is intentionally small (run / read / write / stop), integrating a new provider requires minimal code.
 
     ```shell
-    npx fasteval exp local fixtures/button --sandbox e2b
+    npx niceeval exp local fixtures/button --sandbox e2b
     ```
   </Tab>
 </Tabs>
@@ -138,20 +138,20 @@ You can select the backend on the CLI, in config, or by relying on auto-detectio
 <Steps>
   <Step title="CLI flag (highest priority)">
     ```shell
-    npx fasteval exp local fixtures/button --sandbox docker
-    npx fasteval exp local fixtures/button --sandbox vercel
+    npx niceeval exp local fixtures/button --sandbox docker
+    npx niceeval exp local fixtures/button --sandbox vercel
     ```
   </Step>
   <Step title="Config file">
     ```ts
-    // fasteval.config.ts
+    // niceeval.config.ts
     export default defineConfig({
       sandbox: "auto",   // "docker" | "vercel" | "auto" | "<third-party-name>"
     });
     ```
   </Step>
   <Step title="Auto-detection fallback">
-    If neither is set, fasteval runs `resolveBackend` which returns `"vercel"` when a cloud token is present and `"docker"` otherwise.
+    If neither is set, niceeval runs `resolveBackend` which returns `"vercel"` when a cloud token is present and `"docker"` otherwise.
   </Step>
 </Steps>
 
@@ -163,10 +163,10 @@ The Docker backend is zero-config and handles all the quirks of running a coding
 
 - **Base image:** `node:24-slim`
 - **Default user:** `node` (UID 1000) — matches the user Claude Code expects when `--dangerously-skip-permissions` is used
-- **Global npm installs:** because the non-root user cannot write to `/usr/local/lib`, fasteval configures npm to install globals into the user's home directory and prepends that directory to `PATH`
+- **Global npm installs:** because the non-root user cannot write to `/usr/local/lib`, niceeval configures npm to install globals into the user's home directory and prepends that directory to `PATH`
 - **Slim image bootstrap:** `apt-get install ca-certificates git` runs automatically on first use
 - **File uploads:** uses Docker's `putArchive` API (tar format) followed by a `chown` to restore correct ownership after the root-owned write
-- **Stream parsing:** Docker's exec API multiplexes stdout and stderr on a single stream with an 8-byte frame header; fasteval parses this correctly so you always get clean stdout and stderr separately
+- **Stream parsing:** Docker's exec API multiplexes stdout and stderr on a single stream with an 8-byte frame header; niceeval parses this correctly so you always get clean stdout and stderr separately
 
 ---
 
@@ -178,24 +178,24 @@ The Vercel backend requires one of:
 
 ```shell
 export VERCEL_TOKEN=vercel_...
-npx fasteval exp local fixtures/button --sandbox vercel
+npx niceeval exp local fixtures/button --sandbox vercel
 ```
 
-The interface exposed to adapters is identical to Docker. You can switch an entire eval suite from Docker to Vercel by changing one line in `fasteval.config.ts` — no adapter code changes required.
+The interface exposed to adapters is identical to Docker. You can switch an entire eval suite from Docker to Vercel by changing one line in `niceeval.config.ts` — no adapter code changes required.
 
 ---
 
 ## Performance: warm pools and sandbox reuse
 
-Sandbox cold-start time is the dominant latency factor in large eval runs. fasteval offers two mechanisms to address it:
+Sandbox cold-start time is the dominant latency factor in large eval runs. niceeval offers two mechanisms to address it:
 
 <CardGroup cols={2}>
   <Card title="Warm pool" icon="fire">
-    fasteval pre-creates a pool of sandboxes before any eval runs. When a case starts, it claims an already-running sandbox instead of waiting for a cold boot. Cold-start cost moves off the critical path entirely.
+    niceeval pre-creates a pool of sandboxes before any eval runs. When a case starts, it claims an already-running sandbox instead of waiting for a cold boot. Cold-start cost moves off the critical path entirely.
   </Card>
   <Card title="Sandbox reuse" icon="recycle">
     After a case finishes, the sandbox can be reset with `git clean` back to the baseline state and handed to the next case instead of being destroyed. This trades a small contamination risk for significantly faster throughput. Reuse is **off by default**; enable it in your runner config when speed matters more than absolute isolation.
   </Card>
 </CardGroup>
 
-Warm pools and reuse are scheduler-level features managed by the [Runner](/guides/runner). Individual sandbox backends only need to support fast `create` and `reset` operations — the scheduling logic lives in fasteval core.
+Warm pools and reuse are scheduler-level features managed by the [Runner](/guides/runner). Individual sandbox backends only need to support fast `create` and `reset` operations — the scheduling logic lives in niceeval core.

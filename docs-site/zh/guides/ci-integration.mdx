@@ -1,17 +1,17 @@
 ---
-title: "在 GitHub Actions 和 CI 中运行 fasteval"
+title: "在 GitHub Actions 和 CI 中运行 niceeval"
 sidebarTitle: "CI 集成"
-description: "把 fasteval 接入 GitHub Actions 或任意 CI。eval 失败时非零退出，输出 JUnit XML，并通过缓存加速重复运行。"
+description: "把 niceeval 接入 GitHub Actions 或任意 CI。eval 失败时非零退出，输出 JUnit XML，并通过缓存加速重复运行。"
 ---
 
 Evals 应该和测试一样进入 CI。它们能在 PR 阶段发现 agent 行为回退，也能在 nightly job 中跟踪模型、成本和延迟变化。
 
 ## 退出码
 
-默认情况下，只要存在失败的 gate，fasteval 将以非零状态码退出。CI 中通常使用 `--strict`，让失败更明确。
+默认情况下，只要存在失败的 gate，niceeval 将以非零状态码退出。CI 中通常使用 `--strict`，让失败更明确。
 
 ```bash
-npx fasteval exp ci --strict
+npx niceeval exp ci --strict
 ```
 
 ## GitHub Actions 示例
@@ -32,7 +32,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npx fasteval exp ci --strict
+      - run: npx niceeval exp ci --strict
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -55,11 +55,11 @@ jobs:
 ## JUnit reporter
 
 ```ts
-import { defineConfig } from "fasteval";
-import { Console, JUnit } from "fasteval/reporters";
+import { defineConfig } from "niceeval";
+import { Console, JUnit } from "niceeval/reporters";
 
 export default defineConfig({
-  reporters: [Console(), JUnit(".fasteval/junit.xml")],
+  reporters: [Console(), JUnit(".niceeval/junit.xml")],
 });
 ```
 
@@ -68,19 +68,19 @@ CI 可以上传 JUnit XML，让失败出现在测试报告 UI 里。
 ## 只检查发现
 
 ```bash
-npx fasteval list
+npx niceeval list
 ```
 
 适合快速验证 eval 文件能加载、配置没有明显错误。
 
-## 缓存 `.fasteval/`
+## 缓存 `.niceeval/`
 
-可以在 CI 中缓存 `.fasteval/`，但要确保 fingerprint 覆盖了影响结果的输入。对于 nightly 基准，通常保留完整 artifacts 更有价值。
+可以在 CI 中缓存 `.niceeval/`，但要确保 fingerprint 覆盖了影响结果的输入。对于 nightly 基准，通常保留完整 artifacts 更有价值。
 
 ## 控制并发
 
 ```bash
-npx fasteval exp ci --max-concurrency 2
+npx niceeval exp ci --max-concurrency 2
 ```
 
 标准 GitHub-hosted runner 上，sandbox eval 并发不宜过高。远程 HTTP eval 可以按服务限流能力调高。

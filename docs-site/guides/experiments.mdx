@@ -1,18 +1,18 @@
 ---
 title: "Experiments: compare agents and models with run matrices"
 sidebarTitle: "Experiments"
-description: "Use fasteval experiments to run the same evals across multiple agents, models, and feature flags. Measure pass rates, cost, and latency side by side."
+description: "Use niceeval experiments to run the same evals across multiple agents, models, and feature flags. Measure pass rates, cost, and latency side by side."
 ---
 
 A single eval run tells you whether an agent passed today. An experiment tells you which agent passes most reliably, at what cost, and how performance changes when you swap models or toggle feature flags. Each experiment file is one run configuration; experiment folders group comparable configs side by side.
 
 ## What an experiment is
 
-An experiment is a `defineExperiment` configuration that describes one agent, one model, how many times to run each eval, and which evals to include. When you run `npx fasteval exp <group>`, the runner executes each config in that group under the same bounded-concurrency scheduler and produces a comparative report.
+An experiment is a `defineExperiment` configuration that describes one agent, one model, how many times to run each eval, and which evals to include. When you run `npx niceeval exp <group>`, the runner executes each config in that group under the same bounded-concurrency scheduler and produces a comparative report.
 
 ```ts
-import { defineExperiment } from "fasteval";
-import { codexAgent } from "fasteval/adapter";
+import { defineExperiment } from "niceeval";
+import { codexAgent } from "niceeval/adapter";
 
 export default defineExperiment({
   agent: codexAgent(),                  // one agent per experiment file
@@ -50,7 +50,7 @@ export default defineExperiment({
 </Accordion>
 
 <Accordion title="evals">
-  A string prefix (or array of prefixes) filtering which evals are included in this experiment. Works the same as the positional argument to `npx fasteval`. Omit to include all discovered evals.
+  A string prefix (or array of prefixes) filtering which evals are included in this experiment. Works the same as the positional argument to `npx niceeval`. Omit to include all discovered evals.
 </Accordion>
 
 <Accordion title="flags">
@@ -67,21 +67,21 @@ Keep environment preparation in ordinary code. Upload starter files and run setu
 
 ```bash
 # Run all experiments in experiments/compare/
-npx fasteval exp compare
+npx niceeval exp compare
 
 # Run a single experiment file
-npx fasteval exp compare/codex-gpt-5.4
+npx niceeval exp compare/codex-gpt-5.4
 
 # Override budget at runtime
-npx fasteval exp compare --budget 5.00
+npx niceeval exp compare --budget 5.00
 
 # Collect full distribution (disable early-exit)
-npx fasteval exp compare --no-early-exit
+npx niceeval exp compare --no-early-exit
 ```
 
 ## Organizing experiments: directory as group
 
-The directory an experiment file lives in determines its **comparison group**. Files in the same directory are treated as peer configurations — running `fasteval exp compare` runs all of them and places their results side by side in the report.
+The directory an experiment file lives in determines its **comparison group**. Files in the same directory are treated as peer configurations — running `niceeval exp compare` runs all of them and places their results side by side in the report.
 
 The `coding-agent-memory-evals` project uses exactly this pattern:
 
@@ -92,12 +92,12 @@ experiments/
    └─ codex-gpt-5.4.ts     # codex agent, gpt-5.4
 ```
 
-Each file is an independent `defineExperiment` configuration. Running `fasteval exp compare` executes both and renders a side-by-side comparison report.
+Each file is an independent `defineExperiment` configuration. Running `niceeval exp compare` executes both and renders a side-by-side comparison report.
 
 <CodeGroup>
 ```ts experiments/compare/bub-gpt-5.4.ts
-import { defineExperiment } from "fasteval";
-import { bubAgent } from "fasteval/adapter";
+import { defineExperiment } from "niceeval";
+import { bubAgent } from "niceeval/adapter";
 
 export default defineExperiment({
   agent: bubAgent(),
@@ -108,8 +108,8 @@ export default defineExperiment({
 ```
 
 ```ts experiments/compare/codex-gpt-5.4.ts
-import { defineExperiment } from "fasteval";
-import { codexAgent } from "fasteval/adapter";
+import { defineExperiment } from "niceeval";
+import { codexAgent } from "niceeval/adapter";
 
 export default defineExperiment({
   agent: codexAgent(),

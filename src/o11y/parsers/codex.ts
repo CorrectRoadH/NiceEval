@@ -2,7 +2,7 @@
 // 两类输入都吃:
 //   1. `codex exec --json` 打到 stdout 的事件 JSONL(thread.* / turn.* / item.* / response.*);
 //   2. 磁盘上 session rollout JSONL(ResponseItem:message / function_call / reasoning ...)。
-// 唯一硬活:把这堆五花八门的原始事件归一成 fasteval 的 StreamEvent[]。
+// 唯一硬活:把这堆五花八门的原始事件归一成 niceeval 的 StreamEvent[]。
 
 import type { StreamEvent, Usage, ToolName, JsonValue } from "../../types.ts";
 import type { ParsedTranscript } from "./index.ts";

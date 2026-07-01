@@ -4,7 +4,7 @@ sidebarTitle: "评估 Skill 在 Agent 中"
 description: ""
 ---
 
-Skill 的难点不只是“最后答案对不对”，还包括 agent 是否在正确场景加载 Skill、是否遵循 Skill 里的流程、是否调用了该调用的工具。fasteval 适合把这些都变成可重复运行的 eval。
+Skill 的难点不只是“最后答案对不对”，还包括 agent 是否在正确场景加载 Skill、是否遵循 Skill 里的流程、是否调用了该调用的工具。niceeval 适合把这些都变成可重复运行的 eval。
 
 这类 eval 通常也采用 **Sandbox 模式**。你给 agent 一个真实任务，让它在带 Skill 的环境中执行；验证阶段检查产物、测试结果和行为痕迹。
 
@@ -47,7 +47,7 @@ test("adds schema validation", () => {
 });
 
 test("project tests pass", async () => {
-  // 如果 package.json 里已有 test 脚本，fasteval 会在验证阶段跑它。
+  // 如果 package.json 里已有 test 脚本，niceeval 会在验证阶段跑它。
   expect(true).toBe(true);
 });
 ```
@@ -57,7 +57,7 @@ test("project tests pass", async () => {
 ## 运行
 
 ```bash
-pnpm exec fasteval exp 实验名
+pnpm exec niceeval exp 实验名
 ```
 
 

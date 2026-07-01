@@ -64,7 +64,7 @@ jobs:
           else
             DIST_TAG="latest"
           fi
-          echo "Publishing fasteval@$VERSION with dist-tag $DIST_TAG"
+          echo "Publishing niceeval@$VERSION with dist-tag $DIST_TAG"
           pnpm publish --no-git-checks --provenance --access public --tag "$DIST_TAG"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

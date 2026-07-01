@@ -19,7 +19,7 @@ evals/fixtures/plugin/create-button/
 └─ src/
 ```
 
-`PROMPT.md` 写给 agent 看，描述真实任务。`EVAL.ts` 写给 fasteval 看，验证任务是否完成。插件安装、配置或 token 可以放在 fixture 文件、sandbox hook 或 agent adapter 的 setup 里。
+`PROMPT.md` 写给 agent 看，描述真实任务。`EVAL.ts` 写给 niceeval 看，验证任务是否完成。插件安装、配置或 token 可以放在 fixture 文件、sandbox hook 或 agent adapter 的 setup 里。
 
 ## 写任务
 
@@ -53,14 +53,14 @@ test("supports required props", () => {
 });
 ```
 
-如果插件会触发特定工具，也可以检查 `__fasteval__/results.json`：
+如果插件会触发特定工具，也可以检查 `__niceeval__/results.json`：
 
 ```ts
 import { test, expect } from "vitest";
 import { readFileSync } from "node:fs";
 
 test("plugin tool was used", () => {
-  const result = JSON.parse(readFileSync("__fasteval__/results.json", "utf-8"));
+  const result = JSON.parse(readFileSync("__niceeval__/results.json", "utf-8"));
   expect(result.o11y.totalToolCalls).toBeGreaterThan(0);
 });
 ```
@@ -68,7 +68,7 @@ test("plugin tool was used", () => {
 ## 运行
 
 ```bash
-npx fasteval exp plugin-regression fixtures/plugin/create-button
+npx niceeval exp plugin-regression fixtures/plugin/create-button
 ```
 
 实验组选择 agent 配置。尾随的 `fixtures/plugin/create-button` 只作为 eval ID 前缀过滤。
@@ -78,7 +78,7 @@ npx fasteval exp plugin-regression fixtures/plugin/create-button
 把“开启插件”和“不开启插件”做成两个 agent 或两个 experiment cell：
 
 ```bash
-npx fasteval exp plugin-regression fixtures/plugin/create-button
+npx niceeval exp plugin-regression fixtures/plugin/create-button
 ```
 
 重点看：
@@ -91,7 +91,7 @@ npx fasteval exp plugin-regression fixtures/plugin/create-button
 ## Copy to your agent
 
 ```text
-READ docs-site/zh/example/claude-code-codex-plugin.mdx and install fasteval for this repo.
+READ docs-site/zh/example/claude-code-codex-plugin.mdx and install niceeval for this repo.
 Create the first fixture from one real plugin workflow, then run it with both claude-code and codex.
 ```
 

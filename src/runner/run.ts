@@ -215,7 +215,7 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
   //
   // 用 runPromiseExit 而非 runPromise:{ signal } 触发的中断会让整个 Exit 标记为 interrupted,
   // 即便内层 catchAllCause 已把中断咽下 —— runPromise 这种情况下会直接 reject,把 Ctrl+C 变成
-  // 一条「fasteval 出错」崩溃栈、并跳过下面的部分汇总。runPromiseExit 返回 Exit 不抛,我们据此
+  // 一条「niceeval 出错」崩溃栈、并跳过下面的部分汇总。runPromiseExit 返回 Exit 不抛,我们据此
   // 把「中断/signal 已 abort」当正常的部分结果收尾,只有真·非中断缺陷才上抛。
   let interrupted = false;
   const exit = await Effect.runPromiseExit(
@@ -459,11 +459,11 @@ function runAttemptEffect(
       // sandbox.otlpHost:
       //   string → docker 类沙箱,宿主开本地接收器,container 经 host.docker.internal 回连
       //   null   → 远程云端沙箱(e2b / vercel),宿主端口不可达 → 改在沙箱内起 collector
-      // FASTEVAL_OTLP_HOST 可强制覆盖(如配好 tunnel 时)。
+      // NICEEVAL_OTLP_HOST 可强制覆盖(如配好 tunnel 时)。
       let receiver: TraceReceiver | undefined;
       let telemetry: Telemetry | undefined;
       if (run.agent.capabilities.tracing) {
-        const forcedHost = process.env.FASTEVAL_OTLP_HOST;
+        const forcedHost = process.env.NICEEVAL_OTLP_HOST;
         if (forcedHost) {
           // 显式覆盖:走本地接收器,把指定 host 交给 agent
           receiver = yield* createTraceReceiver();

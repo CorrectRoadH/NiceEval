@@ -1,4 +1,4 @@
-import { defineExperiment } from "fasteval";
+import { defineExperiment } from "niceeval";
 import { webAgent } from "../../adapter/adapter.ts";
 
 // compare-models 组的一格:gpt-4o-mini。与 gpt-4o.ts 钉住一切、只差 model,

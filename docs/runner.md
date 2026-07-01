@@ -2,7 +2,7 @@
 
 运行器是把"一批 eval"变成"一份结果"的调度引擎。它拥有对所有被测对象都一样的部分:发现、有界并发、早停、缓存、报告编排。被测对象的差异它一概不管 —— 它只对着 `Agent` 接口(统一动词 `send`)驱动。
 
-这是 fasteval "跑得快"承诺的落点,见 [Vision](vision.md#跑得快)。
+这是 niceeval "跑得快"承诺的落点,见 [Vision](vision.md#跑得快)。
 
 ## 职责边界
 
@@ -16,8 +16,8 @@
 
 - 找所有 `*.eval.ts`,`import` 后看默认导出 —— 单个 eval 用文件 id;数组则扇出,id 加零填充索引(`sql/0000`)。没有另一种基于目录约定的隐式发现——沙箱型 eval 也必须有一个 `.eval.ts` 文件。
 - 按相对路径排序,保证 id 稳定、输出可比。
-- 应用过滤:`fasteval exp <组|配置>` 后的位置参数(id 前缀,如 `weather` 命中 `weather/*`)、`--tag`。
-- `fasteval exp` 时另从 `experiments/` 扫实验文件(默认导出 `defineExperiment` 的 `.ts`),据路径推导实验 id;**目录段即"可对比组"** —— `fasteval exp <组>` 跑整个文件夹、同组互为对照(见 [实验怎么组织](experiments.md#实验怎么组织文件夹--一组可对比的实验))。实验的 `evals` 字段再筛要跑哪些 eval(见[矩阵展开](#矩阵展开与通过率))。
+- 应用过滤:`niceeval exp <组|配置>` 后的位置参数(id 前缀,如 `weather` 命中 `weather/*`)、`--tag`。
+- `niceeval exp` 时另从 `experiments/` 扫实验文件(默认导出 `defineExperiment` 的 `.ts`),据路径推导实验 id;**目录段即"可对比组"** —— `niceeval exp <组>` 跑整个文件夹、同组互为对照(见 [实验怎么组织](experiments.md#实验怎么组织文件夹--一组可对比的实验))。实验的 `evals` 字段再筛要跑哪些 eval(见[矩阵展开](#矩阵展开与通过率))。
 
 ## 调度:有界并发
 
@@ -68,7 +68,7 @@ fixtures/button   codex         pass@5 = 3/5 (60%)   mean 41s · 72k tok · $0.3
 
 ## 环境预置不进运行器
 
-fasteval **没有框架级生命周期钩子**——运行器只固定"发现 → 调度 → 沙箱起停 / git 基线 / 采 diff → 评分 → 报告"这条主轴,不替用户跑任何环境 `setup` / `teardown`。要在跑 agent 前准备环境,分摊到三处已有职责:连 agent / 装 CLI 走 [`SandboxAgent.setup`](adapters/README.md#sandboxagent-契约),这条 eval 的沙箱预置写在 `test(t)` 里,整轮共享的外部服务(mock API、DB)用外部编排(`docker compose` / CI 脚本)起停、经 env 传入。完整说明见 [环境预置放哪](sandbox.md#环境预置放哪)。
+niceeval **没有框架级生命周期钩子**——运行器只固定"发现 → 调度 → 沙箱起停 / git 基线 / 采 diff → 评分 → 报告"这条主轴,不替用户跑任何环境 `setup` / `teardown`。要在跑 agent 前准备环境,分摊到三处已有职责:连 agent / 装 CLI 走 [`SandboxAgent.setup`](adapters/README.md#sandboxagent-契约),这条 eval 的沙箱预置写在 `test(t)` 里,整轮共享的外部服务(mock API、DB)用外部编排(`docker compose` / CI 脚本)起停、经 env 传入。完整说明见 [环境预置放哪](sandbox.md#环境预置放哪)。
 
 **下游分析**(二次评分、自定义指标)走 [reporter](observability.md#reporters),不另设运行钩子——这是从 agent-eval 的 `onRunComplete` 收敛过来的(见 [Experiments 砍字段](experiments.md#从-agent-eval-砍掉了什么以及为什么))。
 

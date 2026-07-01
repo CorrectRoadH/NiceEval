@@ -11,8 +11,8 @@ Dataset Fanout 适合大量结构相同、输入不同的测试。例如 SQL 生
 一个 `.eval.ts` 文件默认导出数组：
 
 ```ts
-import { defineEval } from "fasteval";
-import { equals } from "fasteval/expect";
+import { defineEval } from "niceeval";
+import { equals } from "niceeval/expect";
 
 const rows = [
   { task: "Count users", prompt: "Count all users", sql: "SELECT COUNT(*) FROM users;" },
@@ -44,7 +44,7 @@ sql/0001
 ## 从 YAML / JSON 加载
 
 ```ts
-import { loadYaml } from "fasteval/loaders";
+import { loadYaml } from "niceeval/loaders";
 
 const doc = await loadYaml("evals/data/sql-cases.yaml");
 const rows = doc.cases as { task: string; prompt: string; sql: string }[];
@@ -61,10 +61,10 @@ cases:
 
 ```bash
 # 运行整个数据集
-npx fasteval exp local sql
+npx niceeval exp local sql
 
 # 只运行第一个 case
-npx fasteval exp local sql/0000
+npx niceeval exp local sql/0000
 ```
 
 ## 数据集 vs 独立文件
