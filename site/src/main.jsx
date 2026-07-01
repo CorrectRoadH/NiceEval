@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import {
   BookOpen,
   CheckCircle2,
+  ChevronRight,
   Clipboard,
   FileCode2,
   Folder,
@@ -24,10 +25,28 @@ const docsUrl = {
 const initPrompt =
   "READ https://raw.githubusercontent.com/CorrectRoadH/fasteval/refs/heads/main/INIT.md and install fasteval for this repo.";
 
-const files = {
-  humans: ["evals/weather.eval.ts", "fasteval.config.ts", ".fasteval/latest"],
-  agents: ["PROMPT.md", "EVAL.ts", "__fasteval__/results.json"],
+const fileTree = {
+  humans: [
+    { path: "agents/web-agent.ts", depth: 0, kind: "file", note: "adapter" },
+    { path: "evals/", depth: 0, kind: "folder" },
+    { path: "weather-tool.eval.ts", depth: 1, kind: "file" },
+    { path: "image-understanding.eval.ts", depth: 1, kind: "file" },
+    { path: "experiments/compare-models/", depth: 0, kind: "folder" },
+    { path: "fasteval.config.ts", depth: 0, kind: "file", note: "config" },
+  ],
+  agents: [
+    { path: "PROMPT.md", depth: 0, kind: "file" },
+    { path: "EVAL.ts", depth: 0, kind: "file" },
+    { path: "__fasteval__/results.json", depth: 0, kind: "file" },
+  ],
 };
+
+function fileIcon(item) {
+  if (item.kind === "folder") return <Folder size={14} />;
+  if (item.path.endsWith("config.ts")) return <Wrench size={14} />;
+  if (item.path.endsWith(".json")) return <Terminal size={14} />;
+  return <FileCode2 size={14} />;
+}
 
 const copy = {
   en: {
@@ -53,6 +72,11 @@ const copy = {
     primaryAction: "Start",
     github: "GitHub",
     visualLabel: "fasteval product diagram",
+    fileCardRoot: "your-project/",
+    fileNotes: {
+      adapter: "adapter",
+      config: "config",
+    },
     runStatusPassed: "passed",
     scoreLabel: "Pass rate",
     workflowLabel: "fasteval workflow",
@@ -63,6 +87,28 @@ const copy = {
     ],
     setupEyebrow: "Start",
     setupTitle: "Install. Init. Evaluate.",
+    setupCard: {
+      status: "ready",
+      title: "fasteval quickstart",
+      subtitle: "Three commands, zero config.",
+      panelLabel: "terminal",
+      rows: [
+        {
+          command: "npm install -D fasteval",
+          note: "Adds fasteval as a dev dependency — no runtime deps land in your shipped app.",
+        },
+        {
+          command: "npx fasteval init",
+          note: "Scaffolds evals/weather.eval.ts and fasteval.config.ts to get you started.",
+        },
+        {
+          command: "npx fasteval",
+          note: "Runs every eval and prints pass rate, cost, and duration.",
+        },
+      ],
+      moreLabel: "What you get",
+      moreBody: "A local viewer with verdicts, traces, cost, and diffs for every run.",
+    },
   },
   zh: {
     meta: "fasteval 是轻量、通用、DX 体验好的 TypeScript agent eval 工具，适合评 agents、services、functions 和 coding-agent fixtures。",
@@ -87,6 +133,11 @@ const copy = {
     primaryAction: "开始",
     github: "GitHub",
     visualLabel: "fasteval 产品示意图",
+    fileCardRoot: "你的项目/",
+    fileNotes: {
+      adapter: "适配器",
+      config: "配置",
+    },
     runStatusPassed: "通过",
     scoreLabel: "通过率",
     workflowLabel: "fasteval 工作流",
@@ -97,6 +148,28 @@ const copy = {
     ],
     setupEyebrow: "开始",
     setupTitle: "安装。初始化。开始评测。",
+    setupCard: {
+      status: "就绪",
+      title: "fasteval 快速开始",
+      subtitle: "三条命令，无需配置。",
+      panelLabel: "终端",
+      rows: [
+        {
+          command: "npm install -D fasteval",
+          note: "把 fasteval 加为开发依赖——不给你部署的应用引入任何运行时依赖。",
+        },
+        {
+          command: "npx fasteval init",
+          note: "生成 evals/weather.eval.ts 和 fasteval.config.ts 脚手架，直接改着用。",
+        },
+        {
+          command: "npx fasteval",
+          note: "运行所有 eval，打印通过率、成本和耗时。",
+        },
+      ],
+      moreLabel: "你会得到什么",
+      moreBody: "一个本地查看器，展示每次运行的判决、trace、成本和 diff。",
+    },
   },
 };
 
@@ -234,13 +307,14 @@ function ProductVisual({ mode, t }) {
       <div className="file-card">
         <div className="card-head">
           <Folder size={18} />
-          <span>evals/</span>
+          <span>{t.fileCardRoot}</span>
         </div>
         <ul>
-          {files[mode].map((file, index) => (
-            <li key={file}>
-              {index === 0 ? <FileCode2 size={16} /> : index === 1 ? <Wrench size={16} /> : <Terminal size={16} />}
-              <span>{file}</span>
+          {fileTree[mode].map((item) => (
+            <li key={item.path} className={item.depth ? "indent" : undefined}>
+              {fileIcon(item)}
+              <span>{item.path}</span>
+              {item.note ? <em>{t.fileNotes[item.note]}</em> : null}
             </li>
           ))}
         </ul>
@@ -299,10 +373,63 @@ function Setup({ t }) {
         <p className="eyebrow">{t.setupEyebrow}</p>
         <h2>{t.setupTitle}</h2>
       </div>
-      <pre>{`npm install -D fasteval
-npx fasteval init
-npx fasteval`}</pre>
+      <SetupCard card={t.setupCard} />
     </section>
+  );
+}
+
+function SetupCard({ card }) {
+  const [openRows, setOpenRows] = useState(() => new Set());
+  const [moreOpen, setMoreOpen] = useState(false);
+
+  const toggleRow = (index) => {
+    setOpenRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  };
+
+  return (
+    <div className="setup-card">
+      <div className="setup-card-head">
+        <span className="pill">{card.status}</span>
+        <h3>{card.title}</h3>
+        <p>{card.subtitle}</p>
+      </div>
+      <div className="setup-panel">
+        <div className="setup-panel-head">
+          <Terminal size={14} />
+          <span>{card.panelLabel}</span>
+        </div>
+        <ol>
+          {card.rows.map((row, index) => {
+            const open = openRows.has(index);
+            return (
+              <li key={row.command}>
+                <button type="button" className="setup-row" aria-expanded={open} onClick={() => toggleRow(index)}>
+                  <span className="num">{index + 1}</span>
+                  <ChevronRight size={14} className={open ? "chev open" : "chev"} />
+                  <code>{row.command}</code>
+                </button>
+                {open ? (
+                  <p className="setup-note">
+                    <CheckCircle2 size={13} />
+                    <span>{row.note}</span>
+                  </p>
+                ) : null}
+              </li>
+            );
+          })}
+        </ol>
+      </div>
+      <button type="button" className="setup-more" aria-expanded={moreOpen} onClick={() => setMoreOpen((v) => !v)}>
+        <ChevronRight size={13} className={moreOpen ? "chev open" : "chev"} />
+        {card.moreLabel}
+      </button>
+      {moreOpen ? <p className="setup-more-body">{card.moreBody}</p> : null}
+    </div>
   );
 }
 
