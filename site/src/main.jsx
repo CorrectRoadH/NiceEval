@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
+  BookOpen,
   CheckCircle2,
   Clipboard,
   FileCode2,
@@ -20,6 +21,9 @@ const docsUrl = {
   zh: "https://fasteval.mintlify.site/zh/quickstart",
 };
 
+const initPrompt =
+  "READ https://raw.githubusercontent.com/CorrectRoadH/fasteval/refs/heads/main/INIT.md and install fasteval for this repo.";
+
 const files = {
   humans: ["evals/weather.eval.ts", "fasteval.config.ts", ".fasteval/latest"],
   agents: ["PROMPT.md", "EVAL.ts", "__fasteval__/results.json"],
@@ -33,14 +37,14 @@ const copy = {
     languageLabel: "Switch language",
     modes: {
       humans: {
-        label: "For teams",
-        command: "npx fasteval init",
-        caption: "Write a TypeScript eval, run it across targets, and read the evidence without building a bespoke harness.",
+        label: "For humans",
+        cta: "Docs",
+        caption: "Read the quickstart guide, then write a TypeScript eval and run it across targets without building a bespoke harness.",
       },
       agents: {
         label: "For agents",
-        command: "npx fasteval --agent codex fixtures/button",
-        caption: "Give any agent a real task, then grade the answer, the workspace, and the path it took.",
+        command: initPrompt,
+        caption: "Paste this prompt into your coding agent so it installs and wires up fasteval on its own.",
       },
     },
     heroTitle: "Lightweight agent evals for every project.",
@@ -67,14 +71,14 @@ const copy = {
     languageLabel: "切换语言",
     modes: {
       humans: {
-        label: "给团队",
-        command: "npx fasteval init",
-        caption: "写一个 TypeScript eval，就能在不同目标上运行并查看证据，不用自建评测脚手架。",
+        label: "给人类",
+        cta: "文档",
+        caption: "阅读快速开始文档，再写一个 TypeScript eval，在不同目标上运行，不用自建评测脚手架。",
       },
       agents: {
         label: "给 Agent",
-        command: "npx fasteval --agent codex fixtures/button",
-        caption: "给任意 agent 一个真实任务，再评它的回答、工作区结果和执行路径。",
+        command: initPrompt,
+        caption: "把这段 prompt 粘贴给你的 coding agent，让它自己安装并接入 fasteval。",
       },
     },
     heroTitle: "适合每个项目的轻量 Agent Evals。",
@@ -125,7 +129,7 @@ function App() {
     <>
       <Header locale={locale} setLocale={setLocale} t={t} />
       <main>
-        <Hero t={t} />
+        <Hero t={t} locale={locale} />
         <Strip t={t} />
         <Setup t={t} />
       </main>
@@ -154,7 +158,7 @@ function Header({ locale, setLocale, t }) {
   );
 }
 
-function Hero({ t }) {
+function Hero({ t, locale }) {
   const [mode, setMode] = useState("humans");
   const [copied, setCopied] = useState(false);
   const active = t.modes[mode];
@@ -189,13 +193,20 @@ function Hero({ t }) {
             </button>
           ))}
         </div>
-        <div className="copy-row">
-          <code>$ {active.command}</code>
-          <button type="button" aria-label={t.copyCommand} onClick={copyCommand}>
-            <Clipboard size={16} />
-          </button>
-          <span className={copied ? "copy-status visible" : "copy-status"}>{t.copied}</span>
-        </div>
+        {mode === "humans" ? (
+          <a className="button primary docs-cta" href={docsUrl[locale]} target="_blank" rel="noreferrer">
+            <BookOpen size={16} />
+            {active.cta}
+          </a>
+        ) : (
+          <div className="copy-row">
+            <code>{active.command}</code>
+            <button type="button" aria-label={t.copyCommand} onClick={copyCommand}>
+              <Clipboard size={16} />
+            </button>
+            <span className={copied ? "copy-status visible" : "copy-status"}>{t.copied}</span>
+          </div>
+        )}
         <p className="lede">{active.caption}</p>
         <div className="actions">
           <a className="button primary" href="#setup">
