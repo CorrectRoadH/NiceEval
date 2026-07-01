@@ -239,7 +239,7 @@ export default defineSandboxAgent({
 - 任意 agent → `t.send` / `t.check` / `t.require` / `t.judge` / `t.log` / `t.skip`。
 - `conversation` → `t.send` 可多次、`t.reply`、`t.newSession`。
 - `toolObservability` → `t.calledTool` / `t.toolOrder` / `t.usedNoTools` / `t.calledSubagent` / `t.event`…。
-- `workspace`(沙箱型)→ `t.sandbox`(沙箱原始句柄 + 工作区断言 `t.sandbox.fileChanged`/`t.sandbox.diff`/…)/ 手工在沙箱里跑测试。评工作区产物用 `t.judge.autoevals.closedQA` 配 `{ on: t.sandbox.diff.get(path) }`,没有单独的方法。
+- `workspace`(沙箱型)→ `t.sandbox`(沙箱原始句柄 + 工作区断言 `t.sandbox.fileChanged`/`t.sandbox.diff`/…)/ 手工在沙箱里跑测试。评工作区产物用 `t.judge.autoevals.closedQA` 配 `{ on: t.sandbox.diff.get(path) }`。
 
 作者写 `t.calledTool` 时若 agent 没声明 `toolObservability`,在类型层面就拿不到这个方法,不会跑起来才报错。
 

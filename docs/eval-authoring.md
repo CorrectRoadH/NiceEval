@@ -137,7 +137,7 @@ t.judge.autoevals
   .atLeast(0.7);
 ```
 
-没有 `t.transcript.text()` 这类拼接便利——手工收集每轮的 `turn.message` 再 `join` 是唯一写法,跟核心原因 1.1 说的"想评整个消息,自己拼接、保存每轮的回复"是同一件事。
+手工收集每轮的 `turn.message` 再 `join`,跟核心原因 1.1 说的"想评整个消息,自己拼接、保存每轮的回复"是同一件事。
 
 ## 数据集扇出
 
@@ -279,7 +279,7 @@ export default defineEval({
 });
 ```
 
-工作区断言(`t.sandbox.fileChanged` / `t.sandbox.fileDeleted` / `t.sandbox.notInDiff` / `t.sandbox.scriptPassed` / `t.sandbox.noFailedShellCommands` / `t.sandbox.diff`)和沙箱原始句柄(`writeFiles`/`uploadFiles`/`runCommand`/…)住在同一个 `t.sandbox` 命名空间——来源 Vercel agent-eval。要用 judge 评工作区产物,没有单独的 agent-as-judge 方法,直接 `t.judge.autoevals.closedQA(criteria, { on: t.sandbox.diff.get(path) })`。完整列表见 [Assertions · 工作区断言](assertions.md#工作区断言tsandbox仅-workspace-能力)。沙箱创建时运行器已经打好一次空 git 基线,所以 `t.sandbox.diff` / `t.sandbox.fileChanged` 不依赖你怎么 seed、seed 了没有,随时可读。
+工作区断言(`t.sandbox.fileChanged` / `t.sandbox.fileDeleted` / `t.sandbox.notInDiff` / `t.sandbox.scriptPassed` / `t.sandbox.noFailedShellCommands` / `t.sandbox.diff`)和沙箱原始句柄(`writeFiles`/`uploadFiles`/`runCommand`/…)住在同一个 `t.sandbox` 命名空间——来源 Vercel agent-eval。要用 judge 评工作区产物,直接 `t.judge.autoevals.closedQA(criteria, { on: t.sandbox.diff.get(path) })`。完整列表见 [Assertions · 工作区断言](assertions.md#工作区断言tsandbox仅-workspace-能力)。沙箱创建时运行器已经打好一次空 git 基线,所以 `t.sandbox.diff` / `t.sandbox.fileChanged` 不依赖你怎么 seed、seed 了没有,随时可读。
 
 ## 命名与组织约定
 
