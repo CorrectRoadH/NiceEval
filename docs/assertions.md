@@ -16,7 +16,11 @@
 | **Session** | `t.newSession()` 返回的一条独立会话线 | `session.succeeded()` / `session.calledTool()` 等看这个 session 当时已经发生的事件 |
 | **Turn** | 一次 `t.send()` 返回的一轮交互结果 | `turn.succeeded()` / `turn.calledTool()` 等只看这一轮自己的事件 |
 
-它们共享一套断言词汇,但绑定的数据不同。规则是:**作用域由你调用在哪个对象上决定,不由断言名字决定。** `t.newSession()` 返回的是独立 session,但仍属于同一次 eval run;这些 session 的事件会一起进入 `t.succeeded()` / `t.calledTool()` / `t.eventsSatisfy()` 等 `t.*` 断言。
+它们共享的是**作用域断言词汇**和 **judge 接收者模型**,不是所有子函数完全一致。规则是:**作用域由你调用在哪个对象上决定,不由断言名字决定。** `t.newSession()` 返回的是独立 session,但仍属于同一次 eval run;这些 session 的事件会一起进入 `t.succeeded()` / `t.calledTool()` / `t.eventsSatisfy()` 等 `t.*` 断言。
+
+- `t` 是 eval run 的主上下文:负责驱动主 session、开新 session、记录值级断言,沙箱型时还暴露 `t.sandbox`。
+- `session` 是一条独立会话线:复用会话驱动 API 和同一套作用域断言 / judge,但不拥有 `t.check`、`t.require`、`t.sandbox` 这些 run 级能力。
+- `turn` 是一次交互的不可变结果:复用同一套作用域断言 / judge,但不再驱动后续会话;它额外有 `turn.expectOk()` / `turn.outputEquals()` / `turn.outputMatches()` 这类单轮结果 helper。
 
 ## API 分组速查
 
@@ -27,13 +31,18 @@
 | `await t.send(input)` | 给 agent 发一轮输入并等待稳定 | `input` 可以是字符串或结构化消息;返回 `turn` |
 | `await t.sendFile(text, path, mediaType?)` | 给 agent 发带本地文件的一轮输入 | 文件从宿主项目读取,作为 data URL 附加 |
 | `t.requireInputRequest(filter?)` | 断言恰好有一个待处理输入请求,并返回它 | gate;filter 可匹配工具名、action input、prompt、display、option ids |
-| `await t.respond(...responses)` | 回答指定待处理输入请求 | 响应会作为下一轮发送 |
+| `await t.respond(...responses)` | 回答指定待处理输入请求 | 每个 response 形如 `{ request, optionId }`;响应会作为下一轮发送 |
 | `await t.respondAll(optionId)` | 用同一 option 回答所有待处理输入请求 | 响应会作为下一轮发送 |
 | `t.reply` | 最后一条 assistant 消息 | 常用于值级 matcher;不是 `t.judge` 的默认材料 |
 | `t.sessionId` | 当前主会话 id | adapter 返回时填入;用于 resume / 调试 |
 | `t.events` | 主 session 目前已捕获的强类型事件流 | 即时读取主 session;`t.*` 最终断言会聚合全部 session |
 | `t.newSession()` | 开一条独立会话线 | 返回 `session`;事件仍汇入 `t.*` run 级断言 |
 | `session.send(input)` | 给独立 session 发一轮输入 | 返回 `turn`;不影响主 session 的 resume 状态 |
+| `session.sendFile(text, path, mediaType?)` | 给独立 session 发带本地文件的一轮输入 | 与 `t.sendFile` 同形,但归属这个 session |
+| `session.requireInputRequest(filter?)` | 在这个 session 里断言恰好有一个待处理输入请求 | gate;避免多 session 时误匹配其它 session |
+| `await session.respond(...responses)` | 回答这个 session 的指定待处理输入请求 | 与 `t.respond` 同形 |
+| `await session.respondAll(optionId)` | 用同一 option 回答这个 session 的所有待处理输入请求 | 与 `t.respondAll` 同形 |
+| `session.reply` | 这个 session 的最后一条 assistant 消息 | 不读主 session |
 | `session.events` | 这个 session 已捕获的事件流 | `session.*` 作用域断言读同一份材料 |
 | `session.sessionId` | 这个 session 的 id | adapter 返回时填入;用于 resume / 调试 |
 | `turn.message` | 这一轮 assistant 消息 | 多轮 judge 时建议自己收集这些值 |
@@ -42,54 +51,45 @@
 | `turn.events` | 这一轮标准事件流 | 只含这一轮,不含之前轮次 |
 | `turn.usage` | 这一轮 token 用量 | 可选,取决于 adapter 能否带回 |
 
-### t 级作用域断言
+### 作用域断言共享词汇
 
-| API | 作用 | 来源 |
+下表这些 API 在 `t.*` / `session.*` / `turn.*` 上同名存在,可以共用同一套实现,只更换接收者绑定的数据:
+
+- `t.*`:本次 attempt 的全部 session 和全部 turn,在 `test` 结束后聚合评估。
+- `session.*`:这条 session 在断言记录时已经发生的事件。
+- `turn.*`:这一轮自己的事件和用量。
+
+| API 后缀 | 作用 | 来源 |
 |---|---|---|
-| `t.succeeded()` | 运行没失败、且没卡在未回答的 HITL | eve.dev |
-| `t.parked()` | 干净停在 HITL 输入上 | eve.dev |
-| `t.messageIncludes(token)` | 本次运行全程 assistant 文本拼接后含 token | eve.dev |
-| `t.calledTool(name, match?)` | 有匹配 name / input / status 的工具调用 | eve.dev |
-| `t.notCalledTool(name, match?)` | 没有匹配的工具调用 | eve.dev |
-| `t.toolOrder(names)` | 工具调用按给定子序出现 | eve.dev |
-| `t.usedNoTools()` | 完全没调工具 | eve.dev |
-| `t.maxToolCalls(max)` | 工具调用数不超过 max | eve.dev |
-| `t.loadedSkill(skill)` | `calledTool("load_skill", { input: { skill } })` 的糖 | eve.dev |
-| `t.calledSubagent(name, match?)` | 子 agent 委派匹配 | eve.dev |
-| `t.noFailedActions()` | 没有 failed 的工具 / 子 agent 动作 | eve.dev |
-| `t.event(type, opts?)` | 出现某类型事件,可指定 count | eve.dev |
-| `t.notEvent(type)` | 没出现某类型事件 | eve.dev |
-| `t.eventOrder(types)` | 事件类型按给定子序出现 | eve.dev |
-| `t.eventsSatisfy(label, predicate)` | 自定义谓词直接查事件流 | eve.dev |
-| `t.maxTokens(max)` | input + output token 不超过 max | fasteval |
-| `t.maxCost(usd)` | 估算成本不超过 usd | fasteval |
+| `succeeded()` | 当前作用域没失败、且没卡在未回答的 HITL | eve.dev |
+| `parked()` | 当前作用域干净停在 HITL 输入上 | eve.dev |
+| `messageIncludes(token)` | 当前作用域 assistant 文本拼接后含 token | eve.dev |
+| `calledTool(name, match?)` | 当前作用域有匹配 name / input / status / count 的工具调用 | eve.dev |
+| `notCalledTool(name, match?)` | 当前作用域没有匹配的工具调用 | eve.dev |
+| `toolOrder(names)` | 当前作用域工具调用按给定子序出现 | eve.dev |
+| `usedNoTools()` | 当前作用域完全没调工具 | eve.dev |
+| `maxToolCalls(max)` | 当前作用域工具调用数不超过 max | eve.dev |
+| `loadedSkill(skill)` | `calledTool("load_skill", { input: { skill } })` 的糖 | eve.dev |
+| `calledSubagent(name, match?)` | 当前作用域有匹配子 agent 委派 | eve.dev |
+| `noFailedActions()` | 当前作用域没有 failed 的工具 / 子 agent 动作 | eve.dev |
+| `event(type, opts?)` | 当前作用域出现某类型事件,可指定 count | eve.dev |
+| `notEvent(type)` | 当前作用域没出现某类型事件 | eve.dev |
+| `eventOrder(types)` | 当前作用域事件类型按给定子序出现 | eve.dev |
+| `eventsSatisfy(label, predicate)` | 自定义谓词直接查当前作用域事件流 | eve.dev |
+| `maxTokens(max)` | 当前作用域 input + output token 不超过 max | fasteval |
+| `maxCost(usd)` | 当前作用域估算成本不超过 usd | fasteval |
 
-### Turn 级作用域断言
+### 接收者专属 API
 
-| API | 作用 | 备注 |
+这些 API 不应该为了表面一致合并,因为它们表达的是不同对象的职责:
+
+| 接收者 | API | 为什么专属 |
 |---|---|---|
-| `turn.succeeded()` | 这一轮没失败、且没卡在 HITL | 与 `t.succeeded` 同名,作用域收窄 |
-| `turn.parked()` | 这一轮干净停在 HITL 输入上 | 与 `t.parked` 同名 |
-| `turn.messageIncludes(token)` | 这一轮 assistant 文本含 token | 不看其它轮 |
-| `turn.calledTool(name, match?)` | 这一轮有匹配工具调用 | 不看其它轮 |
-| `turn.notCalledTool(name, match?)` | 这一轮没有匹配工具调用 | 不看其它轮 |
-| `turn.toolOrder(names)` | 这一轮工具调用按给定子序出现 | 不看其它轮 |
-| `turn.usedNoTools()` | 这一轮完全没调工具 | 不看其它轮 |
-| `turn.maxToolCalls(max)` | 这一轮工具调用数不超过 max | 不看其它轮 |
-| `turn.loadedSkill(skill)` | 这一轮加载了指定 skill | 不看其它轮 |
-| `turn.calledSubagent(name, match?)` | 这一轮有匹配子 agent 委派 | 不看其它轮 |
-| `turn.noFailedActions()` | 这一轮没有 failed 动作 | 不看其它轮 |
-| `turn.event(type, opts?)` | 这一轮出现某类型事件 | 不看其它轮 |
-| `turn.notEvent(type)` | 这一轮没出现某类型事件 | 不看其它轮 |
-| `turn.eventOrder(types)` | 这一轮事件类型按给定子序出现 | 不看其它轮 |
-| `turn.eventsSatisfy(label, predicate)` | 自定义谓词查这一轮事件 | 不看其它轮 |
-| `turn.expectOk()` | 这一轮 failed 时抛错中止后续 | turn 独有 |
-| `turn.outputEquals(value)` | `turn.data` 深度相等 | turn 独有 |
-| `turn.outputMatches(schema)` | `turn.data` 通过 schema | turn 独有 |
-
-### Session 级作用域断言
-
-`session = t.newSession()` 返回的对象也带同一套作用域断言:`session.succeeded()` / `session.messageIncludes()` / `session.calledTool()` / `session.event()` 等。它只看这个 session 在断言记录时已经发生的事件,不看主 session,也不看其它 `newSession()`。
+| `t` | `check` / `require` / `skip` / `log` | 记录 eval run 级断言或控制流,不属于某个 session / turn |
+| `t` | `newSession()` | 只有 run 主上下文负责创建额外 session |
+| `t` | `sandbox.*` | 沙箱是 attempt / run 资源,不是某条会话或某一轮的资源 |
+| `turn` | `expectOk()` | 只对一次 `send` 的返回状态有意义 |
+| `turn` | `outputEquals(value)` / `outputMatches(schema)` | 只对这一轮的 `turn.data` 有意义 |
 
 ### 值级断言
 
@@ -172,9 +172,9 @@ judge 是评分器,默认材料也由接收者决定:`t.judge` / `session.judge`
 | 层 | 谁 | 作用域 |
 |---|---|---|
 | **值级** | `t.check(value, matcher)`、judge 的 `{ on }` | 只评你传进去的值 |
-| **t 级 / run 级** | `t.succeeded()`、`t.calledTool()`、`t.event()` 等 | `test` 跑完后,看本次运行的全部 session 和全部 turn |
-| **session 级** | `session.succeeded()`、`session.calledTool()`、`session.event()` 等 | 只看这个 session 在断言记录时已有的事件 |
-| **turn 级** | `turn.succeeded()`、`turn.calledTool()`、`turn.event()` 等 | 只看这一轮自己的事件 |
+| **run 级聚合** | `t.succeeded()`、`t.calledTool()`、`t.event()` 等 | `test` 跑完后,看本次运行的全部 session 和全部 turn |
+| **session 级会话** | `session.succeeded()`、`session.calledTool()`、`session.event()` 等 | 只看这个 session 在断言记录时已有的事件 |
+| **turn 级单轮** | `turn.succeeded()`、`turn.calledTool()`、`turn.event()` 等 | 只看这一轮自己的事件 |
 | **sandbox 结果级** | `t.sandbox.fileChanged()`、`t.sandbox.diff` 等 | 只看本次 eval run 最终 sandbox diff,不按轮次切分 |
 
 judge 默认材料按接收者分层:`t.judge` / `session.judge` 默认评对应 session 对话;`turn.judge` 默认评当前 turn。要评 sandbox 产物或其它非对话材料,显式传 `{ on }`:

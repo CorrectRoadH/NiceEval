@@ -50,8 +50,8 @@ export default rows.map((row) =>
 **fasteval 对齐到这个设计,不是取消聚合**:
 
 - `t.*` 保留"聚合整个 eval run"的语义——这次 eval 执行的全部轮次、含 `t.newSession()` 开的额外 session,直接对应 eve 的 `timing: "final"` 层。这一层聚合是有意为之,不是要移除的"黑箱"。
-- `session.*`(`t.newSession()` 的返回值)补全成跟 `t.*` 同一套词汇,但只看这个 session 在断言记录时已有的事件。
-- `turn.*`(`t.send()` 的返回值)补全成跟 `t.*` **同一套完整词汇**(`turn.calledTool` / `turn.succeeded` / `turn.notCalledTool` / `turn.toolOrder` / `turn.usedNoTools` / `turn.maxToolCalls` / `turn.noFailedActions` / `turn.event` / `turn.notEvent` / `turn.eventOrder` / `turn.eventsSatisfy` / `turn.calledSubagent` / `turn.parked`),不再是旧版文档里的 4 个手写方法。`turn.expectOk` / `turn.outputEquals` / `turn.outputMatches` 是 turn 独有的(只对单轮有意义,聚合层不需要),继续保留。
+- `session.*`(`t.newSession()` 的返回值)复用 `t.*` 的同一套**作用域断言词汇**,但只看这个 session 在断言记录时已有的事件。
+- `turn.*`(`t.send()` 的返回值)也复用同一套**作用域断言词汇**,但只看这一轮自己的事件和用量,不再是旧版文档里的 4 个手写方法。`turn.expectOk` / `turn.outputEquals` / `turn.outputMatches` 是 turn 独有的(只对单轮结果有意义,聚合层不需要),继续保留。
 
 也就是:**接收者决定作用域,不是断言名字决定作用域。** author-facing 接收者是 `t` / `session` / `turn`;`Attempt` 只作为 runner/result 里的执行单位存在,不是写 eval 时要操作的一层。完整清单见 [Assertions · 作用域规则](assertions.md#作用域规则)。
 
@@ -86,7 +86,7 @@ export default defineEval({
   async test(t) {
     await t.send("布鲁克林今天天气怎么样?");
 
-    // t 级作用域断言:在 test 结束后,对本次 eval run 聚合评估
+    // run 级聚合断言:在 test 结束后,对本次 eval run 聚合评估
     t.succeeded();
     t.calledTool("get_weather", { input: { city: "Brooklyn" }, count: 1 });
 

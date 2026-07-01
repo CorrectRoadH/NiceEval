@@ -96,7 +96,6 @@ fasteval exp compare --junit <path>           # 写 JUnit XML
 fasteval exp compare --verbose                # 流式打印 t.log
 fasteval exp compare --quiet                  # 只出最终汇总
 fasteval exp compare --no-report              # 跳过报告器
-fasteval exp compare --copy-files <mode>      # none | changed | all,把生成文件拷进工件
 ```
 
 ## 干跑与冒烟

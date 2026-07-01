@@ -218,7 +218,7 @@ attempt 级 `hooks.sandbox.setup` 的开始 / 结束并入既有 `eval:start` / 
 | 每个沙箱写 `.env`、装额外依赖、起本地服务 | `hooks.sandbox.setup`(返回 cleanup) | config / experiment |
 | 每个沙箱跑完清掉它起的东西 | cleanup 闭包 或 `hooks.sandbox.teardown` | config / experiment |
 | 一条 eval 的全部 attempt 共享一次预置 | `hooks.eval.setup`(预留扩展点) | config / experiment |
-| 定制容器基础镜像 / 预装包 | sandbox 后端选项,**不是钩子** | `config.sandbox` |
+| 定制容器基础镜像 / 预装包 | sandbox 后端选项,**不是钩子** | `experiment.sandbox` |
 | 跑完上报 / 打印 / 二次评分 | reporter,**不是钩子** | `config.reporters` |
 | 决定"怎么算对" | eval 的 `test()`(含手工在沙箱里跑的验证测试),**不是钩子** | `evals/` |
 

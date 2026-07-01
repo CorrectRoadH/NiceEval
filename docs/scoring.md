@@ -8,7 +8,7 @@
 2. **作用域断言** —— `t.succeeded()` / `t.calledTool()` 等,在 `test` 结束后对本次 eval run 聚合评估;同一套断言挂在 `session` 上看单条 session,挂在 `turn` 上只看这一轮。见 [Assertions · API 分组速查](assertions.md#api-分组速查)。
 3. **LLM-as-judge** —— 用一个评判模型给开放式回答打分,`t.judge` / `session.judge` 默认评对应 session,`turn.judge` 默认评当前 turn,细节见下文。
 4. **测试即评分**(沙箱型) —— 手工在沙箱里跑测试与命令,把命令结果交给 `t.check`。
-5. **效率 / 成本断言** —— `t.maxTokens()` / `t.maxCost()`,把 token 花费也变成可判的维度。见 [Assertions · t 级作用域断言](assertions.md#t-级作用域断言)。
+5. **效率 / 成本断言** —— `t.maxTokens()` / `t.maxCost()` 等,把 token 花费也变成可判的维度。见 [Assertions · 作用域断言共享词汇](assertions.md#作用域断言共享词汇)。
 
 ## 严重级:gate vs soft
 
@@ -72,7 +72,7 @@ t.check(test, commandSucceeded());
 
 ## 5. 效率 / 成本断言
 
-token 用量是评分的一等维度 —— agent 答对了但烧掉十倍 token,不该和省着用的拿一样的分。这把「质量」和「效率」拆成两组断言,跨 agent 对比时就能同时看通过率和花费。用量自动随结果带回(沙箱型从 transcript 抠,见 [Observability](observability.md#用量与成本token--计费));`t.maxTokens()` / `t.maxCost()` 具体用法、默认严重级见 [Assertions · t 级作用域断言](assertions.md#t-级作用域断言)。
+token 用量是评分的一等维度 —— agent 答对了但烧掉十倍 token,不该和省着用的拿一样的分。这把「质量」和「效率」拆成两组断言,跨 agent 对比时就能同时看通过率和花费。用量自动随结果带回(沙箱型从 transcript 抠,见 [Observability](observability.md#用量与成本token--计费));`maxTokens()` / `maxCost()` 是作用域断言词汇的一部分,挂在 `t` 上看整个 attempt,挂在 `session` 上看单条 session,挂在 `turn` 上看单轮。具体用法、默认严重级见 [Assertions · 作用域断言共享词汇](assertions.md#作用域断言共享词汇)。
 
 ## 判决规则
 

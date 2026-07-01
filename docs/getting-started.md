@@ -34,7 +34,7 @@ export default defineConfig({
   reporters: [Console(), JUnit(".fasteval/junit.xml")],
   maxConcurrency: 8,
   timeoutMs: 300_000,
-  sandbox: "auto",                                 // 有云 token 用云,否则 docker
+  // 沙箱后端不在这里配 —— 它由 experiment 的 sandbox 字段决定
 });
 ```
 
@@ -93,7 +93,8 @@ export default defineAgent({
       signal: ctx.signal,
     });
     const body = await r.json();
-    return { message: body.reply, toolCalls: body.tools, status: "completed" };
+    // 用 calledTool / messageIncludes 等断言时,必须把响应映射成标准事件流
+    return { events: toStreamEvents(body), data: body.output, status: "completed" };
   },
 });
 ```

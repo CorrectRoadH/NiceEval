@@ -55,15 +55,31 @@ interface AgentContext {
 }
 
 interface Turn {
-  readonly events: StreamEvent[];  // ★ 标准事件流 —— adapter 的核心产物,所有断言查它
-  readonly data?: unknown;         // 结构化输出(供 outputEquals / outputMatches)
+  readonly events?: StreamEvent[];  // 标准事件流 —— 一切作用域/工具断言的唯一数据源;省略 = []
+  readonly data?: unknown;          // 结构化输出(供 outputEquals / outputMatches),与 events 独立
   readonly status: "completed" | "failed" | "waiting"; // waiting = 停在 HITL 输入上(parked)
-  readonly usage?: Usage;          // token 用量(见 Observability)
-  // message / toolCalls 不必手填:都从 events 派生,作为便利字段读
+  readonly usage?: Usage;           // token 用量(见 Observability)
+  // message / toolCalls 不手填:都从 events 派生。不产 events 则 calledTool / messageIncludes 等无数据可读
 }
 ```
 
-`send` 是**统一动词**,`Turn.events` 是**统一产物**。区别只在 `send` 内部怎么把原始返回变成 `events` —— 这就是 adapter 的核心难点。
+`send` 是**统一动词**,`Turn.events` 是**统一产物**。区别只在 `send` 内部怎么把原始返回变成 `events` —— 这就是 adapter 的核心难点。`events` 可选:纯 data agent(只回结构化输出、只用 `turn.outputEquals` / `turn.data`)可以不产 events;但一旦要用 `calledTool` / `messageIncludes` / `succeeded` 这类作用域断言,就必须把原始返回映射成 `events`,否则这些断言没有数据可读。
+
+## SandboxAgent 契约
+
+沙箱型 agent 用 `defineSandboxAgent` 定义,在 `Agent` 契约之上多两样:一次性的 `setup`(装 CLI / 写主配置)和可选的 `tracing`(OTLP 导出配置)。`sandbox` 能力由 `defineSandboxAgent` 隐含,无需在 `capabilities` 里再写。
+
+```typescript
+interface SandboxAgent {
+  readonly name: string;
+  readonly capabilities: AgentCapabilities;   // sandbox 隐含;按需叠加 conversation / toolObservability / tracing
+  setup?(sandbox: Sandbox, ctx: AgentContext): Promise<void>;  // 装 CLI、写主配置;每个 attempt 一次,在首次 send 前
+  tracing?: AgentTracing;                      // 可选:OTLP 导出配置(见 Observability)
+  send(input: TurnInput, ctx: AgentContext): Promise<Turn>;
+}
+```
+
+装 CLI 这类"每个 attempt 一次就够"的动作放 `setup`,不要放 `send` —— 多轮时 `send` 会被调多次,装在里面等于每轮重装。
 
 ## 标准事件流:adapter 的核心难点
 
@@ -196,10 +212,14 @@ const auth = () => ({ ANTHROPIC_API_KEY: requireEnv("ANTHROPIC_API_KEY") });
 
 export default defineSandboxAgent({
   name: "claude-code",
+  capabilities: { conversation: true, toolObservability: true }, // sandbox 由 defineSandboxAgent 隐含
+  // 装 CLI 放 setup:每个 attempt 一次,不随每轮 send 重装
+  async setup(sb) {
+    await sb.runCommand("npm", ["install", "-g", "@anthropic-ai/claude-code"]);
+  },
   // 运行器已用 shared 把沙箱备好(上传 / git 基线),通过 ctx.sandbox 传入
   async send(input, ctx) {
     const sb = ctx.sandbox!;
-    await sb.runCommand("npm", ["install", "-g", "@anthropic-ai/claude-code"]);
 
     const args = ["--print", "--dangerously-skip-permissions"];
     if (ctx.model) args.push("--model", ctx.model);              // 实验给了才传;否则用 CLI 原生默认

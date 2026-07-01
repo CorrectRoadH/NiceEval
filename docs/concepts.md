@@ -78,7 +78,20 @@
 
 ## 配置词汇
 
-**`fasteval.config.ts`** —— 项目级配置,`defineConfig` 默认导出。设默认 judge 模型、全局 reporter、最大并发、超时、默认 sandbox 后端等。
+**`fasteval.config.ts`** —— 项目级配置,`defineConfig` 默认导出。完整字段:
+
+| 字段 | 类型 | 作用 |
+|---|---|---|
+| `agents` | `Agent[]` | 注册自实现 agent(见 [Agents 与 Adapters](agents-and-adapters.md#注册与选择)) |
+| `judge` | `JudgeConfig` | 默认评判模型(见 [Scoring](scoring.md#3-llm-as-judge)) |
+| `reporters` | `Reporter[]` | 全局报告器(见 [Observability](observability.md#reporters)) |
+| `maxConcurrency` | `number` | 并发上限(见 [Runner](runner.md#调度有界并发)) |
+| `timeoutMs` | `number` | 单 eval 超时 |
+| `pricing` | `Record<string, Price>` | 价格表覆盖,合并在内置快照之上(见 [Observability](observability.md#换算成本价格表从哪来)) |
+| `hooks` | `LifecycleHooks` | `run` / `sandbox` 的 `setup` / `teardown`(见 [Lifecycle](lifecycle.md)) |
+
+沙箱后端**不在 config**:它由 experiment 的 `sandbox` 字段决定(见 [Experiments](experiments.md#definexperiment-的形状)),`--sandbox` 可临时覆盖。config 只管项目级默认与全局资源。
+| `hooks` | `LifecycleHooks` | `run` / `sandbox` 的 `setup` / `teardown`(见 [Lifecycle](lifecycle.md)) |
 
 **Strict mode** / **严格模式** —— 默认情况下 soft 断言低于阈值仍判 `passed`;`--strict` 下同样的情况改判 `failed`。用于 CI 把质量回归当成红灯。
 

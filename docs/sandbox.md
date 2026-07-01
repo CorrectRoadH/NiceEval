@@ -76,7 +76,7 @@ export function resolveBackend(opts): SandboxBackend {
 
 ## Sandbox 作为数据结构(带参数)
 
-后端名只是个字符串,带不了参数。和 [agent](agents-and-adapters.md) 一样,sandbox 也能用**数据结构**定义,于是每个后端可带自己的参数。工厂函数(从 `fasteval` 导出)产出 spec,放进 `config.sandbox` 或 `experiment.sandbox`;字符串后端名仍然兼容。
+后端名只是个字符串,带不了参数。和 [agent](agents-and-adapters.md) 一样,sandbox 也能用**数据结构**定义,于是每个后端可带自己的参数。工厂函数(从 `fasteval` 导出)产出 spec,放进 `experiment.sandbox`;字符串后端名仍然兼容。
 
 ```typescript
 import { dockerSandbox, vercelSandbox, e2bSandbox } from "fasteval";
