@@ -7,7 +7,6 @@
 [![typescript](https://img.shields.io/badge/typescript-5.6-blue?style=flat-square)](tsconfig.json)
 [![license](https://img.shields.io/badge/license-MIT-green?style=flat-square)](package.json)
 [![docs](https://img.shields.io/badge/docs-readable-111827?style=flat-square)](docs/README.md)
-[![mintlify](https://img.shields.io/badge/mintlify-docs-5b5bd6?style=flat-square)](docs-site/docs.json)
 
 [中文](README.zh.md)
 
@@ -28,9 +27,7 @@ fasteval supports two integration modes, depending on whether the system under t
         │
         ▼
    ┌─────────────────────┐
-   │     fasteval core    │
-   │ discover·schedule·  │
-   │    score·report     │
+   │     fasteval        │
    └─────────────────────┘
         │
         │ Agent adapter (official)
@@ -44,16 +41,14 @@ fasteval supports two integration modes, depending on whether the system under t
    └──────────────────────────────┘
 ```
 
-**Mode 2: Direct — connect straight to your own Web Agent**
+**Mode 2: Direct — connect straight to your own AI Agent**
 
 ```text
    evals/*.eval.ts
         │
         ▼
    ┌─────────────────────┐
-   │     fasteval core    │
-   │ discover·schedule·  │
-   │    score·report     │
+   │     fasteval        │
    └─────────────────────┘
         │
         │ Agent adapter (official, or your own implementation)
@@ -74,7 +69,7 @@ fasteval supports two integration modes, depending on whether the system under t
 ## Example
 
 ```ts
-// evals/test-image-understanding.eval.ts
+// evals/button-component.eval.ts
 import { defineEval } from "fasteval";
 import { commandSucceeded, includes } from "fasteval/expect";
 
@@ -114,9 +109,9 @@ Start from the scenario that matches what you need to evaluate:
 ## Roadmap
 Official Adapters
 - [ ] Agent Software
-  - [x] Claude Code
-  - [x] Codex
-  - [x] Bub
+  - [ ] Claude Code
+  - [ ] Codex
+  - [ ] Bub
   - [ ] OpenClaw
   - [ ] Hermess Agent
   - [ ] Alma
