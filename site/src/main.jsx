@@ -61,16 +61,11 @@ const compareCard = {
   ],
 };
 
-// 原样取自 examples/zh/ai-sdk/evals/multi-turn-image.eval.ts —— 代码是标识符/真实源码，不随语言切换翻译；
-// 只有卡片外壳的文案(状态、描述、逐行注解)按 locale 走 copy。
-const evalSourceLines = [
+// 改编自 examples/zh/ai-sdk/evals/multi-turn-image.eval.ts，逐行对应 en/zh 两份，
+// 好让下面的 evalFileMeta（行号 -> 注解 key）在两种语言下指向同一批代码行。
+const zhSourceLines = [
   'import { defineEval } from "niceeval";',
   "",
-  "// 评测：先发图片，后续两轮纯文字追问。",
-  "//",
-  "// 第一轮：图片（蓝底白方块）+ 文字问题，考图片理解。",
-  "// 第二、三轮：纯文字追问，考助手是否记住了第一轮的图片内容（跨轮图片上下文）。",
-  "// 图片文件与本 eval 同目录：evals/sample.png。",
   "export default defineEval({",
   '  description: "测试 agent 在多轮对话中基于图片内容作答的能力",',
   "",
@@ -102,21 +97,54 @@ const evalSourceLines = [
   "});",
 ];
 
-const evalFile = {
+const enSourceLines = [
+  'import { defineEval } from "niceeval";',
+  "",
+  "export default defineEval({",
+  '  description: "Check whether the agent keeps grounding its answers in the turn-one image across a multi-turn conversation",',
+  "",
+  "  async test(t) {",
+  '    await t.sendFile("evals/sample.png", "What is in this image?");',
+  '    await t.send("What color is the background?");',
+  '    await t.send("What color is the shape in the middle?");',
+  "",
+  '    await t.group("all three turns went through cleanly", () => {',
+  "      // succeeded() confirms all three turns went through cleanly, with no failures and no HITL stalls.",
+  '      // (Note: the event stream now also includes user messages, so stop counting "turns" via event("message", {count}).)',
+  "      t.succeeded();",
+  "    });",
+  "",
+  '    await t.group("turn 1 recognized the image content", () => {',
+  "      t.messageIncludes(/blue|white|square/i);",
+  "    });",
+  "",
+  '    await t.group("follow-ups stay grounded in the image context", () => {',
+  '      // Turn 2 asks about the background color (expect "blue"); turn 3 asks about the shape color (expect "white").',
+  "      // Note: t.messageIncludes is a run-level assertion — it concatenates every assistant message in the run, not just the last turn.",
+  "      t.messageIncludes(/white/i);",
+  "    });",
+  "",
+  "    t.judge.autoevals",
+  '      .closedQA("Does the assistant keep grounding every answer in the turn-one image, across all three turns, instead of making things up?")',
+  "      .gate(0.7);",
+  "  },",
+  "});",
+];
+
+const evalFileMeta = {
   gateBadge: "1/0.7",
-  gateLine: 34,
-  // 三种可点开的行：turn* 是发送的消息(点开看模拟回复)，其余是断言(点开看解释)。
+  gateLine: 29,
+  // 三种可点开的行：turn* 是发送的消息(点开看模拟回复)，其余是断言(点开看解释)。en/zh 两份代码逐行对应，行号共用。
   highlights: {
-    12: "turn1",
-    13: "turn2",
-    14: "turn3",
-    19: "succeeded",
-    23: "recognize",
-    29: "followup",
-    34: "gate",
+    7: "turn1",
+    8: "turn2",
+    9: "turn3",
+    14: "succeeded",
+    18: "recognize",
+    24: "followup",
+    29: "gate",
   },
   replyLines: new Set(["turn1", "turn2", "turn3"]),
-  source: evalSourceLines.join("\n"),
 };
 
 const codeTheme = {
@@ -156,19 +184,20 @@ const copy = {
     runStatusPassed: "passed",
     workflowLabel: "NiceEval workflow",
     steps: [
-      ["Define", "Describe correct behavior in a small TypeScript file."],
-      ["Run", "Use the same eval for agents, services, functions, or fixtures."],
-      ["Inspect", "Read verdicts, traces, costs, and workspace evidence."],
+      ["Define", "Write one small TypeScript file that defines what counts as a pass."],
+      ["Run", "The same eval runs against an agent, a service, a function, or a fixture."],
+      ["Inspect", "Verdicts, traces, cost, and workspace evidence — all in one place."],
     ],
     setupEyebrow: "Eval example",
     setupTitle: "Effortlessly eval multi-turn conversations.",
     evalCard: {
+      source: enSourceLines.join("\n"),
       notes: {
         turn1: 'Turn 1 · sendFile(evals/sample.png) — assistant reply: "The image shows a blue background with a white square in the middle."',
         turn2: 'Turn 2 · send(follow-up) — assistant reply: "The background is blue."',
         turn3: 'Turn 3 · send(follow-up) — assistant reply: "The shape in the middle is white."',
         succeeded: "succeeded() confirms all three turns went through cleanly — no failures and no stalls waiting on a human-in-the-loop prompt.",
-        recognize: "The regex matches Chinese and English keywords together, so this only passes if the assistant actually named the blue background and white square.",
+        recognize: "This only passes if the assistant actually named the blue background and white square.",
         followup: "This assertion runs at the run level — it scans every assistant message across all three turns, not just the last reply.",
         gate: "A closedQA judge checks whether the assistant kept grounding every answer in turn one's image; the run only passes with a score at or above 0.7.",
       },
@@ -213,13 +242,14 @@ const copy = {
     runStatusPassed: "通过",
     workflowLabel: "NiceEval 工作流",
     steps: [
-      ["定义", "用一个小 TypeScript 文件描述什么算正确。"],
-      ["运行", "同一个 eval 可评 agents、services、functions 或 fixtures。"],
-      ["检查", "查看判决、trace、成本和工作区证据。"],
+      ["定义", "写一个小的 TypeScript 文件，定义什么算通过。"],
+      ["运行", "同一份 eval，可以跑在 agent、service、function 或 fixture 上。"],
+      ["检查", "判决、trace、成本、工作区证据，一屏看全。"],
     ],
     setupEyebrow: "Eval 示例",
     setupTitle: "轻松 Eval 多轮对话。",
     evalCard: {
+      source: zhSourceLines.join("\n"),
       notes: {
         turn1: "第 1 轮 · sendFile(evals/sample.png) — 助手回复：「图片是一个蓝色背景，中间有一个白色方块。」",
         turn2: "第 2 轮 · send(追问) — 助手回复：「背景是蓝色。」",
@@ -474,13 +504,13 @@ function EvalCard({ t, card }) {
         <span className="pill">{t.runStatusPassed}</span>
       </div>
       <div className="setup-panel">
-        <Highlight code={evalFile.source} language="tsx" theme={codeTheme}>
+        <Highlight code={card.source} language="tsx" theme={codeTheme}>
           {({ className, style, tokens, getLineProps, getTokenProps }) => (
             <pre className={`eval-code ${className}`} style={style}>
               {tokens.map((line, i) => {
                 const lineNo = i + 1;
-                const noteKey = evalFile.highlights[lineNo];
-                const isReply = noteKey ? evalFile.replyLines.has(noteKey) : false;
+                const noteKey = evalFileMeta.highlights[lineNo];
+                const isReply = noteKey ? evalFileMeta.replyLines.has(noteKey) : false;
                 const open = openLines.has(lineNo);
                 const lineClassName = noteKey ? `code-line interactive ${isReply ? "reply" : "assertion"}` : "code-line";
                 return (
@@ -512,7 +542,7 @@ function EvalCard({ t, card }) {
                       </span>
                       {noteKey ? (
                         <span className="code-line-actions">
-                          {lineNo === evalFile.gateLine ? <span className="gate-badge">{evalFile.gateBadge}</span> : null}
+                          {lineNo === evalFileMeta.gateLine ? <span className="gate-badge">{evalFileMeta.gateBadge}</span> : null}
                           <ChevronRight size={12} className={open ? "chev open" : "chev"} aria-hidden="true" />
                         </span>
                       ) : null}
