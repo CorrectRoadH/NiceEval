@@ -108,9 +108,10 @@ npx niceeval exp local fixtures/button
 
 - **建立心智模型:** [Vision](vision.md)、[Concepts(术语表)](concepts.md)、[Architecture](architecture.md)。
 - **写 eval:** [Eval Authoring(编写 eval)](eval-authoring.md)、[Assertions(断言参考:作用域 + 来源)](assertions.md)、[Scoring(评分器)](scoring.md)。
-- **连 AI / 接 agent:** [Agents 与 Adapters(定位与导航)](adapters/README.md)、[Adapter 契约(逐 API 适配义务)](adapters/contract.md)、[Adapter 写法(分档递进)](adapters/authoring.md)、[Coding Agent Skills / Plugins DX](adapters/coding-agent-skills-plugins.md)、[Sandbox](sandbox.md)。
+- **连 AI / 接 agent:** [Agents 与 Adapters(定位与导航)](adapters/README.md)、[Adapter 契约(逐 API 适配义务)](adapters/contract.md)、[Adapter 写法(分档递进)](adapters/authoring.md)、[采集设计(三条外部路线对比)](adapters/collection.md)、[接入目标矩阵(12 个被测对象调研)](adapters/targets.md)、[Coding Agent Skills / Plugins DX](adapters/coding-agent-skills-plugins.md)、[Sandbox](sandbox.md)。
+- **设计提案(未实现):** [Capabilities by Construction(能力由实现证明)](capabilities-by-construction.md)、[Multi-Agent(多 agent eval 的三种场景)](multi-agent.md)、[OTel Mixin(已接 OTel 时免写转换器)](adapters/otel-mixin.md)。
 - **跑与看:** [Experiments(实验/运行矩阵)](experiments.md)、[Runner(执行引擎)](runner.md)、[CLI 参考](cli.md)、[Observability(可观测性)](observability.md)、[Results Format(结果保存格式)](results-format.md)、[View(本地查看器)](view.md)。
-- **背景调研:** [References(从其它项目学到什么)](references.md)、[agent-eval 是怎么做适配的](adapters/reference/agent-eval.md)、[OTel GenAI 等「行为怎么记」标准](adapters/reference/otel-genai.md)、[eve 的协议机制](adapters/reference/eve-protocol.md)。
+- **背景调研:** [References(从其它项目学到什么)](references.md)、[agent-eval 是怎么做适配的](adapters/reference/agent-eval.md)、[OTel GenAI 等「行为怎么记」标准](adapters/reference/otel-genai.md)、[四个主流 agent loop 接入面调研](adapters/reference/agent-loop-apis.md)、[应用侧 OTel 埋点生态调研](adapters/reference/otel-instrumentation.md)、[eve 的协议机制](adapters/reference/eve-protocol.md)。
 
 ## 关于这些文档
 
