@@ -1,0 +1,21 @@
+{
+  "name": "niceeval-ai-sdk-v7-example",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "eval": "niceeval",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "niceeval": "file:../../..",
+    "@ai-sdk/openai": "^4.0.5",
+    "ai": "^7.0.11",
+    "zod": "^4.1.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

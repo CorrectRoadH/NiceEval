@@ -21,8 +21,11 @@ niceeval 是一个 TypeScript evals 库。CLI 入口在 `bin/niceeval.mjs`，运
 - `docs/adapters/authoring.md`：怎么写一个 adapter——分档递进(T0 收发 / T1 事件流 / T2 会话 / HITL / T3 tracing)、remote 与 sandbox 参考实现、采集层、`shared` 工具袋。
 - `docs/adapters/collection.md`：采集设计——三条外部路线(eve 自产协议 / agent-eval 逆向 / OTel 遥测)对比、双轨四通道、claude-code / codex / bub / AI SDK 逐字段采集矩阵、接新被测对象的决策树。
 - `docs/adapters/coding-agent-skills-plugins.md`：沙箱型 coding agent 怎么装 skill / plugin 并组织 A/B 实验。
+- `docs/adapters/otel-mixin.md`：**设计提案(未实现)**——被测应用已接 OTel 时,T1 事件流从 spans 派生、免写转换器；问题(转换器维护乘法)、DX before/after、turn 归属机制、能力位语义与边界。
 - `docs/adapters/reference/agent-eval.md`：Vercel agent-eval 具体怎么写 adapter(采集/转换/落地、canonical tool name、暗号字段)——学习记录,不是 niceeval 的实现。
 - `docs/adapters/reference/otel-genai.md`：「agent 行为怎么记」的标准调研——OTel GenAI semconv 对比 agent-eval 自定义方案,附 OpenInference / OpenLLMetry / OpenAI Agents SDK / AG-UI / Langfuse 对照。
+- `docs/adapters/reference/agent-loop-apis.md`：四个主流 agent loop(OpenAI Agents SDK / Claude Agent SDK / LangGraph / pi)的接入面调研——调用/事件流/会话/HITL/遥测逐面对照,五档契约在各家的对应物。
+- `docs/adapters/reference/otel-instrumentation.md`：应用侧 OTel 埋点生态调研——AI SDK telemetry / OpenLLMetry / OpenInference / 官方 contrib 的内容默认采集矩阵、OTLP 接收侧事实;otel-mixin 提案的数据可得性证据。
 - `docs/adapters/reference/eve-protocol.md`：eve 的协议机制——运行时原生事件流(26 种事件、sequence/turnId/stepIndex 坐标、requestId 定位回答、RuntimeIdentity 自报身份),niceeval StreamEvent 演进的上限参照。
 - `docs/sandbox.md`：沙箱接口和 Docker / 三方后端边界。
 - `docs/runner.md`：发现、调度、并发、缓存、attempt 编排。

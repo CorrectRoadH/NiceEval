@@ -23,8 +23,11 @@
 | [Adapter 写法](authoring.md) | **怎么做出来**:分档递进(T0 收发 → T1 事件流 → T2 会话 → HITL → T3 tracing)、remote / sandbox 参考实现、采集层技巧、`shared` 工具袋 |
 | [采集设计](collection.md) | **从哪采、字段从哪来**:三条外部路线对比、双轨四通道、claude-code / codex / bub / AI SDK 的采集矩阵、接新对象的决策树 |
 | [Coding Agent Skills / Plugins DX](coding-agent-skills-plugins.md) | 沙箱型 coding agent 怎么安装 skill / plugin,并组织 A/B 实验 |
+| [OTel mixin 提案](otel-mixin.md) | **设计提案**:被测应用已接 OTel 时,T1 事件流从 spans 派生、免写转换器——问题(转换器维护乘法)、DX before/after、机制与边界 |
 | [agent-eval 参考](reference/agent-eval.md) | Vercel agent-eval 怎么做同一件事的源码阅读记录——学习资料,不是 niceeval 的实现 |
 | [OTel GenAI 等标准参考](reference/otel-genai.md) | "agent 行为怎么记"的行业标准调研:OTel GenAI semconv 对比 agent-eval 自定义方案,附 OpenInference / OpenLLMetry / OpenAI Agents SDK / AG-UI / Langfuse |
+| [agent loop 接入面](reference/agent-loop-apis.md) | 四个主流 agent loop(OpenAI Agents SDK / Claude Agent SDK / LangGraph / pi)的原生 API / 会话 / HITL / 遥测面调研 |
+| [OTel 埋点生态](reference/otel-instrumentation.md) | 应用侧现成埋点(AI SDK telemetry / OpenLLMetry / OpenInference / 官方 contrib)里到底有没有 eval 要的数据 |
 | [eve 协议机制](reference/eve-protocol.md) | 第三条路线:自有运行时原生吐协议(`HandleMessageStreamEvent` 26 种事件、三级坐标、requestId 回答)——`StreamEvent` 演进的上限参照 |
 
 ## 为什么是 experiment 选 agent,不是 `--url`

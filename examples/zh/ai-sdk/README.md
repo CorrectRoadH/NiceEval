@@ -1,6 +1,8 @@
-# AI SDK Web Agent Example
+# AI SDK Web Agent Example（自写 adapter）
 
-这个例子演示一个用 AI SDK tool loop 实现的【普通 AI 助手】web agent，如何通过 `defineAgent` 接进 niceeval：发消息、调用工具（查天气 / 算数 / 搜索）、理解图片，都用同一套 eval surface 评测。
+这个例子演示一个用 AI SDK tool loop 实现的【普通 AI 助手】web agent，如何通过 `defineAgent` **自己写一个 adapter** 接进 niceeval：发消息、调用工具（查天气 / 算数 / 搜索）、理解图片，都用同一套 eval surface 评测。
+
+两个 AI SDK 示例的分工：本目录演示**怎么写自己的 adapter**（HTTP remote adapter、事件流映射、双可观测）；如果你只想把一个 AI SDK 应用接进来评测，不想自己管会话 / HITL / 事件流，直接用官方内建适配器 `aiSdkAgent`——见 [`examples/zh/ai-sdk-v7`](../ai-sdk-v7/)（AI SDK v7 + tool approval HITL + 全能力档断言）。
 
 结构：
 

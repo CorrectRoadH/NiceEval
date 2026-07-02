@@ -4,7 +4,7 @@ sidebarTitle: "内置 Agent 分档"
 description: "niceeval 内置的 claude-code、codex、bub 适配器分别做到哪一档能力，解锁哪些断言，以及已知限制。"
 ---
 
-内置的三个 sandbox agent（`claude-code`、`codex`、`bub`）不是同一档实现。niceeval 把 adapter 能力拆成几档递进：档位越高，能写的断言越多。这篇按档位盘点三个内置 agent 各自做到哪，以及一个能加速你自己写 adapter 的转换器 `fromAiSdk`。
+内置的三个 sandbox agent（`claude-code`、`codex`、`bub`）不是同一档实现。niceeval 把 adapter 能力拆成几档递进：档位越高，能写的断言越多。这篇按档位盘点三个内置 agent 各自做到哪，以及两个接 AI SDK 应用的内置件：进程内 agent 工厂 `aiSdkAgent`（含 HITL）和底层转换器 `fromAiSdk`。
 
 ## 分档速览
 
@@ -27,7 +27,7 @@ description: "niceeval 内置的 claude-code、codex、bub 适配器分别做到
 三者都声明了 `workspace` 和 `sandbox`（`defineSandboxAgent` 默认开启），所以 `t.sandbox.fileChanged()` / diff 断言、文件 IO、命令执行在三个 agent 上都能用，不受这张表限制。
 
 <Warning>
-三个内置 agent 目前都**不支持 HITL**：`send` 只返回 `"completed"` / `"failed"`，从不返回 `"waiting"`，也不吐 `input.requested` 事件。如果你的 eval 需要 `t.respond()` / `t.requireInputRequest()`，现阶段要自己写 adapter：照着 `defineSandboxAgent` 实现 `waiting` 状态 + `input.requested` 事件 + resume 交回。
+三个内置 sandbox agent 目前都**不支持 HITL**：`send` 只返回 `"completed"` / `"failed"`，从不返回 `"waiting"`，也不吐 `input.requested` 事件。需要 `t.respond()` / `t.requireInputRequest()` 时，可以用下文的内建 `aiSdkAgent`（AI SDK v7 tool approval 原生映射成 HITL），或自己写 adapter：实现 `waiting` 状态 + `input.requested` 事件 + resume 交回。
 </Warning>
 
 ## 逐 agent 细节
@@ -55,9 +55,38 @@ description: "niceeval 内置的 claude-code、codex、bub 适配器分别做到
 - 支持 `pythonPlugins` 配置项。
 - 安装走 `uv tool install`（非 npm 包），首次安装带 checkpoint 缓存以加速后续沙箱。
 
-## `fromAiSdk`：不是内置 agent，是给你自己 agent 用的 T1 转换器
+## `aiSdkAgent`：接 AI SDK 应用的内建 agent 工厂（含 HITL）
 
-`fromAiSdk`（`niceeval/adapter` 导出）不是一个可以直接在 experiment 里引用的、带名字的内置 agent——它是一个转换函数，把 Vercel AI SDK 的 `generateText` / `streamText` 结果直接映射成标准 `StreamEvent[]`：
+`aiSdkAgent`（`niceeval/adapter` 导出）把「一个 `generateText` 调用」变成完整的进程内 agent。应用只写 `generate`（怎么召模型：model / tools / system prompt 都在这里配），协议侧的活全部由工厂承担：
+
+```ts
+import { aiSdkAgent } from "niceeval/adapter";
+import { generateText, isStepCount, type ModelMessage } from "ai";
+
+export default defineExperiment({
+  agent: aiSdkAgent<ModelMessage>({
+    name: "my-assistant",
+    generate: ({ messages, model, signal }) =>
+      generateText({ model: resolveModel(model), system: SYSTEM_PROMPT,
+                     tools, stopWhen: isStepCount(5), messages, abortSignal: signal }),
+    data: (result) => ({ reply: result.text }),
+  }),
+  model: "deepseek-v4-pro",
+});
+```
+
+工厂承诺的档位：
+
+- **T0 / T1**：结果经 `fromAiSdk` 直构——`toolCallId` 精确配对、时序保真、`tool-error` 映射成失败的 `action.result`、usage 聚合（v4 / v5 / v7 字段漂移都兜住）。
+- **T2 会话**：`messages` 历史由工厂管理，`isNew` 开新会话线、同 id 续接。
+- **HITL**：AI SDK v7 的 tool approval（工具带 `needsApproval: true`）原生映射——模型决定调用被拦工具时，本轮返回 `status: "waiting"` + `input.requested` 事件（`action` = 工具名、`options` = `approve` / `deny`）；`t.respond("approve" / "deny")` 由工厂翻译成 `tool-approval-response` 交回 SDK，拒绝的调用以 `rejected`（而非 `failed`）落进事件流，`calledTool(..., { status: "rejected" })` 可精确断言。这是目前唯一原生支持 HITL 的内置件。
+- **T3 tracing**：声明 `capabilities: { tracing: true }` 后，`generate` 能从 `telemetry.endpoint` 拿到本轮 OTLP 接收端点，自己把 span 发过去（参考示例里的手搓 OTLP/JSON 导出）。
+
+`workspace` / `sandbox` 不适用（它评的是 AI SDK 应用，不是改文件的 coding agent）——这正是 Agent × Sandbox 正交的含义。完整可跑示例见仓库 `examples/zh/ai-sdk-v7/`（六条 eval 逐档演示：结构化输出、事件流断言、多轮隔离、HITL 批准 / 拒绝、多模态、trace）。
+
+## `fromAiSdk`：`aiSdkAgent` 底下的 T1+ 转换器
+
+`fromAiSdk`（`niceeval/adapter` 导出）是 `aiSdkAgent` 内部用的转换函数，也可以在自己写的 adapter 里单独用（比如 HTTP web agent 的服务端直构，见 `examples/zh/ai-sdk/`）。它把 AI SDK 的 `generateText` / `streamText` 结果映射成 `{ events, usage, status }`，直接铺进 `Turn`：
 
 ```ts
 import { defineAgent, fromAiSdk } from "niceeval/adapter";
@@ -66,21 +95,23 @@ export default defineAgent({
   name: "my-ai-sdk-agent",
   async send(input) {
     const result = await generateText({ model, tools, prompt: input.text });
-    return { ...fromAiSdk(result), data: result.text, status: "completed" };
+    return { ...fromAiSdk(result), data: result.text };
   },
 });
 ```
 
-因为 AI SDK 的返回天生带显式 `toolCallId`、按 step 分好顺序、带 usage，`fromAiSdk` 让你几乎不用手写映射就直接跑满 T1（`toolCallId` 精确配对、时序保真、`tool-error` 映射成失败的 `action.result`）。要不要做到 T2（多轮）、HITL、T3（tracing）取决于你自己的 `send` 怎么写——`fromAiSdk` 只管单轮事件流转换这一件事。
+`status` 由转换器给：有待人批准的 tool approval 时是 `"waiting"`（并附 `input.requested` 事件），否则 `"completed"`。要不要做到 T2（多轮 resume）、HITL 的裁决交回、T3（tracing）取决于你自己的 `send` 怎么写——这三样正是 `aiSdkAgent` 工厂替你写好的部分。
 
 ## 怎么选
 
-- 需要调用瀑布图（`niceeval view` 的 trace）：选 `codex` 或 `bub`，`claude-code` 目前拿不到 trace。
-- 需要人工审批 / 多步确认（HITL）：三个内置 agent 都不支持，需要自己写 adapter。
-- 只是想跑一个 coding agent 改代码、看 diff、判断工具调用：三个都能满足（T0 + T1 + T2 + workspace + sandbox）。
+- 被测对象是 AI SDK 应用（进程内函数 / 工具循环）：直接用 `aiSdkAgent`，全档（T0 + T1 + T2 + HITL，tracing 可选）。
+- 需要调用瀑布图（`niceeval view` 的 trace）：`codex` / `bub` / `aiSdkAgent`（自发 OTLP），`claude-code` 目前拿不到 trace。
+- 需要人工审批 / 多步确认（HITL）：目前只有 `aiSdkAgent`（AI SDK v7 tool approval）；沙箱型三个都不支持，其它被测对象要自己写 adapter。
+- 想跑一个 coding agent 改代码、看 diff、判断工具调用：`claude-code` / `codex` / `bub`（T0 + T1 + T2 + workspace + sandbox）。
 
 ## 相关阅读
 
+- [接入你的 agent](/zh/guides/connect-your-agent) — 自己写 adapter 时怎么逐档往上爬，每档解锁什么断言。
 - [Sandbox Agent](/zh/guides/sandbox-agent) — 怎么运行内置 sandbox agent，以及怎么写自己的。
 - [defineAgent 参考](/zh/reference/define-agent) — `defineAgent` / `defineSandboxAgent` 完整参数。
 - [远程 Agent](/zh/guides/remote-agent) — 进程内 / HTTP adapter 怎么写。

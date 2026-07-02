@@ -1,9 +1,9 @@
 name: Release
 
-# 发版到 npm。打一个 v* 标签即触发(标签号要和 package.json 的 version 一致):
-#   pnpm version 0.1.0-alpha.1   # 改 version 并打 tag
-#   git push --follow-tags
-# 也可在 Actions 页手动 workflow_dispatch 触发。
+# 发版到 npm有两条路:
+# 1. 推荐:在 Actions 页手动触发,填 version。workflow 会自动改 package.json、
+#    提交 chore(release): vX.Y.Z、打 vX.Y.Z tag,然后在同一次 run 里发布。
+# 2. 手工打 v* 标签也可触发发布,但标签号必须和 package.json version 一致。
 #
 # 前置:在仓库 Settings → Secrets → Actions 配好 NPM_TOKEN(npm automation token)。
 # 包直接发 TypeScript 源码(package.json files: src + bin,消费侧用 tsx 加载),无 build 步骤。
@@ -13,18 +13,87 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, for example 0.1.2 or 0.2.0-alpha.1"
+        required: true
+        type: string
 
 permissions:
   contents: read
   id-token: write # npm provenance 需要
 
 jobs:
+  prepare:
+    name: Prepare release tag
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      sha: ${{ steps.commit.outputs.sha }}
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Configure git author
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Update package.json version
+        id: version
+        run: |
+          VERSION="${{ inputs.version }}"
+          VERSION="${VERSION#v}"
+          TAG="v$VERSION"
+
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "::error::tag $TAG already exists"
+            exit 1
+          fi
+
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Commit version bump
+        id: commit
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+
+          if git diff --quiet -- package.json; then
+            echo "package.json already has version ${{ steps.version.outputs.version }}"
+          else
+            git add package.json
+            git commit -m "chore(release): $TAG"
+          fi
+
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push tag
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          git tag "$TAG"
+          git push origin HEAD:main
+          git push origin "$TAG"
+
   publish:
     name: Publish to npm
+    needs: prepare
+    if: always() && (startsWith(github.ref, 'refs/tags/') || needs.prepare.result == 'success')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha || github.ref }}
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
@@ -44,13 +113,19 @@ jobs:
       - name: Typecheck
         run: pnpm run typecheck
 
-      - name: Verify tag matches package.json version
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Verify release version matches package.json version
         run: |
           PKG_VERSION="$(node -p "require('./package.json').version")"
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
-          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
-            echo "::error::tag $GITHUB_REF_NAME 与 package.json version $PKG_VERSION 不一致"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            RELEASE_VERSION="${GITHUB_REF_NAME#v}"
+            RELEASE_LABEL="$GITHUB_REF_NAME"
+          else
+            RELEASE_VERSION="${{ needs.prepare.outputs.version }}"
+            RELEASE_LABEL="${{ needs.prepare.outputs.tag }}"
+          fi
+
+          if [ "$PKG_VERSION" != "$RELEASE_VERSION" ]; then
+            echo "::error::release $RELEASE_LABEL 与 package.json version $PKG_VERSION 不一致"
             exit 1
           fi
 

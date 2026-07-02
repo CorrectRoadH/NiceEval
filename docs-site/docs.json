@@ -150,6 +150,7 @@
               {
                 "group": "连接 Agent",
                 "pages": [
+                  "zh/guides/connect-your-agent",
                   "zh/guides/remote-agent",
                   "zh/guides/sandbox-agent",
                   "zh/guides/sandbox-backends"

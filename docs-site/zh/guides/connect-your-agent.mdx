@@ -1,0 +1,260 @@
+---
+title: "渐进式接入你的 agent"
+sidebarTitle: "接入你的 agent"
+description: "把任何 agent、函数或服务接进 niceeval：从 10 行的最小接入开始，一档一档往上爬，每一档解锁一组具体的断言。"
+---
+
+把一个被测对象接进 niceeval，本质上只是实现一个 `send` 函数：**接一次输入，驱动你的 agent，交回一轮结果**。最小接入十几行就能跑。
+
+关键在于：接入不是全有或全无。niceeval 把 adapter 能力拆成几档递进——**每爬一档，解锁的是一组具体的 `t` 函数和断言，而不是笼统的"更多能力"**。先用 T0 跑通第一条 eval，需要更细的信号时再补一档，已经写好的 eval 不用改。
+
+## 先选路：你的被测对象是什么？
+
+<CardGroup cols={3}>
+  <Card title="AI SDK 应用" icon="bolt" href="/zh/reference/builtin-agents">
+    用 Vercel AI SDK（`generateText` 工具循环）写的应用：直接用内建工厂 `aiSdkAgent`，零适配拿到全档（T0 + T1 + T2 + HITL，tracing 可选）。不用读本文。
+  </Card>
+  <Card title="Coding agent CLI" icon="terminal" href="/zh/guides/sandbox-agent">
+    评 claude-code / codex / bub 这类改文件的 coding agent：用内置 sandbox agent，全档 + workspace + sandbox 已经做好。
+  </Card>
+  <Card title="其它任何东西" icon="plug">
+    自研 agent loop、LangGraph / OpenAI Agents SDK 应用、HTTP 服务、或就是一个函数：**本文的路**——`defineAgent` 从 T0 起步，逐档往上。
+  </Card>
+</CardGroup>
+
+## 档位地图：接到哪，解锁什么
+
+| 档位 | 你要做什么 | 解锁的断言 / API |
+|---|---|---|
+| **T0 · 收发消息** | 实现 `send`，返回 `{ data, events, status }` | `t.send()`、`t.reply`、`turn.outputEquals` / `outputMatches`、`t.succeeded()`、judge 评分 |
+| **T1 · 事件流** | 把"调了什么工具"映射成标准事件 | `calledTool` / `toolOrder` / `notCalledTool` / `maxToolCalls` / `noFailedActions` / `event` / `eventOrder` 等整套作用域断言 |
+| **T2 · 多轮会话** | 处理 `ctx.session.isNew / id` | `t.send()` 多次、跨轮记忆断言、`t.newSession()` 隔离 |
+| **HITL · 人工介入** | 停轮时返回 `waiting` + `input.requested`，resume 交回 | `t.parked()`、`t.requireInputRequest()`、`t.respond()` / `t.respondAll()` |
+| **T3 · tracing** | 把 span 按 OTLP 发到 niceeval 给的端点 | `niceeval view` 的调用瀑布图、跨 agent 时延对比 |
+
+下面按档位一步一步来。每一步结尾都有一条能跑的 eval——**接到哪一档，就能写到哪一类断言**。
+
+## T0：十几行接上，先跑起来
+
+只实现 `send`。你的 agent 说了什么放一条 `message` 事件，结构化输出放 `data`：
+
+```ts
+// agents/my-bot.ts
+import { defineAgent } from "niceeval/adapter";
+
+export default defineAgent({
+  name: "my-bot",
+  // 诚实声明:还没做到的能力显式关掉(见下方 Warning)
+  capabilities: { conversation: false, toolObservability: false },
+  async send(input, ctx) {
+    const r = await fetch(`${process.env.MY_BOT_URL}/chat`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: input.text }),
+      signal: ctx.signal,
+    });
+    const body = await r.json();
+    return {
+      status: r.ok ? "completed" : "failed",
+      data: body,
+      events: [{ type: "message", role: "assistant", text: body.reply }],
+    };
+  },
+});
+```
+
+进程内函数一模一样，只是 `fetch` 换成直接调用。这一档就能写文本与结构化断言，judge 评分也已可用：
+
+```ts
+// evals/refund-policy.eval.ts
+import { defineEval } from "niceeval";
+import { includes } from "niceeval/expect";
+import { z } from "zod";
+
+export default defineEval({
+  description: "退款政策问答",
+  async test(t) {
+    const turn = await t.send("你们的退款政策是什么?");
+    t.succeeded();
+    t.check(t.reply, includes("30 天"));
+    turn.outputMatches(z.object({ reply: z.string().min(1) }));
+    t.judge.autoevals.closedQA("回答是否说明了退款期限?").atLeast(0.7);
+  },
+});
+```
+
+<Warning>
+`defineAgent` 的能力位默认开着 `conversation` 和 `toolObservability`。**做不到就显式关掉**：声明了 `toolObservability` 但事件不完整时，`notCalledTool` / `maxToolCalls` 这类负断言会**静默通过**——比断言失败更危险，因为没有任何报错。
+</Warning>
+
+## T1：吐出事件流，解锁工具断言
+
+T1 的活是把你的 agent"这一轮做了什么"翻成标准事件流 `StreamEvent[]`。核心是三种事件：
+
+```ts
+{ type: "message", role: "assistant", text: "..." }                       // 说了什么
+{ type: "action.called", callId: "c1", name: "get_weather", input: {...} } // 调了什么
+{ type: "action.result", callId: "c1", output: {...}, status: "completed" } // 结果如何
+```
+
+如果你的服务返回里带工具调用记录，映射就是一段小循环：
+
+```ts
+function toStreamEvents(body: MyBotResponse): StreamEvent[] {
+  const events: StreamEvent[] = [];
+  for (const step of body.steps) {
+    if (step.type === "tool_call") {
+      events.push({ type: "action.called", callId: step.id, name: step.tool, input: step.args });
+      events.push({
+        type: "action.result",
+        callId: step.id,
+        output: step.result,
+        status: step.error ? "failed" : "completed",
+      });
+    }
+    if (step.type === "text") events.push({ type: "message", role: "assistant", text: step.text });
+  }
+  return events;
+}
+```
+
+映射时守三条纪律：
+
+1. **时序即语义**——事件按真实发生顺序排，`toolOrder` / `eventOrder` 靠子序匹配；
+2. **`callId` 配对**——每个 `action.called` 配一个同 `callId` 的 `action.result`，并发调用也不会错配；
+3. **完整覆盖**——声明 `toolObservability: true` 承诺的是"所有调用都在流里"，漏一半比不吐更糟。
+
+做到后打开能力位，整套作用域断言解锁：
+
+```ts
+export default defineEval({
+  description: "查天气要走工具",
+  async test(t) {
+    await t.send("北京今天多少度?");
+    t.calledTool("get_weather", { input: { city: "北京" }, count: 1 });
+    t.toolOrder(["get_weather"]);
+    t.notCalledTool("send_email");     // 负断言:从 T1 起才可信
+    t.noFailedActions();
+    t.eventOrder(["action.called", "action.result", "message"]);
+  },
+});
+```
+
+每轮能拿到 token 用量的话顺手带上 `usage`（`{ inputTokens, outputTokens }`），`t.maxTokens()` / `t.maxCost()` 与成本报表就都有了。
+
+## T2：会话续接，解锁多轮
+
+T2 只有一条义务：**看 `ctx.session`**。`isNew === true` 开全新会话并把新 id 写回 `ctx.session.id`；`isNew === false` 且有 `id`，续接同一会话。你的服务有原生会话 id 就直接透传；没有就在 adapter 里自己存历史：
+
+```ts
+const sessions = new Map<string, MyMessage[]>();
+
+async send(input, ctx) {
+  const id = !ctx.session.isNew && ctx.session.id ? ctx.session.id : crypto.randomUUID();
+  ctx.session.id = id;
+  const history = sessions.get(id) ?? [];
+  history.push({ role: "user", content: input.text });
+  const body = await callMyBot(history, ctx.signal);
+  history.push(...body.newMessages);
+  sessions.set(id, history);
+  return { status: "completed", data: body, events: toStreamEvents(body) };
+}
+```
+
+声明 `conversation: true` 后，多轮与会话隔离断言解锁：
+
+```ts
+export default defineEval({
+  description: "跨轮记忆 + 新会话隔离",
+  async test(t) {
+    await t.send("我叫小明。");
+    await t.send("我叫什么?");
+    t.check(t.reply, includes("小明"));
+
+    const fresh = t.newSession();          // 全新会话线
+    await fresh.send("我叫什么?");
+    // 新会话不应知道名字 —— 隔离断言
+  },
+});
+```
+
+<Warning>
+最危险的违约是**忽略 `isNew` 一律续接**：`t.newSession()` 造出的"独立会话"实际共享上下文，隔离断言全部失真且没有任何报错。写完 T2 先用上面这条 eval 验一下隔离。
+</Warning>
+
+## HITL：停轮等人，解锁审批流断言
+
+你的 agent 会停下来等人批准（部署确认、发邮件审批、工具权限）？在 T2 之上加两条行为：
+
+1. agent 停下时，`send` 返回 `status: "waiting"`，并且每个待回答的问题吐一条 `input.requested` 事件；
+2. 下一次 `send`（就是 `t.respond` 的回答，adapter 看到的只是一次带 resume 的普通 send）把人的回答交回 agent。
+
+```ts
+// agent 停在审批上时,本轮这样返回:
+return {
+  status: "waiting",
+  events: [
+    ...toStreamEvents(body),
+    {
+      type: "input.requested",
+      request: {
+        id: body.approvalId,
+        action: "send_email",                     // 停在哪个动作上
+        input: { to: "boss@corp.com" },           // 该动作的入参
+        options: [{ id: "approve" }, { id: "deny" }],
+      },
+    },
+  ],
+};
+```
+
+eval 侧的审批流从此可写：
+
+```ts
+export default defineEval({
+  description: "发邮件要过人工审批",
+  async test(t) {
+    const first = await t.send("给老板发一封周报邮件。");
+    t.check(first.status, equals("waiting"));
+    const req = t.requireInputRequest({ action: "send_email" });
+    await t.respond("approve");                     // 批准;拒绝就 respond("deny")
+    t.calledTool("send_email", { status: "completed" });
+  },
+});
+```
+
+人否决和工具故障是两回事：拒绝的调用把 `action.result` 的 `status` 置 `"rejected"`（而不是 `"failed"`），`noFailedActions()` 依然通过，`calledTool(..., { status: "rejected" })` 可精确断言。
+
+## T3：tracing，解锁调用瀑布图
+
+声明 `capabilities: { tracing: true }` 后，niceeval 每次运行会起一个本机 OTLP 接收器，把端点经 `ctx.telemetry` 交给你——你只要让 agent 把 span 发过去：
+
+- **应用已接 OpenTelemetry**（比如 AI SDK 的 `experimental_telemetry`、OpenLLMetry / OpenInference 自动埋点、LangSmith 的 OTel 导出）：把 exporter 的 endpoint 指到 `ctx.telemetry.endpoint` 即可，一行配置的事；
+- **子进程 / CLI 型**：把 `ctx.telemetry.env`（标准 `OTEL_*` 环境变量，ready-to-spread）注入子进程环境；
+- **手搓**：按 OTLP/JSON 直接 POST span 也行（参考仓库 `examples/zh/ai-sdk-v7/agent/otlp.ts`，几十行）。
+
+```ts
+export default defineAgent({
+  name: "my-bot",
+  capabilities: { conversation: true, toolObservability: true, tracing: true },
+  async send(input, ctx) {
+    const body = await callMyBot(history, ctx.signal, {
+      otlpEndpoint: ctx.telemetry?.endpoint,   // 应用把这一轮的 span 发到这里
+    });
+    // ...
+  },
+});
+```
+
+跑完后 `npx niceeval view` 直接出瀑布图：每轮多久、模型调用和工具调用各占多少、谁套着谁——还能跨 agent / 跨模型叠着比。
+
+## 全档做完是什么体验
+
+内建的 `aiSdkAgent` 就是一个把五档全部做满的参考实现——仓库 [`examples/zh/ai-sdk-v7`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/ai-sdk-v7) 用六条 eval 逐档演示（结构化输出、事件流断言、多轮隔离、HITL 批准 / 拒绝、多模态、trace）。写自己的 adapter 时可以对着它逐档核对行为。
+
+## 相关阅读
+
+- [内置 Agent 分档](/zh/reference/builtin-agents) — 内置 adapter 各自做到哪一档。
+- [远程 Agent](/zh/guides/remote-agent) — `defineAgent` 的完整形状与注册方式。
+- [Sandbox Agent](/zh/guides/sandbox-agent) — coding agent 的沙箱接入。
+- [编写 eval](/zh/guides/authoring) — eval 侧的完整写法。

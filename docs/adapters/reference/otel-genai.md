@@ -100,6 +100,8 @@ LLM 工程平台的数据模型:`Trace`(一次请求)+ 嵌套 `Observation`(span
 
 ## 相关阅读
 
+- [agent-loop-apis.md](agent-loop-apis.md) —— 四个主流 agent loop 的原生 API 面(这些标准的生产者侧)。
+- [otel-instrumentation.md](otel-instrumentation.md) —— 应用侧埋点里内容默认采不采(数据可得性)。
 - [agent-eval 笔记](agent-eval.md) —— 自定义路线的具体实现(采集 / 转换 / 落地、顺序配对的坑)。
 - [Observability](../../observability.md) —— niceeval 的双轨:StreamEvent 断言 + canonical GenAI trace。
 - [Adapter 契约](../contract.md) —— `StreamEvent` 词汇与逐断言的数据义务。
