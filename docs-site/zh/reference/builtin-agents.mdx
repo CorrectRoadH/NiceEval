@@ -80,7 +80,7 @@ export default defineExperiment({
 - **收发 + 事件流**：结果经 `fromAiSdk` 直构——`toolCallId` 精确配对、时序保真、`tool-error` 映射成失败的 `action.result`、usage 聚合（v4 / v5 / v7 字段漂移都兜住）。
 - **会话续接**：`messages` 历史由 `aiSdkAgent` 管理，`isNew` 开新会话线、同 id 续接。
 - **HITL**：AI SDK v7 的 tool approval（工具带 `needsApproval: true`）原生映射——模型决定调用被拦工具时，本轮返回 `status: "waiting"` + `input.requested` 事件（`action` = 工具名、`options` = `approve` / `deny`）；`t.respond("approve" / "deny")` 由 `aiSdkAgent` 翻译成 `tool-approval-response` 交回 SDK，拒绝的调用以 `rejected`（而非 `failed`）落进事件流，`calledTool(..., { status: "rejected" })` 可精确断言。这是目前唯一原生支持 HITL 的内置件。
-- **tracing**：声明 `capabilities: { tracing: true }` 后，`generate` 能从 `telemetry.endpoint` 拿到本轮 OTLP 接收端点，自己把 span 发过去（参考示例里的手搓 OTLP/JSON 导出）。
+- **tracing**：声明 `capabilities: { tracing: true }` 后，OTel 管线全由工厂承担——每轮把绑定 NiceEval 接收端点的 `@ai-sdk/otel` 集成经 `telemetry` 交给 `generate`（原样透传给 `generateText` 的 `telemetry` 选项即可），轮末自动 flush；并行 attempt 各用各的出口，不串流。设 `otlpBackendUrl` 可把同一批 span 双发到你自己的观测后端。需要在项目里安装 `@ai-sdk/otel`、`@opentelemetry/sdk-trace-node`、`@opentelemetry/exporter-trace-otlp-http`（NiceEval 的可选 peer 依赖，只有 tracing 用到）。
 
 `workspace` / `sandbox` 不适用（它评的是 AI SDK 应用，不是改文件的 coding agent）——这正是 Agent × Sandbox 正交的含义。完整可跑示例见仓库 `examples/zh/ai-sdk-v7/`（六条 eval 逐项演示：结构化输出、事件流断言、多轮隔离、HITL 批准 / 拒绝、多模态、trace）。
 
@@ -114,4 +114,4 @@ export default defineAgent({
 - [接入你的 agent](/zh/guides/connect-your-agent) — 自己写 adapter 时每个能力怎么做、对应什么断言。
 - [Sandbox Agent](/zh/guides/sandbox-agent) — 怎么运行内置 sandbox agent，以及怎么写自己的。
 - [defineAgent 参考](/zh/reference/define-agent) — `defineAgent` / `defineSandboxAgent` 完整参数。
-- [远程 Agent](/zh/guides/remote-agent) — 进程内 / HTTP adapter 怎么写。
+- [通过 OTel 接入](/zh/guides/connect-otel) — 已埋点应用的免映射接法。

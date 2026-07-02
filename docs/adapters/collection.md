@@ -50,17 +50,52 @@
 
 remote agent(通道 0)不在表里——它没有"采集",字段来源就是你自己代码里的返回值,见下节示例。
 
+## 接入路线的优先级(提案):OTel 兼容优先
+
+用户侧的建议顺序(docs-site 的接入导流已按此排):
+
+1. **内置件**:AI SDK 应用用 `aiSdkAgent`,coding agent 用内置三个 sandbox agent;
+2. **OTel 兼容**:被测应用已接(或愿意加几行配置接上)OpenTelemetry → `events: otelEvents()`,事件与 trace 同源派生(见 [otel-mixin](otel-mixin.md));
+3. **官方转换器 / SDK 通道 0**:`fromAiSdk` 这类精品转换器,或官方 SDK 包装(Codex SDK / Cursor SDK,见 [targets.md](targets.md));
+4. **手写映射**:以上都接不了的黑盒,`toStreamEvents` 兜底。
+
+OTel 排在手写映射之前的理由:**维护乘法换边**——手写映射的成本是「N 个被测对象 × 各自的私有返回形状 × 版本漂移」,由 adapter 作者(我们和用户)背;OTel 路线的成本是「M 种埋点方言 × 归一规则」,埋点本身由 AI SDK / OpenLLMetry / LangSmith 们维护,M 远小于 N 且在收敛(AI SDK 官方新模式与 OpenClaw 已原生说 GenAI semconv,targets.md 的调研)。同一批 span 还同时喂 T1 断言和 T3 瀑布图,一次接入双份产出。
+
+### 归一规则层:各家 OTel 怎么转成我们的目标格式
+
+目标格式就两个,管线已有雏形:**时间轨** `TraceSpan` → canonical GenAI semconv(`o11y/otlp/mappers/`,`tagSpan` / `heuristicTag`);**行为轨** spans → `StreamEvent[]`(otel-mixin 提案的 `deriveEventsFromSpans`)。规则层的设计问题是:方言规则用什么形态定义?
+
+- **备选 A:声明式映射表**(JSON / DSL:匹配条件 → 字段路径)。好处是不写代码、用户可配置;否掉的原因是方言差异远不止字段名——OpenLLMetry 是索引式属性(`gen_ai.prompt.{i}.*`)要循环重组,LangSmith 要从 span 名 + kind 组合推断,codex 甚至要从 log events 合成 span——表达力很快不够,DSL 会长成半个编程语言。
+- **备选 B(推荐):每方言一个纯函数规则模块**,「规则的定义」体现在统一的模块契约上:
+
+```ts
+interface OtelDialect {
+  name: string;
+  detect(span: TraceSpan): boolean;          // 识别信号(如 openinference.span.kind 存在)
+  toEvents(spans: TraceSpan[]): StreamEvent[]; // 行为轨派生(callId / 时序 / usage 纪律同 parser)
+  tagSpan?(span: TraceSpan): SpanTag;        // 时间轨归一;缺省走通用 heuristicTag
+}
+```
+
+共享三样,新方言零核心改动:识别信号的探测顺序表、canonical 词汇(`OP_CHAT` / `OP_EXECUTE_TOOL` / …)、`heuristicTag` 兜底。每个方言模块配真实导出抓取的 fixtures 单测——与 `o11y/parsers/` 同一纪律。用户扩展口:`events: otelEvents({ dialect: myDialect })` 接受自定义方言模块,core 仍不认识任何具体方言的名字(中立边界不破)。
+
+规则层只管**翻译**,不管**承诺**:负断言完整性(埋点盖没盖全工具层)归应用侧声明,conversation / HITL 仍是 `send` 的活——这两条边界在 otel-mixin 提案里,规则层不重复解决。
+
 ## 接新被测对象的决策树
 
 ```text
-你控制被测对象的运行时吗?
-├─ 是(自己的 agent / AI SDK / 进程内函数)
-│    → 通道 0:send 里直构 StreamEvent,保真上限最高(eve 级),见下面 AI SDK 示例
-└─ 否(黑盒 CLI / 别人的服务)
-     ├─ CLI 有结构化输出 flag(--json)?      → 通道 2:stdout 捕获
-     ├─ 没有,但 CLI 为 resume 写侧写文件?    → 通道 1:磁盘旁读(找它的 session 目录)
-     └─ 都没有                               → 老实做 T0:events 传 [],
-                                               显式关掉 toolObservability(别让负断言假通过)
+被测应用已接(或愿意接)OpenTelemetry?
+├─ 是 → OTel 兼容路线:events: otelEvents(),T1 + T3 同源(见 otel-mixin.md)
+│       负断言要用户确认埋点覆盖后自行声明 toolObservability
+└─ 否
+   ├─ 你控制被测对象的运行时?(自己的 agent / 进程内函数)
+   │    → 通道 0:send 里直构 StreamEvent,保真上限最高(eve 级),见下面 AI SDK 示例
+   └─ 黑盒 CLI / 别人的服务
+        ├─ 官方有 SDK 包装?(Codex SDK / Cursor SDK,见 targets.md)→ 当通道 0 接,别逆向 stdout/磁盘
+        ├─ CLI 有结构化输出 flag(--json)?      → 通道 2:stdout 捕获
+        ├─ 没有,但 CLI 为 resume 写侧写文件?    → 通道 1:磁盘旁读(找它的 session 目录)
+        └─ 都没有                               → 老实做 T0:events 传 [],
+                                                  显式关掉 toolObservability(别让负断言假通过)
 trace 另算:CLI 会发 OTel?→ 写 tracing 块 + mapper;不会 → transcript 时间戳合成,或直接跳过
 ```
 

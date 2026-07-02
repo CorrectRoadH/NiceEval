@@ -1,73 +1,52 @@
-# AI SDK v7 × 内建适配器示例(全能力档)
+# AI SDK v7 × 内建适配器示例
 
-这个例子演示 **niceeval 官方内建的 AI SDK 适配器**:应用只写「怎么召模型」,协议侧的一切
-(会话、事件流、HITL 握手、失败兜底)由 `aiSdkAgent` 工厂承担,并证明当 adapter 把能力档
-做满时,整套断言 surface 用起来是什么体验。
+这个例子在 [`examples/zh/ai-sdk-v7-before`](../ai-sdk-v7-before/) 的基础上接入 **niceeval 官方
+内建的 AI SDK 适配器** `aiSdkAgent`。应用代码(`agent/`)不 import 任何 niceeval 的东西,
+唯一的改动是 `chat` 多收一个可选 `opts`(取消信号 + telemetry 透传);eval 侧只声明「怎么召
+模型」(`generate`)和「结构化输出取什么」(`data`),会话历史、事件流、HITL 握手、失败兜底、
+OTel 管线全部由工厂承担。两个目录的 diff 就是接入 niceeval 需要改动的全部内容:
 
-和隔壁 [`examples/zh/ai-sdk`](../ai-sdk/) 是互补关系:
+```sh
+diff -ru examples/zh/ai-sdk-v7-before examples/zh/ai-sdk-v7
+```
 
-| 示例 | 演示什么 | adapter 来源 |
-|---|---|---|
-| `ai-sdk`(v6) | **自己写 adapter**:HTTP web agent、`defineAgent` + `fromAiSdk`、双可观测(Langfuse + niceeval) | 自写(`adapter/adapter.ts`) |
-| `ai-sdk-v7`(本目录) | **用官方内建适配器**:`aiSdkAgent` 一行接线、AI SDK v7 tool approval → HITL、全 tier 断言 | niceeval 内建(`niceeval/adapter` 的 `aiSdkAgent`) |
+和隔壁 [`examples/zh/ai-sdk`](../ai-sdk/)(v6,自己写 adapter + 双可观测)是互补关系——那边
+演示怎么自己写 adapter,这边演示内建 adapter 怎么接。
 
 ## 接线方式
 
-被测助手是一个 AI SDK v7 工具循环(查天气 / 算数 / 搜索 / 发邮件),进程内直调、不用起服务:
+eval 侧的接线全部在 [`experiments/assistant.ts`](experiments/assistant.ts):
 
 ```ts
-// experiments/compare-models/deepseek-v4-pro.ts
+// experiments/assistant.ts
 import { aiSdkAgent } from "niceeval/adapter";
-import { assistant } from "../../agent/assistant.ts";
+import { chat } from "../agent/assistant.ts";
 
+export const assistant = aiSdkAgent<ModelMessage>({
+  name: "ai-sdk-v7",
+  capabilities: { tracing: true },
+  otlpBackendUrl: process.env.OTLP_BACKEND_URL,   // 可选:span 双发到你自己的后端
+  generate: ({ messages, model, signal, telemetry }) => chat(messages, model, { signal, telemetry }),
+  data: (result, turn) => ({ reply: result.text ?? "", /* … */ }),
+});
+
+// experiments/compare-models/deepseek-v4-pro.ts
 export default defineExperiment({
-  agent: aiSdkAgent(assistant),   // 官方工厂;assistant 只有 generate + data
+  agent: assistant,
   model: "deepseek-v4-pro",
 });
 ```
 
-`agent/assistant.ts` 里只有应用自己的事:系统提示、四个工具、一个 `generate`(怎么调
-`generateText`)和一个 `data`(结构化输出取什么)。会话历史、`isNew` / resume、
-tool approval 的停轮与裁决翻译、空结果兜底,全部在 niceeval 的 `aiSdkAgent` 工厂里。
+`capabilities: { tracing: true }` 声明后,埋点(AI SDK 官方 OTel 集成 `@ai-sdk/otel`)、
+per-attempt 端点绑定和轮末 flush 全部由工厂承担——`generate` 只需把收到的 `telemetry`
+原样透传给 `generateText`。设 `OTLP_BACKEND_URL` 时,同一批 span 同时双发到你自己的
+观测后端(Langfuse / SigNoz / 生产 collector)。
 
-## 每条 eval 演示一个能力档
+## evals
 
-| eval | 能力档 | 用到的断言 |
-|---|---|---|
-| `structured-output` | 结构化输出(基础) | `turn.outputMatches`(zod schema)、`t.check` + `equals` / `includes` |
-| `weather-tool` | 事件流 | `calledTool`(含 input 匹配)、`toolOrder`、`notCalledTool`、`maxToolCalls`、`noFailedActions`、`eventOrder`、`maxTokens` / `maxCost` |
-| `multi-turn` | 多轮会话 | 跨轮记忆 + `t.newSession()` 隔离(`eventsSatisfy` 验证新会话不共享上下文) |
-| `hitl-approve` | HITL 批准 | `status === "waiting"`、`event("input.requested")`、`t.requireInputRequest`、`t.respond("approve")`、跨轮 `callId` 配对(`calledTool(..., { status: "completed" })`) |
-| `hitl-deny` | HITL 拒绝 | `t.respondAll("deny")`、`calledTool(..., { status: "rejected" })`(人否决 ≠ 工具故障,`noFailedActions` 仍通过) |
-| `image-understanding` | 多模态 | `t.sendFile` + 按模型 `t.skip` |
-
-HITL 靠的是 AI SDK v7 的 tool approval:`send_email` 工具带 `needsApproval: true`,模型决定
-调它时 SDK 停轮吐出 `tool-approval-request`,`fromAiSdk` 把它映射成 `status: "waiting"` +
-`input.requested` 事件;`t.respond("approve" / "deny")` 的文本由工厂翻译成
-`tool-approval-response` 塞回 messages 再召一次 —— 拒绝的调用以 `rejected`(而非 `failed`)
-落进事件流。
-
-tracing 也开着:`assistant.ts` 声明 `capabilities: { tracing: true }`,埋点用的是 **AI SDK
-官方 OTel 集成**(`@ai-sdk/otel`,产 OTel GenAI semconv):`invoke_agent` / `chat` /
-`execute_tool` 全 span 树自动生成、直接命中 niceeval 的 canonical 层,零 mapper。
-`npx niceeval view` 里直接看瀑布图。
-
-## 双 OTel:AI SDK 自带一个,niceeval 另一个
-
-被测应用自带的 OTel(`@ai-sdk/otel` 埋点)和 niceeval 的接收器是两回事:前者产 span,
-后者收 span——中间的接线在 `agent/instrumentation.ts`,两个出口:
-
-- **出口 1(可选)**:你自己的观测后端。设了环境变量 `OTLP_BACKEND_URL`(Langfuse /
-  SigNoz / 生产 collector)就一直双发;
-- **出口 2**:niceeval 本次运行的接收端点,经 `ctx.telemetry` 逐 attempt 进来。
-
-并发安全的关键是**不用全局 provider**:按 endpoint 缓存 provider,每次 `generateText` 经
-`telemetry.integrations` 传入绑定了该 endpoint tracer 的集成(per-call 覆盖全局注册),
-并行 attempt 各用各的出口,span 不串流。每轮结束 `forceFlush`——eval 的轮次归属靠
-时间窗口,span 必须立刻送到。
-
-这是「进程内直调」场景的接法;长驻服务、子进程等其它形态见 docs-site
-「通过 OTel 接入」。
+`evals/` 下每条覆盖一个能力档:结构化输出(`structured-output`)、工具事件流
+(`weather-tool`)、多轮会话(`multi-turn`)、HITL 批准/拒绝(`hitl-approve` /
+`hitl-deny`)、多模态(`image-understanding`)。具体用了哪些断言看各 eval 源码。
 
 ## 跑起来
 

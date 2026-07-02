@@ -18,9 +18,6 @@ importers:
       '@ai-sdk/otel':
         specifier: ^1.0.9
         version: 1.0.9(zod@4.4.3)
-      '@opentelemetry/api':
-        specifier: ^1.9.1
-        version: 1.9.1
       '@opentelemetry/exporter-trace-otlp-http':
         specifier: ^0.219.0
         version: 0.219.0(@opentelemetry/api@1.9.1)

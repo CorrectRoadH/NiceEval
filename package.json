@@ -50,9 +50,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "niceeval": "node bin/niceeval.js",
+    "gen:diff-code": "tsx scripts/gen-diff-code.ts",
     "view:build": "vite build --config src/view/app/vite.config.ts",
     "prepare": "pnpm run view:build",
-    "site:dev": "cd site && next dev --hostname 127.0.0.1 --port 5174",
+    "site:dev": "cd site && node scripts/dev.mjs",
     "site:build": "cd site && next build",
     "docs:dev": "cd docs-site && npx --yes mint@latest dev",
     "docs:validate": "cd docs-site && npx --yes mint@latest validate",
@@ -70,6 +71,9 @@
     "e2b": "^2.31.0"
   },
   "devDependencies": {
+    "@ai-sdk/otel": "^1.0.9",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.219.0",
+    "@opentelemetry/sdk-trace-node": "^2.8.0",
     "@radix-ui/react-collapsible": "^1.1.14",
     "@radix-ui/react-dialog": "^1.1.17",
     "@radix-ui/react-tabs": "^1.1.15",
@@ -89,10 +93,27 @@
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-grab": "^0.1.47",
+    "shiki": "^4.3.0",
     "tailwind-merge": "^3.6.0",
     "tailwindcss": "^4.3.1",
     "typescript": "^5.6.0",
     "vite": "^8.1.0",
     "vitest": "^4.1.9"
+  },
+  "peerDependencies": {
+    "@ai-sdk/otel": ">=1.0.0",
+    "@opentelemetry/exporter-trace-otlp-http": ">=0.200.0",
+    "@opentelemetry/sdk-trace-node": ">=2.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@ai-sdk/otel": {
+      "optional": true
+    },
+    "@opentelemetry/exporter-trace-otlp-http": {
+      "optional": true
+    },
+    "@opentelemetry/sdk-trace-node": {
+      "optional": true
+    }
   }
 }

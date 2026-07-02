@@ -1,18 +1,46 @@
 ---
 title: "通过 OTel 接入：已埋点应用免映射"
 sidebarTitle: "通过 OTel 接入"
-description: "你的应用已经在发 OTel trace？把 span 发给 NiceEval，工具断言和调用瀑布图直接可用，一行事件映射都不用写。"
+description: "你的应用已经在发 OTel trace？把 span 发给 NiceEval，工具断言和调用瀑布图直接可用，不用写事件映射。"
 ---
 
-<Note>
-🧪 **设计预览**：本页按 `otelEvents()` 提案的目标态书写，对应代码尚未发布。
-</Note>
-
-如果你的被测应用已经接了 OpenTelemetry——用 AI SDK 的 telemetry、LangGraph 的 LangSmith 导出、OpenLLMetry / OpenInference 自动埋点，或自己按 GenAI 语义埋的点——那么 niceeval 需要的数据你已经在生产了。不用写事件映射：让应用把 span 发给 niceeval，工具断言（`t.calledTool` 等）和调用瀑布图（`niceeval view`）都从 span 派生。
+如果你的被测应用已经接了 OpenTelemetry——用 AI SDK 的 telemetry、LangGraph 的 LangSmith 导出、OpenLLMetry / OpenInference 自动埋点，或自己按 GenAI 语义埋的点——那么 NiceEval 需要的数据你已经在生产了。不用写事件映射：让应用把 span 发给 NiceEval，工具断言（`t.calledTool` 等）和调用瀑布图（`niceeval view`）都从 span 派生。
 
 ## 原理（一段话）
 
-NiceEval 每次运行起一个本机 OTLP 接收器。你的 adapter 声明 `events: otelEvents()`，`send` 只管把输入交给应用、把最终结果拿回来；本轮收到的 span 自动派生成标准事件流喂给断言，同一批 span 顺手画成瀑布图。四种主流埋点方言（AI SDK `ai.*`、GenAI semconv、OpenInference、OpenLLMetry）自动识别，不用配。
+NiceEval 每次运行起一个本机 OTLP 接收器。你的 adapter 声明 `events: otelEvents()`，`send` 只管把输入交给应用、把最终结果拿回来；本轮收到的 span 自动派生成标准事件流喂给断言，同一批 span 顺手画成瀑布图。主流埋点格式（AI SDK `ai.*`、GenAI semconv、OpenInference、OpenLLMetry、LangSmith 混合）自动识别，也可以显式指定（见下）。
+
+## `otelEvents()` 是怎么工作的
+
+`events: otelEvents()` 本身**不是运行时注入**——它构造出来只是一个"事件来源"声明，adapter 文件加载时 NiceEval 就读到了。动态的部分在运行期，按时间顺序：
+
+1. **每次运行起一个接收器，整个被测对象共享**。你的应用只有一条 OTel 管线、一个导出目标，并行跑多条 eval 也是发往同一个端点——NiceEval 不会要求应用"给每条 eval 发不同地方"（标准 OTel SDK 做不到）。端点经 `ctx.telemetry` 交给 `send`。（sandbox agent 例外：每个沙箱是独立进程，各有各的接收器。）
+2. **span 归属到轮**，两条路：
+   - **traceparent（推荐，并发安全）**：`send` 发请求时把 `ctx.telemetry.headers`（W3C trace context）spread 进请求头，应用的埋点支持 context 传播的话（标准 OTel HTTP 服务端埋点都支持），本轮 span 自动挂到 NiceEval 给的 trace 下，按 traceId 精确归属；
+   - **时间窗口（兜底）**：应用不传播 trace context 时按 send 前后的时间窗归属。窗口只在串行下可靠，所以这种情况 NiceEval 会把这个 agent 的 eval 并发降为 1 并提示，不会静默混流。
+3. **归属结算后派生事件**。按格式识别把 span 翻成标准事件流喂断言；你 `send` 返回里如果也带了 `events`，两边按时间戳合并。应用侧要及时导出（`SimpleSpanProcessor` 或每轮 flush，见双发一节）。
+
+格式识别是**逐 span** 的：一条流里混着 AI SDK 的 span 和你手工埋的 `gen_ai` span，各认各的，不冲突。
+
+## 格式怎么选：默认自动，可显式指定
+
+不知道自己的埋点产的是什么格式？不用管，默认自动识别。知道、或者想要更准的报错时，显式指定官方格式模块：
+
+```ts
+import { otelEvents, otel } from "niceeval/adapter";
+
+// 默认:逐 span 自动识别
+events: otelEvents()
+
+// 显式指定:接不到数据时报错直接说"收到 37 条 span,0 条命中 ai.* 格式",
+// 而不是笼统的"没有派生出事件"
+events: otelEvents({ dialects: [otel.aiSdk] })
+
+// 应用有私有埋点:自己实现一个格式模块,与官方的混用
+events: otelEvents({ dialects: [myFormat, otel.genAi] })
+```
+
+官方格式模块：`otel.aiSdk`（`ai.*`，legacy `experimental_telemetry`）、`otel.genAi`（GenAI semconv，含 `@ai-sdk/otel`、OpenClaw 等原生标准输出）、`otel.openInference`、`otel.openLLMetry`、`otel.langsmith`。每次运行结束会在日志里报告本轮 span 被识别成了什么格式；一条都没识别出来时，warning 会列出收到的 span 名方便排查。
 
 ## 接法
 
@@ -28,11 +56,9 @@ export default defineAgent({
   async send(input, ctx) {
     const r = await fetch(`${process.env.BOT_URL}/chat`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        message: input.text,
-        otlpEndpoint: ctx.telemetry.endpoint,   // 告诉应用这一轮把 span 发到哪
-      }),
+      // traceparent 随请求带过去:本轮 span 挂到 NiceEval 的 trace 下,并发归属才精确
+      headers: { "content-type": "application/json", ...ctx.telemetry?.headers },
+      body: JSON.stringify({ message: input.text }),
       signal: ctx.signal,
     });
     return { data: await r.json(), status: r.ok ? "completed" : "failed" };
@@ -41,13 +67,24 @@ export default defineAgent({
 });
 ```
 
-`ctx.telemetry.endpoint` 是本次运行的接收端点。怎么交给应用取决于部署形态：
+## 端点怎么交给应用
 
-- **子进程 / CLI**：把 `ctx.telemetry.env`（标准 `OTEL_*` 环境变量，ready-to-spread）注入子进程环境，零代码；
-- **同进程 runtime**：初始化 exporter 时直接用 `ctx.telemetry.endpoint`；
-- **独立服务**：像上面一样每次请求带上 endpoint，由服务侧 exporter 按请求改道；或者服务启动时用固定的 `OTEL_EXPORTER_OTLP_ENDPOINT` 指向 NiceEval（本地联调时最简单）。
+NiceEval 的接收端点默认每次运行动态分配。但**不要求你的应用会"运行时换端点"**——标准 OTel SDK 做不到这件事（`OTEL_*` 环境变量只在进程启动时读一次）。按部署形态选：
 
-**2. 应用侧**——按你的埋点生态各自一行配置：
+- **子进程 / CLI / 由 NiceEval 拉起的服务**：什么都不用做。`ctx.telemetry.env`（标准 `OTEL_*` 环境变量，ready-to-spread）注入进程环境，每次 run 是新进程、读到新端点——"每次 run 替换端点"在这条路上是自动的。
+- **同进程 runtime**（`aiSdkAgent` / 直调）：exporter 做成可切换的（见下面双发一节的 `SwitchableExporter`），每轮 `point(ctx.telemetry.endpoint)`。
+- **你自己长驻的服务**：用**固定端口模式**。在 `niceeval.config.ts` 里钉住接收端口（或设 `NICEEVAL_OTLP_PORT`）：
+
+  ```ts
+  // niceeval.config.ts
+  export default defineConfig({
+    telemetry: { port: 4318 },   // 接收器固定监听 http://localhost:4318/v1/traces
+  });
+  ```
+
+  服务启动时一次性配 `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318/v1/traces`，之后跑多少次 eval 都不用改——动态性收到 NiceEval 这边。代价：端口共享意味着同一台机器同时只能跑一个 niceeval 进程（轮次归属靠时间窗口，两个进程的 span 会混流）；OTel Collector 扇出场景同理指向这个固定端点。
+
+**2. 应用侧**——按你的埋点生态各自几行配置：
 
 <Tabs>
   <Tab title="AI SDK">
@@ -71,8 +108,8 @@ export default defineAgent({
     LANGSMITH_TRACING=true \
     LANGSMITH_OTEL_ENABLED=true \
     LANGSMITH_OTEL_ONLY=true \
-    OTEL_EXPORTER_OTLP_ENDPOINT=<niceeval 给的端点> \
-    node server.js
+    OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318/v1/traces \
+    node server.js   # 端点值按「端点怎么交给应用」一节选:注入的 env 或固定端口
     ```
 
     `LANGSMITH_OTEL_ONLY` 表示只发 OTLP、不发 LangSmith 云端（要双发就去掉它）。
@@ -115,6 +152,63 @@ export default defineEval({
 ```
 
 跑完 `npx niceeval view`，瀑布图也在——数据源是同一批 span。
+
+## 已经有自己的 OTel 后端？双发，不用换
+
+你的应用多半已经把 trace 发给自己的观测后端（Langfuse / SigNoz / 生产 collector）。接 NiceEval **不需要换后端、也不需要第二套埋点**：OTel 的 TracerProvider 支持挂多个 SpanProcessor——同一批 span，两个出口。唯一要处理的是 NiceEval 的端点**每次运行才知道**（`ctx.telemetry.endpoint`），所以第二个出口做成可切换的：
+
+```ts
+// instrumentation.ts —— 应用启动时初始化一次:一份埋点,两个出口
+import { NodeTracerProvider, SimpleSpanProcessor } from "@opentelemetry/sdk-trace-node";
+import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
+import { ExportResultCode, type ExportResult } from "@opentelemetry/core";
+import type { ReadableSpan, SpanExporter } from "@opentelemetry/sdk-trace-base";
+
+/** 端点可运行时切换的出口:没设端点时静默丢弃(线上跑就是这个状态)。 */
+class SwitchableExporter implements SpanExporter {
+  private inner?: SpanExporter;
+  point(endpoint: string | undefined) {
+    this.inner = endpoint ? new OTLPTraceExporter({ url: endpoint }) : undefined;
+  }
+  export(spans: ReadableSpan[], cb: (r: ExportResult) => void) {
+    this.inner ? this.inner.export(spans, cb) : cb({ code: ExportResultCode.SUCCESS });
+  }
+  shutdown() { return this.inner?.shutdown() ?? Promise.resolve(); }
+}
+
+export const nicevalExporter = new SwitchableExporter();
+
+export const provider = new NodeTracerProvider({
+  spanProcessors: [
+    // 出口 1:你自己的后端,启动时固定,线上线下一直发
+    new SimpleSpanProcessor(new OTLPTraceExporter({ url: process.env.MY_COLLECTOR_URL })),
+    // 出口 2:NiceEval,只在 eval 运行时被 point() 到本次端点
+    new SimpleSpanProcessor(nicevalExporter),
+  ],
+});
+provider.register();
+```
+
+adapter 的 `send` 每轮把本次端点设进去、结束时 flush：
+
+```ts
+// agents/my-agent.ts —— 自己写的 adapter
+async send(input, ctx) {
+  nicevalExporter.point(ctx.telemetry?.endpoint);   // 本轮 span 同时发给 NiceEval
+  const result = await runMyAgent(input.text, { signal: ctx.signal });
+  await provider.forceFlush();                      // eval 在意及时,别等 batch
+  return { data: result, status: "completed" };
+}
+```
+
+要点四条：
+
+- **线上零影响**。不在 eval 里跑时 `telemetry` 是 `undefined`，NiceEval 出口静默关闭——同一份埋点代码线上线下通用，不需要 if-eval 分支。
+- **eval 场景用 `SimpleSpanProcessor` + 每轮 `forceFlush`**。评测在意的是"这一轮的 span 及时到齐"（轮次归属靠时间窗口），不在意导出吞吐；`BatchSpanProcessor` 的缓冲会让 span 跨轮迟到。
+- **AI SDK 推荐用官方 OTel 集成**（`@ai-sdk/otel`）：产出的就是标准 GenAI 语义（`chat {model}` / `execute_tool {tool}`），NiceEval 直接信任；老的 `experimental_telemetry`（`ai.*` 方言）也在自动识别范围内。
+- **长驻服务不方便改进程内代码**的话，两条路：固定端口模式（见「端点怎么交给应用」，服务把第二个 exporter 一次性指到固定端点）；或 OTel Collector 扇出——应用只发给 collector，collector 配两个 exporter（你的后端 + NiceEval 的固定端点）。Collector 的代价是多运维一个组件，本地开发不如进程内双发轻。
+
+**进程内直调用内建 `aiSdkAgent` 的话，这一节整个可以跳过**：工厂已经内置了一个比全局 `SwitchableExporter` 更干净的变体——按 endpoint 缓存 provider，每轮经 `telemetry.integrations` 传入绑定该 endpoint tracer 的集成（per-call 覆盖全局注册，并行 attempt 各用各的出口，天然不串流），轮末自动 flush。声明 `capabilities: { tracing: true }`，`generate` 把收到的 `telemetry` 原样传给 `generateText` 即可；要双发就设 `otlpBackendUrl`。可跑示例：[`examples/zh/ai-sdk-v7`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/ai-sdk-v7)。
 
 ## 一件必须你自己判断的事：负断言
 

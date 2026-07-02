@@ -16,7 +16,7 @@
 import { randomUUID } from "node:crypto";
 
 import { defineAgent } from "../define.ts";
-import type { Agent, AgentCapabilities, InputRequest, JsonValue, StreamEvent, Telemetry, ToolName, Usage } from "../types.ts";
+import type { Agent, AgentCapabilities, InputRequest, JsonValue, StreamEvent, ToolName, Usage } from "../types.ts";
 
 // ───────────────────────── AI SDK 结果的形状子集 ─────────────────────────
 
@@ -381,8 +381,19 @@ export interface AiSdkGenerateContext<M = unknown> {
   readonly model?: string;
   readonly signal: AbortSignal;
   readonly flags: Readonly<Record<string, unknown>>;
-  /** 声明了 capabilities.tracing 才有:OTLP 接收端点(见 AgentContext.telemetry)。 */
-  readonly telemetry?: Telemetry;
+  /**
+   * 声明了 capabilities.tracing 才有:直接放进 generateText / streamText 的 `telemetry`
+   * 选项。OTel provider、per-attempt 端点绑定和轮末 flush 都由工厂做,应用侧原样透传即可。
+   */
+  readonly telemetry?: AiSdkTelemetrySettings;
+}
+
+/**
+ * generateText / streamText 的 `telemetry` 选项的形状子集。integrations 的元素是
+ * `@ai-sdk/otel` 的集成实例——类型属于用户的 ai 版本,niceeval 不引 `ai` 包,所以是 any。
+ */
+export interface AiSdkTelemetrySettings {
+  readonly integrations: any[];
 }
 
 export interface AiSdkAgentOptions<M = unknown> {
@@ -397,6 +408,11 @@ export interface AiSdkAgentOptions<M = unknown> {
   generate(ctx: AiSdkGenerateContext<M>): Promise<AiSdkResultLike>;
   /** 本轮的结构化输出(Turn.data,喂 outputEquals / outputMatches)。省略则 data 为 undefined。 */
   data?(result: AiSdkResultLike, turn: AiSdkTurn): unknown;
+  /**
+   * 可选双发:tracing 的 span 除发给 niceeval 的接收器外,同一批也发到你自己的 OTLP
+   * 后端(Langfuse / SigNoz / 生产 collector)。只在声明了 capabilities.tracing 时生效。
+   */
+  otlpBackendUrl?: string;
 }
 
 /**
@@ -408,7 +424,11 @@ export interface AiSdkAgentOptions<M = unknown> {
  *   · HITL:`needsApproval` 工具停轮 → `waiting` + `input.requested`;下一轮输入按行翻译成
  *     tool-approval-response(以 approve / yes / 同意 / 批准 开头 = 批准,其余一律拒绝)塞回
  *     messages 再召 `generate`,SDK 才会执行(或跳过)被拦的工具;
- *   · 失败兜底:`generate` 抛错或结果完全为空 → `status: "failed"` + error 事件。
+ *   · 失败兜底:`generate` 抛错或结果完全为空 → `status: "failed"` + error 事件;
+ *   · tracing:声明 `capabilities: { tracing: true }` 后,工厂替应用做完 OTel 管线——为每轮
+ *     建好绑定 niceeval 接收端点的 `@ai-sdk/otel` 集成(经 ctx.telemetry 交给 generate,
+ *     原样透传给 generateText 的 `telemetry` 即可)并在轮末 flush;`otlpBackendUrl` 可选
+ *     双发到你自己的观测后端。应用侧零埋点代码。
  *
  * ```typescript
  * import { aiSdkAgent } from "niceeval/adapter";
@@ -423,6 +443,20 @@ export interface AiSdkAgentOptions<M = unknown> {
  * });
  * ```
  */
+let otelModule: Promise<typeof import("./ai-sdk-otel.ts")> | undefined;
+
+/** OTel 管线按需加载:三个 OTel 包是可选 peer,只有声明 tracing 的用户需要装。 */
+function loadOtel(): Promise<typeof import("./ai-sdk-otel.ts")> {
+  otelModule ??= import("./ai-sdk-otel.ts").catch((error: unknown) => {
+    otelModule = undefined;
+    throw new Error(
+      "capabilities.tracing 需要 OTel 依赖:请在被测项目里安装 @ai-sdk/otel、@opentelemetry/sdk-trace-node、@opentelemetry/exporter-trace-otlp-http(niceeval 的可选 peer 依赖)。",
+      { cause: error },
+    );
+  });
+  return otelModule;
+}
+
 export function aiSdkAgent<M = unknown>(options: AiSdkAgentOptions<M>): Agent {
   interface SessionState {
     messages: M[];
@@ -460,6 +494,9 @@ export function aiSdkAgent<M = unknown>(options: AiSdkAgentOptions<M>): Agent {
         state.messages.push(userMessage(input.text, input.files) as M);
       }
 
+      // tracing 声明了才建管线;OTel peer 依赖缺失在这里就报清楚,不伪装成失败的 Turn。
+      const otel = ctx.telemetry ? (await loadOtel()).telemetryForEndpoint(ctx.telemetry.endpoint, options.otlpBackendUrl) : undefined;
+
       let result: AiSdkResultLike;
       try {
         result = await options.generate({
@@ -467,11 +504,14 @@ export function aiSdkAgent<M = unknown>(options: AiSdkAgentOptions<M>): Agent {
           model: ctx.model,
           signal: ctx.signal,
           flags: ctx.flags,
-          telemetry: ctx.telemetry,
+          telemetry: otel?.settings,
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return { status: "failed", events: [{ type: "error", message }] };
+      } finally {
+        // 轮次归属靠时间窗口:本轮 span 必须在 send 返回前送到接收器,不能等 batch。
+        await otel?.flush();
       }
 
       // resume 的另一半义务:本次调用新产生的消息(含 approval 执行结果)进历史。

@@ -78,10 +78,40 @@ eval 侧什么都不用变——`t.calledTool("lookup_order", { input: { orderId
 
 ```typescript
 events: otelEvents({
-  dialects: "auto",            // 默认:按 span 属性自动识别 ai.* / gen_ai / OpenInference / OpenLLMetry
+  dialects: "auto",            // 默认:逐 span 自动识别 ai.* / gen_ai / OpenInference / OpenLLMetry / LangSmith
   messages: true,              // 默认:埋点里有消息文本就派生 message 事件
 })
 ```
+
+### 方言的 API 面:单入口 + 官方方言模块,不做每方言一个函数
+
+问题:要不要为每种格式提供独立的官方适配器(`otelEventsAiSdk()` 之类)?决定:**不做**。方言选择是参数,不是能力差异——事件来源声明保持唯一(`events: otelEvents(...)`),官方方言以模块形式从 `otel.*` 命名空间导出:
+
+```typescript
+import { otelEvents, otel } from "niceeval/adapter";
+
+events: otelEvents()                                  // 默认:逐 span 自动识别
+events: otelEvents({ dialects: [otel.aiSdk] })        // 显式钉方言:报错精准("收到 37 条 span,0 条命中 ai.*")
+events: otelEvents({ dialects: [myDialect, otel.genAi] })  // 私有埋点:自定义方言模块与官方混用
+```
+
+三个支撑判断:
+
+1. **自动识别可行且该是默认**——五种方言的识别信号互不相交(`ai.` 前缀 operation / `gen_ai.operation.name` / `openinference.span.kind` / `traceloop.*`+索引式属性 / `langsmith.span.kind`),且识别是**逐 span** 的,混合流(AI SDK spans + 手工 gen_ai spans)各认各的;多数用户根本不知道自己的埋点吐的是什么方言,不该被迫先回答这个问题。
+2. **显式指定的价值在报错与扩展**,不在功能——钉了方言后 0 命中直接报"期望 X 格式",私有埋点经 `dialects` 传自定义模块(`OtelDialect` 契约见 [collection.md](collection.md#归一规则层各家-otel-怎么转成我们的目标格式)),core 仍不认识任何方言名字。
+3. **运行反馈兜底**:每轮日志报告识别摘要(哪个方言认了几条);整轮 0 识别时 warning 列出收到的 span 名——与下文两条守卫同一暴露风格。
+
+### 端点交付:动态端口默认,固定端口给长驻服务
+
+端点的分配粒度见下节(sandbox 每沙箱一个;非 sandbox 整个 run 共享一个)。**标准 OTel SDK 不支持运行时换端点**——`OTEL_*` env 只在进程启动时读一次,所以按被测形态分三条交付路径,不要求应用会"每 run 换目标":
+
+| 形态 | 交付方式 | "每 run 替换"怎么实现 |
+|---|---|---|
+| 子进程 / CLI / niceeval 拉起的服务 | `ctx.telemetry.env` 注入进程环境 | 自动:新进程读到新 env |
+| 同进程(aiSdkAgent / 直调) | 可切换 exporter,每轮 `point(endpoint)` | adapter 侧一次性代码(内建 `aiSdkAgent` 已实现:`src/agents/ai-sdk-otel.ts`,工厂替应用做完) |
+| 用户自己长驻的服务 | **固定端口模式**:`defineConfig({ telemetry: { port } })` 或 `NICEEVAL_OTLP_PORT`,接收器固定监听 | 不替换——动态性收到 niceeval 侧 |
+
+固定端口只是"共享 receiver 钉住端口"——非 sandbox agent 的 receiver 本来就是全 run 共享的(见下节),固定端口额外付出的只有"同机同时只能跑一个 niceeval 进程"。Collector 扇出场景(应用 → collector → 双后端)同样依赖固定端点,归入此模式。
 
 ## 机制
 
@@ -110,8 +140,16 @@ events: otelEvents({
 
 spans 是异步推来的,必须知道「这批 span 属于哪一轮 send」:
 
-- **窗口法(第一版):** runner 在 `send` 前记时间戳,`send` 返回后 `receiver.settle()`(已有),取窗口内收到的 span。要求 receiver **per-attempt**(今天 tracing receiver 是 per-sandbox;remote agent 加 mixin 后同样 per-attempt 起一个,端口成本可忽略)——同一 attempt 内轮与轮靠窗口切,attempt 之间靠独立端口隔离,并发跑不串。
-- **traceparent 法(第二版):** `ctx.telemetry` 加 `headers`(W3C `traceparent`),HTTP adapter 随请求带上;支持 context 传播的埋点(Claude Code 的 `TRACEPARENT`、LangSmith 检测 global provider)会把本轮 span 挂到我们给的 trace 下,归属从「按时间猜」变「按 id 定」。窗口法仍是兜底。
+先定接收器的**粒度**,再谈归属——粒度跟**被测进程**走,不是跟 attempt 走:
+
+- **sandbox agent**:每沙箱一个 receiver(现状)。每个沙箱是独立进程,env 注入各自端点,attempt 之间端口天然隔离。
+- **非 sandbox agent**:整个 run **共享一个 receiver**。被测应用只有一条全局 OTel 管线、一个导出目标,做不到"给每条并行 eval 发不同端点"——并行 attempts 的 span 混在同一条流里,这是共享被测对象的物理事实,不是实现选择。(例外:例子里手搓 per-call POST 到 per-turn 端点的写法可以 per-attempt 隔离,但标准 OTel SDK 应用做不到,不具一般性。)
+
+共享流之下的归属阶梯:
+
+- **traceparent(并发正确性的必要条件,不是第二版优化):** `ctx.telemetry` 加 `headers`(W3C `traceparent`,每轮一个新 trace context),adapter 随请求带上;支持 context 传播的埋点(标准 OTel HTTP 服务端埋点、Claude Code 的 `TRACEPARENT`、LangSmith 检测 global provider)把本轮 span 挂到我们给的 trace 下,按 traceId 归属,并发随便开。
+- **窗口法(兜底,仅串行可靠):** runner 在 `send` 前记时间戳,`send` 返回后 `receiver.settle()`(已有),取窗口内的 span。并发 attempts 的窗口互相重叠,窗口法归属必然混流。
+- **并发守卫:** 共享 receiver + 未确认 traceparent 生效(收到的 span 不带我们发的 traceId)+ 该 agent 并发 > 1 → runner 把该 agent 的 attempts 降为串行并提示。宁可慢,不可静默混流;确认 traceparent 生效后解除。
 
 ### 能力位语义(诚实声明规则不变)
 
@@ -125,14 +163,14 @@ spans 是异步推来的,必须知道「这批 span 属于哪一轮 send」:
 - **T2 / HITL 仍是 `send` 的活。** spans 没有「等人输入」语义,会话续接也是应用协议的事——mixin 只覆盖 T1 + T3。这不是缺陷:调研显示这两档在各框架里本来就是几行透传([agent-loop-apis.md 启发 2、3](reference/agent-loop-apis.md#对-niceeval-的印证与启发))。
 - **消息文本看埋点。** 三方生态默认有;OTel 官方埋点要用户开 `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT`,不开则 `messageIncludes` 无数据(正断言会响,不静默)。文档要写清各生态怎么开。
 - **负断言完整性依旧靠纪律。** mixin 把「写转换器」的成本降为零,但「埋点完整」的责任转到了应用侧——文档必须把这条从 adapter 作者的义务改写成应用作者的义务。
-- **与 per-framework 转换器不互斥。** `fromAiSdk` / `aiSdkAgent` 这种精品路线保留给最高频框架(进程内、有 HITL、要 v4→v7 兜底);mixin 是长尾路线——黑盒服务、一次性接入、niceeval 没有(也不该有)专属转换器的框架。两条路的取舍写进 [collection.md](collection.md) 的决策树。
+- **与 per-framework 转换器不互斥,且 mixin 是默认推荐。** 接入优先级已定为 OTel 兼容优先(理由与规则层设计见 [collection.md · 接入路线的优先级](collection.md#接入路线的优先级提案otel-兼容优先)):能接 OTel 的先走 mixin;`fromAiSdk` / `aiSdkAgent` 这种精品路线保留给最高频框架(进程内、有 HITL、要 v4→v7 兜底)。
 
 ## 落地顺序
 
 1. `deriveEventsFromSpans` 纯函数 + 方言表(`src/o11y/otlp/derive-events.ts`),fixtures 用真实导出抓取,独立单测——不动 runner 就能验证四套方言。
-2. per-attempt receiver + send 窗口标记(runner 改动最小的一版;remote agent 声明 `tracing` 即起 receiver)。
+2. 共享 receiver(非 sandbox 全 run 一个)+ send 窗口标记 + 并发守卫(无 traceparent 时该 agent 串行);remote agent 声明 `tracing` / `events: otelEvents()` 即起 receiver。
 3. `events: otelEvents()` 接线:派生结果与 adapter 自己的 `events` 按时间戳合并,0-span / 无配对 warning。
-4. `ctx.telemetry.headers`(traceparent)+ 文档 + 一个 LangGraph 黑盒服务 example。
+4. `ctx.telemetry.headers`(traceparent):并发解锁的关键——确认生效后解除串行守卫;+ 文档 + 一个 LangGraph 黑盒服务 example。
 
 ## 相关阅读
 
