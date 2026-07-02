@@ -76,6 +76,40 @@ curl -N -X POST localhost:5588/api/chat -H 'content-type: application/json' \
 注意:每个 run 都是真实的 microVM 任务(启动沙箱 + 跑 claude-code),首条回复
 通常要几十秒——所以前端必须按事件流实时渲染,而不是憋一个整块回复。
 
+## 能不能本地跑?(2026-07 调研结论:不能,只有"自带算力"的实验性选项)
+
+直觉上 vm0 像个"本地 agent",但实际不是——**没有本地执行模式,账号和 token 绕不开**:
+
+- CLI(`@vm0/cli@9.221.x`)的全部子命令(`auth/compose/run/volume/artifact/logs/...`)
+  都路由到平台 API,没有 `dev`/`local`/`sandbox` 之类的本地命令,`vm0 run` 也没有
+  `--local` flag;客户端代码里没 token 直接抛 `Not authenticated`。
+- 唯一和"自己机器"相关的是 **`@vm0/runner`**(自托管 runner):它是一个**任务轮询器
+  而不是服务器**——仍然要 `server.url` + `server.token` 挂到平台上(Ably 订阅
+  `runner-group:<group>` + `/api/runners/poll|claim|heartbeat`),只是沙箱执行发生在
+  你自己的机器上。要求 Linux + KVM + Firecracker(要自备 kernel/rootfs 镜像),
+  不支持 macOS/Docker;compose 里用实验字段路由过去:
+
+  ```yaml
+  agents:
+    niceeval-demo:
+      framework: claude-code
+      instructions: AGENTS.md
+      # 注释原文:"Route this agent to a self-hosted runner instead of E2B."
+      # (托管默认的沙箱后端是 E2B;指定后 run 排队给你自己的 runner group)
+      experimental_runner:
+        group: vm0/my-runner
+  ```
+
+  但 runner group 的注册和 `server.token` 的发放没有公开的 CLI/API 通道(合同里只有
+  poll/claim/heartbeat 三个 runner 端点),kernel/rootfs 镜像也没有公开构建文档——
+  今天没法照着文档复现,所以本示例不做这条路,仅留此记录。
+- 整个平台理论上可以自托管(BUSL-1.1 允许,README 写了 "Inspect, fork, or
+  self-host"),但仓库里没有任何自托管文档/docker-compose,依赖 Postgres/R2/Ably/
+  OAuth 一整套,不是给 demo 用户走的路。
+
+所以结论:vm0 是**托管编排平台**,"本地"最多指沙箱执行可以搬到自己的 Linux/KVM
+机器上(实验性),编排、事件、日志仍然经平台。本示例保持托管 API 接法。
+
 ## 备注:关于"vm0 没有公开 API"的旧结论
 
 这个目录曾经是一个只有 mock 的占位,依据是"vm0 没有 npm SDK、没有公开 HTTP

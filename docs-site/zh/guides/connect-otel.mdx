@@ -112,7 +112,7 @@ NiceEval 的接收端点默认每次运行动态分配。但**不要求你的应
     node server.js   # 端点值按「端点怎么交给应用」一节选:注入的 env 或固定端口
     ```
 
-    `LANGSMITH_OTEL_ONLY` 表示只发 OTLP、不发 LangSmith 云端（要双发就去掉它）。这句话在 **Python** 版 `langsmith` SDK 上是真·零代码（import 时自动挂 OTel hook）；**JS** 版（`langsmith@0.7.x`）还需要显式调用一次 `initializeOTEL()`（来自 `langsmith/experimental/otel/setup`），否则只打警告、不产生 span——三个环境变量本身仍然不变。可跑示例（含这个 JS 差异的完整接线）：[`examples/zh/origin/langgraph`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/origin/langgraph)。
+    `LANGSMITH_OTEL_ONLY` 表示只发 OTLP、不发 LangSmith 云端（要双发就去掉它）。这句话在 **Python** 版 `langsmith` SDK 上是真·零代码（import 时自动挂 OTel hook）；**JS** 版（`langsmith@0.7.x`）还需要显式调用一次 `initializeOTEL()`（来自 `langsmith/experimental/otel/setup`），否则只打警告、不产生 span——三个环境变量本身仍然不变。可跑示例（Python 后端，零接线代码）：[`examples/zh/origin/langgraph`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/origin/langgraph)。
   </Tab>
   <Tab title="OpenLLMetry">
     ```ts

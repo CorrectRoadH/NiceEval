@@ -1,5 +1,8 @@
 node_modules
 .env
-# langgraphjs dev(in-memory Agent Server)落盘的本地状态
+# langgraph dev(in-memory Agent Server)落盘的本地状态
 .langgraph_api
 dist
+# Python
+.venv
+__pycache__/

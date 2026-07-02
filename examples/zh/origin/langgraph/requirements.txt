@@ -1,0 +1,7 @@
+langchain>=1.0
+langchain-openai>=1.0
+# langsmith 随 langchain 一起装;[otel] extra 带上 OTel SDK + OTLP exporter,
+# 让 LANGSMITH_OTEL_ENABLED 的零代码导出真的有东西可用。
+langsmith[otel]>=0.4
+# Agent Server 本体(本地 in-memory dev server:`langgraph dev`)。
+langgraph-cli[inmem]>=0.4
