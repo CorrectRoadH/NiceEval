@@ -1,0 +1,69 @@
+---
+title: "Why we need evals"
+description: "Agents fail in ways that look reasonable from the transcript. Evals turn that uncertainty into a feedback loop."
+date: "2026-07-02"
+readMinutes: "7"
+category: "Product thinking"
+---
+
+## The problem is not that agents fail
+
+Agents fail. That part is expected. The problem is that they often fail in ways that are hard to classify.
+
+A model can answer confidently with stale context. It can use the right tool at the wrong time. It can complete the visible task while breaking an invisible requirement. It can pass one happy-path demo and collapse when the same workflow is repeated with a slightly different fixture.
+
+If all we have is a transcript and a feeling, every regression becomes a debate. Someone thinks the agent was good enough. Someone else sees a subtle behavioral break. Nobody knows whether the next model, prompt, adapter, or sandbox change made the system better.
+
+> Evals are how we turn agent behavior from an argument into an engineering signal.
+
+## Unit tests are not enough
+
+Traditional tests are still necessary. They tell us whether code paths work, whether schemas line up, whether integrations return the shape we expect.
+
+But agent behavior is not just code behavior. It includes judgment, timing, tool choice, memory, grounding, and recovery. Those things need checks that can inspect the full run:
+
+- Did the assistant answer from the uploaded file instead of guessing?
+- Did it keep context across a follow-up question?
+- Did it avoid using a tool when the answer was already available?
+- Did the run fail because the agent was wrong, or because the adapter crashed?
+
+That last distinction matters. A runtime failure is not a model-quality signal. A real assertion failure is.
+
+## Good evals describe product behavior
+
+The best evals are not trivia questions. They are small product fixtures.
+
+For NiceEval, that means an eval should describe a behavior we actually care about: a support agent staying grounded in retrieved context, a coding agent editing the right file, a multimodal agent answering from the image it was given, or a service preserving a contract across retries.
+
+The assertion can be simple. The important part is that it points at a real product expectation.
+
+```ts
+t.messageIncludes(/blue|white|square/i);
+t.judge.autoevals.closedQA("Did the assistant stay grounded in the image?");
+```
+
+This is why eval authoring should feel close to writing a unit test. If writing an eval requires a separate platform, a fragile script, and a week of context, it will not become part of normal development.
+
+## Evals need traces
+
+A pass rate without evidence is not enough. When a run fails, we need to see the path to failure.
+
+Trace data tells us what happened before the final verdict: messages, tool calls, command output, cost, timing, artifacts, diffs, and adapter events. Those details help us separate the cases that otherwise blur together:
+
+- The agent misunderstood the task.
+- The tool returned bad data.
+- The sandbox never started.
+- The judge saw the wrong scope.
+- The assertion was too brittle.
+
+Once those cases are separated, the next action becomes obvious.
+
+## The goal is a faster loop
+
+The point of evals is not to create a perfect scoreboard. The point is to shorten the loop between a change and an answer.
+
+Can we upgrade the model? Did the prompt improve the workflow? Is the new adapter collecting enough evidence? Did the fixture catch the regression we just fixed? Are failures coming from the agent or from infrastructure?
+
+Without evals, those questions drift into manual inspection. With evals, they become repeatable checks that can live in the repo, run in CI, and produce artifacts people can inspect.
+
+That is why we need evals: not because agents should never fail, but because agent work needs a way to learn from failure without starting from scratch every time.

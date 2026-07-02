@@ -2,9 +2,12 @@ import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Highlight, themes } from "prism-react-renderer";
 import {
+  ArrowLeft,
   BookOpen,
+  CalendarDays,
   CheckCircle2,
   ChevronRight,
+  Clock3,
   Clipboard,
   FileCode2,
   Folder,
@@ -17,8 +20,11 @@ import {
 } from "lucide-react";
 import "./styles.css";
 import { initAnalytics, track } from "./analytics";
+import whyWeNeedEvalsEn from "./blog/posts/why-we-need-evals/en.mdx?raw";
+import whyWeNeedEvalsZh from "./blog/posts/why-we-need-evals/zh.mdx?raw";
 
 const githubUrl = "https://github.com/CorrectRoadH/niceeval";
+const blogPath = "/blog";
 
 // 文档站按语言分入口：en 是默认语言走根路径，zh 走 /zh 前缀。
 const docsUrl = {
@@ -61,6 +67,48 @@ const compareCard = {
     { name: "deepseek-v4-pro", score: 60 },
   ],
 };
+
+const blogSources = {
+  "why-we-need-evals": {
+    en: whyWeNeedEvalsEn,
+    zh: whyWeNeedEvalsZh,
+  },
+};
+
+function parseMdxDocument(source) {
+  const frontmatterMatch = source.match(/^---\n([\s\S]*?)\n---\n?/);
+  const frontmatter = {};
+  let body = source;
+
+  if (frontmatterMatch) {
+    body = source.slice(frontmatterMatch[0].length);
+    for (const line of frontmatterMatch[1].split("\n")) {
+      const match = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
+      if (!match) continue;
+      const [, key, rawValue] = match;
+      frontmatter[key] = rawValue.replace(/^["']|["']$/g, "");
+    }
+  }
+
+  return { ...frontmatter, body };
+}
+
+const blogPosts = Object.entries(blogSources).map(([slug, source]) => ({
+  slug,
+  en: parseMdxDocument(source.en),
+  zh: parseMdxDocument(source.zh),
+}));
+
+function getBlogPost(slug) {
+  return blogPosts.find((post) => post.slug === slug);
+}
+
+function getRoute() {
+  const path = window.location.pathname.replace(/\/+$/, "") || "/";
+  if (path === blogPath) return { name: "blog" };
+  if (path.startsWith(`${blogPath}/`)) return { name: "post", slug: path.slice(`${blogPath}/`.length) };
+  return { name: "home" };
+}
 
 // 改编自 examples/zh/ai-sdk/evals/multi-turn-image.eval.ts，逐行对应 en/zh 两份，
 // 好让下面的 evalFileMeta（行号 -> 注解 key）在两种语言下指向同一批代码行。
@@ -140,6 +188,7 @@ const copy = {
   en: {
     meta: "NiceEval is a lightweight TypeScript agent eval tool for agents, services, functions, and coding-agent fixtures.",
     navStart: "Start",
+    blog: "Blog",
     docs: "Docs",
     languageLabel: "Switch language",
     modes: {
@@ -154,7 +203,7 @@ const copy = {
         caption: "Paste this prompt into your coding agent so it installs and wires up NiceEval on its own.",
       },
     },
-    heroTitle: "An eval that's actually built for agents.",
+    heroTitle: "AI-Native Eval for Agents.",
     copyCommand: "Copy command",
     copied: "copied",
     primaryAction: "Start",
@@ -195,10 +244,22 @@ const copy = {
       ],
       timingTotal: "5.8s total · $0.006 est.",
     },
+    blogPage: {
+      meta: "Why NiceEval needs evals, traces, fixtures, and clear product-level feedback loops.",
+      eyebrow: "NiceEval Blog",
+      title: "Notes on building agent evals.",
+      intro: "Longer-form product and engineering notes. The first essay is about why evals are a necessary feedback loop for agent work.",
+      latest: "Latest article",
+      read: "Read article",
+      back: "Back to blog",
+      minutes: "min read",
+      notFound: "Article not found",
+    },
   },
   zh: {
     meta: "NiceEval 是轻量、通用、DX 体验好的 TypeScript agent eval 工具，适合评 agents、services、functions 和 coding-agent fixtures。",
     navStart: "开始",
+    blog: "博客",
     docs: "文档",
     languageLabel: "切换语言",
     modes: {
@@ -254,6 +315,17 @@ const copy = {
       ],
       timingTotal: "共 5.8s · 预估 $0.006",
     },
+    blogPage: {
+      meta: "为什么 NiceEval 需要 eval、trace、fixture 和清晰的产品反馈回路。",
+      eyebrow: "NiceEval 博客",
+      title: "关于 agent eval 的笔记。",
+      intro: "这里放更长一点的产品与工程笔记。第一篇文章讨论：为什么我们需要 eval。",
+      latest: "最新文章",
+      read: "阅读文章",
+      back: "返回博客",
+      minutes: "分钟阅读",
+      notFound: "没有找到这篇文章",
+    },
   },
 };
 
@@ -270,10 +342,14 @@ function detectLocale() {
 
 function App() {
   const [locale, setLocale] = useState(detectLocale);
+  const [route, setRoute] = useState(getRoute);
   const t = copy[locale];
 
   useEffect(() => {
     initAnalytics();
+    const onPopState = () => setRoute(getRoute());
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
   useEffect(() => {
@@ -283,32 +359,82 @@ function App() {
       // Language selection still works for the current session.
     }
     document.documentElement.lang = locale === "zh" ? "zh-CN" : "en";
-    document.querySelector('meta[name="description"]')?.setAttribute("content", t.meta);
-  }, [locale, t.meta]);
+    document.querySelector('meta[name="description"]')?.setAttribute(
+      "content",
+      route.name === "home" ? t.meta : t.blogPage.meta,
+    );
+  }, [locale, route.name, t.blogPage.meta, t.meta]);
+
+  const navigate = (href) => {
+    if (window.location.pathname !== href) {
+      window.history.pushState({}, "", href);
+    }
+    setRoute(getRoute());
+    window.scrollTo({ top: 0, behavior: "auto" });
+  };
 
   return (
     <>
-      <Header locale={locale} setLocale={setLocale} t={t} />
+      <Header locale={locale} setLocale={setLocale} t={t} route={route} navigate={navigate} />
       <main>
-        <Hero t={t} locale={locale} />
-        <Strip t={t} />
-        <Setup t={t} />
+        {route.name === "home" ? (
+          <>
+            <Hero t={t} locale={locale} navigate={navigate} />
+            <Strip t={t} />
+            <Setup t={t} />
+          </>
+        ) : route.name === "blog" ? (
+          <BlogIndex t={t} locale={locale} navigate={navigate} />
+        ) : (
+          <BlogArticle t={t} locale={locale} route={route} navigate={navigate} />
+        )}
       </main>
     </>
   );
 }
 
-function Header({ locale, setLocale, t }) {
+function Header({ locale, setLocale, t, route, navigate }) {
   const nextLocale = locale === "en" ? "zh" : "en";
 
   return (
     <header className="topbar shell">
-      <a className="brand" href="#top" aria-label="NiceEval home">
+      <a
+        className="brand"
+        href="/"
+        aria-label="NiceEval home"
+        onClick={(event) => {
+          event.preventDefault();
+          track("Click Home Link", { location: "header" });
+          navigate("/");
+        }}
+      >
         <span className="mark" />
         <span>NiceEval</span>
       </a>
       <nav className="nav" aria-label="Primary">
-        <a href="#setup" onClick={() => track("Click Nav Start")}>{t.navStart}</a>
+        <a
+          href={route.name === "home" ? "#setup" : "/#setup"}
+          onClick={(event) => {
+            track("Click Nav Start");
+            if (route.name !== "home") {
+              event.preventDefault();
+              navigate("/");
+              window.setTimeout(() => document.getElementById("setup")?.scrollIntoView({ behavior: "smooth" }), 0);
+            }
+          }}
+        >
+          {t.navStart}
+        </a>
+        <a
+          href={blogPath}
+          onClick={(event) => {
+            event.preventDefault();
+            track("Click Blog Link", { location: "header", locale });
+            navigate(blogPath);
+          }}
+        >
+          {t.blog}
+        </a>
         <a href={docsUrl[locale]} onClick={() => track("Click Docs Link", { location: "header", locale })}>{t.docs}</a>
         <a href={githubUrl} onClick={() => track("Click GitHub Link", { location: "header" })}>{t.github}</a>
         <button
@@ -327,7 +453,7 @@ function Header({ locale, setLocale, t }) {
   );
 }
 
-function Hero({ t, locale }) {
+function Hero({ t, locale, navigate }) {
   const [mode, setMode] = useState("humans");
   const [copied, setCopied] = useState(false);
   const active = t.modes[mode];
@@ -396,12 +522,245 @@ function Hero({ t, locale }) {
             <GitFork size={15} />
             {t.github}
           </a>
+          <a
+            className="button ghost"
+            href={blogPath}
+            onClick={(event) => {
+              event.preventDefault();
+              track("Click Blog Link", { location: "hero", locale });
+              navigate(blogPath);
+            }}
+          >
+            <BookOpen size={15} />
+            {t.blog}
+          </a>
         </div>
       </div>
 
       <ProductVisual mode={mode} t={t} />
     </section>
   );
+}
+
+function BlogIndex({ t, locale, navigate }) {
+  const post = blogPosts[0];
+  const postCopy = post[locale];
+
+  return (
+    <section className="blog-page shell">
+      <div className="blog-hero">
+        <p className="eyebrow">{t.blogPage.eyebrow}</p>
+        <h1>{t.blogPage.title}</h1>
+        <p>{t.blogPage.intro}</p>
+      </div>
+      <div className="blog-section-head">
+        <h2>{t.blogPage.latest}</h2>
+      </div>
+      <article className="blog-card">
+        <div className="blog-card-art" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </div>
+        <div className="blog-card-copy">
+          <span className="post-kicker">{postCopy.category}</span>
+          <h2>{postCopy.title}</h2>
+          <p>{postCopy.description}</p>
+          <PostMeta post={post} postCopy={postCopy} t={t} />
+          <a
+            className="button primary"
+            href={`${blogPath}/${post.slug}`}
+            onClick={(event) => {
+              event.preventDefault();
+              track("Open Blog Post", { slug: post.slug, locale });
+              navigate(`${blogPath}/${post.slug}`);
+            }}
+          >
+            {t.blogPage.read}
+            <ChevronRight size={15} />
+          </a>
+        </div>
+      </article>
+    </section>
+  );
+}
+
+function BlogArticle({ t, locale, route, navigate }) {
+  const post = getBlogPost(route.slug);
+
+  if (!post) {
+    return (
+      <section className="blog-page shell">
+        <BlogBackLink t={t} navigate={navigate} />
+        <div className="blog-hero">
+          <h1>{t.blogPage.notFound}</h1>
+        </div>
+      </section>
+    );
+  }
+
+  const postCopy = post[locale];
+
+  return (
+    <article className="article-page shell">
+      <BlogBackLink t={t} navigate={navigate} />
+      <header className="article-header">
+        <div>
+          <span className="post-kicker">{postCopy.category}</span>
+          <h1>{postCopy.title}</h1>
+          <p>{postCopy.description}</p>
+          <PostMeta post={post} postCopy={postCopy} t={t} />
+        </div>
+        <div className="article-mark" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+          <span />
+        </div>
+      </header>
+      <MdxBody source={postCopy.body} />
+    </article>
+  );
+}
+
+function BlogBackLink({ t, navigate }) {
+  return (
+    <a
+      className="back-link"
+      href={blogPath}
+      onClick={(event) => {
+        event.preventDefault();
+        track("Back To Blog");
+        navigate(blogPath);
+      }}
+    >
+      <ArrowLeft size={15} />
+      {t.blogPage.back}
+    </a>
+  );
+}
+
+function PostMeta({ post, postCopy, t }) {
+  return (
+    <div className="post-meta">
+      <span>
+        <CalendarDays size={14} />
+        {postCopy.date}
+      </span>
+      <span>
+        <Clock3 size={14} />
+        {postCopy.readMinutes} {t.blogPage.minutes}
+      </span>
+      <span>{postCopy.category}</span>
+    </div>
+  );
+}
+
+function MdxBody({ source }) {
+  const blocks = parseMarkdownBlocks(source);
+
+  return (
+    <div className="article-body">
+      {blocks.map((block, index) => {
+        if (block.type === "heading") {
+          const HeadingTag = `h${block.level}`;
+          return <HeadingTag key={index}>{formatInline(block.text)}</HeadingTag>;
+        }
+        if (block.type === "quote") {
+          return <blockquote key={index}>{formatInline(block.text)}</blockquote>;
+        }
+        if (block.type === "list") {
+          return (
+            <ul key={index}>
+              {block.items.map((item) => (
+                <li key={item}>{formatInline(item)}</li>
+              ))}
+            </ul>
+          );
+        }
+        if (block.type === "code") {
+          return <pre key={index}><code>{block.text}</code></pre>;
+        }
+        return <p key={index}>{formatInline(block.text)}</p>;
+      })}
+    </div>
+  );
+}
+
+function parseMarkdownBlocks(source) {
+  const lines = source.trim().split("\n");
+  const blocks = [];
+  let paragraph = [];
+  let list = [];
+  let code = [];
+  let inCode = false;
+
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    blocks.push({ type: "paragraph", text: paragraph.join(" ") });
+    paragraph = [];
+  };
+  const flushList = () => {
+    if (!list.length) return;
+    blocks.push({ type: "list", items: list });
+    list = [];
+  };
+
+  for (const line of lines) {
+    if (line.startsWith("```")) {
+      if (inCode) {
+        blocks.push({ type: "code", text: code.join("\n") });
+        code = [];
+        inCode = false;
+      } else {
+        flushParagraph();
+        flushList();
+        inCode = true;
+      }
+      continue;
+    }
+    if (inCode) {
+      code.push(line);
+      continue;
+    }
+    if (!line.trim()) {
+      flushParagraph();
+      flushList();
+      continue;
+    }
+    const heading = line.match(/^(#{2,3})\s+(.+)$/);
+    if (heading) {
+      flushParagraph();
+      flushList();
+      blocks.push({ type: "heading", level: heading[1].length, text: heading[2] });
+      continue;
+    }
+    if (line.startsWith("> ")) {
+      flushParagraph();
+      flushList();
+      blocks.push({ type: "quote", text: line.slice(2) });
+      continue;
+    }
+    if (line.startsWith("- ")) {
+      flushParagraph();
+      list.push(line.slice(2));
+      continue;
+    }
+    paragraph.push(line.trim());
+  }
+
+  flushParagraph();
+  flushList();
+  return blocks;
+}
+
+function formatInline(text) {
+  const parts = text.split(/(`[^`]+`|\*\*[^*]+\*\*)/g).filter(Boolean);
+  return parts.map((part, index) => {
+    if (part.startsWith("`") && part.endsWith("`")) return <code key={index}>{part.slice(1, -1)}</code>;
+    if (part.startsWith("**") && part.endsWith("**")) return <strong key={index}>{part.slice(2, -2)}</strong>;
+    return part;
+  });
 }
 
 function ProductVisual({ mode, t }) {
