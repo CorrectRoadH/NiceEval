@@ -1,22 +1,23 @@
 # AI SDK v7 助手(接入前)
 
-这是一个**普通的 AI SDK v7 工具循环应用**:系统提示 + 四个工具(查天气 / 算数 / 搜索 /
-发邮件)+ 一次 `generateText` 调用,进程内直调、不起服务,不接任何观测或 eval 框架。
+这是 [`examples/zh/ai-sdk`](../ai-sdk/) 的 **AI SDK v7 升级版**:同一套本地聊天应用
+(HTTP 服务器 + React 聊天 UI)、同一套工具(查天气 / 算数 / 搜索),换成 v7 API,但不接
+niceeval、不接观测——纯粹是一个普通的 AI SDK v7 应用。
 
-它是 [`examples/zh/ai-sdk-v7`](../ai-sdk-v7/) 的接入前快照——两个目录的 diff 就是接入
-niceeval(会话、事件流、HITL、tracing、断言)需要改动的全部内容。想看接入 niceeval 具体
-要加什么,直接 diff 这两个目录:
+目录结构对齐 `examples/zh/ai-sdk`:
 
-```sh
-diff -ru examples/zh/ai-sdk-v7-before examples/zh/ai-sdk-v7
-```
-
-## 目录结构
-
-- `agent/assistant.ts`:系统提示、四个工具、一个 `chat(messages, modelId?)` 函数。
-  `send_email` 带 `needsApproval: true`(AI SDK v7 的 tool approval),调用方需要自己把
-  `tool-approval-response` 塞回 `messages` 再召一次。
-- `agent/models.ts`:模型注册表,OpenAI 兼容的两家 provider。
+- `src/assistant.ts`:纯逻辑,不 import 任何 AI SDK 的东西——会话状态
+  (`getSession` / `rememberAiTurn` / `sessionMessages`)和三个工具的实现
+  (`getWeather` / `calculate` / `webSearch`)。
+- `src/models.ts`:模型注册表,OpenAI 兼容的两家 provider,带前端选择器要用的
+  `label` / `contextTokens`。
+- `src/ai-sdk-runtime.ts`:AI SDK 接线——系统提示、把 `assistant.ts` 的函数包成
+  `tool()`、`streamChat()` 用 `streamText` 起一次工具循环,喂给 `server.ts` 的
+  流式聊天端点。
+- `src/server.ts`:一个 `node:http` 服务器,`/api/models` 给前端拉模型列表,
+  `/api/chat` 用 AI SDK 的 UI message stream 格式给 `useChat` 用。
+- `src/client/App.tsx` / `App.css`:React 聊天界面(模型选择、流式回复、工具调用
+  气泡、图片上传)。
 
 ## 跑起来
 
@@ -26,11 +27,5 @@ diff -ru examples/zh/ai-sdk-v7-before examples/zh/ai-sdk-v7
 cd examples/zh/ai-sdk-v7-before
 pnpm install
 cp .env.example .env   # 填 DEEPSEEK_API_KEY / OPENAI_API_KEY
-```
-
-```ts
-import { chat } from "./agent/assistant.ts";
-
-const result = await chat([{ role: "user", content: "北京天气怎么样?" }]);
-console.log(result.text);
+pnpm dev               # 起 server(5188)+ vite dev server(5173),浏览器打开 5173
 ```
