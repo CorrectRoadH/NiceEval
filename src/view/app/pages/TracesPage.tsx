@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import type { RowRun, T } from "../shared.ts";
 import type { ViewResult, ViewRow } from "../types.ts";
-import { outcomeClass, outcomeLabel, outcomeOf } from "../lib/outcome.ts";
+import { outcomeClass, outcomeLabel } from "../lib/outcome.ts";
 import { formatDuration } from "../lib/format.ts";
 import { LazyArtifact } from "../components/LazyArtifact.tsx";
 
@@ -20,7 +20,7 @@ export function TracesView({ rows, t }: { rows: ViewRow[]; t: T }) {
         <div className="empty">{t("empty.traces")}</div>
       ) : (
         traceable.map((r: RowRun) => {
-          const outcome = outcomeOf(r);
+          const outcome = r.outcome;
           return (
             <div className="traces-entry" key={`${r.id}-${r.rowLabel}-${r.attempt}`}>
               <div className="traces-entry-head">

@@ -13,19 +13,20 @@
 
 import type { StreamEvent, Usage, ToolName, JsonValue } from "../../types.ts";
 import type { ParsedTranscript } from "./index.ts";
+import { normalizeToolName as normalizeShared } from "../tool-names.ts";
+
+/** Bub 特有别名(fs.* / web.* 命名空间与裸 read/write/edit);通用别名走 o11y/tool-names.ts 基表。 */
+const BUB_TOOL_ALIASES: Record<string, ToolName> = {
+  "fs.read": "file_read", fs_read: "file_read", read: "file_read",
+  "fs.write": "file_write", fs_write: "file_write", write: "file_write",
+  "fs.edit": "file_edit", fs_edit: "file_edit", edit: "file_edit",
+  "web.fetch": "web_fetch",
+  "web.search": "web_search",
+  update_todos: "agent_task",
+};
 
 function normalizeToolName(name: string): ToolName {
-  const toolMap: Record<string, ToolName> = {
-    "fs.read": "file_read", fs_read: "file_read", read_file: "file_read", read: "file_read",
-    "fs.write": "file_write", fs_write: "file_write", write_file: "file_write", write: "file_write", create_file: "file_write",
-    "fs.edit": "file_edit", fs_edit: "file_edit", edit_file: "file_edit", edit: "file_edit", apply_patch: "file_edit",
-    bash: "shell", shell: "shell", exec: "shell", command_execution: "shell",
-    "web.fetch": "web_fetch", web_fetch: "web_fetch", fetch: "web_fetch", curl: "web_fetch",
-    "web.search": "web_search", web_search: "web_search",
-    glob: "glob", grep: "grep", ls: "list_dir", list_dir: "list_dir",
-    task: "agent_task", update_todos: "agent_task",
-  };
-  return toolMap[name] || toolMap[name.toLowerCase()] || "unknown";
+  return normalizeShared(name, BUB_TOOL_ALIASES);
 }
 
 function get(obj: unknown, key: string): unknown {

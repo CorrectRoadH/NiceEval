@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { ChevronRight } from "lucide-react";
 import type { OpenModal, T } from "../shared.ts";
 import type { Assertion, SortKey, SortState, ViewResult, ViewRow } from "../types.ts";
-import { EvalGroup, failingAssertions, groupByEval, outcomeClass, outcomeLabel, outcomeOf, outcomeSummary, reasonFor, scoresSummary } from "../lib/outcome.ts";
+import { EvalGroup, failingAssertions, groupByEval, outcomeClass, outcomeLabel, outcomeSummary, reasonFor, scoresSummary } from "../lib/outcome.ts";
 import { configChips } from "../lib/rows.ts";
 import { formatClock, formatCost, formatDateTime, formatDuration, formatPercent, formatTokens, totalTokens } from "../lib/format.ts";
 import { Kpi, SortHeader } from "./primitives.tsx";
@@ -91,8 +91,8 @@ export function ExperimentRow({ row, open, onToggle, t }: { row: ViewRow; open: 
 export function ExperimentDetail({ row, openModal, t }: { row: ViewRow; openModal: OpenModal; t: T }) {
   const totalDuration = (row.results ?? []).reduce((sum: number, r: ViewResult) => sum + (r.durationMs || 0), 0);
   const sampleResult =
-    row.results?.find((r: ViewResult) => outcomeOf(r) === "errored") ||
-    row.results?.find((r: ViewResult) => outcomeOf(r) === "failed") ||
+    row.results?.find((r: ViewResult) => r.outcome === "errored") ||
+    row.results?.find((r: ViewResult) => r.outcome === "failed") ||
     row.results?.[0] ||
     {};
   const evalGroups = groupByEval(row.results ?? []).sort((a, b) => a.id.localeCompare(b.id));
@@ -158,7 +158,7 @@ export function EvalRow({ group, openModal, t }: { group: EvalGroup; openModal: 
   }
 
   // 代表轮:取与 eval 判决相同的第一条,用它的原因/分数做折叠行摘要。
-  const rep = group.attempts.find((a) => outcomeOf(a) === group.outcome) ?? group.attempts[0]!;
+  const rep = group.attempts.find((a) => a.outcome === group.outcome) ?? group.attempts[0]!;
   const gates = failingAssertions(rep);
   const reason = reasonFor(rep, gates) || (group.outcome === "passed" ? scoresSummary(rep.assertions || []) : "");
   const totalDuration = group.attempts.reduce((s, a) => s + (a.durationMs || 0), 0);
@@ -207,7 +207,7 @@ export function EvalRow({ group, openModal, t }: { group: EvalGroup; openModal: 
 }
 
 export function Attempt({ result, totalRuns, openModal, t }: { result: ViewResult; totalRuns: number; openModal: OpenModal; t: T }) {
-  const outcome = outcomeOf(result);
+  const outcome = result.outcome;
   const gates = failingAssertions(result);
   const reason = reasonFor(result, gates);
   const allAssertions = result.assertions || [];

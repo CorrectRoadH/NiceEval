@@ -9,10 +9,12 @@ import type {
   TraceSpan,
   Usage,
 } from "../../types.ts";
+import type { ViewData } from "../shared/types.ts";
 
 export type { LocalizedText };
-
-export type Locale = "en" | "zh-CN";
+// Locale 只在 i18n 内核声明一次;榜单行 / 页面数据形状与 server 共用 shared/types.ts 的声明。
+export type { Locale } from "../../i18n/core.ts";
+export type { SkippedRunNotice, ViewData, ViewRow } from "../shared/types.ts";
 
 export type Tab = "experiments" | "runs" | "traces";
 export type SortKey = "experiment" | "model" | "agent" | "avgDurationMs" | "passRate" | "tokens" | "cost";
@@ -23,60 +25,10 @@ export interface SortState {
   dir: SortDir;
 }
 
-export interface ViewRow {
-  key: string;
-  experimentId?: string;
-  experiment?: EvalResult["experiment"];
-  group?: string;
-  label: string;
-  agent: string;
-  model?: string;
-  runs: number;
-  evals: number;
-  passed: number;
-  failed: number;
-  errored: number;
-  skipped: number;
-  scored?: number;
-  passRate: number;
-  avgDurationMs: number;
-  usage: Usage;
-  estimatedCostUSD?: number;
-  lastRunAt?: string;
-  results: ViewResult[];
-}
-
-export type ViewResult = EvalResult & {
-  artifactBase?: string;
-  artifactAbsBase?: string;
-  hasEvents?: boolean;
-  hasTrace?: boolean;
-  hasSources?: boolean;
-};
+/** 前端拿到的单条 attempt 结果就是瘦身后的 EvalResult(artifactBase 由 loader 注入)。 */
+export type ViewResult = EvalResult;
 
 export type Assertion = AssertionResult;
-
-export interface ViewData {
-  rows?: ViewRow[];
-  /** 项目名(来自 config.name);hero 标题,可按 locale 多语言。 */
-  name?: LocalizedText;
-  lastRun: string;
-  passRate: string;
-  resultCount: string;
-  duration: string;
-  cost: string;
-  /** schemaVersion 与当前 view 不同的 run;不解析内容,只渲染占位提示。 */
-  incompatibleRuns?: IncompatibleRunNotice[];
-}
-
-export interface IncompatibleRunNotice {
-  /** run 目录,相对 cwd。 */
-  dir: string;
-  schemaVersion: number;
-  producerVersion?: string;
-  /** 服务端拼好的查看命令:npx niceeval@<producerVersion> view <dir>。 */
-  command: string;
-}
 
 export type Outcome = "passed" | "failed" | "errored" | "skipped" | string;
 

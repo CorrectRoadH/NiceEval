@@ -35,6 +35,7 @@ export function defineSandboxAgent(def: SandboxAgentDef): Agent {
     capabilities: { ...SANDBOX_DEFAULT_CAPS, ...(def.capabilities ?? {}) },
     setup: def.setup,
     tracing: def.tracing,
+    spanMapper: def.spanMapper,
     send: def.send,
     teardown: def.teardown,
   };
@@ -48,6 +49,7 @@ export function defineAgent(def: RemoteAgentDef): Agent {
     capabilities: { ...REMOTE_DEFAULT_CAPS, ...(def.capabilities ?? {}) },
     setup: def.setup,
     tracing: def.tracing,
+    spanMapper: def.spanMapper,
     send: def.send,
     teardown: def.teardown,
   };

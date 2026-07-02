@@ -7,61 +7,26 @@
 
 import type { StreamEvent, Usage, ToolName, JsonValue } from "../../types.ts";
 import type { ParsedTranscript } from "./index.ts";
+import { normalizeToolName as normalizeShared } from "../tool-names.ts";
 
 // ───────────────────────── 工具名归一 ─────────────────────────
 
+/** Claude Code 特有别名(键小写;PascalCase 原名靠共享层的 toLowerCase 兜住);通用别名走基表。 */
+const CLAUDE_TOOL_ALIASES: Record<string, ToolName> = {
+  readfile: "file_read",
+  writefile: "file_write",
+  write_to_file: "file_write",
+  multiedit: "file_edit",
+  editfile: "file_edit",
+  strreplace: "file_edit",
+  notebookedit: "file_edit",
+  bashoutput: "shell",
+  mcp__fetch__fetch: "web_fetch",
+  listdir: "list_dir",
+};
+
 function normalizeToolName(name: string): ToolName {
-  const toolMap: Record<string, ToolName> = {
-    // 文件
-    Read: "file_read",
-    read_file: "file_read",
-    ReadFile: "file_read",
-    Write: "file_write",
-    write_file: "file_write",
-    WriteFile: "file_write",
-    write_to_file: "file_write",
-    create_file: "file_write",
-    Edit: "file_edit",
-    MultiEdit: "file_edit",
-    edit_file: "file_edit",
-    EditFile: "file_edit",
-    str_replace_editor: "file_edit",
-    StrReplace: "file_edit",
-    NotebookEdit: "file_edit",
-
-    // shell
-    Bash: "shell",
-    bash: "shell",
-    BashOutput: "shell",
-    Shell: "shell",
-    shell: "shell",
-    execute_command: "shell",
-    run_command: "shell",
-
-    // web
-    WebFetch: "web_fetch",
-    web_fetch: "web_fetch",
-    fetch_url: "web_fetch",
-    mcp__fetch__fetch: "web_fetch",
-    WebSearch: "web_search",
-    web_search: "web_search",
-
-    // 检索 / 导航
-    Glob: "glob",
-    glob: "glob",
-    list_files: "glob",
-    Grep: "grep",
-    grep: "grep",
-    search_files: "grep",
-    LS: "list_dir",
-    list_dir: "list_dir",
-    ListDir: "list_dir",
-
-    // 子 agent
-    Task: "agent_task",
-    task: "agent_task",
-  };
-  return toolMap[name] || "unknown";
+  return normalizeShared(name, CLAUDE_TOOL_ALIASES);
 }
 
 // ───────────────────────── 小工具 ─────────────────────────

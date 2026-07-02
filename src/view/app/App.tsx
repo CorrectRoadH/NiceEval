@@ -3,6 +3,7 @@ import { detectLocale, makeTranslator, persistLocale, setDocumentLocale } from "
 import type { MessageKey } from "./i18n.ts";
 import type { Locale, LocalizedText, SortKey, SortState, Tab, ViewData, ViewResult, ViewRow } from "./types.ts";
 import { buildGroupMap, compareRows, resultFromUrl } from "./lib/rows.ts";
+import { formatCost, formatDateTime, formatDuration, formatPercent } from "./lib/format.ts";
 import { Metric } from "./components/primitives.tsx";
 import { GroupSelector } from "./components/GroupSelector.tsx";
 import { ExperimentTable } from "./components/ExperimentTable.tsx";
@@ -128,29 +129,32 @@ export function App({ data }: { data: ViewData }) {
           <h1>{localizedText(data.name, locale) || t("hero.title")}</h1>
           <div className="meta">
             <span>
-              <b>{t("hero.lastRun")}</b> {data.lastRun}
+              {/* viewData 只带原始值(ISO / number),这里按当前界面 locale 格式化。 */}
+              <b>{t("hero.lastRun")}</b> {data.lastRunAt ? formatDateTime(data.lastRunAt, locale) : t("hero.noRuns")}
             </span>
           </div>
         </section>
 
         <section className="summary" aria-label="Run summary">
-          <Metric label={t("metric.passRate")} value={data.passRate} />
-          <Metric label={t("metric.evalResults")} value={data.resultCount} />
-          <Metric label={t("metric.duration")} value={data.duration} />
-          <Metric label={t("metric.cost")} value={data.cost} />
+          <Metric label={t("metric.passRate")} value={formatPercent(data.passRate)} />
+          <Metric label={t("metric.evalResults")} value={String(data.resultCount)} />
+          <Metric label={t("metric.duration")} value={formatDuration(data.durationMs)} />
+          <Metric label={t("metric.cost")} value={formatCost(data.estimatedCostUSD)} />
         </section>
 
-        {(data.incompatibleRuns?.length ?? 0) > 0 && (
+        {(data.skippedRuns?.length ?? 0) > 0 && (
           <section className="incompatible-banner" role="alert">
-            <b>{t("banner.incompatibleTitle")}</b>
+            <b>{t("banner.skippedTitle")}</b>
             <ul>
-              {data.incompatibleRuns!.map((run) => (
+              {data.skippedRuns!.map((run) => (
                 <li key={run.dir}>
                   <span className="ib-dir">{run.dir}</span>
                   <span className="ib-meta">
-                    niceeval {run.producerVersion ?? "?"} · schemaVersion {run.schemaVersion}
+                    {run.reason === "incompatible-version"
+                      ? t("banner.skipped.incompatible", { producer: run.producerVersion ?? "?", schemaVersion: run.schemaVersion })
+                      : t("banner.skipped.malformed", { detail: run.detail ?? "?" })}
                   </span>
-                  <code>{run.command}</code>
+                  {run.command ? <code>{run.command}</code> : null}
                 </li>
               ))}
             </ul>

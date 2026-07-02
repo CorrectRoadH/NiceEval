@@ -13,23 +13,25 @@ function codexTag(span: TraceSpan): SpanTag {
   const ln = span.name.toLowerCase();
   const a = span.attributes ?? {};
 
-  // 工具执行:带 tool_name/call_id,或 codex 的执行/补丁/路由 span 名。
-  if ("tool_name" in a) return { op: OP_EXECUTE_TOOL, kind: "tool" };
-  if (/(^|[._])(exec_command|apply_patch|write_stdin|handle_tool_call|dispatch_tool_call)/.test(ln)) {
+  // 只编码 codex 独有、通用 heuristic 认不出的命名;通用信号(tool_name / gen_ai.* /
+  // handle_tool_call / run_turn …)一律交给兜底,不在这里重复一遍。
+
+  // 工具执行:codex 的执行 / 补丁 span 名。
+  if (/(^|[._])(exec_command|apply_patch|write_stdin)/.test(ln)) {
     return { op: OP_EXECUTE_TOOL, kind: "tool" };
   }
 
-  // 模型调用:codex 的采样 / 流式 span,或到模型后端的 HTTP(wire_api / responses)。
+  // 模型调用:codex 的采样 / 流式 span,或 wire_api 属性(responses 后端)。
   if ("wire_api" in a) return { op: OP_CHAT, kind: "model" };
   if (/(^|[._])(run_sampling_request|try_run_sampling_request|stream_responses|receiving_stream)(\b|_|$)/.test(ln)) {
     return { op: OP_CHAT, kind: "model" };
   }
 
-  // 回合 / 会话骨架:codex.exec(一次 exec 调用)、run_turn、turn.id 属性。GenAI 无对应操作 → 只给 kind。
-  if ("turn.id" in a || Object.keys(a).some((k) => k.startsWith("codex.turn"))) return { kind: "turn" };
-  if (/^(codex\.exec|run_turn|session_loop)$/.test(ln) || /session_task\.turn/.test(ln)) return { kind: "turn" };
+  // 回合 / 会话骨架:codex.exec(一次 exec 调用)、codex.turn 属性。GenAI 无对应操作 → 只给 kind。
+  if (Object.keys(a).some((k) => k.startsWith("codex.turn"))) return { kind: "turn" };
+  if (/^codex\.exec$/.test(ln) || /session_task\.turn/.test(ln)) return { kind: "turn" };
 
-  // codex 没专门命名的(handle_responses / append_items 等内部噪声)交给通用兜底 → 多半落 "other"。
+  // 其余(含 handle_responses / append_items 等内部噪声)交给通用兜底。
   return heuristicTag(span);
 }
 

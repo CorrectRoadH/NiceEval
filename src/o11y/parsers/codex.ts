@@ -6,53 +6,18 @@
 
 import type { StreamEvent, Usage, ToolName, JsonValue } from "../../types.ts";
 import type { ParsedTranscript } from "./index.ts";
+import { normalizeToolName as normalizeShared } from "../tool-names.ts";
 
 // ───────────────────────── 工具名归一 ─────────────────────────
 
-/** Codex 工具名 → 规范 ToolName。 */
+/** Codex 特有别名;通用别名走 o11y/tool-names.ts 基表。 */
+const CODEX_TOOL_ALIASES: Record<string, ToolName> = {
+  file_change: "file_edit",
+  update_plan: "agent_task",
+};
+
 function normalizeToolName(name: string): ToolName {
-  const toolMap: Record<string, ToolName> = {
-    // 文件
-    read_file: "file_read",
-    write_file: "file_write",
-    create_file: "file_write",
-    delete_file: "file_write",
-    edit_file: "file_edit",
-    patch_file: "file_edit",
-    apply_patch: "file_edit",
-    file_change: "file_edit",
-    update_plan: "agent_task",
-
-    // shell
-    shell: "shell",
-    bash: "shell",
-    exec: "shell",
-    execute: "shell",
-    run: "shell",
-    terminal: "shell",
-    command_execution: "shell",
-    local_shell: "shell",
-
-    // web
-    fetch: "web_fetch",
-    http_request: "web_fetch",
-    curl: "web_fetch",
-    web_fetch: "web_fetch",
-    web_search: "web_search",
-    search: "web_search",
-
-    // 检索 / 导航
-    glob: "glob",
-    find_files: "glob",
-    list_files: "glob",
-    grep: "grep",
-    search_files: "grep",
-    ripgrep: "grep",
-    ls: "list_dir",
-    list_directory: "list_dir",
-    dir: "list_dir",
-  };
-  return toolMap[name.toLowerCase()] || "unknown";
+  return normalizeShared(name, CODEX_TOOL_ALIASES);
 }
 
 // ───────────────────────── 小工具 ─────────────────────────
@@ -140,13 +105,17 @@ function pickUsage(data: unknown): unknown {
 
 // ───────────────────────── compaction 标记 ─────────────────────────
 
-/** 仅在出现可信压缩标记时才认(保守):type / item.type 含 compact / summariz / context_truncat。 */
+/**
+ * 仅在出现可信压缩标记时才认(保守):type / item.type / subtype 含 compact 或 context_truncat。
+ * 不再匹配 "summariz"——任何名字带 summarize 的工具 / item(如 summarization_tool)都会被
+ * 误判成压缩边界并整条吞掉,污染计数且丢事件。命中即吞整条事件,匹配面必须窄。
+ */
 function isCompactionMarker(eventType: unknown, data: unknown): boolean {
   const candidates = [eventType, get(get(data, "item"), "type"), get(data, "subtype")];
   for (const c of candidates) {
     if (typeof c !== "string") continue;
     const s = c.toLowerCase();
-    if (s.includes("compact") || s.includes("summariz") || s.includes("context_truncat")) return true;
+    if (s.includes("compact") || s.includes("context_truncat")) return true;
   }
   return false;
 }
@@ -447,7 +416,11 @@ export function parseCodexTranscript(raw: string | undefined): ParsedTranscript 
   return { events, usage, compactions, parseSuccess };
 }
 
-/** 解读一条工具结果输出:抠 exit_code / error 推断成败,返回归一化 output + status。 */
+/**
+ * 解读一条工具结果输出:显式 success/error → status 字符串 → exit_code,层层找成败证据。
+ * 都没有才默认 completed —— 这是乐观兜底:codex 不带任何成败字段的结果会被记成成功,
+ * noFailedActions() 这类负断言可能因此假通过。所以证据检查要尽量全,别轻易走到兜底。
+ */
 function interpretOutput(
   rawOut: unknown,
   data: unknown,
@@ -456,6 +429,15 @@ function interpretOutput(
   const explicitSuccess = get(data, "success");
   if (explicitSuccess === false) return { output: (rawOut ?? null) as JsonValue, status: "failed" };
   if (get(data, "error")) return { output: (rawOut ?? null) as JsonValue, status: "failed" };
+
+  // 事件自带 status 字符串(item/data 两层都看)。
+  const statusStr = get(data, "status") ?? get(get(data, "item"), "status");
+  if (statusStr === "failed" || statusStr === "error") {
+    return { output: (rawOut ?? null) as JsonValue, status: "failed" };
+  }
+  if (statusStr === "rejected" || statusStr === "declined") {
+    return { output: (rawOut ?? null) as JsonValue, status: "rejected" };
+  }
 
   // 字符串输出尝试解析 exit_code(codex shell 结果常见)。
   let parsed: unknown = rawOut;

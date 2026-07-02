@@ -2,11 +2,8 @@
 // 改编自 agent-eval 的 docker-sandbox.ts,签名对齐 ../types.ts 的 Sandbox 契约
 //(runShell/runCommand 的 opts 一律是选项对象,不再用位置参数)。
 
-import { readdir, readFile, stat } from "node:fs/promises";
-import { basename, dirname, join, relative, sep } from "node:path";
-import { Readable } from "node:stream";
+import { basename, dirname } from "node:path";
 import Docker from "dockerode";
-import * as tar from "tar-stream";
 import type {
   Sandbox,
   CommandResult,
@@ -17,12 +14,17 @@ import type {
   ReadSourceFilesOptions,
 } from "../types.ts";
 import { makeSourceFiles } from "./source-files.ts";
+import {
+  DEFAULT_IGNORE_DIRS,
+  DEFAULT_IGNORE_FILES,
+  DEFAULT_SOURCE_EXTENSIONS,
+  collectLocalFiles,
+} from "./local-files.ts";
+import { buildFindScript, shellQuote } from "./shell.ts";
+import { createExecDemuxer, extractFileFromTar, packFilesToTar, readableToBuffer } from "./docker-stream.ts";
 import { resolveSandboxPath } from "./paths.ts";
 import { t } from "../i18n/index.ts";
 
-const DEFAULT_SOURCE_EXTENSIONS = ["ts", "tsx", "js", "jsx"];
-const DEFAULT_IGNORE_DIRS = [".git", ".next", "node_modules", "dist", "build", "coverage"];
-const DEFAULT_IGNORE_FILES = ["EVAL.ts", "PROMPT.md"];
 // 行首哨兵:源码文件几乎不可能出现这一串,用来切分单次 shell 输出里的多份文件。
 const SOURCE_FILE_MARKER = "::FE-SRC-7b3f9c::";
 
@@ -48,11 +50,6 @@ const CONTAINER_WORKDIR = "/home/sandbox/workspace";
 // 容器「主日志」文件:PID1 tail 它 → `docker logs` 实时显示;agent 命令的 stream 输出 tee 进来。
 const CONTAINER_LOG = "/tmp/niceeval-agent.log";
 
-/** 单引号包裹 + 转义,把一个参数安全嵌进 shell 命令串。 */
-function shellQuote(s: string): string {
-  return `'${s.replace(/'/g, "'\\''")}'`;
-}
-
 // 命令默认以非 root 的 node 用户跑:安全 + 兼容(如 Claude Code 在 root 下拒绝
 // --dangerously-skip-permissions)。node:*-slim 镜像自带 UID/GID 1000 的 node 用户。
 // 需要 root 的命令(setup 装系统依赖)走 runCommand 的 `{ root: true }`;此默认非 root + 按需提
@@ -67,39 +64,6 @@ const NPM_GLOBAL_DIR = "/home/node/.npm-global";
 
 // 命令执行时注入的 PATH:把 npm 全局 bin 放最前。
 const SANDBOX_PATH = `${NPM_GLOBAL_DIR}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`;
-
-/** Readable stream → Buffer。 */
-async function readableToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    stream.on("data", (chunk: Buffer | string) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
-    stream.on("end", () => resolve(Buffer.concat(chunks)));
-    stream.on("error", reject);
-  });
-}
-
-/** 从单文件 tar 包里提取第一个 entry 的内容。 */
-async function extractFileFromTar(tarBuf: Buffer): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const extract = tar.extract();
-    let found = false;
-    extract.on("entry", (header, stream, next) => {
-      if (!found) {
-        found = true;
-        const chunks: Buffer[] = [];
-        stream.on("data", (c: Buffer) => chunks.push(c));
-        stream.on("end", () => { resolve(Buffer.concat(chunks)); next(); });
-        stream.on("error", reject);
-      } else {
-        stream.resume();
-        next();
-      }
-    });
-    extract.on("finish", () => { if (!found) reject(new Error("tar: no entries found")); });
-    extract.on("error", reject);
-    extract.end(tarBuf);
-  });
-}
 
 /** 创建 Docker 沙箱的选项。 */
 export interface DockerSandboxOptions {
@@ -321,29 +285,11 @@ export class DockerSandbox implements Sandbox {
     const stream = await exec.start({ hijack: true, stdin: false });
 
     return new Promise<CommandResult>((resolve, reject) => {
-      // Docker 把 stdout/stderr 复用在同一条流里(8 字节头 + 载荷),需手动 demux。
-      // 头:[stream_type(1B), 0, 0, 0, size(4B 大端)];stream_type:1=stdout,2=stderr。
-      //
-      // 关键:一帧可能被 Node 的可读流切到【多个 data 事件】里(尤其大输出,如 cat 一个
-      // ~100KB 的文件),帧头 / 载荷都可能跨 chunk。所以必须跨 data 累积一个 leftover,
-      // 只消费「已到齐的完整帧」,残帧留到下个 data —— 否则会在 chunk 边界丢字节 / 串帧,
-      // 表现为 transcript 里随机损坏的行(曾导致 bub tape 的 tool_result/tool_call 被吞)。
-      const stdoutChunks: Buffer[] = [];
-      const stderrChunks: Buffer[] = [];
-      let buffer: Buffer = Buffer.alloc(0); // 跨 data 累积的残帧;注解为 Buffer 以容纳 concat 的 ArrayBufferLike
+      // Docker 把 stdout/stderr 复用在同一条流里(8 字节头 + 载荷),需手动 demux;
+      // 跨 chunk 的帧累积逻辑见 docker-stream.ts 的 createExecDemuxer。
+      const demuxer = createExecDemuxer();
 
-      stream.on("data", (chunk: Buffer) => {
-        buffer = buffer.length ? Buffer.concat([buffer, chunk]) : chunk;
-        while (buffer.length >= 8) {
-          const streamType = buffer[0];
-          const size = buffer.readUInt32BE(4);
-          if (buffer.length < 8 + size) break; // 载荷未到齐 → 等下个 data
-          const payload = buffer.subarray(8, 8 + size);
-          if (streamType === 2) stderrChunks.push(payload);
-          else stdoutChunks.push(payload); // 1 / 0 / 未知 → 归 stdout
-          buffer = buffer.subarray(8 + size);
-        }
-      });
+      stream.on("data", (chunk: Buffer) => demuxer.push(chunk));
 
       // 超时:杀流并 reject。
       const timeoutId = setTimeout(() => {
@@ -353,8 +299,8 @@ export class DockerSandbox implements Sandbox {
 
       stream.on("end", async () => {
         clearTimeout(timeoutId);
-        const stdout = Buffer.concat(stdoutChunks).toString("utf-8");
-        const stderr = Buffer.concat(stderrChunks).toString("utf-8");
+        const stdout = demuxer.stdout();
+        const stderr = demuxer.stderr();
 
         try {
           const inspection = await exec.inspect();
@@ -416,10 +362,8 @@ export class DockerSandbox implements Sandbox {
     const ignoreDirs = opts.ignoreDirs ?? DEFAULT_IGNORE_DIRS;
     const ignoreFiles = new Set(opts.ignoreFiles ?? DEFAULT_IGNORE_FILES);
 
-    const dirPrune = ignoreDirs.map((d) => `-name '${d}'`).join(" -o ");
-    const nameTests = extensions.map((e) => `-name '*.${e}'`).join(" -o ");
     const script =
-      `find . \\( -type d \\( ${dirPrune} \\) \\) -prune -o -type f \\( ${nameTests} \\) -print | ` +
+      `${buildFindScript({ extensions, ignoreDirs })} | ` +
       `while IFS= read -r f; do printf '%s%s\\n' '${SOURCE_FILE_MARKER}' "$f"; cat "$f"; printf '\\n'; done`;
     const result = await this.runShell(script);
 
@@ -458,16 +402,12 @@ export class DockerSandbox implements Sandbox {
     }
 
     // 打 tar 包。
-    const pack = tar.pack();
-
-    for (const file of files) {
-      const content =
-        typeof file.content === "string" ? Buffer.from(file.content, "utf-8") : file.content;
-
-      pack.entry({ name: file.path }, content);
-    }
-
-    pack.finalize();
+    const pack = packFilesToTar(
+      files.map((file) => ({
+        name: file.path,
+        content: typeof file.content === "string" ? Buffer.from(file.content, "utf-8") : file.content,
+      })),
+    );
 
     const targetPath = resolveSandboxPath(this.workdir, targetDir);
 
@@ -503,9 +443,7 @@ export class DockerSandbox implements Sandbox {
   async uploadFile(destPath: string, content: Buffer): Promise<void> {
     if (!this.container) throw new Error(t("docker.containerNotInitialized"));
     const absPath = resolveSandboxPath(this.workdir, destPath);
-    const pack = tar.pack();
-    pack.entry({ name: basename(absPath) }, content);
-    pack.finalize();
+    const pack = packFilesToTar([{ name: basename(absPath), content }]);
     await (this.container as Docker.Container).putArchive(pack, { path: dirname(absPath) });
   }
 
@@ -520,26 +458,4 @@ export class DockerSandbox implements Sandbox {
       this.container = null;
     }
   }
-}
-
-async function collectLocalFiles(localDir: string, ignore: readonly string[] = []): Promise<SandboxFile[]> {
-  const ignored = new Set(ignore);
-  const out: SandboxFile[] = [];
-  async function walk(dir: string): Promise<void> {
-    for (const entry of await readdir(dir)) {
-      if (ignored.has(entry)) continue;
-      const abs = join(dir, entry);
-      const st = await stat(abs);
-      if (st.isDirectory()) {
-        await walk(abs);
-      } else if (st.isFile()) {
-        out.push({
-          path: relative(localDir, abs).split(sep).join("/"),
-          content: await readFile(abs),
-        });
-      }
-    }
-  }
-  await walk(localDir);
-  return out;
 }

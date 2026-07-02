@@ -5,8 +5,6 @@
 // 模板:opts.template 选 e2b 模板名/ID;省略用 e2b 默认 "base"。预制模板(烘焙好
 //       codex/claude-code/bub 的 "niceeval-agents")见 sandbox/e2b/。
 
-import { readdir, readFile, stat } from "node:fs/promises";
-import { join, relative, sep } from "node:path";
 import { Sandbox as E2BSdkSandbox, CommandExitError } from "e2b";
 import type {
   Sandbox,
@@ -16,12 +14,10 @@ import type {
   SourceFiles,
   ReadSourceFilesOptions,
 } from "../types.ts";
-import { makeSourceFiles } from "./source-files.ts";
+import { readSourceFilesByList } from "./source-files.ts";
+import { collectLocalFiles } from "./local-files.ts";
+import { shellQuote } from "./shell.ts";
 import { resolveSandboxPath } from "./paths.ts";
-
-const DEFAULT_SOURCE_EXTENSIONS = ["ts", "tsx", "js", "jsx"];
-const DEFAULT_IGNORE_DIRS = [".git", ".next", "node_modules", "dist", "build", "coverage"];
-const DEFAULT_IGNORE_FILES = ["EVAL.ts", "PROMPT.md"];
 
 // e2b 默认用户 "user",home 在 /home/user;工作区放其下。
 const E2B_WORKDIR = "/home/user/workspace";
@@ -30,11 +26,6 @@ const E2B_WORKDIR = "/home/user/workspace";
 const DEFAULT_COMMAND_TIMEOUT_MS = 600_000;
 // 沙箱存活上限(到点 e2b 自动回收)。给足空间跑完 setup + agent + 测试脚本。
 const SESSION_TIMEOUT_MS = 1_800_000;
-
-/** 单引号包裹 + 转义,把一个参数安全嵌进 shell 命令串。 */
-function shellQuote(s: string): string {
-  return `'${s.replace(/'/g, "'\\''")}'`;
-}
 
 export class E2BSandbox implements Sandbox {
   readonly workdir = E2B_WORKDIR;
@@ -95,10 +86,6 @@ export class E2BSandbox implements Sandbox {
     return resolveSandboxPath(this.workdir, path);
   }
 
-  private targetPath(path: string, targetDir?: string): string {
-    return resolveSandboxPath(resolveSandboxPath(this.workdir, targetDir), path);
-  }
-
   async readFile(path: string): Promise<string> {
     return this.sbx.files.read(this.abs(path), { format: "text" });
   }
@@ -113,47 +100,29 @@ export class E2BSandbox implements Sandbox {
   }
 
   async readSourceFiles(opts: ReadSourceFilesOptions = {}): Promise<SourceFiles> {
-    const extensions = opts.extensions ?? DEFAULT_SOURCE_EXTENSIONS;
-    const ignoreDirs = opts.ignoreDirs ?? DEFAULT_IGNORE_DIRS;
-    const ignoreFiles = new Set(opts.ignoreFiles ?? DEFAULT_IGNORE_FILES);
-
-    // 一次 find 列路径,再逐文件 files.read —— 与 vercel 后端同形。
-    const dirPrune = ignoreDirs.map((d) => `-name '${d}'`).join(" -o ");
-    const nameTests = extensions.map((e) => `-name '*.${e}'`).join(" -o ");
-    const listScript = `find . \\( -type d \\( ${dirPrune} \\) \\) -prune -o -type f \\( ${nameTests} \\) -print`;
-    const result = await this.runShell(listScript);
-
-    const paths = result.stdout
-      .trim()
-      .split("\n")
-      .map((p) => p.trim().replace(/^\.\//, ""))
-      .filter((p) => p && !ignoreFiles.has(p.split("/").at(-1) ?? ""));
-
-    const files: { path: string; content: string }[] = [];
-    await Promise.all(
-      paths.map(async (path) => {
-        try {
-          const content = await this.sbx.files.read(`${E2B_WORKDIR}/${path}`, { format: "text" });
-          files.push({ path, content });
-        } catch {
-          // skip unreadable files (binary, permissions, etc.)
-        }
-      }),
-    );
-    return makeSourceFiles(files);
+    // find 列路径 + 逐文件 files.read —— 与 vercel 后端共用同一两阶段模板。
+    return readSourceFilesByList({
+      options: opts,
+      runShell: (script) => this.runShell(script),
+      readOne: (path) => this.sbx.files.read(`${E2B_WORKDIR}/${path}`, { format: "text" }),
+    });
   }
 
+  // targetDir 已由 paths.ts 的 normalizeSandboxPaths 解析成绝对路径;这里再解析一次
+  // 只是对直接使用后端实例(未包 normalize)的幂等防御,提到 map 外只算一次。
   async writeFiles(files: Record<string, string>, targetDir?: string): Promise<void> {
-    const entries = Object.entries(files).map(([p, data]) => ({ path: this.targetPath(p, targetDir), data }));
+    const base = resolveSandboxPath(this.workdir, targetDir);
+    const entries = Object.entries(files).map(([p, data]) => ({ path: resolveSandboxPath(base, p), data }));
     if (entries.length === 0) return;
     await this.sbx.files.write(entries);
   }
 
   async uploadFiles(files: SandboxFile[], targetDir?: string): Promise<void> {
     if (files.length === 0) return;
+    const base = resolveSandboxPath(this.workdir, targetDir);
     await this.sbx.files.write(
       files.map((f) => ({
-        path: this.targetPath(f.path, targetDir),
+        path: resolveSandboxPath(base, f.path),
         data: Buffer.isBuffer(f.content) ? toArrayBuffer(f.content) : f.content,
       })),
     );
@@ -175,28 +144,6 @@ export class E2BSandbox implements Sandbox {
   async uploadFile(path: string, content: Buffer): Promise<void> {
     await this.sbx.files.write(this.abs(path), toArrayBuffer(content));
   }
-}
-
-async function collectLocalFiles(localDir: string, ignore: readonly string[] = []): Promise<SandboxFile[]> {
-  const ignored = new Set(ignore);
-  const out: SandboxFile[] = [];
-  async function walk(dir: string): Promise<void> {
-    for (const entry of await readdir(dir)) {
-      if (ignored.has(entry)) continue;
-      const abs = join(dir, entry);
-      const st = await stat(abs);
-      if (st.isDirectory()) {
-        await walk(abs);
-      } else if (st.isFile()) {
-        out.push({
-          path: relative(localDir, abs).split(sep).join("/"),
-          content: await readFile(abs),
-        });
-      }
-    }
-  }
-  await walk(localDir);
-  return out;
 }
 
 /** Buffer → ArrayBuffer(e2b files.write 接受 string | ArrayBuffer | Blob | ReadableStream)。 */

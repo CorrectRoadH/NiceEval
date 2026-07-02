@@ -1,4 +1,7 @@
-import type { Locale } from "./types.ts";
+// view 前端 i18n:内核(插值/归一)在 src/i18n/core.ts;这里只注入
+// localStorage + navigator 的 locale 来源与 en 默认值。字典与 CLI 侧分开维护。
+
+import { interpolate, normalizeLocale, type Locale, type Vars } from "../../i18n/core.ts";
 
 export type MessageKey =
   | "app.title"
@@ -8,6 +11,7 @@ export type MessageKey =
   | "nav.traces"
   | "hero.title"
   | "hero.lastRun"
+  | "hero.noRuns"
   | "metric.passRate"
   | "metric.evalResults"
   | "metric.duration"
@@ -99,7 +103,9 @@ export type MessageKey =
   | "outcome.failed"
   | "outcome.errored"
   | "outcome.skipped"
-  | "banner.incompatibleTitle";
+  | "banner.skippedTitle"
+  | "banner.skipped.incompatible"
+  | "banner.skipped.malformed";
 
 type Dictionary = Record<MessageKey, string>;
 
@@ -112,6 +118,7 @@ const dictionaries: Record<Locale, Dictionary> = {
     "nav.traces": "Traces",
     "hero.title": "Eval Run Results",
     "hero.lastRun": "Last run:",
+    "hero.noRuns": "No runs yet",
     "metric.passRate": "Pass Rate",
     "metric.evalResults": "Eval Results",
     "metric.duration": "Duration",
@@ -203,7 +210,9 @@ const dictionaries: Record<Locale, Dictionary> = {
     "outcome.failed": "failed",
     "outcome.errored": "errors",
     "outcome.skipped": "skipped",
-    "banner.incompatibleTitle": "Runs written by a different niceeval version (not shown here) — view each with the command on the right:",
+    "banner.skippedTitle": "Some runs could not be loaded and are not shown here:",
+    "banner.skipped.incompatible": "written by niceeval {{producer}} (schemaVersion {{schemaVersion}}) — view it with the command on the right",
+    "banner.skipped.malformed": "unreadable report ({{detail}}) — it may be corrupted; re-run the eval or delete this run directory",
   },
   "zh-CN": {
     "app.title": "niceeval 实验查看器",
@@ -213,6 +222,7 @@ const dictionaries: Record<Locale, Dictionary> = {
     "nav.traces": "追踪",
     "hero.title": "Eval 运行结果",
     "hero.lastRun": "最近运行:",
+    "hero.noRuns": "还没有运行",
     "metric.passRate": "通过率",
     "metric.evalResults": "Eval 结果",
     "metric.duration": "耗时",
@@ -304,7 +314,9 @@ const dictionaries: Record<Locale, Dictionary> = {
     "outcome.failed": "失败",
     "outcome.errored": "错误",
     "outcome.skipped": "跳过",
-    "banner.incompatibleTitle": "以下 run 由其它版本的 niceeval 写入,此处不展示;用右侧命令查看:",
+    "banner.skippedTitle": "以下 run 读取失败,此处不展示:",
+    "banner.skipped.incompatible": "由 niceeval {{producer}} 写入(schemaVersion {{schemaVersion}})—— 用右侧命令查看",
+    "banner.skipped.malformed": "报告读不了({{detail}})—— 可能已损坏;重跑该 eval 或删除这个 run 目录",
   },
 };
 
@@ -314,7 +326,7 @@ export function detectLocale(): Locale {
   const stored = readStoredLocale();
   if (stored) return stored;
   const candidates = typeof navigator === "undefined" ? [] : [navigator.language, ...(navigator.languages ?? [])];
-  return candidates.some((value) => value.toLowerCase().startsWith("zh")) ? "zh-CN" : "en";
+  return candidates.some((value) => normalizeLocale(value) === "zh-CN") ? "zh-CN" : "en";
 }
 
 export function persistLocale(locale: Locale): void {
@@ -330,8 +342,8 @@ export function setDocumentLocale(locale: Locale): void {
   document.title = dictionaries[locale]["app.title"];
 }
 
-export function makeTranslator(locale: Locale): (key: MessageKey) => string {
-  return (key) => dictionaries[locale][key];
+export function makeTranslator(locale: Locale): (key: MessageKey, vars?: Vars) => string {
+  return (key, vars) => interpolate(dictionaries[locale][key], vars);
 }
 
 function readStoredLocale(): Locale | undefined {

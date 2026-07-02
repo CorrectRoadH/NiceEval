@@ -1,5 +1,9 @@
 // o11y 解析器入口:把各 agent 的原始 transcript 归一成 niceeval StreamEvent[]。
-// 每个解析器都返回同一个 ParsedTranscript 形状,parseTranscript 按 agent 名分派。
+// 每个解析器都返回同一个 ParsedTranscript 形状。
+//
+// 这里没有「按 agent 名分派」的入口:解析器由 adapter 直连(shared.parseCodex /
+// parseClaudeCode / parseBub),core 不按名字分支。接新 agent = 写新解析器 + adapter
+// 里直接调,不改本文件的任何分派逻辑。
 
 import type { StreamEvent, Usage } from "../../types.ts";
 import { parseCodexTranscript, parseCodex } from "./codex.ts";
@@ -22,16 +26,3 @@ export {
   parseBubTranscript,
   parseBub,
 };
-
-/**
- * 按 agent 名分派到对应解析器;认不出来的走通用(bub)兜底。
- * agent 名做包含匹配,兼容 "vercel-ai-gateway/codex"、"claude-code-1m" 之类的变体。
- */
-export function parseTranscript(raw: string | undefined, agent: string): ParsedTranscript {
-  const a = (agent || "").toLowerCase();
-  if (a.includes("codex")) return parseCodexTranscript(raw);
-  if (a.includes("claude")) return parseClaudeCodeTranscript(raw);
-  if (a.includes("bub")) return parseBubTranscript(raw);
-  // 默认:通用 JSONL 兜底解析器。
-  return parseBubTranscript(raw);
-}

@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import type { RowRun, T } from "../shared.ts";
 import type { ViewResult, ViewRow } from "../types.ts";
-import { outcomeClass, outcomeLabel, outcomeOf } from "../lib/outcome.ts";
+import { outcomeClass, outcomeLabel } from "../lib/outcome.ts";
 import { formatCost, formatDateTime, formatDuration, formatTokens, totalTokens } from "../lib/format.ts";
 
 export function RunsView({ rows, t }: { rows: ViewRow[]; t: T }) {
@@ -50,7 +50,7 @@ export function RunsView({ rows, t }: { rows: ViewRow[]; t: T }) {
             <tbody>
               {filtered.length ? (
                 filtered.map((r: RowRun) => {
-                  const outcome = outcomeOf(r);
+                  const outcome = r.outcome;
                   return (
                     <tr key={`${r.id}-${r.rowLabel}-${r.attempt}`}>
                       <td>

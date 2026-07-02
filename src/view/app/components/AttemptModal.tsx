@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { ArtifactLoadState, T } from "../shared.ts";
 import type { ViewResult } from "../types.ts";
 import { asEvents, asSources } from "../lib/guards.ts";
-import { outcomeClass, outcomeLabel, outcomeOf } from "../lib/outcome.ts";
+import { outcomeClass, outcomeLabel } from "../lib/outcome.ts";
 import { CodeView, NoSourceBody } from "./CodeView.tsx";
 import { LazyArtifact } from "./LazyArtifact.tsx";
 import { Dialog, DialogClose, DialogContent, DialogTitle } from "./ui/dialog.tsx";
@@ -29,7 +29,7 @@ export function AttemptModal({ result, onClose, t }: { result: ViewResult; onClo
     return () => { alive = false; };
   }, [base, result.hasSources, result.hasEvents]);
 
-  const outcome = outcomeOf(result);
+  const outcome = result.outcome;
   const hasCode = Boolean(data.sources?.length);
 
   return (

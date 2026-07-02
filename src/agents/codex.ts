@@ -1,6 +1,7 @@
 import { defineSandboxAgent } from "../define.ts";
 import { requireEnv, getEnv } from "../util.ts";
 import { shared } from "./shared.ts";
+import { mapCodexSpans } from "../o11y/otlp/mappers/codex.ts";
 import type { Agent, McpServer } from "../types.ts";
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -36,12 +37,15 @@ export function codexAgent(config?: CodexConfig): Agent {
   return defineSandboxAgent({
     name: "codex",
     capabilities: { conversation: true, toolObservability: true, workspace: true, compactionObservability: true, tracing: true },
+    spanMapper: mapCodexSpans,
 
     async setup(sb, ctx) {
       // 预制模板已把 codex 烘焙进镜像(PATH 上)就跳过安装;否则 npm 全局装。
       await sb.runShell("command -v codex >/dev/null 2>&1 || npm install -g @openai/codex");
 
-      const model = ctx.model ?? "gpt-5.4";
+      // model 归属:实验决定(ctx.model);省略时不写 model 行,交给 codex CLI 原生默认,
+      // 不在 adapter 里硬编码一个会过期的模型名。
+      const modelLine = ctx.model ? `model = "${ctx.model}"\n` : "";
       const effort = (ctx.flags.effort as string | undefined) ?? "medium";
       const base = getBaseUrl();
 
@@ -49,7 +53,7 @@ export function codexAgent(config?: CodexConfig): Agent {
         await shared.writeFile(
           sb,
           "~/.codex/config.toml",
-          `model = "${model}"\n` +
+          modelLine +
             `model_provider = "s2a"\n` +
             `model_reasoning_effort = "${effort}"\n\n` +
             `[model_providers.s2a]\n` +
@@ -59,7 +63,7 @@ export function codexAgent(config?: CodexConfig): Agent {
             `wire_api = "responses"\n`,
         );
       } else {
-        await shared.writeFile(sb, "~/.codex/config.toml", `model = "${model}"\nmodel_reasoning_effort = "${effort}"\n`);
+        await shared.writeFile(sb, "~/.codex/config.toml", `${modelLine}model_reasoning_effort = "${effort}"\n`);
       }
 
       if (config?.mcpServers?.length) {
@@ -103,7 +107,7 @@ export function codexAgent(config?: CodexConfig): Agent {
     async send(input, ctx) {
       const sb = ctx.sandbox;
       const flags = "--json --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check";
-      const escaped = input.text.replace(/'/g, "'\\''");
+      const escaped = shared.shellSingleQuote(input.text);
       const resuming = !ctx.session.isNew && ctx.session.id;
       const cmd = resuming
         ? `codex exec resume ${ctx.session.id} ${flags} '${escaped}'`
@@ -114,7 +118,9 @@ export function codexAgent(config?: CodexConfig): Agent {
       const raw = shared.extractJsonlFromStdout(res.stdout);
       ctx.session.id = shared.codexThreadId(res.stdout) ?? ctx.session.id;
       const parsed = shared.parseCodex(raw);
-      return { events: parsed.events, usage: parsed.usage, status: res.exitCode === 0 ? "completed" : "failed" };
+      const events = [...parsed.events];
+      if (res.exitCode !== 0) events.push({ type: "error", message: shared.diagnoseFailure(res, parsed.events, raw) });
+      return { events, usage: parsed.usage, status: res.exitCode === 0 ? "completed" : "failed" };
     },
   });
 }

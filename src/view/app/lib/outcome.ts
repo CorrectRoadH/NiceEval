@@ -2,22 +2,10 @@ import type { Assertion, Outcome, ViewResult, ViewRow } from "../types.ts";
 import type { T } from "../shared.ts";
 import { formatScore } from "./format.ts";
 
-export function outcomeOf(result: ViewResult): Outcome {
-  return result.outcome;
-}
+// 折叠口径与 server 聚合共用一份实现,见 src/view/shared/outcome.ts。
+import { foldEvalOutcome } from "../../shared/outcome.ts";
 
-/**
- * 同一个 eval 的多轮 attempt 折叠成单一判决:任一轮通过 → 通过(对齐 earlyExit「先过一次即停」),
- * 否则按 failed > errored > skipped 取最严重的。后端 view/index.ts:foldEvalOutcome 用同样口径,
- * 两边必须一致,否则折叠行的状态会和 KPI / 成功率对不上。
- */
-export function foldEvalOutcome(attempts: ViewResult[]): Outcome {
-  const outs = attempts.map(outcomeOf);
-  if (outs.some((o) => o === "passed")) return "passed";
-  if (outs.some((o) => o === "failed")) return "failed";
-  if (outs.some((o) => o === "errored")) return "errored";
-  return "skipped";
-}
+export { foldEvalOutcome };
 
 export interface EvalGroup {
   id: string;
@@ -41,7 +29,7 @@ export function groupByEval(results: ViewResult[]): EvalGroup[] {
       experimentId: sorted[0]!.experimentId,
       outcome: foldEvalOutcome(sorted),
       attempts: sorted,
-      passedAttempts: sorted.filter((a) => outcomeOf(a) === "passed").length,
+      passedAttempts: sorted.filter((a) => a.outcome === "passed").length,
     };
   });
 }

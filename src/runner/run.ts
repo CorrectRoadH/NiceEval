@@ -10,7 +10,7 @@ import { createSandbox, sandboxLabel } from "../sandbox/resolve.ts";
 import { createTraceReceiver, type TraceReceiver } from "../o11y/otlp/receiver.ts";
 import { createInSandboxTraceReceiver } from "../o11y/otlp/sandbox-receiver.ts";
 import { selectTraceSpans, enrichTraceWithIO } from "../o11y/otlp/select.ts";
-import { mapSpansToCanonical } from "../o11y/otlp/mappers/index.ts";
+import { mapGenericSpans } from "../o11y/otlp/mappers/index.ts";
 import { createEvalContext } from "../context/context.ts";
 import { EvalRequirementFailed, EvalSkipped, TurnFailed } from "../context/control-flow.ts";
 import { computeOutcome } from "../scoring/verdict.ts";
@@ -677,7 +677,8 @@ async function runAttemptBody(
       const spans = receiver.collect();
       if (spans.length) {
         // 归一 → 选语义 span → 按 call_id 把 transcript 的工具入参/出参 join 上去(span 自身不带命令文本)。
-        const canonical = mapSpansToCanonical(spans, run.agent.name);
+        // 对接口分发,不按名字分支:mapper 由 Agent 自己声明,缺省走通用 heuristic。
+        const canonical = (run.agent.spanMapper ?? mapGenericSpans)(spans);
         trace = enrichTraceWithIO(selectTraceSpans(canonical), facts.toolCalls);
         const note = spans.length > trace.length ? t("runner.traceSelected", { count: trace.length }) : "";
         log(`trace:${spans.length} span${note}`);

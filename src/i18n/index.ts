@@ -1,24 +1,15 @@
+// CLI 侧 i18n:内核(插值/归一)在 core.ts;这里只注入 env 来源与 zh-CN 默认值。
+
 import { en } from "./en.ts";
 import { zhCN, type MessageKey, type Messages } from "./zh-CN.ts";
+import { interpolate, normalizeLocale, type Locale, type Vars } from "./core.ts";
 
-export type Locale = "zh-CN" | "en";
-
-type Vars = Record<string, string | number | boolean | undefined>;
+export type { Locale, Vars } from "./core.ts";
 
 const dictionaries: Record<Locale, Messages> = {
   "zh-CN": zhCN,
   en,
 };
-
-function normalizeLocale(raw: string | undefined): Locale | undefined {
-  if (!raw) return undefined;
-  const value = raw.trim().toLowerCase().replace("_", "-");
-  if (!value) return undefined;
-  if (value === "c" || value === "posix") return undefined;
-  if (value.startsWith("zh")) return "zh-CN";
-  if (value.startsWith("en")) return "en";
-  return "en";
-}
 
 export function detectLocale(env: NodeJS.ProcessEnv = process.env): Locale {
   return (
@@ -32,8 +23,5 @@ export function detectLocale(env: NodeJS.ProcessEnv = process.env): Locale {
 }
 
 export function t(key: MessageKey, vars: Vars = {}): string {
-  const message = dictionaries[detectLocale()][key];
-  return message.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, name: string) =>
-    vars[name] === undefined ? "" : String(vars[name]),
-  );
+  return interpolate(dictionaries[detectLocale()][key], vars);
 }

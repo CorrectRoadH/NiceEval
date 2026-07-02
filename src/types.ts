@@ -294,6 +294,13 @@ export interface AgentContext {
 export type AgentSetup = (sandbox: Sandbox, ctx: AgentContext) => Promise<void | Cleanup> | void | Cleanup;
 export type AgentTeardown = (sandbox: Sandbox, ctx: AgentContext) => Promise<void> | void;
 
+/**
+ * 本 agent 的原生 OTLP span → canonical GenAI semconv 的薄 mapper。
+ * 由 adapter 声明(和 tracing.env 一样属于「连到谁」的特殊性),core 只调接口——
+ * 省略时 core 走通用 heuristic 兜底,不按 agent 名字分支。
+ */
+export type SpanMapper = (spans: TraceSpan[]) => TraceSpan[];
+
 /** 注册表里的 agent(defineAgent / defineSandboxAgent 产出)。 */
 export interface Agent {
   readonly name: string;
@@ -301,6 +308,8 @@ export interface Agent {
   setup?: AgentSetup;
   /** OTLP 导出配置(仅 capabilities.tracing 时有意义);与 setup 分开,见 AgentTracing。 */
   tracing?: AgentTracing;
+  /** 原生 span → canonical 的薄 mapper;省略走通用 heuristic。 */
+  spanMapper?: SpanMapper;
   send(input: TurnInput, ctx: AgentContext): Promise<Turn>;
   teardown?: AgentTeardown;
 }
@@ -312,6 +321,7 @@ export interface SandboxAgentDef {
   setup?: AgentSetup;
   /** OTLP 导出配置:沙箱里怎么让 CLI 把 trace 发到 endpoint(env / 配置文件),从 setup 拆出。 */
   tracing?: AgentTracing;
+  spanMapper?: SpanMapper;
   /** 每轮一次:跑 prompt(fresh / resume)+ 解析成 events。 */
   send(input: TurnInput, ctx: AgentContext): Promise<Turn>;
   teardown?: AgentTeardown;
@@ -322,6 +332,7 @@ export interface RemoteAgentDef {
   capabilities?: AgentCapabilities;
   setup?: AgentSetup;
   tracing?: AgentTracing;
+  spanMapper?: SpanMapper;
   send(input: TurnInput, ctx: AgentContext): Promise<Turn>;
   teardown?: AgentTeardown;
 }

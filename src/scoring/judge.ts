@@ -12,13 +12,14 @@ import { getEnv } from "../util.ts";
 import { t } from "../i18n/index.ts";
 
 interface ResolvedJudge {
-  model: string;
+  /** 未配置时为 undefined —— judge 没有内置默认模型,必须显式指定(config / eval / NICEEVAL_JUDGE_MODEL)。 */
+  model: string | undefined;
   baseUrl: string;
   apiKey: string | undefined;
 }
 
 function resolveJudge(judge: JudgeConfig | undefined): ResolvedJudge {
-  const model = judge?.model ?? "gpt-5.4-mini";
+  const model = judge?.model ?? getEnv("NICEEVAL_JUDGE_MODEL");
   const baseUrl =
     judge?.baseUrl ??
     getEnv("NICEEVAL_JUDGE_BASE") ??
@@ -31,84 +32,6 @@ function resolveJudge(judge: JudgeConfig | undefined): ResolvedJudge {
     getEnv("CODEX_API_KEY") ??
     getEnv("OPENAI_API_KEY");
   return { model, baseUrl, apiKey };
-}
-
-/** 调评判模型,返回分数和原始推理文本。失败抛(collector 会兜成 0 分)。 */
-async function callJudge(
-  judge: ResolvedJudge,
-  system: string,
-  user: string,
-  signal?: AbortSignal,
-): Promise<EvalScore> {
-  if (!judge.apiKey) throw new Error(t("judge.apiKeyMissing"));
-  const url = `${judge.baseUrl.replace(/\/$/, "")}/chat/completions`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${judge.apiKey}`,
-    },
-    body: JSON.stringify({
-      model: judge.model,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-      temperature: 0,
-    }),
-    signal,
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(t("judge.httpError", { status: res.status, body: body.slice(0, 300) }));
-  }
-  const data = (await res.json()) as {
-    choices?: { message?: { content?: string } }[];
-  };
-  const content = data.choices?.[0]?.message?.content ?? "";
-  // evidence = 实际发给裁判的用户内容(材料 + 问题/标准)。view 展开就能看到「裁判到底读了什么」,
-  // 一眼分辨 0 分是回答真不行,还是喂错了材料(例如对话 eval 误喂 diff)。
-  return { ...parseJudgeReply(content), evidence: user };
-}
-
-/**
- * 解析评判回复:优先 JSON {reasoning, score}(detail = 理由,view 展开看 CoT);
- * 退化到纯数字 / 自由文本时 detail 落原文。
- */
-function parseJudgeReply(text: string): EvalScore {
-  const json = text.match(/\{[\s\S]*\}/);
-  if (json) {
-    try {
-      const obj = JSON.parse(json[0]) as { score?: unknown; reasoning?: unknown };
-      const reasoning = typeof obj.reasoning === "string" ? obj.reasoning.trim() : undefined;
-      const score = typeof obj.score === "number" ? clamp01(obj.score) : parseScore(text);
-      return { score, detail: reasoning || text || undefined };
-    } catch {
-      // 落到下面的纯文本解析
-    }
-  }
-  return { score: parseScore(text), detail: text || undefined };
-}
-
-/** 从模型回复里抠出 [0,1] 分。优先 JSON {score},否则取第一个数字。 */
-function parseScore(text: string): number {
-  const jsonMatch = text.match(/\{[^}]*"score"[^}]*\}/);
-  if (jsonMatch) {
-    try {
-      const obj = JSON.parse(jsonMatch[0]) as { score?: unknown };
-      if (typeof obj.score === "number") return clamp01(obj.score);
-    } catch {
-      // 落到下面的数字提取
-    }
-  }
-  const num = text.match(/(\d+(?:\.\d+)?)/);
-  if (num) {
-    let n = Number(num[1]);
-    if (n > 1 && n <= 100) n = n / 100; // 容忍 0–100 / 0–10
-    else if (n > 1 && n <= 10) n = n / 10;
-    return clamp01(n);
-  }
-  return 0;
 }
 
 function clamp01(n: number): number {
@@ -140,16 +63,39 @@ function noOpJudge(): JudgeNamespace {
   return { autoevals: noOpAutoevals };
 }
 
-/** 预检显式配置的 judge:验证 API key 存在并发最小请求确认端点可达。
+const MODEL_MISSING_HINT =
+  "judge 未配置模型:在 defineConfig({ judge: { model: \"...\" } })、eval 的 judge 配置或环境变量 NICEEVAL_JUDGE_MODEL 里指定评判模型。";
+
+/** 预检显式配置的 judge:验证 model + API key 存在,并发最小请求确认端点可达。
  *  返回错误描述字符串,可达则返回 undefined。*/
 export async function probeJudge(judge: JudgeConfig, signal?: AbortSignal): Promise<string | undefined> {
   const resolved = resolveJudge(judge);
+  if (!resolved.model) return MODEL_MISSING_HINT;
   if (!resolved.apiKey) {
     const envHint = judge.apiKeyEnv ?? "NICEEVAL_JUDGE_KEY / OPENAI_API_KEY";
     return t("judge.probeMissingKey", { model: resolved.model, envHint });
   }
   try {
-    await callJudge(resolved, "Reply with the number 1 only.", "1", signal);
+    // 只确认可达 + 鉴权通过,不关心回复内容(真实评分走 autoevals)。
+    const url = `${resolved.baseUrl.replace(/\/$/, "")}/chat/completions`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${resolved.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: resolved.model,
+        messages: [{ role: "user", content: "ping" }],
+        max_tokens: 1,
+        temperature: 0,
+      }),
+      signal,
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(t("judge.httpError", { status: res.status, body: body.slice(0, 300) }));
+    }
   } catch (e) {
     return t("judge.probeFailed", { model: resolved.model, error: e instanceof Error ? e.message : String(e) });
   }
@@ -161,12 +107,25 @@ export function buildJudge(deps: JudgeDeps): JudgeNamespace {
   const resolved = resolveJudge(deps.judge);
   // 没 key 就静默跳过 judge —— eval 不必再手动 gate「环境里有没有 judge key」。
   if (!resolved.apiKey) return noOpJudge();
+  // 有 key 没 model 是配置错误:不静默跳过(会藏住误配),在作者调用 judge 断言时报清晰错误。
+  const model = resolved.model;
+  if (!model) {
+    const fail = () => {
+      throw new Error(MODEL_MISSING_HINT);
+    };
+    return { autoevals: { closedQA: fail, factuality: fail, summarizes: fail } };
+  }
 
   const materialFor = async (ctx: ScoringContext, on?: string): Promise<string> => {
     if (on) {
-      // on 既可能是沙箱里的文件路径,也可能是一段字面文本
-      const fromFile = await ctx.readFile(on).catch(() => undefined);
-      if (fromFile !== undefined) return `----- ${on} -----\n${fromFile}`;
+      // on 既可能是沙箱里的文件路径,也可能是一段字面文本(如 t.sandbox.diff.get(...) 的内容)。
+      // 只有「长得像路径」(单行且不长)才尝试按文件读,避免对几 KB 的 diff 文本做无谓 IO,
+      // 也避免字面文本恰好命中某个存在的文件时被错读。
+      const looksLikePath = !on.includes("\n") && on.length <= 512;
+      if (looksLikePath) {
+        const fromFile = await ctx.readFile(on).catch(() => undefined);
+        if (fromFile !== undefined) return `----- ${on} -----\n${fromFile}`;
+      }
       return on;
     }
     return deps.getOutput();
@@ -174,7 +133,7 @@ export function buildJudge(deps: JudgeDeps): JudgeNamespace {
 
   /** autoevals 公共参数:模型走 judge config,baseUrl + apiKey 透给 autoevals 内部建的 OpenAI client。 */
   const autoevalsBase = {
-    model: resolved.model,
+    model,
     openAiBaseUrl: resolved.baseUrl,
     openAiApiKey: resolved.apiKey,
   } as const;

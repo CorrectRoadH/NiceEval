@@ -4,6 +4,7 @@
 import type { AssertionResult, ScoringContext, Severity, SourceLoc } from "../types.ts";
 import { captureLoc } from "../source-loc.ts";
 import { t } from "../i18n/index.ts";
+import { formatThrown } from "../util.ts";
 
 export interface EvalScore {
   score: number;
@@ -88,7 +89,7 @@ export class AssertionCollector {
       } catch (e) {
         score = 0;
         detail = `${detail ? detail + "; " : ""}${t("scoring.evalError", {
-          error: e instanceof Error ? e.message : String(e),
+          error: formatThrown(e),
         })}`;
       }
       out.push({

@@ -16,6 +16,7 @@
 import { randomUUID } from "node:crypto";
 
 import { defineAgent } from "../define.ts";
+import { normalizeToolName as normalizeShared } from "../o11y/tool-names.ts";
 import type { Agent, AgentCapabilities, InputRequest, JsonValue, StreamEvent, ToolName, Usage } from "../types.ts";
 
 // ───────────────────────── AI SDK 结果的形状子集 ─────────────────────────
@@ -334,25 +335,9 @@ function readUsage(result: AiSdkResultLike, stepCount: number): Usage | undefine
   return usage;
 }
 
-/** AI SDK 应用的工具多为域内自定义名(get_weather…),canonical 落 "unknown" 即可;仅认通用别名。 */
+/** AI SDK 应用的工具多为域内自定义名(get_weather…),canonical 落 "unknown" 即可;仅认通用别名基表。 */
 function normalizeToolName(name: string): ToolName {
-  const toolMap: Record<string, ToolName> = {
-    read_file: "file_read",
-    write_file: "file_write",
-    create_file: "file_write",
-    edit_file: "file_edit",
-    bash: "shell",
-    shell: "shell",
-    execute_command: "shell",
-    run_command: "shell",
-    web_fetch: "web_fetch",
-    fetch_url: "web_fetch",
-    web_search: "web_search",
-    glob: "glob",
-    grep: "grep",
-    list_dir: "list_dir",
-  };
-  return toolMap[name.toLowerCase()] ?? "unknown";
+  return normalizeShared(name);
 }
 
 /** 工具入参 / 出参在 AI SDK 里经 schema 校验,本就是 JSON 值;这里只做形状断言。 */

@@ -85,10 +85,14 @@ export function claudeCodeAgent(config?: ClaudeCodeConfig): Agent {
 
       const res = await sb.runCommand("claude", args, { env, stream: true });
 
-      const raw = await shared.captureLatestJsonl(sb, "~/.claude/projects");
+      // resume 轮已知 session id → 精确定位 transcript;首轮退化到「最新 jsonl」。
+      const knownId = !ctx.session.isNew && ctx.session.id ? ctx.session.id : undefined;
+      const raw = await shared.captureLatestJsonl(sb, "~/.claude/projects", knownId);
       ctx.session.id = shared.sessionIdFromClaudeTranscript(raw) ?? ctx.session.id;
       const parsed = shared.parseClaudeCode(raw);
-      return { events: parsed.events, usage: parsed.usage, status: res.exitCode === 0 ? "completed" : "failed" };
+      const events = [...parsed.events];
+      if (res.exitCode !== 0) events.push({ type: "error", message: shared.diagnoseFailure(res, parsed.events, raw) });
+      return { events, usage: parsed.usage, status: res.exitCode === 0 ? "completed" : "failed" };
     },
   });
 }

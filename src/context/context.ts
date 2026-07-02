@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises";
 import { basename, extname } from "node:path";
 import { SessionManager, RunSession, lastAssistantText } from "./session.ts";
 import { AssertionCollector, computePassed } from "../scoring/collector.ts";
+import { deepEqual, validateSchema } from "../scoring/match.ts";
 import type { Spec } from "../scoring/collector.ts";
 import * as Scoped from "../scoring/scoped.ts";
 import { buildJudge } from "../scoring/judge.ts";
@@ -166,14 +167,15 @@ export function createEvalContext(deps: ContextDeps): { context: TestContext; st
       recordScoped(spec, () => session.events, () => session.lastStatus, () => session.usage);
 
     const handle: SessionHandle = {
-      send: async (text) => makeTurnHandle(await manager.send(session, text), collector, deps),
+      send: async (text) => makeTurnHandle(await manager.send(session, text), collector, deps, text),
       sendFile: async (path, text) =>
-        makeTurnHandle(await manager.send(session, text ?? "", [await readInputFile(path)]), collector, deps),
+        makeTurnHandle(await manager.send(session, text ?? "", [await readInputFile(path)]), collector, deps, text ?? ""),
       requireInputRequest: (filter) => requireInputRequest(session, filter),
       respond: async (...responses) => {
         if (responses.length === 0) throw new Error("respond() requires at least one response");
         session.pendingInputRequests.length = 0;
-        return makeTurnHandle(await manager.send(session, responses.join("\n")), collector, deps);
+        const input = responses.join("\n");
+        return makeTurnHandle(await manager.send(session, input), collector, deps, input);
       },
       respondAll: async (optionId) => {
         if (session.pendingInputRequests.length === 0) {
@@ -181,7 +183,8 @@ export function createEvalContext(deps: ContextDeps): { context: TestContext; st
         }
         const responses = session.pendingInputRequests.map(() => optionId);
         session.pendingInputRequests.length = 0;
-        return makeTurnHandle(await manager.send(session, responses.join("\n")), collector, deps);
+        const input = responses.join("\n");
+        return makeTurnHandle(await manager.send(session, input), collector, deps, input);
       },
       get reply() {
         return session.lastMessage;
@@ -236,23 +239,28 @@ export function createEvalContext(deps: ContextDeps): { context: TestContext; st
       throw new EvalSkipped(reason);
     },
 
-    check: (value: unknown, assertion: ValueAssertion) =>
-      collector.record({
+    check: (value: unknown, assertion: ValueAssertion) => {
+      // evaluate 读 spec 自己的 severity/threshold(而不是捕获记录时的快照):
+      // 句柄的 .gate()/.atLeast() 会事后改写 spec,evidence 判定必须和 finalize 同一口径。
+      const spec: Spec = {
         name: assertion.name,
         severity: assertion.severity,
         threshold: assertion.threshold,
         evaluate: async (sc) => {
           const resolved = await resolveValue(value, sc);
           const score = await assertion.score(resolved);
-          if (computePassed(assertion.severity, assertion.threshold, score)) return score;
+          if (computePassed(spec.severity, spec.threshold, score)) return score;
           return { score, evidence: previewCheckedValue(resolved) };
         },
-      }),
+      };
+      return collector.record(spec);
+    },
     group: <T,>(title: string, fn: () => Promise<T> | T) => collector.withGroup(title, fn),
     require: async (value: unknown, assertion: ValueAssertion) => {
       const v = value instanceof FileRef ? await deps.sandbox.readFile(value.path).catch(() => "") : value;
       const score = await assertion.score(v);
-      const passed = assertion.threshold === undefined ? score > 0 : score >= assertion.threshold;
+      // require 恒为硬门槛(不过即中止 eval),判定口径与 finalize 同一份 computePassed。
+      const passed = computePassed("gate", assertion.threshold, score);
       collector.record({
         name: assertion.name,
         severity: "gate",
@@ -303,7 +311,7 @@ function mimeTypeFor(path: string): string {
   }
 }
 
-function makeTurnHandle(turn: Turn, collector: AssertionCollector, deps: ContextDeps): TurnHandle {
+function makeTurnHandle(turn: Turn, collector: AssertionCollector, deps: ContextDeps, input: string): TurnHandle {
   const message = lastAssistantText(turn.events) ?? "";
   const facts = deriveRunFacts(turn.events);
   const usage = turn.usage ?? { inputTokens: 0, outputTokens: 0 };
@@ -349,7 +357,7 @@ function makeTurnHandle(turn: Turn, collector: AssertionCollector, deps: Context
       collector.record({
         name: "outputMatches",
         severity: "gate",
-        evaluate: () => (validateSchema(turn.data, schema) ? 1 : 0),
+        evaluate: async () => ((await validateSchema(turn.data, schema)) ? 1 : 0),
       }),
     messageIncludes: (token) => scoped(Scoped.messageIncludes(token)),
     succeeded: () => scoped(Scoped.succeeded()),
@@ -367,7 +375,7 @@ function makeTurnHandle(turn: Turn, collector: AssertionCollector, deps: Context
       record: (spec) => collector.record(spec),
       judge: deps.judge,
       getOutput: () => message,
-      getInput: () => "",
+      getInput: () => input,
       signal: deps.signal,
     }),
   };
@@ -416,34 +424,3 @@ function partialObjectMatches(actual: unknown, expected: Record<string, unknown>
   return true;
 }
 
-function deepEqual(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
-  if (typeof a !== typeof b || a === null || b === null || typeof a !== "object") return false;
-  if (Array.isArray(a) !== Array.isArray(b)) return false;
-  const ak = Object.keys(a as object);
-  const bk = Object.keys(b as object);
-  if (ak.length !== bk.length) return false;
-  for (const k of ak) {
-    if (!deepEqual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k])) return false;
-  }
-  return true;
-}
-
-function validateSchema(value: unknown, schema: unknown): boolean {
-  try {
-    const std = (schema as { ["~standard"]?: { validate(v: unknown): { issues?: unknown } } })["~standard"];
-    if (std && typeof std.validate === "function") {
-      const r = std.validate(value) as { issues?: unknown };
-      return !(r && r.issues);
-    }
-    const zodLike = schema as { safeParse?(v: unknown): { success: boolean }; parse?(v: unknown): unknown };
-    if (typeof zodLike.safeParse === "function") return zodLike.safeParse(value).success;
-    if (typeof zodLike.parse === "function") {
-      zodLike.parse(value);
-      return true;
-    }
-  } catch {
-    return false;
-  }
-  return false;
-}

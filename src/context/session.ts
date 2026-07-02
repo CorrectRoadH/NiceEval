@@ -1,12 +1,12 @@
 // 会话驱动:把 t.send(text) 翻成 agent.send(input, ctx),在同一沙箱里多轮 resume /
 // newSession,并把每轮的标准事件流与用量累加进整次运行(供作用域断言 / o11y)。
 
-import type { Agent, AgentContext, InputFile, InputRequest, Sandbox, StreamEvent, Telemetry, Turn, Usage } from "../types.ts";
+import type { Agent, AgentContext, AgentSession, InputFile, InputRequest, Sandbox, StreamEvent, Telemetry, Turn, Usage } from "../types.ts";
 import { captureLoc } from "../source-loc.ts";
 import { t } from "../i18n/index.ts";
 
 /** 一条会话线的可变状态。adapter 读 isNew 决定是否 --resume,写 id 供下轮续接。 */
-export class RunSession {
+export class RunSession implements AgentSession {
   id: string | undefined = undefined;
   isNew = true;
   index = 1;
@@ -59,7 +59,7 @@ export class SessionManager {
       model: this.deps.model,
       flags: this.deps.flags,
       sandbox: this.deps.sandbox,
-      session: session as unknown as AgentContext["session"],
+      session,
       telemetry: this.deps.telemetry,
       log: this.deps.log,
     };

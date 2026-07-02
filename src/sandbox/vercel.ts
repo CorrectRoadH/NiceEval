@@ -1,8 +1,6 @@
 // Vercel Sandbox 后端:用 @vercel/sandbox SDK 把 Vercel microVM 当隔离工作区跑 eval。
 // 契约对齐 ../types.ts 的 Sandbox 接口,与 DockerSandbox 可互换。
 
-import { readdir, readFile, stat } from "node:fs/promises";
-import { join, relative, sep } from "node:path";
 import { Sandbox as VSandbox } from "@vercel/sandbox";
 import type {
   Sandbox,
@@ -12,13 +10,10 @@ import type {
   SourceFiles,
   ReadSourceFilesOptions,
 } from "../types.ts";
-import { makeSourceFiles } from "./source-files.ts";
+import { readSourceFilesByList } from "./source-files.ts";
+import { collectLocalFiles } from "./local-files.ts";
 import { resolveSandboxPath } from "./paths.ts";
 import { t } from "../i18n/index.ts";
-
-const DEFAULT_SOURCE_EXTENSIONS = ["ts", "tsx", "js", "jsx"];
-const DEFAULT_IGNORE_DIRS = [".git", ".next", "node_modules", "dist", "build", "coverage"];
-const DEFAULT_IGNORE_FILES = ["EVAL.ts", "PROMPT.md"];
 
 // Vercel Sandbox 的默认工作区路径(SDK writeFiles 默认落这里)。
 const VERCEL_WORKDIR = "/vercel/sandbox";
@@ -28,6 +23,23 @@ const DEFAULT_COMMAND_TIMEOUT_MS = 600_000;
 // Rotate session when it has been alive >270s to stay under the plan cap (~360-390s).
 const ROTATE_THRESHOLD_MS = 270_000;
 const SESSION_TIMEOUT_MS = 1_200_000;
+// rotate 时停掉旧 session 的等待上限:stop 挂起时不无限拖住当前命令。
+const STOP_OLD_SESSION_TIMEOUT_MS = 15_000;
+
+/** 给 promise 套超时;到点 reject,并清掉计时器避免拖住事件循环。 */
+async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`timed out after ${ms}ms`)), ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export class VercelSandbox implements Sandbox {
   readonly workdir = VERCEL_WORKDIR;
@@ -91,8 +103,19 @@ export class VercelSandbox implements Sandbox {
         source: { type: "snapshot", snapshotId },
         ...credParams,
       } as Parameters<typeof VSandbox.create>[0]);
+      const oldVsb = this.vsb;
       this.vsb = newVsb;
       this.sessionCreatedAt = Date.now();
+      // 旧 session 的 microVM 不随快照 / 新 session 创建自动回收,必须显式 stop,否则每次
+      // rotate 都泄漏一台在计费的 microVM。stop 失败不算 rotate 失败(新 session 已可用,
+      // 旧的到 session timeout 也会被平台回收),只警告不静默;套超时防止挂起的 stop 拖住命令。
+      try {
+        await withTimeout(oldVsb.stop(), STOP_OLD_SESSION_TIMEOUT_MS);
+      } catch (stopErr) {
+        console.error(
+          `[VercelSandbox] warning: failed to stop rotated-out session, microVM may leak until session timeout: ${String(stopErr)}`,
+        );
+      }
       console.error(t("vercel.rotated", {
         seconds: Math.round(elapsed / 1000),
         sessionId: newVsb.currentSession().sessionId,
@@ -141,42 +164,24 @@ export class VercelSandbox implements Sandbox {
   }
 
   async readSourceFiles(opts: ReadSourceFilesOptions = {}): Promise<SourceFiles> {
-    const extensions = opts.extensions ?? DEFAULT_SOURCE_EXTENSIONS;
-    const ignoreDirs = opts.ignoreDirs ?? DEFAULT_IGNORE_DIRS;
-    const ignoreFiles = new Set(opts.ignoreFiles ?? DEFAULT_IGNORE_FILES);
-
-    // 两阶段读取:Phase 1 只做 find(列路径,NDJSON 流短命令快速结束);
-    // Phase 2 逐文件用 readFileToBuffer(独立 HTTP GET,不依赖 NDJSON 流)。
-    // 这样即使 session 快到 plan 上限,后半段读取也不会被截断。
-    const dirPrune = ignoreDirs.map((d) => `-name '${d}'`).join(" -o ");
-    const nameTests = extensions.map((e) => `-name '*.${e}'`).join(" -o ");
-    const listScript = `find . \\( -type d \\( ${dirPrune} \\) \\) -prune -o -type f \\( ${nameTests} \\) -print`;
-    const result = await this.runShell(listScript);
-
-    const paths = result.stdout
-      .trim()
-      .split("\n")
-      .map((p) => p.trim().replace(/^\.\//, ""))
-      .filter((p) => p && !ignoreFiles.has(p.split("/").at(-1) ?? ""));
-
-    const files: { path: string; content: string }[] = [];
-    await Promise.all(
-      paths.map(async (path) => {
-        const absPath = `${VERCEL_WORKDIR}/${path}`;
-        try {
-          const buf = await this.vsb.readFileToBuffer({ path: absPath });
-          if (buf) files.push({ path, content: buf.toString("utf8") });
-        } catch {
-          // skip unreadable files (binary, permissions, etc.)
-        }
-      }),
-    );
-    return makeSourceFiles(files);
+    // 两阶段读取(共享模板):Phase 2 逐文件用 readFileToBuffer(独立 HTTP GET,
+    // 不依赖 NDJSON 流),即使 session 快到 plan 上限,后半段读取也不会被截断。
+    return readSourceFilesByList({
+      options: opts,
+      runShell: (script) => this.runShell(script),
+      readOne: async (path) => {
+        const buf = await this.vsb.readFileToBuffer({ path: `${VERCEL_WORKDIR}/${path}` });
+        return buf ? buf.toString("utf8") : null;
+      },
+    });
   }
 
+  // targetDir 已由 paths.ts 的 normalizeSandboxPaths 解析成绝对路径;这里再解析一次
+  // 只是对直接使用后端实例(未包 normalize)的幂等防御,提到 map 外只算一次。
   async writeFiles(files: Record<string, string>, targetDir?: string): Promise<void> {
+    const base = resolveSandboxPath(this.workdir, targetDir);
     const entries = Object.entries(files).map(([p, content]) => ({
-      path: resolveSandboxPath(resolveSandboxPath(this.workdir, targetDir), p),
+      path: resolveSandboxPath(base, p),
       content,
     }));
     if (entries.length === 0) return;
@@ -185,9 +190,10 @@ export class VercelSandbox implements Sandbox {
 
   async uploadFiles(files: SandboxFile[], targetDir?: string): Promise<void> {
     if (files.length === 0) return;
+    const base = resolveSandboxPath(this.workdir, targetDir);
     await this.vsb.writeFiles(
       files.map((f) => ({
-        path: resolveSandboxPath(resolveSandboxPath(this.workdir, targetDir), f.path),
+        path: resolveSandboxPath(base, f.path),
         content: f.content,
       })),
     );
@@ -212,26 +218,4 @@ export class VercelSandbox implements Sandbox {
     const absPath = resolveSandboxPath(this.workdir, path);
     await this.vsb.writeFiles([{ path: absPath, content }]);
   }
-}
-
-async function collectLocalFiles(localDir: string, ignore: readonly string[] = []): Promise<SandboxFile[]> {
-  const ignored = new Set(ignore);
-  const out: SandboxFile[] = [];
-  async function walk(dir: string): Promise<void> {
-    for (const entry of await readdir(dir)) {
-      if (ignored.has(entry)) continue;
-      const abs = join(dir, entry);
-      const st = await stat(abs);
-      if (st.isDirectory()) {
-        await walk(abs);
-      } else if (st.isFile()) {
-        out.push({
-          path: relative(localDir, abs).split(sep).join("/"),
-          content: await readFile(abs),
-        });
-      }
-    }
-  }
-  await walk(localDir);
-  return out;
 }

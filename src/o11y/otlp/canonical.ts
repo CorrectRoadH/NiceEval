@@ -82,16 +82,17 @@ export function heuristicTag(span: TraceSpan): SpanTag {
   const existing = a[GENAI_OP];
   if (typeof existing === "string") return { op: existing, kind: kindFromOperation(existing) };
 
-  // 工具执行。
+  // 工具执行。只认通用信号;agent 专属的 span 命名(如 codex 的 exec_command/apply_patch)
+  // 编码在该 agent 自己的 mapper 里,不渗进通用兜底。
   if ("tool_name" in a) return { op: OP_EXECUTE_TOOL, kind: "tool" };
-  if (/(^|[._])(exec_command|apply_patch|write_stdin|execute_tool|run_command|handle_tool_call|dispatch_tool_call)/.test(ln)) {
+  if (/(^|[._])(execute_tool|run_command|handle_tool_call|dispatch_tool_call)/.test(ln)) {
     return { op: OP_EXECUTE_TOOL, kind: "tool" };
   }
 
   // 模型调用。
   if (keys.some((k) => k.startsWith("gen_ai.request") || k.startsWith("gen_ai.response"))) return { op: OP_CHAT, kind: "model" };
-  if ("wire_api" in a || ("http.method" in a && "api.path" in a)) return { op: OP_CHAT, kind: "model" };
-  if (/(^|[._])(run_sampling_request|try_run_sampling_request|stream_responses|receiving_stream|model_client|chat|completion)(\b|_|$)/.test(ln)) {
+  if ("http.method" in a && "api.path" in a) return { op: OP_CHAT, kind: "model" };
+  if (/(^|[._])(model_client|chat|completion)(\b|_|$)/.test(ln)) {
     return { op: OP_CHAT, kind: "model" };
   }
 
@@ -100,8 +101,8 @@ export function heuristicTag(span: TraceSpan): SpanTag {
   if (/(^|[._])invoke_agent(\b|_|$)/.test(ln)) return { op: OP_INVOKE_AGENT, kind: "agent" };
 
   // 回合 / 会话骨架(GenAI 无对应操作 → 只给 kind)。
-  if ("turn.id" in a || keys.some((k) => k.startsWith("codex.turn"))) return { kind: "turn" };
-  if (/^(codex\.exec|session_loop|run_turn)$/.test(ln) || /session_task\.turn|agent\.step/.test(ln)) return { kind: "turn" };
+  if ("turn.id" in a) return { kind: "turn" };
+  if (/^(session_loop|run_turn)$/.test(ln) || /agent\.step/.test(ln)) return { kind: "turn" };
 
   return { kind: "other" };
 }

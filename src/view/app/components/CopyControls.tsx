@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Check, Copy } from "lucide-react";
 import type { T } from "../shared.ts";
 import type { ViewResult, ViewRow } from "../types.ts";
-import { failingAssertions, outcomeOf, reasonFor } from "../lib/outcome.ts";
+import { failingAssertions, reasonFor } from "../lib/outcome.ts";
 
 export function CopyReason({ text, t }: { text: string; t: T }) {
   const [copied, setCopied] = useState(false);
@@ -29,13 +29,13 @@ export function CopyAllErrors({ rows, t }: { rows: ViewRow[]; t: T }) {
   const errorEntries = rows.flatMap((row: ViewRow) =>
     (row.results ?? [])
       .filter((r: ViewResult) => {
-        const outcome = outcomeOf(r);
-        return outcome === "failed" || outcome === "errored";
+        return r.outcome === "failed" || r.outcome === "errored";
       })
       .map((r: ViewResult) => {
         const failedAssertions = failingAssertions(r);
         const reason = reasonFor(r, failedAssertions);
-        const traceBase = r.artifactAbsBase || r.artifactBase;
+        // 静态 HTML 里只有相对 view 根的工件路径;宿主机绝对路径不再进 viewData。
+        const traceBase = r.artifactBase;
         const tracePath = r.hasTrace && traceBase ? `${traceBase}/trace.json` : null;
         return { experimentName: row.label, evalId: r.id, reason, tracePath };
       })

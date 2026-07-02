@@ -2,8 +2,9 @@ import { defineSandboxAgent } from "../define.ts";
 import { requireEnv, getEnv } from "../util.ts";
 import { shared } from "./shared.ts";
 import { createCheckpoint, restoreCheckpoint } from "../sandbox/checkpoint.ts";
-import type { Agent, Sandbox, StreamEvent } from "../types.ts";
-import { createHash } from "node:crypto";
+import { mapBubSpans } from "../o11y/otlp/mappers/bub.ts";
+import type { Agent, Sandbox } from "../types.ts";
+import { createHash, randomUUID } from "node:crypto";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
@@ -37,11 +38,16 @@ const UV = "$HOME/.local/bin/uv";
 // 预制模板把 bub 装到 /usr/local/bin(见 sandbox/docker/Dockerfile),command -v 命中即用 → 跳过安装。
 const BUB = "$(command -v bub || echo $HOME/.local/bin/bub)";
 
-const BUB_OVERRIDE = "bub @ git+https://github.com/CorrectRoadH/bub.git@fix/streaming-usage-include-usage";
+// TODO(upstream): 这两个默认值钉在个人 fork 的修复分支上,等上游合并后改回发布版并删掉本注释。
+// 可用 NICEEVAL_BUB_OVERRIDE / NICEEVAL_BUB_OTEL_PLUGIN 覆盖,不必改源码。
+const BUB_OVERRIDE =
+  getEnv("NICEEVAL_BUB_OVERRIDE") ??
+  "bub @ git+https://github.com/CorrectRoadH/bub.git@fix/streaming-usage-include-usage";
 const BUB_OVERRIDE_FILE = "/tmp/bub-override.txt";
 const OTEL_PLUGIN =
+  getEnv("NICEEVAL_BUB_OTEL_PLUGIN") ??
   "git+https://github.com/CorrectRoadH/bub-contrib.git@fix/tapestore-otel-tape-entry-validation" +
-  "#subdirectory=packages/bub-tapestore-otel";
+    "#subdirectory=packages/bub-tapestore-otel";
 
 const INSTALL_SPEC = `bub --override(${BUB_OVERRIDE}) --with ${OTEL_PLUGIN}`;
 const INSTALL_HASH = createHash("md5").update(INSTALL_SPEC).digest("hex").slice(0, 12);
@@ -107,8 +113,10 @@ async function ensureBub(sb: Sandbox, home: string): Promise<void> {
     resolveInstall();
   } catch (e) {
     rejectInstall(e);
-    installsInProgress.delete(home);
     throw e;
+  } finally {
+    // 成功/失败都清锁:锁只表达「正在装」,装完后 memCheckpoints 是唯一缓存事实源。
+    installsInProgress.delete(home);
   }
 }
 
@@ -116,25 +124,6 @@ function tapePath(workspace: string, sessionId: string, bubHome: string): string
   const w = createHash("md5").update(workspace).digest("hex").slice(0, 16);
   const s = createHash("md5").update(sessionId).digest("hex").slice(0, 16);
   return `${bubHome}/tapes/${w}__${s}.jsonl`;
-}
-
-function diagnose(
-  res: { exitCode: number; stdout: string; stderr: string },
-  events: StreamEvent[],
-  rawTape: string | undefined,
-): string {
-  const parts: string[] = [t("bub.diagnose.exitCode", { code: res.exitCode })];
-  if (rawTape === undefined) parts.push(t("bub.diagnose.noTape"));
-  else if (events.length === 0) parts.push(t("bub.diagnose.zeroEvents"));
-  const lastErr = [...events].reverse().find((e) => e.type === "error") as { type: "error"; message: string } | undefined;
-  if (lastErr) parts.push(t("bub.diagnose.lastError", { message: lastErr.message }));
-  const errTail = tail(res.stderr) || tail(res.stdout);
-  if (errTail) parts.push(t("bub.diagnose.outputTail", { tail: errTail }));
-  return parts.join(" · ");
-}
-
-function tail(s: string, n = 6): string {
-  return s.trim().split("\n").filter(Boolean).slice(-n).join(" ⏎ ").slice(0, 600);
 }
 
 export function bubAgent(config?: BubConfig): Agent {
@@ -146,6 +135,7 @@ export function bubAgent(config?: BubConfig): Agent {
   return defineSandboxAgent({
     name: "bub",
     capabilities: { conversation: true, toolObservability: true, workspace: true, compactionObservability: true, tracing: true },
+    spanMapper: mapBubSpans,
 
     tracing: {
       protocol: "http/protobuf",
@@ -157,7 +147,10 @@ export function bubAgent(config?: BubConfig): Agent {
     },
 
     async setup(sb) {
-      const home = (await sb.runShell("printf '%s' $HOME")).stdout.trim() || "/home/node";
+      // home 必须来自运行时探测:各 sandbox 后端不同(/home/node、/home/vercel-sandbox…),
+      // 兜一个后端专属常量会静默走错路径(tape 读不到 → 空事件流 → 负断言假通过)。
+      const home = (await sb.runShell("printf '%s' $HOME")).stdout.trim();
+      if (!home) throw new Error(t("bub.homeDetectFailed"));
       const workspace = sb.workdir;
       sessionInfo.set(sb.sandboxId, { home, workspace });
       await ensureBub(sb, home);
@@ -190,21 +183,27 @@ export function bubAgent(config?: BubConfig): Agent {
 
     async send(input, ctx) {
       const sb = ctx.sandbox;
-      const info = sessionInfo.get(sb.sandboxId) ?? { home: "/home/node", workspace: sb.workdir };
+      const info = sessionInfo.get(sb.sandboxId);
+      if (!info) throw new Error(t("bub.setupNotRun"));
       const { home, workspace } = info;
       const bubHome = `${home}/.bub`;
-      const model = ctx.model ?? "gpt-5.4";
-      const sessionId = `fe-${sb.sandboxId}`;
+      // 会话契约:isNew 开新 tape(新 sessionId),否则 resume 传入的 id。
+      // tape 路径由 md5(workspace)+md5(sessionId) 决定,同沙箱多会话靠 sessionId 区分。
+      const sessionId =
+        !ctx.session.isNew && ctx.session.id
+          ? ctx.session.id
+          : `fe-${sb.sandboxId}-${randomUUID().slice(0, 8)}`;
       ctx.session.id = sessionId;
 
-      const env = {
+      const env: Record<string, string> = {
         BUB_API_KEY: getApiKey(),
         BUB_API_BASE: getApiBase(),
-        BUB_MODEL: `openai:${model}`,
         BUB_HOME: bubHome,
         ...ctx.telemetry?.env,
       };
-      const escaped = input.text.replace(/'/g, "'\\''");
+      // model 归属:实验决定(ctx.model),省略时交给 bub 原生默认 / 用户环境,不硬编码。
+      if (ctx.model) env.BUB_MODEL = `openai:${ctx.model}`;
+      const escaped = shared.shellSingleQuote(input.text);
       const res = await sb.runShell(
         `${BUB} --workspace ${workspace} run '${escaped}' --session-id ${sessionId}`,
         { env, stream: true },
@@ -213,7 +212,7 @@ export function bubAgent(config?: BubConfig): Agent {
       const raw = await sb.readFile(tapePath(workspace, sessionId, bubHome)).catch(() => undefined);
       const parsed = shared.parseBub(raw);
       const events = [...parsed.events];
-      if (res.exitCode !== 0) events.push({ type: "error", message: diagnose(res, parsed.events, raw) });
+      if (res.exitCode !== 0) events.push({ type: "error", message: shared.diagnoseFailure(res, parsed.events, raw) });
       return { events, usage: parsed.usage, status: res.exitCode === 0 ? "completed" : "failed" };
     },
   });

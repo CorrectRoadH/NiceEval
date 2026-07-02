@@ -5,11 +5,9 @@ import "../styles.css";
 
 const initialData: ViewData = window.__NICEEVAL_VIEW_DATA__ ?? {
   rows: [],
-  lastRun: "No runs yet",
-  passRate: "0%",
-  resultCount: "0",
-  duration: "0ms",
-  cost: "$0",
+  passRate: 0,
+  resultCount: 0,
+  durationMs: 0,
 };
 
 const rootEl = document.getElementById("root");

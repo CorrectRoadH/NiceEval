@@ -10,7 +10,7 @@ import {
   parseClaudeCodeTranscript,
   parseBubTranscript,
 } from "../o11y/parsers/index.ts";
-import type { Sandbox } from "../types.ts";
+import type { Sandbox, StreamEvent } from "../types.ts";
 import { t } from "../i18n/index.ts";
 
 /** 每个沙箱里「已经装过的全局包」去重,避免每轮 send 重复 npm i -g。 */
@@ -36,11 +36,27 @@ async function ensureInstalled(sandbox: Sandbox, cmd: string, args: string[]): P
   set.add(key);
 }
 
-/** 在 dir(可含 ~)下找最新的 *.jsonl,读回其内容;没有则 undefined。 */
-async function captureLatestJsonl(sandbox: Sandbox, dir: string): Promise<string | undefined> {
+/**
+ * 在 dir(可含 ~)下抓 transcript JSONL,读回其内容;没有则 undefined。
+ * 已知 sessionId 时按 `<sessionId>.jsonl` 精确定位(并发 / 同沙箱多会话下不会抓错文件);
+ * 否则退化到「mtime 最新」。排序用 POSIX 的 `ls -1t`,不依赖 GNU find 的 -printf
+ *(BSD / 精简镜像上 -printf 会静默失败 → 空事件流 → 负断言假通过)。
+ */
+async function captureLatestJsonl(
+  sandbox: Sandbox,
+  dir: string,
+  sessionId?: string,
+): Promise<string | undefined> {
   try {
+    if (sessionId) {
+      const exact = await sandbox.runShell(
+        `find ${dir} -type f -name '${sessionId}.jsonl' 2>/dev/null | head -1`,
+      );
+      const exactPath = exact.stdout.trim();
+      if (exactPath) return await sandbox.readFile(exactPath);
+    }
     const find = await sandbox.runShell(
-      `find ${dir} -type f -name '*.jsonl' -printf '%T@\\t%p\\n' 2>/dev/null | sort -nr | head -1 | cut -f2-`,
+      `find ${dir} -type f -name '*.jsonl' -exec ls -1t {} + 2>/dev/null | head -1`,
     );
     const path = find.stdout.trim();
     if (!path) return undefined;
@@ -57,22 +73,36 @@ async function writeFile(sandbox: Sandbox, path: string, content: string): Promi
   await sandbox.runShell(`mkdir -p $(dirname ${path}) && cat > ${path} <<'${delim}'\n${content}\n${delim}\n`);
 }
 
-/** Claude Code 的 transcript JSONL 里抠 sessionId(取最后一个,供下一轮 --resume)。 */
-function sessionIdFromClaudeTranscript(raw: string | undefined): string | undefined {
+/**
+ * JSONL 逐行扫描的唯一骨架:逐行 parse,把每行对象交给 pick 抠值,
+ * 按 mode 取第一个或最后一个非空命中。非 JSON 行跳过。
+ */
+function scanJsonl(
+  raw: string | undefined,
+  pick: (obj: Record<string, unknown>) => string | undefined,
+  mode: "first" | "last" = "first",
+): string | undefined {
   if (!raw) return undefined;
-  let last: string | undefined;
+  let hit: string | undefined;
   for (const line of raw.split("\n")) {
-    const t = line.trim();
-    if (!t) continue;
+    const trimmed = line.trim();
+    if (!trimmed) continue;
     try {
-      const obj = JSON.parse(t) as { sessionId?: unknown; session_id?: unknown };
-      const id = (obj.sessionId ?? obj.session_id) as unknown;
-      if (typeof id === "string" && id) last = id;
+      const v = pick(JSON.parse(trimmed) as Record<string, unknown>);
+      if (typeof v === "string" && v) {
+        if (mode === "first") return v;
+        hit = v;
+      }
     } catch {
       // 跳过非 JSON 行
     }
   }
-  return last;
+  return hit;
+}
+
+/** Claude Code 的 transcript JSONL 里抠 sessionId(取最后一个,供下一轮 --resume)。 */
+function sessionIdFromClaudeTranscript(raw: string | undefined): string | undefined {
+  return scanJsonl(raw, (obj) => (obj.sessionId ?? obj.session_id) as string | undefined, "last");
 }
 
 /** 从混了普通日志的 stdout 里抠出 JSONL(只留看起来是 JSON 对象的行)。 */
@@ -87,35 +117,45 @@ function extractJsonlFromStdout(stdout: string | undefined): string | undefined 
 
 /** 从 codex 的 --json stdout 里取 thread_id(thread.started 事件),供下一轮 resume。 */
 function codexThreadId(stdout: string | undefined): string | undefined {
-  if (!stdout) return undefined;
-  for (const line of stdout.split("\n")) {
-    const t = line.trim();
-    if (!t) continue;
-    try {
-      const e = JSON.parse(t) as { type?: string; thread_id?: unknown };
-      if (e.type === "thread.started" && typeof e.thread_id === "string") return e.thread_id;
-    } catch {
-      // 跳过
-    }
-  }
-  return undefined;
+  return scanJsonl(stdout, (obj) =>
+    obj.type === "thread.started" ? (obj.thread_id as string | undefined) : undefined,
+  );
 }
 
 /** 扫 JSONL,返回第一个出现的 field 的字符串值。 */
 function firstJsonField(raw: string | undefined, field: string): string | undefined {
-  if (!raw) return undefined;
-  for (const line of raw.split("\n")) {
-    const t = line.trim();
-    if (!t) continue;
-    try {
-      const obj = JSON.parse(t) as Record<string, unknown>;
-      const v = obj[field];
-      if (typeof v === "string" && v) return v;
-    } catch {
-      // 跳过
-    }
-  }
-  return undefined;
+  return scanJsonl(raw, (obj) => obj[field] as string | undefined);
+}
+
+/** 把文本转义进 shell 单引号字面量('…')。各 adapter 拼 prompt 都走这一份。 */
+function shellSingleQuote(text: string): string {
+  return text.replace(/'/g, "'\\''");
+}
+
+/**
+ * 非零退出的通用诊断:退出码、transcript 有无、事件数、最后一条 error、输出末尾,
+ * 拼成一条可读信息。adapter 在 status=failed 时把它塞进 error 事件——
+ * 否则 transcript 为空时失败原因彻底丢失,用户只能干瞪眼。
+ */
+function diagnoseFailure(
+  res: { exitCode: number; stdout: string; stderr: string },
+  events: readonly StreamEvent[],
+  rawTranscript: string | undefined,
+): string {
+  const parts: string[] = [t("agent.diagnose.exitCode", { code: res.exitCode })];
+  if (rawTranscript === undefined) parts.push(t("agent.diagnose.noTranscript"));
+  else if (events.length === 0) parts.push(t("agent.diagnose.zeroEvents"));
+  const lastErr = [...events].reverse().find((e) => e.type === "error") as
+    | { type: "error"; message: string }
+    | undefined;
+  if (lastErr) parts.push(t("agent.diagnose.lastError", { message: lastErr.message }));
+  const errTail = outputTail(res.stderr) || outputTail(res.stdout);
+  if (errTail) parts.push(t("agent.diagnose.outputTail", { tail: errTail }));
+  return parts.join(" · ");
+}
+
+function outputTail(s: string, n = 6): string {
+  return s.trim().split("\n").filter(Boolean).slice(-n).join(" ⏎ ").slice(0, 600);
 }
 
 /**
@@ -130,6 +170,8 @@ export const shared = {
   extractJsonlFromStdout,
   codexThreadId,
   firstJsonField,
+  shellSingleQuote,
+  diagnoseFailure,
   /** 原始 codex JSONL → 标准事件流 + 用量 + 压缩计数。 */
   parseCodex(raw: string | undefined): ParsedTranscript {
     return parseCodexTranscript(raw);

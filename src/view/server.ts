@@ -1,0 +1,135 @@
+// HTTP server 与静态资源:起本地 web、按需吐工件、把 viewData 烘焙进单个 HTML。
+// 数据读取在 loader.ts,聚合在 aggregate.ts;这里只管「怎么送到浏览器」。
+
+import { createServer, type Server } from "node:http";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import { loadSummaries, viewRoot, type ScanResult } from "./loader.ts";
+import { buildViewData } from "./aggregate.ts";
+
+export interface ViewOptions {
+  input?: string;
+  out?: string;
+  port?: number;
+}
+
+export interface ViewServer {
+  url: string;
+  close(): Promise<void>;
+}
+
+const TEMPLATE_PLACEHOLDERS = {
+  styles: "<!-- __NICEEVAL_STYLES__ -->",
+  appCode: "__NICEEVAL_APP_CODE__",
+  viewData: "__NICEEVAL_VIEW_DATA_JSON__",
+} as const;
+
+export async function startViewServer(opts: ViewOptions = {}): Promise<ViewServer> {
+  const input = opts.input;
+  const root = viewRoot(input);
+  const server = createServer(async (req, res) => {
+    try {
+      const url = new URL(req.url ?? "/", "http://127.0.0.1");
+      if (url.pathname === "/healthz") {
+        res.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
+        res.end("ok");
+        return;
+      }
+      // 按需提供拆分工件(trace.json / events.json / …),前端展开时 fetch。
+      if (url.pathname === "/artifact") {
+        await serveArtifact(root, url.searchParams.get("p") ?? "", res);
+        return;
+      }
+      if (url.pathname !== "/") {
+        res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+        res.end("not found");
+        return;
+      }
+      res.writeHead(200, {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "no-store",
+      });
+      res.end(await renderHtml(await loadSummaries(input)));
+    } catch (e) {
+      res.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
+      res.end(e instanceof Error ? e.stack ?? e.message : String(e));
+    }
+  });
+
+  const port = await listen(server, opts.port ?? 0);
+  return {
+    url: `http://127.0.0.1:${port}/`,
+    close: () =>
+      new Promise((resolveClose, reject) => {
+        server.close((err) => (err ? reject(err) : resolveClose()));
+      }),
+  };
+}
+
+/** 把 viewData(只含原始值与相对路径,不含宿主机绝对路径)和前端产物烘焙进单个 HTML。 */
+export async function renderHtml(scan: ScanResult): Promise<string> {
+  const template = await readViewAsset("template.html");
+  const styles = await readViewAsset("client-dist/app.css");
+  const app = await readViewAsset("client-dist/app.js");
+  const viewData = buildViewData(scan);
+
+  return template
+    .replace(TEMPLATE_PLACEHOLDERS.styles, () => `<style>\n${styles}\n</style>`)
+    .replace(TEMPLATE_PLACEHOLDERS.viewData, () => JSON.stringify(viewData).replace(/</g, "\\u003c"))
+    .replace(TEMPLATE_PLACEHOLDERS.appCode, () => JSON.stringify(app).replace(/</g, "\\u003c"));
+}
+
+/** 安全地把 root 下的工件文件吐回去(限定 .json,且解析后必须仍在 root 内)。 */
+async function serveArtifact(
+  root: string,
+  rel: string,
+  res: import("node:http").ServerResponse,
+): Promise<void> {
+  const abs = resolve(root, rel);
+  const within = abs === root || abs.startsWith(root + "/");
+  if (!within || !rel.endsWith(".json")) {
+    res.writeHead(400, { "content-type": "text/plain; charset=utf-8" });
+    res.end("bad artifact path");
+    return;
+  }
+  try {
+    const body = await readFile(abs, "utf-8");
+    res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+    res.end(body);
+  } catch {
+    res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+    res.end("artifact not found");
+  }
+}
+
+async function readViewAsset(name: string): Promise<string> {
+  return readFile(new URL(name, import.meta.url), "utf-8");
+}
+
+async function listen(server: Server, preferredPort: number): Promise<number> {
+  const tryListen = (port: number): Promise<number> =>
+    new Promise((resolveListen, reject) => {
+      const onError = (err: NodeJS.ErrnoException) => {
+        server.off("listening", onListening);
+        reject(err);
+      };
+      const onListening = () => {
+        server.off("error", onError);
+        const address = server.address();
+        resolveListen(typeof address === "object" && address ? address.port : port);
+      };
+      server.once("error", onError);
+      server.once("listening", onListening);
+      server.listen(port, "127.0.0.1");
+    });
+
+  if (preferredPort === 0) return tryListen(0);
+  for (let port = preferredPort; port < preferredPort + 20; port++) {
+    try {
+      return await tryListen(port);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "EADDRINUSE") throw e;
+    }
+  }
+  throw new Error(`No available port near ${preferredPort}`);
+}
