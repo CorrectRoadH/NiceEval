@@ -2,13 +2,12 @@ import type { EvalResult, RunSummary, Usage } from "../../types.ts";
 import { t } from "../../i18n/index.ts";
 import { outcomeSymbol } from "./shared.ts";
 import { foldEvalOutcome, evalLevelStats as sharedEvalLevelStats } from "../../shared/outcome.ts";
+// 展示口径(耗时/成本/百分比)与聚合小工具(标签/求和/排序)与 view 共用一份实现;
+// console.ts 经这里 re-export formatDuration。
+import { formatCost, formatDuration, formatPercent } from "../../shared/format.ts";
+import { OUTCOME_ORDER, avg, displayExperimentName, fallbackExperimentLabel, sumMaybe, totalTokens } from "../../shared/aggregate.ts";
 
-const OUTCOME_ORDER: Record<string, number> = {
-  failed: 0,
-  errored: 1,
-  skipped: 2,
-  passed: 3,
-};
+export { formatCost, formatDuration } from "../../shared/format.ts";
 
 interface ExperimentRow {
   key: string;
@@ -114,18 +113,6 @@ export function formatTokens(n: number): string {
   return String(n);
 }
 
-export function formatDuration(ms: number): string {
-  if (!Number.isFinite(ms) || ms <= 0) return "0ms";
-  if (ms >= 60_000) return `${(ms / 60_000).toFixed(1)}m`;
-  if (ms >= 1000) return `${(ms / 1000).toFixed(2)}s`;
-  return `${Math.round(ms)}ms`;
-}
-
-export function formatCost(n: number | undefined): string {
-  if (n === undefined || n <= 0) return "$0";
-  return `$${n.toFixed(n < 1 ? 3 : 2)}`;
-}
-
 export function formatOutcome(outcome: string): string {
   const sym = outcomeSymbol(outcome);
   switch (outcome) {
@@ -221,33 +208,11 @@ function formatResult(row: ExperimentRow): string {
   return `${row.passed}/${row.evals} ${t("report.passed")} · ${failures} ${t("report.failed")}${suffix}`;
 }
 
-function displayExperimentName(id: string | undefined): string | undefined {
-  if (!id) return undefined;
-  return id.split("/").filter(Boolean).at(-1) ?? id;
-}
 
-function fallbackExperimentLabel(result: EvalResult): string {
-  if (result.experiment?.id) return displayExperimentName(result.experiment.id) ?? result.experiment.id;
-  if (result.model) return `${result.agent}/${result.model}`;
-  return result.agent || "ad hoc run";
-}
 
-function totalTokens(items: Array<Usage | undefined>): number {
-  return items.reduce((n, u) => n + (u?.inputTokens ?? 0) + (u?.outputTokens ?? 0), 0);
-}
 
-function sumMaybe(items: Array<number | undefined>): number | undefined {
-  const known = items.filter((n): n is number => n !== undefined);
-  return known.length ? known.reduce((sum, n) => sum + n, 0) : undefined;
-}
 
-function avg(items: number[]): number {
-  return items.length ? items.reduce((sum, n) => sum + n, 0) / items.length : 0;
-}
 
-function formatPercent(v: number): string {
-  return `${Math.round(v * 100)}%`;
-}
 
 function renderTable(headers: string[], rows: string[][], opts: { maxWidth?: number; flexibleColumn?: number } = {}): string {
   const rawRows = [headers, ...rows];

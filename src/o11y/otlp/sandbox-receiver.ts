@@ -75,17 +75,17 @@ async function makeInSandboxReceiver(sandbox: Sandbox): Promise<TraceReceiver> {
   // 上传 collector 脚本
   await sandbox.writeFiles({ [collectorPath]: collectorScript(spansPath, portPath) });
 
-  // 后台启动,拿 PID(shell 的 & 返回后台 PID;echo $! 给我们)
-  const startResult = await sandbox.runShell(`node ${collectorPath} >${logPath} 2>&1 & echo $!`);
-  const pid = parseInt(startResult.stdout.trim(), 10);
-
-  // 轮询读回内核分配的端口(collector listen 回调里写端口文件)。
-  let port = 0;
-  for (let i = 0; i < 20 && !port; i++) {
-    const read = await sandbox.runShell(`cat ${portPath} 2>/dev/null || true`);
-    port = parseInt(read.stdout.trim(), 10) || 0;
-    if (!port) await new Promise((r) => setTimeout(r, 150));
-  }
+  // 后台启动 + 等端口文件,折进一次 shell 往返(远程沙箱一次 exec 要 100-500ms,
+  // host 侧逐次轮询会把几秒的启动等待放大成 N 个 API round-trip)。
+  // 输出两行:PID、端口(等不到则空)。
+  const startResult = await sandbox.runShell(
+    `node ${collectorPath} >${logPath} 2>&1 & echo $!; ` +
+      `i=0; while [ $i -lt 30 ] && [ ! -s ${portPath} ]; do sleep 0.1; i=$((i+1)); done; ` +
+      `cat ${portPath} 2>/dev/null || true`,
+  );
+  const [pidLine, portLine] = startResult.stdout.trim().split("\n");
+  const pid = parseInt((pidLine ?? "").trim(), 10);
+  const port = parseInt((portLine ?? "").trim(), 10) || 0;
   if (!port) {
     const log = await sandbox.runShell(`cat ${logPath} 2>/dev/null || true`).catch(() => undefined);
     throw new Error(
@@ -98,24 +98,21 @@ async function makeInSandboxReceiver(sandbox: Sandbox): Promise<TraceReceiver> {
 
     collect: () => cached.slice(),
 
-    // agent 结束后调:轮询 spans 文件大小,连续 quietMs 无增长(exporter flush 完)即收口。
+    // agent 结束后调:等 spans 文件大小连续 quietMs 无增长(exporter flush 完)再下载。
+    // 等待循环整个跑在沙箱内(一次 shell 往返),不从 host 逐次轮询。
     async settle(quietMs, maxMs) {
-      const t0 = Date.now();
-      let lastSize = -1;
-      let stableSince = Date.now();
-      while (Date.now() - t0 < maxMs) {
-        const res = await sandbox
-          .runShell(`wc -c < ${spansPath} 2>/dev/null || echo 0`)
-          .catch(() => ({ stdout: "0" }));
-        const size = parseInt(res.stdout.trim(), 10) || 0;
-        if (size !== lastSize) {
-          lastSize = size;
-          stableSince = Date.now();
-        } else if (Date.now() - stableSince >= quietMs) {
-          break;
-        }
-        await new Promise((r) => setTimeout(r, 250));
-      }
+      const quietTicks = Math.max(1, Math.round(quietMs / 100));
+      const maxTicks = Math.max(quietTicks, Math.round(maxMs / 100));
+      await sandbox
+        .runShell(
+          `prev=-1; stable=0; i=0; ` +
+            `while [ $i -lt ${maxTicks} ]; do ` +
+            `s=$(wc -c < ${spansPath} 2>/dev/null || echo 0); ` +
+            `if [ "$s" = "$prev" ]; then stable=$((stable+1)); [ $stable -ge ${quietTicks} ] && break; ` +
+            `else stable=0; prev=$s; fi; ` +
+            `sleep 0.1; i=$((i+1)); done`,
+        )
+        .catch(() => {});
       try {
         const raw = await sandbox.downloadFile(spansPath);
         cached = parseSpansFile(raw);

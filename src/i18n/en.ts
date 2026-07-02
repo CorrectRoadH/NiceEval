@@ -22,6 +22,12 @@ export const en = {
   "cli.dry.row": "  {{who}}{{experiment}}: {{evals}}  ×{{runs}}\n",
   "cli.error": "niceeval error: {{error}}\n",
   "cli.flag.invalidNumber": "Flag --{{flag}} expects a number, got \"{{value}}\".\n",
+  "runner.budgetUnenforceable":
+    "budget for {{budgetKey}}: several attempts completed without any cost data (agent reports no usage and the model is not in the price table) — the budget cannot be enforced for this agent; continuing without the guard.\n",
+  "judge.modelMissing":
+    "No judge model configured. Set it in defineConfig({ judge: { model: \"...\" } }), the eval's judge config, or the NICEEVAL_JUDGE_MODEL environment variable (there is no built-in default model).",
+  "loaders.yamlMissing":
+    "loadYaml(\"{{path}}\") needs a YAML parser: run `pnpm add yaml` first (or switch to loadJson with a JSON dataset).",
   "cli.flag.parseError": "{{message}}\nRun `niceeval --help` for usage.\n",
   "cli.envInvalidNumber": "Environment variable {{name}} is not a number: \"{{value}}\".\n",
   "cli.help":

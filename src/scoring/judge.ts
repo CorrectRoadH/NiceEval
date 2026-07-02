@@ -63,20 +63,19 @@ function noOpJudge(): JudgeNamespace {
   return { autoevals: noOpAutoevals };
 }
 
-const MODEL_MISSING_HINT =
-  "judge 未配置模型:在 defineConfig({ judge: { model: \"...\" } })、eval 的 judge 配置或环境变量 NICEEVAL_JUDGE_MODEL 里指定评判模型。";
-
 /** 预检显式配置的 judge:验证 model + API key 存在,并发最小请求确认端点可达。
  *  返回错误描述字符串,可达则返回 undefined。*/
 export async function probeJudge(judge: JudgeConfig, signal?: AbortSignal): Promise<string | undefined> {
   const resolved = resolveJudge(judge);
-  if (!resolved.model) return MODEL_MISSING_HINT;
+  if (!resolved.model) return t("judge.modelMissing");
   if (!resolved.apiKey) {
     const envHint = judge.apiKeyEnv ?? "NICEEVAL_JUDGE_KEY / OPENAI_API_KEY";
     return t("judge.probeMissingKey", { model: resolved.model, envHint });
   }
   try {
     // 只确认可达 + 鉴权通过,不关心回复内容(真实评分走 autoevals)。
+    // 不带 max_tokens 等采样参数:新款模型(o 系 / gpt-5.x)会 400 拒掉 max_tokens,
+    // probe 的职责只是「端点通、key 对、model 认识」,参数越少越不误伤。
     const url = `${resolved.baseUrl.replace(/\/$/, "")}/chat/completions`;
     const res = await fetch(url, {
       method: "POST",
@@ -86,9 +85,7 @@ export async function probeJudge(judge: JudgeConfig, signal?: AbortSignal): Prom
       },
       body: JSON.stringify({
         model: resolved.model,
-        messages: [{ role: "user", content: "ping" }],
-        max_tokens: 1,
-        temperature: 0,
+        messages: [{ role: "user", content: "Reply with the single word: ok" }],
       }),
       signal,
     });
@@ -107,14 +104,6 @@ export function buildJudge(deps: JudgeDeps): JudgeNamespace {
   const resolved = resolveJudge(deps.judge);
   // 没 key 就静默跳过 judge —— eval 不必再手动 gate「环境里有没有 judge key」。
   if (!resolved.apiKey) return noOpJudge();
-  // 有 key 没 model 是配置错误:不静默跳过(会藏住误配),在作者调用 judge 断言时报清晰错误。
-  const model = resolved.model;
-  if (!model) {
-    const fail = () => {
-      throw new Error(MODEL_MISSING_HINT);
-    };
-    return { autoevals: { closedQA: fail, factuality: fail, summarizes: fail } };
-  }
 
   const materialFor = async (ctx: ScoringContext, on?: string): Promise<string> => {
     if (on) {
@@ -131,65 +120,43 @@ export function buildJudge(deps: JudgeDeps): JudgeNamespace {
     return deps.getOutput();
   };
 
-  /** autoevals 公共参数:模型走 judge config,baseUrl + apiKey 透给 autoevals 内部建的 OpenAI client。 */
-  const autoevalsBase = {
-    model,
-    openAiBaseUrl: resolved.baseUrl,
-    openAiApiKey: resolved.apiKey,
-  } as const;
+  type Scorer = (args: Record<string, unknown>) => Promise<{ score?: number | null }>;
 
-  const closedQA = (criteria: string, opts?: { on?: string; model?: string }) =>
-    deps.record({
-      name: "judge:autoevals:closedQA",
-      severity: "soft",
-      evaluate: async (ctx) => {
-        const output = await materialFor(ctx, opts?.on);
-        const result = await ClosedQA({
-          input: deps.getInput(),
-          output,
-          criteria,
-          ...autoevalsBase,
-          ...(opts?.model ? { model: opts.model } : {}),
-        });
-        return { score: clamp01(result.score ?? 0), detail: (result as { rationale?: string }).rationale || undefined, evidence: output };
-      },
-    });
+  // 三个 autoevals 方法只差评分器和材料字段名,共享行为(record spec / 材料构造 /
+  // 分数归一 / evidence)单一出处。model 解析:单次 { model } → judge config →
+  // NICEEVAL_JUDGE_MODEL;都没有是配置错误,调用点即报(不静默跳过,会藏住误配)。
+  const makeAutoeval =
+    (kind: "closedQA" | "factuality" | "summarizes", scorer: Scorer, payloadKey: "criteria" | "expected") =>
+    (reference: string, opts?: { on?: string; model?: string }) => {
+      const model = opts?.model ?? resolved.model;
+      if (!model) throw new Error(t("judge.modelMissing"));
+      return deps.record({
+        name: `judge:autoevals:${kind}`,
+        severity: "soft",
+        evaluate: async (ctx) => {
+          const output = await materialFor(ctx, opts?.on);
+          const result = await scorer({
+            input: deps.getInput(),
+            output,
+            [payloadKey]: reference,
+            model,
+            openAiBaseUrl: resolved.baseUrl,
+            openAiApiKey: resolved.apiKey,
+          });
+          return {
+            score: clamp01(result.score ?? 0),
+            detail: (result as { rationale?: string }).rationale || undefined,
+            evidence: output,
+          };
+        },
+      });
+    };
 
-  const factuality = (expected: string, opts?: { on?: string; model?: string }) =>
-    deps.record({
-      name: "judge:autoevals:factuality",
-      severity: "soft",
-      evaluate: async (ctx) => {
-        const output = await materialFor(ctx, opts?.on);
-        const result = await Factuality({
-          input: deps.getInput(),
-          output,
-          expected,
-          ...autoevalsBase,
-          ...(opts?.model ? { model: opts.model } : {}),
-        });
-        return { score: clamp01(result.score ?? 0), detail: (result as { rationale?: string }).rationale || undefined, evidence: output };
-      },
-    });
-
-  const summarizes = (expected: string, opts?: { on?: string; model?: string }) =>
-    deps.record({
-      name: "judge:autoevals:summarizes",
-      severity: "soft",
-      evaluate: async (ctx) => {
-        const output = await materialFor(ctx, opts?.on);
-        const result = await Summary({
-          input: deps.getInput(),
-          output,
-          expected,
-          ...autoevalsBase,
-          ...(opts?.model ? { model: opts.model } : {}),
-        });
-        return { score: clamp01(result.score ?? 0), detail: (result as { rationale?: string }).rationale || undefined, evidence: output };
-      },
-    });
-
-  const autoevalsNs: AutoevalsNamespace = { closedQA, factuality, summarizes };
-
-  return { autoevals: autoevalsNs };
+  return {
+    autoevals: {
+      closedQA: makeAutoeval("closedQA", ClosedQA as unknown as Scorer, "criteria"),
+      factuality: makeAutoeval("factuality", Factuality as unknown as Scorer, "expected"),
+      summarizes: makeAutoeval("summarizes", Summary as unknown as Scorer, "expected"),
+    },
+  };
 }

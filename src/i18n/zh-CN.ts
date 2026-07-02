@@ -20,6 +20,12 @@ export const zhCN = {
   "cli.dry.row": "  {{who}}{{experiment}}: {{evals}}  ×{{runs}}\n",
   "cli.error": "niceeval 出错:{{error}}\n",
   "cli.flag.invalidNumber": "标志 --{{flag}} 需要数字,收到 \"{{value}}\"。\n",
+  "runner.budgetUnenforceable":
+    "{{budgetKey}} 的 budget:连续多个 attempt 完成后都拿不到成本数据(agent 不上报用量且模型不在价格表)——该 agent 的 budget 无法执行,取消护栏继续跑。\n",
+  "judge.modelMissing":
+    "judge 未配置模型:在 defineConfig({ judge: { model: \"...\" } })、eval 的 judge 配置或环境变量 NICEEVAL_JUDGE_MODEL 里指定评判模型(没有内置默认模型)。",
+  "loaders.yamlMissing":
+    "loadYaml(\"{{path}}\") 需要 YAML 解析器:请先 `pnpm add yaml`(或改用 loadJson + JSON 数据集)。",
   "cli.flag.parseError": "{{message}}\n运行 `niceeval --help` 查看用法。\n",
   "cli.envInvalidNumber": "环境变量 {{name}} 不是数字:\"{{value}}\"。\n",
   "cli.help":

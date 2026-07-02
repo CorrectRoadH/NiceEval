@@ -66,6 +66,10 @@ const FLAG_OPTIONS = {
   port: { type: "string" },
   // --sandbox 已移除(sandbox 归 config/experiment);留着解析是为了给出迁移提示而非「未知 flag」。
   sandbox: { type: "string" },
+  // --watch / --json:文档曾接受、尚未实现的 flag。容忍(no-op)而不是硬报「未知 flag」,
+  // 免得照旧文档写的脚本直接崩;真正实现前不接任何行为。
+  watch: { type: "boolean" },
+  json: { type: "boolean" },
   dry: { type: "boolean" },
   quiet: { type: "boolean" },
   force: { type: "boolean" },

@@ -6,12 +6,13 @@
 
 import type { StreamEvent, Usage, ToolName, JsonValue } from "../../types.ts";
 import type { ParsedTranscript } from "./index.ts";
-import { normalizeToolName as normalizeShared } from "../tool-names.ts";
+import { GENERIC_VERB_ALIASES, normalizeToolName as normalizeShared } from "../tool-names.ts";
 
 // ───────────────────────── 工具名归一 ─────────────────────────
 
-/** Codex 特有别名;通用别名走 o11y/tool-names.ts 基表。 */
-const CODEX_TOOL_ALIASES: Record<string, ToolName> = {
+/** Codex 特有别名 + 裸动词(codex transcript 的工具名由 CLI 控制,裸动词安全);通用别名走基表。 */
+export const CODEX_TOOL_ALIASES: Record<string, ToolName> = {
+  ...GENERIC_VERB_ALIASES,
   file_change: "file_edit",
   update_plan: "agent_task",
 };

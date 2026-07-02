@@ -203,9 +203,8 @@ export function bubAgent(config?: BubConfig): Agent {
       };
       // model 归属:实验决定(ctx.model),省略时交给 bub 原生默认 / 用户环境,不硬编码。
       if (ctx.model) env.BUB_MODEL = `openai:${ctx.model}`;
-      const escaped = shared.shellSingleQuote(input.text);
       const res = await sb.runShell(
-        `${BUB} --workspace ${workspace} run '${escaped}' --session-id ${sessionId}`,
+        `${BUB} --workspace ${workspace} run ${shared.shellQuote(input.text)} --session-id ${sessionId}`,
         { env, stream: true },
       );
 

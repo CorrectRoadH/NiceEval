@@ -12,6 +12,7 @@ import {
 } from "../o11y/parsers/index.ts";
 import type { Sandbox, StreamEvent } from "../types.ts";
 import { t } from "../i18n/index.ts";
+import { shellQuote } from "../sandbox/shell.ts";
 
 /** 每个沙箱里「已经装过的全局包」去重,避免每轮 send 重复 npm i -g。 */
 const installedBySandbox = new WeakMap<Sandbox, Set<string>>();
@@ -37,27 +38,25 @@ async function ensureInstalled(sandbox: Sandbox, cmd: string, args: string[]): P
 }
 
 /**
- * 在 dir(可含 ~)下抓 transcript JSONL,读回其内容;没有则 undefined。
- * 已知 sessionId 时按 `<sessionId>.jsonl` 精确定位(并发 / 同沙箱多会话下不会抓错文件);
- * 否则退化到「mtime 最新」。排序用 POSIX 的 `ls -1t`,不依赖 GNU find 的 -printf
- *(BSD / 精简镜像上 -printf 会静默失败 → 空事件流 → 负断言假通过)。
+ * 在 dir(可含 ~)下找 mtime 最新的 *.jsonl,读回其内容;没有则 undefined。
+ * 「最新」是对的:同一沙箱内 send 严格串行,刚跑完的那次一定写在最后 —— 不要改成按
+ * session id 精确定位(claude --resume 会 fork 出新 session id 的新文件,旧 id 的
+ * 文件还在,精确匹配会读到过期 transcript,负断言静默假通过)。
+ * 用沙箱里的 node 递归找全局最新:不依赖 GNU find 的 -printf(BSD / 精简镜像没有),
+ * 也没有 `-exec ls -t +` 的 ARG_MAX 分批陷阱(每批各自排序,head -1 不是全局最新)。
+ * 沙箱必然有 node(agent CLI 靠 npm 装,预制镜像也带)。
  */
-async function captureLatestJsonl(
-  sandbox: Sandbox,
-  dir: string,
-  sessionId?: string,
-): Promise<string | undefined> {
+async function captureLatestJsonl(sandbox: Sandbox, dir: string): Promise<string | undefined> {
+  const script =
+    'const fs=require("fs"),p=require("path");let best=null;' +
+    "const walk=(d)=>{let es;try{es=fs.readdirSync(d,{withFileTypes:true})}catch{return}" +
+    "for(const e of es){const f=p.join(d,e.name);" +
+    "if(e.isDirectory())walk(f);" +
+    'else if(e.name.endsWith(".jsonl")){try{const m=fs.statSync(f).mtimeMs;if(!best||m>best.m)best={f,m}}catch{}}}};' +
+    "walk(process.argv[1]);if(best)process.stdout.write(best.f);";
   try {
-    if (sessionId) {
-      const exact = await sandbox.runShell(
-        `find ${dir} -type f -name '${sessionId}.jsonl' 2>/dev/null | head -1`,
-      );
-      const exactPath = exact.stdout.trim();
-      if (exactPath) return await sandbox.readFile(exactPath);
-    }
-    const find = await sandbox.runShell(
-      `find ${dir} -type f -name '*.jsonl' -exec ls -1t {} + 2>/dev/null | head -1`,
-    );
+    // dir 不加引号以便 shell 展开 ~;受信内部路径(同 writeFile 的约定)。
+    const find = await sandbox.runShell(`node -e '${script}' ${dir}`);
     const path = find.stdout.trim();
     if (!path) return undefined;
     return await sandbox.readFile(path);
@@ -127,10 +126,6 @@ function firstJsonField(raw: string | undefined, field: string): string | undefi
   return scanJsonl(raw, (obj) => obj[field] as string | undefined);
 }
 
-/** 把文本转义进 shell 单引号字面量('…')。各 adapter 拼 prompt 都走这一份。 */
-function shellSingleQuote(text: string): string {
-  return text.replace(/'/g, "'\\''");
-}
 
 /**
  * 非零退出的通用诊断:退出码、transcript 有无、事件数、最后一条 error、输出末尾,
@@ -170,7 +165,8 @@ export const shared = {
   extractJsonlFromStdout,
   codexThreadId,
   firstJsonField,
-  shellSingleQuote,
+  /** 把文本包成 shell 单引号字面量(含转义)。与 sandbox 后端同一份实现,别在 adapter 里手写。 */
+  shellQuote,
   diagnoseFailure,
   /** 原始 codex JSONL → 标准事件流 + 用量 + 压缩计数。 */
   parseCodex(raw: string | undefined): ParsedTranscript {

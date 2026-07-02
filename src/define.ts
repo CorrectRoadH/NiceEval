@@ -22,10 +22,11 @@ const SANDBOX_DEFAULT_CAPS = {
   sandbox: true,
 } as const;
 
-const REMOTE_DEFAULT_CAPS = {
-  conversation: true,
-  toolObservability: true,
-} as const;
+// remote / 进程内 agent 的默认能力位刻意为空(见 docs/adapters/contract.md「声明要诚实」):
+// 默认送 conversation + toolObservability 会把能力守卫全部短路 —— 一个没实现 resume 的
+// 进程内 agent,第二次 t.send 会静默当成新对话,这正是守卫最该拦的场景。
+// 能力 = 承诺:做到了什么就声明什么。
+const REMOTE_DEFAULT_CAPS = {} as const;
 
 /** 沙箱型 agent:在沙箱里 spawn 一个 coding agent 的 CLI,跑完读回 transcript。 */
 export function defineSandboxAgent(def: SandboxAgentDef): Agent {

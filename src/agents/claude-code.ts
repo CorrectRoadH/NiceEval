@@ -85,9 +85,9 @@ export function claudeCodeAgent(config?: ClaudeCodeConfig): Agent {
 
       const res = await sb.runCommand("claude", args, { env, stream: true });
 
-      // resume 轮已知 session id → 精确定位 transcript;首轮退化到「最新 jsonl」。
-      const knownId = !ctx.session.isNew && ctx.session.id ? ctx.session.id : undefined;
-      const raw = await shared.captureLatestJsonl(sb, "~/.claude/projects", knownId);
+      // 「最新 jsonl」而非按 session id 精确定位:--resume 会 fork 新 session id 的新文件,
+      // 精确匹配旧 id 会读到过期 transcript。send 串行,最新的一定是刚跑完的这次。
+      const raw = await shared.captureLatestJsonl(sb, "~/.claude/projects");
       ctx.session.id = shared.sessionIdFromClaudeTranscript(raw) ?? ctx.session.id;
       const parsed = shared.parseClaudeCode(raw);
       const events = [...parsed.events];

@@ -259,7 +259,7 @@ eval 用了 adapter 没实现的能力(`t.respond` / `t.newSession` / `t.calledT
 守卫读的是 `capabilities`,声明撒谎守卫就是摆设。三条修正:
 
 - **加 `hitl` 位,默认 off。** `t.respond` / `t.respondAll` / `t.requireInputRequest` / `t.parked` 改由它 gate(不再挂在 `conversation` 下隐含)。它是唯一必须 opt-in 的位——HITL 的三条义务(`waiting` / `input.requested` / resume 交回)没人能"碰巧做到"。
-- **`defineAgent`(remote)的默认位收紧为空 `{}`。** 现状默认送 `conversation + toolObservability`,正好把守卫全部短路:一个没处理 resume 的进程内 agent,第二次 `t.send` 会**静默当成新对话**——这是守卫最该拦的场景,却被默认声明放行了。收紧后,T0 作者第一次调第二个 `t.send` 会得到明确报错,顺着报错去实现或声明,这正是想要的引导。
+- **`defineAgent`(remote)的默认位收紧为空 `{}`。**(✅ 已落地,见 `src/define.ts`)默认送 `conversation + toolObservability` 会把守卫全部短路:一个没处理 resume 的进程内 agent,第二次 `t.send` 会**静默当成新对话**——这是守卫最该拦的场景,却被默认声明放行了。收紧后,T0 作者第一次调第二个 `t.send` 会得到明确报错,顺着报错去实现或声明,这正是想要的引导。能力 = 承诺:做到了什么就声明什么(`aiSdkAgent` 等内置工厂显式声明自己真做到的位)。
 - **`defineSandboxAgent` 的默认位保留**(`conversation + toolObservability + workspace + sandbox`)——沙箱型 coding agent 这四样是题中之义,内置 adapter 也都真做到了;但文档义务同步收紧:**用默认位 = 承诺做到了这四样**,做不到显式关。
 
 ### 第二层:调用守卫(缺声明 → 立即报错,判 errored)
@@ -270,7 +270,7 @@ eval 用了 adapter 没实现的能力(`t.respond` / `t.newSession` / `t.calledT
 |---|---|---|
 | 第二次 `t.send()` / `t.sendFile()`、`t.newSession()` | `conversation` | ✅ 已有调用守卫(第一次 send 不拦,第二轮起报清晰错误) |
 | `t.respond` / `t.respondAll` / `t.requireInputRequest` | `hitl`(新) | 暂 gate 在 `conversation` 下(`hitl` 位未落地) |
-| `t.calledTool` / `t.notCalledTool` / `t.toolOrder` / `t.usedNoTools` / `t.maxToolCalls` / `t.noFailedActions` / `t.calledSubagent` | `toolObservability` | ✅ 已有调用守卫(第一次调用即报) |
+| `t.calledTool` / `t.notCalledTool` / `t.toolOrder` / `t.usedNoTools` / `t.maxToolCalls` / `t.noFailedActions` / `t.calledSubagent` / `t.loadedSkill`(session / turn 句柄同套) | `toolObservability` | ✅ 已有调用守卫(第一次调用即报) |
 | `t.sandbox.*`、`t.file` / `t.fileChanged` / `t.fileDeleted` / `t.notInDiff` / `t.noFailedShellCommands` | `sandbox` | ✅ 已有调用守卫 |
 
 守卫实现见 `src/context/context.ts`(`capabilityGuard`),报错文案在 i18n `context.capabilityMissing`。

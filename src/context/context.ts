@@ -79,6 +79,29 @@ function capabilityGuard(agentName: string, cap: string, method: string): () => 
   };
 }
 
+/** 读工具事件的作用域断言 —— 没有 toolObservability 时事件流里根本没有工具事件,负断言会假通过。 */
+const TOOL_ASSERT_METHODS = [
+  "calledTool",
+  "notCalledTool",
+  "toolOrder",
+  "usedNoTools",
+  "maxToolCalls",
+  "noFailedActions",
+  "calledSubagent",
+  "loadedSkill",
+] as const;
+
+/** 给 session / turn 句柄补同一套守卫(t 级守卫盖不到 newSession() 和 turn 句柄)。 */
+function guardToolAsserts<T extends object>(handle: T, agent: Agent): T {
+  if (agent.capabilities.toolObservability) return handle;
+  for (const m of TOOL_ASSERT_METHODS) {
+    if (m in handle) {
+      (handle as Record<string, unknown>)[m] = capabilityGuard(agent.name, "toolObservability", m);
+    }
+  }
+  return handle;
+}
+
 export function createEvalContext(deps: ContextDeps): { context: TestContext; state: ContextState } {
   const manager = new SessionManager({
     agent: deps.agent,
@@ -230,7 +253,7 @@ export function createEvalContext(deps: ContextDeps): { context: TestContext; st
         return makeJudge(session);
       },
     };
-    return handle;
+    return guardToolAsserts(handle, deps.agent);
   }
 
   const primary = makeSessionHandle(manager.primary);
@@ -255,7 +278,7 @@ export function createEvalContext(deps: ContextDeps): { context: TestContext; st
     }
   }
   if (!caps.toolObservability) {
-    for (const m of ["calledTool", "notCalledTool", "toolOrder", "usedNoTools", "maxToolCalls", "noFailedActions", "calledSubagent"]) {
+    for (const m of TOOL_ASSERT_METHODS) {
       guards[m] = capabilityGuard(deps.agent.name, "toolObservability", m);
     }
   }
@@ -427,7 +450,7 @@ function makeTurnHandle(turn: Turn, collector: AssertionCollector, deps: Context
       signal: deps.signal,
     }),
   };
-  return handle;
+  return guardToolAsserts(handle, deps.agent);
 }
 
 function conversationText(events: readonly StreamEvent[]): string {

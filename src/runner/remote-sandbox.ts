@@ -22,7 +22,11 @@ export function createRemoteSandbox(): Sandbox {
   return new Proxy(meta as Sandbox, {
     get(target, prop) {
       if (prop in target) return target[prop as keyof Sandbox];
-      if (typeof prop !== "string") return undefined;
+      // 协议探测属性必须回 undefined:返回抛错函数会让这个对象变成 then() 抛错的
+      // thenable(await sandbox 直接 reject)、让 JSON.stringify 调到假 toJSON。
+      if (typeof prop !== "string" || prop === "then" || prop === "toJSON" || prop === "inspect") {
+        return undefined;
+      }
       return async () => {
         throw new Error(t("runner.remoteSandboxUnavailable", { method: prop }));
       };

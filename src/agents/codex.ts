@@ -107,11 +107,11 @@ export function codexAgent(config?: CodexConfig): Agent {
     async send(input, ctx) {
       const sb = ctx.sandbox;
       const flags = "--json --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check";
-      const escaped = shared.shellSingleQuote(input.text);
+      const prompt = shared.shellQuote(input.text);
       const resuming = !ctx.session.isNew && ctx.session.id;
       const cmd = resuming
-        ? `codex exec resume ${ctx.session.id} ${flags} '${escaped}'`
-        : `codex exec ${flags} '${escaped}'`;
+        ? `codex exec resume ${ctx.session.id} ${flags} ${prompt}`
+        : `codex exec ${flags} ${prompt}`;
 
       const res = await sb.runShell(cmd, { env: { CODEX_API_KEY: getApiKey() }, stream: true });
 

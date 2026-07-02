@@ -107,15 +107,14 @@ export class VercelSandbox implements Sandbox {
       this.vsb = newVsb;
       this.sessionCreatedAt = Date.now();
       // 旧 session 的 microVM 不随快照 / 新 session 创建自动回收,必须显式 stop,否则每次
-      // rotate 都泄漏一台在计费的 microVM。stop 失败不算 rotate 失败(新 session 已可用,
-      // 旧的到 session timeout 也会被平台回收),只警告不静默;套超时防止挂起的 stop 拖住命令。
-      try {
-        await withTimeout(oldVsb.stop(), STOP_OLD_SESSION_TIMEOUT_MS);
-      } catch (stopErr) {
+      // rotate 都泄漏一台在计费的 microVM。stop 与新 session 无数据依赖,不 await ——
+      // 挂起的 stop(最长 15s)不该拖住触发 rotate 的那条命令,还烧新 session 的时长。
+      // 失败只警告不静默(旧的到 session timeout 也会被平台回收)。
+      void withTimeout(oldVsb.stop(), STOP_OLD_SESSION_TIMEOUT_MS).catch((stopErr) => {
         console.error(
           `[VercelSandbox] warning: failed to stop rotated-out session, microVM may leak until session timeout: ${String(stopErr)}`,
         );
-      }
+      });
       console.error(t("vercel.rotated", {
         seconds: Math.round(elapsed / 1000),
         sessionId: newVsb.currentSession().sessionId,

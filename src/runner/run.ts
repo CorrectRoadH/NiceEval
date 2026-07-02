@@ -38,10 +38,20 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
   }
 
   const plannedFingerprints = new Map<string, string>();
-  for (const run of opts.agentRuns) {
-    for (const evalDef of opts.evals.filter((e) => run.evalFilter(e.id))) {
-      plannedFingerprints.set(cacheKey(run, evalDef.id), await computeFingerprint(evalDef, run));
+  {
+    // 并行 + 按 sourcePath 缓存:矩阵大时(实验 × eval)规划阶段不做串行重复文件读。
+    const sourceCache = new Map<string, Promise<string>>();
+    const jobs: Promise<void>[] = [];
+    for (const run of opts.agentRuns) {
+      for (const evalDef of opts.evals.filter((e) => run.evalFilter(e.id))) {
+        jobs.push(
+          computeFingerprint(evalDef, run, sourceCache).then((fp) => {
+            plannedFingerprints.set(cacheKey(run, evalDef.id), fp);
+          }),
+        );
+      }
     }
+    await Promise.all(jobs);
   }
 
   // 跨实验结果复用:只有上次 passed 且 fingerprint 匹配的 (experimentId, evalId) 组合直接携入。
@@ -120,18 +130,23 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
 
   // budget 护栏带「在飞预扣」:实测成本只有 attempt 完成后才知道,若只检查已完成花费,
   // maxConcurrency 个 attempt 会在任何成本回写前全部起飞,实际花费能冲到 budget 的十几倍。
-  // 口径:还没有任何完成样本时,同一 budgetKey 只放一个 attempt 在飞(用它探出单次成本);
+  // 口径:还没有任何【带成本】的完成样本时,同一 budgetKey 只放一个 attempt 在飞(探单次成本);
   // 有样本后,用平均实测成本给每个在飞 attempt 预扣,预计总额到顶就等,已花到顶就停。
+  // costSamples 只数报了成本的 attempt —— 不报成本的完成(agent 无用量、模型不在价格表、
+  // 早期 errored)不能算 0 元样本,否则均值被拉成 0,护栏彻底失效。连续多次完成都拿不到
+  // 成本时,说明这个 agent 的 budget 根本不可执行:警告一次然后放行,而不是永远串行装样子。
   interface BudgetState {
     spent: number;
     inflight: number;
-    completed: number;
+    costSamples: number;
+    completedNoCost: number;
+    unenforceableWarned: boolean;
   }
   const budgetStates = new Map<string, BudgetState>();
   const budgetState = (key: string): BudgetState => {
     let s = budgetStates.get(key);
     if (!s) {
-      s = { spent: 0, inflight: 0, completed: 0 };
+      s = { spent: 0, inflight: 0, costSamples: 0, completedNoCost: 0, unenforceableWarned: false };
       budgetStates.set(key, s);
     }
     return s;
@@ -189,6 +204,8 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
             const budgetKey = a.run.experimentId ?? a.run.agent.name;
             if (budget !== undefined) {
               // 预扣循环:预计花费(已花 + 在飞×均值)到顶就等在飞的结算,已花到顶就整段停。
+              // 注意等待的 fiber 仍占一个并发位(简单可靠;混跑「带 budget + 不带 budget」
+              // 的多实验时会牺牲些吞吐 —— budget 本就是拿速度换花费上限的模式)。
               for (;;) {
                 const s = budgetState(budgetKey);
                 if (s.spent >= budget) {
@@ -200,7 +217,16 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
                   }
                   return;
                 }
-                const avg = s.completed > 0 ? s.spent / s.completed : undefined;
+                if (s.costSamples === 0 && s.completedNoCost >= 3 && !s.unenforceableWarned) {
+                  // 连续几次完成都拿不到成本:budget 对这个 agent 不可执行,说清楚再放行。
+                  s.unenforceableWarned = true;
+                  process.stderr.write(t("runner.budgetUnenforceable", { budgetKey }));
+                }
+                if (s.costSamples === 0 && s.unenforceableWarned) {
+                  s.inflight += 1;
+                  break;
+                }
+                const avg = s.costSamples > 0 ? s.spent / s.costSamples : undefined;
                 const projected =
                   avg === undefined ? (s.inflight > 0 ? Number.POSITIVE_INFINITY : 0) : s.spent + s.inflight * avg;
                 if (projected < budget) {
@@ -239,8 +265,12 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
             );
             if (a.run.budget !== undefined) {
               const s = budgetState(budgetKey);
-              s.spent += result.estimatedCostUSD ?? 0;
-              s.completed += 1;
+              if (result.estimatedCostUSD !== undefined) {
+                s.spent += result.estimatedCostUSD;
+                s.costSamples += 1;
+              } else {
+                s.completedNoCost += 1;
+              }
             }
 
             if (result.outcome === "passed") {

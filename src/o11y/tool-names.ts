@@ -4,7 +4,13 @@
 
 import type { ToolName } from "../types.ts";
 
-/** 通用别名基表(键一律小写;normalizeToolName 匹配前先 toLowerCase)。 */
+/**
+ * 通用别名基表(键一律小写;normalizeToolName 匹配前先 toLowerCase)。
+ * 只收「不会撞上被测应用域内工具名」的保守别名(多为带下划线的复合名);
+ * `search`/`run`/`fetch` 这类裸动词在 GENERIC_VERB_ALIASES,由确知自己 transcript
+ * 词汇的 parser 显式 opt-in —— 否则 AI SDK 应用里一个叫 `search` 的商品搜索工具
+ * 会被误归成 web_search,负断言语义被悄悄改写。
+ */
 const BASE_TOOL_ALIASES: Record<string, ToolName> = {
   // 文件
   read_file: "file_read",
@@ -19,23 +25,16 @@ const BASE_TOOL_ALIASES: Record<string, ToolName> = {
   // shell
   shell: "shell",
   bash: "shell",
-  exec: "shell",
-  execute: "shell",
-  run: "shell",
-  terminal: "shell",
   command_execution: "shell",
   local_shell: "shell",
   execute_command: "shell",
   run_command: "shell",
 
   // web
-  fetch: "web_fetch",
-  http_request: "web_fetch",
-  curl: "web_fetch",
   web_fetch: "web_fetch",
   fetch_url: "web_fetch",
+  http_request: "web_fetch",
   web_search: "web_search",
-  search: "web_search",
 
   // 检索 / 导航
   glob: "glob",
@@ -44,12 +43,24 @@ const BASE_TOOL_ALIASES: Record<string, ToolName> = {
   grep: "grep",
   search_files: "grep",
   ripgrep: "grep",
-  ls: "list_dir",
   list_dir: "list_dir",
   list_directory: "list_dir",
-  dir: "list_dir",
+};
 
-  // 子 agent / 计划
+/**
+ * 裸动词别名:coding-agent CLI 自己的 transcript 词汇(codex/bub/claude 的工具名
+ * 由 CLI 控制,不会和用户域名冲突)。对被测应用(如 AI SDK 的自定义工具)不适用。
+ */
+export const GENERIC_VERB_ALIASES: Record<string, ToolName> = {
+  exec: "shell",
+  execute: "shell",
+  run: "shell",
+  terminal: "shell",
+  fetch: "web_fetch",
+  curl: "web_fetch",
+  search: "web_search",
+  ls: "list_dir",
+  dir: "list_dir",
   task: "agent_task",
 };
 

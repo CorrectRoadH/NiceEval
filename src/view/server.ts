@@ -6,6 +6,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { loadSummaries, viewRoot, type ScanResult } from "./loader.ts";
 import { buildViewData } from "./aggregate.ts";
+import { formatThrown } from "../util.ts";
 
 export interface ViewOptions {
   input?: string;
@@ -52,7 +53,7 @@ export async function startViewServer(opts: ViewOptions = {}): Promise<ViewServe
       res.end(await renderHtml(await loadSummaries(input)));
     } catch (e) {
       res.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
-      res.end(e instanceof Error ? e.stack ?? e.message : String(e));
+      res.end(formatThrown(e));
     }
   });
 

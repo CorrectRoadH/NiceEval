@@ -11,18 +11,29 @@ import { normalizeToolName as normalizeShared } from "../tool-names.ts";
 
 // ───────────────────────── 工具名归一 ─────────────────────────
 
-/** Claude Code 特有别名(键小写;PascalCase 原名靠共享层的 toLowerCase 兜住);通用别名走基表。 */
-const CLAUDE_TOOL_ALIASES: Record<string, ToolName> = {
+/**
+ * Claude Code 特有别名(键小写;PascalCase 原名靠共享层的 toLowerCase 兜住);通用别名走基表。
+ * 裸名 read/write/edit/webfetch/websearch/task 必须在这里:它们是 Claude Code 的核心工具
+ * (Read/Write/Edit/WebFetch/WebSearch/Task),基表刻意不收裸动词。
+ */
+export const CLAUDE_TOOL_ALIASES: Record<string, ToolName> = {
+  read: "file_read",
   readfile: "file_read",
+  write: "file_write",
   writefile: "file_write",
   write_to_file: "file_write",
+  edit: "file_edit",
   multiedit: "file_edit",
   editfile: "file_edit",
   strreplace: "file_edit",
   notebookedit: "file_edit",
   bashoutput: "shell",
+  webfetch: "web_fetch",
   mcp__fetch__fetch: "web_fetch",
+  websearch: "web_search",
+  ls: "list_dir",
   listdir: "list_dir",
+  task: "agent_task",
 };
 
 function normalizeToolName(name: string): ToolName {

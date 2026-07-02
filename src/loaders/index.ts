@@ -2,6 +2,7 @@
 
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { t } from "../i18n/index.ts";
 
 export async function loadJson<T = unknown>(path: string): Promise<T> {
   const raw = await readFile(resolve(process.cwd(), path), "utf-8");
@@ -18,9 +19,7 @@ export async function loadYaml<T = unknown>(path: string): Promise<T> {
   try {
     ({ parse } = (await import(yamlPkg)) as { parse(s: string): unknown });
   } catch {
-    throw new Error(
-      `loadYaml("${path}") 需要 yaml 解析器:请先 \`pnpm add yaml\`(或改用 loadJson + JSON 数据集)。`,
-    );
+    throw new Error(t("loaders.yamlMissing", { path }));
   }
   return parse(raw) as T;
 }

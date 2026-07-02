@@ -11,8 +11,21 @@ export function cacheKey(run: AgentRun, evalId: string): string {
   return `${run.experimentId ?? ""}|${evalId}`;
 }
 
-export async function computeFingerprint(evalDef: DiscoveredEval, run: AgentRun): Promise<string> {
-  const source = await readFile(evalDef.sourcePath, "utf-8");
+/**
+ * @param sourceCache 按 sourcePath 缓存文件内容:一个矩阵(实验 × eval)会对同一批源文件
+ * 反复算指纹,不带缓存会在任何 attempt 起跑前做 E×N 次重复文件读。
+ */
+export async function computeFingerprint(
+  evalDef: DiscoveredEval,
+  run: AgentRun,
+  sourceCache?: Map<string, Promise<string>>,
+): Promise<string> {
+  let sourcePromise = sourceCache?.get(evalDef.sourcePath);
+  if (!sourcePromise) {
+    sourcePromise = readFile(evalDef.sourcePath, "utf-8");
+    sourceCache?.set(evalDef.sourcePath, sourcePromise);
+  }
+  const source = await sourcePromise;
   const payload = {
     source,
     eval: {

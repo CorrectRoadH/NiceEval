@@ -1,7 +1,7 @@
 import type { ViewUsage } from "../types.ts";
 
-// 通过率/耗时/成本的展示口径与 server 共用一份实现,见 src/view/shared/format.ts。
-export { formatCost, formatDuration, formatPercent } from "../../shared/format.ts";
+// 通过率/耗时/成本的展示口径与 server 共用一份实现,见 src/shared/format.ts(CLI 表格同用)。
+export { formatCost, formatDuration, formatPercent } from "../../../shared/format.ts";
 
 export function prettyJson(value: unknown): string {
   if (typeof value === "string") return value;

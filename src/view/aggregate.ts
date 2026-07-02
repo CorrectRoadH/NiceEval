@@ -4,14 +4,8 @@
 import type { EvalResult, Usage } from "../types.ts";
 import type { LoadedSummary, ScanResult } from "./loader.ts";
 import { evalLevelStats } from "../shared/outcome.ts";
+import { OUTCOME_ORDER, avg, displayExperimentName, fallbackExperimentLabel, sumMaybe } from "../shared/aggregate.ts";
 import type { ViewData, ViewRow } from "./shared/types.ts";
-
-const OUTCOME_ORDER: Record<EvalResult["outcome"], number> = {
-  errored: 0,
-  failed: 0,
-  skipped: 1,
-  passed: 2,
-};
 
 /** 烘焙进 HTML 的页面数据;绝对路径等 server 私有信息在 loader 就没进 summary,这里只挑展示字段。 */
 export function buildViewData(scan: ScanResult): ViewData {
@@ -103,27 +97,7 @@ function sumUsage(items: Array<Usage | undefined>): Usage {
   };
 }
 
-function sumMaybe(items: Array<number | undefined>): number | undefined {
-  const known = items.filter((n): n is number => n !== undefined);
-  return known.length ? known.reduce((sum, n) => sum + n, 0) : undefined;
-}
-
-function avg(items: number[]): number {
-  return items.length ? items.reduce((sum, n) => sum + n, 0) / items.length : 0;
-}
-
-function displayExperimentName(id: string | undefined): string | undefined {
-  if (!id) return undefined;
-  return id.split("/").filter(Boolean).at(-1) ?? id;
-}
-
 function experimentGroup(id: string | undefined): string | undefined {
   if (!id || !id.includes("/")) return undefined;
   return id.split("/").slice(0, -1).join("/");
-}
-
-function fallbackExperimentLabel(result: EvalResult): string {
-  if (result.experiment?.id) return displayExperimentName(result.experiment.id) ?? result.experiment.id;
-  if (result.model) return `${result.agent}/${result.model}`;
-  return result.agent || "ad hoc run";
 }

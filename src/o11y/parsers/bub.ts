@@ -13,10 +13,11 @@
 
 import type { StreamEvent, Usage, ToolName, JsonValue } from "../../types.ts";
 import type { ParsedTranscript } from "./index.ts";
-import { normalizeToolName as normalizeShared } from "../tool-names.ts";
+import { GENERIC_VERB_ALIASES, normalizeToolName as normalizeShared } from "../tool-names.ts";
 
-/** Bub 特有别名(fs.* / web.* 命名空间与裸 read/write/edit);通用别名走 o11y/tool-names.ts 基表。 */
-const BUB_TOOL_ALIASES: Record<string, ToolName> = {
+/** Bub 特有别名(fs.* / web.* 命名空间与裸 read/write/edit)+ 裸动词;通用别名走基表。 */
+export const BUB_TOOL_ALIASES: Record<string, ToolName> = {
+  ...GENERIC_VERB_ALIASES,
   "fs.read": "file_read", fs_read: "file_read", read: "file_read",
   "fs.write": "file_write", fs_write: "file_write", write: "file_write",
   "fs.edit": "file_edit", fs_edit: "file_edit", edit: "file_edit",
