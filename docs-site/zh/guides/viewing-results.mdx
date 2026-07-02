@@ -13,10 +13,10 @@ Discovered 3 evals
 
   ✓ classify (12ms)
   ✓ weather/brooklyn (456ms)
-  ✗ fixtures/button (38s)
-    - gate: EVAL.ts › Button accepts label / onClick [FAILED]
+  ✗ api-validation (38s)
+    - gate: expected src/routes/users.ts to include .safeParse() [FAILED]
 
-Results:  2 passed, 1 failed, 0 passed, 0 skipped
+Results:  2 passed, 1 failed, 0 errored, 0 skipped
 ```
 
 每行包含 eval ID、outcome 和耗时。失败项会显示断言类型和错误信息。
@@ -29,19 +29,13 @@ Results:  2 passed, 1 failed, 0 passed, 0 skipped
 .niceeval/
 └─ 2025-01-15T14-23-00/
    ├─ summary.json
-   ├─ weather/
-   │  └─ brooklyn/
-   │     ├─ result.json
-   │     ├─ events.jsonl
-   │     ├─ transcript.jsonl
-   │     └─ diff.json
-   └─ fixtures/
-      └─ button/
-         ├─ result.json
-         ├─ events.jsonl
-         ├─ transcript.jsonl
-         ├─ diff.json
-         └─ test-output.txt
+   └─ artifacts/
+      └─ compare__web-agent__gpt-5.4__weather-tool__0/
+         ├─ events.json
+         ├─ sources.json
+         ├─ trace.json
+         ├─ o11y.json
+         └─ diff.json
 ```
 
 ## `niceeval view`
@@ -62,21 +56,25 @@ npx niceeval view
 
 整次运行的汇总：run ID、pass / fail 数量、耗时、成本和每个 eval 的状态。
 
-### `events.jsonl`
+### `events.json`
 
 标准事件流，是工具调用、消息、命令和错误的底层事实来源。
-
-### `transcript.jsonl`
-
-便于人工阅读的对话或 agent transcript。
 
 ### `diff.json`
 
 Sandbox eval 中 agent 改动的文件 diff。
 
-### `test-output.txt`
+### `sources.json`
 
-`EVAL.ts` 或项目测试脚本输出。
+eval 源码位置和断言位置，用于查看器把失败断言对应回代码。
+
+### `trace.json`
+
+OTLP trace 或标准化后的 span 数据。
+
+### `o11y.json`
+
+工具调用、命令、usage 和成本等观测摘要。
 
 ## Outcome 含义
 
@@ -90,6 +88,6 @@ Sandbox eval 中 agent 改动的文件 diff。
 ## 调试建议
 
 - 先看 `result.json` 找到失败断言。
-- 再看 `transcript.jsonl`，了解 agent 的决策过程。
-- coding-agent 失败时看 `diff.json` 和 `test-output.txt`。
-- 工具调用问题看 `events.jsonl`。
+- 再看 transcript 视图，了解 agent 的决策过程。
+- coding-agent 失败时看 `diff.json` 和命令事件输出。
+- 工具调用问题看 `events.json`。

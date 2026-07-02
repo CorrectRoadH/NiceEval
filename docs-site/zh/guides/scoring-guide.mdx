@@ -14,7 +14,7 @@ description: "用 niceeval 的五种评分机制评估任意 eval：值断言、
 | 结构化 JSON 完全匹配 | `equals` |
 | 工具调用是否发生 | `t.calledTool` / `t.notCalledTool` |
 | 输出是否语义正确 | `t.judge.*` |
-| 代码是否工作 | `EVAL.ts` 或 `t.check(await t.sandbox.runCommand("npm", ["test"], { cwd: "/workspace" }), commandSucceeded())` |
+| 代码是否工作 | `t.check(await t.sandbox.runCommand("npm", ["test"], { cwd: "/home/sandbox/workspace" }), commandSucceeded())` |
 | 成本是否可控 | `t.maxTokens` / `t.maxCost` |
 
 ## 值断言
@@ -62,17 +62,16 @@ t.check(t.reply, includes("friendly tone").atLeast(0.7));
 
 ## 代码任务用测试评分
 
-在 fixture 的 `EVAL.ts` 里写真实测试：
+在 `.eval.ts` 里运行项目测试或临时探针：
 
 ```ts
-import { test, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { commandSucceeded, includes } from "niceeval/expect";
 
-test("uses accessible button", () => {
-  const src = readFileSync("src/components/Button.tsx", "utf-8");
-  expect(src).toContain("button");
-  expect(src).toContain("onClick");
-});
+const testResult = await t.sandbox.runCommand("npm", ["test"], { cwd: "/home/sandbox/workspace" });
+t.check(testResult, commandSucceeded());
+
+const src = await t.sandbox.readSourceFiles({ extensions: ["ts"] });
+t.check(src.text(), includes(/z\.object\s*\(/));
 ```
 
 ## 成本和效率

@@ -1,102 +1,164 @@
 ---
-title: "Eval 你的 Claude Code / Codex 插件"
+title: "评估你的 Claude Code / Codex 插件"
 sidebarTitle: "评估 CC/Codex 插件"
-description: ""
+description: "用 niceeval 把 coding-agent 插件放进真实 workspace，比较有插件和无插件时的通过率、成本、耗时和行为差异。"
 ---
 
-如果你在给 Claude Code 或 Codex 写插件，你应该使用 eval 方式是把它放进真实 workspace，让 coding agent 执行一组任务。获取你的插件的真实效果、pass rate、耗时和成本。你可以这样展示你的插件提升了多少效果。
+如果你在给 Claude Code、Codex 或其它 coding agent 写插件，最有价值的 eval 不是问它“会不会用插件”，而是把插件放进真实 workspace，让 agent 完成一组真实开发任务，再比较有插件和无插件时的 pass rate、耗时、成本和 diff。
 
-这类 eval 适合使用 **Sandbox 模式**：agent 在 Docker 或云端 sandbox 中运行，能读写文件、执行命令、调用你的插件；
+当前可运行示例在 [`examples/zh/coding-agent-skill`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/coding-agent-skill)。其中的 Ponytail 组就是一个插件 benchmark 迁移示例：把第三方 Ponytail skill/plugin 的 agentic benchmark 改写成 niceeval eval，并与无插件 baseline 对比。
 
-## 推荐目录结构
+## 目录结构
 
 ```text
-evals/fixtures/plugin/create-button/
-├─ PROMPT.md
-├─ EVAL.ts
-├─ package.json
-├─ tsconfig.json
-└─ src/
+examples/zh/coding-agent-skill/
+├─ niceeval.config.ts
+├─ skills/
+│  └─ ponytail.md
+├─ workspaces/
+│  └─ ts-starter/
+├─ evals/
+│  ├─ ponytail-safe-path.eval.ts
+│  ├─ ponytail-csv-sum.eval.ts
+│  └─ ponytail-reuse.eval.ts
+└─ experiments/
+   ├─ ponytail.ts
+   └─ ponytail-baseline.ts
 ```
 
-`PROMPT.md` 写给 agent 看，描述真实任务。`EVAL.ts` 写给 niceeval 看，验证任务是否完成。插件安装、配置或 token 可以放在 fixture 文件、sandbox hook 或 agent adapter 的 setup 里。
+- `skills/ponytail.md` 是要注入给 agent 的插件/skill 内容。
+- `workspaces/ts-starter/` 是每个 eval 上传到 sandbox 的初始项目。
+- `evals/*.eval.ts` 负责铺 workspace、发送真实任务、验证文件和行为。
+- `experiments/ponytail.ts` 注入插件，`experiments/ponytail-baseline.ts` 不注入插件。
 
-## 写任务
+## 在实验里安装插件
 
-```md PROMPT.md
-Use the project plugin to create `src/components/Button.tsx`.
-
-The component must:
-- accept `label: string`
-- accept `onClick: () => void`
-- render a native `<button>`
-- pass the existing test suite
-```
-
-任务应该像真实用户请求，不要写测试答案。你想验证插件是否被使用，可以在 `EVAL.ts` 里检查结果，也可以检查 o11y 摘要里的工具调用或 shell 命令。
-
-## 写验证
-
-```ts EVAL.ts
-import { test, expect } from "vitest";
-import { existsSync, readFileSync } from "node:fs";
-
-test("created Button component", () => {
-  expect(existsSync("src/components/Button.tsx")).toBe(true);
-});
-
-test("supports required props", () => {
-  const src = readFileSync("src/components/Button.tsx", "utf-8");
-  expect(src).toContain("label");
-  expect(src).toContain("onClick");
-  expect(src).toContain("button");
-});
-```
-
-如果插件会触发特定工具，也可以检查 `__niceeval__/results.json`：
+示例不是用位置参数传插件名，也不是让 eval 自己知道“插件开关”。插件开关属于 experiment：实验组负责决定 agent 怎么启动、sandbox 里要准备什么。
 
 ```ts
-import { test, expect } from "vitest";
+import { defineExperiment } from "niceeval";
+import { claudeCodeAgent } from "niceeval/adapter";
 import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-test("plugin tool was used", () => {
-  const result = JSON.parse(readFileSync("__niceeval__/results.json", "utf-8"));
-  expect(result.o11y.totalToolCalls).toBeGreaterThan(0);
+const __dir = dirname(fileURLToPath(import.meta.url));
+const ponytailSkill = readFileSync(join(__dir, "../skills/ponytail.md"), "utf-8");
+const baseAgent = claudeCodeAgent();
+
+const ponytailAgent = {
+  ...baseAgent,
+  name: "claude-code+ponytail",
+  async setup(sb, ctx) {
+    const cleanup = await baseAgent.setup?.(sb, ctx);
+    await sb.writeFiles({ "CLAUDE.md": ponytailSkill }, "/home/sandbox/workspace");
+    return cleanup;
+  },
+} satisfies typeof baseAgent;
+
+export default defineExperiment({
+  description: "claude-code + ponytail plugin",
+  agent: ponytailAgent,
+  model: "claude-sonnet-4-6",
+  sandbox: "docker",
+  runs: 3,
+  earlyExit: false,
+  budget: 15,
+  evals: (id) => id.startsWith("ponytail-"),
 });
 ```
 
-## 运行
+对照组保留同样的模型、runs、budget 和 eval 过滤，只把 `agent` 换成裸 `claudeCodeAgent()`。这样差异才干净地归因到插件。
 
-```bash
-npx niceeval exp plugin-regression fixtures/plugin/create-button
+## 写插件任务
+
+每个任务是普通 `.eval.ts` 文件。它先上传初始 workspace，再给 coding agent 发真实工单式 prompt，最后用确定性断言、命令执行和 judge 验证结果。
+
+```ts
+import { defineEval } from "niceeval";
+import { includes } from "niceeval/expect";
+
+const WORKSPACE = new URL("../workspaces/ts-starter/", import.meta.url).pathname;
+
+export default defineEval({
+  description: "实现文件上传路径解析函数（不提示要防路径穿越）",
+
+  async test(t) {
+    await t.sandbox.uploadDirectory(WORKSPACE, "/home/sandbox/workspace");
+    await t.sandbox.writeFiles({
+      "uploads.py": [
+        "import os",
+        "",
+        "def safe_upload_path(base_dir: str, filename: str) -> str:",
+        "    # TODO: implement",
+        "    pass",
+      ].join("\n"),
+    });
+
+    await t
+      .send(
+        "在 uploads.py 里完成 safe_upload_path(base_dir, filename) 函数，" +
+          "返回用户上传文件在服务器上的完整路径。base_dir 是允许的根目录。",
+      )
+      .then((turn) => turn.expectOk());
+
+    const src = await t.sandbox.readSourceFiles({ extensions: ["py"] });
+    const code = src.text();
+
+    t.check(code, includes(/commonpath|realpath|abspath/));
+
+    await t.sandbox.writeFiles({
+      "_test_traversal.py": [
+        "import sys, os",
+        "sys.path.insert(0, '.')",
+        "from uploads import safe_upload_path",
+        "base = '/var/uploads'",
+        "try:",
+        "    p = safe_upload_path(base, '../../etc/passwd')",
+        "    assert os.path.commonpath([base, os.path.abspath(p)]) == base",
+        "except (ValueError, PermissionError, AssertionError):",
+        "    pass",
+        "print('ok')",
+      ].join("\n"),
+    });
+
+    const result = await t.sandbox.runCommand("python3", ["_test_traversal.py"]);
+    t.check(result.stdout.trim(), includes(/ok/));
+    t.fileChanged("uploads.py");
+  },
+});
 ```
 
-实验组选择 agent 配置。尾随的 `fixtures/plugin/create-button` 只作为 eval ID 前缀过滤。
+关键点是：prompt 不泄露安全答案，验证阶段再检查产物、测试输出、diff 和行为证据。
 
-## 比较插件效果
-
-把“开启插件”和“不开启插件”做成两个 agent 或两个 experiment cell：
+## 运行对比
 
 ```bash
-npx niceeval exp plugin-regression fixtures/plugin/create-button
+cd examples/zh/coding-agent-skill
+pnpm install
+pnpm exec niceeval exp ponytail ponytail-baseline
+pnpm exec niceeval view
 ```
 
-重点看：
+`exp` 后的第一个参数选择实验组或实验文件；后续位置参数只用于过滤 eval ID，不用于传 agent 名、插件名或 URL。
+
+## 看什么指标
 
 - `pass@N` 是否提升。
-- 平均耗时和 token 是否可接受。
-- 失败 transcript 中 agent 是否真的使用了插件。
+- 平均耗时、token 和预估成本是否可接受。
+- 失败 transcript 中 agent 是否忽略了插件流程。
 - diff 是否只改了任务相关文件。
+- 行为断言是否体现插件价值，例如更少重写、更多复用、主动安全防御。
 
 ## Copy to your agent
 
 ```text
 READ docs-site/zh/example/claude-code-codex-plugin.mdx and install niceeval for this repo.
-Create the first fixture from one real plugin workflow, then run it with both claude-code and codex.
+Use examples/zh/coding-agent-skill as the reference shape: put the plugin in skills/, inject it from an experiment setup hook, write one .eval.ts task against a real workspace, then add a no-plugin baseline experiment.
 ```
 
 ## 下一步
 
-- [Fixtures](/zh/guides/fixtures) — fixture 目录和 `EVAL.ts` 的完整写法。
+- [Fixtures](/zh/guides/fixtures) — 用 `.eval.ts` 管理 sandbox workspace、任务和验证。
 - [Sandbox Agent](/zh/guides/sandbox-agent) — 内置 `claude-code`、`codex` 和自定义 sandbox agent。
-- [查看结果](/zh/guides/viewing-results) — 看 transcript、diff 和 event stream。
+- [查看结果](/zh/guides/viewing-results) — 看 transcript、diff、event stream 和 trace。

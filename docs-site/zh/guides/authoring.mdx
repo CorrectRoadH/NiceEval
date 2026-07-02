@@ -1,7 +1,7 @@
 ---
 title: "编写 eval: 单轮、多轮和数据集模式"
 sidebarTitle: "编写 eval"
-description: "学习如何用 defineEval 编写 niceeval eval，包括单轮断言、多轮对话、数据集扇出和 sandbox fixtures。"
+description: "学习如何用 defineEval 编写 niceeval eval，包括单轮断言、多轮对话、数据集扇出和 sandbox workspace。"
 ---
 
 每个 niceeval eval 都是一个 TypeScript 文件，默认导出 `defineEval(...)`。核心原则是：**路径即身份**、**一个文件一个 eval**、**线性书写并就地断言**。
@@ -93,19 +93,26 @@ export default rows.map((row) =>
 
 生成 ID 为 `sql/0000`、`sql/0001` 等。详见 [Dataset Fanout](/zh/guides/dataset-fanout)。
 
-## Sandbox fixtures
+## Sandbox workspace
 
-Coding-agent eval 可以用目录约定：
+Coding-agent eval 仍然是普通 `.eval.ts` 文件，只是 test 里会准备 sandbox workspace、发送任务并检查文件结果：
 
-```text
-evals/fixtures/create-button/
-├─ PROMPT.md
-├─ EVAL.ts
-├─ package.json
-└─ src/
+```ts
+import { defineEval } from "niceeval";
+
+const WORKSPACE = new URL("../workspaces/ts-starter/", import.meta.url).pathname;
+
+export default defineEval({
+  description: "Create a Button component",
+  async test(t) {
+    await t.sandbox.uploadDirectory(WORKSPACE, "/home/sandbox/workspace");
+    await t.send("Create src/components/Button.tsx with label and onClick props.").then((turn) => turn.expectOk());
+    t.fileChanged("src/components/Button.tsx");
+  },
+});
 ```
 
-`PROMPT.md` 给 agent 看，`EVAL.ts` 只在验证阶段出现。详见 [Fixtures](/zh/guides/fixtures)。
+详见 [Fixtures](/zh/guides/fixtures)。
 
 ## 命名约定
 
@@ -119,7 +126,7 @@ evals/fixtures/create-button/
   <Card title="数据集" icon="database">
     适合大量结构相同、输入不同的 case。
   </Card>
-  <Card title="Fixtures" icon="box">
-    适合 coding agent，需要真实文件系统和验证测试。
+  <Card title="Sandbox workspace" icon="box">
+    适合 coding agent，需要真实文件系统、命令和 diff。
   </Card>
 </CardGroup>

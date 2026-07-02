@@ -1,86 +1,149 @@
 ---
 title: "Sandbox fixtures: 用任务评估 coding agents"
 sidebarTitle: "Fixtures"
-description: "fixture 是包含 PROMPT.md 和 EVAL.ts 的目录，niceeval 用它在隔离环境中运行 coding agent，并用 Vitest 测试验证输出。"
+description: "用 .eval.ts 给 coding agent 准备隔离 workspace、发送真实任务，并用 sandbox 文件、命令、diff 和 judge 验证结果。"
 ---
 
-Fixture 是评估 coding agent 的推荐方式。它把”给 agent 的任务”和”验证结果的测试”放在同一个目录里，但 agent 无法看到验证文件。
+评估 coding agent 时，单纯检查一段回复不够。你通常要给它一个真实项目，让它读写文件、运行命令、提交改动，然后检查产物是否正确。niceeval 的当前推荐写法是：用普通 `.eval.ts` 文件显式准备 sandbox workspace、发送任务并断言结果。
 
-## 目录结构
+可运行参考见 [`examples/zh/coding-agent-skill`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/coding-agent-skill)。
+
+## 推荐目录结构
 
 ```text
-evals/fixtures/button/
-├─ PROMPT.md
-├─ EVAL.ts
-├─ package.json
-├─ tsconfig.json
-└─ src/
+evals/
+├─ api-validation.eval.ts
+├─ config-schema.eval.ts
+└─ ponytail-safe-path.eval.ts
+
+workspaces/
+└─ ts-starter/
+   ├─ package.json
+   ├─ tsconfig.json
+   └─ src/
+
+skills/
+└─ zod.md
+
+experiments/
+├─ baseline.ts
+└─ with-skill.ts
 ```
 
-| 文件 | 作用 |
-|---|---|
-| `PROMPT.md` | 发给 agent 的任务 |
-| `EVAL.ts` | 验证测试，agent 完成后才出现 |
-| `package.json` | fixture 的依赖和脚本 |
-| `src/` | 初始 workspace |
+`workspaces/` 放 agent 可见的初始项目。`.eval.ts` 控制什么时候上传 workspace、发什么 prompt、检查什么结果。`experiments/` 决定用哪个 agent、哪个模型、是否注入 Skill 或插件。
 
-## `PROMPT.md`
+## 准备 workspace
 
-```md
-Create `src/components/Button.tsx`.
-
-The component must accept:
-- `label: string`
-- `onClick: () => void`
-```
-
-Prompt 应描述目标行为，不要把测试答案写进去。
-
-## `EVAL.ts`
+在 eval 里把初始项目上传到 sandbox：
 
 ```ts
-import { test, expect } from "vitest";
-import { existsSync, readFileSync } from "node:fs";
+import { defineEval } from "niceeval";
 
-test("Button component exists", () => {
-  expect(existsSync("src/components/Button.tsx")).toBe(true);
-});
+const WORKSPACE = new URL("../workspaces/ts-starter/", import.meta.url).pathname;
 
-test("accepts label and onClick", () => {
-  const src = readFileSync("src/components/Button.tsx", "utf-8");
-  expect(src).toContain("label");
-  expect(src).toContain("onClick");
+export default defineEval({
+  description: "给 Express 路由添加请求体验证",
+  async test(t) {
+    await t.sandbox.uploadDirectory(WORKSPACE, "/home/sandbox/workspace");
+
+    await t.send("在 src/routes/users.ts 里实现 POST /users 路由。").then((turn) => turn.expectOk());
+
+    t.fileChanged("src/routes/users.ts");
+  },
 });
 ```
 
-## 运行 fixture
+也可以用 `t.sandbox.writeFiles()` 在单个 eval 里补充种子文件，适合小任务或安全探针。
+
+## 写任务 prompt
+
+Prompt 应该像真实工单，描述目标和约束，但不要泄露验证答案。
+
+```ts
+await t
+  .send(
+    `在 src/config/env.ts 里实现环境变量校验。
+要求：
+- 用 Zod 定义 EnvSchema
+- PORT 转成 number
+- DATABASE_URL 必须是合法 URL
+- JWT_SECRET 最少 32 个字符
+- 导出 env 对象和 Env 类型`,
+  )
+  .then((turn) => turn.expectOk());
+```
+
+把“是否防路径穿越”“是否复用现有工具”这类隐式质量要求留给验证阶段，才能测出 Skill 或插件是否真的帮助 agent 主动补齐上下文。
+
+## 验证文件和代码
+
+```ts
+import { includes, excludes } from "niceeval/expect";
+
+const src = await t.sandbox.readSourceFiles({ extensions: ["ts"] });
+const config = src.fileMatching(/env/);
+const code = config?.content ?? "";
+
+t.check(code, includes(/z\.object\s*\(/));
+t.check(code, includes(/EnvSchema\.parse\s*\(\s*process\.env/));
+t.check(code, excludes(/process\.env\.\w+\s*\?\?/));
+t.fileChanged("src/config/env.ts");
+```
+
+`t.fileChanged()` 是作用域断言：它在运行结束后用 sandbox diff 判断目标文件是否真的被修改。
+
+## 运行项目测试或探针脚本
+
+对 coding-agent 任务，真实命令通常比文本匹配更可靠：
+
+```ts
+await t.sandbox.writeFiles({
+  "_test_traversal.py": [
+    "import sys, os",
+    "sys.path.insert(0, '.')",
+    "from uploads import safe_upload_path",
+    "base = '/var/uploads'",
+    "try:",
+    "    p = safe_upload_path(base, '../../etc/passwd')",
+    "    assert os.path.commonpath([base, os.path.abspath(p)]) == base",
+    "except (ValueError, PermissionError, AssertionError):",
+    "    pass",
+    "print('ok')",
+  ].join("\n"),
+});
+
+const result = await t.sandbox.runCommand("python3", ["_test_traversal.py"]);
+t.check(result.stdout.trim(), includes(/ok/));
+```
+
+也可以运行项目自己的 test/lint/build 脚本：
+
+```ts
+const result = await t.sandbox.runCommand("npm", ["test"], { cwd: "/home/sandbox/workspace" });
+t.check(result.exitCode, includes(0));
+```
+
+## 用 experiment 做对照组
+
+不要把 agent 名、插件名或 URL 放进位置参数。experiment 决定“对着哪个 agent、怎么跑”；CLI 的 eval 位置参数只过滤 eval ID。
 
 ```bash
-npx niceeval exp local fixtures/button --sandbox docker
+pnpm exec niceeval exp compare
+pnpm exec niceeval exp compare api-validation
 ```
 
-实验名之后的位置参数是 eval ID 前缀，不是 agent 名。
+典型 A/B：
 
-## 验证 agent 行为
+- `experiments/baseline.ts`：裸 agent。
+- `experiments/with-skill.ts`：同一 agent + setup hook 注入 `CLAUDE.md`。
+- 两组使用同一批 eval、同一模型、同一 runs 和预算。
 
-niceeval 会把 o11y 摘要注入 `__niceeval__/results.json`，`EVAL.ts` 可以检查 agent 是否调用了预期命令：
-
-```ts
-import { test, expect } from "vitest";
-import { readFileSync } from "node:fs";
-
-test("used project test script", () => {
-  const result = JSON.parse(readFileSync("__niceeval__/results.json", "utf-8"));
-  const commands = result.o11y.shellCommands.map((c: { command: string }) => c.command);
-  expect(commands.some((cmd) => cmd.includes("npm test"))).toBe(true);
-});
-```
-
-## 何时用 fixture
+## 何时用 sandbox fixture
 
 - 需要 agent 修改真实文件。
 - 需要运行项目测试、构建或 lint。
-- 需要比较生成 diff。
-- 任务适合批量收集 pass rate。
+- 需要比较 diff。
+- 需要评估 Claude Code、Codex 这类 coding agent。
+- 需要比较 Skill / 插件 / Hook 是否改善真实任务。
 
-如果只是调用 HTTP 或进程内函数，用普通 `defineEval` 更轻。
+如果只是调用 HTTP 服务或进程内函数，用普通 direct adapter 会更轻。

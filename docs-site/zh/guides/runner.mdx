@@ -12,7 +12,6 @@ runner 会读取 `evals/` 下的：
 
 - `*.eval.ts` 文件
 - 导出 eval 数组的数据集文件
-- 包含 `PROMPT.md` 和 `EVAL.ts` 的 fixture 目录
 
 ```bash
 npx niceeval list
@@ -70,7 +69,7 @@ runner 在 eval 完成后把结果交给 reporters：
 
 ## 输出目录
 
-每次运行会写入 `.niceeval/<timestamp>/`，包括 summary、per-eval result、event stream、transcript、diff 和测试输出。
+每次运行会写入 `.niceeval/<timestamp>/`，包括 `summary.json`，以及每个 attempt 的 `events.json`、`sources.json`、`trace.json`、`o11y.json` 和 `diff.json` 等拆分工件。
 
 ## 推荐调试流程
 

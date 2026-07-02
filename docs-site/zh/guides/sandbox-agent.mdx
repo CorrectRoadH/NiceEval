@@ -64,8 +64,8 @@ import { defineSandboxAgent } from "niceeval/adapter";
 export default defineSandboxAgent({
   name: "my-agent",
   async send(input, ctx) {
-    await ctx.sandbox.runCommand("my-agent", ["run", input.text]);
-    const transcript = await ctx.sandbox.readFile("transcript.jsonl");
+    await ctx.sandbox.runCommand("my-agent", ["run", input.text, "--json-out", "agent-events.json"]);
+    const transcript = await ctx.sandbox.readFile("agent-events.json");
     return {
       status: "completed",
       events: parseTranscript(transcript),
