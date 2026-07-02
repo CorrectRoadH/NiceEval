@@ -19,6 +19,24 @@ export const zhCN = {
   "cli.dry.noMatches": "(无匹配)",
   "cli.dry.row": "  {{who}}{{experiment}}: {{evals}}  ×{{runs}}\n",
   "cli.error": "niceeval 出错:{{error}}\n",
+  "cli.flag.invalidNumber": "标志 --{{flag}} 需要数字,收到 \"{{value}}\"。\n",
+  "cli.flag.parseError": "{{message}}\n运行 `niceeval --help` 查看用法。\n",
+  "cli.envInvalidNumber": "环境变量 {{name}} 不是数字:\"{{value}}\"。\n",
+  "cli.help":
+    "niceeval — 轻量 agent evals\n\n" +
+    "用法:\n" +
+    "  niceeval exp [组|实验] [eval-id 前缀…]   跑实验\n" +
+    "  niceeval list                            列出发现到的 eval\n" +
+    "  niceeval view [summary.json|目录] [--out 目录] [--port n] [--no-open]\n" +
+    "  niceeval clean                           删除 .niceeval/ 历史工件\n" +
+    "  niceeval init                            脚手架 config + evals/\n\n" +
+    "标志:\n" +
+    "  --runs n  --max-concurrency n  --timeout ms  --budget usd  --tag t\n" +
+    "  --early-exit / --no-early-exit  --strict  --force  --dry  --quiet\n" +
+    "  --junit path  --out dir  --port n  --open / --no-open  -h, --help\n\n" +
+    "位置参数只选「跑哪些 eval」(id 前缀);对着哪个 agent、怎么跑来自 experiments/ 与\n" +
+    "标志。环境变量覆盖(标志 > 环境变量 > config):\n" +
+    "  NICEEVAL_RUNS  NICEEVAL_MAX_CONCURRENCY  NICEEVAL_TIMEOUT  NICEEVAL_BUDGET\n",
   "cli.eval.noMatch": "没有匹配的 eval:{{patterns}}。\n",
   "cli.eval.noMatchHintExperiment": "提示:\"{{pattern}}\" 是实验{{kind}},你大概想跑:niceeval exp {{pattern}}\n",
   "cli.eval.noMatchKnown": "已发现 {{count}} 个 eval:{{evals}}\n",

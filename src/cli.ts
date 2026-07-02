@@ -8,6 +8,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { parseArgs as nodeParseArgs } from "node:util";
 import { discoverEvals, discoverExperiments, makeFilter } from "./runner/discover.ts";
 import { runEvals, type AgentRun } from "./runner/run.ts";
 import { stopAllSandboxes, liveSandboxCount } from "./sandbox/registry.ts";
@@ -18,6 +19,7 @@ import { Live as LiveReporter, type LiveRow } from "./runner/reporters/live.ts";
 import { Artifacts as ArtifactsReporter } from "./runner/reporters/artifacts.ts";
 import { buildView, startViewServer, loadMostRecentResults, IncompatibleResultsError } from "./view/index.ts";
 import { t } from "./i18n/index.ts";
+import { formatThrown } from "./util.ts";
 import type { Config, DiscoveredExperiment, Reporter } from "./types.ts";
 
 /** `niceeval view <summary.json>` 指向版本不同的报告时:打印 npx 提示后退出,不抛堆栈。 */
@@ -46,86 +48,105 @@ interface Flags {
   open?: boolean;
   out?: string;
   port?: number;
+  help: boolean;
 }
 
-const BOOL_FLAGS = new Set([
-  "dry",
-  "quiet",
-  "force",
-  "strict",
-  "early-exit",
-  "no-early-exit",
-  "open",
-  "no-open",
-  "force",
-  "watch",
-  "json",
-]);
+// 表驱动的 flag 定义(node:util parseArgs)。--no-x 显式声明,不依赖 allowNegative(需 Node 20.14+,
+// engines 是 >=18)。未知 flag 由 strict 模式报清晰错误,不再静默吞掉后面的位置参数。
+const FLAG_OPTIONS = {
+  agent: { type: "string" },
+  model: { type: "string" },
+  runs: { type: "string" },
+  "max-concurrency": { type: "string" },
+  timeout: { type: "string" },
+  budget: { type: "string" },
+  tag: { type: "string" },
+  junit: { type: "string" },
+  out: { type: "string" },
+  port: { type: "string" },
+  // --sandbox 已移除(sandbox 归 config/experiment);留着解析是为了给出迁移提示而非「未知 flag」。
+  sandbox: { type: "string" },
+  dry: { type: "boolean" },
+  quiet: { type: "boolean" },
+  force: { type: "boolean" },
+  strict: { type: "boolean" },
+  "early-exit": { type: "boolean" },
+  "no-early-exit": { type: "boolean" },
+  open: { type: "boolean" },
+  "no-open": { type: "boolean" },
+  help: { type: "boolean", short: "h" },
+} as const;
+
+function numberFlag(name: string, raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) {
+    process.stderr.write(t("cli.flag.invalidNumber", { flag: name, value: raw }));
+    process.exit(1);
+  }
+  return n;
+}
 
 function parseArgs(argv: string[]): { command: string; positionals: string[]; flags: Flags } {
   if (argv[0] === "--") argv = argv.slice(1);
-  const positionals: string[] = [];
-  const flags: Flags = { dry: false, quiet: false, force: false, strict: false };
-  let command = "run";
-  let i = 0;
 
-  // 第一个非 flag token 若是已知命令,则为命令
+  let values: Record<string, string | boolean | undefined>;
+  let rawPositionals: string[];
+  try {
+    const parsed = nodeParseArgs({ args: argv, options: FLAG_OPTIONS, allowPositionals: true, strict: true });
+    values = parsed.values as Record<string, string | boolean | undefined>;
+    rawPositionals = parsed.positionals;
+  } catch (e) {
+    process.stderr.write(t("cli.flag.parseError", { message: e instanceof Error ? e.message : String(e) }));
+    process.exit(1);
+  }
+
+  if (values.sandbox !== undefined) {
+    process.stderr.write(t("cli.sandboxFlagRemoved"));
+    process.exit(1);
+  }
+
+  // 第一个位置参数若是已知命令,则为命令;其余是 eval id 前缀 / view 输入。
   const commands = new Set(["exp", "list", "view", "clean", "init", "watch", "run"]);
-  if (argv[0] && !argv[0].startsWith("-") && commands.has(argv[0])) {
-    command = argv[0];
-    i = 1;
+  let command = "run";
+  let positionals = rawPositionals;
+  if (rawPositionals[0] && commands.has(rawPositionals[0])) {
+    command = rawPositionals[0];
+    positionals = rawPositionals.slice(1);
   }
 
-  for (; i < argv.length; i++) {
-    const tok = argv[i]!;
-    if (tok.startsWith("--")) {
-      const name = tok.slice(2);
-      if (name === "no-early-exit") {
-        flags.earlyExit = false;
-        continue;
-      }
-      if (name === "early-exit") {
-        flags.earlyExit = true;
-        continue;
-      }
-      if (name === "no-open") {
-        flags.open = false;
-        continue;
-      }
-      if (name === "open") {
-        flags.open = true;
-        continue;
-      }
-      if (BOOL_FLAGS.has(name)) {
-        if (name === "dry") flags.dry = true;
-        else if (name === "quiet") flags.quiet = true;
-        else if (name === "force") flags.force = true;
-        else if (name === "strict") flags.strict = true;
-        continue;
-      }
-      const value = argv[++i];
-      switch (name) {
-        case "agent": flags.agent = value; break;
-        case "model": flags.model = value; break;
-        case "runs": flags.runs = Number(value); break;
-        case "max-concurrency": flags.maxConcurrency = Number(value); break;
-case "timeout": flags.timeout = Number(value); break;
-        case "budget": flags.budget = Number(value); break;
-        case "tag": flags.tag = value; break;
-        case "junit": flags.junit = value; break;
-        case "out": flags.out = value; break;
-        case "port": flags.port = Number(value); break;
-        case "sandbox":
-          process.stderr.write(t("cli.sandboxFlagRemoved"));
-          process.exit(1);
-          break;
-        default: break; // 未知 flag 忽略
-      }
-    } else {
-      positionals.push(tok);
-    }
-  }
+  const flags: Flags = {
+    agent: values.agent as string | undefined,
+    model: values.model as string | undefined,
+    runs: numberFlag("runs", values.runs as string | undefined),
+    maxConcurrency: numberFlag("max-concurrency", values["max-concurrency"] as string | undefined),
+    timeout: numberFlag("timeout", values.timeout as string | undefined),
+    budget: numberFlag("budget", values.budget as string | undefined),
+    tag: values.tag as string | undefined,
+    junit: values.junit as string | undefined,
+    out: values.out as string | undefined,
+    port: numberFlag("port", values.port as string | undefined),
+    dry: values.dry === true,
+    quiet: values.quiet === true,
+    force: values.force === true,
+    strict: values.strict === true,
+    earlyExit: values["no-early-exit"] === true ? false : values["early-exit"] === true ? true : undefined,
+    open: values["no-open"] === true ? false : values.open === true ? true : undefined,
+    help: values.help === true,
+  };
   return { command, positionals, flags };
+}
+
+/** 调度项的环境变量层(标志 > 环境变量 > config > 默认,见 docs/cli.md「配置优先级」)。 */
+function envNumber(name: string): number | undefined {
+  const raw = process.env[name]?.trim();
+  if (!raw) return undefined;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) {
+    process.stderr.write(t("cli.envInvalidNumber", { name, value: raw }));
+    process.exit(1);
+  }
+  return n;
 }
 
 /** 加载 cwd/.env(不覆盖已有环境变量)。 */
@@ -214,6 +235,12 @@ async function main(): Promise<void> {
   await loadDotenv(cwd);
   const { command, positionals, flags } = parseArgs(process.argv.slice(2));
 
+  // --help 不需要 config,先于一切命令处理。
+  if (flags.help) {
+    process.stdout.write(t("cli.help"));
+    process.exit(0);
+  }
+
   if (command === "view") {
     if (flags.out) {
       const out = await buildView({ input: positionals[0], out: flags.out }).catch(exitOnIncompatibleResults);
@@ -284,11 +311,11 @@ async function main(): Promise<void> {
         agent: exp.agent,
         model: exp.model,
         flags: exp.flags ?? {},
-        runs: flags.runs ?? exp.runs ?? 1,
+        runs: flags.runs ?? envNumber("NICEEVAL_RUNS") ?? exp.runs ?? 1,
         earlyExit: flags.earlyExit ?? exp.earlyExit ?? true,
         sandbox: exp.sandbox ?? config.sandbox,
-        timeoutMs: flags.timeout ?? exp.timeoutMs ?? config.timeoutMs,
-        budget: flags.budget ?? exp.budget,
+        timeoutMs: flags.timeout ?? envNumber("NICEEVAL_TIMEOUT") ?? exp.timeoutMs ?? config.timeoutMs,
+        budget: flags.budget ?? envNumber("NICEEVAL_BUDGET") ?? exp.budget,
         evalFilter: evalsFilterFromExperiment(exp.evals, extraPatterns),
         experimentId: exp.id,
         strict: flags.strict,
@@ -410,7 +437,12 @@ async function main(): Promise<void> {
     evals,
     agentRuns,
     reporters,
-    maxConcurrency: flags.maxConcurrency ?? expMaxConcurrency ?? config.maxConcurrency ?? sandboxDefaultConcurrency,
+    maxConcurrency:
+      flags.maxConcurrency ??
+      envNumber("NICEEVAL_MAX_CONCURRENCY") ??
+      expMaxConcurrency ??
+      config.maxConcurrency ??
+      sandboxDefaultConcurrency,
     signal: ctrl.signal,
     onProgress,
     priorResults,
@@ -425,7 +457,7 @@ async function main(): Promise<void> {
 }
 
 main().catch(async (e) => {
-  process.stderr.write(t("cli.error", { error: e instanceof Error ? e.stack ?? e.message : String(e) }));
+  process.stderr.write(t("cli.error", { error: formatThrown(e) }));
   // 真·崩溃路径也别留孤儿:强清还活着的沙箱(带超时),再退。
   await stopAllSandboxes();
   process.exit(2);

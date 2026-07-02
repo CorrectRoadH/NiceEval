@@ -21,6 +21,24 @@ export const en = {
   "cli.dry.noMatches": "(no matches)",
   "cli.dry.row": "  {{who}}{{experiment}}: {{evals}}  ×{{runs}}\n",
   "cli.error": "niceeval error: {{error}}\n",
+  "cli.flag.invalidNumber": "Flag --{{flag}} expects a number, got \"{{value}}\".\n",
+  "cli.flag.parseError": "{{message}}\nRun `niceeval --help` for usage.\n",
+  "cli.envInvalidNumber": "Environment variable {{name}} is not a number: \"{{value}}\".\n",
+  "cli.help":
+    "niceeval — lightweight agent evals\n\n" +
+    "Usage:\n" +
+    "  niceeval exp [group|experiment] [eval-id-prefix…]   run experiments\n" +
+    "  niceeval list                                       list discovered evals\n" +
+    "  niceeval view [summary.json|dir] [--out d] [--port n] [--no-open]\n" +
+    "  niceeval clean                                      delete .niceeval/ artifacts\n" +
+    "  niceeval init                                       scaffold config + evals/\n\n" +
+    "Flags:\n" +
+    "  --runs n  --max-concurrency n  --timeout ms  --budget usd  --tag t\n" +
+    "  --early-exit / --no-early-exit  --strict  --force  --dry  --quiet\n" +
+    "  --junit path  --out dir  --port n  --open / --no-open  -h, --help\n\n" +
+    "Positional args only select which evals to run (id prefixes); which agent and\n" +
+    "how to run come from experiments/ + flags. Env overrides (flag > env > config):\n" +
+    "  NICEEVAL_RUNS  NICEEVAL_MAX_CONCURRENCY  NICEEVAL_TIMEOUT  NICEEVAL_BUDGET\n",
   "cli.eval.noMatch": "No eval matched: {{patterns}}.\n",
   "cli.eval.noMatchHintExperiment": "Hint: \"{{pattern}}\" is an experiment{{kind}}; you probably meant: niceeval exp {{pattern}}\n",
   "cli.eval.noMatchKnown": "Discovered {{count}} evals: {{evals}}\n",

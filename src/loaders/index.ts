@@ -10,47 +10,17 @@ export async function loadJson<T = unknown>(path: string): Promise<T> {
 
 export async function loadYaml<T = unknown>(path: string): Promise<T> {
   const raw = await readFile(resolve(process.cwd(), path), "utf-8");
-  // 尽量用真正的 yaml 解析器(若项目装了);否则退回极简解析。
-  // 用变量 specifier 避免 tsc 静态解析这个可选依赖。
+  // yaml 是可选依赖:用变量 specifier 避免 tsc 静态解析。装了就用真解析器;
+  // 没装直接报错并给出下一步 —— 不再退回手写的「极简 YAML」:它对嵌套 / 多行 /
+  // 锚点会静默解析出错误数据,让 eval 拿着错的 case 跑起来比直接失败更糟。
   const yamlPkg = "yaml";
+  let parse: (s: string) => unknown;
   try {
-    const yaml = (await import(yamlPkg)) as { parse(s: string): unknown };
-    return yaml.parse(raw) as T;
+    ({ parse } = (await import(yamlPkg)) as { parse(s: string): unknown });
   } catch {
-    return parseSimpleYaml(raw) as T;
+    throw new Error(
+      `loadYaml("${path}") 需要 yaml 解析器:请先 \`pnpm add yaml\`(或改用 loadJson + JSON 数据集)。`,
+    );
   }
-}
-
-/** 极简 YAML(只够 cases 列表这类扁平结构;复杂结构请 `pnpm add yaml`)。 */
-function parseSimpleYaml(text: string): unknown {
-  const lines = text.split("\n").filter((l) => l.trim() && !l.trim().startsWith("#"));
-  const root: Record<string, unknown> = {};
-  let currentKey: string | undefined;
-  let list: Record<string, unknown>[] | undefined;
-  let item: Record<string, unknown> | undefined;
-  for (const line of lines) {
-    const m = /^(\s*)(- )?([\w.-]+)?:?\s?(.*)$/.exec(line);
-    if (!m) continue;
-    const [, indent, dash, key, value] = m;
-    if (indent === "" && key && !dash) {
-      currentKey = key;
-      list = [];
-      root[currentKey] = list;
-    } else if (dash) {
-      item = {};
-      list?.push(item);
-      if (key) item[key] = coerce(value);
-    } else if (key && item) {
-      item[key] = coerce(value);
-    }
-  }
-  return root;
-}
-
-function coerce(v: string): unknown {
-  const t = v.trim().replace(/^["']|["']$/g, "");
-  if (t === "true") return true;
-  if (t === "false") return false;
-  if (t !== "" && !Number.isNaN(Number(t))) return Number(t);
-  return t;
+  return parse(raw) as T;
 }
