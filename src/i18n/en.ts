@@ -31,7 +31,7 @@ export const en = {
   "cli.flag.parseError": "{{message}}\nRun `niceeval --help` for usage.\n",
   "cli.envInvalidNumber": "Environment variable {{name}} is not a number: \"{{value}}\".\n",
   "cli.help":
-    "niceeval — lightweight agent evals\n\n" +
+    "niceeval — agent-native evals\n\n" +
     "Usage:\n" +
     "  niceeval exp [group|experiment] [eval-id-prefix…]   run experiments\n" +
     "  niceeval list                                       list discovered evals\n" +

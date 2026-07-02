@@ -16,7 +16,7 @@ This directory is the public Mintlify documentation site for `niceeval`.
 ## Writing Rules
 
 - Keep the product positioning consistent with the root `AGENTS.md`: `niceeval`
-  is a lightweight, general-purpose TypeScript agent eval tool.
+  is an agent-native, general-purpose agent eval tool.
 - When updating English pages, README links, or navigation based on Chinese
   content, sync from `zh/` and the current code instead of inventing new
   capabilities or paths.

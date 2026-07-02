@@ -2,7 +2,7 @@
 
 # NiceEval
 
-**渐进式、Agent Native、DX优秀的轻量 ai agent evals 工具**
+**渐进式、Agent Native、DX优秀的 AI agent evals 工具**
 
 [![typescript](https://img.shields.io/badge/typescript-5.6-blue?style=flat-square)](tsconfig.json)
 [![license](https://img.shields.io/badge/license-MIT-green?style=flat-square)](package.json)

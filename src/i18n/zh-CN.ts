@@ -29,7 +29,7 @@ export const zhCN = {
   "cli.flag.parseError": "{{message}}\n运行 `niceeval --help` 查看用法。\n",
   "cli.envInvalidNumber": "环境变量 {{name}} 不是数字:\"{{value}}\"。\n",
   "cli.help":
-    "niceeval — 轻量 agent evals\n\n" +
+    "niceeval — agent-native evals\n\n" +
     "用法:\n" +
     "  niceeval exp [组|实验] [eval-id 前缀…]   跑实验\n" +
     "  niceeval list                            列出发现到的 eval\n" +

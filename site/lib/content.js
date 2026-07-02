@@ -54,7 +54,7 @@ export const compareCard = {
 
 export const copy = {
   en: {
-    meta: "NiceEval is a lightweight, agent-native TypeScript eval tool for AI agents and coding-agent workflows.",
+    meta: "NiceEval is an agent-native eval tool for AI agents and coding-agent workflows.",
     navStart: "Start",
     blog: "Blog",
     docs: "Docs",
@@ -106,7 +106,7 @@ export const copy = {
     },
   },
   zh: {
-    meta: "NiceEval 是轻量、Agent-Native、DX 体验好的 TypeScript agent eval 工具,适合评 AI agents 和 coding-agent workflows。",
+    meta: "NiceEval 是 Agent-Native、DX 体验好的 agent eval 工具,适合评 AI agents 和 coding-agent workflows。",
     navStart: "开始",
     blog: "博客",
     docs: "文档",

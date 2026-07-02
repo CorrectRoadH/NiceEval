@@ -2,7 +2,7 @@
 
 # NiceEval
 
-**Progressive, agent-native, excellent DX lightweight AI agent evals tool**
+**Progressive, agent-native evals tool for AI agents, with excellent DX**
 
 [![typescript](https://img.shields.io/badge/typescript-5.6-blue?style=flat-square)](tsconfig.json)
 [![license](https://img.shields.io/badge/license-MIT-green?style=flat-square)](package.json)
