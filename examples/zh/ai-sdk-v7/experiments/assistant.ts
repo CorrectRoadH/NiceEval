@@ -1,12 +1,12 @@
 // eval 侧的全部接线:内建 aiSdkAgent 工厂 + 应用的 chat 函数。niceeval 的东西只出现在
-// 这个目录 —— 应用代码(agent/)不 import 任何 eval 框架的类型。
+// 这个目录 —— 应用代码(src/)不 import 任何 eval 框架的类型。
 //
 // 会话历史、事件流、HITL 握手、失败兜底、OTel 管线(per-attempt 端点、轮末 flush)全部
 // 是工厂的事;这里只声明「怎么召模型」(generate)和「结构化输出取什么」(data)。
 // 没有 default export,所以 niceeval 的实验发现会跳过本文件。
 import { aiSdkAgent } from "niceeval/adapter";
 import type { ModelMessage } from "ai";
-import { chat } from "../agent/assistant.ts";
+import { chat } from "../src/ai-sdk-runtime.ts";
 
 export const assistant = aiSdkAgent<ModelMessage>({
   name: "ai-sdk-v7",

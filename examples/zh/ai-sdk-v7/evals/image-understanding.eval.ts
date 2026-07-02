@@ -1,5 +1,7 @@
 import { defineEval } from "niceeval";
-import { DEFAULT_MODEL, modelSupportsVision } from "../agent/models.ts";
+import { modelSupportsVision } from "../src/models.ts";
+
+const DEFAULT_MODEL = "deepseek-v4-flash";
 
 // 【多模态 + 按模型跳过】t.sendFile 把本地图片(蓝底中间一个白方块)base64 后经
 // adapter 交给多模态模型。不支持视觉的模型用 t.skip 显式跳过 —— 比让断言必挂干净。

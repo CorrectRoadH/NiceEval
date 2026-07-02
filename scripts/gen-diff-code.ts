@@ -54,17 +54,19 @@ const PAIRS: DiffPair[] = [
     intro: [
       "对比对象：",
       "",
-      "- **before**：[`examples/zh/ai-sdk-v7-before/`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/ai-sdk-v7-before) —— 一个普通的 AI SDK v7 agent，还没接任何 eval。",
-      "- **after**：[`examples/zh/ai-sdk-v7/`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/ai-sdk-v7) —— 同一个 agent 接入 NiceEval 之后的样子。",
+      "- **before**：[`examples/zh/ai-sdk-v7-before/`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/ai-sdk-v7-before) —— 一个普通的 AI SDK v7 聊天应用（HTTP 服务器 + React 聊天 UI），还没接任何 eval。",
+      "- **after**：[`examples/zh/ai-sdk-v7/`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/ai-sdk-v7) —— 同一个应用接入 NiceEval 之后的样子。",
       "",
       "先看文件树了解改动范围，再分两部分读 diff：应用侧改了什么",
-      "（`chat` 多收一个可选 opts 透传取消信号和 telemetry，不 import 任何",
-      "niceeval 的东西），以及 eval 侧整体新增了什么（config、evals、",
-      "experiments，`aiSdkAgent` 接线也在这里）。",
+      "（`ai-sdk-runtime.ts` 多一个 `chat()`——比 `streamChat` 多收一个可选 opts",
+      "透传取消信号和 telemetry；`assistant.ts` 多一个 `send_email` 工具用来演示",
+      "tool approval + HITL，两者都不 import 任何 niceeval 的东西），以及 eval",
+      "侧整体新增了什么（config、evals、experiments，`aiSdkAgent` 接线也在这里）。",
     ].join("\n"),
     order: [
-      "agent/assistant.ts",
-      "agent/",
+      "src/ai-sdk-runtime.ts",
+      "src/assistant.ts",
+      "src/",
       "package.json",
       "tsconfig.json",
       "pnpm-workspace.yaml",
@@ -75,7 +77,7 @@ const PAIRS: DiffPair[] = [
     sections: [
       {
         title: "应用侧的变更",
-        files: ["agent/", "package.json", "tsconfig.json", "pnpm-workspace.yaml"],
+        files: ["src/", "package.json", "tsconfig.json", "pnpm-workspace.yaml"],
       },
       {
         title: "新增的 evals 与 experiments",

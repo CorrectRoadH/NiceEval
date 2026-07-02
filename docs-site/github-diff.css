@@ -105,20 +105,20 @@ tr.gd-expand:hover td { background: #b6e3ff; }
 .dark tr.gd-expand:hover td { background: rgba(56, 139, 253, 0.3); }
 
 /* Shiki 调色板（github-light / github-dark） */
-.gdt0 { color: #6A737D; }
-.dark .gdt0 { color: #6A737D; }
-.gdt1 { color: #D73A49; }
-.dark .gdt1 { color: #F97583; }
-.gdt2 { color: #24292E; }
-.dark .gdt2 { color: #E1E4E8; }
-.gdt3 { color: #032F62; }
-.dark .gdt3 { color: #9ECBFF; }
-.gdt4 { color: #005CC5; }
-.dark .gdt4 { color: #79B8FF; }
-.gdt5 { color: #6F42C1; }
-.dark .gdt5 { color: #B392F0; }
-.gdt6 { color: #E36209; }
-.dark .gdt6 { color: #FFAB70; }
+.gdt0 { color: #D73A49; }
+.dark .gdt0 { color: #F97583; }
+.gdt1 { color: #24292E; }
+.dark .gdt1 { color: #E1E4E8; }
+.gdt2 { color: #032F62; }
+.dark .gdt2 { color: #9ECBFF; }
+.gdt3 { color: #005CC5; }
+.dark .gdt3 { color: #79B8FF; }
+.gdt4 { color: #6F42C1; }
+.dark .gdt4 { color: #B392F0; }
+.gdt5 { color: #E36209; }
+.dark .gdt5 { color: #FFAB70; }
+.gdt6 { color: #6A737D; }
+.dark .gdt6 { color: #6A737D; }
 .gdt7 { color: #032F62; }
 .dark .gdt7 { color: #DBEDFF; }
 .gdt8 { color: #22863A; }

@@ -3,14 +3,16 @@
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "lib": ["ES2023"],
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "types": ["node"],
+    "jsx": "react-jsx",
     "strict": true,
+    "noUncheckedIndexedAccess": false,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "allowImportingTsExtensions": true,
     "noEmit": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["niceeval.config.ts", "agent", "evals", "experiments"]
+  "include": ["niceeval.config.ts", "src", "evals", "experiments", "vite.config.ts"]
 }
