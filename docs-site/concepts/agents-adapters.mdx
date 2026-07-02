@@ -1,7 +1,7 @@
 ---
 title: "niceeval agents and adapters: connect to any AI system"
 sidebarTitle: "Agents & Adapters"
-description: "Learn how niceeval connects to any AI through named agent adapters. Remote agents wrap HTTP or in-process calls; sandbox agents run CLI tools in isolation."
+description: "Learn how niceeval connects to any AI through named agent adapters. Direct agents wrap your own runtime; sandbox agents run CLI tools in isolation."
 ---
 
 Connecting niceeval to the thing you want to evaluate is the part of the system most likely to be misunderstood, so it helps to state the two foundational claims upfront before going any further: **niceeval does not define any agent protocol**, and **the adapter is the open boundary where you own the integration**. Everything else on this page follows from those two facts.
@@ -9,7 +9,7 @@ Connecting niceeval to the thing you want to evaluate is the part of the system 
 ## Two terms, one concept
 
 - **Agent** is the abstraction. From niceeval's perspective, an agent is a named object with capability flags and a single `send` method. The runner interacts with nothing but this interface. It never branches on `if (agent === "claude-code")`.
-- **Adapter** is the concrete implementation. You write it (or use one of niceeval's built-ins). It knows how to authenticate, how to call your service, and how to translate whatever your AI returns into the standard event stream.
+- **Adapter** is the concrete implementation. You write it (or use one of niceeval's built-ins). It knows how to authenticate, how to call your runtime, and how to translate whatever your AI returns into the standard event stream.
 
 Experiments reference agents directly. The URL, API key, or CLI invocation is the adapter's private configuration. niceeval never sees it.
 
@@ -27,7 +27,7 @@ npx niceeval exp prod weather    # production
 
 ## The Agent contract
 
-Regardless of whether the adapter wraps an in-process function, an HTTP endpoint, or a sandbox CLI, every agent exposes the same interface to the runner:
+Regardless of whether the adapter drives your own runtime or a sandbox CLI, every agent exposes the same interface to the runner:
 
 ```ts
 interface Agent {
@@ -100,12 +100,12 @@ Skill loading (`load_skill`) is just an `action.called` event — so `t.loadedSk
 
 There are two functions for defining adapters. Both produce agents with identical capabilities — they differ only in how `send` works internally.
 
-### `defineAgent` — remote and in-process agents
+### `defineAgent` — direct agents
 
-Use `defineAgent` when your subject under test is a function you can call directly, or a service you reach over HTTP. The `send` method is entirely in your control: call a local function, fire a `fetch`, or do anything else. Your only obligation is to map the response to `StreamEvent[]`.
+Use `defineAgent` when your subject under test is an agent you can drive directly. The `send` method is entirely in your control: call app code, fire a `fetch`, or do anything else. Your only obligation is to map the response to `StreamEvent[]`.
 
 <CodeGroup>
-```ts In-process adapter
+```ts Direct adapter
 // agents/my-agent.ts
 import { defineAgent } from "niceeval/adapter";
 import { myAgent } from "../src/agent.js";
@@ -124,7 +124,7 @@ export default defineAgent({
 });
 ```
 
-```ts Remote HTTP adapter
+```ts Deployed agent adapter
 // agents/support-bot.ts
 import { defineAgent } from "niceeval/adapter";
 
@@ -148,7 +148,7 @@ export default defineAgent({
 ```
 </CodeGroup>
 
-`toStreamEvents` is a small mapping function you write once — it converts "what your service said and which tools it called" into `StreamEvent[]`. That is the entirety of a remote agent author's work.
+`toStreamEvents` is a small mapping function you write once — it converts "what your agent said and which tools it called" into `StreamEvent[]`. That is the entirety of a direct agent author's work.
 
 ### `defineSandboxAgent` — coding agents in isolation
 
@@ -243,8 +243,8 @@ Built-in coding agents (`claude-code`, `codex`, `bub`) can be imported directly 
 ## Writing a new adapter: checklist
 
 <CardGroup cols={2}>
-  <Card title="Remote / in-process agent" icon="plug">
-    Implement `defineAgent` with a `send` that calls your code or service, maps the response to `StreamEvent[]`, and declares the capabilities your agent supports. That is everything.
+  <Card title="Direct agent" icon="plug">
+    Implement `defineAgent` with a `send` that calls your runtime, maps the response to `StreamEvent[]`, and declares the capabilities your agent supports. That is everything.
   </Card>
   <Card title="Sandbox agent" icon="box">
     Implement `defineSandboxAgent` with the five per-agent differences (install CLI, auth, compose invocation, model flag, read transcript), reuse `shared` utilities for workspace prep and diff capture, and write a transcript parser (`o11y/parsers/<name>.ts`) that converts raw JSONL to `StreamEvent[]`.

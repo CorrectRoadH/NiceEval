@@ -1,10 +1,10 @@
 ---
 title: "niceeval quickstart: run your first eval in 10 minutes"
 sidebarTitle: "Quickstart"
-description: "Install niceeval, scaffold your project, and run your first three evals — function, conversational, and coding-agent — in under 10 minutes."
+description: "Install niceeval, scaffold your project, and run your first direct-agent and coding-agent evals in under 10 minutes."
 ---
 
-This guide takes you from a blank project to three working evals: one that calls an in-process function, one that drives a conversational agent over HTTP, and one that drops a coding agent into a Docker sandbox to write real code. By the end you'll have a runnable eval suite with CI-ready output.
+This guide takes you from a blank project to a runnable niceeval setup: one direct agent eval and one coding-agent eval that runs inside a Docker sandbox. By the end you'll have an eval suite with CI-ready output.
 
 If you already know what you want to evaluate, jump straight to the relevant example:
 
@@ -16,7 +16,7 @@ If you already know what you want to evaluate, jump straight to the relevant exa
     Verify that a Skill is triggered, follows its prescribed flow, and actually improves task success rate.
   </Card>
   <Card title="Eval an AI agent application" icon="globe" href="/example/ai-agent-application">
-    For HTTP agents, AI SDK, LangGraph, or any custom agent service.
+    For AI SDK agents, LangGraph, or any custom agent application.
   </Card>
 </CardGroup>
 
@@ -79,21 +79,21 @@ Set `ANTHROPIC_API_KEY` (for Claude Code or the judge model) or `OPENAI_API_KEY`
 
 </Steps>
 
-## Eval 1 — an in-process function
+## Eval 1 — a direct agent
 
-The fastest way to start is evaluating a TypeScript function that lives in your own codebase. You define an agent adapter that calls your function directly, then write an eval that checks the output. No network, no Docker.
+The fastest way to start is evaluating an agent you can call directly from your own codebase. You define an agent adapter that invokes your runtime, then write an eval that checks the output. No Docker required.
 
-First, create the agent adapter that wraps your function:
+First, create the agent adapter:
 
 ```ts
 // agents/classify.ts
 import { defineAgent } from "niceeval/adapter";
-import { classifyIntent } from "../src/agent.js"; // your own code
+import { runAgent } from "../src/agent.js"; // your own agent runtime
 
 export default defineAgent({
   name: "classify",
   async send(input) {
-    return { data: await classifyIntent(input.text), status: "completed" };
+    return { data: await runAgent(input.text), status: "completed" };
   },
 });
 ```
@@ -121,14 +121,14 @@ npx niceeval exp local classify
 ```
 
 <Tip>
-  In-process evals are ideal for semantic regression testing. Because they call your code directly, they run in milliseconds and slot naturally into a standard CI pipeline alongside unit tests.
+  Direct evals are ideal for semantic regression testing. Because they can call your agent runtime without a sandbox, they stay fast and slot naturally into a standard CI pipeline.
 </Tip>
 
-## Eval 2 — a conversational agent
+## Eval 2 — a deployed or remote agent
 
-To eval an agent that lives behind an HTTP endpoint, you write an adapter that handles the request/response cycle. The URL and any credentials are the adapter's concern — niceeval has no `--url` flag and imposes no protocol requirements.
+To eval an agent that runs outside the current process, write an adapter that handles the request/response cycle. Connection details and credentials are the adapter's concern — niceeval has no `--url` flag and imposes no protocol requirements.
 
-Define the remote agent adapter:
+Define the agent adapter:
 
 ```ts
 // agents/weather-bot.ts
@@ -168,7 +168,7 @@ export default defineEval({
 });
 ```
 
-Run it by passing your service URL as an environment variable:
+Run it by passing your agent URL as an environment variable:
 
 ```shell
 AGENT_URL=https://my-agent.example.com npx niceeval exp local weather

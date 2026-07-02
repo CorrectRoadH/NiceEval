@@ -8,7 +8,7 @@ description: "defineAgent 和 defineSandboxAgent 参考：AgentContext、Sandbox
 
 ## `defineAgent`
 
-用于进程内函数和 HTTP 服务：
+用于 direct agent 接入：
 
 ```ts
 import { defineAgent } from "niceeval/adapter";
@@ -66,7 +66,7 @@ import { defineAgent } from "niceeval/adapter";
   向运行日志写消息。
 </ResponseField>
 
-## 进程内示例
+## direct agent 示例
 
 ```ts
 export default defineAgent({

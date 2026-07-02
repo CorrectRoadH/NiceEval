@@ -1,21 +1,21 @@
 ---
 title: "把远程或进程内 agent 接到 niceeval"
 sidebarTitle: "远程 Agent"
-description: "用 defineAgent 包装任意函数或 HTTP 服务为 niceeval agent，把响应映射到标准事件流，并按名字注册。"
+description: "用 defineAgent 包装你的 AI Agent 为 niceeval agent，把响应映射到标准事件流，并按名字注册。"
 ---
 
-`defineAgent` 用于连接不需要 sandbox 的被测对象：进程内函数、本地服务、远程 HTTP endpoint、WebSocket agent 或任何自定义框架。
+`defineAgent` 用于连接不需要 sandbox 的 AI agent：本地 runtime、已部署 agent、WebSocket agent 或任何自定义框架。
 
 不确定该做到哪一档（事件流、多轮、HITL、tracing）？先读[渐进式接入你的 agent](/zh/guides/connect-your-agent)——从 10 行最小接入开始逐档往上，每档解锁一组具体断言。
 
 ## 何时使用 `defineAgent`
 
 <CardGroup cols={2}>
-  <Card title="进程内函数" icon="bolt">
-    直接调用 TypeScript 函数或 SDK，适合低延迟、无网络的 eval。
+  <Card title="本地 Agent Runtime" icon="bolt">
+    直接调用你项目里的 agent runtime 或 SDK，适合低延迟、快速迭代的 eval。
   </Card>
-  <Card title="远程 HTTP 服务" icon="globe">
-    对已部署服务发请求，评估真实线上或 staging 行为。
+  <Card title="已部署 Agent" icon="globe">
+    对已部署 agent 发请求，评估真实线上或 staging 行为。
   </Card>
 </CardGroup>
 
@@ -39,7 +39,7 @@ export default defineAgent({
 });
 ```
 
-## 进程内示例
+## direct agent 示例
 
 ```ts
 export default defineAgent({
@@ -56,7 +56,7 @@ export default defineAgent({
 });
 ```
 
-## HTTP 示例
+## 已部署 agent 示例
 
 ```ts
 export default defineAgent({
@@ -89,7 +89,7 @@ function toStreamEvents(body: { reply: string }) {
 }
 ```
 
-如果服务返回工具调用，也应该映射到 action/tool 相关事件，这样 `t.calledTool()` 才能工作。
+如果 agent 返回工具调用，也应该映射到 action/tool 相关事件，这样 `t.calledTool()` 才能工作。
 
 ## 注册 agent
 

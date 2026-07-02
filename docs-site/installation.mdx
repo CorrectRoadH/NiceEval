@@ -12,7 +12,7 @@ Before installing niceeval, make sure your environment meets the following requi
 
 **Node.js** — niceeval requires a modern version of Node.js with ESM support. Use the version specified in your project's `.nvmrc` or `package.json` `engines` field, or install the current LTS release from [nodejs.org](https://nodejs.org).
 
-**Docker** — required only for sandbox evals (coding agents like Claude Code, Codex, and bub that need an isolated filesystem). Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) or Docker Engine and confirm it's running before you attempt a sandbox eval. In-process and HTTP agent evals work without Docker.
+**Docker** — required only for sandbox evals (coding agents like Claude Code, Codex, and bub that need an isolated filesystem). Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) or Docker Engine and confirm it's running before you attempt a sandbox eval. Direct agent evals work without Docker.
 
 <Note>
   If Docker is unavailable when you run a sandbox eval, niceeval stops immediately with a clear error message. It will not silently fall back to a different backend.
@@ -130,7 +130,7 @@ export ANTHROPIC_API_KEY=sk-ant-...
 export OPENAI_API_KEY=sk-...
 ```
 
-**For custom HTTP agents**, add whatever variables your adapter reads — for example:
+**For custom agents**, add whatever variables your adapter reads — for example:
 
 ```shell
 export AGENT_URL=https://my-agent.example.com

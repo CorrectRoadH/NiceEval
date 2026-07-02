@@ -1,10 +1,10 @@
 ---
 title: "NiceEval: lightweight TypeScript evals for AI agents"
 sidebarTitle: "Home"
-description: "NiceEval is a lightweight, general-purpose TypeScript eval tool for agents, services, functions, and coding-agent fixtures."
+description: "NiceEval is a lightweight, agent-native TypeScript eval tool for AI agents and coding-agent workflows."
 ---
 
-NiceEval is a lightweight eval tool for AI agents. It gives you one TypeScript surface for checking conversational agents, Claude Code or Codex-style coding agents, HTTP services, and in-process functions.
+NiceEval is a lightweight, agent-native eval tool for AI agents. It gives you one TypeScript surface for checking conversational agents, Claude Code or Codex-style coding agents, and custom agent workflows.
 
 The goal is low-friction evals that are still inspectable: `defineEval`, built-in scoring, bounded concurrency, run matrices, traces, cost, diffs, artifacts, and sandbox support when a task needs a real workspace.
 
@@ -16,7 +16,7 @@ The goal is low-friction evals that are still inspectable: `defineEval`, built-i
     Evaluate coding agents inside isolated workspaces with file, command, and diff assertions.
   </Card>
   <Card title="Remote agents" icon="server" href="/guides/remote-agent">
-    Wrap your HTTP agent, web service, or custom protocol with an adapter.
+    Wrap your own agent application or custom protocol with an adapter.
   </Card>
 </CardGroup>
 
@@ -27,10 +27,7 @@ The goal is low-friction evals that are still inspectable: `defineEval`, built-i
     Test Claude Code or Codex plugins, MCP servers, and project-level extensions against real coding tasks.
   </Card>
   <Card title="Agent applications" icon="globe" href="/guides/remote-agent">
-    Assert replies, tool calls, structured output, latency, and cost for your own agent service.
-  </Card>
-  <Card title="Functions and workflows" icon="function" href="/guides/authoring">
-    Run semantic regression tests against TypeScript functions, chains, and deterministic workflows.
+    Assert replies, tool calls, structured output, latency, and cost for your own agent application.
   </Card>
 </CardGroup>
 
@@ -43,7 +40,7 @@ Choose the boundary that matches the system under test. The eval and scoring mod
     Use Docker or a cloud sandbox when the agent must read files, edit code, run commands, and produce a diff.
   </Card>
   <Card title="Direct mode" icon="cable" href="/guides/remote-agent">
-    Connect directly to an in-process function, HTTP service, AI SDK app, LangGraph flow, or custom agent protocol.
+    Connect directly to your AI agent app, AI SDK flow, LangGraph runtime, or custom agent protocol.
   </Card>
 </CardGroup>
 
@@ -113,5 +110,5 @@ Create one eval for a real regression-prone workflow, run it locally, and show t
 ```
 
 <Tip>
-  See the [Quickstart guide](/quickstart) for a full walkthrough covering function evals, conversational agents, and sandbox coding-agent fixtures.
+  See the [Quickstart guide](/quickstart) for a full walkthrough covering direct-agent and sandbox coding-agent evals.
 </Tip>

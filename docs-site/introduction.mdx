@@ -1,24 +1,21 @@
 ---
 title: "niceeval: TypeScript eval framework for AI agents and LLMs"
 sidebarTitle: "Introduction"
-description: "niceeval is a TypeScript eval library for AI agents. Evaluate coding agents, HTTP services, and in-process functions with one unified API."
+description: "niceeval is an agent-native TypeScript eval library for AI agents. Evaluate coding agents and your own agent applications with one unified API."
 ---
 
-niceeval is a lightweight TypeScript library that brings structured, repeatable evaluation to AI agents. Instead of manually poking at your agent and hoping for the best, you write declarative eval files that describe what a good result looks like — and niceeval takes care of running them, scoring the output, and producing readable reports. Whether you're shipping a Claude Code plugin, a customer-facing HTTP service, or an internal function wrapped in an LLM call, niceeval handles all three with the same `defineEval` API.
+niceeval is an agent-native TypeScript library for structured, repeatable evaluation of AI agents. Instead of manually poking at your agent and hoping for the best, you write declarative eval files that describe what a good result looks like, and niceeval takes care of running them, scoring the output, and producing readable reports. Whether you're shipping a Claude Code plugin, a Codex workflow, or your own AI agent application, niceeval gives you the same `defineEval` API.
 
 ## What you can evaluate
 
-niceeval covers three categories of agent under test, all through a unified interface:
+niceeval covers the main agent shapes teams actually ship, all through a unified interface:
 
 <CardGroup cols={3}>
   <Card title="Coding agents" icon="code">
     Drop a CLI agent — Claude Code, Codex, bub, or any compatible tool — into an isolated Docker sandbox, give it a task, and verify the result with real tests and file assertions.
   </Card>
-  <Card title="HTTP services & deployed agents" icon="globe">
-    Point niceeval at any running HTTP endpoint or deployed agent. Assert on replies, tool calls, and structured output without touching the deployment.
-  </Card>
-  <Card title="In-process functions" icon="function">
-    Call your own TypeScript functions directly inside the eval process. Treat evals as semantic unit tests and run them in CI with zero network overhead.
+  <Card title="Direct agent applications" icon="globe">
+    Evaluate your own conversational or tool-using agents through an adapter. Assert on replies, tool calls, and structured output without changing the core eval model.
   </Card>
 </CardGroup>
 
@@ -39,9 +36,9 @@ At a high level, your `evals/` directory is the input and `.niceeval/` artifacts
 ```
    your evals/ directory            niceeval core               agent adapter
    ─────────────────────           ──────────────             ─────────────────
-   weather.eval.ts   ──discover──>  Runner  ──send──>  Agent  ─── in-process
-   sql.eval.ts                        │                        ─── remote HTTP
-   button.eval.ts   ──sandbox──>      │                        ─── sandbox ──> Docker
+   weather.eval.ts   ──discover──>  Runner  ──send──>  Agent  ─── direct agent adapter
+   sql.eval.ts                        │                        ─── sandbox adapter ──> Docker
+   button.eval.ts   ──sandbox──>      │
      workspaces/button/               ▼
                                   Scorers ──> Reporters ──> .niceeval/<run>/
                                    (expect / scoped /         (summary.json /
@@ -83,7 +80,7 @@ niceeval supports two top-level integration modes depending on whether the agent
    └──────────────────────────────┘
 ```
 
-**Direct mode** — for HTTP services and in-process functions that don't need Docker:
+**Direct mode** — for your own AI agent application when it doesn't need Docker:
 
 ```
    evals/*.eval.ts
@@ -97,15 +94,14 @@ niceeval supports two top-level integration modes depending on whether the agent
         │  Agent adapter (official or custom)
         ▼
    ┌──────────────────────────────┐
-   │       your own Web Agent      │
-   │  (HTTP / AI SDK · LangGraph · │
-   │   and other frameworks —      │
-   │        no Docker needed)      │
+   │       your own AI Agent       │
+   │  (AI SDK · LangGraph · custom │
+   │   agent loops — no Docker)    │
    └──────────────────────────────┘
 ```
 
 ## What comes next
 
-The [Quickstart](/quickstart) walks you through installing niceeval, scaffolding your project with `npx niceeval init`, and running all three eval types — function, conversational, and coding-agent — in under ten minutes.
+The [Quickstart](/quickstart) walks you through installing niceeval, scaffolding your project with `npx niceeval init`, and running direct-agent and coding-agent evals in under ten minutes.
 
 If you want to go deeper right away, the [Installation](/installation) page covers prerequisites, configuration options, and environment variables in full detail.

@@ -8,7 +8,7 @@ description: ""
 
 查看示例代码：https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/ai-sdk
 
-被测对象是一个用 AI SDK tool loop 实现的【普通 AI 助手】HTTP 服务：会发消息、调用工具（查天气 / 算数 / 搜索）、理解图片，并用 langfuse 做自己的可观测。该应用在测试时不需要 sandbox —— niceeval 通过 adapter 直接调它的 HTTP 协议。
+被测对象是一个用 AI SDK tool loop 实现的【普通 AI 助手】应用：会发消息、调用工具（查天气 / 算数 / 搜索）、理解图片，并用 langfuse 做自己的可观测。该应用在测试时不需要 sandbox —— niceeval 通过 direct adapter 连接它。
 
 # 目录结构
 
@@ -28,7 +28,7 @@ examples/zh/ai-sdk/
 
 # 定义适配器
 
-adapter 告诉 niceeval 怎么给 AI Agent 发请求、怎么把响应读成标准事件流。它是个工厂函数：`baseUrl`（被测服务跑在哪）由外面传进来，adapter 自己不写死、不读 env。
+adapter 告诉 niceeval 怎么给 AI Agent 发请求、怎么把响应读成标准事件流。它是个工厂函数：`baseUrl`（被测 agent 跑在哪）由外面传进来，adapter 自己不写死、不读 env。
 
 ```ts
 // adapter/adapter.ts
@@ -75,7 +75,7 @@ function toStreamEvent(event: AgentEvent): StreamEvent {
 
 ## 多轮消息
 
-`t.send()` 会自动带上 `ctx.session.id` 续接同一会话；adapter 把服务回传的 `sessionId` 写回 `ctx.session.id` 即可。需要在实验里按 feature flag 分流，见 [Experiments](/zh/guides/experiments)。
+`t.send()` 会自动带上 `ctx.session.id` 续接同一会话；adapter 把 agent 回传的 `sessionId` 写回 `ctx.session.id` 即可。需要在实验里按 feature flag 分流，见 [Experiments](/zh/guides/experiments)。
 
 # 定义评估
 
@@ -128,7 +128,7 @@ export default defineExperiment({
 
 # 开始评估
 
-先启动被测服务（默认 mock 模式，免 API key）。这个例子是独立 npm 项目，`niceeval` 是它的依赖：
+先启动被测 agent 应用（默认 mock 模式，免 API key）。这个例子是独立 npm 项目，`niceeval` 是它的依赖：
 
 ```bash
 cd examples/zh/ai-sdk && pnpm install && pnpm dev

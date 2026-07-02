@@ -2,7 +2,7 @@
 
 # NiceEval
 
-**Progressive, full-featured, excellent DX lightweight ai agent evals tool**
+**Progressive, agent-native, excellent DX lightweight AI agent evals tool**
 
 [![typescript](https://img.shields.io/badge/typescript-5.6-blue?style=flat-square)](tsconfig.json)
 [![license](https://img.shields.io/badge/license-MIT-green?style=flat-square)](package.json)
@@ -12,7 +12,7 @@
 
 </div>
 
-NiceEval is a general-purpose agent eval tool inspired by [eve](https://eve.dev). It has an excellent DX design — anyone can get started and configured in about 10 minutes. It's also very versatile: it can eval plugins, Hooks, and Skills written for Claude Code/Codex coding agents, and can directly eval your own AI Agent framework (no matter if it's based on AI SDK, LangGraph, Pi, or any other interface, it's easy to integrate).
+NiceEval is an agent-native eval tool inspired by [eve](https://eve.dev). It has an excellent DX design — anyone can get started and configured in about 10 minutes. It's also versatile: it can eval plugins, Hooks, and Skills written for Claude Code/Codex coding agents, and can directly eval your own AI agent application or framework (AI SDK, LangGraph, Pi, or any custom agent loop).
 
 After the eval completes, it generates readable reports and lets you view agent behavior details. Convenient for debugging and optimization.
 
@@ -24,7 +24,7 @@ It also coexists with LangFuse and BrainTrust: use them for tracing, or upload e
 
 ## Architecture
 
-NiceEval supports two integration modes, depending on whether the system under test needs an isolated sandbox filesystem.
+NiceEval supports two integration modes, depending on whether the agent under test needs an isolated sandbox filesystem.
 
 **Mode 1: Sandbox (Docker, E2B) — run coding agents like Codex and Claude Code that need a sandbox**
 
@@ -60,16 +60,16 @@ NiceEval supports two integration modes, depending on whether the system under t
         │ Agent adapter (official, or your own implementation)
         ▼
    ┌──────────────────────────────┐
-   │       your own Web Agent      │
-   │   (HTTP / AI SDK·LangGraph·   │
-   │    Pi and other frameworks —  │
+   │       your own AI Agent       │
+   │   (AI SDK·LangGraph·Pi and    │
+   │    other agent frameworks —   │
    │         no Docker needed)     │
    └──────────────────────────────┘
 ```
 
 - **NiceEval core** owns discovery, scheduling, scoring, reporting, and artifacts.
 - **Agent adapters** are the open boundary: you decide how to call the system under test.
-- Coding agents that need filesystem isolation run inside the **Docker Sandbox**; your own Web Agent can connect directly, without Docker.
+- Coding agents that need filesystem isolation run inside the **Docker Sandbox**; your own AI agent can connect directly, without Docker.
 
 
 ## Example

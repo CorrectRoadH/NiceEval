@@ -4,13 +4,13 @@ sidebarTitle: "defineAgent"
 description: "Reference for defineAgent and defineSandboxAgent. Covers AgentContext, Sandbox interface, StreamEvent types, and shared sandbox helpers."
 ---
 
-Every agent in niceeval is an **adapter** — a piece of code you write that knows how to drive a specific backend and translate its output into a standard event stream. The runner knows nothing about your agent's wire protocol, CLI flags, or authentication; it only calls `agent.send(input, ctx)` and expects back a `Turn`. This page covers the two adapter factories: `defineAgent` for remote and in-process agents, and `defineSandboxAgent` for coding agents that run inside an isolated sandbox.
+Every agent in niceeval is an **adapter** — a piece of code you write that knows how to drive a specific backend and translate its output into a standard event stream. The runner knows nothing about your agent's wire protocol, CLI flags, or authentication; it only calls `agent.send(input, ctx)` and expects back a `Turn`. This page covers the two adapter factories: `defineAgent` for direct agent integrations, and `defineSandboxAgent` for coding agents that run inside an isolated sandbox.
 
 ---
 
 ## defineAgent
 
-Use `defineAgent` for any agent you can drive in-process or over HTTP. The `send` function is your responsibility: call your code, fire a `fetch`, stream from a WebSocket — whatever your backend requires. Map the result to the standard event stream and return a `Turn`.
+Use `defineAgent` for any agent you can drive directly. The `send` function is your responsibility: call your app code, fire a `fetch`, stream from a WebSocket — whatever your agent runtime requires. Map the result to the standard event stream and return a `Turn`.
 
 ```ts
 import { defineAgent } from "niceeval/adapter";
@@ -152,18 +152,18 @@ Your `send` function must return an object satisfying the `Turn` interface.
   - `cacheReadTokens?: number`
 </ResponseField>
 
-### Complete example: in-process agent
+### Complete example: direct agent
 
 ```ts
 // agents/my-agent.ts
 import { defineAgent } from "niceeval/adapter";
-import { classifyIntent } from "../src/agent.js";
+import { runAgent } from "../src/agent.js";
 
 export default defineAgent({
   name: "classify",
   capabilities: {},
   async send(input, ctx) {
-    const result = await classifyIntent(input.text);
+    const result = await runAgent(input.text);
     return {
       events: [
         { type: "message", role: "assistant", text: JSON.stringify(result) },
@@ -175,7 +175,7 @@ export default defineAgent({
 });
 ```
 
-### Complete example: remote HTTP agent
+### Complete example: deployed agent
 
 ```ts
 // agents/support-bot.ts

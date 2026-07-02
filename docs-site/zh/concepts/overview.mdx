@@ -44,10 +44,10 @@ Subject under test / Sandbox backend
 ## Agent / Adapter 边界
 
 <Note>
-  `Agent` 是 niceeval core 看到的抽象；`Adapter` 是你写的具体实现。core 不知道你的 HTTP 协议、CLI 参数或鉴权方式。
+  `Agent` 是 niceeval core 看到的抽象；`Adapter` 是你写的具体实现。core 不知道你的 agent 私有协议、CLI 参数或鉴权方式。
 </Note>
 
-这条边界让 niceeval 保持通用。评估本地函数、远程服务、Claude Code、Codex 或自定义 agent 时，runner 和 scorers 的逻辑不需要改变。
+这条边界让 niceeval 保持通用。评估你自己的 AI agent、Claude Code、Codex 或自定义 agent 时，runner 和 scorers 的逻辑不需要改变。
 
 ### 为什么没有 `--url`
 
@@ -77,7 +77,7 @@ URL 是某个 adapter 的私有配置，而不是 CLI 的位置参数。experime
     core 通过名字调用的一条连接，负责返回标准 `Turn`。
   </Accordion>
   <Accordion title="Adapter">
-    agent 的具体实现，知道如何调用你的服务或 CLI。
+    agent 的具体实现，知道如何调用你的 runtime 或 CLI。
   </Accordion>
   <Accordion title="Sandbox">
     给 coding agent 使用的隔离运行环境。

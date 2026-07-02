@@ -11,11 +11,11 @@ niceeval is organized around three concerns that stay permanently separated: **w
 ```
    Your evals/ directory            niceeval core              Connect to AI (self-authored adapters)
    ----------------------           --------------             ------------------------------------
-   weather.eval.ts  --discover-->   Runner  --send-->  Agent   ┬─ in-process adapter  (your agent)
-   sql.eval.ts                        │                        ├─ remote adapter      (your service)
-   button.eval.ts  --upload-->        │                        └─ sandbox adapter ─── Sandbox
-     workspaces/button/               │                           (claude-code          (docker /
-                                      ▼                            codex / bub …)        third-party)
+   weather.eval.ts  --discover-->   Runner  --send-->  Agent   ┬─ direct adapter     (your agent)
+   sql.eval.ts                        │                        └─ sandbox adapter ─── Sandbox
+   button.eval.ts  --upload-->        │                           (claude-code          (docker /
+     workspaces/button/               │                            codex / bub …)        third-party)
+                                      ▼
                                   Scorers ── Reporters ── .niceeval/<run>/
                                   (expect / scoped /     (summary.json / events /
                                    judge / commands)      trace / sources / diff)
@@ -54,10 +54,10 @@ The niceeval core is everything that looks the same regardless of which AI you'r
 niceeval **does not define a universal agent protocol**. There is no `--url` flag, no shared wire format, and no assumption that your AI can speak a particular API shape.
 </Note>
 
-Every system under test — your own agent, a deployed HTTP service, Claude Code, Codex, bub — is connected through a **self-authored adapter**. Two terms name two sides of the same concept:
+Every system under test — your own agent, Claude Code, Codex, bub — is connected through a **self-authored adapter**. Two terms name two sides of the same concept:
 
 - **Agent** is the abstraction. From the core's perspective an agent is a named object with a set of capabilities and a single `send` method that accepts a `TurnInput` and returns a `Turn`. The runner only ever calls this interface.
-- **Adapter** is the concrete implementation you write (or use from niceeval's built-ins). It knows how to authenticate, how to call your service, and — critically — how to map whatever your AI returns into the standard event stream the core expects.
+- **Adapter** is the concrete implementation you write (or use from niceeval's built-ins). It knows how to authenticate, how to call your runtime, and — critically — how to map whatever your AI returns into the standard event stream the core expects.
 
 Experiments reference agents directly. The URL (or API key, or CLI invocation) is the adapter's private configuration, invisible to the core and to your evals.
 
@@ -81,7 +81,7 @@ A **sandbox** is where a sandbox-type agent runs — the isolated execution envi
   </Tab>
 </Tabs>
 
-Remote agents (those using `defineAgent`) ignore `sandbox` entirely — they have no need for an isolated workspace. Only sandbox agents (those using `defineSandboxAgent`) require a sandbox backend.
+Direct agents (those using `defineAgent`) ignore `sandbox` entirely — they have no need for an isolated workspace. Only sandbox agents (those using `defineSandboxAgent`) require a sandbox backend.
 
 The experiment's (or config's) `sandbox` field selects where sandbox agents run — set it to `dockerSandbox()`, `vercelSandbox()`, or `e2bSandbox()` from `niceeval/sandbox`, and the runner passes a prepared `Sandbox` handle through `ctx.sandbox`. There is no CLI flag and no auto-detection: if neither the experiment nor `niceeval.config.ts` sets `sandbox`, niceeval throws as soon as it tries to create one. The agent and sandbox are otherwise **orthogonal**: `claude-code` can run in Docker or Vercel; the same Docker sandbox can run `claude-code` or `bub`. Neither side needs to know anything about the other.
 
@@ -95,7 +95,7 @@ The experiment's (or config's) `sandbox` field selects where sandbox agents run 
     The abstraction for a system under test. An agent has a name, a set of capability flags, and a `send` method. The runner only sees this interface.
   </Accordion>
   <Accordion title="Adapter">
-    The concrete implementation of an agent. An adapter knows how to connect to a specific AI — your service, Claude Code, a local function — and normalizes its output into the standard event stream.
+    The concrete implementation of an agent. An adapter knows how to connect to a specific AI — your app runtime, Claude Code, Codex — and normalizes its output into the standard event stream.
   </Accordion>
   <Accordion title="Sandbox">
     The isolated execution environment for sandbox-type agents: a Docker container, Vercel Sandbox, or other backend that provides a filesystem and process boundary.

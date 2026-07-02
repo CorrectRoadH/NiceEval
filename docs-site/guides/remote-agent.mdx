@@ -1,19 +1,19 @@
 ---
-title: "Connect a remote or in-process agent to niceeval"
+title: "Connect your agent to niceeval"
 sidebarTitle: "Remote Agent"
-description: "Use defineAgent to wrap any function or HTTP service as a niceeval agent. Map responses to the standard event stream and register the agent by name."
+description: "Use defineAgent to wrap your own agent as a niceeval agent. Map responses to the standard event stream and register the agent by name."
 ---
 
-Every system under test in niceeval is an **agent** — a named object that receives a prompt, drives your code or service, and returns a structured result. You connect your own logic by writing an *adapter* with `defineAgent`. The adapter owns all the details of how to call your system: in-process function references, HTTP endpoints, authentication headers, and message formats are entirely private to the adapter. Experiments reference agents directly rather than passing URLs on the CLI, because there is no universal protocol that every agent speaks.
+Every system under test in niceeval is an **agent** — a named object that receives a prompt, drives your runtime, and returns a structured result. You connect your own logic by writing an *adapter* with `defineAgent`. The adapter owns all the details of how to call your system: client references, endpoints, authentication headers, and message formats are entirely private to the adapter. Experiments reference agents directly rather than passing URLs on the CLI, because there is no universal protocol that every agent speaks.
 
 ## When to use `defineAgent`
 
 <CardGroup cols={2}>
-  <Card title="In-process function" icon="bolt">
-    Call your own function directly inside `send`. Zero network overhead — the fastest possible eval loop, ideal for unit-level semantic tests in CI.
+  <Card title="Local agent runtime" icon="bolt">
+    Call your own agent runtime directly inside `send`. This is the fastest possible eval loop and works well for CI.
   </Card>
-  <Card title="Remote HTTP service" icon="globe">
-    Issue a `fetch` inside `send` using whatever protocol your service speaks. The URL, auth, and request shape are your business; niceeval never sees them.
+  <Card title="Deployed agent" icon="globe">
+    Issue a `fetch` inside `send` using whatever protocol your agent speaks. The URL, auth, and request shape are your business; niceeval never sees them.
   </Card>
 </CardGroup>
 
@@ -44,7 +44,7 @@ interface AgentCapabilities {
 ```
 
 <Note>
-  The `sandbox` capability — which enables `t.sandbox.diff`, `t.fileChanged`, and related assertions — is only meaningful for **sandbox agents** that run in an isolated filesystem. Remote and in-process agents should declare only `conversation` and `toolObservability`.
+  The `sandbox` capability — which enables `t.sandbox.diff`, `t.fileChanged`, and related assertions — is only meaningful for **sandbox agents** that run in an isolated filesystem. Direct agents should declare only `conversation` and `toolObservability`.
 </Note>
 
 ### `AgentContext`
@@ -77,9 +77,9 @@ The `events` array is the heart of every `Turn`. All assertions — `t.calledToo
 
 ---
 
-## In-process adapter example
+## Direct adapter example
 
-Use an in-process adapter when your agent is a TypeScript function you can import directly. There is no network round-trip, and you get full type safety.
+Use a direct adapter when your agent runtime is already available in this codebase. There is no sandbox overhead, and you keep full type safety.
 
 ```ts
 // agents/classify.ts
@@ -109,9 +109,9 @@ export default defineAgent({
 
 ---
 
-## Remote HTTP adapter example
+## Deployed agent adapter example
 
-When your agent lives behind an HTTP endpoint, `send` is just a `fetch`. The URL comes from an environment variable so you can point the same adapter at local or production without changing any code.
+When your agent lives behind a deployed endpoint, `send` is often just a `fetch`. The URL comes from an environment variable so you can point the same adapter at local or production without changing any code.
 
 ```ts
 // agents/weather-bot.ts
@@ -142,7 +142,7 @@ export default defineAgent({
 
 ## `toStreamEvents` — mapping your response to the standard stream
 
-`toStreamEvents` is a small mapping function you write. Its job is to translate whatever your service returns into the standard `StreamEvent[]` vocabulary that niceeval understands. Here is what the standard types look like:
+`toStreamEvents` is a small mapping function you write. Its job is to translate whatever your agent returns into the standard `StreamEvent[]` vocabulary that niceeval understands. Here is what the standard types look like:
 
 ```ts
 type StreamEvent =
@@ -158,7 +158,7 @@ type StreamEvent =
   | { type: "error"; message: string };
 ```
 
-A minimal mapper for a service that returns `{ reply: string, tools: ToolCall[] }` might look like this:
+A minimal mapper for an agent that returns `{ reply: string, tools: ToolCall[] }` might look like this:
 
 ```ts
 function toStreamEvents(body: { reply: string; tools?: any[] }): StreamEvent[] {

@@ -104,7 +104,7 @@ export default defineAgent({
 
 ## 怎么选
 
-- 被测对象是 AI SDK 应用（进程内函数 / 工具循环）：直接用 `aiSdkAgent`，全档（T0 + T1 + T2 + HITL，tracing 可选）。
+- 被测对象是 AI SDK agent 应用（工具循环）：直接用 `aiSdkAgent`，全档（T0 + T1 + T2 + HITL，tracing 可选）。
 - 需要调用瀑布图（`niceeval view` 的 trace）：`codex` / `bub` / `aiSdkAgent`（自发 OTLP），`claude-code` 目前拿不到 trace。
 - 需要人工审批 / 多步确认（HITL）：目前只有 `aiSdkAgent`（AI SDK v7 tool approval）；沙箱型三个都不支持，其它被测对象要自己写 adapter。
 - 想跑一个 coding agent 改代码、看 diff、判断工具调用：`claude-code` / `codex` / `bub`（T0 + T1 + T2 + workspace + sandbox）。
