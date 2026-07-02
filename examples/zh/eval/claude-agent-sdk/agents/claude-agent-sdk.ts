@@ -1,6 +1,7 @@
 // niceeval 侧的 remote agent adapter —— 唯一"知道 niceeval 存在"的地方。
-// ../server.ts / ../agent.ts / ../tools.ts 是逐字节复制自
-// examples/zh/origin/claude-agent-sdk 的独立应用,完全不 import 这里的任何东西;
+// ../server.ts / ../agent.ts / ../tools.ts 复制自 examples/zh/origin/claude-agent-sdk
+// 的一个早期快照(origin 后来已改成 SSE 透传 SDKMessage 的官方 hosting 形态,这份
+// 保留旧的 {reply, toolCalls} JSON 接口,本 adapter 依赖它),完全不 import 这里的任何东西;
 // 本文件反过来只通过 HTTP 跟它对话,不 import 应用代码。
 //
 // send() 每次先 ensureServer() 拉起(或复用)子进程里的 server.ts,再打

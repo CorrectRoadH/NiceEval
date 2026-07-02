@@ -1,9 +1,12 @@
 # LangGraph ReAct agent × niceeval(自己写 deployed adapter)
 
-这个例子在 [`examples/zh/origin/langgraph`](../../origin/langgraph/)(一个普通的 LangGraph
-`createReactAgent` 应用:`node:http` 服务器 + 两个工具 `get_weather` / `calculate` +
-`MemorySaver` checkpointer)的基础上接入 niceeval。应用代码(`server.ts` / `agent/` /
-`observability.ts` / `public/`)与 origin **逐字节相同**——niceeval 相关的东西全部是新增文件:
+这个例子在一个普通的 LangGraph 应用(`createReactAgent` + `node:http` 服务器 + 两个工具
+`get_weather` / `calculate` + `MemorySaver` checkpointer)的基础上接入 niceeval。应用代码
+(`server.ts` / `agent/` / `observability.ts` / `public/`)复制自
+[`examples/zh/origin/langgraph`](../../origin/langgraph/) 的一个早期快照——origin 那份后来
+已按 LangGraph 官方形态重写(`createAgent` + Agent Server + `useStream`,不再有自写的
+`/api/chat`),这里保留旧的 `node:http` + JSON 接口不动,因为下面的 adapter 依赖它;
+niceeval 相关的东西全部是新增文件:
 
 - `agents/langgraph.ts`——deployed agent 风格的 adapter(见
   [`docs-site/guides/remote-agent.mdx`](../../../../docs-site/guides/remote-agent.mdx)):

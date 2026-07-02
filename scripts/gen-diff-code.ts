@@ -42,7 +42,7 @@ interface DiffPair {
 
 const PAIRS: DiffPair[] = [
   {
-    source: "examples/zh/before/ai-sdk-v7",
+    source: "examples/zh/origin/ai-sdk-v7",
     target: "examples/zh/eval/ai-sdk-v7",
     out: "docs-site/zh/example/ai-sdk-v7-before-after.mdx",
     frontmatter: {
@@ -54,7 +54,7 @@ const PAIRS: DiffPair[] = [
     intro: [
       "对比对象：",
       "",
-      "- **before**：[`examples/zh/before/ai-sdk-v7/`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/before/ai-sdk-v7) —— 一个普通的 AI SDK v7 聊天应用（HTTP 服务器 + React 聊天 UI），还没接任何 eval。",
+      "- **before**：[`examples/zh/origin/ai-sdk-v7/`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/origin/ai-sdk-v7) —— 一个普通的 AI SDK v7 聊天应用（HTTP 服务器 + React 聊天 UI），还没接任何 eval。",
       "- **after**：[`examples/zh/eval/ai-sdk-v7/`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/eval/ai-sdk-v7) —— 同一个应用接入 NiceEval 之后的样子。",
       "",
       "先看文件树了解改动范围，再分两部分读 diff：应用侧改了什么",

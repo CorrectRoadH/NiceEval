@@ -1,130 +1,86 @@
-# vm0 示例(占位,非真实集成)
+# vm0 示例
 
-**这不是一个能真的调用 vm0 的示例。** 调研下来(过程见下)vm0
-(`github.com/vm0-ai/vm0`)目前没有可在自己代码里 `import` 的 npm SDK,也没有公开
-文档化的 HTTP API——没有稳定的第三方集成面可以对着写一个"用 vm0 搭 agent 后端"
-的真实 demo。这个目录只是把 [`docs/adapters/targets.md`](../../../../docs/adapters/targets.md)
-里已有的"暂不接 vm0"结论,摊开成一份可读的调研记录 + 一个和其它 examples 同构、
-但只有 mock 模式能跑的占位骨架,好让 README 索引/Roadmap 里的 vm0 条目有个落点。
+演示怎么用 **vm0**([github.com/vm0-ai/vm0](https://github.com/vm0-ai/vm0),
+产品名 Zero)搭一个 agent 后端(HTTP 服务器 + 一个极简聊天页面)。**独立项目,
+不接 niceeval**——不 import `niceeval`,没有 `adapter/`、`evals/`、
+`niceeval.config.ts`。
 
-如果你在找**真的能跑**的 agent 框架接入示例,看
-[`examples/zh/before/langgraph`](../langgraph/)、[`examples/zh/before/codex-sdk`](../codex-sdk/)、
-[`examples/zh/before/claude-agent-sdk`](../claude-agent-sdk/) 或
-[`examples/zh/before/ai-sdk-v7`](../ai-sdk-v7/)。
+## vm0 是什么样的运行时(为什么接法长这样)
 
-## vm0 号称是什么
+vm0 是**托管的 agent 运行时**:agent 用一份声明式的 `vm0.yaml`(agent compose)
+定义——`framework: claude-code`(或 `codex`)加一份自然语言指令(`AGENTS.md`,
+挂载为沙箱内的 CLAUDE.md)——`vm0 compose` 部署到平台后,每次 run 都在平台的
+Firecracker microVM 沙箱里真实执行,事件流回平台。
 
-按 GitHub 仓库简介和 README(2026-07 查看):
+它**没有可 `import` 的 npm SDK**(npm 上只有 CLI `@vm0/cli` 和自托管 runner
+`@vm0/runner`),但有**公开、版本化的 JSON REST 契约**——源码就在 vm0 仓库
+`turbo/packages/api-contracts/`,官方 CLI 是这套契约的薄客户端,
+`vm0 auth setup-token` 就是官方给 CI/程序化调用发 token 的通道(vm0 官方的
+GitHub Action 也是这么接的)。所以接 vm0 的方式不是装 SDK,而是:
 
-> Zero, your trustworthy AI teammate for real work.
-> Zero connects to 100+ tools and does the work — reports, triage, outreach,
-> research. In Slack or on the web.
+1. 用 CLI 部署 agent compose(一次性);
+2. 后端拿 token 直接打 REST API:`POST /api/agent/runs` 创建 run(首轮带
+   `agentComposeId`,续轮带 `sessionId` 接同一会话),轮询
+   `GET /api/agent/runs/:id/events` 拿事件;
+3. `eventData` 就是沙箱里 claude-code 的原始 stream-JSON 事件(`assistant`
+   文本 / `tool_use` / `tool_result` / `result`)——官方 CLI 的 `vm0 run`
+   渲染的也是同一条事件流。本示例把它原样经 SSE 转发给前端按类型渲染。
 
-也就是说 vm0(产品名 **Zero**)定位是一个**托管的"AI 队友"SaaS**——你在
-[vm0.ai](https://vm0.ai) 网页或 Slack 里 `@` 它、给它分配"角色"(晨报、Sentry
-错误分诊、销售外联邮件草稿……),它接 100+ 个第三方工具(Slack/GitHub/Gmail/
-Linear/Notion/Sentry/…),在自己的 Firecracker microVM 沙箱里跑,产物回帖到
-Slack 或写进 Notion/Linear。仓库本身是开源的(TypeScript 61.6% / Rust 25.3% /
-Python 10.6%,1.1k+ star),但"开源"指的是可以 fork/自托管整个平台(需要裸机
-Linux + KVM 跑 Firecracker,见 `docs/architecture.md`),不是"这里有个库可以
-`npm install` 进你自己的后端"。
+和其它 examples 的天气/计算器工具不同,vm0 的 agent 是"沙箱里的 claude-code",
+所以聊天框发的是**自然语言任务**("算一下 12\*(3+4)"、"写个文件把结果存下来"),
+工具调用面板里看到的是沙箱内真实的 Bash/文件操作。
 
-## 调研结论:为什么这里做不成真集成
+## 目录结构
 
-调研过程(检查了什么、看到了什么):
-
-1. **GitHub 仓库**(`github.com/vm0-ai/vm0`,`gh api repos/vm0-ai/vm0` +
-   README)——描述如上,`docs/` 目录里有 `architecture.md`、`resource-model.md`、
-   `cli-design-guideline.md` 等面向**贡献者/自托管者**的文档,没有面向第三方
-   开发者的"如何用 API 集成 vm0"文档。
-2. **npm 上没有可 import 的 SDK**。`npm view vm0` / `@vm0/sdk` / `@vm0/core`
-   全部 404。唯一存在的公开包是:
-   - `@vm0/cli`(`npm view @vm0/cli`):bin 是 `vm0` 和 `zero`,license 字段是
-     `Proprietary`,依赖 `ably`(印证了 `targets.md` 里"CLI/REST + Ably"的判断)。
-     这是一个**命令行客户端**,不是能 `import` 进 TS 代码的库。
-   - `@vm0/runner`:自托管 runner(跑 Firecracker microVM 的那部分),同样不是
-     "调用 vm0 agent"用的 SDK。
-3. **`@vm0/cli` 的调用形状不是"发消息、拿回复"**。按 `docs/cli-design-guideline.md`
-   里的官方示例:
-
-   ```sh
-   vm0 secret set MY_API_KEY --body "sk-..."
-   vm0 compose vm0.yaml        # 部署一个 agent 定义(agent compose)
-   vm0 run my-agent "analyze the dataset"   # 触发一次异步 run
-   vm0 logs <run-id>           # 轮询 / 查看这次 run 的日志
-   ```
-
-   要先 `vm0 auth login` 到 vm0.ai 账号(按 `docs/resource-model.md`,账号体系是
-   Clerk Organization,资源分 Agent Org / Runtime Org 两层),再写一份
-   `vm0.yaml` 部署成"agent compose",`vm0 run` 触发的是一次**异步**的 Firecracker
-   microVM 执行,结果通过 webhook 回调或 `vm0 logs` 轮询拿到——不是可以直接包进
-   一个 HTTP handler、同步返回 `{reply, toolCalls}` 的调用。
-4. **vm0 自己的 web 前端用的 API 是内部、未公开的**。仓库里
-   `turbo/packages/api-contracts/src/contracts/chat-threads.ts` 是一份用
-   `ts-rest` + `zod` 定义的 chat thread 契约,但它要 Clerk 会话鉴权,是内部
-   monorepo 包,没有作为"公开、稳定、有文档"的第三方 API 发布过——这正是
-   `targets.md` 说的"事件 schema / resume / usage 全未公开"。
-5. **没有找到公开的 REST API 文档站**。`vm0.ai/en/docs`、
-   `vm0.ai/en/docs/api(-reference)` 等路径都是营销站的软路由(WebFetch/curl
-   验证:统一 307 到文档首页或落地页),首页只列了 Agents/Chat/Schedules/
-   Permissions/Skills 等产品概念,没有 API 参考、没有代码示例、没有 SDK 链接。
-
-结论和本仓库 `docs/adapters/targets.md` 里"矩阵 · Agent Frameworks"一节完全一致
-(搜索该文件里的 "vm0" 可看到完整判据):vm0 记为观察项——"事件 schema / resume /
-usage 全未公开,定位还在从『runtime』向『托管 teammate』漂移;等接入面稳定,不要
-对着移动目标写 adapter"。这个结论不只适用于 niceeval 的 adapter,也适用于这里想
-写的"教程级"示例:没有一个稳定、公开、可 `import` 或有文档的 API 可以对着写。
-
-来源:
-- <https://github.com/vm0-ai/vm0>(README、`docs/architecture.md`、
-  `docs/resource-model.md`、`docs/cli-design-guideline.md`、
-  `docs/create-oauth-app.md`、`turbo/packages/api-contracts/src/contracts/chat-threads.ts`)
-- <https://www.npmjs.com/package/@vm0/cli>、`npm view @vm0/cli`
-- <https://vm0.ai>、<https://vm0.ai/en/docs>
-- 本仓库 [`docs/adapters/targets.md`](../../../../docs/adapters/targets.md)("矩阵 ·
-  Agent Frameworks" 一节的 vm0 行,以及"六、不接"清单第 6 条)
-
-## 这个目录里实际有什么
-
-结构照抄同批的 `examples/zh/before/langgraph`、`examples/zh/before/codex-sdk`,好让三个
-Agent Framework 示例读起来一致——但这里 **`AGENT_MODE=ai` 是个会抛错的桩**,不是
-真实现:
-
-- `server.ts`:一个 `node:http` 服务器,`GET /healthz`、`POST /api/chat`、
-  `GET /` 三个路由。`AGENT_MODE=mock`(默认)靠关键词直接命中两个纯函数工具
-  (`get_weather(city)` 固定数据表 / `calculate(expression)` 递归下降算术解析
-  器),和其它 examples 同款,离线零配置可跑。`AGENT_MODE=ai` 只有一个函数
-  `runAiTurn()`,唯一的行为是 `throw new Error(...)`,错误信息复述上面调研
-  结论、指回本文件——不会假装发出任何网络请求。
-- `public/index.html`:单文件静态聊天页,原生 `fetch()`,没有构建步骤,顶部有
-  一条醒目提示条说明这不是真集成。
-- `package.json`:独立 npm 项目(`"private": true`),没有 `niceeval` 依赖,
-  也没有任何 `vm0` 相关依赖——因为没有能装的库。
-- `.env.example`:没有任何凭证项可填,只有 `AGENT_MODE` / `PORT`。
-- `tsconfig.json`:照抄 `examples/zh/before/ai-sdk-v7/tsconfig.json` 的
-  Node/ESM 配置。
-
-没有 `adapter/`、`evals/`、`niceeval.config.ts`——这是一个普通项目,不接
-niceeval,和仓库根的 pnpm workspace 无关(见根 `pnpm-workspace.yaml` 里
-`packages: []` 的说明,以及这里自己的 `pnpm-workspace.yaml`)。
+- `vm0.yaml`:agent compose(`vm0 init` 生成的标准形状)——agent 名
+  `niceeval-demo`,`framework: claude-code`,指令在 `AGENTS.md`。
+- `AGENTS.md`:agent 的自然语言指令。
+- `server.ts`:一个 `node:http` 服务器,无框架。
+  - `GET /healthz` → `{ok:true}`
+  - `GET /` → 返回 `public/index.html`
+  - `POST /api/chat`,body `{message, sessionId?}` → `text/event-stream`:
+    创建 run 后轮询事件,每帧 `data:` 是一个原样的 claude-code stream-JSON 事件;
+    另加 `vm0.run.created`(带 `sessionId`,前端保存续会话)/`vm0.run.finished`/
+    `vm0.error` 三种信封帧。浏览器断开时调 `POST /api/agent/runs/:id/cancel`
+    取消 run。
+- `public/index.html`:单文件静态前端,`fetch()` 读 SSE 流,按事件类型渲染
+  文本、tool_use/tool_result(按 `tool_use_id` 配对)。
+- `.env.example`:`VM0_TOKEN` / `CLAUDE_CODE_OAUTH_TOKEN`(或
+  `ANTHROPIC_API_KEY`)/ `VM0_API_URL` / `VM0_AGENT_NAME` / `PORT`。
 
 ## 跑起来
 
+一次性准备(部署 agent compose + 拿 token):
+
 ```sh
-cd examples/zh/before/vm0
-pnpm install
-cp .env.example .env
-pnpm dev   # http://localhost:5588,浏览器直接打开这个地址聊天
+npm i -g @vm0/cli
+vm0 auth login                # 设备码登录 vm0.ai 账号
+cd examples/zh/origin/vm0
+vm0 compose vm0.yaml          # 部署本目录的 agent compose(名字 niceeval-demo)
+vm0 auth setup-token          # 输出程序化调用的 token,填进 .env 的 VM0_TOKEN
 ```
 
-试着问"北京天气怎么样"或"12\*(3+4)等于多少"看 mock 工具调用效果。把 `.env` 里
-的 `AGENT_MODE` 设成 `ai` 再 `pnpm dev`,`/api/chat` 会返回 500,错误信息就是上面
-调研结论的摘要——这是预期行为,不是 bug。
+然后:
 
-## 什么时候可以回来补真集成
+```sh
+pnpm install
+cp .env.example .env
+# .env 里填 VM0_TOKEN 和 CLAUDE_CODE_OAUTH_TOKEN(或 ANTHROPIC_API_KEY)
 
-按 `docs/adapters/targets.md` 的判据:vm0 发布一个可 `import` 的 npm SDK,或者
-公开一份稳定、有版本保证的 HTTP API 文档(尤其是事件 schema、resume/会话恢复、
-usage 计量这三块目前完全空白的部分)之后,再回来把 `server.ts` 里的
-`runAiTurn()` 换成真实现。在那之前,继续对着一个会漂移的内部接口写"教程"只会
-很快过期。
+pnpm dev
+# 浏览器打开 http://localhost:5588,或直接看 SSE 事件流:
+curl -N -X POST localhost:5588/api/chat -H 'content-type: application/json' \
+  -d '{"message":"算一下 12*(3+4)"}'
+```
+
+注意:每个 run 都是真实的 microVM 任务(启动沙箱 + 跑 claude-code),首条回复
+通常要几十秒——所以前端必须按事件流实时渲染,而不是憋一个整块回复。
+
+## 备注:关于"vm0 没有公开 API"的旧结论
+
+这个目录曾经是一个只有 mock 的占位,依据是"vm0 没有 npm SDK、没有公开 HTTP
+API"。前半句今天(2026-07)仍然成立,后半句不成立:REST 契约是公开源码
+(`turbo/packages/api-contracts/`),`vm0 auth setup-token` 官方支持程序化调用,
+`vm0 run` 本身就是同步轮询同一组端点。本示例即按这套公开契约实现。
+`docs/adapters/targets.md` 里"事件 schema 未公开"的判断也需要按此更新——事件
+就是 claude-code / codex 的原生 stream-JSON,schema 跟着 framework 走。

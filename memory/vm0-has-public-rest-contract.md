@@ -1,0 +1,12 @@
+---
+name: vm0-has-public-rest-contract
+description: vm0 其实有公开、版本化的 REST 契约可程序化接入(POST /api/agent/runs + 轮询 events),"无公开 API"的旧调研结论是错的;examples/zh/origin/vm0 已按此重写为真集成
+metadata:
+  type: project
+---
+
+**现象**:`examples/zh/origin/vm0` 曾按"vm0 没有 npm SDK、没有公开文档化的 HTTP API"的调研结论做成 mock 占位(`docs/adapters/targets.md` 的 vm0 行也是同一结论)。用户指出实现是错的;2026-07-02 重新调研(直接读 `@vm0/cli@9.221.5` 的 bundle 源码 + vm0 仓库 `turbo/packages/api-contracts/`)证实旧结论只对了一半。
+
+**根因**:旧调研只查了 npm 上有没有可 `import` 的 SDK(确实没有,只有 CLI 和自托管 runner)和有没有 API 文档站(确实没有),据此推断"没有集成面"。但 vm0 的集成面是**公开源码的 ts-rest 契约**:官方 CLI 就是 `POST /api/agent/runs`(首轮 `agentComposeId` + `prompt`,续轮 `sessionId` + `prompt`)+ 轮询 `GET /api/agent/runs/:id/events?since=-1`(1s 间隔)的薄客户端;`vm0 auth setup-token` 是官方给 CI/程序化调用发 `VM0_TOKEN` 的通道(官方 GitHub Action 同样用法);`eventData` 就是沙箱内 claude-code/codex 的原生 stream-JSON 事件,schema 跟着 `framework` 走。
+
+**修法**:接 vm0 不是装 SDK,而是:(1) `vm0 compose vm0.yaml` 部署 agent compose;(2) 后端带 `Authorization: Bearer $VM0_TOKEN` 直接打上述 REST 端点;(3) 把 eventData 原样转发给前端按 claude stream-JSON 渲染。关键坑:请求 schema 是 `.strict()`(不能传 `agentName`,要先 `GET /api/agent/composes?name=` 解析成 id);平台只存 secret **名字**不存值,`CLAUDE_CODE_OAUTH_TOKEN` 这类 run secrets **每轮都要重传**(官方 `vm0 run continue` 也这么做);run 是真实 microVM 任务,首条回复几十秒起,前端必须按事件流渲染。完整实现见 `examples/zh/origin/vm0/`;`docs/adapters/targets.md` 里"事件 schema / usage 未公开"的判断如再评估 adapter 时需要按此更新。

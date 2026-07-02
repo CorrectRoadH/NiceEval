@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>vm0 example(占位)</title>
+<title>vm0 example</title>
 <style>
   :root { color-scheme: light; }
   * { box-sizing: border-box; }
@@ -19,17 +19,7 @@
     padding: 24px 16px 96px;
   }
   h1 { font-size: 20px; margin-bottom: 4px; }
-  .subtitle { color: #666; font-size: 13px; margin-bottom: 8px; }
-  .banner {
-    background: #fffbeb;
-    border: 1px solid #fcd34d;
-    color: #92400e;
-    border-radius: 8px;
-    padding: 10px 12px;
-    font-size: 13px;
-    margin-bottom: 20px;
-  }
-  .banner a { color: #92400e; }
+  .subtitle { color: #666; font-size: 13px; margin-bottom: 20px; }
   #log { display: flex; flex-direction: column; gap: 10px; }
   .msg {
     padding: 10px 14px;
@@ -41,6 +31,7 @@
   .msg.user { align-self: flex-end; background: #2563eb; color: white; }
   .msg.assistant { align-self: flex-start; background: white; border: 1px solid #ddd; }
   .msg.error { align-self: flex-start; background: #fee2e2; border: 1px solid #fca5a5; color: #991b1b; }
+  .status { align-self: flex-start; font-size: 11px; color: #999; }
   .tool-call {
     align-self: flex-start;
     max-width: 90%;
@@ -51,8 +42,9 @@
     font-family: ui-monospace, monospace;
     font-size: 12px;
   }
+  .tool-call.pending { border-style: dashed; opacity: 0.8; }
   .tool-call summary { cursor: pointer; font-weight: 600; }
-  .tool-call pre { margin: 6px 0 0; white-space: pre-wrap; word-break: break-word; }
+  .tool-call pre { margin: 6px 0 0; white-space: pre-wrap; word-break: break-word; max-height: 240px; overflow-y: auto; }
   form {
     position: fixed;
     bottom: 0;
@@ -87,22 +79,18 @@
 </head>
 <body>
 <main>
-  <h1>vm0 example(占位)</h1>
+  <h1>vm0 example</h1>
   <p class="subtitle">
-    这不是一个真的 vm0 集成——vm0(github.com/vm0-ai/vm0)目前没有可 import 的
-    npm SDK,也没有公开文档化的 HTTP API。下面的对话只是 <code>AGENT_MODE=mock</code>
-    的假回复,演示"接口形状"长什么样;<code>AGENT_MODE=ai</code> 会直接报错。
-  </p>
-  <p class="banner">
-    详见本目录 <code>README.md</code> 的调研结论,以及仓库
-    <code>docs/adapters/targets.md</code> 里 vm0 那一节的既有判断。
+    发自然语言任务(比如"算一下 12*(3+4)"、"写个文件把结果存下来")。后端经 vm0 的
+    REST API 触发一次沙箱 run,沙箱里 claude-code 的事件(文本 / tool_use / tool_result)
+    轮询转发到这里。注意:run 是真实的 microVM 任务,首条回复通常要几十秒。
   </p>
   <div id="log"></div>
   <div id="sessionInfo"></div>
 </main>
 <form id="composer">
   <div>
-    <input id="input" type="text" placeholder="例如:北京天气怎么样" autocomplete="off" />
+    <input id="input" type="text" placeholder="例如:算一下 12*(3+4)" autocomplete="off" />
     <button id="send" type="submit">发送</button>
   </div>
 </form>
@@ -113,6 +101,8 @@
   const sendBtn = document.getElementById("send");
   const sessionInfo = document.getElementById("sessionInfo");
 
+  // vm0 的会话续接:创建 run 的响应里带 sessionId(vm0.run.created 帧发下来),
+  // 前端保存、下一轮随请求带回,后端用 {sessionId, prompt} 接同一会话。
   let sessionId = null;
 
   function addMessage(role, text) {
@@ -121,21 +111,117 @@
     div.textContent = text;
     log.appendChild(div);
     div.scrollIntoView({ behavior: "smooth", block: "end" });
+    return div;
   }
 
-  function addToolCalls(toolCalls) {
-    for (const call of toolCalls) {
-      const details = document.createElement("details");
-      details.className = "tool-call";
-      const summary = document.createElement("summary");
-      summary.textContent = "⚙ " + call.name;
-      details.appendChild(summary);
-      const pre = document.createElement("pre");
-      pre.textContent =
-        "input:  " + JSON.stringify(call.input, null, 2) + "\n" +
-        "output: " + JSON.stringify(call.output, null, 2);
-      details.appendChild(pre);
-      log.appendChild(details);
+  function addStatus(text) {
+    const div = document.createElement("div");
+    div.className = "status";
+    div.textContent = text;
+    log.appendChild(div);
+    div.scrollIntoView({ block: "end" });
+  }
+
+  // 工具调用气泡按 tool_use id 索引,tool_result 回来时原地补上输出。
+  const toolEls = new Map();
+
+  function renderToolUse(block) {
+    const details = document.createElement("details");
+    details.className = "tool-call pending";
+    const summary = document.createElement("summary");
+    summary.textContent = "⚙ " + block.name;
+    const pre = document.createElement("pre");
+    pre.textContent = "input:  " + JSON.stringify(block.input, null, 2);
+    details.appendChild(summary);
+    details.appendChild(pre);
+    log.appendChild(details);
+    toolEls.set(block.id, details);
+    details.scrollIntoView({ block: "end" });
+  }
+
+  function renderToolResult(block) {
+    const details = toolEls.get(block.tool_use_id);
+    if (!details) return;
+    details.classList.remove("pending");
+    const content = Array.isArray(block.content)
+      ? block.content.map((c) => (c.type === "text" ? c.text : JSON.stringify(c))).join("\n")
+      : String(block.content ?? "");
+    details.querySelector("pre").textContent += "\noutput: " + content + (block.is_error ? " (error)" : "");
+  }
+
+  // eventData 是沙箱里 claude-code 的原始 stream-JSON 事件;vm0.* 前缀是
+  // 本示例 server.ts 加的信封帧(run 创建 / 结束 / 出错)。
+  function handleEvent(ev) {
+    switch (ev.type) {
+      case "vm0.run.created":
+        sessionId = ev.sessionId;
+        sessionInfo.textContent = "session: " + sessionId + " · run: " + ev.runId;
+        addStatus("run 已创建(" + ev.status + "),等沙箱启动…");
+        break;
+      case "vm0.run.finished":
+        if (ev.status !== "completed") {
+          addMessage("error", "run " + ev.status + (ev.error ? ": " + ev.error : ""));
+        }
+        break;
+      case "vm0.error":
+        addMessage("error", "错误: " + ev.message);
+        break;
+      case "system":
+        if (ev.subtype === "init") addStatus("沙箱已就绪 · model: " + (ev.model || "?"));
+        break;
+      case "assistant": {
+        const blocks = (ev.message && ev.message.content) || [];
+        for (const block of blocks) {
+          if (block.type === "text" && block.text) addMessage("assistant", block.text);
+          if (block.type === "tool_use") renderToolUse(block);
+        }
+        break;
+      }
+      case "user": {
+        const blocks = (ev.message && ev.message.content) || [];
+        for (const block of blocks) {
+          if (block.type === "tool_result") renderToolResult(block);
+        }
+        break;
+      }
+      case "result":
+        // 最终 result 的文本和最后一条 assistant text 相同,不重复渲染;
+        // 只有失败时提示。
+        if (ev.is_error) addMessage("error", "agent 结束于错误: " + (ev.result || ""));
+        break;
+      default:
+        break;
+    }
+  }
+
+  // POST + SSE:EventSource 只支持 GET,所以用 fetch 读 text/event-stream,
+  // 按空行切帧、抠 "data: " 前缀。
+  async function streamChat(message) {
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message, sessionId }),
+    });
+    if (!res.ok || !res.body) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || ("HTTP " + res.status));
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      for (;;) {
+        const frameEnd = buffer.indexOf("\n\n");
+        if (frameEnd === -1) break;
+        const frame = buffer.slice(0, frameEnd);
+        buffer = buffer.slice(frameEnd + 2);
+        for (const line of frame.split("\n")) {
+          if (line.startsWith("data: ")) handleEvent(JSON.parse(line.slice(6)));
+        }
+      }
     }
   }
 
@@ -149,21 +235,7 @@
     sendBtn.disabled = true;
 
     try {
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ message, sessionId }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
-
-      sessionId = data.sessionId;
-      sessionInfo.textContent = "session: " + sessionId;
-
-      if (Array.isArray(data.toolCalls) && data.toolCalls.length > 0) {
-        addToolCalls(data.toolCalls);
-      }
-      addMessage("assistant", data.reply);
+      await streamChat(message);
     } catch (err) {
       addMessage("error", "错误: " + (err && err.message ? err.message : String(err)));
     } finally {

@@ -1,6 +1,6 @@
 # AI SDK v7 × 内建适配器示例
 
-这个例子在 [`examples/zh/before/ai-sdk-v7`](../before/ai-sdk-v7/) 的基础上接入 **niceeval 官方
+这个例子在 [`examples/zh/origin/ai-sdk-v7`](../../origin/ai-sdk-v7/) 的基础上接入 **niceeval 官方
 内建的 AI SDK 适配器** `aiSdkAgent`。应用代码(`src/`)几乎不 import 任何 niceeval 的东西:
 
 - `src/ai-sdk-runtime.ts` 把 `streamChat` 里的 streamText 调用拆成独立的 `chat()`——
@@ -18,7 +18,7 @@ HITL 握手、失败兜底、OTel 管线全部由工厂承担。完整代码 dif
 `pnpm run gen:diff-code` 重新生成),或者直接:
 
 ```sh
-diff -ru examples/zh/before/ai-sdk-v7 examples/zh/ai-sdk-v7
+diff -ru examples/zh/origin/ai-sdk-v7 examples/zh/eval/ai-sdk-v7
 ```
 
 和隔壁 [`examples/zh/ai-sdk`](../ai-sdk/)(v6,自己写 adapter + 双可观测)是互补关系——那边

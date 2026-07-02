@@ -24,7 +24,7 @@ niceeval、不接观测——纯粹是一个普通的 AI SDK v7 应用。
 这个目录是一个**独立的 npm 项目**(自带 `package.json`)。
 
 ```sh
-cd examples/zh/before/ai-sdk-v7
+cd examples/zh/origin/ai-sdk-v7
 pnpm install
 cp .env.example .env   # 填 DEEPSEEK_API_KEY / OPENAI_API_KEY
 pnpm dev               # 起 server(5188)+ vite dev server(5173),浏览器打开 5173

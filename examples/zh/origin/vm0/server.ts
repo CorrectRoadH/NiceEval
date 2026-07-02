@@ -1,176 +1,121 @@
-// 一个 node:http 服务器,演示"用 vm0 搭 agent 后端"本来该长什么样——但调研下来
-// (见 README.md「调研结论」)vm0(github.com/vm0-ai/vm0)目前没有可在自己代码里
-// import 的 npm SDK,也没有公开文档化的 HTTP API,所以这里只有 AGENT_MODE=mock
-// 是真的能跑;AGENT_MODE=ai 会直接抛一个说明原因的错误,不是伪造的集成。
+// 一个 node:http 服务器,演示用 vm0(github.com/vm0-ai/vm0)搭一个 agent 后端。
 // 纯 demo,不依赖 niceeval。
+//
+// vm0 是托管的 agent 运行时:agent 用 vm0.yaml(agent compose)声明、跑在平台的
+// Firecracker microVM 沙箱里,没有可 import 的 npm SDK——但有公开、版本化的 JSON
+// REST 契约(仓库 turbo/packages/api-contracts/,官方 CLI `@vm0/cli` 就是这套
+// 契约的薄客户端),`vm0 auth setup-token` 就是官方给 CI/程序化调用发 token 的
+// 通道。所以"接 vm0 的最佳实践"就是:
+//   1. `vm0 compose vm0.yaml` 部署本目录的 agent compose(一次性,见 README.md);
+//   2. 后端拿 VM0_TOKEN 打 `POST /api/agent/runs` 创建 run(首轮带 agentComposeId,
+//      续轮带 sessionId 接同一会话),再轮询 `GET /api/agent/runs/:id/events`;
+//   3. eventData 就是沙箱里 claude-code 的原始 stream-JSON 事件(assistant 文本 /
+//      tool_use / tool_result / result),原样经 SSE 转发给前端按类型渲染。
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
+import { setTimeout as sleep } from "node:timers/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 5588);
-const AGENT_MODE = process.env.AGENT_MODE === "ai" ? "ai" : "mock";
 
-type ToolCall = { name: string; input: unknown; output: unknown };
-type ChatResponse = { reply: string; toolCalls: ToolCall[] };
+// 和官方 CLI 相同的取值顺序/默认值:token 先 ZERO_TOKEN 再 VM0_TOKEN,
+// API 地址 VM0_API_URL,默认 https://www.vm0.ai。
+const API_BASE = (process.env.VM0_API_URL ?? "https://www.vm0.ai").replace(/\/$/, "");
+const TOKEN = process.env.ZERO_TOKEN ?? process.env.VM0_TOKEN;
+const AGENT_NAME = process.env.VM0_AGENT_NAME ?? "niceeval-demo";
+
+const TERMINAL_RUN_STATUSES = new Set(["completed", "failed", "timeout", "cancelled"]);
+const POLL_INTERVAL_MS = 1000;
 
 // ---------------------------------------------------------------------------
-// 两个工具的纯函数实现,和其它 examples(langgraph/、ai-sdk/…)保持同样的形状,
-// 方便跨示例对比。这里只有 mock 模式会调用它们——没有真的 vm0 agent 循环来调。
+// vm0 REST 客户端(契约见 vm0 仓库 turbo/packages/api-contracts/src/contracts/)。
 // ---------------------------------------------------------------------------
 
-const KNOWN_CITIES: Record<string, { condition: string; tempC: number }> = {
-  北京: { condition: "晴", tempC: 26 },
-  上海: { condition: "多云", tempC: 29 },
-  广州: { condition: "雷阵雨", tempC: 32 },
-  深圳: { condition: "阴", tempC: 31 },
-  杭州: { condition: "小雨", tempC: 28 },
+async function vm0Api<T>(pathname: string, init?: RequestInit): Promise<T> {
+  if (!TOKEN) {
+    throw new Error(
+      "缺少 VM0_TOKEN:先 `vm0 auth login`,再用 `vm0 auth setup-token` 生成程序化调用的 token 填进 .env。",
+    );
+  }
+  const res = await fetch(`${API_BASE}${pathname}`, {
+    ...init,
+    headers: {
+      authorization: `Bearer ${TOKEN}`,
+      "content-type": "application/json",
+      ...init?.headers,
+    },
+  });
+  const body: unknown = await res.json().catch(() => undefined);
+  if (!res.ok) {
+    // 错误统一是 { error: { message, code } }(apiErrorSchema)。
+    const message =
+      typeof body === "object" && body !== null && "error" in body
+        ? String((body as { error: { message?: string } }).error?.message ?? JSON.stringify(body))
+        : `HTTP ${res.status}`;
+    throw new Error(`vm0 API ${pathname} 失败(${res.status}):${message}`);
+  }
+  return body as T;
+}
+
+// agent 名字 -> compose id 的解析和官方 CLI 一致:GET /api/agent/composes?name=,
+// 404 说明还没部署过这个名字的 compose。进程内缓存一次即可。
+let cachedComposeId: string | undefined;
+async function resolveComposeId(): Promise<string> {
+  if (cachedComposeId) return cachedComposeId;
+  try {
+    const compose = await vm0Api<{ id: string; name: string }>(
+      `/api/agent/composes?name=${encodeURIComponent(AGENT_NAME)}`,
+    );
+    cachedComposeId = compose.id;
+    return compose.id;
+  } catch (error) {
+    throw new Error(
+      `找不到名为 "${AGENT_NAME}" 的 agent compose——先在本目录跑 \`vm0 compose vm0.yaml\` 部署它。` +
+        `(原始错误:${error instanceof Error ? error.message : String(error)})`,
+    );
+  }
+}
+
+// 沙箱里 claude-code 的模型凭证按 vm0 的机制走 run secrets 注入(`vm0 init` 的
+// 官方示例就是 `--secrets CLAUDE_CODE_OAUTH_TOKEN=...`)。平台只存 secret 名字
+// 不存值,所以续轮也要重传(官方 CLI `vm0 run continue` 同样如此)。
+function collectRunSecrets(): Record<string, string> | undefined {
+  const secrets: Record<string, string> = {};
+  for (const name of ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"]) {
+    const value = process.env[name];
+    if (value) secrets[name] = value;
+  }
+  return Object.keys(secrets).length > 0 ? secrets : undefined;
+}
+
+type CreateRunResponse = {
+  runId: string;
+  status: string;
+  sessionId: string;
+  sandboxId?: string;
+  error?: string;
 };
-const CONDITIONS = ["晴", "多云", "阴", "小雨", "雷阵雨"];
 
-function getWeather(city: string): { city: string; condition: string; tempC: number; summary: string } {
-  const key = city.trim();
-  const known = KNOWN_CITIES[key];
-  const weather =
-    known ??
-    (() => {
-      const seed = [...key].reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
-      return { condition: CONDITIONS[seed % CONDITIONS.length], tempC: 15 + (seed % 18) };
-    })();
-  return { city: key, ...weather, summary: `${key}当前${weather.condition},气温 ${weather.tempC}°C。` };
-}
+type EventsResponse = {
+  events: Array<{ sequenceNumber: number; eventType: string; eventData: unknown; createdAt: string }>;
+  hasMore: boolean;
+  nextSequence: number;
+  run: { status: string; error?: string; lastEventSequence?: number };
+  framework: string;
+};
 
-// 只支持数字、+ - * / ( ) 的递归下降解析器——不用 eval()/Function()。
-function calculate(expression: string): number {
-  if (!/^[\d\s+\-*/().]+$/.test(expression)) {
-    throw new Error(`表达式只能包含数字和 + - * / ( ):收到 "${expression}"`);
-  }
-  let pos = 0;
-  const peek = (): string | undefined => expression[pos];
-  const skipSpaces = (): void => {
-    while (peek() === " ") pos++;
-  };
-  function parseNumber(): number {
-    skipSpaces();
-    const start = pos;
-    while (peek() !== undefined && /[\d.]/.test(peek()!)) pos++;
-    if (pos === start) throw new Error(`表达式在位置 ${pos} 处缺少数字:"${expression}"`);
-    return Number(expression.slice(start, pos));
-  }
-  function parseFactor(): number {
-    skipSpaces();
-    if (peek() === "(") {
-      pos++;
-      const value = parseExpr();
-      skipSpaces();
-      if (peek() !== ")") throw new Error(`表达式缺少右括号:"${expression}"`);
-      pos++;
-      return value;
-    }
-    if (peek() === "-") {
-      pos++;
-      return -parseFactor();
-    }
-    return parseNumber();
-  }
-  function parseTerm(): number {
-    let value = parseFactor();
-    for (;;) {
-      skipSpaces();
-      const op = peek();
-      if (op === "*" || op === "/") {
-        pos++;
-        const rhs = parseFactor();
-        value = op === "*" ? value * rhs : value / rhs;
-      } else {
-        return value;
-      }
-    }
-  }
-  function parseExpr(): number {
-    let value = parseTerm();
-    for (;;) {
-      skipSpaces();
-      const op = peek();
-      if (op === "+" || op === "-") {
-        pos++;
-        const rhs = parseTerm();
-        value = op === "+" ? value + rhs : value - rhs;
-      } else {
-        return value;
-      }
-    }
-  }
-  const result = parseExpr();
-  skipSpaces();
-  if (pos !== expression.length) throw new Error(`表达式在位置 ${pos} 处有多余字符:"${expression}"`);
-  return result;
+async function createRun(message: string, sessionId: string | undefined): Promise<CreateRunResponse> {
+  const secrets = collectRunSecrets();
+  const body = sessionId
+    ? { sessionId, prompt: message, ...(secrets ? { secrets } : {}) }
+    : { agentComposeId: await resolveComposeId(), prompt: message, ...(secrets ? { secrets } : {}) };
+  return vm0Api<CreateRunResponse>("/api/agent/runs", { method: "POST", body: JSON.stringify(body) });
 }
 
 // ---------------------------------------------------------------------------
-// AGENT_MODE=mock(默认)—— 关键词直接命中上面两个工具,离线零配置可跑。
-// ---------------------------------------------------------------------------
-
-const WEATHER_RE = /([一-龥]{2,4})(?:市)?(?:的)?天气/;
-const EXPR_RE = /[\d][\d+\-*/().\s]*[\d)]/;
-
-function runMockTurn(message: string): ChatResponse {
-  const weatherMatch = message.match(WEATHER_RE);
-  if (weatherMatch) {
-    const city = weatherMatch[1];
-    const output = getWeather(city);
-    return { reply: output.summary, toolCalls: [{ name: "get_weather", input: { city }, output }] };
-  }
-
-  const exprMatch = message.match(EXPR_RE);
-  if (exprMatch && /[+\-*/]/.test(exprMatch[0])) {
-    const expression = exprMatch[0].trim();
-    try {
-      const result = calculate(expression);
-      return {
-        reply: `${expression} = ${result}`,
-        toolCalls: [{ name: "calculate", input: { expression }, output: { expression, result } }],
-      };
-    } catch {
-      // 解析失败就落到下面的兜底回复,而不是把 500 甩给前端。
-    }
-  }
-
-  return {
-    reply:
-      `(mock 模式)收到:"${message}"。试着问"北京天气怎么样"或"12*(3+4)等于多少"看工具调用效果。` +
-      `注意:这个 mock 模式和真正的 vm0 无关,只是演示"如果这里能接 vm0 会长什么样"——` +
-      `AGENT_MODE=ai 会解释为什么现在接不了,见 README.md。`,
-    toolCalls: [],
-  };
-}
-
-// ---------------------------------------------------------------------------
-// AGENT_MODE=ai —— 没有真集成。见 README.md「调研结论」的完整调研过程和引用。
-//
-// 摘要:vm0(github.com/vm0-ai/vm0)是一个托管的"AI 队友"SaaS(Zero),不是一个
-// 库或运行时。npm 上唯一公开发布的制品是 `@vm0/cli`(bin: vm0/zero),但它是
-// 托管平台的客户端——要 `vm0 auth login` 到 vm0.ai 账号(Clerk org)、把
-// `vm0.yaml`(agent compose)`vm0 compose` 部署上去,再用 `vm0 run <agent> "<prompt>"`
-// 触发一次异步 run,结果回 Slack 或者用 `vm0 run-id` 去 `vm0 logs` 轮询——不是
-// "发一条消息、同步拿到结构化回复"这种能嵌进 HTTP handler 的调用形状。
-// vm0 自己的 web 前端用的 chat API 是仓库内 `turbo/packages/api-contracts/` 下的
-// 内部 ts-rest contract(需要 Clerk 会话 cookie/header),没有作为公开、稳定、
-// 文档化的第三方集成面发布过。
-async function runAiTurn(_message: string, _sessionId: string): Promise<ChatResponse> {
-  throw new Error(
-    "vm0 没有可在这里接的公开 API:唯一公开发布的制品是托管平台的 CLI(`@vm0/cli`)," +
-      "它要登录 vm0.ai 账号、部署 vm0.yaml agent compose,并且 `vm0 run` 触发的是" +
-      "异步 run(结果回 Slack 或轮询 `vm0 logs`),不是同步的请求/响应调用,没法" +
-      "简单包成这个 /api/chat 端点。完整调研过程和引用见本目录 README.md,以及仓库" +
-      "docs/adapters/targets.md 里 vm0 那一节的既有结论。",
-  );
-}
-
-// ---------------------------------------------------------------------------
-// HTTP 服务器:GET /healthz、GET /、POST /api/chat。
+// HTTP 服务器:GET /healthz、GET /、POST /api/chat(SSE)。
 // ---------------------------------------------------------------------------
 
 const server = createServer(async (req, res) => {
@@ -182,7 +127,7 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  process.stdout.write(`vm0 example listening on http://localhost:${PORT} (AGENT_MODE=${AGENT_MODE})\n`);
+  process.stdout.write(`vm0 example listening on http://localhost:${PORT} (agent=${AGENT_NAME}, api=${API_BASE})\n`);
 });
 
 function shutdown() {
@@ -209,15 +154,70 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   if (req.method === "POST" && url === "/api/chat") {
     const body = await readJson(req);
     const { message, sessionId } = parseChatRequest(body);
-    const resolvedSessionId = sessionId ?? randomUUID();
-    const response = await (AGENT_MODE === "ai"
-      ? runAiTurn(message, resolvedSessionId)
-      : Promise.resolve(runMockTurn(message)));
-    json(res, 200, { sessionId: resolvedSessionId, ...response });
+    await streamRun(req, res, message, sessionId);
     return;
   }
 
   json(res, 404, { error: `not found: ${req.method} ${url}` });
+}
+
+// SSE:创建 run 后轮询事件、把 eventData(claude-code stream-JSON)原样逐帧转发。
+// 额外只加两个带 vm0. 前缀的信封帧:run 创建(带 sessionId,前端存起来续会话)
+// 和 run 结束(带终态)。
+async function streamRun(
+  req: IncomingMessage,
+  res: ServerResponse,
+  message: string,
+  sessionId: string | undefined,
+): Promise<void> {
+  res.writeHead(200, {
+    "content-type": "text/event-stream; charset=utf-8",
+    "cache-control": "no-cache",
+    connection: "keep-alive",
+  });
+  const send = (payload: unknown) => {
+    res.write(`data: ${JSON.stringify(payload)}\n\n`);
+  };
+
+  let clientGone = false;
+  req.on("close", () => {
+    clientGone = true;
+  });
+
+  let run: CreateRunResponse;
+  try {
+    run = await createRun(message, sessionId);
+  } catch (error) {
+    send({ type: "vm0.error", message: error instanceof Error ? error.message : String(error) });
+    res.end();
+    return;
+  }
+  send({ type: "vm0.run.created", runId: run.runId, sessionId: run.sessionId, status: run.status });
+
+  try {
+    let since = -1;
+    for (;;) {
+      if (clientGone) {
+        // 浏览器断开就取消 run,别让沙箱白跑。
+        await vm0Api(`/api/agent/runs/${run.runId}/cancel`, { method: "POST", body: "{}" }).catch(() => {});
+        return;
+      }
+      const page = await vm0Api<EventsResponse>(`/api/agent/runs/${run.runId}/events?since=${since}&limit=100`);
+      for (const event of page.events) send(event.eventData);
+      since = page.nextSequence;
+
+      if (TERMINAL_RUN_STATUSES.has(page.run.status) && !page.hasMore) {
+        send({ type: "vm0.run.finished", status: page.run.status, error: page.run.error });
+        break;
+      }
+      if (!page.hasMore) await sleep(POLL_INTERVAL_MS);
+    }
+  } catch (error) {
+    if (!clientGone) {
+      send({ type: "vm0.error", message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  res.end();
 }
 
 function parseChatRequest(value: unknown): { message: string; sessionId?: string } {
@@ -228,7 +228,8 @@ function parseChatRequest(value: unknown): { message: string; sessionId?: string
   }
   return {
     message: record.message,
-    sessionId: typeof record.sessionId === "string" ? record.sessionId : undefined,
+    sessionId:
+      typeof record.sessionId === "string" && record.sessionId.length > 0 ? record.sessionId : undefined,
   };
 }
 

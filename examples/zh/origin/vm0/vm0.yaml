@@ -1,0 +1,12 @@
+# vm0 的 agent compose:vm0 定义 agent 的方式就是这份声明式 YAML
+# (`vm0 init` 生成的标准形状),`vm0 compose vm0.yaml` 把它部署到平台,
+# 之后就能按名字触发 run(CLI `vm0 run`,或本目录 server.ts 走的
+# `POST /api/agent/runs`)。
+version: "1.0"
+
+agents:
+  niceeval-demo:
+    framework: claude-code
+    description: niceeval examples 里的最小聊天 demo agent
+    # 自然语言指令,挂载为沙箱内 agent 的 CLAUDE.md。
+    instructions: AGENTS.md

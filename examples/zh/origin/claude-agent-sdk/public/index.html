@@ -5,145 +5,245 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Claude Agent SDK 示例</title>
 <style>
-  :root { color-scheme: light dark; }
+  :root { color-scheme: light; }
   * { box-sizing: border-box; }
   body {
     margin: 0;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    background: #f5f5f7;
-    color: #1d1d1f;
-    display: flex;
-    justify-content: center;
-    padding: 24px;
+    background: #f5f5f5;
+    color: #1a1a1a;
   }
   main {
-    width: 100%;
-    max-width: 640px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 24px 16px 96px;
   }
-  h1 { font-size: 18px; margin: 0; }
-  p.subtitle { margin: 0; color: #666; font-size: 13px; }
-  #log {
-    flex: 1;
-    min-height: 360px;
-    max-height: 60vh;
-    overflow-y: auto;
-    background: #fff;
-    border: 1px solid #e0e0e0;
-    border-radius: 8px;
-    padding: 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-  .msg { padding: 8px 12px; border-radius: 8px; max-width: 85%; white-space: pre-wrap; word-break: break-word; }
-  .msg.user { align-self: flex-end; background: #007aff; color: #fff; }
-  .msg.assistant { align-self: flex-start; background: #eee; }
-  .msg.error { align-self: flex-start; background: #ffe5e5; color: #a30000; }
-  .tool-call {
-    align-self: flex-start;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
-    background: #f0f4ff;
-    border: 1px solid #d5deff;
-    border-radius: 6px;
-    padding: 6px 10px;
+  h1 { font-size: 20px; margin-bottom: 4px; }
+  .subtitle { color: #666; font-size: 13px; margin-bottom: 20px; }
+  #log { display: flex; flex-direction: column; gap: 10px; }
+  .msg {
+    padding: 10px 14px;
+    border-radius: 10px;
     max-width: 90%;
     white-space: pre-wrap;
     word-break: break-word;
   }
-  form { display: flex; gap: 8px; }
+  .msg.user { align-self: flex-end; background: #2563eb; color: white; }
+  .msg.assistant { align-self: flex-start; background: white; border: 1px solid #ddd; }
+  .msg.error { align-self: flex-start; background: #fee2e2; border: 1px solid #fca5a5; color: #991b1b; }
+  .tool-call {
+    align-self: flex-start;
+    max-width: 90%;
+    background: #f0f0f0;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+  }
+  .tool-call.pending { border-style: dashed; opacity: 0.8; }
+  .tool-call summary { cursor: pointer; font-weight: 600; }
+  .tool-call pre { margin: 6px 0 0; white-space: pre-wrap; word-break: break-word; }
+  form {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    gap: 8px;
+    padding: 12px 16px;
+    background: white;
+    border-top: 1px solid #ddd;
+  }
+  form > div { max-width: 720px; margin: 0 auto; display: flex; gap: 8px; width: 100%; }
   input[type="text"] {
     flex: 1;
     padding: 10px 12px;
-    border-radius: 8px;
     border: 1px solid #ccc;
+    border-radius: 8px;
     font-size: 14px;
   }
   button {
     padding: 10px 16px;
-    border-radius: 8px;
     border: none;
-    background: #007aff;
-    color: #fff;
+    border-radius: 8px;
+    background: #2563eb;
+    color: white;
     font-size: 14px;
     cursor: pointer;
   }
-  button:disabled { opacity: 0.5; cursor: not-allowed; }
-  #session-info { font-size: 12px; color: #999; }
+  button:disabled { background: #93b4f0; cursor: not-allowed; }
+  #sessionInfo { font-size: 12px; color: #999; margin-top: 8px; }
 </style>
 </head>
 <body>
 <main>
   <h1>Claude Agent SDK 示例</h1>
   <p class="subtitle">
-    独立示例应用,不依赖 niceeval。后端用 <code>@anthropic-ai/claude-agent-sdk</code> 的
-    <code>query()</code> 驱动一个带 get_weather / calculate 两个工具的小助手。
+    试着问"北京天气怎么样"或"12*(3+4)等于多少"。后端每轮跑一次 query(),SDKMessage
+    经 SSE 原样推过来:回复逐 token 出字,工具调用(tool_use / tool_result)实时可见。
   </p>
   <div id="log"></div>
-  <form id="chat-form">
-    <input id="input" type="text" placeholder="问我天气,或者给我一道算式…" autocomplete="off" />
-    <button id="send" type="submit">发送</button>
-  </form>
-  <div id="session-info">session: (尚未开始)</div>
+  <div id="sessionInfo"></div>
 </main>
-
+<form id="composer">
+  <div>
+    <input id="input" type="text" placeholder="例如:北京天气怎么样" autocomplete="off" />
+    <button id="send" type="submit">发送</button>
+  </div>
+</form>
 <script>
-  const logEl = document.getElementById("log");
-  const formEl = document.getElementById("chat-form");
-  const inputEl = document.getElementById("input");
-  const sendEl = document.getElementById("send");
-  const sessionInfoEl = document.getElementById("session-info");
+  const log = document.getElementById("log");
+  const form = document.getElementById("composer");
+  const input = document.getElementById("input");
+  const sendBtn = document.getElementById("send");
+  const sessionInfo = document.getElementById("sessionInfo");
 
-  let sessionId;
+  // session_id 由前端持有:SDK 的 system/init 消息带下来,下一轮随请求带回,
+  // 服务端用 options.resume 找回历史。服务端零会话状态。
+  let sessionId = null;
 
-  function appendMessage(role, text) {
-    const el = document.createElement("div");
-    el.className = "msg " + role;
-    el.textContent = text;
-    logEl.appendChild(el);
-    logEl.scrollTop = logEl.scrollHeight;
+  function addMessage(role, text) {
+    const div = document.createElement("div");
+    div.className = "msg " + role;
+    div.textContent = text;
+    log.appendChild(div);
+    div.scrollIntoView({ behavior: "smooth", block: "end" });
+    return div;
   }
 
-  function appendToolCall(call) {
-    const el = document.createElement("div");
-    el.className = "tool-call";
-    el.textContent =
-      "⚙ " + call.name + "(" + JSON.stringify(call.input) + ") → " + JSON.stringify(call.output);
-    logEl.appendChild(el);
-    logEl.scrollTop = logEl.scrollHeight;
+  // 一轮 turn 内的渲染状态:当前正在流式出字的助手气泡,和按 tool_use id
+  // 索引的工具调用气泡(tool_result 回来时原地补上输出)。
+  let currentBubble = null;
+  const toolEls = new Map();
+
+  function appendAssistantText(text) {
+    if (!currentBubble) currentBubble = addMessage("assistant", "");
+    currentBubble.textContent += text;
+    currentBubble.scrollIntoView({ block: "end" });
   }
 
-  formEl.addEventListener("submit", async (event) => {
+  function renderToolUse(block) {
+    const details = document.createElement("details");
+    details.className = "tool-call pending";
+    const summary = document.createElement("summary");
+    summary.textContent = "⚙ " + block.name;
+    const pre = document.createElement("pre");
+    pre.textContent = "input:  " + JSON.stringify(block.input, null, 2);
+    details.appendChild(summary);
+    details.appendChild(pre);
+    log.appendChild(details);
+    toolEls.set(block.id, details);
+    details.scrollIntoView({ block: "end" });
+  }
+
+  function renderToolResult(block) {
+    const details = toolEls.get(block.tool_use_id);
+    if (!details) return;
+    details.classList.remove("pending");
+    const content = Array.isArray(block.content)
+      ? block.content.map((c) => (c.type === "text" ? c.text : JSON.stringify(c))).join("\n")
+      : String(block.content ?? "");
+    details.querySelector("pre").textContent += "\noutput: " + content + (block.is_error ? " (error)" : "");
+  }
+
+  function handleSdkMessage(msg) {
+    switch (msg.type) {
+      case "system":
+        if (msg.subtype === "init") {
+          sessionId = msg.session_id;
+          sessionInfo.textContent = "session: " + sessionId + " · model: " + msg.model;
+        }
+        break;
+      case "stream_event": {
+        const ev = msg.event;
+        if (ev.type === "message_start") currentBubble = null;
+        if (ev.type === "content_block_delta" && ev.delta.type === "text_delta") {
+          appendAssistantText(ev.delta.text);
+        }
+        break;
+      }
+      case "assistant": {
+        for (const block of msg.message.content) {
+          if (block.type === "tool_use") renderToolUse(block);
+          // 文本已经靠 stream_event 逐 token 渲染过了;万一没出字流,兜底补全。
+          if (block.type === "text" && (!currentBubble || currentBubble.textContent.length === 0)) {
+            appendAssistantText(block.text);
+          }
+        }
+        break;
+      }
+      case "user": {
+        const content = msg.message.content;
+        if (Array.isArray(content)) {
+          for (const block of content) {
+            if (block.type === "tool_result") renderToolResult(block);
+          }
+        }
+        break;
+      }
+      case "result":
+        sessionId = msg.session_id;
+        if (msg.subtype !== "success") {
+          addMessage("error", "agent 执行出错(" + msg.subtype + "):" + (msg.errors || []).join("; "));
+        }
+        break;
+      case "error":
+        addMessage("error", "错误: " + msg.message);
+        break;
+      default:
+        break;
+    }
+  }
+
+  // POST + SSE:EventSource 只支持 GET,所以用 fetch 读 text/event-stream,
+  // 按空行切帧、抠 "data: " 前缀。
+  async function streamChat(message) {
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message, sessionId }),
+    });
+    if (!res.ok || !res.body) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || ("HTTP " + res.status));
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      for (;;) {
+        const frameEnd = buffer.indexOf("\n\n");
+        if (frameEnd === -1) break;
+        const frame = buffer.slice(0, frameEnd);
+        buffer = buffer.slice(frameEnd + 2);
+        for (const line of frame.split("\n")) {
+          if (line.startsWith("data: ")) handleSdkMessage(JSON.parse(line.slice(6)));
+        }
+      }
+    }
+  }
+
+  form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const message = inputEl.value.trim();
+    const message = input.value.trim();
     if (!message) return;
 
-    appendMessage("user", message);
-    inputEl.value = "";
-    sendEl.disabled = true;
+    addMessage("user", message);
+    input.value = "";
+    sendBtn.disabled = true;
+    currentBubble = null;
 
     try {
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ message, sessionId }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "请求失败");
-
-      sessionId = data.sessionId;
-      sessionInfoEl.textContent = "session: " + sessionId;
-
-      for (const call of data.toolCalls ?? []) appendToolCall(call);
-      appendMessage("assistant", data.reply);
-    } catch (error) {
-      appendMessage("error", "出错了: " + error.message);
+      await streamChat(message);
+    } catch (err) {
+      addMessage("error", "错误: " + (err && err.message ? err.message : String(err)));
     } finally {
-      sendEl.disabled = false;
-      inputEl.focus();
+      sendBtn.disabled = false;
+      input.focus();
     }
   });
 </script>

@@ -1,6 +1,6 @@
 ---
 name: origin-examples-real-ai-credentials
-description: examples/zh/origin/{claude-agent-sdk,codex-sdk,custom-genai,langgraph,openllmetry,openinference} 已删除 mock 模式，改用真实 DeepSeek/Codex 代理凭据；vm0 按调研结论保持占位
+description: examples/zh/origin/{claude-agent-sdk,codex-sdk,custom-genai,langgraph,openllmetry,openinference} 已删除 mock 模式，改用真实 DeepSeek/Codex 代理凭据；vm0 已按公开 REST 契约重写为真集成(见 vm0-has-public-rest-contract)
 metadata:
   type: project
 ---
@@ -14,4 +14,4 @@ metadata:
 
 **反直觉点**：DeepSeek 的 anthropic 兼容端点和 OpenAI 兼容端点是两个不同路径(`/anthropic` vs 无后缀)，同一个 `DEEPSEEK_API_KEY` 能通用，但 base URL 必须按协议分别设置，抄错会导致 404 或协议不匹配报错。
 
-**其它连带修复**：claude-agent-sdk 和 codex-sdk 曾经默认端口都是 `PORT ?? 5189`(撞车)，已把 codex-sdk 改成 `5199`。vm0 目录按其 README「调研结论」(vm0 无可 import 的 SDK / 公开 HTTP API)保持纯占位，没有跟着这轮改动。
+**其它连带修复**：claude-agent-sdk 和 codex-sdk 曾经默认端口都是 `PORT ?? 5189`(撞车)，已把 codex-sdk 改成 `5199`。vm0 目录当时按旧调研结论保持占位；2026-07-02 该结论被证伪，已重写为真集成(需要 `VM0_TOKEN` + `CLAUDE_CODE_OAUTH_TOKEN`/`ANTHROPIC_API_KEY` 作 run secrets，见 [[vm0-has-public-rest-contract]])。同日 origin 各 demo 的前后端接口按各 SDK 官方最佳实践重构：claude-agent-sdk 改 SSE 透传 SDKMessage(`includePartialMessages` + `resume`)，codex-sdk 改 `runStreamed()` ThreadEvent SSE(threadId 由前端持有)，langgraph 整体换成 `createAgent` + `langgraphjs dev` Agent Server + `@langchain/react` `useStream`(不再有自写 server，模型凭据仍是上面 OpenAI 兼容协议那组，经 `langgraph.json` 的 `env: ".env"` 加载)。

@@ -1,11 +1,12 @@
-// 两个工具的纯逻辑实现,以及包成 Claude Agent SDK `tool()` 形状的 buildTools(log)。
-// 天气数据是确定性模拟数据,不发起真实网络请求——这只是"假天气",跟下面的真实
-// query() 调用（本仓库不允许的"假 AI"）无关。
+// 两个工具的纯逻辑实现,包成 Claude Agent SDK `tool()` 形状导出。
+// 天气数据是确定性模拟数据,不发起真实网络请求——这只是"假天气",跟真实的
+// query() 调用(本仓库不允许的"假 AI")无关。
+// 工具调用的输入输出不需要在这里旁路记录:SDK 的 message stream 里
+// assistant 消息的 tool_use 块和 user 消息的 tool_result 块本身就带全了,
+// server.ts 原样转发给前端即可。
 
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
-
-export type ToolCallLog = { name: string; input: unknown; output: unknown };
 
 const WEATHER_TABLE: Record<string, { condition: string; tempC: number }> = {
   北京: { condition: "晴", tempC: 24 },
@@ -99,34 +100,28 @@ function calculate(expression: string): number {
   return result;
 }
 
-export function buildTools(log: ToolCallLog[]) {
-  const getWeatherTool = tool(
+export const demoTools = [
+  tool(
     "get_weather",
     "查询某个城市当前的天气状况(演示用的确定性模拟数据,不发起真实网络请求)。",
     { city: z.string().describe("城市名称,例如 北京") },
     async ({ city }) => {
       const result = getWeather(city);
-      log.push({ name: "get_weather", input: { city }, output: result });
       return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
     },
-  );
-
-  const calculateTool = tool(
+  ),
+  tool(
     "calculate",
     "计算一个只包含数字、+ - * / 和括号的算术表达式,返回数值结果。",
     { expression: z.string().describe("算术表达式,例如 (3 + 4) * 2") },
     async ({ expression }) => {
       try {
         const result = calculate(expression);
-        log.push({ name: "calculate", input: { expression }, output: result });
         return { content: [{ type: "text" as const, text: String(result) }] };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        log.push({ name: "calculate", input: { expression }, output: { error: message } });
         return { content: [{ type: "text" as const, text: `计算出错: ${message}` }], isError: true };
       }
     },
-  );
-
-  return [getWeatherTool, calculateTool];
-}
+  ),
+];

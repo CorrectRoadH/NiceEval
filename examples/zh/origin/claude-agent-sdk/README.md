@@ -11,21 +11,38 @@ niceeval 接入实现。
 每次对话都是真实的 `query()` 调用——没有 mock 模式、没有离线开关。两个工具(`get_weather` /
 `calculate`)背后是确定性模拟数据,那只是"假天气",跟"是否真的调用了模型"是两回事。
 
+## 前后端接口:SDKMessage 流就是协议
+
+SDK 官方 hosting 指南(`code.claude.com/docs/en/agent-sdk/hosting`)和配套
+cookbook(`claude-cookbooks/claude_agent_sdk/hosting` 里的 SSE server)给聊天后端定的形状
+就是:**把 `query()` 产出的 SDKMessage 流序列化后经 SSE 转发给前端**,而不是折叠成一个自造的
+`{reply, toolCalls}` JSON。这个 demo 照此实现:
+
+- `POST /api/chat`(body `{message, sessionId?}`)响应 `text/event-stream`,每帧 `data:` 是
+  一个原样的 `SDKMessage`(`system/init`、`stream_event`、`assistant`、`user`、`result`)。
+- `options.includePartialMessages: true` 让 SDK 额外产出 `stream_event`(原始 API 流事件),
+  前端拿 `content_block_delta` / `text_delta` 逐 token 渲染回复。
+- 工具调用不需要旁路记录:assistant 消息里的 `tool_use` 块和 user 消息里的 `tool_result` 块
+  (按 `tool_use_id` 配对)本身就带全了,前端直接按块渲染。
+- 会话按官方 sessions 文档的"多用户服务"基线:每轮一次 `query()` + `options.resume`;
+  `session_id` 在 `system/init` 和 `result` 消息里,由**前端**保存、下一轮带回——服务端零会话状态。
+
 ## 目录结构
 
 - `tools.ts`:两个工具的纯逻辑实现(`WEATHER_TABLE`/`getWeather`/`calculate`,确定性模拟数据,
-  `calculate` 是自写的小型递归下降算术求值器,不用 `eval`/`Function`),以及把它们包成
-  Claude Agent SDK `tool()` 形状的 `buildTools(log)`。
-- `agent.ts`:`SYSTEM_PROMPT`、`MODEL`,以及真实调用 `query()` 的 `runTurn(message, sessionId)`。
-  多轮会话靠上一轮 `result` 消息里的 `session_id`(存在 `claudeSessionIdByOurSession`),通过
-  `options.resume` 续接同一个 Claude Code 会话历史。
+  `calculate` 是自写的小型递归下降算术求值器,不用 `eval`/`Function`),包成
+  Claude Agent SDK `tool()` 形状导出为 `demoTools`。
+- `agent.ts`:`SYSTEM_PROMPT`、`MODEL`、进程级的 `createSdkMcpServer` 实例,以及真实调用
+  `query()` 的 `runTurn(message, resumeSessionId)`——返回 SDKMessage 的 AsyncGenerator,
+  不在这层做任何折叠。
 - `server.ts`:HTTP 层,一个 `node:http` 服务器(无框架)。
   - `GET /healthz` → `{ok:true}`
-  - `POST /api/chat`,body `{message, sessionId?}` → `{reply, toolCalls, sessionId}`,内部调
-    `agent.ts` 的 `runTurn`。
+  - `POST /api/chat`,body `{message, sessionId?}` → SSE,逐帧转发 SDKMessage;浏览器断开时
+    调 `query.interrupt()` 中断这轮 agent。
   - `GET /` → 返回 `public/index.html`
-- `public/index.html`:单文件前端,inline `<style>`/`<script>`,`fetch()` 调 `/api/chat`,没有
-  构建步骤、没有流式渲染、没有框架。
+- `public/index.html`:单文件前端,inline `<style>`/`<script>`,`fetch()` 读 SSE 流
+  (EventSource 只支持 GET,所以手动按空行切帧),流式渲染文本、实时展示 tool_use/tool_result,
+  没有构建步骤、没有框架。
 - `package.json`:`"private": true`,自带 `pnpm-workspace.yaml`(`packages: []`)使它脱离仓库根
   workspace,是完全独立的 npm 项目。
 - `.env.example`:`ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL` / `AGENT_MODEL` / `PORT`。

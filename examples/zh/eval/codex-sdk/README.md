@@ -1,8 +1,10 @@
 # Codex SDK × niceeval(非侵入式接入)
 
 在 [`examples/zh/origin/codex-sdk`](../../origin/codex-sdk/) 的基础上接入 niceeval——
-应用代码(`agent.ts`、`server.ts`、`public/index.html`)**逐字节不变**,niceeval 相关的
-全部代码都是新文件(`agents/`、`evals/`、`experiments/`、`niceeval.config.ts`)。origin
+应用代码(`agent.ts`、`server.ts`、`public/index.html`)复制自 origin 的一个早期快照,
+niceeval 相关的全部代码都是新文件(`agents/`、`evals/`、`experiments/`、
+`niceeval.config.ts`)。(origin 那份后来已改成 SDK 原生的 `runStreamed()` + SSE 事件流
+接口;这里保留旧的阻塞式 `/api/chat` JSON 接口不动,因为下面的 adapter 依赖它。)origin
 那份 README 的「为什么任务形状长这样」讲了 Codex SDK 是"目录里的编码 agent"(内置文件
 读写、跑 shell 命令),不是通用 chat SDK——这里的 eval 就是照这个任务形状写的:自然语言
 编码请求,断言真实的文件/命令操作,而不是硬凑天气/计算器工具。

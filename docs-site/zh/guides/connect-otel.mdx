@@ -112,7 +112,7 @@ NiceEval 的接收端点默认每次运行动态分配。但**不要求你的应
     node server.js   # 端点值按「端点怎么交给应用」一节选:注入的 env 或固定端口
     ```
 
-    `LANGSMITH_OTEL_ONLY` 表示只发 OTLP、不发 LangSmith 云端（要双发就去掉它）。这句话在 **Python** 版 `langsmith` SDK 上是真·零代码（import 时自动挂 OTel hook）；**JS** 版（`langsmith@0.7.x`）还需要显式调用一次 `initializeOTEL()`（来自 `langsmith/experimental/otel/setup`），否则只打警告、不产生 span——三个环境变量本身仍然不变。可跑示例（含这个 JS 差异的完整接线）：[`examples/zh/before/langgraph`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/before/langgraph)。
+    `LANGSMITH_OTEL_ONLY` 表示只发 OTLP、不发 LangSmith 云端（要双发就去掉它）。这句话在 **Python** 版 `langsmith` SDK 上是真·零代码（import 时自动挂 OTel hook）；**JS** 版（`langsmith@0.7.x`）还需要显式调用一次 `initializeOTEL()`（来自 `langsmith/experimental/otel/setup`），否则只打警告、不产生 span——三个环境变量本身仍然不变。可跑示例（含这个 JS 差异的完整接线）：[`examples/zh/origin/langgraph`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/origin/langgraph)。
   </Tab>
   <Tab title="OpenLLMetry">
     ```ts
@@ -122,7 +122,7 @@ NiceEval 的接收端点默认每次运行动态分配。但**不要求你的应
     // endpoint 用标准 OTEL_EXPORTER_OTLP_ENDPOINT 环境变量
     ```
 
-    可跑示例：[`examples/zh/before/openllmetry`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/before/openllmetry)。
+    可跑示例：[`examples/zh/origin/openllmetry`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/origin/openllmetry)。
   </Tab>
   <Tab title="OpenInference">
     ```python
@@ -133,10 +133,10 @@ NiceEval 的接收端点默认每次运行动态分配。但**不要求你的应
     LangChainInstrumentor().instrument()
     ```
 
-    可跑示例：[`examples/zh/before/openinference`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/before/openinference)（Python，贴合 OpenInference/Phoenix 生态惯例）。
+    可跑示例：[`examples/zh/origin/openinference`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/origin/openinference)（Python，贴合 OpenInference/Phoenix 生态惯例）。
   </Tab>
   <Tab title="自己埋的 gen_ai">
-    按 [OTel GenAI 语义约定](https://opentelemetry.io/docs/specs/semconv/gen-ai/)埋：模型调用 span 名 `chat {model}`，工具 span 名 `execute_tool {tool}`，属性带 `gen_ai.operation.name`、`gen_ai.tool.name` / `gen_ai.tool.call.id` / `gen_ai.tool.call.arguments`。想让 `messageIncludes` 有数据，打开内容采集（`gen_ai.input/output.messages` 是 opt-in）。可跑示例（无 vendor SDK 的手写参考实现）：[`examples/zh/before/custom-genai`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/before/custom-genai)。
+    按 [OTel GenAI 语义约定](https://opentelemetry.io/docs/specs/semconv/gen-ai/)埋：模型调用 span 名 `chat {model}`，工具 span 名 `execute_tool {tool}`，属性带 `gen_ai.operation.name`、`gen_ai.tool.name` / `gen_ai.tool.call.id` / `gen_ai.tool.call.arguments`。想让 `messageIncludes` 有数据，打开内容采集（`gen_ai.input/output.messages` 是 opt-in）。可跑示例（无 vendor SDK 的手写参考实现）：[`examples/zh/origin/custom-genai`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/origin/custom-genai)。
   </Tab>
 </Tabs>
 

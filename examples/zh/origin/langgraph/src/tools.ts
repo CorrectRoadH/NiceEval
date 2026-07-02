@@ -1,5 +1,5 @@
 // 两个工具的纯函数实现:get_weather(city) 和 calculate(expression)。
-// 经 LangChain 的 tool() 包一层给 createReactAgent 用。
+// 经 LangChain 的 tool() 包一层给 createAgent 用。
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 
