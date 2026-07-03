@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import { ChevronRight } from "lucide-react";
+import { AlertCircle, CheckCircle2, ChevronRight, MessageCircle, XCircle } from "lucide-react";
 import type { T } from "../shared.ts";
 import type { Assertion, CodeSource, SourceTurn, TranscriptEvent } from "../types.ts";
 import { TOOL_VERB, highlightTs, indexAsserts, indexTurns, locKey, resultBody, toolPrimaryArg } from "../lib/transcript-data.tsx";
@@ -145,11 +145,15 @@ export function CodeLine({
         <span className="ln">{n}</span>
         <span className="gmark">
           {hasAsserts ? (
-            <span className={`gstat ${status === "pass" ? "good" : status === "warn" ? "warn" : "bad"}`}>
-              {status === "pass" ? "✓" : status === "warn" ? "!" : "✗"}
-            </span>
+            status === "pass" ? (
+              <CheckCircle2 className="gstat good" aria-hidden="true" />
+            ) : status === "warn" ? (
+              <AlertCircle className="gstat warn" aria-hidden="true" />
+            ) : (
+              <XCircle className="gstat bad" aria-hidden="true" />
+            )
           ) : hasReply ? (
-            <ChevronRight className={`gchev${isOpen ? " is-open" : ""}`} aria-hidden="true" />
+            <MessageCircle className="gsend" aria-hidden="true" />
           ) : null}
         </span>
         <code className="ctext">{highlightTs(text)}</code>

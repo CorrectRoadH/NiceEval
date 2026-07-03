@@ -27,7 +27,8 @@ export default defineExperiment({
   description: "claude-code + ponytail plugin",
   agent: ponytailAgent,
   model: "claude-sonnet-4-6",
-  sandbox: dockerSandbox(),
+  // ponytail-csv-sum 需要 python3;默认的 node:24-slim 没有,用完整版镜像。
+  sandbox: dockerSandbox({ image: "node:24" }),
   runs: 3,
   earlyExit: false,
   budget: 15,

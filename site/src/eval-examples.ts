@@ -246,9 +246,12 @@ const weatherTool = {
 
 const sandboxArtifact = {
   id: "sandbox-artifact",
-  // 改编自 examples/zh/coding-agent-skill/evals/ponytail-csv-sum.eval.ts
+  // 改编自 examples/zh/coding-agent-skill/evals/ponytail-csv-sum.eval.ts。
+  // notes / timing 取自一次真实运行(claude-code+ponytail / claude-sonnet-4-6,
+  // docker node:24,2026-07-03):agent Read CSV → Write sum_sales.py(csv.DictReader)
+  // → python3 输出 351.0;judge closedQA 得 1 分;第 1 轮 16s,整个 attempt 51.4s / $0.296。
   meta: {
-    gateBadge: "0.8/0.7",
+    gateBadge: "1/0.7",
     gateLine: 21,
     highlights: {
       8: "sandbox",
@@ -288,19 +291,17 @@ const sandboxArtifact = {
       "});",
     ],
     notes: {
-      sandbox: "The whole eval runs inside an isolated sandbox — writeFiles() seeds the workspace before the agent starts.",
-      turn1: "Created sum_sales.py — it reads sales.csv with csv.DictReader and prints the total.",
-      fileChanged: "fileChanged() asserts the agent actually produced the artifact, not just talked about it in the reply.",
-      stdout: "The graded evidence is real: niceeval runs the generated script inside the sandbox and checks stdout.",
-      gate: "A closedQA judge reviews the generated source for stdlib usage and conciseness; 0.7 or above passes.",
+      sandbox: "The whole eval runs inside an isolated sandbox — writeFiles() seeded sales.csv, and the agent's first move was to Read it (id, product, amount).",
+      turn1: "Output `351.0` — 100.5 + 200.0 + 50.5.",
+      fileChanged: "The agent really wrote sum_sales.py via the Write tool — 8 lines, csv.DictReader summing the amount column. fileChanged() asserts that artifact, not the reply text.",
+      stdout: "The graded evidence is real: python3 sum_sales.py printed `351.0` inside the sandbox, and /^351(\\.0)?$/ matched it.",
+      gate: "The closedQA judge scored the generated source 1 (threshold 0.7): csv stdlib, no pandas, 8 lines.",
     },
     timingRows: [
-      { label: "sandbox.writeFiles(seed)", value: "0.2s" },
-      { label: "Turn 1 · send(task)", value: "14.6s" },
-      { label: "sandbox.runCommand(python3)", value: "0.6s" },
-      { label: "judge.autoevals.closedQA", value: "1.1s" },
+      { label: "Turn 1 · send(task) · 4 tool calls", value: "16s" },
+      { label: "sandbox start + agent setup + scoring", value: "35.4s" },
     ],
-    timingTotal: "16.5s total · $0.03 est.",
+    timingTotal: "51.4s total · 68.6k tokens · $0.296",
   },
   zh: {
     label: "沙箱里的 coding agent",
@@ -331,19 +332,17 @@ const sandboxArtifact = {
       "});",
     ],
     notes: {
-      sandbox: "整个 eval 在隔离沙箱里运行——writeFiles() 先给工作区播种测试数据。",
-      turn1: "已创建 sum_sales.py——用 csv.DictReader 读取 sales.csv 并打印总和。",
-      fileChanged: "fileChanged() 断言 agent 真的产出了文件，而不是只在回复里描述。",
-      stdout: "评分证据是真实的：niceeval 在沙箱里运行生成的脚本并检查 stdout。",
-      gate: "closedQA judge 审查生成的源码是否用标准库且简洁，0.7 分以上才通过。",
+      sandbox: "整个 eval 在隔离沙箱里运行——writeFiles() 播种了 sales.csv，agent 的第一步就是 Read 它（id、product、amount 三列）。",
+      turn1: "输出 `351.0` — 100.5 + 200.0 + 50.5。",
+      fileChanged: "agent 真的用 Write 工具写出了 sum_sales.py——8 行，csv.DictReader 累加 amount 列。fileChanged() 断言的是这个产物，不是回复里的说法。",
+      stdout: "评分证据是真实的：沙箱里 python3 sum_sales.py 打印出 `351.0`，/^351(\\.0)?$/ 匹配通过。",
+      gate: "closedQA judge 给生成的源码打了 1 分（阈值 0.7）：csv 标准库、没有 pandas、8 行。",
     },
     timingRows: [
-      { label: "sandbox.writeFiles(播种)", value: "0.2s" },
-      { label: "第 1 轮 · send(任务)", value: "14.6s" },
-      { label: "sandbox.runCommand(python3)", value: "0.6s" },
-      { label: "judge.autoevals.closedQA", value: "1.1s" },
+      { label: "第 1 轮 · send(任务) · 4 次工具调用", value: "16s" },
+      { label: "沙箱启动 + agent setup + 判分", value: "35.4s" },
     ],
-    timingTotal: "共 16.5s · 预估 $0.03",
+    timingTotal: "共 51.4s · 68.6k tokens · $0.296",
   },
 };
 

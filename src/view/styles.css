@@ -14,6 +14,7 @@
   --color-good: var(--good);
   --color-bad: var(--bad);
   --color-warn: var(--warn);
+  --color-blue: var(--blue);
   --color-focus: var(--focus);
 }
 
@@ -30,6 +31,8 @@
   --good: light-dark(#087f5b, #3ddc97);
   --bad: light-dark(#b42318, #ff6b6b);
   --warn: light-dark(#9a6700, #e8b84a);
+  /* send/回复行的强调色,对齐 landing page setup-card 的 --blue(#6ea8fe)。 */
+  --blue: light-dark(#1d63d8, #6ea8fe);
   --focus: light-dark(#111113, #ededed);
   font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
 }
@@ -947,8 +950,16 @@ a.brand:hover { opacity: 0.75; }
 }
 .code-line.line-clickable { cursor: pointer; }
 .code-line.line-clickable:hover { background: color-mix(in oklch, var(--panel), var(--line) 45%); }
-.code-line.line-clickable:hover .gchev { color: var(--text); }
-.code-line.line-send { border-left-color: var(--line-strong); }
+/* send 行学 landing setup-card 的 reply 行:蓝底 + 蓝左缘 + 蓝行号,和断言行的绿/红/黄一眼区分。 */
+.code-line.line-send {
+  background: color-mix(in oklch, var(--blue), var(--panel) 88%);
+  border-left-color: var(--blue);
+}
+.code-line.line-send .ln {
+  background: color-mix(in oklch, var(--blue), var(--panel) 74%);
+  color: color-mix(in oklch, var(--blue), var(--text) 45%);
+}
+.code-line.line-send.line-clickable:hover { background: color-mix(in oklch, var(--blue), var(--panel) 82%); }
 .code-line.is-open { background: color-mix(in oklch, var(--panel), var(--line) 34%); }
 
 /* github-diff 式整行红绿:行底色 + 更深的行号格 + 实色左缘(过=绿/加,不过=红/减)。 */
@@ -993,12 +1004,12 @@ a.brand:hover { opacity: 0.75; }
   justify-content: flex-end;
 }
 .gmark { display: inline-flex; align-items: center; justify-content: center; }
-.gchev { width: 12px; height: 12px; color: var(--muted); transition: transform 0.12s; }
-.gchev.is-open { transform: rotate(90deg); }
-.gstat { font-size: 13px; font-weight: 800; line-height: 1; }
+/* gutter 用 lucide 图标(对齐 landing:CheckCircle2/MessageCircle),不再用 ✓/✗ 文本字形。 */
+.gstat { width: 13px; height: 13px; flex-shrink: 0; }
 .gstat.good { color: var(--good); }
 .gstat.bad { color: var(--bad); }
 .gstat.warn { color: var(--warn); }
+.gsend { width: 13px; height: 13px; flex-shrink: 0; color: var(--blue); }
 
 .ctext { white-space: pre; overflow-x: auto; color: var(--text); padding-left: 8px; }
 .ctext::-webkit-scrollbar { height: 0; }
@@ -1030,10 +1041,15 @@ a.brand:hover { opacity: 0.75; }
   background: color-mix(in oklch, var(--panel), var(--line) 28%);
   transition: color 0.12s, border-color 0.12s, background 0.12s;
 }
+.code-line.line-send .reply-hint {
+  color: color-mix(in oklch, var(--blue), var(--text) 30%);
+  border-color: color-mix(in oklch, var(--blue), var(--line) 55%);
+  background: color-mix(in oklch, var(--blue), transparent 88%);
+}
 .code-line.line-clickable:hover .reply-hint {
   color: var(--text);
-  border-color: var(--line-strong);
-  background: color-mix(in oklch, var(--panel), var(--line) 52%);
+  border-color: color-mix(in oklch, var(--blue), var(--line) 30%);
+  background: color-mix(in oklch, var(--blue), transparent 80%);
 }
 .line-chev {
   width: 14px;
@@ -1052,8 +1068,9 @@ a.brand:hover { opacity: 0.75; }
   border-left: 3px solid var(--line-strong);
   font-size: 12.5px;
 }
-.reply-panel { display: flex; flex-direction: column; gap: 9px; }
-.reply-role { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--good); display: block; margin-bottom: 2px; }
+.reply-panel { display: flex; flex-direction: column; gap: 9px; border-left-color: color-mix(in oklch, var(--blue), var(--line) 40%); }
+/* assistant 角色标签用蓝色,对齐 landing 的 code-note-role;绿色留给断言通过。 */
+.reply-role { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--blue); display: block; margin-bottom: 2px; }
 .reply-text { color: var(--text); white-space: pre-wrap; word-break: break-word; }
 .reply-think { font-size: 12px; color: var(--muted); }
 .reply-think summary { cursor: pointer; user-select: none; }

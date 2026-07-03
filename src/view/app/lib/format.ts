@@ -13,7 +13,17 @@ export function prettyJson(value: unknown): string {
 }
 
 export function previewText(value: string): string {
-  return String(value).split("\n").find((line) => line.trim()) || "";
+  const str = String(value);
+  const trimmed = str.trim();
+  // object 结果会被 prettyJson 成多行,只取首行会剩一个 "{";JSON 压回单行再做预览。
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    try {
+      return JSON.stringify(JSON.parse(trimmed));
+    } catch {
+      // 不是合法 JSON,按普通多行文本取首个非空行
+    }
+  }
+  return str.split("\n").find((line) => line.trim()) || "";
 }
 
 export function truncate(value: unknown, n: number): string {
