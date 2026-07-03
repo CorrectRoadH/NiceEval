@@ -18,4 +18,6 @@
 | **模型(默认)** | deepseek-v4-flash（可切 deepseek-v4-pro / gpt-4o-mini / gpt-5.4） | deepseek-v4-flash（可切 claude-sonnet-5 等） | gpt-5.4 | deepseek-v4-flash（可切 deepseek-v4-pro） | gpt-4o-mini |
 | **跑起来** | `pnpm install && pnpm dev` → http://localhost:5173 | `pnpm install && pnpm dev` → http://localhost:5173 | `pnpm install && pnpm dev` → http://localhost:5173 | `pnpm install && pnpm dev` → http://localhost:5300 | `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt && .venv/bin/python src/backend/server.py` → http://localhost:5488 |
 
-所有项目跑之前都要 `cp .env.example .env` 并填好对应的 key。OTel 都是可选的：设了 `OTEL_EXPORTER_OTLP_ENDPOINT`（及各示例 `.env.example` 里注明的开关变量）才开始导出，没设零开销。
+所有项目跑之前都要 `cp .env.example .env` 并填好对应的 key。OTel 默认开启，不做「设了才导出」的判断——各示例 `.env.example` 里的 OTel 相关变量已经给了本地默认值（通常指向 `localhost:4318`），照抄照跑就有数据；没起收集器时导出只是在后台失败重试，不影响主流程。
+
+但 OTel 只负责**收集**，不保证**格式**：上表五种接法产出的 span/metric 不是同一种 schema——ai-sdk-v7 是标准 GenAI semconv，codex-sdk 是 Codex CLI 自家的 span 命名（`codex.exec`/`run_sampling_request`/…），claude-sdk 甚至不发 trace span（只有 metrics + logs），langgraph 走 LangSmith 混合格式。接这批数据的一方（比如 niceeval）得靠专属 mapper + 通用 heuristic 兜底把它们翻译成统一语义，不能假设几家产的数据本来就一致。
