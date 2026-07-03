@@ -4,18 +4,24 @@ import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, getToolName, isToolUIPart, type UIMessage } from "ai";
 import "./App.css";
 
+type ChatMessage = UIMessage<{ sessionId?: string }>;
+
 function App() {
   const [input, setInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // 会话历史存在服务端(server.ts 的 sessions Map,键是 sessionId),所以请求体只带
+  // 这一轮的用户文本 + sessionId,不用把 DefaultChatTransport 默认发送的整份
+  // UIMessage[] 历史转过去。sessionId 从 start chunk 的 messageMetadata 里来;用 ref
+  // 是因为 transport 的闭包只捕获创建时的值,要读"最新"值必须经 ref。
+  const sessionIdRef = useRef<string | undefined>(undefined);
 
-  // 后端(server.ts)每次请求都 new 一个全新 Agent、不维护跨请求历史(见 agent.ts 顶部
-  // 注释),所以只需要这一轮的用户文本，不用把 DefaultChatTransport 默认发送的整份
-  // UIMessage[] 历史转过去——prepareSendMessagesRequest 把请求体换成 { message }。
   const transport = useMemo(
     () =>
-      new DefaultChatTransport({
+      new DefaultChatTransport<ChatMessage>({
         api: "/api/chat",
-        prepareSendMessagesRequest: ({ messages }) => ({ body: { message: lastUserText(messages) } }),
+        prepareSendMessagesRequest: ({ messages }) => ({
+          body: { message: lastUserText(messages), sessionId: sessionIdRef.current },
+        }),
       }),
     [],
   );
@@ -23,9 +29,19 @@ function App() {
   // 没有传 sendAutomaticallyWhen —— 审批的允许/拒绝走下面 MessageBubble 里的 plain
   // fetch('/api/chat/approve')，不经过 useChat 的消息状态，所以不需要 AI SDK 帮我们把
   // 审批决定重新打包成一条消息发回服务端。
-  const { messages, status, sendMessage, stop } = useChat({ transport });
+  const { messages, status, sendMessage, stop } = useChat<ChatMessage>({ transport });
 
   const running = status === "submitted" || status === "streaming";
+  // "思考中…"不能只看 status:服务端一发 start chunk,useChat 就会先推入一条空 parts
+  // 的 assistant 消息,按 role 判断指示器会立刻消失,首 token 到达前界面一片空白。
+  const lastMessage = messages.at(-1);
+  const waitingForReply =
+    running && (lastMessage?.role !== "assistant" || !hasVisibleContent(lastMessage));
+
+  useEffect(() => {
+    const sid = messages.at(-1)?.metadata?.sessionId;
+    if (sid) sessionIdRef.current = sid;
+  }, [messages]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -55,9 +71,7 @@ function App() {
         {messages.map((msg) => (
           <MessageBubble key={msg.id} message={msg} />
         ))}
-        {running && messages.at(-1)?.role !== "assistant" && (
-          <div className="msg assistant typing">思考中…</div>
-        )}
+        {waitingForReply && <div className="msg assistant typing">思考中…</div>}
         <div ref={messagesEndRef} />
       </section>
 
@@ -81,7 +95,13 @@ function App() {
   );
 }
 
-function MessageBubble({ message }: { message: UIMessage }) {
+function hasVisibleContent(message: ChatMessage): boolean {
+  return message.parts.some(
+    (part) => (part.type === "text" && part.text.length > 0) || isToolUIPart(part),
+  );
+}
+
+function MessageBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === "user";
 
   function approve(toolCallId: string, approved: boolean) {

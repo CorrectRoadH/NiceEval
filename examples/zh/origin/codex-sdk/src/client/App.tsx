@@ -30,6 +30,12 @@ function App() {
   const { messages, status, sendMessage, stop } = useChat<ChatMessage>({ transport });
 
   const running = status === "submitted" || status === "streaming";
+  // "思考中…"不能只看 status:服务端一发 start chunk(thread.started 时就发了),
+  // useChat 就会先推入一条空 parts 的 assistant 消息,按 role 判断指示器会立刻消失,
+  // 而 Codex 要等 item.completed 才有第一段可见内容——中间十几秒界面会完全空白。
+  const lastMessage = messages.at(-1);
+  const waitingForReply =
+    running && (lastMessage?.role !== "assistant" || !hasVisibleContent(lastMessage));
 
   useEffect(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -70,9 +76,7 @@ function App() {
         {messages.map((msg) => (
           <MessageBubble key={msg.id} message={msg} />
         ))}
-        {running && messages.at(-1)?.role !== "assistant" && (
-          <div className="msg assistant typing">思考中…</div>
-        )}
+        {waitingForReply && <div className="msg assistant typing">思考中…</div>}
         <div ref={messagesEndRef} />
       </section>
 
@@ -93,6 +97,12 @@ function App() {
         )}
       </form>
     </main>
+  );
+}
+
+function hasVisibleContent(message: ChatMessage): boolean {
+  return message.parts.some(
+    (part) => (part.type === "text" && part.text.length > 0) || isToolUIPart(part),
   );
 }
 

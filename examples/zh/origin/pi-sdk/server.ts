@@ -11,8 +11,9 @@
 // toolUseId 查到对应的 resolve 函数并调用,原来那条 /api/chat 请求的流才会继续往下走。
 // 这里不模拟 AI SDK 官方"断流、客户端重发"的 resume 协议——连接全程保持打开,更简单。
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { randomUUID } from "node:crypto";
 import { createUIMessageStream, pipeUIMessageStreamToResponse } from "ai";
-import type { AgentEvent } from "@earendil-works/pi-agent-core";
+import type { AgentEvent, AgentMessage } from "@earendil-works/pi-agent-core";
 import { createAgent } from "./agent.ts";
 
 const port = Number(process.env.PORT ?? 5299);
@@ -38,6 +39,12 @@ process.on("SIGINT", shutdown);
 // toolCallId -> resolve(approved)。POST /api/chat/approve 解析这个 Map。
 const pendingApprovals = new Map<string, (approved: boolean) => void>();
 
+// sessionId -> 上一轮结束时的完整对话记录(agent.state.messages)。pi 的 Agent
+// 没有 Codex thread / Claude session 那种落盘 resume 机制，所以由服务端在内存里
+// 保存历史；前端从 start chunk 的 messageMetadata 里拿 sessionId，下一轮随请求
+// 带回来。不存就是每轮从零开始——上一轮问过的"哪个城市"这类上下文会全部丢失。
+const sessions = new Map<string, AgentMessage[]>();
+
 async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const url = req.url ?? "/";
 
@@ -47,11 +54,12 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   }
 
   if (req.method === "POST" && url === "/api/chat") {
-    const body = (await readJson(req)) as { message?: unknown };
+    const body = (await readJson(req)) as { message?: unknown; sessionId?: unknown };
     if (typeof body.message !== "string" || body.message.trim().length === 0) {
       throw new Error("body.message must be a non-empty string.");
     }
-    await streamChat(req, res, body.message);
+    const sessionId = typeof body.sessionId === "string" && body.sessionId ? body.sessionId : randomUUID();
+    await streamChat(req, res, body.message, sessionId);
     return;
   }
 
@@ -74,10 +82,15 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   json(res, 404, { error: "not found" });
 }
 
-async function streamChat(req: IncomingMessage, res: ServerResponse, message: string): Promise<void> {
+async function streamChat(
+  req: IncomingMessage,
+  res: ServerResponse,
+  message: string,
+  sessionId: string,
+): Promise<void> {
   const stream = createUIMessageStream({
     execute: async ({ writer }) => {
-      writer.write({ type: "start" });
+      writer.write({ type: "start", messageMetadata: { sessionId } });
 
       // calculate 被用户拒绝的 toolCallId——tool_execution_end 到达时用它区分
       // "被 HITL 拒绝"(tool-output-denied)和"真的执行出错"(tool-output-error)。
@@ -87,6 +100,7 @@ async function streamChat(req: IncomingMessage, res: ServerResponse, message: st
       let turnIndex = -1;
 
       const agent = createAgent({
+        messages: sessions.get(sessionId),
         beforeToolCall: async ({ toolCall }) => {
           if (toolCall.name !== "calculate") return undefined;
           writer.write({ type: "tool-approval-request", approvalId: toolCall.id, toolCallId: toolCall.id });
@@ -156,6 +170,8 @@ async function streamChat(req: IncomingMessage, res: ServerResponse, message: st
         if (agent.state.errorMessage) {
           writer.write({ type: "error", errorText: agent.state.errorMessage });
         }
+        // 这一轮跑完(含工具调用和最终回答)后把完整 transcript 存回去，下一轮续接。
+        sessions.set(sessionId, agent.state.messages);
       } catch (error) {
         writer.write({ type: "error", errorText: error instanceof Error ? error.message : String(error) });
       } finally {

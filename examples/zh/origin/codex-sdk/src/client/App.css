@@ -39,7 +39,7 @@ body { margin: 0; }
 .assistant-group .msg { align-self: flex-start; }
 .msg.user { background: #2563eb; color: #fff; }
 .msg.assistant { background: #26262d; border: 1px solid #3a3a42; }
-.msg.typing { color: #8a8a9a; font-style: italic; }
+.msg.typing { align-self: flex-start; color: #8a8a9a; font-style: italic; }
 .tool-bubble {
   align-self: flex-start; background: #1e1e26; border: 1px solid #3a3a42;
   border-radius: 8px; padding: 6px 11px; font-size: 12px;

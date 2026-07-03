@@ -5,10 +5,12 @@
 // deepseek-v4-pro，鉴权自动读 DEEPSEEK_API_KEY，见 .env.example)，可通过
 // AGENT_MODEL 切换到 deepseek-v4-pro 等同目录下的模型。
 //
-// 每次 /api/chat 请求都 new 一个 Agent(见 createAgent)——不维护跨请求的会话状态，
-// 这一点和被替换掉的旧 agent.ts 一致(旧版 runAgent(message) 也是每次从零拼
-// messages 数组，没有多轮历史)。
-import { Agent, type AgentOptions } from "@earendil-works/pi-agent-core";
+// 每次 /api/chat 请求都 new 一个 Agent(见 createAgent)，但会话历史不能丢：
+// pi 的 Agent 本身没有落盘/resume 机制(不像 Codex 的 thread、Claude Agent SDK 的
+// session)，所以 server.ts 在内存里按 sessionId 保存每轮结束后的
+// agent.state.messages，下一轮通过 options.messages 原样喂回来——否则模型每轮
+// 都从零开始，上一轮刚问过"哪个城市"这类上下文全部丢失。
+import { Agent, type AgentMessage, type AgentOptions } from "@earendil-works/pi-agent-core";
 import { createModels } from "@earendil-works/pi-ai";
 import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
 import { calculateTool, getWeatherTool } from "./tools.ts";
@@ -33,15 +35,18 @@ const SYSTEM_PROMPT = "你是一个能查天气、能做算术的助理。需要
 export interface CreateAgentOptions {
   /** 转发给 pi 的 beforeToolCall——server.ts 用它给 calculate 挂 HITL 审批。 */
   beforeToolCall?: AgentOptions["beforeToolCall"];
+  /** 上一轮结束时的完整对话记录(agent.state.messages)，用于跨请求续接会话。 */
+  messages?: AgentMessage[];
 }
 
-/** 每次 /api/chat 调用都 new 一个全新 Agent：无状态，见文件头注释。 */
+/** 每次 /api/chat 调用都 new 一个 Agent，历史通过 options.messages 续接，见文件头注释。 */
 export function createAgent(options: CreateAgentOptions = {}): Agent {
   return new Agent({
     initialState: {
       systemPrompt: SYSTEM_PROMPT,
       model: resolveModel(),
       tools: [getWeatherTool, calculateTool],
+      ...(options.messages ? { messages: options.messages } : {}),
     },
     // Agent 默认会用 @earendil-works/pi-ai/compat 里的全局 streamSimple，这里显式绑定
     // 我们自己建的 models(只注册了 deepseek provider)，保证鉴权走的是上面 setProvider

@@ -44,6 +44,11 @@ function App() {
   const { messages, status, sendMessage, stop } = useChat<UIMessage<Metadata>>({ transport });
 
   const running = status === "submitted" || status === "streaming";
+  // "思考中…"不能只看 status:服务端一发 start chunk,useChat 就会先推入一条空 parts
+  // 的 assistant 消息,按 role 判断指示器会立刻消失,首 token 到达前界面一片空白。
+  const lastMessage = messages.at(-1);
+  const waitingForReply =
+    running && (lastMessage?.role !== "assistant" || !hasVisibleContent(lastMessage));
 
   useEffect(() => {
     const sid = messages.at(-1)?.metadata?.sessionId;
@@ -90,9 +95,7 @@ function App() {
         {messages.map((msg) => (
           <MessageBubble key={msg.id} message={msg} onToolApproval={handleApproval} />
         ))}
-        {running && messages.at(-1)?.role !== "assistant" && (
-          <div className="msg assistant typing">思考中…</div>
-        )}
+        {waitingForReply && <div className="msg assistant typing">思考中…</div>}
         <div ref={messagesEndRef} />
       </section>
 
@@ -113,6 +116,12 @@ function App() {
         )}
       </form>
     </main>
+  );
+}
+
+function hasVisibleContent(message: UIMessage<Metadata>): boolean {
+  return message.parts.some(
+    (part) => (part.type === "text" && part.text.length > 0) || isToolUIPart(part),
   );
 }
 
