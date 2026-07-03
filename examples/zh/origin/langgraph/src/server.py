@@ -114,10 +114,12 @@ class Handler(BaseHTTPRequestHandler):
 def _run_turn(message: str, thread_id: str):
     """跑一轮对话,把 LangGraph 的 stream 事件翻译成给前端的简单协议。
 
-    `stream_mode=["messages", "updates"]` 同时订阅两条流:"messages" 给 agent
+    `stream_mode=["messages", "updates"]` 同时订阅两条流:"messages" 给 model
     节点里模型输出的逐 token delta(打字机效果);"updates" 给每个节点跑完之后的
     完整状态增量,用来拿到成对的、内容完整的工具调用({name, input, output})——
-    不用去拼 "messages" 模式里逐块到达的 tool_call_chunks。
+    不用去拼 "messages" 模式里逐块到达的 tool_call_chunks。节点名 "model"/"tools"
+    是 `create_agent`(`langchain.agents`)编译出的图自己定的,不是我们起的名字——
+    `_agent.get_graph().nodes` 能看到同样的名字。
     """
     config = {"configurable": {"thread_id": thread_id}}
     inputs = {"messages": [{"role": "user", "content": message}]}
@@ -125,11 +127,11 @@ def _run_turn(message: str, thread_id: str):
     for stream_mode, payload in _agent.stream(inputs, config, stream_mode=["messages", "updates"]):
         if stream_mode == "messages":
             chunk, metadata = payload
-            if metadata.get("langgraph_node") == "agent" and isinstance(chunk.content, str) and chunk.content:
+            if metadata.get("langgraph_node") == "model" and isinstance(chunk.content, str) and chunk.content:
                 yield {"type": "text-delta", "delta": chunk.content}
         elif stream_mode == "updates":
             for node_name, update in payload.items():
-                if node_name == "agent":
+                if node_name == "model":
                     ai_message = update["messages"][-1]
                     for call in ai_message.tool_calls or []:
                         yield {

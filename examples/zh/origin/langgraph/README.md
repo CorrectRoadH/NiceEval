@@ -1,25 +1,26 @@
 # LangGraph + LangSmith OTel 示例(纯 Python)
 
-这个示例演示怎么用**真正的 LangGraph**(不是 LangChain 的 `create_agent` 高层封装)手搭
-一个 ReAct 循环 agent,并把它接一个最小的聊天页面。**独立项目,不接 niceeval**——
-不 import `niceeval`,没有 `adapter/`、`evals/`、`niceeval.config.ts`。
+这个示例演示官方当前推荐的 LangGraph agent 写法,并把它接一个最小的聊天页面。
+**独立项目,不接 niceeval**——不 import `niceeval`,没有 `adapter/`、`evals/`、
+`niceeval.config.ts`。
 
-## 为什么是"正经的" LangGraph
+## agent 怎么搭的:`create_agent`,不是手写 `StateGraph`
 
-`langgraph.prebuilt.create_react_agent` 和 LangChain 1.x 的 `langchain.agents.create_agent`
-都是"一行喊出一个 ReAct agent"的高层工厂,内部确实编译出一个 LangGraph 图,但用的人
-不会写一行 `langgraph` 自己的 API。这个示例反过来:`src/agent.py` 直接用
-`langgraph.graph.StateGraph` 手搭图——`agent` 节点(调模型)、`tools` 节点
-(`langgraph.prebuilt.ToolNode`)、`tools_condition` 做条件边、`agent -> tools -> agent`
-的循环、`langgraph.checkpoint.memory.InMemorySaver` 做会话记忆——`langgraph` 是这个项目
-里真正被调用的库,不是被封装隐藏起来的实现细节。
+`src/agent.py` 用 `langchain.agents.create_agent` 建 agent。这不是"绕开 LangGraph 的
+捷径"——`langgraph.prebuilt.create_react_agent` 在 LangGraph 自己的源码里已经标了
+deprecated,官方文档现在把 `create_agent` 当成建 agent 的标准入口:`create_agent(...)`
+返回的就是一个编译好的 `CompiledStateGraph`(`agent.get_graph()` 能看到 `model` ->
+`tools` -> `model` 的循环,和手写 `StateGraph` 编译出来的形状一样),`src/server.py`
+直接拿它当 LangGraph 图用(`.stream(..., stream_mode=[...])`、`thread_id` 做会话),
+不关心它内部是怎么搭出来的——这正是 `create_agent` 的设计意图:LangGraph 图是共同的
+运行时接口,`create_agent` 只是搭图的一种(现在是推荐的那种)方式。
 
 ## 目录结构
 
 - `src/agent.py`:整个 agent。两个工具(`get_weather` 固定城市表 + 未知城市确定性
-  伪随机;`calculate` 不用 `eval()` 的递归下降算术解析器)+ `ChatOpenAI` + 手搭的
-  `StateGraph`。`build_agent()` 返回编译好的图,`InMemorySaver` 让同一个
-  `thread_id` 在进程存活期间有多轮记忆。
+  伪随机;`calculate` 不用 `eval()` 的递归下降算术解析器)+ `ChatOpenAI` +
+  `create_agent`。`build_agent()` 返回编译好的图,显式传入的
+  `InMemorySaver` 让同一个 `thread_id` 在进程存活期间有多轮记忆。
 - `src/server.py`:标准库 `http.server` 写的服务器,没有 FastAPI/Flask——和其它
   `examples/zh/origin/*` 示例"一个 node:http 服务器,无框架"是同一个思路。
   - `GET /healthz` → `{"ok": true}`
@@ -27,12 +28,13 @@
   - `POST /api/chat`,body `{message, sessionId?}` → `text/event-stream`:
     `stream_mode=["messages", "updates"]` 同时订阅 token 级文本 delta(`"messages"`)
     和每个节点跑完后的完整状态增量(`"updates"`,用来拿到成对的、内容完整的
-    `{name, input, output}` 工具调用)。sessionId 缺省时服务器生成一个新的
-    `thread_id`,通过 `session` 帧发回前端保存——不会把缺失的 id 兜底成某个
-    共享的字面量,避免不同调用方互相看到对方的对话历史。
+    `{name, input, output}` 工具调用)。节点名 `model`/`tools` 是 `create_agent`
+    编译出的图自己定的。sessionId 缺省时服务器生成一个新的 `thread_id`,通过
+    `session` 帧发回前端保存——不会把缺失的 id 兜底成某个共享的字面量,避免不同
+    调用方互相看到对方的对话历史。
 - `public/index.html`:单文件静态前端,`fetch()` 读 SSE 流,按事件类型渲染文本
   delta 和工具调用(`tool-input`/`tool-output` 按 `toolCallId` 配对)。
-- `requirements.txt`:`langgraph`、`langchain-openai`、`langsmith[otel]`、
+- `requirements.txt`:`langchain`、`langgraph`、`langchain-openai`、`langsmith[otel]`、
   `python-dotenv`。
 - `docker-compose.yml`:本地自托管的 trace 查看器(Jaeger),接收 OTLP/HTTP。
 
