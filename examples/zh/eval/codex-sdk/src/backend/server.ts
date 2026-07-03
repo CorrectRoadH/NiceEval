@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { runTurn } from "./agent.ts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-// 5189 被 examples/zh/origin/claude-agent-sdk 占了(两个示例默认端口曾撞车),这里改用 5199。
+// 5189 被 examples/zh/origin/claude-sdk 占了(两个示例默认端口曾撞车),这里改用 5199。
 const PORT = Number(process.env.PORT ?? 5199);
 
 const server = createServer(async (req, res) => {
@@ -39,7 +39,7 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   }
 
   if (req.method === "GET" && url === "/") {
-    const html = await readFile(path.join(__dirname, "public/index.html"), "utf8");
+    const html = await readFile(path.join(__dirname, "..", "frontend", "index.html"), "utf8");
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     res.end(html);
     return;

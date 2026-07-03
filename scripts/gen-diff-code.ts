@@ -58,15 +58,15 @@ const PAIRS: DiffPair[] = [
       "- **after**：[`examples/zh/eval/ai-sdk-v7/`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/eval/ai-sdk-v7) —— 同一个应用接入 NiceEval 之后的样子。",
       "",
       "先看文件树了解改动范围，再分两部分读 diff：应用侧改了什么",
-      "（`ai-sdk-runtime.ts` 把 `streamChat` 里的 streamText 调用拆成独立的 `chat()`",
+      "（`src/backend/ai-sdk-runtime.ts` 把 `streamChat` 里的 streamText 调用拆成独立的 `chat()`",
       "——唯一的模型调用点，只是多收一个可选 opts 透传取消信号和 telemetry，UI 和",
-      "eval 跑的是同一次调用；`assistant.ts` 多一个 `send_email` 工具用来演示",
+      "eval 跑的是同一次调用；`src/backend/tools.ts` 多一个 `send_email` 工具用来演示",
       "tool approval + HITL，两者都不 import 任何 niceeval 的东西），以及 eval",
       "侧整体新增了什么（config、evals、experiments，`aiSdkAgent` 接线也在这里）。",
     ].join("\n"),
     order: [
-      "src/ai-sdk-runtime.ts",
-      "src/assistant.ts",
+      "src/backend/ai-sdk-runtime.ts",
+      "src/backend/tools.ts",
       "src/",
       "package.json",
       "tsconfig.json",
@@ -88,9 +88,9 @@ const PAIRS: DiffPair[] = [
     exclude: ["README.md", ".env.example"],
   },
   {
-    source: "examples/zh/origin/claude-agent-sdk",
-    target: "examples/zh/eval/claude-agent-sdk",
-    out: "docs-site/zh/example/claude-agent-sdk-before-after.mdx",
+    source: "examples/zh/origin/claude-sdk",
+    target: "examples/zh/eval/claude-sdk",
+    out: "docs-site/zh/example/claude-sdk-before-after.mdx",
     frontmatter: {
       title: "Claude Agent SDK 如何非侵入式接入 NiceEval",
       sidebarTitle: "Claude Agent SDK 如何接入",
@@ -100,10 +100,10 @@ const PAIRS: DiffPair[] = [
     intro: [
       "对比对象：",
       "",
-      "- **before**：[`examples/zh/origin/claude-agent-sdk/`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/origin/claude-agent-sdk) —— 一个独立的 `@anthropic-ai/claude-agent-sdk` HTTP 服务（`server.ts`/`agent.ts`/`tools.ts`），还没接任何 eval。",
-      "- **after**：[`examples/zh/eval/claude-agent-sdk/`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/eval/claude-agent-sdk) —— 同一个应用接入 NiceEval 之后的样子。",
+      "- **before**：[`examples/zh/origin/claude-sdk/`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/origin/claude-sdk) —— 一个独立的 `@anthropic-ai/claude-agent-sdk` HTTP 服务（`src/backend/server.ts`/`src/backend/agent.ts`/`src/backend/tools.ts`），还没接任何 eval。",
+      "- **after**：[`examples/zh/eval/claude-sdk/`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/eval/claude-sdk) —— 同一个应用接入 NiceEval 之后的样子。",
       "",
-      "这份 diff 的看点是：应用侧的 `server.ts`/`agent.ts`/`tools.ts` **逐字节未变**——`agents/claude-agent-sdk.ts`",
+      "这份 diff 的看点是：应用侧的 `src/backend/server.ts`/`src/backend/agent.ts`/`src/backend/tools.ts` **逐字节未变**——`agents/claude-sdk.ts`",
       "把应用当黑盒，按需拉起它的 `server.ts` 子进程、轮询 `/healthz`，再用一次 `fetch`",
       "调 `POST /api/chat`，把 `{reply, toolCalls}` 映射成标准事件流。package.json /",
       "pnpm-workspace.yaml 只加了 niceeval 这一个 devDependency，没有别的改动。",
@@ -131,7 +131,7 @@ const PAIRS: DiffPair[] = [
       "- **before**：[`examples/zh/origin/codex-sdk/`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/origin/codex-sdk) —— 一个独立的 `@openai/codex-sdk` HTTP 服务，还没接任何 eval。",
       "- **after**：[`examples/zh/eval/codex-sdk/`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/eval/codex-sdk) —— 同一个应用接入 NiceEval 之后的样子。",
       "",
-      "`server.ts`/`agent.ts` 逐字节未变。`agents/codex-sdk.ts` 拉起同一个子进程、调",
+      "`src/backend/server.ts`/`src/backend/agent.ts` 逐字节未变。`agents/codex-sdk.ts` 拉起同一个子进程、调",
       "`POST /api/chat`，把 Codex 自己的动作分类（`command_execution` / `file_change` /",
       "`mcp_tool_call` / ...）映射成标准事件流；`error` 类型映射成 `StreamEvent` 的",
       "`error`，不算进失败的工具调用。eval 测的是真实的“在目录里写文件、跑命令”，不是",
@@ -182,7 +182,15 @@ const PAIRS: DiffPair[] = [
 ];
 
 // 与学习无关的目录/文件，不进 diff
-const EXCLUDES = [/(^|\/)node_modules(\/|$)/, /(^|\/)\.niceeval(\/|$)/, /(^|\/)pnpm-lock\.yaml$/, /(^|\/)\.env$/, /(^|\/)\.DS_Store$/];
+const EXCLUDES = [
+  /(^|\/)node_modules(\/|$)/,
+  /(^|\/)\.venv(\/|$)/,
+  /(^|\/)__pycache__(\/|$)/,
+  /(^|\/)\.niceeval(\/|$)/,
+  /(^|\/)pnpm-lock\.yaml$/,
+  /(^|\/)\.env$/,
+  /(^|\/)\.DS_Store$/,
+];
 
 type Status = "新增" | "修改" | "删除";
 

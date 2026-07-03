@@ -3,7 +3,7 @@
 //
 // 通信协议就是 Claude Agent SDK 自己的原生协议:`query()` 产出的 `SDKMessage`
 // (system / assistant / user / result / stream_event)被原样序列化成 SSE 帧透传
-// 给前端,服务端不做任何协议翻译——前端(src/client/App.tsx)直接按 SDKMessage
+// 给前端,服务端不做任何协议翻译——前端(src/frontend/App.tsx)直接按 SDKMessage
 // 渲染,stream_event 里就是 Anthropic 的原始流事件(content_block_delta 等),
 // 逐 token 渲染也在前端做。
 //
@@ -26,7 +26,7 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(PORT, "127.0.0.1", () => {
-  process.stdout.write(`claude-agent-sdk 示例服务已启动: http://127.0.0.1:${PORT}\n`);
+  process.stdout.write(`claude-sdk 示例服务已启动: http://127.0.0.1:${PORT}\n`);
 });
 
 function shutdown() {

@@ -1,7 +1,7 @@
 # Codex SDK × niceeval(非侵入式接入)
 
 在 [`examples/zh/origin/codex-sdk`](../../origin/codex-sdk/) 的基础上接入 niceeval——
-应用代码(`agent.ts`、`server.ts`、`public/index.html`)复制自 origin 的一个早期快照,
+应用代码(`src/backend/agent.ts`、`src/backend/server.ts`、`src/frontend/index.html`)复制自 origin 的一个早期快照,
 niceeval 相关的全部代码都是新文件(`agents/`、`evals/`、`experiments/`、
 `niceeval.config.ts`)。(origin 那份后来已改成 SDK 原生的 `runStreamed()` + SSE 事件流
 接口;这里保留旧的阻塞式 `/api/chat` JSON 接口不动,因为下面的 adapter 依赖它。)origin
@@ -59,7 +59,7 @@ pnpm exec niceeval view           # 本地查看器
 也可以像 origin 版本一样起服务器手动试聊天(不跑 eval):
 
 ```sh
-pnpm dev   # 起 server(5199),curl 或浏览器打开 public/index.html 手动试
+pnpm dev   # 起 server(5199),curl 或浏览器打开 src/frontend/index.html 手动试
 ```
 
 注意:

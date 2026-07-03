@@ -3,12 +3,12 @@
 //
 // 通信协议就是 Codex SDK 自己的原生协议:`thread.runStreamed()` 产出的
 // `ThreadEvent`(thread.started / turn.* / item.*)被原样序列化成 SSE 帧透传给
-// 前端,服务端不做任何协议翻译——前端(src/client/App.tsx)直接按 ThreadEvent
+// 前端,服务端不做任何协议翻译——前端(src/frontend/App.tsx)直接按 ThreadEvent
 // 渲染。真正的 Codex 调用在 agent.ts。
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { runTurnStreamed } from "./agent.ts";
 
-// 5189 被 examples/zh/origin/claude-agent-sdk 占了(两个示例默认端口曾撞车),这里改用 5199。
+// 5189 被 examples/zh/origin/claude-sdk 占了(两个示例默认端口曾撞车),这里改用 5199。
 const PORT = Number(process.env.PORT ?? 5199);
 
 const server = createServer(async (req, res) => {

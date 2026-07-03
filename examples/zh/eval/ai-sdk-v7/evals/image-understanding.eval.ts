@@ -1,5 +1,5 @@
 import { defineEval } from "niceeval";
-import { MODELS, modelSupportsVision } from "../src/models.ts";
+import { MODELS, modelSupportsVision } from "../src/backend/models.ts";
 
 // 实验没钉 model 时,实际用的模型和 chat() 的兜底保持一致(含 AGENT_MODEL)。
 const DEFAULT_MODEL = process.env.AGENT_MODEL ?? "deepseek-v4-flash";

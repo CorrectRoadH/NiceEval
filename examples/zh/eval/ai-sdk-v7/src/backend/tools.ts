@@ -54,7 +54,7 @@ export function webSearch(input: { query: string }): { query: string; results: A
   };
 }
 
-/** 唯一比 before/ai-sdk-v7 多的工具:配合 needsApproval 演示 v7 tool approval + niceeval 的 HITL。 */
+/** 唯一比 origin/ai-sdk-v7 多的工具:配合 needsApproval 演示 v7 tool approval + niceeval 的 HITL。 */
 export function sendEmail(input: { to: string; subject: string; body: string }): { delivered: boolean; to: string; subject: string; messageId: string } {
   return { delivered: true, to: input.to, subject: input.subject, messageId: `msg-${input.to}` };
 }

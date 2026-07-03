@@ -23,9 +23,9 @@ async function isUp(): Promise<boolean> {
 async function ensureServer(): Promise<void> {
   if (await isUp()) return;
   readyPromise ??= (async () => {
-    // cwd must be the directory containing server.ts/package.json, i.e. the
-    // parent of this agents/ directory.
-    child = spawn("node", ["--env-file", ".env", "--import", "tsx/esm", "server.ts"], {
+    // cwd must be the directory containing package.json (the parent of this
+    // agents/ directory); server.ts itself now lives under src/backend/.
+    child = spawn("node", ["--env-file", ".env", "--import", "tsx/esm", "src/backend/server.ts"], {
       cwd: new URL("..", import.meta.url).pathname,
       stdio: "inherit",
     });

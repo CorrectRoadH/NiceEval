@@ -1,14 +1,14 @@
 {
-  "name": "claude-agent-sdk-example",
+  "name": "claude-sdk-example",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "lsof -ti tcp:5189 | xargs kill -9 2>/dev/null; concurrently -k -n server,web -c blue,green \"pnpm dev:server\" \"pnpm dev:web\"",
-    "dev:server": "node --env-file .env --import tsx/esm --watch server.ts",
+    "dev:server": "node --env-file .env --import tsx/esm --watch src/backend/server.ts",
     "dev:web": "wait-on -t 30000 tcp:127.0.0.1:5189 && vite",
     "build": "vite build",
-    "start": "node --env-file .env --import tsx/esm server.ts",
+    "start": "node --env-file .env --import tsx/esm src/backend/server.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -24,7 +24,7 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(PORT, "127.0.0.1", () => {
-  process.stdout.write(`claude-agent-sdk 示例服务已启动: http://127.0.0.1:${PORT}\n`);
+  process.stdout.write(`claude-sdk 示例服务已启动: http://127.0.0.1:${PORT}\n`);
 });
 
 function shutdown() {
@@ -40,7 +40,7 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   }
 
   if (req.method === "GET" && (req.url === "/" || req.url === "/index.html")) {
-    const html = await readFile(path.join(__dirname, "public", "index.html"), "utf8");
+    const html = await readFile(path.join(__dirname, "..", "frontend", "index.html"), "utf8");
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     res.end(html);
     return;

@@ -6,7 +6,7 @@
 // 没有 default export,所以 niceeval 的实验发现会跳过本文件。
 import { aiSdkAgent } from "niceeval/adapter";
 import type { ModelMessage } from "ai";
-import { chat } from "../src/ai-sdk-runtime.ts";
+import { chat } from "../src/backend/ai-sdk-runtime.ts";
 
 export const assistant = aiSdkAgent<ModelMessage>({
   name: "ai-sdk-v7",

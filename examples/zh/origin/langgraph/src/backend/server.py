@@ -2,7 +2,7 @@
 服务器,无框架"是同一个思路,只是语言换成 Python:没有 FastAPI/Flask,HTTP 层自己写。
 
 - `GET /healthz` -> `{"ok": true}`
-- `GET /` -> `public/index.html`
+- `GET /` -> `src/frontend/index.html`
 - `POST /api/chat`,body `{message, sessionId?}` -> `text/event-stream`:
   每帧 `data: ` 后面是一个 JSON 事件,类型见下面 `_run_turn()` 的注释。
 - `POST /api/chat/approve`,body `{toolCallId, approved}` -> `{"ok": true}`:
@@ -30,7 +30,7 @@ load_dotenv()
 from agent import GATED_TOOLS, build_agent  # noqa: E402  (需要先 load_dotenv() 才能读到 .env 里的凭证)
 from langgraph.types import Command  # noqa: E402
 
-_PUBLIC_DIR = Path(__file__).resolve().parent.parent / "public"
+_PUBLIC_DIR = Path(__file__).resolve().parent.parent / "frontend"
 _PORT = int(os.getenv("PORT", "5488"))
 
 _agent = build_agent()

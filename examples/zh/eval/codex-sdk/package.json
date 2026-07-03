@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node --env-file .env --import tsx/esm --watch server.ts",
-    "start": "node --env-file .env --import tsx/esm server.ts",
+    "dev": "node --env-file .env --import tsx/esm --watch src/backend/server.ts",
+    "start": "node --env-file .env --import tsx/esm src/backend/server.ts",
     "eval": "niceeval",
     "typecheck": "tsc --noEmit"
   },

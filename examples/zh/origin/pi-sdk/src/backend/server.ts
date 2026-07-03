@@ -3,7 +3,7 @@
 //
 // 通信协议就是 pi 自己的原生协议:`agent.subscribe()` 收到的 `AgentEvent`
 // (turn_start / message_update / tool_execution_* / agent_end ...)被原样序列化成
-// SSE 帧透传给前端,不翻译成任何中间协议——前端(src/client/App.tsx)直接按
+// SSE 帧透传给前端,不翻译成任何中间协议——前端(src/frontend/App.tsx)直接按
 // AgentEvent 渲染。pi 的事件里没有的信息走三种传输层帧:
 //   {type:"session", sessionId}          会话 id(pi 没有落盘 resume,见下面 sessions)
 //   {type:"approval_request", ...}       HITL 审批请求(beforeToolCall 是回调不是事件)

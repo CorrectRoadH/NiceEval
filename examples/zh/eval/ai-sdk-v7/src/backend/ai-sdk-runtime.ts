@@ -1,6 +1,6 @@
 import { streamText, stepCountIs, tool, convertToModelMessages, type ModelMessage, type UIMessage, type ToolSet } from "ai";
 import { z } from "zod";
-import { calculate, getWeather, sendEmail, webSearch } from "./assistant.ts";
+import { calculate, getWeather, sendEmail, webSearch } from "./tools.ts";
 import { modelSupportsVision, resolveModel } from "./models.ts";
 
 const SYSTEM_PROMPT = `

@@ -13,18 +13,18 @@ niceeval 接入实现。
 
 ## 目录结构
 
-- `tools.ts`:两个工具的纯逻辑实现(`WEATHER_TABLE`/`getWeather`/`calculate`,确定性模拟数据,
+- `src/backend/tools.ts`:两个工具的纯逻辑实现(`WEATHER_TABLE`/`getWeather`/`calculate`,确定性模拟数据,
   `calculate` 是自写的小型递归下降算术求值器,不用 `eval`/`Function`),以及把它们包成
   Claude Agent SDK `tool()` 形状的 `buildTools(log)`。
-- `agent.ts`:`SYSTEM_PROMPT`、`MODEL`,以及真实调用 `query()` 的 `runTurn(message, sessionId)`。
+- `src/backend/agent.ts`:`SYSTEM_PROMPT`、`MODEL`,以及真实调用 `query()` 的 `runTurn(message, sessionId)`。
   多轮会话靠上一轮 `result` 消息里的 `session_id`(存在 `claudeSessionIdByOurSession`),通过
   `options.resume` 续接同一个 Claude Code 会话历史。
-- `server.ts`:HTTP 层,一个 `node:http` 服务器(无框架)。
+- `src/backend/server.ts`:HTTP 层,一个 `node:http` 服务器(无框架)。
   - `GET /healthz` → `{ok:true}`
   - `POST /api/chat`,body `{message, sessionId?}` → `{reply, toolCalls, sessionId}`,内部调
     `agent.ts` 的 `runTurn`。
-  - `GET /` → 返回 `public/index.html`
-- `public/index.html`:单文件前端,inline `<style>`/`<script>`,`fetch()` 调 `/api/chat`,没有
+  - `GET /` → 返回 `src/frontend/index.html`
+- `src/frontend/index.html`:单文件前端,inline `<style>`/`<script>`,`fetch()` 调 `/api/chat`,没有
   构建步骤、没有流式渲染、没有框架。
 - `package.json`:`"private": true`,自带 `pnpm-workspace.yaml`(`packages: []`)使它脱离仓库根
   workspace,是完全独立的 npm 项目。
@@ -76,7 +76,7 @@ niceeval 接入实现。
 这个目录是一个**独立的 npm 项目**(自带 `package.json` + `pnpm-workspace.yaml`)。
 
 ```sh
-cd examples/zh/origin/claude-agent-sdk
+cd examples/zh/origin/claude-sdk
 pnpm install
 cp .env.example .env
 # 编辑 .env,填入 ANTHROPIC_API_KEY(以及可选的 ANTHROPIC_BASE_URL / AGENT_MODEL)

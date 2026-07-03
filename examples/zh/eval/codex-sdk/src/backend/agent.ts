@@ -8,8 +8,10 @@ import { Codex, Thread, type ThreadItem } from "@openai/codex-sdk";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Codex 是"目录里的编码 agent":给它一个 scratch 工作目录去读写文件、跑命令,
-// 别让它碰仓库本体。见 README.md「为什么任务形状长这样」。
-export const WORKSPACE_DIR = path.join(__dirname, "workspace");
+// 别让它碰仓库本体。见 README.md「为什么任务形状长这样」。workspace/ 是运行时
+// 生成的 scratch 数据,故意留在项目根(而不是 src/backend/ 里),__dirname 是
+// src/backend,得往上两级才能回到项目根。
+export const WORKSPACE_DIR = path.join(__dirname, "..", "..", "workspace");
 
 export type ToolCall = { name: string; input: unknown; output: unknown };
 export type ChatResponse = { reply: string; toolCalls: ToolCall[] };
