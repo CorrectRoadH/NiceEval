@@ -20,11 +20,10 @@ adapter 只是把这个已有的 HTTP + SSE 服务当黑盒接进 niceeval，不
 
 ## 目录
 
-- `agents/server-lifecycle.ts`：把 `src/backend/server.py` 当子进程管起来——按 model 分桶
-  （`build_agent()` 只在模块加载时构造一次，`AGENT_MODEL` 和四个 LangSmith OTel 环境变量都是
-  启动时读一次的标准限制）。被测应用是 Python，子进程命令是 `.venv/bin/python`；venv 需要提前
-  手工建好（见下面「跑起来」），缺失时报清楚的错误，不自动装包。
-- `agents/langgraph.ts`：adapter 本体。事件来源是
+- `agents/langgraph.ts`：adapter 本体,只剩传输粘合——应用在哪个 URL(`LANGGRAPH_URL`,默认
+  `http://127.0.0.1:5488`)、自定义帧怎么解析、审批打哪个端点。应用由你自己按它的方式启动
+  (`python server.py`,LangSmith OTel 环境变量启动时给,见「跑起来」),eval 不代管进程。
+  事件来源是
   `events: otelEvents({ dialects: [otel.langsmith] })`——LangSmith OTel 导出的 span 派生
   `action.called` / `action.result` / usage，SSE 帧只解析协议语义点：`session` → 写回
   `ctx.session.id`；`tool-approval-request` → `input.requested` + `waiting`；
@@ -75,15 +74,21 @@ adapter 只是把这个已有的 HTTP + SSE 服务当黑盒接进 niceeval，不
 
 ## 跑起来
 
+被测应用由你自己按它的方式启动,eval 不代管进程、不另开端口。
+
 ```sh
 cd examples/zh/tier1/langgraph
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # 只需要建一次
 pnpm install
 cp .env.example .env   # 填 OPENAI_API_KEY(这里挪用给 DeepSeek,见 niceeval.config.ts 注释)
-pnpm exec niceeval list
+
+# 终端 1:起应用(LangSmith OTel 导出的环境变量在这里给——注意 langsmith SDK 要完整路径,
+# 端点带 /v1/traces 尾巴;niceeval 的接收端口钉在 4318,被占时两边一起换 + NICEEVAL_OTLP_PORT)
+LANGSMITH_TRACING=true LANGSMITH_OTEL_ENABLED=true LANGSMITH_OTEL_ONLY=true \
+OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318/v1/traces OTEL_BSP_SCHEDULE_DELAY=200 \
+.venv/bin/python src/backend/server.py
+
+# 终端 2:跑 eval(应用部署在别处时设 LANGGRAPH_URL 指过去)
 pnpm exec niceeval exp langgraph
 pnpm exec niceeval view
 ```
-
-不需要单独起服务——`niceeval exp` 第一次 `send` 时会自动 spawn `src/backend/server.py`（每个
-model 一个实例），跑完这次 CLI 进程退出时一并杀掉。

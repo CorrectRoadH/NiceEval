@@ -1,0 +1,369 @@
+// uiMessageStreamAgent():AI SDK UI Message Stream Protocol 的黑盒 HTTP adapter 工厂。
+//
+// 协议:https://ai-sdk.dev/docs/ai-sdk-ui/stream-protocol —— `useChat` 后端的标准 SSE
+// (`data: {UIMessageChunk}\n\n`,以 `data: [DONE]\n\n` 收尾)。这是「对着一个已部署的
+// AI SDK 应用的 HTTP 接口黑盒接入」:adapter 只 fetch,不 import 被测应用的任何代码。
+//
+//   · 会话:协议是服务端零状态、「客户端带全量历史」——工厂按 sessionId 存整份
+//     UIMessage[],每轮原样重放;isNew 开新会话线并回写 id。
+//   · 事件流:从归约后的 assistant 消息 parts 直构(text → message,tool part 的
+//     output-available / output-error / 审批拒绝 → action.called + action.result),
+//     不要求应用接 OTel;跨 resume 轮次按 callId / 已报文本长度去重。
+//   · HITL:v7 tool approval(`needsApproval` 工具)——part 停在 `approval-requested` 时
+//     整轮 `waiting` + `input.requested`;下一轮输入(approve / yes / 同意 / 批准 开头 =
+//     批准,其余拒绝)翻译成 `approval-responded` 原地改写该 part、原样重发 messages 触发
+//     服务端续跑 —— 和真实前端 `addToolApprovalResponse()` + `sendMessage()` 的协议行为
+//     完全一致,没有单独的 approve 端点。拒绝的调用协议里不会有任何 tool-output 帧
+//     (从没真正执行),由工厂合成 `status: "rejected"` 的 action.result。
+//   · chunk 归约用 `ai` 包官方导出的框架无关 reducer `readUIMessageStream`(`useChat`
+//     内部同款),保证重放回服务端的 UIMessage 形状协议正确 —— `ai` 是可选 peer 依赖,
+//     只在用到本工厂时需要安装。
+//
+// tracing / spanMapper / events 原样透传:应用有 OTel 时声明 tracing 拿瀑布图,事件流
+// 本身不依赖它。
+
+import { randomUUID } from "node:crypto";
+
+import { defineAgent } from "../define.ts";
+import type { Agent, AgentCapabilities, AgentContext, AgentTracing, JsonValue, SpanMapper, StreamEvent, TurnInput } from "../types.ts";
+import type { OtelEventsSource } from "./otel-events.ts";
+
+// ───────────────────────── 协议的结构化类型(structural,不依赖 ai 包的类型) ─────────────────────────
+
+/** UIMessage 的最小结构面:只声明工厂真正要读的字段,其余原样透传。 */
+export interface UIMessageLike {
+  id: string;
+  role: string;
+  parts: UIMessagePartLike[];
+  [key: string]: unknown;
+}
+
+export interface UIMessagePartLike {
+  type: string;
+  state?: string;
+  text?: string;
+  toolCallId?: string;
+  toolName?: string;
+  input?: unknown;
+  output?: unknown;
+  errorText?: string;
+  approval?: { id: string; approved?: boolean; reason?: string };
+  [key: string]: unknown;
+}
+
+interface UIMessageChunkLike {
+  type: string;
+  errorText?: string;
+  [key: string]: unknown;
+}
+
+type ReadUIMessageStream = (options: {
+  message?: UIMessageLike;
+  stream: ReadableStream<UIMessageChunkLike>;
+}) => AsyncIterable<UIMessageLike>;
+
+// ai 是可选 peer 依赖:动态 import,缺了就把「装什么」直接说清楚。
+// 说明符经变量传入,避免 TS 对字面量模块名做安装检查(niceeval 自身不依赖 ai)。
+let aiModule: Promise<{ readUIMessageStream: ReadUIMessageStream }> | undefined;
+function loadAi(): Promise<{ readUIMessageStream: ReadUIMessageStream }> {
+  if (!aiModule) {
+    const specifier = "ai";
+    aiModule = (import(specifier) as Promise<{ readUIMessageStream: ReadUIMessageStream }>).catch(() => {
+      aiModule = undefined;
+      throw new Error(
+        "uiMessageStreamAgent 需要 `ai` 包(AI SDK v5+,协议 reducer readUIMessageStream 来自它)。在你的 eval 项目里安装:npm install -D ai",
+      );
+    });
+  }
+  return aiModule;
+}
+
+// ───────────────────────── SSE 解析 ─────────────────────────
+
+async function* parseSseChunks(body: ReadableStream<Uint8Array>): AsyncGenerator<UIMessageChunkLike> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const sepIndex = buffer.indexOf("\n\n");
+    if (sepIndex !== -1) {
+      const rawEvent = buffer.slice(0, sepIndex);
+      buffer = buffer.slice(sepIndex + 2);
+      const line = rawEvent.split("\n").find((l) => l.startsWith("data: "));
+      if (line) {
+        const payload = line.slice("data: ".length);
+        if (payload !== "[DONE]") yield JSON.parse(payload) as UIMessageChunkLike;
+      }
+      continue;
+    }
+    const { value, done } = await reader.read();
+    if (done) return;
+    buffer += decoder.decode(value, { stream: true });
+  }
+}
+
+/** 把 SSE 包成 readUIMessageStream 要的 ReadableStream,顺带旁路探测(错误帧等)。 */
+function toChunkStream(
+  body: ReadableStream<Uint8Array>,
+  onChunk: (c: UIMessageChunkLike) => void,
+): ReadableStream<UIMessageChunkLike> {
+  const gen = parseSseChunks(body);
+  return new ReadableStream<UIMessageChunkLike>({
+    async pull(controller) {
+      const { value, done } = await gen.next();
+      if (done) {
+        controller.close();
+        return;
+      }
+      onChunk(value);
+      controller.enqueue(value);
+    },
+  });
+}
+
+// ───────────────────────── parts → 事件 ─────────────────────────
+
+function isToolPart(part: UIMessagePartLike): boolean {
+  return part.type === "dynamic-tool" || part.type.startsWith("tool-");
+}
+
+function toolNameOf(part: UIMessagePartLike): string {
+  if (part.type === "dynamic-tool") return part.toolName ?? "dynamic-tool";
+  return part.type.slice("tool-".length);
+}
+
+function isApprovalRequested(part: UIMessagePartLike): boolean {
+  return isToolPart(part) && part.state === "approval-requested";
+}
+
+/** 和 aiSdkAgent 同一词法:approve / yes / 同意 / 批准 开头 = 批准,其余一律拒绝。 */
+function isApproved(text: string): boolean {
+  return /^(approve|yes|同意|批准)/i.test(text.trim());
+}
+
+/** 已报告的进度:resume 续跑的是同一条 assistant 消息,跨轮去重靠它。 */
+interface ReportedState {
+  calls: Set<string>;
+  textLen: number;
+}
+
+interface SessionState {
+  messages: UIMessageLike[];
+  /**
+   * 上一轮 assistant 消息的已报进度。只在 resume 续跑轮继承(续的是同一条消息);
+   * 全新轮从零开始 —— 不能按 message.id 记:有的应用每轮响应的消息 id 会重复,
+   * 按 id 继承会把新一轮的文本错误地当成"已报过的前缀"截掉。
+   */
+  lastReported?: ReportedState;
+}
+
+/**
+ * 从归约后的最终消息派生本轮事件。工具事件按 part 顺序;文本合并成一条 message 事件
+ * (resume 轮只报新增的后缀)。停在 approval-requested 的调用不报 called —— 它还没执行,
+ * 裁决后那一轮才落成 completed(批准)或 rejected(拒绝)。
+ */
+function deriveTurnEvents(message: UIMessageLike, reported: ReportedState): StreamEvent[] {
+  const events: StreamEvent[] = [];
+  let fullText = "";
+  for (const part of message.parts) {
+    if (part.type === "text") {
+      fullText += part.text ?? "";
+      continue;
+    }
+    if (!isToolPart(part)) continue;
+    const callId = part.toolCallId ?? "";
+    if (!callId || reported.calls.has(callId)) continue;
+    const name = toolNameOf(part);
+    const input = (part.input ?? null) as JsonValue;
+    if (part.state === "output-available") {
+      events.push({ type: "action.called", callId, name, input });
+      events.push({ type: "action.result", callId, output: part.output as JsonValue, status: "completed" });
+      reported.calls.add(callId);
+    } else if (part.state === "output-error") {
+      events.push({ type: "action.called", callId, name, input });
+      events.push({ type: "action.result", callId, output: part.errorText, status: "failed" });
+      reported.calls.add(callId);
+    } else if (part.state === "approval-responded" && part.approval?.approved === false) {
+      // 拒绝的调用从没真正执行,协议里不会再有它的任何帧 —— 在裁决落地的这一轮合成。
+      events.push({ type: "action.called", callId, name, input });
+      events.push({ type: "action.result", callId, status: "rejected" });
+      reported.calls.add(callId);
+    }
+    // approval-requested(还没裁决)/ input-* 中间态:先不报,等它到终态。
+  }
+  const newText = fullText.slice(reported.textLen);
+  if (newText.trim()) events.push({ type: "message", role: "assistant", text: newText });
+  reported.textLen = fullText.length;
+  return events;
+}
+
+// ───────────────────────── 工厂 ─────────────────────────
+
+export interface UiMessageStreamAgentOptions {
+  /** agent 名(报告 / 结果聚合的身份)。默认 "ui-message-stream"。 */
+  name?: string;
+  /** 被测应用的 chat 端点(完整 URL,应用在哪部署就指哪);函数形式每轮解析。 */
+  url: string | ((ctx: AgentContext) => string | Promise<string>);
+  /** 附加请求头(鉴权等);`ctx.telemetry.headers`(traceparent)总会自动并入。 */
+  headers?: Record<string, string> | ((ctx: AgentContext) => Record<string, string>);
+  /** 除 `messages` 外并入请求体的字段,如 `(ctx) => ({ model: ctx.model })`(undefined 字段序列化时自动丢弃)。 */
+  body?: (ctx: AgentContext) => Record<string, JsonValue | undefined>;
+  /**
+   * 拒绝审批时随 `approval-responded` 带出的理由。应用/SDK 会把它作为模型看到的工具结果
+   * 文本 —— 写清楚「不要重试」能明显降低模型原样重发同一调用的概率(实测)。
+   */
+  denyReason?: string;
+  /** 流结束后再等这么久才返回(毫秒),给应用侧的观测导出(如 BatchSpanProcessor)留时间。 */
+  settleMs?: number;
+  /** 附加能力位;conversation + toolObservability 恒开(工厂真做到)。 */
+  capabilities?: AgentCapabilities;
+  /** 应用有 OTel 时的端点投递方式(拿瀑布图);事件流不依赖它。 */
+  tracing?: AgentTracing;
+  spanMapper?: SpanMapper;
+  /** 换事件来源(如 otelEvents());省略 = 从协议帧直构,足够喂全套断言。 */
+  events?: OtelEventsSource;
+}
+
+const DEFAULT_DENY_REASON = "用户拒绝了这次调用,不要重试,直接告知用户操作未执行。";
+
+/**
+ * UI Message Stream Protocol(AI SDK `useChat` 后端的标准 SSE 协议)的内置黑盒 adapter。
+ * 对着已部署应用的 HTTP 端点收发,不 import 应用代码:
+ *
+ * ```typescript
+ * import { uiMessageStreamAgent } from "niceeval/adapter";
+ *
+ * export default uiMessageStreamAgent({
+ *   name: "my-assistant",
+ *   url: "https://my-app.example.com/api/chat",
+ *   body: (ctx) => ({ model: ctx.model }),   // 应用支持请求级选模型时,模型对比零改动
+ * });
+ * ```
+ */
+export function uiMessageStreamAgent(options: UiMessageStreamAgentOptions): Agent {
+  const sessions = new Map<string, SessionState>();
+
+  return defineAgent({
+    name: options.name ?? "ui-message-stream",
+    capabilities: { conversation: true, toolObservability: true, ...options.capabilities },
+    tracing: options.tracing,
+    spanMapper: options.spanMapper,
+    events: options.events,
+
+    async send(input: TurnInput, ctx: AgentContext) {
+      const { readUIMessageStream } = await loadAi();
+
+      const id = !ctx.session.isNew && ctx.session.id ? ctx.session.id : `uims-${randomUUID()}`;
+      ctx.session.id = id;
+      let state = sessions.get(id);
+      if (!state) {
+        state = { messages: [] };
+        sessions.set(id, state);
+      }
+
+      const lastMessage = state.messages.at(-1);
+      const pendingPart =
+        lastMessage?.role === "assistant" ? lastMessage.parts.find(isApprovalRequested) : undefined;
+
+      let messagesToSend: UIMessageLike[];
+      let resumeFrom: UIMessageLike | undefined;
+
+      if (pendingPart && lastMessage) {
+        // HITL 续跑:不追加新 user 消息 —— 把停在 approval-requested 的 part 原地改成
+        // approval-responded,原样重发,服务端续跑同一条被打断的 assistant 消息。
+        const approved = isApproved(input.text);
+        const mutatedParts = lastMessage.parts.map((part) =>
+          isApprovalRequested(part) && part.approval?.id === pendingPart.approval?.id
+            ? {
+                ...part,
+                state: "approval-responded",
+                approval: {
+                  id: pendingPart.approval!.id,
+                  approved,
+                  ...(approved ? {} : { reason: options.denyReason ?? DEFAULT_DENY_REASON }),
+                },
+              }
+            : part,
+        );
+        resumeFrom = { ...lastMessage, parts: mutatedParts };
+        messagesToSend = [...state.messages.slice(0, -1), resumeFrom];
+      } else {
+        const parts: UIMessagePartLike[] = [{ type: "text", text: input.text }];
+        for (const f of input.files ?? []) {
+          parts.push({ type: "file", mediaType: f.mimeType, url: `data:${f.mimeType};base64,${f.dataBase64}` });
+        }
+        messagesToSend = [...state.messages, { id: randomUUID(), role: "user", parts }];
+      }
+
+      const url = typeof options.url === "function" ? await options.url(ctx) : options.url;
+      const extraHeaders = typeof options.headers === "function" ? options.headers(ctx) : (options.headers ?? {});
+      let res: Response;
+      try {
+        res = await fetch(url, {
+          method: "POST",
+          // traceparent 随请求带过去:应用埋点支持 context 传播时,span 归属精确到本轮。
+          headers: { "content-type": "application/json", ...extraHeaders, ...ctx.telemetry?.headers },
+          body: JSON.stringify({ ...options.body?.(ctx), messages: messagesToSend }),
+          signal: ctx.signal,
+        });
+      } catch (err) {
+        if (ctx.signal.aborted) throw err;
+        const cause = err instanceof Error ? (err.cause instanceof Error ? err.cause.message : err.message) : String(err);
+        throw new Error(`连不上 ${url}(${cause})。被测应用在跑吗?先按它自己的方式启动,或用配置把 url 指向已部署实例。`);
+      }
+      if (!res.ok || !res.body) {
+        throw new Error(
+          `POST ${url} 失败:${res.status} ${await res.text().catch(() => "")}。确认应用在跑、端点是 UI Message Stream 协议(useChat 的后端)。`,
+        );
+      }
+
+      let sawError: string | undefined;
+      const chunkStream = toChunkStream(res.body, (c) => {
+        if (c.type === "error") sawError = c.errorText;
+      });
+
+      let finalMessage: UIMessageLike | undefined;
+      for await (const msg of readUIMessageStream({ message: resumeFrom, stream: chunkStream })) {
+        finalMessage = msg;
+      }
+      if (!finalMessage) {
+        throw new Error(`POST ${url} 的流结束了但一条 assistant 消息都没归约出来 —— 端点吐的不是 UI Message Stream 帧?`);
+      }
+
+      // 续跑轮:finalMessage 是同一条消息的完整版,替换末尾半成品;全新轮:追加。
+      state.messages = resumeFrom
+        ? [...messagesToSend.slice(0, -1), finalMessage]
+        : [...messagesToSend, finalMessage];
+
+      const reported: ReportedState =
+        resumeFrom && state.lastReported ? state.lastReported : { calls: new Set(), textLen: 0 };
+      state.lastReported = reported;
+      const events = deriveTurnEvents(finalMessage, reported);
+
+      const request = finalMessage.parts.find(isApprovalRequested);
+      if (request) {
+        return {
+          status: "waiting" as const,
+          events: [
+            ...events,
+            {
+              type: "input.requested" as const,
+              request: {
+                id: request.approval?.id ?? request.toolCallId,
+                action: toolNameOf(request),
+                input: (request.input ?? null) as JsonValue,
+                options: [{ id: "approve" }, { id: "deny" }],
+              },
+            },
+          ],
+        };
+      }
+
+      if (options.settleMs) await new Promise((resolve) => setTimeout(resolve, options.settleMs));
+      return {
+        status: sawError ? ("failed" as const) : ("completed" as const),
+        events: [...events, ...(sawError ? [{ type: "error" as const, message: sawError }] : [])],
+      };
+    },
+  });
+}

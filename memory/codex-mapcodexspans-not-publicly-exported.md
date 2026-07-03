@@ -35,3 +35,8 @@ API;`docs/origin-integration.md` 写这一节时假设了它可以被黑盒 adap
   内置 dialect 之外能力的应用时,先用这个方法核实一遍:`grep` 目标符号是否出现在
   `src/agents/index.ts` 或其它 `src/*/index.ts` 的 `export` 列表里,而不是直接假设
   `docs/` 里写的类名/函数名一定可以从 `"niceeval"` / `"niceeval/adapter"` 导入。
+
+**后续(2026-07,已修复)**:`mapCodexSpans` 已从 `"niceeval/adapter"` 公开导出
+(`src/agents/index.ts`),同批新增了官方 `otel.codex` 方言(工具/usage 从 codex 原生 span
+派生)。`tier1/codex-sdk` 已改用 `events: otelEvents({dialects:[otel.codex]})` +
+`spanMapper: mapCodexSpans`,4 evals 实测全绿。本条的"现象/根因"保留作历史参考。

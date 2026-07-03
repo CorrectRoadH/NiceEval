@@ -36,9 +36,19 @@ interface DiffPair {
   order: string[];
   /** 页面分节：文件按前缀归入第一个匹配的节；不匹配的进最后一节 */
   sections: Array<{ title: string; files: string[] }>;
+  /** 变更统计的分类（页面开头的表格）：文件按最长前缀归组，行数从实际 diff 统计 */
+  statGroups: Array<{ label: string; files: string[] }>;
   /** 这个对比额外排除的文件（精确路径或目录前缀），如 README、env 模板等与接入无关的 */
   exclude?: string[];
 }
+
+/** Tier 1 示例的统一分类:必要 = 不写接不上;评测内容按需增长。应用由用户自己启动,
+ *  eval 侧不代管进程、不开新端口——没有"起停辅助"这一类。 */
+const TIER1_STAT_GROUPS: DiffPair["statGroups"] = [
+  { label: "应用侧配置（必要：依赖声明）", files: ["package.json", "tsconfig.json", "pnpm-workspace.yaml"] },
+  { label: "adapter（必要：传输粘合，协议映射在官方包里）", files: ["niceeval.config.ts", "agents/"] },
+  { label: "evals 与 experiments（评测内容，按需增长）", files: ["evals/", "experiments/"] },
+];
 
 const PAIRS: DiffPair[] = [
   {
@@ -57,15 +67,17 @@ const PAIRS: DiffPair[] = [
       "- **before**：[https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/origin/pi-sdk](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/origin/pi-sdk) —— 独立的 `@earendil-works/pi-agent-core` HTTP 服务，还没接任何 eval。",
       "- **after**：[https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/tier1/pi-sdk](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/tier1/pi-sdk) —— 同一个应用接入 NiceEval 之后的样子。",
       "",
-      "**接入方式**：手写事件映射（pi-agent-core 没有官方 OTel 集成）——`agents/pi-sdk.ts`",
-      "把应用原生的 `AgentEvent` SSE 流翻成标准事件流，`calculate` 工具走 HITL 审批；",
-      "`agents/server-lifecycle.ts` 按需拉起应用子进程。应用侧 `src/backend/*` 逐字节未变。",
+      "**接入方式**：官方转换器——pi 原生 `AgentEvent` → 标准事件的映射是",
+      "`fromPiAgentEvents`（`\"niceeval/adapter\"` 导出）的事，adapter 只剩传输粘合：",
+      "应用在哪个 URL、审批打哪个端点（`calculate` 工具走 HITL 审批）。应用由你自己按它的",
+      "方式启动（`pnpm start`），eval 不代管进程。应用侧 `src/backend/*` 逐字节未变。",
     ].join("\n"),
     order: ["package.json", "tsconfig.json", "pnpm-workspace.yaml", "niceeval.config.ts", "agents/", "evals/", "experiments/"],
     sections: [
       { title: "应用侧的变更(只有依赖声明)", files: ["package.json", "tsconfig.json", "pnpm-workspace.yaml"] },
       { title: "新增的 adapter、evals 与 experiments", files: ["niceeval.config.ts", "agents/", "evals/", "experiments/"] },
     ],
+    statGroups: TIER1_STAT_GROUPS,
     exclude: ["README.md", ".env.example"],
   },
   {
@@ -84,15 +96,17 @@ const PAIRS: DiffPair[] = [
       "- **before**：[https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/origin/claude-sdk](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/origin/claude-sdk) —— 独立的 `@anthropic-ai/claude-agent-sdk` HTTP 服务，还没接任何 eval。",
       "- **after**：[https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/tier1/claude-sdk](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/tier1/claude-sdk) —— 同一个应用接入 NiceEval 之后的样子。",
       "",
-      "**接入方式**：手写事件映射（Claude Agent SDK 的原生遥测只有 metrics+logs，没有可消费的",
-      "trace spans）——`agents/claude-sdk.ts` 把应用原生的 `SDKMessage` 流翻成标准事件流，",
-      "`calculate` 工具经官方 `canUseTool` 回调走 HITL 审批。应用侧 `src/backend/*` 逐字节未变。",
+      "**接入方式**：官方转换器——Claude Agent SDK 原生 `SDKMessage` → 标准事件的映射是",
+      "`fromClaudeSdkMessages`（`\"niceeval/adapter\"` 导出）的事，adapter 只剩传输粘合与",
+      "HITL 停轮判定（`calculate` 经官方 `canUseTool` 回调门控）。应用由你自己按它的方式启动",
+      "（`pnpm start`），eval 不代管进程。应用侧 `src/backend/*` 逐字节未变。",
     ].join("\n"),
     order: ["package.json", "tsconfig.json", "pnpm-workspace.yaml", "niceeval.config.ts", "agents/", "evals/", "experiments/"],
     sections: [
       { title: "应用侧的变更(只有依赖声明)", files: ["package.json", "tsconfig.json", "pnpm-workspace.yaml"] },
       { title: "新增的 adapter、evals 与 experiments", files: ["niceeval.config.ts", "agents/", "evals/", "experiments/"] },
     ],
+    statGroups: TIER1_STAT_GROUPS,
     exclude: ["README.md", ".env.example"],
   },
   {
@@ -111,16 +125,19 @@ const PAIRS: DiffPair[] = [
       "- **before**：[https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/origin/codex-sdk](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/origin/codex-sdk) —— 独立的 `@openai/codex-sdk` HTTP 服务，还没接任何 eval。",
       "- **after**：[https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/tier1/codex-sdk](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/tier1/codex-sdk) —— 同一个应用接入 NiceEval 之后的样子。",
       "",
-      "**接入方式**：手写事件映射 + 官方 OTel——`agents/codex-sdk.ts` 把应用原生的 `ThreadEvent`",
-      "流翻成标准事件流；tracing 用 codex CLI 原生的 otel 配置段接瀑布图。没有 HITL（Codex SDK",
-      "不支持）。eval 测的是真实编码任务（在工作目录里写文件、跑命令）。应用侧 `src/backend/*`",
-      "逐字节未变。",
+      "**接入方式**：OTel + 官方转换器——`events: otelEvents({ dialects: [otel.codex] })`：",
+      "工具调用和 usage 从 codex CLI 原生 OTLP（config.toml 的 [otel] 块）的 span 派生，瀑布图",
+      "经官方 `mapCodexSpans` 归一；span 上没有的消息文本由官方转换器 `fromCodexThreadEvents`",
+      "从原生 `ThreadEvent` 帧翻译。没有 HITL（Codex SDK 不支持）。eval 测的是真实编码任务",
+      "（在工作目录里写文件、跑命令），断言直接读磁盘验证。应用由你自己启动（`pnpm start`），",
+      "eval 不代管进程。应用侧 `src/backend/*` 逐字节未变。",
     ].join("\n"),
     order: ["package.json", "tsconfig.json", "pnpm-workspace.yaml", "niceeval.config.ts", "agents/", "evals/", "experiments/"],
     sections: [
       { title: "应用侧的变更(只有依赖声明)", files: ["package.json", "tsconfig.json", "pnpm-workspace.yaml"] },
       { title: "新增的 adapter、evals 与 experiments", files: ["niceeval.config.ts", "agents/", "evals/", "experiments/"] },
     ],
+    statGroups: TIER1_STAT_GROUPS,
     // workspace/ 是 Codex 落地编辑结果的 scratch 目录(已 gitignore),eval 一跑就会留下
     // 新文件;不排除的话运行残留会混进"应用侧一行没改"的 diff 页
     exclude: ["README.md", ".env.example", "workspace"],
@@ -138,23 +155,24 @@ const PAIRS: DiffPair[] = [
     intro: [
       "对比对象：",
       "",
-      "- **before**：[`examples/zh/origin/langgraph/`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/origin/langgraph) —— 一个纯 Python 的 `create_agent`（LangChain 1.x，内部是编译好的 LangGraph 图）服务，还没接任何 eval。",
-      "- **after**：[`examples/zh/tier1/langgraph/`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/tier1/langgraph) —— 同一个应用接入 NiceEval 之后的样子。",
+      "- **before**：[https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/origin/langgraph](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/origin/langgraph) —— 纯 Python 的 `create_agent`（LangChain 1.x / LangGraph）HTTP 服务，还没接任何 eval。",
+      "- **after**：[https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/tier1/langgraph](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/tier1/langgraph) —— 同一个应用接入 NiceEval 之后的样子。",
       "",
-      "`src/backend/*.py` **逐字节未变**——被测应用是 Python，niceeval 的 adapter/eval/experiment",
-      "代码是另起的一个独立 TS 项目（`package.json`/`tsconfig.json`/`pnpm-workspace.yaml`",
-      "都是全新文件，origin 侧本来就没有）。事件来源是",
-      "`events: otelEvents({ dialects: [otel.langsmith] })`——LangSmith OTel 导出的 span 派生",
-      "`action.called`/`action.result`/usage，但实测这个方言解析不了 LangChain `ChatOpenAI`",
-      "实际吐的 `gen_ai.completion` 形状，`message` 事件要 adapter 自己从 `text-delta` 帧",
-      "累积补上；`calculate`（gated）的审批-拒绝分支也没有对应 span（从来没真的执行），同样",
-      "要手动补一对 `action.called`/`action.result`。两处 gap 都记进了",
-      "`memory/langsmith-dialect-langchain-completion-shape-gap.md`。",
+      "**接入方式**：OTel——`events: otelEvents({ dialects: [otel.langsmith] })`，事件/usage/",
+      "瀑布图从应用本来就有的官方 **LangSmith OTel 导出**的 span 派生；方言覆盖不到的消息文本",
+      "和 gated 工具的审批分支由 adapter 手动补。被测应用是 Python，eval 侧是另起的独立 TS",
+      "项目，应用侧 `src/backend/*.py` 逐字节未变。",
     ].join("\n"),
     order: ["package.json", "tsconfig.json", "pnpm-workspace.yaml", "niceeval.config.ts", "agents/", "evals/", "experiments/"],
     sections: [
       { title: "新增的 TS 侧脚手架(应用本身零改动)", files: ["package.json", "tsconfig.json", "pnpm-workspace.yaml"] },
       { title: "新增的 adapter、evals 与 experiments", files: ["niceeval.config.ts", "agents/", "evals/", "experiments/"] },
+    ],
+    // 被测应用是 Python,origin 侧没有这三个文件——它们是 eval 侧全新的 TS 项目脚手架,
+    // 不是"往应用配置里加依赖声明",所以第一类的说法和其它四个不同
+    statGroups: [
+      { label: "eval 侧 TS 项目脚手架（必要：被测应用是 Python，全新文件）", files: ["package.json", "tsconfig.json", "pnpm-workspace.yaml"] },
+      ...TIER1_STAT_GROUPS.slice(1),
     ],
     exclude: ["README.md", ".env.example"],
   },
@@ -171,25 +189,22 @@ const PAIRS: DiffPair[] = [
     intro: [
       "对比对象：",
       "",
-      "- **before**：[`examples/zh/origin/ai-sdk-v7/`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/origin/ai-sdk-v7) —— 一个普通的 AI SDK v7 聊天应用（HTTP 服务器 + React 聊天 UI），还没接任何 eval。",
-      "- **after**：[`examples/zh/tier1/ai-sdk-v7/`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/tier1/ai-sdk-v7) —— 同一个应用接入 NiceEval 之后的样子。",
+      "- **before**：[https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/origin/ai-sdk-v7](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/origin/ai-sdk-v7) —— 普通的 AI SDK v7 聊天应用（HTTP 服务器 + React 聊天 UI），还没接任何 eval。",
+      "- **after**：[https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/tier1/ai-sdk-v7](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/tier1/ai-sdk-v7) —— 同一个应用接入 NiceEval 之后的样子。",
       "",
-      "应用侧 `src/backend/*` **逐字节未变**。这是五个 Tier 1 示例里唯一\"客户端带全量历史\"的",
-      "会话形态——服务端零状态，`agents/ai-sdk-v7.ts` 自己维护",
-      "`Map<sessionId, UIMessage[]>`，每轮把完整历史重放。事件来源是",
-      "`events: otelEvents({ dialects: [otel.genAi] })`——应用用官方 `@ai-sdk/otel` 集成，",
-      "`get_weather` 这类工具的事件/usage/瀑布图全从 span 派生；但 `calculate`",
-      "（`needsApproval: true`）经审批恢复执行那条路径，span 派生不出结果（没有",
-      "`execute_tool` 类型 span），只能靠 adapter 手动补——deny 的调用甚至连 SSE 帧都没有，",
-      "两个 gap 都记进了 `memory/ai-sdk-otel-needsapproval-no-execute-tool-span.md`。",
-      "**没有 approve 端点**：审批的决定是把停在 `approval-requested` 状态的那个消息 part",
-      "原地改成 `approval-responded`，原样重发整个 `messages` 数组触发服务端续跑。",
+      "**接入方式**：内置 **`uiMessageStreamAgent`**——AI SDK UI Message Stream 协议（`useChat`",
+      "后端的标准 SSE）的官方黑盒 adapter，adapter 文件只剩配置：端点在哪、请求体怎么带",
+      "`model`。会话重放、HITL 审批（`needsApproval` 工具的 part 改写重发）、事件直构全是",
+      "工厂内置行为；usage 从应用本来就有的官方 `@ai-sdk/otel` 集成产的 GenAI spans 派生",
+      "（`events: otelEvents({ dialects: [otel.genAi] })`），瀑布图同一批 span。应用侧",
+      "`src/backend/*` 逐字节未变。",
     ].join("\n"),
     order: ["package.json", "tsconfig.json", "pnpm-workspace.yaml", "niceeval.config.ts", "agents/", "evals/", "experiments/"],
     sections: [
       { title: "应用侧的变更(只有依赖声明)", files: ["package.json", "tsconfig.json", "pnpm-workspace.yaml"] },
       { title: "新增的 adapter、evals 与 experiments", files: ["niceeval.config.ts", "agents/", "evals/", "experiments/"] },
     ],
+    statGroups: TIER1_STAT_GROUPS,
     exclude: ["README.md", ".env.example"],
   },
   // openllmetry / openinference 的 before-after 配置连同两个示例目录一起移除了
@@ -532,23 +547,51 @@ async function generate(pair: DiffPair): Promise<void> {
   lines.push(pair.intro);
   lines.push("");
 
-  // 变更行数从两个目录的实际 diff 统计，不是手写数字
-  const stat = (st: Status) => {
-    const rs = rendered.filter((r) => r.status === st);
-    return {
-      n: rs.length,
-      adds: rs.reduce((a, r) => a + r.diff.adds, 0),
-      dels: rs.reduce((a, r) => a + r.diff.dels, 0),
-    };
+  // 变更统计从两个目录的实际 diff 计算,不是手写数字。文件按最长匹配前缀归组,
+  // 归不进任何组的落进"其它"(正常不该出现,出现说明 statGroups 漏配了)
+  const groupOf = (file: string): number => {
+    let best = pair.statGroups.length; // 兜底:其它
+    let bestLen = -1;
+    pair.statGroups.forEach((g, gi) => {
+      for (const p of g.files) {
+        if ((file === p || file.startsWith(p)) && p.length > bestLen) {
+          best = gi;
+          bestLen = p.length;
+        }
+      }
+    });
+    return best;
   };
-  const added = stat("新增");
-  const modified = stat("修改");
-  const deleted = stat("删除");
-  const statParts: string[] = [];
-  if (added.n) statParts.push(`新增 **${added.n}** 个文件（**+${added.adds}** 行）`);
-  if (modified.n) statParts.push(`修改 **${modified.n}** 个文件（**+${modified.adds} −${modified.dels}** 行）`);
-  if (deleted.n) statParts.push(`删除 **${deleted.n}** 个文件（**−${deleted.dels}** 行）`);
-  lines.push(`接入的全部代码变更（生成时从两个目录实测统计）：${statParts.join("，")}。`);
+  const fmtLines = (adds: number, dels: number) =>
+    [adds ? `+${adds}` : "", dels ? `−${dels}` : ""].filter(Boolean).join(" ") || "0";
+  lines.push("接入的全部代码变更（生成时从两个目录实测统计）：");
+  lines.push("");
+  // 统计表必须用 JSX 表格,不能用 markdown 管道表:同一页里出现 GFM 表格 + diff 的超长
+  // 单行 JSX 时,MDX 编译直接 Maximum call stack size exceeded(实测,五页全挂),
+  // 见 memory/mintlify-mdx-html-rendering-limits.md
+  const statRows: string[] = [
+    `<tr><th>${jsxText("类别")}</th><th>${jsxText("文件数")}</th><th>${jsxText("行数")}</th></tr>`,
+  ];
+  let totalN = 0;
+  let totalAdds = 0;
+  let totalDels = 0;
+  for (let gi = 0; gi <= pair.statGroups.length; gi++) {
+    const rs = rendered.filter((r) => groupOf(r.file) === gi);
+    if (rs.length === 0) continue;
+    const adds = rs.reduce((a, r) => a + r.diff.adds, 0);
+    const dels = rs.reduce((a, r) => a + r.diff.dels, 0);
+    totalN += rs.length;
+    totalAdds += adds;
+    totalDels += dels;
+    const label = gi < pair.statGroups.length ? pair.statGroups[gi].label : "其它";
+    statRows.push(
+      `<tr><td>${jsxText(label)}</td><td>${jsxText(String(rs.length))}</td><td>${jsxText(fmtLines(adds, dels))}</td></tr>`,
+    );
+  }
+  statRows.push(
+    `<tr className="gd-total"><td>${jsxText("合计")}</td><td>${jsxText(String(totalN))}</td><td>${jsxText(fmtLines(totalAdds, totalDels))}</td></tr>`,
+  );
+  lines.push(`<table className="gd-summary"><tbody>${statRows.join("")}</tbody></table>`);
   lines.push("");
 
   lines.push("## 文件清单");
@@ -678,6 +721,16 @@ tr.gd-del td { background: #ffebe9; }
 tr.gd-del td.gd-ln { background: #ffd7d5; }
 .dark tr.gd-del td { background: rgba(248, 81, 73, 0.1); }
 .dark tr.gd-del td.gd-ln { background: rgba(248, 81, 73, 0.3); color: #c9d1d9; }
+
+/* 页面开头的变更统计表（JSX 表格：同页有超长 JSX 行时 GFM 管道表格会压爆 MDX 编译栈） */
+table.gd-summary { border-collapse: collapse; margin: 1rem 0; font-size: 14px; display: table; width: auto; }
+.gd-summary th, .gd-summary td { border: 1px solid #d0d7de; padding: 6px 12px; text-align: left; background: transparent; }
+.gd-summary th { background: #f6f8fa; font-weight: 600; }
+.gd-summary th:nth-child(n+2), .gd-summary td:nth-child(n+2) { text-align: right; font-variant-numeric: tabular-nums; }
+tr.gd-total td { font-weight: 600; background: #f6f8fa; }
+.dark .gd-summary th, .dark .gd-summary td { border-color: #30363d; }
+.dark .gd-summary th { background: #161b22; }
+.dark tr.gd-total td { background: #161b22; }
 
 /* 折叠的未变更行 + GitHub 式蓝色展开条（点击逻辑在 github-diff.js） */
 tr.gd-fold { display: none; }

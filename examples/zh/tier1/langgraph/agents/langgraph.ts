@@ -21,10 +21,34 @@
 // `tool-output-denied` → action.result(status:"rejected",span 里没有"人拒绝"这个语义,
 // 这条要 adapter 自己补)。approve 端点字段是 toolCallId(不是 pi-sdk/claude-sdk 那个
 // toolUseId)。
-import { defineAgent, otelEvents, otel } from "niceeval/adapter";
-import type { AgentContext } from "niceeval/adapter";
+import { defineAgent, otelEvents, otel, sseJsonFrames } from "niceeval/adapter";
+import type { AgentContext, SseFrameCursor } from "niceeval/adapter";
 import type { JsonValue, StreamEvent, Turn, TurnInput } from "niceeval";
-import { ensureServer } from "./server-lifecycle.ts";
+
+// 被测应用由你自己按它的方式启动(python server.py / 部署在哪都行),eval 不代管进程、
+// 不另开端口。LangSmith OTel 导出的环境变量在启动应用时给,见 README「跑起来」。
+const BASE_URL = process.env.LANGGRAPH_URL ?? "http://127.0.0.1:5488";
+
+async function appFetch(
+  path: string,
+  body: unknown,
+  signal: AbortSignal,
+  headers?: Readonly<Record<string, string>>,
+): Promise<Response> {
+  try {
+    return await fetch(`${BASE_URL}${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...headers },
+      body: JSON.stringify(body),
+      signal,
+    });
+  } catch (err) {
+    if (signal.aborted) throw err;
+    throw new Error(
+      `连不上 ${BASE_URL}${path}。被测应用在跑吗?先起它(见 README「跑起来」),或设 LANGGRAPH_URL 指向已部署实例。`,
+    );
+  }
+}
 
 type LanggraphFrame =
   | { type: "session"; sessionId: string }
@@ -36,33 +60,7 @@ type LanggraphFrame =
   | { type: "error"; message: string }
   | { type: "finish" };
 
-interface SseCursor {
-  next(): Promise<LanggraphFrame | null>;
-}
-
-function makeSseCursor(body: ReadableStream<Uint8Array>): SseCursor {
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  async function next(): Promise<LanggraphFrame | null> {
-    for (;;) {
-      const sepIndex = buffer.indexOf("\n\n");
-      if (sepIndex !== -1) {
-        const rawEvent = buffer.slice(0, sepIndex);
-        buffer = buffer.slice(sepIndex + 2);
-        const line = rawEvent.split("\n").find((l) => l.startsWith("data: "));
-        if (!line) continue;
-        return JSON.parse(line.slice("data: ".length)) as LanggraphFrame;
-      }
-      const { value, done } = await reader.read();
-      if (done) return null;
-      buffer += decoder.decode(value, { stream: true });
-    }
-  }
-
-  return { next };
-}
+type SseCursor = SseFrameCursor<LanggraphFrame>;
 
 // sessionId -> 还开着的流 + 卡住的 gated tool_call。key 用 ctx.session.id——session 帧总是
 // 每轮第一个到(isNew 时才发),写回 ctx.session.id 之后这个 key 才稳定。gatedCall 存进这个
@@ -191,41 +189,35 @@ async function drainStream(cursor: SseCursor, ctx: AgentContext, resumeGatedCall
 }
 
 async function send(input: TurnInput, ctx: AgentContext): Promise<Turn> {
-  const server = await ensureServer({ model: ctx.model, telemetryEnv: ctx.telemetry?.env });
-
   const pending = ctx.session.id ? pendingApprovals.get(ctx.session.id) : undefined;
   if (pending) {
     pendingApprovals.delete(ctx.session.id!);
     const approved = input.text.trim().toLowerCase() === "approve";
-    const approveRes = await fetch(`${server.baseUrl}/api/chat/approve`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ toolCallId: pending.gatedCall.toolCallId, approved }),
-      signal: ctx.signal,
-    });
+    const approveRes = await appFetch(
+      "/api/chat/approve",
+      { toolCallId: pending.gatedCall.toolCallId, approved },
+      ctx.signal,
+    );
     if (!approveRes.ok) {
       throw new Error(`POST /api/chat/approve 失败: ${approveRes.status} ${await approveRes.text()}`);
     }
     return drainStream(pending.cursor, ctx, pending.gatedCall);
   }
 
-  const res = await fetch(`${server.baseUrl}/api/chat`, {
-    method: "POST",
-    // traceparent 随请求带过去:本轮 span 挂到 niceeval 的 trace 下,并发归属才精确
-    // ——不过 server.py 的 http.server 没接 OTel 服务端埋点,不会读这个头,实际上仍然会
-    // 走时间窗口兜底、自动串行(见 docs/origin-integration.md「并发须知」),这里传只是
-    // 面向未来:应用哪天接了 context 传播就免费生效。
-    headers: { "content-type": "application/json", ...ctx.telemetry?.headers },
-    body: JSON.stringify({
-      message: input.text,
-      sessionId: ctx.session.isNew ? undefined : ctx.session.id,
-    }),
-    signal: ctx.signal,
-  });
+  // traceparent 随请求带过去:本轮 span 挂到 niceeval 的 trace 下,并发归属才精确
+  // ——不过 server.py 的 http.server 没接 OTel 服务端埋点,不会读这个头,实际上仍然会
+  // 走时间窗口兜底、自动串行(见 docs/origin-integration.md「并发须知」),这里传只是
+  // 面向未来:应用哪天接了 context 传播就免费生效。
+  const res = await appFetch(
+    "/api/chat",
+    { message: input.text, sessionId: ctx.session.isNew ? undefined : ctx.session.id },
+    ctx.signal,
+    ctx.telemetry?.headers,
+  );
   if (!res.ok || !res.body) {
     throw new Error(`POST /api/chat 失败: ${res.status} ${await res.text().catch(() => "")}`);
   }
-  return drainStream(makeSseCursor(res.body), ctx);
+  return drainStream(sseJsonFrames<LanggraphFrame>(res.body), ctx);
 }
 
 export default defineAgent({
@@ -241,20 +233,5 @@ export default defineAgent({
     toolObservability: true,
   },
   events: otelEvents({ dialects: [otel.langsmith] }),
-  tracing: {
-    scope: "run",
-    // langgraph 要完整路径(和 codex-sdk/ai-sdk-v7 相反,那两个是应用自己拼 /v1/traces
-    // 尾巴;这里 Python langsmith SDK 直接把这个值当完整 endpoint 用)。
-    env: (endpoint) => ({
-      OTEL_EXPORTER_OTLP_ENDPOINT: endpoint,
-      LANGSMITH_TRACING: "true",
-      LANGSMITH_OTEL_ENABLED: "true",
-      LANGSMITH_OTEL_ONLY: "true",
-      // 标准 OTel SDK 环境变量:BatchSpanProcessor 默认几秒才 flush 一次,span 经常晚到
-      // 下一轮才被收——同 examples/zh/ai-sdk-v7 的 BatchSpanProcessor 尾巴问题(见其
-      // README),这里能靠环境变量直接调小调度延迟(不用碰应用代码),几乎实时导出。
-      OTEL_BSP_SCHEDULE_DELAY: "200",
-    }),
-  },
   send,
 });

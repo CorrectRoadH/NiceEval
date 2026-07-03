@@ -9,6 +9,8 @@ export default defineConfig({
   name: { "zh-CN": "LangGraph 示例", en: "LangGraph example" },
   judge: { model: "gpt-5.4" },
   timeoutMs: 120_000,
-  // 每个 attempt 都要经一个真实子进程(server.py)+ 网络调用,别开太高并发。
+  // 被测应用是用户自己起的长驻服务,别开太高并发。
   maxConcurrency: 2,
+  // span 接收钉在 OTLP 标准端口:起应用时 OTEL_EXPORTER_OTLP_ENDPOINT 指过来即可(见 README)。
+  telemetry: { port: 4318 },
 });

@@ -103,10 +103,14 @@
   "peerDependencies": {
     "@ai-sdk/otel": ">=1.0.0",
     "@opentelemetry/exporter-trace-otlp-http": ">=0.200.0",
-    "@opentelemetry/sdk-trace-node": ">=2.0.0"
+    "@opentelemetry/sdk-trace-node": ">=2.0.0",
+    "ai": ">=5.0.0"
   },
   "peerDependenciesMeta": {
     "@ai-sdk/otel": {
+      "optional": true
+    },
+    "ai": {
       "optional": true
     },
     "@opentelemetry/exporter-trace-otlp-http": {

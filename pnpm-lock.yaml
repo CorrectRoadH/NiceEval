@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      ai:
+        specifier: '>=5.0.0'
+        version: 7.0.9(zod@4.4.3)
       autoevals:
         specifier: 0.0.132
         version: 0.0.132

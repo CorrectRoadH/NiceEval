@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { TraceSpan } from "../../types.ts";
-import { deriveEventsFromSpans, mergeDerivedEvents, genAi, aiSdk, openInference, openLLMetry, langsmith } from "./dialects.ts";
+import { deriveEventsFromSpans, mergeDerivedEvents, genAi, aiSdk, codex, openInference, openLLMetry, langsmith } from "./dialects.ts";
 
 let seq = 0;
 function span(name: string, attributes: Record<string, unknown>, opts: Partial<TraceSpan> = {}): TraceSpan {
@@ -163,6 +163,82 @@ describe("langsmith 方言", () => {
   });
 });
 
+describe("codex 方言(codex CLI 原生 OTLP,属性形状按 codex 0.142 实测)", () => {
+  it("真实执行 span(tool_name + call_id)→ 工具对;处理骨架(无 call_id)认领但不派生", () => {
+    const d = deriveEventsFromSpans([
+      // 处理骨架:也标着 execute_tool,但没有 call_id —— 不该派生
+      span("handle_tool_call", {
+        target: "codex_core::tools::parallel",
+        "gen_ai.operation.name": "execute_tool",
+      }),
+      span("handle_responses", {
+        target: "codex_core::session::turn",
+        tool_name: "exec_command",
+        "gen_ai.operation.name": "execute_tool",
+      }),
+      // 真实执行
+      span("exec_command", {
+        target: "codex_core::tools::parallel",
+        tool_name: "exec_command",
+        call_id: "call_abc",
+        aborted: false,
+        "gen_ai.operation.name": "execute_tool",
+      }),
+    ]);
+    expect(d.events).toEqual([
+      { type: "action.called", callId: "call_abc", name: "exec_command", input: null },
+      { type: "action.result", callId: "call_abc", status: "completed" },
+    ]);
+    expect(d.recognized).toEqual({ codex: 3 });
+  });
+
+  it("session_task.turn 的 codex.turn.token_usage.* → usage", () => {
+    const d = deriveEventsFromSpans([
+      span("session_task.turn", {
+        target: "codex_core::tasks",
+        model: "gpt-5.4",
+        "codex.turn.token_usage.input_tokens": 20788,
+        "codex.turn.token_usage.output_tokens": 12,
+      }),
+    ]);
+    expect(d.usage).toEqual({ inputTokens: 20788, outputTokens: 12 });
+  });
+
+  it("aborted=true / status=error → failed", () => {
+    const d = deriveEventsFromSpans([
+      span("exec_command", { target: "codex_core::tools::parallel", tool_name: "exec_command", call_id: "c1", aborted: true }),
+      span(
+        "apply_patch",
+        { target: "codex_core::tools::parallel", tool_name: "apply_patch", call_id: "c2" },
+        { status: "error" },
+      ),
+    ]);
+    expect(d.events.filter((e) => e.type === "action.result").map((e) => (e as { status: string }).status)).toEqual([
+      "failed",
+      "failed",
+    ]);
+  });
+
+  it("必须先于 genAi 认领:codex 的 chat 骨架 span 不产生假事件,也不算 unrecognized", () => {
+    // codex 模型 span 也带 gen_ai.operation.name=chat,但没有 usage / 文本;
+    // 若被 genAi 认领虽也无事件,但 execute_tool 骨架会冒出假工具对 —— 全表顺序保证 codex 先。
+    const d = deriveEventsFromSpans([
+      span("model_client.stream_responses_api", {
+        target: "codex_core::client",
+        wire_api: "responses",
+        "gen_ai.operation.name": "chat",
+      }),
+      span("dispatch_tool_call_with_terminal_outcome", {
+        target: "codex_core::tools::router",
+        "gen_ai.operation.name": "execute_tool",
+      }),
+    ]);
+    expect(d.events).toEqual([]);
+    expect(d.recognized).toEqual({ codex: 2 });
+    expect(d.unrecognized).toEqual([]);
+  });
+});
+
 describe("自动识别与摘要", () => {
   it("混合流各认各的;未识别的 span 名收进 unrecognized", () => {
     const d = deriveEventsFromSpans([
@@ -248,8 +324,9 @@ describe("自定义方言", () => {
 
 // 官方方言对象本身可独立引用(otel.* 命名空间的成员)
 it("官方方言命名齐全", () => {
-  expect([genAi.name, aiSdk.name, openInference.name, openLLMetry.name, langsmith.name]).toEqual([
+  expect([genAi.name, codex.name, aiSdk.name, openInference.name, openLLMetry.name, langsmith.name]).toEqual([
     "genAi",
+    "codex",
     "aiSdk",
     "openInference",
     "openLLMetry",

@@ -8,6 +8,7 @@
 import type { OtelDialect } from "../o11y/otlp/dialects.ts";
 import {
   aiSdk,
+  codex,
   genAi,
   langsmith,
   openInference,
@@ -51,6 +52,8 @@ export function otelEvents(options: OtelEventsOptions = {}): OtelEventsSource {
 export const otel = {
   /** GenAI semconv(@ai-sdk/otel、OpenClaw、手工按标准埋点)。 */
   genAi,
+  /** codex CLI 原生 OTLP(config.toml [otel] 块):工具名 / call_id / usage;span 上没有 I/O 与消息文本。 */
+  codex,
   /** AI SDK legacy `experimental_telemetry`(ai.* spans)。 */
   aiSdk,
   /** OpenInference(Arize Phoenix 生态)。 */

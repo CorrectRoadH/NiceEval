@@ -253,6 +253,53 @@ export const openLLMetry: OtelDialect = {
   },
 };
 
+/**
+ * codex CLI 原生 OTLP(`~/.codex/config.toml` 的 [otel] 块,Rust tracing 全量导出):
+ * span 靠 `target` / `code.module.name` 以 `codex` 开头识别。
+ *
+ * 属性形状(2026-07 对 codex 0.142 实测,examples/zh/tier1/codex-sdk 抓的真实 span):
+ *   · 工具执行:真正跑的那个 span 带 `tool_name` + `call_id`(+ `aborted`);周边还有一圈
+ *     handle_tool_call / dispatch_… 处理骨架,同样标着 gen_ai.operation.name=execute_tool
+ *     但没有 call_id —— 只认前者,骨架认领后不派生。
+ *   · usage:`session_task.turn` span 的 `codex.turn.token_usage.{input,output}_tokens`。
+ *   · 消息文本 / 工具入参出参:span 上没有,派生不了 —— adapter 可自己按 call_id 补 I/O
+ *     (mergeDerivedEvents 按 callId 去重,adapter 的映射优先)。
+ *
+ * 必须排在 genAi 之前:codex 的 span 同时带 gen_ai.operation.name(chat / execute_tool),
+ * 但没有 GenAI 语义的 I/O 与 usage 属性 —— 让 genAi 认领的话,每个 execute_tool 骨架 span
+ * 都会被派生成一对假工具事件(一次真实调用能冒出六对)。
+ */
+export const codex: OtelDialect = {
+  name: "codex",
+  matches(span) {
+    const a = span.attributes;
+    if (str(a, "target")?.startsWith("codex")) return true;
+    if (str(a, "code.module.name")?.startsWith("codex")) return true;
+    return Object.keys(a ?? {}).some((k) => k.startsWith("codex."));
+  },
+  derive(span) {
+    const a = span.attributes;
+    const toolName = str(a, "tool_name");
+    const callId = str(a, "call_id");
+    if (toolName && callId) {
+      const failed = span.status === "error" || a?.aborted === true;
+      return {
+        events: [
+          { type: "action.called", callId, name: toolName, input: null },
+          { type: "action.result", callId, status: failed ? "failed" : "completed" },
+        ],
+      };
+    }
+    const input = num(a, "codex.turn.token_usage.input_tokens");
+    const output = num(a, "codex.turn.token_usage.output_tokens");
+    if (input !== undefined || output !== undefined) {
+      return { usage: { inputTokens: input ?? 0, outputTokens: output ?? 0 } };
+    }
+    // 其余 codex 内部 span(session_loop / rpc 骨架 / 模型流):认领但不派生。
+    return { events: [] };
+  },
+};
+
 /** LangSmith OTel 导出(LANGSMITH_OTEL_ENABLED 路线):langsmith.span.kind = llm / tool / chain。 */
 export const langsmith: OtelDialect = {
   name: "langsmith",
@@ -290,8 +337,11 @@ export const langsmith: OtelDialect = {
   },
 };
 
-/** 官方方言全表 = 自动识别的默认顺序。识别信号互不相交,顺序只影响日志里的归类。 */
-export const OFFICIAL_DIALECTS: readonly OtelDialect[] = [genAi, aiSdk, openInference, openLLMetry, langsmith];
+/**
+ * 官方方言全表 = 自动识别的默认顺序。识别信号基本互不相交,唯一的刻意重叠是 codex:
+ * 它的 span 也带 gen_ai.operation.name,必须排在 genAi 之前认领(见 codex 方言注释)。
+ */
+export const OFFICIAL_DIALECTS: readonly OtelDialect[] = [codex, genAi, aiSdk, openInference, openLLMetry, langsmith];
 
 // ───────────────────────── 派生入口 ─────────────────────────
 

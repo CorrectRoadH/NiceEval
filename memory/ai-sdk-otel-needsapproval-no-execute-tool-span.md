@@ -49,3 +49,8 @@ adapter 自己在决定 approve/deny 那一刻手上已有的数据(`toolCallId`
 - 以后接其它声明了 `needsApproval`/审批门的 AI SDK v7 应用,`get_weather` 这类无门工具直接信
   `otelEvents(genAi)` 就够;凡是走审批-恢复路径的工具,先假设 span 派生拿不到它的执行结果,
   直接在 adapter 里手动补,不用先花时间去确认"是不是我漏配了什么"。
+
+**后续(2026-07)**:`tier1/ai-sdk-v7` 已改用内置 `uiMessageStreamAgent`(协议帧直构事件,
+不依赖 span),本条描述的两个 gap 在该接法下不存在——工厂从消息 parts 合成 approve/deny 的
+工具对(deny 默认带"不要重试"的 reason)。gap 本身对仍用 `otelEvents({dialects:[otel.genAi]})`
+做事件来源的用户依然真实,本条保留。

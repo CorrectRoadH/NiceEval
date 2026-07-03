@@ -126,8 +126,9 @@ export class OtelReceiverPool {
 
 /** 固定端口:config.telemetry.port 优先,其次 NICEEVAL_OTLP_PORT;都没有 → 动态端口。 */
 export function resolveFixedOtlpPort(configPort: number | undefined): number | undefined {
-  if (configPort !== undefined) return configPort;
+  // 环境变量优先于配置:config 里钉的端口是项目约定(如 OTLP 标准 4318),某台机器上
+  // 该端口被别的进程占用时,用 NICEEVAL_OTLP_PORT 临时改道,不用改仓库里的配置。
   const env = process.env.NICEEVAL_OTLP_PORT;
   if (env && Number.isFinite(Number(env))) return Number(env);
-  return undefined;
+  return configPort;
 }

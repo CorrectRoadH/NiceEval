@@ -156,7 +156,7 @@ A/B 两档的 adapter 差异汇总一处免得翻小节:
 - **事件来源:`events: otelEvents({ dialects: [otel.genAi] })`**——应用产标准 GenAI spans,工具断言 / 消息 / usage / 瀑布图全从 span 派生,不用逐 chunk 写映射。SSE 仍要读:drain 到流结束才知道一轮完成,途中只解析**审批请求 chunk**(→ `input.requested` + `waiting`;审批回复走**下一次 `/api/chat` 请求的 messages 里**,不是 approve 端点——把审批响应 part 塞进重放的 messages,具体 part 形状先打帧确认)。
 - 模型对比:请求体 `model` 字段,`ctx.model` 直接透传,server 不用重启。可选值看 `GET /api/models`。
 - tracing:`tracing.env` 给 `OTEL_EXPORTER_OTLP_ENDPOINT`(**去掉** `/v1/traces` 尾巴,应用自己拼)。坑:应用用 `BatchSpanProcessor`,span 可能晚到几秒——瀑布图偶发缺尾巴是这个原因,Tier 1 不改代码只能接受,记进 eval README 即可。
-- 备注:本工单做的是**对着 HTTP 接口的黑盒接入**,产出就叫 `tier1/ai-sdk-v7`(和其它四个同名配对)。历史沿革:曾经有一份进程内直调的 `eval/ai-sdk-v7`(用内建 `aiSdkAgent`),黑盒版因此临时叫过 `ai-sdk-v7-http`;直调版的 evals 随应用重写删除后,Tier 1 统一为黑盒/OTel 接入,`-http` 后缀已去掉。内建 `aiSdkAgent` 直调路数见 docs-site 的「连接你的 agent」指南,不属于 Tier 1 示例。
+- 备注:本工单做的是**对着 HTTP 接口的黑盒接入**,产出就叫 `tier1/ai-sdk-v7`(和其它四个同名配对)。历史沿革:曾经有一份进程内直调的 `eval/ai-sdk-v7`(用内建 `aiSdkAgent`),黑盒版因此临时叫过 `ai-sdk-v7-http`;直调版的 evals 随应用重写删除后,Tier 1 统一为黑盒/OTel 接入,`-http` 后缀已去掉。**进程内直调不被推荐**(2026-07 用户裁定:被测对象是 coding agent 和用户的 agent 系统,走 HTTP/gRPC;测函数不等于测生产路径)——`aiSdkAgent` 工厂代码仍在 `src/agents/ai-sdk.ts`,但用户文档(docs-site)已整体移除对它和进程内直调的提及,官方示例一律黑盒。
 
 ### claude-sdk
 
@@ -239,3 +239,12 @@ experiment 侧用 `flags` → `ctx.flags` 透传,写法见 [Experiments](experim
 - 五个 before/after 文档页已生成并挂进 `docs-site/docs.json` 导航(`pnpm run gen:diff-code` 的
   `PAIRS` 已按新路径重写)。
 - Tier 2(feature A/B test)仍未做,见上面「Tier 2 备忘」。
+- 2026-07 追加(全部实测跑通):黑盒接入沉淀出两个官方件——
+  ① **`uiMessageStreamAgent`**(`src/agents/ui-message-stream.ts`,从 `"niceeval/adapter"` 导出):
+  AI SDK UI Message Stream 协议的内置黑盒 adapter(SSE 归约 / 全量历史重放 / HITL 审批改写
+  重发 / 事件直构),`tier1/ai-sdk-v7` 的 adapter 已缩成纯配置,5 evals + compare-models 全绿;
+  ② **`otel.codex` 官方方言**(`src/o11y/otlp/dialects.ts`,按实测 span 属性写)+
+  `mapCodexSpans` 公开导出:`tier1/codex-sdk` 的工具/usage 改从 codex 原生 span 派生,
+  手写 `ThreadEvent` 工具映射删除(只留消息文本/错误),4 evals 全绿。注意 codex 的 span
+  同时带 gen_ai.operation.name 但无 I/O/usage 属性,`otel.codex` 必须排在 genAi 前认领,
+  否则一次真实调用会被 genAi 派生出六对假工具事件。

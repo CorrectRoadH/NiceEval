@@ -4,7 +4,7 @@ sidebarTitle: "内置 Agent 能力"
 description: "NiceEval 内置的 claude-code、codex、bub 适配器分别做到了哪些能力，对应哪些断言，以及已知限制。"
 ---
 
-内置的三个 sandbox agent（`claude-code`、`codex`、`bub`）做到的能力不完全相同。adapter 的能力是正交的组合，每个能力对应一组断言。这篇按能力盘点三个内置 agent 各自做到哪，以及两个接 AI SDK 应用的内置件：进程内 agent 工厂 `aiSdkAgent`（含 HITL）和底层转换器 `fromAiSdk`。
+内置的三个 sandbox agent（`claude-code`、`codex`、`bub`）做到的能力不完全相同。adapter 的能力是正交的组合，每个能力对应一组断言。这篇按能力盘点三个内置 agent 各自做到哪，以及两个接 AI SDK 应用的内置件：黑盒 HTTP adapter `uiMessageStreamAgent`（含 HITL）和结果转换器 `fromAiSdk`。
 
 ## 能力速览
 
@@ -27,7 +27,7 @@ description: "NiceEval 内置的 claude-code、codex、bub 适配器分别做到
 三者都声明了 `workspace` 和 `sandbox`（`defineSandboxAgent` 默认开启），所以 `t.sandbox.fileChanged()` / diff 断言、文件 IO、命令执行在三个 agent 上都能用，不受这张表限制。
 
 <Warning>
-三个内置 sandbox agent 目前都**不支持 HITL**：`send` 只返回 `"completed"` / `"failed"`，从不返回 `"waiting"`，也不吐 `input.requested` 事件。需要 `t.respond()` / `t.requireInputRequest()` 时，可以用下文的内建 `aiSdkAgent`（AI SDK v7 tool approval 原生映射成 HITL），或自己写 adapter：实现 `waiting` 状态 + `input.requested` 事件 + resume 交回。
+三个内置 sandbox agent 目前都**不支持 HITL**：`send` 只返回 `"completed"` / `"failed"`，从不返回 `"waiting"`，也不吐 `input.requested` 事件。需要 `t.respond()` / `t.requireInputRequest()` 时：被测对象是 AI SDK `useChat` 后端的话，用下文的内置 `uiMessageStreamAgent`（v7 tool approval 原生映射成 HITL）；其它被测对象自己写 adapter：实现 `waiting` 状态 + `input.requested` 事件 + resume 交回，[Tier 1 接入示例](/zh/example/tier1-pi-sdk)里 pi-sdk / claude-sdk 都有手写 HITL 的现成参考。
 </Warning>
 
 ## 逐 agent 细节
@@ -55,38 +55,55 @@ description: "NiceEval 内置的 claude-code、codex、bub 适配器分别做到
 - 支持 `pythonPlugins` 配置项。
 - 安装走 `uv tool install`（非 npm 包），首次安装带 checkpoint 缓存以加速后续沙箱。
 
-## `aiSdkAgent`：接 AI SDK 应用的内建 agent 工厂（含 HITL）
+## `uiMessageStreamAgent`：接 AI SDK 应用的内建黑盒 adapter（含 HITL）
 
-`aiSdkAgent`（`niceeval/adapter` 导出）把「一个 `generateText` 调用」变成完整的进程内 agent。应用只写 `generate`（怎么召模型：model / tools / system prompt 都在这里配），协议侧的活 `aiSdkAgent` 都替你做了：
+`uiMessageStreamAgent`（`niceeval/adapter` 导出）对着 [UI Message Stream 协议](https://ai-sdk.dev/docs/ai-sdk-ui/stream-protocol)（AI SDK `useChat` 后端的标准 SSE）的 HTTP 端点黑盒收发——只 `fetch`，不 import 应用代码，应用在哪部署都能接：
 
 ```ts
-import { aiSdkAgent } from "niceeval/adapter";
-import { generateText, isStepCount, type ModelMessage } from "ai";
+import { uiMessageStreamAgent } from "niceeval/adapter";
 
-export default defineExperiment({
-  agent: aiSdkAgent<ModelMessage>({
-    name: "my-assistant",
-    generate: ({ messages, model, signal }) =>
-      generateText({ model: resolveModel(model), system: SYSTEM_PROMPT,
-                     tools, stopWhen: isStepCount(5), messages, abortSignal: signal }),
-    data: (result) => ({ reply: result.text }),
-  }),
-  model: "deepseek-v4-pro",
+export default uiMessageStreamAgent({
+  name: "my-assistant",
+  url: "https://my-app.example.com/api/chat",
+  body: (ctx) => ({ model: ctx.model }),   // 应用支持请求级选模型时,模型对比零改动
 });
 ```
 
 它替你做好的能力：
 
-- **收发 + 事件流**：结果经 `fromAiSdk` 直构——`toolCallId` 精确配对、时序保真、`tool-error` 映射成失败的 `action.result`、usage 聚合（v4 / v5 / v7 字段漂移都兜住）。
-- **会话续接**：`messages` 历史由 `aiSdkAgent` 管理，`isNew` 开新会话线、同 id 续接。
-- **HITL**：AI SDK v7 的 tool approval（工具带 `needsApproval: true`）原生映射——模型决定调用被拦工具时，本轮返回 `status: "waiting"` + `input.requested` 事件（`action` = 工具名、`options` = `approve` / `deny`）；`t.respond("approve" / "deny")` 由 `aiSdkAgent` 翻译成 `tool-approval-response` 交回 SDK，拒绝的调用以 `rejected`（而非 `failed`）落进事件流，`calledTool(..., { status: "rejected" })` 可精确断言。这是目前唯一原生支持 HITL 的内置件。
-- **tracing**：声明 `capabilities: { tracing: true }` 后，OTel 管线全由工厂承担——每轮把绑定 NiceEval 接收端点的 `@ai-sdk/otel` 集成经 `telemetry` 交给 `generate`（原样透传给 `generateText` 的 `telemetry` 选项即可），轮末自动 flush；并行 attempt 各用各的出口，不串流。设 `otlpBackendUrl` 可把同一批 span 双发到你自己的观测后端。需要在项目里安装 `@ai-sdk/otel`、`@opentelemetry/sdk-trace-node`、`@opentelemetry/exporter-trace-otlp-http`（NiceEval 的可选 peer 依赖，只有 tracing 用到）。
+- **收发 + 事件流**：SSE 帧经 `ai` 包官方的框架无关 reducer `readUIMessageStream`（`useChat` 内部同款）归约，工具调用/结果/消息文本从消息 parts 直构——**不要求应用接 OTel**。
+- **会话续接**：协议是服务端零状态、「客户端带全量历史」——工厂按 sessionId 存整份 `UIMessage[]`，每轮原样重放；`isNew` 开新会话线。
+- **HITL**：AI SDK v7 tool approval（工具带 `needsApproval: true`）原生映射——part 停在 `approval-requested` 时整轮 `status: "waiting"` + `input.requested`；`t.respond("approve" / "deny")` 翻译成 `approval-responded` 原地改写该 part、原样重发 `messages` 触发服务端续跑（和真实前端 `addToolApprovalResponse()` + `sendMessage()` 的协议行为一致，没有单独的 approve 端点）。拒绝的调用以 `rejected` 落进事件流，且默认带「不要重试」的 reason（`denyReason` 可覆盖）——不带的话模型经常原样重发同一个调用。
+- **usage / 瀑布图**：协议帧里没有 usage。应用有官方 `@ai-sdk/otel` 集成时，声明 `tracing` + `events: otelEvents({ dialects: [otel.genAi] })`：usage 从 GenAI spans 派生、同一批 span 画 `niceeval view` 瀑布图；工具/消息事件按 callId / 文本与协议直构结果自动去重，不会双报。
 
-`workspace` / `sandbox` 不适用（它评的是 AI SDK 应用，不是改文件的 coding agent）——这正是 Agent × Sandbox 正交的含义。完整可跑示例见仓库 `examples/zh/ai-sdk-v7/`（六条 eval 逐项演示：结构化输出、事件流断言、多轮隔离、HITL 批准 / 拒绝、多模态、trace）。
+需要在 eval 项目里安装 `ai`（可选 peer 依赖，协议 reducer 来自它）。完整可跑示例：[`examples/zh/tier1/ai-sdk-v7`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/tier1/ai-sdk-v7)，前后代码 diff 见 [AI SDK v7 如何接入](/zh/example/tier1-ai-sdk-v7)。
 
-## `fromAiSdk`：`aiSdkAgent` 底下的事件流转换器
+## SDK 事件流转换器：`fromClaudeSdkMessages` / `fromPiAgentEvents` / `fromCodexThreadEvents`
 
-`fromAiSdk`（`niceeval/adapter` 导出）是 `aiSdkAgent` 内部用的转换函数，也可以在自己写的 adapter 里单独用（比如 HTTP web agent 的服务端直构，见 `examples/zh/ai-sdk/`）。它把 AI SDK 的 `generateText` / `streamText` 结果映射成 `{ events, usage, status }`，直接铺进 `Turn`：
+各 agent SDK 的流式协议是 SDK 定义的通用协议，不是某个应用的私有格式——原生帧 → 标准事件的映射知识在官方包里（`niceeval/adapter` 导出），自己写黑盒 adapter 时只剩**传输粘合**（应用把流放在哪个端点、审批走什么端点）：
+
+```ts
+import { sseJsonFrames, fromClaudeSdkMessages } from "niceeval/adapter";
+
+const frames = sseJsonFrames<SDKMessage>(res.body);   // 标准 SSE → 逐帧 JSON
+const stream = fromClaudeSdkMessages();               // SDKMessage → 标准事件
+for (;;) {
+  const frame = await frames.next();
+  if (frame === null) break;
+  events.push(...stream.add(frame));                  // 认不出的帧返回 []
+}
+return { status: stream.failed ? "failed" : "completed", events, usage: stream.usage };
+```
+
+- **`fromClaudeSdkMessages`**（Claude Agent SDK `SDKMessage`）：`assistant` 的 text/tool_use 块、`user` 的 tool_result 块、`system`/`permission_denied`（→ `rejected`）、`result` 的 usage；`markRejected()` 登记被拒调用。
+- **`fromPiAgentEvents`**（pi-agent-core `AgentEvent`）：`message_end` 的文本/thinking/usage、`tool_execution_start/end` 的工具对。
+- **`fromCodexThreadEvents`**（Codex SDK `ThreadEvent`）：`agent_message`/`reasoning`/错误帧——**只管消息类**；codex 的工具与 usage 走 `otelEvents({ dialects: [otel.codex] })` 从 CLI 原生 span 派生更完整，瀑布图配 `mapCodexSpans` 归一。
+
+可跑参考：[Tier 1 接入示例](/zh/example/tier1-claude-sdk)里 claude-sdk / pi-sdk / codex-sdk 三个 adapter 就是这三个转换器 + 传输粘合。
+
+## `fromAiSdk`：AI SDK 结果 → 事件流转换器
+
+`fromAiSdk`（`niceeval/adapter` 导出）在自己写的 adapter 里用（比如 HTTP web agent 的服务端直构，见 `examples/zh/ai-sdk/`）。它把 AI SDK 的 `generateText` / `streamText` 结果映射成 `{ events, usage, status }`——`toolCallId` 精确配对、时序保真、`tool-error` 映射成失败的 `action.result`、usage 聚合（v4 / v5 / v7 字段漂移都兜住）——直接铺进 `Turn`：
 
 ```ts
 import { defineAgent, fromAiSdk } from "niceeval/adapter";
@@ -100,13 +117,14 @@ export default defineAgent({
 });
 ```
 
-`status` 由转换器给：有待人批准的 tool approval 时是 `"waiting"`（并附 `input.requested` 事件），否则 `"completed"`。会话续接（多轮 resume）、HITL 的裁决交回、tracing 取决于你自己的 `send` 怎么写——这三样正是 `aiSdkAgent` 替你写好的部分。
+`status` 由转换器给：有待人批准的 tool approval 时是 `"waiting"`（并附 `input.requested` 事件），否则 `"completed"`。会话续接（多轮 resume）、HITL 的裁决交回、tracing 取决于你自己的 `send` 怎么写。
 
 ## 怎么选
 
-- 被测对象是 AI SDK agent 应用（工具循环）：直接用 `aiSdkAgent`，所有能力都已做好（含 HITL，tracing 可选）。
-- 需要调用瀑布图（`niceeval view` 的 trace）：`codex` / `bub` / `aiSdkAgent`（自发 OTLP），`claude-code` 目前拿不到 trace。
-- 需要人工审批 / 多步确认（HITL）：目前只有 `aiSdkAgent`（AI SDK v7 tool approval）；沙箱型三个都不支持，其它被测对象要自己写 adapter。
+- 被测对象是 AI SDK 应用（`useChat` 后端）：内置 `uiMessageStreamAgent` 黑盒接入，零映射（含 HITL）。
+- 被测对象是其它 agent 系统（HTTP / gRPC 服务）：黑盒接入，优先[通过 OTel 接入](/zh/guides/connect-otel)，接不了 OTel 就手写事件映射——五个 [Tier 1 接入示例](/zh/example/tier1-ai-sdk-v7)全是这条路。
+- 需要调用瀑布图（`niceeval view` 的 trace）：`codex` / `bub` 自发 OTLP；自己写的 adapter 声明 `tracing` 即可（见 OTel 指南）。`claude-code` 目前拿不到 trace。
+- 需要人工审批 / 多步确认（HITL）：`uiMessageStreamAgent` 原生支持（AI SDK v7 tool approval）；沙箱型三个都不支持，其它被测对象自己写 adapter（Tier 1 示例里 pi-sdk / claude-sdk 有现成写法）。
 - 想跑一个 coding agent 改代码、看 diff、判断工具调用：`claude-code` / `codex` / `bub`（收发 + 事件流 + 会话续接 + workspace + sandbox）。
 
 ## 相关阅读
