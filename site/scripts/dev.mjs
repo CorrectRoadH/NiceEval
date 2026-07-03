@@ -1,9 +1,11 @@
 import { createServer } from "node:net";
 import { spawn } from "node:child_process";
+import { rmSync } from "node:fs";
 
 const HOSTNAME = "127.0.0.1";
 const PREFERRED_PORT = 5174;
 const MAX_ATTEMPTS = 20;
+const DEV_CACHE_DIR = ".next/dev";
 
 function isPortFree(port) {
   return new Promise((resolve) => {
@@ -30,6 +32,8 @@ const port = await findFreePort();
 if (port !== PREFERRED_PORT) {
   console.log(`Port ${PREFERRED_PORT} is in use, using ${port} instead.`);
 }
+
+rmSync(DEV_CACHE_DIR, { force: true, recursive: true });
 
 const child = spawn(
   "next",
