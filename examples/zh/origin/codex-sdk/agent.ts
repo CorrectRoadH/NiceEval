@@ -16,10 +16,34 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // 别让它碰仓库本体。见 README.md「为什么任务形状长这样」。
 export const WORKSPACE_DIR = path.join(__dirname, "workspace");
 
-// 走 s2a 这个 OpenAI 兼容代理(Responses API),而不是官方 OpenAI 端点——
-// baseUrl 直接映射成 CLI 的 `openai_base_url` config,apiKey 映射成
-// env.CODEX_API_KEY,详见 node_modules/@openai/codex-sdk/dist/index.js。
-const codex = new Codex({ apiKey: process.env.CODEX_API_KEY, baseUrl: process.env.CODEX_BASE_URL });
+// 走 s2a 这个 OpenAI 兼容代理(Responses API),而不是官方 OpenAI 端点。
+// apiKey 映射成 env.CODEX_API_KEY,详见 node_modules/@openai/codex-sdk/dist/index.js。
+//
+// Codex CLI 默认对支持的模型走 WebSocket 流式传输(model 元数据里的
+// prefer_websockets),但 s2a 代理不支持 WS upgrade,导致每轮都要
+// "Reconnecting... N/5" 重试几次才 fallback 回 HTTPS,页面上一堆刷屏错误。
+// 本想直接 `model_providers.openai.supports_websockets = false`,但内置
+// "openai" provider id 是保留字,CLI 会拒绝("Built-in providers cannot
+// be overridden")。所以照官方报错建议,自己定义一个同价的 provider
+// (换个 id),显式 supports_websockets: false,再用 model_provider 选中它。
+// 不能再用 CodexOptions.baseUrl(那只是给内置 openai provider 打补丁的
+// 语法糖),base_url 改到这个自定义 provider 里配。
+const CODEX_BASE_URL = process.env.CODEX_BASE_URL ?? "https://api.openai.com/v1";
+const codex = new Codex({
+  apiKey: process.env.CODEX_API_KEY,
+  config: {
+    model_providers: {
+      "openai-no-ws": {
+        name: "openai-no-ws",
+        base_url: CODEX_BASE_URL,
+        env_key: "CODEX_API_KEY",
+        wire_api: "responses",
+        supports_websockets: false,
+      },
+    },
+    model_provider: "openai-no-ws",
+  },
+});
 
 // 会话续接用 Codex 原生机制:thread 落盘在 ~/.codex/sessions,前端从
 // `thread.started` 事件里拿 thread_id 自己保存,下一轮随请求带回来,这里用

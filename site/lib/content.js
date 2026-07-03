@@ -115,12 +115,12 @@ export const copy = {
       humans: {
         label: "给人类",
         cta: "文档",
-        caption: "阅读快速开始文档，写一个 eval，直接在不同目标上运行，不用自己搭评测脚手架。",
+        caption: "阅读文档，在 10 分钟内为你的 Agent 构建评估",
       },
       agents: {
         label: "给 Agent",
         command: initPrompt,
-        caption: "把这段 prompt 粘贴给你的 coding agent,让它自己安装并接入 NiceEval。",
+        caption: "把这段 prompt 粘贴给你的 CodeX/Claude Code",
       },
     },
     heroTitle: "更适合 Agent 的 Eval。",
