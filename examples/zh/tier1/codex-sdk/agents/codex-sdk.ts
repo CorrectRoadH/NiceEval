@@ -7,10 +7,11 @@
 //     codex CLI 原生 OTLP(config.toml [otel] 块)的 span 派生;瀑布图经官方 `mapCodexSpans`
 //     归一。codex 的 span 没有工具 I/O,要做 I/O 断言时按 call_id 手写补(本示例的断言
 //     直接读磁盘验证,不需要)。
-//   · 消息文本 / 终局错误 —— 官方转换器 `fromCodexThreadEvents` 从 `ThreadEvent` 帧翻译。
-import { defineAgent, otelEvents, otel, mapCodexSpans, sseJsonFrames, fromCodexThreadEvents } from "niceeval/adapter";
+//   · 消息文本 / 终局错误 —— 官方转换器 `fromCodexThreadEvents` 从 `ThreadEvent` 帧翻译,
+//     逐帧驱动是官方件 `driveFrameStream`(没有 HITL,onFrame 只用来处理传输帧 + 抓 threadId)。
+import { defineAgent, otelEvents, otel, mapCodexSpans, sseJsonFrames, fromCodexThreadEvents, driveFrameStream } from "niceeval/adapter";
 import type { AgentContext } from "niceeval/adapter";
-import type { StreamEvent, Turn, TurnInput } from "niceeval";
+import type { Turn, TurnInput } from "niceeval";
 import type { ThreadEvent } from "@openai/codex-sdk";
 
 // 被测应用由你自己按它的方式启动(pnpm start / 部署在哪都行),eval 不代管进程、不另开端口。
@@ -41,24 +42,12 @@ async function send(input: TurnInput, ctx: AgentContext): Promise<Turn> {
     throw new Error(`POST /api/chat 失败: ${res.status} ${await res.text().catch(() => "")}`);
   }
 
-  const cursor = sseJsonFrames<CodexFrame>(res.body);
   const stream = fromCodexThreadEvents();
-  const events: StreamEvent[] = [];
-  let transportFailed = false;
-  for (;;) {
-    const frame = await cursor.next();
-    if (frame === null) break;
-    if (frame.type === "error") {
-      // 应用自定义传输帧(query() 之外的失败,比如 spawn 失败),不属于 ThreadEvent。
-      transportFailed = true;
-      events.push({ type: "error", message: (frame as TransportFrame).message });
-      continue;
-    }
-    events.push(...stream.add(frame));
+  return driveFrameStream(sseJsonFrames<CodexFrame>(res.body), stream, ctx, (frame) => {
+    // 应用自定义传输帧(query() 之外的失败,比如 spawn 失败),不属于 ThreadEvent。
+    if (frame.type === "error") return { fail: (frame as TransportFrame).message };
     if (ctx.session.isNew && !ctx.session.id && stream.threadId) ctx.session.id = stream.threadId;
-  }
-
-  return { status: transportFailed || stream.failed ? "failed" : "completed", events };
+  });
 }
 
 export default defineAgent({

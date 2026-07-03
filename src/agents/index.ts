@@ -26,6 +26,12 @@ export type {
   CodexThreadStream,
 } from "./sdk-streams.ts";
 
+// 通用「拼装方式」件:逐帧驱动循环、HITL 挂起、两种会话续接策略、逐 token/参数增量累加器。
+// 见 docs/adapters/authoring.md「三段式」一节——这些和任何具体协议无关,自己写 adapter
+// 时优先拿这些拼,只有 transport(怎么发)与「帧类型 → 操作」这张映射表才是真正要手写的。
+export { driveFrameStream, pausable, resumeId, captureResumeId, clientHistory, deltaStream } from "./streaming.ts";
+export type { FrameReducer, FrameHook, Pausable, ClientHistory, DeltaOp, DeltaStreamSpec } from "./streaming.ts";
+
 export { fromAiSdk, aiSdkAgent } from "./ai-sdk.ts";
 export type {
   AiSdkAgentOptions,

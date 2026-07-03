@@ -2,17 +2,18 @@
 // `SDKMessage` 流原样透传成 SSE,外加自定义 { type: "server_error" } 传输帧)。
 //
 // `SDKMessage` → 标准事件的映射是官方转换器 `fromClaudeSdkMessages`(`"niceeval/adapter"`
-// 导出)的事;这里只剩传输粘合:端点在哪、审批打哪个端点、HITL 停轮怎么判。
+// 导出)的事;逐帧驱动 + HITL 挂起也是官方件(`driveFrameStream` / `pausable`)。这里只剩
+// 传输粘合:端点在哪、审批打哪个端点、HITL 停轮怎么判。
 // 无 OTel(CLI 原生遥测只有 metrics+logs,niceeval 不消费),事件全部来自转换器。
 //
 // HITL 没有显式的"等审批"帧——`canUseTool` 把流卡在一个 Promise 上,客户端只能从
 // "gated 工具的 tool_use 到了、之后没动静"推断。Tier 1 的确定性做法:被门控的工具就
 // mcp__demo-tools__calculate 一个(应用 agent.ts 里的 GATED_TOOL_NAME,这里必须写死同一个
-// 字符串),转换器吐出它的 action.called 就按审批点处理:挂起还开着的流、返回 waiting;
+// 字符串),`driveFrameStream` 的 onFrame 钩子扫 derived 事件认出它就返回 `{ pause }`;
 // 下一轮先打 /api/chat/approve 再继续读同一条流。
-import { defineAgent, sseJsonFrames, fromClaudeSdkMessages } from "niceeval/adapter";
+import { defineAgent, sseJsonFrames, fromClaudeSdkMessages, driveFrameStream, pausable } from "niceeval/adapter";
 import type { AgentContext, ClaudeSdkStream, SseFrameCursor } from "niceeval/adapter";
-import type { StreamEvent, Turn, TurnInput } from "niceeval";
+import type { Turn, TurnInput } from "niceeval";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 
 // 必须和 ../src/backend/agent.ts 里的 GATED_TOOL_NAME 完全一致(MCP 命名空间下的真实工具名)。
@@ -40,46 +41,26 @@ async function appFetch(path: string, body: unknown, signal: AbortSignal): Promi
   }
 }
 
-// sessionId -> 还开着的流(+ 转换器状态,续读要接着用同一个:去重集合、usage 都在里面)。
-interface PendingApproval {
+interface Pending {
   readonly cursor: SseFrameCursor<ClaudeFrame>;
   readonly stream: ClaudeSdkStream;
   readonly toolUseId: string;
 }
-const pendingApprovals = new Map<string, PendingApproval>();
+const pendingApprovals = pausable<Pending>();
 
-async function drainStream(cursor: SseFrameCursor<ClaudeFrame>, ctx: AgentContext, stream: ClaudeSdkStream): Promise<Turn> {
-  const events: StreamEvent[] = [];
-  let transportFailed = false;
-
-  for (;;) {
-    const frame = await cursor.next();
-    if (frame === null) break;
-
-    if (frame.type === "server_error") {
-      transportFailed = true;
-      events.push({ type: "error", message: (frame as TransportFrame).message });
-      continue;
-    }
-
-    const derived = stream.add(frame);
-    events.push(...derived);
+function readStream(cursor: SseFrameCursor<ClaudeFrame>, ctx: AgentContext, stream: ClaudeSdkStream): Promise<Turn> {
+  return driveFrameStream(cursor, stream, ctx, (frame, derived) => {
     if (ctx.session.isNew && !ctx.session.id && stream.sessionId) ctx.session.id = stream.sessionId;
+
+    if (frame.type === "server_error") return { fail: (frame as TransportFrame).message };
 
     // HITL 停轮:gated 工具的 tool_use 到了(canUseTool 此刻把流卡住,不会再有后续帧)。
     const gated = derived.find((e) => e.type === "action.called" && e.name === GATED_TOOL_NAME);
     if (gated && gated.type === "action.called") {
-      if (!ctx.session.id) throw new Error("gated tool_use 到达时 ctx.session.id 还没写回");
-      pendingApprovals.set(ctx.session.id, { cursor, stream, toolUseId: gated.callId });
-      events.push({
-        type: "input.requested",
-        request: { id: gated.callId, action: GATED_TOOL_NAME, options: [{ id: "approve" }, { id: "deny" }] },
-      });
-      return { status: "waiting", events, usage: stream.usage };
+      pendingApprovals.hold(ctx, { cursor, stream, toolUseId: gated.callId });
+      return { pause: { id: gated.callId, action: GATED_TOOL_NAME, options: [{ id: "approve" }, { id: "deny" }] } };
     }
-  }
-
-  return { status: transportFailed || stream.failed ? "failed" : "completed", events, usage: stream.usage };
+  });
 }
 
 /**
@@ -101,13 +82,12 @@ async function postApprove(toolUseId: string, approved: boolean, signal: AbortSi
 }
 
 async function send(input: TurnInput, ctx: AgentContext): Promise<Turn> {
-  const pending = ctx.session.id ? pendingApprovals.get(ctx.session.id) : undefined;
+  const pending = pendingApprovals.take(ctx);
   if (pending) {
-    pendingApprovals.delete(ctx.session.id!);
     const approved = input.text.trim().toLowerCase() === "approve";
     if (!approved) pending.stream.markRejected(pending.toolUseId);
     await postApprove(pending.toolUseId, approved, ctx.signal);
-    return drainStream(pending.cursor, ctx, pending.stream);
+    return readStream(pending.cursor, ctx, pending.stream);
   }
 
   const res = await appFetch(
@@ -118,7 +98,7 @@ async function send(input: TurnInput, ctx: AgentContext): Promise<Turn> {
   if (!res.ok || !res.body) {
     throw new Error(`POST /api/chat 失败: ${res.status} ${await res.text().catch(() => "")}`);
   }
-  return drainStream(sseJsonFrames<ClaudeFrame>(res.body), ctx, fromClaudeSdkMessages());
+  return readStream(sseJsonFrames<ClaudeFrame>(res.body), ctx, fromClaudeSdkMessages());
 }
 
 export default defineAgent({

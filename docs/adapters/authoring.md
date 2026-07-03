@@ -21,6 +21,54 @@
 
 T0 / T1 是"接得上"的门槛;T2、H、T3 都是"要更细信号"时再加的增量。两种 kind(remote / sandbox)都不动核心一行——这是设计承重墙,见 [Vision](../vision.md)。
 
+## 三段式:一个手写 send 里其实是三件互不相干的事
+
+早期的 remote adapter 写法容易长成"一个 send 函数 + 一两百行手写 parser"——不是因为这件事本身复杂,是因为三类不同性质的问题被拧在同一个函数的局部变量和控制流里,谁都理不清、谁都没法单独复用。摊开看,真正互不相干的只有三段:
+
+1. **transport(怎么发)。** 真做不掉,也不需要抽象——每家的 URL、鉴权、请求体形状本来就不一样。它应该只剩"发一个请求"这么单薄,不背着"顺便解析返回、顺便判断带不带 session id"这些逻辑。
+2. **reduce(原始数据 → `StreamEvent[]`)。** 按数据到达的形状,收窄成两种官方 reducer,不用每接一个新后端就重写一个状态机:
+   - **整段落地**——一帧就是一个完整单元,不需要拼接(Claude Agent SDK 的 `assistant` 帧、Codex SDK 的 `item.completed`、pi-agent-core 的 `message_end` 都是这种)。官方转换器 `fromClaudeSdkMessages` / `fromPiAgentEvents` / `fromCodexThreadEvents`(`sdk-streams.ts`)就是这一类,一种帧类型对应一段映射代码。
+   - **逐 token / 逐参数增量**——文本和工具参数要靠 `callId`/index 拼接,遇到收尾信号才落地(原始 OpenAI/Anthropic 流式 API、自己手写的 token-by-token SSE 后端都是这个形状)。这类**优先用协议方自己的官方 reducer**(`uiMessageStreamAgent` 借用 `ai` 包的 `readUIMessageStream`,不是自己写状态机);没有官方 reducer 才用 `deltaStream(spec)`(`niceeval/adapter` 导出,见下)——一个通用的 buffer-by-id 累加器,你只声明"这一帧对应哪个操作",拼接时机它自己管。
+   - 第三种来源是 span 派生(`otelEvents()`,见 [OTel mixin](otel-mixin.md))——本质是"从 span 树重建"而不是"从帧流重建",但产出同样是 `StreamEvent[]`,和前两种平级,不是替代关系(下文单独说)。
+3. **编排:会话续接 + HITL 暂停恢复。** 这两件事和任何具体协议无关,纯粹是控制流模式,业界统共就两种会话模式、一种暂停恢复模式,不该每接一个新后端就重写一遍 `Map<sessionId, …>` + `if/else`。`niceeval/adapter` 提供四个官方件:
+
+   ```ts
+   import { driveFrameStream, pausable, resumeId, captureResumeId, clientHistory, deltaStream } from "niceeval/adapter";
+   ```
+
+   | 件 | 解决什么 | 用在哪种后端 |
+   |---|---|---|
+   | `driveFrameStream(cursor, reducer, ctx, onFrame?)` | 逐帧喂 reducer、处理协议里混入的传输帧、检测 HITL 暂停信号——这个循环本身收成一个函数,不用每个 adapter 各写一份 | 任何"响应是一条帧流"的后端 |
+   | `pausable<TState>()` | `t.respond(...)` 对 adapter 而言就是一次带 resume 的普通 `send`,adapter 得自己认出"这轮是不是接上次挂起的地方"。以前每个 HITL adapter 都手写一个模块级 `Map`,现在 `hold(ctx, state)` / `take(ctx)` 两个方法替掉 | 有 HITL 的后端(不管会话续接走哪种模式) |
+   | `resumeId(ctx)` / `captureResumeId(ctx, id)` | 服务端存历史、客户端传 id 续接——把"这轮该不该带 id""拿到 id 该不该写回"两个容易写错的条件判断标准化 | 后端自己管会话历史(OpenAI Responses API、多数 SDK 的原生 session/thread) |
+   | `clientHistory<TMsg>()` | 服务端无状态、客户端每轮发完整历史——按会话线存 `TMsg[]`,`get(ctx)` 取当前历史(顺带落地新会话 id)、`commit(ctx, messages)` 写回最新完整列表 | 后端无状态、协议要求整段重发(OpenAI Chat Completions 这类;`uiMessageStreamAgent` 内部就是这个模式的一个特化) |
+
+   `driveFrameStream` + `pausable` 组合起来,一个有 HITL 的黑盒 adapter 通常只剩这个形状(完整可跑参考见 [Tier 1 claude-sdk / pi-sdk 示例](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/tier1)):
+
+   ```ts
+   const pending = pausable<{ cursor: SseFrameCursor<Frame>; stream: MyStream; requestId: string }>();
+
+   function readStream(cursor: SseFrameCursor<Frame>, ctx: AgentContext, stream: MyStream) {
+     return driveFrameStream(cursor, stream, ctx, (frame, derived) => {
+       if (isApprovalRequest(frame)) {
+         pending.hold(ctx, { cursor, stream, requestId: frame.id });
+         return { pause: { id: frame.id, action: frame.action, options: [{ id: "approve" }, { id: "deny" }] } };
+       }
+     });
+   }
+
+   async function send(input: TurnInput, ctx: AgentContext): Promise<Turn> {
+     const held = pending.take(ctx);
+     if (held) { await postApprove(held.requestId, input.text === "approve"); return readStream(held.cursor, ctx, held.stream); }
+     const res = await fetch(/* … */);
+     return readStream(sseJsonFrames<Frame>(res.body!), ctx, myReducer());
+   }
+   ```
+
+   作者只写两件事:transport(`fetch` 那几行)、`onFrame` 里"这一帧要不要额外处理"的判断——循环、Map、状态机全部不用手写。
+
+**OTel 不是这三段之外的第四条路线,是 reduce 段的第三种数据来源。** 它不能让你跳过"编排"这一段:不管事件是从帧流直接解析出来,还是从 span 派生出来,会话续接和 HITL 暂停恢复永远得单独实现——span 没有"等人输入"语义,也不知道"这轮该不该带历史"。OTel 真正省的只是 reduce 段里"文本/工具"这一小块,而且要看应用有没有埋点;它不可替代的价值是时间轨(`niceeval view` 的瀑布图),这个只有它能给,和行为断言完全正交。详见 [OTel 接入指南 · 边界](../../docs-site/zh/guides/connect-otel.mdx)。
+
 ## remote agent:评你自己的 agent / 函数 / 服务
 
 进程内最快零网络;远程就是 `send` 里发个 fetch。两者都是 `defineAgent`,差别只在 `send` 内部:

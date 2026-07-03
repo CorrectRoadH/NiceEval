@@ -3,16 +3,17 @@
 // server_error,见 server.ts 头注释)。
 //
 // `AgentEvent` → 标准事件的映射是官方转换器 `fromPiAgentEvents`(`"niceeval/adapter"` 导出)
-// 的事;这里只剩传输粘合:端点在哪、三种传输帧怎么处理、审批打哪个端点。
+// 的事;逐帧驱动 + HITL 挂起也是官方件(`driveFrameStream` / `pausable`)。这里只剩传输粘合:
+// 端点在哪、三种传输帧怎么处理、审批打哪个端点——不再手写循环和模块级 Map。
 // 无 OTel(pi-agent-core 没有官方集成),事件全部来自转换器。
 //
 // HITL:calculate 工具经服务端 beforeToolCall 挂审批。approval_request 帧到达时,流并不关闭——
-// 服务端把执行卡在一个 Promise 上等 POST /api/chat/approve。所以这里把"读了一半的 SSE 流"
-// (连同转换器状态)存进模块级 Map(key = sessionId),下一次 send(即 t.respond)先打
-// approve 端点、再继续读同一条流到结束——不重新发 /api/chat。
-import { defineAgent, sseJsonFrames, fromPiAgentEvents } from "niceeval/adapter";
+// 服务端把执行卡在一个 Promise 上等 POST /api/chat/approve。所以 `driveFrameStream` 在这一帧
+// 返回 `{ pause }`,`pausable()` 记住"读了一半的 SSE 流"(连同转换器状态);下一次 send
+// (即 t.respond)先打 approve 端点、再继续读同一条流到结束——不重新发 /api/chat。
+import { defineAgent, sseJsonFrames, fromPiAgentEvents, driveFrameStream, pausable } from "niceeval/adapter";
 import type { AgentContext, PiAgentStream, SseFrameCursor } from "niceeval/adapter";
-import type { JsonValue, StreamEvent, Turn, TurnInput } from "niceeval";
+import type { JsonValue, Turn, TurnInput } from "niceeval";
 import type { AgentEvent } from "@earendil-works/pi-agent-core";
 
 // 被测应用由你自己按它的方式启动(pnpm start / 部署在哪都行),eval 不代管进程、不另开端口。
@@ -41,68 +42,39 @@ async function appFetch(path: string, body: unknown, signal: AbortSignal): Promi
   }
 }
 
-// sessionId -> 还开着的流(+ 转换器状态,续读接着用同一个)。session 帧总是每轮第一个到,
-// 写回 ctx.session.id 之后这个 key 才稳定。
-interface PendingApproval {
+interface Pending {
   readonly cursor: SseFrameCursor<PiFrame>;
   readonly stream: PiAgentStream;
   readonly toolCallId: string;
 }
-const pendingApprovals = new Map<string, PendingApproval>();
+const pendingApprovals = pausable<Pending>();
 
-async function drainStream(cursor: SseFrameCursor<PiFrame>, ctx: AgentContext, stream: PiAgentStream): Promise<Turn> {
-  const events: StreamEvent[] = [];
-  let failed = false;
-
-  for (;;) {
-    const frame = await cursor.next();
-    if (frame === null) break;
-
-    switch (frame.type) {
-      case "session": {
-        if (ctx.session.isNew) ctx.session.id = frame.sessionId;
-        break;
-      }
-      case "approval_request": {
-        if (!ctx.session.id) throw new Error("approval_request 帧到达时 ctx.session.id 还没写回");
-        pendingApprovals.set(ctx.session.id, { cursor, stream, toolCallId: frame.toolCallId });
-        events.push({
-          type: "input.requested",
-          request: {
-            id: frame.toolCallId,
-            action: frame.toolName,
-            input: frame.args as JsonValue,
-            options: [{ id: "approve" }, { id: "deny" }],
-          },
-        });
-        return { status: "waiting", events, usage: stream.usage };
-      }
-      case "server_error": {
-        failed = true;
-        events.push({ type: "error", message: frame.message });
-        break;
-      }
-      default: {
-        events.push(...stream.add(frame));
-        break;
-      }
+function readStream(cursor: SseFrameCursor<PiFrame>, ctx: AgentContext, stream: PiAgentStream): Promise<Turn> {
+  return driveFrameStream(cursor, stream, ctx, (frame) => {
+    if (frame.type === "session") {
+      if (ctx.session.isNew) ctx.session.id = frame.sessionId;
+      return;
     }
-  }
-
-  return { status: failed ? "failed" : "completed", events, usage: stream.usage };
+    if (frame.type === "approval_request") {
+      pendingApprovals.hold(ctx, { cursor, stream, toolCallId: frame.toolCallId });
+      return {
+        pause: { id: frame.toolCallId, action: frame.toolName, input: frame.args as JsonValue, options: [{ id: "approve" }, { id: "deny" }] },
+      };
+    }
+    if (frame.type === "server_error") return { fail: frame.message };
+  });
 }
 
 async function send(input: TurnInput, ctx: AgentContext): Promise<Turn> {
-  const pending = ctx.session.id ? pendingApprovals.get(ctx.session.id) : undefined;
+  const pending = pendingApprovals.take(ctx);
   if (pending) {
-    pendingApprovals.delete(ctx.session.id!);
     const approved = input.text.trim().toLowerCase() === "approve";
     if (!approved) pending.stream.markRejected(pending.toolCallId);
     const approveRes = await appFetch("/api/chat/approve", { toolUseId: pending.toolCallId, approved }, ctx.signal);
     if (!approveRes.ok) {
       throw new Error(`POST /api/chat/approve 失败: ${approveRes.status} ${await approveRes.text()}`);
     }
-    return drainStream(pending.cursor, ctx, pending.stream);
+    return readStream(pending.cursor, ctx, pending.stream);
   }
 
   const res = await appFetch(
@@ -113,7 +85,7 @@ async function send(input: TurnInput, ctx: AgentContext): Promise<Turn> {
   if (!res.ok || !res.body) {
     throw new Error(`POST /api/chat 失败: ${res.status} ${await res.text().catch(() => "")}`);
   }
-  return drainStream(sseJsonFrames<PiFrame>(res.body), ctx, fromPiAgentEvents());
+  return readStream(sseJsonFrames<PiFrame>(res.body), ctx, fromPiAgentEvents());
 }
 
 export default defineAgent({

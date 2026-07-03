@@ -298,6 +298,8 @@ export default defineAgent({
 
 写自己的 adapter 时可以对着[内置 Agent 能力](/zh/reference/builtin-agents)逐项核对行为。完整的可跑参考：五个 [Tier 1 接入示例](/zh/example/tier1-ai-sdk-v7)，全部黑盒接入，覆盖事件流断言、多轮隔离、HITL 批准 / 拒绝、OTel 派生、trace。
 
+黑盒 adapter 手写 `send` 时，真正要写的只有"怎么发"和"帧类型 → 事件"这张映射表——会话续接（`resumeId` / `clientHistory`）、HITL 暂停恢复（`pausable`）、逐帧驱动的循环（`driveFrameStream`）都是官方件，不用每接一个新后端都重写一遍，见[内置 Agent 能力参考](/zh/reference/builtin-agents)里的通用拼装件一节。
+
 ## 相关阅读
 
 - [通过 OTel 接入](/zh/guides/connect-otel) —— 已埋点应用的免映射路线（优先推荐）。

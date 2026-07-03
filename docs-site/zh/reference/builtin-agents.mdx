@@ -80,26 +80,35 @@ export default uiMessageStreamAgent({
 
 ## SDK 事件流转换器：`fromClaudeSdkMessages` / `fromPiAgentEvents` / `fromCodexThreadEvents`
 
-各 agent SDK 的流式协议是 SDK 定义的通用协议，不是某个应用的私有格式——原生帧 → 标准事件的映射知识在官方包里（`niceeval/adapter` 导出），自己写黑盒 adapter 时只剩**传输粘合**（应用把流放在哪个端点、审批走什么端点）：
+各 agent SDK 的流式协议是 SDK 定义的通用协议，不是某个应用的私有格式——原生帧 → 标准事件的映射知识在官方包里（`niceeval/adapter` 导出），自己写黑盒 adapter 时只剩**传输粘合**（应用把流放在哪个端点、审批走什么端点）。逐帧驱动这个循环本身也是官方件（`driveFrameStream`，见下一节），不用手写 `for` 循环：
 
 ```ts
-import { sseJsonFrames, fromClaudeSdkMessages } from "niceeval/adapter";
+import { sseJsonFrames, fromClaudeSdkMessages, driveFrameStream } from "niceeval/adapter";
 
 const frames = sseJsonFrames<SDKMessage>(res.body);   // 标准 SSE → 逐帧 JSON
 const stream = fromClaudeSdkMessages();               // SDKMessage → 标准事件
-for (;;) {
-  const frame = await frames.next();
-  if (frame === null) break;
-  events.push(...stream.add(frame));                  // 认不出的帧返回 []
-}
-return { status: stream.failed ? "failed" : "completed", events, usage: stream.usage };
+return driveFrameStream(frames, stream, ctx);         // 逐帧喂 stream.add()，汇总成 Turn
 ```
 
 - **`fromClaudeSdkMessages`**（Claude Agent SDK `SDKMessage`）：`assistant` 的 text/tool_use 块、`user` 的 tool_result 块、`system`/`permission_denied`（→ `rejected`）、`result` 的 usage；`markRejected()` 登记被拒调用。
 - **`fromPiAgentEvents`**（pi-agent-core `AgentEvent`）：`message_end` 的文本/thinking/usage、`tool_execution_start/end` 的工具对。
 - **`fromCodexThreadEvents`**（Codex SDK `ThreadEvent`）：`agent_message`/`reasoning`/错误帧——**只管消息类**；codex 的工具与 usage 走 `otelEvents({ dialects: [otel.codex] })` 从 CLI 原生 span 派生更完整，瀑布图配 `mapCodexSpans` 归一。
 
-可跑参考：[Tier 1 接入示例](/zh/example/tier1-claude-sdk)里 claude-sdk / pi-sdk / codex-sdk 三个 adapter 就是这三个转换器 + 传输粘合。
+可跑参考：[Tier 1 接入示例](/zh/example/tier1-claude-sdk)里 claude-sdk / pi-sdk / codex-sdk 三个 adapter 就是这三个转换器 + `driveFrameStream` + 传输粘合。
+
+## 通用「拼装方式」件：`driveFrameStream` / `pausable` / `resumeId` / `clientHistory` / `deltaStream`
+
+一个手写 send 里真正互不相干的只有三段：transport（怎么发）、reduce（原始数据 → 事件，上一节的转换器管这个）、编排（会话续接 + HITL 暂停恢复）。第三段和任何具体协议无关，纯粹是控制流模式，`niceeval/adapter` 把它收成几个官方件，原理见 [Adapter 写法 · 三段式](https://github.com/CorrectRoadH/niceeval/blob/main/docs/adapters/authoring.md#三段式一个手写-send-里其实是三件互不相干的事)：
+
+| 件 | 解决什么 |
+|---|---|
+| `driveFrameStream(cursor, reducer, ctx, onFrame?)` | 逐帧喂 reducer、处理传输帧、检测 HITL 暂停信号——循环本身收成一个函数 |
+| `pausable<TState>()` | `hold(ctx, state)` / `take(ctx)` 替掉手写的 `Map<sessionId, PendingState>`，`t.respond()` 到达时取回上次挂起的状态 |
+| `resumeId(ctx)` / `captureResumeId(ctx, id)` | 服务端存历史、客户端传 id 续接：这轮该不该带 id、拿到 id 该不该写回，标准化成两个函数 |
+| `clientHistory<TMsg>()` | 服务端无状态、客户端每轮发完整历史：`get(ctx)` 取当前会话线的历史（顺带落地新会话 id）、`commit(ctx, messages)` 写回；`uiMessageStreamAgent` 内部就是它的一个特化 |
+| `deltaStream(spec)` | 逐 token / 逐参数增量的通用累加器——原始 OpenAI/Anthropic 流式 API、自己手写的 token-by-token 后端这类"没有整段落地帧"的协议用它；声明"这一帧对应哪个操作"（文本增量/工具参数增量/收尾），拼接时机它自己管 |
+
+三个 Tier 1 示例（claude-sdk、pi-sdk 用 `driveFrameStream` + `pausable`，codex-sdk 只用 `driveFrameStream`）已经用这套件重写，adapter 只剩 transport 与 `onFrame` 里"这一帧要不要额外处理"的判断，没有手写循环和模块级 Map。
 
 ## `fromAiSdk`：AI SDK 结果 → 事件流转换器
 
@@ -124,8 +133,9 @@ export default defineAgent({
 - 被测对象是 AI SDK 应用（`useChat` 后端）：内置 `uiMessageStreamAgent` 黑盒接入，零映射（含 HITL）。
 - 被测对象是其它 agent 系统（HTTP / gRPC 服务）：黑盒接入，优先[通过 OTel 接入](/zh/guides/connect-otel)，接不了 OTel 就手写事件映射——五个 [Tier 1 接入示例](/zh/example/tier1-ai-sdk-v7)全是这条路。
 - 需要调用瀑布图（`niceeval view` 的 trace）：`codex` / `bub` 自发 OTLP；自己写的 adapter 声明 `tracing` 即可（见 OTel 指南）。`claude-code` 目前拿不到 trace。
-- 需要人工审批 / 多步确认（HITL）：`uiMessageStreamAgent` 原生支持（AI SDK v7 tool approval）；沙箱型三个都不支持，其它被测对象自己写 adapter（Tier 1 示例里 pi-sdk / claude-sdk 有现成写法）。
+- 需要人工审批 / 多步确认（HITL）：`uiMessageStreamAgent` 原生支持（AI SDK v7 tool approval）；沙箱型三个都不支持，其它被测对象自己写 adapter，拿 `driveFrameStream` + `pausable` 拼（Tier 1 示例里 pi-sdk / claude-sdk 有现成写法）。
 - 想跑一个 coding agent 改代码、看 diff、判断工具调用：`claude-code` / `codex` / `bub`（收发 + 事件流 + 会话续接 + workspace + sandbox）。
+- 后端协议是自己发明的、没有官方 SDK 转换器可用：别从零手写 send——挑一种 reduce 形状（整段落地写小映射，逐 token 增量用 `deltaStream`），配一种会话策略（`resumeId` 或 `clientHistory`），有 HITL 再加 `pausable`，四件拼起来就是 send。
 
 ## 相关阅读
 
