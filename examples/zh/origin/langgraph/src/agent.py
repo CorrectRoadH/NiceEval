@@ -1,13 +1,15 @@
-"""LangChain 1.x 的推荐写法:create_agent(内部就是一个编译好的 LangGraph 图)。
+"""LangChain 1.x 的推荐写法:`create_agent`(来自 `langchain.agents`,内部就是一个
+编译好的 LangGraph 图——`langgraph.prebuilt.create_react_agent` 已经在 LangGraph 自己
+的源码里标了 deprecated,官方文档现在把 `create_agent` 当成建 agent 的标准入口)。
 
-从这里 export `agent`,langgraph.json 的 graphs.agent 指到 "./src/agent.py:agent",
-由 Agent Server(`langgraph dev`)加载并对外提供线程管理 + 流式 API——服务器我们
-一行都不用写。
+`agent = create_agent(...)` 返回的就是一个 `CompiledStateGraph`(`agent.get_graph()`
+能看到 `model` -> `tools` -> `model` 的循环、`agent.stream()` 的用法和手写
+`StateGraph` 完全一样),`src/server.py` 直接拿它当图用,不关心它是怎么搭出来的。
 
 可观测性:Python 版 langsmith SDK 是真·零代码——设好 LANGSMITH_TRACING /
 LANGSMITH_OTEL_ENABLED / LANGSMITH_OTEL_ONLY / OTEL_EXPORTER_OTLP_ENDPOINT 四个
-环境变量(见 .env.example),import langchain 时自动挂 OTel hook,不像 JS 版还要
-显式调一次 initializeOTEL()。所以这个项目没有 observability 模块。
+环境变量(见 .env.example),`langchain_core` 默认的 tracing callback 第一次调模型时
+就会按这些变量自动接好 OTel exporter,不需要显式初始化代码。
 """
 
 from __future__ import annotations
@@ -17,8 +19,9 @@ import os
 from langchain.agents import create_agent
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
+from langgraph.checkpoint.memory import InMemorySaver
 
-_SYSTEM_PROMPT = """你是一个乐于助人的中文 AI 助手。
+SYSTEM_PROMPT = """你是一个乐于助人的中文 AI 助手。
 需要天气信息时调用 get_weather,并用工具返回的数据作答,不要凭空编造天气。
 需要精确计算时调用 calculate,把表达式交给它算,不要心算。
 普通闲聊不要调用任何工具。回复保持中文、友好、简洁。"""
@@ -135,18 +138,21 @@ def calculate(expression: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# agent 本体。不配 checkpointer:Agent Server 自己管线程持久化(thread = 会话),
-# 本地 dev 模式存内存,重启服务器就丢——演示用足够了。
+# agent 本体。不配 checkpointer 就没有跨 invoke 的记忆,所以这里显式配一个
+# InMemorySaver——同一个 thread_id 在进程存活期间有多轮记忆,重启即丢,演示用足够;
+# 生产场景换 PostgresSaver 之类的持久实现。
 # ---------------------------------------------------------------------------
 
-_llm = ChatOpenAI(
-    model=os.getenv("AGENT_MODEL", "gpt-4o-mini"),
-    base_url=os.getenv("OPENAI_BASE_URL") or None,
-    api_key=os.getenv("OPENAI_API_KEY"),
-)
 
-agent = create_agent(
-    model=_llm,
-    tools=[get_weather, calculate],
-    system_prompt=_SYSTEM_PROMPT,
-)
+def build_agent():
+    llm = ChatOpenAI(
+        model=os.getenv("AGENT_MODEL", "gpt-4o-mini"),
+        base_url=os.getenv("OPENAI_BASE_URL") or None,
+        api_key=os.getenv("OPENAI_API_KEY"),
+    )
+    return create_agent(
+        model=llm,
+        tools=[get_weather, calculate],
+        system_prompt=SYSTEM_PROMPT,
+        checkpointer=InMemorySaver(),
+    )
