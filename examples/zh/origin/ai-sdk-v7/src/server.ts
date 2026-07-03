@@ -2,6 +2,9 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { pipeUIMessageStreamToResponse, toUIMessageStream } from "ai";
 import { buildTools, streamChat } from "./ai-sdk-runtime.ts";
 import { MODELS } from "./models.ts";
+import { setupOtel } from "./otel.ts";
+
+setupOtel("ai-sdk-v7-example");
 
 const port = Number(process.env.PORT ?? 5188);
 

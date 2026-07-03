@@ -8,7 +8,7 @@
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Codex, type Thread, type ThreadEvent } from "@openai/codex-sdk";
+import { Codex, type CodexOptions, type Thread, type ThreadEvent } from "@openai/codex-sdk";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -29,6 +29,22 @@ export const WORKSPACE_DIR = path.join(__dirname, "workspace");
 // 不能再用 CodexOptions.baseUrl(那只是给内置 openai provider 打补丁的
 // 语法糖),base_url 改到这个自定义 provider 里配。
 const CODEX_BASE_URL = process.env.CODEX_BASE_URL ?? "https://api.openai.com/v1";
+
+// 可选的 OTel 接入:Codex CLI 原生支持 `otel` 配置段(trace_exporter /
+// metrics_exporter,exporter 种类有 none / otlp-http / otlp-grpc),导出发生在
+// codex 子进程内部,应用侧零埋点。设了 OTEL_EXPORTER_OTLP_ENDPOINT 才开启。
+const OTLP_ENDPOINT = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+const otelConfig: NonNullable<CodexOptions["config"]> = OTLP_ENDPOINT
+  ? {
+      otel: {
+        environment: "dev",
+        trace_exporter: {
+          "otlp-http": { endpoint: `${OTLP_ENDPOINT}/v1/traces`, protocol: "json" },
+        },
+      },
+    }
+  : {};
+
 const codex = new Codex({
   apiKey: process.env.CODEX_API_KEY,
   config: {
@@ -42,6 +58,7 @@ const codex = new Codex({
       },
     },
     model_provider: "openai-no-ws",
+    ...otelConfig,
   },
 });
 

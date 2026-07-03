@@ -52,11 +52,13 @@ body { margin: 0; }
 .composer {
   display: grid; grid-template-columns: minmax(0,1fr) auto;
   gap: 10px; padding: 14px 20px;
+  align-items: end; /* 输入框是 autosize 的 textarea,变高时按钮贴底 */
   background: #18181b; border-top: 1px solid #2d2d32;
 }
 .text-input {
-  padding: 0 12px; min-height: 42px; border-radius: 7px;
+  padding: 11px 12px; min-height: 42px; border-radius: 7px;
   border: 1px solid #3a3a42; font: inherit; font-size: 14px;
+  line-height: 1.4; resize: none; box-sizing: border-box;
   background: #26262d; color: #e8e8ea; outline: none;
 }
 .text-input::placeholder { color: #6a6a7a; }

@@ -33,6 +33,7 @@ body { margin: 0; }
   max-width: 72%; border-radius: 10px;
   padding: 10px 13px; line-height: 1.55;
   font-size: 14px;
+  white-space: pre-wrap;
 }
 .user-group .msg { align-self: flex-end; }
 .assistant-group .msg { align-self: flex-start; }
@@ -63,9 +64,11 @@ body { margin: 0; }
   gap: 10px; padding: 14px 20px;
   background: #18181b; border-top: 1px solid #2d2d32;
 }
+/* ComposerPrimitive.Input 渲染的是 <textarea>,按单行输入框的观感来收 */
 .text-input {
-  padding: 0 12px; min-height: 42px; border-radius: 7px;
-  border: 1px solid #3a3a42; font: inherit; font-size: 14px;
+  padding: 11px 12px; min-height: 42px; max-height: 140px;
+  border-radius: 7px; resize: none; box-sizing: border-box;
+  border: 1px solid #3a3a42; font: inherit; font-size: 14px; line-height: 1.4;
   background: #26262d; color: #e8e8ea; outline: none;
 }
 .text-input::placeholder { color: #6a6a7a; }

@@ -1,19 +1,18 @@
 // 一个用 Claude Agent SDK(@anthropic-ai/claude-agent-sdk)搭的最小 agent 后端。
 // 独立示例项目,不 import niceeval,不是 niceeval adapter —— 详见 README.md。
 //
-// 前端复用 examples/zh/origin/ai-sdk-v7 那套 React + @ai-sdk/react useChat 界面
-// (DefaultChatTransport 发 {messages, sessionId},收 AI SDK 的 UI Message Stream
-// 协议)。真正干活的翻译在 ui-stream.ts:把 Claude Agent SDK 原生的 SDKMessage
-// 流转成 UIMessageChunk 流——这层协议是"谁都能手写"的,不需要真的经过 ai 包
-// 自己的模型抽象。
+// 通信协议就是 Claude Agent SDK 自己的原生协议:`query()` 产出的 `SDKMessage`
+// (system / assistant / user / result / stream_event)被原样序列化成 SSE 帧透传
+// 给前端,服务端不做任何协议翻译——前端(src/client/App.tsx)直接按 SDKMessage
+// 渲染,stream_event 里就是 Anthropic 的原始流事件(content_block_delta 等),
+// 逐 token 渲染也在前端做。
 //
-// 这个后端是"每轮一次 query() + resume 找回历史"的会话形态:请求体里只取
-// 最后一条用户消息的文本喂给 query(),不会把 messages[] 整个数组重放进去
-// (那是 stateless-replay 模型才需要的模式,这里不需要)。
+// 这个后端是"每轮一次 query() + resume 找回历史"的会话形态:请求体只带
+// {message, sessionId?},session_id 从消息流里自己拿(system/init 和 result
+// 消息都带),下一轮随请求带回来——服务端零会话状态(SDK 落盘在 ~/.claude)。
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { pipeUIMessageStreamToResponse } from "ai";
-import { buildUiStream } from "./ui-stream.ts";
+import { runTurn } from "./agent.ts";
 import { pendingApprovals } from "./pending-approvals.ts";
 
 const PORT = Number(process.env.PORT ?? 5189);
@@ -48,18 +47,36 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     return;
   }
 
-  // 流式聊天端点 —— 复用共享前端的 useChat + DefaultChatTransport,收
-  // {messages: UIMessage[], sessionId?}、回 AI SDK 的 UI Message Stream 协议
-  // (data: {"type":"start",...} ... data: {"type":"finish",...})。
+  // 流式聊天端点:SDKMessage 原样透传成 SSE。
   if (req.method === "POST" && req.url === "/api/chat") {
-    const body = (await readJson(req)) as { messages?: unknown[]; sessionId?: string };
-    const message = lastUserText(body.messages ?? []);
-    const signal = abortSignalFor(req);
-    pipeUIMessageStreamToResponse({
-      response: res,
-      stream: buildUiStream(message, body.sessionId, signal),
-      headers: corsHeaders(),
+    const body = (await readJson(req)) as { message?: unknown; sessionId?: unknown };
+    if (typeof body.message !== "string" || body.message.trim().length === 0) {
+      throw new Error("body.message must be a non-empty string.");
+    }
+    const sessionId = typeof body.sessionId === "string" && body.sessionId ? body.sessionId : undefined;
+
+    const turn = runTurn(body.message, sessionId);
+    // 浏览器断开(关标签/点停止)就中断这一轮,别让 claude-code 子进程白跑。
+    req.on("close", () => {
+      void turn.interrupt().catch(() => {});
     });
+
+    res.writeHead(200, {
+      ...corsHeaders(),
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-cache",
+      connection: "keep-alive",
+    });
+    const send = (frame: unknown) => res.write(`data: ${JSON.stringify(frame)}\n\n`);
+
+    try {
+      for await (const sdkMessage of turn) send(sdkMessage);
+    } catch (error) {
+      // query() 之外的失败(spawn 失败等),包一帧自定义错误(SDKMessage 的
+      // type 联合里没有 server_error,前端据此区分)。
+      send({ type: "server_error", message: error instanceof Error ? error.message : String(error) });
+    }
+    res.end();
     return;
   }
 
@@ -84,28 +101,6 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   }
 
   json(res, 404, { error: `not found: ${req.method} ${req.url}` });
-}
-
-function lastUserText(messages: unknown[]): string {
-  const last = messages[messages.length - 1] as { parts?: Array<{ type?: string; text?: string }> } | undefined;
-  const parts = last?.parts;
-  if (!Array.isArray(parts)) {
-    throw new Error("messages[] must contain at least one message with a parts array.");
-  }
-  const text = parts
-    .filter((p) => p?.type === "text" && typeof p.text === "string")
-    .map((p) => p.text)
-    .join("");
-  if (!text.trim()) {
-    throw new Error("The last message has no text content.");
-  }
-  return text;
-}
-
-function abortSignalFor(req: IncomingMessage): AbortSignal {
-  const controller = new AbortController();
-  req.on("close", () => controller.abort());
-  return controller.signal;
 }
 
 async function readJson(req: IncomingMessage): Promise<unknown> {

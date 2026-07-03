@@ -12,9 +12,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ai-sdk/react": "^4.0.5",
+    "@assistant-ui/react": "^0.14.24",
     "@openai/codex-sdk": "^0.142.5",
-    "ai": "^7.0.11",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

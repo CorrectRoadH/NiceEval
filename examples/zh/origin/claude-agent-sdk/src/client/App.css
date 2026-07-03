@@ -24,8 +24,10 @@ body { margin: 0; }
 .title { margin: 0; font-size: 17px; font-weight: 800; flex: 1; }
 
 /* ── Messages ── */
+/* ThreadPrimitive.Root 占中间一行,Viewport(.messages)在里面滚动。 */
+.thread { display: flex; flex-direction: column; min-height: 0; }
 .messages {
-  overflow: auto; padding: 20px;
+  flex: 1; overflow: auto; padding: 20px;
   display: flex; flex-direction: column; gap: 4px;
 }
 .msg-group { display: contents; }
@@ -39,6 +41,7 @@ body { margin: 0; }
 .msg.user { background: #2563eb; color: #fff; }
 .msg.assistant { background: #26262d; border: 1px solid #3a3a42; }
 .msg.typing { align-self: flex-start; color: #8a8a9a; font-style: italic; }
+.msg.reasoning { color: #8a8a9a; font-style: italic; }
 .tool-bubble {
   align-self: flex-start; background: #1e1e26; border: 1px solid #3a3a42;
   border-radius: 8px; padding: 6px 11px; font-size: 12px;
@@ -60,13 +63,15 @@ body { margin: 0; }
 /* ── Composer ── */
 .composer {
   display: grid; grid-template-columns: minmax(0,1fr) auto;
-  gap: 10px; padding: 14px 20px;
+  gap: 10px; padding: 14px 20px; align-items: end;
   background: #18181b; border-top: 1px solid #2d2d32;
 }
+/* ComposerPrimitive.Input 渲染成自动伸缩的 textarea,不是 <input>。 */
 .text-input {
-  padding: 0 12px; min-height: 42px; border-radius: 7px;
+  padding: 11px 12px; min-height: 42px; border-radius: 7px;
   border: 1px solid #3a3a42; font: inherit; font-size: 14px;
   background: #26262d; color: #e8e8ea; outline: none;
+  resize: none; max-height: 160px; box-sizing: border-box; line-height: 1.4;
 }
 .text-input::placeholder { color: #6a6a7a; }
 .text-input:focus { border-color: #5b8ff9; }
