@@ -1,0 +1,75 @@
+:root {
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
+  background: #111113;
+  color: #e8e8ea;
+  color-scheme: dark;
+}
+body { margin: 0; }
+
+.layout {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  height: 100dvh;
+}
+
+/* ── Header ── */
+.header {
+  padding: 14px 20px;
+  background: #18181b;
+  border-bottom: 1px solid #2d2d32;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.title { margin: 0; font-size: 17px; font-weight: 800; flex: 1; }
+.subtitle { margin: 0; font-size: 12px; color: #8a8a9a; }
+
+/* ── Messages ── */
+.messages {
+  overflow: auto; padding: 20px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.msg-group { display: contents; }
+.msg {
+  max-width: 72%; border-radius: 10px;
+  padding: 10px 13px; line-height: 1.55;
+  font-size: 14px;
+}
+.user-group .msg { align-self: flex-end; }
+.assistant-group .msg { align-self: flex-start; }
+.msg.user { background: #2563eb; color: #fff; }
+.msg.assistant { background: #26262d; border: 1px solid #3a3a42; }
+.msg.typing { align-self: flex-start; color: #8a8a9a; font-style: italic; }
+.tool-bubble {
+  align-self: flex-start; background: #1e1e26; border: 1px solid #3a3a42;
+  border-radius: 8px; padding: 6px 11px; font-size: 12px;
+  font-family: ui-monospace, monospace; color: #a0a0b8; max-width: 80%;
+  margin: 2px 0; white-space: pre-wrap; word-break: break-word;
+}
+.tool-bubble.error { border-color: #a13030; color: #f28b82; }
+
+/* ── Composer ── */
+.composer {
+  display: grid; grid-template-columns: minmax(0,1fr) auto;
+  gap: 10px; padding: 14px 20px;
+  align-items: end; /* 输入框是 autosize 的 textarea,变高时按钮贴底 */
+  background: #18181b; border-top: 1px solid #2d2d32;
+}
+.text-input {
+  padding: 11px 12px; min-height: 42px; border-radius: 7px;
+  border: 1px solid #3a3a42; font: inherit; font-size: 14px;
+  line-height: 1.4; resize: none; box-sizing: border-box;
+  background: #26262d; color: #e8e8ea; outline: none;
+}
+.text-input::placeholder { color: #6a6a7a; }
+.text-input:focus { border-color: #5b8ff9; }
+.send-btn {
+  min-height: 42px; padding: 0 18px; border-radius: 7px;
+  border: none; background: #2563eb; color: white;
+  font: inherit; font-weight: 700; font-size: 14px; cursor: pointer;
+  flex-shrink: 0;
+}
+.send-btn:hover { background: #1d4ed8; }
+.send-btn:disabled { opacity: .4; cursor: default; }
+.stop-btn { background: #b4453b; }
+.stop-btn:hover { background: #9e3a30; }

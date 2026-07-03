@@ -1,8 +1,0 @@
-services:
-  jaeger:
-    image: jaegertracing/all-in-one:latest
-    ports:
-      - "4318:4318" # OTLP HTTP 接收器 —— tracing.ts 的 OTEL_EXPORTER_OTLP_ENDPOINT 指这
-      - "16686:16686" # Jaeger UI，浏览器打开看 span 树
-    environment:
-      - COLLECTOR_OTLP_ENABLED=true

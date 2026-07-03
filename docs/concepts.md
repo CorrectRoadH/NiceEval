@@ -38,6 +38,8 @@
 
 **Capability** / **能力** —— Agent / Adapter / Sandbox 通过一组能力位声明自己支持什么(会话、工具调用观测、文件 diff、transcript、桌面…)。核心**按能力分发**,不按名字分支。这是 [Vision](vision.md) 的承重墙。
 
+**Integration tier** / **接入 Tier** —— 按「要不要改被测应用的内部代码」给接入方式分的两档(和下面的**模型档**是两回事,后者说的是给 agent 指定哪个模型)。**Tier 1(无侵入)**:应用代码一行不改——adapter 适配应用**现有对外接口**实现 `send`,观测数据通过 OTel(应用已埋点或可零代码开埋点)或接口返回里已有的信息拿到。买到的是观测类断言(工具调用、trace 瀑布、用量/成本)和**模型对比**类 [Experiment](#experiment)(前提是应用接口本身暴露模型选择,`model` 经 `ctx.model` 透传);观测的完整度受应用对外暴露程度限制,HITL、会话隔离、负断言这类需要协议或内部配合的不在保证内。**Tier 2(侵入)**:变更应用内部代码——把内部可变点(prompt、工具集、feature flag、中间件开关)暴露成 experiment 可选的配置(经 `flags` → `ctx.flags` 透传),或让 adapter 进程内直调内部函数。解锁的是**完整的 feature A/B test** experiment:对照的不再只是模型,而是应用内部的功能变体。两档递进不互斥:先 Tier 1 拿基线和模型对比,需要对照内部变体时再升 Tier 2。
+
 **Model tier** / **模型档** —— 给 agent 指定模型的标识(如 `opus`、`vendor/model?reasoningEffort=high`)。由 [Experiment](#experiment) 的 `model` 字段指定;省略则用 agent 原生默认,不经额外的策略层决定。
 
 ## 数据集与发现
