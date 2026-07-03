@@ -14,7 +14,7 @@ export function initAnalytics() {
   });
 }
 
-export function track(event, props) {
+export function track(event: string, props?: Record<string, unknown>) {
   if (process.env.NODE_ENV !== "production") return;
   mixpanel.track(event, props);
 }

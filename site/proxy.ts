@@ -1,17 +1,18 @@
 import { NextResponse } from "next/server";
-import { defaultLocale, locales } from "./lib/content";
+import type { NextRequest } from "next/server";
+import { defaultLocale, hasLocale, locales } from "./lib/content";
 
 const LOCALE_COOKIE = "niceeval-locale";
 
-function detectLocale(request) {
+function detectLocale(request: NextRequest) {
   const cookieLocale = request.cookies.get(LOCALE_COOKIE)?.value;
-  if (locales.includes(cookieLocale)) return cookieLocale;
+  if (cookieLocale && hasLocale(cookieLocale)) return cookieLocale;
 
   const acceptLanguage = request.headers.get("accept-language") ?? "";
   return acceptLanguage.toLowerCase().includes("zh") ? "zh" : defaultLocale;
 }
 
-export function proxy(request) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const hasLocalePrefix = locales.some(
     (locale) => pathname === `/${locale}` || pathname.startsWith(`/${locale}/`),

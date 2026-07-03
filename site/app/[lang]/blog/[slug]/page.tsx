@@ -3,11 +3,13 @@ import SiteAppClient from "../../../../components/site-app-client";
 import { getAllBlogPosts, getBlogPostBySlug } from "../../../../lib/blog";
 import { getDictionary, hasLocale, locales } from "../../../../lib/content";
 
+type BlogPostParams = Promise<{ lang: string; slug: string }>;
+
 export function generateStaticParams() {
   return locales.flatMap((lang) => getAllBlogPosts().map((post) => ({ lang, slug: post.slug })));
 }
 
-export async function generateMetadata({ params }) {
+export async function generateMetadata({ params }: { params: BlogPostParams }) {
   const { lang, slug } = await params;
   if (!hasLocale(lang)) return {};
 
@@ -23,7 +25,7 @@ export async function generateMetadata({ params }) {
   };
 }
 
-export default async function BlogPostPage({ params }) {
+export default async function BlogPostPage({ params }: { params: BlogPostParams }) {
   const { lang, slug } = await params;
   if (!hasLocale(lang)) notFound();
 

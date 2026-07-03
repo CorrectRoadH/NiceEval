@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Highlight, themes } from "prism-react-renderer";
 import {
@@ -21,19 +21,39 @@ import {
   Wrench,
 } from "lucide-react";
 import { initAnalytics, track } from "../src/analytics";
-import { evalExamples } from "../src/eval-examples";
-import { compareCard, docsUrl, fileTree, githubUrl, otherLocale, withLocale } from "../lib/content";
+import { evalExamples, type EvalExample } from "../src/eval-examples";
+import type { BlogPost, BlogPostCopy } from "../lib/blog";
+import {
+  compareCard,
+  docsUrl,
+  fileTree,
+  githubUrl,
+  otherLocale,
+  withLocale,
+  type Dictionary,
+  type FileTreeItem,
+  type Locale,
+} from "../lib/content";
 
 const LOCALE_COOKIE = "niceeval-locale";
 
-function fileIcon(item) {
+type Route = { name: "home" } | { name: "blog" } | { name: "post"; slug: string };
+type AudienceMode = "humans" | "agents";
+type MarkdownBlock =
+  | { type: "paragraph"; text: string }
+  | { type: "heading"; level: 2 | 3; text: string }
+  | { type: "quote"; text: string }
+  | { type: "list"; items: string[] }
+  | { type: "code"; text: string };
+
+function fileIcon(item: FileTreeItem) {
   if (item.kind === "folder") return <Folder size={14} />;
   if (item.path.endsWith("config.ts")) return <Wrench size={14} />;
   if (item.path.endsWith(".json")) return <Terminal size={14} />;
   return <FileCode2 size={14} />;
 }
 
-function getBlogPost(blogPosts, slug) {
+function getBlogPost(blogPosts: BlogPost[], slug: string) {
   return blogPosts.find((post) => post.slug === slug);
 }
 
@@ -43,13 +63,13 @@ const codeTheme = {
 };
 
 // route 里的相对路径,用来拼当前页在另一种语言下的对应 URL。
-function routeHref(locale, route) {
+function routeHref(locale: Locale, route: Route) {
   if (route.name === "blog") return withLocale(locale, "blog");
   if (route.name === "post") return withLocale(locale, `blog/${route.slug}`);
   return withLocale(locale);
 }
 
-function rememberLocale(locale) {
+function rememberLocale(locale: Locale) {
   try {
     document.cookie = `${LOCALE_COOKIE}=${locale}; path=/; max-age=31536000`;
   } catch {
@@ -57,7 +77,17 @@ function rememberLocale(locale) {
   }
 }
 
-export default function SiteAppClient({ lang, t, initialRoute, blogPosts }) {
+export default function SiteAppClient({
+  lang,
+  t,
+  initialRoute,
+  blogPosts,
+}: {
+  lang: Locale;
+  t: Dictionary;
+  initialRoute: Route;
+  blogPosts: BlogPost[];
+}) {
   const locale = lang;
   const route = initialRoute;
 
@@ -88,7 +118,7 @@ export default function SiteAppClient({ lang, t, initialRoute, blogPosts }) {
   );
 }
 
-function Header({ locale, t, route }) {
+function Header({ locale, t, route }: { locale: Locale; t: Dictionary; route: Route }) {
   const nextLocale = otherLocale(locale);
   const startHref = route.name === "home" ? "#setup" : `${withLocale(locale)}#setup`;
 
@@ -131,13 +161,15 @@ function Header({ locale, t, route }) {
   );
 }
 
-function Hero({ t, locale }) {
-  const [mode, setMode] = useState("humans");
+function Hero({ t, locale }: { t: Dictionary; locale: Locale }) {
+  const [mode, setMode] = useState<AudienceMode>("humans");
   const [copied, setCopied] = useState(false);
   const active = t.modes[mode];
+  const agentMode = t.modes.agents;
+  const humanMode = t.modes.humans;
   const copyCommand = async () => {
     try {
-      await navigator.clipboard?.writeText(active.command);
+      await navigator.clipboard?.writeText(agentMode.command);
     } catch {
       // Some browsers block clipboard access outside secure contexts.
     }
@@ -156,7 +188,7 @@ function Hero({ t, locale }) {
         </div>
         <h1>{t.heroTitle}</h1>
         <div className="mode-switch" aria-label="Audience">
-          {Object.entries(t.modes).map(([key, item]) => (
+          {(Object.entries(t.modes) as Array<[AudienceMode, (typeof t.modes)[AudienceMode]]>).map(([key, item]) => (
             <button
               key={key}
               type="button"
@@ -179,11 +211,11 @@ function Hero({ t, locale }) {
             onClick={() => track("Click Docs Link", { location: "hero", locale })}
           >
             <BookOpen size={16} />
-            {active.cta}
+            {humanMode.cta}
           </a>
         ) : (
           <div className="copy-row">
-            <code>{active.command}</code>
+            <code>{agentMode.command}</code>
             <button type="button" aria-label={t.copyCommand} onClick={copyCommand}>
               <Clipboard size={16} />
             </button>
@@ -216,7 +248,7 @@ function Hero({ t, locale }) {
   );
 }
 
-function BlogIndex({ t, locale, blogPosts }) {
+function BlogIndex({ t, locale, blogPosts }: { t: Dictionary; locale: Locale; blogPosts: BlogPost[] }) {
   const post = blogPosts[0];
   const postCopy = post[locale];
 
@@ -255,7 +287,17 @@ function BlogIndex({ t, locale, blogPosts }) {
   );
 }
 
-function BlogArticle({ t, locale, route, blogPosts }) {
+function BlogArticle({
+  t,
+  locale,
+  route,
+  blogPosts,
+}: {
+  t: Dictionary;
+  locale: Locale;
+  route: Extract<Route, { name: "post" }>;
+  blogPosts: BlogPost[];
+}) {
   const post = getBlogPost(blogPosts, route.slug);
 
   if (!post) {
@@ -293,7 +335,7 @@ function BlogArticle({ t, locale, route, blogPosts }) {
   );
 }
 
-function BlogBackLink({ t, locale }) {
+function BlogBackLink({ t, locale }: { t: Dictionary; locale: Locale }) {
   return (
     <Link className="back-link" href={withLocale(locale, "blog")} onClick={() => track("Back To Blog")}>
       <ArrowLeft size={15} />
@@ -302,7 +344,7 @@ function BlogBackLink({ t, locale }) {
   );
 }
 
-function PostMeta({ post, postCopy, t }) {
+function PostMeta({ post: _post, postCopy, t }: { post: BlogPost; postCopy: BlogPostCopy; t: Dictionary }) {
   return (
     <div className="post-meta">
       <span>
@@ -318,14 +360,14 @@ function PostMeta({ post, postCopy, t }) {
   );
 }
 
-function MdxBody({ source }) {
+function MdxBody({ source }: { source: string }) {
   const blocks = parseMarkdownBlocks(source);
 
   return (
     <div className="article-body">
       {blocks.map((block, index) => {
         if (block.type === "heading") {
-          const HeadingTag = `h${block.level}`;
+          const HeadingTag = `h${block.level}` as "h2" | "h3";
           return <HeadingTag key={index}>{formatInline(block.text)}</HeadingTag>;
         }
         if (block.type === "quote") {
@@ -349,12 +391,12 @@ function MdxBody({ source }) {
   );
 }
 
-function parseMarkdownBlocks(source) {
+function parseMarkdownBlocks(source: string): MarkdownBlock[] {
   const lines = source.trim().split("\n");
-  const blocks = [];
-  let paragraph = [];
-  let list = [];
-  let code = [];
+  const blocks: MarkdownBlock[] = [];
+  let paragraph: string[] = [];
+  let list: string[] = [];
+  let code: string[] = [];
   let inCode = false;
 
   const flushParagraph = () => {
@@ -394,7 +436,7 @@ function parseMarkdownBlocks(source) {
     if (heading) {
       flushParagraph();
       flushList();
-      blocks.push({ type: "heading", level: heading[1].length, text: heading[2] });
+      blocks.push({ type: "heading", level: heading[1].length as 2 | 3, text: heading[2] });
       continue;
     }
     if (line.startsWith("> ")) {
@@ -416,7 +458,7 @@ function parseMarkdownBlocks(source) {
   return blocks;
 }
 
-function formatInline(text) {
+function formatInline(text: string): ReactNode[] {
   const parts = text.split(/(`[^`]+`|\*\*[^*]+\*\*)/g).filter(Boolean);
   return parts.map((part, index) => {
     if (part.startsWith("`") && part.endsWith("`")) return <code key={index}>{part.slice(1, -1)}</code>;
@@ -425,7 +467,7 @@ function formatInline(text) {
   });
 }
 
-function ProductVisual({ mode, t }) {
+function ProductVisual({ mode, t }: { mode: AudienceMode; t: Dictionary }) {
   return (
     <div className="visual" aria-label={t.visualLabel}>
       <div className="wire a" />
@@ -482,7 +524,7 @@ function ProductVisual({ mode, t }) {
   );
 }
 
-function Strip({ t }) {
+function Strip({ t }: { t: Dictionary }) {
   return (
     <section className="strip shell" aria-label={t.workflowLabel}>
       {t.steps.map(([title, text], index) => (
@@ -492,7 +534,7 @@ function Strip({ t }) {
   );
 }
 
-function Step({ k, title, text }) {
+function Step({ k, title, text }: { k: string; title: string; text: string }) {
   return (
     <article>
       <span>{k}</span>
@@ -502,13 +544,13 @@ function Step({ k, title, text }) {
   );
 }
 
-function Setup({ t, locale }) {
+function Setup({ t, locale }: { t: Dictionary; locale: Locale }) {
   const [activeId, setActiveId] = useState(evalExamples[0].id);
   // 自动轮播:进入视口才转,悬停在卡组上暂停;用户任何点击不停止轮播,只把倒计时清零重来。
   const [resetKey, setResetKey] = useState(0);
   const [hovering, setHovering] = useState(false);
   const [inView, setInView] = useState(false);
-  const sectionRef = useRef(null);
+  const sectionRef = useRef<HTMLElement | null>(null);
   const activeIndex = evalExamples.findIndex((example) => example.id === activeId);
 
   useEffect(() => {
@@ -530,7 +572,7 @@ function Setup({ t, locale }) {
     return () => window.clearInterval(timer);
   }, [hovering, inView, resetKey]);
 
-  const activate = (id, source) => {
+  const activate = (id: string, source: "switcher" | "card") => {
     setResetKey((key) => key + 1);
     if (id === activeId) return;
     track("Switch Eval Example", { id, source, locale });
@@ -581,13 +623,27 @@ function Setup({ t, locale }) {
   );
 }
 
-function EvalCard({ t, example, locale, active, offset, onActivate }) {
-  const [openLines, setOpenLines] = useState(() => new Set());
+function EvalCard({
+  t,
+  example,
+  locale,
+  active,
+  offset,
+  onActivate,
+}: {
+  t: Dictionary;
+  example: EvalExample;
+  locale: Locale;
+  active: boolean;
+  offset: number;
+  onActivate: () => void;
+}) {
+  const [openLines, setOpenLines] = useState<Set<number>>(() => new Set());
   const [timingOpen, setTimingOpen] = useState(false);
   const card = example[locale];
   const meta = example.meta;
 
-  const toggleLine = (lineNo, noteKey) => {
+  const toggleLine = (lineNo: number, noteKey: string) => {
     setOpenLines((prev) => {
       const next = new Set(prev);
       const opening = !next.has(lineNo);
@@ -632,7 +688,7 @@ function EvalCard({ t, example, locale, active, offset, onActivate }) {
                       onClick={noteKey ? () => toggleLine(lineNo, noteKey) : undefined}
                       onKeyDown={
                         noteKey
-                          ? (event) => {
+                          ? (event: KeyboardEvent<HTMLDivElement>) => {
                               if (event.key === "Enter" || event.key === " ") {
                                 event.preventDefault();
                                 toggleLine(lineNo, noteKey);

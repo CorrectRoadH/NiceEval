@@ -3,11 +3,13 @@ import SiteAppClient from "../../../components/site-app-client";
 import { getAllBlogPosts } from "../../../lib/blog";
 import { getDictionary, hasLocale, locales } from "../../../lib/content";
 
+type LangParams = Promise<{ lang: string }>;
+
 export function generateStaticParams() {
   return locales.map((lang) => ({ lang }));
 }
 
-export async function generateMetadata({ params }) {
+export async function generateMetadata({ params }: { params: LangParams }) {
   const { lang } = await params;
   if (!hasLocale(lang)) return {};
   const t = getDictionary(lang);
@@ -17,7 +19,7 @@ export async function generateMetadata({ params }) {
   };
 }
 
-export default async function BlogIndexPage({ params }) {
+export default async function BlogIndexPage({ params }: { params: LangParams }) {
   const { lang } = await params;
   if (!hasLocale(lang)) notFound();
 

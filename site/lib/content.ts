@@ -1,16 +1,17 @@
-export const locales = ["en", "zh"];
-export const defaultLocale = "en";
+export const locales = ["en", "zh"] as const;
+export type Locale = (typeof locales)[number];
+export const defaultLocale: Locale = "en";
 
-export function hasLocale(locale) {
-  return locales.includes(locale);
+export function hasLocale(locale: string): locale is Locale {
+  return (locales as readonly string[]).includes(locale);
 }
 
-export function otherLocale(locale) {
+export function otherLocale(locale: Locale): Locale {
   return locale === "en" ? "zh" : "en";
 }
 
 // 拼语言前缀路径:withLocale("en") -> "/en", withLocale("en", "blog/foo") -> "/en/blog/foo"
-export function withLocale(locale, path = "") {
+export function withLocale(locale: Locale, path = "") {
   return path ? `/${locale}/${path}` : `/${locale}`;
 }
 
@@ -18,7 +19,7 @@ export const githubUrl = "https://github.com/CorrectRoadH/niceeval";
 export const blogSegment = "blog";
 
 // 文档站按语言分入口:en 是默认语言走根路径,zh 走 /zh 前缀。
-export const docsUrl = {
+export const docsUrl: Record<Locale, string> = {
   en: "https://niceeval.com/docs/quickstart",
   zh: "https://niceeval.com/docs/zh/quickstart",
 };
@@ -26,7 +27,14 @@ export const docsUrl = {
 export const initPrompt =
   "READ https://raw.githubusercontent.com/CorrectRoadH/niceeval/refs/heads/main/INIT.md and install niceeval for this repo.";
 
-export const fileTree = {
+export type FileTreeItem = {
+  path: string;
+  depth: number;
+  kind: "file" | "folder";
+  note?: "adapter" | "config";
+};
+
+export const fileTree: Record<"humans" | "agents", FileTreeItem[]> = {
   humans: [
     { path: "agents/web-agent.ts", depth: 0, kind: "file", note: "adapter" },
     { path: "evals/", depth: 0, kind: "folder" },
@@ -157,8 +165,10 @@ export const copy = {
       notFound: "没有找到这篇文章",
     },
   },
-};
+} as const;
 
-export function getDictionary(locale) {
+export type Dictionary = (typeof copy)[Locale];
+
+export function getDictionary(locale: Locale) {
   return copy[hasLocale(locale) ? locale : defaultLocale];
 }

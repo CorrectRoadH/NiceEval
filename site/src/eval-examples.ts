@@ -4,6 +4,27 @@
 // 三种可点开的行：replyKeys 里的 key 是发送的消息(点开看模拟回复)，其余是断言(点开看解释)。
 // 新增示例只需要在这里加一个对象，组件与 i18n copy 不用动。
 
+export type EvalExampleLocale = {
+  label: string;
+  tag: string;
+  lines: string[];
+  notes: Record<string, string>;
+  timingRows: Array<{ label: string; value: string }>;
+  timingTotal: string;
+};
+
+export type EvalExample = {
+  id: string;
+  meta: {
+    gateBadge: string;
+    gateLine: number;
+    highlights: Record<number, string>;
+    replyKeys: string[];
+  };
+  en: EvalExampleLocale;
+  zh: EvalExampleLocale;
+};
+
 const multiTurnImage = {
   id: "multi-turn-image",
   // 改编自 examples/zh/ai-sdk/evals/multi-turn-image.eval.ts
@@ -326,4 +347,4 @@ const sandboxArtifact = {
   },
 };
 
-export const evalExamples = [multiTurnImage, weatherTool, sandboxArtifact];
+export const evalExamples: EvalExample[] = [multiTurnImage, weatherTool, sandboxArtifact];
