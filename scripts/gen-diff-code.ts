@@ -42,55 +42,36 @@ interface DiffPair {
 
 const PAIRS: DiffPair[] = [
   {
-    source: "examples/zh/origin/ai-sdk-v7",
-    target: "examples/zh/eval/ai-sdk-v7",
-    out: "docs-site/zh/example/ai-sdk-v7-before-after.mdx",
+    source: "examples/zh/origin/pi-sdk",
+    target: "examples/zh/tier1/pi-sdk",
+    out: "docs-site/zh/example/tier1-pi-sdk.mdx",
     frontmatter: {
-      title: "ai-sdk 如何接入 NiceEval",
-      sidebarTitle: "ai-sdk 如何接入 NiceEval",
+      title: "pi-agent-core 如何非侵入式接入 NiceEval",
+      sidebarTitle: "pi-agent-core 如何接入",
       description:
-        "同一个 AI SDK v7 助手，接入 NiceEval 前后的完整代码 diff：加了哪些文件，原有代码动了多少。",
+        "一个 pi-agent-core(@earendil-works)助手后端，接入 NiceEval 前后的完整代码 diff：应用侧只加了一个 devDependency。",
     },
     intro: [
       "对比对象：",
       "",
-      "- **before**：[`examples/zh/origin/ai-sdk-v7/`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/origin/ai-sdk-v7) —— 一个普通的 AI SDK v7 聊天应用（HTTP 服务器 + React 聊天 UI），还没接任何 eval。",
-      "- **after**：[`examples/zh/eval/ai-sdk-v7/`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/eval/ai-sdk-v7) —— 同一个应用接入 NiceEval 之后的样子。",
+      "- **before**：[https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/origin/pi-sdk](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/origin/pi-sdk) —— 独立的 `@earendil-works/pi-agent-core` HTTP 服务，还没接任何 eval。",
+      "- **after**：[https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/tier1/pi-sdk](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/tier1/pi-sdk) —— 同一个应用接入 NiceEval 之后的样子。",
       "",
-      "先看文件树了解改动范围，再分两部分读 diff：应用侧改了什么",
-      "（`src/backend/ai-sdk-runtime.ts` 把 `streamChat` 里的 streamText 调用拆成独立的 `chat()`",
-      "——唯一的模型调用点，只是多收一个可选 opts 透传取消信号和 telemetry，UI 和",
-      "eval 跑的是同一次调用；`src/backend/tools.ts` 多一个 `send_email` 工具用来演示",
-      "tool approval + HITL，两者都不 import 任何 niceeval 的东西），以及 eval",
-      "侧整体新增了什么（config、evals、experiments，`aiSdkAgent` 接线也在这里）。",
+      "**接入方式**：手写事件映射（pi-agent-core 没有官方 OTel 集成）——`agents/pi-sdk.ts`",
+      "把应用原生的 `AgentEvent` SSE 流翻成标准事件流，`calculate` 工具走 HITL 审批；",
+      "`agents/server-lifecycle.ts` 按需拉起应用子进程。应用侧 `src/backend/*` 逐字节未变。",
     ].join("\n"),
-    order: [
-      "src/backend/ai-sdk-runtime.ts",
-      "src/backend/tools.ts",
-      "src/",
-      "package.json",
-      "tsconfig.json",
-      "pnpm-workspace.yaml",
-      "niceeval.config.ts",
-      "evals/",
-      "experiments/",
-    ],
+    order: ["package.json", "tsconfig.json", "pnpm-workspace.yaml", "niceeval.config.ts", "agents/", "evals/", "experiments/"],
     sections: [
-      {
-        title: "应用侧的变更",
-        files: ["src/", "package.json", "tsconfig.json", "pnpm-workspace.yaml"],
-      },
-      {
-        title: "新增的 evals 与 experiments",
-        files: ["niceeval.config.ts", "evals/", "experiments/"],
-      },
+      { title: "应用侧的变更(只有依赖声明)", files: ["package.json", "tsconfig.json", "pnpm-workspace.yaml"] },
+      { title: "新增的 adapter、evals 与 experiments", files: ["niceeval.config.ts", "agents/", "evals/", "experiments/"] },
     ],
     exclude: ["README.md", ".env.example"],
   },
   {
     source: "examples/zh/origin/claude-sdk",
-    target: "examples/zh/eval/claude-sdk",
-    out: "docs-site/zh/example/claude-sdk-before-after.mdx",
+    target: "examples/zh/tier1/claude-sdk",
+    out: "docs-site/zh/example/tier1-claude-sdk.mdx",
     frontmatter: {
       title: "Claude Agent SDK 如何非侵入式接入 NiceEval",
       sidebarTitle: "Claude Agent SDK 如何接入",
@@ -100,13 +81,12 @@ const PAIRS: DiffPair[] = [
     intro: [
       "对比对象：",
       "",
-      "- **before**：[`examples/zh/origin/claude-sdk/`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/origin/claude-sdk) —— 一个独立的 `@anthropic-ai/claude-agent-sdk` HTTP 服务（`src/backend/server.ts`/`src/backend/agent.ts`/`src/backend/tools.ts`），还没接任何 eval。",
-      "- **after**：[`examples/zh/eval/claude-sdk/`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/eval/claude-sdk) —— 同一个应用接入 NiceEval 之后的样子。",
+      "- **before**：[https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/origin/claude-sdk](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/origin/claude-sdk) —— 独立的 `@anthropic-ai/claude-agent-sdk` HTTP 服务，还没接任何 eval。",
+      "- **after**：[https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/tier1/claude-sdk](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/tier1/claude-sdk) —— 同一个应用接入 NiceEval 之后的样子。",
       "",
-      "这份 diff 的看点是：应用侧的 `src/backend/server.ts`/`src/backend/agent.ts`/`src/backend/tools.ts` **逐字节未变**——`agents/claude-sdk.ts`",
-      "把应用当黑盒，按需拉起它的 `server.ts` 子进程、轮询 `/healthz`，再用一次 `fetch`",
-      "调 `POST /api/chat`，把 `{reply, toolCalls}` 映射成标准事件流。package.json /",
-      "pnpm-workspace.yaml 只加了 niceeval 这一个 devDependency，没有别的改动。",
+      "**接入方式**：手写事件映射（Claude Agent SDK 的原生遥测只有 metrics+logs，没有可消费的",
+      "trace spans）——`agents/claude-sdk.ts` 把应用原生的 `SDKMessage` 流翻成标准事件流，",
+      "`calculate` 工具经官方 `canUseTool` 回调走 HITL 审批。应用侧 `src/backend/*` 逐字节未变。",
     ].join("\n"),
     order: ["package.json", "tsconfig.json", "pnpm-workspace.yaml", "niceeval.config.ts", "agents/", "evals/", "experiments/"],
     sections: [
@@ -117,8 +97,8 @@ const PAIRS: DiffPair[] = [
   },
   {
     source: "examples/zh/origin/codex-sdk",
-    target: "examples/zh/eval/codex-sdk",
-    out: "docs-site/zh/example/codex-sdk-before-after.mdx",
+    target: "examples/zh/tier1/codex-sdk",
+    out: "docs-site/zh/example/tier1-codex-sdk.mdx",
     frontmatter: {
       title: "Codex SDK 如何非侵入式接入 NiceEval",
       sidebarTitle: "Codex SDK 如何接入",
@@ -128,44 +108,82 @@ const PAIRS: DiffPair[] = [
     intro: [
       "对比对象：",
       "",
-      "- **before**：[`examples/zh/origin/codex-sdk/`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/origin/codex-sdk) —— 一个独立的 `@openai/codex-sdk` HTTP 服务，还没接任何 eval。",
-      "- **after**：[`examples/zh/eval/codex-sdk/`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/eval/codex-sdk) —— 同一个应用接入 NiceEval 之后的样子。",
+      "- **before**：[https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/origin/codex-sdk](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/origin/codex-sdk) —— 独立的 `@openai/codex-sdk` HTTP 服务，还没接任何 eval。",
+      "- **after**：[https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/tier1/codex-sdk](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/tier1/codex-sdk) —— 同一个应用接入 NiceEval 之后的样子。",
       "",
-      "`src/backend/server.ts`/`src/backend/agent.ts` 逐字节未变。`agents/codex-sdk.ts` 拉起同一个子进程、调",
-      "`POST /api/chat`，把 Codex 自己的动作分类（`command_execution` / `file_change` /",
-      "`mcp_tool_call` / ...）映射成标准事件流；`error` 类型映射成 `StreamEvent` 的",
-      "`error`，不算进失败的工具调用。eval 测的是真实的“在目录里写文件、跑命令”，不是",
-      "硬凑的天气/计算器工具。",
+      "**接入方式**：手写事件映射 + 官方 OTel——`agents/codex-sdk.ts` 把应用原生的 `ThreadEvent`",
+      "流翻成标准事件流；tracing 用 codex CLI 原生的 otel 配置段接瀑布图。没有 HITL（Codex SDK",
+      "不支持）。eval 测的是真实编码任务（在工作目录里写文件、跑命令）。应用侧 `src/backend/*`",
+      "逐字节未变。",
     ].join("\n"),
     order: ["package.json", "tsconfig.json", "pnpm-workspace.yaml", "niceeval.config.ts", "agents/", "evals/", "experiments/"],
     sections: [
       { title: "应用侧的变更(只有依赖声明)", files: ["package.json", "tsconfig.json", "pnpm-workspace.yaml"] },
       { title: "新增的 adapter、evals 与 experiments", files: ["niceeval.config.ts", "agents/", "evals/", "experiments/"] },
     ],
-    exclude: ["README.md", ".env.example"],
+    // workspace/ 是 Codex 落地编辑结果的 scratch 目录(已 gitignore),eval 一跑就会留下
+    // 新文件;不排除的话运行残留会混进"应用侧一行没改"的 diff 页
+    exclude: ["README.md", ".env.example", "workspace"],
   },
   {
     source: "examples/zh/origin/langgraph",
-    target: "examples/zh/eval/langgraph",
-    out: "docs-site/zh/example/langgraph-before-after.mdx",
+    target: "examples/zh/tier1/langgraph",
+    out: "docs-site/zh/example/tier1-langgraph.mdx",
     frontmatter: {
-      title: "LangGraph ReAct agent 如何非侵入式接入 NiceEval",
+      title: "LangGraph 如何非侵入式接入 NiceEval",
       sidebarTitle: "LangGraph 如何接入",
       description:
-        "一个 LangGraph createReactAgent + LangSmith OTel 导出的应用，接入 NiceEval 前后的完整代码 diff。",
+        "一个纯 Python LangGraph + LangSmith OTel 导出的应用，接入 NiceEval 前后的完整代码 diff。",
     },
     intro: [
       "对比对象：",
       "",
-      "- **before**：[`examples/zh/origin/langgraph/`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/origin/langgraph) —— 一个 `@langchain/langgraph` ReAct agent 服务，还没接任何 eval。",
-      "- **after**：[`examples/zh/eval/langgraph/`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/eval/langgraph) —— 同一个应用接入 NiceEval 之后的样子。",
+      "- **before**：[`examples/zh/origin/langgraph/`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/origin/langgraph) —— 一个纯 Python 的 `create_agent`（LangChain 1.x，内部是编译好的 LangGraph 图）服务，还没接任何 eval。",
+      "- **after**：[`examples/zh/tier1/langgraph/`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/tier1/langgraph) —— 同一个应用接入 NiceEval 之后的样子。",
       "",
-      "`server.ts`/`observability.ts`/`agent/` 逐字节未变。`agents/langgraph.ts` 需要",
-      "自己生成 `sessionId`（`ctx.session.id ??= crypto.randomUUID()`）——应用把没带",
-      "`sessionId` 的请求都归到同一个 `\"default\"` LangGraph `thread_id`，不生成就会让",
-      "所有并行 eval 撞进同一条对话历史。`evals/session-isolation.eval.ts` 顺带验证了",
-      "这一点：`MemorySaver` 按整条 checkpointer 历史吐 `toolCalls`，同一 session 内的",
-      "第 N 轮能看到第 1..N 轮的全部调用，只有新开的 session 才是干净的。",
+      "`src/backend/*.py` **逐字节未变**——被测应用是 Python，niceeval 的 adapter/eval/experiment",
+      "代码是另起的一个独立 TS 项目（`package.json`/`tsconfig.json`/`pnpm-workspace.yaml`",
+      "都是全新文件，origin 侧本来就没有）。事件来源是",
+      "`events: otelEvents({ dialects: [otel.langsmith] })`——LangSmith OTel 导出的 span 派生",
+      "`action.called`/`action.result`/usage，但实测这个方言解析不了 LangChain `ChatOpenAI`",
+      "实际吐的 `gen_ai.completion` 形状，`message` 事件要 adapter 自己从 `text-delta` 帧",
+      "累积补上；`calculate`（gated）的审批-拒绝分支也没有对应 span（从来没真的执行），同样",
+      "要手动补一对 `action.called`/`action.result`。两处 gap 都记进了",
+      "`memory/langsmith-dialect-langchain-completion-shape-gap.md`。",
+    ].join("\n"),
+    order: ["package.json", "tsconfig.json", "pnpm-workspace.yaml", "niceeval.config.ts", "agents/", "evals/", "experiments/"],
+    sections: [
+      { title: "新增的 TS 侧脚手架(应用本身零改动)", files: ["package.json", "tsconfig.json", "pnpm-workspace.yaml"] },
+      { title: "新增的 adapter、evals 与 experiments", files: ["niceeval.config.ts", "agents/", "evals/", "experiments/"] },
+    ],
+    exclude: ["README.md", ".env.example"],
+  },
+  {
+    source: "examples/zh/origin/ai-sdk-v7",
+    target: "examples/zh/tier1/ai-sdk-v7",
+    out: "docs-site/zh/example/tier1-ai-sdk-v7.mdx",
+    frontmatter: {
+      title: "AI SDK v7 如何非侵入式接入 NiceEval",
+      sidebarTitle: "AI SDK v7 如何接入",
+      description:
+        "一个 AI SDK v7 聊天应用，对着它的 HTTP 接口黑盒接入 NiceEval 前后的完整代码 diff：应用侧一行没改。",
+    },
+    intro: [
+      "对比对象：",
+      "",
+      "- **before**：[`examples/zh/origin/ai-sdk-v7/`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/origin/ai-sdk-v7) —— 一个普通的 AI SDK v7 聊天应用（HTTP 服务器 + React 聊天 UI），还没接任何 eval。",
+      "- **after**：[`examples/zh/tier1/ai-sdk-v7/`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/tier1/ai-sdk-v7) —— 同一个应用接入 NiceEval 之后的样子。",
+      "",
+      "应用侧 `src/backend/*` **逐字节未变**。这是五个 Tier 1 示例里唯一\"客户端带全量历史\"的",
+      "会话形态——服务端零状态，`agents/ai-sdk-v7.ts` 自己维护",
+      "`Map<sessionId, UIMessage[]>`，每轮把完整历史重放。事件来源是",
+      "`events: otelEvents({ dialects: [otel.genAi] })`——应用用官方 `@ai-sdk/otel` 集成，",
+      "`get_weather` 这类工具的事件/usage/瀑布图全从 span 派生；但 `calculate`",
+      "（`needsApproval: true`）经审批恢复执行那条路径，span 派生不出结果（没有",
+      "`execute_tool` 类型 span），只能靠 adapter 手动补——deny 的调用甚至连 SSE 帧都没有，",
+      "两个 gap 都记进了 `memory/ai-sdk-otel-needsapproval-no-execute-tool-span.md`。",
+      "**没有 approve 端点**：审批的决定是把停在 `approval-requested` 状态的那个消息 part",
+      "原地改成 `approval-responded`，原样重发整个 `messages` 数组触发服务端续跑。",
     ].join("\n"),
     order: ["package.json", "tsconfig.json", "pnpm-workspace.yaml", "niceeval.config.ts", "agents/", "evals/", "experiments/"],
     sections: [
@@ -175,10 +193,8 @@ const PAIRS: DiffPair[] = [
     exclude: ["README.md", ".env.example"],
   },
   // openllmetry / openinference 的 before-after 配置连同两个示例目录一起移除了
-  // (2026-07,待 langgraph 那批做完后重做,见 examples/README.md)。
-  // custom-genai 的 before-after 配置也移除了:origin/custom-genai 已改名/重写为
-  // origin/pi-sdk(真实 pi agent demo,不再手写 OTel 埋点),跟 eval/custom-genai 已经
-  // 不是同一个应用,"逐字节未变"的前提不再成立(2026-07)。
+  // (2026-07,待 langgraph 那批做完后重做,见 examples/README.md)。2026-07 langgraph 那批
+  // 已做完(examples/zh/tier1/*),上面五个配置已按 docs/origin-integration.md 重做。
 ];
 
 // 与学习无关的目录/文件，不进 diff
@@ -361,7 +377,14 @@ function renderTree(entries: Array<{ file: string; status: Status }>, rootLabel:
 
 // ---- GitHub PR 式 diff 表格 ----
 
-async function renderFileDiff(pair: DiffPair, file: string, status: Status): Promise<string[]> {
+interface FileDiff {
+  html: string[];
+  /** 变更行数（二进制文件计 0），供页面开头的自动统计用 */
+  adds: number;
+  dels: number;
+}
+
+async function renderFileDiff(pair: DiffPair, file: string, status: Status): Promise<FileDiff> {
   const before = status === "新增" ? Buffer.alloc(0) : readFileSync(join(ROOT, pair.source, file));
   const after = status === "删除" ? Buffer.alloc(0) : readFileSync(join(ROOT, pair.target, file));
 
@@ -371,12 +394,16 @@ async function renderFileDiff(pair: DiffPair, file: string, status: Status): Pro
 
   if (isBinary(before) || isBinary(after)) {
     const size = status === "删除" ? before.length : after.length;
-    return [
-      `<div className="gd-file">`,
-      head(`<span className="gd-stats">${jsxText("BIN")}</span>`),
-      `<div className="gd-note">${jsxText(`二进制文件，${size} bytes，略`)}</div>`,
-      `</div>`,
-    ];
+    return {
+      html: [
+        `<div className="gd-file">`,
+        head(`<span className="gd-stats">${jsxText("BIN")}</span>`),
+        `<div className="gd-note">${jsxText(`二进制文件，${size} bytes，略`)}</div>`,
+        `</div>`,
+      ],
+      adds: 0,
+      dels: 0,
+    };
   }
 
   const lang = shikiLang(file);
@@ -455,16 +482,20 @@ async function renderFileDiff(pair: DiffPair, file: string, status: Status): Pro
     for (; k < j; k++) pushRow(ops[k], `gd-fold ${id}`);
   }
 
-  return [
-    `<div className="gd-file">`,
-    head(stats),
-    `<div className="gd-body">`,
-    // table 内部不能出现空白文本节点（React 对 <tbody> 里的文本会 hydration 失败、
-    // 整块丢弃），所以所有行拼成一行、标签间零空白
-    `<table className="gd-table"><tbody>${rows.join("")}</tbody></table>`,
-    `</div>`,
-    `</div>`,
-  ];
+  return {
+    html: [
+      `<div className="gd-file">`,
+      head(stats),
+      `<div className="gd-body">`,
+      // table 内部不能出现空白文本节点（React 对 <tbody> 里的文本会 hydration 失败、
+      // 整块丢弃），所以所有行拼成一行、标签间零空白
+      `<table className="gd-table"><tbody>${rows.join("")}</tbody></table>`,
+      `</div>`,
+      `</div>`,
+    ],
+    adds,
+    dels,
+  };
 }
 
 // ---- MDX 生成 ----
@@ -486,6 +517,9 @@ async function generate(pair: DiffPair): Promise<void> {
   }
   entries.sort((a, b) => rank(a.file, pair.order) - rank(b.file, pair.order) || a.file.localeCompare(b.file));
 
+  const rendered: Array<{ file: string; status: Status; diff: FileDiff }> = [];
+  for (const e of entries) rendered.push({ ...e, diff: await renderFileDiff(pair, e.file, e.status) });
+
   const lines: string[] = [];
   lines.push("---");
   lines.push(`title: "${pair.frontmatter.title}"`);
@@ -496,6 +530,25 @@ async function generate(pair: DiffPair): Promise<void> {
   lines.push(`{/* 本文件由 scripts/gen-diff-code.ts 生成（pnpm run gen:diff-code），不要手工编辑 */}`);
   lines.push("");
   lines.push(pair.intro);
+  lines.push("");
+
+  // 变更行数从两个目录的实际 diff 统计，不是手写数字
+  const stat = (st: Status) => {
+    const rs = rendered.filter((r) => r.status === st);
+    return {
+      n: rs.length,
+      adds: rs.reduce((a, r) => a + r.diff.adds, 0),
+      dels: rs.reduce((a, r) => a + r.diff.dels, 0),
+    };
+  };
+  const added = stat("新增");
+  const modified = stat("修改");
+  const deleted = stat("删除");
+  const statParts: string[] = [];
+  if (added.n) statParts.push(`新增 **${added.n}** 个文件（**+${added.adds}** 行）`);
+  if (modified.n) statParts.push(`修改 **${modified.n}** 个文件（**+${modified.adds} −${modified.dels}** 行）`);
+  if (deleted.n) statParts.push(`删除 **${deleted.n}** 个文件（**−${deleted.dels}** 行）`);
+  lines.push(`接入的全部代码变更（生成时从两个目录实测统计）：${statParts.join("，")}。`);
   lines.push("");
 
   lines.push("## 文件清单");
@@ -511,12 +564,12 @@ async function generate(pair: DiffPair): Promise<void> {
   };
 
   for (let si = 0; si < pair.sections.length; si++) {
-    const sectionEntries = entries.filter((e) => sectionOf(e.file) === si);
+    const sectionEntries = rendered.filter((e) => sectionOf(e.file) === si);
     if (sectionEntries.length === 0) continue;
     lines.push(`## ${pair.sections[si].title}`);
     lines.push("");
-    for (const { file, status } of sectionEntries) {
-      lines.push(...(await renderFileDiff(pair, file, status)));
+    for (const { diff } of sectionEntries) {
+      lines.push(...diff.html);
       lines.push("");
     }
   }

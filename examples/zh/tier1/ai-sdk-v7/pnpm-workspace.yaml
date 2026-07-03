@@ -7,5 +7,7 @@ minimumReleaseAgeExclude:
   - '@ai-sdk/react@4.0.5'
   - '@ai-sdk/provider-utils@5.0.3'
   - ai@7.0.11
+  - niceeval@0.1.1
 overrides:
   ai: 7.0.11
+  niceeval: link:../../../..

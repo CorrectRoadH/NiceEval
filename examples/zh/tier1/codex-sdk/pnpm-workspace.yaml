@@ -4,3 +4,7 @@
 packages: []
 allowBuilds:
   esbuild: true
+overrides:
+  niceeval: link:../../../..
+minimumReleaseAgeExclude:
+  - niceeval@0.1.1

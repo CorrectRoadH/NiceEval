@@ -9,6 +9,7 @@
     "dev:web": "wait-on -t 30000 tcp:127.0.0.1:5199 && vite",
     "build": "vite build",
     "start": "node --env-file .env --import tsx/esm src/backend/server.ts",
+    "eval": "niceeval",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -23,6 +24,7 @@
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^5.0.0",
     "concurrently": "^9.0.0",
+    "niceeval": "file:../../../..",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vite": "^7.0.0",

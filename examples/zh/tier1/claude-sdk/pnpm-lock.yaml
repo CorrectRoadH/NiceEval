@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  niceeval: link:../../../..
+
 importers:
 
   .:
@@ -39,6 +42,9 @@ importers:
       concurrently:
         specifier: ^9.0.0
         version: 9.2.3
+      niceeval:
+        specifier: link:../../../..
+        version: link:../../../..
       tsx:
         specifier: ^4.19.2
         version: 4.22.4
