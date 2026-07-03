@@ -26,7 +26,7 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(port, "127.0.0.1", () => {
-  process.stdout.write(`custom-genai example listening on http://127.0.0.1:${port}\n`);
+  process.stdout.write(`pi-sdk example listening on http://127.0.0.1:${port}\n`);
 });
 
 function shutdown(): void {

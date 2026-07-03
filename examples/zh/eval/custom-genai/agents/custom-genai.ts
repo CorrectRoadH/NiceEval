@@ -1,10 +1,12 @@
 // niceeval 侧的适配器 —— 应用代码(server.ts / agent.ts / tools.ts / tracing.ts)完全不知道
 // niceeval 的存在,这里是唯一接线的地方。
 //
-// 被测应用是 examples/zh/origin/custom-genai 的原样拷贝:node:http 服务 + 手写 tool-calling
-// 循环,单轮(server.ts 里 POST /api/chat 只把 body.message 传给 runAgent,body.sessionId 读
-// 出来但从未被使用 —— 所以这里不声明 capabilities.conversation,免得 t.reply / t.newSession
-// 这类断言看起来能用、实际上每次都是全新会话,负断言会不可信)。
+// 被测应用是本目录自带的 node:http 服务 + 手写 tool-calling 循环,单轮(server.ts 里
+// POST /api/chat 只把 body.message 传给 runAgent,body.sessionId 读出来但从未被使用 ——
+// 所以这里不声明 capabilities.conversation,免得 t.reply / t.newSession 这类断言看起来
+// 能用、实际上每次都是全新会话,负断言会不可信)。
+// 注:这个应用原本对应 examples/zh/origin/custom-genai,那个目录已改名/重写为
+// examples/zh/origin/pi-sdk,不再是这里的 before 基线,配对待重做。
 //
 // send() 里把服务当子进程起来(懒启动、只起一次、跨 eval 复用同一个实例),再对
 // POST /api/chat 发 fetch,把 { reply, toolCalls } 映射成标准 StreamEvent[]。

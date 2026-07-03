@@ -1,13 +1,16 @@
 # custom-genai(自己埋 GenAI 语义约定)× niceeval
 
-这个例子在 [`examples/zh/origin/custom-genai`](../../origin/custom-genai/) 的基础上接入
-niceeval:那边是一个不用任何 vendor SDK(没有 `@ai-sdk/otel`、`@traceloop/node-server-sdk`、
+> **配对已过期**:这个例子原本在 `examples/zh/origin/custom-genai` 的基础上接入
+> niceeval,应用代码逐字节相同。那个目录后来已经改名/重写为
+> [`examples/zh/origin/pi-sdk`](../../origin/pi-sdk/)(真实 pi agent demo,不再手写
+> OTel 埋点),不再是这个例子的 before 基线——下面这段描述保留的是这个目录**自己**
+> 的应用代码(仍是手写 OTel 埋点),但它已经不对应任何 `zh/origin/` 下的 before 目录,
+> 这组 before/after 配对待重做(同 `langgraph` 那批,见 `examples/README.md`)。
+
+这个目录自己是一个不用任何 vendor SDK(没有 `@ai-sdk/otel`、`@traceloop/node-server-sdk`、
 OpenInference)、直接用 `@opentelemetry/api` 手写 span、按
 [OTel GenAI 语义约定](https://opentelemetry.io/docs/specs/semconv/gen-ai/)打属性的最小聊天
-app;这边只加 niceeval 的接线,应用代码(`server.ts` / `agent.ts` / `tools.ts` / `tracing.ts`)
-逐字节相同——能不能接 eval 跟这些代码没关系。
-
-niceeval 只出现在新增的几个文件里:
+app,接了 niceeval 的接线。niceeval 只出现在新增的几个文件里:
 
 - `agents/custom-genai.ts`——适配器。`send()` 把 `server.ts` 当子进程懒启动(第一次 send
   才 spawn,起来后跨 eval 复用同一个实例),对 `POST /api/chat` 发 `fetch`,把

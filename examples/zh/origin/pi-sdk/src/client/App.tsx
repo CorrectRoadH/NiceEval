@@ -48,7 +48,7 @@ function App() {
   return (
     <main className="layout">
       <header className="header">
-        <h1 className="title">custom-genai · pi agent</h1>
+        <h1 className="title">pi-sdk example</h1>
       </header>
 
       <section className="messages">

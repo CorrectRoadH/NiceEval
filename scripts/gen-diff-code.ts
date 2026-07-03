@@ -145,36 +145,6 @@ const PAIRS: DiffPair[] = [
     exclude: ["README.md", ".env.example"],
   },
   {
-    source: "examples/zh/origin/custom-genai",
-    target: "examples/zh/eval/custom-genai",
-    out: "docs-site/zh/example/custom-genai-before-after.mdx",
-    frontmatter: {
-      title: "手写 GenAI 埋点应用如何非侵入式接入 NiceEval",
-      sidebarTitle: "手写 OTel 埋点如何接入",
-      description:
-        "一个不用 vendor SDK、手写 OTel GenAI 语义约定埋点的聊天服务，接入 NiceEval 前后的完整代码 diff。",
-    },
-    intro: [
-      "对比对象：",
-      "",
-      "- **before**：[`examples/zh/origin/custom-genai/`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/origin/custom-genai) —— 手写工具调用循环 + 手写 `@opentelemetry/api` GenAI 语义约定埋点，还没接任何 eval。",
-      "- **after**：[`examples/zh/eval/custom-genai/`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/eval/custom-genai) —— 同一个应用接入 NiceEval 之后的样子。",
-      "",
-      "`server.ts`/`agent.ts`/`tools.ts`/`tracing.ts` 逐字节未变——这个应用自己的 OTel",
-      "span（`traceChatCall`/`traceToolCall`）继续按原样发往它自己配置的后端，和",
-      "NiceEval 完全无关。`agents/custom-genai.ts` 只是把 `POST /api/chat` 的",
-      "`{reply, toolCalls}` 响应体翻译成标准事件流。这个应用是单轮的（`sessionId` 没有",
-      "真的接进对话状态），所以 adapter 只声明 `toolObservability`，不声明",
-      "`conversation`——多声明会让负断言看起来可信但其实没有反映真实能力。",
-    ].join("\n"),
-    order: ["package.json", "tsconfig.json", "pnpm-workspace.yaml", "niceeval.config.ts", "agents/", "evals/", "experiments/"],
-    sections: [
-      { title: "应用侧的变更(只有依赖声明)", files: ["package.json", "tsconfig.json", "pnpm-workspace.yaml"] },
-      { title: "新增的 adapter、evals 与 experiments", files: ["niceeval.config.ts", "agents/", "evals/", "experiments/"] },
-    ],
-    exclude: ["README.md", ".env.example"],
-  },
-  {
     source: "examples/zh/origin/langgraph",
     target: "examples/zh/eval/langgraph",
     out: "docs-site/zh/example/langgraph-before-after.mdx",
@@ -206,6 +176,9 @@ const PAIRS: DiffPair[] = [
   },
   // openllmetry / openinference 的 before-after 配置连同两个示例目录一起移除了
   // (2026-07,待 langgraph 那批做完后重做,见 examples/README.md)。
+  // custom-genai 的 before-after 配置也移除了:origin/custom-genai 已改名/重写为
+  // origin/pi-sdk(真实 pi agent demo,不再手写 OTel 埋点),跟 eval/custom-genai 已经
+  // 不是同一个应用,"逐字节未变"的前提不再成立(2026-07)。
 ];
 
 // 与学习无关的目录/文件，不进 diff

@@ -1,4 +1,4 @@
-# custom-genai example
+# pi-sdk example
 
 演示怎么用 **pi SDK**(`@earendil-works/pi-agent-core` + `@earendil-works/pi-ai`，
 https://github.com/earendil-works/pi)搭一个真实的 tool-calling agent 后端，接一个
@@ -94,7 +94,7 @@ pi 驱动，所以用 `createUIMessageStream({ execute })` 手写翻译，而不
 这个目录是一个**独立项目**(自带 `package.json`，不是仓库根 workspace 成员)。
 
 ```sh
-cd examples/zh/origin/custom-genai
+cd examples/zh/origin/pi-sdk
 pnpm install
 cp .env.example .env
 # 编辑 .env: DEEPSEEK_API_KEY=sk-...(可选 AGENT_MODEL,默认 deepseek-v4-flash)
