@@ -63,6 +63,9 @@ export default function SiteAppClient({ lang, t, initialRoute, blogPosts }) {
 
   useEffect(() => {
     initAnalytics();
+    if (process.env.NODE_ENV === "development") {
+      import("react-grab");
+    }
   }, []);
 
   return (
