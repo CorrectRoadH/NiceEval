@@ -1,125 +1,49 @@
-# Capabilities by Construction —— 设计提案(未实现):能力由实现证明,声明只留给证明不了的
+# Capabilities by Construction —— 能力由构造证明,不再有声明式布尔位
 
-> 状态:设计提案,未实现。动机来自一个正确的质疑:「为什么能力是布尔变量,而不是实现了某个函数就算有?」本篇回答哪些位可以改成由实现证明、哪些逻辑上不可能、以及配套的默认值翻转。
+> **状态:已实现。** 本文最初是一份设计提案(「为什么能力是布尔变量,而不是实现了某个函数就算有?」),写作时 `AgentCapabilities` 布尔位系统还在。实现落地时走得比提案本身更彻底:提案设想的是"能证明的位由推断决定,证明不了的位保留声明、默认翻转为 false";实际做法是**整个 `capabilities` 字段连同它的类型 `AgentCapabilities` 一起从 `Agent` 接口删除**,包括提案里"仍然保留声明"的 `conversation`。本文记录这次实现和最初提案的差异,以及哪些部分至今仍未落地。
 
-## 现状的两个毛病
+## 现状:`Agent` 接口上没有能力位
 
-1. **双重声明。** tracing 已经有函数面(`tracing: { env / configure }` 块),但还要同时写 `capabilities: { tracing: true }`——同一件事说两遍,漏一半就出 bug(块写了、位没开 → receiver 不起,span 悄悄丢)。
-2. **默认值替作者许诺。** `defineAgent` 默认 `conversation: true, toolObservability: true`(`src/define.ts` 的 `REMOTE_DEFAULT_CAPS`)。能力位的语义是诚实承诺,默认为真等于替作者许了没许过的诺——教程第一步不得不教人先写一行反悔:
+`src/agents/types.ts` 的 `Agent` 接口只有 `name` / `kind` / `setup` / `tracing` / `spanMapper` / `send` / `teardown`,没有 `capabilities` 字段。`t` 上解锁什么完全按下表由构造证据决定:
 
-```ts
-// 今天的最小接入:第一行代码是为默认值擦屁股
-export default defineAgent({
-  name: "my-bot",
-  capabilities: { conversation: false, toolObservability: false },  // ← 这行不该存在
-  async send(input, ctx) { /* ... */ },
-});
-```
-
-## 先分类:每一位的可证明性
-
-判据:**证据在谁手里**。
-
-| 位 | 证据在哪 | 能否由实现证明 |
+| 能力 | 证据 | 用户要写什么 |
 |---|---|---|
-| `sandbox` / `workspace` | 你用了哪个构造函数 | ✅ 构造即证明(`defineSandboxAgent` 本身) |
-| `tracing`(沙箱型) | `tracing` 块的函数 | ✅ 块存在即证明 |
-| `tracing`(远程型) | send 内部读 `ctx.telemetry` | ⚠️ 无独立函数面;mixin 落地后 `events: otelEvents()` 存在即证明 |
-| HITL | send 返回 `waiting` + `input.requested` | ✅ 已经是行为证明,无位(现状即模范) |
-| `toolObservability` | events 与「agent 实际做了什么」的关系 | ⚠️ 包装器证明不了完整性;**认证来源**可以(见下) |
-| `compactionObservability` | 同上 | ⚠️ 同上,认证来源可以 |
-| `conversation` | 对端服务是否真的续接 | ❌ 连 adapter 自己都证明不了(`previousResponseId` 发了,对端理不理是对端的事) |
+| `t.sandbox`、`t.fileChanged()` 等文件系统断言 | `defineSandboxAgent` 构造(`kind: "sandbox"`) | 无——`defineAgent` 构造的 agent(`kind: "remote"`)调用这些方法会立即得到清晰报错,这是唯一仍需要运行时守卫的能力(`src/context/context.ts` 的 `capabilityGuard`) |
+| 多次 `t.send()`、`t.reply`、`t.newSession()` | `send` 里接了 `ctx.session` 的续接存取器(`history<TMsg>()` 或 `id` + `capture(id)`) | 无——没接就每轮各是新对话,不报错,只是断言看不到跨轮历史 |
+| `t.calledTool()` 等正断言 | `send` 返回的 events 里有 `action.*` | 无——有事件就能断,没有就是断言 fail(响,不静默) |
+| `t.notCalledTool()` / `usedNoTools()` 等负断言的**可信度** | 事件来源是否有完整性契约(SDK 原生事件流透传、`fromAiSdk` 的 `result.steps`、Responses 的 `output`) | 无——但手写映射时如果知道自己漏了工具层,应在 eval README 里如实说明这条 eval 的负断言不可信,而不是假装它和正断言一样可靠 |
+| `t.respond()` / `t.parked()` 等 HITL | `send` 返回过 `status: "waiting"` + `input.requested` 事件 | 无——做到了就是有,提案写作时这条已经是行为证明,现状延续 |
+| `EvalResult.trace`、`niceeval view` 瀑布图 | 配置了 OTel 接入(agent 的 `tracing` 块,或 remote agent + `defineConfig({ telemetry })`) | 无——块/配置本来就要写,不需要额外声明 |
 
-关于「装饰器」:TypeScript 装饰器只能用在 class 成员上,`defineAgent` 是对象字面量,语法上用不了。但装饰器想表达的「在具体函数上盖章」有两个等价物:高阶函数包装、以及更干净的——**转换器的返回值本身就是章**(下节)。
+对照最初提案的分类表(`sandbox`/`workspace` 构造即证明、`tracing` 块即证明、HITL 行为即证明、`conversation`"任何一层都证明不了、保留声明"),唯一的方向性差异在 `conversation`:提案认为对端是否真续接谁都证明不了,所以要保留一个显式声明;实现干脆**连这个声明也删了**——用户不写任何东西,`t.send()` 能不能带上历史,完全取决于 `send` 有没有实际使用 `ctx.session.history()` 或 `ctx.session.id`/`capture()`。这不是"证明了对端续接"(确实证明不了),而是"不再需要证明"——没有能力位意味着没有"承诺"这个概念,只有"这段代码写了什么就是什么"。
 
-## 三层方案
-
-### 第一层:presence 推断——函数在,位就在
-
-- `tracing` 块存在 ⇒ `tracing` 能力开。删掉双重声明:
+最小接入现在是:
 
 ```ts
-// before:两处
-capabilities: { ...,  tracing: true },
-tracing: { protocol: "http/json", configure },
-
-// after:一处,块即能力
-tracing: { protocol: "http/json", configure },
-```
-
-- `defineSandboxAgent` 构造 ⇒ `sandbox` + `workspace` 开(现状靠默认值,语义改成「构造即证明」,效果一致、解释变直)。
-- 远程 agent 的 tracing 过渡期保留显式声明;[otel-mixin](adapters/otel-mixin.md) 落地后,`events: otelEvents()` 存在 ⇒ `tracing` 开(它的数据源就是 spans,函数面天然存在)。
-
-### 第二层:认证来源——转换器的返回值自带证明
-
-包装器验证不了「events 是全量」,因为它看不见 agent 在现实里还做了什么。但**当来源本身有完整性契约时,消费这个来源的转换器可以携带证明**:
-
-- `fromAiSdk(result)`:AI SDK 的 `result.steps` 就是工具循环的全量记录——SDK 契约保证,不是 adapter 自觉;
-- `shared.parseClaudeCode / parseCodex / parseBub`:transcript 是 CLI 为自己 resume 写的全量侧写,天然完整;
-- 反例:`otelEvents()` **不带** `toolObservability` 证明——埋点可能只盖了 LLM 层没盖工具层,mixin 提案已明确这一条,保持一致。
-
-机制:转换器的返回值带一个非枚举的证明标记(Symbol 字段,JSON 序列化不带走):
-
-```ts
-// fromAiSdk 内部
-return certify({ events, usage, status }, { toolObservability: true });
-```
-
-runner 按 attempt 聚合:**每一轮的 events 都来自带证明的来源** ⇒ 该 attempt 的负断言可信,等效于声明了 `toolObservability`;中途混入手工 events ⇒ 证明降档 + warning(与 [contract.md 行为守卫](adapters/contract.md)同一暴露方式)。
-
-用户侧 DX:什么都不用写,用了官方转换器就自动有——
-
-```ts
-export default defineAgent({
-  name: "my-ai-sdk-agent",
-  async send(input, ctx) {
-    const result = await generateText({ model, tools, prompt: input.text });
-    return { ...fromAiSdk(result), data: result.text };
-    // ↑ 返回值自带 toolObservability 证明,不写能力位,负断言照样可信
-  },
-});
-```
-
-`compactionObservability` 同理由 parser 携带(parser 见到 compaction 记录就吐事件,契约由 parser 保证)。
-
-### 第三层:显式声明兜底——只留给证明不了的,且默认翻转为 false
-
-- **手工映射的 `toolObservability`**:完整性取决于你的 API 返回里有没有全部调用,只有作者知道 → 保留声明。
-- **`conversation`**:对端是否真续接,任何一层都证明不了 → 保留声明。(可以考虑给两种常见写法配薄包装器消灭「忘写回 id」这类机械错误,但那 5 行本来就短,不值得新 API;记为不做。)
-- **默认全 false**:未证明 + 未声明 = 没有。内置工厂各自显式声明自己做到的。教程第一步变成:
-
-```ts
-// 提案后的最小接入:不声明 = 不承诺,零心智负担
+// 不声明 = 不承诺,零心智负担;t.send() 只有一轮、t.calledTool() 只有事件里有才断得到
 export default defineAgent({
   name: "my-bot",
   async send(input, ctx) { /* ... */ },
 });
 ```
 
-### 优先级规则
+## 和最初提案不同、至今仍未实现的部分
 
-三层叠加时:**显式声明 > 推断/证明**——作者永远可以显式关掉(比如用了 `fromAiSdk` 但明知自己在外面漏了一类工具调用)。显式开一个证明不了的位仍然允许(这就是今天的诚实声明),后果自负,契约的负断言完整性规则不变。
+提案第二层设想了一套"认证来源"机制:`fromAiSdk` 这类官方转换器的返回值携带一个不可枚举的证明标记(`certify({ events, usage, status }, { toolObservability: true })`),runner 按 attempt 聚合"是否全部事件都来自带证明的来源",从而让负断言的可信度变成一个运行时可判定的状态,证明不够时打 warning。**这套 `certify()` 机制没有实现**——源码里搜不到 `certify` 或任何等价的证明标记传递逻辑,`t.notCalledTool()` 在 `src/scoring/scoped.ts` 里就是纯粹的计数判断,不检查事件来源。
 
-## 判决表:提案后每一位从哪来
+现状是:**负断言的可信度完全是文档层面的判断,不是运行时机制。** 官方转换器(`fromAiSdk`、`fromClaudeSdkMessages` 等)透传的是 SDK/协议本身承诺完整的事件流,所以文档上说这些来源"负断言可信";手写映射没有这份契约,文档上说"负断言提示不可信"——但这只是写在文档里提醒 eval 作者自行判断,niceeval 不会在运行时警告或标记。这是提案与实现之间最大的落差,以后如果要补,`certify()` 一节的设计仍然是现成的起点。
 
-| 位 | 来源 | 用户要写什么 |
-|---|---|---|
-| `sandbox` / `workspace` | `defineSandboxAgent` 构造 | 无 |
-| `tracing` | `tracing` 块 / `events: otelEvents()` 存在 | 无(块本来就要写) |
-| `toolObservability` | 认证来源推断;手工映射时显式声明 | 官方转换器:无;手工:一行声明 |
-| `compactionObservability` | 认证来源(parser)推断 | 无 |
-| `conversation` | 显式声明(默认 false) | 做到了写一行 |
-| HITL | 行为(`waiting` + `input.requested`) | 无(现状) |
+`compactionObservability` 同理:没有单独的能力位,`send` 吐了 `compaction` 事件,`t.event("compaction")` 就能断到,吐了多少算多少,不存在"完整性证明"这层。
 
-## 边界与未决
+## 边界
 
-- **breaking change**:默认值翻转 + `capabilities.tracing` 退役要跟一个 major;旧写法(显式 `tracing: true`)过渡期兼容并 warning。
-- **`workspace` 对远程 agent**:远程 agent 理论上也可能改文件,但 workspace 断言依赖 sandbox 提供 diff 基线,暂不放开,维持「构造即证明」。
-- **证明标记的序列化**:Symbol 字段不进 results.json;view / 报表若要展示「本次运行能力从何而来」,在 attempt 元数据里落一个 `capabilitiesEvidence` 摘要,另议。
-- **`t.newSession()` 在 conversation 未声明时**:现状允许调用(每 session 各自独立第一轮也有意义);默认翻转后行为不变,只影响「隔离断言可信度」的文档口径。
+- **默认值问题已经不存在。** 提案担心的"`defineAgent` 默认给 `conversation: true, toolObservability: true`,教程第一步要写一行反悔"——这个问题连同整个 `capabilities` 字段一起消失了,不需要保留"opt-out 默认值"这个概念。
+- **`workspace` 对远程 agent 依然不放开。** 文件系统断言(`t.sandbox`、`t.fileChanged()`)只在 `kind: "sandbox"` 上解锁,远程 agent 即便自己改了文件,也没有 sandbox 提供的 diff 基线,这条边界和提案设想的一致。
+- **`t.newSession()` 在没有接会话续接存取器时依然可以调用。** 新会话线的第一轮就是存取器的自然空态,不需要判断"这个 agent 支不支持多轮"。
 
 ## 相关阅读
 
-- [adapters/contract.md](adapters/contract.md) —— 能力位的诚实语义与负断言完整性规则(本提案不改变规则,只改变「谁来给出承诺」)。
-- [adapters/otel-mixin.md](adapters/otel-mixin.md) —— `events: otelEvents()`:presence 推断在远程 tracing 上的形态;以及为什么它刻意不推 `toolObservability`。
-- docs-site [能力位参考](../docs-site/zh/reference/capabilities.mdx) —— 面向用户的现状解释(「为什么是声明不是函数」);本提案落地后要改写。
+- [adapters/contract.md](adapters/contract.md) —— 逐能力的构造证据、逐 API 的适配义务、负断言完整性规则。
+- [adapters/otel-mixin.md](adapters/otel-mixin.md) —— OTel 现在只喂 trace 瀑布图,和这里讨论的事件类能力完全独立。
+- docs-site [Adapter 概念](../docs-site/zh/concepts/adapter.mdx) —— 面向用户的「能力从哪来」讲法,与本文现状一节一致。
+</content>

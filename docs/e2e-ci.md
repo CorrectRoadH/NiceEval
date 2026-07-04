@@ -189,7 +189,7 @@ verify.mjs 还负责两个专项:
 
 ### 4.5 mock HTTP agent(自写 remote 路径)
 
-`e2e/agents/mock-http.ts` 用 `defineAgent` 写一个最小 remote adapter,指向 verify.mjs 启动的本地 mock server(逻辑同 4.1 的规则)。它和进程内 mock 跑同一批正反 eval,保证"自写 adapter"契约(`send` 进 / `Turn` 出、事件映射)这条官方路径也被覆盖。实现可以直接参照 `examples/zh/ai-sdk/adapter/adapter.ts` 裁剪。
+`e2e/agents/mock-http.ts` 用 `defineAgent` 写一个最小 remote adapter(自定义 JSON 协议,手写映射),指向 verify.mjs 启动的本地 mock server,逻辑同 4.1 的规则。它和 4.1 的 `mock-ai-sdk`(走官方 `fromAiSdk` 转换器)跑同一批正反 eval,两条路径分别覆盖"官方转换器"和"自写映射"这两条官方支持的事件流生成方式。实现可以直接参照 `examples/zh/ai-sdk/adapter/adapter.ts` 裁剪。
 
 ## 5. L1:示例冒烟层
 
@@ -264,11 +264,11 @@ jobs:
 2. **P2**:确认/修好 `examples/zh/ai-sdk` 的 mock 模式可过 gate 断言,加 `e2e-examples` job。
 3. **P3**:补 `mock-http` adapter 路径 + `sandbox-smoke` eval;开 L2 的 claude-code × docker(第一条真实沙箱链路)。
 4. **P4**:铺满 L2 矩阵(codex / bub / e2b / vercel / ai-sdk-v7 真模型 + judge)。
-5. **之后**:`otelEvents()` mixin 落地时,把 openllmetry / openinference / langgraph / custom-genai 四个 demo 接成 L1/L2 的 OTel 断言用例;给 mock 加"确定性失败注入"(如 server 每第 4 次请求返回坏答案)以校验非 0/100 的 pass 率计算。
+5. **之后**:给 mock 加"确定性失败注入"(如 server 每第 4 次请求返回坏答案)以校验非 0/100 的 pass 率计算;`examples/zh/tier1/{codex-sdk,langgraph}` 的 OTel 瀑布图链路(`spanMapper` / 固定端口)可以补一条"trace.json 非空"的冒烟断言,纳入 L2。
 
 ## 9. 明确不做的
 
-- 不给四个 OTel demo 现在就写 eval——没有方言转换器,写了也只能靠 heuristic 兜底,测不到承诺的行为。
+- 不测"OTel 派生事件"这类断言——这条机制已经从实现里移除(见 [otel-mixin.md](adapters/otel-mixin.md)),OTel 现在只喂瀑布图,e2e 要测的是它产出了 `trace.json`,不是它替代了事件映射。
 - 不在 PR 门禁里跑任何真模型——随机性 + 费用 + secret 暴露面都不适合。
 - 不用 `--tag` 做 CI 内的用例切分(当前实现只收单值,与文档不一致;分层用 experiment 的 `evals` 过滤器表达,更明确)。
 - 不依赖 `summary.json` 里的版本字段(writer 尚未写 `schemaVersion`),形状校验只断言当前实际字段。

@@ -6,7 +6,7 @@
 - action / input 字段:`packages/eve/src/runtime/actions/types.ts`、`runtime/input/types.ts`
 - eval 侧消费:`packages/eve/src/evals/session.ts`、`evals/runner/derive-run-facts.ts`
 
-和另两篇参考对照着读,三条路线正好补齐:[agent-eval](agent-eval.md) 是**逆向适配别人的协议**(读黑盒 CLI 的 transcript,转换成自定义闭集),[OTel GenAI](otel-genai.md) 是**标准化遥测**(span 树,行业公约),eve 是第三条——**协议不是转换出来的,是运行时原生吐的**。eve 同时拥有 agent 运行时(Vercel AI SDK `streamText` 外包一层 harness)和 eval 框架,两者共享同一套 wire 协议,**没有采集层、没有转换层**:
+和另两篇参考对照着读,三条路线正好补齐:[agent-eval](agent-eval.md) 是**逆向适配别人的协议**(读未接管理层的 CLI 的 transcript,转换成自定义闭集),[OTel GenAI](otel-genai.md) 是**标准化遥测**(span 树,行业公约),eve 是第三条——**协议不是转换出来的,是运行时原生吐的**。eve 同时拥有 agent 运行时(Vercel AI SDK `streamText` 外包一层 harness)和 eval 框架,两者共享同一套 wire 协议,**没有采集层、没有转换层**:
 
 ```text
 模型 API → AI SDK streamText → eve harness(唯一规范化层)
@@ -14,7 +14,7 @@
     → eval client 逐行 parse → t.events 直接就是它,零二次转换
 ```
 
-niceeval 的位置一句话:**契约形状学 eve(强类型事件、callId、`rejected`、parked),采集方式像 agent-eval(读黑盒 CLI transcript),trace 归一到 OTel**。本篇记录 eve 这套协议到底怎么收集、收集了什么字段——为 niceeval 的 `StreamEvent` 演进提供上限参照。
+niceeval 的位置一句话:**契约形状学 eve(强类型事件、callId、`rejected`、parked),采集方式像 agent-eval(读未接管理层的 CLI transcript),trace 归一到 OTel**。本篇记录 eve 这套协议到底怎么收集、收集了什么字段——为 niceeval 的 `StreamEvent` 演进提供上限参照。
 
 ## 采集机制:没有"采集",只有"传输"
 
@@ -75,7 +75,7 @@ interface InputRequest {
 }
 ```
 
-niceeval 的 `InputRequest` 与它几乎同构但全字段 optional(要兼容信息量少的黑盒 agent);eve 的 `action` 是完整工具调用对象而非 `action?: string`,`allowFreeform` / `style` 是 niceeval 没有的。
+niceeval 的 `InputRequest` 与它几乎同构但全字段 optional(要兼容信息量少的 agent);eve 的 `action` 是完整工具调用对象而非 `action?: string`,`allowFreeform` / `style` 是 niceeval 没有的。
 
 ### `RuntimeIdentity`:被测对象自报身份
 
@@ -99,7 +99,7 @@ interface RuntimeIdentity {
 
 ## 对 niceeval 适配器设计的启发
 
-**先泼冷水:eve 是上限,不是榜样。** 它不需要采集 / 转换,是因为它拥有运行时;niceeval 面对黑盒 coding agent CLI 永远做不到。但有一个例外方向:**remote agent(用户自己的 agent)里,用户就是运行时的主人**——`toStreamEvents` 理论上可以做到 eve 级保真。分档表的 T1 对 remote agent 的天花板,比 sandbox agent 高得多。
+**先泼冷水:eve 是上限,不是榜样。** 它不需要采集 / 转换,是因为它拥有运行时;niceeval 面对未接管理层的 coding agent CLI 永远做不到。但有一个例外方向:**remote agent(用户自己的 agent)里,用户就是运行时的主人**——`toStreamEvents` 理论上可以做到 eve 级保真。分档表的 T1 对 remote agent 的天花板,比 sandbox agent 高得多。
 
 具体字段层面,值得记进 `StreamEvent` 的演进候选(都不是现在就加,是"需要时有先例"):
 
