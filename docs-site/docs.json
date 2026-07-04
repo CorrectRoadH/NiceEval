@@ -177,6 +177,7 @@
                   "zh/concepts/overview",
                   "zh/concepts/evals",
                   "zh/concepts/agents-adapters",
+                  "zh/concepts/write-send",
                   "zh/concepts/drive",
                   "zh/concepts/assert",
                   "zh/concepts/judge"

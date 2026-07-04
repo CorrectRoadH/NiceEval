@@ -50,7 +50,7 @@ await t.send("好,发出去。");
 t.calledTool("send_email");
 ```
 
-多轮 `t.send()` 依赖 agent 声明 `conversation` 能力——没声明时,adapter 没有义务记住上一轮说了什么,第二次 `t.send()` 可能接进一个全新、无关的上下文。完整能力列表见 [Agents & Adapters](/zh/concepts/agents-adapters)。
+多轮 `t.send()` 要求 Agent 定义里递了会话件(`session: clientHistory()` 或 `serverSession()`)——没递时,adapter 没有续接上一轮的手段,第二次 `t.send()` 会直接报错而不是静默接进一个无关上下文。能力如何从构造中来,见 [Agent 与 Adapter](/zh/concepts/agents-adapters)。
 
 ## 独立会话 —— `t.newSession()`
 
@@ -67,7 +67,7 @@ t.check(fresh.reply, satisfies((r) => !r.includes("小明"), "没有记忆泄漏
 ```
 
 <Warning>
-常见错误是想当然认为 `t.newSession()` 天然保证隔离。隔离与否完全取决于 adapter 是否读了 `ctx.session.isNew` 并照做——一个忽略 `isNew`、永远续接同一个底层上下文的 adapter,会让 `t.newSession()` 悄悄共享状态,且不会报错。写 adapter 时,先用上面这条 eval 验一下隔离,再信任它。
+常见错误是想当然认为 `t.newSession()` 天然保证隔离。运行器保证的只是新会话线的状态是空的——真正对应用开一条新对话是 adapter 的事。一个不看自己的会话状态、永远续接同一个底层上下文的 adapter,会让 `t.newSession()` 悄悄共享状态,且不会报错。写 adapter 时,先用上面这条 eval 验一下隔离,再信任它。
 </Warning>
 
 ## 人工介入(HITL)
@@ -87,9 +87,9 @@ await t.respond({ request, optionId: "approve" });
 t.calledTool("send_email");
 ```
 
-`t.requireInputRequest(filter)` 把一个待处理的 HITL 请求变成可检查、可回应的具体值——如果匹配到 0 个或超过 1 个待处理请求就会抛出,所以尽量把能填的 filter 字段都填上(`id` / `prompt` / `display` / `action` / `optionIds` / `input`)来消歧。`t.respond(...)` 回答它并发出下一轮;在底层它只是又一次带着你的回答的普通 `send`。
+`t.requireInputRequest(filter)` 把一个待处理的 HITL 请求变成可检查、可回应的具体值——如果匹配到 0 个或超过 1 个待处理请求就会抛出,所以尽量把能填的 filter 字段都填上(`id` / `prompt` / `display` / `action` / `optionIds` / `input`)来消歧。`t.respond(...)` 回答它并发出下一轮;在底层它只是又一次普通的 `send`:回答文本进 `input.text`,同时以 `{ requestId, optionId }` 的结构化形式逐条进 `input.responses`——adapter 不用解析文本,按 `requestId` 就能对上"哪个回答给哪个请求"。
 
-如果当前轮有多个同类待处理请求、都该给同一个答案(比如逐个批准一批文件改动),用 `t.respondAll(optionId)` 一次性处理,不用挨个解：
+如果当前轮有多个同类待处理请求、都该给同一个答案(比如逐个批准一批文件改动),用 `t.respondAll(optionId)` 一次性处理,不用挨个解。`optionId` 会先对每条待处理请求校验——不在请求的 `options` 里就直接抛错,打错的字不会被静默当成别的答案发出去：
 
 ```ts
 await t.send("把这批改动逐项提交审批。");
@@ -103,4 +103,4 @@ t.succeeded();
 
 - [Assert](/zh/concepts/assert) — 从 `Turn.events` 和 `Turn.data` 上读的断言词汇。
 - [Judge](/zh/concepts/judge) — `t.judge` / `session.judge` / `turn.judge` 各自默认评什么材料。
-- [Agents & Adapters](/zh/concepts/agents-adapters) — 哪些能力位解锁 `t.newSession()`、HITL 和工具相关断言。
+- [Agent 与 Adapter](/zh/concepts/agents-adapters) — 能力从哪来:什么解锁 `t.newSession()`、HITL 和工具相关断言。

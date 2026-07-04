@@ -67,7 +67,7 @@ t.check(fresh.reply, satisfies((r) => !r.includes("Alex"), "no memory leak"));
 ```
 
 <Warning>
-A common mistake is assuming `t.newSession()` guarantees isolation. Isolation depends entirely on the adapter reading `ctx.session.isNew` and honoring it — an adapter that ignores `isNew` and always resumes the same underlying context will make `t.newSession()` silently share state, with no error raised. If you're writing the adapter, verify isolation with an eval like the one above before trusting it.
+A common mistake is assuming `t.newSession()` guarantees isolation. All the runner guarantees is that the new session line's state starts empty — actually opening a new conversation with the app is the adapter's job. An adapter that ignores its own session state and always resumes the same underlying context will make `t.newSession()` silently share state, with no error raised. If you're writing the adapter, verify isolation with an eval like the one above before trusting it.
 </Warning>
 
 ## Human-in-the-loop (HITL)
@@ -87,9 +87,9 @@ await t.respond({ request, optionId: "approve" });
 t.calledTool("send_email");
 ```
 
-`t.requireInputRequest(filter)` turns a pending HITL request into a concrete value you can inspect and respond to — it throws if zero or more than one pending request matches the filter, so fill in as many filter fields as you can (`id`, `prompt`, `display`, `action`, `optionIds`, `input`) to disambiguate. `t.respond(...)` answers it and sends the next turn; behind the scenes it's just another `send` call carrying your answer.
+`t.requireInputRequest(filter)` turns a pending HITL request into a concrete value you can inspect and respond to — it throws if zero or more than one pending request matches the filter, so fill in as many filter fields as you can (`id`, `prompt`, `display`, `action`, `optionIds`, `input`) to disambiguate. `t.respond(...)` answers it and sends the next turn; behind the scenes it's just another ordinary `send`: the answer text goes into `input.text`, and each answer also arrives as a structured `{ requestId, optionId }` entry in `input.responses` — the adapter never parses text to figure out which answer belongs to which request.
 
-When a turn has several identical pending requests that should all get the same answer (for example, approving a batch of file changes one by one), use `t.respondAll(optionId)` instead of resolving them one at a time:
+When a turn has several identical pending requests that should all get the same answer (for example, approving a batch of file changes one by one), use `t.respondAll(optionId)` instead of resolving them one at a time. The `optionId` is validated against every pending request first — if any request lacks that option, it throws instead of silently sending a typo as a different answer:
 
 ```ts
 await t.send("Submit each of these changes for approval.");

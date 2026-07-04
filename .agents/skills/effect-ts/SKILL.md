@@ -1,6 +1,6 @@
 ---
 name: effect-ts
-description: Use this skill whenever working in a repository that uses Effect, even if the current task is in a new file or the user does not explicitly ask for Effect help. Apply it to any work that should follow the repository's Effect patterns, conventions, architecture, or supporting tooling. Also use it for questions about Effect patterns, services, layers, schemas, streams, runtimes, or typed error handling.
+description: Use this skill when the current task touches Effect code, reviews behavior implemented with Effect, or depends on Effect patterns, services, layers, schemas, streams, runtimes, resource management, retries, observability, testing, or typed error handling. Do not trigger it merely because the repository contains Effect if the task is unrelated documentation, site copy, README text, or non-Effect code.
 ---
 
 # Effect Expert
@@ -9,9 +9,11 @@ Expert guidance for programming with the Effect library, covering error handling
 
 ## Prerequisite
 
-Before doing any other Effect-related work, check that `./.repos/effect` exists at the root of the repository where the skill is being used.
+Before doing Effect-specific implementation, review, or API research, check that `./.repos/effect` exists at the root of the repository where the skill is being used.
 
-If it does not exist, stop and prompt the user with the setup task documented in `./references/setup.md`.
+If it does not exist and the task requires source-level Effect validation, stop and prompt the user with the setup task documented in `./references/setup.md`.
+
+If the task only needs repository-local patterns, docs/copy edits, or non-Effect work, do not block on a missing `./.repos/effect`. Continue with codebase inspection and the local guides as needed, and only state the missing checkout as a limitation when making Effect API or source-level claims.
 
 ## Research Strategy
 
