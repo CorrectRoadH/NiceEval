@@ -1,6 +1,6 @@
 # 接入目标矩阵 —— 12 个被测对象怎么接、代码共享在哪(调研 + 路线图)
 
-> 状态:调研结论 + 接入路线图(2026-07 外部调研,来源见文末),尚未实现的目标都只是提案。通道定义见 [collection.md](collection.md),复用机制见 [otel-mixin.md](otel-mixin.md)。
+> 状态:调研结论 + 接入路线图(2026-07 外部调研,来源见文末),尚未实现的目标都只是提案。通道定义见 [collection.md](collection.md)。文中提到的 otel-mixin 路线(从 span 派生事件)已从实现中移除,见 [otel-mixin.md](otel-mixin.md) 的废弃说明——本文这类引用仅作调研时的历史记录,实际接入请走[官方转换器 / SDK 通道 0 或手写映射](collection.md#接入路线的优先级)。
 
 回答三个问题:各家 OTel 的 span"标题"统一吗;每个目标好不好接;接的时候哪段代码共享。
 
@@ -23,7 +23,7 @@
 两个结论,都印证既有设计、并给它添料:
 
 1. **收敛点只能放 mapper 层**([observability.md](../observability.md) 的"canonical = GenAI semconv,每家一个薄 mapper,view 只认 canonical"是唯一现实做法)。新料:AI SDK 官方新模式和 OpenClaw(见下)原生就说 semconv——这两家的 mapper 近乎透传;canonical 层要给 `agent_handoff` 这类规范外 operation 留通道。
-2. **内容默认矩阵决定 OTel 能不能当行为轨**。框架系埋点(AI SDK / LangSmith / OpenInference / OpenLLMetry / Agents SDK contrib)默认全采 → 可走 [otel-mixin](otel-mixin.md) 直接派生 T1 事件;CLI 系(claude-code / codex)默认脱敏 → OTel 只能当**时间轨**(骨架 + 计时 + token),行为轨必须走 transcript,拿 `gen_ai.tool.call.id` 与 transcript 的 `tool_use_id` join。这条分界写死进决策树。
+2. **OTel 现在只能当时间轨,不管框架埋点采不采内容都一样。** 曾经设想过用"内容默认矩阵"判断 OTel 能不能当行为轨(框架系埋点默认全采 → 直接派生事件),这条路线已经从实现里移除——不管是框架系埋点(AI SDK / LangSmith / OpenInference / OpenLLMetry)还是 CLI 系(claude-code / codex)默认脱敏,行为轨(事件流)一律走 transcript / 官方转换器 / 手写映射,OTel 只画瀑布图。
 
 ## 二、矩阵 · Agent Software(沙箱型 CLI,`defineSandboxAgent` 路线)
 
@@ -45,17 +45,17 @@
 
 | | AI SDK | **Claude SDK** | **Codex SDK** | **LangGraph** | **Cursor Agent SDK** | **vm0** |
 |---|---|---|---|---|---|---|
-| 状态 | ✅ 已接(`fromAiSdk` / `uiMessageStreamAgent`) | 提案 | 提案 | 提案(走 mixin) | 提案(观察 beta) | ❌ 暂不接 |
+| 状态 | ✅ 已接(`fromAiSdk` / `uiMessageStreamAgent`) | 提案 | 提案 | 提案 | 提案(观察 beta) | ❌ 暂不接 |
 | 调用面 | `generateText` | `query()` → AsyncGenerator\<SDKMessage> | `startThread()` → `thread.run()`(SDK 内部 spawn CLI) | `graph.invoke()` 或未接管理层的服务 | `Agent.create()` → `run.stream()`(local/cloud/self-hosted 三 runtime) | 平台非库:CLI/REST + Ably,无 npm SDK |
 | 事件流 | steps 带 `toolCallId` | content 块 + `parent_tool_use_id`(subagent 归属) | ThreadItem(item 内嵌输入输出,免配对) | messages 通道显式配对;或 spans | `SDKMessage`:`tool_call` 带 call_id/args/result,**`request` 事件 = 现成 HITL** | 事件 schema 未公开 |
 | 会话 | 工厂自管 | `resume` / `forkSession` | `resumeThread(threadId)` | thread_id(checkpointer) | `Agent.resume(agentId)` | resume API 未公开 |
 | HITL | v7 tool approval ✅ | `canUseTool` 回调 | 缺口:审批在 app-server 协议层,SDK 无回调,eval 场景只能 `never` | `interrupt()`(v0.2+) | `request` 事件 + hooks | 未公开 |
 | 遥测 | legacy `ai.*` / 新 `@ai-sdk/otel` semconv | 同 claude-code CLI(beta,SDK 路径 span 树有已知残缺) | 同 codex CLI | LangSmith OTel 三 env(混合 schema)或三方埋点 | **无 OTel**(官方建议拿 requestId 自己关联) | 内部 Axiom,无用户导出面 |
-| 难度 | — | 中 | **低** | 低(mixin 落地后) | 中(beta 风险) | 高且不稳定 |
+| 难度 | — | 中 | **低** | 中(要写精品转换器或手写映射,不再有 mixin 捷径) | 中(beta 风险) | 高且不稳定 |
 
 - **Codex SDK 是复用率最高的一个**:ThreadItem 与 `codex exec --json` 的 item 词汇同源(与 app-server 共享),`o11y/parsers/codex.ts` 的映射逻辑大半直接复用——把"stdout 捕获 + 抠 JSONL"升级成"通道 0 SDK 直构",采集层整段消失。设计判断:作为**现有 codex adapter 的第二形态**(进程内、不需要沙箱时用),不是替代。
 - **Claude SDK 同理**:SDKMessage 的 content 块结构 ≈ transcript 行形状,`parsers/claude-code.ts` 的块翻译逻辑可抽出共享核心;SDK 还有官方 `getSessionMessages()`,连磁盘旁读都省了。`parent_tool_use_id` 直接喂 [multi-agent 提案](../multi-agent.md)的归属字段。
-- **LangGraph 不写精品转换器**:它就是 otel-mixin 的主打场景(`LANGSMITH_OTEL_ENABLED` 三个 env 零依赖改道),LangSmith 混合方言进 mixin 方言表;要 HITL/会话再按契约补 `send`。
+- **LangGraph 要写精品转换器或手写映射**:原计划借道 otel-mixin(`LANGSMITH_OTEL_ENABLED` 三个 env 零依赖改道)免写事件映射,该路线已移除;现在事件流仍需消费 LangGraph 自己的 messages 结构(手写映射,或将来补一个精品转换器),OTel 只用来画瀑布图;HITL/会话按契约补 `send`。
 - **Cursor Agent SDK 值得盯**:事件词汇是六家里最贴 niceeval 契约的(`tool_call` 生命周期事件、`request` ≈ `input.requested`、usage 字段最全),`fromCursorSdk` 会比 `fromAiSdk` 还薄;但 public beta 声明 API 会变、无 OTel、三套 runtime——等 GA 再动。
 - **vm0 记为观察项**:事件 schema / resume / usage 全未公开,定位还在从 runtime 向托管 teammate 漂移;等接入面稳定,不要对着移动目标写 adapter。
 
@@ -64,7 +64,7 @@
 接入成本 = 驱动 × 采集 × 转换 三层之和;每层能共享的件和为新目标要新写的件:
 
 ```text
-驱动层  defineAgent / defineSandboxAgent / aiSdkAgent(已有)
+驱动层  defineAgent / defineSandboxAgent / uiMessageStreamAgent(已有)
         新增:无。OpenClaw/Hermes 走 defineSandboxAgent;四个 SDK 走 defineAgent
 采集层  shared 工具袋:ensureInstalled / captureLatestJsonl / extractJsonlFromStdout /
         firstJsonField / sessionIdFrom*(已有)
@@ -74,7 +74,7 @@
            ——共享的是映射核心,不是文件本身;新写:OpenClaw、Hermes 各一个
         ② 精品转换器(fromAiSdk 已有):高频 + 进程内 + 有 HITL 的框架才配
            候选:fromCursorSdk(等 GA)
-        ③ otel-mixin 方言表(已实现):长尾框架免写转换器
+        ③ otel-mixin 方言表(已从实现中移除,不再是长尾框架的免写选项;长尾框架仍需手写映射或精品转换器)
            方言:gen_ai semconv(OpenClaw / AI SDK 新模式 / Agents SDK contrib 共用一个)、
            ai.* legacy、OpenInference、OpenLLMetry、LangSmith 混合
 时间轨  OTLP receiver + canonical mapper(已有)
@@ -87,7 +87,7 @@
 
 1. **OpenClaw**——五面全绿,`defineSandboxAgent` 第四个内置,新代码只有一个 parser + 一个近透传 mapper。
 2. **Codex SDK**——现有 codex adapter 的进程内第二形态,parser 复用大半,验证"SDK 通道 0"这条新决策树分支。
-3. **otel-mixin 落地 → LangGraph**——mixin 的第一个真实消费者,方言表补 LangSmith 混合。
+3. **LangGraph**——写手写映射或精品转换器消费 LangGraph 的 messages 结构(otel-mixin 路线已移除,不再适用)。
 4. **Claude SDK**——受益于 multi-agent 提案(`parent_tool_use_id` 归属),两个提案互相解锁。
 5. **Cursor Agent SDK**——等 GA;**Hermes**——等有真实需求再付镜像成本。
 6. 不接:**Alma**(无驱动面)、**vm0**(接入面未稳定)。记下判据,免得反复重查。
@@ -96,4 +96,4 @@
 
 - 三路外部调研(2026-07):OpenClaw(docs.openclaw.ai:cli/agent、gateway/opentelemetry、concepts/session)、Hermes Agent(hermes-agent.nousresearch.com docs、briancaffey/hermes-otel)、Alma(alma.now、yetone/alma-releases)、Codex SDK(developers.openai.com/codex/sdk、openai/codex sdk/typescript)、Cursor Agent SDK(cursor.com/docs/sdk/typescript)、vm0(github.com/vm0-ai/vm0)。
 - OTel 核实:semantic-conventions-genai 仓库(gen-ai-spans / agent-spans / events / registry)、ai-sdk.dev telemetry 文档、docs.langchain.com trace-with-opentelemetry、openai-agents contrib `span_processor.py` 源码、code.claude.com monitoring-usage、developers.openai.com codex config-advanced。
-- 站内既有:[agent-loop-apis.md](reference/agent-loop-apis.md)(Claude SDK / LangGraph 细节)、[otel-instrumentation.md](reference/otel-instrumentation.md)(埋点内容矩阵)、[collection.md](collection.md)(通道)、[otel-mixin.md](otel-mixin.md)(方言派生)。
+- 站内既有:[agent-loop-apis.md](reference/agent-loop-apis.md)(Claude SDK / LangGraph 细节)、[otel-instrumentation.md](reference/otel-instrumentation.md)(埋点内容矩阵)、[collection.md](collection.md)(通道)、[otel-mixin.md](otel-mixin.md)(方言派生,已废弃,仅存历史记录)。

@@ -1,57 +1,161 @@
 ---
-title: "Built-in agents and converters"
-sidebarTitle: "Built-in Agents"
-description: "Capabilities, assertions, and limits of NiceEval's built-in sandbox agents, UI Message Stream agent, and event converters."
+title: "Built-in agent capabilities reference"
+sidebarTitle: "Built-in Agent Capabilities"
+description: "Which capabilities NiceEval's built-in claude-code, codex, and bub adapters implement, which assertions they map to, and known limits."
 ---
 
-NiceEval ships two kinds of built-ins:
+The three built-in sandbox agents (`claude-code`, `codex`, `bub`) do not implement exactly the same capabilities — capabilities have no declaration layer and are proven entirely by construction and actual behavior, see the [capabilities reference](/reference/capabilities). This page inventories what each built-in agent does per capability, plus two built-ins for connecting AI SDK apps: the non-invasive HTTP adapter `uiMessageStreamAgent` (with HITL) and the result converter `fromAiSdk`.
 
-- **Sandbox agents** for coding-agent CLIs such as Claude Code, Codex, and bub.
-- **Direct-agent helpers** and converters for app protocols such as AI SDK UI Message Stream, AI SDK results, Claude SDK messages, Pi events, Codex OTel spans, and LangSmith spans.
+## Capability overview
 
-## Sandbox agents
+| Capability | Corresponding assertions / API |
+|---|---|
+| Send/receive messages (base contract) | `t.send()` (can be called multiple times), `t.reply`, `turn.outputEquals` / `outputMatches`, status-based `t.succeeded()` |
+| Event stream completeness | The whole scoped assertion set: `calledTool` / `toolOrder` / `usedNoTools` / `maxToolCalls` / `messageIncludes` / `noFailedActions` / `event` / `eventOrder`, etc.; **negative assertions (`notCalledTool` and friends) are only trustworthy with a complete event stream** |
+| Session continuation | Cross-turn memory assertions, `t.newSession()` session isolation |
+| HITL (human in the loop) | `t.parked()`, `t.requireInputRequest()`, `t.respond()` / `t.respondAll()` |
+| `tracing` | `EvalResult.trace`, the call waterfall in `niceeval view` |
 
-The built-in sandbox agents run a CLI in a sandbox backend and return a standard `Turn`.
+## What each built-in agent implements
 
-| Agent | Use case | Capabilities |
-|---|---|---|
-| `claude-code` | Evaluate Claude Code tasks in a workspace | sandbox/workspace, messages, tool events when transcript data is available |
-| `codex` | Evaluate Codex tasks in a workspace | sandbox/workspace, messages, tool and usage events through parser or OTel data |
-| `bub` | Evaluate bub tasks in a workspace | sandbox/workspace and available transcript facts |
+| Agent | Send/receive | Event stream | Session continuation | HITL | tracing | Notes |
+|---|---|---|---|---|---|---|
+| `claude-code` | ✅ | ✅ | ✅ (`claude --resume <id>`) | ❌ | ❌ | Built-in parser emits `compaction` events automatically; `t.event("compaction")` works |
+| `codex` | ✅ | ✅ | ✅ (`codex exec resume <id>`) | ❌ | ✅ (`http/json` → OTLP) | Built-in parser emits `compaction` events automatically |
+| `bub` | ✅ | ✅ | ✅ (`--session-id` + tape continuation) | ❌ | ✅ (`http/protobuf` → OTLP) | Built-in parser emits `compaction` events automatically |
 
-These agents currently do **not** support HITL. Their `send` returns `"completed"` or `"failed"`, never `"waiting"`, and they do not emit `input.requested`. If you need `t.respond()` for an AI SDK app, use `uiMessageStreamAgent`; otherwise implement HITL in a custom adapter.
+All three are constructed with `defineSandboxAgent` (`Agent.kind` is always `"sandbox"`), so `t.sandbox.fileChanged()` / diff assertions, file IO, and command execution work on all three agents regardless of this table.
 
-## `uiMessageStreamAgent`
+<Warning>
+None of the three built-in sandbox agents currently support HITL: their `send` only returns `"completed"` / `"failed"`, never `"waiting"`, and never emits `input.requested` events. When you need `t.respond()` / `t.requireInputRequest()`: if the system under test is an AI SDK `useChat` backend, use the built-in `uiMessageStreamAgent` below (v7 tool approval maps natively to HITL); for anything else write your own adapter: implement the `waiting` status + `input.requested` event + resume handoff — [`examples/zh/tier1/pi-sdk`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/tier1/pi-sdk) / [`examples/zh/tier1/claude-sdk`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/tier1/claude-sdk) both have ready-made hand-written HITL references.
+</Warning>
 
-Use this for AI SDK `useChat` backends that expose the UI Message Stream protocol. It can drive the HTTP endpoint, replay UI messages, map tool approvals into HITL, and derive events from the stream.
+## Per-agent details
 
-Runnable reference: `examples/zh/tier1/ai-sdk-v7`.
+### claude-code
 
-## Converters
+- Connection: spawns `claude --print --dangerously-skip-permissions` in the sandbox and reads back the latest transcript from `~/.claude/projects/**/*.jsonl`.
+- Session continuation: appends `--resume <id>` when `ctx.session.id` has a value; the session id parsed from the transcript is written back via `ctx.session.capture()`.
+- Auth: `ANTHROPIC_API_KEY` (overridable via the `apiKey` option), optional `ANTHROPIC_BASE_URL`.
+- Supports `mcpServers` and `skills` (GitHub `org/repo`) options.
+- Does not declare `tracing`: no OTLP receiver is started and `EvalResult.trace` is empty.
 
-Converters turn SDK-native records into NiceEval `Turn` fields.
+### codex
 
-| Converter | Source | Typical use |
-|---|---|---|
-| `fromAiSdk` | AI SDK `generateText` / `streamText` result | In-process or server-side adapters |
-| `fromClaudeSdkMessages` | Anthropic Claude Agent SDK message stream | HTTP/SSE adapters that relay Claude SDK events |
-| `fromPiAgentEvents` | `@earendil-works/pi-agent-core` event stream | Pi agent adapters with HITL approval |
-| `otelEvents({ dialects: [...] })` | OTel spans | Apps already emitting spans |
-| `driveFrameStream` / `pausable` helpers | Streaming protocols | Incremental stream driving and HITL pause/resume |
+- Connection: runs `codex exec --json` in the sandbox (`codex exec resume <id> --json` when continuing), using stdout JSONL as the transcript.
+- Auth: `CODEX_API_KEY` (not `OPENAI_API_KEY`), optional `CODEX_BASE_URL` for OpenAI-compatible proxies.
+- `tracing` is configured through the `[otel.trace_exporter.otlp-http]` section of `~/.codex/config.toml`, protocol `http/json`.
+- Supports `mcpServers` and `skills` options.
 
-Use official converters when possible because they preserve event order, pair tool call IDs, normalize usage, and can carry event-completeness proof.
+### bub
 
-## Choosing a built-in
+- Connection: runs `bub run` + `--session-id` in the sandbox and reads the tape from `~/.bub/tapes/<hash>.jsonl` as the transcript.
+- Auth: `BUB_API_KEY` + `BUB_API_BASE` (OpenAI-compatible proxy).
+- `tracing` is injected via environment variables (`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, etc.), protocol `http/protobuf`.
+- Supports the `pythonPlugins` option.
+- Installed via `uv tool install` (not an npm package); the first install builds a checkpoint cache to speed up later sandboxes.
 
-- Coding agent editing files: use a built-in sandbox agent or write a `defineSandboxAgent`.
-- AI SDK `useChat` backend: use `uiMessageStreamAgent`.
-- AI SDK core calls inside your own adapter: use `fromAiSdk`.
-- Already instrumented app: use `otelEvents()`.
-- Custom HTTP / gRPC service: write `send`, then use converters for the protocol pieces you have.
+## `uiMessageStreamAgent`: built-in non-invasive adapter for AI SDK apps (with HITL)
 
-## Related
+`uiMessageStreamAgent` (exported from `niceeval/adapter`) talks non-invasively to an HTTP endpoint speaking the [UI Message Stream protocol](https://ai-sdk.dev/docs/ai-sdk-ui/stream-protocol) (the standard SSE of AI SDK `useChat` backends) — it only `fetch`es, never imports app code, so it connects wherever the app is deployed:
 
-- [Connect Your Agent](/guides/connect-your-agent)
-- [Sandbox Agent](/guides/sandbox-agent)
-- [defineAgent](/reference/define-agent)
-- [OTel Integration](/guides/connect-otel)
+```ts
+import { uiMessageStreamAgent } from "niceeval/adapter";
+
+export default uiMessageStreamAgent({
+  name: "my-assistant",
+  url: "https://my-app.example.com/api/chat",
+  body: (ctx) => ({ model: ctx.model }),   // When the app supports request-level model selection, model comparison needs zero changes
+});
+```
+
+Capabilities it handles for you:
+
+- **Send/receive + event stream**: SSE frames are reduced by the `ai` package's official framework-agnostic reducer `readUIMessageStream` (the same one inside `useChat`); tool calls/results/message text are built directly from message parts — **the app is not required to wire up OTel**.
+- **Session continuation**: the protocol is server-stateless, "client carries the full history" — the factory stores the whole `UIMessage[]` with `ctx.session.history()` and replays it verbatim each turn; a new conversation line (after `t.newSession()`) gets an empty history.
+- **HITL**: AI SDK v7 tool approval (tools with `needsApproval: true`) maps natively — when a part stops at `approval-requested`, the whole turn is `status: "waiting"` + `input.requested`; `t.respond("approve" / "deny")` is translated into `approval-responded`, rewriting that part in place and resending `messages` verbatim to trigger the server to continue (identical protocol behavior to a real frontend's `addToolApprovalResponse()` + `sendMessage()`; there is no separate approve endpoint). Denied calls land in the event stream as `rejected`, and by default carry a "do not retry" reason (`denyReason` can override) — without one, models often resend the very same call.
+- **usage / waterfall**: UI Message Stream protocol frames carry no usage, so usage assertions like `t.maxTokens` have no data by default on this built-in (an app putting usage into message metadata is the app's own protocol extension). The waterfall is a separate matter: when the app has OTel instrumentation (e.g. the official `@ai-sdk/otel`), send spans to NiceEval per [OTel integration](/guides/connect-otel) and `niceeval view` gets a full waterfall — spans only feed the waterfall, never assertions.
+
+You need `ai` installed in the eval project (optional peer dependency; the protocol reducer comes from it). Full runnable example: [`examples/zh/tier1/ai-sdk-v7`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/tier1/ai-sdk-v7).
+
+## SDK event stream converters: `fromClaudeSdkMessages` / `fromPiAgentEvents` / `fromCodexThreadEvents`
+
+Each agent SDK's streaming protocol is a generic protocol defined by the SDK, not some app's private format — the native-frame-to-standard-event mapping knowledge lives in the official package (exported from `niceeval/adapter`), so when writing your own non-invasive adapter only the **transport glue** remains (which endpoint the app puts the stream on, which endpoint approvals go through). Driving the loop frame by frame is itself an official piece (`driveFrameStream`, see the next section), so no hand-written `for` loop:
+
+```ts
+import { sseJsonFrames, fromClaudeSdkMessages, driveFrameStream } from "niceeval/adapter";
+
+const frames = sseJsonFrames<SDKMessage>(res.body);   // Standard SSE → per-frame JSON
+const stream = fromClaudeSdkMessages();               // SDKMessage → standard events
+return driveFrameStream(frames, stream, ctx);         // Feed stream.add() frame by frame, summarize into a Turn
+```
+
+- **`fromClaudeSdkMessages`** (Claude Agent SDK `SDKMessage`): `assistant` text/tool_use blocks, `user` tool_result blocks, `system`/`permission_denied` (→ `rejected`), `result` usage; `markRejected()` registers denied calls.
+- **`fromPiAgentEvents`** (pi-agent-core `AgentEvent`): text/thinking/usage from `message_end`, tool pairs from `tool_execution_start/end`.
+- **`fromCodexThreadEvents`** (Codex SDK `ThreadEvent`): message-class frames from `agent_message`/`reasoning`, tool items (`command_execution` / `mcp_tool_call` / `file_change` / `web_search` → `action.called` + `action.result`), usage from `turn.completed`, error frames. The waterfall needs the codex CLI's native OTLP (the `[otel]` block in config.toml) sending spans to NiceEval, normalized with the official `mapCodexSpans`.
+
+Runnable references: the claude-sdk / pi-sdk / codex-sdk adapters under [`examples/zh/tier1`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/tier1) are exactly these three converters + `driveFrameStream` + transport glue.
+
+## Generic "assembly" pieces: `driveFrameStream` / `deltaStream` + `ctx.session`
+
+Inside a hand-written send, only three truly independent parts exist: transport (how to send), reduce (raw data → events, handled by the converters above), and orchestration (session continuation + HITL pause/resume). The third part is protocol-agnostic, pure control-flow pattern — the accessors for session continuation (`id`/`capture`, `history`) and the HITL paused-turn scene (`hold`/`take`) hang directly off `ctx.session` (`AgentSession`, see the [Adapter concept](/concepts/adapter#context-agentcontext)); nothing to import separately and nothing to declare. What actually remains reusable across protocols is just two official pieces:
+
+| Piece | What it solves |
+|---|---|
+| `driveFrameStream(cursor, reducer, ctx, onFrame?)` | Feeds the reducer frame by frame, handles transport frames, detects the HITL pause signal — the loop itself collapsed into one function. On pause the `cursor` is not closed: store it with `ctx.session.hold(cursor)` inside `onFrame`, and on the answer turn `ctx.session.take()` retrieves it and keeps reading, without issuing a new request |
+| `deltaStream(spec)` | Generic accumulator for token-by-token / per-argument deltas — for protocols with "no whole-chunk landing frames" like raw OpenAI/Anthropic streaming APIs or your own hand-rolled token-by-token backend; declare "which operation this frame belongs to" (text delta / tool-argument delta / finalize) and it manages assembly timing itself |
+
+```ts
+// First thing in send: check for a held scene (HITL answer turn)
+const pending = ctx.session.take<Pending>();
+if (pending) {
+  // ...match verdicts from input.responses, hand the approval back to the app...
+  return driveFrameStream(pending.cursor, pending.stream, ctx, onFrame);
+}
+
+// Normal turn: session continuation via ctx.session.id / capture; on pause, ctx.session.hold stores the cursor
+return driveFrameStream(cursor, stream, ctx, (frame, derived) => {
+  ctx.session.capture(stream.sessionId);
+  const gated = derived.find((e) => e.type === "action.called" && e.name === GATED_TOOL_NAME);
+  if (gated?.type === "action.called") {
+    ctx.session.hold<Pending>({ cursor, stream, toolUseId: gated.callId });
+    return { pause: { id: gated.callId, action: GATED_TOOL_NAME, options: [{ id: "approve" }, { id: "deny" }] } };
+  }
+});
+```
+
+The three Tier 1 examples (claude-sdk and pi-sdk use `driveFrameStream` + `ctx.session.hold`/`take`; codex-sdk uses only `driveFrameStream`) have been rewritten on these pieces — the adapters are down to transport plus the "does this frame need extra handling" decision in `onFrame`, with no hand-written loops or module-level Maps.
+
+## `fromAiSdk`: AI SDK result → event stream converter
+
+`fromAiSdk` (exported from `niceeval/adapter`) is used inside adapters you write yourself (e.g. server-side direct construction for an HTTP web agent, see `examples/zh/ai-sdk/`). It maps an AI SDK `generateText` / `streamText` result into `{ events, usage, status }` — exact `toolCallId` pairing, order-faithful, `tool-error` mapped to a failed `action.result`, usage aggregation (v4 / v5 / v7 field drift all covered) — laid straight into the `Turn`:
+
+```ts
+import { defineAgent, fromAiSdk } from "niceeval/adapter";
+
+export default defineAgent({
+  name: "my-ai-sdk-agent",
+  async send(input) {
+    const result = await generateText({ model, tools, prompt: input.text });
+    return { ...fromAiSdk(result), data: result.text };
+  },
+});
+```
+
+The `status` comes from the converter: `"waiting"` when there is a tool approval pending human review (with an `input.requested` event attached), otherwise `"completed"`. Session continuation (multi-turn resume), handing HITL verdicts back, and tracing depend on how you write your own `send`.
+
+## How to choose
+
+- The system under test is an AI SDK app (`useChat` backend): the built-in `uiMessageStreamAgent` connects non-invasively with zero mapping (including HITL).
+- The system under test is another agent system (HTTP / gRPC service): connect non-invasively and hand-write the event mapping (official converters cover most of it) — all five examples under [`examples/zh/tier1`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/tier1) take this path; if the app already has OTel instrumentation, wire it up for a bonus waterfall.
+- You need the call waterfall (the trace in `niceeval view`): `codex` / `bub` emit OTLP themselves; adapters you write yourself just declare `tracing` (see the OTel guide). `claude-code` currently cannot produce a trace.
+- You need human approval / multi-step confirmation (HITL): `uiMessageStreamAgent` supports it natively (AI SDK v7 tool approval); none of the three sandbox agents do; for other systems write your own adapter, assembled from `driveFrameStream` + `ctx.session.hold`/`take` (the pi-sdk / claude-sdk Tier 1 examples have ready-made patterns).
+- You want to run a coding agent that edits code, inspect diffs, and judge tool calls: `claude-code` / `codex` / `bub` (send/receive + event stream + session continuation + workspace + sandbox).
+- Your backend protocol is home-grown with no official SDK converter: do not hand-write send from scratch — pick a reduce shape (a small mapping for whole-chunk landing, `deltaStream` for token-by-token deltas), take `ctx.session.id`/`capture` or `ctx.session.history` for session continuation, add `ctx.session.hold`/`take` if you have HITL, and the assembly is your send.
+
+## Related reading
+
+- [Connect your agent](/guides/connect-your-agent) — how to implement each capability in your own adapter and which assertions it maps to.
+- [Sandbox Agent](/guides/sandbox-agent) — how to run the built-in sandbox agents and write your own.
+- [defineAgent reference](/reference/define-agent) — full parameters of `defineAgent` / `defineSandboxAgent`.
+- [OTel integration](/guides/connect-otel) — send your app's spans to NiceEval in exchange for the call waterfall in `niceeval view`.

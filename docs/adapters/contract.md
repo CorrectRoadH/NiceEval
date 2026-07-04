@@ -14,9 +14,8 @@ interface Agent {
   readonly kind: "sandbox" | "remote";         // 内部判别字段,用户不声明;由 defineSandboxAgent / defineAgent 恒定写死
   setup?(sandbox: Sandbox, ctx: AgentContext): Promise<void | Cleanup> | void | Cleanup;
                                                // 每个沙箱一次:装 CLI / 写主配置;可返回 cleanup
-  tracing?: AgentTracing;                      // OTLP 导出配置(仅当此字段存在时运行器才为该 agent 开 OTLP 接收)
-  spanMapper?: SpanMapper;                     // 原生 span → canonical 的薄 mapper;省略走通用 heuristic
-  events?: OtelEventsSource;                   // 事件来源声明:otelEvents() = 事件流从本轮收到的 span 派生
+  tracing?: AgentTracing;                      // OTLP 导出配置(沙箱型 CLI 常用;remote agent 只要 config.telemetry 配了端口就够)
+  spanMapper?: SpanMapper;                     // 原生 span → canonical 的薄 mapper;省略走通用 heuristic;只影响瀑布图
   send(input: TurnInput, ctx: AgentContext): Promise<Turn>;   // 每轮一次
   teardown?(sandbox: Sandbox, ctx: AgentContext): Promise<void> | void;  // 收尾清理(finally 跑)
 }
@@ -74,7 +73,7 @@ interface AgentSession {
 | `t.calledTool()` / `t.toolOrder()` 等正断言 | events 里有 `action.*` |
 | `t.notCalledTool()` / `t.usedNoTools()` 等负断言**可信** | 事件来自带完整性证明的官方转换器(SDK 原生事件流透传、`fromAiSdk` 的 `result.steps`、Responses 的 `output`);手写映射没有这份证明,负断言可信度按来源判断,不按作者的自觉 |
 | `t.sandbox`、`t.fileChanged()` 等 | `defineSandboxAgent` 构造(`kind: "sandbox"`) |
-| `EvalResult.trace`、`niceeval view` 瀑布图 | `tracing` 块 / `events: otelEvents()` 存在 |
+| `EvalResult.trace`、`niceeval view` 瀑布图 | 配置了 OTel 接入(agent 的 `tracing` 块,或 remote agent + `defineConfig({ telemetry })`)——只画瀑布图,不影响任何断言,详见[观测性](../observability.md#otlp-traces--统一瀑布图) |
 
 唯一仍然存在的运行时守卫是**沙箱能力**:`t.sandbox` / `t.file` / `t.fileChanged()` 等直接读沙箱文件系统,非沙箱型 agent(`kind !== "sandbox"`)调用这些方法会立即得到清晰报错(`src/context/context.ts` 的 `capabilityGuard`)——没有沙箱就没有东西可读,不报错会静默返回空结果。其余能力(多轮对话、工具观测……)不设运行时守卫:没接会话存取器的 agent 每轮各是新对话(不报错,只是断言看不到历史);没吐 `action.*` 事件的 agent 上正断言自然不命中;负断言的可信度靠事件来源判断,不靠拦截调用。
 

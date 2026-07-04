@@ -22,12 +22,12 @@
 | Agent 契约 / 能力位 / 三类配置归属 | `src/agents/types.ts`(`Agent` / `AgentContext` / `AgentCapabilities` / `SpanMapper`) |
 | 能力调用守卫(缺声明的动作第一次调用即报清晰错误;conversation gate 第二轮起) | `src/context/context.ts`(`capabilityGuard`) |
 | 逐 API 适配义务(send / newSession / respond 的运行器侧翻译) | `src/context/session.ts`(`SessionManager` / `RunSession`)、`src/context/context.ts` |
-| `defineSandboxAgent` / `defineAgent`(能力位默认值) | `src/define.ts` |
+| `defineSandboxAgent` / `defineAgent`(`kind: "sandbox" | "remote"`,无能力位字段) | `src/define.ts` |
 | `shared` 工具袋(ensureInstalled / captureLatestJsonl(可按 sessionId 精确定位)/ writeFile / extractJsonlFromStdout / codexThreadId / firstJsonField / shellSingleQuote / diagnoseFailure / parseCodex·parseClaudeCode·parseBub) | `src/agents/shared.ts` |
 | 采集矩阵(collection.md:每 agent 的通道 / 字段来源) | `src/agents/{claude-code,codex,bub}.ts`(采集)+ `src/o11y/parsers/*.ts`(字段提取) |
-| `fromAiSdk`(通道 0:AI SDK 结果 → 标准事件流,v4/v5/v7 字段漂移兜底;v7 tool approval → `input.requested` + `status: "waiting"`) | `src/agents/ai-sdk.ts`(+ 同目录 `.test.ts`;手工用法见 `examples/zh/ai-sdk/`) |
-| `aiSdkAgent`(内建 AI SDK 进程内 agent 工厂:会话 / HITL 裁决翻译 / 失败兜底 / OTel 管线全托管,应用只写 `generate`) | `src/agents/ai-sdk.ts` + `src/agents/ai-sdk-otel.ts`(OTel 管线,可选 peer 按需加载;用法见 `examples/zh/ai-sdk-v7/`) |
+| `fromAiSdk`(AI SDK 结果 → 标准事件流,v4/v5/v7 字段漂移兜底;v7 tool approval → `input.requested` + `status: "waiting"`) | `src/agents/ai-sdk.ts`(+ 同目录 `.test.ts`) |
 | 内置 adapter(claude-code / codex / bub) | **由被测项目自带**(`agents/*.ts`),niceeval 提供 `shared` + 解析器 |
+| `uiMessageStreamAgent`(AI SDK UI Message Stream 协议的内置无侵入 adapter) | `src/agents/ui-message-stream.ts` |
 
 ## Coding Agent Skills / Plugins DX([adapters/coding-agent-skills-plugins.md](adapters/coding-agent-skills-plugins.md))
 

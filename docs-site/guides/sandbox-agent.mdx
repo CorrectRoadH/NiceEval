@@ -125,7 +125,7 @@ export default defineSandboxAgent({
     const args = ["--print", "--dangerously-skip-permissions"];
     if (ctx.model) args.push("--model", ctx.model);   // only when experiment sets it
     if (ctx.flags.webResearch) args.push("--allowedTools", "WebSearch,WebFetch");
-    if (!ctx.session.isNew && ctx.session.id) args.push("--resume", ctx.session.id);
+    if (ctx.session.id) args.push("--resume", ctx.session.id);   // undefined on a fresh session line
     args.push(input.text);
 
     // Step 2: authenticate via env, run the agent
@@ -133,7 +133,7 @@ export default defineSandboxAgent({
 
     // Step 5: read the transcript, parse it into StreamEvent[]
     const raw = await shared.captureLatestJsonl(sb, "~/.claude/projects");
-    ctx.session.id = shared.sessionIdFromClaudeTranscript(raw);  // enables multi-turn resume
+    ctx.session.capture(shared.sessionIdFromClaudeTranscript(raw));  // enables multi-turn resume
 
     return {
       events: parseClaudeCode(raw),   // native JSONL → standard StreamEvent[]

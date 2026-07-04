@@ -41,7 +41,6 @@ export function webAgent(opts: { baseUrl: string }): Agent {
   const baseUrl = opts.baseUrl.replace(/\/$/, "");
   return defineAgent({
     name: "web-agent",
-    capabilities: { conversation: true, toolObservability: true, tracing: true },
     async send(input, ctx) {
       const response = await fetch(`${baseUrl}/api/turn`, {
         method: "POST",
@@ -57,7 +56,7 @@ export function webAgent(opts: { baseUrl: string }): Agent {
       });
       // Shared contract within the same workspace — read as AgentResponse directly, no need to validate as unknown.
       const body = (await response.json()) as AgentResponse;
-      ctx.session.id = body.sessionId;
+      ctx.session.capture(body.sessionId);
       return {
         events: body.events.map(toStreamEvent),
         data: body.data,
@@ -75,7 +74,7 @@ function toStreamEvent(event: AgentEvent): StreamEvent {
 
 ## Multi-turn messages
 
-`t.send()` automatically carries `ctx.session.id` to continue the same session. The adapter writes the service's returned `sessionId` back to `ctx.session.id`. To split traffic by feature flag within an experiment, see [Experiments](/guides/experiments).
+Within the same conversation line, `ctx.session.id` automatically carries over to the next turn; the adapter just writes the agent's returned `sessionId` back with `ctx.session.capture()`. To split traffic by feature flag within an experiment, see [Experiments](/guides/experiments).
 
 ## Define evals
 

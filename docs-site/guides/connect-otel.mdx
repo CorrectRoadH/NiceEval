@@ -1,116 +1,102 @@
 ---
-title: "OTel integration"
+title: "OTel Integration"
 sidebarTitle: "OTel Integration"
-description: "If your app already emits OpenTelemetry traces, send spans to NiceEval and derive tool events and trace waterfalls without writing event mapping."
+description: "Send a copy of the OTel spans your app already emits to NiceEval and get a per-turn call waterfall in niceeval view. Assertions do not come from here — they are complete the moment send is wired up."
 ---
 
-If your app already uses OpenTelemetry through AI SDK telemetry, LangGraph / LangSmith export, OpenLLMetry, OpenInference, or GenAI semantic conventions, it is already producing much of the data NiceEval needs. Let the app send spans to NiceEval and derive tool assertions plus the `niceeval view` waterfall from those spans.
+First, what this integration does **not** change: assertions. Every verdict — `t.calledTool`, `t.maxTokens`, timing — is based entirely on the `Turn` (`events` + `usage`) your adapter returns from `send`. The moment `send` is wired up, the full assertion set is available, and none of it involves OTel (see [Connect Your Agent](/guides/connect-your-agent)).
 
-This is **Tier 2: send + OTel**. It builds on Tier 1 `send`. Feature A/B through application flags is Tier 3 and still requires the app to expose switches.
+What OTel integration buys you is something else: **the call waterfall in `niceeval view`**. Every model call and tool execution inside your app, each with its duration and tokens, laid out as a per-turn timeline — why a failing eval failed, or which step made a slow turn slow, is often obvious at a glance in the waterfall.
 
-## Standards and dialects
+If your app already emits OTel traces — AI SDK telemetry, LangGraph's LangSmith export, OpenLLMetry / OpenInference auto-instrumentation, or your own spans following the GenAI semantic conventions — you are already producing the waterfall data: just have the app send a copy of its spans to NiceEval. Application code stays untouched, and the integration remains non-invasive (see [Tier](/concepts/tier)).
 
-| Standard / dialect | Maintainer | Format module |
-|---|---|---|
-| OTel GenAI semantic conventions, `gen_ai.*` | OpenTelemetry | `otel.genAi` |
-| AI SDK telemetry, `ai.*` or GenAI through `@ai-sdk/otel` | Vercel | `otel.aiSdk` or `otel.genAi` |
-| OpenInference | Arize / Phoenix ecosystem | `otel.openInference` |
-| OpenLLMetry | Traceloop | `otel.openLLMetry` |
-| LangSmith OTel export | LangChain | `otel.langsmith` |
-| Codex CLI native OTLP | OpenAI Codex | `otel.codex` |
+## How it works (one paragraph)
 
-By default, NiceEval detects dialects per span. You can specify dialects for sharper diagnostics.
+At run time NiceEval starts a local OTLP receiver, and your app sends spans to it. Spans received during each `send` are attributed to that turn, normalized into GenAI semantics, and written into `EvalResult.trace`; after the run, `npx niceeval view` is the waterfall. **Spans only feed the waterfall — never the event stream, never assertions.** Missing instrumentation, late spans, or dropped batches only degrade waterfall completeness; they never affect any verdict.
 
-```ts
-import { otelEvents, otel } from "niceeval/adapter";
+## Wiring it up
 
-events: otelEvents()
-events: otelEvents({ dialects: [otel.aiSdk] })
-events: otelEvents({ dialects: [myFormat, otel.genAi] })
-```
-
-## How `otelEvents()` works
-
-1. NiceEval starts a local OTLP receiver for the run.
-2. `ctx.telemetry.headers` carries W3C trace context. Forward it in your request headers so spans attach to the current turn.
-3. If trace context is unavailable, NiceEval can attribute spans by time window, but that fallback is only reliable when turns run serially.
-4. Spans are normalized into standard events and merged with any events returned directly from `send`.
-
-## Adapter side
+**1. Adapter side** — write `send` as usual (the event mapping is still your mapping), plus one extra line: forward this turn's `traceparent` with the request:
 
 ```ts
 // agents/support-bot.ts
-import { defineAgent, otelEvents } from "niceeval/adapter";
+import { defineAgent } from "niceeval/adapter";
 
 export default defineAgent({
   name: "support-bot",
-  events: otelEvents(),
   async send(input, ctx) {
-    const r = await fetch(`${process.env.BOT_URL}/chat`, {
+    const r = await fetch("http://localhost:5188/chat", {
       method: "POST",
+      // Forward traceparent with the request: this turn's spans attach to NiceEval's trace,
+      // which is what makes attribution precise under concurrency
       headers: { "content-type": "application/json", ...ctx.telemetry?.headers },
       body: JSON.stringify({ message: input.text }),
       signal: ctx.signal,
     });
-    return { data: await r.json(), status: r.ok ? "completed" : "failed" };
+    const body = await r.json();
+    return {
+      status: r.ok ? "completed" : "failed",
+      events: mapToEvents(body),   // Assertions are based on this, same as without OTel
+    };
   },
 });
 ```
 
-## Give the endpoint to your app
+Built-ins do not need this step: `uiMessageStreamAgent` always merges `ctx.telemetry.headers` into the request headers automatically.
 
-For child processes, CLIs, or services launched by NiceEval, spread `ctx.telemetry.env` into the process environment.
+**2. How the endpoint reaches your app** — NiceEval's receiver endpoint is **startup-time configuration, never passed through send** (standard OTel SDKs cannot switch endpoints at run time either: `OTEL_*` environment variables are read once at process startup). Pick by deployment shape:
 
-For long-running services, use a fixed port:
+- **Your own long-running service (most common)**: use **fixed-port mode** — pin the receiver port in `niceeval.config.ts`. Writing this config is what turns OTel integration on:
 
-```ts
-// niceeval.config.ts
-export default defineConfig({
-  telemetry: { port: 4318 },
-});
-```
+  ```ts
+  // niceeval.config.ts
+  export default defineConfig({
+    telemetry: { port: 4318 },   // Receiver always listens on http://localhost:4318/v1/traces
+  });
+  ```
 
-Start the app with:
+  Configure `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318/v1/traces` once when the service starts; it stays valid no matter how many eval runs follow. The trade-off: sharing a port means only one niceeval process can run on the machine at a time; OTel Collector fan-out setups point at this fixed endpoint the same way. If `port` is already taken by another process, NiceEval fails immediately with an error telling you to pick a free port — it never fails silently.
 
-```bash
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318/v1/traces npm run dev
-```
+  The receiver hostname reported to your app defaults to `127.0.0.1`. When Docker-based sandbox tracing needs `host.docker.internal`, or a tunneled remote setup needs another hostname, override it with `host`: `telemetry: { host: "host.docker.internal", port: 4318 }`. These two fields are the only way to configure the OTLP receiver in NiceEval; it does not read environment variables.
 
-## App-side examples
+- **Child processes / processes NiceEval spawns** (CLI-style agents): nothing to do. `ctx.telemetry.env` (standard `OTEL_*` environment variables, ready to spread) is injected into the process environment; each run is a fresh process and reads the fresh endpoint.
+
+**3. App side** — a few lines of configuration, depending on your instrumentation ecosystem:
 
 <Tabs>
   <Tab title="AI SDK">
-    Prefer `@ai-sdk/otel`, which emits standard GenAI spans. Legacy `experimental_telemetry` also works.
+    The official OTel integration (`@ai-sdk/otel`, which emits standard GenAI semantics) is recommended; the older `experimental_telemetry` (`ai.*`) renders too:
 
     ```ts
+    import { generateText } from "ai";
+
     const result = await generateText({
-      model,
-      tools,
-      messages,
+      model, tools, messages,
       experimental_telemetry: { isEnabled: true },
     });
     ```
 
-    Runnable reference: `examples/zh/tier1/ai-sdk-v7`.
+    The exporter is the standard OTel Node SDK, with the endpoint pointed at NiceEval (the injected env or the fixed port). Runnable examples: app-side instrumentation in [`examples/zh/origin/ai-sdk-v7`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/origin/ai-sdk-v7) (`src/backend/otel.ts`, official `@ai-sdk/otel`); the full eval project after integration in [`examples/zh/tier1/ai-sdk-v7`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/tier1/ai-sdk-v7).
   </Tab>
   <Tab title="LangGraph / LangChain">
-    Python LangSmith SDK can emit OTLP through environment variables:
+    The zero-dependency route: three environment variables:
 
     ```bash
     LANGSMITH_TRACING=true \
     LANGSMITH_OTEL_ENABLED=true \
     LANGSMITH_OTEL_ONLY=true \
     OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318/v1/traces \
-    python server.py
+    node server.js   # Endpoint value per "How the endpoint reaches your app": injected env or fixed port
     ```
 
-    Runnable reference: `examples/zh/tier1/langgraph`.
+    `LANGSMITH_OTEL_ONLY` means OTLP only, no LangSmith cloud (drop it to dual-send). This is truly zero-code with the **Python** `langsmith` SDK (it hooks OTel automatically at import time); the **JS** version (`langsmith@0.7.x`) additionally needs one explicit call to `initializeOTEL()` (from `langsmith/experimental/otel/setup`), otherwise it only logs a warning and produces no spans — the three environment variables themselves stay the same. Runnable example (Python backend, zero wiring code): [`examples/zh/origin/langgraph`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/origin/langgraph); the full eval project after integration in [`examples/zh/tier1/langgraph`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/tier1/langgraph).
   </Tab>
   <Tab title="OpenLLMetry">
     ```ts
     import * as traceloop from "@traceloop/node-server-sdk";
 
     traceloop.initialize({ disableBatch: true });
+    // Endpoint via the standard OTEL_EXPORTER_OTLP_ENDPOINT environment variable
     ```
   </Tab>
   <Tab title="OpenInference">
@@ -118,33 +104,106 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318/v1/traces npm run dev
     from openinference.instrumentation.langchain import LangChainInstrumentor
     from phoenix.otel import register
 
-    register()
+    register()  # Or the standard OTel SDK; endpoint via OTEL_EXPORTER_OTLP_ENDPOINT
     LangChainInstrumentor().instrument()
     ```
   </Tab>
+  <Tab title="Hand-rolled gen_ai">
+    Instrument per the [OTel GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/): name model-call spans `chat {model}` and tool spans `execute_tool {tool}`, with the `gen_ai.operation.name` and `gen_ai.tool.name` / `gen_ai.tool.call.id` attributes. This is the target semantics NiceEval normalizes into, and it produces the most complete waterfall.
+  </Tab>
 </Tabs>
 
-## Existing OTel backend
+## How spans are attributed to turns
 
-You do not need to replace your current tracing backend. Add a second SpanProcessor for NiceEval or fan out through an OTel Collector. In eval runs, prefer `SimpleSpanProcessor` so spans arrive before turn attribution closes.
+When evals run in parallel, one receiver receives spans from multiple sessions at once. NiceEval attributes them to their turns via two paths:
 
-## Negative assertions
+- **traceparent (recommended, concurrency-safe)**: when `send` makes its request, spread `ctx.telemetry.headers` (W3C trace context, a fresh `traceparent` per turn) into the request headers. If the app's instrumentation supports context propagation (standard OTel HTTP server instrumentation does), this turn's spans automatically attach under the trace NiceEval provided, and attribution is exact by traceId.
+- **Time window (fallback)**: when the app does not propagate trace context, spans are attributed by the time window around `send`. The window is only reliable when turns run serially, so in this case NiceEval executes this agent's turns serially and says so in the logs — it never silently mixes streams. Once traceparent is confirmed working, concurrency resumes automatically.
 
-`otelEvents()` gives positive assertions such as `calledTool`, `toolOrder`, and generic event checks when spans exist. Negative assertions such as `notCalledTool` require proof that instrumentation covers every tool layer. NiceEval cannot verify that for your app, so declare it yourself only when you have confirmed coverage:
+Export promptly on the app side: what the waterfall cares about is "this turn's spans arrive in time". Use `SimpleSpanProcessor` (or flush every turn) — `BatchSpanProcessor`'s buffering makes spans arrive late across turns; when the waterfall occasionally has a missing tail, that is usually why.
+
+## Already have your own OTel backend? Dual-export, no switch
+
+Your app is most likely already sending traces to its own observability backend (Langfuse / SigNoz / a production collector). Connecting NiceEval **requires neither switching backends nor a second layer of instrumentation**: a TracerProvider supports multiple SpanProcessors — the same spans, two exits:
 
 ```ts
-capabilities: { toolObservability: true },
-events: otelEvents(),
+// instrumentation.ts — initialize once at app startup: one set of instrumentation, two exits
+import { NodeTracerProvider, SimpleSpanProcessor } from "@opentelemetry/sdk-trace-node";
+import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
+
+export const provider = new NodeTracerProvider({
+  spanProcessors: [
+    // Exit 1: your own backend, always on
+    new SimpleSpanProcessor(new OTLPTraceExporter({ url: process.env.MY_COLLECTOR_URL })),
+    // Exit 2: NiceEval. Without this variable in production, this exit simply
+    // does not exist — same code in production and in evals
+    ...(process.env.OTEL_EXPORTER_OTLP_ENDPOINT
+      ? [new SimpleSpanProcessor(new OTLPTraceExporter({ url: process.env.OTEL_EXPORTER_OTLP_ENDPOINT }))]
+      : []),
+  ],
+});
+provider.register();
 ```
+
+If touching app code is inconvenient, fan out through an OTel Collector — the app sends only to the collector, and the collector configures two exporters (your backend + NiceEval's fixed endpoint). The cost is one more component to operate.
+
+## How accurate is the waterfall: what you map is what lights up
+
+Before drawing the waterfall, NiceEval normalizes every span into GenAI semantics. The verdict looks at exactly two things: `gen_ai.operation.name` (the standard operation name) and the normalized `kind` (semantic role). The mapping table — what you provide on a span, and what lights up in the waterfall:
+
+| What you provide on the span | What lights up in the waterfall |
+|---|---|
+| `gen_ai.operation.name: "chat"` (or `text_completion` / `embeddings`) | Colored and grouped as a **model call** |
+| `gen_ai.operation.name: "execute_tool"`, or a `tool_name` attribute | Colored and grouped as a **tool execution** |
+| `gen_ai.operation.name: "invoke_agent"` / `"create_agent"` | Colored and grouped as a **sub-agent** |
+| A `call_id` attribute equal to a `callId` in your send events | That tool span gets the real input/output backfilled (`io.input` / `io.output`, joined by callId from the events `send` returned — many instrumentations do not capture content by default, and this path is unaffected) |
+| Span status = error | Marked red |
+| Nothing recognizable (normalized to `other`) | The timeline is still there; in large traces (>150 spans) it is folded away as internal noise |
+| Any other attributes | Preserved as-is, drillable in the view |
+
+If your app instruments directly per the GenAI semconv (the "Hand-rolled gen_ai" tab above), all of this holds automatically; the common shapes of mainstream formats (AI SDK, LangSmith, OpenLLMetry / OpenInference) are also within the generic fallback's recognition range.
+
+### Private instrumentation: write your own mapping
+
+When your instrumentation has an app-private shape the generic fallback cannot recognize, there are two routes:
+
+- **Fix the instrumentation (recommended)**: add a `gen_ai.operation.name` attribute to the spans on the app side — a one-line change, and your own observability backend benefits equally.
+- **Write a `spanMapper`**: when touching the app is inconvenient, declare a pure function on the agent that translates private spans into the semantics of the table above before rendering. Both `tagSpan` (writes the verdict back onto the span; existing attributes are only added to, never changed) and `heuristicTag` (the generic fallback verdict) are exported from `niceeval/adapter`:
+
+```ts
+import { defineAgent, tagSpan, heuristicTag } from "niceeval/adapter";
+import type { TraceSpan } from "niceeval";
+
+function mapMySpans(spans: TraceSpan[]): TraceSpan[] {
+  return spans.map((span) => {
+    // Private naming → standard semantics: op goes into gen_ai.operation.name, kind sets the coloring
+    if (span.name === "my.llm.request") return tagSpan(span, { op: "chat", kind: "model" });
+    if (span.name === "my.tool.exec") {
+      // Copy the private call id into call_id while you're at it, so tool I/O joins in from the send events
+      const attributes = { ...span.attributes, call_id: String(span.attributes?.["my.callId"] ?? "") };
+      return tagSpan({ ...span, attributes }, { op: "execute_tool", kind: "tool" });
+    }
+    return tagSpan(span, heuristicTag(span));   // leave the rest to the generic fallback
+  });
+}
+
+export default defineAgent({
+  name: "my-bot",
+  spanMapper: mapMySpans,
+  async send(input, ctx) { /* same wiring as above */ },
+});
+```
+
+The built-in `mapCodexSpans` (also exported from `niceeval/adapter`) is a ready-made spanMapper implementation to use as a reference. A spanMapper is pure observability code: get it wrong and at worst the waterfall coloring is off — assertions are never affected.
 
 ## Boundaries
 
-- Multi-turn sessions and HITL remain adapter protocol work.
-- Approval-gated tools may not produce execution spans when denied; add those events manually in `send`.
-- Message text depends on the ecosystem. Some instrumentation requires opt-in content capture.
+- **Everything assertion-related lives in send**. To assert on tool calls, map them into `events` (an official converter or a hand-written mapping, see [Write send](/guides/write-send)); to assert on usage, include it in the `send` return. There is no path where "the span has it, events do not, so the assertion reads the span".
+- **Multi-turn sessions and HITL are not span concerns**. Spans have no "waiting for human input" semantics, and session continuation is application-protocol work — both keep happening in `send` as usual (session continuation in [Write send](/guides/write-send), the HITL concept in [HITL](/concepts/hitl)).
+- **You get a warning when no spans arrive**. A turn with zero spans usually means the endpoint is not hooked up (env not injected, service not restarted); NiceEval says so in the logs. The waterfall is empty; assertions judge as usual.
 
-## Related
+## Related reading
 
-- [Connect Your Agent](/guides/connect-your-agent)
-- [Capabilities](/reference/capabilities)
-- [Events](/reference/events)
+- [Connect Your Agent](/guides/connect-your-agent) — where assertions come from: the event mapping in `send`.
+- [Write send](/guides/write-send) — the full tutorial for hand-writing an adapter; step six is this page's adapter-side wiring.
+- [Events reference](/reference/events) — what the events assertions consume look like.

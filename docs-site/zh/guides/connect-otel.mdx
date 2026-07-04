@@ -145,12 +145,54 @@ provider.register();
 
 不方便改应用代码的话，OTel Collector 扇出——应用只发给 collector，collector 配两个 exporter（你的后端 + NiceEval 的固定端点）。代价是多运维一个组件。
 
-## 瀑布图画得准不准
+## 瀑布图画得准不准：映射到位什么，就亮起什么
 
-NiceEval 把收到的 span 归一到 GenAI 语义（`gen_ai.operation.name` 决定这条 span 是模型调用、工具执行还是编排），主流埋点格式的常见形状都在归一范围内；认不出的 span 走通用兜底，时间线还在，只是少了模型/工具的语义着色。两个补充手段：
+NiceEval 画瀑布图前把每条 span 归一到 GenAI 语义，判定只看两样：`gen_ai.operation.name`（标准操作名）和归一出的 `kind`（语义角色）。对照表——你在 span 上给出什么，瀑布图上就亮起什么：
 
-- **`spanMapper`**：agent 上可配 `spanMapper: (spans) => spans`，把应用私有的 span 形状翻成 GenAI 语义再进瀑布图（见 [defineAgent 参考](/zh/reference/define-agent)）。
-- **工具 I/O 从事件补**：span 上没记工具输入输出时（很多埋点默认不采内容），瀑布图会用 `send` 返回事件里同一调用的 I/O 补上——两边按 callId 对齐。
+| 你在 span 上给出什么 | 瀑布图上亮起什么 |
+|---|---|
+| `gen_ai.operation.name: "chat"`（或 `text_completion` / `embeddings`） | 按**模型调用**着色分类 |
+| `gen_ai.operation.name: "execute_tool"`，或属性里有 `tool_name` | 按**工具执行**着色分类 |
+| `gen_ai.operation.name: "invoke_agent"` / `"create_agent"` | 按**子 agent** 着色分类 |
+| 属性 `call_id` = 你 send 事件里的 `callId` | 该工具 span 自动补上真实入参/出参（`io.input` / `io.output`，从 send 返回的事件按 callId join 过来——很多埋点默认不采内容，这条路不受影响） |
+| span 状态 = error | 红色标错 |
+| 什么都没给（归一成 `other`） | 时间线还在；大 trace（>150 span）时按内部噪声折叠掉 |
+| 其余属性 | 原样保留，view 里点开下钻 |
+
+应用直接按 GenAI semconv 埋点（上文「自己埋的 gen_ai」tab）时这一切自动成立；主流格式（AI SDK、LangSmith、OpenLLMetry / OpenInference）的常见形状也在通用兜底的识别范围内。
+
+### 私有埋点：自己写映射
+
+埋点是应用私有形状、通用兜底认不出时，两条路：
+
+- **改埋点（推荐）**：在应用侧给 span 补一个 `gen_ai.operation.name` 属性——一行改动，你自己的观测后端也同样受益。
+- **写 `spanMapper`**：不方便动应用时，在 agent 上声明一个纯函数，渲染前把私有 span 翻成上表的语义。`tagSpan`（把判定写回 span，原有属性只增不改）和 `heuristicTag`（通用兜底判定）都从 `niceeval/adapter` 导出：
+
+```ts
+import { defineAgent, tagSpan, heuristicTag } from "niceeval/adapter";
+import type { TraceSpan } from "niceeval";
+
+function mapMySpans(spans: TraceSpan[]): TraceSpan[] {
+  return spans.map((span) => {
+    // 私有命名 → 标准语义:op 写进 gen_ai.operation.name,kind 定着色
+    if (span.name === "my.llm.request") return tagSpan(span, { op: "chat", kind: "model" });
+    if (span.name === "my.tool.exec") {
+      // 顺手把私有的调用 id 抄成 call_id,工具 I/O 就能从 send 事件里 join 过来
+      const attributes = { ...span.attributes, call_id: String(span.attributes?.["my.callId"] ?? "") };
+      return tagSpan({ ...span, attributes }, { op: "execute_tool", kind: "tool" });
+    }
+    return tagSpan(span, heuristicTag(span));   // 其余交给通用兜底
+  });
+}
+
+export default defineAgent({
+  name: "my-bot",
+  spanMapper: mapMySpans,
+  async send(input, ctx) { /* 同上文接法 */ },
+});
+```
+
+内置的 `mapCodexSpans`（同样从 `niceeval/adapter` 导出）就是一个现成的 spanMapper 实现，可当参考。spanMapper 是纯观测代码：写错了最多瀑布图着色不对，断言不受任何影响。
 
 ## 边界
 

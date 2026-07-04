@@ -41,26 +41,6 @@
       "destination": "/guides/write-send"
     },
     {
-      "source": "/example/ai-sdk-v7-before-after",
-      "destination": "/example/tier1-ai-sdk-v7"
-    },
-    {
-      "source": "/example/claude-sdk-before-after",
-      "destination": "/example/tier1-claude-sdk"
-    },
-    {
-      "source": "/example/codex-sdk-before-after",
-      "destination": "/example/tier1-codex-sdk"
-    },
-    {
-      "source": "/example/pi-sdk-before-after",
-      "destination": "/example/tier1-pi-sdk"
-    },
-    {
-      "source": "/example/langgraph-before-after",
-      "destination": "/example/tier1-langgraph"
-    },
-    {
       "source": "/zh/concepts/scoring",
       "destination": "/zh/concepts/assert"
     },
@@ -141,17 +121,7 @@
                 "pages": [
                   "example/claude-code-codex-plugin",
                   "example/claude-code-codex-skill",
-                  "example/ai-agent-application",
-                  {
-                    "group": "Tier 1 Integrations",
-                    "pages": [
-                      "example/tier1-ai-sdk-v7",
-                      "example/tier1-claude-sdk",
-                      "example/tier1-codex-sdk",
-                      "example/tier1-pi-sdk",
-                      "example/tier1-langgraph"
-                    ]
-                  }
+                  "example/ai-agent-application"
                 ]
               },
               {

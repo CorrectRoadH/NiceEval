@@ -1,32 +1,34 @@
 ---
 title: "Capabilities reference"
 sidebarTitle: "Capabilities"
-description: "How NiceEval knows what your adapter can do: most capabilities are proven by implementation, and only a few require explicit declarations."
+description: "How NiceEval knows what your adapter has done: there are no declarative capability bits — everything is proven by construction and actual behavior."
 ---
 
-Capabilities answer one question: **what has your adapter actually implemented?** They decide which assertions are available or trustworthy and which services the runner prepares.
+Capabilities answer one question: **what has your adapter actually done** — which decides which assertions are trustworthy and which services the runner prepares for you.
 
-The rule is simple: capabilities that can be proven from construction do not need declarations. Only capabilities that NiceEval cannot prove require a line from you.
+There is no `capabilities` field on `defineAgent` / `defineSandboxAgent` — **nothing needs to be declared**. Every capability is proven by how the agent is constructed or by what it actually returns. The decision table is below.
 
-## Decision table
+## Where capabilities come from: one decision table
 
 | Capability | How it is obtained | What you write |
 |---|---|---|
-| `sandbox` / `workspace` | Built with `defineSandboxAgent` | Nothing |
-| `tracing` | A tracing block exists, or `events: otelEvents()` is declared | Nothing beyond the source |
-| `toolObservability` | Official converters can prove completeness; manual mapping cannot | Official: nothing. Manual: declare only when verified |
-| `compactionObservability` | Built-in parsers provide it | Nothing |
-| `conversation` | Only you can verify continuation semantics | Declare it |
-| HITL | Behavior proof: `waiting` plus `input.requested` | Nothing |
+| `t.sandbox` / `t.fileChanged()` and other filesystem assertions | Constructed with `defineSandboxAgent` (`Agent.kind` is always `"sandbox"`) | Nothing |
+| `tracing` (OTLP receiver → `niceeval view` waterfall) | CLI-style agents write the `tracing` field; long-running apps configure a fixed `telemetry` port in the config | Nothing (the configuration is what you would write anyway) |
+| Tool/action assertions (`t.calledTool()` etc., including negative assertions) | Use an official converter (`fromClaudeSdkMessages`, `fromAiSdk`, etc.) — the `action.*` events in the return value are exactly what you get | Nothing; with manual mapping, event completeness is decided by your mapping code |
+| Cross-turn memory, `t.newSession()` isolation | Used `ctx.session` (`id`/`capture`, `history`) to continue context | Nothing — wire it up and continuation works; skip it and every turn is a fresh conversation, with no error either way |
+| HITL (`t.respond()`) | `send` has returned `status: "waiting"` + `input.requested` | Nothing |
 
-No proof and no declaration means the capability is absent. Basic text, structured output, and judge assertions remain available.
+A capability you have not implemented = the corresponding events/fields never appear, and the related assertion group is unavailable (not an "error" — the assertions simply have nothing to judge from); basic assertions (text, structured output, judge) are always available.
 
-## Why most capabilities are automatic
+## Why there is no declaration layer
 
-- Construction proves sandbox/workspace: `defineSandboxAgent` means NiceEval provides `ctx.sandbox`.
-- Function shape proves tracing services: a tracing source tells NiceEval what to start or collect.
-- Source proves event completeness: official converters consume SDK or CLI records that are complete by contract.
-- Behavior proves HITL: a turn that waits and emits `input.requested` is observable.
+An earlier design had boolean declarations like `capabilities: { conversation, toolObservability }` to cover "the parts code cannot prove". That layer has been removed, because what it promised should never have been guaranteed by a declaration in the first place:
+
+- **Construction is proof**: using `defineSandboxAgent` means the system under test edits files in a sandbox — there is no need to declare `workspace: true` on top of that.
+- **Fields are proof**: writing `tracing` (how to hand the OTLP endpoint to the CLI) makes tracing real. The field itself is the evidence of use; a boolean sitting next to it would just repeat it.
+- **Source is proof**: `fromAiSdk(result)` consumes `result.steps`, which the AI SDK contract guarantees is the **complete** tool-loop record, so the return value carries its own proof of a complete event stream; built-in CLI parsers work the same way. With manual mapping, whether events are complete depends on whether your mapping code covers everything — that is not something a declaration can guarantee, and declaring it would not make the code any more complete.
+- **Behavior is proof**: HITL has no capability bit — `send` returns `status: "waiting"` + an `input.requested` event, so the behavior is directly observable.
+- **Wire it up and it continues**: session continuation is no longer a "declared to exist" switch. `ctx.session` is always there; use the `id`/`capture` or `history` accessors and context continues, skip them and every turn is a brand-new session — both are normal states, neither errors, and the difference is purely how your adapter is actually written.
 
 ```ts
 export default defineAgent({
@@ -34,64 +36,41 @@ export default defineAgent({
   async send(input, ctx) {
     const result = await generateText({ model, tools, prompt: input.text });
     return { ...fromAiSdk(result), data: result.text };
+    // ↑ The return value carries complete tool events; no capability declaration needed
   },
 });
 ```
 
-## What must be declared
+## What happens when a manual mapping misses events
 
-`conversation` cannot be proved by NiceEval. The adapter may send a session id, but only the app knows whether it really resumes the right context.
+With the declaration layer gone, "false claims" no longer exist either — whatever tool events your manual mapping misses, assertions like `t.calledTool()` see exactly the post-omission picture, and negative assertions (`notCalledTool()`) may "look like they pass" simply because the events were never written. That is not a framework misjudgment; it is a completeness problem in the manual mapping itself: **whether to trust a negative assertion depends on whether you have confirmed your mapping code covers every tool call** — there is no framework-provided middle layer vouching for you.
 
-Manual `toolObservability` also cannot be proved. If you write `toStreamEvents`, only you know whether the API exposes every tool call.
+## Item-by-item quick reference
 
-```ts
-export default defineAgent({
-  name: "my-bot",
-  capabilities: {
-    conversation: true,
-    toolObservability: true,
-  },
-  async send(input, ctx) {
-    // manual mapping
-  },
-});
-```
+### Tool/action event completeness
 
-## Cost of incorrect declarations
+Meaning: whether every tool call in the turn appears in events as `action.called` + `action.result` ([events reference](/reference/events)). There are only two sources: official converters guarantee it per the contract of the protocol under test; manual mapping is decided by your code. OTel spans are not a source — spans only feed the waterfall, never the event stream (see [OTel integration](/guides/connect-otel)).
 
-| Incorrect claim | Result |
-|---|---|
-| `toolObservability: true` but events are incomplete | `notCalledTool`, `maxToolCalls`, and `usedNoTools` can silently pass |
-| `conversation: true` but sessions are not isolated | `t.newSession()` isolation checks become invalid |
-| Capability implemented but not declared | Conservative behavior; fewer trusted assertions |
+### Session continuation
 
-When uncertain, do not declare. Conservative failure is better than a silent false pass.
+Meaning: using `ctx.session.id` / `capture` or `ctx.session.history` to connect requests to the same backend session / accumulated history. With it, cross-turn memory assertions and `t.newSession()` isolation assertions become meaningful. Both implementation styles are shown in [Write send](/guides/write-send).
 
-## Quick reference
+### `tracing` — emitting OTLP traces
 
-### `toolObservability`
+What the runner consumes: at runtime it starts a local OTLP receiver and hands this turn's trace context to you via `ctx.telemetry.headers`; normalized spans are drawn as a waterfall in `niceeval view` — drawing only, never feeding assertions. Source: CLI-style agents write the `tracing` field (`env` / `configure` hands the endpoint to the process under test); long-running apps configure a fixed port with `telemetry: { port }` in `niceeval.config.ts` (see [OTel integration](/guides/connect-otel)).
 
-Every tool call in the turn appears as `action.called` plus `action.result`. Official converters can provide this automatically. `otelEvents()` does not automatically prove it because instrumentation coverage is app-specific.
+### `kind: "sandbox"` — sandbox and file changes
 
-### `conversation`
+What the runner consumes: it prepares a sandbox (Docker / Vercel / E2B) for each attempt and hands it to the adapter via `ctx.sandbox`; this unlocks diff assertions like `t.sandbox.fileChanged()`. Source: constructed with `defineSandboxAgent` — an internal discriminant field you never write.
 
-The adapter truly continues a conversation on the same session line and creates an independent conversation for `t.newSession()`. This must be declared after verification.
+### Compaction visibility
 
-### `tracing`
+Meaning: when the agent under test compacts its context, it emits a `compaction` event, making `t.event("compaction")` meaningful. Source: built-in parsers emit it automatically; a hand-written parser has it if you covered that logic.
 
-NiceEval starts or consumes a trace source and can show trace data in the viewer. This comes from a tracing block or `otelEvents()`.
+## Related reading
 
-### `sandbox` / `workspace`
-
-NiceEval prepares a sandbox backend and exposes `ctx.sandbox`; workspace assertions become meaningful. This comes from `defineSandboxAgent`.
-
-### `compactionObservability`
-
-The adapter can emit context compaction events. Built-in CLI parsers provide this when available.
-
-## Related
-
-- [Events](/reference/events)
-- [Connect Your Agent](/guides/connect-your-agent)
-- [OTel Integration](/guides/connect-otel)
-- [Built-in Agents](/reference/builtin-agents)
+- [Events reference](/reference/events) — exactly what the event stream promises.
+- [Adapter concept](/concepts/adapter) — the full `ctx`/`Turn` contract and where capabilities come from.
+- [Connect your agent](/guides/connect-your-agent) — how to follow each integration path.
+- [OTel integration](/guides/connect-otel) — the full walkthrough of spans feeding only the waterfall, never assertions.
+- [Built-in agent capabilities](/reference/builtin-agents) — what each built-in adapter has done.

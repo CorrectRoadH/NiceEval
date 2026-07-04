@@ -1,103 +1,99 @@
 ---
 title: "defineAgent and defineSandboxAgent: adapter reference"
 sidebarTitle: "defineAgent"
-description: "Reference for defineAgent and defineSandboxAgent: AgentContext, Sandbox, StreamEvent, and sandbox helpers."
+description: "Reference for defineAgent and defineSandboxAgent: AgentContext, AgentSession, the Sandbox interface, and shared sandbox helpers."
 ---
 
-Every NiceEval agent is an adapter: code that knows how to drive a specific backend and translate output into the standard event stream. The runner only calls `agent.send(input, ctx)`.
+Every NiceEval agent is an adapter: code that knows how to drive a specific backend and translate its output into the standard event stream. The runner only calls `agent.send(input, ctx)`.
 
-![Full round trip of t.send: eval calls t.send, the runner builds TurnInput and ctx, the adapter returns a Turn with standard events.](/images/agent-turn-roundtrip-en.svg)
+![Full round trip of one t.send: the eval calls t.send, the runner assembles TurnInput and ctx, the adapter returns a Turn with standard events.](/images/agent-turn-roundtrip-en.svg)
 
 ## `defineAgent`
 
-Use this for direct-agent integrations:
+Use this for direct agent integrations:
 
 ```ts
 import { defineAgent } from "niceeval/adapter";
 ```
 
 <ParamField body="name" type="string" required>
-  Unique agent name. Reports group results by this name.
+  Unique agent name. Experiments reference the agent object, and reports group results by this name.
 </ParamField>
 
-<ParamField body="capabilities" type="AgentCapabilities">
-  Capabilities that cannot be proven automatically. Most adapters should leave this empty or declare only verified `conversation` / manual `toolObservability`.
+<ParamField body="tracing" type="AgentTracing">
+  OTLP export configuration, used by CLI / child-process agents: declares how to hand the receiver endpoint to the process under test (`env` / `configure`). Long-running HTTP apps do not need this field — configure a fixed port with `telemetry: { port }` in `niceeval.config.ts` instead (see [OTel integration](/guides/connect-otel)). Spans only feed the `niceeval view` waterfall, never assertions.
 </ParamField>
 
-<ParamField body="events" type="EventSource">
-  Optional external event source, usually `otelEvents()`, merged with events returned from `send`.
+<ParamField body="spanMapper" type="(spans: TraceSpan[]) => TraceSpan[]">
+  Thin mapper from native spans to canonical GenAI semconv; it only affects semantic coloring in the waterfall. Omit it to fall back to the generic heuristic. For what maps to what in the waterfall and how to write your own (`tagSpan` / `heuristicTag`), see [OTel integration](/guides/connect-otel).
 </ParamField>
 
 <ParamField body="send" type="(input: TurnInput, ctx: AgentContext) => Promise<Turn>" required>
-  Core function that drives the agent for one turn and returns a standard `Turn`.
+  Core function that drives the agent. Must return a standard `Turn`.
 </ParamField>
 
-## `input`
+`Agent.kind` produced by `defineAgent` is always `"remote"` (an internal discriminant field you never declare). There are no capability bits on `t` that need declaring to unlock — filesystem assertions like `t.sandbox` exist only on agents constructed with `defineSandboxAgent` (`kind: "sandbox"`); everything else is judged by which events `send` actually returned and whether `ctx.session` was used. See the [capabilities reference](/reference/capabilities).
+
+## `input` (`TurnInput`)
 
 <ResponseField name="text" type="string">
-  Text sent by `t.send(...)`, file caption, or HITL answer text.
+  Text passed by the current `t.send(...)`.
 </ResponseField>
 
-<ResponseField name="files" type="InputFile[] | undefined">
-  Files attached by `t.sendFile(...)`, encoded as base64.
+<ResponseField name="files" type="readonly InputFile[] | undefined">
+  Files attached to this turn (images, etc.). Adapters that do not support multimodal input can ignore it.
 </ResponseField>
 
-<ResponseField name="responses" type="InputResponse[] | undefined">
-  Structured HITL answers from `t.respond(...)` / `t.respondAll(...)`.
+<ResponseField name="responses" type="readonly InputResponse[] | undefined">
+  Present only on answer turns (`t.respond` / `t.respondAll`): per-request structured answers, matched by `requestId`.
 </ResponseField>
 
-<ResponseField name="outputSchema" type="JsonSchema | undefined">
-  JSON Schema lowered from a `send` output declaration.
-</ResponseField>
-
-## `ctx`
+## `ctx` (`AgentContext`)
 
 <ResponseField name="signal" type="AbortSignal">
-  Cancellation and timeout signal. Pass it to every request or child process you start.
-</ResponseField>
-
-<ResponseField name="session" type="AgentSession">
-  State for the current conversation line: id capture, history storage, HITL hold/take, and a free `state` bag.
-</ResponseField>
-
-<ResponseField name="log(msg)" type="(msg: string) => void">
-  Writes a turn log visible in `niceeval view`.
+  For timeouts and cancellation; pass it through to every request you make.
 </ResponseField>
 
 <ResponseField name="model" type="string | undefined">
-  `experiment.model`, passed through unchanged.
+  Model comparison for Tier 1: `experiment.model`, passed through; forward it if the app's interface accepts a model selection.
 </ResponseField>
 
 <ResponseField name="flags" type="Readonly<Record<string, unknown>>">
-  `experiment.flags`, passed through unchanged. Also available to evals as `t.flags`.
+  Feature A/B for Tier 3: `experiment.flags`, passed through; `{}` when not configured.
 </ResponseField>
 
 <ResponseField name="telemetry" type="Telemetry | undefined">
-  Present when OTel integration is configured. Forward `telemetry.headers` to the app or `telemetry.env` to child processes.
+  Present only when OTel integration is configured: this turn's W3C trace context (`headers`, a fresh `traceparent` per turn).
 </ResponseField>
 
 <ResponseField name="sandbox" type="Sandbox | undefined">
-  Present only for agents built with `defineSandboxAgent`.
+  Only agents constructed with `defineSandboxAgent` receive this.
 </ResponseField>
 
-## Direct-agent example
+<ResponseField name="session" type="AgentSession">
+  State slot for the current conversation line. Every `send` on the same conversation line gets the same `ctx.session`; a new conversation line (the eval's first turn, or after `t.newSession()`) gets a fresh one:
+
+  - `id?: string` / `capture(id): void` — session continuation when the server keeps history: `id` is the session id recorded on this line (`undefined` on a new line), `capture` records the returned id (it only lands when none has been recorded yet).
+  - `history<TMsg>(): { get(): TMsg[]; commit(messages: TMsg[]): void }` — session continuation when the client carries the full history.
+  - `hold<T>(state: T): void` / `take<T>(): T | undefined` — storage for the HITL paused-turn scene; `take` clears on read (consume once).
+  - `state: Record<string, unknown>` — escape hatch, starts as `{}`, never written by the framework.
+
+  Full contract in the [Adapter concept](/concepts/adapter#context-agentcontext).
+</ResponseField>
+
+<ResponseField name="log" type="(msg: string) => void">
+  Writes a message to the run log, visible in `niceeval view`.
+</ResponseField>
+
+## Direct agent example
 
 ```ts
-import { defineAgent } from "niceeval/adapter";
-
 export default defineAgent({
-  name: "web-agent",
-  async send(input, ctx) {
-    const r = await fetch("http://localhost:3000/chat", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ message: input.text, flags: ctx.flags }),
-      signal: ctx.signal,
-    });
-    const body = await r.json();
+  name: "echo",
+  async send(input) {
     return {
-      status: r.ok ? "completed" : "failed",
-      events: [{ type: "message", role: "assistant", text: body.reply }],
+      status: "completed",
+      events: [{ type: "message", role: "assistant", text: input.text }],
     };
   },
 });
@@ -105,44 +101,68 @@ export default defineAgent({
 
 ## `defineSandboxAgent`
 
-Use this for coding agents that need a sandbox filesystem.
+Use this for coding agent CLIs. The produced `Agent.kind` is always `"sandbox"` — filesystem assertions like `t.sandbox` and `t.fileChanged()` unlock only on this kind of agent. `ctx.sandbox` is the handle to the current isolated environment:
+
+<ResponseField name="runCommand(cmd, args?, opts?)" type="(cmd: string, args?: string[], opts?: CommandOptions) => Promise<CommandResult>">
+  Run a command.
+</ResponseField>
+
+<ResponseField name="runShell(script, opts?)" type="(script: string, opts?: CommandOptions) => Promise<CommandResult>">
+  Run a shell script.
+</ResponseField>
+
+<ResponseField name="readFile(path)" type="(path: string) => Promise<string>">
+  Read a file inside the sandbox.
+</ResponseField>
+
+<ResponseField name="fileExists(path)" type="(path: string) => Promise<boolean>">
+  Check whether a file exists inside the sandbox.
+</ResponseField>
+
+<ResponseField name="writeFiles(files, targetDir?)" type="(files: Record<string, string>, targetDir?: string) => Promise<void>">
+  Write file contents by path.
+</ResponseField>
+
+<ResponseField name="uploadFiles(files, targetDir?)" type="(files: SandboxFile[], targetDir?: string) => Promise<void>">
+  Upload local files into the sandbox.
+</ResponseField>
+
+<ResponseField name="uploadDirectory(localDir, targetDir?, opts?)" type="(localDir: string, targetDir?: string, opts?: { ignore?: string[] }) => Promise<void>">
+  Upload an entire local directory, typically used to write the eval's starting files.
+</ResponseField>
+
+<ResponseField name="sandboxId" type="string">
+  Id of the current sandbox instance.
+</ResponseField>
+
+<ResponseField name="stop()" type="() => Promise<void>">
+  Stop the sandbox.
+</ResponseField>
 
 ```ts
 import { defineSandboxAgent } from "niceeval/adapter";
-```
 
-The adapter receives `ctx.sandbox`, which can upload files, run commands, read files, and collect workspace diffs. The selected sandbox backend comes from the experiment or project config.
-
-```ts
 export default defineSandboxAgent({
   name: "my-cli-agent",
   async send(input, ctx) {
-    await ctx.sandbox.runCommand("my-agent", ["--prompt", input.text]);
-    return {
-      status: "completed",
-      events: [{ type: "message", role: "assistant", text: "done" }],
-    };
+    await ctx.sandbox.runCommand("my-agent", ["run", input.text]);
+    return { status: "completed", events: [] };
   },
 });
 ```
 
 ## Registration
 
-Experiments reference configured agent instances:
-
 ```ts
 import { defineExperiment } from "niceeval";
-import myBot from "../agents/my-bot.ts";
+import echo from "./agents/echo";
 
 export default defineExperiment({
-  agent: myBot,
+  agent: echo,
+  runs: 1,
 });
 ```
 
 ## `ctx` and `t`
 
-`ctx` is for adapter authors. It contains runner services and dynamic values for one turn.
-
-`t` is for eval authors. It drives the agent and asserts facts.
-
-They see the same run from opposite sides of the adapter boundary.
+`ctx` is the run context seen by the adapter side; `t` is the test context seen by the eval author. They use the same run data but have different responsibilities.

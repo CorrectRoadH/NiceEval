@@ -1,199 +1,157 @@
 # Origin 应用接入手册
 
-这份文档是**工单**:`examples/zh/origin/` 下有五个还没接 niceeval 的独立应用,本文按应用逐个说明怎么把它们接进来。读者是执行接入的 agent——照着做就能完成,不需要再读一遍全部设计文档。
+这份文档最初是**工单**:`examples/zh/origin/` 下五个独立应用,按应用逐个说明怎么把它们接进 niceeval。**五个应用已经全部接完**(见文末「现状」),产出在 `examples/zh/tier1/<name>/`。本文现在的作用是记录接入时踩过的坑和当前实现的形状,再接一个类似的应用时可以照抄;当前实现的权威来源永远是 `examples/zh/tier1/<name>/` 的源码和各自的 README,本文只是导读。
 
-先记住三条铁律:
+先记住三条铁律(接类似应用时依然适用):
 
-1. **不改 origin 的任何文件。** 接入产物放 `examples/zh/eval/<同名>/`:从 origin 复制整个应用,被复制的文件保持逐字节不变,接入代码全部是**新增**文件。`pnpm run gen:diff-code` 会 diff origin 和 eval 两个目录生成 before/after 文档页,"应用侧零改动"是这些页面的核心卖点,改一个字节都会破坏它。
+1. **不改 origin 的任何文件。** 接入产物放 `examples/zh/tier1/<同名>/`:从 origin 复制整个应用,被复制的文件保持逐字节不变(除 `package.json` / `pnpm-workspace.yaml` / `tsconfig.json` 三个集成脚手架文件),接入代码全部是**新增**文件。`pnpm run gen:diff-code` 会 diff origin 和 tier1 两个目录生成 before/after 文档页,"应用侧零改动"是这些页面的核心卖点,改一个字节都会破坏它。
 2. **协议以实际输出为准。** 动手写映射之前,先把应用跑起来,`curl -N` 打一轮 `/api/chat` 把 SSE 帧看一遍。本文的帧格式描述来自当前代码,但代码会演化,别背文档。
-3. **有 span 的应用优先用 `otelEvents()`。** `events: otelEvents()`(从 `niceeval/adapter` 导入)已实现:工具断言和瀑布图直接从本轮收到的 span 派生,SSE 只需要 drain 到轮次结束——帧解析只剩协议语义点(session id、审批帧、结束哨兵)。哪些应用有 span 可用,见下面「OTel:四种状况」的决策表;没有 span 的(claude-sdk、pi-sdk)照旧全量手写帧映射。注意:`otelEvents()` **不会**自动打开 `toolObservability`——埋点是否盖住全部工具层要你验证后自己声明。
+3. **被测应用由你自己按它的方式启动,eval 不代管进程、不另开端口。** adapter 只经环境变量(如 `CODEX_SDK_URL`)指向一个已经在跑的实例——没有 `server-lifecycle.ts` 这类"eval 侧拉起子进程"的机制,这是刻意的取舍,理由见[接入你的 Agent · 为什么不直调](../docs-site/zh/guides/connect-your-agent.mdx)同一条脉络(eval 不代管被测进程)。
 
 ## Tier 是什么,这次做到哪一档
 
-接入分两档(定义见 [Concepts · 接入 Tier](concepts.md#被测对象与适配器)):
+接入分三档(定义见 [docs-site · Tier](../docs-site/zh/concepts/tier.mdx)):**Tier 1(只接 send)**、**Tier 2(send + OTel)**、**Tier 3(侵入改造 + experiment flags)**。
 
-- **Tier 1(无侵入)**:应用代码一行不改,adapter 适配应用现有的 HTTP 接口。买到:观测类断言(工具调用、事件流、trace 瀑布、用量成本)+ **模型对比** experiment。
-- **Tier 2(侵入)**:改应用内部代码,把 prompt、工具集、feature 开关暴露成外部可选配置,解锁**完整的 feature A/B test** experiment。
-
-**本工单只做 Tier 1。** Tier 2 的建议改法在文末列出,但那是单独的工作,不要顺手做。
+**本工单做的是 Tier 1 + Tier 2:** 应用代码一行不改,adapter 适配应用现有的 HTTP + SSE 接口;有 OTel 输出的应用(ai-sdk-v7、langgraph、codex-sdk)额外接了 trace 瀑布图。**Tier 3 的建议改法在文末列出,但那是单独的工作,不要顺手做。**
 
 ## 统一的接入配方
 
-五个应用的形态高度一致(HTTP 服务 + SSE 流式响应),所以 adapter 的骨架也一致。差异只在:帧格式怎么翻、session 字段叫什么、有没有审批流、OTel 有没有 span。
+五个应用的形态高度一致(HTTP 服务 + SSE 流式响应),所以 adapter 的骨架也一致。差异只在:帧格式怎么翻、session 字段叫什么、有没有审批流、有没有 OTel。
 
 ### 目录布局
 
 ```text
-examples/zh/eval/<name>/
-├── (origin 的完整副本,逐字节不变)
-├── package.json            在副本基础上加 niceeval devDependency(这算"修改",diff 页会如实展示,允许)
+examples/zh/tier1/<name>/
+├── (origin 的完整副本,逐字节不变,除三个集成脚手架文件)
+├── package.json / pnpm-workspace.yaml / tsconfig.json   集成脚手架(diff 页如实展示,允许)
 ├── niceeval.config.ts      新增
-├── agents/
-│   ├── <name>.ts           新增:adapter 本体
-│   └── server-lifecycle.ts 新增:拉起/健康检查/关闭应用子进程
+├── agents/<name>.ts        新增:adapter 本体——只剩传输粘合,没有 server 生命周期代码
 ├── evals/*.eval.ts         新增
 └── experiments/*.ts        新增
 ```
 
-对照现成的 `examples/zh/eval/claude-sdk/` 看布局即可——但**不要照抄它的 adapter**:它接的是 origin 的旧 JSON 快照,origin 已经改成 SSE 透传,这正是本次要重做的(见文末「现状」)。
-
 ### adapter 骨架
 
-adapter 的 `send` 每轮做五件事,按顺序:
+adapter 的 `send` 每轮做的事,按顺序,不声明任何 `capabilities`——`t` 上解锁什么由 `send` 实际做到了什么决定(见[契约 · 能力从哪来](adapters/contract.md#能力从哪来构造证明不是问卷)):
 
 ```ts
 // agents/<name>.ts
-import { defineAgent } from "niceeval/adapter";
-import { ensureServer } from "./server-lifecycle.ts";
+import { defineAgent, sseJsonFrames, driveFrameStream } from "niceeval/adapter";
+
+const BASE_URL = process.env.<NAME>_URL ?? "http://127.0.0.1:<port>";  // 应用自己的端口,eval 不代管进程
 
 export default defineAgent({
   name: "<name>",
-  capabilities: {
-    conversation: true,        // 做完 session 写回后声明
-    toolObservability: true,   // 确认映射覆盖全部工具帧后声明
-    tracing: true,             // 仅 ai-sdk-v7 / codex-sdk / langgraph(有 span 的)声明
-  },
-  tracing: {
-    // 仅声明 tracing 的应用需要。endpoint 是 niceeval 接收器的完整路径(…/v1/traces),
-    // 各应用要的环境变量形态不同,见各应用小节。长驻服务不用 otelEvents 时要加 scope: "run"。
-    env: (endpoint) => ({ OTEL_EXPORTER_OTLP_ENDPOINT: endpoint.replace(/\/v1\/traces$/, "") }),
-  },
-  // A 档应用(ai-sdk-v7 / langgraph)加这一行,事件断言从 span 派生、免写帧映射:
-  // events: otelEvents({ dialects: [otel.genAi] }),   // otelEvents/otel 从 "niceeval/adapter" 导入
+  // 有 OTel 的应用才需要:spanMapper 把应用私有 span 归一成 canonical,只影响瀑布图。
+  // spanMapper: mapCodexSpans,
   async send(input, ctx) {
-    // 1. 确保应用子进程活着(首次调用时拉起;模型、OTel env 都在这里注入)
-    const server = await ensureServer({ model: ctx.model, telemetryEnv: ctx.telemetry?.env });
+    // 回答轮:先查有没有停轮现场(HITL),有就把裁决交回应用,接着读同一条流
+    const pending = ctx.session.take<Pending>();
+    if (pending) {
+      const approved = input.responses?.[0]?.optionId === "approve";
+      await postApprove(pending.requestId, approved, ctx.signal);
+      return readStream(pending.cursor, ctx, pending.stream);
+    }
 
-    // 2. 发请求。session 续接:isNew 时不带 id,拿到应用回的 id 后写回 ctx.session.id
-    const res = await fetch(`${server.url}/api/chat`, {
+    // 正常轮:发请求。session 续接:ctx.session.id 新会话线自然是 undefined,
+    // 拿到应用回的 id 后用 ctx.session.capture() 写回(只在还没记过时落地)
+    const res = await fetch(`${BASE_URL}/api/chat`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        message: input.text,
-        sessionId: ctx.session.isNew ? undefined : ctx.session.id,
-      }),
+      body: JSON.stringify({ message: input.text, sessionId: ctx.session.id }),
       signal: ctx.signal,
     });
 
-    // 3. 逐帧读 SSE,把应用的原生帧翻成 StreamEvent(映射表见各应用小节)
-    // 4. 碰到审批帧 → 返回 status:"waiting"(HITL,见下节)
-    // 5. 流正常结束 → 返回 status:"completed" + events + usage
+    // 逐帧读 SSE,用官方转换器(有的话)或手写映射翻成 StreamEvent;
+    // 碰到审批帧就 ctx.session.hold() 存住现场、返回 waiting;流正常结束就返回 completed
+    return driveFrameStream(sseJsonFrames(res.body!), reducer, ctx, onFrame);
   },
 });
 ```
 
-SSE 读法是标准的:`res.body` 按行切,`data: ` 前缀后面是一帧 JSON,空行分隔。写一个 `async function* readSseFrames(res)` 生成器,五个 adapter 共用思路(langgraph/pi 的自定义帧、claude 的 SDKMessage、codex 的 ThreadEvent 都是这一种传输)。
+`driveFrameStream` / `sseJsonFrames` 从 `niceeval/adapter` 导出,是逐帧驱动循环的官方件,五个 adapter 共用思路(langgraph/pi 的自定义帧、claude 的 SDKMessage、codex 的 ThreadEvent 都是这一种传输)。有官方转换器的用官方转换器(`fromClaudeSdkMessages` / `fromPiAgentEvents` / `fromCodexThreadEvents`),没有的手写一张"帧类型 → StreamEvent"映射表。
 
-事件词汇表(`message` / `action.called` / `action.result` / `input.requested` …)见 [docs-site 事件流参考](../docs-site/zh/reference/events.mdx)。映射三要点:按真实顺序、`callId` 配对、不漏帧——漏了就别声明 `toolObservability`。
+事件词汇表(`message` / `action.called` / `action.result` / `input.requested` …)见 [docs-site 事件流参考](../docs-site/zh/reference/events.mdx)。映射三要点:按真实顺序、`callId` 配对、不漏帧——漏帧只是让这条 eval 的负断言不可信,不是运行时错误。
 
-### server 生命周期
-
-- adapter 模块内维护一个单例 promise:首次 `send` 时 spawn 应用(命令见各应用小节),轮询 `GET /healthz` 直到 200,超时(建议 30s)就报错并把子进程 stderr 带进错误信息。
-- **端口每实例现挑一个空闲的**,经 `PORT` 环境变量注入(五个应用都支持)。写死默认端口会在实验组并行时撞车。
-- `ctx.model` 经 `AGENT_MODEL` 环境变量注入(ai-sdk-v7 例外,它走请求体,见其小节)。这就是 Tier 1 模型对比的全部实现:一个 experiment 一个 model,adapter 实例各拉各的 server。
-- `ctx.telemetry?.env` 原样 spread 进子进程环境(声明了 `tracing` 的应用)。
-- 进程退出时把子进程杀干净(`process.on("exit")` + unref 不够时用 signal 转发)。
+模型对比怎么做:多数应用走 `AGENT_MODEL` 环境变量(启动应用时指定),ai-sdk-v7 例外——它的接口本身收请求级 `model` 字段,`ctx.model` 直接透传,同一个 server 实例就能测多个模型,不用重启。
 
 ### HITL:审批流怎么接
 
-这是唯一不显然的部分,先理解应用侧的机制:**应用在等审批时,SSE 流保持打开**——服务端把执行卡在一个 Promise/队列上,审批决定走**另一个** `POST /api/chat/approve` 请求,resolve 之后原来那条 SSE 继续吐帧直到结束。
+先理解应用侧的机制:**应用在等审批时,SSE 流保持打开**——服务端把执行卡在一个 Promise/队列上,审批决定走**另一个** `POST /api/chat/approve` 请求,resolve 之后原来那条 SSE 继续吐帧直到结束。
 
-所以 adapter 要这样做:
+adapter 要这样做:
 
-1. `send` 读流,读到审批帧(各应用帧名见小节)时**不要关流**——把「读了一半的流 + 审批 id」存进模块级 Map(key 用 `ctx.session.id`),返回:
-
-   ```ts
-   return {
-     status: "waiting",
-     events: [...已翻译的事件, {
-       type: "input.requested",
-       request: { id: 审批id, action: 工具名, input: 工具入参,
-                  options: [{ id: "approve" }, { id: "deny" }] },
-     }],
-   };
-   ```
-
-2. 下一次 `send`(就是 eval 里的 `t.respond("approve"/"deny")`)先查 Map:有挂起的流,就 `POST /api/chat/approve`(body 字段名各应用不同!claude/pi 是 `toolUseId`,langgraph 是 `toolCallId`),然后**继续读原来那条流**到结束,把剩余帧作为这一轮的 events 返回。
+1. `send` 读流,读到审批帧(各应用帧名见小节)时**不要关流**——把「读了一半的流 + 待批准的 callId」存进 `ctx.session.hold()`(不是模块级 `Map`——这是逃过 attempt/session 边界串用状态的关键),返回 `waiting` + `input.requested` 事件。
+2. 下一次 `send`(就是 eval 里的 `t.respond("approve"/"deny")`)先 `ctx.session.take()` 取回停轮现场:有,就按 `input.responses[0].optionId`(不是解析 `text`)判断批准与否,`POST /api/chat/approve`(body 字段名各应用不同!claude/pi 是 `toolUseId`,langgraph 是 `toolCallId`),然后**继续读原来那条流**到结束,把剩余帧作为这一轮的 events 返回。
 3. 拒绝(`deny`)时,把被拒工具的 `action.result` 的 `status` 置 `"rejected"`,不是 `"failed"`。
 
 没有审批流的应用(codex-sdk)跳过这一整节,永远不返回 `waiting`。
 
-### OTel:四种状况,四种解法
+### OTel:只画瀑布图,和事件映射完全无关
 
-应用的 OTel 埋点状况不一样,解法也不一样——**先对号入座,再写 adapter 的 tracing / events 部分**。
+不管应用有没有 OTel 输出,事件映射(上面几节讲的)都一样要做——**OTel 现在只喂 `niceeval view` 的调用瀑布图,不产出任何事件,也不影响任何断言**(这条设计经过一次调整:曾经想让有 span 的应用直接从 span 派生事件、免写映射,那条路线已经从实现里移除,见 [otel-mixin.md](adapters/otel-mixin.md) 的废弃说明)。
 
-| 状况 | 应用 | 解法 |
-|---|---|---|
-| **A. 标准方言 spans**(GenAI semconv / LangSmith 等官方方言认识的格式) | ai-sdk-v7、langgraph | **`events: otelEvents()`**:工具断言、消息文本、usage、瀑布图全部从 span 派生,免写事件映射。`tracing.env` 注入端点;SSE 只 drain,帧解析只剩 session id / 审批帧 / 结束哨兵。 |
-| **B. 自家方言 spans** | codex-sdk | 官方方言认不出 codex 的原生 span(无标准 GenAI 属性、无工具 I/O),**事件断言仍走 SSE 帧映射**;瀑布图有:声明 `capabilities.tracing` + **`tracing: { scope: "run", env }`**(长驻服务必须 run 级共享接收器),内置 codex mapper(`spanMapper: mapCodexSpans` 思路)把 span 归一后画图。 |
-| **C. 只有 metrics + logs,没有 spans** | claude-sdk | OTel 帮不上——niceeval 只消费 trace spans。**不声明 `tracing`**,不注入 OTel env(注入了也只是白发 metrics),在 eval README 写明"此应用无瀑布图"。 |
-| **D. 完全没有 OTel** | pi-sdk | 同 C:不声明,全靠 SSE。想上 OTel 属于 Tier 2(进程内按 GenAI semconv 埋点,埋完升级到 A 档),本工单不做。 |
+五个应用里,ai-sdk-v7、codex-sdk、langgraph 发 OTel span,claude-sdk、pi-sdk 不发(claude-sdk 的 CLI 遥测只有 metrics+logs,niceeval 只消费 trace spans;pi-agent-core 没有官方 OTel 集成)。有 span 的应用接法都一样:
 
-A/B 两档的 adapter 差异汇总一处免得翻小节:
+1. `niceeval.config.ts` 钉住固定接收端口:`defineConfig({ telemetry: { port: 4318 } })`——写了这个配置就等于给非沙箱 agent 打开了 OTel 接收。
+2. 启动应用时,把标准 OTel 环境变量指向这个端口(`OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318/v1/traces` 或应用自己的等价配置)。
+3. 应用私有的 span 命名如果不是标准 GenAI semconv(比如 codex 自家 span),给 agent 声明 `spanMapper`(codex 有内置 `mapCodexSpans`)把它归一成 canonical,瀑布图才能正确着色分组。
+4. 没有 span 到齐的问题(`BatchSpanProcessor` 缓冲导致最后一批 span 晚到)属于观测完整性,不是断言问题——ai-sdk-v7、langgraph 的 adapter 都在流结束后主动等一小段(`settleMs` / grace period)把收集窗口拉宽,只影响瀑布图,断言与它无关。
 
-- **ai-sdk-v7 / codex-sdk**:`OTEL_EXPORTER_OTLP_ENDPOINT` 传 **base**(把 `ctx.telemetry` 端点的 `/v1/traces` 尾巴去掉,应用自己拼);
-- **langgraph**:传**完整路径**(保留 `/v1/traces`),并同时注入 `LANGSMITH_TRACING=true`、`LANGSMITH_OTEL_ENABLED=true`、`LANGSMITH_OTEL_ONLY=true` 三个开关;
-- 显式钉方言报错更准:`otelEvents({ dialects: [otel.genAi] })`(ai-sdk-v7)/ `otelEvents({ dialects: [otel.langsmith] })`(langgraph),`otel` 从 `niceeval/adapter` 导入。
-
-**并发须知**:五个 origin 的 HTTP 层都没接 OTel 服务端埋点,不会传播 `ctx.telemetry.headers` 里的 traceparent——所以 span 按时间窗口归属,该 agent 的轮次自动串行(runner 会打日志提示,宁可慢不混流)。这是正确行为,不是 bug;要解锁并发属于 Tier 2(应用侧接 W3C trace context 传播)。
+**并发须知**:五个 origin 的 HTTP 层都没接 OTel 服务端埋点,不会传播 `ctx.telemetry.headers` 里的 traceparent——所以 span 按时间窗口归属,该 agent 的轮次自动串行(runner 会打日志提示,宁可慢不混流)。这是正确行为,不是 bug;要解锁并发得应用侧接 W3C trace context 传播(属于 Tier 3 范畴的应用侧改动)。
 
 ## 各应用速查
 
-| | 端口 | 请求体 | 帧格式 | session 字段 | HITL | 模型选择 | OTel spans |
+| | 端口 | 请求体 | 帧格式 | session 字段 | HITL | 模型选择 | OTel(仅瀑布图) |
 |---|---|---|---|---|---|---|---|
-| ai-sdk-v7 | 5188 | `{messages[], model}` | AI SDK UI Message Stream | 无(整份 messages 重放) | 流内(SDK 机制) | 请求体 `model` | ✅ GenAI 语义 |
+| ai-sdk-v7 | 5188 | `{messages[], model}` | AI SDK UI Message Stream | 无(整份 messages 重放) | 流内(SDK 机制) | 请求体 `model` | ✅ 官方 `@ai-sdk/otel`,标准 GenAI 语义 |
 | claude-sdk | 5189 | `{message, sessionId}` | SDKMessage 原样透传 | `sessionId`(SDK 落盘) | `/api/chat/approve` `toolUseId` | env `AGENT_MODEL` | ❌ 只有 metrics+logs |
-| codex-sdk | 5199 | `{message, threadId}` | ThreadEvent 原样透传 | `threadId`(SDK 落盘) | 无 | env `AGENT_MODEL` | ✅ codex 自家 span |
+| codex-sdk | 5199 | `{message, threadId}` | ThreadEvent 原样透传 | `threadId`(SDK 落盘) | 无 | env `AGENT_MODEL` | ✅ codex 自家 span,`spanMapper: mapCodexSpans` 归一 |
 | pi-sdk | 5299 | `{message, sessionId}` | AgentEvent 透传 + 3 种自定义帧 | `sessionId`(服务端内存) | `/api/chat/approve` `toolUseId` | env `AGENT_MODEL` | ❌ 无 |
-| langgraph | 5488 | `{message, sessionId}` | 自定义 JSON 帧 | `sessionId` = thread_id(进程内存) | `/api/chat/approve` `toolCallId` | env `AGENT_MODEL` | ✅ LangSmith OTel |
+| langgraph | 5488 | `{message, sessionId}` | 自定义 JSON 帧 | `sessionId` = thread_id(进程内存) | `/api/chat/approve` `toolCallId` | env `AGENT_MODEL` | ✅ LangSmith OTel 导出 |
 
-启动命令、必需的 key 见各 origin 目录的 `.env.example` 和 [origin README](../examples/zh/origin/README.md)。下面只写映射和陷阱。
+启动命令、必需的 key 见各 `examples/zh/tier1/<name>/README.md` 和 `.env.example`。下面只写映射和陷阱,详细实现以 `agents/<name>.ts` 源码为准。
 
 ### ai-sdk-v7
 
-- 启动:`node --env-file .env --import tsx/esm src/backend/server.ts`,健康检查 `/healthz`。
-- **session 是客户端全量重放**:adapter 用「客户端带全量历史」模式——模块级 `Map<sessionId, UIMessage[]>`,每轮把用户消息 push 进去、整份 `messages` 发过去、把流里拼出来的 assistant 消息 push 回来。`ctx.session.isNew` 时 `crypto.randomUUID()` 当 key。
-- **事件来源:`events: otelEvents({ dialects: [otel.genAi] })`**——应用产标准 GenAI spans,工具断言 / 消息 / usage / 瀑布图全从 span 派生,不用逐 chunk 写映射。SSE 仍要读:drain 到流结束才知道一轮完成,途中只解析**审批请求 chunk**(→ `input.requested` + `waiting`;审批回复走**下一次 `/api/chat` 请求的 messages 里**,不是 approve 端点——把审批响应 part 塞进重放的 messages,具体 part 形状先打帧确认)。
-- 模型对比:请求体 `model` 字段,`ctx.model` 直接透传,server 不用重启。可选值看 `GET /api/models`。
-- tracing:`tracing.env` 给 `OTEL_EXPORTER_OTLP_ENDPOINT`(**去掉** `/v1/traces` 尾巴,应用自己拼)。坑:应用用 `BatchSpanProcessor`,span 可能晚到几秒——瀑布图偶发缺尾巴是这个原因,Tier 1 不改代码只能接受,记进 eval README 即可。
-- 备注:本工单做的是**对着 HTTP 接口的无侵入接入**,产出就叫 `tier1/ai-sdk-v7`(和其它四个同名配对)。历史沿革:曾经有一份进程内直调的 `eval/ai-sdk-v7`(用内建 `aiSdkAgent`),黑盒版因此临时叫过 `ai-sdk-v7-http`;直调版的 evals 随应用重写删除后,Tier 1 统一为黑盒/OTel 接入,`-http` 后缀已去掉。**进程内直调不被推荐**(2026-07 用户裁定:被测对象是 coding agent 和用户的 agent 系统,走 HTTP/gRPC;测函数不等于测生产路径)——`aiSdkAgent` 工厂代码仍在 `src/agents/ai-sdk.ts`,但用户文档(docs-site)已整体移除对它和进程内直调的提及,官方示例一律黑盒。
+- 内置的 `uiMessageStreamAgent`(`niceeval/adapter` 导出)整个托管了这个应用——不需要手写 `send`,adapter 缩成纯配置(`url` + `body(ctx)` 透传 `ctx.model` + `settleMs`)。会话续接(客户端全量重放)、HITL 审批改写重发、事件直构全部是这个内置件的事。
+- 模型对比:请求体 `model` 字段,`ctx.model` 直接透传,server 不用重启,可选值看 `GET /api/models`。
+- OTel:应用用官方 `@ai-sdk/otel`,产标准 GenAI span;`niceeval.config.ts` 钉固定端口,应用启动时环境变量指过来。应用用 `BatchSpanProcessor`,span 可能晚到几秒——`settleMs: 600` 把收集窗口拉宽一点,只影响瀑布图完整性。
+- 备注:**进程内直调不被推荐**(被测对象是用户实际部署的应用,走 HTTP;测函数不等于测生产路径,详见[接入你的 Agent · 为什么不直调](../docs-site/zh/guides/connect-your-agent.mdx))——这个示例统一走无侵入 HTTP 接入,不提供进程内直调的对照版本。
 
 ### claude-sdk
 
-- 帧是原生 `SDKMessage`:`system`(subtype init,带 `session_id`,**写回 `ctx.session.id`**)→ `assistant`(content blocks:`text` → `message`,`tool_use` → `action.called`)→ `user`(`tool_result` → `action.result`,按 `tool_use_id` 配对)→ `result`(终局,带 usage/cost → `usage`)。`stream_event` 帧是逐 token 渲染用的,**整个忽略**。
-- **HITL 没有显式的"等审批"帧**——`canUseTool` 把流卡住,客户端只能从"`calculate` 的 `tool_use` 到了、之后没动静"推断。Tier 1 的确定性做法:被门控的工具就 `mcp__demo-tools__calculate` 一个(写在 `agent.ts` 里),adapter 见到它的 `tool_use` 帧就直接按审批点处理(挂流、返回 `waiting`,审批 id = `tool_use` 块的 `id`)。把这个"adapter 里硬编码了门控工具名"写进代码注释和 eval README。
-- 无 trace spans(CLI 原生遥测只有 metrics+logs,niceeval 不消费),**不声明 `tracing`**,瀑布图这个应用没有——这不是你的失误,写进 README。
+- 帧是原生 `SDKMessage`,官方转换器 `fromClaudeSdkMessages`(`niceeval/adapter` 导出)直接映射:`system`(带 `session_id`,写回 `ctx.session.capture()`)→ `assistant`(content blocks)→ `user`(`tool_result` 按 `tool_use_id` 配对)→ `result`(usage/cost)。逐帧驱动是官方件 `driveFrameStream`。
+- **HITL 没有显式的"等审批"帧**——`canUseTool` 把流卡住,`driveFrameStream` 的 `onFrame` 钩子扫 derived 事件,认出被门控的工具(`mcp__demo-tools__calculate`,写死在 adapter 里,必须和应用 `agent.ts` 里的 `GATED_TOOL_NAME` 完全一致)就返回 `{ pause }`。approve 端点偶发 404(SDK 内部注册 resolver 有竞态)时短退避重试几次,不是真的没有这次审批。
+- 无 trace spans(CLI 原生遥测只有 metrics+logs,niceeval 不消费),不声明 `spanMapper`,瀑布图这个应用没有——写进 eval README,不是失误。
 - 模型:`AGENT_MODEL` 注入子进程(代码默认 `deepseek-v4-flash`,`.env.example` 是 `claude-sonnet-5`,以 `.env.example` 为准)。
 
 ### codex-sdk
 
-- 帧是原生 `ThreadEvent`:`thread.started` 带 `thread_id`(写回 session)→ `item.*` 系列(`agent_message` item → `message`;`command_execution` / `file_change` / `mcp_tool_call` item → `action.called` + `action.result`,状态从 item 的完成态取)→ `turn.completed`(带 usage)/ `turn.failed` / `error`(→ `failed`)。
-- 无 HITL,永不返回 `waiting`。它是编码 agent,eval 应该测「在工作目录里写文件、跑命令」这类真实任务(现有 `eval/codex-sdk` 的 eval 思路可参考,adapter 要按 SSE 重写)。
-- tracing:声明,且必须 **`tracing: { scope: "run", env }`**——应用是长驻服务,接收器要 run 级共享(默认的 per-attempt 端口会在第一个 attempt 后失效)。`env` 给 `OTEL_EXPORTER_OTLP_ENDPOINT`(去掉 `/v1/traces` 尾巴,codex 配置里自己拼)。codex 的 span 是自家命名,官方方言认不出(无标准 GenAI 属性、无工具 I/O),**不要用 `otelEvents()`;工具断言的数据来源是 SSE 帧**。瀑布图经内置 codex mapper(`spanMapper`)归一后能画。
+- 帧是原生 `ThreadEvent`,官方转换器 `fromCodexThreadEvents`(`niceeval/adapter` 导出)映射:`thread.started`(带 `thread_id`,写回 session)→ `item.*` 系列(`agent_message` → `message`;`command_execution` / `file_change` / `mcp_tool_call` → 配对的 `action.called`/`action.result`)→ `turn.completed`(usage)/ `turn.failed` / `error`。
+- 无 HITL,永不返回 `waiting`。它是编码 agent,eval 测「在工作目录里写文件、跑命令」这类真实任务,用 `node:fs` 直接核实磁盘上的真实内容,不只信模型自述。
+- OTel:codex CLI 原生 OTLP,长驻服务必须 run 级共享接收器(固定端口模式)。span 是 codex 自家命名,声明 `spanMapper: mapCodexSpans`(`niceeval/adapter` 公开导出)归一后瀑布图和内置 `codexAgent` 一致——**事件断言的数据来源始终是 `ThreadEvent` 流,和 span 无关**。
 - 模型:`AGENT_MODEL`(默认 `gpt-5.4`),自定义 provider 走 `CODEX_BASE_URL`。
 
 ### pi-sdk
 
-- **这是唯一从零开始的**(没有 eval/ 目录),也是手写映射路线最完整的示范:无 OTel、有 HITL、服务端内存 session。做完它,顺手把 `examples/zh/eval/custom-genai/` 删掉(历史残留,origin 侧早已改名重写)。
-- 帧 = 原生 `AgentEvent` + 三种自定义帧。自定义帧:`{type:"session", sessionId}`(第一帧,写回 session)、`{type:"approval_request", toolCallId, toolName, args}`(→ `input.requested` + `waiting`)、`{type:"server_error", message}`(→ `failed`)。原生帧:`message_update` 累积文本 → `message`;`tool_execution_start` → `action.called`;`tool_execution_end` → `action.result`。
+- 手写映射路线最完整的示范:无 OTel、有 HITL、服务端内存 session。帧 = 原生 `AgentEvent`(官方转换器 `fromPiAgentEvents` 映射)+ 三种自定义传输帧:`{type:"session", sessionId}`(写回 session)、`{type:"approval_request", toolCallId, toolName, args}`(→ `input.requested` + `waiting`,`driveFrameStream` 的 `onFrame` 里返回 `{ pause }`)、`{type:"server_error", message}`(→ `failed`)。
 - HITL 走标准配方,approve 端点字段 `toolUseId`。
-- session 在服务端内存里,**attempt 之间不要重启 server**,重启即丢会话;这也是为什么生命周期要做成"整个 adapter 进程一个 server 单例"。
-- 无 OTel,不声明 `tracing`。模型:`AGENT_MODEL`,只有 `deepseek-v4-flash` / `deepseek-v4-pro` 两个可选。
+- session 在服务端内存里,**跑多轮 eval 时不要重启应用**,重启即丢会话。
+- 无 OTel。模型:`AGENT_MODEL`,只有 `deepseek-v4-flash` / `deepseek-v4-pro` 两个可选。
 
 ### langgraph
 
-- 唯一的 Python 应用:启动是 `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt && .venv/bin/python src/backend/server.py`,生命周期代码里要处理 venv 不存在时先建(或在 README 里要求手工建好,报错时直说"先建 venv")。
-- **事件来源:`events: otelEvents({ dialects: [otel.langsmith] })`**——LangSmith OTel 导出的 span 直接派生工具断言 / 消息 / usage / 瀑布图。SSE 帧只解析协议语义点:`session` → 写回 `ctx.session.id`;`tool-approval-request` → `input.requested` + `waiting`;`tool-output-denied` → `action.result`(`status:"rejected"`,adapter 补这一条,span 里没有"人拒绝"语义);`error` → `failed`;`finish` → 一轮结束哨兵。`text-delta` / `tool-input` / `tool-output` 不用翻——span 派生已覆盖(重复了也没关系,合并按 callId / 文本去重)。
+- 唯一的 Python 应用,也是唯一**完全手写帧映射、零 OTel 依赖用于事件**的应用:自定义 JSON 帧(`tool-input` → `action.called`、`tool-output` → `action.result`(completed)、`tool-output-denied` → `action.result`(rejected)、`text-delta` 累积成 `message`、`tool-approval-request` → `input.requested` + `waiting`)。
 - HITL 标准配方,**approve 端点字段是 `toolCallId`**(别照抄 claude/pi 的 `toolUseId`)。
-- tracing:声明。注意 **langgraph 要的是完整路径**:`tracing.env` 给 `OTEL_EXPORTER_OTLP_ENDPOINT` 时**保留** `/v1/traces` 尾巴(和 ai-sdk/codex 相反)。另外三个 LangSmith 开关(`LANGSMITH_TRACING` / `LANGSMITH_OTEL_ENABLED` / `LANGSMITH_OTEL_ONLY`)一起注入。
-- session 是 `InMemorySaver`,同 pi:server 不要中途重启。
-- 现有 `eval/langgraph` 已存在,核对它的 adapter 是否对着当前帧协议,过时就按本手册重写。
+- session 是 `InMemorySaver`,同 pi:应用不要中途重启。
+- OTel:LangSmith 导出的 span 只用来画瀑布图(`niceeval.config.ts` 固定端口 + 应用侧 `LANGSMITH_TRACING` / `LANGSMITH_OTEL_ENABLED` / `LANGSMITH_OTEL_ONLY` 三个环境变量),事件断言完全不依赖它。LangSmith 的 `BatchSpanProcessor` 调度和 SSE 流关闭是两条独立时间线,adapter 在轮次结束后主动等一小段(grace period)把最后一批 span 收进瀑布图。
 
 ## 每个应用要写的 eval(最低集合)
 
 1. **基础问答**:`t.send` 一轮,`t.succeeded()` + 文本断言。
-2. **工具调用**:触发 `get_weather` 之类,`t.calledTool` / `t.toolOrder` / `t.noFailedActions`。
-3. **多轮记忆 + 隔离**:第一轮报名字、第二轮问名字;`t.newSession()` 再问,新会话不应知道——这条专门验证 session 写回没写错(最常见 bug:忽略 `isNew` 一律续接,隔离静默失真)。
+2. **工具调用**:触发工具,`t.calledTool` / `t.toolOrder` / `t.noFailedActions`。
+3. **多轮记忆 + 隔离**:第一轮报名字、第二轮问名字;`t.newSession()` 再问,新会话不应知道——这条专门验证会话续接没写错(最常见 bug:adapter 没有正确使用 `ctx.session` 存取器,导致跨会话线串用历史,隔离静默失真)。
 4. **HITL 批准 + 拒绝**(有审批流的应用):`waiting` → `respond("approve")` → `calledTool(..., {status:"completed"})`;拒绝分支断 `status:"rejected"`。
 5. **用量/成本**(能拿到 usage 的应用):`t.maxTokens` 冒烟。
 
@@ -201,15 +159,15 @@ experiment 至少两个:单配置基线 + 一个 `compare-models/` 实验组(ai-
 
 ## 验收清单(每个应用)
 
-- [ ] `git status` 确认 origin 目录零改动;eval 目录里被复制的应用文件与 origin 逐字节一致
+- [ ] `git status` 确认 origin 目录零改动;tier1 目录里被复制的应用文件与 origin 逐字节一致(除三个集成脚手架文件)
 - [ ] `pnpm run typecheck` 通过
 - [ ] `npx niceeval exp <基线>` 全绿;`npx niceeval view` 里事件流完整(message + action 配对)
-- [ ] 多轮记忆和 newSession 隔离两条 eval 都过
+- [ ] 多轮记忆和 `newSession()` 隔离两条 eval 都过
 - [ ] 有 HITL 的:approve / deny 两条都过,deny 的工具结果是 `rejected` 不是 `failed`
-- [ ] 声明了 `tracing` 的:view 瀑布图非空
-- [ ] 声明的每个能力位都有对应 eval 实证;做不到的能力**不声明**,并在 eval README 写明原因(如 claude-sdk 无 span)
+- [ ] 有 OTel 的:view 瀑布图非空
+- [ ] eval README 写明这个应用做不到什么(没有 OTel 的写清楚、负断言不完全靠事件完整性证明的写清楚)
 
-## Tier 2 备忘(本工单不做)
+## Tier 3 备忘(本工单不做)
 
 将来要做 feature A/B test 时,每个应用的最小侵入点(原则:加环境变量/请求字段开关,默认行为不变):
 
@@ -221,30 +179,18 @@ experiment 至少两个:单配置基线 + 一个 `compare-models/` 实验组(ai-
 
 experiment 侧用 `flags` → `ctx.flags` 透传,写法见 [Experiments](experiments.md)。
 
-## 现状(2026-07,五个应用已全部接完)
+## 现状(五个应用已全部接完)
 
-本工单描述的五个应用已全部接入并实测通过,产出在 `examples/zh/tier1/<name>/`(不是本文档早先写的
-`examples/zh/eval/<name>/`——`eval/` 已经整体改名成 `tier1/`,写路径时以当前仓库结构为准)。
+本工单描述的五个应用已全部接入并实测通过,产出在 `examples/zh/tier1/<name>/`。实现比本工单最初设想的更简单,主要是两处收紧:
 
-- `otelEvents()` 已实现并在 langgraph(`otel.langsmith`)、ai-sdk-v7(`otel.genAi`)两个应用上
-  验证过:能派生工具事件/usage,但**消息文本和 gated 工具的审批-执行链路各有一个真实的方言/埋点
-  gap**,两个应用都在 adapter 里手动补了,细节记在
-  `memory/langsmith-dialect-langchain-completion-shape-gap.md` 和
-  `memory/ai-sdk-otel-needsapproval-no-execute-tool-span.md`。
-- `tier1/claude-sdk`、`tier1/codex-sdk`、`tier1/langgraph`、`tier1/pi-sdk`、`tier1/ai-sdk-v7`
-  全部按本手册重写/新建完成,五个 `niceeval exp` 基线跑全绿(`ai-sdk-v7` 的多模型对比也验证
-  过)。ai-sdk-v7 的无侵入版曾叫 `ai-sdk-v7-http`,2026-07 已改回同名配对(Tier 1 统一无侵入/OTel
-  接入,原先占位的 origin 纯副本 `tier1/ai-sdk-v7` 已删)。
-- `custom-genai` 残留目录已删除。
-- 五个 before/after 文档页已生成并挂进 `docs-site/docs.json` 导航(`pnpm run gen:diff-code` 的
-  `PAIRS` 已按新路径重写)。
-- Tier 2(feature A/B test)仍未做,见上面「Tier 2 备忘」。
-- 2026-07 追加(全部实测跑通):无侵入接入沉淀出两个官方件——
-  ① **`uiMessageStreamAgent`**(`src/agents/ui-message-stream.ts`,从 `"niceeval/adapter"` 导出):
-  AI SDK UI Message Stream 协议的内置无侵入 adapter(SSE 归约 / 全量历史重放 / HITL 审批改写
-  重发 / 事件直构),`tier1/ai-sdk-v7` 的 adapter 已缩成纯配置,5 evals + compare-models 全绿;
-  ② **`otel.codex` 官方方言**(`src/o11y/otlp/dialects.ts`,按实测 span 属性写)+
-  `mapCodexSpans` 公开导出:`tier1/codex-sdk` 的工具/usage 改从 codex 原生 span 派生,
-  手写 `ThreadEvent` 工具映射删除(只留消息文本/错误),4 evals 全绿。注意 codex 的 span
-  同时带 gen_ai.operation.name 但无 I/O/usage 属性,`otel.codex` 必须排在 genAi 前认领,
-  否则一次真实调用会被 genAi 派生出六对假工具事件。
+- **没有 `server-lifecycle.ts` 这类"eval 侧拉起应用子进程"的机制。** 五个应用都由使用者自己按各自方式启动(`pnpm start` / `python server.py`),adapter 只经环境变量(`<NAME>_URL`)指向一个已经在跑的实例。这与"eval 不代管被测进程"的既定原则一致,比最初设想的自动拉起子进程更简单也更贴合真实用法。
+- **没有 `otelEvents()` 这类"从 span 派生事件"的机制。** 曾经尝试过让 ai-sdk-v7(GenAI 语义)和 langgraph(LangSmith 语义)的工具事件从 OTel span 派生、免写帧映射,过程中发现消息文本和 gated 工具的审批-执行链路各有一个真实的方言/埋点 gap,需要在 adapter 里手动补(细节曾记在 `memory/langsmith-dialect-langchain-completion-shape-gap.md` 和 `memory/ai-sdk-otel-needsapproval-no-execute-tool-span.md`)。后续产品裁定整体收紧:**OTel 只画瀑布图,不派生任何事件**,`otelEvents()` 机制已从实现里移除(见 [otel-mixin.md](adapters/otel-mixin.md))。五个应用现在的事件断言全部来自 `send` 里的官方转换器或手写帧映射,与有没有接 OTel 无关。
+
+接入沉淀出的官方件,现在都还在:
+
+- **`uiMessageStreamAgent`**(`src/agents/ui-message-stream.ts`,从 `niceeval/adapter` 导出):AI SDK UI Message Stream 协议的内置无侵入 adapter,`tier1/ai-sdk-v7` 的 adapter 已缩成纯配置。
+- **`fromCodexThreadEvents` 补全**:ThreadEvent 的工具项(`command_execution` / `mcp_tool_call` / `file_change` → 配对的 `action.*`)与 `turn.completed` 的 usage 聚合,现在是 `tier1/codex-sdk` 事件断言的唯一数据来源(不再依赖任何 span 派生)。
+- **`mapCodexSpans`**(`src/o11y/otlp/mappers/codex.ts`,从 `niceeval/adapter` 导出):把 codex 自家 span 命名归一成 canonical GenAI 语义,只用来让瀑布图和内置 `codexAgent` 保持一致。
+
+五个 `niceeval exp` 基线全绿(`ai-sdk-v7` 的多模型对比也验证过),五个 before/after 文档页已生成并挂进 `docs-site/docs.json` 导航。Tier 3(feature A/B test)仍未做,见上面「Tier 3 备忘」。
+</content>

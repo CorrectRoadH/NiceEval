@@ -25,7 +25,7 @@ import { defineAgent } from "niceeval/adapter";
 </ParamField>
 
 <ParamField body="spanMapper" type="(spans: TraceSpan[]) => TraceSpan[]">
-  原生 span → canonical GenAI semconv 的薄 mapper,只影响瀑布图的语义着色。省略走通用 heuristic 兜底。
+  原生 span → canonical GenAI semconv 的薄 mapper,只影响瀑布图的语义着色。省略走通用 heuristic 兜底。映射目标(什么属性亮起瀑布图的什么)与自定义写法(`tagSpan` / `heuristicTag`)见[OTel 接入](/zh/guides/connect-otel)。
 </ParamField>
 
 <ParamField body="send" type="(input: TurnInput, ctx: AgentContext) => Promise<Turn>" required>
