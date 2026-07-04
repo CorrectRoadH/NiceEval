@@ -61,7 +61,7 @@ await t.send("好,发出去。");
 t.calledTool("send_email");
 ```
 
-多轮 `t.send()` 要求 Agent 定义里递了会话件(`session: clientHistory()` 或 `serverSession()`)——没递时,adapter 没有续接上一轮的手段,第二次 `t.send()` 会直接报错而不是静默接进一个无关上下文。能力如何从构造中来,见 [Agent 与 Adapter](/zh/concepts/agents-adapters)。
+多轮 `t.send()` 要求 Agent 定义里递了会话件(`session: clientHistory()` 或 `serverSession()`)——没递时,adapter 没有续接上一轮的手段,第二次 `t.send()` 会直接报错而不是静默接进一个无关上下文。能力如何从构造中来,见 [Adapter](/zh/concepts/adapter)。
 
 ## 独立会话 —— `t.newSession()`
 
@@ -83,7 +83,7 @@ t.check(fresh.reply, satisfies((r) => !r.includes("小明"), "没有记忆泄漏
 
 ## 人工介入(HITL)
 
-有些 agent 会在一轮执行中间停下来,等审批或缺失信息,而不是直接跑完。这时这一轮以 `status: "waiting"` 结束,并带一条或多条 `input.requested` 事件说明在等什么。
+有些 agent 会在一轮执行中间停下来,等审批或缺失信息,而不是直接跑完。这时这一轮以 `status: "waiting"` 结束,并带一条或多条 `input.requested` 事件说明在等什么。完整的心智模型(握手时序、Adapter 侧义务、rejected 语义)见 [HITL](/zh/concepts/hitl),这里讲 eval 侧怎么用。
 
 ```ts
 const draft = await t.send("拟一封跟进邮件,但先别发,等我确认。");
@@ -98,7 +98,7 @@ await t.respond({ request, optionId: "approve" });
 t.calledTool("send_email");
 ```
 
-`t.requireInputRequest(filter)` 把一个待处理的 HITL 请求变成可检查、可回应的具体值——如果匹配到 0 个或超过 1 个待处理请求就会抛出,所以尽量把能填的 filter 字段都填上(`id` / `prompt` / `display` / `action` / `optionIds` / `input`)来消歧。`t.respond(...)` 回答它并发出下一轮;每个参数是一条回答:字符串按待处理请求的顺序对位,`{ request, optionId }` 对象形式显式指名(多个请求并停时用它)。在底层它只是又一次普通的 `send`:回答文本进 `input.text`,同时以结构化形式逐条进 `input.responses`——命中请求选项的回答带 `{ requestId, optionId }`,自由文本回答带 `{ requestId, text }`,adapter 不用解析文本,按 `requestId` 就能对上"哪个回答给哪个请求"。每种回答到 adapter 长什么样,见[不同回答的入参](/zh/concepts/agents-adapters#不同回答的入参)。
+`t.requireInputRequest(filter)` 把一个待处理的 HITL 请求变成可检查、可回应的具体值——如果匹配到 0 个或超过 1 个待处理请求就会抛出,所以尽量把能填的 filter 字段都填上(`id` / `prompt` / `display` / `action` / `optionIds` / `input`)来消歧。`t.respond(...)` 回答它并发出下一轮;每个参数是一条回答:字符串按待处理请求的顺序对位,`{ request, optionId }` 对象形式显式指名(多个请求并停时用它)。在底层它只是又一次普通的 `send`:回答文本进 `input.text`,同时以结构化形式逐条进 `input.responses`——命中请求选项的回答带 `{ requestId, optionId }`,自由文本回答带 `{ requestId, text }`,adapter 不用解析文本,按 `requestId` 就能对上"哪个回答给哪个请求"。每种回答到 adapter 长什么样,见[不同回答的入参](/zh/concepts/adapter#不同回答的入参)。
 
 如果当前轮有多个同类待处理请求、都该给同一个答案(比如逐个批准一批文件改动),用 `t.respondAll(optionId)` 一次性处理,不用挨个解。`optionId` 会先对每条待处理请求校验——不在请求的 `options` 里就直接抛错,打错的字不会被静默当成别的答案发出去：
 
@@ -112,6 +112,7 @@ t.succeeded();
 
 ## 相关阅读
 
+- [HITL](/zh/concepts/hitl) — 停轮等人的完整概念：握手时序与两侧义务。
 - [Assert](/zh/concepts/assert) — 从 `Turn.events` 和 `Turn.data` 上读的断言词汇。
 - [Judge](/zh/concepts/judge) — `t.judge` / `session.judge` / `turn.judge` 各自默认评什么材料。
-- [Agent 与 Adapter](/zh/concepts/agents-adapters) — 能力从哪来:什么解锁 `t.newSession()`、HITL 和工具相关断言。
+- [Adapter](/zh/concepts/adapter) — 能力从哪来:什么解锁 `t.newSession()`、HITL 和工具相关断言。

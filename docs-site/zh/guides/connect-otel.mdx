@@ -1,12 +1,26 @@
 ---
-title: "通过 OTel 接入：已埋点应用免映射"
-sidebarTitle: "通过 OTel 接入"
+title: "OTel 接入"
+sidebarTitle: "OTel 接入"
 description: "你的应用已经在发 OTel trace？把 span 发给 NiceEval，工具断言和调用瀑布图直接可用，不用写事件映射。"
 ---
 
 如果你的被测应用已经接了 OpenTelemetry——用 AI SDK 的 telemetry、LangGraph 的 LangSmith 导出、OpenLLMetry / OpenInference 自动埋点，或自己按 GenAI 语义埋的点——那么 NiceEval 需要的数据你已经在生产了。不用写事件映射：让应用把 span 发给 NiceEval，工具断言（`t.calledTool` 等）和调用瀑布图（`niceeval view`）都从 span 派生。
 
-这是 **Tier 2（send + OTel）接入**的走法：在 Tier 1 的 send 之上，让应用把 span 发给 NiceEval——应用已埋点就一行代码不改，仍是无侵入（见[接入分三个 Tier](/zh/guides/connect-your-agent#接入分三个-tier)）。要对照应用内部的功能变体（feature A/B test）则属于 Tier 3 的侵入改造，OTel 替代不了。
+这是 **Tier 2（send + OTel）接入**的走法：在 Tier 1 的 send 之上，让应用把 span 发给 NiceEval——应用已埋点就一行代码不改，仍是无侵入（见 [Tier](/zh/concepts/tier)）。要对照应用内部的功能变体（feature A/B test）则属于 Tier 3 的侵入改造，OTel 替代不了。
+
+## 先认识这几套埋点标准
+
+开头罗列的那些名词不是 NiceEval 的私有概念，都是业界现成的 OTel 埋点标准 / 方言，NiceEval 的官方格式模块与它们一一对应：
+
+| 标准 / 方言 | 谁在维护 | 一句话介绍 | 参考 | 格式模块 |
+|---|---|---|---|---|
+| **OTel GenAI 语义约定**（`gen_ai.*`） | OpenTelemetry 官方 | AI 可观测性的官方标准：模型调用 span 名 `chat {model}`、工具 span 名 `execute_tool {tool}`，属性带 `gen_ai.*` | [语义约定规范](https://opentelemetry.io/docs/specs/semconv/gen-ai/) | `otel.genAi` |
+| **AI SDK Telemetry**（`ai.*`） | Vercel | AI SDK 内置埋点：新的 `@ai-sdk/otel` 直接产 GenAI 标准语义，老的 `experimental_telemetry` 产 `ai.*` 方言 | [span / 属性清单](https://ai-sdk.dev/docs/ai-sdk-core/telemetry) | `otel.aiSdk` |
+| **OpenInference** | Arize（Phoenix 生态） | 与 OTel 互补的开放语义约定，配 LangChain / LlamaIndex 等框架的自动埋点包 | [语义约定规范](https://arize-ai.github.io/openinference/spec/) | `otel.openInference` |
+| **OpenLLMetry** | Traceloop | 开源自动埋点 SDK，覆盖主流 LLM 框架与服务商，走标准 OTLP 导出 | [语义约定](https://www.traceloop.com/docs/openllmetry/contributing/semantic-conventions) · [属性定义（代码）](https://github.com/traceloop/openllmetry/tree/main/packages/opentelemetry-semantic-conventions-ai) | `otel.openLLMetry` |
+| **LangSmith OTel 导出** | LangChain | LangSmith SDK 原生 OTLP 导出：LangGraph / LangChain 应用几个环境变量就能发标准 OTel | [属性映射参考](https://docs.langchain.com/langsmith/trace-with-opentelemetry) | `otel.langsmith` |
+
+你的应用埋的是哪一套不需要提前搞清——默认逐 span 自动识别（见[格式怎么选](#格式怎么选：默认自动，可显式指定)）；知道了想显式指定，模块名就在最后一列。
 
 ## 原理（一段话）
 
@@ -201,7 +215,7 @@ events: otelEvents(),
 
 ## 边界
 
-- **多轮会话、HITL 不归 span 管**。span 没有"等人输入"语义，会话续接也是应用协议的事——这两样照常在 `send` 里做（[教程](/zh/guides/connect-your-agent)第三步与 HITL 节）。
+- **多轮会话、HITL 不归 span 管**。span 没有"等人输入"语义，会话续接也是应用协议的事——这两样照常在 `send` 里做（会话件见[写 send](/zh/guides/write-send)，HITL 概念见 [HITL](/zh/concepts/hitl)）。
 - **审批门控的工具经常没有 span**。被拒绝的调用从没真正执行，自然没有 `execute_tool` span；有的集成连"经审批后恢复执行"那条路径也不产 span（实测 `@ai-sdk/otel` 的 `needsApproval` 工具如此）。这类调用的 `action.called`/`action.result` 由 adapter 在 `send` 返回的 `events` 里手动补，NiceEval 会把它们和 span 派生的事件按时间戳合并——两个可跑示例（[AI SDK v7](/zh/example/tier1-ai-sdk-v7)、[LangGraph](/zh/example/tier1-langgraph)）的 adapter 都有现成写法。
 - **消息文本取决于生态**。AI SDK / LangSmith / OpenLLMetry / OpenInference 默认记录输入输出；OTel 官方 instrumentation 默认**不**采内容，要设 `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT`。没内容时 `messageIncludes` 会正常失败（不会静默）。另一个实测坑：LangChain `ChatOpenAI` 经 LangSmith OTel 导出的 completion 形状，`otel.langsmith` 方言目前解析不出 `message` 文本——adapter 可以照常从应用自己的流里补 `message` 事件（LangGraph 示例就是这么做的）。
 - **收不到 span 会有 warning**。整轮 0 span 通常是端点没接上（env 没注入、服务没重启），NiceEval 会提示而不是默默全过。

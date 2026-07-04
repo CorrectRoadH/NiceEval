@@ -6,6 +6,8 @@ description: "Reference for defineAgent and defineSandboxAgent. Covers AgentCont
 
 Every agent in niceeval is an **adapter** — a piece of code you write that knows how to drive a specific backend and translate its output into a standard event stream. The runner knows nothing about your agent's wire protocol, CLI flags, or authentication; it only calls `agent.send(input, ctx)` and expects back a `Turn`. This page covers the two adapter factories: `defineAgent` for direct agent integrations, and `defineSandboxAgent` for coding agents that run inside an isolated sandbox.
 
+![One complete t.send round trip: the eval calls t.send, the runner builds TurnInput and ctx, and the adapter returns a standard event-stream Turn.](/images/agent-turn-roundtrip-en.svg)
+
 ---
 
 ## defineAgent

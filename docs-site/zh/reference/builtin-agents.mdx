@@ -131,7 +131,7 @@ export default defineAgent({
 ## 怎么选
 
 - 被测对象是 AI SDK 应用（`useChat` 后端）：内置 `uiMessageStreamAgent` 无侵入接入，零映射（含 HITL）。
-- 被测对象是其它 agent 系统（HTTP / gRPC 服务）：无侵入接入，优先[通过 OTel 接入](/zh/guides/connect-otel)，接不了 OTel 就手写事件映射——五个 [Tier 1 接入示例](/zh/example/tier1-ai-sdk-v7)全是这条路。
+- 被测对象是其它 agent 系统（HTTP / gRPC 服务）：无侵入接入，优先[OTel 接入](/zh/guides/connect-otel)，接不了 OTel 就手写事件映射——五个 [Tier 1 接入示例](/zh/example/tier1-ai-sdk-v7)全是这条路。
 - 需要调用瀑布图（`niceeval view` 的 trace）：`codex` / `bub` 自发 OTLP；自己写的 adapter 声明 `tracing` 即可（见 OTel 指南）。`claude-code` 目前拿不到 trace。
 - 需要人工审批 / 多步确认（HITL）：`uiMessageStreamAgent` 原生支持（AI SDK v7 tool approval）；沙箱型三个都不支持，其它被测对象自己写 adapter，拿 `driveFrameStream` + `pausable` 拼（Tier 1 示例里 pi-sdk / claude-sdk 有现成写法）。
 - 想跑一个 coding agent 改代码、看 diff、判断工具调用：`claude-code` / `codex` / `bub`（收发 + 事件流 + 会话续接 + workspace + sandbox）。
@@ -142,4 +142,4 @@ export default defineAgent({
 - [接入你的 agent](/zh/guides/connect-your-agent) — 自己写 adapter 时每个能力怎么做、对应什么断言。
 - [Sandbox Agent](/zh/guides/sandbox-agent) — 怎么运行内置 sandbox agent，以及怎么写自己的。
 - [defineAgent 参考](/zh/reference/define-agent) — `defineAgent` / `defineSandboxAgent` 完整参数。
-- [通过 OTel 接入](/zh/guides/connect-otel) — 已埋点应用的免映射接法。
+- [OTel 接入](/zh/guides/connect-otel) — 已埋点应用的免映射接法。

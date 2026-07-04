@@ -1,7 +1,7 @@
 ---
-title: "niceeval agents and adapters: connect to any AI system"
-sidebarTitle: "Agents & Adapters"
-description: "Agent is the abstraction the core calls; the Adapter is the implementation you write. Learn how, under Tier 1 non-invasive integration, a single send function supports t.send, t.sendFile, t.newSession, and HITL's t.respond / t.respondAll."
+title: "Adapter: connect any AI system"
+sidebarTitle: "Adapter"
+description: "Adapter is the implementation you write to connect a subject under test to niceeval. Learn how one send function supports t.send, t.sendFile, t.newSession, and HITL's t.respond / t.respondAll."
 ---
 
 In niceeval, `Agent` is the abstraction the core calls and `Adapter` is the concrete implementation. This page answers one central question: **under Tier 1 (non-invasive) integration, why does an Adapter only need a single `send` function to support the entire drive API on the eval side — `t.send()`, `t.sendFile()`, `t.newSession()`, and HITL's `t.respond()` / `t.respondAll()`.**
@@ -57,9 +57,11 @@ interface Turn {
 
 ## Tier 1: what "non-invasive" means
 
-**Not a single line of application code changes.** The application is started by you, in its own way (`pnpm start`, deployed anywhere); the eval side does not spawn the application process and does not open extra ports — the Adapter only talks to **the interface the user's frontend already talks to** (HTTP endpoints, SSE streams), and reports a clear "start the app first" error when it can't connect. Observability comes from what the interface already returns, or from OTel (currently documented in the Chinese guide 通过 OTel 接入).
+**Not a single line of application code changes.** The application is started by you, in its own way (`pnpm start`, deployed anywhere); the eval side does not spawn the application process and does not open extra ports — the Adapter only talks to **the interface the user's frontend already talks to** (HTTP endpoints, SSE streams), and reports a clear "start the app first" error when it can't connect. Observability comes from what the interface already returns, or from OTel.
 
 This makes the Adapter the **only contact surface** between the eval and the application. Everything below builds on one fact: the five drive APIs on the eval side, however different they look, all converge into "call `send` once more" by the time they reach the Adapter — the only difference is the state of `TurnInput` and `ctx.session`.
+
+![One complete t.send round trip: the eval calls t.send, the runner builds TurnInput and ctx, the adapter calls your application, and returns a standard event-stream Turn.](/images/agent-turn-roundtrip-en.svg)
 
 ## Five t APIs, three cases inside send
 
@@ -121,7 +123,7 @@ Once this question is answered, "first send / second send / `t.newSession()`" ne
 - **No**: skip the branch. `send` never returns `"waiting"`, and `t.respond` never appears in your evals.
 
 <Tip>
-App instrumented with OTel but the interface exposes no process data? You can declare `events: otelEvents()` outside of send and derive events from spans (currently documented in the Chinese guide 通过 OTel 接入). But that is a side observation channel, not a way to implement send — spans have no "waiting for input" semantics and don't know whether this turn should carry history, so questions two and three are still answered above.
+App instrumented with OTel but the interface exposes no process data? You can declare `events: otelEvents()` outside of send and derive events from spans. But that is a side observation channel, not a way to implement send — spans have no "waiting for input" semantics and don't know whether this turn should carry history, so questions two and three are still answered above.
 </Tip>
 
 ## Putting it together: one non-invasive Adapter supporting all five APIs

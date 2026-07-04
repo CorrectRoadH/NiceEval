@@ -50,7 +50,7 @@ await t.send("Looks good, send it.");
 t.calledTool("send_email");
 ```
 
-Multi-turn `t.send()` requires the agent to declare the `conversation` capability — without it, the adapter has no obligation to remember what happened in the previous turn, and a second `t.send()` call may talk to a fresh, unrelated context. See [Agents & Adapters](/concepts/agents-adapters) for the full capability list.
+Multi-turn `t.send()` requires the agent to declare the `conversation` capability — without it, the adapter has no obligation to remember what happened in the previous turn, and a second `t.send()` call may talk to a fresh, unrelated context. See [Adapter](/concepts/adapter) for the full capability list.
 
 ## Independent sessions — `t.newSession()`
 
@@ -103,4 +103,4 @@ t.succeeded();
 
 - [Assert](/concepts/assert) — the assertion vocabulary that reads from `Turn.events` and `Turn.data`.
 - [Judge](/concepts/judge) — how `t.judge`, `session.judge`, and `turn.judge` decide what material they score by default.
-- [Agents & Adapters](/concepts/agents-adapters) — which capability flags unlock `t.newSession()`, HITL, and tool-related assertions.
+- [Adapter](/concepts/adapter) — which capability flags unlock `t.newSession()`, HITL, and tool-related assertions.

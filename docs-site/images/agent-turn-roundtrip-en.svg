@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1160 320" role="img" aria-labelledby="title desc">
+  <title id="title">One complete t.send round trip</title>
+  <desc id="desc">An eval calls t.send, the niceeval runner builds TurnInput and ctx, the adapter calls the application interface, and maps the raw response into a standard event-stream Turn.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#8ab4f8" />
+    </marker>
+    <linearGradient id="card" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#0d1117" />
+      <stop offset="1" stop-color="#111820" />
+    </linearGradient>
+    <style>
+      .label { fill: #e6edf3; font: 600 24px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .small { fill: #c9d1d9; font: 22px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .muted { fill: #8b949e; font: 18px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .pill { fill: #1f2937; stroke: #374151; stroke-width: 1; }
+      .pillText { fill: #e5e7eb; font: 20px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .arrow { stroke: #8ab4f8; stroke-width: 3; fill: none; marker-end: url(#arrow); }
+      .returnArrow { stroke: #a78bfa; stroke-width: 3; fill: none; marker-end: url(#arrow); }
+      .lane { stroke: #30363d; stroke-width: 1; stroke-dasharray: 5 8; }
+    </style>
+  </defs>
+
+  <rect x="1" y="1" width="1158" height="318" rx="24" fill="url(#card)" stroke="#30363d" stroke-width="2" />
+
+  <text x="54" y="54" class="label">evals/*.eval.ts</text>
+  <text x="410" y="54" class="label">niceeval runner</text>
+  <text x="775" y="54" class="label">Adapter (you write)</text>
+  <text x="1060" y="42" class="muted">your app</text>
+  <text x="1060" y="66" class="muted">unchanged</text>
+
+  <line x1="342" y1="84" x2="342" y2="268" class="lane" />
+  <line x1="735" y1="84" x2="735" y2="268" class="lane" />
+  <line x1="965" y1="84" x2="965" y2="268" class="lane" />
+
+  <text x="54" y="126" class="small">await t.send("...")</text>
+  <path d="M 278 119 H 397" class="arrow" />
+  <text x="410" y="126" class="small">build TurnInput + ctx</text>
+  <path d="M 692 119 H 778" class="arrow" />
+  <text x="775" y="126" class="small">send(input, ctx)</text>
+  <path d="M 1008 119 H 1100" class="arrow" />
+
+  <text x="54" y="182" class="small">t.reply</text>
+  <path d="M 397 175 H 278" class="returnArrow" />
+  <text x="410" y="182" class="small">derive facts</text>
+  <path d="M 778 175 H 692" class="returnArrow" />
+  <text x="775" y="182" class="small">map to events</text>
+  <text x="1012" y="203" class="muted">response / SSE</text>
+  <path d="M 1100 175 H 1008" class="returnArrow" />
+
+  <text x="54" y="238" class="small">t.calledTool()...</text>
+  <text x="410" y="238" class="small">update reply and usage</text>
+  <text x="775" y="238" class="small">return Turn</text>
+
+  <rect x="49" y="278" width="118" height="29" rx="8" class="pill" />
+  <text x="63" y="299" class="pillText">t.send</text>
+  <rect x="175" y="278" width="136" height="29" rx="8" class="pill" />
+  <text x="189" y="299" class="pillText">t.sendFile</text>
+  <rect x="319" y="278" width="130" height="29" rx="8" class="pill" />
+  <text x="333" y="299" class="pillText">t.respond</text>
+  <text x="468" y="299" class="muted">share one runner event path; the adapter implements send once.</text>
+</svg>

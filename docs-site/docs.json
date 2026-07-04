@@ -29,8 +29,20 @@
       "destination": "/concepts/assert"
     },
     {
+      "source": "/concepts/agents-adapters",
+      "destination": "/concepts/adapter"
+    },
+    {
       "source": "/zh/concepts/scoring",
       "destination": "/zh/concepts/assert"
+    },
+    {
+      "source": "/zh/concepts/agents-adapters",
+      "destination": "/zh/concepts/adapter"
+    },
+    {
+      "source": "/zh/concepts/write-send",
+      "destination": "/zh/guides/write-send"
     },
     {
       "source": "/zh/example/ai-sdk-v7-before-after",
@@ -83,7 +95,7 @@
                 "pages": [
                   "concepts/overview",
                   "concepts/evals",
-                  "concepts/agents-adapters",
+                  "concepts/adapter",
                   "concepts/drive",
                   "concepts/assert",
                   "concepts/judge"
@@ -154,6 +166,41 @@
                 ]
               },
               {
+                "group": "核心概念",
+                "pages": [
+                  "zh/concepts/overview",
+                  "zh/concepts/evals",
+                  "zh/concepts/experiment",
+                  "zh/concepts/adapter",
+                  "zh/concepts/tier",
+                  "zh/concepts/drive",
+                  "zh/concepts/hitl",
+                  "zh/concepts/assert",
+                  "zh/concepts/judge"
+                ]
+              },
+              {
+                "group": "连接 Agent",
+                "pages": [
+                  "zh/guides/connect-your-agent",
+                  "zh/guides/write-send",
+                  "zh/guides/connect-otel",
+                  "zh/guides/sandbox-agent",
+                  "zh/guides/sandbox-backends"
+                ]
+              },
+              {
+                "group": "评估与实验",
+                "pages": [
+                  "zh/guides/authoring",
+                  "zh/guides/write-experiment",
+                  "zh/guides/experiments",
+                  "zh/guides/fixtures",
+                  "zh/guides/dataset-fanout",
+                  "zh/guides/scoring-guide"
+                ]
+              },
+              {
                 "group": "示例",
                 "pages": [
                   "zh/example/claude-code-codex-plugin",
@@ -172,40 +219,9 @@
                 ]
               },
               {
-                "group": "核心概念",
-                "pages": [
-                  "zh/concepts/overview",
-                  "zh/concepts/evals",
-                  "zh/concepts/agents-adapters",
-                  "zh/concepts/write-send",
-                  "zh/concepts/drive",
-                  "zh/concepts/assert",
-                  "zh/concepts/judge"
-                ]
-              },
-              {
-                "group": "编写 eval",
-                "pages": [
-                  "zh/guides/authoring",
-                  "zh/guides/fixtures",
-                  "zh/guides/dataset-fanout",
-                  "zh/guides/scoring-guide"
-                ]
-              },
-              {
-                "group": "连接 Agent",
-                "pages": [
-                  "zh/guides/connect-your-agent",
-                  "zh/guides/connect-otel",
-                  "zh/guides/sandbox-agent",
-                  "zh/guides/sandbox-backends"
-                ]
-              },
-              {
                 "group": "运行与观察",
                 "pages": [
                   "zh/guides/runner",
-                  "zh/guides/experiments",
                   "zh/guides/ci-integration",
                   "zh/guides/viewing-results"
                 ]

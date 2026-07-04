@@ -1,6 +1,6 @@
 ---
 title: "NiceEval 中的 eval：生命周期、outcome 与文件"
-sidebarTitle: "评测用例"
+sidebarTitle: "评估"
 description: "eval 是一个测试用例：描述、agent 引用和 test 函数。了解 eval 如何被发现、调度、评分和报告。"
 ---
 
@@ -117,3 +117,8 @@ export default rows.map((row) =>
 ```
 
 生成 ID 类似 `sql/0000`、`sql/0001`。详见 [数据驱动测试](/zh/guides/dataset-fanout)。
+
+## 相关阅读
+
+- [实验](/zh/concepts/experiment) — 另一半：评谁、怎么跑；为什么和 eval 分开（晚绑定）。
+- [Assert](/zh/concepts/assert) — gate 与 soft 的完整判决规则。

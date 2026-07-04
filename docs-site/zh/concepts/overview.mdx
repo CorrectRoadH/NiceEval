@@ -1,24 +1,24 @@
 ---
 title: "NiceEval 架构：evals、agents 与 sandboxes"
 sidebarTitle: "概览"
-description: "理解 NiceEval core、agent adapters 和 sandbox backends 如何配合，用统一 API 评估任意 AI agent。"
+description: "理解 NiceEval、agent adapters 和 sandbox backends 如何配合，用统一 API 评估任意 AI agent。"
 ---
 
-NiceEval 的核心设计是把“评测逻辑”与“如何连接被测对象”分开。core 只负责发现、调度、评分和报告；agent adapter 负责调用被测系统；sandbox backend 负责隔离文件系统。
+NiceEval 的核心设计是把“评测逻辑”与“如何连接被测对象”分开。NiceEval 负责发现、调度、评分和报告；agent adapter 负责调用被测系统；sandbox backend 负责隔离文件系统。
 
 ## 四层架构
 
 ```text
 Eval files / fixtures
         ↓
-niceeval core
+NiceEval
         ↓
 Agent adapter
         ↓
 Subject under test / Sandbox backend
 ```
 
-## core 负责什么
+## NiceEval 负责什么
 
 <CardGroup cols={2}>
   <Card title="Eval 发现" icon="magnifying-glass">
@@ -41,19 +41,15 @@ Subject under test / Sandbox backend
   </Card>
 </CardGroup>
 
-## Agent / Adapter 边界
+## Adapter
 
 <Note>
-  `Agent` 是 NiceEval core 看到的抽象；`Adapter` 是你写的具体实现。core 不知道你的 agent 私有协议、CLI 参数或鉴权方式。
+  `Agent` 是 NiceEval 看到的抽象；`Adapter` 是你写的具体实现。NiceEval 不知道你的 agent 私有协议、CLI 参数或鉴权方式。
 </Note>
 
 这条边界让 NiceEval 保持通用。评估你自己的 AI agent、Claude Code、Codex 或自定义 agent 时，runner 和 scorers 的逻辑不需要改变。
 
-### 为什么没有 `--url`
-
-URL 是某个 adapter 的私有配置，而不是 CLI 的位置参数。experiment 引用 agent；experiment 名之后的位置参数只选择“跑哪些 eval”。
-
-## Sandbox 负责什么
+## Sandbox
 
 <Tabs>
   <Tab title="Docker">
@@ -74,7 +70,7 @@ URL 是某个 adapter 的私有配置，而不是 CLI 的位置参数。experime
     一个测试用例：描述、agent 引用和 `test(t)` 函数。
   </Accordion>
   <Accordion title="Agent">
-    core 通过名字调用的一条连接，负责返回标准 `Turn`。
+    NiceEval 通过名字调用的一条连接，负责返回标准 `Turn`。
   </Accordion>
   <Accordion title="Adapter">
     agent 的具体实现，知道如何调用你的 runtime 或 CLI。
@@ -107,7 +103,7 @@ URL 是某个 adapter 的私有配置，而不是 CLI 的位置参数。experime
 ## 相关阅读
 
 - [Evals](/zh/concepts/evals) — eval 是什么，以及生命周期细节。
-- [Agents & Adapters](/zh/concepts/agents-adapters) — 如何写 adapter，并在 experiment 中引用它。
+- [Adapter](/zh/concepts/adapter) — 如何写 adapter，并在 experiment 中引用它。
 - [Drive](/zh/concepts/drive) — `t.send()`、session 与 HITL：如何产出断言要读的 `Turn` 数据。
 - [Assert](/zh/concepts/assert) — 断言词汇和判决规则。
 - [Judge](/zh/concepts/judge) — LLM-as-judge，评开放式质量。

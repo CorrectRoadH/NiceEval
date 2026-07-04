@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 380" role="img" aria-labelledby="title desc">
+  <title id="title">接入分三个 Tier</title>
+  <desc id="desc">Tier 1 只接 send，应用零改动；Tier 2 加 OTel，事件免映射并带完整性证明；Tier 3 侵入改造，把变体暴露成 experiment flags 做 A/B。三档递进不互斥。</desc>
+  <defs>
+    <marker id="tierHead" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#8ab4f8" />
+    </marker>
+    <linearGradient id="card" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#0d1117" />
+      <stop offset="1" stop-color="#111820" />
+    </linearGradient>
+    <style>
+      .tierTitle { fill: #e6edf3; font: 600 24px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .give { fill: #f0b429; font: 600 18px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .get { fill: #7ee787; font: 600 18px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .line { fill: #c9d1d9; font: 18px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .muted { fill: #8b949e; font: 18px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .box { fill: #161b22; stroke: #30363d; stroke-width: 1.5; }
+      .arrow { stroke: #8ab4f8; stroke-width: 3; fill: none; marker-end: url(#tierHead); }
+    </style>
+  </defs>
+
+  <rect x="1" y="1" width="1238" height="378" rx="24" fill="url(#card)" stroke="#30363d" stroke-width="2" />
+
+  <!-- Tier 1 -->
+  <rect x="40" y="44" width="352" height="252" rx="16" class="box" />
+  <text x="64" y="86" class="tierTitle">Tier 1 · 只接 send</text>
+  <text x="64" y="126" class="give">投入</text>
+  <text x="64" y="152" class="line">一个 Adapter 文件</text>
+  <text x="64" y="178" class="line">应用代码一行不改</text>
+  <text x="64" y="218" class="get">买到</text>
+  <text x="64" y="244" class="line">文本断言、judge、多轮、HITL</text>
+  <text x="64" y="270" class="line">手写映射的工具断言、模型对比</text>
+
+  <path d="M 402 170 H 434" class="arrow" />
+
+  <!-- Tier 2 -->
+  <rect x="444" y="44" width="352" height="252" rx="16" class="box" />
+  <text x="468" y="86" class="tierTitle">Tier 2 · send + OTel</text>
+  <text x="468" y="126" class="give">投入</text>
+  <text x="468" y="152" class="line">应用把 OTel span 发给 NiceEval</text>
+  <text x="468" y="178" class="line">已埋点的应用零改动</text>
+  <text x="468" y="218" class="get">买到</text>
+  <text x="468" y="244" class="line">事件免手写映射、trace 瀑布图</text>
+  <text x="468" y="270" class="line">负断言的完整性证明</text>
+
+  <path d="M 806 170 H 838" class="arrow" />
+
+  <!-- Tier 3 -->
+  <rect x="848" y="44" width="352" height="252" rx="16" class="box" />
+  <text x="872" y="86" class="tierTitle">Tier 3 · 侵入改造</text>
+  <text x="872" y="126" class="give">投入</text>
+  <text x="872" y="152" class="line">应用内部把变体暴露成</text>
+  <text x="872" y="178" class="line">experiment 可传的 flags</text>
+  <text x="872" y="218" class="get">买到</text>
+  <text x="872" y="244" class="line">prompt / 工具集 / feature</text>
+  <text x="872" y="270" class="line">的 A/B 对比</text>
+
+  <text x="620" y="340" class="muted" text-anchor="middle">前两档无侵入：只对着前端本来就在用的接口收发。三档递进不互斥，已写的 eval 全程复用。</text>
+</svg>
