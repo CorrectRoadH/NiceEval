@@ -121,7 +121,7 @@ t.check(turn.data, satisfies((d) => d.total > 0, "total is positive"));
 作用域断言在 `test(t)` 里注册，但在函数返回**之后**才对累积完的完整轮次数据评估。它们读的是 `t.send()` 产出的标准事件流（见 [Drive](/zh/concepts/drive)）及其派生事实——所以只要你的 adapter 产出正确的事件，这些断言对任何 agent 都一样好用。
 
 <Warning>
-作用域断言只有在 agent 声明了对应能力时才出现在 `t` 上。agent 没声明 `toolObservability: true` 时调用 `t.calledTool()` 是编译期报错。
+作用域断言受 agent 的能力位守卫。agent 没声明 `toolObservability: true` 时调用 `t.calledTool()` 会在运行时被能力守卫拦下、报清晰错误（tsx 直跑不做类型检查，守卫在运行时兜底），而不是对着不完整的事件流假通过。
 </Warning>
 
 ### 运行 / session 维度

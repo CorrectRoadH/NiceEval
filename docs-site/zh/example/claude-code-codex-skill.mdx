@@ -123,11 +123,13 @@ export default defineEval({
 cd examples/zh/coding-agent-skill
 pnpm install
 
-# Zod skill A/B 对比
-pnpm exec niceeval exp compare
+# Zod skill A/B 对比：实验组和对照组各跑一次
+pnpm exec niceeval exp with-skill
+pnpm exec niceeval exp baseline
 
-# Ponytail plugin A/B 对比
-pnpm exec niceeval exp ponytail ponytail-baseline
+# Ponytail plugin A/B 对比：同样各跑一次
+pnpm exec niceeval exp ponytail
+pnpm exec niceeval exp ponytail-baseline
 
 pnpm exec niceeval view
 ```

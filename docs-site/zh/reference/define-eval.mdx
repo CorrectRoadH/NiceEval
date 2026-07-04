@@ -64,12 +64,12 @@ export default defineEval({
   给 agent 发送消息，并返回当前 turn。
 </ParamField>
 
-<ParamField body="t.check(value, assertion)" type="(value: unknown, assertion: Assertion) => void">
+<ParamField body="t.check(value, assertion)" type="(value: unknown, assertion: Assertion) => AssertionHandle">
   记录值断言，失败不会立即中断 test。
 </ParamField>
 
-<ParamField body="t.require(value, assertion)" type="(value: unknown, assertion: Assertion) => void">
-  记录前置条件断言，失败会立即中断 test。
+<ParamField body="t.require(value, assertion)" type="(value: unknown, assertion: Assertion) => Promise<unknown>">
+  前置条件断言（异步，需 `await`），失败会立即中断 test。
 </ParamField>
 
 <ParamField body="t.skip(reason)" type="(reason: string) => void">

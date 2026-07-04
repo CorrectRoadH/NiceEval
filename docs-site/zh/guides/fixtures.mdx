@@ -118,7 +118,7 @@ t.check(result.stdout.trim(), includes(/ok/));
 
 ```ts
 const result = await t.sandbox.runCommand("npm", ["test"]);
-t.check(result.exitCode, includes(0));
+t.check(result, commandSucceeded());
 ```
 
 ## 用 experiment 做对照组

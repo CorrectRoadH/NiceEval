@@ -27,15 +27,17 @@ Results:  2 passed, 1 failed, 0 errored, 0 skipped
 
 ```text
 .niceeval/
-└─ 2025-01-15T14-23-00/
+└─ <run>/
    ├─ summary.json
-   └─ artifacts/
-      └─ compare__web-agent__gpt-5.4__weather-tool__0/
-         ├─ events.json
-         ├─ sources.json
-         ├─ trace.json
-         ├─ o11y.json
-         └─ diff.json
+   └─ weather-tool/            # <evalId>（含 / 时保留目录层级）
+      └─ web-agent/            # <agent>
+         └─ gpt-5.4/           # <model>（未指定时是 default）
+            └─ a0/             # a<attempt>
+               ├─ events.json
+               ├─ sources.json
+               ├─ trace.json
+               ├─ o11y.json
+               └─ diff.json
 ```
 
 ## `niceeval view`
@@ -81,13 +83,13 @@ OTLP trace 或标准化后的 span 数据。
 <Tabs>
   <Tab title="passed">所有 gate 通过。</Tab>
   <Tab title="failed">至少一个 gate 失败，或运行失败。</Tab>
-  <Tab title="passed">主要结果是 soft 分数。</Tab>
+  <Tab title="errored">eval 执行本身抛错（超时、adapter 异常等）。</Tab>
   <Tab title="skipped">eval 被主动跳过。</Tab>
 </Tabs>
 
 ## 调试建议
 
-- 先看 `result.json` 找到失败断言。
+- 先看 `summary.json` 找到失败断言，`sources.json` 把它映射回 eval 代码。
 - 再看 transcript 视图，了解 agent 的决策过程。
 - coding-agent 失败时看 `diff.json` 和命令事件输出。
 - 工具调用问题看 `events.json`。

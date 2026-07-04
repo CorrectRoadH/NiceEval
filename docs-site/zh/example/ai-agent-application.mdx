@@ -107,9 +107,10 @@ export default defineEval({
 
 ```ts
 // evals/image-understanding.eval.ts
-await t.sendFile(new URL("./fixtures/sample.png", import.meta.url).pathname);
-const turn = await t.send("这张图片里是什么？");
-t.messageIncludes(/猫|cat/i); // 示例图是一只猫
+const turn = await t.sendFile("evals/fixtures/sample.png", "这张图片里有什么？主要是什么颜色？");
+turn.expectOk();
+t.messageIncludes(/蓝|blue/i);        // 示例图是蓝底中间一个白方块
+t.messageIncludes(/白|方块|square/i);
 ```
 
 # 定义实验

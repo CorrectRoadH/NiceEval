@@ -22,7 +22,7 @@ import { defineAgent } from "niceeval/adapter";
   声明 agent 能力。runner 据此决定 `t` 上哪些方法可用。
 
   <ParamField body="conversation" type="boolean">
-    支持多轮会话，启用 `t.reply` 和 `t.newSession()`。
+    支持多轮会话，启用第二轮起的 `t.send()` 和 `t.newSession()`。定义里递了 `session` 件时自动为真。
   </ParamField>
 
   <ParamField body="toolObservability" type="boolean">
@@ -58,8 +58,8 @@ import { defineAgent } from "niceeval/adapter";
   运行时 flags。
 </ResponseField>
 
-<ResponseField name="session" type="{ id?: string; isNew: boolean }">
-  当前会话信息。
+<ResponseField name="session" type="{ state: Record<string, unknown>; id?: string; isNew: boolean }">
+  当前会话线信息。`state` 是本会话线的自有状态槽（官方会话件的锚点）；`id` / `isNew` 是旧契约兼容字段。
 </ResponseField>
 
 <ResponseField name="log" type="(msg: string) => void">
@@ -75,7 +75,7 @@ export default defineAgent({
   async send(input) {
     return {
       status: "completed",
-      events: [{ type: "message", role: "assistant", content: input.text }],
+      events: [{ type: "message", role: "assistant", text: input.text }],
     };
   },
 });

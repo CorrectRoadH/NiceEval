@@ -36,7 +36,7 @@ npx niceeval exp prod support
 按「要不要动应用代码、动到什么程度」，接入分三档（每档买到什么、怎么升级，见[接入分三个 Tier](/zh/guides/connect-your-agent#接入分三个-tier)）：
 
 - **Tier 1（只接 send）**：应用代码一行不改，接入只有一个 Adapter 文件。文本断言、judge、多轮、HITL、手写映射的工具断言都在这档；应用接口暴露模型选择的话，模型对比 experiment 也在（`experiment.model` 经 `ctx.model` 透传）。
-- **Tier 2（send + OTel）**：同一个 send，加上应用把 OTel span 发给 NiceEval——事件免手写映射、负断言带完整性证明、trace 瀑布图（见[通过 OTel 接入](/zh/guides/connect-otel)）。已埋点的应用零改动。
+- **Tier 2（send + OTel）**：同一个 send，加上应用把 OTel span 发给 NiceEval——事件从 span 派生、免手写映射，还有 trace 瀑布图（见[通过 OTel 接入](/zh/guides/connect-otel)）。已埋点的应用零改动。
 - **Tier 3（侵入改造 + experiment flags）**：改应用内部代码，把 prompt / 工具集 / feature 变体暴露成 experiment 可传的 `flags`（经 `ctx.flags` 到 Adapter、随请求交给应用），做 feature A/B test。
 
 前两档都是**无侵入**的：应用由你按它自己的方式启动（`pnpm start`、部署在哪都行），eval 侧不 spawn 应用进程、不另开端口——Adapter 只对着**用户前端本来就在用的那个接口**（HTTP 端点、SSE 流）收发，连不上时报"先起应用"的明确错误。观测数据走应用已有的返回信息或 OTel。Tier 3 虽然改了应用内部，Adapter 依然只经对外接口调用应用——侵入的是应用（把变体暴露成配置），不是接入面。
@@ -65,8 +65,6 @@ interface Agent {
 interface TurnInput {
   readonly text: string;                          // 每轮必有：发送的文本；回答轮 = 回答文本（多条以换行连接）
   readonly files?: readonly InputFile[];          // 仅 t.sendFile 轮：附带的文件（base64）
-  readonly responses?: readonly InputResponse[];  // 仅回答轮（t.respond / t.respondAll）：逐请求的结构化回答
-  readonly outputSchema?: JsonSchema;             // 仅本轮声明了 output 时：结构化输出要求，已降为 JSON Schema
 }
 
 interface InputFile {
@@ -74,52 +72,41 @@ interface InputFile {
   readonly mimeType: string;      // 如 image/png
   readonly dataBase64: string;    // base64 内容，JSON 友好，可直接放进请求体
 }
-
-interface InputResponse {
-  readonly requestId: string;    // 必有：对应哪条 input.requested 请求，多个请求并停时靠它对位
-  readonly optionId?: string;    // 与 text 二选一：回答命中了请求 options 里的某个 id（approve / deny…）
-  readonly text?: string;        // 与 optionId 二选一：自由文本回答（请求没有选项，或回答不是任何选项）
-}
 ```
 
 eval 侧不管调的是 `t.send()`、`t.sendFile()` 还是 `t.respond()`，到 Adapter 时都是一次普通的 `send`，差别全在字段上：
 
-| eval 侧 | `text` | `files` | `responses` | `outputSchema` |
-|---|---|---|---|---|
-| `t.send(text)` | 发送文本 | — | — | 声明了 `output` 才有 |
-| `t.sendFile(path, text?)` | 附言（可为空串） | 有 | — | 同上 |
-| `t.respond(...)` / `t.respondAll(...)` | 回答文本 | — | 逐请求一条 | 同上 |
+| eval 侧 | `text` | `files` |
+|---|---|---|
+| `t.send(text)` | 发送文本 | — |
+| `t.sendFile(path, text?)` | 附言（可为空串） | 有 |
+| `t.respond(...)` / `t.respondAll(...)` | 回答文本（多条按 `"\n"` 拼接） | — |
 
-`files` 接口不收文件就忽略；`outputSchema` 应用接口收 schema 就转发（Chat Completions 的 `response_format`、Responses 的 `text.format`），不收也没关系——校验反正发生在运行器（见下面 `Turn.data` 的规则）。
+`files` 接口不收文件就忽略。
 
-#### 不同回答的入参
+#### 回答怎么到达
 
-HITL 回答轮里，人的裁决以结构化形式随 `input.responses` 到达——Adapter 不需要解析 `text` 去猜哪句回答对应哪个请求、算不算批准。每条回答必带 `requestId`；`optionId` 和 `text` 二选一：回答命中请求 `options` 里的某个 id 就是 `optionId`（eval 侧已校验过存在，不会有打错的字静默传进来），否则整句作为自由文本落在 `text`。四种典型形态：
+HITL 回答轮里，人的裁决以**纯文本**经 `input.text` 到达：`t.respond(...answers)` 把多条回答按 `"\n"` 拼接；`t.respondAll(optionId)` 给每条待处理请求各生成一条相同的回答再拼接。eval 侧只校验"确实有待处理请求"——回答内容本身不校验，`"approve"` 拼错会原样传给应用。三种典型形态：
 
 ```ts
-// ① 单个待处理请求，回答命中选项（approve / deny 同理，只是 optionId 不同）
+// ① 单个待处理请求，回答命中选项（approve / deny 同理）
 await t.respond("approve");
-// → { text: "approve",
-//     responses: [{ requestId: "req_1", optionId: "approve" }] }
+// → input.text = "approve"
 
-// ② 多个请求并停，用对象形式显式对位
-await t.respond({ request, optionId: "deny" });
-// → { text: "deny",
-//     responses: [{ requestId: request.id, optionId: "deny" }] }
-
-// ③ 回答不是任何选项 → 自由文本（等补充信息的请求就是这种）
+// ② 回答不是任何选项 → 自由文本（等补充信息的请求就是这种）
 await t.respond("收件人改成 ceo@corp.com");
-// → { text: "收件人改成 ceo@corp.com",
-//     responses: [{ requestId: "req_1", text: "收件人改成 ceo@corp.com" }] }
+// → input.text = "收件人改成 ceo@corp.com"
 
-// ④ respondAll：每条待处理请求一条回答，同一个 optionId
+// ③ respondAll：每条待处理请求一条相同回答（两条请求并停时）
 await t.respondAll("approve");
-// → { text: "approve\napprove",
-//     responses: [{ requestId: "req_1", optionId: "approve" },
-//                 { requestId: "req_2", optionId: "approve" }] }
+// → input.text = "approve\napprove"
+
+// 多个请求并停、要给不同答案时，按你吐出 input.requested 的顺序逐条给：
+await t.respond("approve", "deny");
+// → input.text = "approve\ndeny"
 ```
 
-Adapter 侧的对应义务：按 `requestId` 把裁决交回应用（不要按顺序猜）；被人拒绝的调用把 `action.result` 的 `status` 置 `"rejected"` 而不是 `"failed"`——拒绝是人的决定、不是工具故障，这样 `noFailedActions()` 不误伤，`calledTool(..., { status: "rejected" })` 可精确断言。
+Adapter 侧的对应义务：回答按你上一轮吐出 `input.requested` 事件的顺序对位（挂起时把待裁决的 `callId` 一并存进会话状态，回答轮取出配对）；被人拒绝的调用把 `action.result` 的 `status` 置 `"rejected"` 而不是 `"failed"`——拒绝是人的决定、不是工具故障，这样 `noFailedActions()` 不误伤，`calledTool(..., { status: "rejected" })` 可精确断言。
 
 ### 上下文：`AgentContext`
 
@@ -152,7 +139,7 @@ interface AgentSession {
 ```ts
 interface Turn {
   readonly events: StreamEvent[];          // ★ 标准事件流——每个 Adapter 的核心产物
-  readonly data?: JsonValue;               // 本轮结构化产物；仅当 input.outputSchema 出现时填，运行器按声明校验
+  readonly data?: unknown;                 // 本轮结构化产物（应用有结构化输出时才填），供 outputEquals / outputMatches 断言
   readonly status: "completed" | "failed" | "waiting";  // waiting = 停轮等人（HITL）
   readonly usage?: Usage;
 }
@@ -170,17 +157,15 @@ interface Turn {
 
 对象统共九种类型（`message`、`action.*`、`input.requested`……完整清单见[事件流参考](/zh/reference/events)）。断言读的就是这个数组：`t.calledTool("get_weather")` 数 `action.called`，`t.reply` 取最后一条 assistant `message`。注意 `send` 每次只返回**本轮**的数组——跨轮拼成整条会话线是运行器的事，见下一节。多数情况下你也不手写这些对象：官方转换器的返回值就是一个填好 `events`、`usage`、`status` 的完整 `Turn`，怎么选转换器见[写 send](/zh/concepts/write-send)。
 
-`data` 不是"随便放点什么"的口袋，它只有一条规则：**要什么，由 eval 在 send 上用 schema 声明；声明了才有 data，拿到手就是声明的类型。**
+`data` 不是"随便放点什么"的口袋：它是**本轮的结构化产物**——应用本来就有结构化输出（JSON 回复、`experimental_output` 这类）时，Adapter 把它放进 `data`（比如 `JSON.parse(reply.content)`，或 `fromAiSdk` 配 `data: result.text`），eval 侧用 `turn.outputEquals(value)`（深相等）或 `turn.outputMatches(schema)`（Standard Schema / zod 校验）断言它：
 
 ```ts
-// eval 侧：output 声明既是给应用的要求，也是 turn.data 的类型来源
-const turn = await t.send("这张发票总额多少?", {
-  output: z.object({ amount: z.number(), currency: z.string() }),
-});
-turn.data.amount;   // 类型是 number——不是 unknown，不用手动收窄
+// eval 侧：data 的形状用 schema 断言，结构化语义归应用自己
+const turn = await t.send("这张发票总额多少?");
+turn.outputMatches(z.object({ amount: z.number(), currency: z.string() }));
 ```
 
-声明降为 JSON Schema 后经 `input.outputSchema` 到达 Adapter；Adapter 拿到应用的返回后把结构化产物放进 `data`（比如 `JSON.parse(reply.content)`）。**校验是运行器强制的**：`data` 不匹配声明，本轮直接 `failed` 并报出差异——不存在"塞了个错的对象、断言静默通过"这条路。反过来，没声明 `output` 的轮次没有 `data`：只回文本的应用永远不碰这个字段，不要把原始响应 body 复制进去凑数。
+`data` 的类型是 `unknown`——要在 eval 代码里直接读字段，自己收窄。只回文本的应用永远不碰这个字段，不要把原始响应 body 复制进去凑数。
 
 ### send 返回之后：Turn 的四个字段各去哪
 
@@ -191,25 +176,24 @@ turn.data.amount;   // 类型是 number——不是 unknown，不用手动收窄
 | `events` | 追加进本会话线的事件流，`deriveRunFacts` 折叠成事实（`toolCalls`、`parked`、`messageCount`…）；最后一条 assistant `message` 同时更新 `t.reply` | 全部作用域断言：`t.calledTool()`、`t.messageIncludes()`…；`t.events` 可直接查 |
 | `status` | 记录本轮终态；`"waiting"` 时把本轮的 `input.requested` 收进待答列表 | `t.succeeded()` / `t.parked()`；`"waiting"` 之后用 `t.respond()` 接 |
 | `usage` | 逐轮累加到会话线与整次运行 | `maxTokens` / `maxCost` 评分器、报告里的用量 |
-| `data` | 按 send 上声明的 `output` schema 校验——不匹配本轮直接 `failed`；通过才保存 | `turn.data`（按声明强类型）、`outputEquals` |
+| `data` | 原样挂到本轮句柄上 | `turn.data`（`unknown`，自行收窄）、`turn.outputEquals()` / `turn.outputMatches()` |
 
 `await t.send()` 拿到的句柄就是对这一轮 Turn 的视角：turn 级断言（`draft.parked()` 这类）只看这一轮的 `events`，`t` 级断言看整条会话线累计的。所以 Adapter 不需要"配合"任何断言——把这四个字段填对，断言、评分、报告全部在下游自动发生。
 
-## 能力从哪来：构造证明，不是问卷
+## 能力从哪来：优先由构造派生，声明要诚实
 
-NiceEval 不让你填能力问卷——`defineAgent` 没有 `capabilities: { conversation: true }` 这种布尔字段。能力是**构造出来的事实**：你递了什么件、吐了什么事件、走了什么构造函数，`t` 上就解锁什么：
+能力位是 `defineAgent` 上的显式声明（`capabilities: { toolObservability: true }` 这样的布尔字段），但 NiceEval 尽量不让你填问卷——**能派生的能力由构造派生**：你递了什么件、吐了什么事件、走了什么构造函数，`t` 上就解锁什么：
 
-| `t` 上解锁什么 | 证据是什么 | 你写什么 |
+| `t` 上解锁什么 | 怎么解锁 | 你写什么 |
 |---|---|---|
-| `t.send`、`t.sendFile`、`t.check`、`t.judge`… | 任何 Agent 都有 | 无 |
-| 多次 `t.send()`、`t.reply`、`t.newSession()` | 定义里递了 `session` 件（`clientHistory` / `serverSession`） | 把本来就在用的件递给 `defineAgent` |
+| `t.send`（第一轮）、`t.sendFile`、`t.check`、`t.judge`… | 任何 Agent 都有 | 无 |
+| 第二轮起的 `t.send()`、`t.newSession()` | `conversation` 能力——定义里递了 `session` 件（`clientHistory` / `serverSession`）自动为真 | 把本来就在用的件递给 `defineAgent` |
 | `t.respond()` / `t.parked()` 等 HITL | send 返回过 `"waiting"` + `input.requested` 事件 | 无——做到了就是有 |
-| `t.calledTool()` / `t.toolOrder()` 等正断言 | events 里有 `action.*` | 无——有事件就能断 |
-| `t.notCalledTool()` / `t.usedNoTools()` 等负断言**可信** | 事件来自带完整性证明的官方转换器 | 无——证明随转换器返回值走 |
-| `t.sandbox`、`t.fileChanged()` 等 | `defineSandboxAgent` 构造 | 无 |
-| `EvalResult.trace`、`niceeval view` 瀑布图 | `tracing` 块 / `events: otelEvents()` 存在 | 无——块本来就要写 |
+| `t.calledTool()` / `t.notCalledTool()` / `t.toolOrder()` 等工具断言 | `toolObservability` 能力 | 一行诚实声明：确认事件流对工具调用无遗漏时写 `capabilities: { toolObservability: true }` |
+| `t.sandbox`、`t.fileChanged()` 等 | `defineSandboxAgent` 构造（默认带 `workspace` / `sandbox` 等全套能力位） | 无 |
+| `EvalResult.trace`、`niceeval view` 瀑布图 | `capabilities: { tracing: true }` + `tracing` 块 / `events: otelEvents()` | 声明 + 本来就要写的块 |
 
-负断言那行是唯一分档次的：`notCalledTool` 断的是"没发生"，前提是"事件全量"——这只有来源本身有完整性契约时才成立（SDK 原生事件流透传、AI SDK 的 `result.steps`、Responses 的 `output`）。手写映射没有证明，负断言会在运行时提示不可信，而不是静默假通过。所以也不存在"声明了做不到"的失真：可信度跟着事件的来源走，不跟作者的自觉走。逐能力的精确义务见[能力参考](/zh/reference/capabilities)。
+工具断言那行是唯一要你亲手声明的：`notCalledTool` 断的是"没发生"，前提是"事件全量"——这只有事件来源有完整性契约时才成立（SDK 原生事件流透传、AI SDK 的 `result.steps`、Responses 的 `output`）。所以远程 / 进程内 agent 的能力位**默认全空**：没声明 `toolObservability` 时，`calledTool` / `notCalledTool` 这族断言一被调用就被能力守卫拦下、报清晰错误，而不是对着不完整的事件流假通过（负断言假通过是最危险的失真）。声明要诚实：接口只回最终答案却声明了 `toolObservability`，守卫拦不住你，失真就是你自己签的字。逐能力的精确义务见[能力参考](/zh/reference/capabilities)。
 
 ## 另一种 transport：sandbox Agent
 

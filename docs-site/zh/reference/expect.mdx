@@ -53,13 +53,13 @@ t.check(turn.data, equals({ intent: "refund" }));
 ### `matches`
 
 ```ts
-matches(pattern: RegExp): Assertion
+matches(schema: unknown): Assertion
 ```
 
-断言字符串匹配正则。
+用 schema 校验值——支持 Standard Schema（zod 等）或 zod 风格的 `.safeParse` / `.parse`。要匹配正则，用 `includes(/正则/)`。
 
 ```ts
-t.check(t.reply, matches(/#[A-Z0-9]{8}/));
+t.check(turn.data, matches(z.object({ orderId: z.string() })));
 ```
 
 ### `similarity`
@@ -86,26 +86,27 @@ satisfies(predicate: (value: unknown) => boolean): Assertion
 t.check(turn.data, satisfies((value) => Array.isArray(value)));
 ```
 
-## gate 和 soft
+## gate 和 atLeast
 
 ```ts
 t.check(t.reply, includes("required").gate());
 t.check(t.reply, includes("nice to have").atLeast(0.7));
 ```
 
-- `gate()`：失败会让 eval 失败。
-- `soft()`：参与评分，但不一定让 eval 失败。
+- `gate(threshold?)`：硬门槛，失败会让 eval 失败。
+- `atLeast(threshold)`：软阈值，参与评分，默认不让 eval 失败（`--strict` 下才会）。
 
 ## 自定义 matcher
 
 ```ts
 import { makeAssertion } from "niceeval/expect";
 
-const validEmail = makeAssertion("valid email", (value) => {
-  return typeof value === "string" && value.includes("@") ? 1 : 0;
+const validEmail = makeAssertion({
+  name: "valid email",
+  score: (value) => (typeof value === "string" && value.includes("@") ? 1 : 0),
 });
 
-t.check(t.reply, validEmail());
+t.check(t.reply, validEmail);
 ```
 
 自定义 matcher 应返回 0 到 1 之间的分数，并给出清晰名称。

@@ -10,7 +10,8 @@ description: "用 NiceEval 的五种评分机制评估任意 eval：值断言、
 
 | 目标 | 推荐机制 |
 |---|---|
-| 回复包含固定字段 | `includes` / `matches` |
+| 回复包含固定内容 / 命中正则 | `includes` |
+| 结构化输出符合 schema | `matches` |
 | 结构化 JSON 完全匹配 | `equals` |
 | 工具调用是否发生 | `t.calledTool` / `t.notCalledTool` |
 | 输出是否语义正确 | `t.judge.*` |
@@ -23,8 +24,9 @@ description: "用 NiceEval 的五种评分机制评估任意 eval：值断言、
 import { includes, equals, matches } from "niceeval/expect";
 
 t.check(t.reply, includes("refund"));
+t.check(t.reply, includes(/order #\d+/));      // includes 也接受正则
 t.check(turn.data, equals({ intent: "refund" }));
-t.check(t.reply, matches(/order #\d+/));
+t.check(turn.data, matches(orderSchema));      // matches 是 schema 校验（zod 等）
 ```
 
 值断言适合精确、稳定、低歧义的结果。

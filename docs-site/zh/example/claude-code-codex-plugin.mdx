@@ -61,7 +61,8 @@ export default defineExperiment({
   description: "claude-code + ponytail plugin",
   agent: ponytailAgent,
   model: "claude-sonnet-4-6",
-  sandbox: dockerSandbox(),
+  // ponytail-csv-sum 需要 python3；默认的 node:24-slim 没有，用完整版镜像
+  sandbox: dockerSandbox({ image: "node:24" }),
   runs: 3,
   earlyExit: false,
   budget: 15,
@@ -135,11 +136,12 @@ export default defineEval({
 ```bash
 cd examples/zh/coding-agent-skill
 pnpm install
-pnpm exec niceeval exp ponytail ponytail-baseline
+pnpm exec niceeval exp ponytail            # 实验组
+pnpm exec niceeval exp ponytail-baseline   # 对照组
 pnpm exec niceeval view
 ```
 
-`exp` 后的第一个参数选择实验组或实验文件；后续位置参数只用于过滤 eval ID，不用于传 agent 名、插件名或 URL。
+`exp` 后的第一个参数选择实验组或实验文件——所以对照实验要单独跑一次；后续位置参数只用于过滤 eval ID，不用于传 agent 名、插件名或 URL。
 
 ## 看什么指标
 
