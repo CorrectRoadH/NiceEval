@@ -14,6 +14,8 @@ export type {
   Turn,
   TurnInput,
   InputFile,
+  InputResponse,
+  RespondAnswer,
   TurnHandle,
   SessionHandle,
   TestContext,

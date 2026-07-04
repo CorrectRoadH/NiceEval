@@ -43,7 +43,6 @@ export function claudeCodeAgent(config?: ClaudeCodeConfig): Agent {
 
   return defineSandboxAgent({
     name: "claude-code",
-    capabilities: { conversation: true, toolObservability: true, workspace: true, compactionObservability: true },
 
     async setup(sb) {
       // 预制模板已把 claude 烘焙进镜像(PATH 上)就跳过安装;否则 npm 全局装。
@@ -76,7 +75,7 @@ export function claudeCodeAgent(config?: ClaudeCodeConfig): Agent {
       if (ctx.model) args.push("--model", ctx.model);
       if (config?.maxTurns != null) args.push("--max-turns", String(config.maxTurns));
       if (ctx.flags.webResearch) args.push("--allowedTools", "WebSearch,WebFetch");
-      if (!ctx.session.isNew && ctx.session.id) args.push("--resume", ctx.session.id);
+      if (ctx.session.id) args.push("--resume", ctx.session.id);
       args.push(input.text);
 
       const env: Record<string, string> = { ANTHROPIC_API_KEY: getApiKey() };
@@ -88,7 +87,7 @@ export function claudeCodeAgent(config?: ClaudeCodeConfig): Agent {
       // 「最新 jsonl」而非按 session id 精确定位:--resume 会 fork 新 session id 的新文件,
       // 精确匹配旧 id 会读到过期 transcript。send 串行,最新的一定是刚跑完的这次。
       const raw = await shared.captureLatestJsonl(sb, "~/.claude/projects");
-      ctx.session.id = shared.sessionIdFromClaudeTranscript(raw) ?? ctx.session.id;
+      ctx.session.capture(shared.sessionIdFromClaudeTranscript(raw));
       const parsed = shared.parseClaudeCode(raw);
       const events = [...parsed.events];
       if (res.exitCode !== 0) events.push({ type: "error", message: shared.diagnoseFailure(res, parsed.events, raw) });

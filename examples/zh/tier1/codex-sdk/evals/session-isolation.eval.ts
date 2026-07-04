@@ -1,7 +1,7 @@
 import { defineEval } from "niceeval";
 import { includes, excludes } from "niceeval/expect";
 
-// 这条 eval 专门验证 conversation 能力位:同一 thread 里第二轮记得住第一轮说的事
+// 这条 eval 专门验证会话续接的两半承诺:同一 thread 里第二轮记得住第一轮说的事
 // (codex.resumeThread 续接成功);t.newSession() 造出的新 thread 不共享历史。
 //
 // 故意用一句"记住我最喜欢的颜色"而不是"你创建的文件叫什么"——workspace/ 目录是所有

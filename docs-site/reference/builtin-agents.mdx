@@ -1,0 +1,57 @@
+---
+title: "Built-in agents and converters"
+sidebarTitle: "Built-in Agents"
+description: "Capabilities, assertions, and limits of NiceEval's built-in sandbox agents, UI Message Stream agent, and event converters."
+---
+
+NiceEval ships two kinds of built-ins:
+
+- **Sandbox agents** for coding-agent CLIs such as Claude Code, Codex, and bub.
+- **Direct-agent helpers** and converters for app protocols such as AI SDK UI Message Stream, AI SDK results, Claude SDK messages, Pi events, Codex OTel spans, and LangSmith spans.
+
+## Sandbox agents
+
+The built-in sandbox agents run a CLI in a sandbox backend and return a standard `Turn`.
+
+| Agent | Use case | Capabilities |
+|---|---|---|
+| `claude-code` | Evaluate Claude Code tasks in a workspace | sandbox/workspace, messages, tool events when transcript data is available |
+| `codex` | Evaluate Codex tasks in a workspace | sandbox/workspace, messages, tool and usage events through parser or OTel data |
+| `bub` | Evaluate bub tasks in a workspace | sandbox/workspace and available transcript facts |
+
+These agents currently do **not** support HITL. Their `send` returns `"completed"` or `"failed"`, never `"waiting"`, and they do not emit `input.requested`. If you need `t.respond()` for an AI SDK app, use `uiMessageStreamAgent`; otherwise implement HITL in a custom adapter.
+
+## `uiMessageStreamAgent`
+
+Use this for AI SDK `useChat` backends that expose the UI Message Stream protocol. It can drive the HTTP endpoint, replay UI messages, map tool approvals into HITL, and derive events from the stream.
+
+Runnable reference: `examples/zh/tier1/ai-sdk-v7`.
+
+## Converters
+
+Converters turn SDK-native records into NiceEval `Turn` fields.
+
+| Converter | Source | Typical use |
+|---|---|---|
+| `fromAiSdk` | AI SDK `generateText` / `streamText` result | In-process or server-side adapters |
+| `fromClaudeSdkMessages` | Anthropic Claude Agent SDK message stream | HTTP/SSE adapters that relay Claude SDK events |
+| `fromPiAgentEvents` | `@earendil-works/pi-agent-core` event stream | Pi agent adapters with HITL approval |
+| `otelEvents({ dialects: [...] })` | OTel spans | Apps already emitting spans |
+| `driveFrameStream` / `pausable` helpers | Streaming protocols | Incremental stream driving and HITL pause/resume |
+
+Use official converters when possible because they preserve event order, pair tool call IDs, normalize usage, and can carry event-completeness proof.
+
+## Choosing a built-in
+
+- Coding agent editing files: use a built-in sandbox agent or write a `defineSandboxAgent`.
+- AI SDK `useChat` backend: use `uiMessageStreamAgent`.
+- AI SDK core calls inside your own adapter: use `fromAiSdk`.
+- Already instrumented app: use `otelEvents()`.
+- Custom HTTP / gRPC service: write `send`, then use converters for the protocol pieces you have.
+
+## Related
+
+- [Connect Your Agent](/guides/connect-your-agent)
+- [Sandbox Agent](/guides/sandbox-agent)
+- [defineAgent](/reference/define-agent)
+- [OTel Integration](/guides/connect-otel)

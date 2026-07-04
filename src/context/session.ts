@@ -1,21 +1,80 @@
 // 会话驱动:把 t.send(text) 翻成 agent.send(input, ctx),在同一沙箱里多轮 resume /
 // newSession,并把每轮的标准事件流与用量累加进整次运行(供作用域断言 / o11y)。
 
-import type { Agent, AgentContext, AgentSession, InputFile, InputRequest, Sandbox, StreamEvent, Telemetry, TraceSpan, Turn, Usage } from "../types.ts";
+import type { Agent, AgentContext, AgentSession, InputFile, InputRequest, InputResponse, Sandbox, StreamEvent, Telemetry, TraceSpan, Turn, Usage } from "../types.ts";
 import type { AgentOtelChannel } from "../o11y/otlp/turn-otel.ts";
 import { deriveEventsFromSpans, mergeDerivedEvents } from "../o11y/otlp/dialects.ts";
 import { captureLoc } from "../source-loc.ts";
 import { t } from "../i18n/index.ts";
 
 /**
- * 一条会话线的可变状态。`state` 是运行器对 adapter 的唯一会话承诺:同一条线的每次
- * send 拿到同一份、新线拿到空的——会话件以它为锚。id/isNew 是旧契约兼容位
- * (沙箱型 CLI agent 仍用它们做 --resume)。
+ * 一条会话线的存取器实现(见 docs-site/zh/concepts/adapter.mdx 的 AgentSession 契约)。
+ * 私有槽都关在闭包里——`state` 只归用户,框架内部数据不往里塞。
+ */
+export function createAgentSession(): AgentSession {
+  let capturedId: string | undefined;
+  let historyLine: unknown[] = [];
+  let held: unknown;
+  let hasHeld = false;
+  const state: Record<string, unknown> = {};
+
+  return {
+    get id() {
+      return capturedId;
+    },
+    capture(id) {
+      if (!id || capturedId !== undefined) return; // 空值忽略;first-writer-wins
+      capturedId = id;
+    },
+    history<TMsg>() {
+      return {
+        get: () => historyLine as TMsg[],
+        commit: (messages: TMsg[]) => {
+          historyLine = messages;
+        },
+      };
+    },
+    hold(s) {
+      held = s;
+      hasHeld = true;
+    },
+    take<T>() {
+      if (!hasHeld) return undefined;
+      hasHeld = false;
+      const v = held as T;
+      held = undefined;
+      return v;
+    },
+    state,
+  };
+}
+
+/**
+ * 一条会话线的可变状态。存取器(id/capture/history/hold/take/state)委托给
+ * `createAgentSession()`;index/lastMessage/… 是运行器自己的会话簿记,不属于公开契约。
  */
 export class RunSession implements AgentSession {
-  readonly state: Record<string, unknown> = {};
-  id: string | undefined = undefined;
-  isNew = true;
+  private readonly session = createAgentSession();
+
+  get id(): string | undefined {
+    return this.session.id;
+  }
+  capture(id: string | undefined): void {
+    this.session.capture(id);
+  }
+  history<TMsg>() {
+    return this.session.history<TMsg>();
+  }
+  hold<T>(s: T): void {
+    this.session.hold(s);
+  }
+  take<T>(): T | undefined {
+    return this.session.take<T>();
+  }
+  get state(): Record<string, unknown> {
+    return this.session.state;
+  }
+
   index = 1;
   lastMessage = "";
   lastInput = "";
@@ -66,7 +125,12 @@ export class SessionManager {
     return s;
   }
 
-  async send(session: RunSession, text: string, files?: readonly InputFile[]): Promise<Turn> {
+  async send(
+    session: RunSession,
+    text: string,
+    files?: readonly InputFile[],
+    responses?: readonly InputResponse[],
+  ): Promise<Turn> {
     // 抓住作者调 t.send / t.sendFile 那一行(view 把回复叠回这一行)。
     const loc = captureLoc();
     const ctx: AgentContext = {
@@ -94,8 +158,8 @@ export class SessionManager {
     session.events.push(userEvent);
     session.pendingInputRequests.length = 0;
     const turn = this.deps.otel
-      ? await this.sendWithOtel(this.deps.otel, { text, files }, ctx)
-      : await this.deps.agent.send({ text, files }, ctx);
+      ? await this.sendWithOtel(this.deps.otel, { text, files, responses }, ctx)
+      : await this.deps.agent.send({ text, files, responses }, ctx);
 
     this.allEvents.push(...turn.events);
     session.events.push(...turn.events);
@@ -108,7 +172,6 @@ export class SessionManager {
       accumulateUsage(this.usage, turn.usage);
       accumulateUsage(session.usage, turn.usage);
     }
-    session.isNew = false;
     session.lastStatus = turn.status;
     this.lastStatus = turn.status;
     const reply = lastAssistantText(turn.events);
@@ -129,7 +192,7 @@ export class SessionManager {
    */
   private async sendWithOtel(
     otel: AgentOtelChannel,
-    input: { text: string; files?: readonly InputFile[] },
+    input: { text: string; files?: readonly InputFile[]; responses?: readonly InputResponse[] },
     ctx: AgentContext,
   ): Promise<Turn> {
     const source = this.deps.agent.events;

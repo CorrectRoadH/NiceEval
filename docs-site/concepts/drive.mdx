@@ -1,106 +1,68 @@
 ---
-title: "Driving the agent in niceeval: send, sessions, and HITL"
+title: "Drive agents in NiceEval: send, sessions, and HITL"
 sidebarTitle: "Drive"
-description: "How to interact with the agent under test: t.send() and the Turn it returns, t.sendFile(), multi-turn conversations, t.newSession(), and human-in-the-loop with respond()."
+description: "Drive is the part of test(t) that sends input and obtains Turns: t.send, t.sendFile, t.newSession, and HITL responses."
 ---
 
-Before you can assert or judge anything, you have to put the agent to work. **Driving** is the part of `test(t)` where you send input and get a result back — `t.send()`, `t.sendFile()`, `t.newSession()`, and the HITL handshake (`t.respond()` / `t.respondAll()`). Everything you drive produces a **Turn**, and every assertion and judge call in niceeval reads from a Turn's data — see [Assert](/concepts/assert) and [Judge](/concepts/judge) for what happens next.
+Before you can assert or judge anything, the agent has to act. **Drive** is the eval-side code that sends input and receives results: `t.send()`, `t.sendFile()`, `t.newSession()`, `t.respond()`, and `t.respondAll()`.
 
-## `t.send()` and the `Turn` it returns
+Every drive action returns or advances a **Turn**. NiceEval assertions and judges read from Turn data.
 
-`t.send(input)` is the single verb. Under the hood it calls the agent adapter's `send(input, ctx)` and normalizes whatever comes back into a `Turn`:
+## `t.send`
 
 ```ts
-const turn = await t.send("What's the weather in Brooklyn today?");
-
-turn.message;      // last assistant message, string
-turn.data;          // structured output, if the agent returned any
-turn.status;        // "completed" | "failed" | "waiting"
-turn.events;        // this turn's StreamEvent[]
-turn.usage;          // { inputTokens, outputTokens, ... } if the adapter reports it
-turn.expectOk();    // throws if status === "failed"; otherwise returns the turn
+const turn = await t.send("What's the weather like in Brooklyn today?");
+turn.expectOk();
+t.check(turn.message, includes("sunny"));
 ```
 
-`t.reply` is shorthand for the last assistant message on the primary session — equivalent to `turn.message` from the most recent `t.send()` call. `t.events` is the primary session's accumulated event stream across every turn sent so far.
+`t.send()` calls the selected adapter's `send(input, ctx)` once and appends the returned events to the current session line.
 
-<Tip>
-`turn.expectOk()` is a precondition helper, not a scoring assertion: it throws immediately (aborting the rest of `test(t)`) rather than recording a failed assertion. Use it when a later turn depends on an earlier one succeeding — chaining assertions onto a failed turn usually just produces confusing secondary failures.
-</Tip>
-
-## Attaching files — `t.sendFile()`
-
-`t.sendFile(path, text?)` reads a local file (relative to the eval's directory), infers its MIME type from the extension, and attaches it as a data URL to the turn's input:
+## `t.sendFile`
 
 ```ts
-const turn = await t.sendFile("fixtures/invoice.png", "What's the total on this invoice?");
-t.check(turn.message, includes("$"));
-```
-
-## Multi-turn conversations
-
-Every `await t.send(...)` call is a new turn on the same conversation. Assign each turn to a variable so you can assert on it individually, in addition to the run-level assertions on `t`:
-
-```ts
-const draft = await t.send("Draft a follow-up email.");
-draft.expectOk();
-t.check(draft.message, includes("Best,"));
-draft.judge.autoevals.closedQA("Is the tone professional?").atLeast(0.6);
-
-await t.send("Looks good, send it.");
-t.calledTool("send_email");
-```
-
-Multi-turn `t.send()` requires the agent to declare the `conversation` capability — without it, the adapter has no obligation to remember what happened in the previous turn, and a second `t.send()` call may talk to a fresh, unrelated context. See [Adapter](/concepts/adapter) for the full capability list.
-
-## Independent sessions — `t.newSession()`
-
-`t.newSession()` opens a second, independent conversation thread that runs alongside the primary one. It returns a session handle with the same drive API (`send`, `sendFile`, `respond`, `respondAll`) and the same scoped-assertion vocabulary as `t`, but scoped to only what happened on that session:
-
-```ts
-await t.send("My name is Alex.");
-await t.send("What's my name?");
-t.check(t.reply, includes("Alex"));         // primary session remembers
-
-const fresh = t.newSession();
-await fresh.send("What's my name?");
-t.check(fresh.reply, satisfies((r) => !r.includes("Alex"), "no memory leak"));
-```
-
-<Warning>
-A common mistake is assuming `t.newSession()` guarantees isolation. All the runner guarantees is that the new session line's state starts empty — actually opening a new conversation with the app is the adapter's job. An adapter that ignores its own session state and always resumes the same underlying context will make `t.newSession()` silently share state, with no error raised. If you're writing the adapter, verify isolation with an eval like the one above before trusting it.
-</Warning>
-
-## Human-in-the-loop (HITL)
-
-Some agents stop mid-turn to ask for approval or missing information instead of finishing outright. When that happens, the turn ends with `status: "waiting"` and one or more `input.requested` events describing what's being asked.
-
-```ts
-const draft = await t.send("Draft a follow-up email, but hold before sending.");
-draft.parked();                              // t.parked() asserts status === "waiting"
-
-const request = t.requireInputRequest({
-  prompt: /send it/i,
-  optionIds: ["approve", "reject"],
+await t.sendFile("fixtures/invoice.png", "Extract the total amount.", {
+  output: z.object({ amount: z.number(), currency: z.string() }),
 });
-
-await t.respond({ request, optionId: "approve" });
-t.calledTool("send_email");
 ```
 
-`t.requireInputRequest(filter)` turns a pending HITL request into a concrete value you can inspect and respond to — it throws if zero or more than one pending request matches the filter, so fill in as many filter fields as you can (`id`, `prompt`, `display`, `action`, `optionIds`, `input`) to disambiguate. `t.respond(...)` answers it and sends the next turn; behind the scenes it's just another ordinary `send`: the answer text goes into `input.text`, and each answer also arrives as a structured `{ requestId, optionId }` entry in `input.responses` — the adapter never parses text to figure out which answer belongs to which request.
+Files arrive at the adapter as base64 `input.files`. If the turn declares `output`, the adapter returns structured `data` and the runner validates it.
 
-When a turn has several identical pending requests that should all get the same answer (for example, approving a batch of file changes one by one), use `t.respondAll(optionId)` instead of resolving them one at a time. The `optionId` is validated against every pending request first — if any request lacks that option, it throws instead of silently sending a typo as a different answer:
+## Sessions
+
+The first turn of an eval starts a session line. Multiple sends on `t` use the same line. Use `t.newSession()` when you need an independent conversation.
 
 ```ts
-await t.send("Submit each of these changes for approval.");
-t.requireInputRequest({ display: /approval/i });
+await t.send("Remember that my code is 42.");
+await t.send("What code did I give you?");
+t.messageIncludes("42");
 
-await t.respondAll("approve");
-t.succeeded();
+const other = t.newSession();
+await other.send("What code did I give you?");
+other.notMessageIncludes("42");
 ```
 
-## Related pages
+Session continuation is adapter work. The adapter can use `ctx.session.history()` for client-side full-history protocols or `ctx.session.id` / `ctx.session.capture()` for server-side session IDs.
 
-- [Assert](/concepts/assert) — the assertion vocabulary that reads from `Turn.events` and `Turn.data`.
-- [Judge](/concepts/judge) — how `t.judge`, `session.judge`, and `turn.judge` decide what material they score by default.
-- [Adapter](/concepts/adapter) — which capability flags unlock `t.newSession()`, HITL, and tool-related assertions.
+## HITL responses
+
+When a turn returns `status: "waiting"` and emits `input.requested`, the eval can answer:
+
+```ts
+const draft = await t.send("Send the email after approval.");
+draft.parked();
+
+const request = t.requireInputRequest({ action: "send_email" });
+await t.respond({ request, optionId: "approve" });
+
+t.calledTool("send_email", { status: "completed" });
+```
+
+`t.respond()` is also just another adapter `send` call on the same session line. The answer arrives in `input.responses` with a `requestId`.
+
+## Related
+
+- [Adapter](/concepts/adapter)
+- [HITL](/concepts/hitl)
+- [Assert](/concepts/assert)
+- [Write Send](/guides/write-send)

@@ -1,0 +1,43 @@
+---
+title: "Experiment: who to evaluate and how to run"
+sidebarTitle: "Experiment"
+description: "An experiment is a checked-in run configuration: which agent, model, flags, runs, budget, and sandbox should be used."
+---
+
+NiceEval separates **what to test** from **who to run it against**. An eval answers the first question: what input to send and what counts as passing. An experiment answers the second: which agent, which model, which flags, how many runs, and what budget.
+
+## Why separate them: late binding
+
+Eval logic changes slowly. Runtime configuration changes often. Late binding lets the same eval run against local, staging, production, multiple models, or baseline and treatment variants without copying test logic.
+
+## What an experiment contains
+
+```ts
+import { defineExperiment } from "niceeval";
+import { webAgent } from "../agents/web-agent.ts";
+
+export default defineExperiment({
+  description: "staging concise prompt",
+  agent: webAgent({ baseUrl: "https://staging.example.com" }),
+  model: "gpt-5.4",
+  flags: { promptVariant: "concise" },
+  runs: 3,
+  earlyExit: true,
+  budget: 5,
+});
+```
+
+- `agent`: an already configured adapter instance. Static details such as URL and auth usually go into the adapter factory.
+- `model` / `flags`: pass-through values. NiceEval does not interpret them. It forwards them through `ctx` to the adapter, and the adapter forwards them to your app.
+- `runs`, `budget`, concurrency, and `sandbox`: how to run the evals.
+
+## Matrix comparisons
+
+Write one experiment file for each variant. Two models are two files that differ only by `model`. A prompt A/B test is two files that differ only by `flags`. The same evals then produce comparable pass rate, cost, and latency.
+
+## Related
+
+- [Write Experiments](/guides/write-experiment) - all `defineExperiment` fields.
+- [Experiment Matrix](/guides/experiments) - how to organize cross-agent, cross-model, and flag comparisons.
+- [Evals](/concepts/evals) - the other half of the split.
+- [Tier](/concepts/tier) - where `model` and `flags` matter.

@@ -13,6 +13,7 @@ import type { AgentOtelChannel } from "../o11y/otlp/turn-otel.ts";
 import { selectTraceSpans, enrichTraceWithIO } from "../o11y/otlp/select.ts";
 import { mapGenericSpans } from "../o11y/otlp/mappers/index.ts";
 import { createEvalContext } from "../context/context.ts";
+import { createAgentSession } from "../context/session.ts";
 import { EvalRequirementFailed, EvalSkipped, TurnFailed } from "../context/control-flow.ts";
 import { computeOutcome } from "../scoring/verdict.ts";
 import { deriveRunFacts, buildO11ySummary } from "../o11y/derive.ts";
@@ -87,7 +88,7 @@ export function runAttemptEffect(
   return Effect.scoped(
     Effect.gen(function* () {
       const sandbox =
-        run.agent.capabilities.sandbox === true
+        run.agent.kind === "sandbox"
           ? yield* sandboxSem.withPermits(1)(
               Effect.gen(function* () {
                 // ── 沙箱:acquire=起,release=stop(成功 / 失败 / 中断都跑)──
@@ -101,7 +102,7 @@ export function runAttemptEffect(
               }),
             )
           : createRemoteSandbox();
-      if (run.agent.capabilities.sandbox !== true) log(t("runner.useRemoteAgent"));
+      if (run.agent.kind !== "sandbox") log(t("runner.useRemoteAgent"));
 
       // ── tracing ──────────────────────────────────────────────────────────────────
       // sandbox.otlpHost:
@@ -119,13 +120,13 @@ export function runAttemptEffect(
       // 只声明 tracing 的进程内 adapter(如 aiSdkAgent)保持 per-attempt receiver,attempt 全并发。
       const wantsSharedOtel =
         run.agent.events !== undefined || run.agent.tracing?.scope === "run";
-      if (run.agent.capabilities.sandbox !== true && wantsSharedOtel && opts.otelPool) {
+      if (run.agent.kind !== "sandbox" && wantsSharedOtel && opts.otelPool) {
         otelChannel = yield* Effect.promise(() => opts.otelPool!.channel(run.agent.name));
         const endpoint = otelChannel.receiver.endpoint(process.env.NICEEVAL_OTLP_HOST ?? "127.0.0.1");
         const env = run.agent.tracing?.env?.(endpoint);
         telemetry = env ? { endpoint, env } : { endpoint };
         log(t("runner.otlpShared", { endpoint }));
-      } else if (run.agent.capabilities.tracing) {
+      } else if (run.agent.tracing !== undefined) {
         const forcedHost = process.env.NICEEVAL_OTLP_HOST;
         if (forcedHost) {
           // 显式覆盖:走本地接收器,把指定 host 交给 agent
@@ -220,14 +221,14 @@ async function runAttemptBody(
 ): Promise<EvalResult> {
   const { evalDef, run, attempt } = a;
   const { sandbox, receiver, telemetry, otel, signal, log } = res;
-  const usesSandbox = run.agent.capabilities.sandbox === true;
+  const usesSandbox = run.agent.kind === "sandbox";
   // 整个 attempt 共用一份 agent ctx(sandbox 钩子 / agent setup / tracing configure / teardown 都用它)。
   const attemptCtx: AgentContext = {
     signal,
     model: run.model,
     flags: run.flags,
     sandbox,
-    session: { state: {}, id: undefined, isNew: true },
+    session: createAgentSession(),
     telemetry,
     log,
   };

@@ -1,5 +1,6 @@
-// agent 域类型:Agent / Adapter 契约、能力位、会话与 tracing 导出配置。
-// 「连到哪个被测对象、协议怎么说」的全部契约在这里(见 docs/adapters/contract.md)。
+// agent 域类型:Agent / Adapter 契约、会话与 tracing 导出配置。
+// 「连到哪个被测对象、协议怎么说」的全部契约在这里(见 docs-site/zh/concepts/adapter.mdx)。
+// 能力不再是问卷式声明:t 上解锁什么完全由构造证据决定(见 docs-site 「能力从哪来」一节)。
 
 import type { Cleanup } from "../shared/types.ts";
 import type { StreamEvent, TraceSpan, Usage } from "../o11y/types.ts";
@@ -31,10 +32,26 @@ export interface InputFile {
   readonly dataBase64: string;
 }
 
+/**
+ * HITL 回答轮里,人的裁决以结构化形式随 `input.responses` 到达——adapter 不需要解析
+ * `text` 去猜哪句回答对应哪个请求、算不算批准。见 docs-site/zh/concepts/adapter.mdx
+ * 「不同回答的入参」一节的四种典型形态。
+ */
+export interface InputResponse {
+  /** 对应哪条 input.requested 请求;多个请求并停时靠它对位。 */
+  readonly requestId: string;
+  /** 与 text 二选一:回答命中了请求 options 里的某个 id(approve / deny…)。 */
+  readonly optionId?: string;
+  /** 与 optionId 二选一:自由文本回答(请求没有选项,或回答不是任何选项)。 */
+  readonly text?: string;
+}
+
 export interface TurnInput {
   readonly text: string;
   /** 本轮附带的文件(图片等)。adapter 自行决定怎么投递;不支持多模态的 adapter 忽略它。 */
   readonly files?: readonly InputFile[];
+  /** 仅回答轮(t.respond / t.respondAll):逐请求的结构化回答,按 requestId 对位。 */
+  readonly responses?: readonly InputResponse[];
 }
 
 /** adapter 的 send 返回值(事件流为核心)。 */
@@ -45,25 +62,11 @@ export interface Turn {
   readonly usage?: Usage;
 }
 
-export interface AgentCapabilities {
-  conversation?: boolean;
-  toolObservability?: boolean;
-  workspace?: boolean;
-  sandbox?: boolean;
-  compactionObservability?: boolean;
-  /**
-   * agent 能经 OpenTelemetry 导出 OTLP traces。声明它,运行器就在每个沙箱起一个
-   * 本机 OTLP 接收器,把端点经 ctx.telemetry 交给 agent;跑完把收到的 span 归一到
-   * canonical GenAI semconv、挂到 EvalResult.trace,view 画成瀑布图。
-   * **怎么把端点交给 CLI**(env / config 文件)由 agent 的 `tracing` 块声明(见 AgentTracing),
-   * 与「装 CLI / 写主配置」的 setup 分开。
-   */
-  tracing?: boolean;
-}
-
 /**
- * 本次运行的 OTLP traces 接收信息(仅当 agent 声明 capabilities.tracing 时有)。
- * 经 ctx.telemetry 交给 agent。
+ * 本次运行的 OTLP traces 接收信息(仅当配置了 OTel 接入时有——agent 的 `tracing` 块 /
+ * `events: otelEvents()` / config 的 telemetry 存在)。经 ctx.telemetry 交给 agent。
+ * 远程 HTTP 接入的 send 只需要 spread `headers`(每轮一个新 traceparent);接收端点是
+ * 启动期配置(`defineConfig({ telemetry: { port } } )`)固定的,不从这里传。
  */
 export interface Telemetry {
   /** 接收端点(完整路径,形如 http://host.docker.internal:PORT/v1/traces)。 */
@@ -119,28 +122,25 @@ export interface AgentTracing {
 }
 
 /**
- * 一条会话线。核心承诺只有一句:**同一条会话线的每次 send 拿到同一份 `state`,
- * 新会话线(eval 第一轮 / t.newSession() 之后)拿到一份空的。**
+ * 一条会话线。核心承诺只有一句:**同一条会话线的每次 send 拿到同一个 `ctx.session`,
+ * 新会话线(eval 第一轮 / t.newSession() 之后)拿到一个全新的。**
+ * 会话续接(`id`/`capture`、`history`)和 HITL 停轮现场(`hold`/`take`)的存取器都在它上面,
+ * "第一轮"是新会话线的自然形态,没有要判断的分支;`state` 是这些存取器之外的逃生舱,
+ * 框架从不往里写数据。见 docs-site/zh/concepts/adapter.mdx「AgentContext」一节。
  */
 export interface AgentSession {
-  /**
-   * 本条会话线的自有状态槽:从 `{}` 起步,框架从不写入。官方会话件
-   * (serverSession / clientHistory / pausable)以这个对象为锚存取自己的数据,
-   * 手写 adapter 也可以直接往里放东西——没有任何要检查的标志位。
-   */
+  /** 会话续接:服务端记历史。本线记过的会话 id;新会话线是 undefined。 */
+  readonly id?: string;
+  /** 记回传的会话 id;只在还没记过时落地(first-writer-wins),空值忽略。 */
+  capture(id: string | undefined): void;
+  /** 会话续接:客户端带全量历史。返回本会话线的历史槽句柄;新线 get() 是空数组。 */
+  history<TMsg>(): { get(): TMsg[]; commit(messages: TMsg[]): void };
+  /** HITL 停轮现场:存。 */
+  hold<T>(state: T): void;
+  /** HITL 停轮现场:取,取到即清除(一次消费)。 */
+  take<T>(): T | undefined;
+  /** 逃生舱:自由状态槽,起始 `{}`,框架从不写入。 */
   readonly state: Record<string, unknown>;
-  /** 旧契约兼容:沙箱型 CLI agent 仍用它做 --resume;会话件已不依赖。id 可写(adapter 回传供观测/续接)。 */
-  id?: string;
-  /** 旧契约兼容:用会话件后不需要检查它(空 state 的自然结果就是"第一轮")。 */
-  readonly isNew: boolean;
-}
-
-/**
- * 会话件标记:`defineAgent` 的 `session` 字段收它。递了件 = 多轮能力的构造证据
- * (件即能力,见 docs/capabilities-by-construction.md)——不递则第二次 t.send 报能力错误。
- */
-export interface SessionPiece {
-  readonly kind: "serverSession" | "clientHistory";
 }
 
 export interface AgentContext {
@@ -151,9 +151,12 @@ export interface AgentContext {
   readonly sandbox: Sandbox;
   readonly session: AgentSession;
   /**
-   * 仅当 agent 声明 capabilities.tracing 时有:本次运行的 OTLP traces 接收信息
-   *(endpoint + env-based 导出 env)。怎么把它交给 CLI 由 agent 的 `tracing` 块声明:
-   * env-based 的把 ctx.telemetry.env spread 进 send;file-based 的在 tracing.configure 里写配置。
+   * 仅当配置了 OTel 接入时有(agent 的 `tracing` 块 / `events: otelEvents()` / config 的
+   * telemetry 存在):本次运行的 OTLP traces 接收信息(endpoint + env-based 导出 env)。
+   * 怎么把它交给 CLI 由 agent 的 `tracing` 块声明:env-based 的把 ctx.telemetry.env
+   * spread 进 send;file-based 的在 tracing.configure 里写配置。远程 HTTP 接入的 send
+   * 只需要把 headers spread 进请求头(每轮一个新 traceparent);端点是启动期配置
+   * (defineConfig({ telemetry: { port } }))固定的,不从这里传。
    */
   readonly telemetry?: Telemetry;
   log(msg: string): void;
@@ -179,11 +182,14 @@ export type SpanMapper = (spans: TraceSpan[]) => TraceSpan[];
 /** 注册表里的 agent(defineAgent / defineSandboxAgent 产出)。 */
 export interface Agent {
   readonly name: string;
-  readonly capabilities: AgentCapabilities;
-  /** 会话件(serverSession / clientHistory)。递了件 = conversation 能力由构造派生。 */
-  readonly session?: SessionPiece;
+  /**
+   * 内部判别字段(用户不声明):`defineSandboxAgent` 恒设 "sandbox",`defineAgent` 恒设
+   * "remote"。t 上的能力不再是问卷式声明,而是构造证据——sandbox 型才解锁
+   * `t.sandbox`/`t.fileChanged()` 等文件系统断言,见 docs-site「能力从哪来」一节。
+   */
+  readonly kind: "sandbox" | "remote";
   setup?: AgentSetup;
-  /** OTLP 导出配置(仅 capabilities.tracing 时有意义);与 setup 分开,见 AgentTracing。 */
+  /** OTLP 导出配置(仅当此字段存在时运行器才为该 agent 开 OTLP 接收);与 setup 分开,见 AgentTracing。 */
   tracing?: AgentTracing;
   /** 原生 span → canonical 的薄 mapper;省略走通用 heuristic。 */
   spanMapper?: SpanMapper;
@@ -195,7 +201,6 @@ export interface Agent {
 
 export interface SandboxAgentDef {
   name: string;
-  capabilities?: AgentCapabilities;
   /** 每个沙箱一次:装 CLI、写 config.toml / 鉴权配置。 */
   setup?: AgentSetup;
   /** OTLP 导出配置:沙箱里怎么让 CLI 把 trace 发到 endpoint(env / 配置文件),从 setup 拆出。 */
@@ -208,12 +213,6 @@ export interface SandboxAgentDef {
 
 export interface RemoteAgentDef {
   name: string;
-  /**
-   * 会话件:把 send 里用的 `serverSession()` / `clientHistory()` 递给定义。
-   * 递了件即声明多轮能力(conversation 由构造派生,不用写布尔)。
-   */
-  session?: SessionPiece;
-  capabilities?: AgentCapabilities;
   setup?: AgentSetup;
   tracing?: AgentTracing;
   spanMapper?: SpanMapper;

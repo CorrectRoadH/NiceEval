@@ -1,15 +1,16 @@
 import { describe, expect, it } from "vitest";
 
-import { clientHistory, deltaStream, driveFrameStream, pausable, serverSession } from "./streaming.ts";
+import { deltaStream, driveFrameStream } from "./streaming.ts";
 import type { DeltaOp } from "./streaming.ts";
 import type { AgentContext } from "../types.ts";
+import { createAgentSession } from "../context/session.ts";
 
-/** 一条会话线 = 一份 state。同一个 ctx 重复用 = 同一条线;新造一个 = 新线。 */
+/** 一条会话线 = 一个 ctx.session。同一个 ctx 重复用 = 同一条线;新造一个 = 新线。 */
 function lineCtx(): AgentContext {
   return {
     signal: new AbortController().signal,
     flags: {},
-    session: { state: {}, isNew: true },
+    session: createAgentSession(),
     sandbox: undefined as never,
     log() {},
   };
@@ -93,83 +94,10 @@ describe("deltaStream", () => {
   });
 });
 
-describe("pausable", () => {
-  it("take() 只消费一次;没有 hold 过就是 undefined", () => {
-    const p = pausable<{ toolCallId: string }>();
-    const line = lineCtx();
-    expect(p.take(line)).toBeUndefined();
-    p.hold(line, { toolCallId: "c1" });
-    expect(p.take(line)).toEqual({ toolCallId: "c1" });
-    expect(p.take(line)).toBeUndefined();
-  });
-
-  it("不要求后端有会话 id:第一轮就能 hold(服务端无状态的接口也能停轮)", () => {
-    const p = pausable<{ x: number }>();
-    const line = lineCtx();
-    p.hold(line, { x: 1 });
-    expect(line.session.id).toBeUndefined();
-    expect(p.take(line)).toEqual({ x: 1 });
-  });
-
-  it("按会话线隔离,不同线互不干扰", () => {
-    const p = pausable<{ v: string }>();
-    const a = lineCtx();
-    const b = lineCtx();
-    p.hold(a, { v: "A" });
-    p.hold(b, { v: "B" });
-    expect(p.take(b)).toEqual({ v: "B" });
-    expect(p.take(a)).toEqual({ v: "A" });
-  });
-});
-
-describe("serverSession", () => {
-  it("新会话线不带 resume id;capture 之后同一条线的下一轮带上", () => {
-    const session = serverSession();
-    const line = lineCtx();
-    expect(session.id(line)).toBeUndefined(); // 第一轮:空 state 的自然结果
-    session.capture(line, "sess-1");
-    expect(session.id(line)).toBe("sess-1"); // 续接轮:同一份 state
-  });
-
-  it("capture 是 first-writer-wins:续接轮不会被后端回传的(fork 后的)id 覆盖", () => {
-    const session = serverSession();
-    const line = lineCtx();
-    session.capture(line, "sess-new");
-    session.capture(line, "sess-forked"); // 后端可能因 fork 换了新 id,不覆盖正在续接的线
-    expect(session.id(line)).toBe("sess-new");
-  });
-
-  it("capture 把真实后端 id 镜像到 ctx.session.id(t.sessionId / 报告可见);新线互相隔离", () => {
-    const session = serverSession();
-    const a = lineCtx();
-    const b = lineCtx();
-    session.capture(a, "sess-a");
-    expect(a.session.id).toBe("sess-a");
-    expect(session.id(b)).toBeUndefined(); // b 是新线,看不到 a 的 id
-  });
-});
-
-describe("clientHistory", () => {
-  it("新会话线历史为空;commit 之后同一条线取回", () => {
-    const history = clientHistory<{ role: string; text: string }>();
-    const line = lineCtx();
-    expect(history.get(line)).toEqual([]);
-    expect(line.session.id).toBeUndefined(); // 不伪造会话 id
-
-    history.commit(line, [{ role: "user", text: "hi" }, { role: "assistant", text: "hello" }]);
-    expect(history.get(line)).toEqual([{ role: "user", text: "hi" }, { role: "assistant", text: "hello" }]);
-  });
-
-  it("不同会话线的历史互相隔离", () => {
-    const history = clientHistory<{ n: number }>();
-    const a = lineCtx();
-    history.get(a);
-    history.commit(a, [{ n: 1 }]);
-
-    const b = lineCtx();
-    expect(history.get(b)).toEqual([]); // 全新会话线,看不到 a 的历史
-  });
-});
+// 会话续接(id/capture、history)与 HITL 停轮现场(hold/take)不再是这里的可选件——
+// 它们是 ctx.session(AgentSession)本身的存取器,测试见 src/context/session.test.ts
+// 的 createAgentSession 覆盖(history 新线为空/commit 后可见/线间隔离;capture
+// first-writer-wins/空值忽略;hold/take 一次消费/线间隔离)。
 
 describe("driveFrameStream", () => {
   function cursorOf<T>(frames: T[]) {

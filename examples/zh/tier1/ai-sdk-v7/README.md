@@ -33,17 +33,24 @@ adapter 只是把这个已有的 HTTP + SSE 服务无侵入接进 niceeval，不
 - `experiments/assistant.ts`：单配置基线。`experiments/compare-models/`：deepseek-v4-flash /
   deepseek-v4-pro 两个模型对比。
 
-## 声明的能力位
+## 能力从哪来
 
-- `conversation: true`——已验证：`isNew` 时生成新 `sessionId`、非 `isNew` 时按 `sessionId`
-  找回完整历史并原样重发（服务端零状态，续接完全靠客户端重放）。
-- `toolObservability: true`——工厂恒开且真做到：`get_weather` / `calculate`（含审批批准/
-  拒绝两条分支）每次调用的 `action.called`/`action.result` 都从协议帧直构，无遗漏。
-- `tracing: true`——`tracing.env` 给 base（去掉 `/v1/traces` 尾巴，`OTLPTraceExporter()`
-  自己拼），`scope: "run"`（长驻共享服务，不像其它四个按 model 分桶）。额外注入
-  `OTEL_BSP_SCHEDULE_DELAY`，配合工厂的 `settleMs` 收尾宽限，解决 `BatchSpanProcessor`
-  调度延迟和"轮次几时结束"两条时间线对不齐的问题（同
-  `memory/langsmith-dialect-langchain-completion-shape-gap.md` 记录的 langgraph 那次）。
+新契约下没有能力声明这件事——agent 工厂 option 里已经没有 `capabilities` 字段，`t` 上解锁
+什么完全看 adapter 实际接了什么、返回过什么，不是写一个标志位。这个示例（内置
+`uiMessageStreamAgent`）能验证到：
+
+- 跨轮记忆 + `newSession()` 隔离：已验证——新会话线（首轮）生成新 `sessionId`、之后按
+  `sessionId` 找回完整历史并原样重发（服务端零状态，续接完全靠客户端重放）；会话续接的存
+  取器是工厂内置行为，agent 配置里不用多写一行。
+- 工具事件全量可信（`t.calledTool()` / `t.notCalledTool()` 等负断言可用）：`get_weather` /
+  `calculate`（含审批批准/拒绝两条分支）每次调用的 `action.called`/`action.result` 都从协议
+  帧直构，无遗漏——这份完整性证明随工厂返回值走，不用声明。
+- trace 瀑布图 / usage：声明了 `events: otelEvents({ dialects: [otel.genAi] })` 这一行本身
+  就是全部触发条件，不需要额外开关。usage 协议帧里没有，从应用官方 `@ai-sdk/otel` 集成产的
+  GenAI spans 派生补上；应用用 `BatchSpanProcessor`，配合工厂的 `settleMs` 收尾宽限和启动时
+  的 `OTEL_BSP_SCHEDULE_DELAY=200`（见「跑起来」），解决调度延迟和"轮次几时结束"两条时间
+  线对不齐的问题（同 `memory/langsmith-dialect-langchain-completion-shape-gap.md` 记录的
+  langgraph 那次）。
 
 ## HITL
 

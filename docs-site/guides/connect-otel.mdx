@@ -1,0 +1,150 @@
+---
+title: "OTel integration"
+sidebarTitle: "OTel Integration"
+description: "If your app already emits OpenTelemetry traces, send spans to NiceEval and derive tool events and trace waterfalls without writing event mapping."
+---
+
+If your app already uses OpenTelemetry through AI SDK telemetry, LangGraph / LangSmith export, OpenLLMetry, OpenInference, or GenAI semantic conventions, it is already producing much of the data NiceEval needs. Let the app send spans to NiceEval and derive tool assertions plus the `niceeval view` waterfall from those spans.
+
+This is **Tier 2: send + OTel**. It builds on Tier 1 `send`. Feature A/B through application flags is Tier 3 and still requires the app to expose switches.
+
+## Standards and dialects
+
+| Standard / dialect | Maintainer | Format module |
+|---|---|---|
+| OTel GenAI semantic conventions, `gen_ai.*` | OpenTelemetry | `otel.genAi` |
+| AI SDK telemetry, `ai.*` or GenAI through `@ai-sdk/otel` | Vercel | `otel.aiSdk` or `otel.genAi` |
+| OpenInference | Arize / Phoenix ecosystem | `otel.openInference` |
+| OpenLLMetry | Traceloop | `otel.openLLMetry` |
+| LangSmith OTel export | LangChain | `otel.langsmith` |
+| Codex CLI native OTLP | OpenAI Codex | `otel.codex` |
+
+By default, NiceEval detects dialects per span. You can specify dialects for sharper diagnostics.
+
+```ts
+import { otelEvents, otel } from "niceeval/adapter";
+
+events: otelEvents()
+events: otelEvents({ dialects: [otel.aiSdk] })
+events: otelEvents({ dialects: [myFormat, otel.genAi] })
+```
+
+## How `otelEvents()` works
+
+1. NiceEval starts a local OTLP receiver for the run.
+2. `ctx.telemetry.headers` carries W3C trace context. Forward it in your request headers so spans attach to the current turn.
+3. If trace context is unavailable, NiceEval can attribute spans by time window, but that fallback is only reliable when turns run serially.
+4. Spans are normalized into standard events and merged with any events returned directly from `send`.
+
+## Adapter side
+
+```ts
+// agents/support-bot.ts
+import { defineAgent, otelEvents } from "niceeval/adapter";
+
+export default defineAgent({
+  name: "support-bot",
+  events: otelEvents(),
+  async send(input, ctx) {
+    const r = await fetch(`${process.env.BOT_URL}/chat`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...ctx.telemetry?.headers },
+      body: JSON.stringify({ message: input.text }),
+      signal: ctx.signal,
+    });
+    return { data: await r.json(), status: r.ok ? "completed" : "failed" };
+  },
+});
+```
+
+## Give the endpoint to your app
+
+For child processes, CLIs, or services launched by NiceEval, spread `ctx.telemetry.env` into the process environment.
+
+For long-running services, use a fixed port:
+
+```ts
+// niceeval.config.ts
+export default defineConfig({
+  telemetry: { port: 4318 },
+});
+```
+
+Start the app with:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318/v1/traces npm run dev
+```
+
+## App-side examples
+
+<Tabs>
+  <Tab title="AI SDK">
+    Prefer `@ai-sdk/otel`, which emits standard GenAI spans. Legacy `experimental_telemetry` also works.
+
+    ```ts
+    const result = await generateText({
+      model,
+      tools,
+      messages,
+      experimental_telemetry: { isEnabled: true },
+    });
+    ```
+
+    Runnable reference: `examples/zh/tier1/ai-sdk-v7`.
+  </Tab>
+  <Tab title="LangGraph / LangChain">
+    Python LangSmith SDK can emit OTLP through environment variables:
+
+    ```bash
+    LANGSMITH_TRACING=true \
+    LANGSMITH_OTEL_ENABLED=true \
+    LANGSMITH_OTEL_ONLY=true \
+    OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318/v1/traces \
+    python server.py
+    ```
+
+    Runnable reference: `examples/zh/tier1/langgraph`.
+  </Tab>
+  <Tab title="OpenLLMetry">
+    ```ts
+    import * as traceloop from "@traceloop/node-server-sdk";
+
+    traceloop.initialize({ disableBatch: true });
+    ```
+  </Tab>
+  <Tab title="OpenInference">
+    ```python
+    from openinference.instrumentation.langchain import LangChainInstrumentor
+    from phoenix.otel import register
+
+    register()
+    LangChainInstrumentor().instrument()
+    ```
+  </Tab>
+</Tabs>
+
+## Existing OTel backend
+
+You do not need to replace your current tracing backend. Add a second SpanProcessor for NiceEval or fan out through an OTel Collector. In eval runs, prefer `SimpleSpanProcessor` so spans arrive before turn attribution closes.
+
+## Negative assertions
+
+`otelEvents()` gives positive assertions such as `calledTool`, `toolOrder`, and generic event checks when spans exist. Negative assertions such as `notCalledTool` require proof that instrumentation covers every tool layer. NiceEval cannot verify that for your app, so declare it yourself only when you have confirmed coverage:
+
+```ts
+capabilities: { toolObservability: true },
+events: otelEvents(),
+```
+
+## Boundaries
+
+- Multi-turn sessions and HITL remain adapter protocol work.
+- Approval-gated tools may not produce execution spans when denied; add those events manually in `send`.
+- Message text depends on the ecosystem. Some instrumentation requires opt-in content capture.
+
+## Related
+
+- [Connect Your Agent](/guides/connect-your-agent)
+- [Capabilities](/reference/capabilities)
+- [Events](/reference/events)

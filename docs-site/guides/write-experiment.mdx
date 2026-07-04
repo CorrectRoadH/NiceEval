@@ -1,0 +1,80 @@
+---
+title: "Write experiments with defineExperiment"
+sidebarTitle: "Write Experiments"
+description: "Use experiments/ to select an agent, pass model and flags, and configure runs, budget, concurrency, and sandbox."
+---
+
+An experiment is a checked-in run configuration. It says which adapter, model, flags, run count, budget, and sandbox to use for the same set of evals. CLI positional arguments select eval ID prefixes; they do not temporarily change the agent or run configuration.
+
+## Minimal experiment
+
+```ts
+// experiments/local.ts
+import { defineExperiment } from "niceeval";
+import { webAgent } from "../agents/web-agent.ts";
+
+export default defineExperiment({
+  agent: webAgent({ baseUrl: "http://127.0.0.1:5188" }),
+});
+```
+
+`agent` is an already configured agent instance. URL, auth, and protocol details normally go into the adapter factory.
+
+## Pass model and flags
+
+```ts
+// experiments/concise.ts
+import { defineExperiment } from "niceeval";
+import { webAgent } from "../agents/web-agent.ts";
+
+export default defineExperiment({
+  description: "concise prompt variant",
+  agent: webAgent({
+    baseUrl: "https://staging.example.com",
+    apiKey: process.env.STAGING_AGENT_API_KEY,
+  }),
+  model: "gpt-5.4",
+  flags: {
+    promptVariant: "concise",
+    webResearch: false,
+  },
+  runs: 3,
+  earlyExit: true,
+  budget: 5,
+});
+```
+
+`model` reaches the adapter as `ctx.model`. `flags` reaches the adapter as `ctx.flags` and evals as `t.flags`. NiceEval passes both through without interpreting them.
+
+## Organize a comparison
+
+One experiment file is one configuration cell. To compare multiple models, agents, or flags, put several files under one experiment group:
+
+```text
+experiments/
+  prompt-variants/
+    baseline.ts
+    concise.ts
+    with-retrieval.ts
+```
+
+```bash
+npx niceeval exp prompt-variants
+```
+
+## Common fields
+
+| Field | Purpose |
+|---|---|
+| `agent` | Select and configure the adapter |
+| `model` | Single model name passed through `ctx.model` |
+| `flags` | JSON object passed through `ctx.flags` and `t.flags` |
+| `runs` | Maximum runs per eval and configuration |
+| `earlyExit` | Stop repeated runs when one passes |
+| `evals` | Restrict which evals this configuration runs |
+| `timeoutMs` | Attempt timeout |
+| `budget` | Budget limit for this configuration |
+| `maxConcurrency` | Concurrency limit for this configuration |
+| `sandbox` | Sandbox backend for sandbox agents, such as `dockerSandbox()` or `e2bSandbox()` |
+
+See [Experiment Matrix](/guides/experiments) for comparison design.

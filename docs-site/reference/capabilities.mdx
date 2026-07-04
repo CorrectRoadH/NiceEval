@@ -1,0 +1,97 @@
+---
+title: "Capabilities reference"
+sidebarTitle: "Capabilities"
+description: "How NiceEval knows what your adapter can do: most capabilities are proven by implementation, and only a few require explicit declarations."
+---
+
+Capabilities answer one question: **what has your adapter actually implemented?** They decide which assertions are available or trustworthy and which services the runner prepares.
+
+The rule is simple: capabilities that can be proven from construction do not need declarations. Only capabilities that NiceEval cannot prove require a line from you.
+
+## Decision table
+
+| Capability | How it is obtained | What you write |
+|---|---|---|
+| `sandbox` / `workspace` | Built with `defineSandboxAgent` | Nothing |
+| `tracing` | A tracing block exists, or `events: otelEvents()` is declared | Nothing beyond the source |
+| `toolObservability` | Official converters can prove completeness; manual mapping cannot | Official: nothing. Manual: declare only when verified |
+| `compactionObservability` | Built-in parsers provide it | Nothing |
+| `conversation` | Only you can verify continuation semantics | Declare it |
+| HITL | Behavior proof: `waiting` plus `input.requested` | Nothing |
+
+No proof and no declaration means the capability is absent. Basic text, structured output, and judge assertions remain available.
+
+## Why most capabilities are automatic
+
+- Construction proves sandbox/workspace: `defineSandboxAgent` means NiceEval provides `ctx.sandbox`.
+- Function shape proves tracing services: a tracing source tells NiceEval what to start or collect.
+- Source proves event completeness: official converters consume SDK or CLI records that are complete by contract.
+- Behavior proves HITL: a turn that waits and emits `input.requested` is observable.
+
+```ts
+export default defineAgent({
+  name: "my-ai-sdk-agent",
+  async send(input, ctx) {
+    const result = await generateText({ model, tools, prompt: input.text });
+    return { ...fromAiSdk(result), data: result.text };
+  },
+});
+```
+
+## What must be declared
+
+`conversation` cannot be proved by NiceEval. The adapter may send a session id, but only the app knows whether it really resumes the right context.
+
+Manual `toolObservability` also cannot be proved. If you write `toStreamEvents`, only you know whether the API exposes every tool call.
+
+```ts
+export default defineAgent({
+  name: "my-bot",
+  capabilities: {
+    conversation: true,
+    toolObservability: true,
+  },
+  async send(input, ctx) {
+    // manual mapping
+  },
+});
+```
+
+## Cost of incorrect declarations
+
+| Incorrect claim | Result |
+|---|---|
+| `toolObservability: true` but events are incomplete | `notCalledTool`, `maxToolCalls`, and `usedNoTools` can silently pass |
+| `conversation: true` but sessions are not isolated | `t.newSession()` isolation checks become invalid |
+| Capability implemented but not declared | Conservative behavior; fewer trusted assertions |
+
+When uncertain, do not declare. Conservative failure is better than a silent false pass.
+
+## Quick reference
+
+### `toolObservability`
+
+Every tool call in the turn appears as `action.called` plus `action.result`. Official converters can provide this automatically. `otelEvents()` does not automatically prove it because instrumentation coverage is app-specific.
+
+### `conversation`
+
+The adapter truly continues a conversation on the same session line and creates an independent conversation for `t.newSession()`. This must be declared after verification.
+
+### `tracing`
+
+NiceEval starts or consumes a trace source and can show trace data in the viewer. This comes from a tracing block or `otelEvents()`.
+
+### `sandbox` / `workspace`
+
+NiceEval prepares a sandbox backend and exposes `ctx.sandbox`; workspace assertions become meaningful. This comes from `defineSandboxAgent`.
+
+### `compactionObservability`
+
+The adapter can emit context compaction events. Built-in CLI parsers provide this when available.
+
+## Related
+
+- [Events](/reference/events)
+- [Connect Your Agent](/guides/connect-your-agent)
+- [OTel Integration](/guides/connect-otel)
+- [Built-in Agents](/reference/builtin-agents)

@@ -1,0 +1,60 @@
+---
+title: "HITL: evaluate human-in-the-loop paths"
+sidebarTitle: "HITL"
+description: "Human-in-the-loop flows stop for approval, clarification, or confirmation. NiceEval turns those branches into programmable eval steps."
+---
+
+Human-in-the-loop (HITL) flows appear when an agent needs approval, clarification, or a human decision before continuing. Those branches need regression tests too: did approval continue the right action, did rejection prevent it, and did the agent ask for the right input?
+
+NiceEval models the human as three programmable steps:
+
+1. See that the agent stopped: `t.parked()`.
+2. Inspect what it is waiting for: `t.requireInputRequest(...)`.
+3. Answer as the human: `t.respond(...)` or `t.respondAll(...)`.
+
+## Adapter contract
+
+When the agent stops, `send` returns a `Turn` with:
+
+```ts
+{
+  status: "waiting",
+  events: [
+    {
+      type: "input.requested",
+      request: {
+        id: "approve_send_email",
+        action: "send_email",
+        input: { to: "ceo@example.com" },
+        options: [{ id: "approve" }, { id: "deny" }],
+      },
+    },
+  ],
+}
+```
+
+When the eval calls `t.respond("approve")`, NiceEval calls the same adapter `send` again on the same session line. The answer arrives as structured `input.responses`, so the adapter should match by `requestId`, not by array order or string parsing.
+
+If a human denies a tool call, report the paired `action.result` as `status: "rejected"`, not `"failed"`. Rejection is a human decision, not a tool outage.
+
+## Eval shape
+
+```ts
+const draft = await t.send("Send a renewal email to the customer.");
+draft.parked();
+
+const request = t.requireInputRequest({ action: "send_email" });
+await t.respond({ request, optionId: "approve" });
+
+t.calledTool("send_email", { status: "completed" });
+```
+
+## Capability
+
+HITL has no boolean capability flag. If `send` returns `"waiting"` and emits `input.requested`, `t.respond()` works. If not, the eval fails at `parked()` or `requireInputRequest()` instead of silently passing.
+
+## Related
+
+- [Drive](/concepts/drive)
+- [Adapter](/concepts/adapter)
+- [Write Send](/guides/write-send)

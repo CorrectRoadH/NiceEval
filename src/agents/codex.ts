@@ -36,7 +36,6 @@ export function codexAgent(config?: CodexConfig): Agent {
 
   return defineSandboxAgent({
     name: "codex",
-    capabilities: { conversation: true, toolObservability: true, workspace: true, compactionObservability: true, tracing: true },
     spanMapper: mapCodexSpans,
 
     async setup(sb, ctx) {
@@ -108,7 +107,7 @@ export function codexAgent(config?: CodexConfig): Agent {
       const sb = ctx.sandbox;
       const flags = "--json --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check";
       const prompt = shared.shellQuote(input.text);
-      const resuming = !ctx.session.isNew && ctx.session.id;
+      const resuming = ctx.session.id;
       const cmd = resuming
         ? `codex exec resume ${ctx.session.id} ${flags} ${prompt}`
         : `codex exec ${flags} ${prompt}`;
@@ -116,7 +115,7 @@ export function codexAgent(config?: CodexConfig): Agent {
       const res = await sb.runShell(cmd, { env: { CODEX_API_KEY: getApiKey() }, stream: true });
 
       const raw = shared.extractJsonlFromStdout(res.stdout);
-      ctx.session.id = shared.codexThreadId(res.stdout) ?? ctx.session.id;
+      ctx.session.capture(shared.codexThreadId(res.stdout));
       const parsed = shared.parseCodex(raw);
       const events = [...parsed.events];
       if (res.exitCode !== 0) events.push({ type: "error", message: shared.diagnoseFailure(res, parsed.events, raw) });

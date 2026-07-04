@@ -1,293 +1,135 @@
 ---
-title: "niceeval quickstart: run your first eval in 10 minutes"
+title: "Set up evals for your agent project"
 sidebarTitle: "Quickstart"
-description: "Install niceeval, scaffold your project, and run your first direct-agent and coding-agent evals in under 10 minutes."
+description: "Install NiceEval, write three files, and run the first eval against your own application in about 10 minutes."
 ---
 
-This guide takes you from a blank project to a runnable niceeval setup: one direct agent eval and one coding-agent eval that runs inside a Docker sandbox. By the end you'll have an eval suite with CI-ready output.
+Connecting your own application takes three files: an **adapter** that calls your app, an **experiment** that chooses what to run, and an **eval** that declares what must be true.
 
-If you already know what you want to evaluate, jump straight to the relevant example:
+## Shortest path: three files, one command
 
-<CardGroup cols={3}>
-  <Card title="Eval a Claude Code / Codex plugin" icon="plug" href="/example/claude-code-codex-plugin">
-    For plugins, MCP servers, and project-level coding-agent extensions.
-  </Card>
-  <Card title="Eval a Claude Code / Codex Skill" icon="wand-magic-sparkles" href="/example/claude-code-codex-skill">
-    Verify that a Skill is triggered, follows its prescribed flow, and actually improves task success rate.
-  </Card>
-  <Card title="Eval an AI agent application" icon="globe" href="/example/ai-agent-application">
-    For AI SDK agents, LangGraph, or any custom agent application.
-  </Card>
-</CardGroup>
+**0. Install and initialize:**
 
-<Steps>
-
-### Install niceeval
-
-Add niceeval as a dev dependency, then run the scaffold command:
-
-```shell
-npm install -D niceeval
+```bash
+pnpm add -D niceeval
 npx niceeval init
 ```
 
-`npx niceeval init` reads your project layout and generates everything you need to run your first eval immediately.
+This creates `niceeval.config.ts` and an `evals/` directory.
 
-### Explore the generated files
-
-After `init` completes, your project contains the following new entries:
-
-```
-your-project/
-├─ niceeval.config.ts
-├─ evals/
-│  ├─ hello.eval.ts            # example: conversational eval
-│  └─ button.eval.ts           # example: sandbox coding-agent eval
-└─ workspaces/
-   └─ button/                  # starter workspace uploaded by button.eval.ts
-      ├─ package.json
-      └─ src/
-```
-
-`niceeval.config.ts` is your central configuration — it sets the judge model, reporters, concurrency, timeout, and sandbox backend. `evals/` is where all your eval files live; the file path automatically becomes the eval's ID.
-
-<Note>
-  You can safely delete or replace the generated example files once you've read through them. They're there to illustrate the shape of each eval type, not to run against a real agent.
-</Note>
-
-### Configure your project
-
-Open `niceeval.config.ts` and review the defaults:
+**1. Adapter: how to call your app.** Send one message to the interface your app already exposes, then put the answer in a `message` event.
 
 ```ts
-// niceeval.config.ts
-import { defineConfig } from "niceeval";
-import { Console, JUnit } from "niceeval/reporters";
-import { dockerSandbox } from "niceeval/sandbox";
-
-export default defineConfig({
-  judge: { model: "anthropic/claude-haiku-4-5" },
-  reporters: [Console(), JUnit(".niceeval/junit.xml")],
-  maxConcurrency: 8,
-  timeoutMs: 300_000,
-  // project-wide fallback sandbox backend for coding-agent evals
-  sandbox: dockerSandbox(),
-});
-```
-
-Set `ANTHROPIC_API_KEY` (for Claude Code or the judge model) or `OPENAI_API_KEY` (for Codex) in your environment before proceeding.
-
-</Steps>
-
-## Eval 1 — a direct agent
-
-The fastest way to start is evaluating an agent you can call directly from your own codebase. You define an agent adapter that invokes your runtime, then write an eval that checks the output. No Docker required.
-
-First, create the agent adapter:
-
-```ts
-// agents/classify.ts
-import { defineAgent } from "niceeval/adapter";
-import { runAgent } from "../src/agent.js"; // your own agent runtime
-
-export default defineAgent({
-  name: "classify",
-  async send(input) {
-    return { data: await runAgent(input.text), status: "completed" };
-  },
-});
-```
-
-Then write the eval file:
-
-```ts
-// evals/classify.eval.ts
-import { defineEval } from "niceeval";
-import { equals } from "niceeval/expect";
-
-export default defineEval({
-  description: "Intent classification: refund request",
-  async test(t) {
-    const turn = await t.send("I'd like to return my order and get a refund.");
-    t.check(turn.data, equals({ intent: "refund" }));
-  },
-});
-```
-
-Add the `classify` agent to an experiment file such as `experiments/local.ts`, then run:
-
-```shell
-npx niceeval exp local classify
-```
-
-<Tip>
-  Direct evals are ideal for semantic regression testing. Because they can call your agent runtime without a sandbox, they stay fast and slot naturally into a standard CI pipeline.
-</Tip>
-
-## Eval 2 — a deployed or remote agent
-
-To eval an agent that runs outside the current process, write an adapter that handles the request/response cycle. Connection details and credentials are the adapter's concern — niceeval has no `--url` flag and imposes no protocol requirements.
-
-Define the agent adapter:
-
-```ts
-// agents/weather-bot.ts
+// agents/my-bot.ts
 import { defineAgent } from "niceeval/adapter";
 
 export default defineAgent({
-  name: "weather-bot",
-  capabilities: { conversation: true, toolObservability: true },
+  name: "my-bot",
   async send(input, ctx) {
-    const r = await fetch(`${process.env.AGENT_URL}/chat`, {
+    const r = await fetch("http://localhost:3000/chat", {
       method: "POST",
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ message: input.text }),
       signal: ctx.signal,
     });
     const body = await r.json();
-    return { message: body.reply, toolCalls: body.tools, status: "completed" };
+    return {
+      status: r.ok ? "completed" : "failed",
+      events: [{ type: "message", role: "assistant", text: body.reply }],
+    };
   },
 });
 ```
 
-Write the eval:
+**2. Experiment: who to evaluate.**
 
 ```ts
-// evals/weather/brooklyn.eval.ts
+// experiments/my-bot.ts
+import { defineExperiment } from "niceeval";
+import myBot from "../agents/my-bot.ts";
+
+export default defineExperiment({
+  description: "my-bot baseline",
+  agent: myBot,
+  runs: 1,
+});
+```
+
+**3. Eval: what to assert.**
+
+```ts
+// evals/refund-policy.eval.ts
 import { defineEval } from "niceeval";
 import { includes } from "niceeval/expect";
 
 export default defineEval({
-  description: "Brooklyn weather query",
+  description: "Refund policy question",
   async test(t) {
-    await t.send("What's the weather like in Brooklyn today?");
+    await t.send("What is your refund policy?");
     t.succeeded();
-    t.calledTool("get_weather", { input: { city: "Brooklyn" } });
-    t.check(t.reply, includes("sunny"));
-    t.judge.autoevals.closedQA("Is the answer polite and on-topic?").atLeast(0.7);
+    t.check(t.reply, includes("30 days"));
   },
 });
 ```
 
-Run it by passing your agent URL as an environment variable:
-
-```shell
-AGENT_URL=https://my-agent.example.com npx niceeval exp local weather
-```
-
-The four assertions above illustrate the main scoring tools available in the `test(t)` body:
-
-| Assertion | What it checks |
-|-----------|----------------|
-| `t.succeeded()` | The agent completed without an error |
-| `t.calledTool(name, args)` | A specific tool was invoked with matching arguments |
-| `t.check(value, matcher)` | An exact value-level comparison |
-| `t.judge.autoevals.closedQA(question).atLeast(score)` | An LLM judge grades the response on a 0–1 scale |
-
-## Eval 3 — a coding agent in a sandbox
-
-For coding agents like Claude Code, Codex, or bub that need to write real files, use a sandbox eval. The eval uploads a starter workspace, sends the task, and verifies the resulting files and command output.
-
-<CodeGroup>
-
-```ts evals/button.eval.ts
-import { defineEval } from "niceeval";
-import { commandSucceeded, includes } from "niceeval/expect";
-
-export default defineEval({
-  description: "Create a Button component",
-  async test(t) {
-    await t.sandbox.uploadDirectory("../workspaces/button");
-
-    await t
-      .send(
-        "Using the project's existing styling system, export a Button component " +
-          "from src/components/Button.tsx that accepts label and onClick props.",
-      )
-      .then((turn) => turn.expectOk());
-
-    t.fileChanged("src/components/Button.tsx");
-
-    const src = await t.sandbox.readSourceFiles({ extensions: ["ts", "tsx"] });
-    t.check(src.text(), includes(/label/));
-    t.check(src.text(), includes(/onClick/));
-
-    const build = await t.sandbox.runCommand("npm", ["run", "build"]);
-    t.check(build, commandSucceeded());
-  },
-});
-```
-
-```json workspaces/button/package.json
-{
-  "name": "button-workspace",
-  "type": "module",
-  "scripts": { "build": "tsc --noEmit" },
-  "devDependencies": { "typescript": "^5.8.0" }
-}
-```
-
-</CodeGroup>
-
-The eval controls the full flow: upload the starting files, send the work order, inspect changed files, and run build/test commands.
-
-Run the coding-agent eval. The `button` eval's experiment (or `niceeval.config.ts`) must already set `sandbox: dockerSandbox()` as shown above — niceeval no longer picks a default backend:
-
-```shell
-export ANTHROPIC_API_KEY=sk-ant-...
-npx niceeval exp local button
-```
-
-To measure pass rate over multiple attempts with early stopping on first success:
-
-```shell
-npx niceeval exp local button --runs 10 --early-exit
-```
-
-<Warning>
-  Sandbox evals require Docker to be running on your machine. If Docker is not available, niceeval will stop with a clear error rather than silently falling back to a different backend.
-</Warning>
-
-## Viewing results
-
-After any run, niceeval prints a live summary to the console:
-
-```
-Discovered 3 evals
-
-  ✓ classify (12ms)
-  ✓ weather/brooklyn (456ms)
-  ✗ button (38s)
-    - gate: expected generated source to include onClick [FAILED]
-
-Results:  2 passed, 1 failed, 0 errored, 0 skipped
-```
-
-Full artifacts are written to `.niceeval/<timestamp>/` after every run. The directory contains:
-
-- `summary.json` — machine-readable pass/fail summary
-- Event stream, source locations, traces, and usage summaries
-- File diffs of anything the agent changed
-- Command output from sandbox validation steps
-
-To open the interactive artifact viewer:
-
-```shell
+```bash
+npx niceeval exp my-bot
 npx niceeval view
 ```
 
-## Running in CI
+The first eval is now running.
 
-Add niceeval to your GitHub Actions workflow with two lines:
+This minimal adapter is **single-turn**: the second turn will not remember the first until you connect session state. Multi-turn memory, tool events that unlock `t.calledTool()`, HITL, and tracing are optional increments. Follow [Connect Your Agent](/guides/connect-your-agent) to add them without rewriting existing evals.
+
+## Start from a scenario
+
+<CardGroup cols={3}>
+  <Card title="Eval a Claude Code / Codex plugin" icon="plug" href="/example/claude-code-codex-plugin">
+    Use this for plugins, hooks, MCP servers, and project-level coding-agent extensions.
+  </Card>
+  <Card title="Eval a Claude Code / Codex Skill" icon="wand-magic-sparkles" href="/example/claude-code-codex-skill">
+    Use this to verify whether a Skill is triggered and improves task success.
+  </Card>
+  <Card title="Eval your AI agent application" icon="globe" href="/example/ai-agent-application">
+    Use this for AI SDK, LangGraph, Pi, or a custom agent app.
+  </Card>
+</CardGroup>
+
+## Or give it to your coding agent
+
+<Steps>
+  <Step title="Install">
+    ```text
+    READ https://raw.githubusercontent.com/CorrectRoadH/niceeval/refs/heads/main/INIT.md and install niceeval for this repo.
+    ```
+  </Step>
+  <Step title="Run evals">
+    ```bash
+    pnpm exec niceeval exp <experiment-name>
+    ```
+  </Step>
+  <Step title="View results">
+    ```bash
+    npx niceeval view
+    ```
+  </Step>
+</Steps>
+
+## Put it in CI
 
 ```yaml
-# .github/workflows/evals.yml
-- run: npx niceeval exp ci --strict --junit .niceeval/junit.xml
-  env:
-    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+name: evals
+on: [pull_request]
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+      - run: npm ci
+      - run: npx niceeval exp ci --strict
 ```
 
-The `--strict` flag promotes soft assertion failures (such as LLM judge scores below threshold) to hard failures. Any failed eval causes a non-zero exit code, which marks the workflow step as failed. The `--junit` flag writes a JUnit XML report that most CI systems can parse natively for test result visualization.
-
 <Tip>
-  Add `OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}` to the `env` block if you're using Codex as your coding agent.
+  Next, read [Writing Evals](/guides/authoring) and [Scoring Guide](/guides/scoring-guide), then replace the example with your real behavior.
 </Tip>

@@ -1,470 +1,148 @@
 ---
 title: "defineAgent and defineSandboxAgent: adapter reference"
 sidebarTitle: "defineAgent"
-description: "Reference for defineAgent and defineSandboxAgent. Covers AgentContext, Sandbox interface, StreamEvent types, and shared sandbox helpers."
+description: "Reference for defineAgent and defineSandboxAgent: AgentContext, Sandbox, StreamEvent, and sandbox helpers."
 ---
 
-Every agent in niceeval is an **adapter** — a piece of code you write that knows how to drive a specific backend and translate its output into a standard event stream. The runner knows nothing about your agent's wire protocol, CLI flags, or authentication; it only calls `agent.send(input, ctx)` and expects back a `Turn`. This page covers the two adapter factories: `defineAgent` for direct agent integrations, and `defineSandboxAgent` for coding agents that run inside an isolated sandbox.
+Every NiceEval agent is an adapter: code that knows how to drive a specific backend and translate output into the standard event stream. The runner only calls `agent.send(input, ctx)`.
 
-![One complete t.send round trip: the eval calls t.send, the runner builds TurnInput and ctx, and the adapter returns a standard event-stream Turn.](/images/agent-turn-roundtrip-en.svg)
+![Full round trip of t.send: eval calls t.send, the runner builds TurnInput and ctx, the adapter returns a Turn with standard events.](/images/agent-turn-roundtrip-en.svg)
 
----
+## `defineAgent`
 
-## defineAgent
-
-Use `defineAgent` for any agent you can drive directly. The `send` function is your responsibility: call your app code, fire a `fetch`, stream from a WebSocket — whatever your agent runtime requires. Map the result to the standard event stream and return a `Turn`.
+Use this for direct-agent integrations:
 
 ```ts
 import { defineAgent } from "niceeval/adapter";
 ```
 
-### Options
-
 <ParamField body="name" type="string" required>
-  A unique identifier for this agent. Experiment files reference agent objects directly, and reports use this name for grouping.
-
-  ```ts
-  name: "my-agent",
-  ```
+  Unique agent name. Reports group results by this name.
 </ParamField>
 
 <ParamField body="capabilities" type="AgentCapabilities">
-  Declares what the agent can do. The runner uses these flags to decide which
-  methods appear on the eval's `t` context. Omitting a capability hides the
-  corresponding `t` methods at the TypeScript type level, surfacing
-  misconfiguration at compile time rather than runtime.
+  Capabilities that cannot be proven automatically. Most adapters should leave this empty or declare only verified `conversation` / manual `toolObservability`.
+</ParamField>
 
-  ```ts
-  capabilities: {
-    conversation: true,       // allows multi-turn t.send and t.reply
-    toolObservability: true,  // enables t.calledTool, t.event, etc.
-  },
-  ```
-
-  <ParamField body="conversation" type="boolean">
-    The agent supports multi-turn sessions. Enables `t.reply` and `t.newSession()`.
-  </ParamField>
-
-  <ParamField body="toolObservability" type="boolean">
-    The agent produces `action.*` and `subagent.*` events. Enables
-    `t.calledTool`, `t.notCalledTool`, `t.toolOrder`, `t.usedNoTools`,
-    `t.maxToolCalls`, `t.loadedSkill`, `t.calledSubagent`, `t.noFailedActions`,
-    `t.event`, `t.notEvent`, `t.eventOrder`, and `t.eventsSatisfy`.
-  </ParamField>
-
-  <ParamField body="workspace" type="boolean">
-    The agent works on a file system. Enables `t.sandbox.diff`, `t.fileChanged`,
-    `t.fileDeleted`, `t.testsPassed`, and `t.scriptPassed`. This flag is
-    automatically set for `defineSandboxAgent` adapters.
-  </ParamField>
+<ParamField body="events" type="EventSource">
+  Optional external event source, usually `otelEvents()`, merged with events returned from `send`.
 </ParamField>
 
 <ParamField body="send" type="(input: TurnInput, ctx: AgentContext) => Promise<Turn>" required>
-  The core function that drives the agent. Called once per `t.send()` invocation.
-  See the `TurnInput` and `AgentContext` sections below for parameter details.
-  Must return a `Turn` (see the Turn section).
-
-  ```ts
-  async send(input, ctx) {
-    const res = await myAgent.handle(input.text, { signal: ctx.signal });
-    return {
-      events: toStreamEvents(res),
-      data: res.json,
-      status: "completed",
-    };
-  },
-  ```
+  Core function that drives the agent for one turn and returns a standard `Turn`.
 </ParamField>
 
-### The `input` parameter
+## `input`
 
 <ResponseField name="text" type="string">
-  The user message string for this turn. This is the value passed to `t.send(text)`.
+  Text sent by `t.send(...)`, file caption, or HITL answer text.
 </ResponseField>
 
-### The `ctx` parameter (AgentContext)
+<ResponseField name="files" type="InputFile[] | undefined">
+  Files attached by `t.sendFile(...)`, encoded as base64.
+</ResponseField>
+
+<ResponseField name="responses" type="InputResponse[] | undefined">
+  Structured HITL answers from `t.respond(...)` / `t.respondAll(...)`.
+</ResponseField>
+
+<ResponseField name="outputSchema" type="JsonSchema | undefined">
+  JSON Schema lowered from a `send` output declaration.
+</ResponseField>
+
+## `ctx`
 
 <ResponseField name="signal" type="AbortSignal">
-  An `AbortSignal` tied to the eval's timeout. Pass it to any `fetch` calls or
-  long-running async work so they cancel cleanly when the eval times out or is
-  aborted by early-exit logic.
+  Cancellation and timeout signal. Pass it to every request or child process you start.
+</ResponseField>
+
+<ResponseField name="session" type="AgentSession">
+  State for the current conversation line: id capture, history storage, HITL hold/take, and a free `state` bag.
+</ResponseField>
+
+<ResponseField name="log(msg)" type="(msg: string) => void">
+  Writes a turn log visible in `niceeval view`.
 </ResponseField>
 
 <ResponseField name="model" type="string | undefined">
-  The model tier string requested by the experiment (e.g. `"claude-opus-4-8"`).
-  When present, pass it to your backend's model selection parameter. When
-  absent, let your backend use its own default.
+  `experiment.model`, passed through unchanged.
 </ResponseField>
 
 <ResponseField name="flags" type="Readonly<Record<string, unknown>>">
-  Feature flags set by the experiment and transparently forwarded to the agent.
-  Read these to toggle behaviors (e.g. `ctx.flags.webResearch`). The same
-  flags are available on `t.flags` in the eval's `test` function.
+  `experiment.flags`, passed through unchanged. Also available to evals as `t.flags`.
 </ResponseField>
 
-<ResponseField name="session" type="{ id?: string; isNew: boolean }">
-  Session state for multi-turn conversations. `id` is an opaque string you
-  assign after the first turn so subsequent turns can resume the session.
-  `isNew` is `true` on the first turn or after the eval calls `t.newSession()`.
-
-  ```ts
-  if (!ctx.session.isNew && ctx.session.id) {
-    // resume existing session
-  } else {
-    // start a fresh session
-  }
-  ctx.session.id = responseBody.sessionId; // store for next turn
-  ```
+<ResponseField name="telemetry" type="Telemetry | undefined">
+  Present when OTel integration is configured. Forward `telemetry.headers` to the app or `telemetry.env` to child processes.
 </ResponseField>
 
-<ResponseField name="log" type="(msg: string) => void">
-  Writes a diagnostic message to the eval's log. Useful for debugging adapter
-  internals without polluting the test output.
+<ResponseField name="sandbox" type="Sandbox | undefined">
+  Present only for agents built with `defineSandboxAgent`.
 </ResponseField>
 
-### The Turn return type
-
-Your `send` function must return an object satisfying the `Turn` interface.
-
-<ResponseField name="events" type="StreamEvent[]" required>
-  The normalized standard event stream for this turn. This is the core product
-  of your adapter — every scope-level assertion in the eval reads from it. See
-  the StreamEvent section below for all event types.
-</ResponseField>
-
-<ResponseField name="data" type="unknown | undefined">
-  Structured (non-text) output from the agent. Used by `turn.outputEquals()`
-  and `turn.outputMatches()`. Set this when your agent returns a parsed object
-  alongside its text response.
-</ResponseField>
-
-<ResponseField name="status" type='"completed" | "failed" | "waiting"'>
-  The outcome of this turn:
-  - `"completed"` — the agent finished normally
-  - `"failed"` — the agent encountered an error
-  - `"waiting"` — the agent stopped at a human-in-the-loop (`input.requested`) prompt
-</ResponseField>
-
-<ResponseField name="usage" type="Usage | undefined">
-  Token counts for this turn. Provide these when your backend exposes them so
-  niceeval can report costs and power `t.maxTokens()` / `t.maxCost()` assertions.
-
-  - `inputTokens: number`
-  - `outputTokens: number`
-  - `cacheReadTokens?: number`
-</ResponseField>
-
-### Complete example: direct agent
+## Direct-agent example
 
 ```ts
-// agents/my-agent.ts
-import { defineAgent } from "niceeval/adapter";
-import { runAgent } from "../src/agent.js";
-
-export default defineAgent({
-  name: "classify",
-  capabilities: {},
-  async send(input, ctx) {
-    const result = await runAgent(input.text);
-    return {
-      events: [
-        { type: "message", role: "assistant", text: JSON.stringify(result) },
-      ],
-      data: result,
-      status: "completed",
-    };
-  },
-});
-```
-
-### Complete example: deployed agent
-
-```ts
-// agents/support-bot.ts
 import { defineAgent } from "niceeval/adapter";
 
 export default defineAgent({
-  name: "support-bot",
-  capabilities: { conversation: true, toolObservability: true },
+  name: "web-agent",
   async send(input, ctx) {
-    const r = await fetch(`${process.env.SUPPORT_BOT_URL}/chat`, {
+    const r = await fetch("http://localhost:3000/chat", {
       method: "POST",
-      body: JSON.stringify({ message: input.text }),
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: input.text, flags: ctx.flags }),
       signal: ctx.signal,
     });
     const body = await r.json();
     return {
-      events: toStreamEvents(body),   // your mapping function
-      data: body.output,
-      status: "completed",
+      status: r.ok ? "completed" : "failed",
+      events: [{ type: "message", role: "assistant", text: body.reply }],
     };
   },
 });
 ```
 
-<Note>
-  Authentication (API keys, base URLs, tokens) belongs **inside** the adapter —
-  read it from environment variables in the `send` closure. niceeval never sees
-  it and never passes it via `ctx`. This keeps credential scope tight and lets
-  the same adapter be used across environments simply by changing env vars.
-</Note>
+## `defineSandboxAgent`
 
----
-
-## defineSandboxAgent
-
-Use `defineSandboxAgent` for coding agents that run as a CLI inside an isolated sandbox (Docker container or cloud VM). The runner provisions the sandbox and passes it via `ctx.sandbox`. Your `send` function installs the CLI, runs the agent with the task prompt, reads back the transcript, and parses it into the standard event stream.
+Use this for coding agents that need a sandbox filesystem.
 
 ```ts
-import { defineSandboxAgent, shared } from "niceeval/adapter";
+import { defineSandboxAgent } from "niceeval/adapter";
 ```
 
-`defineSandboxAgent` accepts exactly the same options as `defineAgent` (see above), plus `ctx.sandbox` is always populated.
-
-### The `ctx.sandbox` field (Sandbox interface)
-
-<ResponseField name="runCommand(cmd, args?, opts?)" type="(cmd: string, args?: string[], opts?: RunOpts) => Promise<CommandResult>">
-  Runs a single command inside the sandbox. Returns `{ stdout, stderr, exitCode }`.
-
-  ```ts
-  const res = await ctx.sandbox.runCommand("npm", ["install"]);
-  ```
-
-  **`opts` fields:**
-  - `env?: Record<string, string>` — extra environment variables merged into the command's environment
-  - `cwd?: string` — working directory override for this command. Relative paths resolve under `ctx.sandbox.workdir`; omitted commands run in `workdir`.
-  - `root?: boolean` — run as root (`false` by default). Use for privileged setup steps like installing system packages.
-
-  ```ts
-  // privileged: install a system package
-  await ctx.sandbox.runCommand("apt-get", ["install", "-y", "openjdk-17-jdk"], { root: true });
-
-  // non-privileged (default): run npm
-  await ctx.sandbox.runCommand("npm", ["install"]);
-  ```
-</ResponseField>
-
-<ResponseField name="runShell(script, opts?)" type="(script: string, opts?) => Promise<CommandResult>">
-  Runs a multi-line shell script inside the sandbox. Accepts the same `opts` as
-  `runCommand`. Useful for complex setup sequences.
-
-  ```ts
-  await ctx.sandbox.runShell(`
-    git config user.email "bot@example.com"
-    git config user.name "Bot"
-  `);
-  ```
-</ResponseField>
-
-<ResponseField name="readFile(path)" type="(path: string) => Promise<string>">
-  Reads a file from the sandbox filesystem and returns its contents as a string.
-</ResponseField>
-
-<ResponseField name="workdir" type="string">
-  The sandbox's default workspace directory. Relative sandbox paths, omitted upload targets, and omitted command `cwd` values resolve here. Use it only when you need to pass an absolute path to an agent prompt or debug output.
-</ResponseField>
-
-<ResponseField name="writeFiles(files, targetDir?)" type="(files: Record<string, string>, targetDir?: string) => Promise<void>">
-  Writes one or more files into the sandbox. Keys are paths, values are file
-  contents. If `targetDir` is omitted, files are written under `workdir`.
-
-  ```ts
-  await ctx.sandbox.writeFiles({
-    ".env": "API_KEY=test",
-  });
-  ```
-</ResponseField>
-
-<ResponseField name="uploadFiles(files, targetDir?)" type="(files: SandboxFile[], targetDir?: string) => Promise<void>">
-  Uploads a batch of files, including binary files. If `targetDir` is omitted, files are uploaded under `workdir`.
-</ResponseField>
-
-<ResponseField name="stop()" type="() => Promise<void>">
-  Tears down and destroys the sandbox instance. Called automatically by the
-  runner after the eval completes. You generally do not need to call this
-  yourself.
-</ResponseField>
-
-### shared helpers
-
-The `shared` object from `niceeval/adapter` provides utilities for sandbox agent adapters: installing CLI tools, writing config files, capturing native transcripts, and parsing those transcripts into standard `StreamEvent[]` data.
-
-<ResponseField name="shared.captureLatestJsonl(sandbox, dir)" type="function">
-  Locates and reads the most recently modified `.jsonl` transcript file under
-  `dir`. Used by adapters like `claude-code` that write transcripts to a
-  well-known directory.
-
-  ```ts
-  const raw = await shared.captureLatestJsonl(sb, "~/.claude/projects");
-  ```
-</ResponseField>
-
-<ResponseField name="shared.writeFile(sandbox, path, content)" type="function">
-  Writes a config or helper file into the sandbox, creating parent directories when needed.
-</ResponseField>
-
-<ResponseField name="shared.ensureInstalled(sandbox, command, install)" type="function">
-  Ensures a CLI command exists in the sandbox, running the install command when needed.
-</ResponseField>
-
-<ResponseField name="shared.parseClaudeCode(raw)" type="function">
-  Parses a Claude Code JSONL transcript into standard events, usage, and compaction metadata.
-</ResponseField>
-
-<ResponseField name="shared.parseCodex(raw)" type="function">
-  Parses Codex JSONL into standard events, usage, and compaction metadata.
-</ResponseField>
-
-<ResponseField name="shared.parseBub(raw)" type="function">
-  Parses bub transcript JSONL into standard events, usage, and compaction metadata.
-</ResponseField>
-
-### Complete example: claude-code adapter
+The adapter receives `ctx.sandbox`, which can upload files, run commands, read files, and collect workspace diffs. The selected sandbox backend comes from the experiment or project config.
 
 ```ts
-// agents/claude-code.ts
-import { defineSandboxAgent, shared } from "niceeval/adapter";
-import { requireEnv } from "niceeval";
-
-const auth = () => ({ ANTHROPIC_API_KEY: requireEnv("ANTHROPIC_API_KEY") });
-
 export default defineSandboxAgent({
-  name: "claude-code",
+  name: "my-cli-agent",
   async send(input, ctx) {
-    const sb = ctx.sandbox!;
-
-    // Install the CLI (privileged — npm global install)
-    await sb.runCommand("npm", ["install", "-g", "@anthropic-ai/claude-code"], {
-      root: true,
-    });
-
-    // Build the argument list
-    const args = ["--print", "--dangerously-skip-permissions"];
-    if (ctx.model) args.push("--model", ctx.model);
-    if (ctx.flags.webResearch) args.push("--allowedTools", "WebSearch,WebFetch");
-    if (!ctx.session.isNew && ctx.session.id) args.push("--resume", ctx.session.id);
-    args.push(input.text);
-
-    const res = await sb.runCommand("claude", args, { env: auth() });
-
-    // Capture and parse the transcript
-    const raw = await shared.captureLatestJsonl(sb, "~/.claude/projects");
-    ctx.session.id = shared.sessionIdFromClaudeTranscript(raw);
-
+    await ctx.sandbox.runCommand("my-agent", ["--prompt", input.text]);
     return {
-      events: parseClaudeCode(raw),  // your transcript → StreamEvent[] parser
-      status: res.exitCode === 0 ? "completed" : "failed",
+      status: "completed",
+      events: [{ type: "message", role: "assistant", text: "done" }],
     };
   },
 });
 ```
 
----
+## Registration
 
-## StreamEvent union type
-
-Every adapter must produce `StreamEvent[]`. This normalized stream is what all scope-level assertions in `test(t)` read from. If your backend uses a different representation, map it to these types in your `send` function.
+Experiments reference configured agent instances:
 
 ```ts
-type StreamEvent =
-  | { type: "message"; role: "assistant" | "user"; text: string }
-  | { type: "action.called"; callId: string; name: string; input: JsonValue }
-  | { type: "action.result"; callId: string; output?: JsonValue;
-      status: "completed" | "failed" | "rejected" }
-  | { type: "subagent.called"; callId: string; name: string; remoteUrl?: string }
-  | { type: "subagent.completed"; callId: string; output?: JsonValue;
-      status: "completed" | "failed" }
-  | { type: "input.requested"; request: InputRequest }
-  | { type: "thinking"; text: string }
-  | { type: "error"; message: string };
-```
-
-<Accordion title="Event type details">
-
-| Event type | Description |
-|---|---|
-| `message` | A text message from the assistant or user. `t.reply` is derived from all `assistant` messages in the stream. |
-| `action.called` | A tool, skill, or action was invoked. `callId` links to the corresponding `action.result`. |
-| `action.result` | The result of a tool call. Paired with `action.called` by `callId`. |
-| `subagent.called` | The agent delegated to a sub-agent. |
-| `subagent.completed` | A sub-agent delegation finished. |
-| `input.requested` | The agent paused waiting for human input (HITL). Causes `status: "waiting"` on the Turn. |
-| `thinking` | Reasoning text from a chain-of-thought model. Not counted as a reply message. |
-| `error` | An error emitted by the agent during execution. `t.notEvent("error")` asserts none occurred. |
-
-</Accordion>
-
-<Note>
-  Skill loading (`load_skill`) is represented as an `action.called` event with
-  `name: "load_skill"`. The `t.loadedSkill(name)` assertion is syntactic sugar
-  for `t.calledTool("load_skill", { input: { skill: name } })` — no separate
-  event type is needed.
-</Note>
-
----
-
-## Using agents in experiments
-
-Once you've written an adapter, reference it from an experiment file:
-
-```ts
-// experiments/local.ts
 import { defineExperiment } from "niceeval";
-import myAgent from "./agents/my-agent.js";
+import myBot from "../agents/my-bot.ts";
 
 export default defineExperiment({
-  agent: myAgent,
-  runs: 1,
+  agent: myBot,
 });
 ```
 
-<ParamField body="agent" type="AgentAdapter">
-  Agent adapter instance created with `defineAgent` or `defineSandboxAgent`.
-</ParamField>
+## `ctx` and `t`
 
-<ParamField body="runs" type="number">
-  Number of attempts for each matched eval in this experiment.
-</ParamField>
+`ctx` is for adapter authors. It contains runner services and dynamic values for one turn.
 
-### Built-in agents
+`t` is for eval authors. It drives the agent and asserts facts.
 
-The following coding agent adapters are exported by niceeval and can be referenced from experiment files:
-
-<CardGroup cols={3}>
-  <Card title="claude-code" icon="terminal">
-    Anthropic Claude Code CLI. Requires `ANTHROPIC_API_KEY`.
-    Uses `claude --print --dangerously-skip-permissions`.
-  </Card>
-  <Card title="codex" icon="terminal">
-    OpenAI Codex CLI. Requires `codex login` or API key setup.
-    Uses `codex exec --json`.
-  </Card>
-  <Card title="bub" icon="terminal">
-    Built-in bub coding agent. Same adapter shape as `claude-code` — use as
-    a reference when writing your own sandbox adapter.
-  </Card>
-</CardGroup>
-
-```shell
-npx niceeval exp claude-code-local evals/fixtures/button
-npx niceeval exp codex-local evals/fixtures/button
-```
-
-Each of these experiments must set `sandbox: dockerSandbox()` (or `vercelSandbox()` / `e2bSandbox()`) itself — niceeval no longer picks a default backend, and there is no CLI flag for choosing one.
-
----
-
-## ctx vs t: two names, same data
-
-The `ctx` object in your adapter's `send` function and the `t` object in your eval's `test` function share the same underlying data — `t` is the runner's high-level view built on top of `ctx`.
-
-| Concept | `ctx` (agent side) | `t` (eval side) |
-|---|---|---|
-| Feature flags | `ctx.flags` | `t.flags` |
-| Model | `ctx.model` | `t.model` |
-| Abort signal | `ctx.signal` | `t.signal` |
-| Logging | `ctx.log()` | `t.log()` |
-| Session | `ctx.session.id` / `isNew` | `t.newSession()` |
-| Sandbox | `ctx.sandbox` (raw `Sandbox` handle) | `t.sandbox.diff`, `t.fileChanged`, etc. (high-level view) |
-
-Authentication details, CLI flags, and transcript locations are **agent-local** — they live inside `send` and are never exposed via `ctx` or `t`.
+They see the same run from opposite sides of the adapter boundary.

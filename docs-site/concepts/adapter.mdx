@@ -1,243 +1,167 @@
 ---
-title: "Adapter: connect any AI system"
+title: "Adapter: connect an agent to NiceEval"
 sidebarTitle: "Adapter"
-description: "Adapter is the implementation you write to connect a subject under test to niceeval. Learn how one send function supports t.send, t.sendFile, t.newSession, and HITL's t.respond / t.respondAll."
+description: "An adapter implements send: it receives TurnInput and AgentContext, calls your system under test, and returns a standard Turn."
 ---
 
-In niceeval, `Agent` is the abstraction the core calls and `Adapter` is the concrete implementation. This page answers one central question: **under Tier 1 (non-invasive) integration, why does an Adapter only need a single `send` function to support the entire drive API on the eval side — `t.send()`, `t.sendFile()`, `t.newSession()`, and HITL's `t.respond()` / `t.respondAll()`.**
+In NiceEval, an `Adapter` is the layer between the runner and the system under test. It implements `send`: take an eval-side action such as `t.send()`, call your application or CLI, and translate the result into a standard `Turn`.
 
-## Two terms, one boundary
+Read [Write Send](/guides/write-send) for the implementation tutorial.
 
-- **Agent** is the subject under test as the core sees it: a named object with capability flags and a single `send` method. The runner interacts with nothing but this interface — it never branches on `if (agent === "claude-code")`.
-- **Adapter** is the code implementing that interface. You write it (or use a built-in). It knows how to authenticate, how to call your application, and how to translate whatever comes back into the standard event stream.
+## Adapter boundary
 
-The URL, credentials, and protocol details of the system under test are the Adapter's private configuration (read from environment variables or closure) — the core never sees them. Experiments reference Agents by name; positional arguments after the experiment name only select *which evals to run*.
+If the subject under test uses a standard protocol, use an official adapter or converter. If it has a custom HTTP, gRPC, WebSocket, SDK, or CLI surface, write an adapter. The adapter owns auth, transport, protocol details, session continuation, and event mapping.
 
-```bash
-# Same evals, different Adapter; the URL is the Adapter's private business
-npx niceeval exp local support
-npx niceeval exp prod support
+![Full round trip of t.send: eval calls t.send, the runner builds TurnInput and ctx, the adapter calls your app and returns a Turn with standard events.](/images/agent-turn-roundtrip-en.svg)
+
+The app URL, credentials, and protocol options belong in the adapter factory. `defineExperiment` receives an already configured agent instance. Per-turn dynamic values such as `ctx.model`, `ctx.flags`, and `ctx.telemetry` are passed through each `send` call.
+
+```ts
+// agents/web-agent.ts
+import { defineAgent } from "niceeval/adapter";
+import type { Agent } from "niceeval/adapter";
+
+interface WebAgentOptions {
+  baseUrl: string;
+  apiKey?: string;
+}
+
+export function webAgent(options: WebAgentOptions): Agent {
+  const baseUrl = options.baseUrl.replace(/\/$/, "");
+
+  return defineAgent({
+    name: "web-agent",
+    async send(input, ctx) {
+      const response = await fetch(`${baseUrl}/api/turn`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(options.apiKey ? { authorization: `Bearer ${options.apiKey}` } : {}),
+          ...ctx.telemetry?.headers,
+        },
+        body: JSON.stringify({
+          message: input.text,
+          files: input.files,
+          model: ctx.model,
+          flags: ctx.flags,
+        }),
+        signal: ctx.signal,
+      });
+
+      if (!response.ok) {
+        return {
+          status: "failed",
+          events: [{ type: "error", message: `HTTP ${response.status}` }],
+        };
+      }
+
+      const body = await response.json();
+      return {
+        status: "completed",
+        events: body.events,
+        data: body.data,
+        usage: body.usage,
+      };
+    },
+  });
+}
 ```
 
-## The Agent contract: one verb, one product
+## Integration tiers
 
-Whether the Adapter talks to an HTTP service or a CLI in a sandbox, the interface exposed to the runner is identical:
+NiceEval integrations are grouped by where the adapter connects and what extra observability it receives:
+
+- **Tier 1: send only.** Your app code can stay unchanged. The adapter calls your existing interface and maps the response.
+- **Tier 2: send + OTel.** The app sends OpenTelemetry spans to NiceEval. Events and the trace waterfall can be derived from spans.
+- **Tier 3: application changes + experiment flags.** The app exposes feature switches through `ctx.flags` for A/B evaluation.
+
+See [Tier](/concepts/tier).
+
+## `send`
+
+Every adapter exposes the same interface, regardless of whether it calls an HTTP service or a CLI in a sandbox:
 
 ```ts
 interface Agent {
   readonly name: string;
-  readonly capabilities: AgentCapabilities;
   send(input: TurnInput, ctx: AgentContext): Promise<Turn>;
-  // Optional: setup / teardown (once-per-sandbox lifecycle), tracing (OTLP export config),
-  // spanMapper (native span → canonical normalization), events (otelEvents() declares
-  // that events derive from spans)
 }
+```
 
+### Input: `TurnInput`
+
+```ts
 interface TurnInput {
-  readonly text: string;                   // the text being sent; on respond turns, the answer text
-  readonly files?: readonly InputFile[];   // files attached by t.sendFile (base64)
-  readonly responses?: readonly InputResponse[];  // respond / respondAll turns only: structured per-request answers
+  readonly text: string;
+  readonly files?: readonly InputFile[];
+  readonly responses?: readonly InputResponse[];
+  readonly outputSchema?: JsonSchema;
 }
+```
 
-interface InputResponse {
-  readonly requestId?: string;   // id of the input.requested request; correlates answers when several are pending
-  readonly optionId?: string;    // set when the answer hits one of the request's options
-  readonly text?: string;        // freeform answer
+`t.send()`, `t.sendFile()`, `t.respond()`, and structured-output sends all become ordinary `send` calls. The difference is in the fields:
+
+| Eval-side call | `text` | `files` | `responses` | `outputSchema` |
+|---|---|---|---|---|
+| `t.send(text)` | Sent text | - | - | Present only when `output` is declared |
+| `t.sendFile(path, text?)` | Caption, maybe empty | Present | - | Same |
+| `t.respond(...)` / `t.respondAll(...)` | Human answer text | - | One structured answer per request | Same |
+
+If your app does not accept files or schemas, ignore those fields. Output validation still happens in the runner.
+
+### Context: `AgentContext`
+
+```ts
+interface AgentContext {
+  readonly signal: AbortSignal;
+  readonly session: AgentSession;
+  log(msg: string): void;
+
+  readonly model?: string;
+  readonly telemetry?: Telemetry;
+  readonly flags: Readonly<Record<string, unknown>>;
+  readonly sandbox?: Sandbox;
 }
+```
 
+`model`, `flags`, and `telemetry` are pass-through values. The adapter forwards them to the app when the app understands them. `session` is the state slot for one conversation line. The same line gets the same `ctx.session`; `t.newSession()` gets a fresh one.
+
+### Return: `Turn`
+
+```ts
 interface Turn {
-  readonly events: StreamEvent[];          // ★ standard event stream — every Adapter's core product
-  readonly data?: unknown;                 // structured output (for outputEquals / outputMatches)
-  readonly status: "completed" | "failed" | "waiting";  // waiting = parked on human input (HITL)
+  readonly events: StreamEvent[];
+  readonly data?: JsonValue;
+  readonly status: "completed" | "failed" | "waiting";
   readonly usage?: Usage;
 }
 ```
 
-`send` is the **single verb**. `Turn.events` is the **single product**. The entire difference between Adapters lives in how `send` translates the raw response into `events`.
+`events` is the standard event stream, ordered by when things happened. Assertions read this stream: `t.calledTool("get_weather")` counts `action.called`; `t.reply` reads the last assistant `message`.
 
-## Tier 1: what "non-invasive" means
+`data` is only for structured output declared by the eval. If a turn declares `output`, the adapter puts the parsed object in `data` and the runner validates it. If no `output` was declared, do not copy raw response bodies into `data`.
 
-**Not a single line of application code changes.** The application is started by you, in its own way (`pnpm start`, deployed anywhere); the eval side does not spawn the application process and does not open extra ports — the Adapter only talks to **the interface the user's frontend already talks to** (HTTP endpoints, SSE streams), and reports a clear "start the app first" error when it can't connect. Observability comes from what the interface already returns, or from OTel.
+## After `send` returns
 
-This makes the Adapter the **only contact surface** between the eval and the application. Everything below builds on one fact: the five drive APIs on the eval side, however different they look, all converge into "call `send` once more" by the time they reach the Adapter — the only difference is the state of `TurnInput` and `ctx.session`.
-
-![One complete t.send round trip: the eval calls t.send, the runner builds TurnInput and ctx, the adapter calls your application, and returns a standard event-stream Turn.](/images/agent-turn-roundtrip-en.svg)
-
-## Five t APIs, three cases inside send
-
-The runner makes exactly one promise about sessions: **every `send` on the same session line gets the same `ctx.session.state`, and a new session line gets an empty one.** That state starts as `{}`; what goes into it, and when, is entirely the Adapter's business — the framework never writes into it, and there are no flags for you to check.
-
-| Eval side | At the Adapter | What `send` receives |
+| Turn field | Runner behavior | Eval author sees |
 |---|---|---|
-| `t.send(text)` | one `send` call | `input.text`; `ctx.session.state` is this session line's own state |
-| `t.sendFile(path, text?)` | one `send` call | same, plus `input.files` (base64 `InputFile[]`); ignore it if your app takes no files |
-| `t.newSession()` | no `send` by itself | opens a second session line; that line's next `send` gets a **completely empty** `state` — the exact same shape as the eval's very first `send` |
-| `t.respond(...answers)` | one **ordinary** `send` | `input.text` = the answer text; `input.responses` carries one `{ requestId, optionId }` per answer; same line, same `state` |
-| `t.respondAll(optionId)` | one **ordinary** `send` | same; the `optionId` was already validated eval-side against every pending request — a typo throws instead of silently reaching your app |
+| `events` | Appended to the session event stream and folded into facts | `t.calledTool()`, `t.messageIncludes()`, `t.events`, `t.reply` |
+| `status` | Records the turn outcome; `"waiting"` collects pending `input.requested` events | `t.succeeded()`, `t.parked()`, `t.respond()` |
+| `usage` | Accumulates into run and session usage | `maxTokens`, `maxCost`, reports |
+| `data` | Validated against the send `output` schema | Strongly typed `turn.data`, `outputEquals` |
 
-So an Adapter author does not implement five methods, and there is no framework state to inspect — inside `send` you only read what you stored yourself. Three possible contents, three cases:
+## Where capabilities come from
 
-1. **The state is empty** → start a new conversation with the app. The eval's first turn and the first turn after `t.newSession()` look identical; there is nothing to distinguish.
-2. **The state holds the session id / history you stored** → continue the same history (*how* to continue depends on your app's interface shape — see question two below).
-3. **The state holds a stream you parked** → the previous turn ended with `status: "waiting"`; deliver the human verdict from `input.responses` to the app first, then keep reading the stream you left unfinished.
+Capabilities are proof by construction, not a questionnaire.
 
-These three differences come from real differences in your app's interface (whether it takes an id, whether it wants the history, how a verdict is delivered) — they are not a protocol the framework imposes; the framework's entire involvement is the one promise above. Case 3 also requires the *previous* turn to have met HITL's two obligations: when the agent stops to wait for a human, `send` returns `status: "waiting"` and emits one `input.requested` event per pending question, each with a stable `id` (that is what `t.parked()` and `t.requireInputRequest()` read, and what answers correlate against).
-
-## Three questions to answer before writing send
-
-A hand-written send really contains three unrelated jobs: **transport** (how to make the request — genuinely irreducible and not worth abstracting, since every backend's URL, auth, and body shape differ; this is the only segment you hand-write), **reduce** (raw response → `StreamEvent[]`), and **orchestration** (session continuation + HITL pause/resume). The latter two ship as official pieces (exported from `niceeval/adapter`), so writing send is not "implement from scratch" — it is answering three questions and composing the pieces those answers point to. The pieces keep everything they store in the session-line state from the previous section — use them and you never touch that state yourself.
-
-### Question one: is the interface streaming? — picks your parser
-
-You always connect to **the interface the user's frontend already talks to**: whatever endpoint the page calls and whatever format it receives, the Adapter calls and receives the same — no eval-only endpoints, no reaching into the application's internals. So this question looks at the interface itself and nothing else: **is it streaming, or request/response?**
-
-**Streaming** (SSE / NDJSON — the frontend renders as it receives) — then look at what flows through the stream:
-
-| What's in the stream | Use | You write |
+| What unlocks on `t` | Evidence | What you write |
 |---|---|---|
-| An SDK's native events relayed (one frame = one complete unit) | `fromClaudeSdkMessages()` / `fromPiAgentEvents()` / `fromCodexThreadEvents()` | zero mapping |
-| The AI SDK's UI Message Stream (the `useChat` protocol) | `uiMessageStreamAgent()` | zero mapping (the whole Agent is prebuilt — you don't even write send) |
-| Token-by-token / argument deltas | the protocol's own official reducer; else `deltaStream({ toOps })` | one "frame type → operation" mapping table |
+| `t.send`, `t.sendFile`, `t.check`, `t.judge` | Every agent has them | Nothing |
+| Multi-turn, `t.reply`, `t.newSession` | You connected `ctx.session` history or id/capture | Usually a `conversation` capability declaration |
+| `t.respond`, `t.parked` | A turn returned `"waiting"` plus `input.requested` | Nothing |
+| Positive tool assertions | `events` contain `action.*` | Events |
+| Trustworthy negative tool assertions | Official converters or a verified complete mapping | `toolObservability` only when you can prove it |
+| `t.sandbox`, file assertions | `defineSandboxAgent` | Nothing |
+| Trace waterfall | `tracing` block or `events: otelEvents()` | The tracing source itself |
 
-**Request/response** (one JSON back per question) — then look at what the response contains:
-
-| What the response contains | Use | You write |
-|---|---|---|
-| Process data (e.g. a full AI SDK `generateText` result: steps, toolCalls) | `fromAiSdk(result)` | zero mapping |
-| Only the final answer | hand-write a few events | start with one `message`; don't declare capabilities you can't deliver |
-
-The preset parsers go as far as **shape**, not protocol: niceeval defines no protocol, so a universal parser cannot exist — but there are only this many arrival shapes, and each has one official piece. The only case where you write a mapping is "delta stream with no official reducer from the protocol's side" — and even then you write a declaration (which operation this frame maps to); buffering, pairing, and flush timing are handled by `deltaStream`, not a hand-rolled state machine.
-
-### Question two: how does turn two continue turn one? — picks the session branch in send
-
-Figure out which kind your app's interface is. There are exactly two modes in the wild, each with a symmetrically shaped official piece (one strategy object, one pair of methods):
-
-- **Server keeps the history** (the interface takes a session id: native SDK sessions / threads, the OpenAI Responses API) → `serverSession()`. Send requests with `session.id(ctx)`; when the response reveals an id, write it back with `session.capture(ctx, id)`.
-- **Client carries the full history** (stateless server, every turn posts the complete message list: Chat-Completions-shaped interfaces) → `clientHistory<TMsg>()`. `get(ctx)` retrieves this line's history, append this turn's message, `commit(ctx, messages)` writes the updated list back.
-
-Once this question is answered, "first send / second send / `t.newSession()`" need **no separate handling**: a new session line's state is empty, so `session.id(ctx)` naturally returns `undefined` and `clientHistory.get` naturally returns an empty array — the "first send" shape is what empty state produces, not a branch you write. The next turn on the same line automatically carries the id or the history. `capture` only lands while no id has been recorded yet, so a backend echoing an id again (even one changed by a fork) never clobbers a line that is already resuming.
-
-### Question three: does it stop mid-turn to wait for a human? — decides whether you need a HITL branch
-
-- **Yes** (tool approval, missing information): `pausable<TState>()` plus `driveFrameStream`'s `{ pause }` return value. On parking, `hold(ctx, state)` records the half-read stream; the next send calls `take(ctx)` first, delivers the verdict to the app, then keeps reading the same stream. `driveFrameStream` appends the `input.requested` event and sets status to `"waiting"` for you.
-- **No**: skip the branch. `send` never returns `"waiting"`, and `t.respond` never appears in your evals.
-
-<Tip>
-App instrumented with OTel but the interface exposes no process data? You can declare `events: otelEvents()` outside of send and derive events from spans. But that is a side observation channel, not a way to implement send — spans have no "waiting for input" semantics and don't know whether this turn should carry history, so questions two and three are still answered above.
-</Tip>
-
-## Putting it together: one non-invasive Adapter supporting all five APIs
-
-Below is the full skeleton of a Tier 1 Adapter (against an already-running app that relays its native event stream as SSE; complete runnable versions in the [tier1 examples](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/tier1)). Its answers to the three questions: **streaming interface relaying pi's native events (Q1) → `fromPiAgentEvents`; server keeps the history (Q2) → carry a session id; parks for approval (Q3) → `pausable`**. Note which line supports which t API:
-
-```ts
-// agents/my-app.ts
-import { defineAgent, sseJsonFrames, fromPiAgentEvents, driveFrameStream, pausable, serverSession } from "niceeval/adapter";
-import type { AgentContext, PiAgentStream, SseFrameCursor } from "niceeval/adapter";
-import type { Turn, TurnInput } from "niceeval";
-
-const BASE_URL = process.env.MY_APP_URL ?? "http://127.0.0.1:5299";  // the app's own port; evals don't manage its process
-
-interface Pending { cursor: SseFrameCursor<Frame>; stream: PiAgentStream; callId: string }
-const pending = pausable<Pending>();                    // ← Q3; supports t.respond / t.respondAll
-const session = serverSession();                        // ← Q2; supports t.newSession / multi-turn resume
-
-function readStream(cursor: SseFrameCursor<Frame>, ctx: AgentContext, stream: PiAgentStream): Promise<Turn> {
-  return driveFrameStream(cursor, stream, ctx, (frame) => {
-    if (frame.type === "session") {
-      session.capture(ctx, frame.sessionId);            // ← Q2: write the returned id back for resume
-      return;
-    }
-    if (frame.type === "approval_request") {            // ← Q3: the app stopped to wait for approval
-      pending.hold(ctx, { cursor, stream, callId: frame.toolCallId });
-      return { pause: { id: frame.toolCallId, action: frame.toolName,
-                        options: [{ id: "approve" }, { id: "deny" }] } };
-      // On pause, driveFrameStream appends an input.requested event, sets status to
-      // "waiting", and stops reading the stream
-    }
-    if (frame.type === "server_error") return { fail: frame.message };
-  });
-}
-
-async function send(input: TurnInput, ctx: AgentContext): Promise<Turn> {
-  const held = pending.take(ctx);
-  if (held) {                                           // ← t.respond("approve"): ordinary send; deliver the verdict first
-    const approved = input.responses?.[0]?.optionId === "approve";  // several pending? correlate by requestId
-    if (!approved) held.stream.markRejected(held.callId);
-    await fetch(`${BASE_URL}/api/chat/approve`, { method: "POST", signal: ctx.signal,
-      body: JSON.stringify({ toolUseId: held.callId, approved }) });
-    return readStream(held.cursor, ctx, held.stream);   //    then keep reading the same stream — no new request
-  }
-
-  const res = await fetch(`${BASE_URL}/api/chat`, {     // ← transport: the only truly hand-written segment
-    method: "POST",
-    body: JSON.stringify({
-      message: input.text,                              // ← t.send
-      sessionId: session.id(ctx),                       // ← Q2: first send automatically carries none, later turns do
-    }),
-    signal: ctx.signal,
-  });
-  return readStream(sseJsonFrames<Frame>(res.body!), ctx, fromPiAgentEvents());  // ← Q1: official converter
-}
-
-export default defineAgent({
-  name: "my-app",
-  capabilities: { conversation: true, toolObservability: true },
-  send,
-});
-```
-
-Change an answer and you only swap the corresponding piece: a Chat-Completions-shaped interface (Q2 → client carries the full history) replaces `serverSession` with `clientHistory`'s `get`/`commit`; no HITL (Q3 → no) deletes all three `pending` spots. The few `fetch` lines and the `onFrame` judgment of "does this frame need extra handling" are the author's only hand-written parts.
-
-`t.sendFile` in this skeleton is just one more read of `input.files`: put the base64 files into the request body however your app's interface expects; if the interface takes no files, ignore them.
-
-## Capability flags shape your `t` context
-
-Capability flags are the Adapter's promise to eval authors. They control which `t` methods are visible at the TypeScript level (with runtime guards as well):
-
-| Capability | Methods unlocked on `t` |
-|---|---|
-| *(any Agent)* | `t.send`, `t.sendFile`, `t.check`, `t.require`, `t.judge`, `t.log`, `t.skip` |
-| `conversation` | multiple `t.send()` calls, `t.reply`, `t.newSession()`, and HITL's `t.respond()` / `t.respondAll()` / `t.requireInputRequest()` |
-| `toolObservability` | the full scoped assertion set: `t.calledTool()` / `t.notCalledTool()` / `t.toolOrder()` / `t.usedNoTools()` / `t.maxToolCalls()` / `t.noFailedActions()` / `t.event()` … |
-| `workspace` / `sandbox` | `t.sandbox`, `t.sandbox.diff`, `t.fileChanged()` … (sandbox Agents) |
-| `compactionObservability` | context-compaction assertions |
-| `tracing` | `EvalResult.trace`, the `niceeval view` waterfall (once declared, the runner provides a `ctx.telemetry` receiver endpoint) |
-
-The rule: **when unsure, don't declare.** Declaring a capability you don't deliver makes negative assertions (`notCalledTool` and friends) silently unreliable. Event streams produced by official converters carry their own completeness proof; hand-written mappings are on you. Per-capability obligations: [defineAgent reference](/reference/define-agent).
-
-## The standard event stream
-
-The most important thing an Adapter does is not connecting to the AI — it is **normalizing the AI's output into the standard event stream**. Once that happens, the entire assertion vocabulary works for free, regardless of which AI produced the data:
-
-```ts
-type StreamEvent =
-  | { type: "message"; role: "assistant" | "user"; text: string }
-  | { type: "action.called"; callId: string; name: string; input: JsonValue; tool?: ToolName }
-  | { type: "action.result"; callId: string; output?: JsonValue;
-      status: "completed" | "failed" | "rejected" }
-  | { type: "subagent.called"; callId: string; name: string; remoteUrl?: string }
-  | { type: "subagent.completed"; callId: string; output?: JsonValue;
-      status: "completed" | "failed" }
-  | { type: "input.requested"; request: InputRequest }
-  | { type: "thinking"; text: string }
-  | { type: "compaction"; reason?: string }
-  | { type: "error"; message: string };
-```
-
-The core's `deriveRunFacts(events)` folds this flat stream into structured facts (`toolCalls`, `subagentCalls`, `parked`, `messageCount`, …) and all scoped assertions read from those derived facts. Your Adapter only needs to produce correct events; scoring is handled entirely by the core.
-
-## The other transport: sandbox Agents
-
-To evaluate file-editing coding agent CLIs (claude-code / codex / bub), use `defineSandboxAgent`: the contract is identical (same `send`, same `Turn`); the only difference is that the "connection" is not HTTP but "spawn the CLI inside a sandbox and read back the transcript", with the runner passing the sandbox handle via `ctx.sandbox`. The three built-in Agents work out of the box — see the [sandbox agent guide](/guides/sandbox-agent) for using them and wiring up a new CLI.
-
-## Agent × Sandbox orthogonality
-
-`experiment.agent` selects who performs the task; `experiment.sandbox` (`dockerSandbox()` / `vercelSandbox()` / `e2bSandbox()`) selects where; the `sandbox` in `niceeval.config.ts` is the project-wide fallback (`exp.sandbox ?? config.sandbox`). Any sandbox Agent works with any sandbox backend; Tier 1 non-invasive Adapters never touch a sandbox at all. There is no CLI flag and no auto-detection — a sandbox Agent's experiment (or the config fallback) must set `sandbox` explicitly, or niceeval throws when creating one.
-
-## Related pages
-
-- [Connect your agent](/guides/remote-agent) — the step-by-step tutorial: from minimal integration to event stream, multi-turn, HITL, and tracing increments.
-- [Drive](/concepts/drive) — the eval-side view: how to use `t.send()`, `t.newSession()`, and HITL.
-- [Assert](/concepts/assert) — the full assertion vocabulary driven by the standard event stream.
-- [Overview](/concepts/overview) — the four-layer architecture and its boundaries.
+See [Capabilities](/reference/capabilities).

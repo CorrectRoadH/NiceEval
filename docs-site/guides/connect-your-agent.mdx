@@ -1,0 +1,162 @@
+---
+title: "Connect your agent"
+sidebarTitle: "Connect Agent"
+description: "Write an adapter, configure an experiment, and run the first eval. Learn how experiment parameters flow into the adapter and then into your app."
+---
+
+Connecting a subject under test to NiceEval means writing an **adapter**: `defineAgent` around one `send` function. That function receives one turn of input, drives your agent, and returns the result for that turn.
+
+This page answers two questions: how the adapter, experiment, and eval run together, and how parameters flow from the experiment into the adapter and then into your app. Event streams, multi-turn sessions, HITL, and tracing are optional increments covered in linked pages.
+
+## Pick a path first
+
+<CardGroup cols={3}>
+  <Card title="AI SDK app" icon="bolt" href="/reference/builtin-agents">
+    If your backend uses the AI SDK UI Message Stream protocol, use the built-in `uiMessageStreamAgent`.
+  </Card>
+  <Card title="Coding agent CLI" icon="terminal" href="/guides/sandbox-agent">
+    If you evaluate Claude Code, Codex, or bub editing files, use a sandbox agent.
+  </Card>
+  <Card title="Other AI agent" icon="plug">
+    For custom loops, LangGraph, OpenAI Agents SDK apps, or deployed agents, prefer [OTel integration](/guides/connect-otel) when already instrumented; otherwise write `send`.
+  </Card>
+</CardGroup>
+
+## Minimal integration
+
+Assume `npx niceeval init` has created `niceeval.config.ts` and `evals/`.
+
+**1. Write the adapter.** The minimal adapter fills only `status` and `events`.
+
+```ts
+// agents/my-bot.ts
+import { defineAgent } from "niceeval/adapter";
+
+export default defineAgent({
+  name: "my-bot",
+  async send(input, ctx) {
+    const r = await fetch("http://localhost:3000/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: input.text }),
+      signal: ctx.signal,
+    });
+    const body = await r.json();
+    return {
+      status: r.ok ? "completed" : "failed",
+      events: [{ type: "message", role: "assistant", text: body.reply }],
+    };
+  },
+});
+```
+
+Even if the agent runtime lives in the same repo as the evals, call the HTTP interface your users call. Importing internal app functions bypasses transport, serialization, middleware, streaming, cancellation, process isolation, and deployment differences.
+
+**2. Register it in an experiment.**
+
+```ts
+// experiments/my-bot.ts
+import { defineExperiment } from "niceeval";
+import myBot from "../agents/my-bot.ts";
+
+export default defineExperiment({
+  description: "my-bot baseline",
+  agent: myBot,
+  runs: 1,
+});
+```
+
+**3. Write an eval and run it.**
+
+```ts
+// evals/refund-policy.eval.ts
+import { defineEval } from "niceeval";
+import { includes } from "niceeval/expect";
+
+export default defineEval({
+  description: "Refund policy question",
+  async test(t) {
+    await t.send("What is your refund policy?");
+    t.succeeded();
+    t.check(t.reply, includes("30 days"));
+    t.judge.autoevals.closedQA("Does the answer explain the refund window?").atLeast(0.7);
+  },
+});
+```
+
+```bash
+npx niceeval exp my-bot
+npx niceeval exp my-bot refund
+npx niceeval view
+```
+
+If `fetch` throws, the app is not reachable or the URL is wrong. If `t.succeeded()` fails, the request reached the app but returned a failed turn. If only content assertions fail, the integration works and the behavior or assertion needs adjustment.
+
+## Parameters: experiment declares, adapter consumes
+
+Keep configuration in two channels:
+
+1. **Static configuration goes into the adapter factory.** URL, auth, protocol details, and environment-specific constants are factory options.
+2. **Per-turn dynamic values go through `ctx`.** `model` and `flags` declared by the experiment are passed into every `send`.
+
+```ts
+// agents/my-bot.ts
+import { defineAgent } from "niceeval/adapter";
+import type { Agent } from "niceeval/adapter";
+
+export function myBot(options: { baseUrl: string }): Agent {
+  return defineAgent({
+    name: "my-bot",
+    async send(input, ctx) {
+      const r = await fetch(`${options.baseUrl}/chat`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: input.text,
+          model: ctx.model,
+          flags: ctx.flags,
+        }),
+        signal: ctx.signal,
+      });
+      const body = await r.json();
+      return {
+        status: r.ok ? "completed" : "failed",
+        events: [{ type: "message", role: "assistant", text: body.reply }],
+      };
+    },
+  });
+}
+```
+
+```ts
+// experiments/my-bot.ts
+import { defineExperiment } from "niceeval";
+import { myBot } from "../agents/my-bot.ts";
+
+export default defineExperiment({
+  description: "my-bot baseline",
+  agent: myBot({ baseUrl: "http://localhost:3000" }),
+  model: "gpt-5.4",
+  flags: { promptVariant: "concise" },
+});
+```
+
+Do not put URLs or agent names into CLI positional arguments. After the experiment name, positional arguments only filter eval IDs.
+
+## Increment map
+
+| You want | Add to the adapter | Read |
+|---|---|---|
+| Tool assertions, `toolOrder`, trustworthy negative assertions | Map app output into the standard event stream | [Write Send](/guides/write-send), [Events](/reference/events) |
+| Multi-turn conversations and `t.newSession()` isolation | Connect `ctx.session`: `history()` or `id` + `capture()` | [Write Send](/guides/write-send) |
+| Approval flows and HITL | Return `waiting` + `input.requested`, then resume on answer turns | [HITL](/concepts/hitl) |
+| Derived events and trace waterfall | Send OTel spans to NiceEval | [OTel Integration](/guides/connect-otel) |
+| Feature A/B comparison | Expose app variants through `flags` | [Tier](/concepts/tier), [Write Experiments](/guides/write-experiment) |
+
+## Related
+
+- [Write Send](/guides/write-send)
+- [Adapter](/concepts/adapter)
+- [OTel Integration](/guides/connect-otel)
+- [Tier](/concepts/tier)
+- [Write Experiments](/guides/write-experiment)

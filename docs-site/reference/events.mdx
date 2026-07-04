@@ -1,0 +1,125 @@
+---
+title: "Standard event stream reference"
+sidebarTitle: "Events"
+description: "The StreamEvent union: what each event means, when adapters emit it, and which assertions consume it."
+---
+
+An adapter `send` returns a `Turn`. Its `events: StreamEvent[]` is the primary data source for assertions: `t.calledTool()`, `t.reply`, `toolOrder`, `noFailedActions`, and low-level event checks all read from this stream.
+
+## Turn
+
+```ts
+interface Turn {
+  events: StreamEvent[];
+  data?: unknown;
+  status: "completed" | "failed" | "waiting";
+  usage?: { inputTokens: number; outputTokens: number };
+}
+```
+
+`data` is the structured product of the current turn. Use it only when the app answer is actually structured and the eval declared output. `usage` should be copied when available and omitted when unavailable.
+
+## Event table
+
+| Event | Meaning | Consumed by |
+|---|---|---|
+| `message` | Agent or user text | `t.reply`, `messageIncludes`, judge inputs |
+| `action.called` | Tool/action invocation started | `calledTool`, `toolOrder`, `maxToolCalls`, `notCalledTool` |
+| `action.result` | Invocation result | `calledTool` status matching, `noFailedActions` |
+| `subagent.called` | Delegated to a subagent | `calledSubagent` |
+| `subagent.completed` | Subagent returned | `calledSubagent` status, `noFailedActions` |
+| `input.requested` | Stopped for human input | `t.parked()`, `t.requireInputRequest()` |
+| `thinking` | Reasoning or thinking text | `event("thinking")`, viewer display |
+| `compaction` | Context was compacted | `event("compaction")` |
+| `error` | Turn error | `event("error")`, viewer display |
+
+Any event can be checked with `event(type)`, `notEvent(type)`, `eventOrder(types)`, or `eventsSatisfy(label, predicate)`.
+
+## `message`
+
+```ts
+{ type: "message", role: "assistant" | "user", text: string }
+```
+
+Emit assistant text as `role: "assistant"`. Do not wrap tool output as a `message`; otherwise `t.reply` will read the wrong content. User input is recorded by NiceEval, so adapters usually do not emit user messages.
+
+## `action.called` / `action.result`
+
+```ts
+{ type: "action.called", callId: string, name: string, input: JsonValue }
+{ type: "action.result", callId: string, output?: JsonValue,
+  status: "completed" | "failed" | "rejected" }
+```
+
+Pair every call with a result using the same `callId`. Use the original tool name. Mark tool failures as `"failed"` and human denials as `"rejected"`.
+
+## `subagent.called` / `subagent.completed`
+
+```ts
+{ type: "subagent.called", callId: string, name: string, remoteUrl?: string }
+{ type: "subagent.completed", callId: string, output?: JsonValue,
+  status: "completed" | "failed" }
+```
+
+Emit this pair when the subject under test delegates work to another agent and waits for it.
+
+## `input.requested`
+
+```ts
+{ type: "input.requested", request: {
+    id?: string,
+    action?: string,
+    input?: JsonValue,
+    prompt?: string,
+    options?: { id: string, label?: string }[],
+} }
+```
+
+When the agent waits for human input, emit one event per pending request and return turn `status: "waiting"`. Fill as many request fields as possible so evals can match precisely.
+
+## `thinking` / `compaction` / `error`
+
+```ts
+{ type: "thinking", text: string }
+{ type: "compaction", reason?: string }
+{ type: "error", message: string }
+```
+
+Emit these when your source provides them. Do not fabricate them.
+
+## Mapping rules
+
+1. Preserve real order.
+2. Pair calls and results by `callId`.
+3. Only promise completeness when the stream is complete. If you declare `toolObservability: true` while omitting some tool calls, negative assertions can silently pass.
+
+## Example
+
+```ts
+import type { StreamEvent } from "niceeval";
+
+function toStreamEvents(body: MyBotResponse): StreamEvent[] {
+  const events: StreamEvent[] = [];
+  for (const step of body.steps) {
+    if (step.type === "tool_call") {
+      events.push({ type: "action.called", callId: step.id, name: step.tool, input: step.args });
+      events.push({
+        type: "action.result",
+        callId: step.id,
+        output: step.result,
+        status: step.error ? "failed" : "completed",
+      });
+    }
+    if (step.type === "text") {
+      events.push({ type: "message", role: "assistant", text: step.text });
+    }
+  }
+  return events;
+}
+```
+
+## Related
+
+- [Connect Your Agent](/guides/connect-your-agent)
+- [Capabilities](/reference/capabilities)
+- [Writing Evals](/guides/authoring)

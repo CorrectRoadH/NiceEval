@@ -1,107 +1,72 @@
 ---
-title: "niceeval: agent-native eval framework for AI agents"
+title: "NiceEval: evals for agents"
 sidebarTitle: "Introduction"
-description: "niceeval is an agent-native eval tool for AI agents. Evaluate coding agents and your own agent applications with one unified API."
+description: "NiceEval is an agent-native eval tool. Use one API to evaluate coding agents and your own AI agent applications."
 ---
 
-niceeval is an agent-native tool for structured, repeatable evaluation of AI agents. Instead of manually poking at your agent and hoping for the best, you write declarative eval files that describe what a good result looks like, and niceeval takes care of running them, scoring the output, and producing readable reports. Whether you're shipping a Claude Code plugin, a Codex workflow, or your own AI agent application, niceeval gives you the same `defineEval` API.
+NiceEval is an agent-native eval tool inspired by [eve](https://eve.dev). It is built for low-friction DX: most projects can install it, write the first eval, and start checking agent behavior in about 10 minutes.
+
+It can evaluate Claude Code / Codex plugins, hooks, and Skills, and it can evaluate your own AI agent application directly. Whether your agent is built with AI SDK, LangGraph, Pi, or a custom loop, you connect it through an adapter and keep the same eval surface.
+
+## What problem it solves
+
+Tools such as Langfuse and Braintrust are stronger as tracing and monitoring systems. NiceEval focuses on the tighter loop: **write evals, run evals, inspect results**.
 
 ## What you can evaluate
 
-niceeval covers the main agent shapes teams actually ship, all through a unified interface:
-
-<CardGroup cols={3}>
-  <Card title="Coding agents" icon="code">
-    Drop a CLI agent — Claude Code, Codex, bub, or any compatible tool — into an isolated Docker sandbox, give it a task, and verify the result with real tests and file assertions.
+<CardGroup cols={2}>
+  <Card title="Coding Agent" icon="code">
+    Put Claude Code, Codex, or bub in a sandbox, give it a real task, then verify the result with tests and file assertions.
   </Card>
-  <Card title="Direct agent applications" icon="globe">
-    Evaluate your own conversational or tool-using agents through an adapter. Assert on replies, tool calls, and structured output without changing the core eval model.
+  <Card title="Your AI Agent Application" icon="globe">
+    Connect directly to your app interface and assert replies, tool calls, structured output, and HITL paths.
   </Card>
 </CardGroup>
 
-## Why "fast"
+## Architecture
 
-The name captures three distinct kinds of speed that matter when you're iterating on agent behavior.
-
-**Fast to author.** Each eval lives in a single file, and its ID is derived automatically from the file path — `evals/weather/brooklyn.eval.ts` becomes `weather/brooklyn`. You write assertions inline in a linear `async test(t)` function with no callbacks and no boilerplate. A one-line `.map` fans a dataset out into dozens of cases.
-
-**Fast to run.** The runner uses bounded concurrency so evals execute in parallel without overwhelming your agent. A fingerprint-based result cache skips cases that already passed. Sandboxes can be reused and pre-warmed between runs. The `earlyExit` flag stops retrying a task the moment one attempt succeeds.
-
-**Fast to read.** Console output streams in real time so you see failures as they happen. Every run produces structured artifacts — an event stream, full transcript, file diffs, and assertion results — in a `.niceeval/<timestamp>/` directory. A unified trace makes it easy to reconstruct exactly what the agent did.
-
-## How niceeval is structured
-
-At a high level, your `evals/` directory is the input and `.niceeval/` artifacts are the output. Everything in between is owned by three collaborating pieces:
-
-```
-   your evals/ directory            niceeval core               agent adapter
-   ─────────────────────           ──────────────             ─────────────────
-   weather.eval.ts   ──discover──>  Runner  ──send──>  Agent  ─── direct agent adapter
-   sql.eval.ts                        │                        ─── sandbox adapter ──> Docker
-   button.eval.ts   ──sandbox──>      │
-     workspaces/button/               ▼
-                                  Scorers ──> Reporters ──> .niceeval/<run>/
-                                   (expect / scoped /         (summary.json /
-                                    judge / commands)          events / trace /
-                                                               sources / diff)
+```text
+   evals/*.eval.ts
+        |
+        v
+   +---------------------+
+   |     niceeval        |
+   +---------------------+
+        |
+        | Agent adapter (official)
+        v
+   +------------------------------+
+   |        Docker Sandbox         |
+   |   +------------------------+  |
+   |   | Codex / Claude Code /  |  |
+   |   | apps needing isolation |  |
+   |   +------------------------+  |
+   +------------------------------+
 ```
 
-- **niceeval core** owns everything that is the same regardless of what you're evaluating: eval discovery, assertion collection, scoring, concurrency scheduling, caching, reporting, and artifact persistence.
-- **Agent adapters** are the open boundary between core and your system under test. Official adapters are included for Claude Code, Codex, and bub; you write your own adapter for any other agent or service.
-- **Sandbox** owns the details of running coding agents in isolation — Docker by default, with support for third-party sandbox providers.
-
-<Note>
-  niceeval never hardcodes agent-specific logic in its core. It dispatches entirely through the adapter interface, which means adding a new agent type never requires changes to the runner or scorers.
-</Note>
+```text
+   evals/*.eval.ts
+        |
+        v
+   +---------------------+
+   |     niceeval        |
+   +---------------------+
+        |
+        | Agent adapter (official or custom)
+        v
+   +------------------------------+
+   |      Your AI Agent            |
+   |  AI SDK · LangGraph · Pi ·    |
+   |  custom agent loop            |
+   +------------------------------+
+```
 
 ## Two integration modes
 
-niceeval supports two top-level integration modes depending on whether the agent under test needs an isolated workspace.
+**Sandbox mode** fits coding agents such as Codex and Claude Code that must edit files and run commands in a real workspace.
 
-**Sandbox mode** — for coding agents like Codex and Claude Code that must operate on a real filesystem:
+**Direct mode** fits your own AI agent application and does not require Docker.
 
-```
-   evals/*.eval.ts
-        │
-        ▼
-   ┌─────────────────────┐
-   │     niceeval core    │
-   │ discover·schedule·  │
-   │    score·report     │
-   └─────────────────────┘
-        │  Agent adapter (official)
-        ▼
-   ┌──────────────────────────────┐
-   │         Docker Sandbox        │
-   │   ┌────────────────────────┐  │
-   │   │  Codex / Claude Code / │  │
-   │   │  apps needing isolation│  │
-   │   └────────────────────────┘  │
-   └──────────────────────────────┘
-```
+## Next
 
-**Direct mode** — for your own AI agent application when it doesn't need Docker:
-
-```
-   evals/*.eval.ts
-        │
-        ▼
-   ┌─────────────────────┐
-   │     niceeval core    │
-   │ discover·schedule·  │
-   │    score·report     │
-   └─────────────────────┘
-        │  Agent adapter (official or custom)
-        ▼
-   ┌──────────────────────────────┐
-   │       your own AI Agent       │
-   │  (AI SDK · LangGraph · custom │
-   │   agent loops — no Docker)    │
-   └──────────────────────────────┘
-```
-
-## What comes next
-
-The [Quickstart](/quickstart) walks you through installing niceeval, scaffolding your project with `npx niceeval init`, and running direct-agent and coding-agent evals in under ten minutes.
-
-If you want to go deeper right away, the [Installation](/installation) page covers prerequisites, configuration options, and environment variables in full detail.
+[Quickstart](/quickstart) walks through installing NiceEval, writing the first eval, and opening the result viewer.

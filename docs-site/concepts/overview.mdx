@@ -1,143 +1,98 @@
 ---
-title: "niceeval architecture: evals, agents, and sandboxes"
+title: "NiceEval architecture: evals, agents, and sandboxes"
 sidebarTitle: "Overview"
-description: "Understand how niceeval's core, agent adapters, and sandbox backends fit together to evaluate any AI agent with a unified API."
+description: "Understand how NiceEval, agent adapters, and sandbox backends work together to evaluate any AI agent through one API."
 ---
 
-niceeval is organized around three concerns that stay permanently separated: **what to test** (your `evals/` directory), **how to run and score it** (the niceeval core), and **how to reach the thing being tested** (the agent adapter and sandbox). Understanding where each boundary falls makes it much easier to write evals, build adapters, and interpret results — so this page walks the full architecture before you write a single line of eval code.
+NiceEval separates **what you evaluate** from **how the subject under test is connected**. NiceEval discovers evals, schedules runs, scores assertions, and writes reports. Agent adapters call the system under test. Sandbox backends isolate filesystems for coding-agent tasks.
 
-## The four-layer architecture
+## Four layers
 
+```text
+Eval files / fixtures
+        |
+        v
+NiceEval
+        |
+        v
+Agent adapter
+        |
+        v
+Subject under test / Sandbox backend
 ```
-   Your evals/ directory            niceeval core              Connect to AI (self-authored adapters)
-   ----------------------           --------------             ------------------------------------
-   weather.eval.ts  --discover-->   Runner  --send-->  Agent   ┬─ direct adapter     (your agent)
-   sql.eval.ts                        │                        └─ sandbox adapter ─── Sandbox
-   button.eval.ts  --upload-->        │                           (claude-code          (docker /
-     workspaces/button/               │                            codex / bub …)        third-party)
-                                      ▼
-                                  Scorers ── Reporters ── .niceeval/<run>/
-                                  (expect / scoped /     (summary.json / events /
-                                   judge / commands)      trace / sources / diff)
-```
 
-Each layer owns a distinct slice of the problem. The **core never reaches through the adapter boundary** — it dispatches against interfaces, and the adapter decides how to fulfill them. That wall is the structural load-bearer of the entire design.
-
-## What the core owns
-
-The niceeval core is everything that looks the same regardless of which AI you're testing:
+## What NiceEval owns
 
 <CardGroup cols={2}>
   <Card title="Eval discovery" icon="magnifying-glass">
-    Scans your `evals/` directory for `*.eval.ts` files, derives each eval's ID from its file path, and builds the run queue.
+    Finds `*.eval.ts` files and fixture directories, then derives stable IDs from paths.
   </Card>
-  <Card title="Concurrency scheduling" icon="timeline">
-    Dispatches evals up to `maxConcurrency` at a time, respects `timeoutMs`, and manages `earlyExit` across retries of the same task.
+  <Card title="Scheduling" icon="timeline">
+    Controls concurrency, retries, attempts, runs, and early exit.
   </Card>
-  <Card title="Assertion collection & scoring" icon="chart-bar">
-    Gathers every assertion registered by `t.check`, `t.require`, scoped assertions, and judge calls, then folds them into a single outcome per eval.
+  <Card title="Assertions and scoring" icon="chart-bar">
+    Collects `t.check`, scoped assertions, judge scores, and test results.
   </Card>
-  <Card title="Caching" icon="database">
-    Fingerprints each eval. If the eval, its inputs, and the agent haven't changed since the last run, the cached result is returned and the eval is skipped.
+  <Card title="Cache" icon="database">
+    Skips cases that already passed when the fingerprint is unchanged.
   </Card>
-  <Card title="Reporting" icon="file-lines">
-    Streams live output to the console and hands off to configured reporters (JUnit, JSON, custom) once a run completes.
+  <Card title="Reports" icon="file-lines">
+    Writes console, JSON, JUnit, and local viewer data.
   </Card>
-  <Card title="Artifact persistence" icon="folder-open">
-    Writes the full run record to `.niceeval/<run>/` — `summary.json` plus per-attempt events, sources, traces, o11y summaries, and diffs.
+  <Card title="Artifacts" icon="folder-open">
+    Saves summaries, event streams, transcripts, diffs, traces, and logs.
   </Card>
 </CardGroup>
 
-## What the Agent / Adapter boundary means
+## Adapter
 
 <Note>
-niceeval **does not define a universal agent protocol**. There is no `--url` flag, no shared wire format, and no assumption that your AI can speak a particular API shape.
+  `Agent` is the abstraction NiceEval calls. `Adapter` is the concrete implementation you write. NiceEval does not know your private protocol, CLI arguments, or auth rules.
 </Note>
 
-Every system under test — your own agent, Claude Code, Codex, bub — is connected through a **self-authored adapter**. Two terms name two sides of the same concept:
+That boundary keeps the runner and scorers generic. Evaluating your own AI app, Claude Code, Codex, or a custom agent should not change core scoring behavior.
 
-- **Agent** is the abstraction. From the core's perspective an agent is a named object with a set of capabilities and a single `send` method that accepts a `TurnInput` and returns a `Turn`. The runner only ever calls this interface.
-- **Adapter** is the concrete implementation you write (or use from niceeval's built-ins). It knows how to authenticate, how to call your runtime, and — critically — how to map whatever your AI returns into the standard event stream the core expects.
-
-Experiments reference agents directly. The URL (or API key, or CLI invocation) is the adapter's private configuration, invisible to the core and to your evals.
-
-### Why there is no `--url` flag
-
-Some eval frameworks define a protocol and let you point at any compatible endpoint with `--url`. niceeval explicitly rejects this model: there is no single protocol that all AI agents speak. Rather than forcing you to wrap your agent in a compatibility shim, niceeval puts the adaptation work where it belongs — inside the adapter — and keeps the core protocol-agnostic. The result is that any AI, any transport, and any framework can be evaluated with the same `defineEval` + assertion vocabulary.
-
-## What the Sandbox owns
-
-A **sandbox** is where a sandbox-type agent runs — the isolated execution environment that provides the filesystem, the network policy, and the process boundary. Sandboxes are completely separate from agents:
+## Sandbox
 
 <Tabs>
   <Tab title="Docker">
-    The default local sandbox. niceeval spins up a container, your eval uploads a workspace, the adapter runs the agent CLI inside it, and the runner reads back events and diff. No cloud credentials required beyond the agent's own API key.
+    Local container backend for coding-agent evals in development and CI.
   </Tab>
   <Tab title="Vercel Sandbox">
-    A cloud-hosted sandbox backend. Useful when you want to avoid managing Docker locally or run evals in a serverless CI environment. Requires a Vercel token.
+    Cloud sandbox backend for stronger isolation or larger resources.
   </Tab>
-  <Tab title="Third-party">
-    Any backend that implements the `Sandbox` interface can be plugged in. The agent adapter receives a `ctx.sandbox` handle and interacts with it through that interface, so swapping sandbox backends requires no changes to the agent or your evals.
+  <Tab title="Third-party backend">
+    Any service can integrate by implementing the `Sandbox` interface.
   </Tab>
 </Tabs>
 
-Direct agents (those using `defineAgent`) ignore `sandbox` entirely — they have no need for an isolated workspace. Only sandbox agents (those using `defineSandboxAgent`) require a sandbox backend.
-
-The experiment's (or config's) `sandbox` field selects where sandbox agents run — set it to `dockerSandbox()`, `vercelSandbox()`, or `e2bSandbox()` from `niceeval/sandbox`, and the runner passes a prepared `Sandbox` handle through `ctx.sandbox`. There is no CLI flag and no auto-detection: if neither the experiment nor `niceeval.config.ts` sets `sandbox`, niceeval throws as soon as it tries to create one. The agent and sandbox are otherwise **orthogonal**: `claude-code` can run in Docker or Vercel; the same Docker sandbox can run `claude-code` or `bub`. Neither side needs to know anything about the other.
-
-## Key terminology
+## Key terms
 
 <AccordionGroup>
-  <Accordion title="Eval">
-    A single test case: one description, one agent reference, and one `async test(t)` function. Evals are the unit of discovery, scheduling, scoring, and reporting. Each eval produces exactly one outcome (or a pass-rate summary when `runs > 1`).
-  </Accordion>
-  <Accordion title="Agent">
-    The abstraction for a system under test. An agent has a name, a set of capability flags, and a `send` method. The runner only sees this interface.
-  </Accordion>
-  <Accordion title="Adapter">
-    The concrete implementation of an agent. An adapter knows how to connect to a specific AI — your app runtime, Claude Code, Codex — and normalizes its output into the standard event stream.
-  </Accordion>
-  <Accordion title="Sandbox">
-    The isolated execution environment for sandbox-type agents: a Docker container, Vercel Sandbox, or other backend that provides a filesystem and process boundary.
-  </Accordion>
-  <Accordion title="Turn">
-    The result of one `t.send(...)` call: a standard event stream, an optional structured-output field (`data`), a `status`, and optional token usage. All scoped assertions read from `Turn.events`.
-  </Accordion>
-  <Accordion title="Artifact">
-    Any file written to `.niceeval/<run>/` after a run: `summary.json`, event streams, source maps, traces, o11y summaries, and generated-file diffs. Artifacts are the source of truth for debugging and regression analysis.
-  </Accordion>
-  <Accordion title="Experiment">
-    A named configuration matrix — a combination of evals, agent, sandbox, model, feature flags, run count, and budget — that produces a comparable, replayable run. Experiments are how you compare agent A vs agent B, or model X vs model Y, over the same eval suite.
-  </Accordion>
+  <Accordion title="Eval">A test case: description, optional agent reference, and `test(t)`.</Accordion>
+  <Accordion title="Agent">The connection NiceEval calls by name. It returns a standard `Turn`.</Accordion>
+  <Accordion title="Adapter">The concrete implementation that knows how to call your runtime or CLI.</Accordion>
+  <Accordion title="Sandbox">The isolated runtime used by coding agents.</Accordion>
+  <Accordion title="Turn">The immutable result snapshot from one `t.send()` or `t.respond()`.</Accordion>
+  <Accordion title="Artifact">A structured result file written after a run.</Accordion>
+  <Accordion title="Experiment">A checked-in run configuration for comparing agents, models, flags, runs, budgets, and sandboxes.</Accordion>
 </AccordionGroup>
 
-## How the parts connect end-to-end
+## End-to-end flow
 
 <Steps>
-  <Step title="Discovery">
-    The runner scans `evals/` for `*.eval.ts` files. Each file path becomes an eval ID — `evals/weather/brooklyn.eval.ts` becomes `weather/brooklyn`.
-  </Step>
-  <Step title="Scheduling">
-    Evals are dispatched up to `maxConcurrency` at a time. Fingerprint caching skips evals that haven't changed since their last passing run.
-  </Step>
-  <Step title="Agent send">
-    For each eval, the runner calls `agent.send(input, ctx)`. The adapter drives the subject under test and returns a `Turn` containing the standard event stream.
-  </Step>
-  <Step title="Scoring">
-    The core evaluates all registered assertions against the `Turn`. Gate assertions that fail mark the eval `failed`. Soft assertions below their threshold mark it `passed`.
-  </Step>
-  <Step title="Outcome">
-    One outcome per eval: `passed`, `failed`, `errored`, or `skipped`. When `runs > 1`, the summary is a pass-rate and average latency.
-  </Step>
-  <Step title="Reporting & artifacts">
-    Results stream to the console in real time. Once complete, reporters write structured output and `.niceeval/<run>/` is populated with the full artifact set.
-  </Step>
+  <Step title="Discovery">Find eval files and fixtures.</Step>
+  <Step title="Scheduling">Plan attempts from concurrency, cache, runs, and early-exit settings.</Step>
+  <Step title="Agent send">Call the selected adapter and receive a standard `Turn`.</Step>
+  <Step title="Scoring">Run assertions, judge checks, and tests.</Step>
+  <Step title="Outcome">Fold results into `passed`, `failed`, `errored`, or `skipped`.</Step>
+  <Step title="Reporting & artifacts">Write reports and structured files.</Step>
 </Steps>
 
-## Related pages
+## Related
 
-- [Evals](/concepts/evals) — what an eval is and how the lifecycle works in detail.
-- [Adapter](/concepts/adapter) — how to write an adapter and reference it from experiments.
-- [Drive](/concepts/drive) — `t.send()`, sessions, and HITL: how you produce the `Turn` data assertions read from.
-- [Assert](/concepts/assert) — the value/scoped assertion vocabulary and outcome rules.
-- [Judge](/concepts/judge) — LLM-as-judge, for open-ended quality.
+- [Evals](/concepts/evals) - what an eval is and how its lifecycle works.
+- [Adapter](/concepts/adapter) - how to write an adapter and use it in an experiment.
+- [Drive](/concepts/drive) - `t.send()`, sessions, and HITL from the eval side.
+- [Assert](/concepts/assert) - assertion vocabulary and outcome rules.
+- [Judge](/concepts/judge) - LLM-as-judge for open-ended quality.

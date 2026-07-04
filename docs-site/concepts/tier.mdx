@@ -1,0 +1,32 @@
+---
+title: "Integration tiers"
+sidebarTitle: "Tier"
+description: "NiceEval integrations come in three tiers: Tier 1 send only, Tier 2 send plus OTel, and Tier 3 application changes exposed through experiment flags."
+---
+
+Connecting NiceEval is not all-or-nothing. Each tier adds one investment and unlocks another set of checks. Existing evals keep working as you move up.
+
+| Tier | What you add | What you get | When to use it |
+|---|---|---|---|
+| Tier 1: send | An adapter with `send(input, ctx)` | Text assertions, structured output, hand-mapped tool events, multi-turn, HITL if implemented | First integration, or apps without tracing |
+| Tier 2: send + OTel | Your app sends spans to NiceEval | Tool events derived from spans, usage, trace waterfall, less manual mapping | Apps already instrumented with AI SDK, LangSmith, OpenInference, OpenLLMetry, or GenAI semconv |
+| Tier 3: flags | Your app exposes feature switches through `ctx.flags` | A/B comparisons of prompts, tools, retrieval, routing, or product variants | When you want to compare internal behavior, not only models |
+
+## Tier 1
+
+The adapter calls the interface your app already exposes and returns a `Turn`. You can start with only `status` and a `message` event, then add sessions, events, and HITL incrementally.
+
+## Tier 2
+
+Keep the same `send`, but add `events: otelEvents()` and forward `ctx.telemetry.headers` to the app. NiceEval receives spans, attributes them to a turn, derives standard events, and draws the waterfall in `niceeval view`.
+
+## Tier 3
+
+Expose the behavior you want to compare as experiment `flags`. NiceEval passes them through `ctx.flags`; your adapter forwards them to the app; the app decides what to change.
+
+## Related
+
+- [Connect Your Agent](/guides/connect-your-agent)
+- [Write Send](/guides/write-send)
+- [OTel Integration](/guides/connect-otel)
+- [Write Experiments](/guides/write-experiment)

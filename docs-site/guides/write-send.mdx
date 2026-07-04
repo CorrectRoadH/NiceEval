@@ -1,0 +1,185 @@
+---
+title: "How to write send"
+sidebarTitle: "Write Send"
+description: "Implement an adapter send function in increments: reply text, session state, usage, tool events, HITL, OTel trace, and experiment flags."
+---
+
+[Adapter](/concepts/adapter) defines the contract: `send` receives `TurnInput` and `AgentContext`, then returns a `Turn`. This page shows the implementation path.
+
+Two rules guide the design:
+
+- Connect to the same interface your user-facing app already uses. Do not create a special eval-only endpoint or import app internals.
+- Hand-write transport; reuse helpers for parsing and orchestration when the protocol has official converters.
+
+![Full round trip of t.send: eval calls t.send, the runner builds TurnInput and ctx, the adapter calls your app and returns a Turn with standard events.](/images/agent-turn-roundtrip-en.svg)
+
+## Start from your protocol
+
+Most apps use one of these shapes:
+
+| Protocol | Shape | NiceEval path |
+|---|---|---|
+| Chat Completions | Client sends full `messages`, server returns one response | Use `ctx.session.history()` for multi-turn |
+| Responses / Open Responses | Server-side state, `previous_response_id` | Store the returned id with `ctx.session.capture()` |
+| AI SDK UI Message Stream | SSE stream used by `useChat` | Use `uiMessageStreamAgent` when possible |
+| Custom stream or JSON | Your own event shape | Map it into `StreamEvent[]` |
+
+## Step 1: send one message
+
+```ts
+import { defineAgent } from "niceeval/adapter";
+
+export default defineAgent({
+  name: "chat-app",
+  async send(input, ctx) {
+    const r = await fetch("http://localhost:8080/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: input.text }),
+      signal: ctx.signal,
+    });
+    const body = await r.json();
+    return {
+      status: r.ok ? "completed" : "failed",
+      events: [{ type: "message", role: "assistant", text: body.reply }],
+    };
+  },
+});
+```
+
+This unlocks text assertions, judge checks, and `t.succeeded()`.
+
+## Step 2: continue the conversation
+
+For full-history protocols, store the message list in `ctx.session.history()`:
+
+```ts
+async send(input, ctx) {
+  const history = ctx.session.history<ChatMessage>();
+  const messages = [...history.get(), { role: "user", content: input.text }];
+  const body = await callChatCompletions(messages, ctx.signal);
+  const next = [...messages, body.message];
+  history.commit(next);
+  return {
+    status: "completed",
+    events: [{ type: "message", role: "assistant", text: body.message.content }],
+  };
+}
+```
+
+For server-side sessions, send `ctx.session.id` and capture the returned id:
+
+```ts
+const body = await callResponses({ input: input.text, previousResponseId: ctx.session.id }, ctx.signal);
+ctx.session.capture(body.id);
+```
+
+This unlocks multi-turn evals and `t.newSession()` isolation.
+
+## Step 3: record usage
+
+If the app returns usage, copy it. Do not invent numbers.
+
+```ts
+return {
+  status: "completed",
+  events,
+  usage: {
+    inputTokens: body.usage.prompt_tokens,
+    outputTokens: body.usage.completion_tokens,
+  },
+};
+```
+
+This unlocks `maxTokens`, `maxCost`, and cost reporting.
+
+## Step 4: map tools into events
+
+Adapter output should become the standard event stream:
+
+```ts
+events.push({ type: "action.called", callId: step.id, name: step.tool, input: step.args });
+events.push({
+  type: "action.result",
+  callId: step.id,
+  output: step.result,
+  status: step.error ? "failed" : "completed",
+});
+```
+
+Preserve real ordering, pair `action.called` and `action.result` by `callId`, and only declare `toolObservability` when the stream is complete.
+
+## Step 5: HITL
+
+When the app stops for a human, return `status: "waiting"` and emit `input.requested`:
+
+```ts
+return {
+  status: "waiting",
+  events: [{
+    type: "input.requested",
+    request: {
+      id: frame.toolCallId,
+      action: frame.toolName,
+      input: frame.args,
+      options: [{ id: "approve" }, { id: "deny" }],
+    },
+  }],
+};
+```
+
+On the answer turn, read `input.responses`, pass the decision back to the app, and continue reading the stream. Rejected human decisions should produce `action.result` with `status: "rejected"`.
+
+## Step 6: OTel trace
+
+If the app emits OpenTelemetry spans, add an event source and forward trace context:
+
+```ts
+import { defineAgent, otelEvents } from "niceeval/adapter";
+
+export default defineAgent({
+  name: "support-bot",
+  events: otelEvents(),
+  async send(input, ctx) {
+    const r = await fetch(`${process.env.BOT_URL}/chat`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...ctx.telemetry?.headers },
+      body: JSON.stringify({ message: input.text }),
+      signal: ctx.signal,
+    });
+    return { data: await r.json(), status: r.ok ? "completed" : "failed" };
+  },
+});
+```
+
+This unlocks derived events and the trace waterfall. See [OTel Integration](/guides/connect-otel).
+
+## Step 7: pass experiment flags
+
+```ts
+body: JSON.stringify({
+  message: input.text,
+  model: ctx.model,
+  flags: ctx.flags,
+})
+```
+
+Two experiment files with different `flags` run the same evals as an A/B comparison.
+
+## Shape reference
+
+| Eval API | Adapter shape |
+|---|---|
+| `t.send(text)` | `input.text` |
+| `t.sendFile(path, text?)` | `input.text` plus `input.files` |
+| Structured output | `input.outputSchema`; return `Turn.data` |
+| `t.respond(...)` | `input.responses` on the same session line |
+| `t.newSession()` | Fresh `ctx.session` |
+
+## Related
+
+- [Adapter](/concepts/adapter)
+- [Connect Your Agent](/guides/connect-your-agent)
+- [HITL](/concepts/hitl)
+- [Drive](/concepts/drive)
+- [Events](/reference/events)

@@ -1,9 +1,10 @@
 import { defineEval } from "niceeval";
 import { includes, excludes } from "niceeval/expect";
 
-// 这条 eval 专门验证 conversation 能力位的两半承诺:同一 session 里第二轮记得住第一轮说的名字
-// (server.ts 内存 Map<sessionId, AgentMessage[]> 续接成功);t.newSession() 造出的新 session
-// 不共享历史(常见 bug:adapter 忽略 ctx.session.isNew 一律续接,隔离会静默失真且不报错)。
+// 这条 eval 专门验证 ctx.session 续接的两半承诺:同一条会话线里第二轮记得住第一轮说的名字
+// (server.ts 内存 Map<sessionId, AgentMessage[]> 续接成功);t.newSession() 开出的新会话线
+// 拿到一份全新的 ctx.session,不共享历史(常见 bug:adapter 把 sessionId 存进模块级变量而不是
+// 读 ctx.session.id,新会话线会被错误地续上旧历史,隔离会静默失真且不报错)。
 export default defineEval({
   description: "测试跨轮记忆与 newSession() 隔离",
 

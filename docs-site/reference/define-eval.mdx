@@ -1,10 +1,10 @@
 ---
-title: "defineEval: declare, configure, and run evals in niceeval"
+title: "defineEval: declare, configure, and run NiceEval evals"
 sidebarTitle: "defineEval"
-description: "Complete reference for defineEval. Covers all options, the test context t, Turn return value, sandbox helpers, and dataset array exports."
+description: "Reference for defineEval options, the test context t, Turn return values, sandbox helpers, and dataset array exports."
 ---
 
-`defineEval` is the primary building block for writing evals in niceeval. You call it once per file, pass a configuration object describing what to test, and export the result as the default export. The runner discovers your file, derives its ID from the file path, and executes the `test` function under the selected experiment's agent.
+`defineEval` is the main entry point for authoring evals. Each eval file normally calls it once and default-exports the result.
 
 ```ts
 import { defineEval } from "niceeval";
@@ -14,541 +14,147 @@ export default defineEval({
   async test(t) {
     await t.send("What's the weather like in Brooklyn today?");
     t.succeeded();
-    t.calledTool("get_weather", { input: { city: "Brooklyn" }, count: 1 });
-    t.check(t.reply, includes("sunny"));
   },
 });
 ```
 
 <Note>
-  You must **not** provide an `id` or `name` field. niceeval derives the eval ID
-  from the file path: `evals/weather/brooklyn.eval.ts` becomes `weather/brooklyn`.
-  Rename the file to rename the ID — it never goes stale.
+  Do not provide `id` or `name`. NiceEval derives the eval ID from the file path.
 </Note>
 
----
-
-## defineEval options
+## `defineEval` options
 
 <ParamField body="description" type="string">
-  A human-readable label for this eval. Appears in console output and reports.
-  Does not affect the ID — that comes from the file path.
+  Human-readable description shown in console output and reports.
+</ParamField>
+
+<ParamField body="agent" type="string">
+  Agent name for this eval. Usually omitted so the experiment supplies the agent.
 </ParamField>
 
 <ParamField body="tags" type="string[]">
-  An array of tag strings used to filter evals via `--tag` on the CLI. Tags let
-  you group related evals (e.g. `"billing"`, `"regression"`, `"slow"`) without
-  changing the directory structure.
-
-  ```ts
-  tags: ["billing", "regression"],
-  ```
+  Tags for filtering or organizing evals.
 </ParamField>
 
 <ParamField body="judge" type="JudgeConfig">
-  Overrides the judge model for this specific eval. Takes precedence over the
-  global `judge.model` set in `defineConfig`. The `model` field accepts any
-  model string understood by your judge backend.
-
-  ```ts
-  judge: { model: "anthropic/claude-opus-4-8" },
-  ```
+  Judge model override for this eval.
 </ParamField>
 
 <ParamField body="reporters" type="Reporter[]">
-  A list of reporters applied only to this eval, in addition to (or instead of)
-  the globally configured reporters. Useful when a specific eval needs
-  specialized output formats.
+  Eval-specific reporters.
 </ParamField>
 
 <ParamField body="timeoutMs" type="number">
-  Per-eval timeout in milliseconds. Overrides the global `timeoutMs` in
-  `defineConfig`. When the timeout elapses, the eval is marked `failed` with
-  `error: timeout` and the runner moves on.
+  Timeout override.
 </ParamField>
 
 <ParamField body="metadata" type="Record<string, unknown>">
-  Arbitrary key-value pairs attached to this eval's result record. Useful for
-  downstream analysis, custom reporters, or dashboard annotations.
-
-  ```ts
-  metadata: { owner: "platform-team", jira: "PLAT-1234" },
-  ```
+  Extra metadata for reports or external tools.
 </ParamField>
 
 <ParamField body="test" type="(t: TestContext) => Promise<void>" required>
-  The async function that drives the agent and asserts results. Receives the
-  test context `t` (see below). All assertions, sends, and judge calls live here.
-
-  ```ts
-  async test(t) {
-    const turn = await t.send("Summarize this document.");
-    t.judge.autoevals.summarizes(document).atLeast(0.8);
-    t.check(turn.message, includes("key finding"));
-  },
-  ```
+  Eval body. Drive the agent and declare assertions here.
 </ParamField>
 
----
-
-## The test context: `t`
-
-The `t` object is assembled by the runner based on the **capabilities** declared by the agent adapter. You get a different set of methods depending on what the agent supports. At the TypeScript level, methods that require a capability your agent hasn't declared are simply not present on `t` — so misconfiguration shows up at compile time, not at runtime.
+## Test context: `t`
 
 ### Always available
 
-These methods are available regardless of which agent or capabilities are configured.
+<ParamField body="t.send(text)" type="(text: string, opts?) => Promise<Turn>">
+  Sends a message to the agent and returns the current turn.
+</ParamField>
 
-<ParamField body="t.send(text)" type="(text: string) => Promise<Turn>">
-  Sends a message to the agent and waits for the response. Returns a `Turn`
-  object (see below). Each call to `t.send` counts as one turn; call it
-  multiple times for multi-turn conversations (requires `conversation`
-  capability).
-
-  ```ts
-  const turn = await t.send("What is the capital of France?");
-  ```
+<ParamField body="t.sendFile(path, text?, opts?)" type="function">
+  Sends a file plus optional text.
 </ParamField>
 
 <ParamField body="t.check(value, assertion)" type="(value: unknown, assertion: Assertion) => void">
-  Evaluates `assertion` against `value` immediately and records the result. On
-  failure, the eval is marked according to the assertion's severity (`gate`
-  → `failed`, `soft` → `passed`). Does **not** throw — execution continues.
-
-  ```ts
-  t.check(t.reply, includes("Paris"));
-  t.check(turn.data, equals({ intent: "refund" }));
-  ```
+  Records a value assertion. Failure does not immediately abort the test.
 </ParamField>
 
 <ParamField body="t.require(value, assertion)" type="(value: unknown, assertion: Assertion) => void">
-  Like `t.check`, but **throws immediately** if the assertion fails, aborting
-  the rest of the test. Use this for preconditions where continuing would be
-  meaningless.
-
-  ```ts
-  t.require(turn.status, equals("completed")); // abort if the agent errored
-  ```
-</ParamField>
-
-<ParamField body="t.log(msg)" type="(msg: string) => void">
-  Writes a diagnostic message to the eval's output log. Appears in `.niceeval/`
-  artifacts and in verbose console output. Useful for debugging flaky evals.
+  Records a prerequisite assertion. Failure aborts the test immediately.
 </ParamField>
 
 <ParamField body="t.skip(reason)" type="(reason: string) => void">
-  Marks this eval as `skipped` with the given reason and stops execution. Use
-  when a prerequisite isn't available (e.g. a required environment variable is
-  missing).
-
-  ```ts
-  if (!process.env.OPENAI_API_KEY) t.skip("OPENAI_API_KEY not set");
-  ```
+  Skips the eval.
 </ParamField>
 
-<ParamField body="t.flags" type="Readonly<Record<string, unknown>>">
-  The feature flags passed down from the experiment configuration. Read these
-  inside your `test` to branch on experiment variables.
-
-  ```ts
-  if (t.flags.useExtendedPrompt) { /* ... */ }
-  ```
-</ParamField>
-
-<ParamField body="t.model" type="string | undefined">
-  The model tier string that was passed to the agent for this run. Read-only.
-  Useful for logging or conditional assertions.
-</ParamField>
-
-<ParamField body="t.signal" type="AbortSignal">
-  The `AbortSignal` for this eval's lifetime. Forwarded from the runner's
-  timeout and early-exit logic. Pass it into any custom async work you do inside
-  `test`.
-</ParamField>
-
----
-
-### With `conversation` capability
-
-Available when the agent declares `capabilities: { conversation: true }`.
+### Conversation
 
 <ParamField body="t.reply" type="string">
-  The text of the most recent assistant message across all turns. Equivalent to
-  reading the last `message` event with `role: "assistant"`. Shorthand for the
-  common pattern of checking the final response.
-
-  ```ts
-  t.check(t.reply, includes("confirmed"));
-  ```
+  Last assistant text message in the current session.
 </ParamField>
 
-<ParamField body="t.newSession()" type="() => void">
-  Signals the runner to start a fresh conversation session for subsequent
-  `t.send` calls. The current session's history is discarded. Useful when you
-  need to test multiple independent conversation threads within a single eval.
-
-  ```ts
-  await t.send("Hello, remember my name is Alice.");
-  t.newSession();
-  const turn = await t.send("What is my name?");
-  // The agent should not remember — it's a new session.
-  ```
+<ParamField body="t.newSession()" type="() => TestContext">
+  Starts an independent session line.
 </ParamField>
 
----
+### Tool observability
 
-### With `toolObservability` capability
-
-Available when the agent declares `capabilities: { toolObservability: true }`. All of these are **scope-level assertions** — they are evaluated after the `test` function returns, reading from the accumulated standard event stream.
-
-<ParamField body="t.calledTool(name, opts?)" type="(name: string, opts?: ToolMatchOpts) => void">
-  Asserts the agent called the named tool. Optional `opts` narrow the match:
-
-  - `input` — partial/deep match against call arguments (literal, regex against serialized form, or predicate)
-  - `count` — exact number of times the tool was called
-  - `status` — filter by call outcome (`"completed"` | `"failed"`)
-
-  ```ts
-  t.calledTool("get_weather", { input: { city: "Brooklyn" }, count: 1 });
-  ```
+<ParamField body="t.calledTool(name, opts?)" type="function">
+  Asserts that a tool was called.
 </ParamField>
 
-<ParamField body="t.notCalledTool(name, opts?)" type="(name: string, opts?: ToolMatchOpts) => void">
-  Asserts the agent did **not** call the named tool (with the given input, if
-  provided). Accepts the same `opts` as `t.calledTool`.
-
-  ```ts
-  t.notCalledTool("shell", { input: { command: /npm i/ } });
-  ```
+<ParamField body="t.notCalledTool(name, opts?)" type="function">
+  Asserts that a tool was not called. This is only trustworthy when the event stream is complete.
 </ParamField>
 
-<ParamField body="t.toolOrder(names)" type="(names: string[]) => void">
-  Asserts the listed tools were called in the given relative order. Other tools
-  may appear between them.
-
-  ```ts
-  t.toolOrder(["read_file", "write_file"]);
-  ```
+<ParamField body="t.event(type, opts?)" type="function">
+  Low-level event stream assertion.
 </ParamField>
 
-<ParamField body="t.usedNoTools()" type="() => void">
-  Asserts the agent made zero tool calls during this run. Useful for verifying
-  lightweight responses that should not invoke any external actions.
+### Workspace / sandbox
+
+<ParamField body="t.fileChanged(path)" type="function">
+  Asserts that a workspace file changed.
 </ParamField>
 
-<ParamField body="t.maxToolCalls(n)" type="(n: number) => void">
-  Asserts the total number of tool calls was at most `n`.
-
-  ```ts
-  t.maxToolCalls(5);
-  ```
+<ParamField body="t.sandbox.runCommand(command, args?)" type="function">
+  Runs a verification command in the sandbox.
 </ParamField>
 
-<ParamField body="t.loadedSkill(skillName)" type="(skillName: string) => void">
-  Syntactic sugar for `t.calledTool("load_skill", { input: { skill: skillName } })`.
-  Asserts the agent loaded the named skill.
+## Judge assertions
 
-  ```ts
-  t.loadedSkill("memory-v2");
-  ```
-</ParamField>
+```ts
+t.judge.autoevals.factuality(expected, { on: t.reply }).atLeast(0.8);
+t.judge.autoevals.closedQA(question, { on: t.reply }).atLeast(0.7);
+t.judge.autoevals.closedQA(rubric, { on: t.reply }).atLeast(0.75);
+```
 
-<ParamField body="t.calledSubagent(name, opts?)" type="(name: string, opts?: SubagentMatchOpts) => void">
-  Asserts the agent delegated to a sub-agent with the given name. `opts` may
-  include `remoteUrl` (string or RegExp) and output matchers.
-
-  ```ts
-  t.calledSubagent("researcher", { remoteUrl: /api\.example/ });
-  ```
-</ParamField>
-
-<ParamField body="t.noFailedActions()" type="() => void">
-  Asserts that none of the tool calls, sub-agent calls, or skill loads ended
-  with `status: "failed"`.
-</ParamField>
-
-<ParamField body="t.event(type, opts?)" type="(type: string, opts?) => void">
-  Asserts a specific event type appears in the raw event stream. `opts` may
-  include `count` and data matchers.
-
-  ```ts
-  t.event("input.requested", { count: 1 });
-  ```
-</ParamField>
-
-<ParamField body="t.notEvent(type)" type="(type: string) => void">
-  Asserts that the given event type does **not** appear anywhere in the event
-  stream.
-
-  ```ts
-  t.notEvent("error");
-  ```
-</ParamField>
-
-<ParamField body="t.eventOrder(types)" type="(types: string[]) => void">
-  Asserts event types appear in the given relative order in the stream.
-
-  ```ts
-  t.eventOrder(["action.called", "subagent.called"]);
-  ```
-</ParamField>
-
-<ParamField body="t.eventsSatisfy(label, predicate)" type="(label: string, predicate: (events: StreamEvent[]) => boolean) => void">
-  Escape hatch for custom event-stream assertions. Receives the full raw event
-  array and must return a boolean.
-
-  ```ts
-  t.eventsSatisfy("reads before writes", (events) => {
-    const readIdx = events.findIndex(e => e.type === "action.called" && e.name === "read_file");
-    const writeIdx = events.findIndex(e => e.type === "action.called" && e.name === "write_file");
-    return readIdx < writeIdx;
-  });
-  ```
-</ParamField>
-
----
-
-### With `workspace` (sandbox) capability
-
-Available for sandbox agents (those using `defineSandboxAgent`).
-
-<ParamField body="t.fileChanged(path)" type="(path: string) => void">
-  Asserts the agent modified the file at the given workspace-relative path.
-  Derived from `git diff HEAD` after the agent run.
-</ParamField>
-
-<ParamField body="t.fileDeleted(path)" type="(path: string) => void">
-  Asserts the agent deleted the file at the given path.
-</ParamField>
-
-<ParamField body="t.sandbox.diff" type="DiffView">
-  A queryable view of all changes the agent made to the workspace:
-
-  - `t.sandbox.diff.get(path)` — returns the post-run content of the file at `path`
-  - `t.sandbox.diff.isEmpty()` — asserts no files were changed
-  - `t.sandbox.diff.matches(re)` — asserts the full diff text matches a regex
-  - `t.notInDiff(re)` — asserts the diff does **not** match the regex (useful for detecting leaked secrets or banned patterns)
-
-  ```ts
-  t.check(t.sandbox.diff.get("src/Button.tsx"), includes("onClick"));
-  t.notInDiff(/sk-[A-Za-z0-9]/); // no API keys in diff
-  ```
-</ParamField>
-
-<ParamField body="commandSucceeded()" type="ValueAssertion">
-  Use this matcher with `t.check(await t.sandbox.runCommand(...), commandSucceeded())`
-  to assert that a verification command exited with code 0.
-</ParamField>
-
-<ParamField body="t.sandbox.runCommand(command, args, opts)" type="Promise<CommandResult>">
-  Asserts a specific npm script (e.g. `"build"`, `"lint"`) exited with code 0.
-
-  ```ts
-  t.check(await t.sandbox.runCommand("npm", ["run", "build"]), commandSucceeded());
-  ```
-</ParamField>
-
----
-
-### Judge assertions
-
-Available on any eval that has a judge model configured (globally or per-eval).
-
-<ParamField body="t.judge.autoevals.factuality(expected, opts?)" type="(expected: string, opts?) => JudgeAssertion">
-  Uses the judge model to score factual consistency between the agent's reply
-  and the `expected` reference text. Returns a `JudgeAssertion` with
-  `.atLeast(threshold)` for setting a soft threshold.
-
-  ```ts
-  t.judge.autoevals.factuality("Paris is the capital of France.").atLeast(0.8);
-  ```
-</ParamField>
-
-<ParamField body="t.judge.autoevals.closedQA(question, opts?)" type="(question: string, opts?) => JudgeAssertion">
-  Asks the judge model a yes/no question about the reply. Returns a score
-  between 0 and 1. Use `.atLeast(threshold)` to set a minimum passing score.
-
-  ```ts
-  t.judge.autoevals.closedQA("Is the tone professional and on-topic?").atLeast(0.7);
-  ```
-</ParamField>
-
-<ParamField body="t.judge.autoevals.summarizes(source, opts?)" type="(source: string, opts?) => JudgeAssertion">
-  Asks the judge whether the agent's reply faithfully summarizes the `source`
-  text.
-</ParamField>
-
-<ParamField body="t.judge.autoevals.closedQA(rubric, opts?)" type="(rubric: string, opts?) => JudgeAssertion">
-  Free-form scoring against a custom rubric string. Useful when none of the
-  built-in judge methods fit your evaluation criteria.
-
-  ```ts
-  t.judge.autoevals.closedQA("Does the answer use simple language suitable for a 10-year-old?", {
-    on: turn.message,
-  }).atLeast(0.6);
-  ```
-
-  **`opts` accepted by all judge methods:**
-  - `on` — the value to evaluate (defaults to `t.reply`)
-  - `model` — overrides the judge model for this single call
-</ParamField>
-
----
-
-### Efficiency assertions
-
-<ParamField body="t.maxTokens(n)" type="(n: number) => TokenAssertion">
-  Asserts the total token usage (input + output) for this run did not exceed
-  `n`. Defaults to `gate` severity. Chain `.atLeast(0.7)` to downgrade.
-
-  ```ts
-  t.maxTokens(50_000);          // gate: fails if over
-  t.maxTokens(80_000).atLeast(0.7);   // soft: passed but not failed
-  ```
-</ParamField>
-
-<ParamField body="t.maxCost(usd)" type="(usd: number) => TokenAssertion">
-  Asserts the estimated cost of this run (based on a price table) did not exceed
-  `usd` dollars.
-
-  ```ts
-  t.maxCost(0.50); // fail if over $0.50
-  ```
-</ParamField>
-
-<ParamField body="t.usage" type="Usage">
-  The accumulated token usage for the current run. Available to read at any
-  point inside `test`.
-
-  ```ts
-  t.check(t.usage.outputTokens, satisfies(n => n < 10_000, "output not verbose"));
-  ```
-
-  **Fields:**
-
-  <ResponseField name="inputTokens" type="number">Total prompt tokens consumed.</ResponseField>
-  <ResponseField name="outputTokens" type="number">Total completion tokens produced.</ResponseField>
-  <ResponseField name="cacheReadTokens" type="number | undefined">Tokens served from prompt cache (if available).</ResponseField>
-</ParamField>
-
----
-
-## The Turn return type
-
-`await t.send(text)` returns a `Turn` object. It is immutable and carries everything the agent produced for that one round-trip.
+## `Turn`
 
 <ResponseField name="events" type="StreamEvent[]">
-  The raw standard event stream produced by the agent for this turn. All
-  scope-level assertions read from this. See `defineAgent` reference for the
-  full `StreamEvent` union type.
+  Standard event stream for this turn.
 </ResponseField>
 
 <ResponseField name="data" type="unknown | undefined">
-  Structured output returned by the agent (e.g. a parsed JSON object). Used by
-  `turn.outputEquals()` and `turn.outputMatches()`.
+  Structured output, present only when declared by the send call.
 </ResponseField>
 
 <ResponseField name="status" type='"completed" | "failed" | "waiting"'>
-  The outcome of this turn. `"waiting"` means the agent stopped at a
-  human-in-the-loop (`input.requested`) prompt.
+  Current turn status.
 </ResponseField>
 
 <ResponseField name="message" type="string">
-  Convenience field: the concatenated text of all `message` events with
-  `role: "assistant"` in this turn. Derived from `events`.
+  Assistant text for this turn.
 </ResponseField>
 
 <ResponseField name="toolCalls" type="ToolCall[]">
-  Convenience field: the list of tool calls made during this turn, each with
-  `name`, `input`, `output`, and `status`. Derived from `events`.
+  Tool calls for this turn.
 </ResponseField>
 
-<ResponseField name="usage" type="Usage | undefined">
-  Token usage for this specific turn (if reported by the agent).
-</ResponseField>
-
-### Turn methods
-
-<ParamField body="turn.outputEquals(expected)" type="(expected: unknown) => void">
-  Asserts that `turn.data` deeply equals `expected`. Equivalent to
-  `t.check(turn.data, equals(expected))` but scoped to the turn object.
-
-  ```ts
-  const turn = await t.send("Return the intent as JSON.");
-  turn.outputEquals({ intent: "refund" });
-  ```
-</ParamField>
-
-<ParamField body="turn.outputMatches(schema)" type="(schema: StandardSchema) => void">
-  Validates `turn.data` against a Standard Schema (e.g. a Zod schema).
-
-  ```ts
-  import { z } from "zod";
-  turn.outputMatches(z.object({ intent: z.enum(["refund", "ship"]) }));
-  ```
-</ParamField>
-
----
-
-## Coding-agent evals
-
-Coding-agent evals use the same `defineEval(...)` API. Prepare the sandbox workspace inside `test(t)`, send the task with `t.send(...)`, then verify files, commands, diffs, and judge results.
+## Dataset export
 
 ```ts
-import { defineEval } from "niceeval";
-import { commandSucceeded, includes } from "niceeval/expect";
-
-export default defineEval({
-  description: "Rewrite callbacks to async/await",
-  async test(t) {
-    await t.sandbox.uploadDirectory("../workspaces/legacy-callbacks");
-    await t.send("Rewrite all callbacks in src/legacy.js to async/await, preserving behavior.").then((turn) => turn.expectOk());
-    t.fileChanged("src/legacy.js");
-
-    const src = await t.sandbox.readSourceFiles({ extensions: ["js"] });
-    t.check(src.text(), includes("await"));
-
-    const result = await t.sandbox.runCommand("npm", ["test"]);
-    t.check(result, commandSucceeded());
-  },
-});
-```
-
-See [Fixtures](/guides/fixtures) for the full sandbox workspace pattern.
-
----
-
-## Dataset export (fan-out)
-
-When a single eval file exports an **array** as its default export, niceeval fans it out into one eval per element. This is the canonical way to write parameterized test suites.
-
-```ts
-// evals/sql.eval.ts
-import { defineEval } from "niceeval";
-import { loadYaml } from "niceeval/loaders";
-import { equals } from "niceeval/expect";
-
-const doc = await loadYaml("evals/data/sql-cases.yaml");
-const rows = doc.cases as { task: string; prompt: string; sql: string }[];
-
 export default rows.map((row) =>
   defineEval({
     description: row.task,
     async test(t) {
       await t.send(row.prompt);
-      t.succeeded();
-      t.check(t.reply, equals(row.sql));
     },
   }),
 );
 ```
 
-**Generated IDs** use the file path as a prefix plus a zero-padded 4-digit index:
-
-| Array index | Generated ID  |
-|-------------|---------------|
-| 0           | `sql/0000`    |
-| 1           | `sql/0001`    |
-| 12          | `sql/0012`    |
-
-IDs are stable as long as the array order doesn't change, making them safe to reference in CI history, dashboards, and issue trackers. `loadJson` from `niceeval/loaders` works the same way as `loadYaml`.
+Array exports generate stable IDs such as `file/0000`, `file/0001`, and so on.

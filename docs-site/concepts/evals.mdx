@@ -1,172 +1,89 @@
 ---
-title: "Evals in niceeval: lifecycle, outcomes, and eval files"
+title: "Evals in NiceEval: lifecycle, outcome, and files"
 sidebarTitle: "Evals"
-description: "An eval is a single test case: a description, an agent reference, and a test function. Learn how evals are discovered, scheduled, passed, and reported."
+description: "An eval is a test case: description, optional agent reference, and test function. Learn how evals are discovered, scheduled, scored, and reported."
 ---
 
-An eval is the atomic unit of everything niceeval does. At its simplest, it is a TypeScript file that says: "send this input to this agent, and verify that what comes back meets these conditions." Everything else — discovery, concurrency, caching, reporting, artifact persistence — exists to run evals reliably and give you clear answers about whether your agent is behaving correctly.
+An eval is a runnable test case. It usually lives in a `*.eval.ts` file and is declared with `defineEval`.
 
-## Anatomy of an eval
-
-Every eval is created with `defineEval` and has three essential parts: a human-readable **description** that appears in reports, an **agent** reference that names the subject under test, and an `async test(t)` **function** where you express what success looks like.
+## Anatomy
 
 ```ts
-// evals/weather/brooklyn.eval.ts
 import { defineEval } from "niceeval";
 import { includes } from "niceeval/expect";
 
 export default defineEval({
   description: "Brooklyn weather query",
   async test(t) {
-    await t.send("What is the weather in Brooklyn today?");
-    t.succeeded();                                          // scoped assertion
-    t.calledTool("get_weather", { input: { city: "Brooklyn" } });
-    t.check(t.reply, includes("sunny"));                   // value assertion
+    await t.send("What's the weather like in Brooklyn today?");
+    t.succeeded();
+    t.calledTool("get_weather", { input: { city: "Brooklyn" }, count: 1 });
+    t.check(t.reply, includes("sunny"));
   },
 });
 ```
 
-The full set of fields `defineEval` accepts:
-
-```ts
-defineEval({
-  description?: string;            // shown in reports
-  agent?: string;                  // optional eval-local default; normal runs select agent via experiment
-  tags?: string[];                 // for --tag filtering on the CLI
-  judge?: JudgeConfig;             // override the default judge model for this eval
-  reporters?: Reporter[];          // eval-specific reporters
-  timeoutMs?: number;              // override the default timeout
-  metadata?: Record<string, unknown>;
-  async test(t) { /* interactions and assertions */ },
-});
-```
+| Field | Meaning |
+|---|---|
+| `description` | Human-readable description shown in reports |
+| `agent` | Which agent adapter to use, usually supplied by the experiment |
+| `test(t)` | Interaction and assertion logic |
 
 <Note>
-You must **not** provide an `id` or `name` field. niceeval derives the ID automatically from the file path.
+  Do not hand-write `id` or `name`. NiceEval derives the eval ID from the file path.
 </Note>
 
-## Path as identity
+## Path is identity
 
-The file path of an eval **is** its ID. niceeval strips the `evals/` prefix and the `.eval.ts` suffix to produce a stable, human-readable identifier:
+`evals/weather/brooklyn.eval.ts` has ID `weather/brooklyn`. Positional arguments after the experiment name filter by ID prefix:
 
-| File path | Eval ID |
-|---|---|
-| `evals/weather/brooklyn.eval.ts` | `weather/brooklyn` |
-| `evals/sql.eval.ts` | `sql` |
-
-This convention has an important consequence: **renaming the file changes the eval's ID**. There is no hidden registry to keep in sync. The path is always the truth, and cached results, CI history, and experiment records all use the same path-derived key.
-
-You use the ID to filter which evals to run from the CLI:
-
-```shell
-npx niceeval exp local weather          # runs all evals whose ID starts with "weather"
-npx niceeval exp local weather/brooklyn # runs exactly this one eval
+```bash
+npx niceeval exp local weather
+npx niceeval exp local weather/brooklyn
 ```
 
-## The eval lifecycle
+## Lifecycle
 
 <Steps>
-  <Step title="Discovery">
-    When you run `npx niceeval exp ...`, the runner recursively scans the `evals/` directory for files ending in `.eval.ts`. Default exports of `defineEval(...)` or an array of `defineEval(...)` calls are registered as individual evals.
-  </Step>
-  <Step title="Scheduling">
-    The runner dispatches evals up to `maxConcurrency` at a time. Before dispatching an eval, it checks the fingerprint cache: if the eval's source, its inputs, and the active agent haven't changed since the last passing run, the cached result is replayed and the eval is skipped — saving both time and API cost.
-  </Step>
-  <Step title="agent.send">
-    For each eval, the runner calls `agent.send(input, ctx)` with the text from your first `t.send(...)` call. The adapter drives the subject under test and returns a `Turn` containing the standard event stream. Multi-turn evals call `agent.send` once per `await t.send(...)`.
-  </Step>
-  <Step title="Scoring">
-    Once your `test(t)` function completes, the core evaluates every registered assertion — value assertions (`t.check`, `t.require`), scoped assertions (`t.succeeded()`, `t.calledTool()`, etc.), and LLM-as-judge calls — against the collected turn data.
-  </Step>
-  <Step title="Outcome">
-    All assertion results are folded into a single outcome by `outcome.ts`. The rules are deterministic and described in full in the [Assert](/concepts/assert) page.
-  </Step>
-  <Step title="Report">
-    The outcome and all assertion details stream to the console in real time. When the full run finishes, reporters write structured output (JUnit, JSON, etc.) and the `.niceeval/<run>/` directory is populated with artifacts: `summary.json` plus per-attempt `events.json`, `sources.json`, `trace.json`, `o11y.json`, and `diff.json` files.
-  </Step>
+  <Step title="Discovery">Load `*.eval.ts` files and fixture directories.</Step>
+  <Step title="Scheduling">Build the execution plan from concurrency, cache, runs, attempts, and early exit.</Step>
+  <Step title="agent.send">`t.send()` calls the selected adapter and receives a standard `Turn`.</Step>
+  <Step title="Scoring">NiceEval collects value assertions, scoped assertions, judge scores, and test results.</Step>
+  <Step title="Outcome">All assertion results fold into one final outcome.</Step>
+  <Step title="Report">Reporters write console output and `.niceeval/` artifacts.</Step>
 </Steps>
 
-## Outcome types
-
-Each eval ends with exactly one outcome. Understanding what each outcome means helps you interpret run output and configure CI thresholds correctly.
+## Outcomes
 
 <CardGroup cols={2}>
   <Card title="passed" icon="circle-check" color="#22c55e">
-    No execution errors. All gate assertions passed. All soft assertions met their thresholds. This is the unambiguous success state.
+    All gate assertions passed and no hard failure occurred.
   </Card>
   <Card title="failed" icon="circle-xmark" color="#ef4444">
-    An execution error occurred (timeout, thrown exception, author mistake), **or** at least one gate assertion did not pass. A failed eval is a hard signal that something is broken.
+    A gate assertion failed or the run itself failed.
   </Card>
-  <Card title="passed" icon="chart-bar" color="#f59e0b">
-    All gate assertions passed, but at least one soft assertion fell below its threshold. This means "usable but there is a quality regression." Scored evals do not fail the run by default — only under `--strict`.
+  <Card title="scored" icon="chart-bar" color="#f59e0b">
+    No gate failed, but soft scores are preserved as scores.
   </Card>
   <Card title="skipped" icon="forward" color="#6b7280">
-    Your `test(t)` function called `t.skip("reason")`, signaling that a prerequisite was missing or the eval does not apply to the current configuration. Skipped evals are excluded from pass-rate calculations.
+    The eval was skipped, usually through `t.skip(reason)`.
   </Card>
 </CardGroup>
 
-When you run an eval more than once (`runs > 1`), the summary for that eval becomes a **pass rate** (percentage of runs that produced `passed`) and an average latency, rather than a single outcome.
+## Gate and soft
 
-## Gate vs soft assertions (brief introduction)
+`gate` is a hard threshold. Failure makes the eval fail. `soft` contributes a score without necessarily failing the eval. See [Assert](/concepts/assert).
 
-Every assertion carries a **severity** that determines how it affects the outcome:
+## File convention
 
-- **Gate** assertions are hard requirements. If a gate assertion fails, the entire eval is `failed`. Use gate for facts that must be true: "the agent called the right tool", "the output parsed as valid JSON", "no shell commands failed."
-- **Soft** assertions are quality scores with a numeric threshold. If a soft assertion's score falls below its threshold, the eval becomes `passed` rather than `failed`. Use soft for continuous judgments: similarity scoring, LLM-as-judge factuality, efficiency budgets you want to track without blocking CI.
+Only files ending in `.eval.ts` are discovered. Use directories for grouping:
 
-Matchers from `niceeval/expect` carry sensible defaults (`includes` and `equals` default to gate; `similarity` and judge calls default to soft), and you can override the severity with a chain method:
-
-```ts
-t.check(t.reply, includes("confirmed"));          // gate by default
-t.check(t.reply, similarity(expected).gate());    // promote similarity to gate
-t.judge.autoevals.factuality(reference).atLeast(0.8);       // soft with explicit threshold
+```text
+evals/
+└─ billing/
+   └─ refund.eval.ts  # id: billing/refund
 ```
 
-Full details on all matchers and scoped assertions are on the [Assert](/concepts/assert) page; LLM-as-judge has its own [Judge](/concepts/judge) page.
+## Dataset fan-out
 
-## The `*.eval.ts` naming convention
-
-niceeval discovers evals by scanning for files that match the `*.eval.ts` glob. A few conventions help keep a large eval suite organized:
-
-- Files must end in `.eval.ts` to be discovered. Any other `.ts` file in `evals/` is ignored.
-- Use subdirectories to group related evals. `evals/billing/refund.eval.ts` produces ID `billing/refund`.
-- Dataset files and helper utilities live alongside eval files but do not match `*.eval.ts`, so they are never mistakenly treated as evals.
-
-## Array exports and dataset fan-out
-
-When a `*.eval.ts` file's default export is an **array** of `defineEval(...)` calls, niceeval registers each element as a separate eval. This is the canonical way to evaluate an agent against a dataset:
-
-```ts
-// evals/sql.eval.ts
-import { defineEval } from "niceeval";
-import { loadYaml } from "niceeval/loaders";
-import { equals } from "niceeval/expect";
-
-const doc = await loadYaml("evals/data/sql-cases.yaml");
-const rows = doc.cases as { task: string; prompt: string; sql: string }[];
-
-export default rows.map((row) =>
-  defineEval({
-    description: row.task,
-    async test(t) {
-      await t.send(row.prompt);
-      t.succeeded();
-      t.check(t.reply, equals(row.sql));
-    },
-  }),
-);
-```
-
-IDs for array-exported evals are generated as `<file-id>/<zero-padded-index>` — for example `sql/0000`, `sql/0001` — so they are stable and sortable regardless of dataset order changes.
-
-<Tip>
-Dataset fan-out is the fastest way to go from a spreadsheet of expected inputs and outputs to a full eval suite. One `.map()` call can produce dozens or hundreds of test cases that run concurrently and report individually.
-</Tip>
-
-## Related pages
-
-- [Adapter](/concepts/adapter) — how the `agent` field connects your eval to a subject under test.
-- [Drive](/concepts/drive) — `t.send()`, sessions, and HITL: how a `test(t)` function produces `Turn` data.
-- [Assert](/concepts/assert) — the complete assertion vocabulary and outcome rules.
-- [Judge](/concepts/judge) — LLM-as-judge, for open-ended quality.
-- [Overview](/concepts/overview) — the full architecture diagram and layer responsibilities.
+A file can default-export an array of `defineEval(...)` calls to generate many cases from the same logic. See [Dataset Fan-Out](/guides/dataset-fanout).

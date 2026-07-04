@@ -21,7 +21,7 @@
 // `tool-output-denied` → action.result(status:"rejected",span 里没有"人拒绝"这个语义,
 // 这条要 adapter 自己补)。approve 端点字段是 toolCallId(不是 pi-sdk/claude-sdk 那个
 // toolUseId)。
-import { defineAgent, otelEvents, otel, serverSession, sseJsonFrames } from "niceeval/adapter";
+import { defineAgent, otelEvents, otel, sseJsonFrames } from "niceeval/adapter";
 import type { AgentContext, SseFrameCursor } from "niceeval/adapter";
 import type { JsonValue, StreamEvent, Turn, TurnInput } from "niceeval";
 
@@ -63,7 +63,7 @@ type LanggraphFrame =
 type SseCursor = SseFrameCursor<LanggraphFrame>;
 
 // sessionId -> 还开着的流 + 卡住的 gated tool_call。key 用 ctx.session.id——session 帧总是
-// 每轮第一个到(isNew 时才发),写回 ctx.session.id 之后这个 key 才稳定。gatedCall 存进这个
+// 每轮第一个到(新会话线才发),ctx.session.capture 写回 ctx.session.id 之后这个 key 才稳定。gatedCall 存进这个
 // Map 而不是留在 drainStream 的局部变量里,是因为 approve/deny 的续读发生在下一次 send() ->
 // 一个全新的 drainStream 调用,局部变量活不过这次函数返回,只有 Map 能跨这两次调用带着走。
 interface PendingApproval {
@@ -71,8 +71,8 @@ interface PendingApproval {
   readonly gatedCall: { readonly toolCallId: string; readonly name: string; readonly input: unknown };
 }
 const pendingApprovals = new Map<string, PendingApproval>();
-// 会话续接走「服务端记历史」范式:请求带 session.id(ctx),session 帧回传的 id 用 capture 写回。
-const session = serverSession();
+// 会话续接走「服务端记历史」范式:请求带 ctx.session.id,session 帧回传的 id 用
+// ctx.session.capture 写回——两者都直接在 ctx.session 上,不需要额外声明或模块级状态。
 
 // LangSmith 的 OtelSpanProcessor 是标准 BatchSpanProcessor(读 OTEL_BSP_SCHEDULE_DELAY,
 // tracing.env 已经调到 200ms),但它的调度定时器和"这一轮 HTTP 请求什么时候返回"是两条独立
@@ -124,7 +124,7 @@ async function drainStream(cursor: SseCursor, ctx: AgentContext, resumeGatedCall
 
     switch (frame.type) {
       case "session": {
-        session.capture(ctx, frame.sessionId);
+        ctx.session.capture(frame.sessionId);
         break;
       }
       case "text-delta": {
@@ -194,7 +194,9 @@ async function send(input: TurnInput, ctx: AgentContext): Promise<Turn> {
   const pending = ctx.session.id ? pendingApprovals.get(ctx.session.id) : undefined;
   if (pending) {
     pendingApprovals.delete(ctx.session.id!);
-    const approved = input.text.trim().toLowerCase() === "approve";
+    // 按 requestId(挂起的 toolCallId)从 input.responses 里对位取裁决,不从 text 猜;
+    // 这里每次只挂一条审批,取第一条即可——多请求并停时按 requestId 对位。
+    const approved = input.responses?.[0]?.optionId === "approve";
     const approveRes = await appFetch(
       "/api/chat/approve",
       { toolCallId: pending.gatedCall.toolCallId, approved },
@@ -212,7 +214,7 @@ async function send(input: TurnInput, ctx: AgentContext): Promise<Turn> {
   // 面向未来:应用哪天接了 context 传播就免费生效。
   const res = await appFetch(
     "/api/chat",
-    { message: input.text, sessionId: session.id(ctx) },
+    { message: input.text, sessionId: ctx.session.id },
     ctx.signal,
     ctx.telemetry?.headers,
   );
@@ -224,16 +226,6 @@ async function send(input: TurnInput, ctx: AgentContext): Promise<Turn> {
 
 export default defineAgent({
   name: "langgraph",
-  capabilities: {
-    // 验证过:isNew 时不带 sessionId 开新会话、session 帧回传的 sessionId 写回
-    // ctx.session.id、非 isNew 时带 id 续接同一条历史(LangGraph InMemorySaver,
-    // 进程存活期间有效,见 origin agent.py 头注释)。
-    conversation: true,
-    // 验证过:langsmith 方言(src/o11y/otlp/dialects.ts)从 tool 类型 span 派生完整的
-    // action.called/action.result 配对(callId/name/input/output/status 都有),
-    // get_weather / calculate 每次调用都覆盖,无遗漏。
-    toolObservability: true,
-  },
   events: otelEvents({ dialects: [otel.langsmith] }),
   send,
 });

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentContext } from "../types.ts";
 import { uiMessageStreamAgent, type UIMessageLike, type UIMessagePartLike } from "./ui-message-stream.ts";
+import { createAgentSession } from "../context/session.ts";
 
 // ─────────────────── mock `ai`:协议语义的最小 reducer(readUIMessageStream 同款行为) ───────────────────
 // 只实现测试用到的 chunk 类型;seed(resume 的 message)上的 parts 原样保留、按 toolCallId 更新。
@@ -68,14 +69,14 @@ function sse(chunks: Array<Record<string, unknown>>): Response {
 const fetchMock = vi.fn<typeof fetch>();
 vi.stubGlobal("fetch", fetchMock);
 
-function ctx(overrides: Partial<{ isNew: boolean; id: string; model: string }> = {}): AgentContext {
+function ctx(overrides: Partial<{ model: string }> = {}): AgentContext {
   return {
     signal: new AbortController().signal,
     model: overrides.model,
     flags: {},
     sandbox: undefined as never,
-    // 会话件锚在 state 上:同一个 ctx 重复用 = 同一条会话线(续接),新造 = 新线。
-    session: { state: {}, isNew: overrides.isNew ?? true, id: overrides.id },
+    // 同一个 ctx 重复用 = 同一条会话线(续接,同一个 ctx.session);新造 = 新线。
+    session: createAgentSession(),
     log: () => {},
   } as AgentContext;
 }
@@ -185,6 +186,51 @@ describe("uiMessageStreamAgent", () => {
     ]);
     const mutated = sentBody(1).messages[1]!.parts.find((p) => p.toolCallId === "c1")!;
     expect(mutated.approval).toMatchObject({ approved: false, reason: "别重试" });
+  });
+
+  it("HITL:优先按 requestId 从 input.responses 读裁决,而不是猜 input.text——两者矛盾时以 responses 为准", async () => {
+    const agent = uiMessageStreamAgent({ name: "t", url: "http://x/api/chat" });
+    fetchMock.mockResolvedValueOnce(
+      sse([
+        { type: "tool-input-available", toolCallId: "c1", toolName: "calculate", input: { expr: "1+1" } },
+        { type: "tool-approval-request", toolCallId: "c1", approvalId: "ap1" },
+      ]),
+    );
+    const c = ctx();
+    await agent.send({ text: "算 1+1" }, c);
+
+    fetchMock.mockResolvedValueOnce(sse([{ type: "text-delta", delta: "好的,不算了" }]));
+    // input.text 读起来像批准,但 responses 结构化裁决说 deny——必须以 responses 为准。
+    const turn2 = await agent.send({ text: "approve", responses: [{ requestId: "ap1", optionId: "deny" }] }, c);
+    expect(turn2.events).toEqual([
+      { type: "action.called", callId: "c1", name: "calculate", input: { expr: "1+1" } },
+      { type: "action.result", callId: "c1", status: "rejected" },
+      { type: "message", role: "assistant", text: "好的,不算了" },
+    ]);
+    const mutated = sentBody(1).messages[1]!.parts.find((p) => p.toolCallId === "c1")!;
+    expect(mutated.approval).toMatchObject({ approved: false });
+  });
+
+  it("HITL:没有 input.responses 时(旧 adapter 用法)退回从 input.text 猜裁决", async () => {
+    const agent = uiMessageStreamAgent({ name: "t", url: "http://x/api/chat" });
+    fetchMock.mockResolvedValueOnce(
+      sse([
+        { type: "tool-input-available", toolCallId: "c1", toolName: "calculate", input: { expr: "1+1" } },
+        { type: "tool-approval-request", toolCallId: "c1", approvalId: "ap1" },
+      ]),
+    );
+    const c = ctx();
+    await agent.send({ text: "算 1+1" }, c);
+
+    fetchMock.mockResolvedValueOnce(
+      sse([{ type: "tool-output-available", toolCallId: "c1", output: 2 }, { type: "text-delta", delta: "= 2" }]),
+    );
+    const turn2 = await agent.send({ text: "approve" }, c); // 没有 responses 字段
+    expect(turn2.events).toEqual([
+      { type: "action.called", callId: "c1", name: "calculate", input: { expr: "1+1" } },
+      { type: "action.result", callId: "c1", output: 2, status: "completed" },
+      { type: "message", role: "assistant", text: "= 2" },
+    ]);
   });
 
   it("error 帧 → failed + error 事件", async () => {

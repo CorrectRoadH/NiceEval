@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { aiSdkAgent, fromAiSdk } from "./ai-sdk.ts";
 import type { AiSdkGenerateContext, AiSdkResultLike } from "./ai-sdk.ts";
 import type { AgentContext } from "../types.ts";
+import { createAgentSession } from "../context/session.ts";
 
 describe("fromAiSdk", () => {
   it("v5+ content parts:保留真实顺序,tool-error 映射成 failed", () => {
@@ -216,7 +217,7 @@ describe("fromAiSdk", () => {
     expect(events.filter((e) => e.type === "action.result")).toHaveLength(1);
   });
 
-  it("aiSdkAgent:isNew 开新会话线,同 id 续接同一份历史", async () => {
+  it("aiSdkAgent:ctx.session.id 未记录时开新会话线,同 id 续接同一份历史", async () => {
     const seen: unknown[][] = [];
     const agent = aiSdkAgent({
       generate: async ({ messages }: AiSdkGenerateContext) => {
@@ -229,10 +230,10 @@ describe("fromAiSdk", () => {
       },
     });
 
-    const ctx = fakeCtx({ isNew: true });
+    const ctx = fakeCtx();
     await agent.send({ text: "第一轮" }, ctx);
     expect(ctx.session.id).toBeDefined();
-    const turn2 = await agent.send({ text: "第二轮" }, fakeCtx({ isNew: false, id: ctx.session.id }));
+    const turn2 = await agent.send({ text: "第二轮" }, fakeCtx({ id: ctx.session.id }));
 
     expect(turn2.status).toBe("completed");
     // 第二轮的历史 = 用户#1 + 助手#1 + 用户#2
@@ -242,8 +243,8 @@ describe("fromAiSdk", () => {
       { role: "user", content: "第二轮" },
     ]);
 
-    // isNew 重开:历史必须是干净的
-    const ctx3 = fakeCtx({ isNew: true });
+    // 新会话线:历史必须是干净的
+    const ctx3 = fakeCtx();
     await agent.send({ text: "新会话" }, ctx3);
     expect(ctx3.session.id).not.toBe(ctx.session.id);
     expect(seen[2]).toEqual([{ role: "user", content: "新会话" }]);
@@ -276,12 +277,12 @@ describe("fromAiSdk", () => {
       },
     });
 
-    const ctx = fakeCtx({ isNew: true });
+    const ctx = fakeCtx();
     const first = await agent.send({ text: "发邮件" }, ctx);
     expect(first.status).toBe("waiting");
     expect(first.events.some((e) => e.type === "input.requested")).toBe(true);
 
-    const second = await agent.send({ text: "approve" }, fakeCtx({ isNew: false, id: ctx.session.id }));
+    const second = await agent.send({ text: "approve" }, fakeCtx({ id: ctx.session.id }));
     expect(second.status).toBe("completed");
     // 第二轮历史的最后一条是翻译好的裁决(tool 消息),不是用户文本
     const last = (seen[1] as { role: string; content: unknown }[]).at(-1);
@@ -291,14 +292,57 @@ describe("fromAiSdk", () => {
     });
   });
 
+  it("aiSdkAgent:approval resume 优先按 requestId 从 input.responses 读裁决,而不是猜 input.text", async () => {
+    const seen: unknown[][] = [];
+    let call = 0;
+    const agent = aiSdkAgent({
+      generate: async ({ messages }: AiSdkGenerateContext) => {
+        seen.push([...messages]);
+        call++;
+        if (call === 1) {
+          return {
+            steps: [
+              {
+                content: [
+                  { type: "tool-call", toolCallId: "c1", toolName: "send_email", input: { to: "a@b.c" } },
+                  { type: "tool-approval-request", approvalId: "appr_1", toolCall: { toolCallId: "c1", toolName: "send_email", input: { to: "a@b.c" } } },
+                ],
+              },
+            ],
+            responseMessages: [{ role: "assistant", content: [] }],
+          } satisfies AiSdkResultLike;
+        }
+        return {
+          steps: [{ content: [{ type: "text", text: "好的,没有发送。" }] }],
+          responseMessages: [],
+        } satisfies AiSdkResultLike;
+      },
+    });
+
+    const ctx = fakeCtx();
+    await agent.send({ text: "发邮件" }, ctx);
+
+    // input.text 读起来像批准,但 responses 结构化裁决说 deny——必须以 responses 为准。
+    const second = await agent.send(
+      { text: "approve", responses: [{ requestId: "appr_1", optionId: "deny" }] },
+      fakeCtx({ id: ctx.session.id }),
+    );
+    expect(second.status).toBe("completed");
+    const last = (seen[1] as { role: string; content: unknown }[]).at(-1);
+    expect(last).toEqual({
+      role: "tool",
+      content: [{ type: "tool-approval-response", approvalId: "appr_1", approved: false }],
+    });
+  });
+
   it("aiSdkAgent:generate 抛错 / 空结果 → failed + error 事件", async () => {
     const boom = aiSdkAgent({ generate: async () => { throw new Error("上游超时"); } });
-    const failed = await boom.send({ text: "hi" }, fakeCtx({ isNew: true }));
+    const failed = await boom.send({ text: "hi" }, fakeCtx());
     expect(failed.status).toBe("failed");
     expect(failed.events[0]).toMatchObject({ type: "error", message: "上游超时" });
 
     const empty = aiSdkAgent({ generate: async () => ({ steps: [{ text: "" }] }) });
-    const emptyTurn = await empty.send({ text: "hi" }, fakeCtx({ isNew: true }));
+    const emptyTurn = await empty.send({ text: "hi" }, fakeCtx());
     expect(emptyTurn.status).toBe("failed");
   });
 
@@ -318,13 +362,16 @@ describe("fromAiSdk", () => {
   });
 });
 
-function fakeCtx(session: { isNew: boolean; id?: string }): AgentContext {
+/** 省略 `id`(或不给参数)= 全新会话线;传 `id` = 这条线已经 capture 过这个 id(续接轮)。 */
+function fakeCtx(opts: { id?: string } = {}): AgentContext {
+  const session = createAgentSession();
+  if (opts.id) session.capture(opts.id);
   return {
     signal: new AbortController().signal,
     model: undefined,
     flags: {},
     sandbox: undefined as unknown as AgentContext["sandbox"],
-    session: { state: {}, ...session },
+    session,
     log: () => {},
   };
 }

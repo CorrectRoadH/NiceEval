@@ -79,6 +79,17 @@ export interface InputRequestFilter {
   optionIds?: readonly string[];
 }
 
+/**
+ * `t.respond(...)` 的对象形式:显式指名回答的是哪条请求(多个请求并停时用它消歧,
+ * 字符串形式做不到)。`optionId` 与 `text` 二选一——`optionId` 必须存在于
+ * `request.options` 里,写错直接抛;`text` 是自由文本,不做校验。
+ */
+export interface RespondAnswer {
+  readonly request: InputRequest;
+  readonly optionId?: string;
+  readonly text?: string;
+}
+
 /** eval 作者可见的受限沙箱视图:能执行命令 / 文件 IO / 读最终 diff,但不能 stop。 */
 export interface SandboxHandle {
   readonly workdir: string;
@@ -100,7 +111,7 @@ export interface SessionHandle {
   send(text: string): Promise<TurnHandle>;
   sendFile(path: string, text?: string): Promise<TurnHandle>;
   requireInputRequest(filter?: InputRequestFilter): InputRequest;
-  respond(...responses: string[]): Promise<TurnHandle>;
+  respond(...responses: (string | RespondAnswer)[]): Promise<TurnHandle>;
   respondAll(optionId: string): Promise<TurnHandle>;
   readonly reply: string;
   readonly sessionId: string | undefined;
@@ -136,7 +147,7 @@ export interface TestContext {
   /** 发一条带文件(图片等多模态输入)的消息。`path` 相对项目根;读出后 base64 随 TurnInput.files 交给 adapter。 */
   sendFile(path: string, text?: string): Promise<TurnHandle>;
   requireInputRequest(filter?: InputRequestFilter): InputRequest;
-  respond(...responses: string[]): Promise<TurnHandle>;
+  respond(...responses: (string | RespondAnswer)[]): Promise<TurnHandle>;
   respondAll(optionId: string): Promise<TurnHandle>;
   readonly reply: string;
   readonly sessionId: string | undefined;

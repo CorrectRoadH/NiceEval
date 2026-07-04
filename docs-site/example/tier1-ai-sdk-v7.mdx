@@ -1,0 +1,55 @@
+---
+title: "How AI SDK v7 integrates with NiceEval non-invasively"
+sidebarTitle: "AI SDK v7 Integration"
+description: "A UI Message Stream AI SDK v7 chat app connected to NiceEval through its existing HTTP interface without changing application code."
+---
+
+Compare:
+
+- **before**: [`examples/zh/origin/ai-sdk-v7`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/origin/ai-sdk-v7) - a regular AI SDK v7 chat app with an HTTP server and React UI.
+- **after**: [`examples/zh/tier1/ai-sdk-v7`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/tier1/ai-sdk-v7) - the same app with NiceEval files added.
+
+**Integration style**: built-in `uiMessageStreamAgent`. The adapter targets the app's existing AI SDK UI Message Stream endpoint. Session replay, HITL approval for `needsApproval` tools, and stream-to-event mapping are handled by the factory. Usage and trace data come from the app's existing `@ai-sdk/otel` GenAI spans through `events: otelEvents({ dialects: [otel.genAi] })`.
+
+## File map
+
+```text
+ai-sdk-v7/
+├── niceeval.config.ts
+├── agents/
+│   └── ai-sdk-v7.ts
+├── evals/
+│   ├── basic-qa.eval.ts
+│   ├── hitl-approve.eval.ts
+│   ├── hitl-deny.eval.ts
+│   ├── session-isolation.eval.ts
+│   └── weather-tool.eval.ts
+└── experiments/
+    ├── assistant.ts
+    └── compare-models/
+        ├── deepseek-v4-flash.ts
+        └── deepseek-v4-pro.ts
+```
+
+## What to inspect
+
+- `agents/ai-sdk-v7.ts`: how `uiMessageStreamAgent` is configured.
+- `niceeval.config.ts`: fixed OTel receiver port for the long-running app.
+- `evals/hitl-approve.eval.ts` and `evals/hitl-deny.eval.ts`: approval and rejection paths.
+- `evals/session-isolation.eval.ts`: `t.newSession()` isolation.
+
+## Run it
+
+```bash
+cd examples/zh/tier1/ai-sdk-v7
+pnpm install
+pnpm dev
+npx niceeval exp assistant
+npx niceeval view
+```
+
+## Related
+
+- [Built-in Agents](/reference/builtin-agents)
+- [OTel Integration](/guides/connect-otel)
+- [Connect Your Agent](/guides/connect-your-agent)

@@ -26,11 +26,12 @@ export type {
   CodexThreadStream,
 } from "./sdk-streams.ts";
 
-// 通用「拼装方式」件:逐帧驱动循环、HITL 挂起、两种会话续接策略、逐 token/参数增量累加器。
-// 见 docs/adapters/authoring.md「三段式」一节——这些和任何具体协议无关,自己写 adapter
-// 时优先拿这些拼,只有 transport(怎么发)与「帧类型 → 操作」这张映射表才是真正要手写的。
-export { driveFrameStream, pausable, serverSession, clientHistory, deltaStream } from "./streaming.ts";
-export type { FrameReducer, FrameHook, Pausable, ServerSession, ClientHistory, DeltaOp, DeltaStreamSpec } from "./streaming.ts";
+// 通用「拼装方式」件:逐帧驱动循环、逐 token/参数增量累加器。见 docs-site/zh/guides/write-send.mdx——
+// 这些和任何具体协议无关,自己写 adapter 时优先拿这些拼,只有 transport(怎么发)与
+// 「帧类型 → 操作」这张映射表才是真正要手写的。会话续接与 HITL 停轮现场不再是可选件,
+// 而是 ctx.session(AgentSession)本身自带的存取器(history()/id+capture()、hold()/take())。
+export { driveFrameStream, deltaStream } from "./streaming.ts";
+export type { FrameReducer, FrameHook, DeltaOp, DeltaStreamSpec } from "./streaming.ts";
 
 export { fromAiSdk, aiSdkAgent } from "./ai-sdk.ts";
 export type {
@@ -55,9 +56,7 @@ export type { BubConfig } from "./bub.ts";
 export type {
   Agent,
   AgentContext,
-  AgentCapabilities,
   AgentSession,
-  SessionPiece,
   AgentTracing,
   Telemetry,
   SandboxAgentDef,

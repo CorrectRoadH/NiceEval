@@ -33,6 +33,34 @@
       "destination": "/concepts/adapter"
     },
     {
+      "source": "/guides/connect-agent",
+      "destination": "/guides/connect-your-agent"
+    },
+    {
+      "source": "/concepts/write-send",
+      "destination": "/guides/write-send"
+    },
+    {
+      "source": "/example/ai-sdk-v7-before-after",
+      "destination": "/example/tier1-ai-sdk-v7"
+    },
+    {
+      "source": "/example/claude-sdk-before-after",
+      "destination": "/example/tier1-claude-sdk"
+    },
+    {
+      "source": "/example/codex-sdk-before-after",
+      "destination": "/example/tier1-codex-sdk"
+    },
+    {
+      "source": "/example/pi-sdk-before-after",
+      "destination": "/example/tier1-pi-sdk"
+    },
+    {
+      "source": "/example/langgraph-before-after",
+      "destination": "/example/tier1-langgraph"
+    },
+    {
       "source": "/zh/concepts/scoring",
       "destination": "/zh/concepts/assert"
     },
@@ -90,16 +118,7 @@
                 "group": "Get Started",
                 "pages": [
                   "introduction",
-                  "quickstart",
-                  "installation"
-                ]
-              },
-              {
-                "group": "Examples",
-                "pages": [
-                  "example/claude-code-codex-plugin",
-                  "example/claude-code-codex-skill",
-                  "example/ai-agent-application"
+                  "quickstart"
                 ]
               },
               {
@@ -107,27 +126,52 @@
                 "pages": [
                   "concepts/overview",
                   "concepts/evals",
+                  "concepts/experiment",
                   "concepts/adapter",
+                  "concepts/tier",
                   "concepts/drive",
+                  "concepts/hitl",
                   "concepts/assert",
                   "concepts/judge"
                 ]
               },
               {
-                "group": "Writing Evals",
+                "group": "Connecting Agents",
+                "pages": [
+                  "guides/connect-your-agent",
+                  "guides/write-send",
+                  "guides/connect-otel",
+                  "guides/sandbox-agent",
+                  "guides/sandbox-backends"
+                ]
+              },
+              {
+                "group": "Evals & Experiments",
                 "pages": [
                   "guides/authoring",
+                  "guides/write-experiment",
+                  "guides/experiments",
                   "guides/fixtures",
                   "guides/dataset-fanout",
                   "guides/scoring-guide"
                 ]
               },
               {
-                "group": "Connecting Agents",
+                "group": "Examples",
                 "pages": [
-                  "guides/remote-agent",
-                  "guides/sandbox-agent",
-                  "guides/sandbox-backends"
+                  "example/claude-code-codex-plugin",
+                  "example/claude-code-codex-skill",
+                  "example/ai-agent-application",
+                  {
+                    "group": "Tier 1 Integrations",
+                    "pages": [
+                      "example/tier1-ai-sdk-v7",
+                      "example/tier1-claude-sdk",
+                      "example/tier1-codex-sdk",
+                      "example/tier1-pi-sdk",
+                      "example/tier1-langgraph"
+                    ]
+                  }
                 ]
               },
               {
@@ -149,6 +193,9 @@
                 "pages": [
                   "reference/define-eval",
                   "reference/define-agent",
+                  "reference/events",
+                  "reference/capabilities",
+                  "reference/builtin-agents",
                   "reference/define-config",
                   "reference/expect"
                 ]

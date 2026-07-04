@@ -8,3 +8,6 @@ drafts/
 
 # Scraped source content (not documentation pages)
 sources/
+
+# Agent-only writing reference, not part of the published docs surface
+docs-ref/

@@ -15,26 +15,12 @@ import type {
 } from "./types.ts";
 import { t } from "./i18n/index.ts";
 
-const SANDBOX_DEFAULT_CAPS = {
-  conversation: true,
-  toolObservability: true,
-  workspace: true,
-  sandbox: true,
-} as const;
-
-// remote / 进程内 agent 的默认能力位刻意为空(见 docs/adapters/contract.md「声明要诚实」):
-// 默认送 conversation + toolObservability 会把能力守卫全部短路 —— 一个没实现 resume 的
-// 进程内 agent,第二次 t.send 会静默当成新对话,这正是守卫最该拦的场景。
-// 能力优先由构造派生(件即能力):定义里递了 session 件(serverSession / clientHistory)
-// 即证明会话续接的动作真实存在,conversation 自动为真;显式 capabilities 仍可覆盖/补充。
-const REMOTE_DEFAULT_CAPS = {} as const;
-
 /** 沙箱型 agent:在沙箱里 spawn 一个 coding agent 的 CLI,跑完读回 transcript。 */
 export function defineSandboxAgent(def: SandboxAgentDef): Agent {
   if (!def.name) throw new Error(t("define.sandboxAgentNameRequired"));
   return {
     name: def.name,
-    capabilities: { ...SANDBOX_DEFAULT_CAPS, ...(def.capabilities ?? {}) },
+    kind: "sandbox",
     setup: def.setup,
     tracing: def.tracing,
     spanMapper: def.spanMapper,
@@ -48,12 +34,7 @@ export function defineAgent(def: RemoteAgentDef): Agent {
   if (!def.name) throw new Error(t("define.agentNameRequired"));
   return {
     name: def.name,
-    session: def.session,
-    capabilities: {
-      ...REMOTE_DEFAULT_CAPS,
-      ...(def.session ? { conversation: true } : {}),
-      ...(def.capabilities ?? {}),
-    },
+    kind: "remote",
     setup: def.setup,
     tracing: def.tracing,
     spanMapper: def.spanMapper,

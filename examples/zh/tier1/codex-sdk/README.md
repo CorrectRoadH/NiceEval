@@ -32,20 +32,21 @@ adapter 只是把这个已有的 HTTP + SSE 服务无侵入接进 niceeval，不
   `experiments/compare-models/`（`docs/origin-integration.md` 的验收清单里多模型对比只点名了
   ai-sdk-v7 / claude-sdk / pi-sdk）。
 
-## 声明的能力位
+## 接入验证过什么
 
-- `conversation: true`——已验证：`isNew` 时不带 `threadId` 开新会话、`thread.started` 帧回传的
-  `thread_id` 写回 `ctx.session.id`、非 `isNew` 时带 id 经 `codex.resumeThread` 续接同一条历史
-  （SDK 落盘在 `~/.codex/sessions`）。
-- `toolObservability: true`——已验证：每次真实的工具执行都有带 `tool_name` + `call_id` 的
-  span（`otel.codex` 方言据此派生配对的 `action.called`/`action.result`,如 run-command eval
-  断言的 `exec_command`）,覆盖完整。注意工具名是 span 上的 codex 内部名（`exec_command`）,
-  不是 `ThreadEvent` item 的 `command_execution`——两套命名来自 codex 的不同层。
-- `tracing: true` + `tracing: { scope: "run", env }`——codex CLI 原生 `otel` 配置段导出 trace
-  spans，长驻服务必须 `scope: "run"`（整个 run 共享一个接收器，默认 per-attempt 端口会在第一个
-  attempt 结束后失效）；`env` 剥掉 `/v1/traces` 尾巴，codex 自己在配置里拼。
-  `spanMapper: mapCodexSpans`（`"niceeval/adapter"` 公开导出）把 codex 自家的 span 命名归一成
-  canonical GenAI 语义,瀑布图和内置 `codexAgent` 一致。
+不需要在 `defineAgent` 上声明任何东西,能力从 `send` 实际做到的事、`events` 里出的证据自然成立:
+
+- 会话续接:新会话线不带 `threadId` 开新会话、`thread.started` 帧回传的 `thread_id` 经
+  `ctx.session.capture()` 写回,之后带 `ctx.session.id` 经 `codex.resumeThread` 续接同一条
+  历史(SDK 落盘在 `~/.codex/sessions`)。
+- 工具可观测:每次真实的工具执行都有带 `tool_name` + `call_id` 的 span(`otel.codex` 方言据此
+  派生配对的 `action.called`/`action.result`,如 run-command eval 断言的 `exec_command`),覆盖
+  完整。注意工具名是 span 上的 codex 内部名(`exec_command`),不是 `ThreadEvent` item 的
+  `command_execution`——两套命名来自 codex 的不同层。
+- trace 瀑布图:codex CLI 原生 `otel` 配置段导出 trace spans,长驻服务走固定端口模式(接收器
+  钉在 `niceeval.config.ts` 的 `telemetry.port`,应用启动时 `OTEL_EXPORTER_OTLP_ENDPOINT` 指过来,
+  见下方「跑起来」)。`spanMapper: mapCodexSpans`(`"niceeval/adapter"` 公开导出)把 codex 自家的
+  span 命名归一成 canonical GenAI 语义,瀑布图和内置 `codexAgent` 一致。
 
 ## 跑起来
 

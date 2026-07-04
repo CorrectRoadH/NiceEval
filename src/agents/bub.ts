@@ -134,7 +134,6 @@ export function bubAgent(config?: BubConfig): Agent {
 
   return defineSandboxAgent({
     name: "bub",
-    capabilities: { conversation: true, toolObservability: true, workspace: true, compactionObservability: true, tracing: true },
     spanMapper: mapBubSpans,
 
     tracing: {
@@ -187,13 +186,10 @@ export function bubAgent(config?: BubConfig): Agent {
       if (!info) throw new Error(t("bub.setupNotRun"));
       const { home, workspace } = info;
       const bubHome = `${home}/.bub`;
-      // 会话契约:isNew 开新 tape(新 sessionId),否则 resume 传入的 id。
+      // 会话契约:ctx.session.id 未记录时开新 tape(新 sessionId),否则 resume 传入的 id。
       // tape 路径由 md5(workspace)+md5(sessionId) 决定,同沙箱多会话靠 sessionId 区分。
-      const sessionId =
-        !ctx.session.isNew && ctx.session.id
-          ? ctx.session.id
-          : `fe-${sb.sandboxId}-${randomUUID().slice(0, 8)}`;
-      ctx.session.id = sessionId;
+      const sessionId = ctx.session.id ?? `fe-${sb.sandboxId}-${randomUUID().slice(0, 8)}`;
+      ctx.session.capture(sessionId);
 
       const env: Record<string, string> = {
         BUB_API_KEY: getApiKey(),

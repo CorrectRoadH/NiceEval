@@ -3,15 +3,17 @@
 // server_error,见 server.ts 头注释)。
 //
 // `AgentEvent` → 标准事件的映射是官方转换器 `fromPiAgentEvents`(`"niceeval/adapter"` 导出)
-// 的事;逐帧驱动 + HITL 挂起也是官方件(`driveFrameStream` / `pausable`)。这里只剩传输粘合:
-// 端点在哪、三种传输帧怎么处理、审批打哪个端点——不再手写循环和模块级 Map。
+// 的事;逐帧驱动 + HITL 挂起用的是官方驱动件 `driveFrameStream`,停轮现场与会话续接的状态槽
+// 都在 `ctx.session` 上——不需要模块级状态、也不需要在 `defineAgent` 上声明什么。这里只剩传输
+// 粘合:端点在哪、三种传输帧怎么处理、审批打哪个端点——不再手写循环和模块级 Map。
 // 无 OTel(pi-agent-core 没有官方集成),事件全部来自转换器。
 //
 // HITL:calculate 工具经服务端 beforeToolCall 挂审批。approval_request 帧到达时,流并不关闭——
 // 服务端把执行卡在一个 Promise 上等 POST /api/chat/approve。所以 `driveFrameStream` 在这一帧
-// 返回 `{ pause }`,`pausable()` 记住"读了一半的 SSE 流"(连同转换器状态);下一次 send
-// (即 t.respond)先打 approve 端点、再继续读同一条流到结束——不重新发 /api/chat。
-import { defineAgent, sseJsonFrames, fromPiAgentEvents, driveFrameStream, pausable, serverSession } from "niceeval/adapter";
+// 返回 `{ pause }`,`ctx.session.hold()` 记住"读了一半的 SSE 流"(连同转换器状态);下一次 send
+// (即 t.respond)先打 approve 端点、再继续读同一条流到结束——不重新发 /api/chat。`ctx.session.take()`
+// 取到即清除,一次消费。
+import { defineAgent, sseJsonFrames, fromPiAgentEvents, driveFrameStream } from "niceeval/adapter";
 import type { AgentContext, PiAgentStream, SseFrameCursor } from "niceeval/adapter";
 import type { JsonValue, Turn, TurnInput } from "niceeval";
 import type { AgentEvent } from "@earendil-works/pi-agent-core";
@@ -47,18 +49,17 @@ interface Pending {
   readonly stream: PiAgentStream;
   readonly toolCallId: string;
 }
-const pendingApprovals = pausable<Pending>();
-// 会话续接走「服务端记历史」范式:请求带 session.id(ctx),回传的 sessionId 用 capture 写回。
-const session = serverSession();
 
 function readStream(cursor: SseFrameCursor<PiFrame>, ctx: AgentContext, stream: PiAgentStream): Promise<Turn> {
   return driveFrameStream(cursor, stream, ctx, (frame) => {
     if (frame.type === "session") {
-      session.capture(ctx, frame.sessionId);
+      // 会话续接走「服务端记历史」范式:回传的 sessionId 用 ctx.session.capture 写回,
+      // 只在还没记过时落地(first-writer-wins)。
+      ctx.session.capture(frame.sessionId);
       return;
     }
     if (frame.type === "approval_request") {
-      pendingApprovals.hold(ctx, { cursor, stream, toolCallId: frame.toolCallId });
+      ctx.session.hold<Pending>({ cursor, stream, toolCallId: frame.toolCallId });
       return {
         pause: { id: frame.toolCallId, action: frame.toolName, input: frame.args as JsonValue, options: [{ id: "approve" }, { id: "deny" }] },
       };
@@ -68,9 +69,11 @@ function readStream(cursor: SseFrameCursor<PiFrame>, ctx: AgentContext, stream: 
 }
 
 async function send(input: TurnInput, ctx: AgentContext): Promise<Turn> {
-  const pending = pendingApprovals.take(ctx);
+  const pending = ctx.session.take<Pending>();
   if (pending) {
-    const approved = input.text.trim().toLowerCase() === "approve";
+    // 按 requestId(挂起的 toolCallId)从 input.responses 里对位取裁决,不从 text 猜;
+    // 这里每次只挂一条审批,取第一条即可——多请求并停时按 requestId 对位。
+    const approved = input.responses?.[0]?.optionId === "approve";
     if (!approved) pending.stream.markRejected(pending.toolCallId);
     const approveRes = await appFetch("/api/chat/approve", { toolUseId: pending.toolCallId, approved }, ctx.signal);
     if (!approveRes.ok) {
@@ -81,7 +84,7 @@ async function send(input: TurnInput, ctx: AgentContext): Promise<Turn> {
 
   const res = await appFetch(
     "/api/chat",
-    { message: input.text, sessionId: session.id(ctx) },
+    { message: input.text, sessionId: ctx.session.id },
     ctx.signal,
   );
   if (!res.ok || !res.body) {
@@ -92,13 +95,5 @@ async function send(input: TurnInput, ctx: AgentContext): Promise<Turn> {
 
 export default defineAgent({
   name: "pi-sdk",
-  capabilities: {
-    // 验证过:isNew 时不带 sessionId 开新会话、server.ts 回传的 sessionId 写回 ctx.session.id、
-    // 非 isNew 时带 id 续接同一条服务端内存历史(见 evals/session-isolation.eval.ts)。
-    conversation: true,
-    // 验证过:get_weather / calculate 每次调用都有配对的 tool_execution_start → action.called、
-    // tool_execution_end → action.result,无遗漏(映射见 fromPiAgentEvents)。
-    toolObservability: true,
-  },
   send,
 });

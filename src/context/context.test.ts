@@ -1,17 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { createEvalContext } from "./context.ts";
 import { includes } from "../expect/index.ts";
-import type { Agent, AgentContext, Sandbox, StreamEvent, Turn, TurnInput } from "../types.ts";
+import type { Agent, AgentContext, InputRequest, Sandbox, StreamEvent, Turn, TurnInput } from "../types.ts";
 
 // 计算工具 + 最终回复"1 + 1 = **2** 哦!😊"——复现截图里的场景:助手回复明明包含 "2",
 // 但 t.check(t.reply, includes("2")) 却失败。
 function calculatorAgent(): Agent {
   return {
     name: "calculator",
-    // 测试注入了真实的 fake sandbox,声明 sandbox 能力让 t.sandbox 过能力守卫。
-    capabilities: { conversation: true, toolObservability: true, sandbox: true },
+    // 测试注入了真实的 fake sandbox,kind: "sandbox" 让 t.sandbox 过沙箱能力守卫。
+    kind: "sandbox",
     async send(_input: TurnInput, ctx: AgentContext): Promise<Turn> {
-      ctx.session.id = "sess-1";
+      ctx.session.capture("sess-1");
       const events: StreamEvent[] = [
         { type: "action.called", callId: "c1", name: "calculate", input: { expr: "1+1" }, tool: undefined },
         { type: "action.result", callId: "c1", output: { result: 2 }, status: "completed" },
@@ -135,6 +135,158 @@ describe("createEvalContext / TestContext live state", () => {
 
     expect(sandbox.calls.uploadDirectory).toEqual([
       ["/repo/evals/fixtures/app", "src"],
+    ]);
+  });
+});
+
+// agent 按调用次数依次吐出预设的 Turn 序列,同时记下每次收到的 TurnInput——
+// 用来断言 t.respond()/t.respondAll() 到 adapter 的 input.responses 长什么样。
+function scriptedAgent(turns: Turn[]): Agent & { received: TurnInput[] } {
+  const received: TurnInput[] = [];
+  let i = 0;
+  const agent: Agent = {
+    name: "scripted",
+    kind: "remote",
+    async send(input: TurnInput) {
+      received.push(input);
+      const turn = turns[Math.min(i, turns.length - 1)] as Turn;
+      i++;
+      return turn;
+    },
+  };
+  return Object.assign(agent, { received });
+}
+
+function waitingTurn(...requests: InputRequest[]): Turn {
+  return {
+    status: "waiting",
+    events: requests.map((request) => ({ type: "input.requested" as const, request })),
+  };
+}
+
+function completedTurn(text = "ok"): Turn {
+  return { status: "completed", events: [{ type: "message", role: "assistant", text }] };
+}
+
+describe("t.respond() / t.respondAll(): structured InputResponse", () => {
+  it("string arg hitting a pending request's option becomes { requestId, optionId }", async () => {
+    const agent = scriptedAgent([
+      waitingTurn({ id: "req_1", action: "send_email", options: [{ id: "approve" }, { id: "deny" }] }),
+      completedTurn(),
+    ]);
+    const { context } = makeContext(agent);
+    await context.send("draft an email");
+    await context.respond("approve");
+
+    expect(agent.received[1]?.text).toBe("approve");
+    expect(agent.received[1]?.responses).toEqual([{ requestId: "req_1", optionId: "approve" }]);
+  });
+
+  it("string arg that matches no option becomes free-text { requestId, text }", async () => {
+    const agent = scriptedAgent([
+      waitingTurn({ id: "req_1", action: "send_email", options: [{ id: "approve" }, { id: "deny" }] }),
+      completedTurn(),
+    ]);
+    const { context } = makeContext(agent);
+    await context.send("draft an email");
+    await context.respond("change the recipient to ceo@corp.com");
+
+    expect(agent.received[1]?.responses).toEqual([
+      { requestId: "req_1", text: "change the recipient to ceo@corp.com" },
+    ]);
+  });
+
+  it("string arg throws a clear error when multiple requests are pending (needs object form to disambiguate)", async () => {
+    const agent = scriptedAgent([
+      waitingTurn(
+        { id: "req_1", action: "edit_a", options: [{ id: "approve" }, { id: "deny" }] },
+        { id: "req_2", action: "edit_b", options: [{ id: "approve" }, { id: "deny" }] },
+      ),
+      completedTurn(),
+    ]);
+    const { context } = makeContext(agent);
+    await context.send("apply two edits");
+
+    await expect(context.respond("approve")).rejects.toThrow(/字符串回答无法对位|cannot be matched/);
+  });
+
+  it("object form { request, optionId } disambiguates when multiple requests are pending", async () => {
+    const agent = scriptedAgent([
+      waitingTurn(
+        { id: "req_1", action: "edit_a", options: [{ id: "approve" }, { id: "deny" }] },
+        { id: "req_2", action: "edit_b", options: [{ id: "approve" }, { id: "deny" }] },
+      ),
+      completedTurn(),
+    ]);
+    const { context } = makeContext(agent);
+    await context.send("apply two edits");
+    const req2 = context.requireInputRequest({ action: "edit_b" });
+    await context.respond({ request: req2, optionId: "deny" });
+
+    expect(agent.received[1]?.text).toBe("deny");
+    expect(agent.received[1]?.responses).toEqual([{ requestId: "req_2", optionId: "deny" }]);
+  });
+
+  it("object form with an optionId not present in the request's options throws instead of silently forwarding", async () => {
+    const agent = scriptedAgent([
+      waitingTurn({ id: "req_1", action: "send_email", options: [{ id: "approve" }, { id: "deny" }] }),
+      completedTurn(),
+    ]);
+    const { context } = makeContext(agent);
+    await context.send("draft an email");
+    const req = context.requireInputRequest();
+
+    await expect(context.respond({ request: req, optionId: "yolo" })).rejects.toThrow(/req_1/);
+    // 校验先于发送:没有第二次 send 发生。
+    expect(agent.received.length).toBe(1);
+  });
+
+  it("respondAll(optionId) answers every pending request and joins input.text with \\n", async () => {
+    const agent = scriptedAgent([
+      waitingTurn(
+        { id: "req_1", action: "edit_a", options: [{ id: "approve" }, { id: "deny" }] },
+        { id: "req_2", action: "edit_b", options: [{ id: "approve" }, { id: "deny" }] },
+      ),
+      completedTurn(),
+    ]);
+    const { context } = makeContext(agent);
+    await context.send("apply two edits");
+    await context.respondAll("approve");
+
+    expect(agent.received[1]?.text).toBe("approve\napprove");
+    expect(agent.received[1]?.responses).toEqual([
+      { requestId: "req_1", optionId: "approve" },
+      { requestId: "req_2", optionId: "approve" },
+    ]);
+  });
+
+  it("respondAll(optionId) validates the option against every pending request before sending anything", async () => {
+    const agent = scriptedAgent([
+      waitingTurn(
+        { id: "req_1", action: "edit_a", options: [{ id: "approve" }, { id: "deny" }] },
+        { id: "req_2", action: "edit_b", options: [{ id: "yes" }, { id: "no" }] },
+      ),
+      completedTurn(),
+    ]);
+    const { context } = makeContext(agent);
+    await context.send("apply two edits");
+
+    await expect(context.respondAll("approve")).rejects.toThrow(/req_2/);
+    expect(agent.received.length).toBe(1);
+  });
+
+  it("TurnInput.responses reaches the adapter unchanged (not derived/guessed on the adapter side)", async () => {
+    const agent = scriptedAgent([
+      waitingTurn({ id: "req_1", action: "send_email", options: [{ id: "approve" }, { id: "deny" }] }),
+      completedTurn(),
+    ]);
+    const { context } = makeContext(agent);
+    await context.send("draft an email");
+    const req = context.requireInputRequest();
+    await context.respond({ request: req, text: "wait, add a subject line first" });
+
+    expect(agent.received[1]?.responses).toEqual([
+      { requestId: "req_1", text: "wait, add a subject line first" },
     ]);
   });
 });

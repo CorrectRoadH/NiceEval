@@ -1,19 +1,19 @@
-// 官方的「拼装方式」件:把一个手写 send 里反复出现的三类事收成可复用的小东西,
+// 官方的「拼装方式」件:把一个手写 send 里反复出现的事收成可复用的小东西,
 // 而不是每接一个新后端就重写一遍循环 + Map + if/else。
 //
-// 背景(见 docs/adapters/authoring.md「三段式」一节):一轮交互里真正互不相干的事只有三类——
+// 背景(见 docs-site/zh/guides/write-send.mdx):一轮交互里真正互不相干的事只有几类——
 //   1. 怎么把输入发出去(transport)——真做不掉,adapter 只写这个;
 //   2. 原始数据怎么变成 StreamEvent[]——按数据到达形状分「整段落地」(sdk-streams.ts 的
 //      fromXxxEvents,已有)和「逐 token / 逐参数增量」(deltaStream,这里新增)两种官方 reducer;
-//   3. 会话续接(serverSession / clientHistory)与 HITL 暂停恢复(pausable)——这两件事完全是
-//      控制流层面的模式,和任何具体协议无关,之前每个 adapter 都在手写一份「Map<sessionId,…>
-//      + 下一轮先看是不是在等审批」,这里收成官方件。
+//   3. 会话续接与 HITL 暂停恢复——这两件事完全是控制流层面的模式,和任何具体协议无关,
+//      存取器直接挂在 ctx.session 上(history()/id+capture()、hold()/take()),adapter 取用即可,
+//      不需要额外声明什么(见 src/context/session.ts 的 createAgentSession)。
 //
 // driveFrameStream 把「逐帧喂 reducer + 处理特殊传输帧 + 检测 HITL 暂停信号」这个循环收成
 // 一个函数——claude-sdk / codex-sdk / pi-sdk 三个示例里几乎相同的 drainStream,现在只需要
 // 传一个 onFrame 钩子声明「这一帧要不要额外处理」,不用每次重写循环本身。
 
-import type { AgentContext, InputRequest, JsonValue, SessionPiece, StreamEvent, Turn, Usage } from "../types.ts";
+import type { AgentContext, InputRequest, JsonValue, StreamEvent, Turn, Usage } from "../types.ts";
 import type { SseFrameCursor } from "./sdk-streams.ts";
 
 // ───────────────────────── driveFrameStream:通用逐帧驱动循环 ─────────────────────────
@@ -39,8 +39,8 @@ export type FrameHook<Frame> = (
 
 /**
  * 逐帧驱动一个 reducer,直到流结束或命中 `onFrame` 的暂停信号。
- * 暂停时不关闭 cursor——调用方（多半配 `pausable()`）留着它,下一轮直接接着读同一条流,
- * 不重新发起请求。
+ * 暂停时不关闭 cursor——调用方多半用 `ctx.session.hold(cursor)` 存住它,回答轮
+ * `ctx.session.take()` 取回,下一轮直接接着读同一条流,不重新发起请求。
  *
  * reducer 的帧类型(`RFrame`)允许只覆盖流(`Frame`)的一个子集:adapter 常在 SDK 原生帧之外
  * 混入自己的传输帧(session / server_error…),这些由 `onFrame` 处理,reducer 对认不出的帧
@@ -77,102 +77,9 @@ export async function driveFrameStream<Frame, RFrame = Frame>(
   return { status: transportFailed || reducer.failed ? "failed" : "completed", events, usage: reducer.usage };
 }
 
-// ───────────────────────── pausable:HITL 挂起状态,不用手写 Map ─────────────────────────
-
-export interface Pausable<TState> {
-  /** 有没有一条挂起的等待线,取到就立即清除(下一轮 `t.respond` 只消费一次)。 */
-  take(ctx: AgentContext): TState | undefined;
-  /** 记一条挂起状态,供下一轮 `take()` 取回。 */
-  hold(ctx: AgentContext, state: TState): void;
-}
-
-/**
- * `t.respond(...)` 对 adapter 而言就是一次带 resume 的普通 `send`——adapter 自己要认出
- * "这轮是不是在接上次挂起的地方"。挂起状态锚在本会话线的 `ctx.session.state` 上
- * (WeakMap 按 state 对象取存):随线创建、随线丢弃,天然隔离——不要求后端有会话 id
- * (服务端无状态的接口也能停轮),也没有跨 attempt 泄漏的模块级 Map。
- */
-export function pausable<TState>(): Pausable<TState> {
-  const held = new WeakMap<object, TState>();
-  return {
-    take(ctx) {
-      const state = held.get(ctx.session.state);
-      if (state !== undefined) held.delete(ctx.session.state);
-      return state;
-    },
-    hold(ctx, state) {
-      held.set(ctx.session.state, state);
-    },
-  };
-}
-
-// ───────────────────────── serverSession:会话续接,服务端存历史 ─────────────────────────
-
-export interface ServerSession extends SessionPiece {
-  readonly kind: "serverSession";
-  /** 这轮请求该带的会话 id:本线记过才有,新会话线一律 `undefined`(空 state 的自然结果)。 */
-  id(ctx: AgentContext): string | undefined;
-  /**
-   * 后端回传了会话 id 就调一次:只在这条会话线还没记过时才落地(first-writer-wins),
-   * 防止续接轮被后端返回的(可能因 fork 而变化的)id 意外覆盖。
-   */
-  capture(ctx: AgentContext, id: string | undefined): void;
-}
-
-/**
- * 会话续接的两种标准范式之一:**服务端记历史**——接口收一个会话 id(各 SDK 的原生
- * session / thread、OpenAI Responses API 都是),客户端只带 id 不带历史。
- * 和 {@link clientHistory}(另一种范式:客户端带全量历史)形状对称:模块级声明一个
- * 策略对象,send 里各调一对方法——发请求时带 `session.id(ctx)`,拿到回传 id 时
- * `session.capture(ctx, id)` 写回。id 锚在本会话线的 `ctx.session.state` 上,
- * "第一轮不带 id"是空 state 的自然结果,不需要检查 isNew;把这个对象递给
- * `defineAgent({ session })` 即声明多轮能力。
- */
-export function serverSession(): ServerSession {
-  const captured = new WeakMap<object, string>();
-  return {
-    kind: "serverSession",
-    id(ctx) {
-      return captured.get(ctx.session.state);
-    },
-    capture(ctx, id) {
-      if (!id || captured.has(ctx.session.state)) return;
-      captured.set(ctx.session.state, id);
-      if (!ctx.session.id) ctx.session.id = id; // 镜像到旧字段:t.sessionId / 报告仍能看到真实后端 id
-    },
-  };
-}
-
-// ───────────────────────── clientHistory:会话续接,客户端带全量历史 ─────────────────────────
-
-export interface ClientHistory<TMsg> extends SessionPiece {
-  readonly kind: "clientHistory";
-  /** 取这条会话线目前存的历史;新会话线是空数组(空 state 的自然结果,不需要检查 isNew)。 */
-  get(ctx: AgentContext): TMsg[];
-  /** 这轮结束后,把最新的完整消息列表写回,供下一轮 `get()` 用。 */
-  commit(ctx: AgentContext, messages: TMsg[]): void;
-}
-
-/**
- * 服务端无状态、每轮要发完整历史的后端(OpenAI Chat Completions 这类)通用的会话存储。
- * `uiMessageStreamAgent` 内部就是这个模式的一个特化(`TMsg = UIMessageLike`)——这里把它
- * 从协议里解耦出来,任何自己的消息类型都能用。历史锚在本会话线的 `ctx.session.state` 上,
- * 不伪造会话 id、不用模块级 Map;把这个对象递给 `defineAgent({ session })` 即声明多轮能力。
- * 存/取只关心"这条会话线的完整消息数组",至于"新一轮该怎么从旧历史生成新历史"
- * (追加一条 user 消息、还是原地改写最后一条做 HITL 续跑)留给调用方,因为这一步天然是协议特定的。
- */
-export function clientHistory<TMsg>(): ClientHistory<TMsg> {
-  const lines = new WeakMap<object, TMsg[]>();
-  return {
-    kind: "clientHistory",
-    get(ctx) {
-      return lines.get(ctx.session.state) ?? [];
-    },
-    commit(ctx, messages) {
-      lines.set(ctx.session.state, messages);
-    },
-  };
-}
+// 会话续接(id/capture、history)与 HITL 停轮现场(hold/take)不再是这里的可选「拼装件」——
+// 它们是 ctx.session(AgentSession)本身的存取器,任何 adapter 直接取用,不需要额外声明什么。
+// 见 docs-site/zh/concepts/adapter.mdx 与 src/context/session.ts 的 createAgentSession。
 
 // ───────────────────────── deltaStream:逐 token / 逐参数增量累加器 ─────────────────────────
 

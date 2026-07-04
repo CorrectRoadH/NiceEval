@@ -21,7 +21,9 @@ import type {
   InputFile,
   InputRequest,
   InputRequestFilter,
+  InputResponse,
   JudgeConfig,
+  RespondAnswer,
   Sandbox,
   SandboxHandle,
   ScoringContext,
@@ -71,37 +73,16 @@ export interface ContextDeps {
 }
 
 /**
- * 能力守卫:agent 没声明某能力位时,对应的 `t` 动作一被调用就报清晰错误。
- * 没有这层,缺能力的动作会静默失真(如无 toolObservability 时 notCalledTool 恒通过)——
- * 这是契约文档点名「最危险」的失败模式,声明必须被强制。
+ * 沙箱能力守卫:非沙箱型 agent(kind !== "sandbox")调文件系统类断言就报清晰错误。
+ * 这是唯一仍需要构造证据之外强制检查的能力——`t.file`/`t.fileChanged()` 等直接读沙箱
+ * 文件系统,没有沙箱就没有东西可读,不报错会静默返回空结果。其余能力(多轮对话、
+ * 工具断言……)都不再问卷式声明,由「做没做到」的构造证据决定,见
+ * docs-site/zh/concepts/adapter.mdx「能力从哪来」一节。
  */
 function capabilityGuard(agentName: string, cap: string, method: string): () => never {
   return () => {
     throw new Error(t("context.capabilityMissing", { agent: agentName, cap, method }));
   };
-}
-
-/** 读工具事件的作用域断言 —— 没有 toolObservability 时事件流里根本没有工具事件,负断言会假通过。 */
-const TOOL_ASSERT_METHODS = [
-  "calledTool",
-  "notCalledTool",
-  "toolOrder",
-  "usedNoTools",
-  "maxToolCalls",
-  "noFailedActions",
-  "calledSubagent",
-  "loadedSkill",
-] as const;
-
-/** 给 session / turn 句柄补同一套守卫(t 级守卫盖不到 newSession() 和 turn 句柄)。 */
-function guardToolAsserts<T extends object>(handle: T, agent: Agent): T {
-  if (agent.capabilities.toolObservability) return handle;
-  for (const m of TOOL_ASSERT_METHODS) {
-    if (m in handle) {
-      (handle as Record<string, unknown>)[m] = capabilityGuard(agent.name, "toolObservability", m);
-    }
-  }
-  return handle;
 }
 
 export function createEvalContext(deps: ContextDeps): { context: TestContext; state: ContextState } {
@@ -208,20 +189,30 @@ export function createEvalContext(deps: ContextDeps): { context: TestContext; st
       sendFile: async (path, text) =>
         makeTurnHandle(await manager.send(session, text ?? "", [await readInputFile(path)]), collector, deps, text ?? ""),
       requireInputRequest: (filter) => requireInputRequest(session, filter),
-      respond: async (...responses) => {
-        if (responses.length === 0) throw new Error("respond() requires at least one response");
+      respond: async (...answers) => {
+        if (answers.length === 0) throw new Error(t("hitl.respondEmpty"));
+        const built = buildRespondInput(session, answers);
         session.pendingInputRequests.length = 0;
-        const input = responses.join("\n");
-        return makeTurnHandle(await manager.send(session, input), collector, deps, input);
+        return makeTurnHandle(
+          await manager.send(session, built.text, undefined, built.responses),
+          collector,
+          deps,
+          built.text,
+        );
       },
       respondAll: async (optionId) => {
         if (session.pendingInputRequests.length === 0) {
-          throw new Error("respondAll() requires at least one pending input request");
+          throw new Error(t("hitl.respondAllEmpty"));
         }
-        const responses = session.pendingInputRequests.map(() => optionId);
+        const requests = session.pendingInputRequests.slice();
+        for (const request of requests) validateOptionId(request, optionId);
+        const responses: InputResponse[] = requests.map((request) => ({
+          requestId: requireRequestId(request),
+          optionId,
+        }));
         session.pendingInputRequests.length = 0;
-        const input = responses.join("\n");
-        return makeTurnHandle(await manager.send(session, input), collector, deps, input);
+        const input = requests.map(() => optionId).join("\n");
+        return makeTurnHandle(await manager.send(session, input, undefined, responses), collector, deps, input);
       },
       get reply() {
         return session.lastMessage;
@@ -256,36 +247,17 @@ export function createEvalContext(deps: ContextDeps): { context: TestContext; st
         return makeJudge(session);
       },
     };
-    return guardToolAsserts(handle, deps.agent);
+    return handle;
   }
 
   const primary = makeSessionHandle(manager.primary);
 
-  // 能力守卫:按 agent 声明的能力位,把缺失能力对应的动作替换成「一调用就报清晰错误」。
-  const caps = deps.agent.capabilities;
+  // 沙箱能力守卫:非沙箱型 agent(kind !== "sandbox")把文件系统类动作替换成「一调用就报清晰错误」。
+  // 其余能力(多轮对话、工具断言……)不再问卷式声明——没接 ctx.session 续接存取器的 agent
+  // 每轮各是新对话,没吐 action.* 事件的 agent 上正断言自然不命中,负断言按事件完整性证明
+  // 提示可信度,都不需要在这里拦。
   const guards: Record<string, unknown> = {};
-  if (!caps.conversation) {
-    // 单轮收发不需要 conversation(T0 agent 也能 send 一次);gate 的是「第二轮起」
-    // 的多轮语义 —— 没实现 resume 的 agent 会把第二次 send 静默当成新对话。
-    let turns = 0;
-    const guardSecondTurn = <A extends unknown[], R>(method: string, fn: (...args: A) => R) =>
-      (...args: A): R => {
-        turns += 1;
-        if (turns > 1) capabilityGuard(deps.agent.name, "conversation", method)();
-        return fn(...args);
-      };
-    guards.send = guardSecondTurn("send", primary.send);
-    guards.sendFile = guardSecondTurn("sendFile", primary.sendFile);
-    for (const m of ["respond", "respondAll", "requireInputRequest", "newSession"]) {
-      guards[m] = capabilityGuard(deps.agent.name, "conversation", m);
-    }
-  }
-  if (!caps.toolObservability) {
-    for (const m of TOOL_ASSERT_METHODS) {
-      guards[m] = capabilityGuard(deps.agent.name, "toolObservability", m);
-    }
-  }
-  if (!caps.sandbox) {
+  if (deps.agent.kind !== "sandbox") {
     for (const m of ["file", "fileChanged", "fileDeleted", "notInDiff", "noFailedShellCommands"]) {
       guards[m] = capabilityGuard(deps.agent.name, "sandbox", m);
     }
@@ -453,7 +425,7 @@ function makeTurnHandle(turn: Turn, collector: AssertionCollector, deps: Context
       signal: deps.signal,
     }),
   };
-  return guardToolAsserts(handle, deps.agent);
+  return handle;
 }
 
 function conversationText(events: readonly StreamEvent[]): string {
@@ -469,6 +441,70 @@ function requireInputRequest(session: RunSession, filter?: InputRequestFilter): 
     throw new Error(`Expected exactly one pending input request, found ${matches.length}`);
   }
   return matches[0] as InputRequest;
+}
+
+/** InputRequest.id 是 InputResponse.requestId 的唯一来源;adapter 没给稳定 id 就没法对位。 */
+function requireRequestId(request: InputRequest): string {
+  if (!request.id) throw new Error(t("hitl.requestMissingId"));
+  return request.id;
+}
+
+/** optionId 必须命中 request.options 里的某个 id,写错直接抛,不会静默传给应用。 */
+function validateOptionId(request: InputRequest, optionId: string): void {
+  const optionIds = (request.options ?? []).map((o) => o.id);
+  if (!optionIds.includes(optionId)) {
+    throw new Error(
+      t("hitl.invalidOption", {
+        optionId,
+        requestId: request.id ?? "?",
+        options: optionIds.length > 0 ? optionIds.join(" / ") : t("hitl.noOptions"),
+      }),
+    );
+  }
+}
+
+/**
+ * t.respond(...) 的每个参数翻成一条 InputResponse + 拼进 input.text 的那一小段文本。
+ * 字符串形式只在恰好一条待处理请求时才能自动对位——命中该请求 options 里的某个 id 就是
+ * optionId,否则整句落自由文本;多个请求并停时字符串形式无法消歧,直接抛错,要求改用
+ * `{ request, optionId }` / `{ request, text }` 对象形式显式指名。
+ */
+function buildRespondInput(
+  session: RunSession,
+  answers: readonly (string | RespondAnswer)[],
+): { text: string; responses: InputResponse[] } {
+  const pieces: string[] = [];
+  const responses: InputResponse[] = [];
+  for (const answer of answers) {
+    if (typeof answer === "string") {
+      const resolved = resolveStringAnswer(session, answer);
+      pieces.push(answer);
+      responses.push(resolved);
+    } else {
+      const requestId = requireRequestId(answer.request);
+      if (answer.optionId !== undefined) {
+        validateOptionId(answer.request, answer.optionId);
+        pieces.push(answer.optionId);
+        responses.push({ requestId, optionId: answer.optionId });
+      } else if (answer.text !== undefined) {
+        pieces.push(answer.text);
+        responses.push({ requestId, text: answer.text });
+      } else {
+        throw new Error(t("hitl.answerNeedsOptionOrText"));
+      }
+    }
+  }
+  return { text: pieces.join("\n"), responses };
+}
+
+function resolveStringAnswer(session: RunSession, raw: string): InputResponse {
+  const pending = session.pendingInputRequests;
+  if (pending.length === 0) throw new Error(t("hitl.respondAllEmpty"));
+  if (pending.length > 1) throw new Error(t("hitl.stringAmbiguous", { count: pending.length }));
+  const request = pending[0] as InputRequest;
+  const requestId = requireRequestId(request);
+  const optionIds = new Set((request.options ?? []).map((o) => o.id));
+  return optionIds.has(raw) ? { requestId, optionId: raw } : { requestId, text: raw };
 }
 
 function inputRequestMatches(request: InputRequest, filter?: InputRequestFilter): boolean {

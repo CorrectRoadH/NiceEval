@@ -51,18 +51,21 @@ adapter 只是把这个已有的 HTTP + SSE 服务无侵入接进 niceeval，不
 - `experiments/langgraph.ts`：单配置基线。没有 `compare-models/`——
   `docs/origin-integration.md` 的验收清单里多模型对比只点名了 ai-sdk-v7 / claude-sdk / pi-sdk。
 
-## 声明的能力位
+## 能力从哪来
 
-- `conversation: true`——已验证：`isNew` 时不带 `sessionId` 开新会话、`session` 帧回传的
-  `sessionId` 写回 `ctx.session.id`、非 `isNew` 时带 id 续接同一条历史（LangGraph
-  `InMemorySaver`，进程存活期间有效）。
-- `toolObservability: true`——已验证：`get_weather` / `calculate` 每次调用都有配对的
+能力不是声明出来的，是构造证明——做到了就是有，不需要在 `defineAgent` 上额外填字段：
+
+- 多轮续接、`t.newSession()` 隔离——已验证：新会话线（`ctx.session.id` 是 `undefined`）不带
+  `sessionId` 开新会话、`session` 帧回传的 `sessionId` 经 `ctx.session.capture` 写回
+  `ctx.session.id`、已有 id 的会话线带 id 续接同一条历史（LangGraph `InMemorySaver`，进程
+  存活期间有效）。
+- `t.calledTool()` 等工具断言——已验证：`get_weather` / `calculate` 每次调用都有配对的
   `action.called`/`action.result`（前者纯 span 派生，后者 approve 分支走 span、deny 分支走
   adapter 手动补，见上面「目录」的说明），无遗漏。
-- `tracing`（proven by 声明了 `tracing` 块 + `events: otelEvents()`，不用重复写
-  `capabilities.tracing`）——`tracing.env` 给完整路径（**和 codex-sdk/ai-sdk-v7 相反**，那两个
-  应用自己拼 `/v1/traces` 尾巴，这里 Python `langsmith` SDK 直接把这个值当完整 endpoint 用），
-  同时注入三个 `LANGSMITH_*` 开关 + `OTEL_BSP_SCHEDULE_DELAY`。
+- `EvalResult.trace`、`niceeval view` 瀑布图——证据就是 `events: otelEvents({ dialects:
+  [otel.langsmith] })` 本身，不需要额外声明。`tracing.env` 给完整路径（**和 codex-sdk/ai-sdk-v7
+  相反**，那两个应用自己拼 `/v1/traces` 尾巴，这里 Python `langsmith` SDK 直接把这个值当完整
+  endpoint 用），同时注入三个 `LANGSMITH_*` 开关 + `OTEL_BSP_SCHEDULE_DELAY`。
 
 ## HITL
 

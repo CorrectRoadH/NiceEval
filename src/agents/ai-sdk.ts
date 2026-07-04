@@ -17,7 +17,7 @@ import { randomUUID } from "node:crypto";
 
 import { defineAgent } from "../define.ts";
 import { normalizeToolName as normalizeShared } from "../o11y/tool-names.ts";
-import type { Agent, AgentCapabilities, InputRequest, JsonValue, StreamEvent, ToolName, Usage } from "../types.ts";
+import type { Agent, InputRequest, InputResponse, JsonValue, StreamEvent, ToolName, Usage } from "../types.ts";
 
 // ───────────────────────── AI SDK 结果的形状子集 ─────────────────────────
 
@@ -367,7 +367,7 @@ export interface AiSdkGenerateContext<M = unknown> {
   readonly signal: AbortSignal;
   readonly flags: Readonly<Record<string, unknown>>;
   /**
-   * 声明了 capabilities.tracing 才有:直接放进 generateText / streamText 的 `telemetry`
+   * 开了 `tracing: true` 才有:直接放进 generateText / streamText 的 `telemetry`
    * 选项。OTel provider、per-attempt 端点绑定和轮末 flush 都由工厂做,应用侧原样透传即可。
    */
   readonly telemetry?: AiSdkTelemetrySettings;
@@ -384,8 +384,14 @@ export interface AiSdkTelemetrySettings {
 export interface AiSdkAgentOptions<M = unknown> {
   /** agent 名(报告 / 结果聚合的身份)。默认 "ai-sdk"。 */
   name?: string;
-  /** 附加能力位(如 `{ tracing: true }`);conversation + toolObservability 恒开(工厂真做到)。 */
-  capabilities?: AgentCapabilities;
+  /**
+   * 开 OTel 管线(拿 `niceeval view` 的瀑布图)。true 时运行器为这个 agent 开一个
+   * per-attempt OTLP 接收器,`ctx.telemetry` 才会出现;工厂据此建好绑定接收端点的
+   * `@ai-sdk/otel` 集成(经 `generate` 的 ctx.telemetry 交给应用,原样透传给
+   * generateText / streamText 的 `telemetry` 选项即可)。省略或 false 则整个 OTel
+   * 管线不开,`generate` 拿到的 `telemetry` 恒为 undefined,应用侧零开销。
+   */
+  tracing?: boolean;
   /**
    * 每轮一召:拿会话历史跑一次 generateText / streamText(await 完整结果)并原样返回。
    * model / tools / system prompt / stopWhen 都在这里配 —— 那是应用的事,工厂不掺和。
@@ -395,7 +401,7 @@ export interface AiSdkAgentOptions<M = unknown> {
   data?(result: AiSdkResultLike, turn: AiSdkTurn): unknown;
   /**
    * 可选双发:tracing 的 span 除发给 niceeval 的接收器外,同一批也发到你自己的 OTLP
-   * 后端(Langfuse / SigNoz / 生产 collector)。只在声明了 capabilities.tracing 时生效。
+   * 后端(Langfuse / SigNoz / 生产 collector)。只在 `tracing: true` 时生效。
    */
   otlpBackendUrl?: string;
 }
@@ -404,15 +410,16 @@ export interface AiSdkAgentOptions<M = unknown> {
  * 内建的 AI SDK 进程内 agent 工厂:把「一个 generateText 调用」变成完整的 niceeval agent。
  * 应用只写 `generate`(怎么召模型),协议侧的活全部由工厂承担:
  *
- *   · 多轮会话:isNew 开新会话线并回写 id,同一 id 续接同一份 messages 历史;
+ *   · 多轮会话:ctx.session.id 未记录时开新会话线并 capture 回写,同一 id 续接同一份
+ *     messages 历史;
  *   · 事件流:结果经 {@link fromAiSdk} 直构(toolCallId 配对、时序保真、usage);
  *   · HITL:`needsApproval` 工具停轮 → `waiting` + `input.requested`;下一轮输入按行翻译成
  *     tool-approval-response(以 approve / yes / 同意 / 批准 开头 = 批准,其余一律拒绝)塞回
  *     messages 再召 `generate`,SDK 才会执行(或跳过)被拦的工具;
  *   · 失败兜底:`generate` 抛错或结果完全为空 → `status: "failed"` + error 事件;
- *   · tracing:声明 `capabilities: { tracing: true }` 后,工厂替应用做完 OTel 管线——为每轮
- *     建好绑定 niceeval 接收端点的 `@ai-sdk/otel` 集成(经 ctx.telemetry 交给 generate,
- *     原样透传给 generateText 的 `telemetry` 即可)并在轮末 flush;`otlpBackendUrl` 可选
+ *   · tracing:开 `tracing: true` 后,工厂替应用做完 OTel 管线——为每轮建好绑定 niceeval
+ *     接收端点的 `@ai-sdk/otel` 集成(经 ctx.telemetry 交给 generate,原样透传给
+ *     generateText 的 `telemetry` 即可)并在轮末 flush;`otlpBackendUrl` 可选
  *     双发到你自己的观测后端。应用侧零埋点代码。
  *
  * ```typescript
@@ -430,12 +437,12 @@ export interface AiSdkAgentOptions<M = unknown> {
  */
 let otelModule: Promise<typeof import("./ai-sdk-otel.ts")> | undefined;
 
-/** OTel 管线按需加载:三个 OTel 包是可选 peer,只有声明 tracing 的用户需要装。 */
+/** OTel 管线按需加载:三个 OTel 包是可选 peer,只有开了 tracing 的用户需要装。 */
 function loadOtel(): Promise<typeof import("./ai-sdk-otel.ts")> {
   otelModule ??= import("./ai-sdk-otel.ts").catch((error: unknown) => {
     otelModule = undefined;
     throw new Error(
-      "capabilities.tracing 需要 OTel 依赖:请在被测项目里安装 @ai-sdk/otel、@opentelemetry/sdk-trace-node、@opentelemetry/exporter-trace-otlp-http(niceeval 的可选 peer 依赖)。",
+      "tracing: true 需要 OTel 依赖:请在被测项目里安装 @ai-sdk/otel、@opentelemetry/sdk-trace-node、@opentelemetry/exporter-trace-otlp-http(niceeval 的可选 peer 依赖)。",
       { cause: error },
     );
   });
@@ -452,12 +459,14 @@ export function aiSdkAgent<M = unknown>(options: AiSdkAgentOptions<M>): Agent {
 
   return defineAgent({
     name: options.name ?? "ai-sdk",
-    capabilities: { conversation: true, toolObservability: true, ...options.capabilities },
+    // tracing 开了才让运行器为这个 agent 起 OTLP 接收器(ctx.telemetry 才会出现);
+    // AgentTracing 的其余字段(env/configure/scope)这里都用不上,空对象即可。
+    tracing: options.tracing ? {} : undefined,
 
     async send(input, ctx) {
-      // conversation 契约:isNew → 全新会话并回写 id;否则按 id 续接同一份历史。
-      const id = !ctx.session.isNew && ctx.session.id ? ctx.session.id : `ai-sdk-${randomUUID()}`;
-      ctx.session.id = id;
+      // 会话续接:ctx.session.id 未记录时开新会话并 capture 回写;否则按 id 续接同一份历史。
+      const id = ctx.session.id ?? `ai-sdk-${randomUUID()}`;
+      ctx.session.capture(id);
       let state = sessions.get(id);
       if (!state) {
         state = { messages: [], pendingApprovals: [] };
@@ -466,12 +475,14 @@ export function aiSdkAgent<M = unknown>(options: AiSdkAgentOptions<M>): Agent {
 
       if (state.pendingApprovals.length > 0) {
         // HITL:t.respond 的回答到 adapter 就是一次普通的带 resume 的 send。
-        // 逐行对应逐个待批准调用(行数不够沿用最后一行)。
+        // 优先按 requestId(= approvalId)从 input.responses 里对位取裁决;没有匹配的
+        // responses(旧 adapter 用法 / 手写 send 未接结构化回答)才退回逐行文本猜
+        // (行数不够沿用最后一行)——内置件要防御式兼容,回退路径保留。
         const lines = input.text.split("\n").map((l) => l.trim()).filter(Boolean);
         const content = state.pendingApprovals.map((approvalId, i) => ({
           type: "tool-approval-response" as const,
           approvalId,
-          approved: isApproved(lines[Math.min(i, lines.length - 1)] ?? ""),
+          approved: approvedFromResponse(input.responses, approvalId, lines[Math.min(i, lines.length - 1)] ?? ""),
         }));
         state.pendingApprovals = [];
         state.messages.push({ role: "tool", content } as M);
@@ -479,7 +490,7 @@ export function aiSdkAgent<M = unknown>(options: AiSdkAgentOptions<M>): Agent {
         state.messages.push(userMessage(input.text, input.files) as M);
       }
 
-      // tracing 声明了才建管线;OTel peer 依赖缺失在这里就报清楚,不伪装成失败的 Turn。
+      // tracing 开了才建管线;OTel peer 依赖缺失在这里就报清楚,不伪装成失败的 Turn。
       const otel = ctx.telemetry ? (await loadOtel()).telemetryForEndpoint(ctx.telemetry.endpoint, options.otlpBackendUrl) : undefined;
 
       let result: AiSdkResultLike;
@@ -515,6 +526,22 @@ export function aiSdkAgent<M = unknown>(options: AiSdkAgentOptions<M>): Agent {
 
 function isApproved(line: string): boolean {
   return /^(approve|yes|同意|批准)/i.test(line);
+}
+
+/**
+ * 优先按 requestId(= approvalId)从 input.responses 里取结构化裁决(optionId === "approve");
+ * 拿不到匹配的 responses 才退回从整行文本猜(见 isApproved)——防御式兼容旧 adapter 用法,
+ * 不删旧分支。
+ */
+function approvedFromResponse(
+  responses: readonly InputResponse[] | undefined,
+  requestId: string,
+  fallbackText: string,
+): boolean {
+  const matched = responses?.find((r) => r.requestId === requestId);
+  if (matched?.optionId !== undefined) return matched.optionId === "approve";
+  if (matched?.text !== undefined) return isApproved(matched.text);
+  return isApproved(fallbackText);
 }
 
 /** 待人批准的 approval 请求 id(非 automatic)。steps 优先,退回 v7 顶层聚合 content。 */
