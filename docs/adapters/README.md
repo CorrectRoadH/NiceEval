@@ -7,23 +7,24 @@
 
 两个词:
 
-- **Agent** —— 抽象。niceeval 眼里"一个被测对象",带能力位,由 experiment 引用。运行器只认 Agent 契约。
+- **Agent** —— 抽象。niceeval 眼里"一个被测对象",由 experiment 引用。`t` 上暴露什么由构造证据决定(见[契约 · 能力从哪来](contract.md#能力从哪来构造证明不是问卷)),不是声明式的能力位。运行器只认 Agent 契约。
 - **Adapter** —— 实现。某个 agent 的具体代码,**由用户编写**(niceeval 也内置几个常用 coding agent)。一个 Adapter 实现一个 Agent。
 
-按 transport 分两种,但**契约完全一样**(都是 `send` 进、`Turn` 出):
+按 `kind` 分两种,但**契约完全一样**(都是 `send` 进、`Turn` 出):
 
-- **remote agent**(`defineAgent`)—— 你在 `send` 里直接驱动:进程内调你的函数,或按你服务的协议发 HTTP。
-- **sandbox agent**(`defineSandboxAgent`)—— 在沙箱里 spawn 一个 coding agent 的 CLI,跑完读回 transcript。
+- **remote agent**(`defineAgent`,`kind: "remote"`)—— 你在 `send` 里按你服务的协议发 HTTP。不建议把 `send` 写成进程内直调你的函数,理由见[接入你的 Agent · 为什么不直调](../../docs-site/zh/guides/connect-your-agent.mdx)。
+- **sandbox agent**(`defineSandboxAgent`,`kind: "sandbox"`)—— 在沙箱里 spawn 一个 coding agent 的 CLI,跑完读回 transcript。
 
 ## 这组文档怎么分
 
 | 文档 | 回答什么问题 |
 |---|---|
 | [Adapter 契约](contract.md) | **规范参考**:Agent / Turn / 事件流的精确形状;逐 `t` API 的适配义务——eval 调 `t.respond` / `t.newSession` / `t.notCalledTool`…时,adapter 必须返回什么、违约怎么暴露 |
-| [Adapter 写法](authoring.md) | **怎么做出来**:分档递进(T0 收发 → T1 事件流 → T2 会话 → HITL → T3 tracing)、remote / sandbox 参考实现、采集层技巧、`shared` 工具袋 |
+| [Adapter 写法](authoring.md) | **怎么做出来**:递进式写法(收发消息 → 事件流 → 多轮会话 → HITL → tracing)、remote / sandbox 参考实现、采集层技巧、`shared` 工具袋 |
 | [采集设计](collection.md) | **从哪采、字段从哪来**:三条外部路线对比、双轨四通道、claude-code / codex / bub / AI SDK 的采集矩阵、接新对象的决策树 |
 | [Coding Agent Skills / Plugins DX](coding-agent-skills-plugins.md) | 沙箱型 coding agent 怎么安装 skill / plugin,并组织 A/B 实验 |
-| [OTel mixin 提案](otel-mixin.md) | **设计提案**:被测应用已接 OTel 时,T1 事件流从 spans 派生、免写转换器——问题(转换器维护乘法)、DX before/after、机制与边界 |
+| [OTel mixin](otel-mixin.md) | **已实现**:被测应用已接 OTel 时,事件流从 spans 派生、免写转换器——问题(转换器维护乘法)、DX before/after、机制与边界 |
+| [Capabilities by Construction](../capabilities-by-construction.md) | 能力从哪来的设计动机与源码落点:为什么没有 `capabilities` 声明式字段、`t` 上每个能力各自的构造证据是什么 |
 | [agent-eval 参考](reference/agent-eval.md) | Vercel agent-eval 怎么做同一件事的源码阅读记录——学习资料,不是 niceeval 的实现 |
 | [OTel GenAI 等标准参考](reference/otel-genai.md) | "agent 行为怎么记"的行业标准调研:OTel GenAI semconv 对比 agent-eval 自定义方案,附 OpenInference / OpenLLMetry / OpenAI Agents SDK / AG-UI / Langfuse |
 | [agent loop 接入面](reference/agent-loop-apis.md) | 四个主流 agent loop(OpenAI Agents SDK / Claude Agent SDK / LangGraph / pi)的原生 API / 会话 / HITL / 遥测面调研 |

@@ -7,6 +7,7 @@ import { gunzipSync } from "node:zlib";
 import { Effect } from "effect";
 import type { TraceSpan } from "../../types.ts";
 import { parseOtlpTraces } from "./parse.ts";
+import { t } from "../../i18n/index.ts";
 
 export interface TraceReceiver {
   /** agent 应导出到的完整端点(host 由后端定:docker → host.docker.internal)。 */
@@ -80,7 +81,15 @@ async function makeReceiver(port = 0): Promise<TraceReceiver> {
   });
 
   const boundPort = await new Promise<number>((resolve, reject) => {
-    server.once("error", reject);
+    server.once("error", (err) => {
+      // 固定端口模式(defineConfig({ telemetry: { port } }))下最常见的失败:翻成可操作的
+      // 提示而不是裸 EADDRINUSE 栈——用户不知道这是 OTLP 接收器占端口失败,还以为是别的 bug。
+      if (port !== 0 && (err as NodeJS.ErrnoException).code === "EADDRINUSE") {
+        reject(new Error(t("otel.portInUse", { port })));
+      } else {
+        reject(err);
+      }
+    });
     // 0.0.0.0:容器经 host-gateway / host.docker.internal 回连宿主,不能只听 127.0.0.1。
     server.listen(port, "0.0.0.0", () => {
       const a = server.address();

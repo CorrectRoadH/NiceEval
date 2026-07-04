@@ -97,8 +97,8 @@ export class AgentOtelChannel {
 }
 
 /**
- * run 级共享池:每个 agent 一个通道(懒建)。固定端口模式(config telemetry.port /
- * NICEEVAL_OTLP_PORT)下全部 agent 共用一个通道 —— 端口只有一个,归属守卫也必须全局共享。
+ * run 级共享池:每个 agent 一个通道(懒建)。固定端口模式(defineConfig({ telemetry: { port } }))
+ * 下全部 agent 共用一个通道 —— 端口只有一个,归属守卫也必须全局共享。
  */
 export class OtelReceiverPool {
   private readonly channels = new Map<string, Promise<AgentOtelChannel>>();
@@ -122,13 +122,4 @@ export class OtelReceiverPool {
       all.map((p) => p.then((ch) => ch.receiver.close()).catch(() => {})),
     );
   }
-}
-
-/** 固定端口:config.telemetry.port 优先,其次 NICEEVAL_OTLP_PORT;都没有 → 动态端口。 */
-export function resolveFixedOtlpPort(configPort: number | undefined): number | undefined {
-  // 环境变量优先于配置:config 里钉的端口是项目约定(如 OTLP 标准 4318),某台机器上
-  // 该端口被别的进程占用时,用 NICEEVAL_OTLP_PORT 临时改道,不用改仓库里的配置。
-  const env = process.env.NICEEVAL_OTLP_PORT;
-  if (env && Number.isFinite(Number(env))) return Number(env);
-  return configPort;
 }

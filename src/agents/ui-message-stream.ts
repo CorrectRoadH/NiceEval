@@ -19,14 +19,13 @@
 //     内部同款),保证重放回服务端的 UIMessage 形状协议正确 —— `ai` 是可选 peer 依赖,
 //     只在用到本工厂时需要安装。
 //
-// tracing / spanMapper / events 原样透传:应用有 OTel 时声明 tracing 拿瀑布图,事件流
-// 本身不依赖它。
+// tracing / spanMapper 原样透传:应用有 OTel 时接上拿瀑布图(span 只进瀑布图,不喂断言),
+// 事件流始终从协议帧直构。
 
 import { randomUUID } from "node:crypto";
 
 import { defineAgent } from "../define.ts";
 import type { Agent, AgentContext, AgentTracing, InputResponse, JsonValue, SpanMapper, StreamEvent, TurnInput } from "../types.ts";
-import type { OtelEventsSource } from "./otel-events.ts";
 
 // ───────────────────────── 协议的结构化类型(structural,不依赖 ai 包的类型) ─────────────────────────
 
@@ -224,8 +223,6 @@ export interface UiMessageStreamAgentOptions {
   /** 应用有 OTel 时的端点投递方式(拿瀑布图);事件流不依赖它。 */
   tracing?: AgentTracing;
   spanMapper?: SpanMapper;
-  /** 换事件来源(如 otelEvents());省略 = 从协议帧直构,足够喂全套断言。 */
-  events?: OtelEventsSource;
 }
 
 const DEFAULT_DENY_REASON = "用户拒绝了这次调用,不要重试,直接告知用户操作未执行。";
@@ -249,7 +246,6 @@ export function uiMessageStreamAgent(options: UiMessageStreamAgentOptions): Agen
     name: options.name ?? "ui-message-stream",
     tracing: options.tracing,
     spanMapper: options.spanMapper,
-    events: options.events,
 
     async send(input: TurnInput, ctx: AgentContext) {
       const { readUIMessageStream } = await loadAi();

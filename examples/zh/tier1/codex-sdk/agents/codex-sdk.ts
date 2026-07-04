@@ -2,14 +2,14 @@
 // `ThreadEvent` 流原样透传成 SSE,外加一个和 `ThreadErrorEvent` 同形状的 `{type:"error"}`
 // 传输帧)。没有 HITL(Codex SDK 不支持),永不返回 "waiting"。
 //
-// 事件分工:
-//   · 工具调用 + usage —— `events: otelEvents({ dialects: [otel.codex] })` 官方方言,从
-//     codex CLI 原生 OTLP(config.toml [otel] 块)的 span 派生;瀑布图经官方 `mapCodexSpans`
-//     归一。codex 的 span 没有工具 I/O,要做 I/O 断言时按 call_id 手写补(本示例的断言
-//     直接读磁盘验证,不需要)。
-//   · 消息文本 / 终局错误 —— 官方转换器 `fromCodexThreadEvents` 从 `ThreadEvent` 帧翻译,
-//     逐帧驱动是官方件 `driveFrameStream`(没有 HITL,onFrame 只用来处理传输帧 + 抓 threadId)。
-import { defineAgent, otelEvents, otel, mapCodexSpans, sseJsonFrames, fromCodexThreadEvents, driveFrameStream } from "niceeval/adapter";
+// 断言依据全部来自这条 ThreadEvent 流:官方转换器 `fromCodexThreadEvents` 翻消息文本、
+// 工具项(command_execution / mcp_tool_call / file_change → action.*)、`turn.completed` 的
+// usage 和终局错误;逐帧驱动是官方件 `driveFrameStream`(没有 HITL,onFrame 只用来处理
+// 传输帧 + 抓 threadId)。
+//
+// OTel 只管 `niceeval view` 的瀑布图:codex CLI 原生 OTLP(config.toml [otel] 块)把 span
+// 发到 niceeval.config.ts 钉住的 telemetry.port,`mapCodexSpans` 归一语义——span 不喂断言。
+import { defineAgent, mapCodexSpans, sseJsonFrames, fromCodexThreadEvents, driveFrameStream } from "niceeval/adapter";
 import type { AgentContext } from "niceeval/adapter";
 import type { Turn, TurnInput } from "niceeval";
 import type { ThreadEvent } from "@openai/codex-sdk";
@@ -54,9 +54,8 @@ async function send(input: TurnInput, ctx: AgentContext): Promise<Turn> {
 
 export default defineAgent({
   name: "codex-sdk",
-  // 声明了 events 就走 run 级共享接收器;端口钉在 niceeval.config.ts 的 telemetry.port,
-  // 起应用时 OTEL_EXPORTER_OTLP_ENDPOINT 指过来(codex 配置里自己拼 /v1/traces,给 base)。
-  events: otelEvents({ dialects: [otel.codex] }),
+  // 瀑布图:config 配了 telemetry(固定端口)就走 run 级共享接收器,起应用时
+  // OTEL_EXPORTER_OTLP_ENDPOINT 指过来(codex 配置里自己拼 /v1/traces,给 base)。
   spanMapper: mapCodexSpans,
   send,
 });

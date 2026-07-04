@@ -21,15 +21,11 @@ import { defineAgent } from "niceeval/adapter";
 </ParamField>
 
 <ParamField body="tracing" type="AgentTracing">
-  OTLP 导出配置。只有写了这个字段,运行器才为该 agent 开 OTLP 接收;省略即代表这个 agent 不发 trace。
-</ParamField>
-
-<ParamField body="events" type="OtelEventsSource">
-  事件来源声明:`events: otelEvents()` 代表事件流从本轮收到的 span 派生,`send` 免写映射(见[接入 OTel 应用](/zh/guides/connect-otel))。
+  OTLP 导出配置,CLI / 子进程型 agent 用:声明怎么把接收端点交给被测进程(`env` / `configure`)。长驻 HTTP 应用不需要这个字段——在 `niceeval.config.ts` 配 `telemetry: { port }` 固定端口即可(见[OTel 接入](/zh/guides/connect-otel))。span 只进 `niceeval view` 的瀑布图,不喂断言。
 </ParamField>
 
 <ParamField body="spanMapper" type="(spans: TraceSpan[]) => TraceSpan[]">
-  原生 span → canonical GenAI semconv 的薄 mapper。省略走通用 heuristic 兜底。
+  原生 span → canonical GenAI semconv 的薄 mapper,只影响瀑布图的语义着色。省略走通用 heuristic 兜底。
 </ParamField>
 
 <ParamField body="send" type="(input: TurnInput, ctx: AgentContext) => Promise<Turn>" required>

@@ -45,8 +45,8 @@
 
 | | AI SDK | **Claude SDK** | **Codex SDK** | **LangGraph** | **Cursor Agent SDK** | **vm0** |
 |---|---|---|---|---|---|---|
-| 状态 | ✅ 已接(`aiSdkAgent`/`fromAiSdk`) | 提案 | 提案 | 提案(走 mixin) | 提案(观察 beta) | ❌ 暂不接 |
-| 调用面 | `generateText` | `query()` → AsyncGenerator\<SDKMessage> | `startThread()` → `thread.run()`(SDK 内部 spawn CLI) | `graph.invoke()` 或黑盒服务 | `Agent.create()` → `run.stream()`(local/cloud/self-hosted 三 runtime) | 平台非库:CLI/REST + Ably,无 npm SDK |
+| 状态 | ✅ 已接(`fromAiSdk` / `uiMessageStreamAgent`) | 提案 | 提案 | 提案(走 mixin) | 提案(观察 beta) | ❌ 暂不接 |
+| 调用面 | `generateText` | `query()` → AsyncGenerator\<SDKMessage> | `startThread()` → `thread.run()`(SDK 内部 spawn CLI) | `graph.invoke()` 或未接管理层的服务 | `Agent.create()` → `run.stream()`(local/cloud/self-hosted 三 runtime) | 平台非库:CLI/REST + Ably,无 npm SDK |
 | 事件流 | steps 带 `toolCallId` | content 块 + `parent_tool_use_id`(subagent 归属) | ThreadItem(item 内嵌输入输出,免配对) | messages 通道显式配对;或 spans | `SDKMessage`:`tool_call` 带 call_id/args/result,**`request` 事件 = 现成 HITL** | 事件 schema 未公开 |
 | 会话 | 工厂自管 | `resume` / `forkSession` | `resumeThread(threadId)` | thread_id(checkpointer) | `Agent.resume(agentId)` | resume API 未公开 |
 | HITL | v7 tool approval ✅ | `canUseTool` 回调 | 缺口:审批在 app-server 协议层,SDK 无回调,eval 场景只能 `never` | `interrupt()`(v0.2+) | `request` 事件 + hooks | 未公开 |
@@ -74,14 +74,14 @@
            ——共享的是映射核心,不是文件本身;新写:OpenClaw、Hermes 各一个
         ② 精品转换器(fromAiSdk 已有):高频 + 进程内 + 有 HITL 的框架才配
            候选:fromCursorSdk(等 GA)
-        ③ otel-mixin 方言表(提案):长尾框架免写转换器
+        ③ otel-mixin 方言表(已实现):长尾框架免写转换器
            方言:gen_ai semconv(OpenClaw / AI SDK 新模式 / Agents SDK contrib 共用一个)、
            ai.* legacy、OpenInference、OpenLLMetry、LangSmith 混合
 时间轨  OTLP receiver + canonical mapper(已有)
         新写 mapper:OpenClaw 近乎透传;LangSmith 混合方言一个;其余复用或跳过
 ```
 
-[collection.md 决策树](collection.md#接新被测对象的决策树)相应多一问,插在"你控制运行时吗 → 否"之后:**官方有没有 SDK 包装?有 → 当通道 0 接(SDK 直构),比逆向它的 stdout/磁盘干净**——Codex SDK 与 Cursor SDK 证明"黑盒 CLI"正在变成"有官方 SDK 的白盒",这条通道会越来越常见。
+[collection.md 决策树](collection.md#接新被测对象的决策树)相应多一问,插在"应用 HTTP 接口天生带完整调用记录吗 → 否"之后:**官方有没有 SDK 包装?有 → 当通道 0 接(SDK 直构),比逆向它的 stdout/磁盘干净**——Codex SDK 与 Cursor SDK 证明"未接管理层的 CLI"正在变成"有官方 SDK 包装的对象",这条通道会越来越常见。
 
 ## 五、优先级建议
 

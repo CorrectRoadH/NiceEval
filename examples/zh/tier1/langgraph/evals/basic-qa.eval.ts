@@ -1,7 +1,7 @@
 import { defineEval } from "niceeval";
 
-// 这条 eval 验证 agent 能正常问答、不瞎调工具。usage 从 LangSmith 的 llm 类型 span 聚合
-// (src/o11y/otlp/dialects.ts 的 langsmith 方言),不用 adapter 自己算。
+// 这条 eval 验证 agent 能正常问答、不瞎调工具。断言依据全部来自 adapter 从应用自己的
+// SSE 帧映射的事件;应用协议里没有 usage,所以这里不做用量断言(OTel span 只进瀑布图)。
 export default defineEval({
   description: "测试 agent 能正常问答且不瞎调工具",
 
@@ -13,7 +13,5 @@ export default defineEval({
       t.succeeded();
       t.usedNoTools();
     });
-
-    t.maxTokens(20_000);
   },
 });

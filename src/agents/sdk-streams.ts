@@ -304,25 +304,101 @@ export interface CodexThreadEventLike {
 
 export interface CodexThreadStream {
   /**
-   * 逐帧喂 `ThreadEvent`,返回消息类事件(agent_message → message、reasoning → thinking、
-   * error item / turn.failed → error)。工具与 usage 不在这里:codex CLI 的原生 OTLP 更完整,
-   * 用 `otelEvents({ dialects: [otel.codex] })` 从 span 派生(见 otel.codex 方言)。
+   * 逐帧喂 `ThreadEvent`,返回标准事件:消息类(agent_message → message、reasoning → thinking、
+   * error item / turn.failed → error)+ 工具项(command_execution / mcp_tool_call / web_search /
+   * file_change → action.called + action.result)。usage 从 `turn.completed` 聚合,经 `usage` 读。
+   * 断言依据全部来自这条流;codex CLI 的原生 OTLP span 只用于瀑布图(spanMapper: mapCodexSpans)。
    */
   add(event: CodexThreadEventLike): StreamEvent[];
   /** `thread.started` 带回的 thread_id,回写 `ctx.session.id` 用。 */
   readonly threadId: string | undefined;
+  /** `turn.completed` 聚合的用量(input/cached/output tokens)。 */
+  readonly usage: Usage | undefined;
   /** turn.failed / error item 出现过。 */
   readonly failed: boolean;
 }
 
-/** Codex SDK 线程事件流(`thread.started` / `item.completed` / `turn.failed`)→ 消息类标准事件。 */
+/** Codex SDK 线程事件流(`thread.started` / `item.*` / `turn.completed` / `turn.failed`)→ 标准事件。 */
 export function fromCodexThreadEvents(): CodexThreadStream {
   let threadId: string | undefined;
+  let usage: Usage | undefined;
   let failed = false;
+  // item.started 已发 action.called 的 id;item.completed 时不重发,只补 result。
+  const startedCallIds = new Set<string>();
+  let synth = 0;
+
+  const callIdOf = (item: Record<string, unknown>, prefix: string): string => {
+    const id = item.id;
+    return typeof id === "string" || typeof id === "number" ? String(id) : `${prefix}_${++synth}`;
+  };
+
+  // 工具项 → action.called(+completed 时的 action.result)。与 o11y/parsers/codex.ts 的
+  // transcript 映射保持同一套语义(字段名以 codex exec --json 的 ThreadItem 为准)。
+  const handleToolItem = (item: Record<string, unknown>, isCompleted: boolean): StreamEvent[] => {
+    const events: StreamEvent[] = [];
+    const emitCall = (callId: string, name: string, input: JsonValue): void => {
+      if (startedCallIds.has(callId)) return;
+      startedCallIds.add(callId);
+      events.push({ type: "action.called", callId, name, input });
+    };
+
+    switch (item.type) {
+      case "command_execution": {
+        const callId = callIdOf(item, "cmd");
+        emitCall(callId, "command_execution", { command: item.command ?? null } as JsonValue);
+        if (isCompleted) {
+          const exit = item.exit_code;
+          const success = exit === 0 || (exit == null && item.status !== "failed" && item.status !== "error");
+          events.push({
+            type: "action.result",
+            callId,
+            output: { output: (item.aggregated_output ?? null) as JsonValue, exit_code: (exit ?? null) as JsonValue },
+            status: success ? "completed" : "failed",
+          });
+        }
+        return events;
+      }
+      case "mcp_tool_call": {
+        const callId = callIdOf(item, "mcp");
+        const tool = String(item.tool ?? "unknown");
+        const name = typeof item.server === "string" ? `${item.server}.${tool}` : tool;
+        emitCall(callId, name, (item.arguments ?? null) as JsonValue);
+        if (isCompleted) {
+          const success = !item.error && item.status !== "failed";
+          events.push({ type: "action.result", callId, output: (item.result ?? null) as JsonValue, status: success ? "completed" : "failed" });
+        }
+        return events;
+      }
+      case "web_search": {
+        const callId = callIdOf(item, "web");
+        emitCall(callId, "web_search", { query: item.query ?? null } as JsonValue);
+        if (isCompleted) events.push({ type: "action.result", callId, output: null, status: "completed" });
+        return events;
+      }
+      case "file_change": {
+        // 补丁类只在 completed 落一次:changes 里每个文件一对 called/result。
+        if (!isCompleted) return events;
+        const baseId = callIdOf(item, "patch");
+        const changes = Array.isArray(item.changes) ? item.changes : [];
+        changes.forEach((ch, i) => {
+          const callId = `${baseId}#${i}`;
+          const change = isRecord(ch) ? { path: ch.path ?? null, kind: ch.kind ?? null } : {};
+          events.push({ type: "action.called", callId, name: "file_change", input: change as JsonValue });
+          events.push({ type: "action.result", callId, output: change as JsonValue, status: "completed" });
+        });
+        return events;
+      }
+      default:
+        return events;
+    }
+  };
 
   return {
     get threadId() {
       return threadId;
+    },
+    get usage() {
+      return usage;
     },
     get failed() {
       return failed;
@@ -332,6 +408,10 @@ export function fromCodexThreadEvents(): CodexThreadStream {
       switch (event.type) {
         case "thread.started": {
           if (typeof event.thread_id === "string") threadId ??= event.thread_id;
+          break;
+        }
+        case "item.started": {
+          if (event.item) events.push(...handleToolItem(event.item, false));
           break;
         }
         case "item.completed": {
@@ -344,6 +424,21 @@ export function fromCodexThreadEvents(): CodexThreadStream {
           } else if (item.type === "error" && typeof item.message === "string") {
             failed = true;
             events.push({ type: "error", message: item.message });
+          } else {
+            events.push(...handleToolItem(item, true));
+          }
+          break;
+        }
+        case "turn.completed": {
+          const u = event.usage;
+          if (isRecord(u)) {
+            const num = (v: unknown): number => (typeof v === "number" ? v : 0);
+            usage = {
+              inputTokens: (usage?.inputTokens ?? 0) + num(u.input_tokens),
+              outputTokens: (usage?.outputTokens ?? 0) + num(u.output_tokens),
+              cacheReadTokens: (usage?.cacheReadTokens ?? 0) + num(u.cached_input_tokens),
+              requests: (usage?.requests ?? 0) + 1,
+            };
           }
           break;
         }
@@ -352,8 +447,7 @@ export function fromCodexThreadEvents(): CodexThreadStream {
           if (event.error?.message) events.push({ type: "error", message: event.error.message });
           break;
         }
-        // item.started / item.updated / turn.started / turn.completed:工具与 usage 走
-        // otel.codex 方言,这里只负责消息文本与终局错误。
+        // item.updated(中间态)/ turn.started:忽略,等 completed。
         default:
           break;
       }

@@ -104,9 +104,42 @@ describe("fromCodexThreadEvents", () => {
     expect(s.failed).toBe(true);
   });
 
-  it("工具类 item 不在这里派生(走 otel.codex 方言)", () => {
+  it("command_execution:started 发 called,completed 只补 result(按 exit_code 判状态)", () => {
     const s = fromCodexThreadEvents();
-    expect(s.add({ type: "item.started", item: { type: "command_execution" } })).toEqual([]);
-    expect(s.add({ type: "item.completed", item: { type: "command_execution" } })).toEqual([]);
+    expect(s.add({ type: "item.started", item: { type: "command_execution", id: "c1", command: "ls" } })).toEqual([
+      { type: "action.called", callId: "c1", name: "command_execution", input: { command: "ls" } },
+    ]);
+    expect(
+      s.add({ type: "item.completed", item: { type: "command_execution", id: "c1", command: "ls", exit_code: 0, aggregated_output: "a.txt" } }),
+    ).toEqual([{ type: "action.result", callId: "c1", output: { output: "a.txt", exit_code: 0 }, status: "completed" }]);
+  });
+
+  it("只有 completed 的工具项也成对;失败 exit_code → failed", () => {
+    const s = fromCodexThreadEvents();
+    expect(s.add({ type: "item.completed", item: { type: "command_execution", id: "c2", command: "false", exit_code: 1 } })).toEqual([
+      { type: "action.called", callId: "c2", name: "command_execution", input: { command: "false" } },
+      { type: "action.result", callId: "c2", output: { output: null, exit_code: 1 }, status: "failed" },
+    ]);
+  });
+
+  it("mcp_tool_call 带 server 前缀;turn.completed 聚合 usage", () => {
+    const s = fromCodexThreadEvents();
+    expect(s.add({ type: "item.completed", item: { type: "mcp_tool_call", id: "m1", server: "kb", tool: "search", arguments: { q: "x" } } })).toEqual([
+      { type: "action.called", callId: "m1", name: "kb.search", input: { q: "x" } },
+      { type: "action.result", callId: "m1", output: null, status: "completed" },
+    ]);
+    expect(s.usage).toBeUndefined();
+    s.add({ type: "turn.completed", usage: { input_tokens: 100, cached_input_tokens: 40, output_tokens: 7 } });
+    expect(s.usage).toEqual({ inputTokens: 100, outputTokens: 7, cacheReadTokens: 40, requests: 1 });
+  });
+
+  it("file_change 每个文件一对 called/result", () => {
+    const s = fromCodexThreadEvents();
+    expect(
+      s.add({ type: "item.completed", item: { type: "file_change", id: "p1", changes: [{ path: "a.ts", kind: "update" }] } }),
+    ).toEqual([
+      { type: "action.called", callId: "p1#0", name: "file_change", input: { path: "a.ts", kind: "update" } },
+      { type: "action.result", callId: "p1#0", output: { path: "a.ts", kind: "update" }, status: "completed" },
+    ]);
   });
 });

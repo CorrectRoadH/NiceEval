@@ -1,6 +1,6 @@
 # Getting Started
 
-这一篇带你从零跑通三种 eval:一个进程内函数 eval、一个会话型 agent eval、一个沙箱里的 coding-agent eval。读完你就有了能在 CI 里跑的最小骨架。
+这一篇带你从零跑通三种 eval:一个会话型 agent eval(走 HTTP)、一个纯函数的语义级单测、一个沙箱里的 coding-agent eval。读完你就有了能在 CI 里跑的最小骨架。
 
 > 注:本篇描述推荐 DX 和目标用法。若代码实现与这里的设计不一致,应进一步讨论并决定是修代码、修设计,还是记录为明确的阶段性差异。
 
@@ -38,46 +38,9 @@ export default defineConfig({
 });
 ```
 
-## 1. 评一个进程内函数(最快)
+## 1. 评一个会话型 agent
 
-适合把你自己的 agent / 函数当成"语义级单测"跑在 CI 里,零网络。先写一个进程内 agent(`send` 直接调你的代码),在配置里注册,再让 eval 按名字引用它:
-
-```typescript
-// agents/classify.ts —— 进程内 agent
-import { defineAgent } from "niceeval/adapter";
-import { classifyIntent } from "../src/agent.js";   // 你自己的代码
-
-export default defineAgent({
-  name: "classify",
-  async send(input) {
-    return { data: await classifyIntent(input.text), status: "completed" };
-  },
-});
-```
-
-```typescript
-// evals/classify.eval.ts
-import { defineEval } from "niceeval";
-import { equals } from "niceeval/expect";
-
-export default defineEval({
-  description: "意图分类:退款",
-  async test(t) {
-    const turn = await t.send("我想退货退款");
-    t.check(turn.data, equals({ intent: "refund" }));
-  },
-});
-```
-
-(把 `classify` agent 放进一个 `experiments/local.ts` 运行配置。)
-
-```sh
-npx niceeval exp local classify
-```
-
-## 2. 评一个会话型 agent(本地或远程)
-
-驱动一个暴露会话接口的 agent,断言它的回复与工具调用。连你的服务也是写一个 agent —— 它内部按你服务的协议发请求,URL 是它读 env 的私事(niceeval 不定义 agent 协议,所以没有 `--url`):
+驱动一个暴露会话接口的 agent,断言它的回复与工具调用。连你的服务也是写一个 agent —— 它内部按你服务的协议发请求,URL 是它读 env 的私事(niceeval 不定义 agent 协议,所以没有 `--url`)。就算 agent 和 eval 在同一个代码库里,也照样让 adapter 走 HTTP,不要把 `fetch` 换成进程内的函数直调——直调绕过了用户实际走的链路、进程不隔离导致结果不可复现,取舍详见[接入你的 Agent · 为什么不直调](../docs-site/zh/guides/connect-your-agent.mdx):
 
 ```typescript
 // agents/weather-bot.ts —— 远程 agent,URL 是它的私事
@@ -85,7 +48,6 @@ import { defineAgent } from "niceeval/adapter";
 
 export default defineAgent({
   name: "weather-bot",
-  capabilities: { conversation: true, toolObservability: true },
   async send(input, ctx) {
     const r = await fetch(`${process.env.AGENT_URL}/chat`, {
       method: "POST",
@@ -118,6 +80,43 @@ export default defineEval({
 
 ```sh
 AGENT_URL=https://my-agent.example.com npx niceeval exp local weather
+```
+
+## 2. 评一个纯函数(边缘场景:语义级单测,不测生产链路)
+
+只有当你确实只想把一个纯函数当"语义级单测"跑、并且清楚这测的不是用户实际走的链路时,才让 `send` 直接调用进程内代码——生产路径的评测请用上一节的 HTTP 写法:
+
+```typescript
+// agents/classify.ts —— 进程内直调,仅用于纯函数单测场景
+import { defineAgent } from "niceeval/adapter";
+import { classifyIntent } from "../src/agent.js";   // 你自己的代码
+
+export default defineAgent({
+  name: "classify",
+  async send(input) {
+    return { data: await classifyIntent(input.text), status: "completed" };
+  },
+});
+```
+
+```typescript
+// evals/classify.eval.ts
+import { defineEval } from "niceeval";
+import { equals } from "niceeval/expect";
+
+export default defineEval({
+  description: "意图分类:退款",
+  async test(t) {
+    const turn = await t.send("我想退货退款");
+    t.check(turn.data, equals({ intent: "refund" }));
+  },
+});
+```
+
+(把 `classify` agent 放进一个 `experiments/local.ts` 运行配置。)
+
+```sh
+npx niceeval exp local classify
 ```
 
 ## 3. 评一个塞进沙箱的 coding agent

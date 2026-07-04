@@ -4,9 +4,6 @@ export { defineAgent, defineSandboxAgent } from "../define.ts";
 export { shared } from "./shared.ts";
 export type { Shared } from "./shared.ts";
 
-export { otelEvents, otel } from "./otel-events.ts";
-export type { OtelDialect, DialectDerivation, OtelEventsOptions, OtelEventsSource } from "./otel-events.ts";
-
 // codex 原生 span → canonical GenAI 归一(瀑布图用)。无侵入接 codex 后端的 adapter 声明
 // `spanMapper: mapCodexSpans`,就能拿到和内置 codexAgent 一样的瀑布图归一。
 export { mapCodexSpans } from "../o11y/otlp/mappers/codex.ts";

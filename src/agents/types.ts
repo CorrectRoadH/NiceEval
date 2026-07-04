@@ -5,7 +5,6 @@
 import type { Cleanup } from "../shared/types.ts";
 import type { StreamEvent, TraceSpan, Usage } from "../o11y/types.ts";
 import type { Sandbox } from "../sandbox/types.ts";
-import type { OtelEventsSource } from "./otel-events.ts";
 
 /**
  * MCP server 描述符 —— Claude Code 与 Codex 共用的扩展插件单元。
@@ -64,7 +63,7 @@ export interface Turn {
 
 /**
  * 本次运行的 OTLP traces 接收信息(仅当配置了 OTel 接入时有——agent 的 `tracing` 块 /
- * `events: otelEvents()` / config 的 telemetry 存在)。经 ctx.telemetry 交给 agent。
+ * config 的 telemetry 存在)。经 ctx.telemetry 交给 agent。span 只进瀑布图,不喂断言。
  * 远程 HTTP 接入的 send 只需要 spread `headers`(每轮一个新 traceparent);接收端点是
  * 启动期配置(`defineConfig({ telemetry: { port } } )`)固定的,不从这里传。
  */
@@ -104,7 +103,7 @@ export interface AgentTracing {
    *   · "run" —— 整个 run 共享一个接收器(每 agent 一个)。**长驻服务必选**:应用的 OTEL_*
    *     env 进程启动时读一次,per-attempt 端口会在第一个 attempt 结束时失效。span 逐轮归属
    *     (traceparent / 时间窗口 + 串行守卫),见 ctx.telemetry.headers。
-   * 声明了 `events: otelEvents()` 的 agent 自动按 "run" 处理(无侵入接入的长驻服务场景)。
+   * config 配了 `telemetry`(固定端口,无侵入接入的长驻服务场景)的非沙箱 agent 自动按 "run" 处理。
    */
   scope?: "attempt" | "run";
   /**
@@ -151,8 +150,8 @@ export interface AgentContext {
   readonly sandbox: Sandbox;
   readonly session: AgentSession;
   /**
-   * 仅当配置了 OTel 接入时有(agent 的 `tracing` 块 / `events: otelEvents()` / config 的
-   * telemetry 存在):本次运行的 OTLP traces 接收信息(endpoint + env-based 导出 env)。
+   * 仅当配置了 OTel 接入时有(agent 的 `tracing` 块 / config 的 telemetry 存在):
+   * 本次运行的 OTLP traces 接收信息(endpoint + env-based 导出 env)。
    * 怎么把它交给 CLI 由 agent 的 `tracing` 块声明:env-based 的把 ctx.telemetry.env
    * spread 进 send;file-based 的在 tracing.configure 里写配置。远程 HTTP 接入的 send
    * 只需要把 headers spread 进请求头(每轮一个新 traceparent);端点是启动期配置
@@ -191,10 +190,8 @@ export interface Agent {
   setup?: AgentSetup;
   /** OTLP 导出配置(仅当此字段存在时运行器才为该 agent 开 OTLP 接收);与 setup 分开,见 AgentTracing。 */
   tracing?: AgentTracing;
-  /** 原生 span → canonical 的薄 mapper;省略走通用 heuristic。 */
+  /** 原生 span → canonical 的薄 mapper;省略走通用 heuristic。只影响瀑布图。 */
   spanMapper?: SpanMapper;
-  /** 事件来源声明:`otelEvents()` = 事件流从本轮收到的 span 派生,send 免写映射。 */
-  events?: OtelEventsSource;
   send(input: TurnInput, ctx: AgentContext): Promise<Turn>;
   teardown?: AgentTeardown;
 }
@@ -216,8 +213,6 @@ export interface RemoteAgentDef {
   setup?: AgentSetup;
   tracing?: AgentTracing;
   spanMapper?: SpanMapper;
-  /** 事件来源声明:`otelEvents()` = 事件流从本轮收到的 span 派生,send 免写映射。 */
-  events?: OtelEventsSource;
   send(input: TurnInput, ctx: AgentContext): Promise<Turn>;
   teardown?: AgentTeardown;
 }

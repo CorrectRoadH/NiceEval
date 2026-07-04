@@ -18,13 +18,12 @@ adapter 只是把这个已有的 HTTP + SSE 服务无侵入接进 niceeval，不
 ## 目录
 
 - `agents/codex-sdk.ts`：adapter 本体,只剩**传输粘合**——应用在哪个 URL(`CODEX_SDK_URL`,
-  默认 `http://127.0.0.1:5199`)。事件分工全在官方件里:
-  `events: otelEvents({ dialects: [otel.codex] })` 从 codex CLI 原生 OTLP 的 span 派生工具调用
-  （`tool_name` + `call_id`,如 `exec_command` / `apply_patch`）和 usage
-  （`codex.turn.token_usage.*`）,瀑布图经官方 `mapCodexSpans` 归一;span 上没有的消息文本
-  （`agent_message` / `reasoning`）由官方转换器 `fromCodexThreadEvents` 从 `ThreadEvent` 帧
-  翻译。codex 的 span 没有工具 I/O,要做 I/O 断言的话按 `call_id` 手写补即可(本示例的断言
-  直接读磁盘,不需要)。**没有 HITL**（Codex SDK 不支持），永不返回 `waiting`。
+  默认 `http://127.0.0.1:5199`)。断言依据全部来自 `ThreadEvent` 流:官方转换器
+  `fromCodexThreadEvents` 映射消息文本(`agent_message` / `reasoning`)、工具项
+  (`command_execution` / `mcp_tool_call` / `file_change` → 配对的 `action.called`/`action.result`)
+  和 `turn.completed` 的 usage。OTel 只管瀑布图:codex CLI 原生 OTLP 的 span 经官方
+  `mapCodexSpans` 归一后进 `niceeval view`,不喂断言。**没有 HITL**（Codex SDK 不支持），
+  永不返回 `waiting`。
 - `evals/`：基础问答、创建文件（用 `node:fs` 直接核实磁盘上的真实内容，不只信模型自述）、跑
   shell 命令、跨轮记忆 + `newSession()` 隔离（用口头偏好而不是文件是否存在做隔离信号，见
   `session-isolation.eval.ts` 注释——`workspace/` 是所有 thread 共享的同一份磁盘状态）。
@@ -39,10 +38,10 @@ adapter 只是把这个已有的 HTTP + SSE 服务无侵入接进 niceeval，不
 - 会话续接:新会话线不带 `threadId` 开新会话、`thread.started` 帧回传的 `thread_id` 经
   `ctx.session.capture()` 写回,之后带 `ctx.session.id` 经 `codex.resumeThread` 续接同一条
   历史(SDK 落盘在 `~/.codex/sessions`)。
-- 工具可观测:每次真实的工具执行都有带 `tool_name` + `call_id` 的 span(`otel.codex` 方言据此
-  派生配对的 `action.called`/`action.result`,如 run-command eval 断言的 `exec_command`),覆盖
-  完整。注意工具名是 span 上的 codex 内部名(`exec_command`),不是 `ThreadEvent` item 的
-  `command_execution`——两套命名来自 codex 的不同层。
+- 工具可观测:每个工具项在 `ThreadEvent` 流里都有 `item.started`/`item.completed`,
+  `fromCodexThreadEvents` 据此产配对的 `action.called`/`action.result`(如 run-command eval
+  断言的 `command_execution`,按 `exit_code` 判成败),覆盖完整。usage 从 `turn.completed`
+  的 `usage`(input/cached/output tokens)聚合进 `Turn.usage`,`t.maxTokens` 可用。
 - trace 瀑布图:codex CLI 原生 `otel` 配置段导出 trace spans,长驻服务走固定端口模式(接收器
   钉在 `niceeval.config.ts` 的 `telemetry.port`,应用启动时 `OTEL_EXPORTER_OTLP_ENDPOINT` 指过来,
   见下方「跑起来」)。`spanMapper: mapCodexSpans`(`"niceeval/adapter"` 公开导出)把 codex 自家的
@@ -58,7 +57,7 @@ pnpm install
 cp .env.example .env   # 填 CODEX_API_KEY / CODEX_BASE_URL
 
 # 终端 1:起应用(要瀑布图/工具事件就把 OTel 指到 niceeval 的固定接收端口,标准 OTLP 4318;
-# 本机 4318 被占时,两边一起换:应用改这里的端口,eval 侧用 NICEEVAL_OTLP_PORT 覆盖)
+# 本机 4318 被占时,两边一起换:应用改这里的端口,eval 侧改 niceeval.config.ts 的 telemetry.port)
 OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 pnpm start
 
 # 终端 2:跑 eval(应用部署在别处时设 CODEX_SDK_URL 指过去)

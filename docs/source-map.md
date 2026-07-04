@@ -45,10 +45,8 @@
 | 原始 transcript → 标准 `StreamEvent[]` + 用量 + 压缩计数 | `src/o11y/parsers/{codex,claude-code,bub}.ts`、`parsers/index.ts`(`ParsedTranscript`;无按名字分派的入口,adapter 直连具体 parser) |
 | 规范工具名归一(共享基表 + per-agent 差异叠加) | `src/o11y/tool-names.ts` |
 | 原生 OTLP span → canonical GenAI semconv(mapper 由 Agent 经 `spanMapper` 声明,core 不按名字分支;缺省走通用 heuristic) | `src/o11y/otlp/mappers/{codex,bub}.ts`、`src/o11y/otlp/canonical.ts`(`heuristicTag` / `mapGenericSpans`) |
-| span → `StreamEvent[]` 派生(otelEvents 的方言表:genAi / aiSdk / openInference / openLLMetry / langsmith,`OtelDialect` 契约可自定义) | `src/o11y/otlp/dialects.ts`(`deriveEventsFromSpans` / `mergeDerivedEvents`) |
-| `otelEvents()` 事件来源声明 + `otel.*` 官方方言命名空间 | `src/agents/otel-events.ts`(经 `niceeval/adapter` 导出) |
 | run 级共享 OTLP 接收 + 逐轮归属(traceparent → `ctx.telemetry.headers`;窗口兜底 + 未确认时该 agent 轮次串行) | `src/o11y/otlp/turn-otel.ts`(`AgentOtelChannel` / `OtelReceiverPool`);接线在 `src/runner/attempt.ts`(池取通道)与 `src/context/session.ts`(`sendWithOtel`:归属 / 派生 / 合并) |
-| 固定端口模式(`defineConfig({ telemetry: { port } })` / `NICEEVAL_OTLP_PORT`) | `src/o11y/otlp/turn-otel.ts`(`resolveFixedOtlpPort`)、`src/o11y/otlp/receiver.ts`(`makeTraceReceiver(port)`) |
+| 固定端口 / 自定义接收 host 模式(`defineConfig({ telemetry: { host, port } })`,niceeval 项目内唯一入口,不读环境变量) | `src/runner/run.ts`(`OtelReceiverPool` 取 `config.telemetry.port`)、`src/runner/attempt.ts`(`config.telemetry.host`)、`src/o11y/otlp/receiver.ts`(`makeTraceReceiver(port)`,端口被占用时报 `otel.portInUse`) |
 | `deriveRunFacts`(toolCalls / subagents / parked / compactions) | `src/o11y/derive.ts` |
 | o11y 摘要(注入 `__niceeval__/results.json` 的字段) | `src/o11y/derive.ts`(`buildO11ySummary`) |
 | codex 用量从 `turn.completed.usage` 抠出 | `src/o11y/parsers/codex.ts` |

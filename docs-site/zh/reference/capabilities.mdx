@@ -13,8 +13,7 @@ description: "NiceEval 怎么知道你的 adapter 做到了什么：没有声明
 | 能力 | 怎么获得 | 你要写什么 |
 |---|---|---|
 | `t.sandbox` / `t.fileChanged()` 等文件系统断言 | 用 `defineSandboxAgent` 构造(`Agent.kind` 恒为 `"sandbox"`) | 无 |
-| `tracing`（OTLP 接收） | 写了 `tracing` 字段 | 无（字段本来就要写）|
-| 事件流从 span 派生 | 写了 `events: otelEvents()` | 无（字段本来就要写）|
+| `tracing`（OTLP 接收 → `niceeval view` 瀑布图） | CLI 型写了 `tracing` 字段；长驻应用在 config 配了 `telemetry` 固定端口 | 无（配置本来就要写）|
 | 工具/动作断言（`t.calledTool()` 等，含负断言） | 用官方转换器（`fromClaudeSdkMessages`、`fromAiSdk` 等）——返回值里有多少 `action.*` 事件就是多少 | 无；手工映射时事件完整与否由你的映射代码决定 |
 | 跨轮记忆、`t.newSession()` 隔离 | 用了 `ctx.session`（`id`/`capture`、`history`）续接上下文 | 无——接了就续得上，没接每轮都是新对话，不会报错 |
 | HITL（`t.respond()`） | `send` 返回过 `status: "waiting"` + `input.requested` | 无 |
@@ -26,7 +25,7 @@ description: "NiceEval 怎么知道你的 adapter 做到了什么：没有声明
 上一版设计里有 `capabilities: { conversation, toolObservability }` 这类布尔声明，用来补"代码证明不了的部分"。这一层已经被拿掉，原因是它承诺的事情本身就不该由声明来担保：
 
 - **构造即证明**：用了 `defineSandboxAgent`，说明被测对象在沙箱里改文件——不需要再声明一遍 `workspace: true`。
-- **字段即证明**：写了 `tracing`（怎么把 OTLP 端点交给 CLI），tracing 就成立；写了 `events: otelEvents()`，事件来源就定了。这些字段本身就是使用凭证，不需要旁边再放一个布尔值重复一遍。
+- **字段即证明**：写了 `tracing`（怎么把 OTLP 端点交给 CLI），tracing 就成立。字段本身就是使用凭证，不需要旁边再放一个布尔值重复一遍。
 - **来源即证明**：`fromAiSdk(result)` 消费的 `result.steps` 是 AI SDK 契约保证的**全量**工具循环记录，返回值自带"事件流完整"的证明；内置 CLI 的 parser 同理。手工映射时，事件完不完整取决于你的映射代码写没写全——这不是一个可以靠声明担保的东西，声明了也不会让代码更完整。
 - **行为即证明**：HITL 没有能力位——`send` 返回 `status: "waiting"` + `input.requested` 事件，行为本身可见。
 - **接了就续得上**：会话续接不再是"声明了才有"的开关。`ctx.session` 一直都在；用了 `id`/`capture` 或 `history` 存取器就会续接上下文，不用就每轮都是全新会话——两种都是正常状态，都不会报错，区别只在你的 adapter 实际怎么写。
@@ -50,7 +49,7 @@ export default defineAgent({
 
 ### 工具/动作事件完整性
 
-含义：这一轮的每次工具调用是否都以 `action.called` + `action.result` 出现在 events 里（[事件流参考](/zh/reference/events)）。来源：官方转换器按被测协议的契约保证；手工映射由你的代码决定；`otelEvents()` 不自动担保（埋点是否盖住全部工具层，NiceEval 无法替你验证，见 [OTel 接入](/zh/guides/connect-otel)）。
+含义：这一轮的每次工具调用是否都以 `action.called` + `action.result` 出现在 events 里（[事件流参考](/zh/reference/events)）。来源只有两个：官方转换器按被测协议的契约保证；手工映射由你的代码决定。OTel span 不是来源——span 只进瀑布图，不进事件流（见 [OTel 接入](/zh/guides/connect-otel)）。
 
 ### 会话续接
 
@@ -58,7 +57,7 @@ export default defineAgent({
 
 ### `tracing` —— 发 OTLP trace
 
-runner 消费：每次运行起一个本机 OTLP 接收器，把端点经 `ctx.telemetry` 交给你；span 归一后在 `niceeval view` 画瀑布图。来源：CLI 型写 `tracing` 字段（env / configure）；已埋点应用用 `events: otelEvents()`；远程 agent 显式声明 `tracing`。
+runner 消费：运行时起一个本机 OTLP 接收器，把本轮 trace context 经 `ctx.telemetry.headers` 交给你；span 归一后在 `niceeval view` 画瀑布图——只画图，不喂断言。来源：CLI 型写 `tracing` 字段（env / configure 把端点交给被测进程）；长驻应用在 `niceeval.config.ts` 配 `telemetry: { port }` 固定端口（见 [OTel 接入](/zh/guides/connect-otel)）。
 
 ### `kind: "sandbox"` —— 沙箱与改文件
 
@@ -73,5 +72,5 @@ runner 消费：为每次 attempt 准备沙箱（Docker / Vercel / E2B），经 
 - [事件流参考](/zh/reference/events) —— 事件流承诺的具体内容。
 - [Adapter 概念](/zh/concepts/adapter) —— `ctx`/`Turn` 的完整契约、能力从哪来。
 - [接入你的 agent](/zh/guides/connect-your-agent) —— 每种接入路径怎么做。
-- [接入 OTel 应用](/zh/guides/connect-otel) —— `otelEvents()` 与负断言的边界。
+- [OTel 接入](/zh/guides/connect-otel) —— span 只进瀑布图、不喂断言的完整走法。
 - [内置 Agent 能力](/zh/reference/builtin-agents) —— 内置 adapter 各自做到什么。

@@ -23,30 +23,19 @@ adapter 只是把这个已有的 HTTP + SSE 服务无侵入接进 niceeval，不
 - `agents/langgraph.ts`：adapter 本体,只剩传输粘合——应用在哪个 URL(`LANGGRAPH_URL`,默认
   `http://127.0.0.1:5488`)、自定义帧怎么解析、审批打哪个端点。应用由你自己按它的方式启动
   (`python server.py`,LangSmith OTel 环境变量启动时给,见「跑起来」),eval 不代管进程。
-  事件来源是
-  `events: otelEvents({ dialects: [otel.langsmith] })`——LangSmith OTel 导出的 span 派生
-  `action.called` / `action.result` / usage，SSE 帧只解析协议语义点：`session` → 写回
-  `ctx.session.id`；`tool-approval-request` → `input.requested` + `waiting`；
-  `tool-output-denied` → `action.result`（`status:"rejected"`，span 里没有"人拒绝"这个语义，
-  这条是 adapter 手动补的）；`error` → `failed`；`finish` → 结束哨兵。`tool-output` 不用翻译。
+  **断言依据全部来自应用自己的 SSE 帧**,逐帧映射:`tool-input` → `action.called`、
+  `tool-output` → `action.result`(completed)、`tool-output-denied` → `action.result`
+  (rejected,called 在上一轮的 `tool-input` 已落,同一个 `toolCallId` 跨轮配对)、
+  `text-delta` 累积成完整回复在轮次结束补一条 `message`、`session` → `ctx.session.capture`、
+  `tool-approval-request` → `input.requested` + `waiting`(停轮现场用 `ctx.session.hold`
+  存住,回答轮 `ctx.session.take` 取回接着读同一条流)、`error` → `failed`、`finish` → 结束。
+  协议帧里没有 usage,所以这个示例没有用量断言。
 
-  两处**没有**照抄"span 全包"的理想状态，是实测出来的真实限制，都记进了 `memory/`：
-  - **消息文本**：`langsmith` 方言解析不了 LangChain `ChatOpenAI` 实际吐的
-    `gen_ai.completion` 形状（`{generations:[[{text,...}]]}`），`message` 事件永远派生成空。
-    adapter 自己累积协议原生的 `text-delta` 帧拼成完整回复，在轮次结束时补一条 `message`
-    事件——和 span 派生的工具/usage 事件按文档"两边按时间戳合并"的设计共存，不是 hack。见
-    `memory/langsmith-dialect-langchain-completion-shape-gap.md`。
-  - **gated 工具（`calculate`）的 `action.called`**：同一份 gap 还导致 `langsmith` 方言给
-    "tool" 类型 span 派生 `callId` 时读不到 `gen_ai.tool.call.id`，退化用 `span.spanId`——和
-    协议帧里的真实 `toolCallId` 对不上。`get_weather` 这类正常执行的工具不受影响（span 派生
-    自洽的一对，断言不关心 callId 具体值）；但被拒绝的 `calculate` 调用**从来不会真的执行，
-    根本没有 span**，只能靠 adapter 缓存 `tool-input` 帧的信息，在 `tool-output-denied` 到达
-    时手动补一对用真实 `toolCallId` 配对的 `action.called`/`action.result`——approve 分支不需要
-    这个补丁（留给 span 派生），避免产生一条永远等不到配对结果的幽灵记录。
-  - 另外一个独立的时序问题：LangSmith 的 `BatchSpanProcessor` 默认调度延迟和"这一轮 HTTP
-    请求几时返回"对不齐，最后一次模型调用的 span 经常在轮次已经结束后才导出。`tracing.env`
-    额外注入了 `OTEL_BSP_SCHEDULE_DELAY=200`（标准 OTel 环境变量），adapter 在轮次结束后也
-    主动等一小段宽限时间（`OTEL_FLUSH_GRACE_MS`）再返回，把 niceeval 的收集窗口拉宽。
+  OTel(LangSmith 导出)只服务 `niceeval view` 的瀑布图,span 不喂断言。一个时序细节:
+  LangSmith 的 `BatchSpanProcessor` 默认调度延迟和"这一轮 HTTP 请求几时返回"对不齐,
+  最后一次模型调用的 span 经常在轮次已经结束后才导出——启动命令注入
+  `OTEL_BSP_SCHEDULE_DELAY=200`,adapter 在轮次结束后也主动等一小段宽限时间
+  (`OTEL_FLUSH_GRACE_MS`)再返回,把收集窗口拉宽;这只影响瀑布图完整性。
 - `evals/`：基础问答、天气工具调用、跨轮记忆 + `newSession()` 隔离、HITL 批准/拒绝。
 - `experiments/langgraph.ts`：单配置基线。没有 `compare-models/`——
   `docs/origin-integration.md` 的验收清单里多模型对比只点名了 ai-sdk-v7 / claude-sdk / pi-sdk。
@@ -60,12 +49,12 @@ adapter 只是把这个已有的 HTTP + SSE 服务无侵入接进 niceeval，不
   `ctx.session.id`、已有 id 的会话线带 id 续接同一条历史（LangGraph `InMemorySaver`，进程
   存活期间有效）。
 - `t.calledTool()` 等工具断言——已验证：`get_weather` / `calculate` 每次调用都有配对的
-  `action.called`/`action.result`（前者纯 span 派生，后者 approve 分支走 span、deny 分支走
-  adapter 手动补，见上面「目录」的说明），无遗漏。
-- `EvalResult.trace`、`niceeval view` 瀑布图——证据就是 `events: otelEvents({ dialects:
-  [otel.langsmith] })` 本身，不需要额外声明。`tracing.env` 给完整路径（**和 codex-sdk/ai-sdk-v7
-  相反**，那两个应用自己拼 `/v1/traces` 尾巴，这里 Python `langsmith` SDK 直接把这个值当完整
-  endpoint 用），同时注入三个 `LANGSMITH_*` 开关 + `OTEL_BSP_SCHEDULE_DELAY`。
+  `action.called`/`action.result`,全部来自协议帧映射(approve 分支 `tool-input`/`tool-output`
+  正常配对,deny 分支 rejected 的 result 与上一轮的 called 按 `toolCallId` 跨轮配对),无遗漏。
+- `EvalResult.trace`、`niceeval view` 瀑布图——`niceeval.config.ts` 配了 `telemetry: { port }`
+  固定端口就有,LangSmith OTel 导出的环境变量在启动应用时给(注意 Python `langsmith` SDK 把
+  `OTEL_EXPORTER_OTLP_ENDPOINT` 当完整 endpoint 用,要带 `/v1/traces` 尾巴——**和
+  codex-sdk/ai-sdk-v7 相反**,那两个应用自己拼尾巴)。span 只进瀑布图,不喂断言。
 
 ## HITL
 
@@ -86,7 +75,7 @@ pnpm install
 cp .env.example .env   # 填 OPENAI_API_KEY(这里挪用给 DeepSeek,见 niceeval.config.ts 注释)
 
 # 终端 1:起应用(LangSmith OTel 导出的环境变量在这里给——注意 langsmith SDK 要完整路径,
-# 端点带 /v1/traces 尾巴;niceeval 的接收端口钉在 4318,被占时两边一起换 + NICEEVAL_OTLP_PORT)
+# 端点带 /v1/traces 尾巴;niceeval 的接收端口钉在 4318,被占时改 niceeval.config.ts 的 telemetry.port 并同步这里)
 LANGSMITH_TRACING=true LANGSMITH_OTEL_ENABLED=true LANGSMITH_OTEL_ONLY=true \
 OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318/v1/traces OTEL_BSP_SCHEDULE_DELAY=200 \
 .venv/bin/python src/backend/server.py

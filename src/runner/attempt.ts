@@ -108,7 +108,7 @@ export function runAttemptEffect(
       // sandbox.otlpHost:
       //   string → docker 类沙箱,宿主开本地接收器,container 经 host.docker.internal 回连
       //   null   → 远程云端沙箱(e2b / vercel),宿主端口不可达 → 改在沙箱内起 collector
-      // NICEEVAL_OTLP_HOST 可强制覆盖(如配好 tunnel 时)。
+      // defineConfig({ telemetry: { host } }) 可强制覆盖(如配好 tunnel 时)。
       //
       // 非沙箱 agent(远程 / 进程内)不走 per-attempt receiver:被测应用是长驻进程,只有一条
       // 全局 OTel 管线(OTEL_* env 进程启动时读一次)—— per-attempt 端口会在第一个 attempt
@@ -116,18 +116,18 @@ export function runAttemptEffect(
       let receiver: TraceReceiver | undefined;
       let telemetry: Telemetry | undefined;
       let otelChannel: AgentOtelChannel | undefined;
-      // 共享池仅限:声明 events: otelEvents()(无侵入接入的长驻服务)或显式 tracing.scope === "run"。
+      // 共享池仅限:config 配了 telemetry(固定端口,无侵入接入的长驻服务)或显式 tracing.scope === "run"。
       // 只声明 tracing 的进程内 adapter(如 aiSdkAgent)保持 per-attempt receiver,attempt 全并发。
       const wantsSharedOtel =
-        run.agent.events !== undefined || run.agent.tracing?.scope === "run";
+        config.telemetry !== undefined || run.agent.tracing?.scope === "run";
       if (run.agent.kind !== "sandbox" && wantsSharedOtel && opts.otelPool) {
         otelChannel = yield* Effect.promise(() => opts.otelPool!.channel(run.agent.name));
-        const endpoint = otelChannel.receiver.endpoint(process.env.NICEEVAL_OTLP_HOST ?? "127.0.0.1");
+        const endpoint = otelChannel.receiver.endpoint(config.telemetry?.host ?? "127.0.0.1");
         const env = run.agent.tracing?.env?.(endpoint);
         telemetry = env ? { endpoint, env } : { endpoint };
         log(t("runner.otlpShared", { endpoint }));
       } else if (run.agent.tracing !== undefined) {
-        const forcedHost = process.env.NICEEVAL_OTLP_HOST;
+        const forcedHost = config.telemetry?.host;
         if (forcedHost) {
           // 显式覆盖:走本地接收器,把指定 host 交给 agent
           receiver = yield* createTraceReceiver();
@@ -204,7 +204,7 @@ interface AttemptResources {
   sandbox: Sandbox;
   receiver?: TraceReceiver;
   telemetry?: Telemetry;
-  /** 非沙箱 tracing/otelEvents agent 的共享 OTLP 通道(run 级池持有,不随 attempt 关)。 */
+  /** 非沙箱 tracing agent 的共享 OTLP 通道(run 级池持有,不随 attempt 关)。 */
   otel?: AgentOtelChannel;
   signal: AbortSignal;
   log: (m: string) => void;

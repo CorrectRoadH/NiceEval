@@ -77,6 +77,9 @@ export type MessageKey =
   | "trace.total"
   | "trace.spans"
   | "trace.clickDetails"
+  | "trace.enableHint"
+  | "trace.enableHintLink"
+  | "trace.enableHintUrl"
   | "transcript.noEvents"
   | "transcript.user"
   | "transcript.assistant"
@@ -184,6 +187,9 @@ const dictionaries: Record<Locale, Dictionary> = {
     "trace.total": "total",
     "trace.spans": "spans",
     "trace.clickDetails": "click a row for details",
+    "trace.enableHint": "No trace for this run. Wire up OTel to get a call waterfall — see the ",
+    "trace.enableHintLink": "OTel guide",
+    "trace.enableHintUrl": "https://niceeval.com/docs/guides/connect-otel",
     "transcript.noEvents": "no events",
     "transcript.user": "user",
     "transcript.assistant": "assistant",
@@ -288,6 +294,9 @@ const dictionaries: Record<Locale, Dictionary> = {
     "trace.total": "总计",
     "trace.spans": "spans",
     "trace.clickDetails": "点击行查看详情",
+    "trace.enableHint": "这次运行没有 trace。接入 OTel 才有调用瀑布图——看",
+    "trace.enableHintLink": "OTel 接入指南",
+    "trace.enableHintUrl": "https://niceeval.com/docs/zh/guides/connect-otel",
     "transcript.noEvents": "没有事件",
     "transcript.user": "user",
     "transcript.assistant": "assistant",

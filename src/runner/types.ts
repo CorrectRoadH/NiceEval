@@ -179,12 +179,16 @@ export interface Config {
   maxConcurrency?: number;
   timeoutMs?: number;
   /**
-   * OTLP 接收配置。`port` 钉住接收端口(固定端口模式:长驻服务把 OTEL_EXPORTER_OTLP_ENDPOINT
-   * 一次性指到 http://localhost:<port>/v1/traces,跑多少次 eval 都不用改)。省略 = 每次运行
-   * 动态分配临时端口(经 ctx.telemetry 交给 adapter)。也可用 NICEEVAL_OTLP_PORT 环境变量。
-   * 代价:固定端口下同机同时只能跑一个 niceeval 进程。
+   * OTLP 接收配置,niceeval 项目内唯一入口(不读 NICEEVAL_OTLP_* 环境变量)。
+   * `port` 钉住接收端口(固定端口模式:长驻服务把 OTEL_EXPORTER_OTLP_ENDPOINT 一次性指到
+   * http://localhost:<port>/v1/traces,跑多少次 eval 都不用改)。省略 = 每次运行动态分配
+   * 临时端口(经 ctx.telemetry 交给 adapter)。代价:固定端口下同机同时只能跑一个 niceeval 进程,
+   * 且该端口被别的进程占用时会报错——换一个空闲端口写回这里即可。
+   * `host` 是报给 adapter 的接收端 hostname(而非监听地址,监听地址恒为 0.0.0.0):默认
+   * "127.0.0.1";docker 沙箱型 tracing 需要 "host.docker.internal" 之类的场景,或配了隧道
+   * 的远程接入,在这里覆盖。
    */
-  telemetry?: { port?: number };
+  telemetry?: { host?: string; port?: number };
 }
 
 // ───────────────────────── 调度编排 ─────────────────────────
@@ -216,7 +220,7 @@ export interface RunOptions {
   /** 上次运行的结果。outcome === "passed" 的 (experimentId, evalId) 组合跳过重跑,结果直接合入本次汇总。 */
   priorResults?: EvalResult[];
   /**
-   * 非沙箱 tracing/otelEvents agent 的 run 级共享 OTLP 接收池(runEvals 创建并回收;
+   * 非沙箱 tracing agent 的 run 级共享 OTLP 接收池(runEvals 创建并回收;
    * 每个 agent 一个 receiver,attempt 之间共享 —— 被测应用是长驻进程,端点不能随 attempt 换)。
    */
   otelPool?: import("../o11y/otlp/turn-otel.ts").OtelReceiverPool;

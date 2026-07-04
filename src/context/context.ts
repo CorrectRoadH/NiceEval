@@ -66,7 +66,7 @@ export interface ContextDeps {
   judge: JudgeConfig | undefined;
   /** tracing agent 的 OTLP 端点(运行器起接收器后注入);经 send ctx 透给 adapter。 */
   telemetry?: Telemetry;
-  /** 非沙箱 tracing/otelEvents agent 的共享 OTLP 通道(逐轮 span 归属 / 事件派生)。 */
+  /** 非沙箱 tracing agent 的共享 OTLP 通道(逐轮 span 归属,只进瀑布图)。 */
   otel?: import("../o11y/otlp/turn-otel.ts").AgentOtelChannel;
   /** Eval definition directory; used to resolve host-side relative fixture paths. */
   evalBaseDir?: string;

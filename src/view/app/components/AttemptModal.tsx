@@ -58,7 +58,16 @@ export function AttemptModal({ result, onClose, t }: { result: ViewResult; onClo
           ) : data.status !== "loading" ? (
             <NoSourceBody assertions={allAssertions} events={data.events || []} t={t} />
           ) : null}
-          {result.hasTrace && base ? <LazyArtifact type="trace" src={`${base}/trace.json`} t={t} /> : null}
+          {result.hasTrace && base ? (
+            <LazyArtifact type="trace" src={`${base}/trace.json`} t={t} />
+          ) : data.status !== "loading" ? (
+            <div className="mt-3 text-xs text-muted">
+              {t("trace.enableHint")}
+              <a href={t("trace.enableHintUrl")} target="_blank" rel="noreferrer" className="underline">
+                {t("trace.enableHintLink")}
+              </a>
+            </div>
+          ) : null}
         </div>
       </DialogContent>
     </Dialog>
