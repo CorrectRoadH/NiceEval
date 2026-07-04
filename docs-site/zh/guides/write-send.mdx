@@ -297,7 +297,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318/v1/traces node server.js
 
 `ctx.telemetry` 只在配置了 OTel 接入时出现，没配时 spread 一个 `undefined` 也安全，这行可以常驻。不带这个头 span 也能收到，但归属退化成时间窗口、该 agent 的轮次会降为串行——带上它是并发下归属准确的来源。
 
-**这一步解锁**：免映射的事件补全、负断言的完整性证明、`niceeval view` 里的 trace 瀑布图。接收器怎么起、span 怎么归属到轮、内容采集怎么开，见 [OTel 接入](/zh/guides/connect-otel)。
+**这一步解锁**：`niceeval view` 里的调用瀑布图——应用内部每次模型调用、每次工具执行的耗时与 token，按轮铺成时间线。断言不变：判决依据在前几步的事件映射里已经齐了，span 只进瀑布图、不喂断言。接收器怎么起、span 怎么归属到轮，见 [OTel 接入](/zh/guides/connect-otel)。
 
 ## 第七步：透传 experiment 的 flags（A/B 对比）
 

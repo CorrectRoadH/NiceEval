@@ -45,7 +45,6 @@ export function webAgent(opts: { baseUrl: string }): Agent {
   const baseUrl = opts.baseUrl.replace(/\/$/, "");
   return defineAgent({
     name: "web-agent",
-    capabilities: { conversation: true, toolObservability: true, tracing: true },
     async send(input, ctx) {
       const response = await fetch(`${baseUrl}/api/turn`, {
         method: "POST",
@@ -61,7 +60,7 @@ export function webAgent(opts: { baseUrl: string }): Agent {
       });
       // 同一 workspace 的共享契约,直接按 AgentResponse 读,不必当 unknown 再校验一遍。
       const body = (await response.json()) as AgentResponse;
-      ctx.session.id = body.sessionId;
+      ctx.session.capture(body.sessionId);
       return {
         events: body.events.map(toStreamEvent),
         data: body.data,
@@ -79,7 +78,7 @@ function toStreamEvent(event: AgentEvent): StreamEvent {
 
 ## 多轮消息
 
-`t.send()` 会自动带上 `ctx.session.id` 续接同一会话；adapter 把 agent 回传的 `sessionId` 写回 `ctx.session.id` 即可。需要在实验里按 feature flag 分流，见 [Experiments](/zh/guides/experiments)。
+同一条会话线里 `ctx.session.id` 自动续到下一轮；adapter 把 agent 回传的 `sessionId` 用 `ctx.session.capture()` 写回即可。需要在实验里按 feature flag 分流，见 [Experiments](/zh/guides/experiments)。
 
 # 定义评估
 

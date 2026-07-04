@@ -22,7 +22,7 @@ export interface WebAgentOptions {
  * 不必把它当 `unknown` 再防御式重新校验一遍。adapter 唯一的硬活是把 `AgentEvent[]` 映射成
  * niceeval 的标准 `StreamEvent[]`。
  *
- * 声明 `tracing`:niceeval 为本次运行起一个本机 OTLP 接收器,把 endpoint 经 `ctx.telemetry`
+ * niceeval 为本次运行起一个本机 OTLP 接收器,把 endpoint 经 `ctx.telemetry`
  * 交给我们;我们随每轮请求把它带给 web agent,于是 app 自己的可观测(langfuse)之外,
  * 还能把这一轮的 turn / model / tool span 也导到 niceeval —— 双可观测,niceeval `view` 里
  * 直接出瀑布图。
@@ -33,11 +33,6 @@ export function webAgent(opts: WebAgentOptions): Agent {
 
   return defineAgent({
     name: "web-agent",
-    capabilities: {
-      conversation: true,
-      toolObservability: true,
-      tracing: true,
-    },
 
     async send(input, ctx) {
       try {
@@ -63,7 +58,7 @@ export function webAgent(opts: WebAgentOptions): Agent {
 
         // 同一 workspace 的共享契约,直接按 AgentResponse 读。
         const body = (await response.json()) as AgentResponse;
-        ctx.session.id = body.sessionId;
+        ctx.session.capture(body.sessionId);
 
         return {
           events: body.events.map(toStreamEvent),

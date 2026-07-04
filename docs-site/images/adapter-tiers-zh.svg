@@ -41,8 +41,8 @@
   <text x="468" y="152" class="line">应用把 OTel span 发给 NiceEval</text>
   <text x="468" y="178" class="line">已埋点的应用零改动</text>
   <text x="468" y="218" class="get">买到</text>
-  <text x="468" y="244" class="line">事件免手写映射、trace 瀑布图</text>
-  <text x="468" y="270" class="line">负断言的完整性证明</text>
+  <text x="468" y="244" class="line">niceeval view 的调用瀑布图</text>
+  <text x="468" y="270" class="line">每次模型 / 工具调用的耗时与 token</text>
 
   <path d="M 806 170 H 838" class="arrow" />
 

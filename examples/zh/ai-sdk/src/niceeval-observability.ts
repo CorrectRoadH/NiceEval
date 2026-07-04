@@ -4,7 +4,7 @@ import { randomBytes } from "node:crypto";
 // 为本次运行起的 OTLP 接收器。第一路是 app 自带的 langfuse(见 app-observability.ts);
 // 这一路让同一轮活动也出现在 niceeval `view` 的瀑布图里。
 //
-// 端点由 niceeval 每轮经请求体 otelEndpoint 传进来(adapter 声明 capabilities.tracing →
+// 端点由 niceeval 每轮经请求体 otelEndpoint 传进来(adapter 声明 tracing 字段 →
 // ctx.telemetry.endpoint),不读 env、不写默认。没端点(direct 跑没开 tracing)就 no-op。
 //
 // 刻意手搓 OTLP/JSON、不引 OpenTelemetry SDK:一来例子零额外依赖、好读;二来 span 属性

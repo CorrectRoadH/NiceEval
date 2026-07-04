@@ -1,31 +1,35 @@
 ---
 title: "能力位参考"
 sidebarTitle: "能力位"
-description: "NiceEval 怎么知道你的 adapter 做到了什么：大多数能力由实现自动证明，少数证明不了的才需要声明。"
+description: "NiceEval 怎么知道你的 adapter 做到了什么：没有声明式能力位，全部由构造和实际行为证明。"
 ---
 
-能力（capabilities）回答一个问题：**你的 adapter 做到了什么**——决定哪些断言可信、runner 要为你准备什么服务。
+能力回答一个问题：**你的 adapter 做到了什么**——决定哪些断言可信、runner 要为你准备什么服务。
 
-原则是：**能用实现证明的，不用你声明；只有证明不了的才要你写一行。** 大多数 adapter 一个能力位都不用碰。
+`defineAgent` / `defineSandboxAgent` 上没有 `capabilities` 字段——**没有任何东西需要你声明**。每一项能力都由构造方式或实际返回的内容证明，判定表如下。
 
 ## 能力从哪来：一张判决表
 
 | 能力 | 怎么获得 | 你要写什么 |
 |---|---|---|
-| `sandbox` / `workspace` | 用 `defineSandboxAgent` 构造 | 无 |
-| `tracing` | 写了 `tracing` 块（CLI 投递配置），或声明了 `events: otelEvents()` | 无（块本来就要写）|
-| `toolObservability` | 用官方转换器（`fromAiSdk`、内置 parsers）——返回值自带证明；**手工映射时自己声明** | 官方件：无；手工：一行 |
-| `compactionObservability` | 内置 parsers 自带 | 无 |
-| `conversation` | **只能声明**（默认没有） | 做到了写一行 |
-| HITL | 行为证明：`send` 返回 `waiting` + `input.requested` | 无 |
+| `t.sandbox` / `t.fileChanged()` 等文件系统断言 | 用 `defineSandboxAgent` 构造(`Agent.kind` 恒为 `"sandbox"`) | 无 |
+| `tracing`（OTLP 接收） | 写了 `tracing` 字段 | 无（字段本来就要写）|
+| 事件流从 span 派生 | 写了 `events: otelEvents()` | 无（字段本来就要写）|
+| 工具/动作断言（`t.calledTool()` 等，含负断言） | 用官方转换器（`fromClaudeSdkMessages`、`fromAiSdk` 等）——返回值里有多少 `action.*` 事件就是多少 | 无；手工映射时事件完整与否由你的映射代码决定 |
+| 跨轮记忆、`t.newSession()` 隔离 | 用了 `ctx.session`（`id`/`capture`、`history`）续接上下文 | 无——接了就续得上，没接每轮都是新对话，不会报错 |
+| HITL（`t.respond()`） | `send` 返回过 `status: "waiting"` + `input.requested` | 无 |
 
-没证明、也没声明的能力 = 没有。对应断言组不可信或不可用，但基础断言（文本、结构化、judge）永远可用。
+没做到的能力 = 没有对应的事件/字段出现，相关断言组不可用（不是"报错"，是断言本身没有可判断的依据）；基础断言（文本、结构化、judge）永远可用。
 
-## 为什么大多数能力不用声明
+## 为什么没有声明这一层
 
-- **构造即证明**：用了 `defineSandboxAgent`，说明被测对象在沙箱里改文件——`sandbox` / `workspace` 不需要再说一遍。
-- **函数即证明**：写了 `tracing` 块（怎么把 OTLP 端点交给 CLI），tracing 能力就成立——不用再写 `capabilities: { tracing: true }` 说第二遍。
-- **来源即证明**：`fromAiSdk(result)` 消费的 `result.steps` 是 AI SDK 契约保证的**全量**工具循环记录，所以它的返回值自带"事件流完整"的证明；内置三个 CLI 的 parser 消费的 transcript 是 CLI 为自己 resume 写的全量侧写，同理。用了这些件，`notCalledTool` 这类负断言直接可信：
+上一版设计里有 `capabilities: { conversation, toolObservability }` 这类布尔声明，用来补"代码证明不了的部分"。这一层已经被拿掉，原因是它承诺的事情本身就不该由声明来担保：
+
+- **构造即证明**：用了 `defineSandboxAgent`，说明被测对象在沙箱里改文件——不需要再声明一遍 `workspace: true`。
+- **字段即证明**：写了 `tracing`（怎么把 OTLP 端点交给 CLI），tracing 就成立；写了 `events: otelEvents()`，事件来源就定了。这些字段本身就是使用凭证，不需要旁边再放一个布尔值重复一遍。
+- **来源即证明**：`fromAiSdk(result)` 消费的 `result.steps` 是 AI SDK 契约保证的**全量**工具循环记录，返回值自带"事件流完整"的证明；内置 CLI 的 parser 同理。手工映射时，事件完不完整取决于你的映射代码写没写全——这不是一个可以靠声明担保的东西，声明了也不会让代码更完整。
+- **行为即证明**：HITL 没有能力位——`send` 返回 `status: "waiting"` + `input.requested` 事件，行为本身可见。
+- **接了就续得上**：会话续接不再是"声明了才有"的开关。`ctx.session` 一直都在；用了 `id`/`capture` 或 `history` 存取器就会续接上下文，不用就每轮都是全新会话——两种都是正常状态，都不会报错，区别只在你的 adapter 实际怎么写。
 
 ```ts
 export default defineAgent({
@@ -33,68 +37,41 @@ export default defineAgent({
   async send(input, ctx) {
     const result = await generateText({ model, tools, prompt: input.text });
     return { ...fromAiSdk(result), data: result.text };
-    // ↑ 返回值自带 toolObservability 证明,不用写能力位
+    // ↑ 返回值自带完整的工具事件，不需要任何能力声明
   },
 });
 ```
 
-- **行为即证明**：HITL 从来没有能力位——`send` 返回 `status: "waiting"` + `input.requested` 事件，行为本身可见。
+## 手工映射时事件不全，会怎样
 
-## 为什么剩下两个必须声明
+没有声明这一层之后，"谎报"这件事也不存在了——手工映射漏了哪些工具事件，`t.calledTool()` 这类断言看到的就是漏掉之后的样子，包括负断言（`notCalledTool()`）可能因为事件本来就没写全而"看起来通过"。这不是框架的判定失误，是手工映射本身的完整性问题：**要不要相信一个负断言，取决于你有没有确认过自己的映射代码覆盖了全部工具调用**，不存在框架帮你担保的中间层。
 
-它们承诺的事,任何一层代码都验证不了:
+## 逐项速查
 
-- **`conversation`**:对端服务是否**真的**续接了上下文,连 adapter 自己都不知道——`previousResponseId` 发过去了,对端理不理是对端的事。只有你(验证过)能承诺。
-- **手工映射的 `toolObservability`**:你自己写 `toStreamEvents` 时,事件是全量还是漏了一半,取决于你的 API 返回里有没有全部调用——只有你知道。
+### 工具/动作事件完整性
 
-```ts
-export default defineAgent({
-  name: "my-bot",
-  capabilities: {
-    conversation: true,        // 我验证过:isNew 开新会话、同 id 真续接
-    toolObservability: true,   // 我验证过:每次工具调用都进了 events
-  },
-  async send(input, ctx) { /* 手工映射 */ },
-});
-```
+含义：这一轮的每次工具调用是否都以 `action.called` + `action.result` 出现在 events 里（[事件流参考](/zh/reference/events)）。来源：官方转换器按被测协议的契约保证；手工映射由你的代码决定；`otelEvents()` 不自动担保（埋点是否盖住全部工具层，NiceEval 无法替你验证，见 [OTel 接入](/zh/guides/connect-otel)）。
 
-## 声明错了会怎样
+### 会话续接
 
-声明是承诺。谎报的代价不对称：
+含义：用 `ctx.session.id` / `capture` 或 `ctx.session.history` 把请求连到同一个后端会话/累计历史上。有它，跨轮记忆断言、`t.newSession()` 隔离断言才有意义。两种实现写法见[写 send](/zh/guides/write-send)。
 
-| 谎报方向 | 后果 | 暴露方式 |
-|---|---|---|
-| 声明了 `toolObservability` 但事件不完整 | `notCalledTool` / `maxToolCalls` / `usedNoTools` 等**负断言静默假通过** | **没有报错**——最危险的一类 |
-| 声明了 `conversation` 但忽略 `isNew` | `t.newSession()` 的"独立会话"实际共享上下文,隔离断言全部失真 | 没有报错 |
-| 做到了但没声明 | 对应断言组少一组可信 | 无害,只是保守 |
+### `tracing` —— 发 OTLP trace
 
-规则:**拿不准就不声明**。宁可保守,不要静默假通过。显式声明永远优先于自动证明——比如用了 `fromAiSdk` 但明知外面还有一层没进 events 的工具调用,可以显式 `toolObservability: false` 关回去。
+runner 消费：每次运行起一个本机 OTLP 接收器，把端点经 `ctx.telemetry` 交给你；span 归一后在 `niceeval view` 画瀑布图。来源：CLI 型写 `tracing` 字段（env / configure）；已埋点应用用 `events: otelEvents()`；远程 agent 显式声明 `tracing`。
 
-## 逐位速查
+### `kind: "sandbox"` —— 沙箱与改文件
 
-### `toolObservability` —— 事件流完整
+runner 消费：为每次 attempt 准备沙箱（Docker / Vercel / E2B），经 `ctx.sandbox` 交给 adapter；解锁 `t.sandbox.fileChanged()` 等 diff 断言。来源：`defineSandboxAgent` 构造，内部判别字段，不用你写。
 
-含义:这一轮的**每次**工具调用都以 `action.called` + `action.result` 出现在 events 里([事件流参考](/zh/reference/events))。有它,整套工具断言可信,包括负断言。来源:官方转换器自动带;手工映射自己声明;`otelEvents()` **不**自动带(埋点是否盖住全部工具层,NiceEval 无法替你验证,见 [OTel 接入](/zh/guides/connect-otel))。
+### 压缩可见（compaction）
 
-### `conversation` —— 会话续接
-
-含义:`ctx.session.isNew === true` 时开新会话并写回 id,`false` 时按 id 续接同一上下文。有它,跨轮记忆断言、`t.newSession()` 隔离断言可信。只能声明。两种实现写法见[教程](/zh/guides/connect-your-agent)。
-
-### `tracing` —— 发 OTLP trace(服务开关)
-
-runner 消费:每次运行起一个本机 OTLP 接收器,把端点经 `ctx.telemetry` 交给你;span 归一后在 `niceeval view` 画瀑布图。来源:CLI 型写 `tracing` 块(env / configure);已埋点应用用 `events: otelEvents()`;手搓投递的远程 agent 显式声明。
-
-### `sandbox` / `workspace` —— 沙箱与改文件(服务开关)
-
-runner 消费:为每次 attempt 准备沙箱(Docker / Vercel / E2B),经 `ctx.sandbox` 交给 adapter;`workspace` 是 diff 断言(`t.sandbox.fileChanged()`)的前提。来源:`defineSandboxAgent` 构造。
-
-### `compactionObservability` —— 压缩可见
-
-含义:被测 agent 发生上下文压缩时吐 `compaction` 事件,`t.event("compaction")` 有意义。来源:内置 parsers 自动带;自写 parser 做到了可声明。
+含义：被测 agent 发生上下文压缩时吐 `compaction` 事件，`t.event("compaction")` 有意义。来源：内置 parsers 自动带；自写 parser 覆盖了对应逻辑就有。
 
 ## 相关阅读
 
-- [事件流参考](/zh/reference/events) —— `toolObservability` 承诺的具体内容。
-- [接入你的 agent](/zh/guides/connect-your-agent) —— 每个能力怎么做。
+- [事件流参考](/zh/reference/events) —— 事件流承诺的具体内容。
+- [Adapter 概念](/zh/concepts/adapter) —— `ctx`/`Turn` 的完整契约、能力从哪来。
+- [接入你的 agent](/zh/guides/connect-your-agent) —— 每种接入路径怎么做。
 - [接入 OTel 应用](/zh/guides/connect-otel) —— `otelEvents()` 与负断言的边界。
 - [内置 Agent 能力](/zh/reference/builtin-agents) —— 内置 adapter 各自做到什么。

@@ -83,26 +83,6 @@
     {
       "source": "/zh/example/eval-multil-turn-for-your-agent",
       "destination": "/zh/concepts/drive"
-    },
-    {
-      "source": "/zh/example/ai-sdk-v7-before-after",
-      "destination": "/zh/example/tier1-ai-sdk-v7"
-    },
-    {
-      "source": "/zh/example/claude-sdk-before-after",
-      "destination": "/zh/example/tier1-claude-sdk"
-    },
-    {
-      "source": "/zh/example/codex-sdk-before-after",
-      "destination": "/zh/example/tier1-codex-sdk"
-    },
-    {
-      "source": "/zh/example/pi-sdk-before-after",
-      "destination": "/zh/example/tier1-pi-sdk"
-    },
-    {
-      "source": "/zh/example/langgraph-before-after",
-      "destination": "/zh/example/tier1-langgraph"
     }
   ],
   "navigation": {
@@ -263,17 +243,7 @@
                 "pages": [
                   "zh/example/claude-code-codex-plugin",
                   "zh/example/claude-code-codex-skill",
-                  "zh/example/ai-agent-application",
-                  {
-                    "group": "Tier 1 接入",
-                    "pages": [
-                      "zh/example/tier1-ai-sdk-v7",
-                      "zh/example/tier1-claude-sdk",
-                      "zh/example/tier1-codex-sdk",
-                      "zh/example/tier1-pi-sdk",
-                      "zh/example/tier1-langgraph"
-                    ]
-                  }
+                  "zh/example/ai-agent-application"
                 ]
               },
               {

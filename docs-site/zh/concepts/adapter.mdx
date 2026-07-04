@@ -87,7 +87,7 @@ export default defineExperiment({
 
 ## 接入 Tier
 
-按「Adapter 接到哪里、额外拿到什么观测数据」，接入分三档：**Tier 1 只接 send**（应用代码一行不改）、**Tier 2 send + OTel**（事件从 span 派生）、**Tier 3 侵入改造 + experiment flags**（feature A/B）。每档投入什么、买到什么、什么时候升级，见 [Tier](/zh/concepts/tier)。
+按「Adapter 接到哪里、额外拿到什么观测数据」，接入分三档：**Tier 1 只接 send**（应用代码一行不改，全套断言在这一档就齐了）、**Tier 2 send + OTel**（应用把 span 发给 NiceEval，换 `niceeval view` 的调用瀑布图）、**Tier 3 侵入改造 + experiment flags**（feature A/B）。每档投入什么、买到什么、什么时候升级，见 [Tier](/zh/concepts/tier)。
 
 eval 侧的驱动 API——`t.send()`、`t.sendFile()`、`t.newSession()`、HITL 的 `t.respond()` / `t.respondAll()`
 统一都是调用 Adapter 的 `send`。
@@ -271,7 +271,7 @@ turn.data.amount;   // 类型是 number——不是 unknown，不用手动收窄
 | `t.calledTool()` / `t.toolOrder()` 等正断言 | events 里有 `action.*` | 无——有事件就能断 |
 | `t.notCalledTool()` / `t.usedNoTools()` 等负断言**可信** | 事件来自带完整性证明的官方转换器 | 无——证明随转换器返回值走 |
 | `t.sandbox`、`t.fileChanged()` 等 | `defineSandboxAgent` 构造 | 无 |
-| `EvalResult.trace`、`niceeval view` 瀑布图 | `tracing` 块 / `events: otelEvents()` 存在 | 无——块本来就要写 |
+| `EvalResult.trace`、`niceeval view` 瀑布图 | `tracing` 块存在（span 只进瀑布图，不喂断言） | 无——块本来就要写 |
 
 负断言那行是唯一分档次的：`notCalledTool` 断的是"没发生"，前提是"事件全量"——这只有来源本身有完整性契约时才成立（SDK 原生事件流透传、AI SDK 的 `result.steps`、Responses 的 `output`）。手写映射没有证明，负断言会在运行时提示不可信，而不是静默假通过。所以也不存在"声明了做不到"的失真：可信度跟着事件的来源走，不跟作者的自觉走。逐能力的精确义务见[能力参考](/zh/reference/capabilities)。
 

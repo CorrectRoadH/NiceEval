@@ -1,7 +1,7 @@
 ---
 title: "defineAgent 和 defineSandboxAgent：adapter 参考"
 sidebarTitle: "defineAgent"
-description: "defineAgent 和 defineSandboxAgent 参考：AgentContext、Sandbox 接口、StreamEvent 类型和共享 sandbox helpers。"
+description: "defineAgent 和 defineSandboxAgent 参考：AgentContext、AgentSession、Sandbox 接口和共享 sandbox helpers。"
 ---
 
 每个 NiceEval agent 都是一个 adapter：一段知道如何驱动特定 backend，并把输出转成标准事件流的代码。runner 只调用 `agent.send(input, ctx)`。
@@ -20,52 +20,73 @@ import { defineAgent } from "niceeval/adapter";
   agent 唯一名字。experiment 引用 agent 对象,报告按这个名字分组。
 </ParamField>
 
-<ParamField body="capabilities" type="AgentCapabilities">
-  声明 agent 能力。runner 据此决定 `t` 上哪些方法可用。
+<ParamField body="tracing" type="AgentTracing">
+  OTLP 导出配置。只有写了这个字段,运行器才为该 agent 开 OTLP 接收;省略即代表这个 agent 不发 trace。
+</ParamField>
 
-  <ParamField body="conversation" type="boolean">
-    支持多轮会话，启用 `t.reply` 和 `t.newSession()`。
-  </ParamField>
+<ParamField body="events" type="OtelEventsSource">
+  事件来源声明:`events: otelEvents()` 代表事件流从本轮收到的 span 派生,`send` 免写映射(见[接入 OTel 应用](/zh/guides/connect-otel))。
+</ParamField>
 
-  <ParamField body="toolObservability" type="boolean">
-    产生工具或动作事件，启用 `t.calledTool()` 等断言。
-  </ParamField>
-
-  <ParamField body="workspace" type="boolean">
-    能操作文件系统，启用 `t.fileChanged()`、`t.check(await t.sandbox.runCommand("npm", ["test"]), commandSucceeded())` 等断言。
-  </ParamField>
+<ParamField body="spanMapper" type="(spans: TraceSpan[]) => TraceSpan[]">
+  原生 span → canonical GenAI semconv 的薄 mapper。省略走通用 heuristic 兜底。
 </ParamField>
 
 <ParamField body="send" type="(input: TurnInput, ctx: AgentContext) => Promise<Turn>" required>
   驱动 agent 的核心函数。必须返回标准 `Turn`。
 </ParamField>
 
-## `input`
+`defineAgent` 产出的 `Agent.kind` 恒为 `"remote"`(内部判别字段,不用你声明)。`t` 上没有需要声明才解锁的能力位——`t.sandbox` 这类文件系统断言只在 `defineSandboxAgent` 构造的 agent(`kind: "sandbox"`)上才有,其余全靠 `send` 实际返回了什么事件/`ctx.session` 用没用来判断,详见[能力位参考](/zh/reference/capabilities)。
+
+## `input`(`TurnInput`)
 
 <ResponseField name="text" type="string">
   当前 `t.send(...)` 传入的文本。
 </ResponseField>
 
-## `ctx`
+<ResponseField name="files" type="readonly InputFile[] | undefined">
+  本轮附带的文件(图片等)。不支持多模态的 adapter 可以忽略它。
+</ResponseField>
+
+<ResponseField name="responses" type="readonly InputResponse[] | undefined">
+  仅回答轮(`t.respond` / `t.respondAll`)出现:逐请求的结构化回答,按 `requestId` 对位。
+</ResponseField>
+
+## `ctx`(`AgentContext`)
 
 <ResponseField name="signal" type="AbortSignal">
-  用于超时和取消。
+  用于超时和取消,透传给你发出的每个请求。
 </ResponseField>
 
 <ResponseField name="model" type="string | undefined">
-  CLI 或配置传入的模型。
+  Tier 1 的模型对比:`experiment.model` 透传;应用接口收模型选择就转发。
 </ResponseField>
 
 <ResponseField name="flags" type="Readonly<Record<string, unknown>>">
-  运行时 flags。
+  Tier 3 的 feature A/B:`experiment.flags` 透传;没配时是 `{}`。
 </ResponseField>
 
-<ResponseField name="session" type="{ id?: string; isNew: boolean }">
-  当前会话信息。
+<ResponseField name="telemetry" type="Telemetry | undefined">
+  仅当配置了 OTel 接入时出现:本轮的 W3C trace context(`headers`,每轮一个新 `traceparent`)。
+</ResponseField>
+
+<ResponseField name="sandbox" type="Sandbox | undefined">
+  仅 `defineSandboxAgent` 构造的 agent 会拿到。
+</ResponseField>
+
+<ResponseField name="session" type="AgentSession">
+  本条会话线的状态槽。同一条会话线的每次 `send` 拿到同一个 `ctx.session`,新会话线(eval 第一轮,或 `t.newSession()` 之后)拿到全新的:
+
+  - `id?: string` / `capture(id): void` —— 会话续接·服务端记历史时用:`id` 是本线记过的会话 id(新线是 `undefined`),`capture` 记回传的 id(只在还没记过时落地)。
+  - `history<TMsg>(): { get(): TMsg[]; commit(messages: TMsg[]): void }` —— 会话续接·客户端带全量历史时用。
+  - `hold<T>(state: T): void` / `take<T>(): T | undefined` —— HITL 停轮现场的存取,`take` 取到即清除(一次消费)。
+  - `state: Record<string, unknown>` —— 逃生舱,起始 `{}`,框架从不写入。
+
+  完整契约见[Adapter 概念](/zh/concepts/adapter#上下文：agentcontext)。
 </ResponseField>
 
 <ResponseField name="log" type="(msg: string) => void">
-  向运行日志写消息。
+  向运行日志写消息,`niceeval view` 里可见。
 </ResponseField>
 
 ## direct agent 示例
@@ -73,11 +94,10 @@ import { defineAgent } from "niceeval/adapter";
 ```ts
 export default defineAgent({
   name: "echo",
-  capabilities: { conversation: true },
   async send(input) {
     return {
       status: "completed",
-      events: [{ type: "message", role: "assistant", content: input.text }],
+      events: [{ type: "message", role: "assistant", text: input.text }],
     };
   },
 });
@@ -85,25 +105,41 @@ export default defineAgent({
 
 ## `defineSandboxAgent`
 
-用于 coding agent CLI。`ctx.sandbox` 是当前隔离环境的句柄：
+用于 coding agent CLI。产出的 `Agent.kind` 恒为 `"sandbox"`——`t.sandbox`、`t.fileChanged()` 等文件系统断言只在这类 agent 上解锁。`ctx.sandbox` 是当前隔离环境的句柄：
 
-<ResponseField name="runCommand(cmd, args?, opts?)" type="function">
+<ResponseField name="runCommand(cmd, args?, opts?)" type="(cmd: string, args?: string[], opts?: CommandOptions) => Promise<CommandResult>">
   运行命令。
 </ResponseField>
 
-<ResponseField name="runShell(script, opts?)" type="function">
+<ResponseField name="runShell(script, opts?)" type="(script: string, opts?: CommandOptions) => Promise<CommandResult>">
   运行 shell 脚本。
 </ResponseField>
 
-<ResponseField name="readFile(path)" type="function">
+<ResponseField name="readFile(path)" type="(path: string) => Promise<string>">
   读取 sandbox 内文件。
 </ResponseField>
 
-<ResponseField name="writeFiles(files)" type="function">
-  写入文件。
+<ResponseField name="fileExists(path)" type="(path: string) => Promise<boolean>">
+  检查 sandbox 内文件是否存在。
 </ResponseField>
 
-<ResponseField name="stop()" type="function">
+<ResponseField name="writeFiles(files, targetDir?)" type="(files: Record<string, string>, targetDir?: string) => Promise<void>">
+  按路径写入文件内容。
+</ResponseField>
+
+<ResponseField name="uploadFiles(files, targetDir?)" type="(files: SandboxFile[], targetDir?: string) => Promise<void>">
+  上传本地文件到 sandbox。
+</ResponseField>
+
+<ResponseField name="uploadDirectory(localDir, targetDir?, opts?)" type="(localDir: string, targetDir?: string, opts?: { ignore?: string[] }) => Promise<void>">
+  上传整个本地目录,通常用于写入 eval 的起始文件。
+</ResponseField>
+
+<ResponseField name="sandboxId" type="string">
+  当前 sandbox 实例的 id。
+</ResponseField>
+
+<ResponseField name="stop()" type="() => Promise<void>">
   停止 sandbox。
 </ResponseField>
 
