@@ -8,7 +8,7 @@ niceeval 是一个 TypeScript evals 库。CLI 入口在 `bin/niceeval.mjs`，运
 
 项目文档位于 `docs/`，主要是给 Agent 与开发者看的，讨论应该如何设计。先读 `docs/README.md`——它按意图(建立心智模型 / 写 eval / 接 agent / 跑与看 / 背景调研)索引了全部文档；在这里维护第二份清单容易和它脱节，改文档结构时更新那一份即可。找实现行为对应的源码入口，优先查 `docs/source-map.md`。标了"设计提案(未实现)"的文档(如 `docs/multi-agent.md`、`docs/capabilities-by-construction.md`)是未落地的设计，不要当成当前行为。
 
-用户文档位于 `docs-site`，主要是给用户看的。用户应该如何使用 niceeval
+用户文档位于 `docs-site`，主要是给用户看的，回答用户应该如何使用 NiceEval。改 `docs-site/` 时必须先读 `docs-site/AGENTS.md`；那一份是 Mintlify 公开文档站的写作指南、术语表和校验规则，本文件只保留仓库级总规则。
 
 ## Public Docs, Examples & README
 
