@@ -89,7 +89,7 @@ adapter 要这样做:
 
 ### OTel:只画瀑布图,和事件映射完全无关
 
-不管应用有没有 OTel 输出,事件映射(上面几节讲的)都一样要做——**OTel 现在只喂 `niceeval view` 的调用瀑布图,不产出任何事件,也不影响任何断言**(这条设计经过一次调整:曾经想让有 span 的应用直接从 span 派生事件、免写映射,那条路线已经从实现里移除,见 [otel-mixin.md](adapters/otel-mixin.md) 的废弃说明)。
+不管应用有没有 OTel 输出,事件映射(上面几节讲的)都一样要做——**OTel 现在只喂 `niceeval view` 的调用瀑布图,不产出任何事件,也不影响任何断言**,详见 [Observability · OTLP traces](observability.md#otlp-traces--统一瀑布图)。
 
 五个应用里,ai-sdk-v7、codex-sdk、langgraph 发 OTel span,claude-sdk、pi-sdk 不发(claude-sdk 的 CLI 遥测只有 metrics+logs,niceeval 只消费 trace spans;pi-agent-core 没有官方 OTel 集成)。有 span 的应用接法都一样:
 
@@ -184,7 +184,7 @@ experiment 侧用 `flags` → `ctx.flags` 透传,写法见 [Experiments](experim
 本工单描述的五个应用已全部接入并实测通过,产出在 `examples/zh/tier1/<name>/`。实现比本工单最初设想的更简单,主要是两处收紧:
 
 - **没有 `server-lifecycle.ts` 这类"eval 侧拉起应用子进程"的机制。** 五个应用都由使用者自己按各自方式启动(`pnpm start` / `python server.py`),adapter 只经环境变量(`<NAME>_URL`)指向一个已经在跑的实例。这与"eval 不代管被测进程"的既定原则一致,比最初设想的自动拉起子进程更简单也更贴合真实用法。
-- **没有 `otelEvents()` 这类"从 span 派生事件"的机制。** 曾经尝试过让 ai-sdk-v7(GenAI 语义)和 langgraph(LangSmith 语义)的工具事件从 OTel span 派生、免写帧映射,过程中发现消息文本和 gated 工具的审批-执行链路各有一个真实的方言/埋点 gap,需要在 adapter 里手动补(细节曾记在 `memory/langsmith-dialect-langchain-completion-shape-gap.md` 和 `memory/ai-sdk-otel-needsapproval-no-execute-tool-span.md`)。后续产品裁定整体收紧:**OTel 只画瀑布图,不派生任何事件**,`otelEvents()` 机制已从实现里移除(见 [otel-mixin.md](adapters/otel-mixin.md))。五个应用现在的事件断言全部来自 `send` 里的官方转换器或手写帧映射,与有没有接 OTel 无关。
+- **OTel 只画瀑布图,不派生任何事件。** 五个应用的事件断言全部来自 `send` 里的官方转换器或手写帧映射,与有没有接 OTel 无关。
 
 接入沉淀出的官方件,现在都还在:
 
@@ -193,4 +193,3 @@ experiment 侧用 `flags` → `ctx.flags` 透传,写法见 [Experiments](experim
 - **`mapCodexSpans`**(`src/o11y/otlp/mappers/codex.ts`,从 `niceeval/adapter` 导出):把 codex 自家 span 命名归一成 canonical GenAI 语义,只用来让瀑布图和内置 `codexAgent` 保持一致。
 
 五个 `niceeval exp` 基线全绿(`ai-sdk-v7` 的多模型对比也验证过),五个 before/after 文档页已生成并挂进 `docs-site/docs.json` 导航。Tier 3(feature A/B test)仍未做,见上面「Tier 3 备忘」。
-</content>

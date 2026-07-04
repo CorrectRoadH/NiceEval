@@ -5,7 +5,7 @@
 // 的 span 全部丢失。所以粒度跟【被测进程】走:每个 agent(= 一个应用)整个 run 共享一个
 // receiver;沙箱 agent 不走这里(每沙箱独立进程,per-attempt receiver 天然正确)。
 //
-// 共享流之下的逐轮归属(设计:docs/adapters/otel-mixin.md「turn 归属」):
+// 共享流之下的逐轮归属(设计:docs/observability.md「span 怎么归属到轮」):
 //   1. traceparent(并发安全):每轮生成新 trace context 经 ctx.telemetry.headers 交给
 //      adapter 随请求带上;应用埋点支持 W3C 传播的,本轮 span 挂在我们给的 traceId 下。
 //   2. 窗口(兜底,仅串行可靠):没见过 traceparent 生效前,同 agent 的轮次串行执行

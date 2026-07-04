@@ -268,7 +268,7 @@ jobs:
 
 ## 9. 明确不做的
 
-- 不测"OTel 派生事件"这类断言——这条机制已经从实现里移除(见 [otel-mixin.md](adapters/otel-mixin.md)),OTel 现在只喂瀑布图,e2e 要测的是它产出了 `trace.json`,不是它替代了事件映射。
+- 不测"OTel 派生事件"这类断言——OTel 只喂瀑布图,e2e 要测的是它产出了 `trace.json`,不是它替代了事件映射。
 - 不在 PR 门禁里跑任何真模型——随机性 + 费用 + secret 暴露面都不适合。
 - 不用 `--tag` 做 CI 内的用例切分(当前实现只收单值,与文档不一致;分层用 experiment 的 `evals` 过滤器表达,更明确)。
 - 不依赖 `summary.json` 里的版本字段(writer 尚未写 `schemaVersion`),形状校验只断言当前实际字段。

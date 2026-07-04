@@ -261,4 +261,3 @@ t.succeeded()                        ✓
 - [Observability](../observability.md) —— transcript → 标准事件流的归一化、规范工具名、OTLP trace。
 - [Experiments](../experiments.md) —— model / flags 怎么经 experiment 传进 ctx。
 - [docs-site Adapter 概念](../../docs-site/zh/concepts/adapter.mdx) / [Tier](../../docs-site/zh/concepts/tier.mdx) —— 面向用户的同一份契约与三档接入。
-</content>
