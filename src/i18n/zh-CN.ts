@@ -33,7 +33,8 @@ export const zhCN = {
     "用法:\n" +
     "  niceeval exp [组|实验] [eval-id 前缀…]   跑实验\n" +
     "  niceeval list                            列出发现到的 eval\n" +
-    "  niceeval view [summary.json|目录] [--out 目录] [--port n] [--no-open]\n" +
+    "  niceeval view [summary.json|目录] [--out x.html|目录] [--port n] [--no-open]\n" +
+    "      --out 给 *.html 导出单文件报告;给目录则连工件一起导出,可直接静态托管\n" +
     "  niceeval clean                           删除 .niceeval/ 历史工件\n" +
     "  niceeval init                            脚手架 config + evals/\n\n" +
     "标志:\n" +
@@ -63,6 +64,7 @@ export const zhCN = {
   "cli.sandboxFlagRemoved": "`--sandbox` 不是 CLI flag。请在 experiment(或 niceeval.config.ts 做全项目兜底)里把 sandbox 设成 dockerSandbox() / vercelSandbox() / e2bSandbox()(从 \"niceeval/sandbox\" 导入)。\n",
   "cli.unimplemented": "命令 \"{{command}}\" 暂未实现(MVP)。\n",
   "cli.view.exported": "已导出实验查看页:{{out}}\n",
+  "cli.view.exportedDir": "已导出静态查看站:{{out}}(整个目录可直接静态托管;本地打开 {{out}}/index.html 需经 http 服务,file:// 下工件 fetch 不可用)\n",
   "cli.view.incompatible": "{{dir}}: 由 niceeval {{producer}} 写入(schemaVersion {{schemaVersion}}),当前 CLI 只读 schemaVersion {{supported}}。\n运行 `{{command}}` 查看这份报告。\n",
   "cli.view.url": "niceeval view: {{url}}\n",
   "context.capabilityMissing":

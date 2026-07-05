@@ -6,10 +6,13 @@
 niceeval view                         # 起本地 web,自动打开浏览器,读 .niceeval/ 下所有历史运行
 niceeval view .niceeval/<run>/summary.json
 niceeval view --no-open               # 只打印 URL,不打开浏览器
-niceeval view --out .niceeval/report.html  # 导出静态 HTML
+niceeval view --out .niceeval/report.html  # 导出单文件静态 HTML
+niceeval view --out site                   # 目录式静态导出:index.html + artifact/
 ```
 
-架构上是**一次性烘焙进单个 HTML+JSON 的静态产物**(`src/view/index.ts` 的 `renderHtml`),不是常驻的多页面 server——`niceeval view` 起的 web 服务每次请求现读现渲染,`--out` 则直接导出成一个可以当 CI 附件传、单文件分享的 HTML。这是刻意的取舍,详见 [References](references.md#调研过判断不值得抄的及理由)。
+架构上是**一次性烘焙进单个 HTML+JSON 的静态产物**(`src/view/index.ts` 的 `renderHtml`),不是常驻的多页面 server——`niceeval view` 起的 web 服务每次请求现读现渲染,`--out` 则直接导出。这是刻意的取舍,详见 [References](references.md#调研过判断不值得抄的及理由)。
+
+`--out` 按目标形态分两种(`isSingleFileOut`):`*.html` 导出单文件,可当 CI 附件传、单文件分享,但工件视图(代码/transcript/trace)降级;目录则额外把前端会 fetch 的三类工件(`sources.json` / `events.json` / `trace.json`)复制到 `<out>/artifact/<base>/`,与本地 server 的 `/artifact/<rel>` 路径路由同一布局,同一份前端产物在两种托管下用同一个相对 URL(`src/view/app/lib/artifact-url.ts`)。`diff.json` / `o11y.json` 刻意不复制:查看器从不读取,且 diff 可达上百 MB,带上只会拖垮静态部署体积。
 
 ## 结果版本机制
 

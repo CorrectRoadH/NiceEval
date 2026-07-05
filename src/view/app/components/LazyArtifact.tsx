@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { LazyArtifactType, T } from "../shared.ts";
+import { artifactUrl } from "../lib/artifact-url.ts";
 import { asEvents, asSpans } from "../lib/guards.ts";
 import { Trace } from "./Trace.tsx";
 import { Transcript } from "./Transcript.tsx";
@@ -14,7 +15,7 @@ export function LazyArtifact({ type, src, autoLoad = false, t }: { type: LazyArt
     if (loaded) return;
     setLoaded(true);
     try {
-      const resp = await fetch("/artifact?p=" + encodeURIComponent(src));
+      const resp = await fetch(artifactUrl(src));
       if (!resp.ok) throw new Error("HTTP " + resp.status);
       const body = await resp.json();
       setContent(body);

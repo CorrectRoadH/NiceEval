@@ -98,6 +98,7 @@ export type MessageKey =
   | "code.checks"
   | "code.conversation"
   | "code.noSource"
+  | "code.sourceUnavailable"
   | "assert.pass"
   | "assert.fail"
   | "assert.soft"
@@ -208,6 +209,7 @@ const dictionaries: Record<Locale, Dictionary> = {
     "code.checks": "checks",
     "code.conversation": "conversation",
     "code.noSource": "Source was not captured. This run may predate source-loc or the source may be unavailable. Re-run this eval to see the code view.",
+    "code.sourceUnavailable": "Source was captured for this run, but its artifact files are missing from this deployment. Re-export with `niceeval view --out <dir>` (directory mode bundles artifacts), or open the results locally with `niceeval view`.",
     "assert.pass": "pass",
     "assert.fail": "fail",
     "assert.soft": "soft",
@@ -315,6 +317,7 @@ const dictionaries: Record<Locale, Dictionary> = {
     "code.checks": "检查",
     "code.conversation": "会话",
     "code.noSource": "源码未捕获。此 run 可能早于 source-loc，或源码不可读。重跑此 eval 即可看到代码视图。",
+    "code.sourceUnavailable": "此 run 捕获过源码，但当前部署里缺少它的工件文件。用 `niceeval view --out <目录>` 重新导出（目录模式会带上工件），或在本地 `niceeval view` 查看。",
     "assert.pass": "通过",
     "assert.fail": "失败",
     "assert.soft": "soft",

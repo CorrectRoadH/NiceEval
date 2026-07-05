@@ -37,6 +37,13 @@ export async function startViewServer(opts: ViewOptions = {}): Promise<ViewServe
         return;
       }
       // 按需提供拆分工件(trace.json / events.json / …),前端展开时 fetch。
+      // 路径式 /artifact/<rel> 与目录式静态导出的文件布局一致(见 view/index.ts 的 buildView),
+      // 同一份前端产物在本地 server 和静态托管上用同一个相对 URL。
+      if (url.pathname.startsWith("/artifact/")) {
+        await serveArtifact(root, decodeURIComponent(url.pathname.slice("/artifact/".length)), res);
+        return;
+      }
+      // 兼容旧的 query 形式(0.2.x 前端烘焙的 HTML 可能还开着)。
       if (url.pathname === "/artifact") {
         await serveArtifact(root, url.searchParams.get("p") ?? "", res);
         return;

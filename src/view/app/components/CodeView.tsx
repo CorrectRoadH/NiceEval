@@ -245,12 +245,12 @@ export function AssertDetail({ asserts, t }: { asserts: Assertion[]; t: T }) {
  * 没源码可叠时(此 run 早于 source-loc,或源码不可读:远程沙箱等)。不退回老的分组视图——
  * 用代码视图同一套视觉语言:一句说明 + checks(绿过/红不过)+ 原始会话流。重跑即可看到代码视图。
  */
-export function NoSourceBody({ assertions, events, t }: { assertions: Assertion[]; events: TranscriptEvent[]; t: T }) {
+export function NoSourceBody({ assertions, events, message, t }: { assertions: Assertion[]; events: TranscriptEvent[]; message?: string; t: T }) {
   const checks = assertions || [];
   return (
     <div className="nosource">
       <div className="nosource-note">
-        {t("code.noSource")}
+        {message ?? t("code.noSource")}
       </div>
       {checks.length ? (
         <div className="nosource-block">

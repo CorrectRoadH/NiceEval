@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ArtifactLoadState, T } from "../shared.ts";
 import type { ViewResult } from "../types.ts";
+import { artifactUrl } from "../lib/artifact-url.ts";
 import { asEvents, asSources } from "../lib/guards.ts";
 import { outcomeClass, outcomeLabel } from "../lib/outcome.ts";
 import { CodeView, NoSourceBody } from "./CodeView.tsx";
@@ -19,7 +20,7 @@ export function AttemptModal({ result, onClose, t }: { result: ViewResult; onClo
     let alive = true;
     const grab = (name: string, has?: boolean): Promise<unknown> =>
       has
-        ? fetch("/artifact?p=" + encodeURIComponent(`${base}/${name}`))
+        ? fetch(artifactUrl(`${base}/${name}`))
             .then((r) => (r.ok ? r.json() : null))
             .catch(() => null)
         : Promise.resolve(null);
@@ -56,7 +57,13 @@ export function AttemptModal({ result, onClose, t }: { result: ViewResult; onClo
           {hasCode ? (
             <CodeView sources={data.sources ?? []} events={data.events || []} assertions={allAssertions} t={t} />
           ) : data.status !== "loading" ? (
-            <NoSourceBody assertions={allAssertions} events={data.events || []} t={t} />
+            // hasSources 为真却取不到 → 源码捕获过,是工件文件在当前托管里缺失;和「从未捕获」分开提示。
+            <NoSourceBody
+              assertions={allAssertions}
+              events={data.events || []}
+              message={t(result.hasSources && base ? "code.sourceUnavailable" : "code.noSource")}
+              t={t}
+            />
           ) : null}
           {result.hasTrace && base ? (
             <LazyArtifact type="trace" src={`${base}/trace.json`} t={t} />
