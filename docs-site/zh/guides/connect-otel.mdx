@@ -25,6 +25,7 @@ import { defineAgent } from "niceeval/adapter";
 export default defineAgent({
   name: "support-bot",
   async send(input, ctx) {
+    // 示例地址：换成你自己 agent 的真实端点
     const r = await fetch("http://localhost:5188/chat", {
       method: "POST",
       // traceparent 随请求带过去:本轮 span 挂到 NiceEval 的 trace 下,并发下归属才精确
