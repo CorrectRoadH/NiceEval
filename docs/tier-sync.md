@@ -154,6 +154,10 @@ git add -A examples/zh && git commit -m "sync tiers"
 
 改 tier 私有文件(evals / agents / README):直接改,与同步机制无关。
 
+改 tier1/tier2 里"应该跟上游逐字节一致"的共享文件(比如临时改一行 `src/backend/server.ts` 去验证个问题):这条路径不是方案设计要覆盖的——前提就是"tier 从不改 src/"(见"采纳三方合并的正面理由"),所以没有专门命令。改完之后有两条路:要么把改动誊回对应的 origin 文件、提交、再跑一遍 `tiers:sync` 走正常快进,让改动"转正"成一次 origin 变更;要么先放着,等下次 origin 改到同一文件同一处时被 `tiers:sync` 报冲突——冲突文件里是 `<<<<<<<` 标记,把两边改动合到一起、删掉标记、重跑 `tiers:sync` 收尾,和解普通 git rebase 冲突是同一套动作。
+
+反过来,如果是在 tier1/tier2 里先调试出的修复,想让 origin 也拿到:同步方向是单向的 origin → tier1 → tier2,没有 backport 命令。得手工把改动誊回 origin 对应文件、提交、跑 `tiers:sync`,让 origin 补上这次变更、baseTree 也随之前进——不然下次同步会把这处改动误判成冲突。
+
 origin 给应用加依赖(动了 `package.json`)——三方合并把新依赖行合进 tier1 的 `package.json`(tier 自己的 `"niceeval": "file:../../../.."` 在另一行,不冲突),随后自动 `pnpm install` 更新 lockfile。
 
 忘了同步就提交?CI 的 `tiers:check` 红:

@@ -37,6 +37,11 @@ function slimResult(r: EvalResult): EvalResult {
   void trace;
   void diff;
   void rawTranscript;
+  // 携带结果(跨实验复用上次 pass,见 run.ts 的 carriedResults):本轮没有任何新数据,
+  // rest 上已经带着 artifactBase 指向旧 run 的产物目录,hasSources/hasEvents/hasTrace
+  // 也是从旧 summary 带过来的真值——不能因为"这轮没数据"就重新推导成 false / 编出一个
+  // 这轮压根没写过文件的新 artifactsDir(会让 artifactBase 在下次 withArtifactBases 时被覆盖)。
+  if (rest.artifactBase) return rest;
   return {
     ...rest,
     artifactsDir: attemptDir(r),
