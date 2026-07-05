@@ -121,7 +121,7 @@ pnpm exec niceeval view // 평가 결과 확인
 ## 빠른 시작
 
 ```text
-READ https://raw.githubusercontent.com/CorrectRoadH/niceeval/refs/heads/main/INIT.md and install niceeval for this repo.
+READ https://niceeval.com/INIT.md and install niceeval for this repo.
 ```
 
 여러분의 시나리오에서 시작하세요:

@@ -122,7 +122,7 @@ For coding agents that need an isolated workspace (Codex, Claude Code plugins/sk
 ## Quick Start
 
 ```text
-READ https://raw.githubusercontent.com/CorrectRoadH/niceeval/refs/heads/main/INIT.md and install niceeval for this repo.
+READ https://niceeval.com/INIT.md and install niceeval for this repo.
 ```
 
 Start from the scenario that matches what you need to evaluate:

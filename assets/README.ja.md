@@ -120,7 +120,7 @@ pnpm exec niceeval view // 評価結果を確認する
 ## クイックスタート
 
 ```text
-READ https://raw.githubusercontent.com/CorrectRoadH/niceeval/refs/heads/main/INIT.md and install niceeval for this repo.
+READ https://niceeval.com/INIT.md and install niceeval for this repo.
 ```
 
 自分のシナリオから始めましょう。

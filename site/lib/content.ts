@@ -25,7 +25,7 @@ export const docsUrl: Record<Locale, string> = {
 };
 
 export const initPrompt =
-  "READ https://raw.githubusercontent.com/CorrectRoadH/niceeval/refs/heads/main/INIT.md and install niceeval for this repo.";
+  "READ https://niceeval.com/INIT.md and install niceeval for this repo.";
 
 export type FileTreeItem = {
   path: string;

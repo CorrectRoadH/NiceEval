@@ -118,7 +118,7 @@ pnpm exec niceeval view // 查看评估结果
 ## 快速开始
 
 ```text
-READ https://raw.githubusercontent.com/CorrectRoadH/niceeval/refs/heads/main/INIT.md and install niceeval for this repo.
+READ https://niceeval.com/INIT.md and install niceeval for this repo.
 ```
 
 从你的场景开始：

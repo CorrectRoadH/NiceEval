@@ -120,7 +120,7 @@ pnpm exec niceeval view // zeigt die Evaluierungsergebnisse an
 ## Schnellstart
 
 ```text
-READ https://raw.githubusercontent.com/CorrectRoadH/niceeval/refs/heads/main/INIT.md and install niceeval for this repo.
+READ https://niceeval.com/INIT.md and install niceeval for this repo.
 ```
 
 Starte bei deinem konkreten Szenario:
