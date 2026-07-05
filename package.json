@@ -43,7 +43,8 @@
   },
   "files": [
     "src",
-    "bin"
+    "bin",
+    "docs"
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
