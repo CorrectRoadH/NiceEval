@@ -21,7 +21,7 @@ adapter 只是把这个已有的 HTTP + SSE 服务无侵入接进 niceeval，不
 ## 目录
 
 - `agents/langgraph.ts`：adapter 本体,只剩传输粘合——应用在哪个 URL(`LANGGRAPH_URL`,默认
-  `http://127.0.0.1:5488`)、自定义帧怎么解析、审批打哪个端点。应用由你自己按它的方式启动
+  `http://127.0.0.1:35000`)、自定义帧怎么解析、审批打哪个端点。应用由你自己按它的方式启动
   (`python server.py`,LangSmith OTel 环境变量启动时给,见「跑起来」),eval 不代管进程。
   **断言依据全部来自应用自己的 SSE 帧**,逐帧映射:`tool-input` → `action.called`、
   `tool-output` → `action.result`(completed)、`tool-output-denied` → `action.result`

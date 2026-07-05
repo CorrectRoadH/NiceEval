@@ -17,7 +17,7 @@ import type { JsonValue, StreamEvent, Turn, TurnInput } from "niceeval";
 
 // 被测应用由你自己按它的方式启动(python server.py / 部署在哪都行),eval 不代管进程、
 // 不另开端口。LangSmith OTel 导出的环境变量在启动应用时给,见 README「跑起来」。
-const BASE_URL = process.env.LANGGRAPH_URL ?? "http://127.0.0.1:5488";
+const BASE_URL = process.env.LANGGRAPH_URL ?? "http://127.0.0.1:35000";
 
 async function appFetch(
   path: string,

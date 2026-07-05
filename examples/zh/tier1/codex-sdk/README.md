@@ -18,7 +18,7 @@ adapter 只是把这个已有的 HTTP + SSE 服务无侵入接进 niceeval，不
 ## 目录
 
 - `agents/codex-sdk.ts`：adapter 本体,只剩**传输粘合**——应用在哪个 URL(`CODEX_SDK_URL`,
-  默认 `http://127.0.0.1:5199`)。断言依据全部来自 `ThreadEvent` 流:官方转换器
+  默认 `http://127.0.0.1:31001`)。断言依据全部来自 `ThreadEvent` 流:官方转换器
   `fromCodexThreadEvents` 映射消息文本(`agent_message` / `reasoning`)、工具项
   (`command_execution` / `mcp_tool_call` / `file_change` → 配对的 `action.called`/`action.result`)
   和 `turn.completed` 的 usage。OTel 只管瀑布图:codex CLI 原生 OTLP 的 span 经官方

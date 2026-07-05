@@ -22,7 +22,7 @@ import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 const GATED_TOOL_NAME = "mcp__demo-tools__calculate";
 
 // 被测应用由你自己按它的方式启动(pnpm start / 部署在哪都行),eval 不代管进程、不另开端口。
-const BASE_URL = process.env.CLAUDE_SDK_URL ?? "http://127.0.0.1:5189";
+const BASE_URL = process.env.CLAUDE_SDK_URL ?? "http://127.0.0.1:32001";
 
 type TransportFrame = { type: "server_error"; message: string };
 type ClaudeFrame = SDKMessage | TransportFrame;

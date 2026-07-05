@@ -19,7 +19,7 @@ import type { JsonValue, Turn, TurnInput } from "niceeval";
 import type { AgentEvent } from "@earendil-works/pi-agent-core";
 
 // 被测应用由你自己按它的方式启动(pnpm start / 部署在哪都行),eval 不代管进程、不另开端口。
-const BASE_URL = process.env.PI_SDK_URL ?? "http://127.0.0.1:5299";
+const BASE_URL = process.env.PI_SDK_URL ?? "http://127.0.0.1:33001";
 
 type TransportFrame =
   | { type: "session"; sessionId: string }

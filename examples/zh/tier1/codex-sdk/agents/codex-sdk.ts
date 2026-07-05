@@ -15,7 +15,7 @@ import type { Turn, TurnInput } from "niceeval";
 import type { ThreadEvent } from "@openai/codex-sdk";
 
 // 被测应用由你自己按它的方式启动(pnpm start / 部署在哪都行),eval 不代管进程、不另开端口。
-const BASE_URL = process.env.CODEX_SDK_URL ?? "http://127.0.0.1:5199";
+const BASE_URL = process.env.CODEX_SDK_URL ?? "http://127.0.0.1:31001";
 
 type TransportFrame = { type: "error"; message: string };
 type CodexFrame = ThreadEvent | TransportFrame;

@@ -1,9 +1,29 @@
 {
   "pairs": [
-    { "from": "examples/zh/origin/codex-sdk", "to": "examples/zh/tier1/codex-sdk", "baseTree": "a799303b17b53fe466ca849e6e919ede42edec8e" },
-    { "from": "examples/zh/origin/claude-sdk", "to": "examples/zh/tier1/claude-sdk", "baseTree": "ccf554d6a2da3f7f0431c989e3e653097a56cc63" },
-    { "from": "examples/zh/origin/pi-sdk", "to": "examples/zh/tier1/pi-sdk", "baseTree": "837a17f38e6f2731af06e10397d29b4f428082d9" },
-    { "from": "examples/zh/origin/ai-sdk-v7", "to": "examples/zh/tier1/ai-sdk-v7", "baseTree": "3fc913d324d00253d403855792bd40f74118734b" },
-    { "from": "examples/zh/origin/langgraph", "to": "examples/zh/tier1/langgraph", "baseTree": "7370074e46ffdb795e6f278596e55e3f909c1278" }
+    {
+      "from": "examples/zh/origin/codex-sdk",
+      "to": "examples/zh/tier1/codex-sdk",
+      "baseTree": "a60867faa317e68a52e851d777c7bcaccd41802f"
+    },
+    {
+      "from": "examples/zh/origin/claude-sdk",
+      "to": "examples/zh/tier1/claude-sdk",
+      "baseTree": "4374cdf9d921fd2253bc63e6aa59357dd2fb70e1"
+    },
+    {
+      "from": "examples/zh/origin/pi-sdk",
+      "to": "examples/zh/tier1/pi-sdk",
+      "baseTree": "abf0ae6f5834dff00afe6850e05ee2320ab0c2b4"
+    },
+    {
+      "from": "examples/zh/origin/ai-sdk-v7",
+      "to": "examples/zh/tier1/ai-sdk-v7",
+      "baseTree": "cd5402d075f170e712b9a7df2c0f2d12ac067090"
+    },
+    {
+      "from": "examples/zh/origin/langgraph",
+      "to": "examples/zh/tier1/langgraph",
+      "baseTree": "25f55d7f9cc040f39201604a09c3cc9e9ea707ce"
+    }
   ]
 }

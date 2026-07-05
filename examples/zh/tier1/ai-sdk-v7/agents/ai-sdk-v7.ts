@@ -2,7 +2,7 @@
 // (UI Message Stream 协议,https://ai-sdk.dev/docs/ai-sdk-ui/stream-protocol)。
 //
 // 应用怎么跑是应用自己的事(pnpm dev / 部署在哪都行),eval 侧不代管进程、不另开端口:
-// AI_SDK_V7_URL 指到哪就测哪,默认应用自己的本地默认端口 5188。
+// AI_SDK_V7_URL 指到哪就测哪,默认应用自己的本地默认端口 34001。
 //
 // 断言依据(工具/消息/HITL)全部从协议帧直构,工厂替你做好。OTel 只管 `niceeval view`
 // 的瀑布图:应用官方 @ai-sdk/otel 集成产的 GenAI span 发到 niceeval 的固定端口接收器
@@ -10,7 +10,7 @@
 // 见 README「跑起来」——span 不喂断言。
 import { uiMessageStreamAgent } from "niceeval/adapter";
 
-const BASE_URL = process.env.AI_SDK_V7_URL ?? "http://127.0.0.1:5188";
+const BASE_URL = process.env.AI_SDK_V7_URL ?? "http://127.0.0.1:34001";
 
 export default uiMessageStreamAgent({
   name: "ai-sdk-v7",
