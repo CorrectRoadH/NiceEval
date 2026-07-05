@@ -39,6 +39,16 @@ export default defineExperiment({
 
 如果 experiment 和 `niceeval.config.ts` 都没有设置 `sandbox`，[NiceEval](https://niceeval.com/) 在创建 sandbox 时会直接报错，而不会猜一个后端。
 
+三个内置后端的 SDK 不随 NiceEval 一起安装——用哪个就装哪个，避免把用不到的依赖（以及它们的原生构建脚本）带进你的项目：
+
+| 后端 | 安装命令 |
+|---|---|
+| `dockerSandbox()` | `pnpm add dockerode @types/dockerode` |
+| `vercelSandbox()` | `pnpm add @vercel/sandbox` |
+| `e2bSandbox()` | `pnpm add e2b` |
+
+漏装时不会静默失败：NiceEval 在创建 sandbox 的那一刻报错并直接给出上面的安装命令，例如 `Docker sandbox requires 'dockerode'. Install it with: pnpm add dockerode @types/dockerode`。
+
 ## Docker
 
 Docker 适合本地开发和标准 CI。优点是简单、可控、无云端依赖；缺点是机器资源有限，冷启动和安装依赖可能较慢。

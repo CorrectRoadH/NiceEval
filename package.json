@@ -1,6 +1,6 @@
 {
   "name": "niceeval",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Agent-native eval tool — eval agents, services, functions, and coding-agent fixtures",
   "type": "module",
   "license": "MIT",
@@ -72,13 +72,11 @@
     "tar-stream": "^3.1.7",
     "tsx": "^4.19.2"
   },
-  "optionalDependencies": {
-    "@vercel/sandbox": "^2.2.1",
-    "dockerode": "^4.0.2",
-    "e2b": "^2.31.0"
-  },
   "devDependencies": {
     "@ai-sdk/otel": "^1.0.9",
+    "@vercel/sandbox": "^2.2.1",
+    "dockerode": "^4.0.2",
+    "e2b": "^2.31.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.219.0",
     "@opentelemetry/sdk-trace-node": "^2.8.0",
     "@radix-ui/react-collapsible": "^1.1.14",
@@ -111,10 +109,16 @@
     "@ai-sdk/otel": ">=1.0.0",
     "@opentelemetry/exporter-trace-otlp-http": ">=0.200.0",
     "@opentelemetry/sdk-trace-node": ">=2.0.0",
-    "ai": ">=5.0.0"
+    "@vercel/sandbox": ">=2.0.0",
+    "ai": ">=5.0.0",
+    "dockerode": ">=4.0.0",
+    "e2b": ">=2.0.0"
   },
   "peerDependenciesMeta": {
     "@ai-sdk/otel": {
+      "optional": true
+    },
+    "@vercel/sandbox": {
       "optional": true
     },
     "ai": {
@@ -124,6 +128,12 @@
       "optional": true
     },
     "@opentelemetry/sdk-trace-node": {
+      "optional": true
+    },
+    "dockerode": {
+      "optional": true
+    },
+    "e2b": {
       "optional": true
     }
   }
