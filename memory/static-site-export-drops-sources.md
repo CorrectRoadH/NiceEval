@@ -17,6 +17,8 @@ Vercel 纯静态 rewrite 无法把 query param 映射成文件路径，所以用
 
 ## 修法
 
+已在 0.3.0 实现第 2 层（目录式静态导出），下游 coding-agent-memory-evals 已切换并验证线上代码视图恢复。原方案记录：
+
 两层，按成本递进：
 
 1. **单文件模式内嵌 sources（低成本，先做）**：`buildView`/`renderHtml` 走 `--out` 时把各 attempt 的 sources.json 读出来内嵌进 viewData（实测一整个 run 的 sources 总共 ~80KB，可按内容去重；events 1.8MB、trace 上百 MB 不适合内嵌）。静态托管的报告直接有代码视图 + 断言标注；transcript/trace 仍优雅降级。
