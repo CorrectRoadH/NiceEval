@@ -381,6 +381,14 @@ export interface AiSdkTelemetrySettings {
   readonly integrations: any[];
 }
 
+/** ai-sdk-otel.ts 的 `telemetryForEndpoint` 返回值形状(定义挪到这里,见下面 loadOtel 的注释)。 */
+export interface AiSdkTurnTelemetry {
+  /** 直接放进 generateText / streamText 的 `telemetry` 选项。 */
+  settings: AiSdkTelemetrySettings;
+  /** 每轮结束后由工厂调用:轮次归属靠时间窗口,span 必须立刻送到,不能等 batch。 */
+  flush(): Promise<void>;
+}
+
 export interface AiSdkAgentOptions<M = unknown> {
   /** agent 名(报告 / 结果聚合的身份)。默认 "ai-sdk"。 */
   name?: string;
@@ -435,11 +443,28 @@ export interface AiSdkAgentOptions<M = unknown> {
  * });
  * ```
  */
-let otelModule: Promise<typeof import("./ai-sdk-otel.ts")> | undefined;
+/**
+ * ai-sdk-otel.ts 导出的形状,手写(不用 `typeof import("./ai-sdk-otel.ts")`)。
+ * 那个写法即便只用在类型位置,tsc 也要静态解析 ai-sdk-otel.ts 才能算出类型,连带逼着
+ * 它顶部 import 的三个可选 OTel 包必须已装——只用 bub/claude-code/codex 等其他 adapter、
+ * 没碰 aiSdkAgent 的下游消费者也会被拖累 typecheck 失败。
+ */
+interface OtelModule {
+  telemetryForEndpoint(endpoint: string, backendUrl?: string): AiSdkTurnTelemetry;
+}
+
+/**
+ * import 目标放进变量而非字面量:tsc 只对字面量参数的动态 import 做静态模块解析,
+ * 变量形式让它退回 `any`,ai-sdk-otel.ts 就不会被拖进消费者的 typecheck 范围。
+ * (niceeval 自己仓库的 typecheck 不受影响——tsconfig 的 include 本就直接扫到这个文件。)
+ */
+const OTEL_MODULE_SPECIFIER = "./ai-sdk-otel.ts";
+
+let otelModule: Promise<OtelModule> | undefined;
 
 /** OTel 管线按需加载:三个 OTel 包是可选 peer,只有开了 tracing 的用户需要装。 */
-function loadOtel(): Promise<typeof import("./ai-sdk-otel.ts")> {
-  otelModule ??= import("./ai-sdk-otel.ts").catch((error: unknown) => {
+function loadOtel(): Promise<OtelModule> {
+  otelModule ??= (import(OTEL_MODULE_SPECIFIER) as Promise<OtelModule>).catch((error: unknown) => {
     otelModule = undefined;
     throw new Error(
       "tracing: true 需要 OTel 依赖:请在被测项目里安装 @ai-sdk/otel、@opentelemetry/sdk-trace-node、@opentelemetry/exporter-trace-otlp-http(niceeval 的可选 peer 依赖)。",
