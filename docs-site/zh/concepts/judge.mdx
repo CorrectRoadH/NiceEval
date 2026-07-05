@@ -83,6 +83,34 @@ defineEval({
 t.judge.autoevals.closedQA("rubric", { on: t.reply, model: "openai/gpt-4o" });
 ```
 
+三级都没配时，最后还会读环境变量 `NICEEVAL_JUDGE_MODEL`；连它也没有就是配置错误，调用点直接报错——judge 没有内置默认模型。
+
+## 评判端点与 key：OpenAI 兼容协议
+
+评判模型走 **OpenAI 兼容的 `/chat/completions`** 协议。OpenAI 官方、DeepSeek，以及任何兼容这个协议的网关都能当评判端点，在 `judge` 配置里指定：
+
+```ts
+// niceeval.config.ts
+defineConfig({
+  judge: {
+    model: "deepseek-chat",
+    baseUrl: "https://api.deepseek.com/v1",  // 不配默认 OpenAI 官方端点
+    apiKeyEnv: "DEEPSEEK_API_KEY",           // key 从这个环境变量读
+  },
+});
+```
+
+`baseUrl` 和 key 都按从具体到笼统解析，配置字段优先、环境变量兜底：
+
+| 项 | 解析顺序 |
+|---|---|
+| 端点 | `judge.baseUrl` → `NICEEVAL_JUDGE_BASE` → `CODEX_BASE_URL` → `OPENAI_BASE_URL` → `https://api.openai.com/v1` |
+| key | `judge.apiKeyEnv` 指定的环境变量 → `NICEEVAL_JUDGE_KEY` → `CODEX_API_KEY` → `OPENAI_API_KEY` |
+
+<Warning>
+  key 一个都解析不到时，judge 断言**静默跳过**——不报错、不记分，eval 照常跑。全绿不代表 judge 真的评过。配完 key 先跑一条带 `t.judge` 的 eval，在 `niceeval view` 里确认出现了 judge 分数。
+</Warning>
+
 ## 严重级：judge 默认 soft
 
 judge 调用和其它断言一样是评分函数，遵守 [Assert · gate 与 soft 严重级](/zh/concepts/assert#gate-与-soft-严重级) 同一套机制——只是**默认值**和大多数值匹配器不同：
