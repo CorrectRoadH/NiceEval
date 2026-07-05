@@ -2,7 +2,7 @@
 
 # NiceEval
 
-**Ein schrittweise einsetzbares, Agent-natives Eval-Tool mit exzellenter DX für leichtgewichtige AI-Agent-Evaluierung**
+**Ein progressives, Agent-natives Eval-Tool für AI Agents mit exzellenter DX**
 
 [![typescript](https://img.shields.io/badge/typescript-5.6-blue?style=flat-square)](../tsconfig.json)
 [![license](https://img.shields.io/badge/license-MIT-green?style=flat-square)](../package.json)
@@ -12,19 +12,23 @@
 
 </div>
 
-NiceEval ist ein von [eve](https://eve.dev) inspiriertes, universelles Tool zur Evaluierung von Agents. Im Vordergrund steht eine außergewöhnlich gute Developer Experience: In rund 10 Minuten ist jeder startklar und konfiguriert. Gleichzeitig ist das Design bewusst generisch gehalten. Man kann damit Plugins, Hooks und Skills evaluieren, die für Coding Agents wie Claude Code oder Codex geschrieben wurden, ebenso gut wie das eigene AI-Agent-Framework – egal ob es auf dem AI SDK, LangGraph oder Pi basiert, die Anbindung ist unkompliziert.
+NiceEval ist ein von [eve](https://eve.dev) inspiriertes, Agent-natives Eval-Tool, das auf die bestmögliche Developer Experience ausgelegt ist.
 
-Nach dem Lauf eines Evals erzeugt NiceEval einen leicht lesbaren Report und lässt sich das Verhalten des Agents im Detail ansehen. Das macht Debugging und das Verstehen von Agent-Verhalten deutlich einfacher.
+Dank seines universellen Designs kann NiceEval nahezu jede Agent-Anwendung evaluieren.
+Egal ob du Coding-Agent-Plugins, Hooks und Skills evaluieren willst, die für Claude Code / Codex geschrieben wurden, oder deine eigene AI-Agent-Anwendung – die Anbindung ist unkompliziert.
+
+Nach Abschluss eines Evals erzeugt NiceEval einen leicht lesbaren Report und zeigt die Verhaltensdetails des Agents. Das macht Debugging und das Verstehen von Agent-Verhalten deutlich einfacher.
 
 ## Warum braucht es NiceEval, wenn es schon DeepEval, LangFuse und BrainTrust gibt
 
-NiceEval ist ein AI-natives Eval-Tool. In den genannten Tools sind Datasets und Golden-Beispiele mit festen Input/Expected-Output-Paaren aufgebaut – das passt aber nicht wirklich zur Realität von Agent-Evaluierung. Sobald Agents über mehrere Dialogrunden, Multi-Agent-Setups, Tool-Aufrufe und dynamisch geladene Skills evaluiert werden müssen, ist NiceEval für diese feinkörnigen Fälle besser geeignet.
+NiceEval ist ein Agent-natives Eval-Tool. Das Dataset-/Golden-Muster mit festen Input/Expected-Output-Paaren passt nicht zur Realität von Agent-Evaluierung.
+Agents müssen heute in feinkörnigen Szenarien evaluiert werden – über mehrere Dialogrunden, in Multi-Agent-Zusammenarbeit, bei Tool-Aufrufen und beim Laden von Skills – und genau das kann NiceEval besser.
 
-Gleichzeitig schließt NiceEval LangFuse und BrainTrust nicht aus, sondern ergänzt sie: Man kann Erstere für Tracing nutzen oder die Evaluierungsergebnisse an beide hochladen (in Arbeit).
+Gleichzeitig kann NiceEval mit LangFuse und BrainTrust koexistieren: Man kann sie für Tracing nutzen oder die Evaluierungsergebnisse an beide hochladen (dieser Teil ist noch in Arbeit).
 
 ## Architektur
 
-NiceEval unterstützt zwei Anbindungsarten, je nachdem, ob das getestete System eine isolierte Sandbox-Dateisystemumgebung benötigt.
+NiceEval unterstützt zwei Anbindungsarten, je nachdem, ob der getestete Agent ein isoliertes Sandbox-Dateisystem benötigt.
 
 **Modus 1: Sandbox (Docker, E2B) – für Codex, Claude Code und andere Coding Agents, die eine Sandbox brauchen**
 
@@ -41,7 +45,7 @@ NiceEval unterstützt zwei Anbindungsarten, je nachdem, ob das getestete System 
    ┌──────────────────────────────────┐
    │          Docker Sandbox          │
    │    ┌──────────────────────────┐  │
-   │    │  Codex / Claude Code |   │  │
+   │    │   Codex / Claude Code    │  │
    │    │ Apps, die ein isoliertes │  │
    │    │   Dateisystem brauchen   │  │
    │    └──────────────────────────┘  │
@@ -61,20 +65,16 @@ NiceEval unterstützt zwei Anbindungsarten, je nachdem, ob das getestete System 
         │ Agent-Adapter (offiziell oder selbst implementiert)
         ▼
    ┌────────────────────────────┐
-   │   Dein eigener Web Agent   │
-   │ (HTTP / AI SDK · LangGraph │
-   │ Pi o.ä. eigenes Framework, │
-   │     kein Docker nötig)     │
+   │   Dein eigener AI Agent    │
+   │   (AI SDK·LangGraph·Pi)    │
    └────────────────────────────┘
 ```
 
 - **Der NiceEval-Kern** kümmert sich um das Auffinden von Evals, das Scheduling der Läufe, die Bewertung sowie die Erstellung von Reports und Artefakten.
 - **Agent-Adapter** sind die offene Schnittstelle: Du entscheidest, wie das getestete System angesprochen wird.
-- Coding Agents, die Dateisystem-Isolation brauchen, laufen über die **Docker-Sandbox**; eigene Web Agents lassen sich direkt anbinden, ganz ohne Docker.
+- Coding Agents, die Dateisystem-Isolation brauchen, laufen über die **Docker-Sandbox**; eigene AI Agents lassen sich direkt anbinden, ganz ohne Docker.
 
 ## Beispiel
-
-Um einen Eval auszuführen, braucht es zwei Dateien: den Eval selbst (was wird getestet) und das Experiment (welcher Agent läuft). Die CLI akzeptiert keine nackte Eval-ID – erst das Experiment in `niceeval exp <experiment> <eval-Präfix>` legt fest, „mit welchem getesteten System" gesprochen wird. Hier ein reales Szenario mit direkter Anbindung an einen Web Agent (das vollständige Projekt findet sich unter [`examples/zh/ai-sdk/`](../examples/zh/ai-sdk/)), das prüft, ob der Agent bei Fragen zum aktuellen Wetter ein Tool aufruft und seine Antwort auf dem Tool-Ergebnis aufbaut, statt sie sich auszudenken:
 
 ```ts
 // evals/eval-tool-call.eval.ts
@@ -109,6 +109,7 @@ import { webAgent } from "./adapter"; // dein selbst geschriebener Agent-Adapter
 
 export default defineExperiment({
   agent: webAgent({ baseUrl: "http://127.0.0.1:5188" }),
+  model: "gpt-5.5"
 });
 ```
 
@@ -134,19 +135,20 @@ Starte bei deinem konkreten Szenario:
 Offizielle Adapter
 
 - [ ] Agent-Software
-  - [ ] Claude Code
-  - [ ] Codex
-  - [ ] Bub
+  - [x] Claude Code
+  - [x] Codex
+  - [x] Bub
   - [ ] OpenClaw
   - [ ] Hermess Agent
   - [ ] Alma
   - [ ] ...
 
 - [ ] Agent-Frameworks
-  - [ ] AI SDK
+  - [x] AI SDK
+  - [x] Claude SDK
+  - [x] Codex SDK
+  - [x] Pi Agent SDK
   - [ ] LangGraph
-  - [ ] Claude SDK
-  - [ ] Codex SDK
   - [ ] vm0
   - [ ] Cursor Agent SDK
 

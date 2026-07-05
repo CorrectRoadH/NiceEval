@@ -12,13 +12,17 @@
 
 </div>
 
-NiceEval is an agent-native eval tool inspired by [eve](https://eve.dev). It has an excellent DX design — anyone can get started and configured in about 10 minutes. It's also versatile: it can eval plugins, Hooks, and Skills written for Claude Code/Codex coding agents, and can directly eval your own AI agent application or framework (AI SDK, LangGraph, Pi, or any custom agent loop).
+NiceEval is an Agent-Native eval tool inspired by [eve](https://eve.dev), built for the best possible DX.
 
-After the eval completes, it generates readable reports and lets you view agent behavior details. Convenient for debugging and optimization.
+Thanks to its universal design, NiceEval can evaluate almost any agent application.
+Whether you need to evaluate coding agent plugins, Hooks, and Skills written for Claude Code / Codex, or your own AI agent application — both plug in easily.
+
+After the eval completes, it generates readable reports and lets you view agent behavior details. Convenient for debugging and understanding agent behavior.
 
 ## Why NiceEval when DeepEval, LangFuse, and BrainTrust already exist
 
-NiceEval is an AI-native eval tool. In tools built around Dataset/golden-style Input vs. Expected Output, that shape doesn't fit real agent evaluation well. NiceEval is built for evaluating agents at a finer grain — multi-turn conversations, multi-agent setups, tool calls, skill loading, and more.
+NiceEval is an Agent-Native eval tool. The Dataset / golden pattern of building an Input and an Expected Output doesn't fit real agent evaluation.
+Agents today need to be evaluated at a finer grain — multi-turn conversations, multi-agent collaboration, tool calls, skill loading — and NiceEval does this better.
 
 It also coexists with LangFuse and BrainTrust: use them for tracing, or upload eval results to both (in progress).
 
@@ -41,7 +45,7 @@ NiceEval supports two integration modes, depending on whether the agent under te
    ┌────────────────────────────────┐
    │         Docker Sandbox         │
    │    ┌────────────────────────┐  │
-   │    │ Codex / Claude Code /  │  │
+   │    │ Codex / Claude Code    │  │
    │    │ apps needing isolation │  │
    │    └────────────────────────┘  │
    └────────────────────────────────┘
@@ -61,9 +65,7 @@ NiceEval supports two integration modes, depending on whether the agent under te
         ▼
    ┌──────────────────────────┐
    │    your own AI Agent     │
-   │ (AI SDK·LangGraph·Pi and │
-   │ other agent frameworks — │
-   │    no Docker needed)     │
+   │   (AI SDK·LangGraph·Pi)  │
    └──────────────────────────┘
 ```
 
@@ -73,8 +75,6 @@ NiceEval supports two integration modes, depending on whether the agent under te
 
 
 ## Example
-
-Running an eval takes two files: the eval itself (what to check) and an experiment (which agent to run it against). The CLI won't run a bare eval id — the experiment in `niceeval exp <experiment> <eval prefix>` is what picks the system under test. Here's a real eval against a directly-connected web agent (full project in [`examples/zh/ai-sdk/`](examples/zh/ai-sdk/)), checking that the agent calls a tool for live weather questions and answers from the tool result instead of making it up:
 
 ```ts
 // evals/eval-tool-call.eval.ts
@@ -109,15 +109,14 @@ import { webAgent } from "./adapter"; // your agent adapter, pointed at the syst
 
 export default defineExperiment({
   agent: webAgent({ baseUrl: "http://127.0.0.1:5188" }),
+  model: "gpt-5.5"
 });
 ```
 
 ```sh
-npx niceeval exp local eval-tool-call  // run only eval-tool-call under the local experiment
-npx niceeval view
+pnpm exec niceeval exp local eval-tool-call  // run only eval-tool-call under the local experiment
+pnpm exec niceeval view // view eval results
 ```
-
-For coding agents that need an isolated workspace (Codex, Claude Code plugins/skills), see [`examples/zh/coding-agent-skill/`](examples/zh/coding-agent-skill/): evals there use `t.sandbox.uploadDirectory()` to seed the workspace, `t.fileChanged()` / `t.file()` to check what changed, and `t.sandbox.runCommand()` to run tests.
 
 ## Quick Start
 
