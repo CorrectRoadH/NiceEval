@@ -41,7 +41,10 @@ export default defineAgent({
     const res = await fetch(`${BASE_URL}/v1/chat/completions`, {  // ← 前端本来就在用的接口
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ messages: [{ role: "user", content: input.text }] }),
+      body: JSON.stringify({
+        messages: [{ role: "user", content: input.text }],
+        model: ctx.model,                                         // ← experiment.model 经 ctx.model 到这里；应用接口不支持选模型就删掉这行
+      }),
       signal: ctx.signal,                                         // ← 运行器的超时与取消
     }).then((r) => r.json());
 
@@ -53,7 +56,7 @@ export default defineAgent({
 });
 ```
 
-**这一步解锁**：`t.reply`、`t.messageIncludes()`、judge 的全部对话材料。
+**这一步解锁**：`t.reply`、`t.messageIncludes()`、judge 的全部对话材料，以及 experiment 侧的**模型对比**（`ctx.model` 就是 experiment 声明的 `model`，运行器原样递给你、Adapter 不解释含义，只转发——不需要等到后面的步骤，也不需要应用配合做任何改造，分档见 [Tier](/zh/concepts/tier)）。
 
 它有两个明显的局限：每轮都是一场全新对话（第二次 `t.send` 接不上第一次），工具调用完全看不见。后面两步各解决一个。
 
@@ -84,7 +87,7 @@ export default defineAgent({
 
     const res = await fetch(`${BASE_URL}/v1/chat/completions`, {
       // ……method、headers、signal 同第一步，省略
-      body: JSON.stringify({ messages }),        // ← 变化：发的是完整历史
+      body: JSON.stringify({ messages, model: ctx.model }),        // ← 变化：发的是完整历史；model 同第一步转发
     }).then((r) => r.json());
 
     const reply = res.choices[0].message;
@@ -254,6 +257,7 @@ export default defineAgent({
       method: "POST",
       body: JSON.stringify({
         message: input.text,                            // ← 第一步：发消息
+        model: ctx.model,                               // ← 第一步：experiment.model 转发
         sessionId: ctx.session.id,                      // ← 第二步：第一次发自动不带，之后自动带
       }),
       signal: ctx.signal,
@@ -307,6 +311,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318/v1/traces node server.js
       // ……send 其余部分同前，省略
       body: JSON.stringify({
         messages,
+        model: ctx.model,        // ← 第一步就转发的 experiment.model；这里一起列出
         flags: ctx.flags,        // ← experiment.flags 原样透传；没配时是 {}
       }),
 ```
@@ -318,6 +323,7 @@ import chatApp from "../agents/chat-app.ts";
 
 export default defineExperiment({
   agent: chatApp,
+  model: "gpt-5.4",                      // ← 经 ctx.model 到 send
   flags: { promptVariant: "concise" },   // ← 每轮经 ctx.flags 到 send
 });
 ```

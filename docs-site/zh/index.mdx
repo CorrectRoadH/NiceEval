@@ -116,6 +116,7 @@ import { webAgent } from "./adapter"; // 你自己写的 agent adapter，接被�
 
 export default defineExperiment({
   agent: webAgent({ baseUrl: "http://127.0.0.1:5188" }),
+  model: "gpt-5.4",
 });
 ```
 

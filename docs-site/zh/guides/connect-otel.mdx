@@ -29,7 +29,7 @@ export default defineAgent({
       method: "POST",
       // traceparent 随请求带过去:本轮 span 挂到 NiceEval 的 trace 下,并发下归属才精确
       headers: { "content-type": "application/json", ...ctx.telemetry?.headers },
-      body: JSON.stringify({ message: input.text }),
+      body: JSON.stringify({ message: input.text, model: ctx.model }),
       signal: ctx.signal,
     });
     const body = await r.json();

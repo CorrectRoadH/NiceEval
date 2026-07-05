@@ -4,13 +4,7 @@ sidebarTitle: "实验"
 description: "Experiment 是可签入的运行配置：同一批 eval 对着哪个 agent、哪个模型、哪些 flags、跑几次。eval 与 experiment 分开的原因——晚绑定，让同一份 eval 换着对象跑。"
 ---
 
-NiceEval 把"评什么"和"评谁、怎么跑"拆成两个东西：**eval** 回答前者——发什么输入、什么算过（见[评估](/zh/concepts/evals)）；**experiment** 回答后者——对着哪个 agent、用哪个模型、开哪些 flags、跑几次。前者是测试逻辑，改得少；后者是运行配置，换得勤。
-
-## 为什么分开：晚绑定
-
-eval 文件里不写死被测对象。同一批 eval，今天对着本地开发版跑，明天对着 staging 跑，下周拿两个模型对比跑——变的只是 experiment，eval 一行不改。这就是**晚绑定**：eval 与 agent 的绑定发生在运行时由 experiment 完成，而不是写 eval 时。
-
-这也解释了 CLI 的形状：`npx niceeval exp <experiment名> [eval前缀]`——experiment 选"评谁、怎么跑"，位置参数只筛"跑哪些 eval"。URL、鉴权这些被测系统细节不进 CLI，它们是 Adapter 工厂的配置。
+**experiment** 对着哪个 agent、用哪个模型、开哪些 flags、跑几次。用于做 AB 测试、模型对比、feature 对比。
 
 ## 一个 experiment 里有什么
 

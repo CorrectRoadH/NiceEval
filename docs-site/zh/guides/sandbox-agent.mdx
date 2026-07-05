@@ -32,6 +32,7 @@ import { dockerSandbox } from "niceeval/sandbox";
 
 export default defineExperiment({
   agent: claudeCodeAgent(),
+  model: "claude-sonnet-4-6",
   sandbox: dockerSandbox(),
 });
 ```
@@ -127,6 +128,7 @@ import myAgent from "./agents/my-agent";
 
 export default defineExperiment({
   agent: myAgent,
+  model: "claude-sonnet-4-6",
   sandbox: dockerSandbox(),
   runs: 3,
 });

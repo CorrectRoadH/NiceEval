@@ -32,6 +32,7 @@ import { dockerSandbox } from "niceeval/sandbox";
 
 export default defineExperiment({
   agent: myCodingAgent,
+  model: "claude-sonnet-4-6",
   sandbox: dockerSandbox(), // 或 vercelSandbox() / e2bSandbox()
 });
 ```

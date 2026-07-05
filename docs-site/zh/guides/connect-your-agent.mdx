@@ -38,7 +38,7 @@ export default defineAgent({
     const r = await fetch("http://localhost:3000/chat", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ message: input.text }),
+      body: JSON.stringify({ message: input.text, model: ctx.model }),  // ← experiment.model 经 ctx.model 到这里
       signal: ctx.signal,
     });
     const body = await r.json();
@@ -71,6 +71,7 @@ import myBot from "../agents/my-bot.ts";
 export default defineExperiment({
   description: "my-bot 基线",
   agent: myBot,
+  model: "gpt-4o",
   runs: 1,
 });
 ```
@@ -179,11 +180,13 @@ export default defineExperiment({
 // experiments/local.ts
 export default defineExperiment({
   agent: myBot({ baseUrl: "http://localhost:3000" }),
+  model: "gpt-5.4",
 });
 
 // experiments/prod.ts
 export default defineExperiment({
   agent: myBot({ baseUrl: "https://api.example.com" }),
+  model: "gpt-5.4",
 });
 ```
 
