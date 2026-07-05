@@ -1,6 +1,6 @@
 # niceeval 安装向导（给 AI 读的执行步骤）
 
-你正在被要求把 [niceeval](https://github.com/CorrectRoadH/niceeval) 接入**当前打开的这个仓库**（不是 niceeval 自己的源码仓库）。本文件只给步骤和决策点，不复述具体写法——每一步该怎么写，跟着链接去读 niceeval 的官方文档（`https://niceeval.com/docs/zh/...`）或 GitHub 上的 raw 文档，不要凭训练记忆里的旧 API 现编。
+你正在被要求把 [niceeval](https://github.com/CorrectRoadH/niceeval) 接入**当前打开的这个仓库**（不是 niceeval 自己的源码仓库）。用用户的语言与用户交流。本文件只给步骤和决策点，不复述具体写法——每一步该怎么写，跟着链接去读 niceeval 的官方文档（`https://niceeval.com/docs/zh/...`）或 GitHub 上的 raw 文档，不要凭训练记忆里的旧 API 现编。
 
 ## 第 0 步：建立心智模型
 
