@@ -20,7 +20,7 @@ on:
         type: string
 
 permissions:
-  contents: read
+  contents: write # 创建 tag/release 需要
   id-token: write # npm provenance 需要
 
 jobs:
@@ -87,3 +87,27 @@ jobs:
           pnpm publish --no-git-checks --provenance --access public --tag "$DIST_TAG"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Ensure git tag exists
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          TAG="v$VERSION"
+          if git ls-remote --exit-code --tags origin "$TAG" >/dev/null 2>&1; then
+            echo "$TAG already exists on origin, skipping"
+          else
+            git tag "$TAG"
+            git push origin "$TAG"
+          fi
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          TAG="v$VERSION"
+          PRERELEASE_FLAG=""
+          if [[ "$VERSION" == *-* ]]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
+          gh release create "$TAG" --title "$TAG" --generate-notes $PRERELEASE_FLAG
