@@ -104,6 +104,7 @@ export function renderRunReport(summary: RunSummary): string {
     tokens: tokStr,
     cost,
   }).trimEnd());
+  lines.push(t("report.viewHint").trimEnd());
 
   return `${lines.join("\n")}\n\n`;
 }

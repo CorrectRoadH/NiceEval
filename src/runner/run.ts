@@ -113,6 +113,7 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
     evals: runningEvals.length,
     configs: opts.agentRuns.length,
     totalRuns: attempts.length,
+    maxConcurrency: opts.maxConcurrency,
   };
   for (const r of opts.reporters) {
     // reporter 只是结果消费方:单个 reporter 抛错记 diagnostic,不能让整次调度崩(P2)。
@@ -259,6 +260,7 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
                 type: "eval:start",
                 eval: { id: a.evalDef.id },
                 agent: a.run.agent,
+                model: a.run.model,
                 attempt: a.attempt,
                 experimentId: a.run.experimentId,
               }),

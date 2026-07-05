@@ -13,3 +13,6 @@ export const OUTCOME_SYM: Record<ResultOutcome, string> = {
 export function outcomeSymbol(outcome: string): string {
   return OUTCOME_SYM[outcome as ResultOutcome] ?? "?";
 }
+
+/** live 表格里「还没抢到并发名额」的行:和转圈的 SPINNER、完成后的 OUTCOME_SYM 三态区分开。 */
+export const WAITING_SYM = "·";

@@ -15,7 +15,7 @@ export function Console(): Reporter {
         shape && shape.totalRuns > n
           ? t("report.runStartExtra", { configs: shape.configs, totalRuns: shape.totalRuns })
           : "";
-      process.stdout.write(t("report.runStart", { count: n, extra }));
+      process.stdout.write(t("report.runStart", { count: n, extra, concurrency: shape?.maxConcurrency ?? "?" }));
     },
     onEvalComplete(result: EvalResult) {
       const sym = outcomeSymbol(result.outcome);

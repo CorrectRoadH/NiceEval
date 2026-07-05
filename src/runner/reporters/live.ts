@@ -2,10 +2,10 @@
 // spinner 每 80ms 刷新;attempt 完成后行内显示 ✓/✗/~ 符号。
 // onRunComplete 时清除状态表,打印和网页榜单同口径的表格报告。
 
-import type { Reporter, RunShape, RunSummary } from "../../types.ts";
+import type { Reporter, ReporterEvent, RunShape, RunSummary } from "../../types.ts";
 import { t } from "../../i18n/index.ts";
 import { renderRunReport } from "./table.ts";
-import { outcomeSymbol } from "./shared.ts";
+import { outcomeSymbol, WAITING_SYM } from "./shared.ts";
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
@@ -42,6 +42,8 @@ interface RowState extends LiveRow {
   completed: number;
   lastMsg: string;
   dominantOutcome: string | undefined;
+  /** true 一旦拿到并发名额、attempt effect 真正开始跑;之前是排队等待,不该转圈误导。 */
+  started: boolean;
 }
 
 export function Live(rows: LiveRow[], totalAttempts: number): LiveReporter {
@@ -51,7 +53,7 @@ export function Live(rows: LiveRow[], totalAttempts: number): LiveReporter {
   for (const r of rows) {
     const k = `${r.evalId}|${r.who}`;
     if (!stateMap.has(k)) {
-      stateMap.set(k, { ...r, completed: 0, lastMsg: "", dominantOutcome: undefined });
+      stateMap.set(k, { ...r, completed: 0, lastMsg: "", dominantOutcome: undefined, started: false });
       keyOrder.push(k);
     } else {
       // 同一 (evalId, who) 可能在多个 agentRun 里出现(不应发生,但做防御)
@@ -71,7 +73,9 @@ export function Live(rows: LiveRow[], totalAttempts: number): LiveReporter {
     const done = state.completed >= state.total;
     const sym = done
       ? outcomeSymbol(state.dominantOutcome ?? "")
-      : SPINNER[frame % SPINNER.length];
+      : state.started
+        ? SPINNER[frame % SPINNER.length]
+        : WAITING_SYM;
 
     const evalCol = state.evalId.slice(0, 24).padEnd(24);
     const whoCol = `[${state.who}]`.slice(0, 26).padEnd(26);
@@ -79,7 +83,7 @@ export function Live(rows: LiveRow[], totalAttempts: number): LiveReporter {
 
     const prefix = `  ${sym} ${evalCol} ${whoCol} ${cntCol}  `;
     const budget = Math.max(0, cols() - prefix.length - 1);
-    const msg = done ? "" : state.lastMsg.slice(0, budget);
+    const msg = done ? "" : state.started ? state.lastMsg.slice(0, budget) : t("live.waiting").slice(0, budget);
 
     return `\x1B[2K${prefix}${msg}`;
   }
@@ -90,6 +94,7 @@ export function Live(rows: LiveRow[], totalAttempts: number): LiveReporter {
           totalRuns: shape.totalRuns,
           evals: shape.evals,
           configs: shape.configs,
+          concurrency: shape.maxConcurrency,
           completed: totalCompleted,
           total: totalAttempts,
         })
@@ -130,6 +135,13 @@ export function Live(rows: LiveRow[], totalAttempts: number): LiveReporter {
       const state = stateMap.get(`${evalId}|${who}`);
       if (state) state.lastMsg = msg;
       // 不在这里 draw();由 interval 驱动,避免每条日志都刷屏
+    },
+
+    onEvent(event: ReporterEvent) {
+      if (event.type !== "eval:start") return;
+      const who = event.model ? `${event.agent.name}/${event.model}` : event.agent.name;
+      const state = stateMap.get(`${event.eval.id}|${who}`);
+      if (state) state.started = true;
     },
 
     onRunStart(_evals, _agent, s) {

@@ -97,6 +97,8 @@ export interface RunShape {
   configs: number;
   /** 总 attempt 数(evals × configs × runs);逐行输出与汇总计数都按它。 */
   totalRuns: number;
+  /** 本次运行实际生效的并发数(flag/env/experiment/config/sandbox 默认值解析后的结果)。 */
+  maxConcurrency: number;
 }
 
 export interface Reporter {
@@ -108,7 +110,7 @@ export interface Reporter {
 
 export type ReporterEvent =
   | { type: "run:start"; evals: { id: string }[]; agent: Agent; shape: RunShape }
-  | { type: "eval:start"; eval: { id: string }; agent: Agent; attempt: number; experimentId?: string }
+  | { type: "eval:start"; eval: { id: string }; agent: Agent; model?: string; attempt: number; experimentId?: string }
   | { type: "eval:complete"; result: EvalResult }
   | { type: "run:earlyExit"; evalId: string; experimentId?: string }
   | { type: "run:budgetExceeded"; budget: number; spent: number }
