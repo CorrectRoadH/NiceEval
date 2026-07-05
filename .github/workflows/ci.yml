@@ -34,7 +34,8 @@ jobs:
         run: pnpm run tiers:check
 
       - name: Check INIT.md is in sync with site/public/INIT.md
-        run: diff INIT.md site/public/INIT.md || (echo "INIT.md and site/public/INIT.md are out of sync; run: cp INIT.md site/public/INIT.md" && exit 1)
+        run: |
+          diff INIT.md site/public/INIT.md || (echo "INIT.md and site/public/INIT.md are out of sync; run: cp INIT.md site/public/INIT.md" && exit 1)
 
       - name: Build product site
         run: pnpm run site:build
