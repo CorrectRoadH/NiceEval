@@ -49,8 +49,39 @@ function toolMatches(tc: ToolCall, name: string, match?: ToolMatch): boolean {
   return true;
 }
 
-function countMatches(toolCalls: readonly ToolCall[], name: string, match?: ToolMatch): number {
-  return toolCalls.filter((tc) => toolMatches(tc, name, match)).length;
+// ── evidence:把调用的出入参带回断言结果,view 展开可见,不用翻原始事件流 ──
+
+function briefJson(value: unknown, max = 800): string {
+  let s: string;
+  try {
+    s = JSON.stringify(value) ?? String(value);
+  } catch {
+    s = String(value);
+  }
+  return s.length > max ? s.slice(0, max) + "…" : s;
+}
+
+function describeCalls(calls: readonly ToolCall[]): string | undefined {
+  if (calls.length === 0) return undefined;
+  return calls
+    .map((tc) => {
+      const name = tc.originalName && tc.originalName !== tc.name ? tc.originalName : tc.name;
+      const lines = [`${name} [${tc.status}]`, `  input: ${briefJson(tc.input)}`];
+      if (tc.output !== undefined) lines.push(`  output: ${briefJson(tc.output)}`);
+      return lines.join("\n");
+    })
+    .join("\n");
+}
+
+function describeSubagents(calls: readonly SubagentCall[]): string | undefined {
+  if (calls.length === 0) return undefined;
+  return calls
+    .map((s) => {
+      const lines = [`${s.name} [${s.status}]${s.remoteUrl ? ` ${s.remoteUrl}` : ""}`];
+      if (s.output !== undefined) lines.push(`  output: ${briefJson(s.output)}`);
+      return lines.join("\n");
+    })
+    .join("\n");
 }
 
 function subagentMatches(call: SubagentCall, name: string, match?: SubagentMatch): boolean {
@@ -89,7 +120,8 @@ export function messageIncludes(token: string | RegExp): Spec {
         .map((e) => e.text)
         .join("\n");
       const ok = token instanceof RegExp ? token.test(text) : text.includes(token);
-      return ok ? 1 : 0;
+      // 失败时把实际被扫的助手文本带回来(和 t.check 的口径一致);命中时行色已说明一切。
+      return ok ? 1 : { score: 0, evidence: text ? (text.length > 4000 ? text.slice(0, 4000) + "…" : text) : undefined };
     },
   };
 }
@@ -99,9 +131,13 @@ export function calledTool(name: string, match?: ToolMatch): Spec {
     name: `calledTool(${name})`,
     severity: "gate",
     evaluate: (ctx) => {
-      const n = countMatches(ctx.facts.toolCalls, name, match);
-      if (match?.count !== undefined) return n === match.count ? 1 : 0;
-      return n >= 1 ? 1 : 0;
+      const matched = ctx.facts.toolCalls.filter((tc) => toolMatches(tc, name, match));
+      const n = matched.length;
+      const score = match?.count !== undefined ? (n === match.count ? 1 : 0) : n >= 1 ? 1 : 0;
+      // 命中给命中调用的出入参;没命中给同名调用(条件不满足的近失);再没有就列出实际调过的工具。
+      const sameName = ctx.facts.toolCalls.filter((tc) => tc.name === name || tc.originalName === name);
+      const shown = matched.length ? matched : sameName.length ? sameName : ctx.facts.toolCalls;
+      return { score, evidence: describeCalls(shown) };
     },
   };
 }
@@ -110,7 +146,10 @@ export function notCalledTool(name: string, match?: ToolMatch): Spec {
   return {
     name: `notCalledTool(${name})`,
     severity: "gate",
-    evaluate: (ctx) => (countMatches(ctx.facts.toolCalls, name, match) === 0 ? 1 : 0),
+    evaluate: (ctx) => {
+      const matched = ctx.facts.toolCalls.filter((tc) => toolMatches(tc, name, match));
+      return { score: matched.length === 0 ? 1 : 0, evidence: describeCalls(matched) };
+    },
   };
 }
 
@@ -123,7 +162,8 @@ export function toolOrder(names: string[]): Spec {
       for (const tc of ctx.facts.toolCalls) {
         if (i < names.length && (tc.name === names[i] || tc.originalName === names[i])) i++;
       }
-      return i === names.length ? 1 : 0;
+      const actual = ctx.facts.toolCalls.map((tc) => tc.originalName ?? tc.name).join(" → ");
+      return { score: i === names.length ? 1 : 0, evidence: actual || undefined };
     },
   };
 }
@@ -132,7 +172,10 @@ export function usedNoTools(): Spec {
   return {
     name: "usedNoTools",
     severity: "gate",
-    evaluate: (ctx) => (ctx.facts.toolCalls.length === 0 ? 1 : 0),
+    evaluate: (ctx) => ({
+      score: ctx.facts.toolCalls.length === 0 ? 1 : 0,
+      evidence: describeCalls(ctx.facts.toolCalls),
+    }),
   };
 }
 
@@ -140,7 +183,10 @@ export function maxToolCalls(max: number): Spec {
   return {
     name: `maxToolCalls(${max})`,
     severity: "gate",
-    evaluate: (ctx) => (ctx.facts.toolCalls.length <= max ? 1 : 0),
+    evaluate: (ctx) => ({
+      score: ctx.facts.toolCalls.length <= max ? 1 : 0,
+      evidence: describeCalls(ctx.facts.toolCalls),
+    }),
   };
 }
 
@@ -153,9 +199,10 @@ export function noFailedActions(): Spec {
     name: "noFailedActions",
     severity: "gate",
     evaluate: (ctx) => {
-      const toolFail = ctx.facts.toolCalls.some((tc) => tc.status === "failed");
-      const subFail = ctx.facts.subagentCalls.some((s) => s.status === "failed");
-      return toolFail || subFail ? 0 : 1;
+      const failedTools = ctx.facts.toolCalls.filter((tc) => tc.status === "failed");
+      const failedSubs = ctx.facts.subagentCalls.filter((s) => s.status === "failed");
+      const evidence = [describeCalls(failedTools), describeSubagents(failedSubs)].filter(Boolean).join("\n") || undefined;
+      return { score: failedTools.length || failedSubs.length ? 0 : 1, evidence };
     },
   };
 }
@@ -165,9 +212,10 @@ export function calledSubagent(name: string, match?: SubagentMatch): Spec {
     name: `calledSubagent(${name})`,
     severity: "gate",
     evaluate: (ctx) => {
-      const n = ctx.facts.subagentCalls.filter((call) => subagentMatches(call, name, match)).length;
-      if (match?.count !== undefined) return n === match.count ? 1 : 0;
-      return n >= 1 ? 1 : 0;
+      const matched = ctx.facts.subagentCalls.filter((call) => subagentMatches(call, name, match));
+      const n = matched.length;
+      const score = match?.count !== undefined ? (n === match.count ? 1 : 0) : n >= 1 ? 1 : 0;
+      return { score, evidence: describeSubagents(matched.length ? matched : ctx.facts.subagentCalls) };
     },
   };
 }
@@ -258,8 +306,8 @@ export function noFailedShellCommands(): Spec {
     name: "noFailedShellCommands",
     severity: "gate",
     evaluate: (ctx) => {
-      const failed = ctx.facts.toolCalls.some((tc) => tc.name === "shell" && tc.status === "failed");
-      return failed ? 0 : 1;
+      const failed = ctx.facts.toolCalls.filter((tc) => tc.name === "shell" && tc.status === "failed");
+      return { score: failed.length ? 0 : 1, evidence: describeCalls(failed) };
     },
   };
 }

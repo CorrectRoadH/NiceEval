@@ -2,9 +2,9 @@ import { useCallback, useMemo, useState } from "react";
 import { AlertCircle, CheckCircle2, ChevronRight, MessageCircle, XCircle } from "lucide-react";
 import type { T } from "../shared.ts";
 import type { Assertion, CodeSource, SourceTurn, TranscriptEvent } from "../types.ts";
-import { TOOL_VERB, highlightTs, indexAsserts, indexTurns, locKey, resultBody, toolPrimaryArg } from "../lib/transcript-data.tsx";
-import { formatScore, previewText, truncate } from "../lib/format.ts";
-import { Transcript } from "./Transcript.tsx";
+import { highlightTs, indexAsserts, indexTurns, locKey } from "../lib/transcript-data.tsx";
+import { formatScore } from "../lib/format.ts";
+import { InputBlock, ToolBlock, Transcript } from "./Transcript.tsx";
 
 /** soft 断言没过阈值不影响 outcome,颜色上跟 gate 失败(红)区分开,用 warn(黄)。 */
 function assertTone(a: Assertion): "good" | "warn" | "bad" {
@@ -205,17 +205,10 @@ export function ReplyPanel({ turn, t }: { turn: SourceTurn; t: T }) {
           );
         if (r.kind === "error")
           return <div key={j} className="reply-err">! {r.text}</div>;
-        if (r.kind === "tool") {
-          const verb = (r.ev.tool ? TOOL_VERB[r.ev.tool] : undefined) || r.ev.name || r.ev.tool || "tool";
-          const arg = toolPrimaryArg(r.ev);
-          const out = r.result ? resultBody(r.result.output) : "";
-          return (
-            <div key={j} className="reply-tool">
-              <span className="reply-tool-name">{arg ? `${verb}(${truncate(arg, 80)})` : verb}</span>
-              {out ? <span className="reply-tool-out">→ {truncate(previewText(out), 100)}</span> : null}
-            </div>
-          );
-        }
+        if (r.kind === "tool")
+          // 和 Transcript 同一个组件:摘要行显示工具名(入参)→ 出参预览,展开看完整出入参。
+          return <ToolBlock key={j} call={r.ev} result={r.result} t={t} />;
+        if (r.kind === "input") return <InputBlock key={j} event={{ type: "input.requested", request: r.ev.request }} t={t} />;
         return null;
       })}
     </div>

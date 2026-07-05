@@ -42,9 +42,11 @@ export type Reply =
   | { kind: "text"; text: string }
   | { kind: "thinking"; text: string }
   | { kind: "error"; text: string }
-  | { kind: "tool"; ev: ActionCalledEvent; result?: ActionResultEvent };
+  | { kind: "tool"; ev: ActionCalledEvent; result?: ActionResultEvent }
+  | { kind: "input"; ev: InputRequestedEvent };
 
 export type ActionCalledEvent = Extract<StreamEvent, { type: "action.called" }>;
+export type InputRequestedEvent = Extract<StreamEvent, { type: "input.requested" }>;
 export type ActionResultEvent = Extract<StreamEvent, { type: "action.result" }>;
 export type SubagentCalledEvent = Extract<StreamEvent, { type: "subagent.called" }>;
 export type SubagentCompletedEvent = Extract<StreamEvent, { type: "subagent.completed" }>;

@@ -16,6 +16,9 @@ export function locKey(file: string, line: number): string {
 export function indexTurns(events: TranscriptEvent[]): IndexedTurns {
   const byKey = new Map<string, SourceTurn>();
   const noloc: SourceTurn[] = [];
+  // callId → tool 回复,跨轮共享:HITL(审批门)下 action.called 在 send 轮、
+  // action.result 在 respond 轮才到,只在当轮找会把结果丢掉。
+  const toolByCallId = new Map<string, Extract<SourceTurn["replies"][number], { kind: "tool" }>>();
   let cur: SourceTurn | null = null;
   for (const ev of events || []) {
     if (ev.type === "message" && ev.role === "user") {
@@ -29,12 +32,14 @@ export function indexTurns(events: TranscriptEvent[]): IndexedTurns {
     } else if (ev.type === "thinking") {
       cur.replies.push({ kind: "thinking", text: ev.text || "" });
     } else if (ev.type === "action.called") {
-      cur.replies.push({ kind: "tool", ev });
+      const reply = { kind: "tool" as const, ev };
+      toolByCallId.set(ev.callId, reply);
+      cur.replies.push(reply);
     } else if (ev.type === "action.result") {
-      const tool = [...cur.replies].reverse().find(
-        (r): r is Extract<SourceTurn["replies"][number], { kind: "tool" }> => r.kind === "tool" && r.ev.callId === ev.callId,
-      );
+      const tool = toolByCallId.get(ev.callId);
       if (tool) tool.result = ev;
+    } else if (ev.type === "input.requested") {
+      cur.replies.push({ kind: "input", ev });
     } else if (ev.type === "error") {
       cur.replies.push({ kind: "error", text: ev.message || "error" });
     }
@@ -104,6 +109,17 @@ export function toolPrimaryArg(call: ToolBlockCall): string {
   for (const key of ["path", "file", "file_path", "filename", "pattern", "query", "url", "uri", "prompt", "description", "command", "remoteUrl"]) {
     const value = input[key];
     if (typeof value === "string" && value) return value;
+  }
+  // 领域工具(get_weather / calculate…)的入参 key 不在上面的通用名单里,
+  // 兜底给紧凑 JSON——入参是断言的一等材料,不能因为 key 认不出就不显示。
+  const keys = Object.keys(input);
+  if (keys.length > 0) {
+    try {
+      const compact = JSON.stringify(input);
+      return compact.length > 200 ? compact.slice(0, 200) + "…" : compact;
+    } catch {
+      return "";
+    }
   }
   return "";
 }
