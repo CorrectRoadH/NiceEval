@@ -201,12 +201,14 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
             // 早停:同 key 已通过,或已 errored(重跑只会重复同一个框架错误)且开了 earlyExit
             // → 跳过未启动的 attempt。
             if (a.run.earlyExit && (passedKeys.has(a.key) || erroredKeys.has(a.key))) {
-              yield* Effect.promise(() =>
-                emitReporterEvent(opts.reporters, {
-                  type: "run:earlyExit",
-                  evalId: a.evalDef.id,
-                  experimentId: a.run.experimentId,
-                }),
+              yield* reportMutex.withPermits(1)(
+                Effect.promise(() =>
+                  emitReporterEvent(opts.reporters, {
+                    type: "run:earlyExit",
+                    evalId: a.evalDef.id,
+                    experimentId: a.run.experimentId,
+                  }),
+                ),
               );
               return;
             }
@@ -222,8 +224,10 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
                 if (s.spent >= budget) {
                   if (!budgetReported.has(budgetKey)) {
                     budgetReported.add(budgetKey);
-                    yield* Effect.promise(() =>
-                      emitReporterEvent(opts.reporters, { type: "run:budgetExceeded", budget, spent: s.spent }),
+                    yield* reportMutex.withPermits(1)(
+                      Effect.promise(() =>
+                        emitReporterEvent(opts.reporters, { type: "run:budgetExceeded", budget, spent: s.spent }),
+                      ),
                     );
                   }
                   return;
@@ -255,15 +259,17 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
                 ? AbortSignal.any([opts.signal, evalAc.signal])
                 : (evalAc?.signal ?? opts.signal);
 
-            yield* Effect.promise(() =>
-              emitReporterEvent(opts.reporters, {
-                type: "eval:start",
-                eval: { id: a.evalDef.id },
-                agent: a.run.agent,
-                model: a.run.model,
-                attempt: a.attempt,
-                experimentId: a.run.experimentId,
-              }),
+            yield* reportMutex.withPermits(1)(
+              Effect.promise(() =>
+                emitReporterEvent(opts.reporters, {
+                  type: "eval:start",
+                  eval: { id: a.evalDef.id },
+                  agent: a.run.agent,
+                  model: a.run.model,
+                  attempt: a.attempt,
+                  experimentId: a.run.experimentId,
+                }),
+              ),
             );
             const result = yield* runAttemptEffect(a, opts, sandboxSem, attemptSignal).pipe(
               Effect.ensuring(
@@ -310,7 +316,12 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
                 ),
               ),
             );
-            yield* Effect.promise(() => emitReporterEvent(opts.reporters, { type: "eval:complete", result }));
+            // 和上面的 onEvalComplete 同一把 reportMutex:两条回调路径都要串行化,否则并发
+            // attempt 各自触发的 eval:complete 会绕开 permit=1 直接并发跑,和文档承诺的
+            // 「报告回调串行化」不一致。
+            yield* reportMutex.withPermits(1)(
+              Effect.promise(() => emitReporterEvent(opts.reporters, { type: "eval:complete", result })),
+            );
           }),
       { concurrency: opts.maxConcurrency, discard: true },
     ).pipe(

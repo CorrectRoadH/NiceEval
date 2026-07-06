@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createEvalContext } from "./context.ts";
+import { createEvalContext, type ContextState } from "./context.ts";
 import { includes } from "../expect/index.ts";
 import type { Agent, AgentContext, InputRequest, Sandbox, StreamEvent, Turn, TurnInput } from "../types.ts";
 
@@ -288,5 +288,82 @@ describe("t.respond() / t.respondAll(): structured InputResponse", () => {
     expect(agent.received[1]?.responses).toEqual([
       { requestId: "req_1", text: "wait, add a subject line first" },
     ]);
+  });
+});
+
+function baseScoringContext(state: ContextState) {
+  return {
+    events: [],
+    facts: { toolCalls: [], subagentCalls: [], inputRequests: [], parked: false, messageCount: 0, compactions: 0 },
+    diff: state.late.diff,
+    scripts: state.late.scripts,
+    usage: { inputTokens: 0, outputTokens: 0 },
+    status: "completed" as const,
+    readFile: async () => undefined,
+  };
+}
+
+describe("TurnHandle scoped assertions (parked/loadedSkill/noFailedActions/maxTokens/maxCost)", () => {
+  it("mirror t/session scope: turn.parked() reflects this turn's own waiting status", async () => {
+    const agent = scriptedAgent([
+      waitingTurn({ id: "req_1", action: "send_email", options: [{ id: "approve" }] }),
+    ]);
+    const { context, state } = makeContext(agent);
+    const turn = await context.send("draft an email");
+    turn.parked();
+
+    const [result] = await state.collector.finalize(baseScoringContext(state));
+    expect(result.name).toBe("parked");
+    expect(result.passed).toBe(true);
+  });
+
+  it("turn.noFailedActions() looks only at this turn's own tool calls", async () => {
+    const agent = scriptedAgent([
+      {
+        status: "completed",
+        events: [
+          { type: "action.called", callId: "c1", name: "shell", input: { cmd: "false" } },
+          { type: "action.result", callId: "c1", output: {}, status: "failed" },
+        ],
+      },
+    ]);
+    const { context, state } = makeContext(agent);
+    const turn = await context.send("run a command");
+    turn.noFailedActions();
+
+    const [result] = await state.collector.finalize(baseScoringContext(state));
+    expect(result.name).toBe("noFailedActions");
+    expect(result.passed).toBe(false);
+  });
+
+  it("turn.maxTokens()/turn.maxCost() read this turn's own Turn.usage, not the session total", async () => {
+    const agent = scriptedAgent([
+      { status: "completed", events: [{ type: "message", role: "assistant", text: "ok" }], usage: { inputTokens: 100, outputTokens: 50, costUSD: 0.02 } },
+    ]);
+    const { context, state } = makeContext(agent);
+    const turn = await context.send("hi");
+    turn.maxTokens(1000);
+    turn.maxCost(0.01);
+
+    const [tokens, cost] = await state.collector.finalize(baseScoringContext(state));
+    expect(tokens.name).toBe("maxTokens(1000)");
+    expect(tokens.passed).toBe(true);
+    expect(cost.name).toBe("maxCost(0.01)");
+    expect(cost.passed).toBe(false);
+  });
+
+  it("turn.loadedSkill() checks a load_skill call scoped to this turn", async () => {
+    const agent = scriptedAgent([
+      {
+        status: "completed",
+        events: [{ type: "action.called", callId: "c1", name: "load_skill", input: { skill: "pdf-export" } }],
+      },
+    ]);
+    const { context, state } = makeContext(agent);
+    const turn = await context.send("export as pdf");
+    turn.loadedSkill("pdf-export");
+
+    const [result] = await state.collector.finalize(baseScoringContext(state));
+    expect(result.passed).toBe(true);
   });
 });

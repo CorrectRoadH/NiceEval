@@ -15,6 +15,22 @@ export { mapCodexSpans } from "../o11y/otlp/mappers/codex.ts";
 export { uiMessageStreamAgent } from "./ui-message-stream.ts";
 export type { UiMessageStreamAgentOptions, UIMessageLike, UIMessagePartLike } from "./ui-message-stream.ts";
 
+// 两种 OpenAI 响应形状(不限于 OpenAI 官方,任何声明兼容这两种协议形状的服务都能用)的
+// 官方转换器:整段响应 → Turn,零映射。
+export { fromChatCompletion, fromResponses } from "./openai-compat.ts";
+export type {
+  ChatCompletionLike,
+  ChatCompletionMessageLike,
+  ChatCompletionToolCallLike,
+  ChatCompletionUsageLike,
+  ResponseFunctionCallItemLike,
+  ResponseLike,
+  ResponseMessageItemLike,
+  ResponseOutputItemLike,
+  ResponseOutputTextLike,
+  ResponseUsageLike,
+} from "./openai-compat.ts";
+
 // SDK 原生事件流 → 标准事件的官方转换器(无侵入 adapter 只剩传输粘合)+ 通用 SSE 读帧器。
 export { sseJsonFrames, fromClaudeSdkMessages, fromPiAgentEvents, fromCodexThreadEvents } from "./sdk-streams.ts";
 export type {

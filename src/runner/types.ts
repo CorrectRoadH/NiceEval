@@ -191,6 +191,20 @@ export interface Config {
    * 的远程接入,在这里覆盖。
    */
   telemetry?: { host?: string; port?: number };
+  /**
+   * 内置价格表(`o11y/prices.json`)之上的用户覆盖 / 补充,按 model 查(见 Observability
+   * · 用量与成本)。key 支持精确 model 名或 `provider/*` 通配(自托管/网关折扣按 provider 批量覆盖);
+   * 精确 key 优先于通配。只在没有网关实测成本(`usage.costUSD`)时才会用到——实测优先于估算恒成立。
+   */
+  pricing?: Record<string, PriceOverride>;
+}
+
+/** 每百万 token 的美元单价;省略的桶退回 `inputPerMTok`(cache token 本质也是 input)。 */
+export interface PriceOverride {
+  inputPerMTok: number;
+  outputPerMTok: number;
+  cacheReadPerMTok?: number;
+  cacheWritePerMTok?: number;
 }
 
 // ───────────────────────── 调度编排 ─────────────────────────
