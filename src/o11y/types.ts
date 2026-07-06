@@ -120,7 +120,8 @@ export interface TraceSpan {
 /** 给人 / 给 EVAL.ts 看的 o11y 摘要(注入沙箱 __niceeval__/results.json)。 */
 export interface O11ySummary {
   totalTurns: number;
-  toolCalls: Record<string, number>;
+  /** 只有跑之前调用过的 canonical 工具名才有 key,不是全量出现;省略的 ToolName 视为 0。 */
+  toolCalls: Partial<Record<ToolName, number>>;
   totalToolCalls: number;
   filesRead: string[];
   filesModified: string[];

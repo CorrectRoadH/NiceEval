@@ -26,16 +26,21 @@ export interface TurnHandle {
   /** 断言本轮助手回复包含 token(仅限本轮事件流,不跨轮)。 */
   messageIncludes(token: string | RegExp): AssertionHandle;
   succeeded(): AssertionHandle;
+  parked(): AssertionHandle;
   calledTool(name: string, match?: ToolMatch): AssertionHandle;
   notCalledTool(name: string, match?: ToolMatch): AssertionHandle;
   toolOrder(names: string[]): AssertionHandle;
   usedNoTools(): AssertionHandle;
   maxToolCalls(max: number): AssertionHandle;
+  loadedSkill(skill: string): AssertionHandle;
+  noFailedActions(): AssertionHandle;
   event(type: StreamEvent["type"], opts?: { count?: number }): AssertionHandle;
   notEvent(type: StreamEvent["type"]): AssertionHandle;
   calledSubagent(name: string, match?: SubagentMatch): AssertionHandle;
   eventOrder(types: StreamEvent["type"][]): AssertionHandle;
   eventsSatisfy(predicate: (events: readonly StreamEvent[]) => boolean, label?: string): AssertionHandle;
+  maxTokens(max: number): AssertionHandle;
+  maxCost(usd: number): AssertionHandle;
   readonly judge: JudgeNamespace;
 }
 

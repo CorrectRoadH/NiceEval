@@ -207,7 +207,7 @@ export function buildO11ySummary(
   usage: Usage,
   durationMs: number,
 ): O11ySummary {
-  const toolCalls: Record<string, number> = {};
+  const toolCalls: Partial<Record<ToolName, number>> = {};
   let totalToolCalls = 0;
   const filesRead = new Set<string>();
   const filesModified = new Set<string>();
@@ -243,7 +243,7 @@ export function buildO11ySummary(
         break;
 
       case "action.called": {
-        const canonical: ToolName | string = ev.tool ?? "unknown";
+        const canonical: ToolName = ev.tool ?? "unknown";
         toolCalls[canonical] = (toolCalls[canonical] ?? 0) + 1;
         totalToolCalls += 1;
 
