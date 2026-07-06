@@ -112,6 +112,7 @@ export const copy = {
       back: "Back to blog",
       minutes: "min read",
       notFound: "Article not found",
+      empty: "No articles yet — the first posts are in progress.",
     },
   },
   zh: {
@@ -164,6 +165,7 @@ export const copy = {
       back: "返回博客",
       minutes: "分钟阅读",
       notFound: "没有找到这篇文章",
+      empty: "还没有发布文章，第一批内容正在准备中。",
     },
   },
 } as const;

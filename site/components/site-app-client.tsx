@@ -250,7 +250,6 @@ function Hero({ t, locale }: { t: Dictionary; locale: Locale }) {
 
 function BlogIndex({ t, locale, blogPosts }: { t: Dictionary; locale: Locale; blogPosts: BlogPost[] }) {
   const post = blogPosts[0];
-  const postCopy = post[locale];
 
   return (
     <section className="blog-page shell">
@@ -262,27 +261,31 @@ function BlogIndex({ t, locale, blogPosts }: { t: Dictionary; locale: Locale; bl
       <div className="blog-section-head">
         <h2>{t.blogPage.latest}</h2>
       </div>
-      <article className="blog-card">
-        <div className="blog-card-art" aria-hidden="true">
-          <span />
-          <span />
-          <span />
-        </div>
-        <div className="blog-card-copy">
-          <span className="post-kicker">{postCopy.category}</span>
-          <h2>{postCopy.title}</h2>
-          <p>{postCopy.description}</p>
-          <PostMeta post={post} postCopy={postCopy} t={t} />
-          <Link
-            className="button primary"
-            href={withLocale(locale, `blog/${post.slug}`)}
-            onClick={() => track("Open Blog Post", { slug: post.slug, locale })}
-          >
-            {t.blogPage.read}
-            <ChevronRight size={15} />
-          </Link>
-        </div>
-      </article>
+      {post ? (
+        <article className="blog-card">
+          <div className="blog-card-art" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </div>
+          <div className="blog-card-copy">
+            <span className="post-kicker">{post[locale].category}</span>
+            <h2>{post[locale].title}</h2>
+            <p>{post[locale].description}</p>
+            <PostMeta post={post} postCopy={post[locale]} t={t} />
+            <Link
+              className="button primary"
+              href={withLocale(locale, `blog/${post.slug}`)}
+              onClick={() => track("Open Blog Post", { slug: post.slug, locale })}
+            >
+              {t.blogPage.read}
+              <ChevronRight size={15} />
+            </Link>
+          </div>
+        </article>
+      ) : (
+        <p className="blog-empty">{t.blogPage.empty}</p>
+      )}
     </section>
   );
 }

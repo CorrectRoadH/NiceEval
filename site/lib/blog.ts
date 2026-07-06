@@ -10,6 +10,7 @@ export type BlogPostCopy = {
   date: string;
   category: string;
   readMinutes: string;
+  status: string;
   body: string;
 };
 
@@ -46,6 +47,7 @@ function parseMdxDocument(source: string): BlogPostCopy {
     date: frontmatter.date,
     category: frontmatter.category,
     readMinutes: frontmatter.readMinutes,
+    status: frontmatter.status ?? "published",
     body: body.trim(),
   };
 }
@@ -63,6 +65,7 @@ export function getAllBlogPosts(): BlogPost[] {
       en: readPost(entry.name, "en"),
       zh: readPost(entry.name, "zh"),
     }))
+    .filter((post) => post.en.status !== "draft" && post.zh.status !== "draft")
     .sort((a, b) => b.en.date.localeCompare(a.en.date));
 }
 

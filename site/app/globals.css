@@ -957,6 +957,12 @@ h1 {
   font-weight: 650;
 }
 
+.blog-empty {
+  margin-top: 24px;
+  color: var(--muted);
+  font-size: 15px;
+}
+
 .blog-card {
   display: grid;
   grid-template-columns: minmax(240px, 0.72fr) minmax(0, 1fr);
