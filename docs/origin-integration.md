@@ -142,7 +142,7 @@ adapter 要这样做:
 
 ### langgraph
 
-- 唯一的 Python 应用,也是唯一**完全手写帧映射、零 OTel 依赖用于事件**的应用:自定义 JSON 帧(`tool-input` → `action.called`、`tool-output` → `action.result`(completed)、`tool-output-denied` → `action.result`(rejected)、`text-delta` 累积成 `message`、`tool-approval-request` → `input.requested` + `waiting`)。
+- 唯一的 Python 应用,也是唯一**完全手写帧映射、零 OTel 依赖用于事件**的应用:自定义 JSON 帧(`tool-input` → `action.called`、`tool-output` → `action.result`(completed,帧带 `isError: true` 时 failed)、`tool-output-denied` → `action.result`(rejected)、`text-delta` 累积成 `message`、`tool-approval-request` → `input.requested` + `waiting`)。工具异常靠 `ToolRetryMiddleware(max_retries=0, on_failure="continue")` 落成 `status="error"` 的 ToolMessage——`create_agent` 默认让工具异常炸穿整张图,没有这层就表达不了"执行了但失败"。
 - HITL 标准配方,**approve 端点字段是 `toolCallId`**(别照抄 claude/pi 的 `toolUseId`)。
 - session 是 `InMemorySaver`,同 pi:应用不要中途重启。
 - OTel:LangSmith 导出的 span 只用来画瀑布图(`niceeval.config.ts` 固定端口 + 应用侧 `LANGSMITH_TRACING` / `LANGSMITH_OTEL_ENABLED` / `LANGSMITH_OTEL_ONLY` 三个环境变量),事件断言完全不依赖它。LangSmith 的 `BatchSpanProcessor` 调度和 SSE 流关闭是两条独立时间线,adapter 在轮次结束后主动等一小段(grace period)把最后一批 span 收进瀑布图。

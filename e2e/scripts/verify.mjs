@@ -18,11 +18,11 @@ const BIN = join(repoRoot, "bin", "niceeval.js");
 // 期望表:每行 = 一次 CLI 调用。evals = 按 profile 算出的期望 eval 数(防"少排用例还全绿",
 // 见 docs/e2e-ci.md 3.1"防静默失配");ci 期望全绿 exit 0,verdicts 期望 exit 1 且一红一炸。
 const PLAN = [
-  { project: "ai-sdk-v7",  exp: "ci",       port: 34001, expectExit: 0, evals: 5, allPass: true },
+  { project: "ai-sdk-v7",  exp: "ci",       port: 34001, expectExit: 0, evals: 6, allPass: true },
   { project: "ai-sdk-v7",  exp: "verdicts", port: 34001, expectExit: 1, evals: 2, failedAtLeast: 1, erroredAtLeast: 1 },
-  { project: "pi-sdk",     exp: "ci",       port: 33001, expectExit: 0, evals: 5, allPass: true },
-  { project: "claude-sdk", exp: "ci",       port: 32001, expectExit: 0, evals: 5, allPass: true },
-  { project: "langgraph",  exp: "ci",       port: 35000, expectExit: 0, evals: 5, allPass: true },
+  { project: "pi-sdk",     exp: "ci",       port: 33001, expectExit: 0, evals: 6, allPass: true },
+  { project: "claude-sdk", exp: "ci",       port: 32001, expectExit: 0, evals: 6, allPass: true },
+  { project: "langgraph",  exp: "ci",       port: 35000, expectExit: 0, evals: 6, allPass: true },
   { project: "codex-sdk",  exp: "ci",       port: 31001, expectExit: 0, evals: 4, allPass: true },
 ];
 

@@ -28,7 +28,7 @@ from __future__ import annotations
 import os
 
 from langchain.agents import create_agent
-from langchain.agents.middleware import HumanInTheLoopMiddleware
+from langchain.agents.middleware import HumanInTheLoopMiddleware, ToolRetryMiddleware
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
@@ -178,6 +178,11 @@ def build_agent():
         middleware=[
             HumanInTheLoopMiddleware(
                 interrupt_on={name: {"allowed_decisions": ["approve", "reject"]} for name in GATED_TOOLS}
-            )
+            ),
+            # create_agent 默认不接工具异常:工具一抛错整张图跟着炸,前端只能收到一条笼统的
+            # error 帧。挂上重试 middleware 并把 max_retries 设成 0,拿到的其实是它的
+            # on_failure="continue" 兜底——异常落成 status="error" 的 ToolMessage,模型
+            # 看到错误还能继续作答,src/server.py 也才有"这次调用失败了"可转发。
+            ToolRetryMiddleware(max_retries=0, on_failure="continue"),
         ],
     )

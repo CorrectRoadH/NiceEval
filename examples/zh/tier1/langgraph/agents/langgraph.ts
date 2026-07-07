@@ -2,8 +2,9 @@
 // (server.py 不透传 LangGraph 原生 stream 事件,自己翻译成一套小协议,见其头注释)。
 //
 // 断言依据全部来自这条流,零 OTel 依赖:
-//   · `tool-input` → action.called、`tool-output` → action.result(completed)、
-//     `tool-output-denied` → action.result(rejected)——协议帧里本来就有全量工具过程;
+//   · `tool-input` → action.called、`tool-output` → action.result(completed,
+//     带 isError 时 failed)、`tool-output-denied` → action.result(rejected)——
+//     协议帧里本来就有全量工具过程;
 //   · `text-delta` 累积成完整回复,轮次结束补一条 message 事件;
 //   · HITL:`tool-approval-request` → input.requested + waiting,停轮现场(还开着的流 +
 //     挂起的 toolCallId)用 ctx.session.hold 存住,回答轮 ctx.session.take 取回接着读。
@@ -38,7 +39,7 @@ type LanggraphFrame =
   | { type: "session"; sessionId: string }
   | { type: "text-delta"; delta: string }
   | { type: "tool-input"; toolCallId: string; name: string; input: unknown }
-  | { type: "tool-output"; toolCallId: string; output: unknown }
+  | { type: "tool-output"; toolCallId: string; output: unknown; isError?: boolean }
   | { type: "tool-approval-request"; toolCallId: string }
   | { type: "tool-output-denied"; toolCallId: string }
   | { type: "error"; message: string }
@@ -87,7 +88,12 @@ async function drainStream(cursor: SseCursor, ctx: AgentContext): Promise<Turn> 
         break;
       }
       case "tool-output": {
-        events.push({ type: "action.result", callId: frame.toolCallId, output: frame.output as JsonValue, status: "completed" });
+        events.push({
+          type: "action.result",
+          callId: frame.toolCallId,
+          output: frame.output as JsonValue,
+          status: frame.isError === true ? "failed" : "completed",
+        });
         break;
       }
       case "tool-approval-request": {

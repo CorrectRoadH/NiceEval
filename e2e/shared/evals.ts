@@ -46,7 +46,8 @@ export function weatherTool(p: AgentProfile) {
       turn.expectOk();
 
       await t.group("调用天气工具且城市正确", () => {
-        t.calledTool(weather, { input: { city: "北京" } });
+        // city 用正则:模型传 "北京市" 也算对,别把语言习惯差异判成回归。
+        t.calledTool(weather, { input: { city: /北京/ } });
         t.messageIncludes(/°C|气温|天气|晴|多云|雨|阴/);
       });
       if (p.calcToolName) t.notCalledTool(p.calcToolName);
@@ -67,6 +68,18 @@ export function hitlApprove(p: AgentProfile) {
     async test(t) {
       const draft = await t.send("用计算器算一下 (23+19)*3 等于多少");
       t.check(draft.status, equals("waiting"));
+      // 反证门控真拦住了执行:批准前不允许出现计算器的"已完成"结果,否则"先执行、
+      // 事后补问审批"的实现也能骗过下面的正向断言。注意不能用 notCalledTool
+      // (status:"completed"):派生事实对"已发起还没结果"的调用乐观默认 completed,
+      // 只有对原始事件流查 action.result 才能表达"还没执行"。
+      draft.eventsSatisfy((events) => {
+        const calcIds = new Set(
+          events.filter((e) => e.type === "action.called" && e.name === calc).map((e) => e.callId),
+        );
+        return !events.some(
+          (e) => e.type === "action.result" && calcIds.has(e.callId) && e.status === "completed",
+        );
+      }, "no completed calculator result before approval");
 
       t.requireInputRequest({ action: calc });
 
@@ -94,7 +107,41 @@ export function hitlDeny(p: AgentProfile) {
       }
       t.check(denied.status, equals("completed"));
       t.calledTool(calc, { status: "rejected" });
+      // deny 的核心语义是"从未真正执行":只断言"存在 rejected"拦不住"照跑了但补标
+      // rejected"的坏实现,必须整个会话里都没有已完成的计算器调用。
+      t.notCalledTool(calc, { status: "completed" });
       t.noFailedActions();
+    },
+  });
+}
+
+/** 工具执行失败被如实标记 failed:7/0 每个 app 的 calculate 都必然报错,协议层不许吞成
+ *  completed,也不许炸掉整轮;模型看到错误要如实作答而不是编造数字。计算器经审批门控,
+ *  所以走一次 approve 才能触发真实执行。 */
+export function toolFailure(p: AgentProfile) {
+  if (!p.calcToolName) throw new Error("toolFailure eval requires profile.calcToolName");
+  const calc = p.calcToolName;
+  return defineEval({
+    description: "工具执行失败映射成 failed 状态,agent 恢复作答而不是编造结果",
+    async test(t) {
+      await t.send("用计算器算一下 7/0,把表达式原样交给工具;如果工具报错,不要换别的表达式重试,直接告诉我失败原因。");
+      t.requireInputRequest({ action: calc });
+
+      let turn = await t.respond("approve");
+      // 模型不听话重试新表达式时会再次触发审批:deny 到它放弃为止,保证最终收轮。
+      for (let attempt = 0; attempt < 3 && turn.status === "waiting"; attempt++) {
+        turn = await t.respond("deny");
+      }
+      t.check(turn.status, equals("completed"));
+
+      await t.group("失败如实落 failed,没有成功执行混进来", () => {
+        t.calledTool(calc, { status: "failed" });
+        t.notCalledTool(calc, { status: "completed" });
+      });
+
+      t.judge.autoevals
+        .closedQA("助手是否如实说明这次计算失败或无法计算(除以零),而没有编造一个具体的数值结果?")
+        .gate(0.6);
     },
   });
 }
@@ -105,13 +152,15 @@ export function sessionIsolation(p: AgentProfile) {
   return defineEval({
     description: "跨轮记忆与 newSession() 隔离",
     async test(t) {
-      await t.send(`我叫小明,帮我记住这个名字。${suffix}`);
+      (await t.send(`我叫小明,帮我记住这个名字。${suffix}`)).expectOk();
       const recall = await t.send(`我刚才说我叫什么名字?${suffix}`);
+      recall.expectOk();
       recall.messageIncludes("小明");
-      t.check(t.reply, includes("小明"));
 
+      // 反面半场必须先证明这一轮真的跑成了:没有 expectOk 的话,新会话直接报错、
+      // 回复是空串,excludes 对空串恒真,"隔离通过"就成了空洞结论。
       const fresh = t.newSession();
-      await fresh.send(`我叫什么名字?${suffix}`);
+      (await fresh.send(`我叫什么名字?${suffix}`)).expectOk();
       t.check(fresh.reply, excludes("小明"));
     },
   });
@@ -151,7 +200,9 @@ export function runCommand(p: AgentProfile) {
       turn.expectOk();
 
       await t.group("调用了 shell 且没有失败的动作", () => {
-        t.calledTool("command_execution", { status: "completed" });
+        // marker 就写在提示词里,光看回复文本分不清"真跑了"和"照抄提示词"——
+        // 必须对到 command 入参:确实执行过带这个 marker 的命令。
+        t.calledTool("command_execution", { status: "completed", input: { command: /niceeval-e2e-run-926/ } });
         t.noFailedActions();
       });
 

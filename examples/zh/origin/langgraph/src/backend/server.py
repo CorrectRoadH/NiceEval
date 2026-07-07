@@ -149,7 +149,8 @@ class Handler(BaseHTTPRequestHandler):
 def _run_turn(message: str, thread_id: str):
     """跑一轮对话(可能跨多次 interrupt/resume),把 LangGraph 的 stream 事件翻译成
     给前端的简单协议。事件类型:`text-delta` / `tool-input` / `tool-output` /
-    `tool-approval-request` / `tool-output-denied`。
+    `tool-approval-request` / `tool-output-denied`;`tool-output` 在工具执行失败时
+    多带一个 `isError: true`。
     """
     config = {"configurable": {"thread_id": thread_id}}
     inputs = {"messages": [{"role": "user", "content": message}]}
@@ -222,11 +223,17 @@ def _drive_graph(graph_input, config: dict):
                     }
             elif node_name == "tools":
                 for tool_message in update["messages"]:
-                    yield {
+                    frame = {
                         "type": "tool-output",
                         "toolCallId": tool_message.tool_call_id,
                         "output": _parse_tool_content(tool_message.content),
                     }
+                    # 工具执行失败(ToolRetryMiddleware 兜底产出的 status="error"
+                    # ToolMessage)也走 tool-output 帧,用 isError 区分,前端/断言
+                    # 才能把"执行了但失败"和"执行成功"分开。
+                    if tool_message.status == "error":
+                        frame["isError"] = True
+                    yield frame
 
 
 def _await_approval(tool_call_id: str) -> bool:
