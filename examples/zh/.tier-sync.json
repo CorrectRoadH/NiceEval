@@ -3,26 +3,31 @@
     {
       "from": "examples/zh/origin/codex-sdk",
       "to": "examples/zh/tier1/codex-sdk",
-      "baseTree": "a60867faa317e68a52e851d777c7bcaccd41802f"
+      "contract": "verbatim",
+      "baseTree": "e9c4219d4b1c4a50c014f021516a0656d011e011"
     },
     {
       "from": "examples/zh/origin/claude-sdk",
       "to": "examples/zh/tier1/claude-sdk",
-      "baseTree": "4374cdf9d921fd2253bc63e6aa59357dd2fb70e1"
+      "contract": "verbatim",
+      "baseTree": "7b3bfdf1ba4b9dd0ccdeb0480c351010c410a209"
     },
     {
       "from": "examples/zh/origin/pi-sdk",
       "to": "examples/zh/tier1/pi-sdk",
-      "baseTree": "abf0ae6f5834dff00afe6850e05ee2320ab0c2b4"
+      "contract": "verbatim",
+      "baseTree": "d7047e5f3a52bd405a007822743d4e110e9ca08a"
     },
     {
       "from": "examples/zh/origin/ai-sdk-v7",
       "to": "examples/zh/tier1/ai-sdk-v7",
-      "baseTree": "cd5402d075f170e712b9a7df2c0f2d12ac067090"
+      "contract": "verbatim",
+      "baseTree": "394941cb33db12b2281d1fe2dfedf148c7234d3e"
     },
     {
       "from": "examples/zh/origin/langgraph",
       "to": "examples/zh/tier1/langgraph",
+      "contract": "verbatim",
       "baseTree": "25f55d7f9cc040f39201604a09c3cc9e9ea707ce"
     }
   ]
