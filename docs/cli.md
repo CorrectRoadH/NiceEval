@@ -81,7 +81,7 @@ niceeval view                         # 起本地 web,自动打开浏览器,读 
 niceeval view .niceeval/<run>/summary.json
 niceeval view --port 4317             # 固定端口;被占用时向后找可用端口
 niceeval view --no-open               # 只启动服务并打印 URL(适合远端 shell / CI)
-niceeval view --out .niceeval/report.html  # 导出静态 HTML,不启动服务
+niceeval view --out site              # 目录式静态导出,不启动服务(index.html + 查看器工件)
 niceeval clean                        # 清掉这些历史运行结果
 ```
 

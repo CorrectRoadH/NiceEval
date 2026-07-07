@@ -35,9 +35,9 @@ export const en = {
     "Usage:\n" +
     "  niceeval exp [group|experiment] [eval-id-prefix…]   run experiments\n" +
     "  niceeval list                                       list discovered evals\n" +
-    "  niceeval view [summary.json|dir] [--out x.html|dir] [--port n] [--no-open]\n" +
-    "      --out *.html exports a single-file report; --out <dir> also bundles\n" +
-    "      artifacts so the directory can be served by any static host\n" +
+    "  niceeval view [summary.json|dir] [--out dir] [--port n] [--no-open]\n" +
+    "      --out <dir> exports a static site: index.html plus the viewer\n" +
+    "      artifacts, ready for any static host\n" +
     "  niceeval clean                                      delete .niceeval/ artifacts\n" +
     "  niceeval init                                       scaffold config + evals/\n\n" +
     "Flags:\n" +
@@ -66,7 +66,6 @@ export const en = {
   "cli.run.experimentRequiredKnown": "Discovered experiments: {{experiments}}\n",
   "cli.sandboxFlagRemoved": "`--sandbox` is not a CLI flag. Set `sandbox` in the experiment (or `niceeval.config.ts` as a project-wide fallback) to dockerSandbox() / vercelSandbox() / e2bSandbox() (import from \"niceeval/sandbox\").\n",
   "cli.unimplemented": "Command \"{{command}}\" is not implemented yet (MVP).\n",
-  "cli.view.exported": "Exported eval report page: {{out}}\n",
   "cli.view.exportedDir": "Exported static report site: {{out}} (serve the whole directory with any static host; opening index.html via file:// cannot fetch artifacts)\n",
   "cli.view.incompatible": "{{dir}}: written by niceeval {{producer}} (schemaVersion {{schemaVersion}}); this CLI reads schemaVersion {{supported}}.\nRun `{{command}}` to view it.\n",
   "cli.view.url": "niceeval view: {{url}}\n",

@@ -215,7 +215,7 @@ interface DiffData {
 3. 按 `hasEvents` / `hasTrace` / `hasSources` 拉取 `events.json`、`trace.json`、`sources.json`。
 4. 需要行为摘要或 workspace diff 时,尝试读取同目录的 `o11y.json` / `diff.json`。
 
-`niceeval view` 的本地 server 只暴露 `.json` 工件,并把请求路径限制在 view 输入根目录内。`--out` 导出的静态 HTML 会把 summary 聚合数据烘焙进单文件;拆分工件仍是本地 view server 的按需读取能力。
+`niceeval view` 的本地 server 只暴露 `.json` 工件,并把请求路径限制在 view 输入根目录内。`--out` 导出时 summary 聚合数据烘焙进 `index.html`,查看器要 fetch 的工件复制到 `artifact/` 下同布局路径。
 
 ## 与其它 reporter 的边界
 

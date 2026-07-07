@@ -52,19 +52,103 @@ npx niceeval view
 
 ## 导出与静态托管
 
+发布结果只有一种导出：`--out <目录>` 整站导出，完整带上能查看的一切。想要自己的页面形态，再用报告积木自建。
+
+### 内置查看器整站：静态托管
+
 ```bash
-npx niceeval view --out report.html   # 单文件报告
-npx niceeval view --out site          # 目录式静态导出
+npx niceeval view --out site
 ```
 
-`--out` 以 `.html` 结尾时导出单个自包含 HTML，适合当 CI 附件或直接发给同事。榜单、断言和检查结果都在文件里；代码视图、transcript 和 trace 依赖工件文件，单文件模式下会降级为提示。
+NiceEval 写入 `<dir>/index.html`，并把查看器要读取的工件（`sources.json`、`events.json`、`trace.json`）复制到 `<dir>/artifact/` 下。把整个目录交给任何静态托管（Vercel、GitHub Pages 或 `python3 -m http.server`），代码视图、transcript 和 trace 瀑布图都和本地 `niceeval view` 一致。
 
-`--out` 是目录时，NiceEval 写入 `<dir>/index.html`，并把查看器要读取的工件（`sources.json`、`events.json`、`trace.json`）复制到 `<dir>/artifact/` 下。把整个目录交给任何静态托管（Vercel、GitHub Pages 或 `python3 -m http.server`），代码视图、transcript 和 trace 瀑布图都和本地 `niceeval view` 一致。
+`--out` 只接受目录。没有单文件导出：代码视图、transcript 和 trace 依赖工件文件，单个 HTML 装不下完整证据。要把结果发给别人，托管整站发链接即可。
 
 两点限制：
 
 - `diff.json` 和 `o11y.json` 不会被复制。查看器不读取它们，且 diff 可能达到上百 MB。
 - 用 `file://` 直接打开 `index.html` 时浏览器不允许 fetch 工件，代码视图会提示源码不可用。本地预览用 http 服务打开。
+
+最简单的流程是在跑过 eval 的机器上导出，把产物目录直接部署，不需要额外步骤。`.niceeval/` 通常不进版本库，如果构建发生在别的机器（CI、托管平台），先用 `copyRun` 把要发布的快照瘦身复制进仓库，再对着快照目录导出：
+
+```typescript
+// scripts/snapshot.ts —— 跑完 eval 后执行，产物提交进仓库
+import { openResults, latestPerExperiment, copyRun } from "niceeval/results";
+
+const results = await openResults(".niceeval");
+const { snapshots } = latestPerExperiment(results.snapshots);
+await copyRun(snapshots, "site-data/run", {
+  artifacts: ["sources", "events", "trace"],
+});
+```
+
+```bash
+npx niceeval view --out site site-data/run   # CI 上对着快照构建
+```
+
+`latestPerExperiment` 按 experiment 挑最新快照，而不是挑最新的 run——某次运行只跑了部分实验时，其它实验仍保留上一轮的结果。
+
+### 自建报告页：自己的看法
+
+内置查看器的榜单形态是固定的。想要自己的看法——考试成绩单、benchmark 榜、质量 × 成本散点——用报告积木搭进你自己的应用：`niceeval/results` 读结果，`niceeval/report` 算数据，`niceeval/report/react` 渲染组件。
+
+计算和渲染之间是一条可序列化边界：计算函数（`table()`、`scatter()`、`overview()` 等）读文件系统，只能跑在 Node（构建脚本、服务端、CI）；组件只认算好的 JSON 数据，零 IO，在哪都能渲染。静态发布因此有两种姿势。
+
+**姿势一：构建时算好，导出纯静态页。** 页面在能读到结果数据的机器上构建（Next.js RSC 或任何 SSG），产物就是普通静态文件：
+
+```tsx
+// app/evals/page.tsx
+import { openResults, latestPerExperiment } from "niceeval/results";
+import { table, passRate, costUSD } from "niceeval/report";
+import { MetricTable } from "niceeval/report/react";
+import "niceeval/report/react/styles.css";
+
+export default async function EvalsPage() {
+  const results = await openResults(".niceeval");
+  const { snapshots } = latestPerExperiment(results.snapshots);
+  const data = await table(snapshots, {
+    rows: "agent",
+    columns: [passRate, costUSD],
+    sort: passRate,
+  });
+  return <MetricTable data={data} />;
+}
+```
+
+**姿势二：CI 落 JSON，任意前端渲染。** 计算跑在出结果的地方，页面在哪都行（Vite SPA、已有的内部面板）：
+
+```typescript
+// scripts/build-report-data.ts —— CI 里跑完 eval 后执行
+import { writeFile } from "node:fs/promises";
+import { openResults, latestPerExperiment } from "niceeval/results";
+import { table, passRate, costUSD } from "niceeval/report";
+
+const results = await openResults(".niceeval");
+const { snapshots } = latestPerExperiment(results.snapshots);
+await writeFile("public/report.json", JSON.stringify({
+  board: await table(snapshots, { rows: "agent", columns: [passRate, costUSD] }),
+}));
+```
+
+```tsx
+// 前端：任何 React 应用
+import { MetricTable } from "niceeval/report/react";
+
+const doc = await fetch("/report.json").then((r) => r.json());
+
+<MetricTable data={doc.board} />;
+```
+
+组件不 hydrate 也完整：排序在数据侧预排、下钻是普通链接、展开折叠用 `<details>`，静态导出的产物不需要任何客户端 JS。样式随包发布（`niceeval/report/react/styles.css`），在其后加载自己的 CSS 即可覆盖。
+
+自建页负责结论，逐条 attempt 的 transcript 和 trace 不必自己画：把内置查看器一起导出到子路径（`npx niceeval view --out <站点目录>/evidence`），再用组件的 `attemptHref` 生成深链跳过去：
+
+```tsx
+<MetricTable
+  data={data}
+  attemptHref={(ref) => `/evidence/#/attempt/${encodeURIComponent(ref.run)}/${ref.result}`}
+/>
+```
 
 ## Artifact 说明
 

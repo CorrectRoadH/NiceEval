@@ -17,7 +17,7 @@ import { Console as ConsoleReporter } from "./runner/reporters/console.ts";
 import { JUnit } from "./runner/reporters/json.ts";
 import { Live as LiveReporter, type LiveRow } from "./runner/reporters/live.ts";
 import { Artifacts as ArtifactsReporter } from "./runner/reporters/artifacts.ts";
-import { buildView, isSingleFileOut, startViewServer, loadMostRecentResults, IncompatibleResultsError } from "./view/index.ts";
+import { buildView, startViewServer, loadMostRecentResults, IncompatibleResultsError } from "./view/index.ts";
 import { t } from "./i18n/index.ts";
 import { formatThrown } from "./util.ts";
 import type { Config, DiscoveredExperiment, Reporter } from "./types.ts";
@@ -248,7 +248,7 @@ async function main(): Promise<void> {
   if (command === "view") {
     if (flags.out) {
       const out = await buildView({ input: positionals[0], out: flags.out }).catch(exitOnIncompatibleResults);
-      process.stdout.write(t(isSingleFileOut(out) ? "cli.view.exported" : "cli.view.exportedDir", { out }));
+      process.stdout.write(t("cli.view.exportedDir", { out }));
       process.exit(0);
     }
     const server = await startViewServer({ input: positionals[0], port: flags.port }).catch(exitOnIncompatibleResults);

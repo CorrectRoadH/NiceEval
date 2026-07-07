@@ -4,7 +4,7 @@
 
 import { copyFile, mkdir, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { loadSummaries, type ScanResult } from "./loader.ts";
 import { renderHtml, type ViewOptions } from "./server.ts";
 
@@ -20,27 +20,21 @@ export {
   type SkippedRun,
 } from "./loader.ts";
 
-/** --out 目标是单文件(*.html)还是目录式静态导出;CLI 的提示文案也按这个口径分。 */
-export function isSingleFileOut(out: string): boolean {
-  return /\.html?$/i.test(out);
-}
-
 /**
- * 导出静态报告(--out)。两种形态:
- * - `--out report.html`:单个可分享 HTML。榜单/断言/检查自包含;代码视图、transcript、
- *   trace 依赖工件文件,单文件带不动(diff/trace 可达上百 MB),静态托管时优雅降级。
- * - `--out <dir>`:目录式静态导出。写 <dir>/index.html,并把前端会 fetch 的工件
- *   (sources.json / events.json / trace.json)复制到 <dir>/artifact/<base>/——与本地
- *   server 的 /artifact/<rel> 路由同一布局,整个目录扔给任何静态托管即是完整体验。
+ * 导出静态报告(--out):只有目录式一种形态。写 <dir>/index.html,并把前端会 fetch 的工件
+ * (sources.json / events.json / trace.json)复制到 <dir>/artifact/<base>/——与本地
+ * server 的 /artifact/<rel> 路由同一布局,整个目录扔给任何静态托管即是完整体验。
+ * 单文件(*.html)导出已移除:代码/transcript/trace 视图依赖工件文件,单文件注定残缺,
+ * 存在本身就在诱导用户导出一份看不了证据的报告(docs/view.md「静态导出」)。
  */
 export async function buildView(opts: ViewOptions = {}): Promise<string> {
-  const scan = await loadSummaries(opts.input);
-  const out = resolve(opts.out ?? ".niceeval/report.html");
-  if (isSingleFileOut(out)) {
-    await mkdir(dirname(out), { recursive: true });
-    await writeFile(out, await renderHtml(scan), "utf-8");
-    return out;
+  const out = resolve(opts.out ?? ".niceeval/site");
+  if (/\.html?$/i.test(out)) {
+    throw new Error(
+      `--out expects a directory, got "${opts.out}". Single-file HTML export was removed: code, transcript and trace views need artifact files next to the page. Export a directory instead (e.g. --out site) and serve it with any static host.`,
+    );
   }
+  const scan = await loadSummaries(opts.input);
   await mkdir(out, { recursive: true });
   await writeFile(join(out, "index.html"), await renderHtml(scan), "utf-8");
   await copyFetchedArtifacts(scan, join(out, "artifact"));

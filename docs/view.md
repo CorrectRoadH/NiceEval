@@ -6,13 +6,14 @@
 niceeval view                         # 起本地 web,自动打开浏览器,读 .niceeval/ 下所有历史运行
 niceeval view .niceeval/<run>/summary.json
 niceeval view --no-open               # 只打印 URL,不打开浏览器
-niceeval view --out .niceeval/report.html  # 导出单文件静态 HTML
-niceeval view --out site                   # 目录式静态导出:index.html + artifact/
+niceeval view --out site              # 目录式静态导出:index.html + artifact/
 ```
 
 架构上是**一次性烘焙进单个 HTML+JSON 的静态产物**(`src/view/index.ts` 的 `renderHtml`),不是常驻的多页面 server——`niceeval view` 起的 web 服务每次请求现读现渲染,`--out` 则直接导出。这是刻意的取舍,详见 [References](references.md#调研过判断不值得抄的及理由)。
 
-`--out` 按目标形态分两种(`isSingleFileOut`):`*.html` 导出单文件,可当 CI 附件传、单文件分享,但工件视图(代码/transcript/trace)降级;目录则额外把前端会 fetch 的三类工件(`sources.json` / `events.json` / `trace.json`)复制到 `<out>/artifact/<base>/`,与本地 server 的 `/artifact/<rel>` 路径路由同一布局,同一份前端产物在两种托管下用同一个相对 URL(`src/view/app/lib/artifact-url.ts`)。`diff.json` / `o11y.json` 刻意不复制:查看器从不读取,且 diff 可达上百 MB,带上只会拖垮静态部署体积。
+`--out` 只有目录式一种形态:写 `<out>/index.html`,并把前端会 fetch 的三类工件(`sources.json` / `events.json` / `trace.json`)复制到 `<out>/artifact/<base>/`,与本地 server 的 `/artifact/<rel>` 路径路由同一布局,同一份前端产物在两种托管下用同一个相对 URL(`src/view/app/lib/artifact-url.ts`)。`diff.json` / `o11y.json` 刻意不复制:查看器从不读取,且 diff 可达上百 MB,带上只会拖垮静态部署体积。
+
+> 单文件导出(`--out report.html`)曾经存在,已移除:代码/transcript/trace 视图依赖工件文件,单文件注定是残缺体验,而 coding eval 恰恰最依赖这些视图——这个形态的存在本身就在诱导用户导出一份看不了证据的报告。「传一个文件给同事」的需求,答案是把整站导出托管起来发链接,或用 [Reports](reports.md) 积木在 CI 里落判决数据。`--out` 目标以 `.html` 结尾时 CLI 直接报错并给出改法。
 
 ## 结果版本机制
 
@@ -173,7 +174,7 @@ npx niceeval@<producer.version> view .niceeval/<run>/summary.json
 
 导出机制同样合流:
 
-- `view --out <目录>` 的工件复制换成 [`copyRun`](results-lib.md#复制与瘦身copyrun)(sources/events/trace,diff/o11y 照旧不带);`--out x.html` 单文件继续只烘数据、工件视图降级,对外语义不变。
+- `view --out <目录>` 的工件复制换成 [`copyRun`](results-lib.md#复制与瘦身copyrun)(sources/events/trace,diff/o11y 照旧不带);单文件导出已整个移除(见上文「静态导出」的移除记录),合流时不必再背这个形态。
 - 烘进 HTML 的 `__NICEEVAL_VIEW_DATA__` 从私有 rows 换成**官方数据契约**(OverviewData / TableData / ScatterData + 快照元信息)。外部脚本从此没有理由扒 HTML——coding-agent-memory-evals 曾用字符串标记从 index.html 里抠内嵌 JSON、再正则消毒构建机路径,那类 hack 的存在本身就是数据契约缺位的证据;但内嵌数据仍不是承诺的持久化格式,要数据走 [Reports 场景三](reports.md#dx-模拟)自己算。
 - 补 `#/attempt/<run>/<result>` 路由,路由参数就是 `AttemptRef`——报告页(前门)与 view(证据室)靠同一个身份契约打通,`attemptHref` 从此有确定的去处(对应 Reports 待定问题 5)。**已实现**:`src/view/app/lib/attempt-route.ts` + `App.tsx` 接线,loader 的 `withViewRefs` 给每条 result 注入 `attemptRef`;旧 `?modal=` 参数保留为只读回退。
 

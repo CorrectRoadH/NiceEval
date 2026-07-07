@@ -23,7 +23,7 @@
 ### 调研过、判断不值得抄的(及理由)
 
 1. **Tool 遥测是固定的 10 项 `ToolName` 枚举** (`file_read`/`shell`/`web_fetch`/…) + Badge 计数(`O11ySummary.tsx`)。niceeval 走的是 OTel GenAI 语义约定的 canonical trace/mapper(见 [Observability](observability.md#标准事件流与-streamevent)),覆盖面和跨 agent 一致性都更好——这块 niceeval 已经比它强,不用倒退抄。
-2. **整个架构是"每次请求都读 fs 的 Next.js 多页面 live server"。** 没有数据库、没有 API 路由,但需要一个常驻的 `next start` 进程。niceeval 的 `view` 是"一次性烘焙进单个 HTML+JSON 静态产物"(`src/view/index.ts` 的 `renderHtml`),更适合当 CI 附件或单文件分享,不需要起服务就能看。这是刻意的取舍,不打算改成常驻多页应用——如果要抄 `/compare`,数据仍然要在生成 HTML 时一次性烘焙进去,不能假设前端能随时再查 fs。
+2. **整个架构是"每次请求都读 fs 的 Next.js 多页面 live server"。** 没有数据库、没有 API 路由,但需要一个常驻的 `next start` 进程。niceeval 的 `view` 是"一次性烘焙 HTML+JSON 静态产物"(`src/view/index.ts` 的 `renderHtml`),导出目录扔给任何静态托管就能看,不需要常驻进程。这是刻意的取舍,不打算改成常驻多页应用——如果要抄 `/compare`,数据仍然要在生成 HTML 时一次性烘焙进去,不能假设前端能随时再查 fs。
 3. **`bin.mjs` 的 `--watch` flag。** 只把 `WATCH=true` 塞进环境变量,代码里没有看到被消费的地方,像是半成品,没必要照抄这个具体实现。
 
 ## 相关阅读
