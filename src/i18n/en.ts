@@ -99,6 +99,7 @@ export const en = {
   "judge.httpError": "judge HTTP {{status}}: {{body}}",
   "judge.probeFailed": "judge precheck failed ({{model}}): {{error}}",
   "judge.probeMissingKey": "judge model {{model}} is missing an API key; configure {{envHint}}",
+  "live.more": "… {{hidden}} more ({{running}} running · {{waiting}} waiting · {{done}} done)",
   "live.running": "  Running {{totalRuns}} attempts ({{evals}} evals × {{configs}} configs, concurrency {{concurrency}})       {{completed}}/{{total}} done",
   "live.runningUnknown": "  Running...  {{completed}}/{{total}} done",
   "live.waiting": "waiting for a slot...",

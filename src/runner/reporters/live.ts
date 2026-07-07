@@ -102,20 +102,57 @@ export function Live(rows: LiveRow[], totalAttempts: number): LiveReporter {
     return `\x1B[2K${hdr}`;
   }
 
+  // 终端放不下全部行时,光标回跳会被屏幕顶端截断,导致每帧往下追加整表。
+  // 所以按终端高度截断:优先显示运行中的行,放不下的折叠成一行摘要。
+  function frameLines(frame: number): string[] {
+    const lines = [renderHeader()];
+    const termRows = process.stderr.rows || 30;
+    // 预留:1 行表头 + 1 行防止末尾换行触发滚动
+    const budget = Math.max(1, termRows - 2);
+
+    if (keyOrder.length <= budget) {
+      for (const k of keyOrder) lines.push(renderRow(stateMap.get(k)!, frame));
+      return lines;
+    }
+
+    const running: string[] = [];
+    const waiting: string[] = [];
+    const done: string[] = [];
+    for (const k of keyOrder) {
+      const s = stateMap.get(k)!;
+      if (s.completed >= s.total) done.push(k);
+      else if (s.started) running.push(k);
+      else waiting.push(k);
+    }
+    // 选出要显示的 key(运行中 > 等待 > 已完成),但按原始顺序渲染,避免行来回跳动
+    const shown = new Set([...running, ...waiting, ...done].slice(0, budget - 1));
+    for (const k of keyOrder) {
+      if (shown.has(k)) lines.push(renderRow(stateMap.get(k)!, frame));
+    }
+    lines.push(
+      `\x1B[2K  ${t("live.more", {
+        hidden: keyOrder.length - shown.size,
+        running: running.filter((k) => !shown.has(k)).length,
+        waiting: waiting.filter((k) => !shown.has(k)).length,
+        done: done.filter((k) => !shown.has(k)).length,
+      })}`,
+    );
+    return lines;
+  }
+
   function draw(frame: number) {
     if (!process.stderr.isTTY) return;
 
-    if (drawnLines > 0) {
-      process.stderr.write(`\x1B[${drawnLines}A`);
+    const lines = frameLines(frame);
+    let out = drawnLines > 0 ? `\x1B[${drawnLines}A` : "";
+    out += lines.join("\n") + "\n";
+    // 本帧比上帧短(行完成后折叠、终端拉高)时,清掉下方残留的旧行
+    const extra = drawnLines - lines.length;
+    if (extra > 0) {
+      out += "\x1B[2K\n".repeat(extra) + `\x1B[${extra}A`;
     }
-
-    let out = renderHeader() + "\n";
-    for (const k of keyOrder) {
-      out += renderRow(stateMap.get(k)!, frame) + "\n";
-    }
-
     process.stderr.write(out);
-    drawnLines = 1 + keyOrder.length;
+    drawnLines = lines.length;
   }
 
   function clearDisplay() {

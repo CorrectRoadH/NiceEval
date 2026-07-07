@@ -96,6 +96,7 @@ export const zhCN = {
   "judge.httpError": "judge HTTP {{status}}: {{body}}",
   "judge.probeFailed": "judge 预检失败({{model}}): {{error}}",
   "judge.probeMissingKey": "judge 模型 {{model}} 缺少 API key —— 请配置 {{envHint}}",
+  "live.more": "… 其余 {{hidden}} 项({{running}} 运行中 · {{waiting}} 等待 · {{done}} 已完成)",
   "live.running": "  正在运行 {{totalRuns}} 次 ({{evals}} eval × {{configs}} 配置, 并发 {{concurrency}})       {{completed}}/{{total}} 完成",
   "live.runningUnknown": "  正在运行…  {{completed}}/{{total}} 完成",
   "live.waiting": "排队等待中…",
