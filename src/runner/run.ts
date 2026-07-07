@@ -2,6 +2,7 @@
 // 职责只有编排:指纹缓存在 fingerprint.ts,单 attempt 生命周期在 attempt.ts,
 // reporter 编排 / 汇总在 report.ts,Sandbox 适配器在 remote-sandbox.ts。
 
+import { readFile } from "node:fs/promises";
 import { Effect, Cause, Duration, Exit } from "effect";
 import { probeJudge } from "../scoring/judge.ts";
 import { t } from "../i18n/index.ts";
@@ -14,34 +15,47 @@ import type { Attempt, RunOptions } from "./types.ts";
 
 export type { AgentRun, RunOptions } from "./types.ts";
 
+/** 收集本次要探测的 judge 配置:只看「实际要跑、且源码里出现 judge 字样」的 eval 的生效
+ *  配置(evalDef.judge ?? config.judge,与 attempt.ts 的 resolveJudge 一致),按
+ *  model|baseUrl|apiKeyEnv 去重。要跑的 eval 都不用 judge 时返回空 —— 全局配了 judge
+ *  也不探测,纯确定性断言的运行不再被 judge key / 端点问题拦下。
+ *  源码扫描是启发式:judge 调用藏在 import 的 helper 里时会漏判,漏判只是退回旧行为
+ *  (评分时才报 judge 错误,损失 fail fast),不影响正确性。 */
+export function judgeProbeTargets(
+  evals: Array<{ source: string; judge: JudgeConfig | undefined }>,
+  configJudge: JudgeConfig | undefined,
+): JudgeConfig[] {
+  const seen = new Set<string>();
+  const toProbe: JudgeConfig[] = [];
+  for (const e of evals) {
+    const jc = e.judge ?? configJudge;
+    if (!jc || !/\bjudge\b/.test(e.source)) continue;
+    const key = `${jc.model ?? ""}|${jc.baseUrl ?? ""}|${jc.apiKeyEnv ?? ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    toProbe.push(jc);
+  }
+  return toProbe;
+}
+
 export async function runEvals(opts: RunOptions): Promise<RunSummary> {
   const startedAt = new Date().toISOString();
   const t0 = Date.now();
 
-  // 预检 judge:有显式配置时在第一步验证 API key + 端点可达,避免跑完 agent 才发现 judge 不通。
-  {
-    const seen = new Set<string>();
-    const toProbe: JudgeConfig[] = [];
-    for (const jc of [opts.config.judge, ...opts.evals.map((e) => e.judge)]) {
-      if (!jc) continue;
-      const key = `${jc.model ?? ""}|${jc.baseUrl ?? ""}|${jc.apiKeyEnv ?? ""}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      toProbe.push(jc);
+  // 按 sourcePath 缓存文件内容,fingerprint 与 judge 预检共用:
+  // 矩阵大时(实验 × eval)规划阶段不做串行重复文件读。
+  const sourceCache = new Map<string, Promise<string>>();
+  const readSource = (path: string): Promise<string> => {
+    let p = sourceCache.get(path);
+    if (!p) {
+      p = readFile(path, "utf-8");
+      sourceCache.set(path, p);
     }
-    if (toProbe.length > 0) {
-      process.stderr.write(t("runner.judgePrecheck"));
-      for (const jc of toProbe) {
-        const err = await probeJudge(jc, opts.signal);
-        if (err) throw new Error(err);
-      }
-    }
-  }
+    return p;
+  };
 
   const plannedFingerprints = new Map<string, string>();
   {
-    // 并行 + 按 sourcePath 缓存:矩阵大时(实验 × eval)规划阶段不做串行重复文件读。
-    const sourceCache = new Map<string, Promise<string>>();
     const jobs: Promise<void>[] = [];
     for (const run of opts.agentRuns) {
       for (const evalDef of opts.evals.filter((e) => run.evalFilter(e.id))) {
@@ -100,9 +114,39 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
     }
   }
 
+  // 预检 judge:验证 API key + 端点可达,避免跑完 agent 才发现 judge 不通。
+  // 放在 attempts 展开之后,fail fast 只对会真正触发 judge 的运行生效
+  // (目标收集逻辑见 judgeProbeTargets;全部结果携入、attempts 为空时也自然跳过)。
+  {
+    const uniqueEvals = [...new Map(attempts.map((a) => [a.evalDef.id, a.evalDef])).values()];
+    const sources = await Promise.all(uniqueEvals.map((e) => readSource(e.sourcePath)));
+    const toProbe = judgeProbeTargets(
+      uniqueEvals.map((e, i) => ({ source: sources[i] ?? "", judge: e.judge })),
+      opts.config.judge,
+    );
+    if (toProbe.length > 0) {
+      process.stderr.write(t("runner.judgePrecheck"));
+      for (const jc of toProbe) {
+        const err = await probeJudge(jc, opts.signal);
+        if (err) throw new Error(err);
+      }
+    }
+  }
+
   if (carriedResults.length > 0) {
     const retryCount = new Set(attempts.map((a) => `${a.run.experimentId ?? ""}|${a.evalDef.id}`)).size;
     process.stderr.write(t("runner.resumeCarry", { carried: carriedResults.length, retry: retryCount }));
+    // 按 experiment 分组列出被复用(跳过)的 eval:不列清单的话,用户只看到数量,
+    // 无法核对「跳过的是不是我以为已经过了的那些」。同一 key 多个 run 去重。
+    const carriedByExperiment = new Map<string, Set<string>>();
+    for (const r of carriedResults) {
+      const ids = carriedByExperiment.get(r.experimentId!) ?? new Set<string>();
+      ids.add(r.id);
+      carriedByExperiment.set(r.experimentId!, ids);
+    }
+    for (const [experiment, ids] of [...carriedByExperiment].sort(([a], [b]) => a.localeCompare(b))) {
+      process.stderr.write(t("runner.resumeCarryDetail", { experiment, evals: [...ids].sort().join(", ") }));
+    }
   }
 
   // onRunStart 报「本次实际要跑的 eval」(过滤 + 去重),不是发现到的全部 —— 否则计数误导。

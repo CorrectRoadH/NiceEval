@@ -26,7 +26,14 @@ key 直接返回 `noOpJudge()`,单条断言层面确实会静默跳过)的行为
 对象",不看"这次运行会不会实际触发 judge 断言"。`buildJudge` 的宽容降级只在预检通过之后
 才生效,两层行为不一致,文档只写了后一层。
 
-**修法 / 适用场景**：
+**修法（2026-07-07,已落地）**：预检目标收敛为「本次实际要跑、且 eval 源码里出现
+`judge` 字样」的 eval 的生效配置(`evalDef.judge ?? config.judge`,与 attempt 的
+resolveJudge 一致)。全局配了 judge 但选中的 eval 都不用时整个跳过探测;全部结果
+携入(attempts 为空)时也跳过。落点 `src/runner/run.ts` 的 `judgeProbeTargets`,
+守护测试 `src/runner/run.test.ts`。源码扫描是启发式:judge 调用藏在 import 的
+helper 里会漏判,漏判只是退回旧行为(评分时才报 judge 错误),不影响正确性。
+
+**修前的绕法 / 适用场景**：
 - 如果要在没有可用 judge key 的环境里(CI、沙箱、离线开发)验证一个新示例的确定性断言
   链路,**必须**先把 `niceeval.config.ts` 里的 `judge: {...}` 整行注释掉(或整个 config
   文件里不出现 `judge` 字段),而不是指望"没 key 会自动跳过"。跑完验证后再加回来。
