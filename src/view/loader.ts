@@ -6,6 +6,7 @@ import { existsSync, statSync } from "node:fs";
 import { readFile, readdir, stat } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { RESULTS_FORMAT, RESULTS_SCHEMA_VERSION, type EvalResult, type RunSummary } from "../types.ts";
+import type { ViewEvalResult } from "./shared/types.ts";
 import { t } from "../i18n/index.ts";
 
 export interface LoadedSummary {
@@ -112,7 +113,7 @@ export async function loadSummaries(input?: string): Promise<ScanResult> {
   if (s.isFile()) {
     // 单文件模式:这是用户明确指定的目标,任何读不了(版本/损坏/无关)都直接抛,由 CLI 打印提示退出。
     const summary = normalizeSummary(await parseSummary(target), target);
-    return { loaded: [{ path: target, summary: withArtifactBases(summary, target, root, artifactDirs) }], skipped: [], artifactDirs };
+    return { loaded: [{ path: target, summary: withViewRefs(summary, target, root, artifactDirs) }], skipped: [], artifactDirs };
   }
 
   const candidates = await findSummaryFiles(target);
@@ -121,7 +122,7 @@ export async function loadSummaries(input?: string): Promise<ScanResult> {
   for (const path of candidates) {
     try {
       const summary = normalizeSummary(await parseSummary(path), path);
-      loaded.push({ path, summary: withArtifactBases(summary, path, root, artifactDirs) });
+      loaded.push({ path, summary: withViewRefs(summary, path, root, artifactDirs) });
     } catch (e) {
       const entry = classifySkip(e, path);
       // 无关 JSON(NotAReportError)可以静默忽略;像报告却读不了的必须记下来。
@@ -203,25 +204,31 @@ function classifySkip(e: unknown, path: string): SkippedRun | undefined {
 }
 
 /**
- * 给每条 result 拼出相对 view 根的工件目录(前端据此 fetch trace.json 等)。
+ * 给每条 result 注入 view 侧标注:
+ * - attemptRef:run 目录(相对 view 根)+ summary.results 下标,`#/attempt/<run>/<result>`
+ *   深链的身份。必须在这里(读盘顺序)捕获下标——聚合层会把 results 重排。
+ * - artifactBase:相对 view 根的工件目录(前端据此 fetch trace.json 等)。
  * 返回新对象,不 mutate 读入的 summary;宿主机绝对路径只写进 artifactDirs(server 端内存),
  * 不挂到 result 上,避免随 viewData 进静态 HTML。
  */
-function withArtifactBases(
+function withViewRefs(
   summary: RunSummary,
   summaryPath: string,
   root: string,
   artifactDirs: Map<string, string>,
 ): RunSummary {
   const runDir = dirname(summaryPath);
+  // 单文件入口时 run 目录就是 view 根,relative 为空串;统一占位 "."(与 classifySkip 的目录口径一致)。
+  const runRef = relative(root, runDir).split(/[\\/]/).join("/") || ".";
   return {
     ...summary,
-    results: summary.results.map((r) => {
-      if (!r.artifactsDir) return r;
+    results: summary.results.map((r, index): ViewEvalResult => {
+      const annotated: ViewEvalResult = { ...r, attemptRef: { run: runRef, result: index } };
+      if (!r.artifactsDir) return annotated;
       const abs = join(runDir, r.artifactsDir);
       const base = relative(root, abs).split(/[\\/]/).join("/");
       artifactDirs.set(base, abs);
-      return { ...r, artifactBase: base };
+      return { ...annotated, artifactBase: base };
     }),
   };
 }

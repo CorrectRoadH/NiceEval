@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { detectLocale, makeTranslator, persistLocale, setDocumentLocale } from "./i18n.ts";
 import type { MessageKey } from "./i18n.ts";
 import type { Locale, LocalizedText, SortKey, SortState, Tab, ViewData, ViewResult, ViewRow } from "./types.ts";
 import { buildGroupMap, compareRows, resultFromUrl } from "./lib/rows.ts";
+import { formatAttemptHash, parseAttemptHash, resolveAttemptRef, unresolvedAttemptWarning } from "./lib/attempt-route.ts";
 import { formatCost, formatDateTime, formatDuration, formatPercent } from "./lib/format.ts";
 import { Metric } from "./components/primitives.tsx";
 import { GroupSelector } from "./components/GroupSelector.tsx";
@@ -27,6 +28,19 @@ export function localizedText(text: LocalizedText | undefined, locale: Locale): 
   return text[locale] ?? text.en ?? Object.values(text)[0];
 }
 
+/** 初始 URL → 直接打开的 attempt:先认 #/attempt/<run>/<result> 深链,回退旧版 ?modal= 参数。 */
+function modalResultFromLocation(rows: ViewRow[]): ViewResult | null {
+  const ref = parseAttemptHash(location.hash);
+  if (ref) {
+    const found = resolveAttemptRef(rows, ref);
+    if (found) return found;
+    // 定位不到(run 不在、下标越界、旧格式数据):不开空 modal,页面照常渲染。
+    console.warn(unresolvedAttemptWarning(location.hash));
+    return null;
+  }
+  return resultFromUrl(rows);
+}
+
 export function App({ data }: { data: ViewData }) {
   const rows = data.rows ?? [];
   const [locale, setLocale] = useState<Locale>(() => detectLocale());
@@ -39,7 +53,11 @@ export function App({ data }: { data: ViewData }) {
     const groups = [...new Set(rows.map((r) => r.group).filter(Boolean))].sort();
     return groups[0] ?? null;
   });
-  const [modalResult, setModalResult] = useState<ViewResult | null>(() => resultFromUrl(rows));
+  const [modalResult, setModalResult] = useState<ViewResult | null>(() => modalResultFromLocation(rows));
+  // 当前 modal 的 hash 历史条目前面是否还有本页条目(本页 push 的 / 前进键回到的):
+  // true → UI 关闭走 history.back(),前进键还能重新打开;false(深链直接落地)→ 原地抹 hash,
+  // 免得 back 把用户弹出站外。
+  const modalOwnsHistory = useRef(false);
 
   useEffect(() => {
     setDocumentLocale(locale);
@@ -48,17 +66,60 @@ export function App({ data }: { data: ViewData }) {
 
   const openModal = useCallback((result: ViewResult) => {
     setModalResult(result);
-    const p = new URLSearchParams();
-    p.set("modal", result.id);
-    if (result.experimentId) p.set("exp", result.experimentId);
-    p.set("a", String(result.attempt));
-    history.replaceState(null, "", "?" + p.toString());
+    const ref = result.attemptRef;
+    // 旧格式烘焙的数据没有 attemptRef:modal 照常打开,只是这条 attempt 产不出可分享链接。
+    if (!ref) return;
+    try {
+      // pushState/replaceState 不触发 hashchange,不会和下面的监听器重复开合。
+      if (parseAttemptHash(location.hash)) {
+        // 已经在某条 attempt 深链上(防御浏览器导航竞态):替换当前条目,不叠历史。
+        history.replaceState(null, "", formatAttemptHash(ref));
+      } else {
+        history.pushState(null, "", formatAttemptHash(ref));
+        modalOwnsHistory.current = true;
+      }
+    } catch {
+      // file:// 等受限环境可能拒绝写 history;URL 同步失败不影响打开 modal。
+    }
   }, []);
 
   const closeModal = useCallback(() => {
     setModalResult(null);
-    history.replaceState(null, "", location.pathname);
+    if (modalOwnsHistory.current) {
+      modalOwnsHistory.current = false;
+      history.back();
+      return;
+    }
+    try {
+      // 深链直接落地 / 旧版 ?modal= 链接:没有可回退的本页条目,原地还原成无 modal 的 URL。
+      history.replaceState(null, "", location.pathname);
+    } catch {
+      // 还原 URL 失败不影响关闭。
+    }
   }, []);
+
+  // 浏览器前进/后退、手改 hash、页内 attempt 链接统一从 hashchange 开合 modal。
+  useEffect(() => {
+    const onHashChange = () => {
+      const ref = parseAttemptHash(location.hash);
+      if (!ref) {
+        modalOwnsHistory.current = false;
+        setModalResult(null);
+        return;
+      }
+      const found = resolveAttemptRef(rows, ref);
+      if (!found) {
+        console.warn(unresolvedAttemptWarning(location.hash));
+        setModalResult(null);
+        return;
+      }
+      // 经浏览器导航打开:前一条历史仍是本页,UI 关闭可以安全 back()。
+      modalOwnsHistory.current = true;
+      setModalResult(found);
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, [rows]);
 
   const groupMap = useMemo<Map<string, ViewRow[]>>(() => buildGroupMap(rows), [rows]);
   const pool = selectedGroup ? groupMap.get(selectedGroup) ?? [] : rows;

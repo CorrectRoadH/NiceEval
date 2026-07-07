@@ -3,6 +3,19 @@
 
 import type { EvalResult, LocalizedText, Usage } from "../../types.ts";
 
+/**
+ * attempt 的深链身份:run 目录(相对 view 输入根,通常就是 `.niceeval/` 下的时间戳目录名)
+ * + 该 attempt 在 summary.results 里的下标。`#/attempt/<run>/<result>` 路由的参数——
+ * 报告页(前门)与 view(证据室)靠这份契约指向同一个 attempt,见 docs/view.md「用 Reports 积木重建 view」。
+ */
+export interface AttemptRef {
+  run: string;
+  result: number;
+}
+
+/** view 侧的 attempt 结果 = 瘦身后的 EvalResult + loadSummaries 注入的深链身份。 */
+export type ViewEvalResult = EvalResult & { attemptRef?: AttemptRef };
+
 /** 榜单一行 = 一个实验(或 legacy 的 agent×model 组合),跨全部历史 run 聚合。 */
 export interface ViewRow {
   key: string;
@@ -27,7 +40,7 @@ export interface ViewRow {
   estimatedCostUSD?: number;
   /** 该实验组里最新一次 run 的 startedAt(ISO);详情展示「运行时间」。 */
   lastRunAt?: string;
-  results: EvalResult[];
+  results: ViewEvalResult[];
 }
 
 /** 目录扫描里被跳过的 run 在页面顶部的提示条目。 */

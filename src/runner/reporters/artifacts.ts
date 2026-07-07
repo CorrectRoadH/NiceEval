@@ -20,15 +20,12 @@ function producerVersion(): Promise<string | undefined> {
   return producerVersionPromise;
 }
 
-/** 一个 attempt 的工件子目录(相对 run 根):<evalId>/<agent>/<model>[/<experiment>]/a<attempt>。 */
+/** 一个 attempt 的工件子目录(相对 run 根):<evalId>/<agent>/<model>/a<attempt>。 */
 function attemptDir(r: EvalResult): string {
   const safe = (s: string) => s.replace(/[^\w.@-]/g, "_");
   // evalId 里的 / 保留作目录层级,其余危险字符替换。
   const id = r.id.replace(/[^\w./@-]/g, "_");
-  // experiment 段:两个实验可以同 agent 同 model、只差 flags(feature A/B),没有这一段
-  // 它们的工件会互相覆盖。experimentId 里的 / 不作层级(压成 _),整个实验一格。
-  const exp = r.experimentId ? `/${safe(r.experimentId)}` : "";
-  return `${id}/${safe(r.agent)}/${safe(r.model ?? "default")}${exp}/a${r.attempt}`;
+  return `${id}/${safe(r.agent)}/${safe(r.model ?? "default")}/a${r.attempt}`;
 }
 
 /** summary.json 用的瘦身结果:去掉大数组(events/trace/o11y/diff/sources),换成目录引用 + 存在标记。 */
@@ -43,7 +40,7 @@ function slimResult(r: EvalResult): EvalResult {
   // 携带结果(跨实验复用上次 pass,见 run.ts 的 carriedResults):本轮没有任何新数据,
   // rest 上已经带着 artifactBase 指向旧 run 的产物目录,hasSources/hasEvents/hasTrace
   // 也是从旧 summary 带过来的真值——不能因为"这轮没数据"就重新推导成 false / 编出一个
-  // 这轮压根没写过文件的新 artifactsDir(会让 artifactBase 在下次 withArtifactBases 时被覆盖)。
+  // 这轮压根没写过文件的新 artifactsDir(会让 artifactBase 在下次 withViewRefs 时被覆盖)。
   if (rest.artifactBase) return rest;
   return {
     ...rest,

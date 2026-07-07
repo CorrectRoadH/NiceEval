@@ -1,6 +1,5 @@
 import type {
   AssertionResult,
-  EvalResult,
   JsonValue,
   LocalizedText,
   SourceArtifact,
@@ -9,12 +8,12 @@ import type {
   TraceSpan,
   Usage,
 } from "../../types.ts";
-import type { ViewData } from "../shared/types.ts";
+import type { ViewData, ViewEvalResult } from "../shared/types.ts";
 
 export type { LocalizedText };
 // Locale 只在 i18n 内核声明一次;榜单行 / 页面数据形状与 server 共用 shared/types.ts 的声明。
 export type { Locale } from "../../i18n/core.ts";
-export type { SkippedRunNotice, ViewData, ViewRow } from "../shared/types.ts";
+export type { AttemptRef, SkippedRunNotice, ViewData, ViewRow } from "../shared/types.ts";
 
 export type Tab = "experiments" | "runs" | "traces";
 export type SortKey = "experiment" | "model" | "agent" | "avgDurationMs" | "passRate" | "tokens" | "cost";
@@ -25,8 +24,8 @@ export interface SortState {
   dir: SortDir;
 }
 
-/** 前端拿到的单条 attempt 结果就是瘦身后的 EvalResult(artifactBase 由 loader 注入)。 */
-export type ViewResult = EvalResult;
+/** 前端拿到的单条 attempt 结果就是瘦身后的 EvalResult(attemptRef / artifactBase 由 loader 注入)。 */
+export type ViewResult = ViewEvalResult;
 
 export type Assertion = AssertionResult;
 
