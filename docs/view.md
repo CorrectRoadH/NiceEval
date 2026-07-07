@@ -96,7 +96,7 @@ npx niceeval@<producer.version> view .niceeval/<run>/summary.json
 
 这两条之前被 [Observability](observability.md) 的能力列表当成已实现的写了,这次审查代码(`src/view/index.ts`、`src/view/app/`)发现对不上,已经从那边挪过来,归到下面「计划中」:
 
-- **"跨运行趋势"实际是合并,不是可对比的历史。** `aggregateRows`(`src/view/index.ts`)把 `.niceeval/` 下**所有**历史 `summary.json` 按 `experimentId` 揉进同一行——通过率、平均耗时、成本都是跨全部历史 run 的累计值,不是"最新一次"或"某一次"的快照,更谈不上画成随时间变化的线。
+- **"跨运行趋势"实际是合并,不是可对比的历史。** `aggregateRows`(`src/view/index.ts`)把 `.niceeval/` 下**所有**历史 `summary.json` 按 `experimentId` 揉进同一行——通过率、平均耗时、成本都是跨全部历史 run 的累计值,不是"最新一次"或"某一次"的快照,更谈不上画成随时间变化的线。(合流后由选择器 + 跨快照去重取代,见[用 Reports 积木重建 view](#用-reports-积木重建-view设计提案)。)
 - **"质量 × 成本散点图"没有实现。** `src/view/app` 下没有任何图表 / scatter / canvas 组件,现有可视化都是表格和文字指标。
 
 ## 外部参考
@@ -144,13 +144,46 @@ npx niceeval@<producer.version> view .niceeval/<run>/summary.json
 
 **明确不做的:** 不做时间序列折线图(历史快照一多不适合塞进单个静态 HTML,而且这次要补的是"挑两点"这个最小能力);不改 Experiments tab 现有的"累计历史"默认语义(这是另一个值得讨论的问题,不在这次一起改)。
 
+实现形态已并入[用 Reports 积木重建 view](#用-reports-积木重建-view设计提案):两个下拉选快照的数据模型照本节,表格与 delta 单元直接用 Reports 的组件。
+
 ### 质量 × 成本散点图
 
-之前文档写过、实际没做。没有具体设计,先记一句:每个 eval(或每个 agent)一个点,一眼看出"贵且不准"的角落——值得补,但优先级低于 Compare。
+之前文档写过、实际没做。没有具体设计,先记一句:每个 eval(或每个 agent)一个点,一眼看出"贵且不准"的角落——值得补,但优先级低于 Compare。点位与轴向的契约不用另起炉灶:[Reports 提案](reports.md#计算函数与数据契约)的 `scatter()` / `MetricScatter` 已经钉了「点 = 维度分组的聚合、系列连线、轴向随 better(右上恒为好)」,view 落地时直接吃同一份 `ScatterData`。
 
 ### Eval 目录页
 
 独立于"跑过的结果",单纯浏览 `evals/` 目录下每个 fixture 的 `PROMPT.md` 和文件列表,不用先跑一次才能看"有哪些 eval、prompt 写的什么"(learnings 见 [References](references.md#vercel-agent-eval--packagesplayground))。没有具体设计,优先级低于 Compare。
+
+## 用 Reports 积木重建 view(设计提案)
+
+> 状态:设计提案,依赖 [Results Lib](results-lib.md) 与 [Reports](reports.md) 两个提案先落地;落地前,本文其余部分描述的现状照旧成立。
+
+[Reports](reports.md) 把「自己搭报告页」拆成组件 + 计算函数 + 结果库三种零件之后,view 的正确定位随之改变:**view 不再是一套并行实现,而是用同一批零件搭出来的「默认报告页 + 证据室」**——用户搭页面用什么零件,view 自己就用什么。view 因此成为这套积木的第一个常驻消费者,组件与计算函数的正确性被它天天验证;反过来,上面「计划中的小功能」里的三件事(跳过列表、Compare、散点图)也全部退化成「拼现成积木」,不再是专项开发。
+
+逐层替换:
+
+| view 今天 | 合流后 | 顺带兑现 |
+|---|---|---|
+| `loadSummaries` / `readSummary`,版本判定散在 loader | [`openResults`](results-lib.md#读openresults) | 「结果版本提示与跳过列表」= 渲染 `results.skipped`,不再专门做;计划中的 normalize 层就是 results lib |
+| `aggregateRows` 把全部历史揉成一行 | 选择器 + 计算函数(`overview` / `table(rows: "experiment")`) | 跨快照去重白捡——`--resume` 合入结果被重复计数的问题顺带修掉;「累计 vs 最新」从 loader 的既成事实变成 UI 上可切换的两次显式调用 |
+| `ExperimentTable` / Runs 表 / 总览指标(自绘) | `MetricTable` / `RunOverview` | 覆盖率角标、缺数据渲染、better 排序这些诚实细节自动继承 |
+| 质量 × 成本散点图(计划中,没做) | `MetricScatter` | 见上节 |
+| Compare(计划中,没做) | 两个下拉选快照 + 时间轴 `DeltaTable` 变体 | Reports 待定的「时间轴 delta」在 view 首发,两边永远同一套「对比」语义 |
+| AttemptModal / Traces 瀑布 / 导航壳 | **保留,这是 view 的本体** | 证据室:transcript、断言、代码视图、trace 瀑布——报告积木不重造它们 |
+
+导出机制同样合流:
+
+- `view --out <目录>` 的工件复制换成 [`copyRun`](results-lib.md#复制与瘦身copyrun)(sources/events/trace,diff/o11y 照旧不带);`--out x.html` 单文件继续只烘数据、工件视图降级,对外语义不变。
+- 烘进 HTML 的 `__NICEEVAL_VIEW_DATA__` 从私有 rows 换成**官方数据契约**(OverviewData / TableData / ScatterData + 快照元信息)。外部脚本从此没有理由扒 HTML——coding-agent-memory-evals 曾用字符串标记从 index.html 里抠内嵌 JSON、再正则消毒构建机路径,那类 hack 的存在本身就是数据契约缺位的证据;但内嵌数据仍不是承诺的持久化格式,要数据走 [Reports 场景三](reports.md#dx-模拟)自己算。
+- 补 `#/attempt/<run>/<result>` 路由,路由参数就是 `AttemptRef`——报告页(前门)与 view(证据室)靠同一个身份契约打通,`attemptHref` 从此有确定的去处(对应 Reports 待定问题 5)。
+
+迁移顺序即依赖顺序,每步独立可交付:
+
+1. **换读取层。** results lib 落地,view 的 loader 删掉,skipped 列表 UI 直接上——行为中立的重构,外加诚实增强。
+2. **换统计层。** 计算函数落地,`aggregateRows` 删掉;榜单数字会因去重而变(变得更对),在 changelog 里明说。
+3. **换渲染层 + 补两个 tab。** 榜单换 `MetricTable`,新增 scatter,Compare 以时间轴 delta 首发;AttemptModal / Traces 原样保留。
+
+界线不变:view 是**一份固定摆法的默认报告页**,不长配置、不长插件——想换摆法,去写自己的页面([Reports](reports.md)),零件是同一批。
 
 ## 相关阅读
 
