@@ -144,10 +144,15 @@ function runInstall(name, destDir) {
   }
 }
 
-function exportPatch(name, upstreamTree, tierTree) {
+// patch 阅读件按 "层级-应用名" 命名(tier1-codex-sdk.patch),同一应用的多层不撞名。
+function patchName(to) {
+  return to.split("/").slice(-2).join("-");
+}
+
+function exportPatch(to, upstreamTree, tierTree) {
   mkdirSync(DIFFS_DIR, { recursive: true });
   const patch = gitOk(["diff", upstreamTree, tierTree]);
-  writeFileSync(join(DIFFS_DIR, `${name}.patch`), patch ? patch + "\n" : "");
+  writeFileSync(join(DIFFS_DIR, `${patchName(to)}.patch`), patch ? patch + "\n" : "");
 }
 
 /** tier 的已提交 tree 里是否还有未解决的冲突标记 */
@@ -185,7 +190,7 @@ function syncPair(pair, state, upstreamTree, upstreamDirty) {
     }
     const { upstreamTree: pendingUpstream, needsInstall } = pair.pending;
     if (needsInstall) runInstall(name, destDir);
-    exportPatch(name, pendingUpstream, tierTree);
+    exportPatch(to, pendingUpstream, tierTree);
     pair.baseTree = pendingUpstream;
     delete pair.pending;
     saveState(state);
@@ -215,7 +220,7 @@ function syncPair(pair, state, upstreamTree, upstreamDirty) {
   }
 
   if (needsInstall) runInstall(name, destDir);
-  exportPatch(name, upstreamTree, treeOid);
+  exportPatch(to, upstreamTree, treeOid);
 
   pair.baseTree = upstreamTree;
   saveState(state);

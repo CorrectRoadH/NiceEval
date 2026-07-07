@@ -1,0 +1,10 @@
+# origin/langgraph 没有这个文件(纯 Python 项目,没有 package.json)。这是新增的
+# TS 侧脚手架——niceeval 的 adapter/eval/experiment 代码要跑起来需要一个独立 npm 项目,
+# 与 Python 应用本身(src/backend/、requirements.txt、.venv)完全分开、互不干扰。
+packages: []
+allowBuilds:
+  esbuild: true
+overrides:
+  niceeval: link:../../../..
+minimumReleaseAgeExclude:
+  - niceeval@0.1.1

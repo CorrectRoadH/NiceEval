@@ -7,9 +7,9 @@
 // usage 和终局错误;逐帧驱动是官方件 `driveFrameStream`(没有 HITL,onFrame 只用来处理
 // 传输帧 + 抓 threadId)。
 //
-// OTel 只管 `niceeval view` 的瀑布图:codex CLI 原生 OTLP(config.toml [otel] 块)把 span
-// 发到 niceeval.config.ts 钉住的 telemetry.port,`mapCodexSpans` 归一语义——span 不喂断言。
-import { defineAgent, mapCodexSpans, sseJsonFrames, fromCodexThreadEvents, driveFrameStream } from "niceeval/adapter";
+// 这是 Tier 1(只接 send):要 `niceeval view` 的调用瀑布图时升 Tier 2,见
+// ../../tier2/codex-sdk/——同一个文件加一行 spanMapper、config 加一行 telemetry,其它不变。
+import { defineAgent, sseJsonFrames, fromCodexThreadEvents, driveFrameStream } from "niceeval/adapter";
 import type { AgentContext } from "niceeval/adapter";
 import type { Turn, TurnInput } from "niceeval";
 import type { ThreadEvent } from "@openai/codex-sdk";
@@ -54,8 +54,5 @@ async function send(input: TurnInput, ctx: AgentContext): Promise<Turn> {
 
 export default defineAgent({
   name: "codex-sdk",
-  // 瀑布图:config 配了 telemetry(固定端口)就走 run 级共享接收器,起应用时
-  // OTEL_EXPORTER_OTLP_ENDPOINT 指过来(codex 配置里自己拼 /v1/traces,给 base)。
-  spanMapper: mapCodexSpans,
   send,
 });

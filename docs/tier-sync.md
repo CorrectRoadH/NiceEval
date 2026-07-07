@@ -69,7 +69,7 @@
 - **解决冲突后不能简单重跑合并**:base 没动的情况下,同 base 三方合并会把同一处冲突原样再报一遍(这是合并语义的固有行为,git rebase 靠 `--continue` 记录裁决绕开它)。所以脚本在报冲突时把"这次要合到哪"记进状态文件的 `pending`,人解完标记、提交后重跑 `tiers:sync` 走的是**收尾**而不是重新合并(见"同步算法")。
 - 文件重命名被视为"删除 + 新增",无 rename 检测;origin 重命名文件时 tier 侧若改过该文件会报一次冲突,人工确认即可。
 - **lockfile 不参与合并**:`pnpm-lock.yaml` 完全由各层自己的 `pnpm install` 生成。上游只动 lockfile 而不动 `package.json` 的变更(比如区间内 `pnpm up`)不会传播到下游——需要时在下游手动 `pnpm install` 即可,这类变更不影响任何展示或断言。
-- **verbatim 检查只覆盖 origin → tier1**。tier2/tier3 是"副本 + 修改"(overlay 契约),没有"必须逐字节一致"可言,check 对它们只能保证"上游动了必有同步动作";有人直接改 tier2 里本应跟随 tier1 的文件并提交,机器发现不了,要靠 review 时看 `diffs/<name>.patch` 的形状。
+- **verbatim 检查只覆盖 origin → tier1**。tier2/tier3 是"副本 + 修改"(overlay 契约),没有"必须逐字节一致"可言,check 对它们只能保证"上游动了必有同步动作";有人直接改 tier2 里本应跟随 tier1 的文件并提交,机器发现不了,要靠 review 时看 `diffs/<层级>-<name>.patch` 的形状。
 
 ## 如何实现
 
@@ -125,7 +125,7 @@ git merge-tree --write-tree --merge-base=<baseTree> <tier树> <上游树>
 - 合并后若 `package.json` / `pnpm-workspace.yaml` 有变动,在 tier 目录执行 `pnpm install` 重新生成 lockfile(lockfile 本身从不进合并);
 - 二进制文件 git 无法文本合并,两侧都改过时会作为冲突报出,人工裁决;
 - 全部干净(或冲突已收尾)后,把该 pair 的 `baseTree` 更新为上游当前(剥 lockfile 的)tree hash,写回状态文件;
-- 收尾时导出阅读件:`git diff <上游tree> <tier tree> > examples/zh/diffs/<name>.patch`,这份 patch 是自动再生的**展示产物**,供快速阅读"这一层改了什么",与 `gen:diff-code` 的文档页同源同性质,永远不作为同步输入。
+- 收尾时导出阅读件:`git diff <上游tree> <tier tree> > examples/zh/diffs/<层级>-<name>.patch`(如 `tier2-codex-sdk.patch`,同一应用的多层不撞名),这份 patch 是自动再生的**展示产物**,供快速阅读"这一层改了什么",与 `gen:diff-code` 的文档页同源同性质,永远不作为同步输入。
 
 ### 检查模式(`pnpm tiers:check`,进 CI)
 

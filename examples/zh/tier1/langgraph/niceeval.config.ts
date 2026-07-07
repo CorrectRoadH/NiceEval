@@ -11,6 +11,4 @@ export default defineConfig({
   timeoutMs: 120_000,
   // 被测应用是用户自己起的长驻服务,别开太高并发。
   maxConcurrency: 2,
-  // span 接收钉在 OTLP 标准端口:起应用时 OTEL_EXPORTER_OTLP_ENDPOINT 指过来即可(见 README)。
-  telemetry: { port: 4318 },
 });

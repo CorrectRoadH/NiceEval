@@ -8,27 +8,21 @@
 //   · HITL:`tool-approval-request` → input.requested + waiting,停轮现场(还开着的流 +
 //     挂起的 toolCallId)用 ctx.session.hold 存住,回答轮 ctx.session.take 取回接着读。
 //
-// OTel 只管 `niceeval view` 的瀑布图:LangSmith OTel 导出的 span 发到 niceeval.config.ts
-// 钉住的 telemetry.port(环境变量在启动应用时给,见 README「跑起来」)——span 不喂断言,
-// 埋点缺一块也只影响瀑布图。
+// 这是 Tier 1(只接 send):要 `niceeval view` 的调用瀑布图时升 Tier 2,见
+// ../../tier2/langgraph/——config 加一行 telemetry、本文件加一段 span 收尾宽限,其它不变。
 import { defineAgent, sseJsonFrames } from "niceeval/adapter";
 import type { AgentContext, SseFrameCursor } from "niceeval/adapter";
 import type { JsonValue, StreamEvent, Turn, TurnInput } from "niceeval";
 
 // 被测应用由你自己按它的方式启动(python server.py / 部署在哪都行),eval 不代管进程、
-// 不另开端口。LangSmith OTel 导出的环境变量在启动应用时给,见 README「跑起来」。
+// 不另开端口。
 const BASE_URL = process.env.LANGGRAPH_URL ?? "http://127.0.0.1:35000";
 
-async function appFetch(
-  path: string,
-  body: unknown,
-  signal: AbortSignal,
-  headers?: Readonly<Record<string, string>>,
-): Promise<Response> {
+async function appFetch(path: string, body: unknown, signal: AbortSignal): Promise<Response> {
   try {
     return await fetch(`${BASE_URL}${path}`, {
       method: "POST",
-      headers: { "content-type": "application/json", ...headers },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
       signal,
     });
@@ -60,13 +54,6 @@ interface PendingApproval {
   readonly toolCallId: string;
 }
 
-// LangSmith 的 OtelSpanProcessor 是标准 BatchSpanProcessor(读 OTEL_BSP_SCHEDULE_DELAY,
-// README 的启动命令已调到 200ms),但它的调度定时器和"这一轮 HTTP 请求什么时候返回"是两条
-// 独立时间线——最后一次模型调用的 span 经常在 SSE 流关闭之后才导出,niceeval 的本轮收集窗口
-// 这时已经关了。这里在轮次真正结束后主动等一小段,把收集窗口人为拉宽,让最后一批 span 落进
-// 瀑布图;等 2-3 个 schedule delay 周期足够。只影响瀑布图完整性,断言与它无关。
-const OTEL_FLUSH_GRACE_MS = 600;
-
 async function drainStream(cursor: SseCursor, ctx: AgentContext): Promise<Turn> {
   const events: StreamEvent[] = [];
   let status: "completed" | "failed" = "completed";
@@ -77,7 +64,6 @@ async function drainStream(cursor: SseCursor, ctx: AgentContext): Promise<Turn> 
 
   const finalize = async (): Promise<Turn> => {
     if (messageText) events.push({ type: "message", role: "assistant", text: messageText });
-    await new Promise((resolve) => setTimeout(resolve, OTEL_FLUSH_GRACE_MS));
     return { status, events };
   };
 
@@ -106,8 +92,7 @@ async function drainStream(cursor: SseCursor, ctx: AgentContext): Promise<Turn> 
       }
       case "tool-approval-request": {
         // 停轮:流不关,现场 hold 住;回答轮 take 回来接着读同一条流,不重新发起请求。
-        // 中断前模型可能已经吐了一段前言(比如"好的,我来算一下"),一并收进这一轮——
-        // 不套 finalize() 的 flush grace:图还停在中断点,没有"这一轮的 otel 导出"这回事。
+        // 中断前模型可能已经吐了一段前言(比如"好的,我来算一下"),一并收进这一轮。
         ctx.session.hold<PendingApproval>({ cursor, toolCallId: frame.toolCallId });
         if (messageText) events.push({ type: "message", role: "assistant", text: messageText });
         events.push({
@@ -160,15 +145,10 @@ async function send(input: TurnInput, ctx: AgentContext): Promise<Turn> {
     return drainStream(pending.cursor, ctx);
   }
 
-  // traceparent 随请求带过去:本轮 span 挂到 niceeval 的 trace 下,并发归属才精确
-  // ——不过 server.py 的 http.server 没接 OTel 服务端埋点,不会读这个头,实际上仍然会
-  // 走时间窗口兜底、自动串行(见 docs/origin-integration.md「并发须知」),这里传只是
-  // 面向未来:应用哪天接了 context 传播就免费生效。
   const res = await appFetch(
     "/api/chat",
     { message: input.text, sessionId: ctx.session.id },
     ctx.signal,
-    ctx.telemetry?.headers,
   );
   if (!res.ok || !res.body) {
     throw new Error(`POST /api/chat 失败: ${res.status} ${await res.text().catch(() => "")}`);

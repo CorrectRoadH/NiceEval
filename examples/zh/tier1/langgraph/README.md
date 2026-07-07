@@ -12,17 +12,23 @@ langgraph 应用本身（`src/backend/`）**一行没改**——真实 agent 是
 自定义 JSON 帧（`text-delta` / `tool-input` / `tool-output` / `tool-approval-request` /
 `tool-output-denied`）透传成 SSE。
 
-## 这是 Tier 1（无侵入）
+## 这是 Tier 1（只接 send）
 
-adapter 只是把这个已有的 HTTP + SSE 服务无侵入接进 niceeval，不改被测应用一行代码。Tier 2（把
-`HumanInTheLoopMiddleware` 开关、system prompt 提升为环境变量，解锁完整 feature A/B test）不在
-本次范围内。
+adapter 只是把这个已有的 HTTP + SSE 服务无侵入接进 niceeval，不改被测应用一行代码。全套断言
+都在这一档。往上还有两档，同一个应用各有一个目录，逐层只加一层 delta（分档定义见
+[docs-site · Tier](../../../../docs-site/zh/concepts/tier.mdx)）：
+
+- **Tier 2（send + OTel）**：[`../../tier2/langgraph/`](../../tier2/langgraph/)——config 加
+  `telemetry`、adapter 加一段 span 收尾宽限,应用启动命令加 LangSmith OTel 环境变量,换
+  `niceeval view` 的调用瀑布图。
+- **Tier 3（侵入改造 + experiment flags）**：[`../../tier3/langgraph/`](../../tier3/langgraph/)
+  ——应用侧把 system prompt 暴露成请求可选字段,解锁 feature A/B test。
 
 ## 目录
 
 - `agents/langgraph.ts`：adapter 本体,只剩传输粘合——应用在哪个 URL(`LANGGRAPH_URL`,默认
   `http://127.0.0.1:35000`)、自定义帧怎么解析、审批打哪个端点。应用由你自己按它的方式启动
-  (`python server.py`,LangSmith OTel 环境变量启动时给,见「跑起来」),eval 不代管进程。
+  (`python server.py`),eval 不代管进程。
   **断言依据全部来自应用自己的 SSE 帧**,逐帧映射:`tool-input` → `action.called`、
   `tool-output` → `action.result`(completed)、`tool-output-denied` → `action.result`
   (rejected,called 在上一轮的 `tool-input` 已落,同一个 `toolCallId` 跨轮配对)、
@@ -30,12 +36,6 @@ adapter 只是把这个已有的 HTTP + SSE 服务无侵入接进 niceeval，不
   `tool-approval-request` → `input.requested` + `waiting`(停轮现场用 `ctx.session.hold`
   存住,回答轮 `ctx.session.take` 取回接着读同一条流)、`error` → `failed`、`finish` → 结束。
   协议帧里没有 usage,所以这个示例没有用量断言。
-
-  OTel(LangSmith 导出)只服务 `niceeval view` 的瀑布图,span 不喂断言。一个时序细节:
-  LangSmith 的 `BatchSpanProcessor` 默认调度延迟和"这一轮 HTTP 请求几时返回"对不齐,
-  最后一次模型调用的 span 经常在轮次已经结束后才导出——启动命令注入
-  `OTEL_BSP_SCHEDULE_DELAY=200`,adapter 在轮次结束后也主动等一小段宽限时间
-  (`OTEL_FLUSH_GRACE_MS`)再返回,把收集窗口拉宽;这只影响瀑布图完整性。
 - `evals/`：基础问答、天气工具调用、跨轮记忆 + `newSession()` 隔离、HITL 批准/拒绝。
 - `experiments/langgraph.ts`：单配置基线。没有 `compare-models/`——
   `docs/origin-integration.md` 的验收清单里多模型对比只点名了 ai-sdk-v7 / claude-sdk / pi-sdk。
@@ -51,10 +51,8 @@ adapter 只是把这个已有的 HTTP + SSE 服务无侵入接进 niceeval，不
 - `t.calledTool()` 等工具断言——已验证：`get_weather` / `calculate` 每次调用都有配对的
   `action.called`/`action.result`,全部来自协议帧映射(approve 分支 `tool-input`/`tool-output`
   正常配对,deny 分支 rejected 的 result 与上一轮的 called 按 `toolCallId` 跨轮配对),无遗漏。
-- `EvalResult.trace`、`niceeval view` 瀑布图——`niceeval.config.ts` 配了 `telemetry: { port }`
-  固定端口就有,LangSmith OTel 导出的环境变量在启动应用时给(注意 Python `langsmith` SDK 把
-  `OTEL_EXPORTER_OTLP_ENDPOINT` 当完整 endpoint 用,要带 `/v1/traces` 尾巴——**和
-  codex-sdk/ai-sdk-v7 相反**,那两个应用自己拼尾巴)。span 只进瀑布图,不喂断言。
+- `EvalResult.trace`、`niceeval view` 瀑布图——这一档没有,它是 Tier 2 的产物,见
+  [`../../tier2/langgraph/`](../../tier2/langgraph/)。断言不受影响,span 本来就不喂断言。
 
 ## HITL
 
@@ -74,10 +72,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # 只需要
 pnpm install
 cp .env.example .env   # 填 OPENAI_API_KEY(这里挪用给 DeepSeek,见 niceeval.config.ts 注释)
 
-# 终端 1:起应用(LangSmith OTel 导出的环境变量在这里给——注意 langsmith SDK 要完整路径,
-# 端点带 /v1/traces 尾巴;niceeval 的接收端口钉在 4318,被占时改 niceeval.config.ts 的 telemetry.port 并同步这里)
-LANGSMITH_TRACING=true LANGSMITH_OTEL_ENABLED=true LANGSMITH_OTEL_ONLY=true \
-OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318/v1/traces OTEL_BSP_SCHEDULE_DELAY=200 \
+# 终端 1:起应用
 .venv/bin/python src/backend/server.py
 
 # 终端 2:跑 eval(应用部署在别处时设 LANGGRAPH_URL 指过去)
