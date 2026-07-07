@@ -1,0 +1,10 @@
+# examples/ 不属于本仓库的 monorepo —— 每个 example 是独立 npm 项目(自带
+# package.json),不作为本仓库根 workspace 的成员。这个空 workspace 文件让 pnpm
+# 把这里当独立项目安装依赖,不往上找根 workspace。
+packages: []
+allowBuilds:
+  esbuild: true
+overrides:
+  niceeval: link:../../..
+minimumReleaseAgeExclude:
+  - niceeval@0.1.1

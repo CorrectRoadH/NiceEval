@@ -1,0 +1,7 @@
+packages: []
+allowBuilds:
+  '@google/genai': false
+  esbuild: true
+  protobufjs: false
+overrides:
+  niceeval: link:..

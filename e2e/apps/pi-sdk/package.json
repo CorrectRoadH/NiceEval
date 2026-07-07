@@ -1,0 +1,34 @@
+{
+  "name": "pi-sdk-example",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "lsof -ti tcp:33001 | xargs kill -9 2>/dev/null; concurrently -k -n server,web -c blue,green \"pnpm dev:server\" \"pnpm dev:web\"",
+    "dev:server": "node --env-file .env --import tsx/esm --watch src/backend/server.ts",
+    "dev:web": "wait-on -t 30000 tcp:127.0.0.1:33001 && vite",
+    "build": "vite build",
+    "start": "node --env-file .env --import tsx/esm src/backend/server.ts",
+    "eval": "niceeval",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@assistant-ui/react": "^0.14.24",
+    "@earendil-works/pi-agent-core": "0.80.3",
+    "@earendil-works/pi-ai": "0.80.3",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "concurrently": "^9.0.0",
+    "niceeval": "file:../../..",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
+    "vite": "^7.0.0",
+    "wait-on": "^9.0.0"
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "name": "ai-sdk-v7-example",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "lsof -ti tcp:34001 | xargs kill -9 2>/dev/null; concurrently -k -n server,web -c blue,green \"pnpm dev:server\" \"pnpm dev:web\"",
+    "dev:server": "node --env-file .env --import tsx/esm --watch src/backend/server.ts",
+    "dev:web": "wait-on -t 30000 tcp:127.0.0.1:34001 && vite",
+    "build": "vite build",
+    "start": "node --env-file .env --import tsx/esm src/backend/server.ts",
+    "eval": "niceeval",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ai-sdk/openai": "^4.0.5",
+    "@ai-sdk/otel": "^1.0.11",
+    "@ai-sdk/react": "^4.0.5",
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.219.0",
+    "@opentelemetry/resources": "^2.8.0",
+    "@opentelemetry/sdk-trace-node": "^2.8.0",
+    "ai": "^7.0.11",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zod": "^4.1.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "concurrently": "^9.0.0",
+    "niceeval": "file:../../..",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^7.0.0",
+    "wait-on": "^9.0.0"
+  }
+}
