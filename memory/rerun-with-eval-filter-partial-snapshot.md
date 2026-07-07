@@ -12,6 +12,7 @@ carry(resume)机制的作用域是「本次计划内的 eval」:`src/runner/run.
 
 ## 修法
 
-- **正确补跑姿势:不带位置参数重跑整个实验**:`niceeval exp <实验>`(不加 `--force`)。上次 passed 且 fingerprint 匹配的 eval 零成本携入,只有 failed/errored 真跑,产出完整快照,线上口径自动恢复。
+- **正确补跑姿势:不带位置参数重跑整个实验或整个组**:`niceeval exp <实验|组>`(不加 `--force`)。上次 passed 且 fingerprint 匹配的 eval 零成本携入,只有 failed/errored/缺失真跑,产出完整快照,线上口径自动恢复。
 - 带位置参数补跑只适合「本地快速验证某道题」,其结果不该被当作实验的最新快照发布。
+- **已修(第二层根因)**:carry 基线原来只取「最近一个 run」(`loadMostRecentResults` 的 `loaded[0]`),部分补跑 run 一旦成为最新,任何后续续跑都携带不到东西,`exp <组>` 补齐随之失效。已改为跨历史每 `(experimentId, evalId)` 取最新一份(`src/view/loader.ts` 的 `loadLatestResultsPerEval`,配套 `loader.test.ts`)。
 - 设计层面待议:carry 是否应无视位置参数、把计划外的 prior passed 也携入 summary(「跑哪些」与「报什么」分离)。若做,需在 docs/cli.md 与 view/reports 口径一并声明。

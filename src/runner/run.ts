@@ -70,7 +70,7 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
     for (const r of opts.priorResults) {
       if (!r.experimentId || !priorRunKeys.has(`${r.experimentId}|${r.id}`)) continue;
       // artifactsDir 是相对"本次 run 自己目录"的路径,新 summary 换了目录就会失效,必须清掉。
-      // artifactBase 不一样:它已经是 loadMostRecentResults(经 withViewRefs)拼好的、
+      // artifactBase 不一样:它已经是 loadLatestResultsPerEval(经 withViewRefs)拼好的、
       // 相对稳定的 .niceeval 根的路径,指向旧 run 的产物目录依然可解析,原样带过来
       // ——不然 view 就再也找不到这条携带结果的源码/转录/trace 了。
       carriedResults.push({ ...r, artifactsDir: undefined });

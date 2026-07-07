@@ -87,11 +87,27 @@ export class NotAReportError extends Error {
   }
 }
 
-/** 读最近一次运行的所有 EvalResult，供 --resume 跳过已通过的 eval。 */
-export async function loadMostRecentResults(root = ".niceeval"): Promise<EvalResult[]> {
-  const { loaded } = await loadSummaries(root);
-  // loadSummaries 已按 startedAt 降序，第一个是最新的
-  return loaded[0]?.summary.results ?? [];
+/**
+ * 读跨历史「每 (experimentId, evalId) 最新一份」的 EvalResult,供续跑携带已通过结果。
+ * 只看最近一个 run 不行:部分补跑(位置参数只跑几道题)会把携带基线换成那个部分 run,
+ * 之后重跑任何实验都携带不到东西,`exp <组>` 的「补齐缺失」语义随之失效。
+ * 同一 (experimentId, evalId) 的多个 attempt 整批取自含它的最新 run,不跨 run 混装。
+ */
+export async function loadLatestResultsPerEval(root = ".niceeval"): Promise<EvalResult[]> {
+  const { loaded } = await loadSummaries(root); // 已按 startedAt 降序
+  const claimed = new Set<string>();
+  const results: EvalResult[] = [];
+  for (const { summary } of loaded) {
+    const takenThisRun = new Set<string>();
+    for (const r of summary.results ?? []) {
+      const key = `${r.experimentId ?? `${r.agent}|${r.model ?? ""}`}|${r.id}`;
+      if (claimed.has(key)) continue;
+      takenThisRun.add(key);
+      results.push(r);
+    }
+    for (const key of takenThisRun) claimed.add(key);
+  }
+  return results;
 }
 
 /** 服务/解析工件的根目录:输入是目录就用它,是文件就用其所在目录。 */

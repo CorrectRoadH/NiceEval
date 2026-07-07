@@ -13,7 +13,7 @@ export {
   IncompatibleResultsError,
   incompatibleHint,
   incompatibleViewCommand,
-  loadMostRecentResults,
+  loadLatestResultsPerEval,
   loadSummaries,
   type IncompatibleRun,
   type ScanResult,
