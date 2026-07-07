@@ -89,6 +89,8 @@ run.attempts;                  // AttemptHandle[]:summary.results[] 逐条包一
 
 const attempt = run.attempts[0];
 attempt.result;                // EvalResult 瘦身条目:判决、断言、用量、成本、experiment 元数据
+attempt.ref;                   // { run, result }:证据引用(run 目录名 + results 下标),
+                               // Reports 的 MetricCell.refs 与 view 深链 #/attempt/... 同一身份
 await attempt.events();        // StreamEvent[] | null —— 重工件全部懒加载
 await attempt.trace();         // TraceSpan[] | null
 await attempt.o11y();          // O11ySummary | null
