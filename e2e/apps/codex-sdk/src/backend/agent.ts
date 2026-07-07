@@ -58,10 +58,16 @@ export async function runTurnStreamed(
 ): Promise<AsyncGenerator<ThreadEvent>> {
   await mkdir(WORKSPACE_DIR, { recursive: true });
 
+  // linux CI runner 上 Codex CLI 的 bwrap 沙箱起不来(`bwrap: loopback: Failed
+  // RTM_NEWADDR: Operation not permitted`),命令会被沙箱全部拦死;CI 环境本身即
+  // 一次性隔离 VM,用 CODEX_SANDBOX_MODE=danger-full-access 关内层沙箱。本地不设,保默认。
+  const sandboxMode = process.env.CODEX_SANDBOX_MODE as
+    | "read-only" | "workspace-write" | "danger-full-access" | undefined;
   const threadOptions = {
     workingDirectory: WORKSPACE_DIR,
     skipGitRepoCheck: true,
     model: process.env.AGENT_MODEL ?? "gpt-5.4",
+    ...(sandboxMode ? { sandboxMode } : {}),
   };
   const thread: Thread = threadId
     ? codex.resumeThread(threadId, threadOptions)

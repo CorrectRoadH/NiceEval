@@ -1,4 +1,4 @@
-# e2e/ 套件落地的两个坑(link 深度、budget 空转)
+# e2e/ 套件落地的三个坑(link 深度、budget 空转、codex bwrap)
 
 (安装被 pnpm 11 allowBuilds 占位符打断的部分见既有条目
 [pnpm11-allowbuilds-placeholder-blocks-install](pnpm11-allowbuilds-placeholder-blocks-install.md),
@@ -25,3 +25,19 @@ e2e 的 ci 实验设了 `budget: 1`,codex-sdk 跑到一半 runner 提示
 **修法**(使用侧结论,非代码修复):L0 门禁的成本控制实际靠"便宜模型 + runs: 3 + earlyExit",
 budget 只对报 usage 且在价目表里的组合兜底;写 CI 期望时不要假设 budget 一定拦得住。
 适用场景:docs/e2e-ci.md 的 L0/L1 成本护栏设计。
+
+## 现象 3:GitHub Actions runner 上 Codex CLI 的 bwrap 沙箱起不来,命令静默全拦
+
+e2e 首轮 CI:codex-sdk 的 create-file / run-command 全红(0/3),模型有回复但零个
+`command_execution` item。events.json 里 assistant 自己说了实情:
+`bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted`——Codex CLI 在 linux 用
+bubblewrap 沙箱,GitHub 托管 runner 里 netns loopback 配置被拒,每次命令执行都被沙箱拦死。
+本地 macOS(Seatbelt)没这个问题,所以本地全绿、CI 必红。
+
+**根因**:runner 的容器/权限模型不给 bwrap 建网络命名空间所需的权限;这是环境差异,不是
+适配层或框架回归。
+
+**修法**:`e2e/apps/codex-sdk/src/backend/agent.ts` 加 `CODEX_SANDBOX_MODE` 环境开关透传
+`threadOptions.sandboxMode`,CI workflow 给 codex-sdk 的 .env 写
+`CODEX_SANDBOX_MODE=danger-full-access`(runner 本身即一次性隔离 VM,关内层沙箱是 CI 惯例);
+本地不设,保持 Codex 默认沙箱。适用场景:任何在 CI/容器里跑 Codex CLI/SDK 的地方。

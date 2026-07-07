@@ -75,6 +75,7 @@ jobs:
           CODEX_API_KEY=$CODEX_API_KEY
           CODEX_BASE_URL=https://s2a.jihuayu.site/v1
           AGENT_MODEL=gpt-5.4
+          CODEX_SANDBOX_MODE=danger-full-access
           EOF
           cat > e2e/apps/langgraph/.env <<EOF
           OPENAI_API_KEY=$DEEPSEEK_API_KEY
