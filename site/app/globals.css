@@ -82,18 +82,14 @@ pre {
 }
 
 .brand {
-  gap: 14px;
+  gap: 11px;
   color: var(--text);
   font-size: 14px;
   font-weight: 680;
 }
 
-.mark {
-  width: 0;
-  height: 0;
-  border-left: 11px solid transparent;
-  border-right: 11px solid transparent;
-  border-bottom: 20px solid var(--text);
+.brand svg {
+  flex-shrink: 0;
 }
 
 .nav {
@@ -143,25 +139,9 @@ pre {
   max-width: 650px;
 }
 
-.logo-lines {
-  width: 76px;
-  height: 42px;
-  display: grid;
-  gap: 7px;
-  margin-bottom: 34px;
-}
-
-.logo-lines span {
-  height: 6px;
-  background: var(--text);
-}
-
-.logo-lines span:nth-child(2) {
-  width: 52px;
-}
-
-.logo-lines span:nth-child(3) {
-  width: 34px;
+.hero-mark {
+  display: flex;
+  margin-bottom: 30px;
 }
 
 h1 {

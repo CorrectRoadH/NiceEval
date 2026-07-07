@@ -16,6 +16,7 @@ import {
 import { initAnalytics, track } from "../src/analytics";
 import { compareCard, fileTree, githubUrl, docsUrl, withLocale, type Dictionary, type FileTreeItem, type Locale } from "../lib/content";
 import { Header } from "./site-header";
+import { LogoMark } from "./logo";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 
@@ -72,10 +73,8 @@ function Hero({ t, locale }: { t: Dictionary; locale: Locale }) {
   return (
     <section id="top" className="hero shell">
       <div className="hero-copy">
-        <div className="logo-lines" aria-hidden="true">
-          <span />
-          <span />
-          <span />
+        <div className="hero-mark" aria-hidden="true">
+          <LogoMark size={68} />
         </div>
         <h1>{t.heroTitle}</h1>
         <div className="mode-switch" aria-label="Audience">

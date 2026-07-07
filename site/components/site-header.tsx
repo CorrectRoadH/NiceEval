@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { docsUrl, githubUrl, otherLocale, withLocale, type Dictionary, type Locale } from "../lib/content";
 import { track } from "../src/analytics";
+import { LogoMark } from "./logo";
 
 const LOCALE_COOKIE = "niceeval-locale";
 
@@ -32,7 +33,7 @@ export function Header({ locale, t, route }: { locale: Locale; t: Dictionary; ro
       {/* 当前页不渲染指向自身的链接:自链会被 SEO 审计判为浪费权重。 */}
       {route.name === "home" ? (
         <span className="brand" aria-current="page">
-          <span className="mark" />
+          <LogoMark size={24} />
           <span>NiceEval</span>
         </span>
       ) : (
@@ -42,7 +43,7 @@ export function Header({ locale, t, route }: { locale: Locale; t: Dictionary; ro
           aria-label="NiceEval home"
           onClick={() => track("Click Home Link", { location: "header" })}
         >
-          <span className="mark" />
+          <LogoMark size={24} />
           <span>NiceEval</span>
         </Link>
       )}
