@@ -1,6 +1,6 @@
 # Results Lib —— 实验结果数据的读写库(设计提案,未实现)
 
-> 状态:设计提案,`docs/source-map.md` 里没有它的源码入口。[Results Format](results-format.md) 是磁盘上的格式规范(已实现);本文提议把这份格式的**读与写**抽成一个专门的库 `niceeval/results`,做 runner、view、[Reports](reports.md) 和用户脚本的共同数据层。
+> 状态:读取面已首版落地——`src/results/` 的 openResults / 快照 / latestPerExperiment / 身份键去重 / copyRun(源码入口见 [Source Map](source-map.md#results-lib-与-reports));写入面 `createRunWriter` 与 view / `Artifacts()` reporter 的收编仍是提案。[Results Format](results-format.md) 是磁盘上的格式规范(已实现);本文提议把这份格式的**读与写**抽成一个专门的库 `niceeval/results`,做 runner、view、[Reports](reports.md) 和用户脚本的共同数据层。
 
 同一份磁盘格式,今天的写和读长在两个器官里。写在 `src/runner/reporters/artifacts.ts`:时间戳目录、attempt 路径清洗(evalId 保留 `/` 层级、agent/model 非 `[\w.@-]` 全换 `_`)、大字段拆工件、`artifactsDir` / `has*` 回填、空数据不落文件——全是它的私有知识。读长在 `src/view/index.ts`:`readSummary` 的版本判定、`loadSummaries` 的目录扫描、工件路径反拼。两边靠 `src/types.ts` 共享类型,但**布局知识各自实现了一遍**:格式演进要同步改两处,谁漏改谁坏。而用户侧根本没有读取 API,想编程消费只能第三次重写这些知识:
 

@@ -1,6 +1,6 @@
 # Reports —— 自己搭报告页的积木(设计提案,未实现)
 
-> 状态:设计提案。本文描述目标 DX 与数据契约,尚无对应实现;`docs/source-map.md` 里没有它的源码入口。它脚下的数据层——结果的读与写——是一个专门的库,拆在 [Results Lib](results-lib.md)。
+> 状态:首版已实现——指标 / 两级聚合 / 七个计算函数在 `src/report/`,七个组件在 `src/report/react/`(源码入口见 [Source Map](source-map.md#results-lib-与-reports));文末待定问题仍开放。它脚下的数据层——结果的读与写——是一个专门的库,拆在 [Results Lib](results-lib.md)。
 
 跑完一轮实验之后,「怎么看结果」不该只有 `niceeval view` 那三个固定 tab。你想把同一批结果摆成一张**考试成绩单**(每个 eval 是一道题,gate 判对错、soft 给分、按科目算总分),摆成一张 **benchmark 榜**(谁写出来的代码能用、谁写得更短、谁更便宜),或者摆成一张**质量 × 成本 frontier**(每个配置一个点,同 agent 不同档位连成线,右上角 = 又好又便宜)——这三种「看法」用的是同一份落盘工件,差别只在组合方式。
 
@@ -538,7 +538,7 @@ writeFileSync("site/index.html", `<!doctype html><link rel="stylesheet" href="st
 2. **`refs` 的体积上限。** 设计上完整携带(单格样本数有限),但全历史矩阵可能膨胀;若实测超标再定截断规则(每格上限 + `truncated` 标记),不预设。
 3. **组件数据要不要版本戳。** 同应用内计算与渲染同包同版本,没有偏斜;分离部署靠锁版本约束。若真实用户撞上偏斜,再考虑给 `TableData` 等加一个轻量 `producer` 戳,先不加。
 4. **样式定制深度。** 首批只承诺稳定 class 名(`nre-*`)+ `className` 透传;要不要 slots / render props(比如自定义格子渲染、scatter 点标签防重叠策略),看第一批用户把组件嵌进真实面板时卡在哪。
-5. **view 的 attempt 级深链。** `attemptHref` 最自然的去处是同站托管的 view 导出,但 view 今天没有 attempt 级 hash 路由(AttemptModal 只能从表格点开)。补一条 `#/attempt/<run>/<result>` 路由是 view 侧的小改动,「报告页是前门、view 是证据室」的分工才真正闭环。
+5. **view 的 attempt 级深链:已落地。** `#/attempt/<run>/<result>` 路由与 loader 注入的 `attemptRef` 已实现(`src/view/app/lib/attempt-route.ts`),路由参数就是 `AttemptRef`——「报告页是前门、view 是证据室」的分工闭环;留此条记录出处。
 
 ## 相关阅读
 

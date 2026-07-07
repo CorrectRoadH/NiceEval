@@ -156,7 +156,7 @@ npx niceeval@<producer.version> view .niceeval/<run>/summary.json
 
 ## 用 Reports 积木重建 view(设计提案)
 
-> 状态:设计提案,依赖 [Results Lib](results-lib.md) 与 [Reports](reports.md) 两个提案先落地;落地前,本文其余部分描述的现状照旧成立。
+> 状态:设计提案。依赖的两个提案已部分落地(results 读取面、report 计算与组件,见 [Source Map](source-map.md#results-lib-与-reports));三步迁移(读取层 / 统计层 / 渲染层)未动,attempt 深链路由已先行实现。落地前,本文其余部分描述的现状照旧成立。
 
 [Reports](reports.md) 把「自己搭报告页」拆成组件 + 计算函数 + 结果库三种零件之后,view 的正确定位随之改变:**view 不再是一套并行实现,而是用同一批零件搭出来的「默认报告页 + 证据室」**——用户搭页面用什么零件,view 自己就用什么。view 因此成为这套积木的第一个常驻消费者,组件与计算函数的正确性被它天天验证;反过来,上面「计划中的小功能」里的三件事(跳过列表、Compare、散点图)也全部退化成「拼现成积木」,不再是专项开发。
 
@@ -175,7 +175,7 @@ npx niceeval@<producer.version> view .niceeval/<run>/summary.json
 
 - `view --out <目录>` 的工件复制换成 [`copyRun`](results-lib.md#复制与瘦身copyrun)(sources/events/trace,diff/o11y 照旧不带);`--out x.html` 单文件继续只烘数据、工件视图降级,对外语义不变。
 - 烘进 HTML 的 `__NICEEVAL_VIEW_DATA__` 从私有 rows 换成**官方数据契约**(OverviewData / TableData / ScatterData + 快照元信息)。外部脚本从此没有理由扒 HTML——coding-agent-memory-evals 曾用字符串标记从 index.html 里抠内嵌 JSON、再正则消毒构建机路径,那类 hack 的存在本身就是数据契约缺位的证据;但内嵌数据仍不是承诺的持久化格式,要数据走 [Reports 场景三](reports.md#dx-模拟)自己算。
-- 补 `#/attempt/<run>/<result>` 路由,路由参数就是 `AttemptRef`——报告页(前门)与 view(证据室)靠同一个身份契约打通,`attemptHref` 从此有确定的去处(对应 Reports 待定问题 5)。
+- 补 `#/attempt/<run>/<result>` 路由,路由参数就是 `AttemptRef`——报告页(前门)与 view(证据室)靠同一个身份契约打通,`attemptHref` 从此有确定的去处(对应 Reports 待定问题 5)。**已实现**:`src/view/app/lib/attempt-route.ts` + `App.tsx` 接线,loader 的 `withViewRefs` 给每条 result 注入 `attemptRef`;旧 `?modal=` 参数保留为只读回退。
 
 迁移顺序即依赖顺序,每步独立可交付:
 

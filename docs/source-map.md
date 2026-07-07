@@ -99,6 +99,25 @@
 | CLI(exp / list / view / clean / init,--help,parseArgs 表驱动,.env 加载,NICEEVAL_* 环境变量层) | `src/cli.ts` |
 | 数据集加载器(loadJson / loadYaml) | `src/loaders/index.ts` |
 
+## Results Lib 与 Reports
+
+设计文档:[results-lib.md](results-lib.md) / [reports.md](reports.md) / [view.md](view.md) 合流一节。两个提案的首版实现:
+
+| 行为 | 文件 |
+|---|---|
+| `openResults`:目录扫描 / 版本分流(skipped)/ 懒加载句柄 / 快照切片 | `src/results/open.ts` |
+| 布局与版本知识(attempt 目录规则、summary 分类;与 writer 的 `artifacts.ts` 同规则) | `src/results/format.ts` |
+| `latestPerExperiment`(残缺警告)/ `dedupeAttempts`(身份键去重) | `src/results/select.ts` |
+| `copyRun`(发布原语:按工件种类瘦身复制 + summary 重建) | `src/results/copy.ts` |
+| 句柄契约(RunHandle / AttemptHandle 含 `.ref` / SnapshotHandle / AttemptRef) | `src/results/types.ts` |
+| `defineMetric` 与内置指标(outcome 逐项表态) | `src/report/metrics.ts` |
+| 两级聚合引擎 / 维度 / MetricCell 计算 | `src/report/aggregate.ts` |
+| 七个计算函数(table / matrix / scoreboard / scatter / overview / delta / cases) | `src/report/compute.ts` |
+| 组件数据契约(TableData … CaseListData;组件 props 的家) | `src/report/types.ts` |
+| 七个 React 组件 + 稳定散列配色 + styles.css | `src/report/react/`(入口 `index.tsx`;演示 `scripts/report-react-demo.tsx`) |
+| view attempt 深链(`#/attempt/<run>/<result>`,路由参数即 AttemptRef) | `src/view/app/lib/attempt-route.ts`、`src/view/app/App.tsx`、`src/view/loader.ts`(`withViewRefs` 注入) |
+| **未落地** | 写入面 `createRunWriter`、view / `Artifacts()` reporter 改吃本库、memory-evals 静态导出流水线(reports.md 场景三) |
+
 ## 与设计文档的已知差异(实现取舍)
 
 - **judge 走 OpenAI 兼容 `/chat/completions`**,base/key 解析顺序:`judge.baseUrl/apiKeyEnv` → `NICEEVAL_JUDGE_BASE`/`CODEX_BASE_URL` → OpenAI 官方。这样在只有 OpenAI 兼容代理(无 Anthropic key)的环境里 judge 自动复用代理。model 解析:eval/config 的 `judge.model` → `NICEEVAL_JUDGE_MODEL`;**没有内置默认模型**,解析不到而用到 judge 断言时报清晰错误。
