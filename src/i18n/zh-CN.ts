@@ -153,6 +153,7 @@ export const zhCN = {
   "runner.timeout": "attempt 超时({{timeoutMs}}ms)\n最近进度:\n{{recentLogs}}",
   "runner.traceSelected": " → 留 {{count}}(按语义)",
   "runner.resumeCarry": "  · 复用上次 {{carried}} 个通过的结果,重跑 {{retry}} 个 eval\n",
+  "runner.resumeCarryDetail": "      复用 [{{experiment}}] {{evals}}\n",
   "runner.useRemoteAgent": "使用 remote agent(不创建沙箱)…",
   "sandbox.backendNotImplemented": "{{backend}} sandbox backend not implemented; use docker, vercel, or e2b",
   "sandbox.missingSpec": "沙箱型 agent 需要一个 sandbox,但没有提供。niceeval 不再自动选默认后端——请在 defineExperiment()/defineConfig() 里把 sandbox 设成 dockerSandbox() / vercelSandbox() / e2bSandbox()(从 \"niceeval/sandbox\" 导入)。",

@@ -36,6 +36,7 @@ import type {
   Telemetry,
   TraceSpan,
 } from "../types.ts";
+import { runWho } from "./types.ts";
 import type { AgentRun, Attempt, RunOptions } from "./types.ts";
 
 export function runAttemptEffect(
@@ -72,7 +73,7 @@ export function runAttemptEffect(
 
   // 流式进度打到宿主 stderr(结果走 stdout,互不干扰)。容器主日志【不】放这些进度标记 ——
   // 那里留给 agent 的原始输出(adapter 给 agent 命令开 { stream: true })。
-  const who = run.model ? `${run.agent.name}/${run.model}` : run.agent.name;
+  const who = runWho(run);
   // 同时保留最近 20 条进度消息,timeout 时嵌入 error 字段方便定位卡在哪一步。
   const recentLogs: string[] = [];
   const log = (m: string) => {

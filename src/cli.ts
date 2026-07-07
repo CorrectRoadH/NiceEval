@@ -11,6 +11,7 @@ import { pathToFileURL } from "node:url";
 import { parseArgs as nodeParseArgs } from "node:util";
 import { discoverEvals, discoverExperiments, makeFilter } from "./runner/discover.ts";
 import { runEvals, type AgentRun } from "./runner/run.ts";
+import { runWho } from "./runner/types.ts";
 import { stopAllSandboxes, liveSandboxCount } from "./sandbox/registry.ts";
 import { sandboxRecommendedConcurrency } from "./sandbox/resolve.ts";
 import { Console as ConsoleReporter } from "./runner/reporters/console.ts";
@@ -372,9 +373,9 @@ async function main(): Promise<void> {
       // TTY 模式:用 live display 替换 Console reporter,把 attempt log 路由到状态表行尾
       const liveRows: LiveRow[] = [];
       for (const agentRun of agentRuns) {
-        const who = agentRun.model
-          ? `${agentRun.agent.name}/${agentRun.model}`
-          : agentRun.agent.name;
+        // who 必须与 attempt.ts 的进度上报同源(runWho):曾用 agent/model,同 agent 同 model
+        // 的实验变体(xxx 与 xxx--agents-md)会被折叠成一行,0/2 看起来像同一 eval 跑两次。
+        const who = runWho(agentRun);
         const matched = evals.filter((e) => agentRun.evalFilter(e.id));
         for (const evalDef of matched) {
           liveRows.push({ evalId: evalDef.id, who, total: agentRun.runs });

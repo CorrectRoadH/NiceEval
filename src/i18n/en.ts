@@ -156,6 +156,7 @@ export const en = {
   "runner.timeout": "attempt timed out ({{timeoutMs}}ms)\nRecent progress:\n{{recentLogs}}",
   "runner.traceSelected": " -> kept {{count}} semantic spans",
   "runner.resumeCarry": "  · reusing {{carried}} passing results from last run, re-running {{retry}} evals\n",
+  "runner.resumeCarryDetail": "      carried [{{experiment}}] {{evals}}\n",
   "runner.useRemoteAgent": "using remote agent (no sandbox created)...",
   "sandbox.backendNotImplemented": "{{backend}} sandbox backend is not implemented; use docker, vercel, or e2b",
   "sandbox.missingSpec": "sandbox agent needs a sandbox, but none was given. niceeval no longer picks a default — set `sandbox` in defineExperiment()/defineConfig() to dockerSandbox() / vercelSandbox() / e2bSandbox() (import from \"niceeval/sandbox\").",

@@ -211,6 +211,16 @@ export interface PriceOverride {
 
 // ───────────────────────── 调度编排 ─────────────────────────
 
+/**
+ * 进度行 / 日志里标识一个 run 配置的短名。有 experiment 时用其 basename(唯一,
+ * 能区分同 agent 同 model 的实验变体,如 xxx 与 xxx--agents-md;与汇总表口径一致);
+ * 无 experiment 时退回 agent/model。live display 以它作行聚合 key,两处必须同源。
+ */
+export function runWho(run: Pick<AgentRun, "agent" | "model" | "experimentId">): string {
+  if (run.experimentId) return run.experimentId.split("/").pop()!;
+  return run.model ? `${run.agent.name}/${run.model}` : run.agent.name;
+}
+
 /** 一个 (agent, model, flags) 的运行配置 —— 由 CLI / 实验展开。 */
 export interface AgentRun {
   agent: Agent;

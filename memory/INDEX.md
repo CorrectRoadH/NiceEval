@@ -49,6 +49,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 - [cli-fresh-flag-is-noop](cli-fresh-flag-is-noop.md) — `--fresh` 不是真 flag 会被静默吞掉;跳过缓存结果用 `--force`;parseArgs 对未知 flag 不报错
 - [rerun-with-eval-filter-partial-snapshot](rerun-with-eval-filter-partial-snapshot.md) — 带 eval-id 位置参数补跑产出部分快照,遮蔽 latestPerExperiment 口径;补跑要不带位置参数重跑实验/组;carry 基线只看最近 run 的坑已修(loadLatestResultsPerEval)
 - 已修 [runner-earlyexit-key-misses-experiment](runner-earlyexit-key-misses-experiment.md) — earlyExit 去重键漏 experimentId,同 agent 同 model 只差 flags 的 A/B 实验会有一组被静默跳过(修在 `src/runner/run.ts` 键加 experimentId、`reporters/artifacts.ts` 工件路径加实验段)
+- 已修 [live-rows-fold-experiment-variants](live-rows-fold-experiment-variants.md) — live 进度行 who 曾取 agent/model,同 agent 同 model 的实验变体被折叠成一行,"0/2" 误读成跑两次;修为 runWho() 有 experimentId 用 basename(`src/runner/types.ts` + attempt.ts + cli.ts 同源);同时 resume 复用改为按 experiment 列清单
 
 ## examples 与 tier-sync
 
