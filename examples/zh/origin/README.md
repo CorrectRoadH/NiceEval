@@ -2,6 +2,20 @@
 
 这些都是**还没接 niceeval 的独立应用**，各自真调用对应 SDK，没有 mock 模式。环境变量按各目录的 `.env.example` 配置即可，不再单独写 README。
 
+## 接入分层(origin → tier1 → tier2 → tier3)
+
+同一个应用按接入深度在 `examples/zh/` 下存多层目录,相邻两层的 diff 就是那一档的全部投入
+(分档定义见 [docs-site · Tier](../../../docs-site/zh/concepts/tier.mdx),层间同步机制见
+[docs/tier-sync.md](../../../docs/tier-sync.md),各层细节见各自 README):
+
+| 层 | ai-sdk-v7 | claude-sdk | codex-sdk | pi-sdk | langgraph |
+|---|---|---|---|---|---|
+| `tier1/` 只接 send | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `tier2/` send + OTel | ✓ | —(CLI 无 trace spans) | ✓ | —(SDK 无 OTel) | ✓ |
+| `tier3/` 侵入改造 + flags | ✓ prompt/工具集 | ✓ prompt | ✓ sandboxMode | ✓ prompt | ✓ prompt |
+
+没有 tier2 的两个应用,tier3 直接叠在 tier1 之上。
+
 每个示例都是同一个分层结构：**HTTP 服务器(无框架) → 前后端协议 → agent runtime**，外加前端。下面矩阵里的每一行是一个独立的层/维度，彼此正交、可以自由组合——换掉某一格的取值（比如把 langgraph 的自定义帧换成 AI SDK 协议、给 pi-sdk 换一个前端库）不需要动其它行。
 
 协议这一行刻意保持多样：ai-sdk-v7 走 AI SDK 的通用 UI Message Stream，另外三个 TS 示例把各自 SDK 的**原生事件流原样透传**（服务端零翻译），langgraph 是自定义 JSON 帧。assistant-ui 并不认识这三套原生协议——`ChatModelAdapter` 是 `useLocalRuntime` 留的自定义后端接口，每个示例各写一个 adapter 把自家原生流翻译成 assistant-ui 统一的 content parts；协议解析是各示例自己的代码，assistant-ui 只承担聊天状态/composer/停止这些 UI 杂务。
