@@ -8,8 +8,8 @@
 //   · HITL:`tool-approval-request` → input.requested + waiting,停轮现场(还开着的流 +
 //     挂起的 toolCallId)用 ctx.session.hold 存住,回答轮 ctx.session.take 取回接着读。
 //
-// 这是 Tier 1(只接 send):要 `niceeval view` 的调用瀑布图时升 Tier 2,见
-// ../../tier2/langgraph/——config 加一行 telemetry、本文件加一段 span 收尾宽限,其它不变。
+// 只接 send,不接 OTel——e2e 不测瀑布图(docs/e2e-ci.md 第 9 节);带 OTel 的完整
+// 接入示例见 examples/zh/tier2/langgraph/。
 import { defineAgent, sseJsonFrames } from "niceeval/adapter";
 import type { AgentContext, SseFrameCursor } from "niceeval/adapter";
 import type { JsonValue, StreamEvent, Turn, TurnInput } from "niceeval";

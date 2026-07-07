@@ -3,7 +3,7 @@
 设计见 [`docs/e2e-ci.md`](../docs/e2e-ci.md)。全程真实模型,没有任何 mock——费用靠便宜模型档位、小 `runs`、per-experiment `budget` 控制。
 
 - `shared/`：唯一一份 eval / experiment 定义,全部是参数化 factory。断言逻辑改这里、全矩阵生效。
-- `apps/`：被测应用,从 `examples/zh/tier1/<name>` 拷来(去掉 eval 侧文件),真实调用原样保留。凭据在各自 `.env`(不进 git)。
+- `apps/`：被测应用,从 `examples/zh/tier1/<name>` 拷来并裁成只保 backend 的协议夹具(前端 / vite / 开发工作流都不参与被测协议,已删;`src/backend/` 与 tier1 保持一致)。凭据在各自 `.env`(不进 git,变量集见各自 `.env.example`);judge 凭据在 `projects/<name>/.env`(`NICEEVAL_JUDGE_KEY` / `NICEEVAL_JUDGE_BASE`)。
 - `projects/`：每个 SDK 一个薄 niceeval 项目——adapter(拷自 tier1)+ `profile.ts`(协议现实声明)+ 3 行 stub。SDK 间差异只允许出现在 profile 里。
 - `scripts/verify.mjs`：e2e 的"真正的测试"。把 CLI 当黑盒子进程跑,对照期望表校验退出码 + `summary.json`(含"期望 exit 1"的 verdicts 实验)。
 
