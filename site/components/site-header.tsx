@@ -29,25 +29,37 @@ export function Header({ locale, t, route }: { locale: Locale; t: Dictionary; ro
 
   return (
     <header className="topbar shell">
-      <Link
-        className="brand"
-        href={withLocale(locale)}
-        aria-label="NiceEval home"
-        onClick={() => track("Click Home Link", { location: "header" })}
-      >
-        <span className="mark" />
-        <span>NiceEval</span>
-      </Link>
+      {/* 当前页不渲染指向自身的链接:自链会被 SEO 审计判为浪费权重。 */}
+      {route.name === "home" ? (
+        <span className="brand" aria-current="page">
+          <span className="mark" />
+          <span>NiceEval</span>
+        </span>
+      ) : (
+        <Link
+          className="brand"
+          href={withLocale(locale)}
+          aria-label="NiceEval home"
+          onClick={() => track("Click Home Link", { location: "header" })}
+        >
+          <span className="mark" />
+          <span>NiceEval</span>
+        </Link>
+      )}
       <nav className="nav" aria-label="Primary">
         <Link href={startHref} onClick={() => track("Click Nav Start")}>
           {t.navStart}
         </Link>
-        <Link
-          href={withLocale(locale, "blog")}
-          onClick={() => track("Click Blog Link", { location: "header", locale })}
-        >
-          {t.blog}
-        </Link>
+        {route.name === "blog" ? (
+          <span aria-current="page">{t.blog}</span>
+        ) : (
+          <Link
+            href={withLocale(locale, "blog")}
+            onClick={() => track("Click Blog Link", { location: "header", locale })}
+          >
+            {t.blog}
+          </Link>
+        )}
         <a href={docsUrl[locale]} onClick={() => track("Click Docs Link", { location: "header", locale })}>{t.docs}</a>
         <a href={githubUrl} onClick={() => track("Click GitHub Link", { location: "header" })}>{t.github}</a>
         <Link

@@ -107,6 +107,11 @@ pre {
   color: var(--text);
 }
 
+/* 当前页导航项渲染成 span(避免自链),用文本色标记"你在这里"。 */
+.nav [aria-current="page"] {
+  color: var(--text);
+}
+
 .lang-toggle {
   display: inline-flex;
   align-items: center;

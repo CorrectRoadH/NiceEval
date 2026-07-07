@@ -36,7 +36,7 @@ export default async function LangLayout({ children, params }: { children: React
           src="https://api.goshipfast.com/tracker.js"
           data-project="cmr24oe2n006qlj10lr9t38n8"
           data-endpoint="https://api.goshipfast.com"
-          strategy="afterInteractive"
+          strategy="lazyOnload"
         />
       </body>
     </html>
