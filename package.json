@@ -69,6 +69,7 @@
     "test:watch": "vitest",
     "niceeval": "node bin/niceeval.js",
     "gen:diff-code": "tsx scripts/gen-diff-code.ts",
+    "docs:reference": "tsx scripts/generate-reference.ts",
     "tiers:sync": "node scripts/sync-tiers.mjs sync",
     "tiers:check": "node scripts/sync-tiers.mjs check",
     "view:build": "vite build --config src/view/app/vite.config.ts",

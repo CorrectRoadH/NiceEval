@@ -24,91 +24,404 @@ export default defineEval({
 
 ## `defineEval` 选项
 
-<ParamField body="description" type="string">
-  给人看的描述，出现在控制台和报告中。
-</ParamField>
+{/* GENERATED:BEGIN defineeval-options */}
 
-<ParamField body="agent" type="string">
-  当前 eval 使用的 agent 名。省略时使用配置或 CLI 的默认值。
-</ParamField>
+#### `id`
 
-<ParamField body="tags" type="string[]">
-  标签，用于 `--tag` 过滤或组织 eval。
-</ParamField>
+```ts
+id?: string;
+```
 
-<ParamField body="judge" type="JudgeConfig">
-  覆盖当前 eval 的 judge 模型配置。
-</ParamField>
+路径推导,定义里禁止手写。
 
-<ParamField body="reporters" type="Reporter[]">
-  当前 eval 专用 reporters：实例只观测引用它的 eval；多个 eval 共享同一实例时结果落进同一目的地（见 [Reporter 上报](../guides/reporters)）。
-</ParamField>
+#### `description`
 
-<ParamField body="timeoutMs" type="number">
-  覆盖全局超时。
-</ParamField>
+```ts
+description?: string;
+```
 
-<ParamField body="metadata" type="Record<string, unknown>">
-  附加元数据，供报告或外部工具使用。
-</ParamField>
+一句话描述,展示在 `niceeval list` 和 view 里;纯说明,不影响调度或打分。
 
-<ParamField body="test" type="(t: TestContext) => Promise<void>" required>
-  eval 主体。你在这里驱动 agent 并声明断言。
-</ParamField>
+#### `tags`
+
+```ts
+tags?: string[];
+```
+
+标签,供 CLI `--tag` 过滤和 view 分类;与 id 前缀过滤是两套独立的筛选维度。
+
+#### `judge`
+
+```ts
+judge?: JudgeConfig;
+```
+
+覆盖项目级 Config.judge,只对这一个 eval 生效(如换个更贵的评审模型)。
+
+#### `reporters`
+
+```ts
+reporters?: Reporter[];
+```
+
+覆盖 / 追加项目级 Config.reporters,只对这一个 eval 生效。
+
+#### `timeoutMs`
+
+```ts
+timeoutMs?: number;
+```
+
+覆盖项目级 / CLI 的单次 attempt 超时(毫秒),只对这一个 eval 生效。
+
+#### `metadata`
+
+```ts
+metadata?: Record<string, unknown>;
+```
+
+任意附加元数据,原样透传进 EvalResult,不参与调度或打分;供自定义 reporter 消费。
+
+#### `setup`
+
+```ts
+setup?: (sandbox: Sandbox) => Promise<void | Cleanup> | void | Cleanup;
+```
+
+eval 级预置:拿到沙箱(已上传 workspace + git 基线 + 装好依赖前)。
+默认命令以非 root 跑(agent 的自然环境);装系统依赖时给 `runCommand` 传 `{ root: true }`
+(如 `runCommand("apt-get", ["install", …], { root: true })`),跨后端语义一致。
+
+#### `test`
+
+```ts
+test(t: TestContext): Promise<void> | void;
+```
+
+eval 主体:拿到 TestContext,驱动对话 / 沙箱操作并就地断言。
+
+{/* GENERATED:END defineeval-options */}
 
 ## Test context: `t`
 
-### 总是可用
+`t`（`TestContext`）是 eval 作者拿到的高层上下文。运行器按 agent 的实际能力组装它——`t.sandbox` 这类字段只在 `defineSandboxAgent` 构造的 agent 上才有意义，完整规则见[能力位参考](/zh/reference/capabilities)。全部成员：
 
-<ParamField body="t.send(text)" type="(text: string) => Promise<Turn>">
-  给 agent 发送消息，并返回当前 turn。
-</ParamField>
+{/* GENERATED:BEGIN test-context */}
 
-<ParamField body="t.check(value, assertion)" type="(value: unknown, assertion: Assertion) => void">
-  记录值断言，失败不会立即中断 test。
-</ParamField>
+#### `send`
 
-<ParamField body="t.require(value, assertion)" type="(value: unknown, assertion: Assertion) => void">
-  记录前置条件断言，失败会立即中断 test。
-</ParamField>
+```ts
+send(text: string): Promise<TurnHandle>;
+```
 
-<ParamField body="t.skip(reason)" type="(reason: string) => void">
-  跳过当前 eval。
-</ParamField>
+向默认会话发一条消息,返回该轮的 TurnHandle。事件同时累加进默认会话的累计事件流,供下面的作用域断言使用。
 
-### 对话能力
+#### `sendFile`
 
-<ParamField body="t.reply" type="string">
-  当前 session 中最后一条 assistant 文本回复。
-</ParamField>
+```ts
+sendFile(path: string, text?: string): Promise<TurnHandle>;
+```
 
-<ParamField body="t.newSession()" type="() => void">
-  开启新的独立会话。
-</ParamField>
+发一条带文件(图片等多模态输入)的消息。`path` 相对项目根;读出后 base64 随 TurnInput.files 交给 adapter。
 
-### 工具可观测性
+#### `requireInputRequest`
 
-<ParamField body="t.calledTool(name, opts?)" type="function">
-  断言某个工具被调用。
-</ParamField>
+```ts
+requireInputRequest(filter?: InputRequestFilter): InputRequest;
+```
 
-<ParamField body="t.notCalledTool(name, opts?)" type="function">
-  断言某个工具未被调用。
-</ParamField>
+取默认会话里等待中的 HITL 输入请求;不传 filter 要求恰好一条,拿不到就抛。
 
-<ParamField body="t.event(type, opts?)" type="function">
-  底层事件流断言。
-</ParamField>
+#### `respond`
 
-### Workspace / sandbox 能力
+```ts
+respond(...responses: (string | RespondAnswer)[]): Promise<TurnHandle>;
+```
 
-<ParamField body="t.sandbox.fileChanged(path)" type="function">
-  断言文件被修改。
-</ParamField>
+回答默认会话里等待中的输入请求,返回续接的 TurnHandle。字符串形式按顺序对应各请求;
+多个请求并停、需要指名回答哪一条时用 RespondAnswer 对象形式(见其类型注释)。
 
-<ParamField body="t.check(commandResult, commandSucceeded())" type="function">
-  断言 sandbox 验证测试通过。
-</ParamField>
+#### `respondAll`
+
+```ts
+respondAll(optionId: string): Promise<TurnHandle>;
+```
+
+用同一个 optionId 批量回答默认会话里全部等待中的输入请求。
+
+#### `reply`
+
+```ts
+readonly reply: string;
+```
+
+默认会话最近一轮的助手回复文本。
+
+#### `sessionId`
+
+```ts
+readonly sessionId: string | undefined;
+```
+
+adapter 侧的默认会话 id(有会话概念的 agent 才有)。
+
+#### `events`
+
+```ts
+readonly events: readonly StreamEvent[];
+```
+
+默认会话累计的事件流(跨该会话所有轮次)。
+
+#### `newSession`
+
+```ts
+newSession(): SessionHandle;
+```
+
+另开一路独立会话,返回它的 SessionHandle——不是 void。多会话隔离的关键入口:
+新会话的发送与断言都与默认会话及其它 newSession() 会话相互隔离,常用于「多用户
+并行对话」「一条主线 + 一条旁支」这类场景。
+
+#### `signal`
+
+```ts
+readonly signal: AbortSignal;
+```
+
+本次 attempt 的中止信号;超时 / 早停 / 用户 Ctrl-C 时触发,传给 adapter 的长耗时调用做取消。
+
+#### `model`
+
+```ts
+readonly model?: string;
+```
+
+本次 attempt 使用的模型名(由 experiment/CLI flag 决定);省略即 agent 原生默认,不代表「无模型」。
+
+#### `reasoningEffort`
+
+```ts
+readonly reasoningEffort?: string;
+```
+
+本次 attempt 的推理努力程度(如 "low"/"medium"/"high",取值由 adapter/模型决定)。
+
+#### `flags`
+
+```ts
+readonly flags: Readonly<Record<string, unknown>>;
+```
+
+本次 attempt 生效的 flags(experiment.flags 与 CLI flag 合并后的只读视图)。
+
+#### `log`
+
+```ts
+log(msg: string): void;
+```
+
+打一行调试日志;有 live 进度回调时走该回调,否则落到 stderr,不出现在最终结果里。
+
+#### `skip`
+
+```ts
+skip(reason: string): never;
+```
+
+立即中止本 eval 并标记为 skipped(outcome / EvalResult.skipReason),reason 不能为空。
+
+#### `check`
+
+```ts
+check(value: unknown, assertion: ValueAssertion): AssertionHandle;
+```
+
+对任意值跑一个 ValueAssertion,返回可链 `.gate()` / `.atLeast()` 的 AssertionHandle。
+打分延迟到 eval 结束后统一 finalize,调用本身同步、不抛错——不通过只是记一条失败断言,
+不会中止后续代码。要「不满足就立即中止 eval」用 require。
+
+#### `require`
+
+```ts
+require(value: unknown, assertion: ValueAssertion): Promise<unknown>;
+```
+
+对任意值跑一个 ValueAssertion,立即(await 时)求值;不满足就抛错中止整个 eval 剩余步骤
+(仍会把这条断言计入报告,不影响已记录的其它断言)。跟 check 的区别:check 只记录、
+从不抛错,打分留到最后统一算;require 当场判定、失败即中止,适合「前置条件不满足,
+后面写了也没意义」的场景。
+
+#### `group`
+
+```ts
+group<T>(title: string, fn: () => Promise<T> | T): Promise<T>;
+```
+
+把一组断言归到一个有标题的分组下(对照 vitest 的 test('title', ...))。纯组织/报告用,
+不改打分:组里每条断言仍独立计分。可嵌套(标题用 › 连接)。
+
+#### `succeeded`
+
+```ts
+succeeded(): AssertionHandle;
+```
+
+断言默认会话累计状态为 "completed"(跨该会话所有轮次,不止最后一轮)。
+
+#### `parked`
+
+```ts
+parked(): AssertionHandle;
+```
+
+断言默认会话当前卡在 HITL 输入请求上。
+
+#### `messageIncludes`
+
+```ts
+messageIncludes(token: string | RegExp): AssertionHandle;
+```
+
+断言默认会话累计的助手回复包含 token(跨该会话所有轮次,不止最后一轮)。
+
+#### `calledTool`
+
+```ts
+calledTool(name: string, match?: ToolMatch): AssertionHandle;
+```
+
+断言默认会话累计调用过指定名字的工具;match 可约束入参 / 次数 / 状态。
+
+#### `notCalledTool`
+
+```ts
+notCalledTool(name: string, match?: ToolMatch): AssertionHandle;
+```
+
+断言默认会话累计未调用指定工具(或未按 match 条件调用)。
+
+#### `toolOrder`
+
+```ts
+toolOrder(names: string[]): AssertionHandle;
+```
+
+断言默认会话累计工具调用按给定顺序出现(允许中间夹杂其它调用)。
+
+#### `usedNoTools`
+
+```ts
+usedNoTools(): AssertionHandle;
+```
+
+断言默认会话至今未调用任何工具。
+
+#### `maxToolCalls`
+
+```ts
+maxToolCalls(max: number): AssertionHandle;
+```
+
+断言默认会话累计工具调用总数不超过 max。
+
+#### `loadedSkill`
+
+```ts
+loadedSkill(skill: string): AssertionHandle;
+```
+
+断言默认会话累计加载过指定 skill。
+
+#### `noFailedActions`
+
+```ts
+noFailedActions(): AssertionHandle;
+```
+
+断言默认会话累计没有失败的工具调用 / 命令。
+
+#### `event`
+
+```ts
+event(type: StreamEvent["type"], opts?: { count?: number }): AssertionHandle;
+```
+
+断言默认会话累计出现过指定类型的事件;opts.count 可约束出现次数。
+
+#### `notEvent`
+
+```ts
+notEvent(type: StreamEvent["type"]): AssertionHandle;
+```
+
+断言默认会话累计未出现指定类型的事件。
+
+#### `calledSubagent`
+
+```ts
+calledSubagent(name: string, match?: SubagentMatch): AssertionHandle;
+```
+
+断言默认会话累计调用过指定名字的子 agent;match 可约束次数 / 状态 / remoteUrl。
+
+#### `eventOrder`
+
+```ts
+eventOrder(types: StreamEvent["type"][]): AssertionHandle;
+```
+
+断言默认会话累计事件按给定类型顺序出现(允许中间夹杂其它事件)。
+
+#### `eventsSatisfy`
+
+```ts
+eventsSatisfy(predicate: (events: readonly StreamEvent[]) => boolean, label?: string): AssertionHandle;
+```
+
+用自定义谓词对默认会话累计的整段事件流断言;失败时用 label 说明原因。
+
+#### `sandbox`
+
+```ts
+readonly sandbox: SandboxHandle;
+```
+
+受限沙箱视图:能执行命令 / 读写文件 / 看最终 diff,不能 stop 沙箱本身(见 SandboxHandle)。
+
+#### `usage`
+
+```ts
+readonly usage: Usage;
+```
+
+默认会话累计的 token 用量与估算成本。
+
+#### `maxTokens`
+
+```ts
+maxTokens(max: number): AssertionHandle;
+```
+
+断言默认会话累计 token 用量不超过 max。
+
+#### `maxCost`
+
+```ts
+maxCost(usd: number): AssertionHandle;
+```
+
+断言默认会话累计花费(USD)不超过 usd。
+
+#### `judge`
+
+```ts
+readonly judge: JudgeNamespace;
+```
+
+可用的 judge 命名空间(t.judge.autoevals.*)。
+
+{/* GENERATED:END test-context */}
 
 ## Judge 断言
 
@@ -116,29 +429,234 @@ export default defineEval({
 t.judge.autoevals.factuality(expected, { on: t.reply }).atLeast(0.8);
 t.judge.autoevals.closedQA(question, { on: t.reply }).atLeast(0.7);
 t.judge.autoevals.closedQA(rubric, { on: t.reply }).atLeast(0.75);
+t.judge.autoevals.summarizes(sourceText, { on: t.reply }).atLeast(0.7);
 ```
+
+`t.judge.autoevals` 目前有三个方法：`factuality`（回复与 `expected` 事实是否一致）、`closedQA`（回复是否满足给定问题或 rubric）、`summarizes`（回复是否是给定原文 `source` 的合格摘要）。三者都直接用 [autoevals](https://github.com/braintrustdata/autoevals)（braintrust）库的评分器，`{ on: t.reply }` 指定被评的文本。
 
 ## `Turn` 返回类型
 
-<ResponseField name="events" type="StreamEvent[]">
-  标准事件流。
-</ResponseField>
+`t.send(...)` 返回一个 `TurnHandle`：从事件流派生的便利字段，加上一整套本轮作用域断言。
 
-<ResponseField name="data" type="unknown | undefined">
-  结构化输出。
-</ResponseField>
+{/* GENERATED:BEGIN turn-handle */}
 
-<ResponseField name="status" type='"completed" | "failed" | "waiting"'>
-  当前 turn 状态。
-</ResponseField>
+#### `events`
 
-<ResponseField name="message" type="string">
-  assistant 文本回复。
-</ResponseField>
+```ts
+readonly events: StreamEvent[];
+```
 
-<ResponseField name="toolCalls" type="ToolCall[]">
-  当前 turn 的工具调用。
-</ResponseField>
+本轮的原始事件流(工具调用、消息增量等);下面的派生字段都算自它。
+
+#### `toolCalls`
+
+```ts
+readonly toolCalls: readonly ToolCall[];
+```
+
+本轮内被调用的工具列表,从 events 派生。
+
+#### `status`
+
+```ts
+readonly status: "completed" | "failed" | "waiting";
+```
+
+本轮结束状态:"completed" 正常结束、"failed" 出错、"waiting" 卡在 HITL 输入请求上。
+
+#### `message`
+
+```ts
+readonly message: string;
+```
+
+本轮助手最终文本回复(events 里的消息增量拼接结果)。
+
+#### `data`
+
+```ts
+readonly data?: unknown;
+```
+
+adapter 附带的结构化输出(如有),供 outputEquals / outputMatches 比对。
+
+#### `usage`
+
+```ts
+readonly usage?: Usage;
+```
+
+本轮 token 用量与估算成本(仅上报了 usage 的 agent 才有)。
+
+#### `expectOk`
+
+```ts
+expectOk(): TurnHandle;
+```
+
+上一轮若 failed 则抛(中止后续)。
+
+#### `outputEquals`
+
+```ts
+outputEquals(value: unknown): AssertionHandle;
+```
+
+断言 data 与给定值深度相等。
+
+#### `outputMatches`
+
+```ts
+outputMatches(schema: unknown): AssertionHandle;
+```
+
+断言 data 满足给定 schema(如 zod schema)。
+
+#### `messageIncludes`
+
+```ts
+messageIncludes(token: string | RegExp): AssertionHandle;
+```
+
+断言本轮助手回复包含 token(仅限本轮事件流,不跨轮)。
+
+#### `succeeded`
+
+```ts
+succeeded(): AssertionHandle;
+```
+
+断言本轮 status 为 "completed"。
+
+#### `parked`
+
+```ts
+parked(): AssertionHandle;
+```
+
+断言本轮卡在 HITL 输入请求上(status 为 "waiting")。
+
+#### `calledTool`
+
+```ts
+calledTool(name: string, match?: ToolMatch): AssertionHandle;
+```
+
+断言本轮调用过指定名字的工具;`match` 可进一步约束入参 / 次数 / 状态。
+
+#### `notCalledTool`
+
+```ts
+notCalledTool(name: string, match?: ToolMatch): AssertionHandle;
+```
+
+断言本轮未调用指定工具(或未按 match 条件调用)。
+
+#### `toolOrder`
+
+```ts
+toolOrder(names: string[]): AssertionHandle;
+```
+
+断言本轮工具调用按给定顺序出现(允许中间夹杂其它调用)。
+
+#### `usedNoTools`
+
+```ts
+usedNoTools(): AssertionHandle;
+```
+
+断言本轮未调用任何工具。
+
+#### `maxToolCalls`
+
+```ts
+maxToolCalls(max: number): AssertionHandle;
+```
+
+断言本轮工具调用总数不超过 max。
+
+#### `loadedSkill`
+
+```ts
+loadedSkill(skill: string): AssertionHandle;
+```
+
+断言本轮加载过指定 skill。
+
+#### `noFailedActions`
+
+```ts
+noFailedActions(): AssertionHandle;
+```
+
+断言本轮没有失败的工具调用 / 命令。
+
+#### `event`
+
+```ts
+event(type: StreamEvent["type"], opts?: { count?: number }): AssertionHandle;
+```
+
+断言本轮出现过指定类型的事件;`opts.count` 可约束出现次数。
+
+#### `notEvent`
+
+```ts
+notEvent(type: StreamEvent["type"]): AssertionHandle;
+```
+
+断言本轮未出现指定类型的事件。
+
+#### `calledSubagent`
+
+```ts
+calledSubagent(name: string, match?: SubagentMatch): AssertionHandle;
+```
+
+断言本轮调用过指定名字的子 agent;`match` 可约束次数 / 状态 / remoteUrl。
+
+#### `eventOrder`
+
+```ts
+eventOrder(types: StreamEvent["type"][]): AssertionHandle;
+```
+
+断言本轮事件按给定类型顺序出现(允许中间夹杂其它事件)。
+
+#### `eventsSatisfy`
+
+```ts
+eventsSatisfy(predicate: (events: readonly StreamEvent[]) => boolean, label?: string): AssertionHandle;
+```
+
+用自定义谓词对本轮整段事件流断言;失败时用 label 说明原因。
+
+#### `maxTokens`
+
+```ts
+maxTokens(max: number): AssertionHandle;
+```
+
+断言本轮 token 用量不超过 max。
+
+#### `maxCost`
+
+```ts
+maxCost(usd: number): AssertionHandle;
+```
+
+断言本轮花费(USD)不超过 usd。
+
+#### `judge`
+
+```ts
+readonly judge: JudgeNamespace;
+```
+
+本轮可用的 judge 命名空间(t.judge.autoevals.*)。
+
+{/* GENERATED:END turn-handle */}
 
 ## 数据集导出
 

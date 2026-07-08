@@ -16,23 +16,21 @@ description: "defineAgent 和 defineSandboxAgent 参考：AgentContext、AgentSe
 import { defineAgent } from "niceeval/adapter";
 ```
 
-<ParamField body="name" type="string" required>
-  agent 唯一名字。experiment 引用 agent 对象,报告按这个名字分组。
-</ParamField>
+`defineAgent` 产出的 `Agent.kind` 恒为 `"remote"`(内部判别字段,不用你声明)。`t` 上没有需要声明才解锁的能力位——`t.sandbox` 这类文件系统断言只在 `defineSandboxAgent` 构造的 agent(`kind: "sandbox"`)上才有,其余全靠 `send` 实际返回了什么事件/`ctx.session` 用没用来判断,详见[能力位参考](/zh/reference/capabilities)。字段全集见下方「Agent 与 Adapter Context 字段」。
 
-<ParamField body="tracing" type="AgentTracing">
-  OTLP 导出配置,CLI / 子进程型 agent 用:声明怎么把接收端点交给被测进程(`env` / `configure`)。长驻 HTTP 应用不需要这个字段——在 `niceeval.config.ts` 配 `telemetry: { port }` 固定端口即可(见[OTel 接入](/zh/guides/connect-otel))。span 只进 `niceeval view` 的瀑布图,不喂断言。
-</ParamField>
+### direct agent 示例
 
-<ParamField body="spanMapper" type="(spans: TraceSpan[]) => TraceSpan[]">
-  原生 span → canonical GenAI semconv 的薄 mapper,只影响瀑布图的语义着色。省略走通用 heuristic 兜底。映射目标(什么属性亮起瀑布图的什么)与自定义写法(`tagSpan` / `heuristicTag`)见[OTel 接入](/zh/guides/connect-otel)。
-</ParamField>
-
-<ParamField body="send" type="(input: TurnInput, ctx: AgentContext) => Promise<Turn>" required>
-  驱动 agent 的核心函数。必须返回标准 `Turn`。
-</ParamField>
-
-`defineAgent` 产出的 `Agent.kind` 恒为 `"remote"`(内部判别字段,不用你声明)。`t` 上没有需要声明才解锁的能力位——`t.sandbox` 这类文件系统断言只在 `defineSandboxAgent` 构造的 agent(`kind: "sandbox"`)上才有,其余全靠 `send` 实际返回了什么事件/`ctx.session` 用没用来判断,详见[能力位参考](/zh/reference/capabilities)。
+```ts
+export default defineAgent({
+  name: "echo",
+  async send(input) {
+    return {
+      status: "completed",
+      events: [{ type: "message", role: "assistant", text: input.text }],
+    };
+  },
+});
+```
 
 ## `input`(`TurnInput`)
 
@@ -48,96 +46,9 @@ import { defineAgent } from "niceeval/adapter";
   仅回答轮(`t.respond` / `t.respondAll`)出现:逐请求的结构化回答,按 `requestId` 对位。
 </ResponseField>
 
-## `ctx`(`AgentContext`)
-
-<ResponseField name="signal" type="AbortSignal">
-  用于超时和取消,透传给你发出的每个请求。
-</ResponseField>
-
-<ResponseField name="model" type="string | undefined">
-  Tier 1 的模型对比:`experiment.model` 透传;应用接口收模型选择就转发。
-</ResponseField>
-
-<ResponseField name="flags" type="Readonly<Record<string, unknown>>">
-  Tier 3 的 feature A/B:`experiment.flags` 透传;没配时是 `{}`。
-</ResponseField>
-
-<ResponseField name="telemetry" type="Telemetry | undefined">
-  仅当配置了 OTel 接入时出现:本轮的 W3C trace context(`headers`,每轮一个新 `traceparent`)。
-</ResponseField>
-
-<ResponseField name="sandbox" type="Sandbox | undefined">
-  仅 `defineSandboxAgent` 构造的 agent 会拿到。
-</ResponseField>
-
-<ResponseField name="session" type="AgentSession">
-  本条会话线的状态槽。同一条会话线的每次 `send` 拿到同一个 `ctx.session`,新会话线(eval 第一轮,或 `t.newSession()` 之后)拿到全新的:
-
-  - `id?: string` / `capture(id): void` —— 会话续接·服务端记历史时用:`id` 是本线记过的会话 id(新线是 `undefined`),`capture` 记回传的 id(只在还没记过时落地)。
-  - `history<TMsg>(): { get(): TMsg[]; commit(messages: TMsg[]): void }` —— 会话续接·客户端带全量历史时用。
-  - `hold<T>(state: T): void` / `take<T>(): T | undefined` —— HITL 停轮现场的存取,`take` 取到即清除(一次消费)。
-  - `state: Record<string, unknown>` —— 逃生舱,起始 `{}`,框架从不写入。
-
-  完整契约见[Adapter 概念](/zh/concepts/adapter#上下文：agentcontext)。
-</ResponseField>
-
-<ResponseField name="log" type="(msg: string) => void">
-  向运行日志写消息,`niceeval view` 里可见。
-</ResponseField>
-
-## direct agent 示例
-
-```ts
-export default defineAgent({
-  name: "echo",
-  async send(input) {
-    return {
-      status: "completed",
-      events: [{ type: "message", role: "assistant", text: input.text }],
-    };
-  },
-});
-```
-
 ## `defineSandboxAgent`
 
-用于 coding agent CLI。产出的 `Agent.kind` 恒为 `"sandbox"`——`t.sandbox`、`t.sandbox.fileChanged()` 等文件系统断言只在这类 agent 上解锁。`ctx.sandbox` 是当前隔离环境的句柄：
-
-<ResponseField name="runCommand(cmd, args?, opts?)" type="(cmd: string, args?: string[], opts?: CommandOptions) => Promise<CommandResult>">
-  运行命令。
-</ResponseField>
-
-<ResponseField name="runShell(script, opts?)" type="(script: string, opts?: CommandOptions) => Promise<CommandResult>">
-  运行 shell 脚本。
-</ResponseField>
-
-<ResponseField name="readFile(path)" type="(path: string) => Promise<string>">
-  读取 sandbox 内文件。
-</ResponseField>
-
-<ResponseField name="fileExists(path)" type="(path: string) => Promise<boolean>">
-  检查 sandbox 内文件是否存在。
-</ResponseField>
-
-<ResponseField name="writeFiles(files, targetDir?)" type="(files: Record<string, string>, targetDir?: string) => Promise<void>">
-  按路径写入文件内容。
-</ResponseField>
-
-<ResponseField name="uploadFiles(files, targetDir?)" type="(files: SandboxFile[], targetDir?: string) => Promise<void>">
-  上传本地文件到 sandbox。
-</ResponseField>
-
-<ResponseField name="uploadDirectory(localDir, targetDir?, opts?)" type="(localDir: string, targetDir?: string, opts?: { ignore?: string[] }) => Promise<void>">
-  上传整个本地目录,通常用于写入 eval 的起始文件。
-</ResponseField>
-
-<ResponseField name="sandboxId" type="string">
-  当前 sandbox 实例的 id。
-</ResponseField>
-
-<ResponseField name="stop()" type="() => Promise<void>">
-  停止 sandbox。
-</ResponseField>
+用于 coding agent CLI。产出的 `Agent.kind` 恒为 `"sandbox"`——`t.sandbox`、`t.sandbox.fileChanged()` 等文件系统断言只在这类 agent 上解锁。字段全集同样见下方「Agent 与 Adapter Context 字段」的 `SandboxAgentDef`；`ctx.sandbox`(`Sandbox` 接口)的完整方法见再下方「Sandbox 接口」。
 
 ```ts
 import { defineSandboxAgent } from "niceeval/adapter";
@@ -162,6 +73,388 @@ export default defineExperiment({
   runs: 1,
 });
 ```
+
+## Agent 与 Adapter Context 字段
+
+`defineAgent`(`RemoteAgentDef`)、`defineSandboxAgent`(`SandboxAgentDef`)的构造参数，以及两者的 `send(input, ctx)` 都会拿到的 `ctx`(`AgentContext`)：
+
+{/* GENERATED:BEGIN agent-def */}
+
+### `RemoteAgentDef`
+
+#### `name`
+
+```ts
+name: string;
+```
+
+agent 的显示名/标识,原样进入 `Agent.name`——不是注册表查找 key,只用于展示、结果归属与去重指纹。
+
+#### `setup`
+
+```ts
+setup?: AgentSetup;
+```
+
+每个 attempt 一次(remote agent 没有真实沙箱,运行器会传入一个仅含 `workdir`/`sandboxId`/
+`otlpHost`/`stop` 等元信息的 stub `Sandbox`,其余方法调用即抛错——不要在这里调用
+文件/命令类沙箱方法)。常用于建立连接、鉴权等一次性准备。可返回一个 cleanup 闭包,
+与 `teardown` 都在 finally 里跑。
+
+#### `tracing`
+
+```ts
+tracing?: AgentTracing;
+```
+
+OTLP 导出配置:远程被测对象怎么把 trace 发到 endpoint(env-based 注入 / file-based 配置)。
+
+#### `spanMapper`
+
+```ts
+spanMapper?: SpanMapper;
+```
+
+原生 span → canonical 的薄 mapper;省略走通用 heuristic。只影响瀑布图。
+
+#### `send`
+
+```ts
+send(input: TurnInput, ctx: AgentContext): Promise<Turn>;
+```
+
+每轮一次:把一轮 prompt 发给远程被测对象(HTTP/SDK 等),解析响应成 events。
+
+#### `teardown`
+
+```ts
+teardown?: AgentTeardown;
+```
+
+运行结束前的清理(与 setup 返回的 cleanup 一起、都在 finally 里跑一次)。
+
+### `SandboxAgentDef`
+
+#### `name`
+
+```ts
+name: string;
+```
+
+agent 的显示名/标识,原样进入 `Agent.name`——不是注册表查找 key,只用于展示、结果归属与去重指纹。
+
+#### `setup`
+
+```ts
+setup?: AgentSetup;
+```
+
+每个沙箱一次(不是每轮一次):装 CLI、写 config.toml / 鉴权配置(model/base/auth 等
+本轮内不变的东西)。运行器在沙箱备好(上传/基线/eval.setup 之后)、第一次 send 前
+调用一次。可返回一个 cleanup 闭包,与 `teardown` 一起在 finally 里跑。
+
+#### `tracing`
+
+```ts
+tracing?: AgentTracing;
+```
+
+OTLP 导出配置:沙箱里怎么让 CLI 把 trace 发到 endpoint(env / 配置文件),从 setup 拆出。
+
+#### `spanMapper`
+
+```ts
+spanMapper?: SpanMapper;
+```
+
+原生 span → canonical 的薄 mapper;省略走通用 heuristic。只影响瀑布图。
+
+#### `send`
+
+```ts
+send(input: TurnInput, ctx: AgentContext): Promise<Turn>;
+```
+
+每轮一次:跑 prompt(fresh / resume)+ 解析成 events。
+
+#### `teardown`
+
+```ts
+teardown?: AgentTeardown;
+```
+
+沙箱销毁前的清理(与 setup 返回的 cleanup 一起、都在 finally 里跑一次)。
+
+### `AgentContext`
+
+#### `signal`
+
+```ts
+readonly signal: AbortSignal;
+```
+
+软取消信号:合并了 attempt 超时、run 级中断(用户 Ctrl+C)与 eval 自身的中断请求
+(见 src/runner/attempt.ts)。adapter 可以选择性检查它(或直接传给 `fetch`)以提前
+优雅退出,但这不是唯一的硬边界——即便 adapter 完全忽略它,运行器也会用
+`Effect.timeoutTo` 兜底强制收尾(停沙箱容器)。
+
+#### `model`
+
+```ts
+readonly model?: string;
+```
+
+本次 attempt 用的模型名,透传自 experiment 的 `model` 字段。sandbox 型 agent 通常在 setup 里用它写配置,remote 型通常在 send 里用它选模型。
+
+#### `reasoningEffort`
+
+```ts
+readonly reasoningEffort?: string;
+```
+
+模型推理努力程度;归属同 model——实验决定,省略时不覆盖 agent 原生默认。
+
+#### `flags`
+
+```ts
+readonly flags: Readonly<Record<string, unknown>>;
+```
+
+experiment 的 `flags` 字段原样透传,内容和结构完全由 experiment 作者自定义
+(如 `{ webResearch: true }`、`{ systemPrompt: "..." }`)。adapter 按自己的约定
+读取其中的字段;框架本身不解释、不校验它的内容。与 CLI 解析出的同名 `flags`
+(跑法层面的 --timeout/--budget 等)是两个不相关的概念。
+
+#### `sandbox`
+
+```ts
+readonly sandbox: Sandbox;
+```
+
+仅沙箱型 agent 有(运行器按 --sandbox 备好)。
+
+#### `session`
+
+```ts
+readonly session: AgentSession;
+```
+
+#### `telemetry`
+
+```ts
+readonly telemetry?: Telemetry;
+```
+
+仅当配置了 OTel 接入时有(agent 的 `tracing` 块 / config 的 telemetry 存在):
+本次运行的 OTLP traces 接收信息(endpoint + env-based 导出 env)。
+怎么把它交给 CLI 由 agent 的 `tracing` 块声明:env-based 的把 ctx.telemetry.env
+spread 进 send;file-based 的在 tracing.configure 里写配置。远程 HTTP 接入的 send
+只需要把 headers spread 进请求头(每轮一个新 traceparent);端点是启动期配置
+(defineConfig(&#123; telemetry: &#123; port &#125; &#125;))固定的,不从这里传。
+
+#### `log`
+
+```ts
+log(msg: string): void;
+```
+
+写一行进运行器自身的进度日志(落 stderr,或调用方传入的 `onProgress` 回调)。
+超时失败时,最近若干行会并入结果的 error 信息,方便定位卡在哪一步。
+与 `Sandbox.appendLog` 是两回事:那个是把一行写进容器自己的原生日志
+(`docker logs` 能看到),这里只是运行器的观测通道。
+
+{/* GENERATED:END agent-def */}
+
+`ctx.session`(`AgentSession`)是一条会话线的状态槽:同一条会话线的每次 `send` 拿到同一个 `ctx.session`,新会话线(eval 第一轮 / `t.newSession()` 之后)拿到一个全新的。存取器:
+
+- `id?: string` / `capture(id): void` —— 会话续接·服务端记历史时用:`id` 是本线记过的会话 id(新线是 `undefined`),`capture` 记回传的 id(只在还没记过时落地)。
+- `history<TMsg>(): { get(): TMsg[]; commit(messages: TMsg[]): void }` —— 会话续接·客户端带全量历史时用。
+- `hold<T>(state: T): void` / `take<T>(): T | undefined` —— HITL 停轮现场的存取,`take` 取到即清除(一次消费)。
+- `state: Record<string, unknown>` —— 逃生舱,起始 `{}`,框架从不写入。
+
+完整契约见[Adapter 概念](/zh/concepts/adapter#上下文：agentcontext)。
+
+## Sandbox 接口
+
+沙箱型 agent 的 `ctx.sandbox`(`Sandbox`)是当前隔离环境的句柄；`CommandOptions` 是 `runCommand` / `runShell` 的可选项：
+
+{/* GENERATED:BEGIN sandbox-methods */}
+
+### `Sandbox`
+
+#### `workdir`
+
+```ts
+readonly workdir: string;
+```
+
+沙箱内项目/工作区根目录的绝对路径(agent 命令的默认 cwd,也是 git baseline 提交的位置)。各方法的相对路径都以此为基准解析,省略 `cwd`/`targetDir` 时也落到这里。
+
+#### `runCommand`
+
+```ts
+runCommand(cmd: string, args?: string[], opts?: CommandOptions): Promise<CommandResult>;
+```
+
+执行单个命令,`args` 作为独立 argv 传递、不经 shell 解释(无 `&&`、管道、通配符展开)。
+只想跑一个可执行文件、参数来自外部输入、担心注入时优先用它。
+
+#### `runShell`
+
+```ts
+runShell(script: string, opts?: CommandOptions): Promise<CommandResult>;
+```
+
+执行一整段脚本,经 shell(bash)解释,支持 `&&`、管道、`$()`、重定向等。
+需要拼多条命令或做条件判断时用它。
+
+#### `readFile`
+
+```ts
+readFile(path: string): Promise<string>;
+```
+
+读取沙箱内文件的文本内容(UTF-8)。文件不存在时抛错,不返回空字符串——需要容错请自行 `.catch()`。
+
+#### `fileExists`
+
+```ts
+fileExists(path: string): Promise<boolean>;
+```
+
+检查沙箱内路径是否存在。跨后端语义不完全一致:仅保证对普通文件可靠,对目录路径的行为不同后端不保证一致。
+
+#### `readSourceFiles`
+
+```ts
+readSourceFiles(opts?: ReadSourceFilesOptions): Promise<SourceFiles>;
+```
+
+一次 shell 往返读全部源码文件(按扩展名收、按目录/文件名忽略)。
+取代每个 eval 目录里手写的 find + 逐文件 readFile。
+
+#### `writeFiles`
+
+```ts
+writeFiles(files: Record<string, string>, targetDir?: string): Promise<void>;
+```
+
+写入若干文本文件(内容已在内存里的字符串);是 `uploadFiles` 的文本特化,省略 `targetDir` 落到 workdir。
+
+#### `uploadFiles`
+
+```ts
+uploadFiles(files: SandboxFile[], targetDir?: string): Promise<void>;
+```
+
+批量写入若干文件,内容可以是文本或二进制 Buffer;省略 `targetDir` 落到 workdir。
+
+#### `uploadDirectory`
+
+```ts
+uploadDirectory(localDir: string, targetDir?: string, opts?: { ignore?: string[] }): Promise<void>;
+```
+
+把本地磁盘上的一个目录整体上传进沙箱(递归读取本地文件后按 `uploadFiles` 写入);`opts.ignore` 是排除规则,省略 `targetDir` 落到 workdir。
+
+#### `stop`
+
+```ts
+stop(): Promise<void>;
+```
+
+销毁沙箱占用的计算资源(容器/microVM)。调用后沙箱不可再用;是否可安全重复调用因后端而异,不要依赖这一点。
+
+#### `sandboxId`
+
+```ts
+readonly sandboxId: string;
+```
+
+本沙箱的稳定标识(各后端原生 ID,如 Docker 容器 ID 前缀);用于跨调用关联同一沙箱的会话状态,也用于日志展示。
+
+#### `otlpHost`
+
+```ts
+readonly otlpHost: string | null;
+```
+
+本地 OTLP 接收器的目标 host。
+- `string`:沙箱内可通过该 hostname 回连宿主 OTLP 端口(如 docker 的 `host.docker.internal`)。
+- `null`:沙箱运行在远程云端(如 e2b/vercel),无法访问宿主本地端口 → 跳过 tracing。
+  可通过环境变量 `NICEEVAL_OTLP_HOST` 强制覆盖(如配置 tunnel 时)。
+
+#### `appendLog`
+
+```ts
+appendLog?(line: string): Promise<void>;
+```
+
+可选:把一行写进容器的「主日志」(PID1 在 tail 它)——于是 `docker logs` /
+Docker UI 的 Logs 标签页能实时看到 agent 逐轮活动。docker 后端实现,其它可省略。
+
+#### `downloadFile`
+
+```ts
+downloadFile(path: string): Promise<Buffer>;
+```
+
+从沙箱内任意路径读取文件,返回二进制 Buffer。
+对应各 backend:Docker getArchive / Vercel readFileToBuffer / e2b files.read(bytes) / …
+
+#### `uploadFile`
+
+```ts
+uploadFile(path: string, content: Buffer): Promise<void>;
+```
+
+向沙箱内任意路径写入文件(二进制)。
+对应各 backend:Docker putArchive / Vercel fs.writeFile(Buffer) / e2b files.write / …
+
+### `CommandOptions`
+
+#### `env`
+
+```ts
+env?: Record<string, string>;
+```
+
+追加/覆盖本命令的环境变量(与沙箱默认环境叠加,不清空默认值;各后端会保留自己固定的 `PATH` 等变量,不保证能被这里覆盖)。
+
+#### `cwd`
+
+```ts
+cwd?: string;
+```
+
+本命令的工作目录;省略时落到 `Sandbox.workdir`。相对路径按 workdir 解析,绝对路径原样使用。
+
+#### `stream`
+
+```ts
+stream?: boolean;
+```
+
+把本命令的输出也送进沙箱的「原生日志流」(于是 `docker logs` / Docker UI 的 Logs
+标签页能实时看到它)。给 agent 命令(codex exec / bub run / claude)开它,就能在容器
+日志里看到 agent 的【原始输出】。后端各自实现(docker:tee 到 PID1 tail 的文件;
+不支持的后端忽略)—— 日志怎么浮现是 backend 的事,adapter 只声明意图。
+
+#### `root`
+
+```ts
+root?: boolean;
+```
+
+以 root 跑本命令。默认 `false` —— 命令以沙箱的标准**非 root** 用户跑(agent 的自然环境)。
+给 setup 阶段装系统依赖用(`apt-get install …`、`pip install --break-system-packages …`)。
+
+语义跨后端一致:"本命令以 root 跑,否则以标准非 root 用户跑"。各后端映射到自己的原生机制
+(docker:`exec --user root`;E2B:`{ user: "root" }`;Vercel:`{ sudo: true }`;Daytona:`{ user }`)。
+本就全程 root 的后端(如 Modal)视作 no-op;完全无法提权的后端可不支持(抛错)—— 但**默认值与
+语义保持一致**,不因后端而变。
+
+{/* GENERATED:END sandbox-methods */}
 
 ## ctx 与 t
 

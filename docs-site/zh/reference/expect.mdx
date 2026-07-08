@@ -25,64 +25,117 @@ t.require(turn.status, equals("completed"));
 
 ## Matchers
 
-### `includes`
+下面每个 matcher 的签名和说明从 `niceeval/expect` 的源码生成，和当前实现保持同步。
+
+{/* GENERATED:BEGIN expect-matchers */}
+
+#### `includes`
 
 ```ts
-includes(substring: string | RegExp): Assertion
+export function includes(needle: string | RegExp, opts?: MatchOptions): ValueAssertion { ... }
 ```
 
-断言字符串包含指定子串，或匹配正则。
+String(value) 含子串 / 命中正则则 1,否则 0。默认硬门槛。opts.stripComments 时只看真实代码。
+
+#### `excludes`
+
+```ts
+export function excludes(needle: string | RegExp, opts?: MatchOptions): ValueAssertion { ... }
+```
+
+includes 的取反:不含子串 / 不命中正则则 1,否则 0。默认硬门槛。opts.stripComments 时只看真实代码。
+
+#### `equals`
+
+```ts
+export function equals(expected: unknown): ValueAssertion { ... }
+```
+
+深相等则 1,否则 0。默认硬门槛。
+
+#### `matches`
+
+```ts
+export function matches(schema: unknown): ValueAssertion { ... }
+```
+
+用 schema 校验 value——不是正则匹配,是 Standard Schema / zod 风格的结构校验。
+优先 Standard Schema(schema['~standard'].validate),否则退化到 zod 风格的
+.safeParse / .parse。校验通过 1,否则 0;任何异常 → 0。默认硬门槛。
+
+#### `similarity`
+
+```ts
+export function similarity(expected: string): ValueAssertion { ... }
+```
+
+纯字符串编辑距离,不是语义相似度——归一化 Levenshtein 距离 [0,1](1 - 编辑距离 / 较长串长度),
+不理解含义,同义改写 / 语序调整会被判低分。默认软分,阈值 0.6。
+
+#### `satisfies`
+
+```ts
+export function satisfies(predicate: (v: unknown) => boolean, label?: string): ValueAssertion { ... }
+```
+
+谓词为真则 1,否则 0。默认硬门槛;name 带上 label 便于报告辨认。
+
+#### `isDefined`
+
+```ts
+export function isDefined(label?: string): ValueAssertion { ... }
+```
+
+value 非 null / 非 undefined 则 1,否则 0。省掉 `x !== undefined` + isTrue 的样板。默认硬门槛。
+
+#### `isTrue`
+
+```ts
+export function isTrue(label?: string): ValueAssertion { ... }
+```
+
+value === true 则 1,否则 0。带 label 的布尔断言(fileExists 等检查用)。默认硬门槛。
+
+#### `commandSucceeded`
+
+```ts
+export function commandSucceeded(): ValueAssertion { ... }
+```
+
+CommandResult.exitCode === 0 则 1,否则 0。默认硬门槛。
+
+#### `isFalse`
+
+```ts
+export function isFalse(label?: string): ValueAssertion { ... }
+```
+
+value === false 则 1,否则 0。带 label 的布尔断言。默认硬门槛。
+
+#### `makeAssertion`
+
+```ts
+export function makeAssertion(spec: {
+  name: string;
+  severity?: Severity;
+  threshold?: number;
+  score: (value: unknown) => number | Promise<number>;
+}): ValueAssertion { ... }
+```
+
+自定义断言工厂:直接给名字 / 严重级 / 阈值 / score,一次调用即返回可用的 ValueAssertion——
+不像 gate()/atLeast() 那样需要二段链式调用来定级。severity 省略默认 gate。
+
+{/* GENERATED:END expect-matchers */}
+
+### 常见用法示例
 
 ```ts
 t.check(t.reply, includes("Paris"));
 t.check(t.reply, includes(/order #\d+/i));
-```
-
-### `equals`
-
-```ts
-equals(expected: unknown): Assertion
-```
-
-断言深度结构相等，适合 JSON、数组和对象。
-
-```ts
 t.check(turn.data, equals({ intent: "refund" }));
-```
-
-### `matches`
-
-```ts
-matches(pattern: RegExp): Assertion
-```
-
-断言字符串匹配正则。
-
-```ts
 t.check(t.reply, matches(/#[A-Z0-9]{8}/));
-```
-
-### `similarity`
-
-```ts
-similarity(expected: string): Assertion
-```
-
-用于语义或文本相似度检查，通常配合阈值。
-
-```ts
 t.check(t.reply, similarity("The answer explains the refund window").atLeast(0.8));
-```
-
-### `satisfies`
-
-```ts
-satisfies(predicate: (value: unknown) => boolean): Assertion
-```
-
-用自定义谓词检查值。
-
-```ts
 t.check(turn.data, satisfies((value) => Array.isArray(value)));
 ```
 
@@ -93,8 +146,52 @@ t.check(t.reply, includes("required").gate());
 t.check(t.reply, includes("nice to have").atLeast(0.7));
 ```
 
-- `gate()`：失败会让 eval 失败。
-- `soft()`：参与评分，但不一定让 eval 失败。
+每个 matcher 返回的 `Assertion`（即 `ValueAssertion`）都带有这些成员；`.gate()` 把它变成硬门槛，`.atLeast()` 变成软阈值：
+
+{/* GENERATED:BEGIN value-assertion */}
+
+#### `name`
+
+```ts
+readonly name: string;
+```
+
+#### `severity`
+
+```ts
+readonly severity: Severity;
+```
+
+#### `threshold`
+
+```ts
+readonly threshold?: number;
+```
+
+#### `score`
+
+```ts
+score(value: unknown): number | Promise<number>;
+```
+
+#### `gate`
+
+```ts
+gate(threshold?: number): ValueAssertion;
+```
+
+转成硬门槛断言:未达阈值(省略 threshold 则按 score &gt; 0 判定)整条 eval 判为 failed。返回新实例,不改原对象。
+
+#### `atLeast`
+
+```ts
+atLeast(threshold: number): ValueAssertion;
+```
+
+转成软阈值断言:未达 threshold 时该条记为 failed,但默认不拖累整条 eval 的 outcome;
+`--strict` 运行下,软阈值失败也会把整条 eval 的 outcome 计为 failed。返回新实例,不改原对象。
+
+{/* GENERATED:END value-assertion */}
 
 ## 自定义 matcher
 

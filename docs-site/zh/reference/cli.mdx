@@ -13,7 +13,7 @@ description: "NiceEval CLI 参考：exp、init、list、clean 和 view 命令，
     运行命名实验组或配置。可选尾随位置参数按 eval ID 前缀过滤。
   </Card>
   <Card title="npx niceeval init" icon="wand-magic-sparkles">
-    生成 `evals/`、`niceeval.config.ts` 和示例文件。
+    创建空的 `evals/` 目录和最小的 `niceeval.config.ts`；不生成示例 eval 文件。
   </Card>
   <Card title="npx niceeval list" icon="list">
     发现并打印所有 eval，不运行。
@@ -56,39 +56,31 @@ npx niceeval exp compare-models weather
 
 ## 常用 flags
 
-<ParamField query="--agent" type="string">
-  experiment 运行不支持该 flag。要换 agent，请在 `experiments/` 下新增或复制一个配置文件。
-</ParamField>
+下表由 CLI 的 flag 解析表生成。**没有**用于选择 sandbox 后端的 CLI flag：sandbox 后端只能写在代码里——在 experiment（`defineExperiment`）里设置 `sandbox`，或者在 `niceeval.config.ts`（`defineConfig`）里设置作为项目级兜底，值来自 `niceeval/sandbox` 的 `dockerSandbox()` / `vercelSandbox()` / `e2bSandbox()`；在 CLI 上尝试传入 `--sandbox` 会直接报错并以非零状态退出。`--watch` / `--json` 是文档曾接受、尚未实现的 flag，容忍解析（no-op）但不接任何行为，同样不在下表出现。
 
-> 没有用于选择 sandbox 后端的 CLI flag。sandbox 后端选择只能写在代码里——在 experiment（`defineExperiment`）里设置 `sandbox`，或者在 `niceeval.config.ts`（`defineConfig`）里设置作为项目级兜底，值来自 `niceeval/sandbox` 的 `dockerSandbox()` / `vercelSandbox()` / `e2bSandbox()`。在 CLI 上尝试传入该 flag 会直接报错并以非零状态退出。
+{/* GENERATED:BEGIN cli-flags */}
 
-<ParamField query="--model" type="string">
-  experiment 运行不支持该 flag。要换模型，请新增或复制一个 experiment 文件并修改 `model`。
-</ParamField>
+| Flag | 类型 | 说明 |
+|---|---|---|
+| `--agent` | string | experiment 运行不支持该 flag。要换 agent,请在 `experiments/` 下新增或复制一个配置文件。 |
+| `--model` | string | experiment 运行不支持该 flag。要换模型,请新增或复制一个 experiment 文件并修改 `model`。 |
+| `--runs` | number | 每个 eval 运行多少次,常用于 pass@N。 |
+| `--max-concurrency` | number | 设置同时运行的 eval 数量。 |
+| `--timeout` | number | 单个 attempt 的超时时间,单位毫秒。 |
+| `--budget` | number | 整次运行的预算上限(美元)。 |
+| `--tag` | string | 只运行带有该 tag 的 eval(见 `defineEval` 的 `tags`)。 |
+| `--junit` | string | 额外写一份 JUnit XML 报告到指定路径,供 CI 消费。 |
+| `--out` | string | `view` 命令专用:把结果查看器静态导出到指定目录。 |
+| `--port` | number | `view` 命令专用:指定本地服务器监听端口。 |
+| `--dry` | boolean | 只打印本次会匹配到的 eval × 运行配置,不实际执行。 |
+| `--quiet` | boolean | 关闭控制台 / live 进度输出(reporter 仍会写 artifacts)。 |
+| `--force` | boolean | 忽略上次运行结果,不跳过已通过的 (experiment, eval) 组合,强制全部重跑。 |
+| `--strict` | boolean | CI 中推荐使用:让软阈值(`soft`)失败也计入整条 eval 的 outcome。 |
+| `--early-exit` / `--no-early-exit` | boolean | 某个 eval 的一次 attempt 通过后,停止该 eval 剩余的 attempts。 |
+| `--open` / `--no-open` | boolean | `view` 命令专用:启动后自动打开浏览器(默认行为)。 |
+| `--help` | boolean | 打印用法说明并退出。 |
 
-<ParamField query="--max-concurrency" type="number">
-  设置同时运行的 eval 数量。
-</ParamField>
-
-<ParamField query="--runs" type="number">
-  每个 eval 运行多少次，常用于 pass@N。
-</ParamField>
-
-<ParamField query="--early-exit" type="boolean">
-  某个 eval 的一次 attempt 通过后，停止剩余 attempts。
-</ParamField>
-
-<ParamField query="--timeout-ms" type="number">
-  单个 eval 的超时时间。
-</ParamField>
-
-<ParamField query="--budget" type="number">
-  整次运行的预算上限。
-</ParamField>
-
-<ParamField query="--strict" type="boolean">
-  CI 中推荐使用。让失败更明确地反映到退出码。
-</ParamField>
+{/* GENERATED:END cli-flags */}
 
 ## `list`
 
@@ -115,6 +107,34 @@ npx niceeval view
 
 打开本地结果查看器。默认查看最近一次 `.niceeval/` 运行。
 
+## `--early-exit` 与 `--strict`
+
+`--early-exit` 默认就是 `true`：某个 eval 的一次 attempt 通过后，会自动停止该 eval 剩余的 attempts（省钱）。所以显式传 `--early-exit` 没有效果，真正有用的是反过来关掉它——`--no-early-exit`，让 `--runs` > 1 时把每次 attempt 都跑完（测真实通过率而非提前收尾）。
+
+`--strict` 不是"更严格地报错"，而是改变软阈值断言的判定：`.atLeast(n)` 这类软阈值（`soft` severity）平时失败不会把整条 eval 判为 `failed`（只是记一条不达标的断言），加了 `--strict` 之后，软阈值没达标也会让整条 eval 的 outcome 计为 `failed`。CI 中推荐加上，避免"断言分数不够但 eval 显示通过"的情况被放过。
+
+## 环境变量覆盖
+
+以下环境变量对应部分 flag，用于不便传 CLI 参数的场景（如 CI 环境配置）：
+
+| 环境变量 | 对应 flag |
+|---|---|
+| `NICEEVAL_RUNS` | `--runs` |
+| `NICEEVAL_MAX_CONCURRENCY` | `--max-concurrency` |
+| `NICEEVAL_TIMEOUT` | `--timeout` |
+| `NICEEVAL_BUDGET` | `--budget` |
+
+优先级从高到低：CLI flag > 环境变量 > experiment / `niceeval.config.ts` 里的值 > 内置默认值。四个环境变量都要求合法数字，解析失败会直接报错退出。
+
+[NiceEval](https://niceeval.com/) 还会在启动时自动加载 cwd 下的 `.env` 文件（不需要额外配置，也不覆盖已经存在的环境变量），常用于本地放 `ANTHROPIC_API_KEY` 这类鉴权信息，不用每次手动 `export`。
+
 ## 退出码
 
-CI 中的基本规则：存在失败 gate 或运行失败时，命令应非零退出；全部通过时为 0。需要严格行为时使用 `--strict`。
+| 退出码 | 含义 |
+|---|---|
+| `0` | 全部 eval 通过（或 `list`、`init`、`clean` 等命令正常完成）。 |
+| `1` | 存在 `failed` / `errored` 的 eval；或命令用法错误（如 `exp` 没匹配到任何实验、传了不支持的 flag 组合）。 |
+| `2` | 运行时崩溃（未捕获异常），CLI 顶层兜底捕获后退出。 |
+| `130` | 收到中断信号（Ctrl-C / SIGTERM）后退出。 |
+
+需要 CI 把软阈值失败也当失败处理时，同时使用 `--strict`（见上）。

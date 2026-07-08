@@ -17,14 +17,14 @@ niceeval 是一个 TypeScript evals 库。CLI 入口在 `bin/niceeval.mjs`，运
 
 | 改动 | 验证 | 收尾（同步义务） |
 | --- | --- | --- |
-| `src/` / `bin/` | `pnpm run typecheck`；改 CLI 行为再用 `pnpm run niceeval -- <命令>` 冒烟 | 可观察行为变了（flag、断言语义、结果格式、导出面）：grep `docs/` 与 `docs-site/` 同步声明，或记为明确的阶段性差异；修了 bug 补 memory 台账 |
+| `src/` / `bin/` | `pnpm run typecheck`；改 CLI 行为再用 `pnpm run niceeval -- <命令>` 冒烟 | 公开面（导出类型/TSDoc/flag 表）变了：跑 `pnpm docs:reference` 重新生成参考页区块（`{/* GENERATED */}` 区块内不要手改，`pnpm test` 的漂移守护会拦）；可观察行为变了（flag、断言语义、结果格式、导出面）：grep `docs/` 与 `docs-site/` 同步声明，或记为明确的阶段性差异；修了 bug 补 memory 台账 |
 | `docs/` 或根 README | `pnpm test`（`test/docs-consistency.test.ts` 查索引覆盖与链接真实性） | 新文档在 `docs/README.md` 挂一行索引 |
 | `docs-site/` | `docs:validate` + `docs:links`（需 Node 22，见下） | 中文先定稿；英文入口按中文和当前代码核对后同步 |
 | `examples/` 各 tier | `pnpm tiers:sync`（动之前先读 memory 的 tier-sync 条目） | 文档 / README 链接示例必须指向真实目录 |
 | `site/` | `pnpm run site:build` | — |
 | `memory/` | `pnpm test`（`test/memory-index.test.ts` 查索引覆盖） | `INDEX.md` 加一行 |
 
-守护一律搭现有命令的便车：仓库约定需要机器校验时，写成 `test/` 下的 vitest 测试，不新增脚本、package.json 命令或 hook。
+守护一律搭现有命令的便车：仓库约定需要机器校验时，写成 `test/` 下的 vitest 测试，不新增脚本、package.json 命令或 hook。已批准的例外：`scripts/generate-reference.ts`（`pnpm docs:reference`，参考页从源码 TSDoc 生成的中间层，2026-07 用户明确批准），它的守护同样走 vitest（`test/reference-consistency.test.ts`）。
 
 ## Build, Test, and Development Commands
 

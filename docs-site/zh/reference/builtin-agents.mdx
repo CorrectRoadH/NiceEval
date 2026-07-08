@@ -20,7 +20,7 @@ description: "NiceEval 内置的 claude-code、codex、bub 适配器分别做到
 
 | Agent | 收发 | 事件流 | 会话续接 | HITL | tracing | 备注 |
 |---|---|---|---|---|---|---|
-| `claude-code` | ✅ | ✅ | ✅（`claude --resume <id>`） | ❌ | ❌ | 内置 parser 自动吐 `compaction` 事件，`t.event("compaction")` 可用 |
+| `claude-code` | ✅ | ✅ | ✅（`claude --resume <id>`） | ❌ | ✅（`http/protobuf` → OTLP，beta 开关） | 内置 parser 自动吐 `compaction` 事件，`t.event("compaction")` 可用 |
 | `codex` | ✅ | ✅ | ✅（`codex exec resume <id>`） | ❌ | ✅（`http/json` → OTLP） | 内置 parser 自动吐 `compaction` 事件 |
 | `bub` | ✅ | ✅ | ✅（`--session-id` + tape 续接） | ❌ | ✅（`http/protobuf` → OTLP） | 内置 parser 自动吐 `compaction` 事件 |
 
@@ -38,7 +38,8 @@ description: "NiceEval 内置的 claude-code、codex、bub 适配器分别做到
 - 会话续接：`ctx.session.id` 有值时追加 `--resume <id>`；transcript 解出的会话 id 经 `ctx.session.capture()` 写回。
 - 鉴权：`ANTHROPIC_API_KEY`（可用配置项 `apiKey` 覆盖），可选 `ANTHROPIC_BASE_URL`。
 - 支持 `mcpServers`、`skills`（GitHub `org/repo`）配置项。
-- 没有声明 `tracing`：不会起 OTLP 接收器，`EvalResult.trace` 为空。
+- 支持 `maxTurns` 配置项：限制最多跑几个 tool-use 轮次（→ `--max-turns`），省略时用 CLI 原生默认（无限制）。
+- `tracing` 通过 claude CLI 原生 OTLP trace spans（beta）配置，协议 `http/protobuf`：env 里设置 `CLAUDE_CODE_ENABLE_TELEMETRY` 与 `CLAUDE_CODE_ENHANCED_TELEMETRY_BETA`（beta 开关，须显式开启）把 endpoint 交给 CLI；`EvalResult.trace` 能看到 interaction / llm_request / tool 层级的瀑布图。
 
 ### codex
 
@@ -77,6 +78,30 @@ export default uiMessageStreamAgent({
 - **usage / 瀑布图**：UI Message Stream 协议帧里没有 usage，所以 `t.maxTokens` 这类用量断言在这个内置件上默认没有数据（应用把 usage 放进 message metadata 属于应用自己的协议扩展）。瀑布图是另一回事：应用有 OTel 埋点（如官方 `@ai-sdk/otel`）时，按 [OTel 接入](/zh/guides/connect-otel)把 span 发给 [NiceEval](https://niceeval.com/)，`niceeval view` 就有完整瀑布图——span 只进瀑布图，不喂断言。
 
 需要在 eval 项目里安装 `ai`（可选 peer 依赖，协议 reducer 来自它）。完整可跑示例：[`examples/zh/tier1/ai-sdk-v7`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/tier1/ai-sdk-v7)。
+
+`uiMessageStreamAgent(options)` 除 `name`/`url`/`body`/`denyReason` 外还接受：
+
+- **`headers`**：附加请求头（鉴权等），对象或 `(ctx) => Record<string, string>` 函数形式；`ctx.telemetry.headers`（traceparent）总会自动并入，不需要自己拼。
+- **`settleMs`**：流结束后再等这么久才返回（毫秒），给应用侧的观测导出（如 `BatchSpanProcessor`）留时间，不设置就不等待。
+- **`tracing`** / **`spanMapper`**：应用有 OTel 时的端点投递方式与 span 归一函数（拿瀑布图用）；事件流本身始终从协议帧直构，不依赖这两项。
+
+## OpenAI 兼容响应转换器：`fromChatCompletion` / `fromResponses`
+
+`fromChatCompletion(res)` / `fromResponses(res)`（`niceeval/adapter` 导出）把 OpenAI 的两种响应形状——Chat Completions 与 Responses——整段响应零映射转成 `Turn`：不限于 OpenAI 官方，任何声明兼容这两种协议形状的服务都能用。
+
+```ts
+import { fromChatCompletion } from "niceeval/adapter";
+
+export default defineAgent({
+  name: "my-openai-compat-agent",
+  async send(input) {
+    const res = await client.chat.completions.create({ messages: [...], tools });
+    return fromChatCompletion(res);
+  },
+});
+```
+
+两种形状对负断言（`notCalledTool` 等）的可信度不同：Chat Completions 不承诺「响应 = 完整过程」（应用可能在服务端跑完工具循环，只把最终答案给你），负断言只能当「没看到」，不能当「确实没发生」；Responses 的协议契约里 `output` 数组记录了模型这一轮决定做的全部事（包括每个 `function_call`），负断言可信。两个转换器产出的 `Turn` 形状本身相同，这条差异只体现在你对负断言的解读上。
 
 ## SDK 事件流转换器：`fromClaudeSdkMessages` / `fromPiAgentEvents` / `fromCodexThreadEvents`
 

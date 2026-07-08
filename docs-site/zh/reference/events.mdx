@@ -13,11 +13,134 @@ interface Turn {
   events: StreamEvent[];                          // 本轮事件,按真实发生顺序
   data?: unknown;                                 // 结构化输出 → outputEquals / outputMatches
   status: "completed" | "failed" | "waiting";     // waiting = 停下等人(HITL)
-  usage?: { inputTokens: number; outputTokens: number };  // → maxTokens / maxCost / 成本报表
+  usage?: Usage;                                  // → maxTokens / maxCost / 成本报表,完整字段见下方
 }
 ```
 
 `data` 的语义是"本轮的结构化产物"：**应用的回答本身是结构化对象**（抽取、分类、表单填充）时才填，`outputEquals` / `outputMatches` 读它。只回文本的应用不填——不要把原始响应 body 或 `message` 文本复制进去凑数，也不要反过来把结构化输出序列化塞进 `events`。`usage` 拿得到就带，拿不到就不填——**别编数字**。
+
+`usage` 的完整字段（`Usage` 类型）：
+
+{/* GENERATED:BEGIN usage-fields */}
+
+#### `inputTokens`
+
+```ts
+inputTokens: number;
+```
+
+输入(prompt)token 数,不含缓存命中部分。
+
+#### `outputTokens`
+
+```ts
+outputTokens: number;
+```
+
+输出(completion)token 数。
+
+#### `cacheReadTokens`
+
+```ts
+cacheReadTokens?: number;
+```
+
+命中 prompt 缓存、按缓存价读取的 token 数(省略表示该 agent 不上报此项)。
+
+#### `cacheWriteTokens`
+
+```ts
+cacheWriteTokens?: number;
+```
+
+写入 prompt 缓存的 token 数(省略表示该 agent 不上报此项)。
+
+#### `requests`
+
+```ts
+requests?: number;
+```
+
+本次运行触发的模型请求次数(多轮/重试可能大于 1)。
+
+#### `costUSD`
+
+```ts
+costUSD?: number;
+```
+
+网关/adapter 实测的真实美元成本(只能由 `Turn.usage.costUSD` 显式带回,从不从
+token 用量或 OTel span 反推得到)。存在时优先于按价格表(`defineConfig({ pricing })`)
+估算的成本——见 `estimateCost` 的 `usage.costUSD ?? estimateCost(...)` 兜底顺序。
+
+{/* GENERATED:END usage-fields */}
+
+## StreamEvent 变体一览
+
+`StreamEvent` 的九种变体，逐字段列出（消费它们的断言 / 使用细节见下面的「事件总表」和「逐事件说明」）：
+
+{/* GENERATED:BEGIN stream-events */}
+
+#### `message`
+
+```ts
+{ type: "message"; role: "assistant" | "user"; text: string; loc?: SourceLoc }
+```
+
+#### `action.called`
+
+```ts
+{ type: "action.called"; callId: string; name: string; input: JsonValue; tool?: ToolName }
+```
+
+#### `action.result`
+
+```ts
+{
+  type: "action.result";
+  callId: string;
+  output?: JsonValue;
+  status: "completed" | "failed" | "rejected";
+}
+```
+
+#### `subagent.called`
+
+```ts
+{ type: "subagent.called"; callId: string; name: string; remoteUrl?: string }
+```
+
+#### `subagent.completed`
+
+```ts
+{ type: "subagent.completed"; callId: string; output?: JsonValue; status: "completed" | "failed" }
+```
+
+#### `input.requested`
+
+```ts
+{ type: "input.requested"; request: InputRequest }
+```
+
+#### `thinking`
+
+```ts
+{ type: "thinking"; text: string }
+```
+
+#### `compaction`
+
+```ts
+{ type: "compaction"; reason?: string }
+```
+
+#### `error`
+
+```ts
+{ type: "error"; message: string }
+```
+
+{/* GENERATED:END stream-events */}
 
 ## 事件总表
 
@@ -30,7 +153,7 @@ interface Turn {
 | `subagent.completed` | 子 agent 返回 | `calledSubagent` 的 `status`、`noFailedActions` |
 | `input.requested` | 停下来等人输入（HITL） | `t.parked()`、`t.requireInputRequest()` |
 | `thinking` | 思考文本 | `event("thinking")`、view 展示 |
-| `compaction` | 上下文被压缩 | `event("compaction")`（需声明 `compactionObservability`） |
+| `compaction` | 上下文被压缩 | `event("compaction")`（adapter 的 parser 吐出这条事件即可断言,不需要任何声明） |
 | `error` | 本轮出错 | `event("error")`、view 展示 |
 
 任何事件都能被通用断言消费：`event(type)` / `notEvent(type)` / `eventOrder(types)` / `eventsSatisfy(label, predicate)`。
@@ -85,7 +208,7 @@ agent 停轮等人时，每个待回答的问题吐一条，同时整轮 `status
 
 ```ts
 { type: "thinking", text: string }
-{ type: "compaction", reason?: string }   // 上下文压缩;吐它才声明 compactionObservability
+{ type: "compaction", reason?: string }   // 上下文压缩;adapter 的 parser 吐出即可断言,没有声明层
 { type: "error", message: string }
 ```
 
@@ -95,7 +218,7 @@ agent 停轮等人时，每个待回答的问题吐一条，同时整轮 `status
 
 1. **时序即事实**：事件按真实发生顺序排。`toolOrder` / `eventOrder` 靠子序匹配，顺序错了断言就失真。
 2. **`callId` 配对**：每个 `called` 都要有同 id 的 `result`，缺一半会让 `calledTool(..., { status })` 匹配不上。
-3. **完整性**：声明了 `toolObservability: true` 就意味着**所有**工具调用都在流里。只吐一部分时，`notCalledTool` / `maxToolCalls` 这类负断言会静默通过——没有报错，比失败更难发现。手工映射做不到完整就[不要声明这个能力](/zh/reference/capabilities)。
+3. **完整性没有声明层，由来源证明**：用官方转换器（`fromClaudeSdkMessages`、`fromAiSdk` 等）时，返回值本身保证**所有**工具调用都在流里；手工映射时完整与否完全取决于你的映射代码写没写全。只吐一部分时，`notCalledTool` / `maxToolCalls` 这类负断言会静默通过——没有报错，比失败更难发现。手工映射前确认自己的代码覆盖了全部工具调用，见[能力位参考](/zh/reference/capabilities)。
 
 ## 一个完整的映射示例
 
