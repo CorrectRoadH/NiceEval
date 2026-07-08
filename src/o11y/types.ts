@@ -3,14 +3,23 @@
 
 import type { JsonValue, SourceLoc } from "../shared/types.ts";
 
-/** 一次运行的 token 用量(沙箱型从 transcript 抠,remote 由 send 返回)。 */
+/** 一次运行的 token 用量(沙箱型从 transcript/OTel span 的 `gen_ai.usage.*` 属性抠,remote 由 send 的 `Turn.usage` 直接返回)。 */
 export interface Usage {
+  /** 输入(prompt)token 数,不含缓存命中部分。 */
   inputTokens: number;
+  /** 输出(completion)token 数。 */
   outputTokens: number;
+  /** 命中 prompt 缓存、按缓存价读取的 token 数(省略表示该 agent 不上报此项)。 */
   cacheReadTokens?: number;
+  /** 写入 prompt 缓存的 token 数(省略表示该 agent 不上报此项)。 */
   cacheWriteTokens?: number;
+  /** 本次运行触发的模型请求次数(多轮/重试可能大于 1)。 */
   requests?: number;
-  /** 网关实测成本(若 agent 带回)——优先于价格表估算。 */
+  /**
+   * 网关/adapter 实测的真实美元成本(只能由 `Turn.usage.costUSD` 显式带回,从不从
+   * token 用量或 OTel span 反推得到)。存在时优先于按价格表(`defineConfig({ pricing })`)
+   * 估算的成本——见 `estimateCost` 的 `usage.costUSD ?? estimateCost(...)` 兜底顺序。
+   */
   costUSD?: number;
 }
 
@@ -28,12 +37,19 @@ export type ToolName =
   | "agent_task"
   | "unknown";
 
+/** HITL 停轮请求的结构化描述,供 `t.requireInputRequest(filter)` / `t.respondAll` 按条件匹配。 */
 export interface InputRequest {
+  /** 请求的唯一标识;多个请求并停时,`InputResponse.requestId` 靠它对位。 */
   readonly id?: string;
+  /** 模型提出的原始问题/文本(用于 `stringMatches` 过滤)。 */
   readonly prompt?: string;
+  /** adapter 自定义的人类可读展示文案,与 `prompt` 二选一或并存,用于 UI/日志展示及过滤匹配。 */
   readonly display?: string;
+  /** 请求关联的动作类型(如某个待批准的工具调用名),供过滤用。 */
   readonly action?: string;
+  /** 请求携带的结构化输入(如待批准命令的参数)。 */
   readonly input?: JsonValue;
+  /** 若请求提供了预设选项(如批准/拒绝),逐项列出;`id` 对应 `InputResponse.optionId`。 */
   readonly options?: readonly { id: string; label?: string }[];
 }
 
@@ -42,19 +58,28 @@ export interface InputRequest {
  * 各 agent 五花八门的原始 transcript 映射成 StreamEvent[];映射完,整套断言免费。
  */
 export type StreamEvent =
+  /** 一条文本消息(assistant 回复或 user 输入);`loc` 是可选的源码位置,用于把消息叠回 eval 源码。 */
   | { type: "message"; role: "assistant" | "user"; text: string; loc?: SourceLoc }
+  /** 发起一次工具/动作调用;`tool` 是归一化后的规范工具名,原始名保留在 DerivedFacts.ToolCall.originalName。 */
   | { type: "action.called"; callId: string; name: string; input: JsonValue; tool?: ToolName }
+  /** 一次工具/动作调用的结果,按 `callId` 与对应的 `action.called` 对位。 */
   | {
       type: "action.result";
       callId: string;
       output?: JsonValue;
       status: "completed" | "failed" | "rejected";
     }
+  /** 发起一次子 agent 调用(如 Task 工具、远程 sub-agent);`remoteUrl` 仅远程子 agent 有。 */
   | { type: "subagent.called"; callId: string; name: string; remoteUrl?: string }
+  /** 一次子 agent 调用的结果,按 `callId` 与对应的 `subagent.called` 对位。 */
   | { type: "subagent.completed"; callId: string; output?: JsonValue; status: "completed" | "failed" }
+  /** 模型停下来向人请求输入(HITL);具体请求内容见 InputRequest。 */
   | { type: "input.requested"; request: InputRequest }
+  /** 模型的思考/推理文本(非最终回复)。 */
   | { type: "thinking"; text: string }
+  /** 上下文被压缩/摘要(如超长会话截断历史);`reason` 是可选的压缩原因说明。 */
   | { type: "compaction"; reason?: string }
+  /** 运行中出现的错误。 */
   | { type: "error"; message: string };
 
 /** core 从事件流折叠出的结构化事实(deriveRunFacts)。 */

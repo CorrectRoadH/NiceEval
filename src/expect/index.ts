@@ -112,8 +112,9 @@ export function equals(expected: unknown): ValueAssertion {
 }
 
 /**
- * 用 schema 校验 value。优先 Standard Schema(schema['~standard'].validate),
- * 否则退化到 zod 风格的 .safeParse / .parse。校验通过 1,否则 0;任何异常 → 0。
+ * 用 schema 校验 value——不是正则匹配,是 Standard Schema / zod 风格的结构校验。
+ * 优先 Standard Schema(schema['~standard'].validate),否则退化到 zod 风格的
+ * .safeParse / .parse。校验通过 1,否则 0;任何异常 → 0。默认硬门槛。
  */
 export function matches(schema: unknown): ValueAssertion {
   return createAssertion("matches(schema)", "gate", async (value) =>
@@ -121,7 +122,10 @@ export function matches(schema: unknown): ValueAssertion {
   );
 }
 
-/** 归一化 Levenshtein 相似度 [0,1]。默认软分,阈值 0.6。 */
+/**
+ * 纯字符串编辑距离,不是语义相似度——归一化 Levenshtein 距离 [0,1](1 - 编辑距离 / 较长串长度),
+ * 不理解含义,同义改写 / 语序调整会被判低分。默认软分,阈值 0.6。
+ */
 export function similarity(expected: string): ValueAssertion {
   return createAssertion(
     `similarity(${safeLabel(expected)})`,
@@ -143,19 +147,19 @@ export function satisfies(predicate: (v: unknown) => boolean, label?: string): V
   return createAssertion(name, "gate", (value) => (predicate(value) ? 1 : 0));
 }
 
-/** value 非 null / 非 undefined 则 1,否则 0。省掉 `x !== undefined` + isTrue 的样板。 */
+/** value 非 null / 非 undefined 则 1,否则 0。省掉 `x !== undefined` + isTrue 的样板。默认硬门槛。 */
 export function isDefined(label?: string): ValueAssertion {
   const name = label ? `isDefined(${label})` : "isDefined()";
   return createAssertion(name, "gate", (value) => (value != null ? 1 : 0));
 }
 
-/** value === true 则 1,否则 0。带 label 的布尔断言(fileExists 等检查用)。 */
+/** value === true 则 1,否则 0。带 label 的布尔断言(fileExists 等检查用)。默认硬门槛。 */
 export function isTrue(label?: string): ValueAssertion {
   const name = label ? `isTrue(${label})` : "isTrue()";
   return createAssertion(name, "gate", (value) => (value === true ? 1 : 0));
 }
 
-/** CommandResult.exitCode === 0 则通过。 */
+/** CommandResult.exitCode === 0 则 1,否则 0。默认硬门槛。 */
 export function commandSucceeded(): ValueAssertion {
   return createAssertion("commandSucceeded()", "gate", (value) => {
     if (value === null || typeof value !== "object") return 0;
@@ -163,13 +167,16 @@ export function commandSucceeded(): ValueAssertion {
   });
 }
 
-/** value === false 则 1,否则 0。带 label 的布尔断言。 */
+/** value === false 则 1,否则 0。带 label 的布尔断言。默认硬门槛。 */
 export function isFalse(label?: string): ValueAssertion {
   const name = label ? `isFalse(${label})` : "isFalse()";
   return createAssertion(name, "gate", (value) => (value === false ? 1 : 0));
 }
 
-/** 自定义断言工厂:直接给名字 / 严重级 / 阈值 / score。severity 省略默认 gate。 */
+/**
+ * 自定义断言工厂:直接给名字 / 严重级 / 阈值 / score,一次调用即返回可用的 ValueAssertion——
+ * 不像 gate()/atLeast() 那样需要二段链式调用来定级。severity 省略默认 gate。
+ */
 export function makeAssertion(spec: {
   name: string;
   severity?: Severity;

@@ -62,7 +62,6 @@ import { defineEval } from "niceeval";
 
 export default defineEval({
   description?: string;            // 人读的描述,出现在报告里
-  agent?: string;                  // 可选 eval-local 默认;常规运行由 experiment 选择 agent
   tags?: string[];                 // 供 --tag 过滤
   judge?: JudgeConfig;             // 覆盖默认评判模型
   reporters?: Reporter[];          // 这个 eval 专用的报告器

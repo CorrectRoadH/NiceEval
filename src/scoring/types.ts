@@ -9,7 +9,12 @@ export interface ValueAssertion {
   readonly severity: Severity;
   readonly threshold?: number;
   score(value: unknown): number | Promise<number>;
+  /** 转成硬门槛断言:未达阈值(省略 threshold 则按 score > 0 判定)整条 eval 判为 failed。返回新实例,不改原对象。 */
   gate(threshold?: number): ValueAssertion;
+  /**
+   * 转成软阈值断言:未达 threshold 时该条记为 failed,但默认不拖累整条 eval 的 outcome;
+   * `--strict` 运行下,软阈值失败也会把整条 eval 的 outcome 计为 failed。返回新实例,不改原对象。
+   */
   atLeast(threshold: number): ValueAssertion;
 }
 

@@ -2,6 +2,7 @@
 // 各域的类型住在各自目录的 types.ts(o11y / sandbox / agents / scoring / context / runner),
 // src/types.ts 是聚合 facade —— 模块代码统一从那里 import,不必记住每个类型的家。
 
+/** JSON 可表达的任意值(递归定义),用于事件流 / 工具输入输出等跨进程/跨语言传递的数据。 */
 export type JsonValue =
   | string
   | number
@@ -10,6 +11,7 @@ export type JsonValue =
   | JsonValue[]
   | { [key: string]: JsonValue };
 
+/** 断言的严重级:"gate" 失败必判整轮 failed;"soft" 默认只记录不拦截,仅在 `--strict` 模式或显式设阈值未达标时才计入失败。 */
 export type Severity = "gate" | "soft";
 
 /**
@@ -28,6 +30,7 @@ export interface SourceArtifact {
   content: string;
 }
 
+/** 通用清理闭包(setup 返回值 / teardown 的形状),异步同步皆可,统一在 finally 里执行。 */
 export type Cleanup = () => Promise<void> | void;
 
 /**

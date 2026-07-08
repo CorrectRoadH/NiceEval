@@ -143,10 +143,23 @@ export interface AgentSession {
 }
 
 export interface AgentContext {
+  /**
+   * 软取消信号:合并了 attempt 超时、run 级中断(用户 Ctrl+C)与 eval 自身的中断请求
+   * (见 src/runner/attempt.ts)。adapter 可以选择性检查它(或直接传给 `fetch`)以提前
+   * 优雅退出,但这不是唯一的硬边界——即便 adapter 完全忽略它,运行器也会用
+   * `Effect.timeoutTo` 兜底强制收尾(停沙箱容器)。
+   */
   readonly signal: AbortSignal;
+  /** 本次 attempt 用的模型名,透传自 experiment 的 `model` 字段。sandbox 型 agent 通常在 setup 里用它写配置,remote 型通常在 send 里用它选模型。 */
   readonly model?: string;
   /** 模型推理努力程度;归属同 model——实验决定,省略时不覆盖 agent 原生默认。 */
   readonly reasoningEffort?: string;
+  /**
+   * experiment 的 `flags` 字段原样透传,内容和结构完全由 experiment 作者自定义
+   * (如 `{ webResearch: true }`、`{ systemPrompt: "..." }`)。adapter 按自己的约定
+   * 读取其中的字段;框架本身不解释、不校验它的内容。与 CLI 解析出的同名 `flags`
+   * (跑法层面的 --timeout/--budget 等)是两个不相关的概念。
+   */
   readonly flags: Readonly<Record<string, unknown>>;
   /** 仅沙箱型 agent 有(运行器按 --sandbox 备好)。 */
   readonly sandbox: Sandbox;
@@ -160,6 +173,12 @@ export interface AgentContext {
    * (defineConfig({ telemetry: { port } }))固定的,不从这里传。
    */
   readonly telemetry?: Telemetry;
+  /**
+   * 写一行进运行器自身的进度日志(落 stderr,或调用方传入的 `onProgress` 回调)。
+   * 超时失败时,最近若干行会并入结果的 error 信息,方便定位卡在哪一步。
+   * 与 `Sandbox.appendLog` 是两回事:那个是把一行写进容器自己的原生日志
+   * (`docker logs` 能看到),这里只是运行器的观测通道。
+   */
   log(msg: string): void;
 }
 
@@ -198,23 +217,43 @@ export interface Agent {
   teardown?: AgentTeardown;
 }
 
+/** `defineSandboxAgent()` 的入参形状(见 src/define.ts)——`kind: "sandbox"` 由 define 固定填入,不由用户声明。 */
 export interface SandboxAgentDef {
+  /** agent 的显示名/标识,原样进入 `Agent.name`——不是注册表查找 key,只用于展示、结果归属与去重指纹。 */
   name: string;
-  /** 每个沙箱一次:装 CLI、写 config.toml / 鉴权配置。 */
+  /**
+   * 每个沙箱一次(不是每轮一次):装 CLI、写 config.toml / 鉴权配置(model/base/auth 等
+   * 本轮内不变的东西)。运行器在沙箱备好(上传/基线/eval.setup 之后)、第一次 send 前
+   * 调用一次。可返回一个 cleanup 闭包,与 `teardown` 一起在 finally 里跑。
+   */
   setup?: AgentSetup;
   /** OTLP 导出配置:沙箱里怎么让 CLI 把 trace 发到 endpoint(env / 配置文件),从 setup 拆出。 */
   tracing?: AgentTracing;
+  /** 原生 span → canonical 的薄 mapper;省略走通用 heuristic。只影响瀑布图。 */
   spanMapper?: SpanMapper;
   /** 每轮一次:跑 prompt(fresh / resume)+ 解析成 events。 */
   send(input: TurnInput, ctx: AgentContext): Promise<Turn>;
+  /** 沙箱销毁前的清理(与 setup 返回的 cleanup 一起、都在 finally 里跑一次)。 */
   teardown?: AgentTeardown;
 }
 
+/** `defineAgent()` 的入参形状(见 src/define.ts)——`kind: "remote"` 由 define 固定填入,不由用户声明。 */
 export interface RemoteAgentDef {
+  /** agent 的显示名/标识,原样进入 `Agent.name`——不是注册表查找 key,只用于展示、结果归属与去重指纹。 */
   name: string;
+  /**
+   * 每个 attempt 一次(remote agent 没有真实沙箱,运行器会传入一个仅含 `workdir`/`sandboxId`/
+   * `otlpHost`/`stop` 等元信息的 stub `Sandbox`,其余方法调用即抛错——不要在这里调用
+   * 文件/命令类沙箱方法)。常用于建立连接、鉴权等一次性准备。可返回一个 cleanup 闭包,
+   * 与 `teardown` 都在 finally 里跑。
+   */
   setup?: AgentSetup;
+  /** OTLP 导出配置:远程被测对象怎么把 trace 发到 endpoint(env-based 注入 / file-based 配置)。 */
   tracing?: AgentTracing;
+  /** 原生 span → canonical 的薄 mapper;省略走通用 heuristic。只影响瀑布图。 */
   spanMapper?: SpanMapper;
+  /** 每轮一次:把一轮 prompt 发给远程被测对象(HTTP/SDK 等),解析响应成 events。 */
   send(input: TurnInput, ctx: AgentContext): Promise<Turn>;
+  /** 运行结束前的清理(与 setup 返回的 cleanup 一起、都在 finally 里跑一次)。 */
   teardown?: AgentTeardown;
 }

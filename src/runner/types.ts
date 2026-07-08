@@ -122,12 +122,17 @@ export type ReporterEvent =
 export interface EvalDef {
   /** 路径推导,定义里禁止手写。 */
   id?: string;
+  /** 一句话描述,展示在 `niceeval list` 和 view 里;纯说明,不影响调度或打分。 */
   description?: string;
-  agent?: string;
+  /** 标签,供 CLI `--tag` 过滤和 view 分类;与 id 前缀过滤是两套独立的筛选维度。 */
   tags?: string[];
+  /** 覆盖项目级 Config.judge,只对这一个 eval 生效(如换个更贵的评审模型)。 */
   judge?: JudgeConfig;
+  /** 覆盖 / 追加项目级 Config.reporters,只对这一个 eval 生效。 */
   reporters?: Reporter[];
+  /** 覆盖项目级 / CLI 的单次 attempt 超时(毫秒),只对这一个 eval 生效。 */
   timeoutMs?: number;
+  /** 任意附加元数据,原样透传进 EvalResult,不参与调度或打分;供自定义 reporter 消费。 */
   metadata?: Record<string, unknown>;
   /**
    * eval 级预置:拿到沙箱(已上传 workspace + git 基线 + 装好依赖前)。
@@ -135,6 +140,7 @@ export interface EvalDef {
    * (如 `runCommand("apt-get", ["install", …], { root: true })`),跨后端语义一致。
    */
   setup?: (sandbox: Sandbox) => Promise<void | Cleanup> | void | Cleanup;
+  /** eval 主体:拿到 TestContext,驱动对话 / 沙箱操作并就地断言。 */
   test(t: TestContext): Promise<void> | void;
 }
 
@@ -148,20 +154,38 @@ export interface DiscoveredEval extends EvalDef {
 }
 
 export interface ExperimentDef {
+  /** 路径推导,定义里禁止手写(defineExperiment 会拒绝显式传入)。 */
   id?: string;
+  /** 一句话描述,展示在 view / CLI 里;纯说明,不影响调度或打分。 */
   description?: string;
+  /**
+   * 必填:这个实验跑哪个 agent(defineSandboxAgent / defineAgent 的产物)。运行配置的
+   * agent 归属完全由这里决定——EvalDef.agent 不参与(见其字段注释)。
+   */
   agent: Agent;
   /** 单个模型(agent 留空时实验决定);省略=用 agent 原生默认。跨模型对比写多个实验文件,别用数组。 */
   model?: string;
   /** 模型推理努力程度(如 "low"/"medium"/"high",取值由具体模型/adapter 决定);省略=用 agent 原生默认。经 ctx.reasoningEffort 透给 adapter 与 eval。 */
   reasoningEffort?: string;
+  /** 传给每次 attempt 的 flags,经 t.flags 暴露给 eval;与 CLI flag 合并(CLI 优先)。 */
   flags?: Record<string, unknown>;
+  /** 同一 eval 重复跑几次(结果各计一条 attempt);省略/CLI `--runs` 覆盖时默认 1。 */
   runs?: number;
+  /** 一次重复(runs > 1)里某次 attempt 失败后是否跳过剩余重复;省略默认 true(提前退出省钱)。 */
   earlyExit?: boolean;
+  /** 这个实验覆盖哪些 eval:"*" 全部、字符串数组按 id 前缀、或自定义谓词;省略等价于 "*"。 */
   evals?: "*" | string[] | ((id: string) => boolean);
+  /** 覆盖项目级 / CLI 的单次 attempt 超时(毫秒),只对这个实验生效。 */
   timeoutMs?: number;
+  /** 覆盖项目级 Config.sandbox,只对这个实验生效。 */
   sandbox?: SandboxOption;
+  /**
+   * 本实验的花费上限(USD)。调度器按「已花 + 在飞预估」的护栏口径逼近上限时限流,
+   * 累计花费到顶后跳过这个实验剩下未起飞的 attempt 并上报一次 `run:budgetExceeded`
+   * (已在飞的 attempt 仍会跑完)。
+   */
   budget?: number;
+  /** 覆盖项目级 / CLI 的并发上限,只对这个实验生效;多个实验一起跑时取各自设置的最小值。 */
   maxConcurrency?: number;
 }
 
@@ -176,11 +200,17 @@ export interface Config {
    * 可传字符串,或按 locale 提供多语言(如 `{ en: "...", "zh-CN": "..." }`),随 view 语言切换。
    */
   name?: LocalizedText;
+  /** 项目级默认沙箱后端(docker / vercel / e2b / custom);experiment / CLI flag 可覆盖。 */
   sandbox?: SandboxOption;
+  /** 上传进沙箱的工作区根目录,省略则用项目根;eval 的 sandbox 视图从这里起步。 */
   workspace?: string;
+  /** 项目级默认 judge 配置(model / baseUrl / apiKeyEnv);EvalDef.judge 可按 eval 覆盖。 */
   judge?: JudgeConfig;
+  /** 项目级默认 reporter 列表(如落盘 / 上传结果);EvalDef.reporters 会与它合并。 */
   reporters?: Reporter[];
+  /** 项目级默认并发上限;CLI flag / env / experiment 的同名设置优先级更高。 */
   maxConcurrency?: number;
+  /** 项目级默认单次 attempt 超时(毫秒);CLI flag / experiment / EvalDef 的同名设置优先级更高。 */
   timeoutMs?: number;
   /**
    * OTLP 接收配置,niceeval 项目内唯一入口(不读 NICEEVAL_OTLP_* 环境变量)。
@@ -203,9 +233,13 @@ export interface Config {
 
 /** 每百万 token 的美元单价;省略的桶退回 `inputPerMTok`(cache token 本质也是 input)。 */
 export interface PriceOverride {
+  /** 普通输入 token 单价。 */
   inputPerMTok: number;
+  /** 输出 token 单价。 */
   outputPerMTok: number;
+  /** cache 命中(读)token 单价,省略则退回 inputPerMTok。 */
   cacheReadPerMTok?: number;
+  /** cache 写入 token 单价,省略则退回 inputPerMTok。 */
   cacheWritePerMTok?: number;
 }
 

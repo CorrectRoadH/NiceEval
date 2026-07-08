@@ -93,7 +93,9 @@ export type SandboxSpec = DockerSandboxSpec | VercelSandboxSpec | E2BSandboxSpec
 export type SandboxOption = SandboxSpec;
 
 export interface CommandOptions {
+  /** 追加/覆盖本命令的环境变量(与沙箱默认环境叠加,不清空默认值;各后端会保留自己固定的 `PATH` 等变量,不保证能被这里覆盖)。 */
   env?: Record<string, string>;
+  /** 本命令的工作目录;省略时落到 `Sandbox.workdir`。相对路径按 workdir 解析,绝对路径原样使用。 */
   cwd?: string;
   /**
    * 把本命令的输出也送进沙箱的「原生日志流」(于是 `docker logs` / Docker UI 的 Logs
@@ -115,20 +117,36 @@ export interface CommandOptions {
 }
 
 export interface Sandbox {
+  /** 沙箱内项目/工作区根目录的绝对路径(agent 命令的默认 cwd,也是 git baseline 提交的位置)。各方法的相对路径都以此为基准解析,省略 `cwd`/`targetDir` 时也落到这里。 */
   readonly workdir: string;
+  /**
+   * 执行单个命令,`args` 作为独立 argv 传递、不经 shell 解释(无 `&&`、管道、通配符展开)。
+   * 只想跑一个可执行文件、参数来自外部输入、担心注入时优先用它。
+   */
   runCommand(cmd: string, args?: string[], opts?: CommandOptions): Promise<CommandResult>;
+  /**
+   * 执行一整段脚本,经 shell(bash)解释,支持 `&&`、管道、`$()`、重定向等。
+   * 需要拼多条命令或做条件判断时用它。
+   */
   runShell(script: string, opts?: CommandOptions): Promise<CommandResult>;
+  /** 读取沙箱内文件的文本内容(UTF-8)。文件不存在时抛错,不返回空字符串——需要容错请自行 `.catch()`。 */
   readFile(path: string): Promise<string>;
+  /** 检查沙箱内路径是否存在。跨后端语义不完全一致:仅保证对普通文件可靠,对目录路径的行为不同后端不保证一致。 */
   fileExists(path: string): Promise<boolean>;
   /**
    * 一次 shell 往返读全部源码文件(按扩展名收、按目录/文件名忽略)。
    * 取代每个 eval 目录里手写的 find + 逐文件 readFile。
    */
   readSourceFiles(opts?: ReadSourceFilesOptions): Promise<SourceFiles>;
+  /** 写入若干文本文件(内容已在内存里的字符串);是 `uploadFiles` 的文本特化,省略 `targetDir` 落到 workdir。 */
   writeFiles(files: Record<string, string>, targetDir?: string): Promise<void>;
+  /** 批量写入若干文件,内容可以是文本或二进制 Buffer;省略 `targetDir` 落到 workdir。 */
   uploadFiles(files: SandboxFile[], targetDir?: string): Promise<void>;
+  /** 把本地磁盘上的一个目录整体上传进沙箱(递归读取本地文件后按 `uploadFiles` 写入);`opts.ignore` 是排除规则,省略 `targetDir` 落到 workdir。 */
   uploadDirectory(localDir: string, targetDir?: string, opts?: { ignore?: string[] }): Promise<void>;
+  /** 销毁沙箱占用的计算资源(容器/microVM)。调用后沙箱不可再用;是否可安全重复调用因后端而异,不要依赖这一点。 */
   stop(): Promise<void>;
+  /** 本沙箱的稳定标识(各后端原生 ID,如 Docker 容器 ID 前缀);用于跨调用关联同一沙箱的会话状态,也用于日志展示。 */
   readonly sandboxId: string;
   /**
    * 本地 OTLP 接收器的目标 host。
