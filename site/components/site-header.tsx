@@ -1,15 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { docsUrl, githubUrl, otherLocale, withLocale, type Dictionary, type Locale } from "../lib/content";
+import { githubUrl, otherLocale, withLocale, type Dictionary, type Locale } from "../lib/content";
 import { track } from "../src/analytics";
 import { LogoMark } from "./logo";
 
 const LOCALE_COOKIE = "niceeval-locale";
 
-// 仅 header 导航把 zh 指向 introduction;其余 docsUrl 引用(如首页)保持 quickstart。
+// 仅 header 导航指向 introduction;首页的 docsUrl 引用保持 quickstart。
 const headerDocsUrl: Record<Locale, string> = {
-  en: docsUrl.en,
+  en: "https://niceeval.com/docs/introduction",
   zh: "https://niceeval.com/docs/zh/introduction",
 };
 
