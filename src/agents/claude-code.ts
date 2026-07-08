@@ -24,7 +24,7 @@ export interface ClaudeCodeConfig {
    */
   maxTurns?: number;
   /**
-   * 额外 MCP server(每个沙箱 setup 时写进 ~/.claude/claude.json)。
+   * 额外 MCP server(每个沙箱 setup 时写进用户级 ~/.claude.json)。
    * 示例:{ name: "browser", command: "npx", args: ["-y", "@anthropic/mcp-browser"] }
    */
   mcpServers?: McpServer[];
@@ -74,7 +74,9 @@ export function claudeCodeAgent(config?: ClaudeCodeConfig): Agent {
             ...(s.env && { env: s.env }),
           };
         }
-        await shared.writeFile(sb, "~/.claude/claude.json", JSON.stringify({ mcpServers: servers }, null, 2));
+        // 用户级 MCP 配置在 ~/.claude.json(顶层 mcpServers 字段),不是 ~/.claude/claude.json
+        // ——后者 claude CLI 根本不读,MCP 静默挂不上(本机 `claude mcp list` 可核对)。
+        await shared.writeFile(sb, "~/.claude.json", JSON.stringify({ mcpServers: servers }, null, 2));
       }
 
       if (config?.skills?.length) {

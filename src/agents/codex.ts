@@ -69,10 +69,12 @@ export function codexAgent(config?: CodexConfig): Agent {
       if (config?.mcpServers?.length) {
         const mcpToml = config.mcpServers
           .map((s) => {
-            const lines: string[] = [`[mcp_server.${s.name}]`, `command = "${s.command}"`];
+            // 注意是复数 mcp_servers:单数 [mcp_server.x] 会被 codex 静默忽略,
+            // MCP 压根挂不上(实测 codex-cli 0.142.x,`codex mcp list` 可核对)。
+            const lines: string[] = [`[mcp_servers.${s.name}]`, `command = "${s.command}"`];
             if (s.args?.length) lines.push(`args = [${s.args.map((a) => `"${a}"`).join(", ")}]`);
             if (s.env && Object.keys(s.env).length) {
-              lines.push(`[mcp_server.${s.name}.env]`);
+              lines.push(`[mcp_servers.${s.name}.env]`);
               for (const [k, v] of Object.entries(s.env)) lines.push(`${k} = "${v}"`);
             }
             return lines.join("\n");
