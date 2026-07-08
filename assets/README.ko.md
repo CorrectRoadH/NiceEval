@@ -12,18 +12,15 @@
 
 </div>
 
-NiceEval은 [eve](https://eve.dev)에서 영감을 받은 Agent-Native eval 도구로, 최고 수준의 DX를 추구합니다.
+NiceEval은 팀이 프로덕션 환경의 AI를 측정, 평가, 개선하도록 돕는 Agent eval 도구입니다. NiceEval을 사용하면 팀은 모델을 비교하고, Agent를 반복 개선하고, 회귀를 발견하며, 실제 사용자 데이터를 활용해 AI 애플리케이션을 지속적으로 개선할 수 있습니다.
 
-범용적인 설계 덕분에 NiceEval은 거의 모든 Agent 애플리케이션을 평가할 수 있습니다.
-Claude Code / Codex용으로 작성한 coding agent 플러그인, Hook, Skill을 평가해야 하든, 직접 만든 AI Agent 애플리케이션을 평가해야 하든 손쉽게 연결할 수 있습니다.
-
-eval이 끝나면 읽기 쉬운 리포트를 생성하고 Agent의 행동 디테일을 확인할 수 있습니다. 디버깅과 Agent 행동을 이해하는 데 편리합니다.
+NiceEval은 로컬 우선(local-first)을 핵심으로 합니다. 여러분의 eval은 여러분 자신의 환경에서 실행됩니다. 팀에서 eval을 공유하거나 회귀를 추적해야 할 때는 Report를 BrainTrust 같은 플랫폼에 push하거나, 커스텀 리포트로 내보낼 수 있습니다.
 
 ## DeepEval, LangFuse, BrainTrust가 있는데 왜 NiceEval이 필요한가
 NiceEval은 Agent-Native한 평가 도구입니다. Dataset / golden 방식으로 "Input과 Expected Output을 구성하는" 패턴은 실제 Agent 평가에 적합하지 않습니다.
 오늘날의 Agent는 멀티턴 대화, 멀티 agent 협업, 도구 호출, Skill 로딩 같은 세밀한 시나리오에서 평가되어야 하며, NiceEval은 이를 더 잘 해낼 수 있습니다.
 
-동시에 NiceEval은 LangFuse, BrainTrust와 공존할 수도 있습니다. 이들을 tracing에 사용하거나, 평가 결과를 두 도구에 업로드할 수 있습니다(이 기능은 아직 개발 중입니다).
+동시에 NiceEval은 LangFuse, BrainTrust와 공존할 수도 있습니다. 이들을 tracing에 사용하거나, 평가 결과를 두 도구에 업로드할 수 있습니다.
 
 ## 아키텍처
 
@@ -72,6 +69,17 @@ NiceEval은 테스트 대상 agent가 격리된 샌드박스 파일 시스템을
 - **Agent 어댑터**는 열린 경계입니다: 테스트 대상 시스템을 어떻게 호출할지는 사용자가 결정합니다.
 - 파일 시스템 격리가 필요한 coding agent는 **Docker Sandbox**를 사용하고, 직접 만든 AI Agent는 Docker 없이 직접 연결할 수 있습니다.
 
+## 핵심 개념 한눈에 보기
+
+| 개념 | 한 줄 설명 |
+|---|---|
+| Eval | 테스트 케이스: `evals/*.eval.ts`에 작성하며, 무엇을 확인할지 기술한다. |
+| Experiment | 체크인 가능한 실행 설정: 어떤 Adapter, 어떤 model, 어떤 flags를 사용할지 결정한다. |
+| Adapter | 테스트 대상 시스템에 연결하는 계층: `send` 하나만 구현하면 표준 이벤트 스트림을 돌려받는다. |
+| Sandbox | 격리된 워크스페이스가 필요한 coding agent에만 필요하며, 직접 연결하는 web agent에는 필요 없다. |
+| Tier | Adapter 연동에 들이는 노력의 세 단계: Tier 1은 `send`만 연결하고, Tier 2는 호출 흐름을 보기 위해 OTel을 추가하며, Tier 3은 feature A/B 테스트를 위해 침습적인 변경을 가한다. |
+
+전체 용어집은 [아키텍처 개요](https://niceeval.com/docs/concepts/overview)에서 확인할 수 있습니다.
 
 ## 예시
 
@@ -156,7 +164,7 @@ READ https://niceeval.com/INIT.md and install niceeval for this repo.
 
 # 감사의 말
 이 프로젝트는 아래 프로젝트들에서 영감을 받았거나, AI가 아래 프로젝트의 코드를 학습하여 작성되었습니다.
-[eve](https://eve.dev)
+[eve](https://eve.dev): 주요 DX와 API에 영감을 준 프로젝트
 [agent eval](https://github.com/vercel-labs/agent-eval)
 [ponytail](https://github.com/DietrichGebert/ponytail)
 

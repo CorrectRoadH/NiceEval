@@ -1,16 +1,55 @@
 ---
 title: "NiceEval: an eval tool for agents"
 sidebarTitle: "Introduction"
-description: "NiceEval is an agent-native eval tool. Use one unified API to evaluate coding agents and your own AI agent application."
+description: "NiceEval helps teams measure, evaluate, and improve AI in production: compare models, iterate on agents, catch regressions, and improve with real data."
 ---
 
-NiceEval is an agent-native eval tool inspired by [eve](https://eve.dev). It aims for low-friction DX: most projects can integrate in about 10 minutes, write the first eval, and start checking agent behavior reliably.
+[NiceEval](https://niceeval.com/) is an agent eval tool that helps teams measure, evaluate, and improve AI in production. With NiceEval, teams can compare models, iterate on agents, catch regressions, and keep improving their AI applications using real user data. It aims for low-friction DX: most projects can integrate in about 10 minutes, write the first eval, and start checking agent behavior reliably.
 
-It can evaluate coding-agent plugins, hooks, and Skills for Claude Code / Codex, and it can also evaluate your own AI agent application directly. Whether your agent is built on AI SDK, LangGraph, Pi, or a custom loop, you can connect it through an adapter into the same eval surface.
+NiceEval is local-first at its core: your evals run in your own environment, so you don't need to create an account or connect to a platform before running your first eval. When your team needs to share eval results or track regressions, you can push a Report to platforms like BrainTrust, or export a custom report.
 
-## What problem it solves
+It can evaluate coding-agent plugins, hooks, and Skills for Claude Code / Codex, and it can also evaluate your own AI agent application directly. Whether your agent is built on AI SDK, LangGraph, Pi, or a custom loop, you can connect it through an Adapter into the same eval surface.
 
-Tools like Langfuse and Braintrust lean more toward tracing and observability. For the path of "write evals, run evals, inspect results", that is often heavier than necessary. NiceEval is designed around that path from the start, with a simpler developer experience.
+## 30 seconds of DX
+
+An eval is just a TypeScript file: send the agent a message, assert on what it did.
+
+```ts
+// evals/eval-tool-call.eval.ts
+import { defineEval } from "niceeval";
+
+export default defineEval({
+  description: "Verify the agent calls the weather tool and answers from its result",
+
+  async test(t) {
+    const turn = await t.send("What's the weather in Beijing today?");
+    t.succeeded();
+
+    await t.group("calls get_weather with the right city", () => {
+      t.calledTool("get_weather", { input: { city: "Beijing" } });
+      t.messageIncludes(/°C|sunny|cloudy|rain/);
+    });
+
+    const second = await t.send("What about Shanghai tomorrow?");
+    second.messageIncludes("Shanghai");
+
+    t.judge.autoevals
+      .closedQA("Does the reply use the tool's weather data instead of making up a temperature?")
+      .atLeast(0.7);
+  },
+});
+```
+
+```sh
+pnpm exec niceeval exp local eval-tool-call  # run only eval-tool-call under the local experiment
+pnpm exec niceeval view                      # view eval results
+```
+
+## Why NiceEval when DeepEval, LangFuse, and BrainTrust already exist
+
+NiceEval is an Agent-Native eval tool. The Dataset / golden pattern of building an Input and an Expected Output doesn't fit real agent evaluation — agents today need to be checked at a finer grain: multi-turn conversations, multi-agent collaboration, tool calls, skill loading. NiceEval is designed for exactly that: assertions land directly on tool calls, message content, structured output, and usage, instead of requiring you to hand-build a golden dataset first.
+
+Tools like Langfuse and Braintrust lean more toward tracing and observability. For the path of "write evals, run evals, inspect results", that is often heavier than necessary. NiceEval is designed around that path from the start, with a simpler developer experience. The two aren't mutually exclusive either: NiceEval coexists with LangFuse and BrainTrust — use them for tracing, or upload eval results to both.
 
 ## What you can evaluate
 
@@ -23,50 +62,79 @@ Tools like Langfuse and Braintrust lean more toward tracing and observability. F
   </Card>
 </CardGroup>
 
-## Overall architecture
-
-```text
-   evals/*.eval.ts
-        |
-        v
-   ┌────────────┐
-   │  niceeval  │
-   └────────────┘
-        |
-        | Adapter (official)
-        v
-   ┌───────────────────────────────┐
-   │        Docker Sandbox         │
-   │    ┌───────────────────────┐  │
-   │    │ Codex / Claude Code / │  │
-   │    │   apps that need an   │  │
-   │    │  isolated workspace   │  │
-   │    └───────────────────────┘  │
-   └───────────────────────────────┘
-```
-
-```text
-   evals/*.eval.ts
-        |
-        v
-   ┌────────────┐
-   │  niceeval  │
-   └────────────┘
-        |
-        | Adapter (official or custom)
-        v
-   ┌────────────────────────────┐
-   │   Your own AI agent app    │
-   │ (AI SDK · LangGraph · Pi · │
-   │  custom agent loop, etc.)  │
-   └────────────────────────────┘
-```
-
 ## Two integration modes
 
-**Sandbox mode** fits coding agents such as Codex and Claude Code that need a real file system and command execution.
+<Tabs>
+  <Tab title="Sandbox mode">
+    Fits coding agents such as Codex and Claude Code that need a real file system and command execution.
 
-**Direct mode** fits your own AI agent app and does not require Docker.
+    ```text
+       evals/*.eval.ts
+            │
+            ▼
+       ┌────────────┐
+       │  niceeval  │
+       └────────────┘
+            │
+            │ Adapter (official)
+            ▼
+       ┌───────────────────────────────┐
+       │        Docker Sandbox         │
+       │    ┌───────────────────────┐  │
+       │    │ Codex / Claude Code / │  │
+       │    │  apps that need an    │  │
+       │    │  isolated workspace   │  │
+       │    └───────────────────────┘  │
+       └───────────────────────────────┘
+    ```
+  </Tab>
+  <Tab title="Direct mode">
+    Fits your own AI agent app and does not require Docker.
+
+    ```text
+       evals/*.eval.ts
+            │
+            ▼
+       ┌────────────┐
+       │  niceeval  │
+       └────────────┘
+            │
+            │ Adapter (official or custom)
+            ▼
+       ┌────────────────────────────┐
+       │   Your own AI agent app    │
+       │ (AI SDK · LangGraph · Pi · │
+       │  custom agent loop, etc.)  │
+       └────────────────────────────┘
+    ```
+  </Tab>
+</Tabs>
+
+## Core concepts at a glance
+
+| Concept | In one line |
+|---|---|
+| Eval | A test case: written in `evals/*.eval.ts`, describing what to check. |
+| Experiment | A checked-in run configuration: which Adapter, which model, which flags. |
+| Adapter | The layer that connects to the system under test: implement one `send`, get back a standard event stream. |
+| Sandbox | Only needed for coding agents that require an isolated workspace; a direct web agent doesn't need one. |
+| Tier | Three levels of Adapter integration effort: Tier 1 wires up `send` only, Tier 2 adds OTel for a call waterfall, Tier 3 makes invasive changes for feature A/B testing. |
+
+See the full glossary in the [architecture overview](/concepts/overview).
+
+## Start from your scenario
+
+<CardGroup cols={3}>
+  <Card title="Evaluate a Claude Code / Codex plugin" icon="puzzle-piece" href="/example/claude-code-codex-plugin">
+    Drop the plugin into a real workspace and compare pass rate, cost, latency, and behavior with and without it.
+  </Card>
+  <Card title="Evaluate a Claude Code / Codex Skill" icon="wand-magic-sparkles" href="/example/claude-code-codex-skill">
+    Compare coding-agent tasks with and without the Skill to measure whether it actually improves results.
+  </Card>
+  <Card title="Evaluate your own AI agent application" icon="robot" href="/example/ai-agent-application">
+    Connect directly to your app's API and assert on tool calls, image understanding, and multi-turn conversations.
+  </Card>
+</CardGroup>
 
 ## What to read next
 

@@ -12,18 +12,16 @@
 
 </div>
 
-NiceEval 是一个受 [eve](https://eve.dev) 启发的 Agent-Native eval 工具，追求极致的DX。
+NiceEval 是一个 Agent 评估工具，帮助团队衡量、评估并改进生产环境中的 AI。借助 NiceEval，团队可以比较模型、迭代 Agent、发现回归问题，并利用真实用户数据持续改进 AI 应用。
+ 
+NiceEval 以本地优先为核心：你的评估在你自己的环境中运行。当你的团队需要分享评估、回归跟踪时，可以通过 Report 上报到 BrainTrust 等平台，或者自定义的报告导出。
 
-通过通用式的设计，使 NiceEval 可以为几乎所有 Agent 应用进行评估。
-无论你是需要评估为 Claude Code / Codex 写的 coding agent 插件、Hook 和 Skill，还是可以评估你自己的 AI Agent 应用都能轻松接入。
-
-在 eval 完成之后可以生成易读的报告与查看 Agent 的行为细节。方便 Debug 与理解 Agent 行为。
 
 ## 为什么有了 DeepEval、LangFuse、BrainTrust 还需要 NiceEval
 NiceEval 是一个 Agent-Native 的评估工具。Dataset / golden 那一套「构建 Input 与 Expected Output」的模式，并不适合真实的 Agent 评估。
 现在 Agent 需要在多轮对话、多 agent 协作、工具调用、Skill 加载等细粒度场景下进行评估，NiceEval 能做得更好。
 
-同时，NiceEval 也能与 LangFuse、BrainTrust 共存：可以用它们做 tracing，或者把评估结果上传到两者（这部分功能还在开发中）。
+同时，NiceEval 也能与 LangFuse、BrainTrust 共存：可以用它们做 tracing，或者把评估结果上传到两者。
 
 ## 架构
 
@@ -167,7 +165,7 @@ READ https://niceeval.com/INIT.md and install niceeval for this repo.
 
 # 感谢
 该项目受下面项目所启发或者是由AI从下面项目中学习代码所写
-[eve](https://eve.dev)
+[eve](https://eve.dev): 主要的 DX 与 API 受 Eve 所启发
 [agent eval](https://github.com/vercel-labs/agent-eval)
 [ponytail](https://github.com/DietrichGebert/ponytail)
 

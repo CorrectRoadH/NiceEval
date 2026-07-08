@@ -1,16 +1,55 @@
 ---
 title: "NiceEval：面向 Agent 的评估工具"
 sidebarTitle: "介绍"
-description: "NiceEval 是一个 Agent-Native 的 eval 工具。用一套统一 API 评估 coding agents 和你的 AI agent。"
+description: "NiceEval 帮助团队衡量、评估并改进生产环境中的 AI：比较模型、迭代 Agent、发现回归、用真实数据持续改进。"
 ---
 
-[NiceEval](https://niceeval.com/) 是一个受[eve](https://eve.dev)启发的 agent-native eval 工具。它追求低心智负担的 DX：大多数项目都可以在 10 分钟左右接入，写出第一条 eval，并开始稳定地检查 agent 行为。
+[NiceEval](https://niceeval.com/) 是一个 Agent 评估工具，帮助团队衡量、评估并改进生产环境中的 AI。借助 NiceEval，团队可以比较模型、迭代 Agent、发现回归问题，并利用真实用户数据持续改进 AI 应用。它追求低心智负担的 DX：大多数项目都可以在 10 分钟左右接入，写出第一条 eval，并开始稳定地检查 agent 行为。
 
-它既能评给 Claude Code / Codex 写的 coding-agent 插件、Hook 和 Skill，也能直接评你自己的 AI agent 应用。无论你的 agent 基于 AI SDK、LangGraph、Pi 还是自研 loop，都可以通过 adapter 接进同一套 eval surface。
+NiceEval 以本地优先为核心：你的评估在你自己的环境中运行，不需要先开账号、连平台才能跑第一条 eval。当团队需要分享评估结果、做回归跟踪时，可以通过 Report 上报到 BrainTrust 等平台，或者自定义报告导出。
 
-## 解决什么问题
+它既能评估 Claude Code / Codex 写的 coding-agent 插件、Hook 和 Skill，也能直接评你自己的 AI agent 应用。无论你的 agent 基于 AI SDK、LangGraph、Pi 还是自研 loop，都可以通过 Adapter 接进同一套 eval surface。
 
-像 Langfuse、Braintrust 这类工具更偏 tracing 和监控，对"写 eval、跑 eval、看结果"这条路径来说太重；[NiceEval](https://niceeval.com/) 从一开始就针对这条路径做了友好的开发体验。
+## 30 秒看懂 DX
+
+一个 eval 就是一个 TypeScript 文件：给 agent 发消息，断言它做对了什么。
+
+```ts
+// evals/eval-tool-call.eval.ts
+import { defineEval } from "niceeval";
+
+export default defineEval({
+  description: "测试 agent 在实时天气问题中正确调用工具并基于结果作答的能力",
+
+  async test(t) {
+    const turn = await t.send("北京今天天气怎么样？");
+    t.succeeded();
+
+    await t.group("调用 get_weather 且城市正确", () => {
+      t.calledTool("get_weather", { input: { city: "北京" } });
+      t.messageIncludes(/°C|气温|天气|晴|多云|雨/);
+    });
+
+    const second = await t.send("上海明天天气怎么样?");
+    second.messageIncludes("上海");
+
+    t.judge.autoevals
+      .closedQA("助手是否基于工具返回的天气数据作答，而不是凭空编造温度？")
+      .atLeast(0.7);
+  },
+});
+```
+
+```sh
+pnpm exec niceeval exp local eval-tool-call  # 用 local experiment 只跑 eval-tool-call
+pnpm exec niceeval view                      # 查看评估结果
+```
+
+## 为什么有了 DeepEval、LangFuse、BrainTrust 还需要 NiceEval
+
+NiceEval 是一个 Agent-Native 的评估工具。Dataset / golden 那一套「构建 Input 与 Expected Output」的模式，并不适合真实的 Agent 评估——现在的 Agent 要在多轮对话、多 agent 协作、工具调用、Skill 加载等细粒度场景下被检查，NiceEval 就是为这类场景设计的：断言直接落在工具调用、消息内容、结构化输出和用量上，而不是要求你先手工准备一份 golden 数据集。
+
+像 LangFuse、BrainTrust 这类工具更偏 tracing 和监控，对「写 eval、跑 eval、看结果」这条路径来说太重；NiceEval 从一开始就针对这条路径做了友好的开发体验。两者也不冲突：NiceEval 能与 LangFuse、BrainTrust 共存——可以用它们做 tracing，或者把评估结果上传到两者。
 
 ## 你可以评什么
 
@@ -23,51 +62,78 @@ description: "NiceEval 是一个 Agent-Native 的 eval 工具。用一套统一 
   </Card>
 </CardGroup>
 
-
-## 整体架构
-
-```text
-   evals/*.eval.ts
-        │
-        ▼
-   ┌────────────┐
-   │  niceeval  │
-   └────────────┘
-        │
-        │ Agent 适配器(官方)
-        ▼
-   ┌───────────────────────────────┐
-   │        Docker Sandbox         │
-   │    ┌───────────────────────┐  │
-   │    │ Codex / Claude Code / │  │
-   │    │ 需要隔离工作区的应用  │  │
-   │    └───────────────────────┘  │
-   └───────────────────────────────┘
-```
-
-```text
-   evals/*.eval.ts
-        │
-        ▼
-   ┌────────────┐
-   │  niceeval  │
-   └────────────┘
-        │
-        │ Agent 适配器(官方，或者自己实现)
-        ▼
-   ┌────────────────────────────┐
-   │     你自己的 AI Agent      │
-   │ (AI SDK · LangGraph · Pi · │
-   │    自研 agent loop 等)     │
-   └────────────────────────────┘
-```
-
-
 ## 两种接入模式
 
-**Sandbox mode** 适合 Codex、Claude Code 这类必须在真实文件系统中改代码、跑命令的 coding agent。
+<Tabs>
+  <Tab title="Sandbox mode">
+    适合 Codex、Claude Code 这类必须在真实文件系统中改代码、跑命令的 coding agent。
 
-**Direct mode** 适合你自己的 AI Agent，不需要 Docker。
+    ```text
+       evals/*.eval.ts
+            │
+            ▼
+       ┌────────────┐
+       │  niceeval  │
+       └────────────┘
+            │
+            │ Agent 适配器(官方)
+            ▼
+       ┌───────────────────────────────┐
+       │        Docker Sandbox         │
+       │    ┌───────────────────────┐  │
+       │    │ Codex / Claude Code / │  │
+       │    │ 需要隔离工作区的应用  │  │
+       │    └───────────────────────┘  │
+       └───────────────────────────────┘
+    ```
+  </Tab>
+  <Tab title="Direct mode">
+    适合你自己的 AI Agent，不需要 Docker。
+
+    ```text
+       evals/*.eval.ts
+            │
+            ▼
+       ┌────────────┐
+       │  niceeval  │
+       └────────────┘
+            │
+            │ Agent 适配器(官方，或者自己实现)
+            ▼
+       ┌────────────────────────────┐
+       │     你自己的 AI Agent      │
+       │ (AI SDK · LangGraph · Pi · │
+       │    自研 agent loop 等)     │
+       └────────────────────────────┘
+    ```
+  </Tab>
+</Tabs>
+
+## 核心概念一览
+
+| 概念 | 一句话 |
+|---|---|
+| Eval | 一个测试用例：写在 `evals/*.eval.ts` 里，描述测什么。 |
+| Experiment | 可签入的运行配置：决定连哪个 Adapter、什么 model、什么 flags。 |
+| Adapter | 连接被测系统的适配层：实现一个 `send`，把返回翻译成标准事件流。 |
+| Sandbox | 需要隔离工作区的 coding agent 才用得到；直连 Web Agent 不需要。 |
+| Tier | 接入 Adapter 的三档投入：Tier 1 只接 send，Tier 2 加 OTel 换调用瀑布图，Tier 3 侵入改造做 feature A/B。 |
+
+完整术语表见[架构概览](/zh/concepts/overview)。
+
+## 从你的场景开始
+
+<CardGroup cols={3}>
+  <Card title="评估 Claude Code / Codex 插件" icon="puzzle-piece" href="/zh/example/claude-code-codex-plugin">
+    把插件放进真实 workspace，比较有插件和无插件时的通过率、成本、耗时和行为差异。
+  </Card>
+  <Card title="评估 Claude Code / Codex Skill" icon="wand-magic-sparkles" href="/zh/example/claude-code-codex-skill">
+    对比有 Skill 和无 Skill 的 coding-agent 任务，衡量 Skill 是否真的提升结果。
+  </Card>
+  <Card title="评估你的 AI Agent 应用" icon="robot" href="/zh/example/ai-agent-application">
+    直连你自己的应用接口，断言工具调用、图片理解和多轮会话。
+  </Card>
+</CardGroup>
 
 ## 接下来读什么
 

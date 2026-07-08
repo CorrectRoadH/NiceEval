@@ -12,19 +12,16 @@
 
 </div>
 
-NiceEval es una herramienta de eval Agent-Native inspirada en [eve](https://eve.dev), que persigue la mejor DX posible.
+NiceEval es una herramienta de eval para agents que ayuda a los equipos a medir, evaluar y mejorar la IA en producción. Con NiceEval, los equipos pueden comparar modelos, iterar sobre sus agents, detectar regresiones y seguir mejorando sus aplicaciones de IA usando datos reales de usuarios.
 
-Gracias a su diseño universal, NiceEval puede evaluar casi cualquier aplicación de agent.
-Tanto si necesitas evaluar plugins, Hooks y Skills de coding agents escritos para Claude Code / Codex, como si quieres evaluar tu propia aplicación de AI Agent, la integración es sencilla.
-
-Al terminar una eval se genera un informe fácil de leer y puedes inspeccionar el detalle del comportamiento del agent, lo que facilita hacer debug y entender qué hizo el agent.
+NiceEval es local-first en su núcleo: tus evals se ejecutan en tu propio entorno. Cuando tu equipo necesite compartir evals o hacer seguimiento de regresiones, puedes enviar un Report a plataformas como BrainTrust, o exportar un informe personalizado.
 
 ## Por qué necesitas NiceEval si ya existen DeepEval, LangFuse o BrainTrust
 
 NiceEval es una herramienta de evaluación Agent-Native. El patrón de Dataset / golden —«construir un Input y un Expected Output»— no encaja con la evaluación de agents reales.
 Hoy los agents necesitan evaluarse en escenarios de grano fino: conversaciones de múltiples turnos, colaboración entre múltiples agents, llamadas a herramientas, carga de Skills, etc., y NiceEval lo hace mejor.
 
-Al mismo tiempo, NiceEval puede coexistir con LangFuse y BrainTrust: puedes usarlos para hacer tracing, o subir los resultados de la evaluación a ambos (esta parte está en desarrollo).
+Al mismo tiempo, NiceEval puede coexistir con LangFuse y BrainTrust: puedes usarlos para hacer tracing, o subir los resultados de la evaluación a ambos.
 
 ## Arquitectura
 
@@ -74,6 +71,17 @@ NiceEval admite dos formas de integración, según si el agent bajo prueba neces
 - **El Adaptador de Agent** es el límite abierto: tú decides cómo invocar al sistema bajo prueba.
 - Los coding agents que necesitan aislamiento del sistema de archivos pasan por el **Docker Sandbox**; tu propio AI Agent puede conectarse directamente, sin necesidad de Docker.
 
+## Conceptos clave de un vistazo
+
+| Concepto | En una frase |
+|---|---|
+| Eval | Un caso de prueba: escrito en `evals/*.eval.ts`, describe qué se comprueba. |
+| Experiment | Una configuración de ejecución versionada: qué Adapter, qué modelo, qué flags. |
+| Adapter | La capa que conecta con el sistema bajo prueba: implementas un `send` y obtienes un flujo de eventos estándar. |
+| Sandbox | Solo hace falta para coding agents que necesitan un workspace aislado; un web agent con conexión directa no lo necesita. |
+| Tier | Tres niveles de esfuerzo para integrar un Adapter: Tier 1 solo conecta `send`, Tier 2 añade OTel para obtener un call waterfall, Tier 3 hace cambios invasivos para pruebas A/B de features. |
+
+Consulta el glosario completo en la [visión general de la arquitectura](https://niceeval.com/docs/concepts/overview).
 
 ## Ejemplo
 
@@ -158,7 +166,7 @@ Adaptadores oficiales
 
 # Agradecimientos
 Este proyecto está inspirado en los siguientes proyectos, o fue escrito por una IA que aprendió del código de los siguientes proyectos
-[eve](https://eve.dev)
+[eve](https://eve.dev): la principal inspiración de DX y API
 [agent eval](https://github.com/vercel-labs/agent-eval)
 [ponytail](https://github.com/DietrichGebert/ponytail)
 

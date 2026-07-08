@@ -12,19 +12,16 @@
 
 </div>
 
-NiceEval is an Agent-Native eval tool inspired by [eve](https://eve.dev), built for the best possible DX.
+NiceEval is an agent eval tool that helps teams measure, evaluate, and improve AI in production. With NiceEval, teams can compare models, iterate on agents, catch regressions, and keep improving their AI applications using real user data.
 
-Thanks to its universal design, NiceEval can evaluate almost any agent application.
-Whether you need to evaluate coding agent plugins, Hooks, and Skills written for Claude Code / Codex, or your own AI agent application — both plug in easily.
-
-After the eval completes, it generates readable reports and lets you view agent behavior details. Convenient for debugging and understanding agent behavior.
+NiceEval is local-first at its core: your evals run in your own environment. When your team needs to share evals or track regressions, you can push a Report to platforms like BrainTrust, or export a custom report.
 
 ## Why NiceEval when DeepEval, LangFuse, and BrainTrust already exist
 
 NiceEval is an Agent-Native eval tool. The Dataset / golden pattern of building an Input and an Expected Output doesn't fit real agent evaluation.
 Agents today need to be evaluated at a finer grain — multi-turn conversations, multi-agent collaboration, tool calls, skill loading — and NiceEval does this better.
 
-It also coexists with LangFuse and BrainTrust: use them for tracing, or upload eval results to both (in progress).
+It also coexists with LangFuse and BrainTrust: use them for tracing, or upload eval results to both.
 
 ## Architecture
 
@@ -73,6 +70,17 @@ NiceEval supports two integration modes, depending on whether the agent under te
 - **Agent adapters** are the open boundary: you decide how to call the system under test.
 - Coding agents that need filesystem isolation run inside the **Docker Sandbox**; your own AI agent can connect directly, without Docker.
 
+## Core concepts at a glance
+
+| Concept | In one line |
+|---|---|
+| Eval | A test case: written in `evals/*.eval.ts`, describing what to check. |
+| Experiment | A checked-in run configuration: which Adapter, which model, which flags. |
+| Adapter | The layer that connects to the system under test: implement one `send`, get back a standard event stream. |
+| Sandbox | Only needed for coding agents that require an isolated workspace; a direct web agent doesn't need one. |
+| Tier | Three levels of Adapter integration effort: Tier 1 wires up `send` only, Tier 2 adds OTel for a call waterfall, Tier 3 makes invasive changes for feature A/B testing. |
+
+See the full glossary in the [architecture overview](https://niceeval.com/docs/concepts/overview).
 
 ## Example
 
@@ -126,9 +134,9 @@ READ https://niceeval.com/INIT.md and install niceeval for this repo.
 
 Start from the scenario that matches what you need to evaluate:
 
-- [Claude Code / Codex plugin eval](https://niceeval.com/docs/zh/example/claude-code-codex-plugin)
-- [Claude Code / Codex skill eval](https://niceeval.com/docs/zh/example/claude-code-codex-skill)
-- [AI Agent application eval](https://niceeval.com/docs/zh/example/ai-agent-application)
+- [Claude Code / Codex plugin eval](https://niceeval.com/docs/example/claude-code-codex-plugin)
+- [Claude Code / Codex skill eval](https://niceeval.com/docs/example/claude-code-codex-skill)
+- [AI Agent application eval](https://niceeval.com/docs/example/ai-agent-application)
 
 
 ## Roadmap
@@ -157,7 +165,7 @@ Official Adapters
 
 # Acknowledgements
 This project was inspired by — or had its code learned by AI from — the projects below:
-[eve](https://eve.dev)
+[eve](https://eve.dev): the main DX and API inspiration
 [agent eval](https://github.com/vercel-labs/agent-eval)
 [ponytail](https://github.com/DietrichGebert/ponytail)
 

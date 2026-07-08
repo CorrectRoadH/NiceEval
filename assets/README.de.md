@@ -12,19 +12,16 @@
 
 </div>
 
-NiceEval ist ein von [eve](https://eve.dev) inspiriertes, Agent-natives Eval-Tool, das auf die bestmögliche Developer Experience ausgelegt ist.
+NiceEval ist ein Agent-Eval-Tool, das Teams hilft, KI im Produktivbetrieb zu messen, zu bewerten und zu verbessern. Mit NiceEval können Teams Modelle vergleichen, Agents iterieren, Regressionen erkennen und ihre AI-Anwendungen anhand echter Nutzerdaten kontinuierlich verbessern.
 
-Dank seines universellen Designs kann NiceEval nahezu jede Agent-Anwendung evaluieren.
-Egal ob du Coding-Agent-Plugins, Hooks und Skills evaluieren willst, die für Claude Code / Codex geschrieben wurden, oder deine eigene AI-Agent-Anwendung – die Anbindung ist unkompliziert.
-
-Nach Abschluss eines Evals erzeugt NiceEval einen leicht lesbaren Report und zeigt die Verhaltensdetails des Agents. Das macht Debugging und das Verstehen von Agent-Verhalten deutlich einfacher.
+NiceEval ist im Kern local-first: Deine Evals laufen in deiner eigenen Umgebung. Wenn dein Team Evals teilen oder Regressionen nachverfolgen muss, kannst du einen Report an Plattformen wie BrainTrust pushen oder einen eigenen Report exportieren.
 
 ## Warum braucht es NiceEval, wenn es schon DeepEval, LangFuse und BrainTrust gibt
 
 NiceEval ist ein Agent-natives Eval-Tool. Das Dataset-/Golden-Muster mit festen Input/Expected-Output-Paaren passt nicht zur Realität von Agent-Evaluierung.
 Agents müssen heute in feinkörnigen Szenarien evaluiert werden – über mehrere Dialogrunden, in Multi-Agent-Zusammenarbeit, bei Tool-Aufrufen und beim Laden von Skills – und genau das kann NiceEval besser.
 
-Gleichzeitig kann NiceEval mit LangFuse und BrainTrust koexistieren: Man kann sie für Tracing nutzen oder die Evaluierungsergebnisse an beide hochladen (dieser Teil ist noch in Arbeit).
+Gleichzeitig kann NiceEval mit LangFuse und BrainTrust koexistieren: Man kann sie für Tracing nutzen oder die Evaluierungsergebnisse an beide hochladen.
 
 ## Architektur
 
@@ -73,6 +70,18 @@ NiceEval unterstützt zwei Anbindungsarten, je nachdem, ob der getestete Agent e
 - **Der NiceEval-Kern** kümmert sich um das Auffinden von Evals, das Scheduling der Läufe, die Bewertung sowie die Erstellung von Reports und Artefakten.
 - **Agent-Adapter** sind die offene Schnittstelle: Du entscheidest, wie das getestete System angesprochen wird.
 - Coding Agents, die Dateisystem-Isolation brauchen, laufen über die **Docker-Sandbox**; eigene AI Agents lassen sich direkt anbinden, ganz ohne Docker.
+
+## Kernkonzepte auf einen Blick
+
+| Konzept | In einem Satz |
+|---|---|
+| Eval | Ein Testfall: geschrieben in `evals/*.eval.ts`, beschreibt, was geprüft wird. |
+| Experiment | Eine eincheckbare Laufkonfiguration: welcher Adapter, welches Modell, welche Flags. |
+| Adapter | Die Schicht, die das getestete System anbindet: implementiere ein `send`, erhalte einen standardisierten Event-Stream zurück. |
+| Sandbox | Nur für Coding Agents nötig, die einen isolierten Arbeitsbereich brauchen; ein direkt angebundener Web Agent braucht keine. |
+| Tier | Drei Stufen des Adapter-Integrationsaufwands: Tier 1 bindet nur `send` an, Tier 2 ergänzt OTel für einen Call-Waterfall, Tier 3 nimmt invasive Änderungen für Feature-A/B-Tests vor. |
+
+Das vollständige Glossar findest du in der [Architektur-Übersicht](https://niceeval.com/docs/concepts/overview).
 
 ## Beispiel
 
@@ -159,7 +168,7 @@ Offizielle Adapter
 # Danksagung
 
 Dieses Projekt wurde von den folgenden Projekten inspiriert, bzw. die KI hat aus deren Code gelernt, um dieses Projekt zu schreiben:
-[eve](https://eve.dev)
+[eve](https://eve.dev): die wichtigste Inspiration für DX und API
 [agent eval](https://github.com/vercel-labs/agent-eval)
 [ponytail](https://github.com/DietrichGebert/ponytail)
 
