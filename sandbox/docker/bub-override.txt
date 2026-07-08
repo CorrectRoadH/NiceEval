@@ -1,1 +1,1 @@
-bub @ git+https://github.com/CorrectRoadH/bub.git@fix/streaming-usage-include-usage
+bub @ git+https://github.com/CorrectRoadH/bub.git@fix/tape-assistant-text-with-tool-calls

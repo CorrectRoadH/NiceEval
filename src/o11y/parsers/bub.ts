@@ -163,6 +163,11 @@ export function parseBubTranscript(raw: string | undefined): ParsedTranscript {
           const text = extractText(get(payload, "content") ?? get(payload, "text"));
           if (text) events.push({ type: "message", role, text });
         } else if (kind === "tool_call") {
+          // 模型「先说话再调工具」:伴随文本记在 tool_call 的 payload.content 上
+          // (bub 不给它单独的 message 条目)。先还原成 assistant message,再吐 calls,
+          // 否则 transcript 里每次 send 后面都看不到 AI 回复。
+          const accompanying = extractText(get(payload, "content"));
+          if (accompanying) events.push({ type: "message", role: "assistant", text: accompanying });
           const calls = get(payload, "calls");
           const list = Array.isArray(calls) ? calls : [payload];
           lastCallIds = [];

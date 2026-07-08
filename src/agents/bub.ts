@@ -42,7 +42,7 @@ const BUB = "$(command -v bub || echo $HOME/.local/bin/bub)";
 // 可用 NICEEVAL_BUB_OVERRIDE / NICEEVAL_BUB_OTEL_PLUGIN 覆盖,不必改源码。
 const BUB_OVERRIDE =
   getEnv("NICEEVAL_BUB_OVERRIDE") ??
-  "bub @ git+https://github.com/CorrectRoadH/bub.git@fix/streaming-usage-include-usage";
+  "bub @ git+https://github.com/CorrectRoadH/bub.git@fix/tape-assistant-text-with-tool-calls";
 const BUB_OVERRIDE_FILE = "/tmp/bub-override.txt";
 const OTEL_PLUGIN =
   getEnv("NICEEVAL_BUB_OTEL_PLUGIN") ??
