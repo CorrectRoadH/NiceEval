@@ -14,7 +14,7 @@
 import { Sandbox as VSandbox } from "@vercel/sandbox";
 
 // 与 src/agents/bub.ts / sandbox/docker/Dockerfile 保持一致。
-const BUB_OVERRIDE = "bub @ git+https://github.com/CorrectRoadH/bub.git@fix/streaming-usage-include-usage";
+const BUB_OVERRIDE = "bub @ git+https://github.com/CorrectRoadH/bub.git@fix/tape-assistant-text-with-tool-calls";
 const OTEL_PLUGIN =
   "git+https://github.com/CorrectRoadH/bub-contrib.git@fix/tapestore-otel-tape-entry-validation" +
   "#subdirectory=packages/bub-tapestore-otel";
