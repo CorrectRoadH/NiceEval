@@ -166,8 +166,9 @@ Adaptadores oficiais
 
 # Agradecimentos
 Este projeto foi inspirado pelos projetos abaixo, ou teve trechos de código escritos pela IA a partir do aprendizado com eles
-[eve](https://eve.dev): a principal inspiração de DX e API
-[agent eval](https://github.com/vercel-labs/agent-eval)
-[ponytail](https://github.com/DietrichGebert/ponytail)
+- [eve](https://eve.dev): a principal inspiração de DX e API
+- [agent eval](https://github.com/vercel-labs/agent-eval)
+- [ponytail](https://github.com/DietrichGebert/ponytail)
 
 Agradecimentos às seguintes comunidades
+- WIP

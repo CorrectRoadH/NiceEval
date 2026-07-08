@@ -168,8 +168,9 @@ Offizielle Adapter
 # Danksagung
 
 Dieses Projekt wurde von den folgenden Projekten inspiriert, bzw. die KI hat aus deren Code gelernt, um dieses Projekt zu schreiben:
-[eve](https://eve.dev): die wichtigste Inspiration für DX und API
-[agent eval](https://github.com/vercel-labs/agent-eval)
-[ponytail](https://github.com/DietrichGebert/ponytail)
+- [eve](https://eve.dev): die wichtigste Inspiration für DX und API
+- [agent eval](https://github.com/vercel-labs/agent-eval)
+- [ponytail](https://github.com/DietrichGebert/ponytail)
 
 Danke an die folgenden Communities
+- WIP

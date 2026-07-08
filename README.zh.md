@@ -165,8 +165,9 @@ READ https://niceeval.com/INIT.md and install niceeval for this repo.
 
 # 感谢
 该项目受下面项目所启发或者是由AI从下面项目中学习代码所写
-[eve](https://eve.dev): 主要的 DX 与 API 受 Eve 所启发
-[agent eval](https://github.com/vercel-labs/agent-eval)
-[ponytail](https://github.com/DietrichGebert/ponytail)
+- [eve](https://eve.dev): 主要的 DX 与 API 受 Eve 所启发
+- [agent eval](https://github.com/vercel-labs/agent-eval)
+- [ponytail](https://github.com/DietrichGebert/ponytail)
 
 感谢下列社区
+- WIP

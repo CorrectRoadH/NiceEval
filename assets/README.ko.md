@@ -164,8 +164,9 @@ READ https://niceeval.com/INIT.md and install niceeval for this repo.
 
 # 감사의 말
 이 프로젝트는 아래 프로젝트들에서 영감을 받았거나, AI가 아래 프로젝트의 코드를 학습하여 작성되었습니다.
-[eve](https://eve.dev): 주요 DX와 API에 영감을 준 프로젝트
-[agent eval](https://github.com/vercel-labs/agent-eval)
-[ponytail](https://github.com/DietrichGebert/ponytail)
+- [eve](https://eve.dev): 주요 DX와 API에 영감을 준 프로젝트
+- [agent eval](https://github.com/vercel-labs/agent-eval)
+- [ponytail](https://github.com/DietrichGebert/ponytail)
 
 다음 커뮤니티에도 감사드립니다
+- WIP

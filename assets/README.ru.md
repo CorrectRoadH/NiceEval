@@ -165,8 +165,9 @@ READ https://niceeval.com/INIT.md and install niceeval for this repo.
 
 # Благодарности
 Этот проект был вдохновлён нижеперечисленными проектами, а также ИИ, изучавшим их код при написании NiceEval:
-[eve](https://eve.dev): основное вдохновение для DX и API
-[agent eval](https://github.com/vercel-labs/agent-eval)
-[ponytail](https://github.com/DietrichGebert/ponytail)
+- [eve](https://eve.dev): основное вдохновение для DX и API
+- [agent eval](https://github.com/vercel-labs/agent-eval)
+- [ponytail](https://github.com/DietrichGebert/ponytail)
 
 Благодарим следующие сообщества
+- WIP
