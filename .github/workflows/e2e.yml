@@ -12,16 +12,55 @@ on:
     # L1 沙箱矩阵 nightly(docs/e2e-ci.md §4.2);e2e-matrix 不吃 schedule,见各 job 的 if。
     - cron: "0 3 * * *"
 
-concurrency:
-  group: e2e-${{ github.ref }}
-  cancel-in-progress: true
+# concurrency 放 job 级而不是 workflow 级:SDK 矩阵便宜,新 push 顶掉旧的没问题;
+# 沙箱矩阵单次 20-40 分钟,若被后续 push 连环取消就永远验证不完(2026-07-09 实测
+# 连续两次被 docs push 顶掉),所以它 cancel-in-progress: false,在跑的跑完再排新的。
 
 jobs:
+  # push 事件下判断本次改动是否触及沙箱矩阵关心的路径(docker 沙箱后端、内置
+  # agent adapter、沙箱 e2e 项目、共享套件、本 workflow)。判不出来一律当命中
+  # (fail-open):宁可多跑一次矩阵,不静默漏掉验证。
+  detect-sandbox-paths:
+    name: detect sandbox-relevant changes
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      hit: ${{ steps.diff.outputs.hit }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Diff changed paths against sandbox triggers
+        id: diff
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          if [ -z "$BEFORE" ] || ! git cat-file -e "$BEFORE" 2>/dev/null; then
+            echo "base commit unavailable (new branch or force push), defaulting to hit=true"
+            echo "hit=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed=$(git diff --name-only "$BEFORE" "$AFTER")
+          echo "changed files:"
+          echo "$changed"
+          if echo "$changed" | grep -qE '^(src/sandbox/|src/agents/|e2e/projects/(claude-code|codex)/|e2e/shared/|e2e/scripts/|\.github/workflows/e2e\.yml)'; then
+            echo "hit=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "hit=false" >> "$GITHUB_OUTPUT"
+          fi
+
   e2e-matrix:
     name: e2e matrix (5 SDK projects)
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    concurrency:
+      group: e2e-matrix-${{ github.ref }}
+      cancel-in-progress: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -133,13 +172,28 @@ jobs:
           include-hidden-files: true
 
   # L1 沙箱矩阵(docs/e2e-ci.md §4.2):claude-code / codex 内置 agent × dockerSandbox。
-  # 每个 attempt 在容器里现装 agent CLI + 真实模型调用,又慢又花钱,所以只挂
-  # nightly + 手动 dispatch,不做 PR 门禁;失败是健康信号,不阻塞合并。
+  # 每个 attempt 在容器里现装 agent CLI + 真实模型调用,又慢又花钱,所以不做
+  # 全量 push 门禁;nightly + 手动 dispatch 之外,只有 push 触及沙箱相关路径
+  # (见 detect-sandbox-paths)才跑。失败是健康信号,不阻塞合并。
+  # if 里的 !cancelled() 是为了让 schedule/dispatch 事件下 detect 被 skip 时
+  # 本 job 不被连坐 skip(GitHub 默认 needs 里有 skip 则全 skip)。
   e2e-sandbox:
     name: e2e sandbox matrix (claude-code / codex × docker)
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    needs: detect-sandbox-paths
+    if: >-
+      !cancelled() && (
+        github.event_name == 'schedule' ||
+        github.event_name == 'workflow_dispatch' ||
+        (github.event_name == 'push' && needs.detect-sandbox-paths.outputs.hit == 'true')
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    concurrency:
+      group: e2e-sandbox-${{ github.ref }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      issues: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -193,3 +247,23 @@ jobs:
           retention-days: 14
           if-no-files-found: ignore
           include-hidden-files: true
+
+      # nightly 失败发 issue(docs/e2e-ci.md §4.2 的"失败发通知"),否则标红没人看
+      # 等于没跑。已有同名 open issue 就追评,避免连败刷屏。push 触发的失败不发:
+      # 那种红本身就在 commit 状态里可见。
+      - name: File issue on nightly failure
+        if: failure() && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="e2e nightly sandbox matrix failed"
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
+            --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" \
+              --body "Failed again: $RUN_URL"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" \
+              --body "Nightly sandbox matrix run failed: $RUN_URL"
+          fi
