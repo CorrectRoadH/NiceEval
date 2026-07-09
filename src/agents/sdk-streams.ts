@@ -20,7 +20,9 @@
 // return { status: stream.failed ? "failed" : "completed", events, usage: stream.usage };
 // ```
 
-import type { JsonValue, StreamEvent, Usage } from "../types.ts";
+import type { JsonValue, StreamEvent, ToolName, Usage } from "../types.ts";
+import { normalizeToolName } from "../o11y/tool-names.ts";
+import { CODEX_TOOL_ALIASES } from "../o11y/parsers/codex.ts";
 
 // ───────────────────────── 通用 SSE 读帧器 ─────────────────────────
 
@@ -306,7 +308,8 @@ export interface CodexThreadStream {
   /**
    * 逐帧喂 `ThreadEvent`,返回标准事件:消息类(agent_message → message、reasoning → thinking、
    * error item / turn.failed → error)+ 工具项(command_execution / mcp_tool_call / web_search /
-   * file_change → action.called + action.result)。usage 从 `turn.completed` 聚合,经 `usage` 读。
+   * file_change → action.called + action.result,附规范工具名 `tool`,如 command_execution →
+   * `"shell"`,供 `calledTool("shell")` 这类跨 agent 断言命中)。usage 从 `turn.completed` 聚合,经 `usage` 读。
    * 断言依据全部来自这条流;codex CLI 的原生 OTLP span 只用于瀑布图(spanMapper: mapCodexSpans)。
    */
   add(event: CodexThreadEventLike): StreamEvent[];
@@ -333,19 +336,21 @@ export function fromCodexThreadEvents(): CodexThreadStream {
   };
 
   // 工具项 → action.called(+completed 时的 action.result)。与 o11y/parsers/codex.ts 的
-  // transcript 映射保持同一套语义(字段名以 codex exec --json 的 ThreadItem 为准)。
+  // transcript 映射保持同一套语义(字段名以 codex exec --json 的 ThreadItem 为准),
+  // 包括规范工具名 tool:少了它 derive 只能落 name="unknown",calledTool("shell") 这类
+  // 跨 agent 规范名断言在 SDK 流路径上会静默失配(2026-07-09 CI 实红)。
   const handleToolItem = (item: Record<string, unknown>, isCompleted: boolean): StreamEvent[] => {
     const events: StreamEvent[] = [];
-    const emitCall = (callId: string, name: string, input: JsonValue): void => {
+    const emitCall = (callId: string, name: string, input: JsonValue, tool: ToolName): void => {
       if (startedCallIds.has(callId)) return;
       startedCallIds.add(callId);
-      events.push({ type: "action.called", callId, name, input });
+      events.push({ type: "action.called", callId, name, input, tool });
     };
 
     switch (item.type) {
       case "command_execution": {
         const callId = callIdOf(item, "cmd");
-        emitCall(callId, "command_execution", { command: item.command ?? null } as JsonValue);
+        emitCall(callId, "command_execution", { command: item.command ?? null } as JsonValue, "shell");
         if (isCompleted) {
           const exit = item.exit_code;
           const success = exit === 0 || (exit == null && item.status !== "failed" && item.status !== "error");
@@ -362,7 +367,7 @@ export function fromCodexThreadEvents(): CodexThreadStream {
         const callId = callIdOf(item, "mcp");
         const tool = String(item.tool ?? "unknown");
         const name = typeof item.server === "string" ? `${item.server}.${tool}` : tool;
-        emitCall(callId, name, (item.arguments ?? null) as JsonValue);
+        emitCall(callId, name, (item.arguments ?? null) as JsonValue, normalizeToolName(tool, CODEX_TOOL_ALIASES));
         if (isCompleted) {
           const success = !item.error && item.status !== "failed";
           events.push({ type: "action.result", callId, output: (item.result ?? null) as JsonValue, status: success ? "completed" : "failed" });
@@ -371,7 +376,7 @@ export function fromCodexThreadEvents(): CodexThreadStream {
       }
       case "web_search": {
         const callId = callIdOf(item, "web");
-        emitCall(callId, "web_search", { query: item.query ?? null } as JsonValue);
+        emitCall(callId, "web_search", { query: item.query ?? null } as JsonValue, "web_search");
         if (isCompleted) events.push({ type: "action.result", callId, output: null, status: "completed" });
         return events;
       }
@@ -383,7 +388,7 @@ export function fromCodexThreadEvents(): CodexThreadStream {
         changes.forEach((ch, i) => {
           const callId = `${baseId}#${i}`;
           const change = isRecord(ch) ? { path: ch.path ?? null, kind: ch.kind ?? null } : {};
-          events.push({ type: "action.called", callId, name: "file_change", input: change as JsonValue });
+          events.push({ type: "action.called", callId, name: "file_change", input: change as JsonValue, tool: "file_edit" });
           events.push({ type: "action.result", callId, output: change as JsonValue, status: "completed" });
         });
         return events;

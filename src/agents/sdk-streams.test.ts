@@ -107,7 +107,7 @@ describe("fromCodexThreadEvents", () => {
   it("command_execution:started 发 called,completed 只补 result(按 exit_code 判状态)", () => {
     const s = fromCodexThreadEvents();
     expect(s.add({ type: "item.started", item: { type: "command_execution", id: "c1", command: "ls" } })).toEqual([
-      { type: "action.called", callId: "c1", name: "command_execution", input: { command: "ls" } },
+      { type: "action.called", callId: "c1", name: "command_execution", input: { command: "ls" }, tool: "shell" },
     ]);
     expect(
       s.add({ type: "item.completed", item: { type: "command_execution", id: "c1", command: "ls", exit_code: 0, aggregated_output: "a.txt" } }),
@@ -117,7 +117,7 @@ describe("fromCodexThreadEvents", () => {
   it("只有 completed 的工具项也成对;失败 exit_code → failed", () => {
     const s = fromCodexThreadEvents();
     expect(s.add({ type: "item.completed", item: { type: "command_execution", id: "c2", command: "false", exit_code: 1 } })).toEqual([
-      { type: "action.called", callId: "c2", name: "command_execution", input: { command: "false" } },
+      { type: "action.called", callId: "c2", name: "command_execution", input: { command: "false" }, tool: "shell" },
       { type: "action.result", callId: "c2", output: { output: null, exit_code: 1 }, status: "failed" },
     ]);
   });
@@ -125,7 +125,7 @@ describe("fromCodexThreadEvents", () => {
   it("mcp_tool_call 带 server 前缀;turn.completed 聚合 usage", () => {
     const s = fromCodexThreadEvents();
     expect(s.add({ type: "item.completed", item: { type: "mcp_tool_call", id: "m1", server: "kb", tool: "search", arguments: { q: "x" } } })).toEqual([
-      { type: "action.called", callId: "m1", name: "kb.search", input: { q: "x" } },
+      { type: "action.called", callId: "m1", name: "kb.search", input: { q: "x" }, tool: "web_search" },
       { type: "action.result", callId: "m1", output: null, status: "completed" },
     ]);
     expect(s.usage).toBeUndefined();
@@ -138,7 +138,7 @@ describe("fromCodexThreadEvents", () => {
     expect(
       s.add({ type: "item.completed", item: { type: "file_change", id: "p1", changes: [{ path: "a.ts", kind: "update" }] } }),
     ).toEqual([
-      { type: "action.called", callId: "p1#0", name: "file_change", input: { path: "a.ts", kind: "update" } },
+      { type: "action.called", callId: "p1#0", name: "file_change", input: { path: "a.ts", kind: "update" }, tool: "file_edit" },
       { type: "action.result", callId: "p1#0", output: { path: "a.ts", kind: "update" }, status: "completed" },
     ]);
   });

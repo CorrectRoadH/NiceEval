@@ -50,6 +50,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 - [view-tool-io-dropped-not-adapter-bug](view-tool-io-dropped-not-adapter-bug.md) — view 里工具出入参"看不到"是渲染层丢的,不是 adapter / SDK 的问题
 - 已修 [static-site-export-drops-sources](static-site-export-drops-sources.md) — 静态托管导出丢 sources.json,code view 显示"源码未捕获"(0.3.0 已修)
 - [model-price-table](model-price-table.md) — Total Cost 显示 $0 的根因与模型价格表(成本估算)的数据来源
+- 已修 [sdk-stream-transformers-missing-canonical-tool](sdk-stream-transformers-missing-canonical-tool.md) — `fromCodexThreadEvents` 曾不发 `tool` 规范名,`calledTool("shell")` 在 SDK 流路径静默失配(修在 `src/agents/sdk-streams.ts`;`fromClaudeSdkMessages` 同类未修)
 
 ## CLI 与运行
 
