@@ -36,25 +36,138 @@ description: "NiceEval 内置的 claude-code、codex、bub 适配器分别做到
 
 - 连接方式：沙箱里 spawn `claude --print --dangerously-skip-permissions`，读回 `~/.claude/projects/**/*.jsonl` 最新一份 transcript。
 - 会话续接：`ctx.session.id` 有值时追加 `--resume <id>`；transcript 解出的会话 id 经 `ctx.session.capture()` 写回。
-- 鉴权：`ANTHROPIC_API_KEY`（可用配置项 `apiKey` 覆盖），可选 `ANTHROPIC_BASE_URL`。
-- 支持 `mcpServers`、`skills`（GitHub `org/repo`）配置项。
-- 支持 `maxTurns` 配置项：限制最多跑几个 tool-use 轮次（→ `--max-turns`），省略时用 CLI 原生默认（无限制）。
+- 鉴权：`ANTHROPIC_API_KEY`，可选 `ANTHROPIC_BASE_URL`；配置项见下方 `ClaudeCodeConfig`。
 - `tracing` 通过 claude CLI 原生 OTLP trace spans（beta）配置，协议 `http/protobuf`：env 里设置 `CLAUDE_CODE_ENABLE_TELEMETRY` 与 `CLAUDE_CODE_ENHANCED_TELEMETRY_BETA`（beta 开关，须显式开启）把 endpoint 交给 CLI；`EvalResult.trace` 能看到 interaction / llm_request / tool 层级的瀑布图。
 
 ### codex
 
 - 连接方式：沙箱里跑 `codex exec --json`（续接时是 `codex exec resume <id> --json`），stdout JSONL 当 transcript。
-- 鉴权：`CODEX_API_KEY`（不是 `OPENAI_API_KEY`），可选 `CODEX_BASE_URL` 接 OpenAI 兼容代理。
+- 鉴权：`CODEX_API_KEY`（不是 `OPENAI_API_KEY`），可选 `CODEX_BASE_URL` 接 OpenAI 兼容代理；配置项见下方 `CodexConfig`。
 - `tracing` 通过 `~/.codex/config.toml` 的 `[otel.trace_exporter.otlp-http]` 段配置，协议 `http/json`。
-- 支持 `mcpServers`、`skills` 配置项。
 
 ### bub
 
 - 连接方式：沙箱里跑 `bub run` + `--session-id`，从 `~/.bub/tapes/<hash>.jsonl` 读 tape 当 transcript。
-- 鉴权：`BUB_API_KEY` + `BUB_API_BASE`（OpenAI 兼容代理）。
+- 鉴权：`BUB_API_KEY` + `BUB_API_BASE`（OpenAI 兼容代理）；配置项见下方 `BubConfig`。
 - `tracing` 通过环境变量注入（`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` 等），协议 `http/protobuf`。
-- 支持 `pythonPlugins` 配置项。
 - 安装走 `uv tool install`（非 npm 包），首次安装带 checkpoint 缓存以加速后续沙箱。
+
+## 三个内置 sandbox agent 的配置项
+
+{/* GENERATED:BEGIN builtin-agent-config */}
+
+### `ClaudeCodeConfig`
+
+#### `apiKey`
+
+```ts
+apiKey?: string;
+```
+
+Anthropic API key。省略时读 ANTHROPIC_API_KEY env。
+
+#### `baseUrl`
+
+```ts
+baseUrl?: string;
+```
+
+自定义 API base URL(代理 / 内网端点)。省略时读 ANTHROPIC_BASE_URL env;
+两者都没有则用 Anthropic 官方端点(claude CLI 默认行为)。
+
+#### `maxTurns`
+
+```ts
+maxTurns?: number;
+```
+
+最多跑几个 tool-use 轮次(→ `--max-turns`)。
+控制 eval 成本上限;省略时用 CLI 原生默认(无限制)。
+
+#### `mcpServers`
+
+```ts
+mcpServers?: McpServer[];
+```
+
+额外 MCP server(每个沙箱 setup 时写进用户级 ~/.claude.json)。
+示例:&#123; name: "browser", command: "npx", args: ["-y", "@anthropic/mcp-browser"] &#125;
+
+#### `skills`
+
+```ts
+skills?: string[];
+```
+
+额外安装的 skill，格式为 GitHub `"org/repo"`（如 `"Effect-TS/skills"`）。
+setup 阶段在沙箱里执行 `npx skills add <org/repo>`；
+结果写进沙箱工作区的 skills-lock.json，claude CLI 启动时自动读取。
+
+### `CodexConfig`
+
+#### `apiKey`
+
+```ts
+apiKey?: string;
+```
+
+代理 / OpenAI API key。省略时读 CODEX_API_KEY env。
+
+#### `baseUrl`
+
+```ts
+baseUrl?: string;
+```
+
+OpenAI 兼容代理 base URL(如 `https://s2a.example.com/v1`)。省略时读 CODEX_BASE_URL env。
+
+#### `mcpServers`
+
+```ts
+mcpServers?: McpServer[];
+```
+
+额外 MCP server(每个沙箱 setup 时追加进 ~/.codex/config.toml)。
+格式对应 codex config.toml 的 [mcp_server.&lt;name&gt;] 表。
+
+#### `skills`
+
+```ts
+skills?: string[];
+```
+
+额外安装的 skill，格式为 GitHub `"org/repo"`（如 `"Effect-TS/skills"`）。
+setup 阶段执行 `npx skills add <org/repo>`，结果写进 skills-lock.json。
+
+### `BubConfig`
+
+#### `apiKey`
+
+```ts
+apiKey?: string;
+```
+
+OpenAI 兼容代理的 API key。省略时读 BUB_API_KEY env。
+
+#### `apiBase`
+
+```ts
+apiBase?: string;
+```
+
+OpenAI 兼容代理的 base URL。省略时读 BUB_API_BASE env。
+
+#### `pythonPlugins`
+
+```ts
+pythonPlugins?: string[];
+```
+
+额外装进 bub tool 环境的 Python 包(pip 名或 git URL)。
+每个沙箱 setup 时作为 `uv tool install --with <pkg>` 追加到 bub 环境里。
+示例:["bub-plugin-memory", "git+`https://github.com/..."`]
+
+{/* GENERATED:END builtin-agent-config */}
 
 ## `uiMessageStreamAgent`：接 AI SDK 应用的内建无侵入 adapter（含 HITL）
 
@@ -79,11 +192,76 @@ export default uiMessageStreamAgent({
 
 需要在 eval 项目里安装 `ai`（可选 peer 依赖，协议 reducer 来自它）。完整可跑示例：[`examples/zh/tier1/ai-sdk-v7`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/tier1/ai-sdk-v7)。
 
-`uiMessageStreamAgent(options)` 除 `name`/`url`/`body`/`denyReason` 外还接受：
+`uiMessageStreamAgent(options)` 完整参数（`UiMessageStreamAgentOptions`）：
 
-- **`headers`**：附加请求头（鉴权等），对象或 `(ctx) => Record<string, string>` 函数形式；`ctx.telemetry.headers`（traceparent）总会自动并入，不需要自己拼。
-- **`settleMs`**：流结束后再等这么久才返回（毫秒），给应用侧的观测导出（如 `BatchSpanProcessor`）留时间，不设置就不等待。
-- **`tracing`** / **`spanMapper`**：应用有 OTel 时的端点投递方式与 span 归一函数（拿瀑布图用）；事件流本身始终从协议帧直构，不依赖这两项。
+{/* GENERATED:BEGIN ui-message-stream-options */}
+
+#### `name`
+
+```ts
+name?: string;
+```
+
+agent 名(报告 / 结果聚合的身份)。默认 "ui-message-stream"。
+
+#### `url`
+
+```ts
+url: string | ((ctx: AgentContext) => string | Promise<string>);
+```
+
+被测应用的 chat 端点(完整 URL,应用在哪部署就指哪);函数形式每轮解析。
+
+#### `headers`
+
+```ts
+headers?: Record<string, string> | ((ctx: AgentContext) => Record<string, string>);
+```
+
+附加请求头(鉴权等);`ctx.telemetry.headers`(traceparent)总会自动并入。
+
+#### `body`
+
+```ts
+body?: (ctx: AgentContext) => Record<string, JsonValue | undefined>;
+```
+
+除 `messages` 外并入请求体的字段,如 `(ctx) => ({ model: ctx.model })`(undefined 字段序列化时自动丢弃)。
+
+#### `denyReason`
+
+```ts
+denyReason?: string;
+```
+
+拒绝审批时随 `approval-responded` 带出的理由。应用/SDK 会把它作为模型看到的工具结果
+文本 —— 写清楚「不要重试」能明显降低模型原样重发同一调用的概率(实测)。
+
+#### `settleMs`
+
+```ts
+settleMs?: number;
+```
+
+流结束后再等这么久才返回(毫秒),给应用侧的观测导出(如 BatchSpanProcessor)留时间。
+
+#### `tracing`
+
+```ts
+tracing?: AgentTracing;
+```
+
+应用有 OTel 时的端点投递方式(拿瀑布图);事件流不依赖它。
+
+#### `spanMapper`
+
+```ts
+spanMapper?: SpanMapper;
+```
+
+应用有 OTel 时的 span 归一函数(拿瀑布图);事件流不依赖它。
+
+{/* GENERATED:END ui-message-stream-options */}
 
 ## OpenAI 兼容响应转换器：`fromChatCompletion` / `fromResponses`
 

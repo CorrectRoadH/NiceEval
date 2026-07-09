@@ -437,6 +437,10 @@ export const SOURCE_FILES = [
   "src/sandbox/types.ts",
   "src/o11y/types.ts",
   "src/cli.ts",
+  "src/agents/claude-code.ts",
+  "src/agents/codex.ts",
+  "src/agents/bub.ts",
+  "src/agents/ui-message-stream.ts",
 ] as const;
 
 export type SourceMap = Record<(typeof SOURCE_FILES)[number], string>;
@@ -503,6 +507,33 @@ function computeRegionBody(regionId: string, sources: SourceMap): string {
       return renderMemberList(extractInterfaceMembers(sources["src/o11y/types.ts"], "src/o11y/types.ts", "Usage"));
     case "cli-flags":
       return renderCliFlagsTable(buildCliFlagRows(sources["src/cli.ts"], "src/cli.ts"));
+    case "builtin-agent-config":
+      return renderMemberGroups([
+        {
+          heading: "ClaudeCodeConfig",
+          members: extractInterfaceMembers(
+            sources["src/agents/claude-code.ts"],
+            "src/agents/claude-code.ts",
+            "ClaudeCodeConfig",
+          ),
+        },
+        {
+          heading: "CodexConfig",
+          members: extractInterfaceMembers(sources["src/agents/codex.ts"], "src/agents/codex.ts", "CodexConfig"),
+        },
+        {
+          heading: "BubConfig",
+          members: extractInterfaceMembers(sources["src/agents/bub.ts"], "src/agents/bub.ts", "BubConfig"),
+        },
+      ]);
+    case "ui-message-stream-options":
+      return renderMemberList(
+        extractInterfaceMembers(
+          sources["src/agents/ui-message-stream.ts"],
+          "src/agents/ui-message-stream.ts",
+          "UiMessageStreamAgentOptions",
+        ),
+      );
     default:
       throw new Error(`unknown region id: ${regionId}`);
   }
@@ -516,6 +547,7 @@ export const REFERENCE_FILES: { file: string; regions: string[] }[] = [
   { file: "define-agent.mdx", regions: ["agent-def", "sandbox-methods"] },
   { file: "events.mdx", regions: ["stream-events", "usage-fields"] },
   { file: "cli.mdx", regions: ["cli-flags"] },
+  { file: "builtin-agents.mdx", regions: ["builtin-agent-config", "ui-message-stream-options"] },
 ];
 
 /**

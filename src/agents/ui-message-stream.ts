@@ -216,6 +216,7 @@ export interface UiMessageStreamAgentOptions {
   settleMs?: number;
   /** 应用有 OTel 时的端点投递方式(拿瀑布图);事件流不依赖它。 */
   tracing?: AgentTracing;
+  /** 应用有 OTel 时的 span 归一函数(拿瀑布图);事件流不依赖它。 */
   spanMapper?: SpanMapper;
 }
 

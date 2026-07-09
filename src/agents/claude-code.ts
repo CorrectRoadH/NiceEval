@@ -32,8 +32,6 @@ export interface ClaudeCodeConfig {
    * 额外安装的 skill，格式为 GitHub `"org/repo"`（如 `"Effect-TS/skills"`）。
    * setup 阶段在沙箱里执行 `npx skills add <org/repo>`；
    * 结果写进沙箱工作区的 skills-lock.json，claude CLI 启动时自动读取。
-   *
-   * @example skills: ["Effect-TS/skills"]
    */
   skills?: string[];
 }

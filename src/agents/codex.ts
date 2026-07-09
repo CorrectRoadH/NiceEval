@@ -25,8 +25,6 @@ export interface CodexConfig {
   /**
    * 额外安装的 skill，格式为 GitHub `"org/repo"`（如 `"Effect-TS/skills"`）。
    * setup 阶段执行 `npx skills add <org/repo>`，结果写进 skills-lock.json。
-   *
-   * @example skills: ["Effect-TS/skills"]
    */
   skills?: string[];
 }
