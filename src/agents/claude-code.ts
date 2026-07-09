@@ -83,7 +83,10 @@ export function claudeCodeAgent(config?: ClaudeCodeConfig): Agent {
         for (const source of config.skills) {
           // source = "Effect-TS/skills"（GitHub org/repo）
           // `npx skills add` 拉 repo、读 manifest、写 skills-lock.json，claude CLI 自动读取。
-          await sb.runShell(`npx skills add ${source}`);
+          // -y 跳过确认；-a claude-code 显式指定目标 CLI——不加这两个 flag 时命令会打印一个
+          // "选择安装到哪些 agent" 的交互式多选框等 stdin，headless 沙箱里会一直卡到超时
+          // (无 tty，选择框永远等不到输入)。
+          await sb.runShell(`npx skills add ${shared.shellQuote(source)} -y -a claude-code`);
         }
       }
     },

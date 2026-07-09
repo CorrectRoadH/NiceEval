@@ -17,6 +17,13 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 - [claude-agent-sdk-permission-mode-silent-skip](claude-agent-sdk-permission-mode-silent-skip.md) — claude-agent-sdk `query()` 默认 permissionMode 在 headless 服务里静默跳过工具调用,模型幻觉作答不报错
 - [pi-agent-core-no-session-persistence](pi-agent-core-no-session-persistence.md) — pi SDK 没有落盘 resume 机制,多轮会话要服务端自存并回灌 `agent.state.messages`
 - 已修 [bub-tapestore-otel-tapeentry-drift](bub-tapestore-otel-tapeentry-drift.md) — bub trace 静默消失:bub ≥0.3.10 vendor 了 `bub.tape`,插件按 `republic.TapeEntry` 做 pydantic 校验全被拒、异常吞成 warning → 0 span;修在 bub-contrib fork `7c84cc7`,修后要清 `~/.cache/niceeval/bub-checkpoint-*.bin`
+- 已修 [npx-skills-add-headless-hang](npx-skills-add-headless-hang.md) — `npx skills add` 默认交互式选 agent,headless 沙箱里卡死;修为 `-y -a <agent>`(claude-code.ts / codex.ts)
+- [claude-code-skill-tool-name-not-load-skill](claude-code-skill-tool-name-not-load-skill.md) — claude-code 原生 Skill 工具叫 `Skill`(入参 `{skill,args}`),`t.loadedSkill()` 是给 eve 协议的糖,断不中,要用 `calledTool("Skill", …)`
+- [codex-no-native-skill-tool](codex-no-native-skill-tool.md) — codex 没有原生 skill 工具,不显式提示"检查有没有 skill 文件"就几乎不会主动去读装好的 skill
+- [mcp-tool-naming-claude-vs-codex](mcp-tool-naming-claude-vs-codex.md) — MCP 工具规范名两家不同:claude-code 是 `mcp__<server>__<tool>`,codex 是 `<server>.<tool>`(点分隔)
+- [run-command-canonical-tool-name-portability](run-command-canonical-tool-name-portability.md) — 断言"跑过 shell"要用规范类目 `"shell"`,不要用某一家的原始工具名字面量(如 `"command_execution"` 只对 codex 恰好成立)
+- [docker-apple-silicon-amd64-emulation-slow](docker-apple-silicon-amd64-emulation-slow.md) — 本机 Apple Silicon 上 dockerSandbox 默认拉 amd64 镜像走模拟,沙箱型 eval 实测比原生慢好几倍,timeoutMs 要留余量
+- [claude-code-persistent-memory-breaks-verbal-isolation](claude-code-persistent-memory-breaks-verbal-isolation.md) — claude-code 会把"帮我记住"写进磁盘 memory,newSession 后合法记得;session-isolation 反证要测 transcript 不回放历史,不测回答不含事实
 
 ## judge
 
@@ -46,6 +53,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 
 ## CLI 与运行
 
+- 已修 [cli-exit-code-attempt-level-not-eval-level](cli-exit-code-attempt-level-not-eval-level.md) — 退出码曾按 attempt 计红,earlyExit 重试吸收的失败也 exit 1;修为 foldEvalOutcome 按 eval 折叠(src/cli.ts + e2e verify.mjs)
 - [cli-fresh-flag-is-noop](cli-fresh-flag-is-noop.md) — `--fresh` 不是真 flag 会被静默吞掉;跳过缓存结果用 `--force`;parseArgs 对未知 flag 不报错
 - [rerun-with-eval-filter-partial-snapshot](rerun-with-eval-filter-partial-snapshot.md) — 带 eval-id 位置参数补跑产出部分快照,遮蔽 latestPerExperiment 口径;补跑要不带位置参数重跑实验/组;carry 基线只看最近 run 的坑已修(loadLatestResultsPerEval)
 - 已修 [runner-earlyexit-key-misses-experiment](runner-earlyexit-key-misses-experiment.md) — earlyExit 去重键漏 experimentId,同 agent 同 model 只差 flags 的 A/B 实验会有一组被静默跳过(修在 `src/runner/run.ts` 键加 experimentId、`reporters/artifacts.ts` 工件路径加实验段)

@@ -8,6 +8,9 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  schedule:
+    # L1 沙箱矩阵 nightly(docs/e2e-ci.md §4.2);e2e-matrix 不吃 schedule,见各 job 的 if。
+    - cron: "0 3 * * *"
 
 concurrency:
   group: e2e-${{ github.ref }}
@@ -16,6 +19,7 @@ concurrency:
 jobs:
   e2e-matrix:
     name: e2e matrix (5 SDK projects)
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -111,8 +115,9 @@ jobs:
             echo "port $port up"
           done
 
+      # 只跑 SDK 组(HTTP 被测应用那 5 个项目);沙箱矩阵在下面的 e2e-sandbox job。
       - name: Verify (exit codes + summary.json 对账)
-        run: node e2e/scripts/verify.mjs
+        run: node e2e/scripts/verify.mjs sdk
 
       - name: Upload run artifacts
         if: always()
@@ -125,4 +130,66 @@ jobs:
           retention-days: 14
           if-no-files-found: ignore
           # .niceeval 是隐藏目录,v4 默认排除隐藏文件,不开这个只会传出 app 日志
+          include-hidden-files: true
+
+  # L1 沙箱矩阵(docs/e2e-ci.md §4.2):claude-code / codex 内置 agent × dockerSandbox。
+  # 每个 attempt 在容器里现装 agent CLI + 真实模型调用,又慢又花钱,所以只挂
+  # nightly + 手动 dispatch,不做 PR 门禁;失败是健康信号,不阻塞合并。
+  e2e-sandbox:
+    name: e2e sandbox matrix (claude-code / codex × docker)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install repo dependencies (CLI runtime)
+        run: pnpm install --frozen-lockfile
+
+      - name: Install e2e suite dependencies
+        run: pnpm install --dir e2e --frozen-lockfile
+
+      # 凭据映射同 e2e-matrix:DeepSeek key 走 Anthropic 兼容端点喂 claude CLI,
+      # s2a 代理 key 喂 codex CLI 与 judge。变量集与各项目 .env.example 一致。
+      - name: Write .env files from secrets
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
+          NICEEVAL_JUDGE_KEY: ${{ secrets.NICEEVAL_JUDGE_KEY }}
+        run: |
+          cat > e2e/projects/claude-code/.env <<EOF
+          ANTHROPIC_API_KEY=$DEEPSEEK_API_KEY
+          ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic
+          NICEEVAL_JUDGE_KEY=$NICEEVAL_JUDGE_KEY
+          NICEEVAL_JUDGE_BASE=https://s2a.jihuayu.site/v1
+          EOF
+          cat > e2e/projects/codex/.env <<EOF
+          CODEX_API_KEY=$CODEX_API_KEY
+          CODEX_BASE_URL=https://s2a.jihuayu.site/v1
+          NICEEVAL_JUDGE_KEY=$NICEEVAL_JUDGE_KEY
+          NICEEVAL_JUDGE_BASE=https://s2a.jihuayu.site/v1
+          EOF
+
+      - name: Verify sandbox matrix
+        run: node e2e/scripts/verify.mjs sandbox
+
+      - name: Upload run artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-sandbox-artifacts
+          path: e2e/projects/*/.niceeval
+          retention-days: 14
+          if-no-files-found: ignore
           include-hidden-files: true

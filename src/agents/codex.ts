@@ -85,7 +85,11 @@ export function codexAgent(config?: CodexConfig): Agent {
 
       if (config?.skills?.length) {
         for (const source of config.skills) {
-          await sb.runShell(`npx skills add ${source}`);
+          // 同 claude-code adapter:-y -a codex 避免无 tty 环境下卡在交互式 agent 选择框。
+          // codex 没有 claude-code 那种原生 Skill 工具，装进的是 skills 包的"通用"目录
+          // （`.agents/skills/<name>`）——codex CLI 本身不会主动去读它，要在 prompt 里
+          // 显式提示"检查仓库里有没有 skill/guide 文件"，agent 才会用 shell 命令读进上下文。
+          await sb.runShell(`npx skills add ${shared.shellQuote(source)} -y -a codex`);
         }
       }
     },

@@ -14,7 +14,7 @@ description: "NiceEval 内置的 Sandbox 和非 Sandbox 适配器分别是什么
 
 - **鉴权**：`ANTHROPIC_API_KEY`（工厂参数 `apiKey` 可覆盖），可选 `ANTHROPIC_BASE_URL`（工厂参数 `baseUrl`）。
 - **装 MCP server**：`mcpServers` 配置项，`setup` 阶段写进沙箱里用户级的 `~/.claude.json`（顶层 `mcpServers` 字段）。
-- **装 Skill**：`skills: ["org/repo"]`（GitHub 仓库），`setup` 阶段跑 `npx skills add <org/repo>`，结果写进沙箱工作区的 `skills-lock.json`，claude CLI 启动时自动读取。
+- **装 Skill**：`skills: ["org/repo"]`（GitHub 仓库），`setup` 阶段跑 `npx skills add <org/repo> -y -a claude-code`（`-y -a` 避免无 tty 的沙箱里卡在交互式的 agent 选择框），结果写进沙箱工作区的 `skills-lock.json`，claude CLI 启动时自动读取（原生 `Skill` 工具，可用 `t.calledTool("Skill", { input: { skill } })` 断言，不是 `t.loadedSkill()`——那是给 `load_skill` 这个不同协议约定的语法糖）。
 - **tracing**：claude CLI 的 beta 原生遥测（`CLAUDE_CODE_ENHANCED_TELEMETRY_BETA`），span 只有结构和计时，细节见 [OTel 接入](/zh/guides/connect-otel)。
 
 ```ts
@@ -43,7 +43,7 @@ export default defineExperiment({
     是复数 `mcp_servers`：单数 `[mcp_server.x]` 会被 codex CLI 静默忽略，MCP 压根挂不上，且不会报错——自查用 `codex mcp list`。
   </Warning>
 
-- **装 Skill**：`skills: ["org/repo"]`，和 claude-code 一样走 `npx skills add`。
+- **装 Skill**：`skills: ["org/repo"]`，和 claude-code 一样走 `npx skills add <org/repo> -y -a codex`。codex 没有 claude-code 那种原生 Skill 工具——装的技能落在 skills 包的通用目录（`.agents/skills/<name>`），codex CLI 不会主动去读，要在 prompt 里明说"检查仓库里有没有相关的 skill/guide 文件"，agent 才会用 shell 命令读进上下文；断言"用没用到"只能看它是否真的执行过读那个文件的命令，没有工具调用可以直接认。
 - **tracing**：内置，通过 `config.toml` 的 `[otel.trace_exporter.otlp-http]` 段配置，协议 `http/json`。
 
 ```ts

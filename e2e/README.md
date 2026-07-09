@@ -25,3 +25,45 @@ python3 -m venv e2e/apps/langgraph/.venv && e2e/apps/langgraph/.venv/bin/pip ins
 # 全矩阵对账(或单项目:node e2e/scripts/verify.mjs ai-sdk-v7)
 node e2e/scripts/verify.mjs
 ```
+
+## L1 沙箱矩阵(claude-code / codex × docker)
+
+`projects/claude-code`、`projects/codex` 是 docs/e2e-ci.md §4.2 的沙箱矩阵:内置的
+`claudeCodeAgent()` / `codexAgent()` 接 `dockerSandbox()`,不连任何 `e2e/apps` 里的被测应用,
+前置条件只有本机 **docker daemon 在跑**(`docker info` 能成功):
+
+```sh
+docker info   # 确认 daemon 可用
+
+# 单项目(每个都是 ci / features / verdicts 三个实验)
+node e2e/scripts/verify.mjs claude-code
+node e2e/scripts/verify.mjs codex
+
+# 按组跑(CI 就是这么切的):sdk = 五个 HTTP 项目,sandbox = 沙箱矩阵
+node e2e/scripts/verify.mjs sdk
+node e2e/scripts/verify.mjs sandbox
+```
+
+- `experiments/ci.ts`:基线 agent(不装 skills/MCP),覆盖 basic-qa / session-isolation /
+  create-file / modify-file / run-command / sandbox-smoke / skill-absent / mcp-absent
+  这几条反例与冒烟用例。
+- `experiments/features.ts`:同一个 adapter 额外挂 `skills: ["Effect-TS/skills"]` +
+  `mcpServers`(`@modelcontextprotocol/server-everything`),只跑 `feature-` 前缀的正例
+  (`feature-skill-used` / `feature-mcp-tool`)。
+- `experiments/verdicts.ts`:复用 `shared/verdicts.ts` 的 deliberate-fail/error。
+
+每个 attempt 都是全新容器(要重装 CLI),比 `e2e/apps` 那五个 HTTP 项目慢得多——本机
+Apple Silicon 下 Docker 拉的是 amd64 镜像、走模拟,单个 attempt 数十秒到几分钟很常见;
+Linux amd64 的 CI runner 上原生跑应该明显更快。`.env` 变量集(不进 git,见各自
+`.env.example`):
+
+| 项目 | 变量 | 说明 |
+|---|---|---|
+| `projects/claude-code` | `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL` | 沙箱里的 `claude` CLI 用;走 DeepSeek 的 Anthropic 兼容端点 |
+| `projects/codex` | `CODEX_API_KEY` / `CODEX_BASE_URL` | 沙箱里的 `codex` CLI 用;走 s2a 代理 |
+| 两者都要 | `NICEEVAL_JUDGE_KEY` / `NICEEVAL_JUDGE_BASE` | `t.judge.autoevals.*` 用,和其它项目共享同一套 judge 凭据 |
+
+`skills:` 装的是 [`Effect-TS/skills`](https://github.com/Effect-TS/skills)(只有一个
+`effect-ts` skill,触发条件明确);`npx skills add` 默认是交互式选择框,headless 沙箱里
+必须带 `-y -a <agent>` 才不会卡死——这个 flag 是 adapter 侧加的(`src/agents/claude-code.ts`
+/ `src/agents/codex.ts`),不需要在 e2e 项目里配置。

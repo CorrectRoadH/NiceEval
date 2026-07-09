@@ -13,6 +13,7 @@ import { discoverEvals, discoverExperiments, makeFilter } from "./runner/discove
 import { runEvals, type AgentRun } from "./runner/run.ts";
 import { runWho } from "./runner/types.ts";
 import { stopAllSandboxes, liveSandboxCount } from "./sandbox/registry.ts";
+import { evalLevelStats } from "./shared/outcome.ts";
 import { sandboxRecommendedConcurrency } from "./sandbox/resolve.ts";
 import { Console as ConsoleReporter } from "./runner/reporters/console.ts";
 import { JUnit } from "./runner/reporters/json.ts";
@@ -458,7 +459,12 @@ async function main(): Promise<void> {
   // 跑顺利时登记表已空,是 no-op。
   await stopAllSandboxes();
 
-  const failedExit = summary.failed > 0 || summary.errored > 0;
+  // 退出码按 eval 级判决,不按 attempt:summary.failed/errored 统计的是每次 attempt,
+  // 被 runs+earlyExit 重试吸收的失败(先挂一次、后来过了)不该把进程判红——否则
+  // 「runs 吸收单次抖动」在 CI 退出码这层永远不成立。折叠口径与报表/view 共用
+  // foldEvalOutcome(任一轮通过 → 该 eval 通过),粒度 experimentId|eval id。
+  const stats = evalLevelStats(summary.results, (r) => `${r.experimentId ?? ""}|${r.id}`);
+  const failedExit = stats.failed > 0 || stats.errored > 0;
   process.exit(failedExit ? 1 : 0);
 }
 
