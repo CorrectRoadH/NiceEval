@@ -1,5 +1,6 @@
 // niceeval CLI 入口。执行 eval 必须以 experiment 为单位;位置参数只在 exp 后筛 eval id 前缀。
 //   niceeval exp [组|配置] [pattern]  跑实验
+//   niceeval show [pattern]          终端读结果:榜单 / 单 eval / 证据切面 / 时间轴 / --report
 //   niceeval list                    只列出发现到的 eval
 //   niceeval clean                   删除 .niceeval/ 历史运行工件
 
@@ -20,6 +21,7 @@ import { JUnit } from "./runner/reporters/json.ts";
 import { Live as LiveReporter, type LiveRow } from "./runner/reporters/live.ts";
 import { Artifacts as ArtifactsReporter } from "./runner/reporters/artifacts.ts";
 import { buildView, startViewServer, loadLatestResultsPerEval, IncompatibleResultsError } from "./view/index.ts";
+import { runShow } from "./show/index.ts";
 import { t } from "./i18n/index.ts";
 import { formatThrown, upsertManagedBlock } from "./util.ts";
 import type { Config, DiscoveredExperiment, Reporter } from "./types.ts";
@@ -51,6 +53,17 @@ interface Flags {
   out?: string;
   port?: number;
   help: boolean;
+  // ── show 专属(位置参数仍是 eval id 前缀;这些 flag 选「怎么看」)──
+  transcript: boolean;
+  trace: boolean;
+  diff: boolean;
+  /** --diff=<路径>(必须 = 连写;空格形式会把路径当 eval id 前缀,按文档如此)。 */
+  diffPath?: string;
+  history: boolean;
+  experiment?: string;
+  attempt?: number;
+  run?: string;
+  report?: string;
 }
 
 // 表驱动的 flag 定义(node:util parseArgs)。--no-x 显式声明,不依赖 allowNegative(需 Node 20.14+,
@@ -72,6 +85,17 @@ const FLAG_OPTIONS = {
   // 免得照旧文档写的脚本直接崩;真正实现前不接任何行为。
   watch: { type: "boolean" },
   json: { type: "boolean" },
+  // show 的证据切面 / 时间轴 / 报告装载(docs-site/zh/guides/viewing-results.mdx)。
+  transcript: { type: "boolean" },
+  trace: { type: "boolean" },
+  // --diff 是布尔;--diff=<路径> 在 parseArgs 前预扫成 diffPath(路径必须 = 连写,
+  // 空格形式的下一个 token 仍是位置参数 = eval id 前缀,与文档一致)。
+  diff: { type: "boolean" },
+  history: { type: "boolean" },
+  experiment: { type: "string" },
+  attempt: { type: "string" },
+  run: { type: "string" },
+  report: { type: "string" },
   dry: { type: "boolean" },
   quiet: { type: "boolean" },
   force: { type: "boolean" },
@@ -96,6 +120,17 @@ function numberFlag(name: string, raw: string | undefined): number | undefined {
 function parseArgs(argv: string[]): { command: string; positionals: string[]; flags: Flags } {
   if (argv[0] === "--") argv = argv.slice(1);
 
+  // --diff=<路径> 预扫:diff 本体是布尔(裸 --diff = 文件级摘要),路径只接受 = 连写。
+  let diffPath: string | undefined;
+  argv = argv.map((arg) => {
+    if (arg.startsWith("--diff=")) {
+      const path = arg.slice("--diff=".length);
+      if (path) diffPath = path;
+      return "--diff";
+    }
+    return arg;
+  });
+
   let values: Record<string, string | boolean | undefined>;
   let rawPositionals: string[];
   try {
@@ -113,7 +148,7 @@ function parseArgs(argv: string[]): { command: string; positionals: string[]; fl
   }
 
   // 第一个位置参数若是已知命令,则为命令;其余是 eval id 前缀 / view 输入。
-  const commands = new Set(["exp", "list", "view", "clean", "init", "watch", "run"]);
+  const commands = new Set(["exp", "show", "list", "view", "clean", "init", "watch", "run"]);
   let command = "run";
   let positionals = rawPositionals;
   if (rawPositionals[0] && commands.has(rawPositionals[0])) {
@@ -139,6 +174,15 @@ function parseArgs(argv: string[]): { command: string; positionals: string[]; fl
     earlyExit: values["no-early-exit"] === true ? false : values["early-exit"] === true ? true : undefined,
     open: values["no-open"] === true ? false : values.open === true ? true : undefined,
     help: values.help === true,
+    transcript: values.transcript === true,
+    trace: values.trace === true,
+    diff: values.diff === true && diffPath === undefined,
+    diffPath,
+    history: values.history === true,
+    experiment: values.experiment as string | undefined,
+    attempt: numberFlag("attempt", values.attempt as string | undefined),
+    run: values.run as string | undefined,
+    report: values.report as string | undefined,
   };
   return { command, positionals, flags };
 }
@@ -278,6 +322,22 @@ async function main(): Promise<void> {
     }
     process.stdout.write(t("cli.pressCtrlC"));
     await new Promise(() => {});
+  }
+
+  if (command === "show") {
+    // show 不依赖 niceeval.config.ts:读的是 .niceeval/(或 --run 指定目录)的落盘结果。
+    const code = await runShow(cwd, positionals, {
+      transcript: flags.transcript,
+      trace: flags.trace,
+      diff: flags.diff,
+      diffPath: flags.diffPath,
+      history: flags.history,
+      experiment: flags.experiment,
+      attempt: flags.attempt,
+      run: flags.run,
+      report: flags.report,
+    });
+    process.exit(code);
   }
 
   if (command === "clean") {

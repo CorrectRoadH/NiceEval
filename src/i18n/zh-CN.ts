@@ -38,6 +38,13 @@ export const zhCN = {
     "niceeval — agent-native evals\n\n" +
     "用法:\n" +
     "  niceeval exp [组|实验] [eval-id 前缀…]   跑实验\n" +
+    "  niceeval show [eval-id 前缀…]            终端读结果\n" +
+    "      裸跑:每个 experiment 的现刻判决(跨 run 合成)\n" +
+    "      单个 eval id:attempt 与断言明细\n" +
+    "      --transcript / --trace / --diff[=文件]   单 eval 的证据切面\n" +
+    "      --history   跨 run 时间轴(与 --report 互斥)\n" +
+    "      --run <目录> 钉死结果目录   --experiment <id> 只看该实验\n" +
+    "      --attempt <n> 指定 attempt   --report <文件> 自定义报告\n" +
     "  niceeval list                            列出发现到的 eval\n" +
     "  niceeval view [summary.json|目录] [--out 目录] [--port n] [--no-open]\n" +
     "      --out <目录> 静态导出:index.html 连同查看器工件,可直接静态托管\n" +
@@ -50,6 +57,18 @@ export const zhCN = {
     "位置参数只选「跑哪些 eval」(id 前缀);对着哪个 agent、怎么跑来自 experiments/ 与\n" +
     "标志。环境变量覆盖(标志 > 环境变量 > config):\n" +
     "  NICEEVAL_RUNS  NICEEVAL_MAX_CONCURRENCY  NICEEVAL_TIMEOUT  NICEEVAL_BUDGET\n",
+  // show 的错误文案保持英文(错误文案英文的仓库约定);noResults 是提示,翻译。
+  "cli.show.noResults": "{{root}} 下没有结果。先 `niceeval exp` 跑一轮,再 `niceeval show`。\n",
+  "cli.show.runDirMissing": "Results directory not found: {{dir}}\n",
+  "cli.show.noEvalMatch": "No results matched: {{patterns}}. Evals with results: {{evals}}\n",
+  "cli.show.noExperimentMatch": "No experiment matched --experiment {{arg}}. Experiments with results: {{experiments}}\n",
+  "cli.show.historyReportConflict":
+    "`--history` and `--report` are mutually exclusive: --history is the built-in trend view. For a custom trend, compose exp.snapshots inside your report file instead.\n",
+  "cli.show.evidenceNeedsEval":
+    "--transcript / --trace / --diff show one eval's evidence, but the selection matched {{matched}} evals. Narrow to a single eval id first: niceeval show <eval id> --transcript\n",
+  "cli.show.attemptNeedsEval":
+    "--attempt picks one attempt of a single eval; pass a full eval id (and --experiment when several experiments ran it).\n",
+  "cli.show.attemptNotFound": "Attempt {{attempt}} not found for {{evalId}}. Available attempts: {{available}}\n",
   "cli.eval.noMatch": "没有匹配的 eval:{{patterns}}。\n",
   "cli.eval.noMatchHintExperiment": "提示:\"{{pattern}}\" 是实验{{kind}},你大概想跑:niceeval exp {{pattern}}\n",
   "cli.eval.noMatchKnown": "已发现 {{count}} 个 eval:{{evals}}\n",
@@ -74,6 +93,7 @@ export const zhCN = {
   "cli.unimplemented": "命令 \"{{command}}\" 暂未实现(MVP)。\n",
   "cli.view.exportedDir": "已导出静态查看站:{{out}}(整个目录可直接静态托管;本地打开 {{out}}/index.html 需经 http 服务,file:// 下工件 fetch 不可用)\n",
   "cli.view.incompatible": "{{dir}}: 由 niceeval {{producer}} 写入(schemaVersion {{schemaVersion}}),当前 CLI 只读 schemaVersion {{supported}}。\n运行 `{{command}}` 查看这份报告。\n",
+  "cli.view.incompatibleForeign": "{{dir}}: 由 {{name}} {{version}} 写入(schemaVersion {{schemaVersion}}),当前 CLI 只读 schemaVersion {{supported}}。\n请用写出它的那个工具查看这份报告。\n",
   "cli.view.url": "niceeval view: {{url}}\n",
   "context.capabilityMissing":
     "agent \"{{agent}}\" 不是沙箱型(defineSandboxAgent 构造),t.{{method}} 这类断言只有沙箱型 agent 可用。换用 defineSandboxAgent 构造的 agent,或去掉这条断言。\n" +

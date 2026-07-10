@@ -1,9 +1,8 @@
 // Results Format 的布局与版本知识,规则见 docs/results-format.md。
 //
-// 按 docs/results-lib.md,这份知识最终只住在本库:写入面(writer.ts / copy.ts)与
+// 按 docs/results-lib.md,这份知识只住在本库:写入面(writer.ts / copy.ts)与
 // 读取面(open.ts)共用这里的目录规则与版本判定;src/runner/reporters/artifacts.ts
-// 已是 writer 的薄壳。view 改吃这里是下一波收编,在那之前 src/view/loader.ts 的
-// normalizeSummary 与这里保持同一口径。
+// 是 writer 的薄壳,view(src/view/data.ts)经 openResults 消费,不自带布局知识。
 
 import type { EvalResult, RunSummary } from "../types.ts";
 import { RESULTS_FORMAT, RESULTS_SCHEMA_VERSION } from "../types.ts";

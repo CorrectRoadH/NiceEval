@@ -49,9 +49,9 @@ export interface EvalResult {
   // ── 拆分工件的引用(Artifacts 报告器写 summary.json 时填;view 按需懒加载)──
   /** 本 attempt 工件目录(相对 run 根),下有 events/trace/o11y/diff.json。 */
   artifactsDir?: string;
-  /** view 拼好的工件目录(相对 view 输入根,供前端 fetch);loadSummaries 注入。 */
+  /** 工件目录(相对结果根,供前端 fetch 与懒加载回退);view 的 loader 注入,--resume 携带条目落盘时保留。 */
   artifactBase?: string;
-  /** 工件目录的绝对路径;loadSummaries 注入,供复制/展示用。 */
+  /** 工件目录的绝对路径;历史字段,当前读取面不再注入。 */
   artifactAbsBase?: string;
   hasTrace?: boolean;
   hasEvents?: boolean;

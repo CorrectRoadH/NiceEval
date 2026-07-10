@@ -40,6 +40,13 @@ export const en = {
     "niceeval — agent-native evals\n\n" +
     "Usage:\n" +
     "  niceeval exp [group|experiment] [eval-id-prefix…]   run experiments\n" +
+    "  niceeval show [eval-id-prefix…]                     read results in the terminal\n" +
+    "      bare: current verdicts per experiment (composed across runs);\n" +
+    "      a single eval id: attempts + assertion details\n" +
+    "      --transcript / --trace / --diff[=file]   evidence slices of one eval\n" +
+    "      --history   cross-run timeline (mutually exclusive with --report)\n" +
+    "      --run <dir>   pin a results dir    --experiment <id>   one experiment\n" +
+    "      --attempt <n>   pick an attempt    --report <file>   custom report\n" +
     "  niceeval list                                       list discovered evals\n" +
     "  niceeval view [summary.json|dir] [--out dir] [--port n] [--no-open]\n" +
     "      --out <dir> exports a static site: index.html plus the viewer\n" +
@@ -53,6 +60,17 @@ export const en = {
     "Positional args only select which evals to run (id prefixes); which agent and\n" +
     "how to run come from experiments/ + flags. Env overrides (flag > env > config):\n" +
     "  NICEEVAL_RUNS  NICEEVAL_MAX_CONCURRENCY  NICEEVAL_TIMEOUT  NICEEVAL_BUDGET\n",
+  "cli.show.noResults": "No results found under {{root}}. Run `niceeval exp` first, then `niceeval show`.\n",
+  "cli.show.runDirMissing": "Results directory not found: {{dir}}\n",
+  "cli.show.noEvalMatch": "No results matched: {{patterns}}. Evals with results: {{evals}}\n",
+  "cli.show.noExperimentMatch": "No experiment matched --experiment {{arg}}. Experiments with results: {{experiments}}\n",
+  "cli.show.historyReportConflict":
+    "`--history` and `--report` are mutually exclusive: --history is the built-in trend view. For a custom trend, compose exp.snapshots inside your report file instead.\n",
+  "cli.show.evidenceNeedsEval":
+    "--transcript / --trace / --diff show one eval's evidence, but the selection matched {{matched}} evals. Narrow to a single eval id first: niceeval show <eval id> --transcript\n",
+  "cli.show.attemptNeedsEval":
+    "--attempt picks one attempt of a single eval; pass a full eval id (and --experiment when several experiments ran it).\n",
+  "cli.show.attemptNotFound": "Attempt {{attempt}} not found for {{evalId}}. Available attempts: {{available}}\n",
   "cli.eval.noMatch": "No eval matched: {{patterns}}.\n",
   "cli.eval.noMatchHintExperiment": "Hint: \"{{pattern}}\" is an experiment{{kind}}; you probably meant: niceeval exp {{pattern}}\n",
   "cli.eval.noMatchKnown": "Discovered {{count}} evals: {{evals}}\n",
@@ -77,6 +95,7 @@ export const en = {
   "cli.unimplemented": "Command \"{{command}}\" is not implemented yet (MVP).\n",
   "cli.view.exportedDir": "Exported static report site: {{out}} (serve the whole directory with any static host; opening index.html via file:// cannot fetch artifacts)\n",
   "cli.view.incompatible": "{{dir}}: written by niceeval {{producer}} (schemaVersion {{schemaVersion}}); this CLI reads schemaVersion {{supported}}.\nRun `{{command}}` to view it.\n",
+  "cli.view.incompatibleForeign": "{{dir}}: written by {{name}} {{version}} (schemaVersion {{schemaVersion}}); this CLI reads schemaVersion {{supported}}.\nOpen this report with the tool that produced it.\n",
   "cli.view.url": "niceeval view: {{url}}\n",
   "context.capabilityMissing":
     "Agent \"{{agent}}\" is not sandbox-backed (built with defineSandboxAgent), so t.{{method}} is unavailable. Use an agent built with defineSandboxAgent, or drop this assertion.\n" +

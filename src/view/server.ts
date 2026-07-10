@@ -1,11 +1,10 @@
 // HTTP server 与静态资源:起本地 web、按需吐工件、把 viewData 烘焙进单个 HTML。
-// 数据读取在 loader.ts,聚合在 aggregate.ts;这里只管「怎么送到浏览器」。
+// 数据读取与统计在 data.ts(openResults + 官方计算函数);这里只管「怎么送到浏览器」。
 
 import { createServer, type Server } from "node:http";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { loadSummaries, viewRoot, type ScanResult } from "./loader.ts";
-import { buildViewData } from "./aggregate.ts";
+import { loadViewScan, viewRoot, type ViewScan } from "./data.ts";
 import { formatThrown } from "../util.ts";
 
 export interface ViewOptions {
@@ -28,6 +27,8 @@ const TEMPLATE_PLACEHOLDERS = {
 export async function startViewServer(opts: ViewOptions = {}): Promise<ViewServer> {
   const input = opts.input;
   const root = viewRoot(input);
+  // 数据装载先跑一遍:单文件模式指向读不了的报告时,要在起 server 前就失败并给出提示。
+  await loadViewScan(input);
   const server = createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? "/", "http://127.0.0.1");
@@ -57,7 +58,8 @@ export async function startViewServer(opts: ViewOptions = {}): Promise<ViewServe
         "content-type": "text/html; charset=utf-8",
         "cache-control": "no-store",
       });
-      res.end(await renderHtml(await loadSummaries(input)));
+      // 每次请求现读现算,永远是盘上最新数据。
+      res.end(await renderHtml(await loadViewScan(input)));
     } catch (e) {
       res.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
       res.end(formatThrown(e));
@@ -75,15 +77,14 @@ export async function startViewServer(opts: ViewOptions = {}): Promise<ViewServe
 }
 
 /** 把 viewData(只含原始值与相对路径,不含宿主机绝对路径)和前端产物烘焙进单个 HTML。 */
-export async function renderHtml(scan: ScanResult): Promise<string> {
+export async function renderHtml(scan: ViewScan): Promise<string> {
   const template = await readViewAsset("template.html");
   const styles = await readViewAsset("client-dist/app.css");
   const app = await readViewAsset("client-dist/app.js");
-  const viewData = buildViewData(scan);
 
   return template
     .replace(TEMPLATE_PLACEHOLDERS.styles, () => `<style>\n${styles}\n</style>`)
-    .replace(TEMPLATE_PLACEHOLDERS.viewData, () => JSON.stringify(viewData).replace(/</g, "\\u003c"))
+    .replace(TEMPLATE_PLACEHOLDERS.viewData, () => JSON.stringify(scan.viewData).replace(/</g, "\\u003c"))
     .replace(TEMPLATE_PLACEHOLDERS.appCode, () => JSON.stringify(app).replace(/</g, "\\u003c"));
 }
 

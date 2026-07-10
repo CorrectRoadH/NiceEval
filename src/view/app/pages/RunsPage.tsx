@@ -1,15 +1,12 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import type { RowRun, T } from "../shared.ts";
-import type { ViewResult, ViewRow } from "../types.ts";
 import { outcomeClass, outcomeLabel } from "../lib/outcome.ts";
 import { formatCost, formatDateTime, formatDuration, formatTokens, totalTokens } from "../lib/format.ts";
 
-export function RunsView({ rows, t }: { rows: ViewRow[]; t: T }) {
+/** 全部历史 attempt 打平成一张表;列表在 App 里由 flattenAttempts(全部快照,已跨快照去重)算好。 */
+export function RunsView({ attempts, t }: { attempts: RowRun[]; t: T }) {
   const [query, setQuery] = useState("");
-  const allRuns = useMemo(
-    () => rows.flatMap((row: ViewRow) => (row.results ?? []).map((r: ViewResult): RowRun => ({ ...r, rowLabel: row.label, rowAgent: row.agent, rowModel: row.model }))),
-    [rows],
-  );
+  const allRuns = attempts;
   const filtered = allRuns.filter((r: RowRun) => {
     const q = query.trim().toLowerCase();
     return !q || `${r.id} ${r.rowLabel} ${r.rowAgent} ${r.rowModel || ""}`.toLowerCase().includes(q);

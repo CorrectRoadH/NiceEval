@@ -25,7 +25,7 @@ export function GroupSelector({
         const errored = evalGroups.filter((g) => g.outcome === "errored").length;
         const passRate = evalPassRate(allResults);
         const tone = passRate >= 0.8 ? "good" : passRate >= 0.5 ? "warn" : "bad";
-        const totalCost = groupRows.reduce((s: number, r: ViewRow) => s + (r.estimatedCostUSD || 0), 0);
+        const totalCost = groupRows.reduce((s: number, r: ViewRow) => s + (r.totalCostUSD || 0), 0);
         const lastRun = groupRows
           .map((r: ViewRow) => r.lastRunAt)
           .filter((value): value is string => Boolean(value))

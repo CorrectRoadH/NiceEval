@@ -1,6 +1,6 @@
 # Results Lib —— 实验结果数据的读写库
 
-> 状态:已按本文实现(`src/results/`,源码入口见 [Source Map](source-map.md#results-lib-与-reports)),与 `docs-site/zh/guides/results-data.mdx` 对齐:读取面(`openResults` 分层、`latest()` 选集、`dedupeAttempts`)、写入面(`createRunWriter`)、发布(`copySnapshots`)与 `Artifacts()` reporter 薄壳全部落地。两步未实现:view 的读取层收编(见 [View](view.md));「类型的家」迁移(`RunSummary` / `EvalResult` 等仍住 core 的域文件,库经 `../types.ts` 引用,见「库的边界」)。[Results Format](results-format.md) 是磁盘上的格式规范;本库是这份格式的**读与写**的唯一实现 `niceeval/results`,做 runner、view、[Reports](reports.md) 和用户脚本的共同数据层。
+> 状态:已按本文实现(`src/results/`,源码入口见 [Source Map](source-map.md#results-lib-与-reports)),与 `docs-site/zh/guides/results-data.mdx` 对齐:读取面(`openResults` 分层、`latest()` 选集、`dedupeAttempts`)、写入面(`createRunWriter`)、发布(`copySnapshots`)与 `Artifacts()` reporter 薄壳全部落地;view 的读取层收编也已完成(2026-07,`src/view/data.ts` 改吃 `openResults`,见 [View](view.md))。一步未实现:「类型的家」迁移(`RunSummary` / `EvalResult` 等仍住 core 的域文件,库经 `../types.ts` 引用,见「库的边界」)。[Results Format](results-format.md) 是磁盘上的格式规范;本库是这份格式的**读与写**的唯一实现 `niceeval/results`,做 runner、view、[Reports](reports.md) 和用户脚本的共同数据层。
 
 抽库前,同一份磁盘格式的写和读长在两个器官里。写在 `src/runner/reporters/artifacts.ts`:时间戳目录、attempt 路径清洗(evalId 保留 `/` 层级、agent/model 非 `[\w.@-]` 全换 `_`)、大字段拆工件、`artifactsDir` / `has*` 回填、空数据不落文件——全是它的私有知识。读长在 `src/view/index.ts`:`readSummary` 的版本判定、`loadSummaries` 的目录扫描、工件路径反拼。两边靠 `src/types.ts` 共享类型,但**布局知识各自实现了一遍**:格式演进要同步改两处,谁漏改谁坏。用户侧则根本没有读取 API,想编程消费只能第三次重写这些知识:
 
@@ -32,7 +32,7 @@ for (const r of summary.results) {
 | 消费方 | 用哪面 | 变化 |
 |---|---|---|
 | runner 的 `Artifacts()` reporter | 写 | 变薄壳:订阅 reporter 事件,转手调 writer,落盘行为不变 |
-| `niceeval view` | 读 | `readSummary` / `loadSummaries` 改吃 reader,版本判定与 skipped 姿势顺带统一 |
+| `niceeval view` | 读 | 已收编(2026-07):旧 `readSummary` / `loadSummaries` 删掉,`src/view/data.ts` 吃 reader,版本判定与 skipped 姿势统一 |
 | [Reports](reports.md) 的计算函数 | 读 | 第二档的全部数据入口 |
 | 你的脚本 / 第三方工具 | 读、写、发布 | 读:自定义分析;写:把别家平台的结果转成 niceeval 格式,`niceeval view` 直接能看;发布:`copySnapshots` 瘦身快照进仓库 / CDN——兼容性都由库保证,不用抄格式文档 |
 
@@ -159,7 +159,7 @@ interface Snapshot {
 }
 ```
 
-`results.runDirs` 忠实磁盘,快照与实验归组只切片、不合并、不去重;合并与聚合永远发生在消费方([Reports](reports.md) 的计算函数,或你自己的脚本),reader 不预设看法——这条教训来自 view 的 `aggregateRows` 把全部历史揉成一行的现状(见 [View · 已知差异](view.md#已知的文档-vs-实现差异))。
+`results.runDirs` 忠实磁盘,快照与实验归组只切片、不合并、不去重;合并与聚合永远发生在消费方([Reports](reports.md) 的计算函数,或你自己的脚本),reader 不预设看法——这条教训来自 view 旧 `aggregateRows` 把全部历史揉成一行的前车之鉴(已修,见 [View · 已知差异](view.md#已知的文档-vs-实现差异))。
 
 ## 选择快照:`results.latest()` 返回 Selection
 
@@ -252,5 +252,5 @@ for (const exp of results.experiments) {
 
 - [Results Format](results-format.md) —— 磁盘格式规范;本库是它唯一的官方读写实现,一格式一库,成对演进。
 - [Reports](reports.md) —— 建立在本库读取面之上的积木:指标、计算函数、React 组件。
-- [View](view.md) —— 内置前端;`readSummary` / `loadSummaries` / skipped 处理是本库 reader 要收编的现状。
+- [View](view.md) —— 内置前端;读取层已收编本库 reader(2026-07),skipped 三种原因经 viewData 进前端横幅。
 - [Experiments](experiments.md) —— experimentId 与可对比组从哪来。

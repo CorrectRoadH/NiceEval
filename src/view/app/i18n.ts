@@ -109,7 +109,11 @@ export type MessageKey =
   | "outcome.skipped"
   | "banner.skippedTitle"
   | "banner.skipped.incompatible"
+  | "banner.skipped.incompatibleForeign"
   | "banner.skipped.malformed"
+  | "banner.skipped.incomplete"
+  | "banner.warningsTitle"
+  | "hero.composedFrom"
   | "chart.costVsScore"
   | "chart.axisCost"
   | "chart.axisScore";
@@ -223,7 +227,11 @@ const dictionaries: Record<Locale, Dictionary> = {
     "outcome.skipped": "skipped",
     "banner.skippedTitle": "Some runs could not be loaded and are not shown here:",
     "banner.skipped.incompatible": "written by niceeval {{producer}} (schemaVersion {{schemaVersion}}) — view it with the command on the right",
+    "banner.skipped.incompatibleForeign": "written by {{name}} {{version}} (schemaVersion {{schemaVersion}}) — this viewer cannot read it; open it with the tool that produced it",
     "banner.skipped.malformed": "unreadable report ({{detail}}) — it may be corrupted; re-run the eval or delete this run directory",
+    "banner.skipped.incomplete": "the run crashed before writing summary.json — completed attempt artifacts remain on disk for manual inspection; delete the directory if you no longer need them",
+    "banner.warningsTitle": "Heads-up about the current leaderboard selection:",
+    "hero.composedFrom": "Composed from {{count}} run(s)",
     "chart.costVsScore": "Cost vs. Score",
     "chart.axisCost": "Avg cost per eval",
     "chart.axisScore": "Pass rate",
@@ -334,7 +342,11 @@ const dictionaries: Record<Locale, Dictionary> = {
     "outcome.skipped": "跳过",
     "banner.skippedTitle": "以下 run 读取失败,此处不展示:",
     "banner.skipped.incompatible": "由 niceeval {{producer}} 写入(schemaVersion {{schemaVersion}})—— 用右侧命令查看",
+    "banner.skipped.incompatibleForeign": "由 {{name}} {{version}} 写入(schemaVersion {{schemaVersion}})—— 当前查看器读不了;请用写出它的工具查看",
     "banner.skipped.malformed": "报告读不了({{detail}})—— 可能已损坏;重跑该 eval 或删除这个 run 目录",
+    "banner.skipped.incomplete": "该 run 中途崩溃、没写出 summary.json —— 已完成的 attempt 工件仍在盘上供手工排查;不需要就删除该目录",
+    "banner.warningsTitle": "当前榜单挑选的提醒:",
+    "hero.composedFrom": "合成自 {{count}} 个 run",
     "chart.costVsScore": "成本 × 通过率",
     "chart.axisCost": "平均每个 eval 成本",
     "chart.axisScore": "通过率",

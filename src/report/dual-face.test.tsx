@@ -486,13 +486,16 @@ describe("defineReport + 渲染入口", () => {
 
   it("renderReportToText:同一棵树走 text 面,DefaultReport 渲染宿主注入的选集", async () => {
     const out = await renderReportToText(report, fakeContext(), { width: 100 });
-    // 官方水位:overview 行 + experiment 榜单 + 失败清单
-    expect(out).toContain("1 experiment · 2 evals · 2 attempts");
+    // 官方水位 = show 榜单(viewing-results.mdx):Current verdicts 头 + experiment 榜单 + 失败清单
+    expect(out).toContain("Current verdicts · 1 experiment · composed from 1 run");
     expect(out).toContain("experiment");
+    expect(out).toContain("evals");
     expect(out).toContain("compare/bub");
+    expect(out).toContain("1/2"); // eval 级折叠计票
     expect(out).toContain("50%");
     expect(out).toContain("Failing:");
     expect(out).toContain("✗ algebra/y");
+    expect(out).toContain("→ niceeval show algebra/y"); // 失败清单每条自带下钻命令
     // 自己的口径:成绩单
     expect(out).toContain("考试成绩单");
     expect(out).toContain("bub     50/100");

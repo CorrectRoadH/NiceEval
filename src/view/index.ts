@@ -1,11 +1,11 @@
 // 本地结果查看器入口:只做编排与对外导出。
-// 读取/版本判定在 loader.ts,聚合在 aggregate.ts,HTTP 与 HTML 烘焙在 server.ts,
-// server/前端共用的折叠口径、格式化与数据形状在 shared/。
+// 读取(openResults)与统计(官方计算函数)在 data.ts,HTTP 与 HTML 烘焙在 server.ts,
+// server/前端共用的数据契约在 shared/types.ts。
 
 import { copyFile, mkdir, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { loadSummaries, type ScanResult } from "./loader.ts";
+import { loadViewScan, type ViewScan } from "./data.ts";
 import { renderHtml, type ViewOptions } from "./server.ts";
 
 export { startViewServer, type ViewOptions, type ViewServer } from "./server.ts";
@@ -14,11 +14,10 @@ export {
   incompatibleHint,
   incompatibleViewCommand,
   loadLatestResultsPerEval,
-  loadSummaries,
+  loadViewScan,
   type IncompatibleRun,
-  type ScanResult,
-  type SkippedRun,
-} from "./loader.ts";
+  type ViewScan,
+} from "./data.ts";
 
 /**
  * 导出静态报告(--out):只有目录式一种形态。写 <dir>/index.html,并把前端会 fetch 的工件
@@ -34,7 +33,7 @@ export async function buildView(opts: ViewOptions = {}): Promise<string> {
       `--out expects a directory, got "${opts.out}". Single-file HTML export was removed: code, transcript and trace views need artifact files next to the page. Export a directory instead (e.g. --out site) and serve it with any static host.`,
     );
   }
-  const scan = await loadSummaries(opts.input);
+  const scan = await loadViewScan(opts.input);
   await mkdir(out, { recursive: true });
   await writeFile(join(out, "index.html"), await renderHtml(scan), "utf-8");
   await copyFetchedArtifacts(scan, join(out, "artifact"));
@@ -45,7 +44,7 @@ export async function buildView(opts: ViewOptions = {}): Promise<string> {
 // 且 diff 可达上百 MB,带进静态导出只会拖垮部署体积。
 const FETCHED_ARTIFACTS = ["sources.json", "events.json", "trace.json"];
 
-async function copyFetchedArtifacts(scan: ScanResult, artifactRoot: string): Promise<void> {
+async function copyFetchedArtifacts(scan: ViewScan, artifactRoot: string): Promise<void> {
   for (const [base, srcDir] of scan.artifactDirs) {
     const destDir = join(artifactRoot, base);
     // 输入本身已经是导出布局(比如对着上次导出的目录重新生成 index.html)时不自拷。

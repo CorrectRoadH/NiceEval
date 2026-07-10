@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 import { formatAttemptHash, parseAttemptHash, resolveAttemptRef } from "./attempt-route.ts";
-import type { ViewResult, ViewRow } from "../types.ts";
+import type { ViewResult, ViewSnapshot } from "../types.ts";
 
 const attempt = (run: string, index: number): ViewResult => ({
   id: `demo/eval-${index}`,
@@ -14,8 +14,8 @@ const attempt = (run: string, index: number): ViewResult => ({
   attemptRef: { run, result: index },
 });
 
-// 榜单行只有 results 参与定位,其余聚合字段与路由无关。
-const row = (results: ViewResult[]): ViewRow => ({ results }) as ViewRow;
+// 快照只有 results 参与定位,其余元信息字段与路由无关。
+const snap = (results: ViewResult[]): ViewSnapshot => ({ results }) as ViewSnapshot;
 
 describe("parseAttemptHash", () => {
   it("parses the canonical run-dir + index shape", () => {
@@ -69,21 +69,21 @@ describe("parseAttemptHash", () => {
 describe("resolveAttemptRef", () => {
   const runA = "2026-07-01T10-00-00-000Z";
   const runB = "2026-07-02T10-00-00-000Z";
-  const rows = [row([attempt(runA, 0), attempt(runB, 0)]), row([attempt(runA, 1)])];
+  const snapshots = [snap([attempt(runA, 0), attempt(runB, 0)]), snap([attempt(runA, 1)])];
 
   it("finds the attempt whose injected ref matches run + index", () => {
-    expect(resolveAttemptRef(rows, { run: runA, result: 1 })).toBe(rows[1]!.results[0]);
-    expect(resolveAttemptRef(rows, { run: runB, result: 0 })).toBe(rows[0]!.results[1]);
+    expect(resolveAttemptRef(snapshots, { run: runA, result: 1 })).toBe(snapshots[1]!.results[0]);
+    expect(resolveAttemptRef(snapshots, { run: runB, result: 0 })).toBe(snapshots[0]!.results[1]);
   });
 
   it("returns null for unknown runs and out-of-range indexes", () => {
-    expect(resolveAttemptRef(rows, { run: "no-such-run", result: 0 })).toBeNull();
-    expect(resolveAttemptRef(rows, { run: runA, result: 99 })).toBeNull();
+    expect(resolveAttemptRef(snapshots, { run: "no-such-run", result: 0 })).toBeNull();
+    expect(resolveAttemptRef(snapshots, { run: runA, result: 99 })).toBeNull();
   });
 
   it("returns null when results predate attemptRef injection (old baked data)", () => {
     const legacy = attempt(runA, 0);
     delete (legacy as { attemptRef?: unknown }).attemptRef;
-    expect(resolveAttemptRef([row([legacy])], { run: runA, result: 0 })).toBeNull();
+    expect(resolveAttemptRef([snap([legacy])], { run: runA, result: 0 })).toBeNull();
   });
 });

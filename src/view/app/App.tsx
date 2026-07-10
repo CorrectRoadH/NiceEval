@@ -2,9 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { detectLocale, makeTranslator, persistLocale, setDocumentLocale } from "./i18n.ts";
 import type { MessageKey } from "./i18n.ts";
 import type { Locale, LocalizedText, SortKey, SortState, Tab, ViewData, ViewResult, ViewRow } from "./types.ts";
-import { buildGroupMap, compareRows, resultFromUrl } from "./lib/rows.ts";
+import { CELL_KEYS, buildGroupMap, buildRows, compareRows, flattenAttempts, resultFromUrl } from "./lib/rows.ts";
 import { formatAttemptHash, parseAttemptHash, resolveAttemptRef, unresolvedAttemptWarning } from "./lib/attempt-route.ts";
-import { formatCost, formatDateTime, formatDuration, formatPercent } from "./lib/format.ts";
+import { formatCost, formatDateTime, formatDuration } from "./lib/format.ts";
 import { Metric } from "./components/primitives.tsx";
 import { GroupSelector } from "./components/GroupSelector.tsx";
 import { CostScoreChart } from "./components/CostScoreChart.tsx";
@@ -29,20 +29,22 @@ export function localizedText(text: LocalizedText | undefined, locale: Locale): 
 }
 
 /** 初始 URL → 直接打开的 attempt:先认 #/attempt/<run>/<result> 深链,回退旧版 ?modal= 参数。 */
-function modalResultFromLocation(rows: ViewRow[]): ViewResult | null {
+function modalResultFromLocation(snapshots: ViewData["snapshots"]): ViewResult | null {
   const ref = parseAttemptHash(location.hash);
   if (ref) {
-    const found = resolveAttemptRef(rows, ref);
+    const found = resolveAttemptRef(snapshots, ref);
     if (found) return found;
     // 定位不到(run 不在、下标越界、旧格式数据):不开空 modal,页面照常渲染。
     console.warn(unresolvedAttemptWarning(location.hash));
     return null;
   }
-  return resultFromUrl(rows);
+  return resultFromUrl(snapshots);
 }
 
 export function App({ data }: { data: ViewData }) {
-  const rows = data.rows ?? [];
+  const snapshots = data.snapshots ?? [];
+  const rows = useMemo(() => buildRows(data), [data]);
+  const attempts = useMemo(() => flattenAttempts(snapshots), [snapshots]);
   const [locale, setLocale] = useState<Locale>(() => detectLocale());
   const t = useMemo(() => makeTranslator(locale), [locale]);
   const [tab, setTab] = useState<Tab>("experiments");
@@ -53,7 +55,7 @@ export function App({ data }: { data: ViewData }) {
     const groups = [...new Set(rows.map((r) => r.group).filter(Boolean))].sort();
     return groups[0] ?? null;
   });
-  const [modalResult, setModalResult] = useState<ViewResult | null>(() => modalResultFromLocation(rows));
+  const [modalResult, setModalResult] = useState<ViewResult | null>(() => modalResultFromLocation(snapshots));
   // 当前 modal 的 hash 历史条目前面是否还有本页条目(本页 push 的 / 前进键回到的):
   // true → UI 关闭走 history.back(),前进键还能重新打开;false(深链直接落地)→ 原地抹 hash,
   // 免得 back 把用户弹出站外。
@@ -107,7 +109,7 @@ export function App({ data }: { data: ViewData }) {
         setModalResult(null);
         return;
       }
-      const found = resolveAttemptRef(rows, ref);
+      const found = resolveAttemptRef(snapshots, ref);
       if (!found) {
         console.warn(unresolvedAttemptWarning(location.hash));
         setModalResult(null);
@@ -119,7 +121,7 @@ export function App({ data }: { data: ViewData }) {
     };
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
-  }, [rows]);
+  }, [snapshots]);
 
   const groupMap = useMemo<Map<string, ViewRow[]>>(() => buildGroupMap(rows), [rows]);
   const pool = selectedGroup ? groupMap.get(selectedGroup) ?? [] : rows;
@@ -158,6 +160,11 @@ export function App({ data }: { data: ViewData }) {
     });
   };
 
+  // hero 的官方数字:整体通过率是 MetricTable.data 常量维度的单行格子,其余来自 RunOverview.data。
+  const overallPassRate = data.overall?.rows[0]?.cells[CELL_KEYS.passRate];
+  const totals = data.overview?.totals;
+  const warnings = data.overview?.warnings ?? [];
+
   return (
     <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)}>
       <header className="topbar">
@@ -194,27 +201,58 @@ export function App({ data }: { data: ViewData }) {
               {/* viewData 只带原始值(ISO / number),这里按当前界面 locale 格式化。 */}
               <b>{t("hero.lastRun")}</b> {data.lastRunAt ? formatDateTime(data.lastRunAt, locale) : t("hero.noRuns")}
             </span>
+            {data.composedRuns > 0 ? (
+              // 榜单是跨 run 合成的现刻水位,表头如实标注合成来源(几个 run)。
+              <span>{t("hero.composedFrom", { count: data.composedRuns })}</span>
+            ) : null}
           </div>
         </section>
 
         <section className="summary" aria-label="Run summary">
-          <Metric label={t("metric.passRate")} value={formatPercent(data.passRate)} />
-          <Metric label={t("metric.evalResults")} value={String(data.resultCount)} />
-          <Metric label={t("metric.duration")} value={formatDuration(data.durationMs)} />
-          <Metric label={t("metric.cost")} value={formatCost(data.estimatedCostUSD)} />
+          <Metric label={t("metric.passRate")} value={overallPassRate?.display ?? "—"} />
+          <Metric label={t("metric.evalResults")} value={String(totals?.evals ?? 0)} />
+          <Metric label={t("metric.duration")} value={formatDuration(totals?.durationMs ?? 0)} />
+          <Metric label={t("metric.cost")} value={formatCost(totals?.costUSD ?? undefined)} />
         </section>
+
+        {warnings.length > 0 && (
+          // 选集警告(partial-coverage / stale-snapshot / synthetic-experiment-id):
+          // message 是挑选器渲染好的英文句子,原样打;data-kind 供样式与测试定位。
+          <section className="incompatible-banner selection-warnings" role="alert">
+            <b>{t("banner.warningsTitle")}</b>
+            <ul>
+              {warnings.map((w, i) => (
+                <li key={`${w.kind}-${i}`} data-kind={w.kind}>
+                  <span className="ib-meta">{w.message}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         {(data.skippedRuns?.length ?? 0) > 0 && (
           <section className="incompatible-banner" role="alert">
             <b>{t("banner.skippedTitle")}</b>
             <ul>
               {data.skippedRuns!.map((run) => (
-                <li key={run.dir}>
+                <li key={run.dir} data-reason={run.reason}>
                   <span className="ib-dir">{run.dir}</span>
                   <span className="ib-meta">
-                    {run.reason === "incompatible-version"
-                      ? t("banner.skipped.incompatible", { producer: run.producerVersion ?? "?", schemaVersion: run.schemaVersion })
-                      : t("banner.skipped.malformed", { detail: run.detail ?? "?" })}
+                    {run.reason === "malformed"
+                      ? t("banner.skipped.malformed", { detail: run.detail ?? "?" })
+                      : run.reason === "incomplete"
+                        ? t("banner.skipped.incomplete")
+                        : run.producerName && run.producerName !== "niceeval"
+                          ? // 第三方 harness 写的落盘:如实报名字和版本,不拼 npx 命令。
+                            t("banner.skipped.incompatibleForeign", {
+                              name: run.producerName,
+                              version: run.producerVersion ?? "?",
+                              schemaVersion: run.schemaVersion,
+                            })
+                          : t("banner.skipped.incompatible", {
+                              producer: run.producerVersion ?? "?",
+                              schemaVersion: run.schemaVersion,
+                            })}
                   </span>
                   {run.command ? <code>{run.command}</code> : null}
                 </li>
@@ -263,10 +301,10 @@ export function App({ data }: { data: ViewData }) {
         </TabsContent>
 
         <TabsContent value="runs">
-          <RunsView rows={rows} t={t} />
+          <RunsView attempts={attempts} t={t} />
         </TabsContent>
         <TabsContent value="traces">
-          <TracesView rows={rows} t={t} />
+          <TracesView attempts={attempts} t={t} />
         </TabsContent>
       </main>
       {modalResult && <AttemptModal result={modalResult} onClose={closeModal} t={t} />}

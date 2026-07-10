@@ -3,7 +3,7 @@
 // 这里只做纯解析 / 格式化 / 匹配,不碰 location / history,方便单测。
 // hash 目前只有这一种路由:tab 切换是纯组件 state,旧版 modal 深链走 ?modal= 查询参数,互不占用。
 
-import type { AttemptRef, ViewResult, ViewRow } from "../types.ts";
+import type { AttemptRef, ViewResult, ViewSnapshot } from "../types.ts";
 
 export const ATTEMPT_HASH_PREFIX = "#/attempt/";
 
@@ -33,10 +33,10 @@ export function parseAttemptHash(hash: string): AttemptRef | null {
   return { run, result: parseInt(indexPart, 10) };
 }
 
-/** 在榜单行里找 AttemptRef 指向的 attempt;旧格式烘焙的数据没有 attemptRef,自然找不到。 */
-export function resolveAttemptRef(rows: ViewRow[], ref: AttemptRef): ViewResult | null {
-  for (const row of rows) {
-    for (const result of row.results ?? []) {
+/** 在全部快照(含历史)里找 AttemptRef 指向的 attempt;旧格式烘焙的数据没有 attemptRef,自然找不到。 */
+export function resolveAttemptRef(snapshots: ViewSnapshot[], ref: AttemptRef): ViewResult | null {
+  for (const snapshot of snapshots) {
+    for (const result of snapshot.results ?? []) {
       if (result.attemptRef?.run === ref.run && result.attemptRef.result === ref.result) return result;
     }
   }

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { T } from "../shared.ts";
 import type { ViewRow } from "../types.ts";
+import { CELL_KEYS } from "../lib/rows.ts";
 import { formatCost, formatPercent } from "../lib/format.ts";
 import { layoutLabelOffsets, niceTicks, seriesColor } from "../lib/chart.ts";
 
@@ -13,22 +14,40 @@ function formatAxisCost(value: number): string {
   return value === 0 ? "$0" : formatCost(value);
 }
 
+interface ChartPoint {
+  key: string;
+  label: string;
+  agent: string;
+  model?: string;
+  /** 官方 cost 格子的值(平均每 eval 成本,与轴标签同口径)。 */
+  cost: number;
+  /** 官方 pass-rate 格子的值(0–1)。 */
+  rate: number;
+}
+
 /**
  * 一个 group 内「成本 vs 通过率」散点图:一行(一个实验/config)= 一个点。
- * 只在 group 内至少两条 row 有 estimatedCostUSD 时渲染,否则没有比较意义。
+ * 点位取官方 MetricTable.data 的格子值;任一轴缺数据(null)的行不画。
+ * 只在 group 内至少两条 row 有成本时渲染,否则没有比较意义。
  */
 export function CostScoreChart({ rows, t }: { rows: ViewRow[]; t: T }) {
   const [hoverKey, setHoverKey] = useState<string | null>(null);
-  const points = rows.filter((r): r is ViewRow & { estimatedCostUSD: number } => typeof r.estimatedCostUSD === "number" && Number.isFinite(r.estimatedCostUSD));
+  const points: ChartPoint[] = [];
+  for (const row of rows) {
+    const cost = row.cells[CELL_KEYS.cost]?.value ?? null;
+    const rate = row.cells[CELL_KEYS.passRate]?.value ?? null;
+    if (cost === null || rate === null || !Number.isFinite(cost)) continue;
+    points.push({ key: row.key, label: row.label, agent: row.agent, model: row.model, cost, rate });
+  }
   if (points.length < 2) return null;
 
   const plotW = WIDTH - MARGIN.left - MARGIN.right;
   const plotH = HEIGHT - MARGIN.top - MARGIN.bottom;
 
-  const xTicks = niceTicks(0, Math.max(...points.map((p) => p.estimatedCostUSD)), 5);
+  const xTicks = niceTicks(0, Math.max(...points.map((p) => p.cost)), 5);
   const xMax = xTicks[xTicks.length - 1] || 1;
 
-  const rates = points.map((p) => p.passRate);
+  const rates = points.map((p) => p.rate);
   const rateMin = Math.min(...rates);
   const rateMax = Math.max(...rates);
   const pad = Math.max(0.03, (rateMax - rateMin) * 0.25);
@@ -44,8 +63,8 @@ export function CostScoreChart({ rows, t }: { rows: ViewRow[]; t: T }) {
   const hovered = points.find((p) => p.key === hoverKey);
 
   const positions = points.map((p) => {
-    const cx = xScale(p.estimatedCostUSD);
-    const cy = yScale(p.passRate);
+    const cx = xScale(p.cost);
+    const cy = yScale(p.rate);
     const anchorLeft = cx >= MARGIN.left + plotW * 0.72;
     return { cx, cy, anchorLeft, width: p.label.length * 6.4 + 10 };
   });
@@ -93,7 +112,7 @@ export function CostScoreChart({ rows, t }: { rows: ViewRow[]; t: T }) {
                   className="csc-point"
                   tabIndex={0}
                   role="button"
-                  aria-label={`${p.label}: ${formatCost(p.estimatedCostUSD)}, ${formatPercent(p.passRate)}`}
+                  aria-label={`${p.label}: ${formatCost(p.cost)}, ${formatPercent(p.rate)}`}
                   onMouseEnter={() => setHoverKey(p.key)}
                   onMouseLeave={() => setHoverKey((k) => (k === p.key ? null : k))}
                   onFocus={() => setHoverKey(p.key)}
@@ -114,11 +133,11 @@ export function CostScoreChart({ rows, t }: { rows: ViewRow[]; t: T }) {
         {hovered ? (
           <div
             className="csc-tooltip"
-            style={{ left: `${(xScale(hovered.estimatedCostUSD) / WIDTH) * 100}%`, top: `${(yScale(hovered.passRate) / HEIGHT) * 100}%` }}
+            style={{ left: `${(xScale(hovered.cost) / WIDTH) * 100}%`, top: `${(yScale(hovered.rate) / HEIGHT) * 100}%` }}
           >
-            <b>{formatPercent(hovered.passRate)}</b> {t("chart.axisScore")}
+            <b>{formatPercent(hovered.rate)}</b> {t("chart.axisScore")}
             <div className="csc-tooltip-meta">
-              {formatCost(hovered.estimatedCostUSD)} · {hovered.model || hovered.agent}
+              {formatCost(hovered.cost)} · {hovered.model || hovered.agent}
             </div>
           </div>
         ) : null}

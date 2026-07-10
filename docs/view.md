@@ -25,8 +25,8 @@ niceeval view --out site              # 目录式静态导出:index.html + artif
 具体设计:
 
 - **报告自己带版本。** `summary.json` 顶层放 `format: "niceeval.results"`、`schemaVersion` 和 `producer.version`,设计见 [Results Format · 版本与升级设计](results-format.md#版本与升级设计)。没有这些字段的现有报告视为 legacy v0。
-- **view 有一个支持区间。** 例如当前 view 支持 `schemaVersion` 0 和 1。支持区间写在 loader 常量里,不要散落在 React 组件里。
-- **先 normalize,再渲染。** `readSummary` 不直接返回磁盘 JSON,而是走 `normalizeSummary(raw, path)`。legacy v0、v1、未来 v2 都在这里转成 view 内部统一模型;`aggregateRows`、`AttemptModal`、`TracesPage` 只吃 normalized model。
+- **版本判定只有一份实现。** 读取层收编后(2026-07),版本判定与形状校验住在 `niceeval/results`(`src/results/format.ts` 的 `classifySummary`),view 经 `openResults` 消费,不再自带 loader 常量,更不散落在 React 组件里。
+- **先分类,再渲染。** 磁盘 JSON 经 `openResults` 分流:能读的成为快照层次,读不了的进 `skipped`(三种原因);前端组件只吃 `viewData` 的官方数据契约与快照明细。
 - **未知字段不是错误。** 新增 `git`、`environment`、`agentSetup`、`classification` 等字段时,旧 view 可以忽略;新增 artifact kind 也只是不展示。只有必需字段缺失、字段类型错误、或 `schemaVersion` 超出支持区间才算版本/格式错误。
 
 ### 报错与降级
@@ -98,7 +98,7 @@ npx niceeval@<producer.version> view .niceeval/<run>/summary.json
 
 这两条之前被 [Observability](observability.md) 的能力列表当成已实现的写了,这次审查代码(`src/view/index.ts`、`src/view/app/`)发现对不上,已经从那边挪过来,归到下面「计划中」:
 
-- **"跨运行趋势"实际是合并,不是可对比的历史。** `aggregateRows`(`src/view/index.ts`)把 `.niceeval/` 下**所有**历史 `summary.json` 按 `experimentId` 揉进同一行——通过率、平均耗时、成本都是跨全部历史 run 的累计值,不是"最新一次"或"某一次"的快照,更谈不上画成随时间变化的线。(合流后由选择器 + 跨快照去重取代,见[用 Reports 积木重建 view](#用-reports-积木重建-view设计提案)。)
+- **"跨运行趋势"实际是合并,不是可对比的历史。** 旧 `aggregateRows` 把 `.niceeval/` 下**所有**历史 `summary.json` 按 `experimentId` 揉进同一行——通过率、平均耗时、成本都是跨全部历史 run 的累计值。**已修(2026-07,统计层收编)**:`aggregateRows` 已删,榜单改为 `results.latest()` 选集 + 官方计算函数(每个实验最新一次快照,跨快照累计处经 `dedupeAttempts` 去重),历史快照身份保留在 `viewData.snapshots` 里供 Runs / Traces 与后续 Compare 使用,见[用 Reports 积木重建 view](#用-reports-积木重建-view设计提案)。
 - **"质量 × 成本散点图"没有实现。** `src/view/app` 下没有任何图表 / scatter / canvas 组件,现有可视化都是表格和文字指标。
 
 ## 外部参考
@@ -117,20 +117,19 @@ npx niceeval@<producer.version> view .niceeval/<run>/summary.json
 - `/compare`(`components/ComparePage.tsx`,client component)两个下拉框选"某个 experiment 的某次 run",候选项和对应的完整 `ExperimentDetail` 都由服务端预先读好、一次性传给客户端(不是选中后才 fetch)。选中两边后纯前端算 delta:整体 `avgPassRate`/`avgDuration` 对两边的 `evals[]` 取平均相减;per-eval 按 eval name 取并集,逐行对比 `passRate`/`meanDuration`,delta 用颜色区分涨跌。
 - **关键点:** "能任意选两次运行对比"完全建立在**目录结构天然保留时间戳身份**上——`results/<experiment>/<ISO-timestamp>/` 从不合并,每次 run 落一个新目录,`getExperiment` 返回的 `timestamps: string[]` 就是完整历史列表,`/compare` 只是在这份现成的列表上做了个下拉选择器 + 前端减法。
 
-**跟 niceeval 的差异(为什么不能直接照搬这套形状):** playground 是多页面、每次请求都读 fs 的 live Next server;niceeval `view` 是一次性烘焙进单个 HTML+JSON 的静态产物(见上文"架构上"一段)。playground 靠"存储层本来就是每次 run 一个新目录"天然拿到历史身份;niceeval 现在的 `aggregateRows` 反而是**主动把**同一个 `experimentId` 的所有历史 run **合并**成一行(见上文"已知的文档 vs 实现差异")。所以 niceeval 要做 Compare,抄的是"保留快照身份、不要提前合并"这个**原则**,不是 playground 的目录结构或 API 形状——数据仍然得在生成 HTML 那一刻就把所有候选快照的统计算好塞进 `viewData`,不能假设前端能像 playground 一样随时再去问 fs。
+**跟 niceeval 的差异(为什么不能直接照搬这套形状):** playground 是多页面、每次请求都读 fs 的 live Next server;niceeval `view` 是一次性烘焙进单个 HTML+JSON 的静态产物(见上文"架构上"一段)。playground 靠"存储层本来就是每次 run 一个新目录"天然拿到历史身份;niceeval 当时的 `aggregateRows` 反而是**主动把**同一个 `experimentId` 的所有历史 run **合并**成一行(见上文"已知的文档 vs 实现差异",2026-07 已收编修正)。所以 niceeval 要做 Compare,抄的是"保留快照身份、不要提前合并"这个**原则**,不是 playground 的目录结构或 API 形状——数据仍然得在生成 HTML 那一刻就把所有候选快照的统计算好塞进 `viewData`,不能假设前端能像 playground 一样随时再去问 fs。
 
 调研时更完整的"抄了什么 / 为什么不抄"决策记录见 [References](references.md#vercel-agent-eval--packagesplayground)。
 
 ## 计划中的小功能
 
-### 结果版本提示与跳过列表
+### 结果版本提示与跳过列表(已实现,2026-07 收编进 results lib)
 
-实现上先补 loader,再补 UI:
+按合流路线落地,不再是 view 的专项:
 
-1. `loadSummaries` 返回 `{ loaded, skipped }`,其中 `skipped` 记录 path、reason、detected `schemaVersion`、detected `producer.version`。
-2. `readSummary` 拆成 `parseSummary` + `normalizeSummary`。normalize 支持 legacy v0 和当前 v1。
-3. 目录入口继续渲染已成功读取的 run,页面顶部增加可展开的 skipped report 提示。
-4. 单文件入口遇到不兼容 schema 时直接退出,打印上文的 `npx niceeval@... view ...` 建议。
+1. `openResults` 返回 `skipped`(三种原因:incompatible-version / malformed / incomplete),带 `schemaVersion` 与**完整** `producer`。
+2. 目录入口继续渲染已成功读取的 run,页面顶部横幅逐条展示 skipped:`producer.name === "niceeval"` 时给 `npx niceeval@<version> view` 命令,第三方 harness 如实报名字版本、不拼 npx([Results Lib 的裁决](results-lib.md#读openresults))。
+3. 单文件入口遇到不兼容 schema 时直接退出,打印上文的 `npx niceeval@... view ...` 建议(`src/view/data.ts` 的 `IncompatibleResultsError`)。
 
 这比一开始就做 migration 更实际:多数用户只是想看当前报告;旧报告读不了时,用写出它的旧版本 viewer 打开比自动转换更可控。
 
@@ -158,7 +157,7 @@ npx niceeval@<producer.version> view .niceeval/<run>/summary.json
 
 ## 用 Reports 积木重建 view(设计提案)
 
-> 状态:设计提案。依赖的两个提案已部分落地(results 读取面、report 计算与组件,见 [Source Map](source-map.md#results-lib-与-reports));三步迁移(读取层 / 统计层 / 渲染层)未动,attempt 深链路由已先行实现。落地前,本文其余部分描述的现状照旧成立。
+> 状态:迁移中。依赖的两个提案已落地(results 读取面、report 计算与组件,见 [Source Map](source-map.md#results-lib-与-reports));三步迁移中**读取层与统计层已完成(2026-07)**——view 的 loader 收编进 `openResults`,`aggregateRows` 删掉,`__NICEEVAL_VIEW_DATA__` 换成官方数据契约(OverviewData / TableData + 快照元信息 + skipped / warnings,声明在 `src/view/shared/types.ts`)。渲染层(榜单换 `MetricTable` 组件、scatter、Compare)与 `--report` 报告槽未动。
 
 [Reports](reports.md) 把「自己搭报告页」拆成组件 + 计算函数 + 结果库三种零件之后,view 的正确定位随之改变:**view 不再是一套并行实现,而是用同一批零件搭出来的「默认报告页 + 证据室」**——用户搭页面用什么零件,view 自己就用什么。view 因此成为这套积木的第一个常驻消费者,组件与计算函数的正确性被它天天验证;反过来,上面「计划中的小功能」里的三件事(跳过列表、Compare、散点图)也全部退化成「拼现成积木」,不再是专项开发。
 
@@ -181,8 +180,8 @@ npx niceeval@<producer.version> view .niceeval/<run>/summary.json
 
 迁移顺序即依赖顺序,每步独立可交付:
 
-1. **换读取层。** results lib 落地,view 的 loader 删掉,skipped 列表 UI 直接上——行为中立的重构,外加诚实增强。
-2. **换统计层。** 计算函数落地,`aggregateRows` 删掉;榜单数字会因去重而变(变得更对),在 changelog 里明说。
+1. **换读取层。**(已完成,2026-07)results lib 落地,view 的 loader 删掉,skipped 列表 UI 直接上——行为中立的重构,外加诚实增强(三种原因、producer 感知的提示)。
+2. **换统计层。**(已完成,2026-07)计算函数落地,`aggregateRows` 删掉;榜单数字因「latest 口径 + 去重」而变(变得更对),在 changelog 里明说。选集 warnings(partial-coverage / stale-snapshot / synthetic-experiment-id)经 `OverviewData.warnings` 进前端横幅,`data-kind` 标注。
 3. **换渲染层 + 补两个 tab。** 榜单换 `MetricTable`,新增 scatter,Compare 以时间轴 delta 首发;AttemptModal / Traces 原样保留。
 
 界线(2026-07 更新,原表述「固定摆法、想换摆法去写自己的页面」被宿主化提案精确化):**view = 报告槽 + 证据室**。报告槽默认装内置默认报告——它没有特权,就是 `Report` 契约的出厂预设,作为值(`defaultReport`)公开导出;`niceeval view --report <文件>` 整槽替换,用户在自己的报告里 spread `defaultReport` 即可「官方水位 + 自己口径」,不做 tab 管理、不做注册表,详见 [Reports · 宿主化报告](reports.md)。证据室(AttemptModal / Traces / 导航壳)是 view 本体,报告块经 `attemptRef` 深链进来。view 仍不长配置、不长插件——报告文件是显式路径递进来的宿主语言模块,不是插件;要自己的 React 组件,宿主仍是你自己的页面([Reports](reports.md)),零件是同一批。

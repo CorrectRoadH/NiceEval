@@ -309,6 +309,14 @@ const FLAG_DESCRIPTIONS: Record<string, string> = {
   "no-early-exit": "关闭 `--early-exit`,即使已有 attempt 通过也跑完全部 runs。",
   open: "`view` 命令专用:启动后自动打开浏览器(默认行为)。",
   "no-open": "`view` 命令专用:启动后不自动打开浏览器。",
+  transcript: "`show` 命令专用:渲染单个 eval 的完整对话与工具调用(证据切面)。",
+  trace: "`show` 命令专用:渲染单个 eval 的 trace 瀑布文本版(证据切面)。",
+  diff: "`show` 命令专用:sandbox 里的文件改动摘要;`--diff=<文件路径>` 看单个文件的完整改动(路径必须 `=` 连写)。",
+  history: "`show` 命令专用:跨 run 时间轴,只列真实执行;与 `--report` 互斥。",
+  experiment: "`show` 命令专用:选集只留该实验。",
+  attempt: "`show` 命令专用:指定详情 / 证据切面看第几次 attempt(与展示一致的 1 计序号)。",
+  run: "`show` 命令专用:钉死看某一个结果目录(历史 run 或 `copySnapshots` 产物)。",
+  report: "`show` 命令专用:把默认榜单整槽换成你的报告文件(默认导出 `defineReport(...)`)。",
   help: "打印用法说明并退出。",
 };
 

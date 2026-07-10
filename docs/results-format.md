@@ -73,7 +73,7 @@ npx niceeval@0.3.0 view .niceeval/2026-09-10T08-00-00-000Z
   单文件模式 `niceeval view <run>/summary.json` 输出同样的提示后退出,而不是报「不是 niceeval summary」。
 - **不能识别**(没有 `format`,也不满足 legacy 的 `results[]` + `startedAt` 启发式):当作无关 JSON 忽略。
 
-实现入口:版本判定在 `src/view/index.ts` 的 `readSummary`(抛 `IncompatibleResultsError`);目录扫描的占位数据经 `viewData.incompatibleRuns` 进前端,由 `src/view/app/App.tsx` 的 incompatible-banner 渲染;单文件模式的提示与退出在 `src/cli.ts` 的 `exitOnIncompatibleResults`;提示文案是 i18n key `cli.view.incompatible`。
+实现入口:版本判定只有一份,在 `src/results/format.ts` 的 `classifySummary`(view 经 `openResults` 消费);目录扫描的占位数据经 `viewData.skippedRuns` 进前端,由 `src/view/app/App.tsx` 的 incompatible-banner 渲染(三种原因:incompatible-version / malformed / incomplete);单文件模式在 `src/view/data.ts` 抛 `IncompatibleResultsError`,`src/cli.ts` 的 `exitOnIncompatibleResults` 打印提示退出;提示文案是 i18n key `cli.view.incompatible`(niceeval 落盘)与 `cli.view.incompatibleForeign`(第三方 harness,不拼 npx)。
 
 报告里最小应新增的字段是:
 

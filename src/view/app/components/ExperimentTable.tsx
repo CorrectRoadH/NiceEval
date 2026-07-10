@@ -3,9 +3,17 @@ import { ChevronRight } from "lucide-react";
 import type { OpenModal, T } from "../shared.ts";
 import type { Assertion, SortKey, SortState, ViewResult, ViewRow } from "../types.ts";
 import { EvalGroup, failingAssertions, groupByEval, outcomeClass, outcomeLabel, outcomeSummary, reasonFor, scoresSummary } from "../lib/outcome.ts";
-import { configChips } from "../lib/rows.ts";
-import { formatClock, formatCost, formatDateTime, formatDuration, formatPercent, formatTokens, totalTokens } from "../lib/format.ts";
+import { CELL_KEYS, configChips } from "../lib/rows.ts";
+import { formatClock, formatCost, formatDateTime, formatDuration, formatTokens, totalTokens } from "../lib/format.ts";
 import { Kpi, SortHeader } from "./primitives.tsx";
+import type { MetricCell } from "../types.ts";
+
+/** 官方格子的渲染:display 已格式化;samples < total 时 title 如实报覆盖率(有 attempt 测不了这个指标)。 */
+function CellValue({ cell }: { cell: MetricCell | undefined }) {
+  if (!cell || cell.value === null) return <>—</>;
+  const partial = cell.samples < cell.total;
+  return <span title={partial ? `${cell.samples}/${cell.total} attempts measured` : undefined}>{cell.display}</span>;
+}
 
 export function ExperimentTable({
   rows,
@@ -32,7 +40,7 @@ export function ExperimentTable({
             <SortHeader name={t("table.experiment")} sortKey="experiment" sort={sort} onSort={setSortKey} />
             <SortHeader name={t("table.model")} sortKey="model" sort={sort} onSort={setSortKey} />
             <SortHeader name={t("table.agent")} sortKey="agent" sort={sort} onSort={setSortKey} />
-            <SortHeader name={t("table.avgDuration")} sortKey="avgDurationMs" sort={sort} onSort={setSortKey} />
+            <SortHeader name={t("table.avgDuration")} sortKey="duration" sort={sort} onSort={setSortKey} />
             <SortHeader name={t("table.successRate")} sortKey="passRate" sort={sort} onSort={setSortKey} />
             <SortHeader name={t("table.tokens")} sortKey="tokens" sort={sort} onSort={setSortKey} />
             <SortHeader name={t("table.estCost")} sortKey="cost" sort={sort} onSort={setSortKey} />
@@ -53,7 +61,8 @@ export function ExperimentTable({
 }
 
 export function ExperimentRow({ row, open, onToggle, t }: { row: ViewRow; open: boolean; onToggle: () => void; t: T }) {
-  const tone = row.passRate >= 0.8 ? "good" : row.passRate >= 0.5 ? "warn" : "bad";
+  const passRate = row.cells[CELL_KEYS.passRate]?.value ?? null;
+  const tone = passRate === null ? "" : passRate >= 0.8 ? "good" : passRate >= 0.5 ? "warn" : "bad";
   return (
     <tr
       className={`main-row${open ? " is-open" : ""}`}
@@ -77,10 +86,19 @@ export function ExperimentRow({ row, open, onToggle, t }: { row: ViewRow; open: 
       </td>
       <td>{row.model || t("config.default")}</td>
       <td>{row.agent}</td>
-      <td className="num">{formatDuration(row.avgDurationMs)}</td>
-      <td className={`num ${tone}`}>{formatPercent(row.passRate)}</td>
-      <td className="num">{formatTokens(totalTokens(row.usage))}</td>
-      <td className="num">{formatCost(row.estimatedCostUSD)}</td>
+      {/* 官方 MetricTable.data 的格子:display 直接渲染,数字口径与 show 榜单同源。 */}
+      <td className="num">
+        <CellValue cell={row.cells[CELL_KEYS.duration]} />
+      </td>
+      <td className={`num ${tone}`}>
+        <CellValue cell={row.cells[CELL_KEYS.passRate]} />
+      </td>
+      <td className="num">
+        <CellValue cell={row.cells[CELL_KEYS.tokens]} />
+      </td>
+      <td className="num">
+        <CellValue cell={row.cells[CELL_KEYS.cost]} />
+      </td>
       <td>
         <span className="pill">{outcomeSummary(row, t)}</span>
       </td>
@@ -115,7 +133,7 @@ export function ExperimentDetail({ row, openModal, t }: { row: ViewRow; openModa
             <Kpi label={t("detail.errored")} value={row.errored} className={row.errored ? "infra-err" : ""} />
             {row.runs > row.evals ? <Kpi label={t("detail.runs")} value={row.runs} /> : null}
             <Kpi label={t("detail.totalTime")} value={formatDuration(totalDuration)} />
-            <Kpi label={t("detail.totalCost")} value={formatCost(row.estimatedCostUSD)} />
+            <Kpi label={t("detail.totalCost")} value={formatCost(row.totalCostUSD)} />
             <Kpi label={t("detail.ran")} value={formatDateTime(row.lastRunAt)} title={row.lastRunAt || ""} />
           </div>
           <h3>{t("detail.evaluationAttempts")}</h3>

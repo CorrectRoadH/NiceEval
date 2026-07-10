@@ -22,7 +22,7 @@ import { renderCharPlot, renderCoordinateTable, type PlotPoint } from "./plot.ts
 const MISSING_MARK = "—";
 
 /** 格子的文本形态:缺数据 —,覆盖不全带 samples/total 角标。 */
-function cellText(cell: { value: number | null; display: string; samples: number; total: number }): string {
+export function cellText(cell: { value: number | null; display: string; samples: number; total: number }): string {
   if (cell.value === null) return MISSING_MARK;
   return cell.samples < cell.total ? `${cell.display} ${cell.samples}/${cell.total}` : cell.display;
 }

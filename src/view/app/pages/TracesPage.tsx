@@ -1,16 +1,11 @@
-import { useMemo } from "react";
 import type { RowRun, T } from "../shared.ts";
-import type { ViewResult, ViewRow } from "../types.ts";
 import { outcomeClass, outcomeLabel } from "../lib/outcome.ts";
 import { formatDuration } from "../lib/format.ts";
 import { LazyArtifact } from "../components/LazyArtifact.tsx";
 
-export function TracesView({ rows, t }: { rows: ViewRow[]; t: T }) {
-  const allRuns = useMemo(
-    () => rows.flatMap((row: ViewRow) => (row.results ?? []).map((r: ViewResult): RowRun => ({ ...r, rowLabel: row.label, rowAgent: row.agent, rowModel: row.model }))),
-    [rows],
-  );
-  const traceable = allRuns.filter((r: RowRun) => r.hasEvents || r.hasTrace);
+/** 全部历史 attempt 的 trace/transcript 视图;列表在 App 里由 flattenAttempts 算好。 */
+export function TracesView({ attempts, t }: { attempts: RowRun[]; t: T }) {
+  const traceable = attempts.filter((r: RowRun) => r.hasEvents || r.hasTrace);
   return (
     <section id="tab-traces">
       <div className="section-head">
