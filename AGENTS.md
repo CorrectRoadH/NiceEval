@@ -86,12 +86,11 @@ CLI 只有两类输入：位置参数选择“跑哪些 eval”（eval id 前缀
 ## Release
 
 发版走 CI（`.github/workflows/release.yml`），**不要在本地 `npm publish`**（本地没有
-发布凭证，publish 会 401/404）。流程：bump `package.json` version → 提交
-`release: vX.Y.Z`（正文列本版行为变化）→ `git tag vX.Y.Z` → push main 和 tag。
-tag push 触发 CI：typecheck → 校验 tag 与 package.json version 一致 → `pnpm publish`
-（NPM_TOKEN secret，provenance）→ 创建 GitHub Release。备选路径是 Actions 页
-workflow_dispatch 填 version（CI 会自己补 tag）。预发布版（如 `0.5.0-alpha.1`）自动发
-对应 dist-tag，正式版发 latest。
+发布凭证，publish 会 401/404）。触发方式只有一种：`git tag vX.Y.Z` → push tag 到
+origin。标签号就是发布版本号，CI 自己从标签名解析版本号、在 runner 本地写入
+`package.json`（不写回仓库，main 上不需要预先提交版本号变更）→ typecheck →
+`pnpm publish`（NPM_TOKEN secret，provenance）→ 创建 GitHub Release。预发布版（如
+`0.5.0-alpha.1`）自动发对应 dist-tag，正式版发 latest。
 
 ## 记录问题的规范
 
