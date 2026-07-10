@@ -15,7 +15,7 @@ description: "报告文件里能摆的全部官方双面组件：每个组件回
 
 ## 排版原语
 
-`Row` / `Col` / `Section` / `Text` 负责摆版面，一次摆放两个面各自成立：`Col` 纵向堆叠；`Row` 网页横排、终端字符分栏（宽度不够自动降级纵向）；`Section` 是带标题的块；`Text` 是说明文字。
+`Row` / `Col` / `Section` / `Text` 负责摆版面，一次摆放两个面各自成立：`Col` 纵向堆叠；`Row` 网页横排、终端字符分栏（宽度不够自动降级纵向）；`Section` 是带标题的块；`Text` 是说明文字。另有 `<Style>{css}</Style>` 给自定义组件带样式：web 面吐 `<style>` 标签、text 面渲染为空——静态导出不打包用户代码，`className` 引用的 CSS 靠它随树走。
 
 ```tsx
 <Col>
@@ -207,7 +207,7 @@ A 1 agents   B 4 agents   C 16 agents
 
 ## `DeltaTable` —— 成对对比
 
-每行一对配置、每列一个指标，格子里 A、B、Δ 三个值，回答「这个开关值不值」「这次修复翻转了什么」。涨跌好坏由 `better` 判定，任一侧缺数据 Δ 显示为缺，不硬算。
+每行一对配置、每列一个指标，格子里 A、B、Δ 三个值，回答「这个开关值不值」「这次修复翻转了什么」。涨跌好坏由 `better` 判定，任一侧缺数据 Δ 显示为缺，不硬算。「这次 vs 上次」（同一配置的两个快照）也是它：`pairs` 的 `a` / `b` 除 experiment id 外也收快照键 `<experimentId> @ <startedAt>`——时间轴对比要用到旧快照，`results.latest()` 里没有，配手挑的快照数组（如 `[exp.latest, exp.snapshots[1]]`）用。
 
 ```tsx
 <DeltaTable data={await DeltaTable.data(selection, {
