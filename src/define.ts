@@ -3,6 +3,8 @@
 
 import type {
   Agent,
+  AgentSetup,
+  AgentTeardown,
   Config,
   CustomSandboxSpec,
   DockerSandboxSpec,
@@ -11,6 +13,7 @@ import type {
   ExperimentDef,
   RemoteAgentDef,
   SandboxAgentDef,
+  SandboxHooks,
   VercelSandboxSpec,
 } from "./types.ts";
 import { t } from "./i18n/index.ts";
@@ -71,20 +74,70 @@ export function defineConfig(config: Config): Config {
 // ───────────────────────── Sandbox 工厂 ─────────────────────────
 // Sandbox 与 agent 一样用数据结构带参数(见 docs/sandbox.md)。这些工厂只是把
 // 后端 + 参数包成 spec 对象;真正的行为在 sandbox/<backend>.ts 里,由 resolve.ts 派发。
+//
+// 四个工厂都要挂上 `.setup()` / `.teardown()` 链式方法(见 sandbox/types.ts 的
+// SandboxHooks<Self>):累积的钩子数组随 `HookState` 传递,每次链式调用都重新调
+// `build()` 产出一个新对象,原 spec 不被修改。
+
+/** 链式追加中累积的钩子(setup 按追加顺序执行,teardown 执行时逆序,见 SandboxHooks)。 */
+interface HookState {
+  readonly setupHooks: readonly AgentSetup[];
+  readonly teardownHooks: readonly AgentTeardown[];
+}
+
+/** 四个工厂共用:把当前钩子状态包成 `.setup()` / `.teardown()` 方法,调用即用新状态重新 build。 */
+function hookMethods<TSpec>(
+  state: HookState,
+  rebuild: (state: HookState) => TSpec,
+): Pick<SandboxHooks<TSpec>, "setup" | "teardown"> {
+  return {
+    setup: (fn) => rebuild({ setupHooks: [...state.setupHooks, fn], teardownHooks: state.teardownHooks }),
+    teardown: (fn) => rebuild({ setupHooks: state.setupHooks, teardownHooks: [...state.teardownHooks, fn] }),
+  };
+}
+
+const EMPTY_HOOKS: HookState = { setupHooks: [], teardownHooks: [] };
 
 /** Docker 沙箱:本地容器。`image` 可覆盖默认 `node:*-slim`(预制模板:烘焙好 agent CLI 的镜像)。 */
-export function dockerSandbox(opts: Omit<DockerSandboxSpec, "backend"> = {}): DockerSandboxSpec {
-  return { backend: "docker", ...opts };
+export function dockerSandbox(
+  opts: Omit<DockerSandboxSpec, "backend" | keyof SandboxHooks<unknown>> = {},
+): DockerSandboxSpec {
+  const build = (state: HookState): DockerSandboxSpec => ({
+    backend: "docker",
+    ...opts,
+    setupHooks: state.setupHooks,
+    teardownHooks: state.teardownHooks,
+    ...hookMethods(state, build),
+  });
+  return build(EMPTY_HOOKS);
 }
 
 /** Vercel Sandbox:microVM。`snapshotId` 从已有快照起(预制模板:烘焙好 agent CLI 的快照)。 */
-export function vercelSandbox(opts: Omit<VercelSandboxSpec, "backend"> = {}): VercelSandboxSpec {
-  return { backend: "vercel", ...opts };
+export function vercelSandbox(
+  opts: Omit<VercelSandboxSpec, "backend" | keyof SandboxHooks<unknown>> = {},
+): VercelSandboxSpec {
+  const build = (state: HookState): VercelSandboxSpec => ({
+    backend: "vercel",
+    ...opts,
+    setupHooks: state.setupHooks,
+    teardownHooks: state.teardownHooks,
+    ...hookMethods(state, build),
+  });
+  return build(EMPTY_HOOKS);
 }
 
 /** E2B 沙箱。`template` 选 e2b 模板名/ID(预制模板:如 `"niceeval-agents"`);省略用 e2b 默认 `"base"`。 */
-export function e2bSandbox(opts: Omit<E2BSandboxSpec, "backend"> = {}): E2BSandboxSpec {
-  return { backend: "e2b", ...opts };
+export function e2bSandbox(
+  opts: Omit<E2BSandboxSpec, "backend" | keyof SandboxHooks<unknown>> = {},
+): E2BSandboxSpec {
+  const build = (state: HookState): E2BSandboxSpec => ({
+    backend: "e2b",
+    ...opts,
+    setupHooks: state.setupHooks,
+    teardownHooks: state.teardownHooks,
+    ...hookMethods(state, build),
+  });
+  return build(EMPTY_HOOKS);
 }
 
 /**
@@ -98,5 +151,13 @@ export function defineSandbox(def: {
 }): CustomSandboxSpec {
   if (!def.name) throw new Error(t("define.sandboxNameRequired"));
   if (typeof def.create !== "function") throw new Error(t("define.sandboxCreateRequired"));
-  return { backend: def.name, create: def.create, recommendedConcurrency: def.recommendedConcurrency };
+  const build = (state: HookState): CustomSandboxSpec => ({
+    backend: def.name,
+    create: def.create,
+    recommendedConcurrency: def.recommendedConcurrency,
+    setupHooks: state.setupHooks,
+    teardownHooks: state.teardownHooks,
+    ...hookMethods(state, build),
+  });
+  return build(EMPTY_HOOKS);
 }

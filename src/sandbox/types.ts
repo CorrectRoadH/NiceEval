@@ -1,6 +1,8 @@
 // sandbox 域类型:Sandbox 接口、后端 spec(可辨识联合)、命令与文件 IO 的形状。
 // 「在哪里跑、如何隔离」的全部契约在这里;后端实现见本目录各文件,分发见 resolve.ts。
 
+import type { AgentSetup, AgentTeardown } from "../agents/types.ts";
+
 export interface CommandResult {
   stdout: string;
   stderr: string;
@@ -52,24 +54,63 @@ export type SandboxBackend = "docker" | "vercel" | "e2b";
 export type SandboxRuntime = "node20" | "node24";
 
 /**
+ * SandboxSpec 四个变体共有的沙箱生命周期钩子挂载点:`.setup(fn)` / `.teardown(fn)` 链式方法,
+ * 由 `dockerSandbox()` / `vercelSandbox()` / `e2bSandbox()` / `defineSandbox()` 产出的对象上
+ * 直接可调。
+ *
+ * **语义**:环境预置层,俗称「动态镜像层」——本想直接烘进镜像/快照/模板,但内容要按实验
+ * (`ctx.flags` / `ctx.experimentId`)动态变化的东西:装某个实验专属的二进制、预热缓存、
+ * 写运行期才知道内容的 hook 文件、按 `ctx.experimentId` 载入/回存跨 attempt 的状态。
+ *
+ * **与另外两层 setup 的分工**(三者都在同一个沙箱生命周期里,各管一层):
+ *   · `sandbox.setup`(这里)—— 环境层,不知道具体跑哪个 eval / 接哪个 agent;
+ *   · `eval.setup` —— 任务层,准备这次 eval 的素材(如 `npm install` 起始项目依赖);
+ *   · `agent.setup` —— 协议层,接入被测 agent(装 CLI、写鉴权 / 模型配置)。
+ *
+ * **执行顺序**:沙箱就绪 → `sandbox.setup` 钩子 → workspace 上传 / git 基线 / `eval.setup` →
+ * `agent.setup` → `agent.tracing.configure` → 逐轮 `send`。`sandbox.setup` 特意排在 git
+ * 基线之前——它的改动会被提交进基线,不会被误算进 agent 产出的 diff。收尾按 LIFO:
+ * agent 级 cleanup / `agent.teardown` 先跑,`sandbox.teardown` 钩子最后跑(沙箱销毁前)。
+ *
+ * **多钩子**:`.setup(a).setup(b)` 按追加顺序依次执行(a 先 b 后);`.teardown(x).teardown(y)`
+ * 按追加的**逆序**执行(y 先 x 后)。每次调用都返回一个新 spec(不改变原对象),可继续链式。
+ *
+ * **失败语义**:`setup` 钩子抛错按执行错误计——与 `eval.setup` / `agent.setup` 抛错走同一条
+ * 路径,不新增错误分类;但不阻断该 attempt 已进入的收尾(已跑过的 setup 返回的 cleanup、
+ * `teardown` 钩子仍会在 finally 里跑)。`teardown` 钩子报错只作诊断(吞掉 / 记 log),不改变
+ * 已产出的结果——与 `agent.teardown` 现状一致。
+ */
+export interface SandboxHooks<Self> {
+  /** 已挂载的 setup 钩子,按追加顺序保存(内部读取,一般用不到)。 */
+  readonly setupHooks?: readonly AgentSetup[];
+  /** 已挂载的 teardown 钩子,按追加顺序保存,执行时逆序(内部读取,一般用不到)。 */
+  readonly teardownHooks?: readonly AgentTeardown[];
+  /** 追加一个沙箱级 setup 钩子,返回新 spec;详细契约见 {@link SandboxHooks}。 */
+  setup(fn: AgentSetup): Self;
+  /** 追加一个沙箱级 teardown 钩子,返回新 spec;详细契约见 {@link SandboxHooks}。 */
+  teardown(fn: AgentTeardown): Self;
+}
+
+/**
  * Sandbox 的「数据结构」定义 —— 与 agent 一样可带参数(见 docs/sandbox.md)。
  * 必须用工厂函数构造(`dockerSandbox()` / `vercelSandbox()` / `e2bSandbox()` / `defineSandbox()`),
  * 放进 config / experiment 的 `sandbox` 字段 —— 字段类型只接受这个数据结构,不接受裸字符串。
  * 各后端的参数互不相同 —— 这是个按 `backend` 区分的可辨识联合(discriminated union)。
+ * 四个变体都带 {@link SandboxHooks} 的 `.setup()` / `.teardown()` 链式方法。
  */
-export interface DockerSandboxSpec {
+export interface DockerSandboxSpec extends SandboxHooks<DockerSandboxSpec> {
   readonly backend: "docker";
   /** 覆盖默认镜像;默认按 runtime 选 `node:*-slim`。预制模板:传烘焙好 agent CLI 的镜像名。 */
   readonly image?: string;
   readonly runtime?: SandboxRuntime;
 }
-export interface VercelSandboxSpec {
+export interface VercelSandboxSpec extends SandboxHooks<VercelSandboxSpec> {
   readonly backend: "vercel";
   /** 从已有快照起 microVM。预制模板:烘焙好 agent CLI 的 snapshotId。 */
   readonly snapshotId?: string;
   readonly runtime?: SandboxRuntime;
 }
-export interface E2BSandboxSpec {
+export interface E2BSandboxSpec extends SandboxHooks<E2BSandboxSpec> {
   readonly backend: "e2b";
   /** e2b 模板名/ID。预制模板:烘焙好 agent CLI 的模板(如 `"niceeval-agents"`)。省略用 e2b 默认 `"base"`。 */
   readonly template?: string;
@@ -80,7 +121,7 @@ export interface E2BSandboxSpec {
  * 用户自定义后端:`create` 直接产出一个 `Sandbox` 实例,不经 resolve.ts 的内置 backend switch。
  * 用 `defineSandbox()` 构造(见 src/define.ts)。`backend` 只用于展示 / 日志,不参与分发。
  */
-export interface CustomSandboxSpec {
+export interface CustomSandboxSpec extends SandboxHooks<CustomSandboxSpec> {
   readonly backend: string;
   readonly runtime?: SandboxRuntime;
   readonly recommendedConcurrency?: number;

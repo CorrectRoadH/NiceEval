@@ -40,6 +40,7 @@ interface AgentContext {
   readonly sandbox: Sandbox;             // 仅沙箱型 agent 有意义(运行器按 kind: "sandbox" 备好)
   readonly session: AgentSession;        // 本条会话线的状态槽(存取器组,见下)
   readonly telemetry?: Telemetry;        // 仅配置了 OTel 接入时有:OTLP 端点 + ready-to-spread env/headers
+  readonly experimentId?: string;        // 路径推导的实验 id,与结果里的 experimentId 同源;不经 experiment 跑时 undefined
   log(msg: string): void;
 }
 
@@ -175,6 +176,8 @@ interface InputRequest {
 
 - **运行器做什么:** 备好沙箱(上传 / git 基线 / eval 级 setup)后、首次 `send` 前调一次 `setup`;`setup` 返回的 cleanup 和 `teardown` 都在 finally 跑。
 - **adapter 义务:** `setup` 只做"每个沙箱一次"的事(装 CLI、写主配置、装 skill / plugin);失败应直接抛——那是 **errored**(基建问题),不是 agent 做题失败,见 [Skills / Plugins 的失败语义](coding-agent-skills-plugins.md#失败语义)。
+
+这里的 `setup` / `teardown` 是 **agent 级**的一次性预置,回答"怎么连自己"。按实验变化的**环境层**预置(装二进制、预热、跨 attempt 状态)不属于这个契约,走 `SandboxSpec` 自己的 `.setup()` / `.teardown()` 链式钩子——它在 agent 的 `setup` 之前跑、`teardown` 之后收尾,见 [Sandbox · 沙箱生命周期钩子](../sandbox.md#沙箱生命周期钩子setup--teardown)。
 
 ### 断言族的数据义务(adapter 要「说」什么)
 

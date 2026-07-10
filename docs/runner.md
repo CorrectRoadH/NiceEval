@@ -66,9 +66,9 @@ fixtures/button   codex         pass@5 = 3/5 (60%)   mean 41s · 72k tok · $0.3
 
 外层是兜底,保证一个卡死的 case 不会挂起整批。
 
-## 环境预置不进运行器
+## 环境预置不进运行器,但按顺序调它
 
-niceeval **没有 run / experiment 级生命周期钩子**——运行器只固定"发现 → 调度 → 沙箱起停 / git 基线 / 采 diff → 评分 → 报告"这条主轴,不替用户在整轮实验前后跑任意 `setup` / `teardown`。要在跑 agent 前准备环境,分摊到三处已有职责:这条 eval 的沙箱预置走 `EvalDef.setup` 或 `test(t)`,连 agent / 装 CLI 走 [`SandboxAgent.setup`](adapters/contract.md#agent-契约),整轮共享的外部服务(mock API、DB)用外部编排(`docker compose` / CI 脚本)起停、经 env 传入。完整说明见 [环境预置放哪](sandbox.md#环境预置放哪)。
+niceeval **没有 run / experiment 级生命周期钩子**——`ExperimentDef` 仍是纯配置数据,不携带任何生命周期字段,运行器不会替用户在整轮实验前后跑任意 `setup` / `teardown`。但"跑 agent 前要不要准备环境"这件事确实需要一个家:沙箱创建后、git 基线之前,运行器会调用 `experiment.sandbox` 链上挂的环境钩子(`SandboxSpec.setup()` / `.teardown()`,见 [Sandbox · 沙箱生命周期钩子](sandbox.md#沙箱生命周期钩子setup--teardown));沙箱固定段("发现 → 调度 → 沙箱起停 / git 基线 / 采 diff → 评分 → 报告"这条主轴)之内,还分出这条 eval 的任务夹具(`EvalDef.setup` 或 `test(t)`)和 agent 自己的一次性预置([`SandboxAgent.setup`](adapters/contract.md#agent-契约))。运行器只固定这几个调用点的**顺序**,钩子内部做什么、要不要按实验变化,全部交给对应的作者决定,不写进运行器本身。整轮共享的外部服务(mock API、DB)仍然用外部编排(`docker compose` / CI 脚本)起停、经 env 传入——这类资源跨进程共享,不属于任何一次沙箱的生命周期。四类职责的完整分工表见 [环境预置放哪](sandbox.md#环境预置放哪)。
 
 **下游分析**(二次评分、自定义指标)走 [reporter](observability.md#reporters),不另设运行钩子——这是从 agent-eval 的 `onRunComplete` 收敛过来的(见 [Experiments 砍字段](experiments.md#从-agent-eval-砍掉了什么以及为什么))。
 

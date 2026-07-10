@@ -24,6 +24,8 @@ import { captureGeneratedFiles, initGitAndCommit } from "./sandbox-prep.ts";
 import { createRemoteSandbox, withEvalLocalPaths } from "./remote-sandbox.ts";
 import type {
   AgentContext,
+  AgentSetup,
+  AgentTeardown,
   Cleanup,
   Config,
   EvalResult,
@@ -88,6 +90,9 @@ export function runAttemptEffect(
 
   return Effect.scoped(
     Effect.gen(function* () {
+      // run.sandbox ?? config.sandbox 是同一个 SandboxSpec 对象,既用来起沙箱后端,
+      // 也是 sandbox.setup / sandbox.teardown 钩子(SandboxSpec.setup()/.teardown() 链式挂的)的来源。
+      const sandboxSpec = run.sandbox ?? config.sandbox;
       const sandbox =
         run.agent.kind === "sandbox"
           ? yield* sandboxSem.withPermits(1)(
@@ -96,7 +101,7 @@ export function runAttemptEffect(
                 // sandboxSem 只覆盖「容器创建」阶段;容器起好后立即释放,后续 npm install / agent 不占位。
                 log(t("runner.startSandbox"));
                 return yield* createSandbox({
-                  sandbox: run.sandbox ?? config.sandbox,
+                  sandbox: sandboxSpec,
                   timeout: timeoutMs,
                   runtime: "node24",
                 });
@@ -161,6 +166,8 @@ export function runAttemptEffect(
       return yield* Effect.promise((interruptSignal) =>
         runAttemptBody(a, config, t0, base, {
           sandbox,
+          sandboxSetupHooks: sandboxSpec?.setupHooks ?? [],
+          sandboxTeardownHooks: sandboxSpec?.teardownHooks ?? [],
           receiver,
           telemetry,
           otel: otelChannel,
@@ -203,6 +210,10 @@ function causeToError(cause: Cause.Cause<never>): string {
 
 interface AttemptResources {
   sandbox: Sandbox;
+  /** SandboxSpec.setup() 链式挂的钩子,按追加顺序;非沙箱 agent 传空数组(usesSandbox 挡住不会跑)。 */
+  sandboxSetupHooks: readonly AgentSetup[];
+  /** SandboxSpec.teardown() 链式挂的钩子,按追加顺序保存,执行时逆序。 */
+  sandboxTeardownHooks: readonly AgentTeardown[];
   receiver?: TraceReceiver;
   telemetry?: Telemetry;
   /** 非沙箱 tracing agent 的共享 OTLP 通道(run 级池持有,不随 attempt 关)。 */
@@ -221,7 +232,7 @@ async function runAttemptBody(
   res: AttemptResources,
 ): Promise<EvalResult> {
   const { evalDef, run, attempt } = a;
-  const { sandbox, receiver, telemetry, otel, signal, log } = res;
+  const { sandbox, sandboxSetupHooks, sandboxTeardownHooks, receiver, telemetry, otel, signal, log } = res;
   const usesSandbox = run.agent.kind === "sandbox";
   // 整个 attempt 共用一份 agent ctx(sandbox 钩子 / agent setup / tracing configure / teardown 都用它)。
   const attemptCtx: AgentContext = {
@@ -229,6 +240,7 @@ async function runAttemptBody(
     model: run.model,
     reasoningEffort: run.reasoningEffort,
     flags: run.flags,
+    experimentId: run.experimentId,
     sandbox,
     session: createAgentSession(),
     telemetry,
@@ -236,8 +248,20 @@ async function runAttemptBody(
   };
   let agentCleanup: Cleanup | void = undefined;
   let agentDidSetup = false;
+  // SandboxSpec.setup() 返回的 cleanup 闭包,按调用顺序收集;finally 里 LIFO 跑(见下)。
+  const sandboxCleanups: Cleanup[] = [];
   try {
     if (usesSandbox) {
+      // 沙箱级生命周期钩子(SandboxSpec.setup):环境预置层,先于 workspace 上传 / git 基线 /
+      // eval.setup 跑——改动进 git 基线,不会被误算进 agent 产出的 diff。按追加顺序依次执行;
+      // 单个抛错走下面的执行错误路径(与 eval.setup / agent.setup 同一条),已跑过的 cleanup /
+      // sandbox.teardown 钩子仍在 finally 里跑(见 catch/finally)。
+      if (sandboxSetupHooks.length > 0) log(t("runner.startSandboxSetup"));
+      for (const hook of sandboxSetupHooks) {
+        const cleanup = await hook(sandbox, attemptCtx);
+        if (typeof cleanup === "function") sandboxCleanups.push(cleanup);
+      }
+
       await initGitAndCommit(sandbox);
 
       // eval 级 setup(starter prep:npm install / 装系统依赖等)。命令默认非 root;
@@ -271,6 +295,7 @@ async function runAttemptBody(
       model: run.model,
       reasoningEffort: run.reasoningEffort,
       flags: run.flags,
+      experimentId: run.experimentId,
       signal,
       log,
       judge,
@@ -406,13 +431,35 @@ async function runAttemptBody(
     };
   } finally {
     // teardown / cleanup 一律在 finally 跑(失败也跑),不改判决,各自兜错(diagnostic)。
-    // LIFO:先 agent(setup 最晚),再沙箱 Scope。
+    // LIFO:agent 级(setup 最晚 → cleanup / teardown 先跑)在前,sandbox 级(最早就绪)收尾在后
+    //(即 sandbox.setup 返回的 cleanup、sandbox.teardown 钩子最后跑,沙箱销毁前)。
     // 沙箱 stop / 接收器 close 不在这里 —— 由 runAttemptEffect 的 Scope 在本函数返回后回收。
     try {
       if (typeof agentCleanup === "function") await agentCleanup();
       if (agentDidSetup) await run.agent.teardown?.(sandbox, attemptCtx);
     } catch {
       // teardown 失败只是 diagnostic,不影响已出的结果
+    }
+    if (usesSandbox) {
+      // sandbox.setup 返回的 cleanup:LIFO(后 setup 先 cleanup),与 agent 级同构。
+      for (let i = sandboxCleanups.length - 1; i >= 0; i--) {
+        try {
+          await sandboxCleanups[i]();
+        } catch {
+          // 同上,只作 diagnostic
+        }
+      }
+      // sandbox.teardown 钩子:按追加的逆序执行,沙箱销毁前最后一步。
+      if (sandboxTeardownHooks.length > 0) {
+        log(t("runner.startSandboxTeardown"));
+        for (let i = sandboxTeardownHooks.length - 1; i >= 0; i--) {
+          try {
+            await sandboxTeardownHooks[i](sandbox, attemptCtx);
+          } catch {
+            // 同上,只作 diagnostic
+          }
+        }
+      }
     }
   }
 }

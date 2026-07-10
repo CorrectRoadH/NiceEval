@@ -231,34 +231,74 @@ export default defineSandbox({
 
 ## 沙箱在生命周期里的位置
 
-一次 agent eval 中,核心只固定两头,中间全部交给这条 eval 的 `test(t)`:
+一次 agent eval 中,核心固定住各个钩子**的调用顺序**,每个钩子**内部做什么**交给 sandbox spec / eval / agent 各自的作者:
 
 ```text
  createSandbox(backend, timeout)
-  → git init && git commit               # 打一次空基线,供之后 diff——不管 test() 里写了什么
-  → SandboxAgent.setup?.(sandbox, ctx)   # agent 自己的一次性预置(装 CLI / 写主配置)
-  → test(t)                              # ← 交给 eval 作者,顺序由它自己决定:
+  → sandbox.setup?.(sandbox, ctx)          # 环境层:experiment.sandbox 链上的 .setup() 钩子(可能多个,按追加顺序);没挂就跳过
+  → git init && git commit                 # 打一次空基线,供之后 diff——不管 test() 里写了什么
+  → EvalDef.setup?.(sandbox)               # 这条 eval 的任务夹具(如果定义了)
+  → SandboxAgent.setup?.(sandbox, ctx)     # agent 自己的一次性预置(装 CLI / 写主配置)
+  → test(t)                                # ← 交给 eval 作者,顺序由它自己决定:
   │    t.sandbox.writeFiles(...) / uploadFiles(...) / uploadDirectory(...)  # 默认落到 workdir
-  │    t.send()                            #   驱动 agent(Adapter 在沙箱里跑 CLI,解析成 events)
-  │    t.sandbox.runCommand(...)           #   手工跑校验命令,cwd 默认 workdir(可以晚于 t.send(),agent 天然看不到)
-  │    断言…                               #   t.sandbox.fileChanged / t.sandbox.diff / t.check(commandSucceeded)
-  → collectGeneratedFiles()              # git diff HEAD
-  → sandbox.stop()                       # 销毁
+  │    t.send()                              #   驱动 agent(Adapter 在沙箱里跑 CLI,解析成 events)
+  │    t.sandbox.runCommand(...)             #   手工跑校验命令,cwd 默认 workdir(可以晚于 t.send(),agent 天然看不到)
+  │    断言…                                 #   t.sandbox.fileChanged / t.sandbox.diff / t.check(commandSucceeded)
+  → collectGeneratedFiles()                # git diff HEAD
+  → SandboxAgent.teardown?.(sandbox, ctx)   # finally:agent 级收尾先跑
+  → sandbox.teardown?.(sandbox, ctx)        # finally:环境层收尾最后跑,销毁前——回存跨 attempt 状态用这个时机
+  → sandbox.stop()                         # 销毁
 ```
 
-核心只固定两件事:**沙箱创建时打一次空 git 基线**,和**销毁前采一次 diff**——这两件事跟"里面放了什么文件"无关,核心不需要知道也不需要预设目录约定。中间"传什么文件、传到哪、什么时候调 agent、什么时候手工跑测试"全部是 `test(t)` 里的普通代码决定,不是核心的固定编排,详见 [Eval Authoring · 沙箱型](eval-authoring.md#沙箱型手工把文件放进沙箱)——Adapter 也只管 `t.send()` 触发的那一次"在沙箱里把 agent 跑起来"。author-facing 的 `t.sandbox` 同时承载立即 IO / 命令执行和最终 diff / 文件变化视图,但不暴露 `stop()`。后端保证 `workdir` 存在且对非 root 用户可写;命令工作目录用 `runCommand` / `runShell` 的 `cwd` option 表达,默认 `workdir`,不提供可变的 `setWorkingDirectory`。预置放哪见下节。
+环境层钩子排在最前、也收在最后,不是任意选择:它准备的是**环境**(装二进制、预热模型、写 hook 文件),不是这条 eval 的任务材料,必须先于 git 基线跑——像镜像构建先于代码挂载——否则它写下的文件会被 `git diff` 误记成"agent 生成的改动",污染这条 eval 的 diff 归因。teardown 顺序对称颠倒:agent 级收尾先跑(它可能还要用沙箱做收尾动作,比如导出 transcript),环境层收尾最后跑、销毁前一刻——这个位置正好用来把状态回存到沙箱外部,见下节例子。
+
+核心固定的是这条调用链本身(创建后先环境层钩子、再打一次空 git 基线、再 eval 夹具、再 agent 预置;销毁前先 agent 收尾、再环境层收尾、最后采 diff 已经完成)。中间"传什么文件、传到哪、什么时候调 agent、什么时候手工跑测试"全部是 `test(t)` 里的普通代码决定,不是核心的固定编排,详见 [Eval Authoring · 沙箱型](eval-authoring.md#沙箱型手工把文件放进沙箱)——Adapter 也只管 `t.send()` 触发的那一次"在沙箱里把 agent 跑起来"。author-facing 的 `t.sandbox` 同时承载立即 IO / 命令执行和最终 diff / 文件变化视图,但不暴露 `stop()`。后端保证 `workdir` 存在且对非 root 用户可写;命令工作目录用 `runCommand` / `runShell` 的 `cwd` option 表达,默认 `workdir`,不提供可变的 `setWorkingDirectory`。钩子怎么挂、预置放哪见下两节。
+
+## 沙箱生命周期钩子:`.setup()` / `.teardown()`
+
+`dockerSandbox()` / `e2bSandbox()` / `vercelSandbox()` 这些工厂产出的 `SandboxSpec` 带两个链式方法:
+
+```typescript
+interface SandboxSpec {
+  setup(fn: AgentSetup): SandboxSpec;       // 返回新 spec(不可变),可多次链式追加
+  teardown(fn: AgentTeardown): SandboxSpec; // 同上
+}
+```
+
+`fn` 复用 agent 的 `AgentSetup` / `AgentTeardown` 签名——`(sandbox, ctx) => void | Cleanup | Promise<void | Cleanup>`,`setup` 可以返回一个 cleanup 闭包。多次 `.setup()` 按追加顺序跑,多次 `.teardown()` 按追加的逆序跑(和上面「先进后出」的 agent/环境层顺序是同一条纪律,只是发生在环境层内部)。
+
+这一层解决的是一类特定问题:**你本想把它烘进 Docker image / E2B template,但它要按实验变化。** 装个二进制、预热一次模型、写一份 hook 文件、在多个 attempt 之间载入/回存状态——这些事静态镜像做不到(不同实验要装不同东西),写进 `EvalDef.setup` 又不对(那是每条 eval 的任务夹具,不是"这次实验用什么环境"),写进 `SandboxAgent.setup` 也不对(那是 agent 自己连自己的私事,不该知道某个实验想多装什么)。可以把沙箱生命周期钩子理解成**动态的镜像层**——运行时按 spec 拼出来的那部分 image。
+
+```typescript
+export default defineExperiment({
+  agent: codexAgent({ mcpServers: [mempalMcp] }),
+  sandbox: e2bSandbox({ template: "fasteval-agents" })
+    .setup(mempalSetup("codex"))       // 装二进制、预热、写 hook、载入状态
+    .teardown(mempalTeardown("codex")), // 回存状态
+  maxConcurrency: 1,                    // [载入…回存] 是临界区,声明式串行
+});
+```
+
+这是一个真实的 downstream 场景:记忆条件测试里,MCP server(构造期配置,决定"有没有这个工具")走 `codexAgent({ mcpServers: [...] })`;环境层(这次实验要不要装某个二进制、预热、维护跨 attempt 的记忆状态)走 `.setup()` / `.teardown()`。两条职责线不混:MCP/skills/model 依旧只从 adapter factory 进,钩子不复制 factory 拥有的配置知识,见 [Adapter 契约 · 三类配置的归属](adapters/contract.md#三类配置的归属本地配--实验传入--ctx-透传)。
+
+跨 attempt 状态本身没有框架原语——没有 `persistentState` 这类东西。载入 / 回存是用户在 `setup` / `teardown` 里自己写的普通代码(读写一个外部 KV、文件、数据库,用什么都行);要用哪个键隔离不同实验的状态,靠 `ctx.experimentId`——`AgentContext` 新增的只读字段,值是路径推导的实验 id(与结果里 `experimentId` 同源),不经 experiment 跑时是 `undefined`。[载入…回存] 这段读写外部状态的代码是临界区,想让同一实验的 attempt 不并发踩踏,在 experiment 上声明 `maxConcurrency: 1` 即可串行,不需要框架另设锁。
+
+失败语义与 agent 的 `setup` / `teardown` 完全对称:`sandbox.setup` 抛错按执行错误计(`outcome: "errored"`,基建问题,不是 agent 做题失败);`sandbox.teardown` 报错只记日志、不抛(收尾阶段的错误不应该让一个已经跑完的 attempt 变成失败)。
+
+remote 型 agent(`kind: "remote"`)没有真实沙箱,`experiment.sandbox` 对它不参与、直接被忽略——钩子天然不会跑,不需要为此写 fail-fast 分支或额外校验。
 
 ## 环境预置放哪
 
-要在跑 agent 前准备环境,按职责分摊到三处已有的地方——**每一处都是普通代码,不是框架编排**:
+要在跑 agent 前准备环境,按职责分摊到四处已有的地方——**每一处都是普通代码,不是框架编排**:
 
 | 要准备的东西 | 放哪 | 怎么清理 |
 |---|---|---|
+| **这次实验**要按配置变化的环境(装二进制、预热模型、写 hook 文件、跨 attempt 状态) | [沙箱生命周期钩子](#沙箱生命周期钩子setup--teardown):`sandbox.setup()` / `.teardown()` | `teardown` 显式回收(回存状态、清外部资源);沙箱内文件随销毁自动没了 |
 | 连 agent、装 CLI、写 agent 自己的主配置(每 attempt 一次) | [`SandboxAgent.setup`](adapters/contract.md#agent-契约) | 随沙箱销毁,无需手工清 |
-| **这条 eval** 的沙箱预置(写 `.env`、装依赖、按 `t.flags` 注入 skill) | `test(t)` 里的普通代码(`t.sandbox.writeFiles` / `runCommand`) | 随沙箱销毁;要清沙箱外的东西用 `try/finally` |
+| **这条 eval** 的任务夹具、对跑到它的所有实验都生效的沙箱预置 | `EvalDef.setup` 或 `test(t)` 里的普通代码(`t.sandbox.writeFiles` / `runCommand`) | 随沙箱销毁;要清沙箱外的东西用 `try/finally` |
 | **整轮共享**的外部服务(mock API、共享 DB、license) | 外部编排:`docker compose up -d && niceeval exp … && docker compose down`,或 CI 脚本 | 外部编排负责,URL 经 env 传入 agent / eval |
 
-为什么这样够用:沙箱内的东西随沙箱销毁自动没了,不需要 teardown;整轮共享的外部资源用 `docker compose` / CI 脚本起停是业界通行做法,比一个 niceeval 专属钩子更少要维护、也不把资源起停逻辑锁进框架。这与"没有隐式 fixture 发现、起始文件手工写进 `test()`"是同一条纪律:**能用更基础的机制表达的,就不在框架里再造一层。**
+四行分工只看"这东西该不该随实验变化、该不该随 eval 变化":环境按实验变(装什么、开不开预热)进沙箱钩子;任务材料按 eval 变(这条题目需要哪些起始文件)进 `EvalDef.setup` / `test(t)`;agent 怎么连自己是 agent 的私事;真正跨进程共享、这次跑之前就该存在的资源交给外部编排。没有第五个"实验级整场钩子"——`ExperimentDef` 仍然是纯配置数据,不携带任何生命周期字段;需要生命周期行为的场景,答案永远是上面四行之一。
 
 ## 性能:复用与预热
 

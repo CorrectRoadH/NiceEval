@@ -62,6 +62,8 @@ export interface ContextDeps {
   model?: string;
   reasoningEffort?: string;
   flags: Record<string, unknown>;
+  /** 路径推导出的实验 id(经 send ctx 透给 adapter,见 AgentContext.experimentId)。 */
+  experimentId?: string;
   signal: AbortSignal;
   log(msg: string): void;
   judge: JudgeConfig | undefined;
@@ -93,6 +95,7 @@ export function createEvalContext(deps: ContextDeps): { context: TestContext; st
     model: deps.model,
     reasoningEffort: deps.reasoningEffort,
     flags: deps.flags,
+    experimentId: deps.experimentId,
     signal: deps.signal,
     log: deps.log,
     telemetry: deps.telemetry,

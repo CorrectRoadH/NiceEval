@@ -164,7 +164,7 @@ export default defineSandboxAgent({
 - **会话 id 抽取** —— `sessionIdFromClaudeTranscript(raw)`、`codexThreadId(raw)`、`firstJsonField(raw, field)`(通用兜底)。
 - **转换器** —— `parseClaudeCode(raw)` / `parseCodex(raw)` / `parseBub(raw)`:原始 JSONL → `{ events, usage, compactions, … }`,adapter 直接把结果铺进 `Turn` 返回。
 
-shared 里不放按 `agent.name` 分发行为的原语。构造期配置(`mcpServers` / `skills` / model 等)只从各 adapter factory 进,配置文件位置与格式的知识单源在 factory 的 setup 里;包装 Agent 的 wrapper 只做 setup 阶段的动作(传文件、写 hook、载状态),不复制 factory 拥有的配置知识。要给某个实验变体加 MCP,把 factory(而不是已构造的 Agent)传进包装函数,在包装内部带上 `mcpServers` 构造——变体差异永远落在构造入参上,Agent 构造之后不做后置修改。
+shared 里不放按 `agent.name` 分发行为的原语。构造期配置(`mcpServers` / `skills` / model 等)只从各 adapter factory 进,配置文件位置与格式的知识单源在 factory 的 setup 里;包装 Agent 的 wrapper 只做 setup 阶段的动作(传文件、写 hook、载状态),不复制 factory 拥有的配置知识。要给某个实验变体加 MCP,把 factory(而不是已构造的 Agent)传进包装函数,在包装内部带上 `mcpServers` 构造——变体差异永远落在构造入参上,Agent 构造之后不做后置修改。这条规则管的是构造期配置;按实验变化的**环境预置**(装二进制、预热、写 hook 文件、跨 attempt 状态)不属于 agent wrapper 的职责,挂在 sandbox spec 自己的 `.setup()` / `.teardown()` 链式钩子上,见 [Sandbox · 沙箱生命周期钩子](../sandbox.md#沙箱生命周期钩子setup--teardown)。
 
 git 基线与 diff 采集**不在 shared 里**——那是 runner 的固定段(沙箱创建时打一次基线、销毁前采一次 diff,见 `src/runner/sandbox-prep.ts`),对所有 agent 严格一致,adapter 不碰。中间"什么时候写入文件、什么时候调 `t.send()`、什么时候手工跑校验命令"全部由 eval 的 `test(t)` 自己决定,见 [Eval Authoring · 沙箱型](../eval-authoring.md#沙箱型手工把文件放进沙箱)。
 

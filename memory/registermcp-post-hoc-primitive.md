@@ -12,6 +12,6 @@
 
 **撤销范围**:`src/agents/shared.ts`(registerMcp/appendFile/MCP_WRITERS/writeClaudeMcp/writeCodexMcp)、`src/agents/shared.test.ts`(整文件)、`src/i18n/{en,zh-CN}.ts` 两 key、`docs/adapters/{authoring,coding-agent-skills-plugins}.md`、`docs/source-map.md`、`docs-site/zh/guides/official-adapters.mdx`。52476b0 顺手修正的两处过期声明(claude 是 `~/.claude.json` 不是 `~/.claude/claude.json`;codex 是复数 `[mcp_servers.x]`)保留。反面契约已写进 `docs/adapters/authoring.md`(shared 一节)与 `coding-agent-skills-plugins.md`(adapter 翻译一节)。
 
-**连带评估**(downstream 同场讨论的其它 DX 提案,当时结论):`persistentState`(跨 attempt 持久状态,key 默认 experiment id + 调度器按 key 强制串行)是唯一 userland 做不干净、值得上游化的;e2b 并发上限可配合理;`defineAgentExtension` 组合器、`uploadHostCached` 不做(宿主语言积木够用);「adapter setup 写完 mcpServers 后跑 `mcp list` 自省留 log」是合理的 adapter 内部改进,不新增 API 面。
+**连带评估**(downstream 同场讨论的其它 DX 提案,当时结论):`persistentState`(跨 attempt 持久状态,key 默认 experiment id + 调度器按 key 强制串行)是唯一 userland 做不干净、值得上游化的——**此条同日被 [[sandbox-lifecycle-hooks]] 翻案:不做**,状态由用户钩子自管、键用 `ctx.experimentId`;e2b 并发上限可配合理;`defineAgentExtension` 组合器、`uploadHostCached` 不做(宿主语言积木够用);「adapter setup 写完 mcpServers 后跑 `mcp list` 自省留 log」是合理的 adapter 内部改进,不新增 API 面。
 
-关联:[[mcp-tool-naming-claude-vs-codex]](MCP 两家 CLI 差异的断言层坑)。
+关联:[[mcp-tool-naming-claude-vs-codex]](MCP 两家 CLI 差异的断言层坑)、[[sandbox-lifecycle-hooks]](同日后续裁决:环境预置的家)。

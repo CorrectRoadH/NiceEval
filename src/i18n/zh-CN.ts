@@ -183,6 +183,8 @@ export const zhCN = {
   "runner.startAgentSetup": "agent setup(装 CLI / 写配置)…",
   "runner.startAgentTracing": "agent tracing(写 otel 导出配置)…",
   "runner.startSandbox": "起沙箱…",
+  "runner.startSandboxSetup": "sandbox setup(环境预置钩子)…",
+  "runner.startSandboxTeardown": "sandbox teardown(环境预置钩子)…",
   "runner.timeout": "attempt 超时({{timeoutMs}}ms)\n最近进度:\n{{recentLogs}}",
   "runner.traceSelected": " → 留 {{count}}(按语义)",
   "runner.resumeCarry": "  · 复用上次 {{carried}} 个通过的结果,重跑 {{retry}} 个 eval\n",

@@ -79,6 +79,8 @@ export type {
   Agent,
   AgentContext,
   AgentSession,
+  AgentSetup,
+  AgentTeardown,
   AgentTracing,
   SpanMapper,
   Telemetry,

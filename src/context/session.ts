@@ -91,6 +91,8 @@ export interface SessionDeps {
   flags: Record<string, unknown>;
   signal: AbortSignal;
   log(msg: string): void;
+  /** 路径推导出的实验 id(经 send ctx 透给 adapter,见 AgentContext.experimentId)。 */
+  experimentId?: string;
   /** tracing agent 的 OTLP 端点(经 send ctx 透给 adapter,用于注入导出 env)。 */
   telemetry?: Telemetry;
   /** 非沙箱 tracing agent 的共享 OTLP 通道(runner 从 run 级池取,经它做逐轮 span 归属)。 */
@@ -139,6 +141,7 @@ export class SessionManager {
       model: this.deps.model,
       reasoningEffort: this.deps.reasoningEffort,
       flags: this.deps.flags,
+      experimentId: this.deps.experimentId,
       sandbox: this.deps.sandbox,
       session,
       telemetry: this.deps.telemetry,

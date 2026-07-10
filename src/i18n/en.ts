@@ -186,6 +186,8 @@ export const en = {
   "runner.startAgentSetup": "agent setup (install CLI / write config)...",
   "runner.startAgentTracing": "agent tracing (write OTEL export config)...",
   "runner.startSandbox": "starting sandbox...",
+  "runner.startSandboxSetup": "sandbox setup (environment provisioning hooks)...",
+  "runner.startSandboxTeardown": "sandbox teardown (environment provisioning hooks)...",
   "runner.timeout": "attempt timed out ({{timeoutMs}}ms)\nRecent progress:\n{{recentLogs}}",
   "runner.traceSelected": " -> kept {{count}} semantic spans",
   "runner.resumeCarry": "  · reusing {{carried}} passing results from last run, re-running {{retry}} evals\n",
