@@ -215,6 +215,8 @@ interface FlagEntry {
   key: string; // FLAG_OPTIONS 里的原始 key,如 "max-concurrency"
   type: "string" | "boolean";
   short?: string;
+  /** 紧邻该 flag 属性的 JSDoc,即文档 flag 表里的中文说明。 */
+  doc?: string;
 }
 
 /** 静态解析 `const FLAG_OPTIONS = { ... } as const;` 对象字面量,不 import 模块(cli.ts 有模块级副作用)。 */
@@ -254,7 +256,7 @@ function extractFlagOptions(sourceText: string, fileName: string): FlagEntry[] {
         short = p.initializer.text;
       }
     }
-    if (type) entries.push({ key, type, short });
+    if (type) entries.push({ key, type, short, doc: extractDoc(sourceFile, prop) });
   }
   return entries;
 }
@@ -283,44 +285,6 @@ function extractNumberFlagKeys(sourceText: string, fileName: string): Set<string
   return keys;
 }
 
-/**
- * flag 中文说明。FLAG_OPTIONS/Flags 接口本身没有逐 flag 的 TSDoc,src/i18n/zh-CN.ts 里也只有
- * `cli.help` 一整块拼接文案(而非逐 flag 的结构化 key)—— 两处都不能机器逐条提取。这里维护一份
- * 显式表,取自当前文档已核实过的说明;新增/改名 flag 时若表里缺失,generateCliFlagsRegion 会
- * 直接报错提示补充,而不是静默漏项,保留漂移守护的意义。
- */
-const FLAG_DESCRIPTIONS: Record<string, string> = {
-  agent: "experiment 运行不支持该 flag。要换 agent,请在 `experiments/` 下新增或复制一个配置文件。",
-  model: "experiment 运行不支持该 flag。要换模型,请新增或复制一个 experiment 文件并修改 `model`。",
-  runs: "每个 eval 运行多少次,常用于 pass@N。",
-  "max-concurrency": "设置同时运行的 eval 数量。",
-  timeout: "单个 attempt 的超时时间,单位毫秒。",
-  budget: "整次运行的预算上限(美元)。",
-  tag: "只运行带有该 tag 的 eval(见 `defineEval` 的 `tags`)。",
-  junit: "额外写一份 JUnit XML 报告到指定路径,供 CI 消费。",
-  json: "额外写一份 JSON 结果(`RunSummary` 原样序列化)到指定路径,供 CI 或下游脚本消费。",
-  out: "`view` 命令专用:把结果查看器静态导出到指定目录。",
-  port: "`view` 命令专用:指定本地服务器监听端口。",
-  dry: "只打印本次会匹配到的 eval × 运行配置,不实际执行。",
-  quiet: "关闭控制台 / live 进度输出(reporter 仍会写 artifacts)。",
-  force: "忽略上次运行结果,不跳过已通过的 (experiment, eval) 组合,强制全部重跑。",
-  strict: "CI 中推荐使用:让软阈值(`soft`)失败也计入整条 eval 的 outcome。",
-  "early-exit": "某个 eval 的一次 attempt 通过后,停止该 eval 剩余的 attempts。",
-  "no-early-exit": "关闭 `--early-exit`,即使已有 attempt 通过也跑完全部 runs。",
-  open: "`view` 命令专用:启动后自动打开浏览器(默认行为)。",
-  "no-open": "`view` 命令专用:启动后不自动打开浏览器。",
-  transcript: "`show` 命令专用:渲染单个 eval 的完整对话与工具调用(证据切面)。",
-  trace: "`show` 命令专用:渲染单个 eval 的 trace 瀑布文本版(证据切面)。",
-  diff: "`show` 命令专用:sandbox 里的文件改动摘要;`--diff=<文件路径>` 看单个文件的完整改动(路径必须 `=` 连写)。",
-  history: "`show` 命令专用:跨 run 时间轴,只列真实执行;与 `--report` 互斥。",
-  experiment: "`show` 命令专用:选集只留该实验。",
-  attempt: "`show` 命令专用:指定详情 / 证据切面看第几次 attempt(与展示一致的 1 计序号)。",
-  run: "`show` 命令专用:钉死看某一个结果目录(历史 run 或 `copySnapshots` 产物)。",
-  report: "`show` 命令专用:把默认榜单整槽换成你的报告文件(默认导出 `defineReport(...)`)。",
-  help: "打印用法说明并退出。",
-  version: "打印 niceeval 的版本号并退出。",
-};
-
 interface CliFlagRow {
   flags: string[]; // 一或两个 `--x` 形式,负向 flag 配对显示在同一行
   type: "string" | "number" | "boolean";
@@ -340,10 +304,10 @@ function buildCliFlagRows(sourceText: string, fileName: string): CliFlagRow[] {
   const rows: CliFlagRow[] = [];
   for (const e of entries) {
     if (negatedOf.has(e.key)) continue; // 作为配对项在正向 flag 那里一起渲染
-    const desc = FLAG_DESCRIPTIONS[e.key];
+    const desc = e.doc;
     if (desc === undefined) {
       throw new Error(
-        `flag --${e.key} has no description; add it to FLAG_DESCRIPTIONS in scripts/generate-reference.ts, then rerun pnpm docs:reference.`,
+        `flag --${e.key} has no description; add a JSDoc comment on its FLAG_OPTIONS entry in ${fileName}, then rerun pnpm docs:reference.`,
       );
     }
     const flags = [`--${e.key}`];
