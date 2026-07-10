@@ -24,7 +24,7 @@ niceeval exp <实验组|配置> <选哪些 eval> <flag:调度覆盖>
 ```sh
 niceeval exp [组|配置] [pattern...]  # 跑实验:全部 / 一组 / 单个配置;可再用 eval id 前缀过滤
 niceeval show [pattern...]   # 终端读结果:榜单 / 单 eval 明细 / --transcript / --trace / --diff / --history / --report
-niceeval init                # 生成 evals/ 与 niceeval.config.ts;在 AGENTS.md 写入/刷新 niceeval-agent-rules 托管区块(指向随包 docs-site,区块外内容不动)
+niceeval init                # 生成 evals/ 与 niceeval.config.ts;写入/刷新 niceeval-agent-rules 托管区块(指向随包 docs-site,区块外内容不动)——项目已有 AGENTS.md 就写那份,只有 CLAUDE.md 就写进 CLAUDE.md,都没有则新建 AGENTS.md
 niceeval list                # 只列出发现到的 eval,不运行
 niceeval clean               # 删除 .niceeval/ 历史运行工件
 niceeval watch               # 监听文件变化,改即重跑(规划中)

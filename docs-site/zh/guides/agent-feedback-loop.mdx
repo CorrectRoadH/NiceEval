@@ -82,9 +82,9 @@ niceeval show fixtures/button --diff          # sandbox 里的文件改动
 
 榜单、单个 eval 与各证据切面的输出长什么样、历史与抖动怎么看（`--history`）、多次 run 的合成口径，都在[查看结果](/zh/guides/viewing-results)；要项目自己的口径（考试成绩单、代码行数榜），写一个打到 stdout 的报告脚本，见[自定义报告](/zh/guides/custom-reports)——给 agent 的指引只多一行：跑 `npx tsx scripts/report.ts`，读 stdout。
 
-## AGENTS.md 指引区块
+## AGENTS.md / CLAUDE.md 指引区块
 
-模型的训练数据里没有 NiceEval。`npx niceeval init` 会在项目的 `AGENTS.md` 里写入一个托管区块，告诉 agent 先读随包文档再动手：
+模型的训练数据里没有 NiceEval。`npx niceeval init` 会写入一个托管区块，告诉 agent 先读随包文档再动手：项目已有 `AGENTS.md` 就写那份；只有 `CLAUDE.md`（没有 `AGENTS.md`）就直接写进 `CLAUDE.md`，不另建重复文件；两者都没有则新建 `AGENTS.md`。`CLAUDE.md` 是指向 `AGENTS.md` 的符号链接时，写入自动落到链接目标，不会分裂成两份内容。
 
 ```md
 <!-- BEGIN:niceeval-agent-rules -->
@@ -100,7 +100,7 @@ artifact files it references are the structured source of truth.
 <!-- END:niceeval-agent-rules -->
 ```
 
-标记之外的内容不会被改动；升级 NiceEval 后重跑 `npx niceeval init` 会刷新标记之内的指引。npm 包只随包发布中文文档（`node_modules/niceeval/docs-site/zh/`）——中文是唯一始终与代码同步的准绳版本，agent 读中文没有障碍，读到的永远是和安装版本一致的行为，而不是训练数据里的旧记忆。
+标记之外的内容不会被改动；升级 NiceEval 后重跑 `npx niceeval init` 会刷新标记之内的指引，且每次都会重新按上述规则判断该写哪份文件。npm 包只随包发布中文文档（`node_modules/niceeval/docs-site/zh/`）——中文是唯一始终与代码同步的准绳版本，agent 读中文没有障碍，读到的永远是和安装版本一致的行为，而不是训练数据里的旧记忆。
 
 ## 报错自带修法
 

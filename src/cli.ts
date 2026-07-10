@@ -239,7 +239,7 @@ async function loadConfig(cwd: string): Promise<Config> {
   return mod.default;
 }
 
-// AGENTS.md 托管区块:告诉在这个项目里干活的 coding agent「niceeval 不在你的训练数据里,
+// AGENTS.md/CLAUDE.md 托管区块:告诉在这个项目里干活的 coding agent「niceeval 不在你的训练数据里,
 // 先读随包文档,跑完读结构化结果」。随包只发中文准绳版文档(英文站是手工同步、可能滞后,
 // 不进包,见 package.json 的 files);init 时写入/刷新;标记之外的用户内容永不触碰。
 const AGENT_RULES_BEGIN = "<!-- BEGIN:niceeval-agent-rules -->";
@@ -255,6 +255,18 @@ const AGENT_RULES_CONTENT = [
   "`--trace` / `--diff` for evidence); the `summary.json` path the CLI prints and the",
   "artifact files it references are the structured source of truth.",
 ].join("\n");
+
+// 优先复用已有的 AGENTS.md;项目只有 CLAUDE.md(没有 AGENTS.md)时改写 CLAUDE.md 本身,
+// 不再另建一份重复文件;两者都没有则新建 AGENTS.md。CLAUDE.md 是指向 AGENTS.md 的符号链接时,
+// existsSync 会 follow 链接——目标存在则直接算作「AGENTS.md 已存在」,写入的还是同一份内容,
+// 不会产生分裂;目标不存在(悬空链接)则落回新建 AGENTS.md,写入后链接自然生效。
+function resolveAgentDocPath(cwd: string): string {
+  const agentsPath = join(cwd, "AGENTS.md");
+  if (existsSync(agentsPath)) return agentsPath;
+  const claudePath = join(cwd, "CLAUDE.md");
+  if (existsSync(claudePath)) return claudePath;
+  return agentsPath;
+}
 
 async function initProject(cwd: string): Promise<void> {
   await mkdir(join(cwd, "evals"), { recursive: true });
@@ -273,10 +285,10 @@ async function initProject(cwd: string): Promise<void> {
       "utf-8",
     );
   }
-  const agentsPath = join(cwd, "AGENTS.md");
-  const existing = existsSync(agentsPath) ? await readFile(agentsPath, "utf-8") : "";
+  const agentDocPath = resolveAgentDocPath(cwd);
+  const existing = existsSync(agentDocPath) ? await readFile(agentDocPath, "utf-8") : "";
   const next = upsertManagedBlock(existing, AGENT_RULES_BEGIN, AGENT_RULES_END, AGENT_RULES_CONTENT);
-  if (next !== existing) await writeFile(agentsPath, next, "utf-8");
+  if (next !== existing) await writeFile(agentDocPath, next, "utf-8");
 }
 
 async function openBrowser(url: string): Promise<boolean> {
