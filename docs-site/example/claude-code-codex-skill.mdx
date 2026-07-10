@@ -1,10 +1,10 @@
 ---
 title: "Eval Your Skill on Claude Code / Codex"
 sidebarTitle: "Eval Skills in Agents"
-description: "Compare coding-agent tasks with and without a Skill by using real workspaces, assertions, and judge scoring."
+description: "Use NiceEval to compare coding-agent tasks with and without a Skill, measuring whether the Skill actually improves results with real workspaces, assertions, and judge scoring."
 ---
 
-A Skill's quality is not only whether the final answer is correct. It is whether the agent follows the intended process in the right situation, avoids known anti-patterns, and reliably improves pass rate, cost, and latency. The recommended niceeval shape is to inject the Skill into a sandboxed coding-agent workspace, then compare against a no-Skill baseline.
+A Skill's quality is not only whether the final answer is correct. It is whether the agent follows the intended process in the right situation, avoids known anti-patterns, and reliably improves pass rate, cost, and latency. The recommended approach with [NiceEval](https://niceeval.com/) is to inject the Skill into a sandboxed coding-agent workspace, then compare against a no-Skill baseline.
 
 The runnable reference is [`examples/zh/coding-agent-skill`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/coding-agent-skill). It contains two suites:
 
@@ -60,7 +60,7 @@ const zodAgent = {
 } satisfies typeof baseAgent;
 
 export default defineExperiment({
-  description: "claude-code + zod skill",
+  description: "claude-code + zod skill (local injection)",
   agent: zodAgent,
   model: "claude-sonnet-4-6",
   sandbox: dockerSandbox(),

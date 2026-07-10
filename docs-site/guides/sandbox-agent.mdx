@@ -22,7 +22,7 @@ Sandbox agents start a coding-agent CLI inside an isolated environment, give it 
 
 ## Run a built-in agent
 
-Set `sandbox` in the experiment, or as a project-level fallback in `niceeval.config.ts`, to choose where NiceEval creates the isolated environment:
+Set `sandbox` in the experiment, or as a project-level fallback in `niceeval.config.ts`, to choose where [NiceEval](https://niceeval.com/) creates the isolated environment:
 
 ```ts
 import { defineExperiment } from "niceeval";
@@ -44,7 +44,7 @@ npx niceeval exp local fixtures/button --runs 10 --early-exit
 ```
 
 <Note>
-  There is no CLI flag for choosing the backend. Backend selection lives entirely in code. If neither the experiment nor `niceeval.config.ts` sets `sandbox`, NiceEval fails when it tries to create the sandbox.
+  There is no CLI flag for choosing the backend. Backend selection lives entirely in code. If neither the experiment nor `niceeval.config.ts` sets `sandbox`, [NiceEval](https://niceeval.com/) fails when it tries to create the sandbox — it does not auto-detect one.
 </Note>
 
 The built-in agents exported from `niceeval/adapter` are factory functions. Put auth, proxy, MCP, or GitHub Skill setup in the factory arguments. Keep the model in the experiment's `model` field, and the sandbox backend in `sandbox`:
@@ -85,13 +85,13 @@ export default defineExperiment({
 
 ```text
 createSandbox
-  -> git init && git commit
-  -> adapter.setup?
-  -> test(t): uploadDirectory(...)
-  -> adapter.send(input, ctx)
-  -> test(t): runCommand(...)
-  -> collectGeneratedFiles()
-  -> sandbox.stop()
+  → git init && git commit
+  → adapter.setup?                 # install the CLI / write agent config
+  → test(t): uploadDirectory(...)   # write this eval's starting files
+  → adapter.send(input, ctx)
+  → test(t): runCommand(...)        # run verification commands by hand
+  → collectGeneratedFiles()         # git diff HEAD
+  → sandbox.stop()
 ```
 
 The starting files and verification commands both live in `test(t)`. During agent execution, it can only see the files you already wrote into the sandbox.

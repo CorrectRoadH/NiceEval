@@ -6,6 +6,8 @@ description: "Grouped by where the Adapter connects and what extra observability
 
 Connecting to NiceEval is not an all-or-nothing one-time project. Grouped by where the Adapter connects and what extra observability data it receives, integration comes in three tiers — each tier adds one kind of investment on top of the previous one and buys a new set of capabilities, and every eval you have already written keeps working unchanged the whole way up.
 
+![Integration comes in three tiers: Tier 1 is send only, with zero application changes; Tier 2 adds OTel and buys the call waterfall in niceeval view; Tier 3 modifies the application to expose variants as flags for A/B testing.](/images/adapter-tiers-zh.svg)
+
 ## Tier 1: send only
 
 Your application code stays untouched; the integration is a single Adapter file — `send` talks to the same interface your user-facing frontend already uses.

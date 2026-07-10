@@ -41,7 +41,10 @@ export default defineAgent({
     const res = await fetch(`${BASE_URL}/v1/chat/completions`, {  // ← the interface the frontend already uses
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ messages: [{ role: "user", content: input.text }] }),
+      body: JSON.stringify({
+        messages: [{ role: "user", content: input.text }],
+        model: ctx.model,                                         // ← experiment.model reaches here via ctx.model; delete this line if the app's interface doesn't support model selection
+      }),
       signal: ctx.signal,                                         // ← runner timeout and cancellation
     }).then((r) => r.json());
 
@@ -53,7 +56,7 @@ export default defineAgent({
 });
 ```
 
-**This step unlocks**: `t.reply`, `t.messageIncludes()`, and all the conversation material for judges.
+**This step unlocks**: `t.reply`, `t.messageIncludes()`, all the conversation material for judges, and **model comparison** on the experiment side (`ctx.model` is exactly the `model` declared in the experiment; the runner hands it to you verbatim and the Adapter does not interpret it, only forwards it — you do not need to wait for a later step, and the app does not need to cooperate with any change; see [Tier](/concepts/tier) for the tiers).
 
 It has two obvious limitations: every turn is a brand-new conversation (the second `t.send` cannot continue from the first), and tool calls are completely invisible. The next two steps solve one each.
 
@@ -84,7 +87,7 @@ export default defineAgent({
 
     const res = await fetch(`${BASE_URL}/v1/chat/completions`, {
       // …method, headers, signal same as step one, omitted
-      body: JSON.stringify({ messages }),        // ← the change: send the full history
+      body: JSON.stringify({ messages, model: ctx.model }),        // ← the change: send the full history; model forwarded same as step one
     }).then((r) => r.json());
 
     const reply = res.choices[0].message;
@@ -254,6 +257,7 @@ export default defineAgent({
       method: "POST",
       body: JSON.stringify({
         message: input.text,                            // ← step one: send the message
+        model: ctx.model,                               // ← step one: experiment.model forwarded
         sessionId: ctx.session.id,                      // ← step two: absent on the first send, present automatically afterward
       }),
       signal: ctx.signal,
@@ -307,7 +311,8 @@ Once the app exposes variants as switchable configuration, the experiment declar
       // …rest of send same as before, omitted
       body: JSON.stringify({
         messages,
-        flags: ctx.flags,        // ← experiment.flags passed through as-is; {} when not configured
+        model: ctx.model,        // ← experiment.model, already forwarded since step one; listed here alongside flags
+        flags: ctx.flags,      // ← experiment.flags passed through as-is; {} when not configured
       }),
 ```
 
@@ -318,6 +323,7 @@ import chatApp from "../agents/chat-app.ts";
 
 export default defineExperiment({
   agent: chatApp,
+  model: "gpt-5.4",                      // ← reaches send via ctx.model
   flags: { promptVariant: "concise" },   // ← reaches send via ctx.flags every turn
 });
 ```

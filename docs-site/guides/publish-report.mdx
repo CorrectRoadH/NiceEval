@@ -1,0 +1,92 @@
+---
+title: "Publish a report through CI"
+sidebarTitle: "Publish Report"
+description: "Wire the report site into CI: commit .niceeval/ into the repo, the build command is one line — view --out — and push publishes. The published site is identical to local niceeval view; a build with zero readable results fails and keeps the previous deploy."
+---
+
+`niceeval view --out <dir>` exports the viewer into a plain static directory: reports, snapshot lists, transcripts, and the trace waterfall, exactly like what local `niceeval view` shows (export behavior is covered in [Viewing Results · Exporting and Static Hosting](/guides/viewing-results#exporting-and-static-hosting)). Publishing through CI only requires getting the result data into the build machine's hands — commit `.niceeval/` into the repo, and the repo itself becomes the data source. Run the eval locally, commit, and push — that is the whole publish step, with no script or local build command needed.
+
+## `.gitignore` excludes only `diff.json`
+
+```gitignore
+# .niceeval/ is committed into the repo: it is the data source for the live report,
+# and CI builds the entire site straight from it.
+# Only diff.json is excluded — a single run can reach hundreds of MB, and the viewer never reads it.
+.niceeval/**/diff.json
+```
+
+## The build command is the export command
+
+```bash
+npx niceeval view --out site
+```
+
+`view` fails outright with a non-zero exit code on zero readable results — it never exports an empty report. If the `.niceeval/` checkout is broken, or every stored run is incompatible with the current niceeval's `schemaVersion` and gets skipped wholesale, the build fails and Vercel / GitHub Pages keeps the previous deployment. The error lists every skipped run directory with its reason, and for the `schemaVersion` case also gives the `npx niceeval@<version>` view command that can view the old data directly.
+
+## Publishing a custom report
+
+Without `--report`, the published homepage is the default report. To swap the homepage for your own report, pass a [`defineReport` report file](/guides/custom-reports) to `--report` — the attempt evidence pages (transcript, trace, code view) stay in the same site, and every number in the report drills into its corresponding evidence, exactly like local `view --report`:
+
+```bash
+npx niceeval view --report reports/exam.tsx --out site
+```
+
+The report file is committed in the repo just like `.niceeval/` — edit the layout, push, and the live site updates. With the `vercel.json` / workflow below, just swap the build command for this one line; nothing else needs to change.
+
+## Connecting a hosting platform
+
+**Vercel**: drop a `vercel.json` at the repo root; after importing the project, push to deploy.
+
+```json
+{
+  "installCommand": "pnpm install --frozen-lockfile",
+  "buildCommand": "npx niceeval view --out site",
+  "outputDirectory": "site"
+}
+```
+
+**GitHub Pages**: in the repo's Settings → Pages, set Source to GitHub Actions, then add a workflow:
+
+```yaml
+# .github/workflows/report.yml
+name: report
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: npx niceeval view --out site
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
+```
+
+From here on, the daily loop is just two steps: run the eval locally, commit `.niceeval/`, and push. The published site carries the full history — a teammate opens the link and sees exactly what you saw in local `niceeval view`; the repo, the local viewer, and the live report share one single source of truth. Repo size grows with stored runs (`diff.json` is already excluded; growth mostly comes from transcript and trace artifacts) — delete the directory for any old run you no longer want to keep, and the viewer and report follow the repo.
+
+## What gets published is the complete evidence
+
+The full site export carries complete evidence: transcripts, source snapshots, and traces go into the site as-is, unredacted. Before publishing to the public internet, confirm the results contain no secrets or sensitive data; for redacting free-text on custom report pages, see the `redact` hook in [Results Data API](/guides/results-data).

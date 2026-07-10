@@ -4,7 +4,7 @@ sidebarTitle: "Sandbox Backends"
 description: "NiceEval runs coding agents inside Docker or Vercel sandboxes. Learn how to choose a backend, configure permissions, and improve performance with warm pools."
 ---
 
-The sandbox backend is the infrastructure that creates and manages isolated runtime environments. NiceEval wraps all backends behind the same `Sandbox` interface, so adapters do not need to know whether the current backend is local Docker, a Vercel micro-VM, or a third-party provider.
+The sandbox backend is the infrastructure that creates and manages isolated runtime environments. [NiceEval](https://niceeval.com/) wraps all backends behind the same `Sandbox` interface, so adapters do not need to know whether the current backend is local Docker, a Vercel micro-VM, or a third-party provider.
 
 ## The `Sandbox` interface
 
@@ -23,7 +23,7 @@ Common adapter operations include:
 
 ## Choose a backend
 
-Backend selection only lives in code. There is no CLI flag, and NiceEval does not auto-detect a backend. Set the `sandbox` field in the experiment, or set it in `niceeval.config.ts` as a project-level fallback:
+Backend selection only lives in code. There is no CLI flag, and [NiceEval](https://niceeval.com/) does not auto-detect a backend. Set the `sandbox` field in the experiment, or set it in `niceeval.config.ts` as a project-level fallback:
 
 ```ts
 import { defineExperiment } from "niceeval";
@@ -36,7 +36,17 @@ export default defineExperiment({
 });
 ```
 
-If neither the experiment nor `niceeval.config.ts` sets `sandbox`, NiceEval fails when it tries to create the environment instead of guessing one.
+If neither the experiment nor `niceeval.config.ts` sets `sandbox`, [NiceEval](https://niceeval.com/) fails when it tries to create the environment instead of guessing one.
+
+The SDKs for the three built-in backends do not install alongside NiceEval. Install whichever one you use, so your project does not carry dependencies (and their native build scripts) it does not need:
+
+| Backend | Install command |
+|---|---|
+| `dockerSandbox()` | `pnpm add dockerode @types/dockerode` |
+| `vercelSandbox()` | `pnpm add @vercel/sandbox` |
+| `e2bSandbox()` | `pnpm add e2b` |
+
+A missing SDK does not fail silently: NiceEval errors the moment it creates the sandbox and prints the install command above, for example `Docker sandbox requires 'dockerode'. Install it with: pnpm add dockerode @types/dockerode`.
 
 ## Docker
 

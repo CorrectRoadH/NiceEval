@@ -49,6 +49,33 @@ export default defineExperiment({
 
 漏装时不会静默失败：NiceEval 在创建 sandbox 的那一刻报错并直接给出上面的安装命令，例如 `Docker sandbox requires 'dockerode'. Install it with: pnpm add dockerode @types/dockerode`。
 
+## 环境钩子
+
+`dockerSandbox()` / `vercelSandbox()` / `e2bSandbox()` 返回的 spec 上有两个链式方法：`.setup(fn)` 和 `.teardown(fn)`。它们解决一类具体问题：**有些东西你本想直接做进 Docker 镜像或 E2B 模板，但它要按实验变化**——比如某个实验要装一个额外的二进制、预热一次模型、写一份 hook 文件，或者在多次 attempt 之间载入和回存状态。静态镜像做不到"每个实验装不同的东西"，这两个钩子就是运行时补上的那一层。
+
+```ts
+export default defineExperiment({
+  agent: codexAgent({ mcpServers: [mempalMcp] }),
+  sandbox: e2bSandbox({ template: "fasteval-agents" })
+    .setup(mempalSetup("codex"))        // 装二进制、预热、写 hook、载入状态
+    .teardown(mempalTeardown("codex")), // 回存状态
+  maxConcurrency: 1,                    // 载入和回存之间不能并发，声明串行
+});
+```
+
+规则一览：
+
+- **签名**：钩子函数和 Adapter 的 `setup` / `teardown` 一样是 `(sandbox, ctx)`；`setup` 可以返回一个清理函数。
+- **不可变**：每次 `.setup()` / `.teardown()` 都返回一个新 spec，原对象不变，可以继续链。
+- **多个钩子**：多个 `.setup()` 按追加顺序执行；多个 `.teardown()` 按追加的逆序执行。
+- **执行时机**：`setup` 钩子在 sandbox 创建后、git 基线之前最先跑——它写下的文件会进基线，不会被算进 agent 产出的 diff；`teardown` 钩子在 Adapter 的 `teardown` 之后、sandbox 销毁之前最后跑——把状态回存到外部正好用这个时机。
+- **失败语义**：`setup` 钩子抛错，这次 attempt 记为 `errored`（环境问题，不是 agent 做错题）；`teardown` 钩子报错只记日志，不改变已产出的结果。
+- **不带 sandbox 的 Agent**：`defineAgent` 构造的 Agent 没有 sandbox，`sandbox` 字段对它不生效，钩子自然不会跑。
+
+钩子里可以用 `ctx.experimentId`（路径推导的实验 id）当状态隔离的键，比如不同实验各自维护一份跨 attempt 的缓存。跨 attempt 状态的载入和回存是你自己在钩子里写的普通代码——[NiceEval](https://niceeval.com/) 不提供状态存储；要保证同一实验的 attempt 不并发读写同一份状态，在 experiment 上声明 `maxConcurrency: 1`。
+
+和另外两处 setup 的分工：Adapter 的 `setup` 管"怎么连被测 agent"（装 CLI、写鉴权配置）；eval 里 `test(t)` 开头的代码管"这道题需要哪些起始文件"；sandbox 的 `.setup()` 管"这次实验的环境里要多装什么"。三层各写各的，互相不知道对方的内容。MCP server、Skill、model 这些被测 agent 的配置仍然只从 Adapter 工厂参数进——环境钩子不做 Adapter 的事。
+
 ## Docker
 
 Docker 适合本地开发和标准 CI。优点是简单、可控、无云端依赖；缺点是机器资源有限，冷启动和安装依赖可能较慢。

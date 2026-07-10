@@ -12,26 +12,27 @@ Experiments compare multiple run configurations. Typical questions include: whic
 
 ```text
 experiments/
-  compare-models/
-    gpt-5.4.ts
-    deepseek-v4-pro.ts
+  compare-models/          # experiment group
+    gpt-5.4.ts             #   one cell: pin model = gpt-5.4
+    deepseek-v4-pro.ts     #   one cell: pin model = deepseek-v4-pro
 ```
 
 ```ts
+// experiments/compare-models/gpt-5.4.ts
 import { defineExperiment } from "niceeval";
 import { webAgent } from "../../adapter/adapter.ts";
 
 export default defineExperiment({
-  description: "gpt-5.4 comparison model",
+  description: "gpt-5.4: comparison model",
   agent: webAgent({ baseUrl: "http://127.0.0.1:5188" }),
-  model: "gpt-5.4",
+  model: "gpt-5.4",   // single string; copy the file and change this line for another model
   runs: 2,
   earlyExit: true,
 });
 ```
 
 ```bash
-npx niceeval exp compare-models
+npx niceeval exp compare-models   # renders a side-by-side report for every model in the group
 ```
 
 Each configuration stays in its own file, which makes naming, diffing, and review straightforward. The directory structure itself explains which files belong to the same comparison.

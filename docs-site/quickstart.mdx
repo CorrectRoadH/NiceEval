@@ -4,7 +4,7 @@ sidebarTitle: "Quickstart"
 description: "Install NiceEval, write three files, and run the first eval against your own application in about 10 minutes."
 ---
 
-Connecting your own application takes three files: an **adapter** that calls your app, an **experiment** that chooses what to run, and an **eval** that declares what must be true. Below is the shortest complete path. Scenario-specific guides and the coding-agent handoff path come after it.
+Connecting your own application takes three files: an **adapter** (how to call your app), an **experiment** (who to evaluate, how many runs), and an **eval** (what to assert). Below is the shortest complete path. Scenario-specific guides and the coding-agent handoff path come after it.
 
 ## Let AI wire it up for you (recommended)
 
@@ -35,7 +35,7 @@ pnpm exec niceeval init
 
 ### Adapter
 
-The adapter is the layer between your agent and NiceEval. There are multiple integration tiers, from non-invasive to partially instrumented, which unlock more useful eval features. See [Tier](/concepts/tier).
+The adapter is the layer between your agent and [NiceEval](https://niceeval.com/). There are three integration tiers, from non-invasive to partially instrumented, which unlock more useful eval features. See [Tier](/concepts/tier).
 
 ```ts
 // agents/my-bot.ts
@@ -44,10 +44,11 @@ import { defineAgent } from "niceeval/adapter";
 export default defineAgent({
   name: "my-bot",
   async send(input, ctx) {
+    // Example endpoint: replace with your agent's real endpoint (HTTP, CLI, or SDK all work, as long as send() can get the reply text)
     const r = await fetch("http://localhost:3000/chat", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ message: input.text, model: ctx.model }),
+      body: JSON.stringify({ message: input.text, model: ctx.model }), // ← experiment.model flows through ctx.model here
       signal: ctx.signal,
     });
     const body = await r.json();
@@ -92,11 +93,11 @@ export default defineEval({
 ```
 
 ```bash
-pnpm exec niceeval exp my-bot
-pnpm exec niceeval view
+pnpm exec niceeval exp my-bot   # run it
+pnpm exec niceeval view         # view results in the local viewer
 ```
 
-At this point the first eval is running.
+At this point, the first eval has run successfully.
 
 This minimal adapter is **single-turn**. The second turn will not remember the first until you teach the app how to continue conversation history. Multi-turn sessions, tool-call events that unlock `t.calledTool()`, HITL, and tracing are all optional increments you add later. Follow [Connect Your Agent](/guides/connect-your-agent) step by step. Existing evals do not need to be rewritten.
 

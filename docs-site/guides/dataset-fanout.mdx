@@ -44,22 +44,10 @@ The numeric suffix is zero-padded so IDs stay stable and easy to filter.
 ## Loading from YAML and JSON
 
 ```ts
-import { defineEval } from "niceeval";
 import { loadYaml } from "niceeval/loaders";
-import { equals } from "niceeval/expect";
 
 const doc = await loadYaml("evals/data/sql-cases.yaml");
 const rows = doc.cases as { task: string; prompt: string; sql: string }[];
-
-export default rows.map((row) =>
-  defineEval({
-    description: row.task,
-    async test(t) {
-      await t.send(row.prompt);
-      t.check(t.reply, equals(row.sql));
-    },
-  }),
-);
 ```
 
 ```yaml
@@ -71,15 +59,12 @@ cases:
 
 ## Filtering dataset evals
 
-Because each eval in a fan-out set shares the same file-level ID prefix, you can run them all with a single CLI argument:
-
 ```bash
 # Run the whole dataset
 npx niceeval exp local sql
 
 # Run only the first case
 npx niceeval exp local sql/0000
-
 ```
 
 ## Datasets vs separate files

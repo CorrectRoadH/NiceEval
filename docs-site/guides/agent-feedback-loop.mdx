@@ -1,0 +1,124 @@
+---
+title: "Let a coding agent read results and iterate on its own"
+sidebarTitle: "Agent Feedback Loop"
+description: "niceeval exp finishes with a failure list and drill-down commands right there; the agent reads assertions, transcripts, traces, and diffs with niceeval show in the terminal, then reruns by prefix after fixing — run, read, fix, rerun, all without leaving the terminal."
+---
+
+The value of an eval is in the loop: not just a person looking at a report, but a coding agent (Claude Code, Codex, etc.) running the eval itself, reading its own failure reasons, fixing the system under test itself, then rerunning to verify. This loop only holds together if there's information parity: **whatever evidence a person can see in `niceeval view`, the agent can see the same thing with `niceeval show` in the terminal** (the complete usage of both doors is in [Viewing Results](/guides/viewing-results)). The agent needs no browser, needs no parsing of human-facing streamed output, and needs no swallowing of potentially hundred-plus-MB raw JSON in one gulp — CLI output is a condensed reading, while the raw artifacts are always on disk, as detailed as needed.
+
+## One complete loop
+
+<Steps>
+  <Step title="Run">
+    ```bash
+    npx niceeval exp local
+    ```
+  </Step>
+  <Step title="Read">
+    Each eval gets one streamed line of immediate feedback while running; a closing block prints when the run ends — the failure list, each entry carrying its eval id, failed assertions, and a drill-down command, ending with the entry point to the structured results. The full output looks like this:
+
+    ```text
+    $ npx niceeval exp local
+    Discovered 15 evals · experiment local
+
+      ✓ classify           (12ms)
+      ✓ weather/tokyo      (31s · $0.02)
+      ✗ weather/brooklyn   (41s · $0.04 · 3 attempts)
+      ✓ fixtures/button    (2m 10s · $0.11)
+      …
+
+    Failing:
+      ✗ weather/brooklyn
+          gate calledTool("get_weather"): tool was never called
+          soft judge("the answer is based on real-time data"): 0.2/1
+          → niceeval show weather/brooklyn
+
+    Results: 14 passed, 1 failed, 0 errored, 0 skipped · $0.31 · 6m 02s
+    Structured results: .niceeval/2026-07-09T10-00-00-000Z/summary.json
+    ```
+
+    The streamed lines are for a person watching the terminal, and a long run scrolls them off screen; the closing block is designed for "only look at the last screen" — failures are replayed all together, each with its own `niceeval show <eval id>`, so the agent can start drilling down without scrolling back through the earlier output. When running a group of experiments (like `exp compare`), the closing block also adds a per-experiment summary table, rendered the same way as `niceeval show`'s leaderboard.
+
+    The exit code is the verdict for the loop to consume, with no text to parse: all-green exits `0`; any failure or error exits `1` (folded at the eval level — a single flaky run absorbed by `runs` retries does not count as red); a framework crash itself exits `2`. Whether an agent or script decides "should there be another round" is a matter of checking the exit code alone.
+
+    `summary.json` and attempt-level artifacts are the structured source of truth, with field descriptions in [Viewing Results](/guides/viewing-results); `niceeval show` is the terminal reading of the same artifacts, with drill-down levels in the next section.
+  </Step>
+  <Step title="Fix">
+    First determine which side the defect is on: the system under test, or the eval itself (an overly strict assertion, a broken fixture, missing setup). Fix the appropriate side — don't loosen an assertion just to turn it green.
+  </Step>
+  <Step title="Rerun">
+    ```bash
+    npx niceeval exp local weather
+    ```
+
+    A positional argument reruns only the failing portion by eval id prefix, and already-passed evals are skipped via fingerprint caching. Note the boundary of the cache: the fingerprint only looks at the eval's source and the run configuration, **it cannot see the system under test** — after fixing the system under test, an old "passed" is still a verdict against the old code, and if this fix introduces a regression, the cache will not surface it for you. So during iteration, rerun quickly by prefix, and once failures reach zero, run once more with `--force` for a full run, confirming nothing else was broken, before calling it truly done.
+  </Step>
+</Steps>
+
+A prompt for an agent can be written directly like this:
+
+```text
+Run npx niceeval exp local. For every failing eval, use niceeval show <eval id> to see the failed
+assertions, adding --transcript / --trace / --diff when you need evidence. Decide whether the defect
+is in the system under test or in the eval itself, fix it, then rerun the matching prefix. Once
+failures reach zero, do one full rerun with --force to confirm there is no regression — done only
+when the exit code is 0. If the same eval makes no progress for three rounds in a row, stop and
+report back rather than loosening an assertion just to turn it green.
+```
+
+Every round of running a real agent's eval costs money; when you're not confident letting the agent's loop run unattended, add `--budget <dollars>` to `exp` — once cumulative spend hits the ceiling, remaining attempts are simply skipped, giving even a runaway agent loop a hard cap.
+
+## Drilling down in the terminal
+
+`niceeval show`'s positional argument has the same semantics as `exp` — an eval id prefix chooses "which evals to look at"; flags choose "which evidence slice to look at":
+
+```bash
+niceeval show                       # leaderboard: each experiment's pass rate, cost, duration, and failure list
+niceeval show weather/brooklyn      # a single eval: attempts, assertion detail, errors, and usage
+niceeval show weather/brooklyn --transcript   # the agent's full conversation and tool calls
+niceeval show weather/brooklyn --trace        # the text version of the trace waterfall
+niceeval show fixtures/button --diff          # file changes inside the sandbox
+```
+
+The default always points at what the loop needs: the verdict takes each eval's latest cross-run composed result, and the evidence slice picks the most recent failing attempt. All three slices truncate long content, but truncation always faithfully labels the remaining count and the original artifact path — output stays friendly to a context window while the source of truth on disk stays intact, not a byte trimmed.
+
+The leaderboard, a single eval, and each evidence slice's output shape, plus how to read history and flakiness (`--history`) and the composition policy across multiple runs, are all in [Viewing Results](/guides/viewing-results); for a project's own scoring (an exam scorecard, a lines-of-code leaderboard), write a report script that prints to stdout, see [Custom Reports](/guides/custom-reports) — the instruction for an agent grows by only one line: run `npx tsx scripts/report.ts`, read stdout.
+
+## The AGENTS.md / CLAUDE.md instruction block
+
+NiceEval is not in the training data of any model. `npx niceeval init` writes a managed block telling the agent to read the bundled docs first before doing anything: if the project already has an `AGENTS.md`, it writes that one; if there's only a `CLAUDE.md` (no `AGENTS.md`), it writes straight into `CLAUDE.md` rather than creating a duplicate file; if neither exists, it creates a new `AGENTS.md`. When `CLAUDE.md` is a symlink to `AGENTS.md`, the write automatically lands on the link's target, and never splits into two copies of the content.
+
+```md
+<!-- BEGIN:niceeval-agent-rules -->
+# niceeval is NOT in your training data
+
+Its APIs and conventions may differ from anything you have seen. Read the relevant
+guide in `node_modules/niceeval/docs-site/zh/` before writing any eval, experiment,
+adapter, or niceeval config. The bundled docs are Chinese-only — that is the single
+authoritative, always-current version; read it regardless of your working language.
+After a run, drill into failures with `niceeval show <eval id>` (add `--transcript` /
+`--trace` / `--diff` for evidence); the `summary.json` path the CLI prints and the
+artifact files it references are the structured source of truth.
+<!-- END:niceeval-agent-rules -->
+```
+
+Content outside the markers is never touched; rerunning `npx niceeval init` after upgrading NiceEval refreshes the guidance inside the markers, and each time re-decides which file to write per the rule above. The npm package only ships Chinese docs (`node_modules/niceeval/docs-site/zh/`) — Chinese is the single, always-code-synced authoritative version, and an agent reading Chinese has no barrier: what it reads is always the behavior matching the installed version, not a stale memory from training data.
+
+## Errors come with their own fix
+
+Configuration and runtime errors give a fix and the bundled docs path directly, so an agent that reads the error can self-fix without searching first:
+
+```text
+Could not find niceeval.config.ts.
+Ways to fix:
+  - [init] Run `npx niceeval init` to scaffold niceeval.config.ts and evals/
+  - [cd] Run from the project root that contains niceeval.config.ts
+  Docs: node_modules/niceeval/docs-site/zh/quickstart.mdx
+```
+
+## People and agents read the same artifacts
+
+`niceeval show` and `niceeval view` read the same batch of stored artifacts, so a person and an agent can hand off to each other at any time:
+
+- When a person sees a failure in `npx niceeval view`, the **Copy fix prompt** button in the top-right corner of the leaderboard packages every failure into a prompt ready to paste straight to an agent — the failure list, artifact paths, and the judge-and-rerun steps are all in it, teaching the same reading as this page: drill down with `niceeval show`, decide which side the defect is on, rerun by prefix, finish with `--force`. Opening a single attempt's popup has the same button, packaging just that one failure — suited to handing off one at a time.
+- Conversely, once the agent finishes fixing, when a person wants to verify on the spot, `npx niceeval view` opens exactly the result the agent just read in the terminal.

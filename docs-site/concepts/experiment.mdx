@@ -9,9 +9,7 @@ An **experiment** chooses which agent to evaluate, which model to use, which fla
 ## What an experiment contains
 
 ```ts
-import { defineExperiment } from "niceeval";
-import { webAgent } from "../agents/web-agent.ts";
-
+// experiments/concise.ts
 export default defineExperiment({
   description: "Concise prompt variant",
   agent: webAgent({ baseUrl: "https://staging.example.com" }), // configured agent instance

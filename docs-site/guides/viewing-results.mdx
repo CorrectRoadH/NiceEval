@@ -1,12 +1,12 @@
 ---
 title: "View NiceEval results and debug agent behavior"
 sidebarTitle: "Viewing Results"
-description: "After every run, NiceEval writes structured artifacts into .niceeval/. Use npx niceeval view to inspect transcripts, diffs, event streams, and pass rates."
+description: "Every run writes structured artifacts to .niceeval/. There are two ways to read them: niceeval show drills down through the leaderboard, assertions, transcripts, traces, and diffs in the terminal; niceeval view shows the same evidence in a web page."
 ---
 
-After every run, [NiceEval](https://niceeval.com/) writes structured results into `.niceeval/<timestamp>/`. The console gives immediate feedback. The viewer is for deeper failure analysis.
+After every run, [NiceEval](https://niceeval.com/) writes structured results into `.niceeval/<timestamp>/`. There are two doors to read them, and both read the same artifacts: `niceeval show` is the terminal door, usable by both humans and coding agents; `niceeval view` is the web door, suited to humans browsing evidence. `show` is the terminal version of `view` — the verdicts you read from either one never diverge.
 
-## Console output
+## Console Output
 
 ```text
 Discovered 3 evals
@@ -16,10 +16,16 @@ Discovered 3 evals
   ✗ api-validation (38s)
     - gate: expected src/routes/users.ts to include .safeParse() [FAILED]
 
-Results:  2 passed, 1 failed, 0 errored, 0 skipped
+Failing:
+  ✗ api-validation
+      gate fileIncludes("src/routes/users.ts", ".safeParse()")
+      → niceeval show api-validation
+
+Results: 2 passed, 1 failed, 0 errored, 0 skipped
+Structured results: .niceeval/2026-07-09T10-00-00-000Z/summary.json
 ```
 
-Each line includes the eval ID, outcome, and duration. Failures also show the assertion type and error message.
+During the run, each eval prints one streaming line, with failing assertions expanded inline. At the end, the closing block replays the failures together, each with a drill-down command, followed by the path to the structured results. For how this output fits into the run → read → fix → rerun loop, see [Agent Feedback Loop](/guides/agent-feedback-loop).
 
 ## `.niceeval/<timestamp>/`
 
@@ -38,7 +44,130 @@ Typical structure:
          └─ diff.json
 ```
 
-## `niceeval view`
+## `niceeval show`: Terminal Drill-Down
+
+`niceeval show` uses the same positional argument semantics as `exp`: eval ID prefixes select which evals to look at, and flags select which facet to view.
+
+```bash
+niceeval show                       # Leaderboard: pass rate, cost, duration, and failure list per experiment
+niceeval show weather               # Prefix filter: verdicts for every eval under weather/*
+niceeval show weather/brooklyn      # Single eval: attempts, assertion details, errors, and usage per experiment
+niceeval show weather/brooklyn --transcript   # The agent's full conversation and tool calls
+niceeval show weather/brooklyn --trace        # Text version of the trace waterfall
+niceeval show fixtures/button --diff          # File changes in the sandbox
+niceeval show weather/brooklyn --history      # Cross-run timeline: flakiness and regression points
+```
+
+Running the same experiment multiple times leaves multiple results. The default view answers one question — what's true right now: for each experiment × eval pair, it takes the latest verdict and composes it across runs. If a prefix run only reran part of the evals, the rest keep their verdicts from earlier runs, so the leaderboard always shows the full picture instead of going incomplete after a partial rerun. The composition is labeled: each row shows when its verdict was produced, and the leaderboard header states how many runs it was composed from. A composed state can mix different versions of the system under test, so treat a full `--force` rerun as the final verdict — `show` during iteration is for speed, the final full run is for truth.
+
+With multiple experiments or multiple attempts, the evidence facet defaults to the latest failing attempt; use `--experiment` and `--attempt` to pick another, `--run <dir>` to pin a specific historical run, and `--history` to see the cross-run trend (below). Without `--report`, `show` renders the default report; pass `--report <file>` to swap in your own report — the same file also works with `view`, see [Custom Reports](/guides/custom-reports). Positional prefixes, `--run`, and `--experiment` also apply to `--report` (they narrow the selection the report receives). `--history` and `--report` are mutually exclusive: when an evidence-facet flag is present, `show` only shows evidence and does not render a report.
+
+Every view in `niceeval view` has a terminal equivalent:
+
+| View in `niceeval view` | Terminal equivalent |
+| --- | --- |
+| Experiments leaderboard | `niceeval show` |
+| Attempt details (assertions, errors, usage) | `niceeval show <eval id>` |
+| Transcript | `niceeval show <eval id> --transcript` |
+| Trace waterfall | `niceeval show <eval id> --trace` |
+| File changes | `niceeval show <eval id> --diff` |
+| Historical run list | `niceeval show <eval id> --history`; pin a specific one with `--run <dir>` |
+| Quality x cost scatter plot | The pass / cost columns in `niceeval show`'s leaderboard carry the same data; for a graphical view, use the `MetricScatter` primitive to build a [custom report](/guides/custom-reports) |
+
+### Leaderboard
+
+```text
+$ niceeval show
+Current verdicts · 2 experiments · composed from 3 runs · latest 2026-07-09T10-00-00-000Z
+
+experiment              evals    pass   cost    duration
+compare/bub-gpt-5.4     13/15    87%    $0.42   4m 12s
+compare/codex-gpt-5.4   12/15    80%    $0.51   5m 03s
+
+Failing:
+  ✗ weather/brooklyn   compare/codex-gpt-5.4   gate calledTool("get_weather")      41s ago
+  ✗ fixtures/button    compare/bub-gpt-5.4     gate fileChanged("src/components/Button.tsx")   2h ago
+```
+
+When you run a group of multiple experiments, the summary table in `niceeval exp`'s closing block has this same shape — the same table rendering, the same verdict-folding rules. The only difference is scope: the closing block summarizes only this run, while the `show` leaderboard is the current state composed across runs; each header states which it is.
+
+### Single eval
+
+```text
+$ niceeval show weather/brooklyn
+weather/brooklyn — Brooklyn weather lookup
+
+compare/bub-gpt-5.4     ✓ passed   1 attempt    38s   $0.03   (2h ago)
+compare/codex-gpt-5.4   ✗ failed   3 attempts   41s   $0.04   (just now)
+
+attempt 3 · compare/codex-gpt-5.4 · failed · 41s · 12.3k tokens · $0.04
+  ✗ gate calledTool("get_weather") — tool was never called
+  ✓ gate succeeded()
+  ✗ soft judge("reply is based on real-time data") — 0.2/1: reply invents a temperature without any tool call
+
+artifacts: .niceeval/2026-07-09T10-00-00-000Z/artifacts/compare__codex-gpt-5.4__weather__brooklyn__2/
+next: niceeval show weather/brooklyn --transcript | --trace | --diff
+```
+
+### Transcript, Trace, and Diff
+
+`--transcript` renders `events.json` as a turn-by-turn conversation, with tool calls showing their arguments, results, and duration:
+
+```text
+$ niceeval show weather/brooklyn --transcript
+attempt 3 · compare/codex-gpt-5.4 · failed
+
+[user]      What's the weather in Brooklyn today?
+[assistant] Brooklyn is about 24°C and sunny today.
+
+(2 events · no tool calls · full stream: …/events.json)
+```
+
+`--trace` draws `trace.json` as a text waterfall. Span categories use the same normalized scheme as the web version, so waterfalls from different agents are directly comparable:
+
+```text
+$ niceeval show weather/brooklyn --trace
+agent run                     ▕████████████████████▏ 41.2s
+├─ inference                  ▕█████░░░░░░░░░░░░░░░▏ 10.1s
+├─ inference                  ▕░░░░░█████████░░░░░░▏ 18.3s
+└─ inference                  ▕░░░░░░░░░░░░░░██████▏ 12.4s
+
+(3 spans · no execute_tool spans · full trace: …/trace.json)
+```
+
+`--diff` gives a file-level summary by default. To see the full change to a single file, use `--diff=<file path>` — the path must be joined with `=`; positional arguments are always reserved for the eval ID prefix:
+
+```text
+$ niceeval show fixtures/button --diff
+M src/components/Button.tsx   +42 −3
+A src/components/Button.css   +18
+
+(full diff: …/diff.json)
+$ niceeval show fixtures/button --diff=src/components/Button.tsx
+```
+
+All three facets truncate long content, but the truncation always states the remaining count and the underlying artifact path — the output stays friendly to context windows while the full facts stay on disk, untouched.
+
+### History and Flakiness: `--history`
+
+The leaderboard and single-eval views answer "right now." Questions like "is this eval flaky" or "when did it start failing" ask about trends. `--history` gives a cross-run timeline, one line per real execution:
+
+```text
+$ niceeval show weather/brooklyn --history
+compare/codex-gpt-5.4 · 5 runs · passed 2/5
+
+  2026-07-09T10-00   ✗ failed   3 attempts   $0.04   gate calledTool("get_weather")
+  2026-07-09T08-12   ✓ passed   1 attempt    $0.03
+  2026-07-08T18-22   ✗ failed   3 attempts   $0.05   gate calledTool("get_weather")
+  2026-07-08T11-05   ✓ passed   1 attempt    $0.03
+  2026-07-07T16-40   ✗ failed   3 attempts   $0.05   gate calledTool("get_weather")
+```
+
+Alternating ✓✗ means the eval is flaky, and the fix is stability — the system under test or the assertion — not repeated reruns hoping for luck. A run of green flipping to red marks where a regression landed; use `--run <dir>` to pin the runs right before and after that point and inspect them closely. The timeline only lists real executions — a cached result is a copy of a past verdict, not a new data point, and does not get a row, or the trend would be flooded with duplicate data. `niceeval show --history` without an eval ID gives the per-run pass-rate sequence for every experiment, the leaderboard's view of the same trend.
+
+An exact comparison between two runs — which evals a fix actually flipped — is not a flag. Write a report with the `DeltaTable` primitive and pass it to `--report`; a few lines make a custom comparison report that both doors, terminal and web, accept. The built-in commands only cover the fixed layouts; for custom framing see [Custom Reports](/guides/custom-reports).
+
+## `niceeval view`: Evidence in the Browser
 
 ```bash
 npx niceeval view
@@ -50,9 +179,11 @@ This opens the local viewer and, by default, shows the most recent run. You can 
   Run `npx niceeval view` right after a failure to open the artifacts from the run you just made.
 </Tip>
 
+`view`'s home page is a report: without `--report` it's the default report, and passing `--report` swaps in your own (it takes the same file as `show --report`), see [Custom Reports](/guides/custom-reports). The evidence side — attempt popovers, transcripts, trace waterfalls — is always there; the numbers in the report link straight through to the evidence behind them.
+
 ## Exporting and Static Hosting
 
-There is one export mode for publishing results: `--out <dir>` exports the whole viewer site with everything the viewer can inspect. If you want a custom report shape, build one with the report primitives.
+There is exactly one way to publish results: `--out <dir>` exports the whole site, carrying everything the viewer can show. If you want your own page shape, build it yourself with report primitives (see [Custom Reports](/guides/custom-reports)).
 
 ### Built-in Viewer Site: Static Hosting
 
@@ -64,91 +195,14 @@ NiceEval writes `<dir>/index.html` and copies the artifacts the viewer reads (`s
 
 `--out` only accepts a directory. There is no single-file export: code views, transcripts, and traces depend on artifact files, and a single HTML file cannot carry the full evidence. To share results, host the whole site and send the link.
 
+When there are zero readable results, `view` errors out with a non-zero exit code instead of starting a local server or exporting an empty page. The error lists each skipped run directory and why; if a run's `schemaVersion` is incompatible with the installed version, the error also gives you an `npx niceeval@<version> view` command that can open that old data directly.
+
 Two limits:
 
 - `diff.json` and `o11y.json` are not copied. The viewer does not read them, and diffs can reach hundreds of MB.
 - Opening `index.html` directly with `file://` prevents the browser from fetching artifacts, so the code view will say source is unavailable. Use an HTTP server for local preview.
 
-The simplest flow is to export on the machine that ran the eval and deploy the output directory directly. `.niceeval/` usually does not go into version control. If the build happens on another machine, such as CI or a hosting platform, use `copyRun` first to copy a slim snapshot into the repo, then export from that snapshot directory:
-
-```typescript
-// scripts/snapshot.ts -- run after evals finish, then commit the output.
-import { openResults, latestPerExperiment, copyRun } from "niceeval/results";
-
-const results = await openResults(".niceeval");
-const { snapshots } = latestPerExperiment(results.snapshots);
-await copyRun(snapshots, "site-data/run", {
-  artifacts: ["sources", "events", "trace"],
-});
-```
-
-```bash
-npx niceeval view --out site site-data/run   # Build from the snapshot in CI.
-```
-
-`latestPerExperiment` chooses the latest snapshot per experiment, not the latest run overall. If one run only covered part of the experiment set, the other experiments still keep their previous results.
-
-### Custom Report Page: Your Own View
-
-The built-in viewer has a fixed leaderboard shape. For your own view, such as a scorecard, benchmark board, or quality x cost scatter plot, build it into your app with report primitives: `niceeval/results` reads results, `niceeval/report` computes data, and `niceeval/report/react` renders components.
-
-There is a serializable boundary between compute and render. Compute functions such as `table()`, `scatter()`, and `overview()` read the file system and only run in Node, such as a build script, server, or CI. Components only accept computed JSON data, perform zero IO, and can render anywhere. That gives static publishing two shapes.
-
-**Option 1: compute at build time and export a fully static page.** Build the page on a machine that can read the result data, such as Next.js RSC or any SSG. The output is ordinary static files:
-
-```tsx
-// app/evals/page.tsx
-import { openResults, latestPerExperiment } from "niceeval/results";
-import { table, passRate, costUSD } from "niceeval/report";
-import { MetricTable } from "niceeval/report/react";
-import "niceeval/report/react/styles.css";
-
-export default async function EvalsPage() {
-  const results = await openResults(".niceeval");
-  const { snapshots } = latestPerExperiment(results.snapshots);
-  const data = await table(snapshots, {
-    rows: "agent",
-    columns: [passRate, costUSD],
-    sort: passRate,
-  });
-  return <MetricTable data={data} />;
-}
-```
-
-**Option 2: write JSON in CI and render it from any frontend.** Compute where the results exist, then render wherever your page lives, such as a Vite SPA or an existing internal dashboard:
-
-```typescript
-// scripts/build-report-data.ts -- run in CI after evals finish.
-import { writeFile } from "node:fs/promises";
-import { openResults, latestPerExperiment } from "niceeval/results";
-import { table, passRate, costUSD } from "niceeval/report";
-
-const results = await openResults(".niceeval");
-const { snapshots } = latestPerExperiment(results.snapshots);
-await writeFile("public/report.json", JSON.stringify({
-  board: await table(snapshots, { rows: "agent", columns: [passRate, costUSD] }),
-}));
-```
-
-```tsx
-// Frontend: any React app.
-import { MetricTable } from "niceeval/report/react";
-
-const doc = await fetch("/report.json").then((r) => r.json());
-
-<MetricTable data={doc.board} />;
-```
-
-The components are complete without hydration: sorting is precomputed on the data side, drill-downs are normal links, and expand/collapse uses `<details>`. Static exports do not need client-side JavaScript. Styles ship with the package (`niceeval/report/react/styles.css`); load your own CSS after it to override.
-
-Your custom page owns the conclusion. You do not need to redraw every attempt transcript and trace yourself. Export the built-in viewer to a subpath, such as `npx niceeval view --out <site-dir>/evidence`, then generate deep links with the component `attemptHref`:
-
-```tsx
-<MetricTable
-  data={data}
-  attemptHref={(ref) => `/evidence/#/attempt/${encodeURIComponent(ref.run)}/${ref.result}`}
-/>
-```
+The simplest flow is to export on the machine that ran the evals and deploy the output directory directly — no extra steps needed. To keep the site updating automatically on every push, commit `.niceeval/` to the repo and run `view --out` as one line in CI; for the workflow and platform wiring, see [Publishing Reports via CI](/guides/publish-report).
 
 ## Artifact Reference
 
@@ -189,7 +243,7 @@ Soft assertion scores are recorded in `assertions[].score`; outside `--strict`, 
 
 ## Debugging Advice
 
-- Start with `summary.json` to find the failing assertion.
-- Then inspect the transcript view to understand the agent's decisions.
-- For coding-agent failures, inspect `diff.json` and command output.
-- For tool-call problems, inspect `events.json`.
+- Each entry in the closing block's failure list comes with a drill-down command: start with `niceeval show <eval id>` to see the assertion details.
+- To understand why the agent did something, look at `--transcript` (or the transcript view in `view`) to see its decision process.
+- For coding-agent failures, check `--diff` and the command event output; for tool-call problems, check `--trace` and `events.json`.
+- For deciding whether the defect is in the system under test or in the eval itself, and how to rerun after a fix, see [Agent Feedback Loop](/guides/agent-feedback-loop).

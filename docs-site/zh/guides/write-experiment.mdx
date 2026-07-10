@@ -96,6 +96,20 @@ npx niceeval exp prompt-variants
 | `timeoutMs` | 单个 attempt 的超时 |
 | `budget` | 这一格配置的预算上限 |
 | `maxConcurrency` | 这一格配置的并发上限 |
-| `sandbox` | sandbox agent 使用的后端，如 `dockerSandbox()` / `e2bSandbox()` |
+| `sandbox` | sandbox agent 使用的后端，如 `dockerSandbox()` / `e2bSandbox()`；spec 上可以链 `.setup()` / `.teardown()` 挂按实验变化的环境钩子 |
+
+Experiment 本身是纯配置数据，没有 `setup` / `teardown` 这类字段。要在跑 agent 前按实验准备环境（装二进制、预热、跨 attempt 载入和回存状态），挂在 `sandbox` 字段的 spec 上：
+
+```ts
+export default defineExperiment({
+  agent: codexAgent({ mcpServers: [mempalMcp] }),
+  sandbox: e2bSandbox({ template: "fasteval-agents" })
+    .setup(mempalSetup("codex"))        // 装二进制、预热、写 hook、载入状态
+    .teardown(mempalTeardown("codex")), // 回存状态
+  maxConcurrency: 1,                    // 载入和回存之间不能并发，声明串行
+});
+```
+
+钩子的执行时机、多钩子顺序和失败语义见 [Sandbox 后端 · 环境钩子](/zh/guides/sandbox-backends#环境钩子)。
 
 跨配置比较的设计建议见[实验矩阵](/zh/guides/experiments)。adapter 如何消费 `ctx.model` 和 `ctx.flags` 见[Adapter](/zh/concepts/adapter)。

@@ -63,7 +63,7 @@ export default defineConfig({
 });
 ```
 
-CI can upload the JUnit XML so failures appear in the test-report UI.
+CI can upload the JUnit XML so failures appear in the test-report UI. To also report results to an experiment platform such as Braintrust, see [Reporters](/guides/reporters).
 
 ## Discovery only
 
@@ -95,3 +95,5 @@ Sandbox evals should stay conservative on a standard GitHub-hosted runner. Remot
     Run the full experiment matrix and record pass rate, cost, and latency trends.
   </Card>
 </CardGroup>
+
+Publish results as a static report site (auto-updating on Vercel or GitHub Pages) — see [Publish reports from CI](/guides/publish-report).

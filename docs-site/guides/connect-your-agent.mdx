@@ -35,10 +35,12 @@ import { defineAgent } from "niceeval/adapter";
 export default defineAgent({
   name: "my-bot",
   async send(input, ctx) {
+    // Example URL: swap in your own agent's real endpoint (HTTP, CLI, or SDK all work,
+    // as long as send can get the reply text)
     const r = await fetch("http://localhost:3000/chat", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ message: input.text }),
+      body: JSON.stringify({ message: input.text, model: ctx.model }),  // ← experiment.model reaches here via ctx.model
       signal: ctx.signal,
     });
     const body = await r.json();
@@ -71,6 +73,7 @@ import myBot from "../agents/my-bot.ts";
 export default defineExperiment({
   description: "my-bot baseline",
   agent: myBot,
+  model: "gpt-4o",
   runs: 1,
 });
 ```
@@ -179,11 +182,13 @@ Running the same agent against local and production separately is just two exper
 // experiments/local.ts
 export default defineExperiment({
   agent: myBot({ baseUrl: "http://localhost:3000" }),
+  model: "gpt-5.4",
 });
 
 // experiments/prod.ts
 export default defineExperiment({
   agent: myBot({ baseUrl: "https://api.example.com" }),
+  model: "gpt-5.4",
 });
 ```
 
@@ -214,6 +219,7 @@ Complete runnable references: the five non-intrusive integration examples under 
 
 ## Related reading
 
+- [Official adapters](/guides/official-adapters) — which official Adapters exist, sandboxed and non-sandboxed, and how to configure them, when your subject under test can use one directly.
 - [Write Send](/guides/write-send) — the complete tutorial for hand-writing an Adapter: seven progressive steps, from sending one message to HITL, OTel, and flags.
 - [Adapter](/concepts/adapter) — the `send` contract: `TurnInput` / `AgentContext` / `Turn`, field by field.
 - [OTel integration](/guides/connect-otel) — send the app's spans to NiceEval too, in exchange for the call waterfall in `niceeval view`.

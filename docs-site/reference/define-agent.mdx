@@ -4,7 +4,7 @@ sidebarTitle: "defineAgent"
 description: "Reference for defineAgent and defineSandboxAgent: AgentContext, AgentSession, the Sandbox interface, and shared sandbox helpers."
 ---
 
-Every NiceEval agent is an adapter: code that knows how to drive a specific backend and translate its output into the standard event stream. The runner only calls `agent.send(input, ctx)`.
+Every [NiceEval](https://niceeval.com/) agent is an adapter: code that knows how to drive a specific backend and translate its output into the standard event stream. The runner only calls `agent.send(input, ctx)`.
 
 ![Full round trip of one t.send: the eval calls t.send, the runner assembles TurnInput and ctx, the adapter returns a Turn with standard events.](/images/agent-turn-roundtrip-en.svg)
 
@@ -16,23 +16,21 @@ Use this for direct agent integrations:
 import { defineAgent } from "niceeval/adapter";
 ```
 
-<ParamField body="name" type="string" required>
-  Unique agent name. Experiments reference the agent object, and reports group results by this name.
-</ParamField>
+`Agent.kind` produced by `defineAgent` is always `"remote"` (an internal discriminant field you never declare). There are no capability bits on `t` that need declaring to unlock — filesystem assertions like `t.sandbox` exist only on agents constructed with `defineSandboxAgent` (`kind: "sandbox"`); everything else is judged purely by which events `send` actually returned and whether `ctx.session` was used. See the [capabilities reference](/reference/capabilities). The full field set is in "Agent and Adapter Context fields" below.
 
-<ParamField body="tracing" type="AgentTracing">
-  OTLP export configuration, used by CLI / child-process agents: declares how to hand the receiver endpoint to the process under test (`env` / `configure`). Long-running HTTP apps do not need this field — configure a fixed port with `telemetry: { port }` in `niceeval.config.ts` instead (see [OTel integration](/guides/connect-otel)). Spans only feed the `niceeval view` waterfall, never assertions.
-</ParamField>
+### Direct agent example
 
-<ParamField body="spanMapper" type="(spans: TraceSpan[]) => TraceSpan[]">
-  Thin mapper from native spans to canonical GenAI semconv; it only affects semantic coloring in the waterfall. Omit it to fall back to the generic heuristic. For what maps to what in the waterfall and how to write your own (`tagSpan` / `heuristicTag`), see [OTel integration](/guides/connect-otel).
-</ParamField>
-
-<ParamField body="send" type="(input: TurnInput, ctx: AgentContext) => Promise<Turn>" required>
-  Core function that drives the agent. Must return a standard `Turn`.
-</ParamField>
-
-`Agent.kind` produced by `defineAgent` is always `"remote"` (an internal discriminant field you never declare). There are no capability bits on `t` that need declaring to unlock — filesystem assertions like `t.sandbox` exist only on agents constructed with `defineSandboxAgent` (`kind: "sandbox"`); everything else is judged by which events `send` actually returned and whether `ctx.session` was used. See the [capabilities reference](/reference/capabilities).
+```ts
+export default defineAgent({
+  name: "echo",
+  async send(input) {
+    return {
+      status: "completed",
+      events: [{ type: "message", role: "assistant", text: input.text }],
+    };
+  },
+});
+```
 
 ## `input` (`TurnInput`)
 
@@ -48,96 +46,9 @@ import { defineAgent } from "niceeval/adapter";
   Present only on answer turns (`t.respond` / `t.respondAll`): per-request structured answers, matched by `requestId`.
 </ResponseField>
 
-## `ctx` (`AgentContext`)
-
-<ResponseField name="signal" type="AbortSignal">
-  For timeouts and cancellation; pass it through to every request you make.
-</ResponseField>
-
-<ResponseField name="model" type="string | undefined">
-  Model comparison for Tier 1: `experiment.model`, passed through; forward it if the app's interface accepts a model selection.
-</ResponseField>
-
-<ResponseField name="flags" type="Readonly<Record<string, unknown>>">
-  Feature A/B for Tier 3: `experiment.flags`, passed through; `{}` when not configured.
-</ResponseField>
-
-<ResponseField name="telemetry" type="Telemetry | undefined">
-  Present only when OTel integration is configured: this turn's W3C trace context (`headers`, a fresh `traceparent` per turn).
-</ResponseField>
-
-<ResponseField name="sandbox" type="Sandbox | undefined">
-  Only agents constructed with `defineSandboxAgent` receive this.
-</ResponseField>
-
-<ResponseField name="session" type="AgentSession">
-  State slot for the current conversation line. Every `send` on the same conversation line gets the same `ctx.session`; a new conversation line (the eval's first turn, or after `t.newSession()`) gets a fresh one:
-
-  - `id?: string` / `capture(id): void` — session continuation when the server keeps history: `id` is the session id recorded on this line (`undefined` on a new line), `capture` records the returned id (it only lands when none has been recorded yet).
-  - `history<TMsg>(): { get(): TMsg[]; commit(messages: TMsg[]): void }` — session continuation when the client carries the full history.
-  - `hold<T>(state: T): void` / `take<T>(): T | undefined` — storage for the HITL paused-turn scene; `take` clears on read (consume once).
-  - `state: Record<string, unknown>` — escape hatch, starts as `{}`, never written by the framework.
-
-  Full contract in the [Adapter concept](/concepts/adapter#context-agentcontext).
-</ResponseField>
-
-<ResponseField name="log" type="(msg: string) => void">
-  Writes a message to the run log, visible in `niceeval view`.
-</ResponseField>
-
-## Direct agent example
-
-```ts
-export default defineAgent({
-  name: "echo",
-  async send(input) {
-    return {
-      status: "completed",
-      events: [{ type: "message", role: "assistant", text: input.text }],
-    };
-  },
-});
-```
-
 ## `defineSandboxAgent`
 
-Use this for coding agent CLIs. The produced `Agent.kind` is always `"sandbox"` — filesystem assertions like `t.sandbox` and `t.sandbox.fileChanged()` unlock only on this kind of agent. `ctx.sandbox` is the handle to the current isolated environment:
-
-<ResponseField name="runCommand(cmd, args?, opts?)" type="(cmd: string, args?: string[], opts?: CommandOptions) => Promise<CommandResult>">
-  Run a command.
-</ResponseField>
-
-<ResponseField name="runShell(script, opts?)" type="(script: string, opts?: CommandOptions) => Promise<CommandResult>">
-  Run a shell script.
-</ResponseField>
-
-<ResponseField name="readFile(path)" type="(path: string) => Promise<string>">
-  Read a file inside the sandbox.
-</ResponseField>
-
-<ResponseField name="fileExists(path)" type="(path: string) => Promise<boolean>">
-  Check whether a file exists inside the sandbox.
-</ResponseField>
-
-<ResponseField name="writeFiles(files, targetDir?)" type="(files: Record<string, string>, targetDir?: string) => Promise<void>">
-  Write file contents by path.
-</ResponseField>
-
-<ResponseField name="uploadFiles(files, targetDir?)" type="(files: SandboxFile[], targetDir?: string) => Promise<void>">
-  Upload local files into the sandbox.
-</ResponseField>
-
-<ResponseField name="uploadDirectory(localDir, targetDir?, opts?)" type="(localDir: string, targetDir?: string, opts?: { ignore?: string[] }) => Promise<void>">
-  Upload an entire local directory, typically used to write the eval's starting files.
-</ResponseField>
-
-<ResponseField name="sandboxId" type="string">
-  Id of the current sandbox instance.
-</ResponseField>
-
-<ResponseField name="stop()" type="() => Promise<void>">
-  Stop the sandbox.
-</ResponseField>
+Use this for coding agent CLIs. The produced `Agent.kind` is always `"sandbox"` — filesystem assertions like `t.sandbox` and `t.sandbox.fileChanged()` unlock only on this kind of agent. The full field set is likewise in "Agent and Adapter Context fields" below, under `SandboxAgentDef`; the complete methods of `ctx.sandbox` (the `Sandbox` interface) are in the "Sandbox interface" section further below.
 
 ```ts
 import { defineSandboxAgent } from "niceeval/adapter";
@@ -162,6 +73,392 @@ export default defineExperiment({
   runs: 1,
 });
 ```
+
+## Agent and Adapter Context fields
+
+Construction parameters for `defineAgent` (`RemoteAgentDef`) and `defineSandboxAgent` (`SandboxAgentDef`), plus the `ctx` (`AgentContext`) that both receive in `send(input, ctx)`:
+
+{/* GENERATED:BEGIN agent-def */}
+
+{/* This block is generated by pnpm docs:reference from source comments; do not hand-edit. To change the copy, edit the corresponding source TSDoc/JSDoc (mapping in scripts/generate-reference.ts) */}
+
+### `RemoteAgentDef`
+
+#### `name`
+
+```ts
+name: string;
+```
+
+The agent's display name/identifier, passed as-is into `Agent.name` — not a registry lookup key, only used for display, result attribution, and dedup fingerprinting.
+
+#### `setup`
+
+```ts
+setup?: AgentSetup;
+```
+
+Runs once per attempt (a remote agent has no real sandbox, so the runner passes in a stub `Sandbox` containing only metadata
+like `workdir`/`sandboxId`/`otlpHost`/`stop` — calling any other method throws. Do not call
+file/command sandbox methods here). Commonly used for one-time setup like establishing a connection or auth.
+Can return a cleanup closure, which runs together with `teardown` in `finally`.
+
+#### `tracing`
+
+```ts
+tracing?: AgentTracing;
+```
+
+OTLP export configuration: how the remote system under test sends traces to the endpoint (env-based injection / file-based configuration).
+
+#### `spanMapper`
+
+```ts
+spanMapper?: SpanMapper;
+```
+
+Thin mapper from native span → canonical; omit it to fall back to the generic heuristic. Only affects the waterfall.
+
+#### `send`
+
+```ts
+send(input: TurnInput, ctx: AgentContext): Promise<Turn>;
+```
+
+Once per turn: send one turn's prompt to the remote system under test (HTTP/SDK, etc.), and parse the response into events.
+
+#### `teardown`
+
+```ts
+teardown?: AgentTeardown;
+```
+
+Cleanup before the run ends (runs once in `finally`, together with the cleanup closure returned by setup).
+
+### `SandboxAgentDef`
+
+#### `name`
+
+```ts
+name: string;
+```
+
+The agent's display name/identifier, passed as-is into `Agent.name` — not a registry lookup key, only used for display, result attribution, and dedup fingerprinting.
+
+#### `setup`
+
+```ts
+setup?: AgentSetup;
+```
+
+Runs once per sandbox (not once per turn): install the CLI, write config.toml / auth config (model/base/auth and other
+things that do not change within a turn). The runner calls it once after the sandbox is ready (after upload/baseline/eval.setup)
+and before the first send. Can return a cleanup closure, which runs together with `teardown` in `finally`.
+
+#### `tracing`
+
+```ts
+tracing?: AgentTracing;
+```
+
+OTLP export configuration: how the CLI inside the sandbox sends traces to the endpoint (env / config file), split out from setup.
+
+#### `spanMapper`
+
+```ts
+spanMapper?: SpanMapper;
+```
+
+Thin mapper from native span → canonical; omit it to fall back to the generic heuristic. Only affects the waterfall.
+
+#### `send`
+
+```ts
+send(input: TurnInput, ctx: AgentContext): Promise<Turn>;
+```
+
+Once per turn: run the prompt (fresh / resume) and parse it into events.
+
+#### `teardown`
+
+```ts
+teardown?: AgentTeardown;
+```
+
+Cleanup before the sandbox is destroyed (runs once in `finally`, together with the cleanup closure returned by setup).
+
+### `AgentContext`
+
+#### `signal`
+
+```ts
+readonly signal: AbortSignal;
+```
+
+Soft-cancellation signal: merges the attempt timeout, run-level interruption (user Ctrl+C), and the eval's own interruption
+request (see src/runner/attempt.ts). Adapters can optionally check it (or pass it straight to `fetch`) to exit early and
+gracefully, but this is not the only hard boundary — even if the adapter ignores it entirely, the runner still
+force-finishes with `Effect.timeoutTo` as a fallback (stopping the sandbox container).
+
+#### `model`
+
+```ts
+readonly model?: string;
+```
+
+The model name used for this attempt, passed through from the experiment's `model` field. Sandbox-type agents typically use it in setup to write config; remote-type agents typically use it in send to pick the model.
+
+#### `reasoningEffort`
+
+```ts
+readonly reasoningEffort?: string;
+```
+
+Model reasoning effort; belongs alongside model — decided by the experiment, and when omitted does not override the agent's native default.
+
+#### `flags`
+
+```ts
+readonly flags: Readonly<Record<string, unknown>>;
+```
+
+The experiment's `flags` field, passed through as-is; its content and shape are entirely defined by the experiment author
+(e.g. `{ webResearch: true }`, `{ systemPrompt: "..." }`). Adapters read fields from it by their own convention;
+the framework itself does not interpret or validate its content. The name is deliberately distinct from the CLI-parsed
+`flag` (run-level things like --timeout/--budget) — the two are unrelated concepts.
+
+#### `sandbox`
+
+```ts
+readonly sandbox: Sandbox;
+```
+
+Present only on sandbox-type agents (prepared by the runner per --sandbox).
+
+#### `session`
+
+```ts
+readonly session: AgentSession;
+```
+
+#### `telemetry`
+
+```ts
+readonly telemetry?: Telemetry;
+```
+
+Present only when OTel integration is configured (the agent's `tracing` block / the config's telemetry exists):
+this run's OTLP trace receiving information (endpoint + env-based export env).
+How to hand it to the CLI is declared by the agent's `tracing` block: env-based agents spread ctx.telemetry.env
+into send; file-based agents write config in tracing.configure. For remote HTTP integrations, send
+only needs to spread the headers into the request headers (a fresh traceparent per turn); the endpoint is fixed at
+startup-time configuration (defineConfig(&#123; telemetry: &#123; port &#125; &#125;)) and is not passed here.
+
+#### `log`
+
+```ts
+log(msg: string): void;
+```
+
+Write a line to the runner's own progress log (goes to stderr, or the caller-supplied `onProgress` callback).
+On a timeout failure, the most recent lines are merged into the result's error information, to help locate
+where it got stuck. This is different from `Sandbox.appendLog`: that one writes a line into the container's
+own native log (visible with `docker logs`); this one is only the runner's observability channel.
+
+{/* GENERATED:END agent-def */}
+
+`ctx.session` (`AgentSession`) is the state slot for one conversation line: every `send` on the same conversation line gets the same `ctx.session`, and a new conversation line (the eval's first turn / after `t.newSession()`) gets a fresh one. Accessors:
+
+- `id?: string` / `capture(id): void` — session continuation when the server keeps history: `id` is the session id recorded on this line (`undefined` on a new line), `capture` records the returned id (it only lands when none has been recorded yet).
+- `history<TMsg>(): { get(): TMsg[]; commit(messages: TMsg[]): void }` — session continuation when the client carries the full history.
+- `hold<T>(state: T): void` / `take<T>(): T | undefined` — storage for the HITL paused-turn scene; `take` clears on read (consume once).
+- `state: Record<string, unknown>` — escape hatch, starts as `{}`, never written by the framework.
+
+Full contract in the [Adapter concept](/concepts/adapter#context-agentcontext).
+
+## Sandbox interface
+
+`ctx.sandbox` (`Sandbox`) on sandbox-type agents is the handle to the current isolated environment; `CommandOptions` are the options for `runCommand` / `runShell`:
+
+{/* GENERATED:BEGIN sandbox-methods */}
+
+{/* This block is generated by pnpm docs:reference from source comments; do not hand-edit. To change the copy, edit the corresponding source TSDoc/JSDoc (mapping in scripts/generate-reference.ts) */}
+
+### `Sandbox`
+
+#### `workdir`
+
+```ts
+readonly workdir: string;
+```
+
+Absolute path to the project/workspace root inside the sandbox (the default cwd for agent commands, and where the git baseline is committed). Relative paths in every method resolve against this, and it's also where things land when `cwd`/`targetDir` is omitted.
+
+#### `runCommand`
+
+```ts
+runCommand(cmd: string, args?: string[], opts?: CommandOptions): Promise<CommandResult>;
+```
+
+Run a single command; `args` is passed as a separate argv array and is not interpreted by a shell (no `&&`, pipes, or glob expansion).
+Prefer this when you just want to run one executable, arguments come from external input, and you're worried about injection.
+
+#### `runShell`
+
+```ts
+runShell(script: string, opts?: CommandOptions): Promise<CommandResult>;
+```
+
+Run a whole script, interpreted by a shell (bash), supporting `&&`, pipes, `$()`, redirection, etc.
+Use this when you need to chain multiple commands or do conditional logic.
+
+#### `readFile`
+
+```ts
+readFile(path: string): Promise<string>;
+```
+
+Read a file's text content inside the sandbox (UTF-8). Throws if the file doesn't exist rather than returning an empty string — add your own `.catch()` if you need tolerance.
+
+#### `fileExists`
+
+```ts
+fileExists(path: string): Promise<boolean>;
+```
+
+Check whether a path exists inside the sandbox. Semantics are not fully consistent across backends: only guaranteed reliable for regular files — behavior for directory paths is not guaranteed consistent across backends.
+
+#### `readSourceFiles`
+
+```ts
+readSourceFiles(opts?: ReadSourceFilesOptions): Promise<SourceFiles>;
+```
+
+Read every source file in one shell round trip (collected by extension, ignored by directory/file name).
+Replaces hand-written find + per-file readFile in each eval directory.
+
+#### `writeFiles`
+
+```ts
+writeFiles(files: Record<string, string>, targetDir?: string): Promise<void>;
+```
+
+Write several text files (content already in memory as strings); a text-specialized form of `uploadFiles`, landing in workdir when `targetDir` is omitted.
+
+#### `uploadFiles`
+
+```ts
+uploadFiles(files: SandboxFile[], targetDir?: string): Promise<void>;
+```
+
+Batch-write several files, whose content can be text or a binary Buffer; lands in workdir when `targetDir` is omitted.
+
+#### `uploadDirectory`
+
+```ts
+uploadDirectory(localDir: string, targetDir?: string, opts?: { ignore?: string[] }): Promise<void>;
+```
+
+Upload an entire local directory into the sandbox (reads local files recursively, then writes them via `uploadFiles`); `opts.ignore` is the exclusion rule, landing in workdir when `targetDir` is omitted.
+
+#### `stop`
+
+```ts
+stop(): Promise<void>;
+```
+
+Destroy the compute resource the sandbox occupies (container/microVM). The sandbox is unusable after this; whether it's safe to call repeatedly varies by backend — do not rely on it.
+
+#### `sandboxId`
+
+```ts
+readonly sandboxId: string;
+```
+
+Stable identifier for this sandbox (each backend's native ID, e.g. a Docker container ID prefix); used to correlate session state for the same sandbox across calls, and for log display.
+
+#### `otlpHost`
+
+```ts
+readonly otlpHost: string | null;
+```
+
+Target host for the local OTLP receiver.
+- `string`: inside the sandbox, this hostname connects back to the host's OTLP port (e.g. Docker's `host.docker.internal`).
+- `null`: the sandbox runs on remote cloud infrastructure (e.g. e2b/vercel) and cannot reach a local host port → tracing is skipped.
+  Can be force-overridden with the `NICEEVAL_OTLP_HOST` environment variable (e.g. when configuring a tunnel).
+
+#### `appendLog`
+
+```ts
+appendLog?(line: string): Promise<void>;
+```
+
+Optional: write a line into the container's "main log" (the one PID1 tails) — so `docker logs` /
+the Docker UI's Logs tab shows the agent's turn-by-turn activity live. Implemented by the docker backend; others can omit it.
+
+#### `downloadFile`
+
+```ts
+downloadFile(path: string): Promise<Buffer>;
+```
+
+Read a file from any path inside the sandbox, returned as a binary Buffer.
+Backend mapping: Docker getArchive / Vercel readFileToBuffer / e2b files.read(bytes) / …
+
+#### `uploadFile`
+
+```ts
+uploadFile(path: string, content: Buffer): Promise<void>;
+```
+
+Write a file (binary) to any path inside the sandbox.
+Backend mapping: Docker putArchive / Vercel fs.writeFile(Buffer) / e2b files.write / …
+
+### `CommandOptions`
+
+#### `env`
+
+```ts
+env?: Record<string, string>;
+```
+
+Append/override environment variables for this command (merged on top of the sandbox's default environment, not clearing defaults; each backend keeps some of its own fixed variables like `PATH`, which are not guaranteed to be overridable here).
+
+#### `cwd`
+
+```ts
+cwd?: string;
+```
+
+Working directory for this command; falls back to `Sandbox.workdir` when omitted. Relative paths resolve against workdir, absolute paths are used as-is.
+
+#### `stream`
+
+```ts
+stream?: boolean;
+```
+
+Also send this command's output into the sandbox's "native log stream" (so `docker logs` / the Docker UI's Logs
+tab shows it live). Turn this on for agent commands (codex exec / bub run / claude) and you'll see the agent's raw output
+in the container logs. Each backend implements this its own way (docker: tee to the file PID1 tails;
+unsupported backends ignore it) — how the log surfaces is the backend's concern, the adapter only declares intent.
+
+#### `root`
+
+```ts
+root?: boolean;
+```
+
+Run this command as root. Defaults to `false` — the command runs as the sandbox's standard **non-root** user (the agent's natural environment).
+Use this for installing system dependencies during setup (`apt-get install …`, `pip install --break-system-packages …`).
+
+Semantics stay consistent across backends: "this command runs as root, otherwise as the standard non-root user." Each backend maps this to its own native mechanism
+(docker: `exec --user root`; E2B: `{ user: "root" }`; Vercel: `{ sudo: true }`; Daytona: `{ user }`).
+Backends that always run as root (e.g. Modal) treat it as a no-op; backends with no privilege escalation at all may not support it (throw) — but **the default value and
+semantics stay consistent** regardless of backend.
+
+{/* GENERATED:END sandbox-methods */}
 
 ## `ctx` and `t`
 

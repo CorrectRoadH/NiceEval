@@ -99,6 +99,7 @@
                 "group": "Connecting Agents",
                 "pages": [
                   "guides/connect-your-agent",
+                  "guides/official-adapters",
                   "guides/write-send",
                   "guides/connect-otel",
                   "guides/sandbox-agent",
@@ -131,7 +132,12 @@
                   "guides/runner",
                   "guides/ci-integration",
                   "guides/reporters",
-                  "guides/viewing-results"
+                  "guides/viewing-results",
+                  "guides/publish-report",
+                  "guides/custom-reports",
+                  "guides/report-components",
+                  "guides/results-data",
+                  "guides/agent-feedback-loop"
                 ]
               }
             ]

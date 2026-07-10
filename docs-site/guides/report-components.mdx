@@ -1,0 +1,252 @@
+---
+title: "Report components overview"
+sidebarTitle: "Report Components"
+description: "Every official dual-faced component you can lay into a report file: what question each answers, how to call it, what its web face looks like, and what its terminal character output looks like."
+---
+
+Every component in a report file is dual-faced: the web face is React rendering, the terminal face is character rendering, and both faces consume the same already-computed data — which door you go through is the host's decision (see [Custom Reports](/guides/custom-reports)). Each component's data algorithm hangs off the component itself — `<MetricTable data={await MetricTable.data(selection, …)} />` — a dot after the component name finds it, so computing and drawing are always paired. This page lists the official components one by one: what question each answers, how to call it in a report, and what its terminal output looks like.
+
+All components share one contract, not repeated below for each:
+
+- **Honest rendering.** Missing data renders as `—`, never padded to `0`; an incompletely-covered cell carries a `12/15` badge; truncation faithfully labels the remaining count and the original artifact path.
+- **Sort direction and orientation follow the metric's `better`.** A `higher` metric sorts descending, a `lower` one ascending — the "good" end is always at the top, or in the top-right.
+- **Evidence-room deep links.** On the web face, cells, points, and entries deep-link to the attempt popup; on the terminal face, a `niceeval show <eval id>` drill-down command is printed under each entry.
+- **Both faces share the same scoring, and the web face is complete without hydration.** Sort order is fixed at compute time by `sort`, so both faces show a pre-sorted, identical order; drill-down is an ordinary link, expand/collapse uses `<details>`; the web face offers no scoring-level interaction that the terminal face lacks, so a static export needs zero client-side JS.
+
+## Layout primitives
+
+`Row` / `Col` / `Section` / `Text` handle layout — arrange once, and both faces hold: `Col` stacks vertically; `Row` is a horizontal layout on the web and character columns on the terminal (falling back to vertical automatically when too narrow); `Section` is a titled block; `Text` is explanatory text. There is also `<Style>{css}</Style>` for styling custom components: the web face emits a `<style>` tag, the text face renders nothing — since a static export does not bundle user code, CSS referenced by `className` travels with the tree through it.
+
+```tsx
+<Col>
+  <Section title="Exam scorecard">
+    <Row>
+      <Scoreboard data={board} />
+      <Text>algebra is weighted ×2, out of 100.</Text>
+    </Row>
+  </Section>
+</Col>
+```
+
+```text
+Exam scorecard
+  agent  total      algebra  geometry │ algebra weighted ×2,
+  bub    86.5/100   45/50    41.5/50  │ out of 100.
+  codex  78.0/100   40/50    38/50    │
+```
+
+## `DefaultReport` — the whole official layout
+
+This is exactly what the two official doors render when run bare: a cross-run composed current leaderboard plus a failure list, with the header faithfully noting the composition sources. Zero props, purely declarative — the official layout only reads slimmed-down entries, and the host always has it ready, injected via context. Lay it into your own report when you want the official layout mixed in; skip it if you don't:
+
+```tsx
+<DefaultReport />
+```
+
+```text
+Current verdicts · 2 experiments · composed from 3 runs · latest 2026-07-09T10-00-00-000Z
+
+experiment              evals    pass   cost    duration
+compare/bub-gpt-5.4     13/15    87%    $0.42   4m 12s
+compare/codex-gpt-5.4   12/15    80%    $0.51   5m 03s
+
+Failing:
+  ✗ weather/brooklyn   compare/codex-gpt-5.4   gate calledTool("get_weather")   41s ago
+```
+
+## `RunOverview` — the KPI header bar
+
+The "what is this batch of data" summary at the top of every report: how many configurations, how many questions, the pass distribution, total cost, and when it ran; picking warnings from the selection ride along with the data and are shown directly in the bar, honesty without you having to wire anything up.
+
+```tsx
+<RunOverview data={await RunOverview.data(selection)} />
+```
+
+```text
+2 experiments · 15 evals · 42 attempts · composed from 3 runs · latest 2026-07-09T10-00
+passed 26 · failed 12 · errored 4 · skipped 0 · $0.93 · 9m 15s
+! snapshot compare/codex-gpt-5.4 predates latest run by 2 days
+```
+
+## `MetricTable` — leaderboard
+
+A comparison table with one dimension value per row and one metric per column, answering "who is better overall". The row dimension, metric columns, and sort order can all be swapped; a custom metric (`defineMetric`) sits in the same column as a built-in one.
+
+```tsx
+<MetricTable data={await MetricTable.data(selection, {
+  rows: "agent",
+  columns: [passRate, codeLines, costUSD],
+  sort: passRate,
+})} />
+```
+
+```text
+agent   pass rate   code lines   cost
+bub     87%         312 lines    $0.42
+codex   80% 12/15   355 lines    $0.51
+```
+
+Both faces are pre-sorted by `sort`, seeing the same order — changing the sort is a one-line edit and a rerun, not an interaction available on only one face. The `12/15` badge means only 12 of the 15 attempts in that cell had this metric measured.
+
+## `MetricMatrix` — per-question grid
+
+Two dimensions on rows × columns, one metric per cell, answering "which question did who fail". Sparse rendering: cells with no samples are left blank, never counted as zero.
+
+```tsx
+<MetricMatrix data={await MetricMatrix.data(selection, { rows: "eval", columns: "agent", cell: passRate })} />
+```
+
+```text
+eval                bub    codex
+algebra/quadratic   100%   100%
+algebra/matrix      100%   67%
+geometry/area       50%    —
+
+next: niceeval show geometry/area
+```
+
+On the web face, clicking a cell deep-links to that cell's attempt; the terminal face prints a drill-down command under the table.
+
+## `MetricBars` — grouped bars
+
+Another arrangement of the same matrix data (`MetricBars.data` is an alias of `MetricMatrix.data`): grouped side by side to compare magnitude, answering "who leads on each subject, and by how much". One dimension makes a group of bars, the other makes one bar per series, and the bar length is the metric value — a benchmark-release chart (Terminal-Bench, BrowseComp each as one group, one agent per bar) is exactly this shape.
+
+```tsx
+<MetricBars data={await MetricBars.data(selection, {
+  rows: "evalGroup",        // one group of bars = one subject/benchmark
+  columns: "agent",         // one bar = one agent
+  cell: passRate,
+})} />
+```
+
+```text
+algebra
+  bub     ██████████████████░░  91.9%
+  codex   █████████████████░░░  88.0%
+geometry
+  bub     ██████████░░░░░░░░░░  50.0%
+  codex   —
+```
+
+The web face is vertically grouped columns: values labeled atop each bar, series colors consistent with other components' stable palette, legend auto-generated. The terminal face is horizontal bars, where character width is the scale, sorted by value within each group (direction follows `better`). Metrics with `better: "lower"` (cost, duration) fill their bars in reverse — a short bar is always "good".
+
+## `Scoreboard` — exam scorecard
+
+Total score plus per-subject subtotals, answering "how many points does it score on this set of questions". Per-question point values: weights are configured by eval id prefix, the denominator is constant across everyone scored, and a question never attempted earns 0 points and is faithfully reported as `missing`.
+
+```tsx
+<Scoreboard data={await Scoreboard.data(selection, {
+  rows: "agent",
+  subjects: "evalGroup",
+  weights: { "algebra/": 2 },
+  fullMarks: 100,
+})} />
+```
+
+```text
+agent   total      algebra        geometry
+bub     86.5/100   45/50          41.5/50
+codex   71.0/100   40/50          31/50 (1 missing)
+```
+
+## `MetricScatter` — quality × cost frontier
+
+One point per configuration, one metric per axis, answering "who is both good and cheap". `series` connects points of the same agent's different tiers into a line; `better` drives axis orientation — a `lower` axis is drawn reversed, so the "good" corner is always top-right.
+
+```tsx
+<MetricScatter data={await MetricScatter.data(selection, {
+  points: "experiment",     // each point = one configuration's aggregate
+  series: "agent",          // tiers of the same agent connect into a line
+  x: costUSD,
+  y: passRate,
+})} />
+```
+
+```text
+pass ↑                                    (good → top-right)
+ 90%│                                  A
+    │                     B
+ 75%│                          C
+ 60%│      D
+    └──────────────────────────────────────→ cost (axis reversed: further right is cheaper)
+     $0.60       $0.45       $0.30      $0.15
+
+A bub-high   B bub-medium   C codex-high   D codex-low
+```
+
+The web face has hover on points (value plus `samples/total`), same-series lines connect points, and clicking deep-links to a drill-down. The terminal face labels points with letters and lists the legend below the chart; points missing x or y data are not drawn on either face, and the footnote faithfully reports "n points missing data"; when points are too dense to fit, it falls back to a coordinate table rather than crowding them. Dimension slots also accept `flag()` — grouping by a variable declared by the experiment, see the "Variables come from configuration" section of [Custom Reports](/guides/custom-reports).
+
+## `MetricLine` — trend line
+
+x is an ordered variable, one line per series, answering "as the variable scales up, how does the score move" — a scaling chart like parallel agent count × simulated latency × score is exactly this. Division of labor with `MetricScatter`: both of scatter's axes are measured metrics (finding the frontier), while line's x is a variable you configured (watching a trend). The variable is declared in the experiment's `flags`, and the report references it directly with `flag()`, never parsed out of the experiment's name.
+
+```tsx
+<MetricLine data={await MetricLine.data(selection, {
+  x: flag("latencyMs", { label: "Simulated latency", unit: "ms" }),
+  series: flag("agents", { label: (v) => `${v} agents` }),
+  y: passRate,
+})} />
+```
+
+```text
+pass ↑
+ 80%│                   C···C
+    │            C···C            B
+ 60%│       C         B···B
+    │         B···B                        A
+ 40%│       A···A
+    │    A
+ 20%│
+    └───────────────────────────────────────────→ Simulated latency
+      1 min       5 min       10 min      20 min
+
+A 1 agents   B 4 agents   C 16 agents
+```
+
+Each point is one experiment's aggregate, computed by the same two-level aggregation engine as other components, with `samples` / `total` / `refs` all present; points in the same series connect in x order. On the web face, every point can be hovered and deep-linked. On the terminal face, points in the same series share one letter laid out along x, so the trend is readable at a glance; points missing y data are not drawn and the footnote reports the count, falling back to a coordinate table when points are too dense.
+
+## `DeltaTable` — paired comparison
+
+One pair of configurations per row, one metric per column, with A, B, and Δ in each cell, answering "is this switch worth it" or "what did this fix flip". Whether a change is up or down "good" is judged by `better`; if either side is missing data, Δ shows as missing rather than being force-computed. "This time vs. last time" (two snapshots of the same configuration) is also this component: `pairs`' `a` / `b` accept a snapshot key (`<experimentId> @ <startedAt>`) in addition to an experiment id — a timeline comparison needs an older snapshot that is not in `results.latest()`, so pair it with a hand-picked snapshot array (e.g. `[exp.latest, exp.snapshots[1]]`).
+
+```tsx
+<DeltaTable data={await DeltaTable.data(selection, {
+  pairs: [
+    { a: "compare/bub", b: "compare/bub--agents-md", label: "bub" },
+    { a: "compare/codex", b: "compare/codex--agents-md", label: "codex" },
+  ],
+  metrics: [passRate, costUSD],
+})} />
+```
+
+```text
+pair    pass rate              cost
+bub     87% → 93%   +6%        $0.42 → $0.45   +$0.03
+codex   80% → 80%   ±0         $0.51 → —       —
+```
+
+## `CaseList` — failure case list
+
+A line-by-line list of failed and errored attempts: failed assertions, error summaries, judge remarks. A leaderboard answers "how many"; this answers "why".
+
+```tsx
+<CaseList data={await CaseList.data(selection, { outcomes: ["failed", "errored"], limit: 20 })} />
+```
+
+```text
+✗ weather/brooklyn · compare/codex-gpt-5.4 · failed · 41s · $0.04
+    gate calledTool("get_weather") — tool was never called
+    soft judge("the answer is based on real-time data") — 0.2/1: reply invents a temperature
+    → niceeval show weather/brooklyn
+✗ fixtures/button · compare/bub-gpt-5.4 · failed · 2m 10s · $0.09
+    gate fileChanged("src/components/Button.tsx")
+    → niceeval show fixtures/button
+
+(3 more not shown · limit 20)
+```
+
+When free text (errors, assertion detail, judge remarks) needs redacting before publishing, use `CaseList.data`'s `redact` hook.
+
+## Beyond the official components
+
+When none of the above layouts can express what you need, write your own dual-faced component with `defineComponent` — you decide how it renders on the web and how it lays out as terminal characters, on both faces; the how-to is in the "Change the shape" section of [Custom Reports](/guides/custom-reports).

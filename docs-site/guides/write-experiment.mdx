@@ -4,7 +4,7 @@ sidebarTitle: "Write Experiments"
 description: "Use experiments/ to select an agent, pass model and flags, and configure runs, budget, concurrency, and sandbox."
 ---
 
-An experiment is a checked-in run configuration. It says which adapter, model, flags, run count, budget, and sandbox to use for the same set of evals. CLI positional arguments select eval ID prefixes; they do not temporarily change the agent or run configuration.
+An experiment is a checked-in run configuration: which adapter, which model, which flags, how many runs, and what budget apply to the same set of evals all live in `experiments/`. CLI positional arguments only select which evals to run; they do not temporarily change the agent or run configuration.
 
 ## Minimal experiment
 
@@ -18,7 +18,7 @@ export default defineExperiment({
 });
 ```
 
-`agent` is an already configured agent instance. URL, auth, and protocol details normally go into the adapter factory.
+`agent` is an already configured agent instance. URL, auth, and protocol details for the system under test normally go into the adapter factory; the runner does not keep a separate `agentConfig` field.
 
 ## Pass model and flags
 
@@ -44,11 +44,29 @@ export default defineExperiment({
 });
 ```
 
-`model` reaches the adapter as `ctx.model`. `flags` reaches the adapter as `ctx.flags` and evals as `t.flags`. NiceEval passes both through without interpreting them.
+`model` reaches the adapter as `ctx.model`. If the target system's API supports model selection, the adapter puts it into the request body, a header, or a CLI argument.
+
+`flags` reaches the adapter as `ctx.flags` and also appears in the eval as `t.flags`. The semantics match feature flags in product A/B testing: an experiment is one set of flag values, such as a prompt version, a tool set, or a retrieval switch. Values can be any JSON — a variant name, a number, a config object — not just booleans. Your application or adapter is what actually switches behavior based on the flag; [NiceEval](https://niceeval.com/) only passes it through unchanged. This is a different thing from CLI flags — command-line switches are always written as "CLI flag" or the literal `--xxx` in these docs.
+
+```ts
+// agents/web-agent.ts
+async send(input, ctx) {
+  await fetch(`${baseUrl}/api/turn`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      message: input.text,
+      model: ctx.model,
+      flags: ctx.flags,
+    }),
+    signal: ctx.signal,
+  });
+}
+```
 
 ## Organize a comparison
 
-One experiment file is one configuration cell. To compare multiple models, agents, or flags, put several files under one experiment group:
+One experiment file is one configuration cell. To compare multiple models, agents, or flags, put several files in the same folder:
 
 ```text
 experiments/
@@ -62,20 +80,22 @@ experiments/
 npx niceeval exp prompt-variants
 ```
 
+This way, the report groups them together, and the differences are reviewable in Git.
+
 ## Common fields
 
 | Field | Purpose |
 |---|---|
-| `agent` | Select and configure the adapter |
+| `agent` | Select and configure the adapter; required |
 | `model` | Single model name passed through `ctx.model` |
 | `reasoningEffort` | Single reasoning effort level (e.g. `"high"`), passed through `ctx.reasoningEffort` and `t.reasoningEffort`, same ownership as `model` |
-| `flags` | JSON object passed through `ctx.flags` and `t.flags` |
-| `runs` | Maximum runs per eval and configuration |
+| `flags` | Experiment condition (a feature flag in A/B terms), any JSON object, passed through `ctx.flags` and `t.flags` |
+| `runs` | Maximum runs per eval × configuration |
 | `earlyExit` | Stop repeated runs when one passes |
 | `evals` | Restrict which evals this configuration runs |
-| `timeoutMs` | Attempt timeout |
+| `timeoutMs` | Timeout for a single attempt |
 | `budget` | Budget limit for this configuration |
 | `maxConcurrency` | Concurrency limit for this configuration |
 | `sandbox` | Sandbox backend for sandbox agents, such as `dockerSandbox()` or `e2bSandbox()` |
 
-See [Experiment Matrix](/guides/experiments) for comparison design.
+See [Experiment Matrix](/guides/experiments) for design advice on cross-configuration comparison. See [Adapter](/concepts/adapter) for how the adapter consumes `ctx.model` and `ctx.flags`.

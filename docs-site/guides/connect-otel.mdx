@@ -25,12 +25,13 @@ import { defineAgent } from "niceeval/adapter";
 export default defineAgent({
   name: "support-bot",
   async send(input, ctx) {
+    // Example URL: swap in your own agent's real endpoint
     const r = await fetch("http://localhost:5188/chat", {
       method: "POST",
       // Forward traceparent with the request: this turn's spans attach to NiceEval's trace,
       // which is what makes attribution precise under concurrency
       headers: { "content-type": "application/json", ...ctx.telemetry?.headers },
-      body: JSON.stringify({ message: input.text }),
+      body: JSON.stringify({ message: input.text, model: ctx.model }),
       signal: ctx.signal,
     });
     const body = await r.json();

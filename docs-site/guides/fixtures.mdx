@@ -51,7 +51,7 @@ export default defineEval({
 });
 ```
 
-Use `t.sandbox.writeFiles()` to add small seed files inside a specific eval, such as a Python probe or a focused TODO file.
+You can also use `t.sandbox.writeFiles()` to add small seed files inside a single eval, which is a good fit for small tasks or security probes.
 
 ## Write the task prompt
 
@@ -76,7 +76,7 @@ Leave implicit requirements, such as path traversal defense or reuse of existing
 ## Verify files and code
 
 ```ts
-import { excludes, includes } from "niceeval/expect";
+import { includes, excludes } from "niceeval/expect";
 
 const src = await t.sandbox.readSourceFiles({ extensions: ["ts"] });
 const config = src.fileMatching(/env/);
@@ -88,7 +88,7 @@ t.check(code, excludes(/process\.env\.\w+\s*\?\?/));
 t.sandbox.fileChanged("src/config/env.ts");
 ```
 
-`t.sandbox.fileChanged()` is a scoped assertion. It is evaluated from the sandbox diff after the run.
+`t.sandbox.fileChanged()` is a scoped assertion: it checks the sandbox diff after the run to confirm the target file actually changed.
 
 ## Run project tests or probes
 
@@ -142,6 +142,6 @@ A typical A/B setup:
 - You need to run tests, builds, or lint.
 - You need to inspect diffs.
 - You are evaluating Claude Code, Codex, or another coding agent.
-- You are comparing whether a Skill, plugin, Hook, or MCP server improves real tasks.
+- You are comparing whether a Skill, plugin, or Hook improves real tasks.
 
 If the system under test is a direct agent application, a direct adapter is lighter.

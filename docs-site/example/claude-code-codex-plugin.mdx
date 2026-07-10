@@ -1,12 +1,12 @@
 ---
 title: "Eval Your Claude Code / Codex Plugin"
 sidebarTitle: "Eval CC/Codex Plugins"
-description: "Use niceeval to put a coding-agent plugin in a real workspace and compare pass rate, latency, cost, and behavior with and without the plugin."
+description: "Use NiceEval to put a coding-agent plugin in a real workspace and compare pass rate, cost, latency, and behavior with and without the plugin."
 ---
 
 If you're building a plugin for Claude Code, Codex, or another coding agent, the useful eval is not "can the agent mention the plugin?" It is: put the plugin in a real workspace, ask the agent to complete real development tasks, and compare pass rate, latency, cost, and diffs against a no-plugin baseline.
 
-The runnable reference is [`examples/zh/coding-agent-skill`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/coding-agent-skill). Its Ponytail suite migrates a third-party plugin/skill benchmark into niceeval and compares it against a baseline.
+The runnable reference is [`examples/zh/coding-agent-skill`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/coding-agent-skill). Its Ponytail suite migrates a third-party Ponytail skill/plugin agentic benchmark into a [NiceEval](https://niceeval.com/) eval and compares it against a no-plugin baseline.
 
 ## Directory structure
 
@@ -103,6 +103,7 @@ export default defineEval({
 
     const src = await t.sandbox.readSourceFiles({ extensions: ["py"] });
     const code = src.text();
+
     t.check(code, includes(/commonpath|realpath|abspath/));
 
     await t.sandbox.writeFiles({

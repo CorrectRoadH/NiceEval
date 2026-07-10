@@ -49,7 +49,7 @@ pnpm exec niceeval view                      # view eval results
 
 NiceEval is an Agent-Native eval tool. The Dataset / golden pattern of building an Input and an Expected Output doesn't fit real agent evaluation — agents today need to be checked at a finer grain: multi-turn conversations, multi-agent collaboration, tool calls, skill loading. NiceEval is designed for exactly that: assertions land directly on tool calls, message content, structured output, and usage, instead of requiring you to hand-build a golden dataset first.
 
-Tools like Langfuse and Braintrust lean more toward tracing and observability. For the path of "write evals, run evals, inspect results", that is often heavier than necessary. NiceEval is designed around that path from the start, with a simpler developer experience. The two aren't mutually exclusive either: NiceEval coexists with LangFuse and BrainTrust — use them for tracing, or upload eval results to both.
+Tools like LangFuse and BrainTrust lean more toward tracing and observability. For the path of "write evals, run evals, inspect results", that is often heavier than necessary. NiceEval is designed around that path from the start, with a simpler developer experience. The two aren't mutually exclusive either: NiceEval coexists with LangFuse and BrainTrust — use them for tracing, or upload eval results to both.
 
 ## What you can evaluate
 
@@ -76,7 +76,7 @@ Tools like Langfuse and Braintrust lean more toward tracing and observability. F
        │  niceeval  │
        └────────────┘
             │
-            │ Adapter (official)
+            │ Agent adapter (official)
             ▼
        ┌───────────────────────────────┐
        │        Docker Sandbox         │
@@ -99,7 +99,7 @@ Tools like Langfuse and Braintrust lean more toward tracing and observability. F
        │  niceeval  │
        └────────────┘
             │
-            │ Adapter (official or custom)
+            │ Agent adapter (official or custom)
             ▼
        ┌────────────────────────────┐
        │   Your own AI agent app    │

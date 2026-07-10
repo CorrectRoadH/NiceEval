@@ -1,16 +1,20 @@
 ---
 title: "Eval Your AI Agent Application"
 sidebarTitle: "Eval AI Agent Applications"
-description: ""
+description: "Evaluate a general-purpose AI SDK-based assistant application with a direct adapter: tool calls, image understanding, and multi-turn conversation."
 ---
 
-This example shows how to use niceeval to evaluate your own AI agent application.
+This example shows how to use [NiceEval](https://niceeval.com/) to evaluate your own AI Agent application.
+
+<Note>
+This is the **full-capability** reference example: sessions, tool events, tracing, model comparison, and dual observability all in one place. For your first integration, follow the step-by-step path in [Connect Your Agent](/guides/connect-your-agent) (minimal integration → event stream → multi-turn → HITL → tracing) instead, then come back to this page to see what a real project looks like.
+</Note>
 
 See the full example code: https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/ai-sdk
 
-The system under test is a general-purpose AI assistant application built with an AI SDK tool loop. It handles messages, calls tools (weather / calculator / search), understands images, and uses Langfuse for its own observability. The application doesn't need a sandbox during testing — niceeval reaches it through a direct adapter.
+The system under test is a general-purpose AI assistant application built with an AI SDK tool loop: it sends messages, calls tools (weather / calculator / search), understands images, and uses Langfuse for its own observability. The application doesn't need a sandbox during testing — [NiceEval](https://niceeval.com/) reaches it through a direct adapter.
 
-## Directory structure
+# Directory structure
 
 ```text
 examples/zh/ai-sdk/
@@ -26,9 +30,9 @@ examples/zh/ai-sdk/
   niceeval.config.ts       # register adapter, judge, concurrency
 ```
 
-## Define the adapter
+# Define the adapter
 
-The adapter tells niceeval how to send requests to the AI agent and how to read responses as a standard event stream. It's a factory function: `baseUrl` (where the service runs) is passed in from the outside so the adapter never hardcodes it or reads from env.
+The adapter tells [NiceEval](https://niceeval.com/) how to send requests to the AI Agent and how to read responses as a standard event stream. It's a factory function: `baseUrl` (where the service runs) is passed in from the outside so the adapter never hardcodes it or reads from env.
 
 ```ts
 // adapter/adapter.ts
@@ -50,7 +54,7 @@ export function webAgent(opts: { baseUrl: string }): Agent {
           message: input.text,
           model: ctx.model,
           files: input.files,
-          otelEndpoint: ctx.telemetry?.endpoint, // dual observability: let the app send this turn's spans back to niceeval
+          otelEndpoint: ctx.telemetry?.endpoint, // dual observability: let the app send this turn's spans back to NiceEval
         }),
         signal: ctx.signal,
       });
@@ -76,7 +80,7 @@ function toStreamEvent(event: AgentEvent): StreamEvent {
 
 Within the same conversation line, `ctx.session.id` automatically carries over to the next turn; the adapter just writes the agent's returned `sessionId` back with `ctx.session.capture()`. To split traffic by feature flag within an experiment, see [Experiments](/guides/experiments).
 
-## Define evals
+# Define evals
 
 Each eval sends a message and asserts on the reply, tool calls, and image understanding. Deterministic assertions (`calledTool`, `messageIncludes`) run without an API key; open-ended scoring with a judge requires a key to be set.
 
@@ -107,7 +111,7 @@ const turn = await t.send("What's in this image?");
 t.messageIncludes(/cat/i); // the sample image is a cat
 ```
 
-## Define experiments
+# Define experiments
 
 **One experiment file = one configuration** (single model). For cross-model comparison, write multiple files in the same experiment group folder:
 
@@ -125,9 +129,9 @@ export default defineExperiment({
 });
 ```
 
-## Start evaluating
+# Start evaluating
 
-First start the service under test (defaults to mock mode — no API key required). This example is a standalone npm project where `niceeval` is a local dependency:
+First start the agent application under test (defaults to mock mode — no API key required). This example is a standalone npm project where `niceeval` is a local dependency:
 
 ```bash
 cd examples/zh/ai-sdk && pnpm install && pnpm dev
