@@ -72,6 +72,16 @@ CLI 只有两类输入：位置参数选择“跑哪些 eval”（eval id 前缀
 
 不要用 `git reset --hard`、`git clean`、`git checkout -- <path>` 或 `git restore` 去丢弃工作树改动，除非用户明确要求。工作树里出现你没写的改动时，把它当成用户或其他 agent 的工作，不要覆盖。提交前用 `git status` 和 `git diff` 确认只包含本次任务相关文件。
 
+## Release
+
+发版走 CI（`.github/workflows/release.yml`），**不要在本地 `npm publish`**（本地没有
+发布凭证，publish 会 401/404）。流程：bump `package.json` version → 提交
+`release: vX.Y.Z`（正文列本版行为变化）→ `git tag vX.Y.Z` → push main 和 tag。
+tag push 触发 CI：typecheck → 校验 tag 与 package.json version 一致 → `pnpm publish`
+（NPM_TOKEN secret，provenance）→ 创建 GitHub Release。备选路径是 Actions 页
+workflow_dispatch 填 version（CI 会自己补 tag）。预发布版（如 `0.5.0-alpha.1`）自动发
+对应 dist-tag，正式版发 latest。
+
 ## 记录问题的规范
 
 发现基础设施 bug、API 限制或行为反直觉的地方时，记入 `memory/`（项目根目录下的 `memory/` 文件夹），不写进本文件。`memory/INDEX.md` 是索引兼维护规则——先读后动、写完即索引、已修标注、复盘升格，细则都在它开头，写或读 memory 时照做。
