@@ -33,6 +33,7 @@
 - 链接示例必须指向真实存在的 `examples/` 目录；当前完整示例主要在 `examples/zh/`。
 - 工作流写成 guide，字段全集写成 reference，概念边界写成 concepts。不要把一个页面同时写成教程、设计文档和 API 字典。
 - 命令、路径、flag、文件名、包名、代码标识用反引号。
+- `zh/reference/` 页里 `{/* GENERATED:BEGIN … */}` 到 `{/* GENERATED:END … */}` 之间的内容不要手改：它由 `pnpm docs:reference` 从源码紧邻注释生成（接口/函数取 TSDoc，CLI flag 取 `src/cli.ts` 里 `FLAG_OPTIONS` 各项的 JSDoc；region 与源码的映射见 `scripts/generate-reference.ts`）。要改这些文案，改源码注释后从仓库根跑 `pnpm docs:reference`；手改会被 `pnpm test` 的漂移守护拦下。
 - 文案使用主动语态和短句。错误信息、限制和前置条件要直接说清楚下一步。
 - 写作指南: docs-site/docs-ref/00-index.md
 

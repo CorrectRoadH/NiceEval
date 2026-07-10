@@ -523,6 +523,11 @@ export const REFERENCE_FILES: { file: string; regions: string[] }[] = [
   { file: "builtin-agents.mdx", regions: ["builtin-agent-config", "ui-message-stream-options"] },
 ];
 
+// 每个生成区块的第一行:对着文件想手改文案的人,在现场说清来源与再生成命令。
+// MDX 注释不渲染;作为区块内容的一部分随每次生成写入,不会漂移、不需要手工维护。
+const REGION_PROVENANCE =
+  "{/* 本区块由 pnpm docs:reference 从源码注释生成,勿手改;要改文案,改对应源码的 TSDoc/JSDoc(映射见 scripts/generate-reference.ts) */}";
+
 /**
  * 纯函数:给定一个 reference mdx 文件当前内容 + 全部源文件内容,重新计算它全部 region 的内容
  * 并写回对应标记区块,返回新的文件内容。不接触文件系统。
@@ -532,7 +537,7 @@ export function regenerateReferenceDoc(file: string, mdxContent: string, sources
   if (!entry) throw new Error(`${file} is not a registered reference doc`);
   let content = mdxContent;
   for (const regionId of entry.regions) {
-    const body = computeRegionBody(regionId, sources);
+    const body = `${REGION_PROVENANCE}\n\n${computeRegionBody(regionId, sources)}`;
     content = replaceRegion(content, regionId, body);
   }
   return content;
