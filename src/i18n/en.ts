@@ -8,6 +8,8 @@ export const en = {
   "agent.diagnose.noTranscript": "transcript was not generated",
   "agent.diagnose.outputTail": "output tail: {{tail}}",
   "agent.diagnose.zeroEvents": "transcript exists but contains 0 events",
+  "agent.registerMcpNotSandbox": 'registerMcp: "{{name}}" is not a sandbox agent, there is no config file to write MCP into',
+  "agent.registerMcpUnsupported": 'registerMcp: agent "{{name}}" does not support MCP (only claude-code / codex)',
   "bub.homeDetectFailed": "Failed to detect sandbox $HOME (empty output from `printf $HOME`). Refusing to fall back to a backend-specific path; check the sandbox backend.",
   "bub.installFailed": "bub install failed after {{attempts}} attempts:\n{{tail}}",
   "bub.setupNotRun": "bub adapter setup() has not run in this sandbox (missing home/workspace info). The runner must call setup before send.",

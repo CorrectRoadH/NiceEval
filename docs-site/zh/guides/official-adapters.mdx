@@ -85,6 +85,22 @@ export default defineExperiment({
 });
 ```
 
+### 后置追加 MCP server
+
+`mcpServers` 是构造期配置——写在 `claudeCodeAgent({...})` / `codexAgent({...})` 的参数里。如果只在某个实验变体上多挂一个 MCP server（比如条件性地给某个 agent 加一个调试用的 MCP 工具），却只拿到一个已经构造好的 `Agent` 对象、没有原始配置，用 `shared.registerMcp(agent, servers)` 而不要手写 `setup` 包装去拼配置文件——它已经处理好两家 CLI 的写入格式（claude-code 是 `~/.claude.json` 顶层 `mcpServers`，codex 是 `~/.codex/config.toml` 的 `[mcp_servers.<name>]`，复数），并且和 agent 构造期自带的 `mcpServers` 不会互相覆盖：
+
+```ts
+import { claudeCodeAgent, shared } from "niceeval/adapter";
+
+const baseAgent = claudeCodeAgent({ skills: ["Effect-TS/skills"] });
+
+const withDebugMcp = shared.registerMcp(baseAgent, [
+  { name: "debug-tools", command: "npx", args: ["-y", "@acme/mcp-debug-tools"] },
+]);
+```
+
+只支持 `claude-code` / `codex`；传入 `bub` 或非 Sandbox 型 agent 会立即抛错（不必等 eval 真跑起来才发现配置没生效）。
+
 ### 三个 Sandbox 适配器对比
 
 | | claude-code | codex | bub |

@@ -160,9 +160,10 @@ export default defineSandboxAgent({
 
 跨沙箱 adapter 复用、不属于任何单个 agent 的逻辑,由 niceeval 从 `niceeval/adapter` 导出(`src/agents/shared.ts`):
 
-- **采集辅助** —— `captureLatestJsonl(sandbox, dir)`(磁盘旁读最新 JSONL)、`extractJsonlFromStdout(stdout)`(stdout 捕获过滤)、`writeFile` / `ensureInstalled`(setup 常用)。
+- **采集辅助** —— `captureLatestJsonl(sandbox, dir)`(磁盘旁读最新 JSONL)、`extractJsonlFromStdout(stdout)`(stdout 捕获过滤)、`writeFile` / `appendFile` / `ensureInstalled`(setup 常用)。
 - **会话 id 抽取** —— `sessionIdFromClaudeTranscript(raw)`、`codexThreadId(raw)`、`firstJsonField(raw, field)`(通用兜底)。
 - **转换器** —— `parseClaudeCode(raw)` / `parseCodex(raw)` / `parseBub(raw)`:原始 JSONL → `{ events, usage, compactions, … }`,adapter 直接把结果铺进 `Turn` 返回。
+- **后置组合** —— `registerMcp(agent, servers)`:给已构造的 claude-code / codex agent 追加 MCP server,不需要拿到原始 config 对象;条件包装器(只在某个实验变体上多挂一个 MCP server)用它而不必手写各家配置文件格式,细节见 [Coding Agent Skills / Plugins DX · 后置追加](coding-agent-skills-plugins.md#后置追加sharedregistermcp)。
 
 git 基线与 diff 采集**不在 shared 里**——那是 runner 的固定段(沙箱创建时打一次基线、销毁前采一次 diff,见 `src/runner/sandbox-prep.ts`),对所有 agent 严格一致,adapter 不碰。中间"什么时候写入文件、什么时候调 `t.send()`、什么时候手工跑校验命令"全部由 eval 的 `test(t)` 自己决定,见 [Eval Authoring · 沙箱型](../eval-authoring.md#沙箱型手工把文件放进沙箱)。
 

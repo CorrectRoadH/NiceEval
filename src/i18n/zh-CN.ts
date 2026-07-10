@@ -6,6 +6,8 @@ export const zhCN = {
   "agent.diagnose.noTranscript": "transcript 未生成",
   "agent.diagnose.outputTail": "输出末尾:{{tail}}",
   "agent.diagnose.zeroEvents": "transcript 存在但 0 事件",
+  "agent.registerMcpNotSandbox": 'registerMcp:"{{name}}" 不是沙箱型 agent,没有可写入的 MCP 配置文件',
+  "agent.registerMcpUnsupported": 'registerMcp:agent "{{name}}" 不支持 MCP(仅 claude-code / codex)',
   "bub.homeDetectFailed": "无法探测沙箱 $HOME(printf $HOME 输出为空)。不兜底到后端专属固定路径,请检查沙箱后端。",
   "bub.installFailed": "bub 安装失败(重试 {{attempts}} 次):\n{{tail}}",
   "bub.setupNotRun": "bub adapter 的 setup() 尚未在该沙箱运行(缺 home/workspace 信息);运行器应先调 setup 再 send。",

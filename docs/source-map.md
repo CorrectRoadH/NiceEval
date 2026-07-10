@@ -36,6 +36,7 @@
 | Claude Code skill / MCP setup | `src/agents/claude-code.ts`(`ClaudeCodeConfig.skills` / `mcpServers`) |
 | Codex skill / MCP setup | `src/agents/codex.ts`(`CodexConfig.skills` / `mcpServers`) |
 | bub Python plugin setup | `src/agents/bub.ts`(`BubConfig.pythonPlugins`) |
+| 后置追加 MCP(`shared.registerMcp`) | `src/agents/shared.ts`(+ 同目录 `.test.ts`) |
 | 本地 skill A/B 示例 | `examples/zh/coding-agent-skill/experiments/*.ts` |
 
 ## 标准事件流与可观测性([observability.md](observability.md))

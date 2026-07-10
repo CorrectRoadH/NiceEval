@@ -10,7 +10,7 @@ import {
   parseClaudeCodeTranscript,
   parseBubTranscript,
 } from "../o11y/parsers/index.ts";
-import type { Sandbox, StreamEvent } from "../types.ts";
+import type { Agent, AgentSetup, McpServer, Sandbox, StreamEvent } from "../types.ts";
 import { t } from "../i18n/index.ts";
 import { shellQuote } from "../sandbox/shell.ts";
 
@@ -70,6 +70,85 @@ async function writeFile(sandbox: Sandbox, path: string, content: string): Promi
   const delim = `FE_EOF_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e9).toString(36)}`;
   // path 不加引号,以便 bash 展开 ~;dirname 也走 $() 不加引号同理。这些是受信内部路径。
   await sandbox.runShell(`mkdir -p $(dirname ${path}) && cat > ${path} <<'${delim}'\n${content}\n${delim}\n`);
+}
+
+/** 追加内容到沙箱任意路径末尾(同 writeFile 但不截断已有内容),同样用随机定界符 heredoc。 */
+async function appendFile(sandbox: Sandbox, path: string, content: string): Promise<void> {
+  const delim = `FE_EOF_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e9).toString(36)}`;
+  await sandbox.runShell(`mkdir -p $(dirname ${path}) && cat >> ${path} <<'${delim}'\n${content}\n${delim}\n`);
+}
+
+/**
+ * claude-code 的 MCP 写入:用户级配置在 ~/.claude.json 顶层 mcpServers 字段(不是
+ * ~/.claude/claude.json——后者 claude CLI 不读,MCP 静默挂不上)。读回已有文件做合并写入,
+ * 不覆盖 claudeCodeAgent 构造期已经写好的条目——不管两次写入的先后顺序。
+ */
+async function writeClaudeMcp(sandbox: Sandbox, servers: readonly McpServer[]): Promise<void> {
+  let existing: { mcpServers?: Record<string, object> } = {};
+  try {
+    const raw = await sandbox.readFile("~/.claude.json");
+    existing = raw ? JSON.parse(raw) : {};
+  } catch {
+    existing = {};
+  }
+  const mcpServers: Record<string, object> = { ...existing.mcpServers };
+  for (const s of servers) {
+    mcpServers[s.name] = { command: s.command, ...(s.args?.length && { args: s.args }), ...(s.env && { env: s.env }) };
+  }
+  await writeFile(sandbox, "~/.claude.json", JSON.stringify({ ...existing, mcpServers }, null, 2));
+}
+
+/**
+ * codex 的 MCP 写入:追加进 ~/.codex/config.toml 的 [mcp_servers.<name>](复数——单数
+ * [mcp_server.x] 会被 codex 静默忽略)。本来就是追加写,和 codexAgent 构造期的写入顺序无关。
+ */
+async function writeCodexMcp(sandbox: Sandbox, servers: readonly McpServer[]): Promise<void> {
+  const toml = servers
+    .map((s) => {
+      const lines: string[] = [`[mcp_servers.${s.name}]`, `command = "${s.command}"`];
+      if (s.args?.length) lines.push(`args = [${s.args.map((a) => `"${a}"`).join(", ")}]`);
+      if (s.env && Object.keys(s.env).length) {
+        lines.push(`[mcp_servers.${s.name}.env]`);
+        for (const [k, v] of Object.entries(s.env)) lines.push(`${k} = "${v}"`);
+      }
+      return lines.join("\n");
+    })
+    .join("\n\n");
+  await appendFile(sandbox, "~/.codex/config.toml", `\n${toml}\n`);
+}
+
+const MCP_WRITERS: Record<string, (sandbox: Sandbox, servers: readonly McpServer[]) => Promise<void>> = {
+  "claude-code": writeClaudeMcp,
+  codex: writeCodexMcp,
+};
+
+/**
+ * 给已构造的 sandbox agent 后置追加 MCP server——不需要拿到原始 config 对象,给条件包装器
+ * (如"只在某个实验变体上多挂一个 MCP server")用,不必手写各家配置文件格式。返回一个新
+ * Agent(原 agent 不变),`setup` 在原 setup 跑完后追加写入 MCP 配置。
+ *
+ * 按 agent.name 分发写入位置,只认 claude-code / codex(MCP 工具规范名两家也不同,见
+ * memory/mcp-tool-naming-claude-vs-codex.md);其余 agent(如没有 MCP 概念的 bub)、以及
+ * remote 型 agent(没有沙箱可写配置文件)立即 fail fast——错误在调用 registerMcp 时就抛出,
+ * 不必等到 eval 真跑起来才在 setup 里炸。
+ */
+function registerMcp(agent: Agent, servers: readonly McpServer[]): Agent {
+  if (agent.kind !== "sandbox") {
+    throw new Error(t("agent.registerMcpNotSandbox", { name: agent.name }));
+  }
+  const write = MCP_WRITERS[agent.name];
+  if (!write) {
+    throw new Error(t("agent.registerMcpUnsupported", { name: agent.name }));
+  }
+  if (!servers.length) return agent;
+
+  const baseSetup = agent.setup;
+  const setup: AgentSetup = async (sandbox, ctx) => {
+    const cleanup = await baseSetup?.(sandbox, ctx);
+    await write(sandbox, servers);
+    return cleanup;
+  };
+  return { ...agent, setup };
 }
 
 /**
@@ -161,6 +240,8 @@ export const shared = {
   ensureInstalled,
   captureLatestJsonl,
   writeFile,
+  appendFile,
+  registerMcp,
   sessionIdFromClaudeTranscript,
   extractJsonlFromStdout,
   codexThreadId,
