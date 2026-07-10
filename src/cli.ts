@@ -64,7 +64,6 @@ interface Flags {
   open?: boolean;
   out?: string;
   port?: number;
-  latest?: boolean;
   help: boolean;
   version: boolean;
   // ── show 专属(位置参数仍是 eval id 前缀;这些 flag 选「怎么看」)──
@@ -109,8 +108,6 @@ const FLAG_OPTIONS = {
   out: { type: "string" },
   /** `view` 命令专用:指定本地服务器监听端口。 */
   port: { type: "string" },
-  /** `view` 命令专用:证据室只带每个实验最新一份快照(发布口径,静态导出体积不随结果历史增长);缺省带全量历史,深链可达一切。 */
-  latest: { type: "boolean" },
   // show 的证据切面 / 时间轴 / 报告装载(docs-site/zh/guides/viewing-results.mdx)。
   /** `show` 命令专用:渲染单个 eval 的完整对话与工具调用(证据切面)。 */
   transcript: { type: "boolean" },
@@ -206,7 +203,6 @@ function parseArgs(argv: string[]): { command: string; positionals: string[]; fl
     json: values.json as string | undefined,
     out: values.out as string | undefined,
     port: numberFlag("port", values.port as string | undefined),
-    latest: values.latest === true,
     dry: values.dry === true,
     quiet: values.quiet === true,
     force: values.force === true,
@@ -387,7 +383,6 @@ async function main(): Promise<void> {
     }
     const scan = {
       patterns: viewInput.patterns,
-      ...(flags.latest ? { latest: true } : {}),
       ...(flags.experiment !== undefined ? { experiment: flags.experiment } : {}),
       ...(flags.report !== undefined ? { report: { path: flags.report, cwd } } : {}),
     };
