@@ -31,3 +31,17 @@ compare-models 组从未踩雷纯属侥幸:model 恰好在键里。同理 `repor
 
 适用场景:任何"多实验同 agent 同 model、只差 flags / reasoningEffort 等非键维度"的对比组。
 新增会进 attempt 键语义的实验维度时,检查 run.ts 的 key 与 artifacts.ts 的 attemptDir 是否同步。
+
+## 回归与再修(2026-07-10)
+
+本修法(`5eec3b6`)被一小时后的 view 深链 commit `4b39af1` **整体误回退**——那个 commit
+只该动 view,却把 run.ts 的 key、artifacts.ts 的 experiment 段、连同 cf56ab3 的
+eval 级 scoped reporters 接线一起打回旧版(典型的旧基线工作树直接 commit)。回归
+**随 v0.4.4 发布**:下游同 agent 同 model 的实验对(如 baseline vs --mempal 变体)
+在 0.4.4 上会互相触发 earlyExit 跳过/丢结果,工件互相覆盖;docs/results-format.md
+和 results/format.ts 的 attemptDirOf(reader)从未回退,读写两侧一直不一致。
+已在 main 再修(三处一并恢复);用 0.4.4 跑过的 compare 快照要重新核对完整性。
+
+教训:误回退不会被任何守护拦住——`docs-consistency` 只查链接、reference 漂移守护只查
+TSDoc。跨 commit 覆盖检查靠 commit 前 `git diff` 只含本任务文件(AGENTS.md 已有此规,
+这次是没执行)。
