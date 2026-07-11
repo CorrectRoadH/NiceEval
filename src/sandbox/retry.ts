@@ -12,16 +12,33 @@ function delayFor(attempt: number): number {
   return BASE_DELAY_MS * 2 ** attempt * (0.5 + Math.random());
 }
 
+/**
+ * 调用方(resolve.ts)持有的并发槽位的临时归还/收回。不认调用方用的是不是 Effect —— 只要求
+ * 两个 async 方法,保持这层 provider 无关。
+ */
+export interface ProvisionSlot {
+  release(): Promise<void>;
+  reacquire(): Promise<void>;
+}
+
 export async function withProvisionRetry<T>(
   create: () => Promise<T>,
   classify: (e: unknown) => SandboxProvisionErrorKind,
+  slot?: ProvisionSlot,
 ): Promise<T> {
   for (let attempt = 0; ; attempt++) {
     try {
       return await create();
     } catch (e) {
       if (!isRetryableProvisionError(classify(e)) || attempt >= MAX_ATTEMPTS - 1) throw e;
-      await new Promise((resolve) => setTimeout(resolve, delayFor(attempt)));
+      // 退避期间只是在睡觉,不是在真的创建沙箱:攥着并发槽位陪跑 setTimeout 会让被限流的
+      // provider 把整批并发名额拖垮成"看起来卡在个位数并发"——先还名额,睡醒了再排队要回来。
+      if (slot) await slot.release();
+      try {
+        await new Promise((resolve) => setTimeout(resolve, delayFor(attempt)));
+      } finally {
+        if (slot) await slot.reacquire();
+      }
     }
   }
 }

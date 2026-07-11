@@ -93,6 +93,12 @@ export function runAttemptEffect(
       // run.sandbox ?? config.sandbox 是同一个 SandboxSpec 对象,既用来起沙箱 provider,
       // 也是 sandbox.setup / sandbox.teardown 钩子(SandboxSpec.setup()/.teardown() 链式挂的)的来源。
       const sandboxSpec = run.sandbox ?? config.sandbox;
+      // 退避重试(resolve.ts → retry.ts)期间临时归还这个名额:被限流的 provider 只是在
+      // setTimeout 里睡觉,不该攥着 sandboxSem 的槽位陪跑,不然一批 429 能把整体并发拖成个位数。
+      const provisionSlot = {
+        release: () => Effect.runPromise(sandboxSem.release(1)).then(() => {}),
+        reacquire: () => Effect.runPromise(sandboxSem.take(1)).then(() => {}),
+      };
       const sandbox =
         run.agent.kind === "sandbox"
           ? yield* sandboxSem.withPermits(1)(
@@ -102,6 +108,7 @@ export function runAttemptEffect(
                 log(t("runner.startSandbox"));
                 return yield* createSandbox({
                   sandbox: sandboxSpec,
+                  provisionSlot,
                   timeout: timeoutMs,
                   runtime: "node24",
                 });

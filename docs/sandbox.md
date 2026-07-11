@@ -213,6 +213,7 @@ await sandbox.runCommand("npm", ["install"]);     // cwd 省略 → workdir
 
 - 各内置 provider 把自己 SDK 原生的限流错误(e2b 的 `RateLimitError`、vercel 的 `APIError{ response.status: 429 }`、docker 拉镜像时 message 里的 `toomanyrequests`)归类成一个中性的 kind(目前只有 `"rate_limit"`);这层分类留在各 provider 自己的文件里,不外泄到 Adapter / Runner。
 - `resolve.ts` 的 `createProvider()` 对被归为可重试的错误做指数退避重试(封顶次数 + 抖动);其它错误第一次就抛出——重试对着"配置就是错的"没有意义,只会拖慢失败反馈。
+- 退避睡眠期间临时归还并发槽位(`retry.ts` 的 `ProvisionSlot`),睡醒后再排队要回来——被限流的 attempt 只是在等,不该攥着 `sandboxSem` 的名额陪跑 `setTimeout`,不然一批 429 会把整批实际并发拖成远低于 `--max-concurrency` 声明值的个位数。
 - 重试全部耗尽后仍按原语义走:`verdict: "errored"`(基建问题,不是 agent 表现)。
 
 这套分类 + 重试只覆盖"创建沙箱"这一步,provider 无关——Runner / Adapter 不需要知道具体是哪个 provider 抛的错误。沙箱创建成功后、运行期间被限流终止(如并发过高导致的沙箱被杀)不在这个机制内,应优先靠控制并发(见 [Runner](runner.md))避免,而不是靠重试掩盖。

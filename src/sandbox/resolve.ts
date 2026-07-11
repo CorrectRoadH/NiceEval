@@ -9,7 +9,7 @@ import type { CustomSandboxSpec, Sandbox, SandboxOption, SandboxRuntime } from "
 import { registerSandbox, stopSandbox } from "./registry.ts";
 import { normalizeSandboxPaths } from "./paths.ts";
 import { t } from "../i18n/index.ts";
-import { withProvisionRetry } from "./retry.ts";
+import { withProvisionRetry, type ProvisionSlot } from "./retry.ts";
 
 /** 归一化后的沙箱描述:确定的 provider + 各 provider 参数(只有对应 provider 用得上的会有值)。 */
 export interface ResolvedSandbox {
@@ -65,13 +65,15 @@ export function createSandbox(opts: {
   sandbox?: SandboxOption;
   timeout?: number;
   runtime?: SandboxRuntime;
+  /** 调用方并发槽位的临时归还/收回,传给 withProvisionRetry 在退避睡眠期间释放(见 retry.ts)。 */
+  provisionSlot?: ProvisionSlot;
 }) {
   const r = resolveSandbox(opts.sandbox, opts.runtime);
   return Effect.acquireRelease(
     Effect.promise<Sandbox>(async () => {
       // 起好就登记:让 cli 的兜底强清(二次 Ctrl+C / 看门狗超时)能直接停到它,不只靠下面的
       // release。即便本 fiber 创建后立刻被中断、release 还没来得及跑,登记表也已认得这个沙箱。
-      const sb = normalizeSandboxPaths(await createProvider(r, opts.timeout));
+      const sb = normalizeSandboxPaths(await createProvider(r, opts.timeout, opts.provisionSlot));
       registerSandbox(sb);
       return sb;
     }),
@@ -80,7 +82,7 @@ export function createSandbox(opts: {
   );
 }
 
-async function createProvider(r: ResolvedSandbox, timeout?: number): Promise<Sandbox> {
+async function createProvider(r: ResolvedSandbox, timeout?: number, provisionSlot?: ProvisionSlot): Promise<Sandbox> {
   // 自定义 provider(defineSandbox):不认 provider 名,直接调用用户给的 create()。
   if (r.create) return r.create({ timeout, runtime: r.runtime });
   switch (r.provider) {
@@ -91,6 +93,7 @@ async function createProvider(r: ResolvedSandbox, timeout?: number): Promise<San
       return withProvisionRetry(
         () => DockerSandbox.create({ timeout, runtime: r.runtime, image: r.image }),
         classifyProvisionError,
+        provisionSlot,
       );
     }
     case "vercel": {
@@ -100,6 +103,7 @@ async function createProvider(r: ResolvedSandbox, timeout?: number): Promise<San
       return withProvisionRetry(
         () => VercelSandbox.create({ timeout, runtime: r.runtime, snapshotId: r.snapshotId }),
         classifyProvisionError,
+        provisionSlot,
       );
     }
     case "e2b": {
@@ -109,6 +113,7 @@ async function createProvider(r: ResolvedSandbox, timeout?: number): Promise<San
       return withProvisionRetry(
         () => E2BSandbox.create({ timeout, runtime: r.runtime, template: r.template }),
         classifyProvisionError,
+        provisionSlot,
       );
     }
     default:
