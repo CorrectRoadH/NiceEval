@@ -766,13 +766,25 @@ a.brand:hover { opacity: 0.75; }
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12.5px;
   line-height: 1.7;
+  /* 整块横向滚动(github-diff 式),不是逐行各滚各的——见下面 .code-line 的
+     width: max-content:一行的真实宽度撑开这个滚动容器,滚动条对齐着整个代码块,
+     而不是消失在每行自己那条不可见的 scrollbar 里(旧写法读长 prompt 行直接读丢)。 */
+  overflow-x: auto;
 }
+.code-lines::-webkit-scrollbar { height: 8px; }
+.code-lines::-webkit-scrollbar-track { background: transparent; }
+.code-lines::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 4px; }
+.code-lines::-webkit-scrollbar-thumb:hover { background: var(--soft); }
 
 .code-line {
   display: grid;
   grid-template-columns: 46px 22px minmax(0, 1fr) auto;
   align-items: center;
   border-left: 3px solid transparent;
+  /* 行宽跟着内容走(短行仍撑满可见区域,长行把 .code-lines 撑宽触发横向滚动),
+     配合 .code-lines 的 overflow-x 实现整块同步滚动。 */
+  width: max-content;
+  min-width: 100%;
 }
 .code-line.line-clickable { cursor: pointer; }
 .code-line.line-clickable:hover { background: color-mix(in oklch, var(--panel), var(--line) 45%); }
@@ -837,8 +849,7 @@ a.brand:hover { opacity: 0.75; }
 .gstat.warn { color: var(--warn); }
 .gsend { width: 13px; height: 13px; flex-shrink: 0; color: var(--blue); }
 
-.ctext { white-space: pre; overflow-x: auto; color: var(--text); padding-left: 8px; }
-.ctext::-webkit-scrollbar { height: 0; }
+.ctext { white-space: pre; color: var(--text); padding-left: 8px; }
 .lbadges { padding-right: 12px; }
 
 .lbadges { display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; justify-self: end; }
