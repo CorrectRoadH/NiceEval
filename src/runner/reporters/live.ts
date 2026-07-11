@@ -7,6 +7,7 @@ import { t } from "../../i18n/index.ts";
 import { renderRunReport } from "./table.ts";
 import { verdictSymbol, WAITING_SYM } from "./shared.ts";
 import { runWho } from "../types.ts";
+import { onBeforeExternalTerminalWrite } from "../../tty-line.ts";
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
@@ -82,6 +83,7 @@ export function Live(rows: LiveRow[], totalAttempts: number): LiveReporter {
   let drawnLines = 0; // 上次 draw() 写了多少行,用于 \x1B[nA 回跳
   let intervalId: ReturnType<typeof setInterval> | undefined;
   let shape: RunShape | undefined;
+  let unsubscribeExternalWrite: (() => void) | undefined;
 
   const cols = () => process.stderr.columns || 100;
 
@@ -199,6 +201,10 @@ export function Live(rows: LiveRow[], totalAttempts: number): LiveReporter {
 
     onRunStart(_evals, _agent, s) {
       shape = s;
+      // sandbox teardown 失败、budget 不可执行这类独立诊断行可能绕开 progress()/onEvalComplete
+      // 直接落地(见 tty-line.ts)。订阅后先把已画的表格清掉、drawnLines 归零,下一帧从新起点
+      // 重画,不然回跳量和实际光标错位,越滚越多。
+      unsubscribeExternalWrite = onBeforeExternalTerminalWrite(() => clearDisplay());
       // 初始渲染:让用户看到行表
       draw(0);
       intervalId = setInterval(() => {
@@ -226,6 +232,10 @@ export function Live(rows: LiveRow[], totalAttempts: number): LiveReporter {
       if (intervalId) {
         clearInterval(intervalId);
         intervalId = undefined;
+      }
+      if (unsubscribeExternalWrite) {
+        unsubscribeExternalWrite();
+        unsubscribeExternalWrite = undefined;
       }
       // 最后刷一帧(所有行都 done)
       draw(spinFrame);

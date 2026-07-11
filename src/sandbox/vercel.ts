@@ -14,6 +14,7 @@ import { readSourceFilesByList } from "./source-files.ts";
 import { collectLocalFiles } from "./local-files.ts";
 import { resolveSandboxPath } from "./paths.ts";
 import { t } from "../i18n/index.ts";
+import { beforeExternalTerminalWrite } from "../tty-line.ts";
 import type { SandboxProvisionErrorKind } from "./errors.ts";
 
 /**
@@ -121,15 +122,18 @@ export class VercelSandbox implements Sandbox {
       // 挂起的 stop(最长 15s)不该拖住触发 rotate 的那条命令,还烧新 session 的时长。
       // 失败只警告不静默(旧的到 session timeout 也会被平台回收)。
       void withTimeout(oldVsb.stop(), STOP_OLD_SESSION_TIMEOUT_MS).catch((stopErr) => {
+        beforeExternalTerminalWrite();
         console.error(
           `[VercelSandbox] warning: failed to stop rotated-out session, microVM may leak until session timeout: ${String(stopErr)}`,
         );
       });
+      beforeExternalTerminalWrite();
       console.error(t("vercel.rotated", {
         seconds: Math.round(elapsed / 1000),
         sessionId: newVsb.currentSession().sessionId,
       }));
     } catch (err) {
+      beforeExternalTerminalWrite();
       console.error(t("vercel.rotateFailed", {
         seconds: Math.round(elapsed / 1000),
         error: String(err),

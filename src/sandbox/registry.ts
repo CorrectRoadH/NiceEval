@@ -10,6 +10,7 @@
 
 import type { Sandbox } from "../types.ts";
 import { t } from "../i18n/index.ts";
+import { writeStderrLine } from "../tty-line.ts";
 
 const live = new Set<Sandbox>();
 
@@ -40,7 +41,7 @@ export async function stopSandbox(sb: Sandbox, timeoutMs = DEFAULT_STOP_TIMEOUT_
     ]);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    process.stderr.write(t("sandbox.stopFailed", { id: sb.sandboxId, message: msg }));
+    writeStderrLine(t("sandbox.stopFailed", { id: sb.sandboxId, message: msg }));
   } finally {
     if (timer) clearTimeout(timer);
     live.delete(sb);
@@ -54,7 +55,7 @@ export async function stopSandbox(sb: Sandbox, timeoutMs = DEFAULT_STOP_TIMEOUT_
 export async function stopAllSandboxes(timeoutMs = DEFAULT_STOP_TIMEOUT_MS): Promise<number> {
   const all = [...live];
   if (all.length === 0) return 0;
-  process.stderr.write(t("sandbox.forceCleanup", { count: all.length }));
+  writeStderrLine(t("sandbox.forceCleanup", { count: all.length }));
   await Promise.allSettled(all.map((sb) => stopSandbox(sb, timeoutMs)));
   return all.length;
 }

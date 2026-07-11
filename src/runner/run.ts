@@ -10,6 +10,7 @@ import { cacheKey, planCarry } from "./fingerprint.ts";
 import { OtelReceiverPool } from "../o11y/otlp/turn-otel.ts";
 import { runAttemptEffect } from "./attempt.ts";
 import { runReporter, emitReporterEvent, scopeReporter, summarize } from "./report.ts";
+import { writeStderrLine } from "../tty-line.ts";
 import type { Agent, EvalResult, JudgeConfig, Reporter, RunShape, RunSummary } from "../types.ts";
 import type { AgentRun, Attempt, RunOptions } from "./types.ts";
 
@@ -330,7 +331,7 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
                 if (s.spent === 0 && s.completedNoCost >= 3 && !s.unenforceableWarned) {
                   // 连续几次完成都拿不到成本:budget 对这个 agent 不可执行,说清楚一次。
                   s.unenforceableWarned = true;
-                  process.stderr.write(t("runner.budgetUnenforceable", { budgetKey }));
+                  writeStderrLine(t("runner.budgetUnenforceable", { budgetKey }));
                 }
               }
             }

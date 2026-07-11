@@ -4,13 +4,14 @@
 import type { EvalResult, LocalizedText, Reporter, ReporterEvent, RunShape, RunSummary } from "../types.ts";
 import { t } from "../i18n/index.ts";
 import { formatThrown } from "../util.ts";
+import { writeStderrLine } from "../tty-line.ts";
 
 /** reporter 调用的统一兜错。返回 void,永不 reject(供 Promise.all 安全聚合)。 */
 export async function runReporter(stage: string, fn: () => unknown): Promise<void> {
   try {
     await fn();
   } catch (e) {
-    process.stderr.write(t("runner.reporterDiagnostic", { stage, message: formatThrown(e) }));
+    writeStderrLine(t("runner.reporterDiagnostic", { stage, message: formatThrown(e) }));
   }
 }
 

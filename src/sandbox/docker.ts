@@ -24,6 +24,7 @@ import { buildFindScript, shellQuote } from "./shell.ts";
 import { createExecDemuxer, extractFileFromTar, packFilesToTar, readableToBuffer } from "./docker-stream.ts";
 import { resolveSandboxPath } from "./paths.ts";
 import { t } from "../i18n/index.ts";
+import { beforeExternalTerminalWrite } from "../tty-line.ts";
 import type { SandboxProvisionErrorKind } from "./errors.ts";
 
 /**
@@ -177,8 +178,10 @@ export class DockerSandbox implements Sandbox {
       await image.inspect();
     } catch {
       // 镜像不存在,拉取。
+      beforeExternalTerminalWrite();
       console.log(t("docker.imagePullStart", { image: imageName }));
       await this.pullImage(imageName);
+      beforeExternalTerminalWrite();
       console.log(t("docker.imagePullDone", { image: imageName }));
     }
   }

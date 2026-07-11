@@ -77,6 +77,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 - 已修 [budget-probe-starves-global-semaphore](budget-probe-starves-global-semaphore.md) — 有 budget 的实验把「等成本样本」的探测循环包在全局信号量里面攥着槽位空等;根治后发现探测/预测节流本身就是未文档化的多余设计,budget 已简化成只按已完成花费判断(修在 `src/runner/run.ts`)
 - 已修 [cli-exp-multi-experiment-positional-noop](cli-exp-multi-experiment-positional-noop.md) — `niceeval exp a b` 不会跑两个实验,`exp` 只认 `positionals[0]` 当选择器,第二个及以后一律是 eval 过滤器,不共享目录的 flat 实验没有一条命令跑多个的写法;修在 docs-site 的 codex-skill/plugin 示例命令
 - 已修 [live-carry-row-shows-waiting-forever](live-carry-row-shows-waiting-forever.md) — 被携入(carry)的行永远等不到 eval:start,live 表格卡在 waiting for a slot 到进程结束,底层调度其实是对的;修为 carry 判断提成 planCarry() 共用、cli.ts 提前算好传给 live 表格,LiveRow 新增 carriedVerdict 让携入行第一帧就渲染真实 verdict(`fingerprint.ts` + `cli.ts` + `runner/reporters/live.ts`)
+- 已修 [live-raw-stderr-write-desyncs-redraw](live-raw-stderr-write-desyncs-redraw.md) — sandbox teardown 失败/budget 不可执行/reporter 抛错等独立诊断行绕开 live 表格裸写 stderr,回跳量与实际光标错位,每帧越滚越多刷屏(行数不超屏也会触发,和 live-overflow-redraw-appends-frames 是两条不同根因);修为新增 `src/tty-line.ts` 统一诊断行出口,live.ts 订阅后先清显示再放行(`tty-line.ts` + `sandbox/registry.ts` + `runner/run.ts` + `runner/report.ts` + `sandbox/docker.ts` + `sandbox/vercel.ts` + `runner/reporters/live.ts`)
 
 ## examples 与 tier-sync
 
