@@ -74,6 +74,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 - 已修 [quiet-progress-result-stream-asymmetry](quiet-progress-result-stream-asymmetry.md) — `--quiet` 下进度流直写 stderr 但结果流被摘空,errored 全程无声极像"还在跑",下游还把串行交接误读成并发失控;修为新增 Quiet reporter,errored/failed 各补一行 stderr(`src/runner/reporters/quiet.ts` + cli.ts)
 - 已修 [parallel-runs-same-ms-summary-clobber](parallel-runs-same-ms-summary-clobber.md) — 同命令并行 spawn 的 niceeval 进程毫秒同刻共享 run 目录,summary.json 互相盲写覆盖、判决单点丢失(同 spawn 启动耗时强相关,撞名非小概率);修法 = schemaVersion 4 快照制重设(见 results-per-snapshot 裁决)
 - 已修 [budget-probe-starves-global-semaphore](budget-probe-starves-global-semaphore.md) — 有 budget 的实验把「等成本样本」的探测循环包在全局信号量里面攥着槽位空等;根治后发现探测/预测节流本身就是未文档化的多余设计,budget 已简化成只按已完成花费判断(修在 `src/runner/run.ts`)
+- 已修 [cli-exp-multi-experiment-positional-noop](cli-exp-multi-experiment-positional-noop.md) — `niceeval exp a b` 不会跑两个实验,`exp` 只认 `positionals[0]` 当选择器,第二个及以后一律是 eval 过滤器,不共享目录的 flat 实验没有一条命令跑多个的写法;修在 docs-site 的 codex-skill/plugin 示例命令
 
 ## examples 与 tier-sync
 
@@ -102,6 +103,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 ## 环境、发布与部署
 
 - [optional-peer-deps-raw-ts-consumer-typecheck](optional-peer-deps-raw-ts-consumer-typecheck.md) — 发布裸 .ts 源码时,可选 peer 依赖必须独立子路径导出,绝不从主入口 re-export
+- [npm-published-lags-verdict-rename](npm-published-lags-verdict-rename.md) — 本地 checkout 的 docs 已经在讲 `verdict`,但 npm 上的 `niceeval@0.5.4` 还是改名前的 `outcome`/`outcomes`;写外部消费者项目代码时以 `node_modules/niceeval/src/` 实际字段为准,不要以本仓库 docs 为准
 - [pnpm11-allowbuilds-placeholder-blocks-install](pnpm11-allowbuilds-placeholder-blocks-install.md) — pnpm 11 给新依赖写 allowBuilds 占位符并让 install exit 1,要手改 pnpm-workspace.yaml
 - [pnpm11-verify-deps-gate-blocks-niceeval-cli](pnpm11-verify-deps-gate-blocks-niceeval-cli.md) — pnpm 11 pre-run gate 会在 niceeval 启动前拦死 CLI(消费方项目)
 - [vercel-site-domain-and-docs-routing](vercel-site-domain-and-docs-routing.md) — niceeval.com 域名指向和 docs routing 容易分裂成 404,部署 Ready ≠ 域名指对

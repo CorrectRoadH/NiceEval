@@ -6,12 +6,12 @@ description: "Use NiceEval to put a coding-agent plugin in a real workspace and 
 
 If you're building a plugin for Claude Code, Codex, or another coding agent, the useful eval is not "can the agent mention the plugin?" It is: put the plugin in a real workspace, ask the agent to complete real development tasks, and compare pass rate, latency, cost, and diffs against a no-plugin baseline.
 
-The runnable reference is [`examples/zh/coding-agent-skill`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/coding-agent-skill). Its Ponytail suite migrates a third-party Ponytail skill/plugin agentic benchmark into a [NiceEval](https://niceeval.com/) eval and compares it against a no-plugin baseline.
+The runnable reference is [coding-agent-skill](https://github.com/CorrectRoadH/coding-agent-skill), a standalone example repository. Its Ponytail suite migrates a third-party Ponytail skill/plugin agentic benchmark into a [NiceEval](https://niceeval.com/) eval and compares it against a no-plugin baseline.
 
 ## Directory structure
 
 ```text
-examples/zh/coding-agent-skill/
+coding-agent-skill/
 ├─ niceeval.config.ts
 ├─ skills/
 │  └─ ponytail.md
@@ -133,9 +133,13 @@ The prompt does not leak the safety answer. The eval checks artifacts, command o
 ## Run the comparison
 
 ```bash
-cd examples/zh/coding-agent-skill
+git clone https://github.com/CorrectRoadH/coding-agent-skill.git
+cd coding-agent-skill
 pnpm install
-pnpm exec niceeval exp ponytail ponytail-baseline
+pnpm exec niceeval exp ponytail-baseline
+pnpm exec niceeval exp caveman
+pnpm exec niceeval exp ponytail
+pnpm exec niceeval exp yagni-oneliner
 pnpm exec niceeval view
 ```
 
@@ -153,7 +157,7 @@ The first argument after `exp` selects the experiment group or file. Later posit
 
 ```text
 READ docs-site/example/claude-code-codex-plugin.mdx and install niceeval for this repo.
-Use examples/zh/coding-agent-skill as the reference shape: put the plugin in skills/, inject it from an experiment setup hook, write one .eval.ts task against a real workspace, then add a no-plugin baseline experiment.
+Use https://github.com/CorrectRoadH/coding-agent-skill as the reference shape: put the plugin in skills/, inject it from an experiment setup hook, write one .eval.ts task against a real workspace, then add a no-plugin baseline experiment.
 ```
 
 ## Next steps

@@ -6,7 +6,7 @@ description: "Use NiceEval to compare coding-agent tasks with and without a Skil
 
 A Skill's quality is not only whether the final answer is correct. It is whether the agent follows the intended process in the right situation, avoids known anti-patterns, and reliably improves pass rate, cost, and latency. The recommended approach with [NiceEval](https://niceeval.com/) is to inject the Skill into a sandboxed coding-agent workspace, then compare against a no-Skill baseline.
 
-The runnable reference is [`examples/zh/coding-agent-skill`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/coding-agent-skill). It contains two suites:
+The runnable reference is [coding-agent-skill](https://github.com/CorrectRoadH/coding-agent-skill), a standalone example repository. It contains two suites:
 
 - Zod skill: a local `skills/zod.md` that steers request-body and environment-variable validation.
 - Ponytail plugin: a migrated third-party benchmark for safety, reuse, and simplicity.
@@ -14,7 +14,7 @@ The runnable reference is [`examples/zh/coding-agent-skill`](https://github.com/
 ## Directory structure
 
 ```text
-examples/zh/coding-agent-skill/
+coding-agent-skill/
 ├─ skills/
 │  ├─ zod.md
 │  └─ ponytail.md
@@ -120,14 +120,19 @@ Prefer verifying the final artifact and real tests. Only make Skill-load or tool
 ## Run
 
 ```bash
-cd examples/zh/coding-agent-skill
+git clone https://github.com/CorrectRoadH/coding-agent-skill.git
+cd coding-agent-skill
 pnpm install
 
-# Zod Skill A/B comparison
-pnpm exec niceeval exp compare
+# Zod Skill A/B comparison (each is its own experiment file, not a group — run separately)
+pnpm exec niceeval exp with-skill
+pnpm exec niceeval exp baseline
 
-# Ponytail plugin A/B comparison
-pnpm exec niceeval exp ponytail ponytail-baseline
+# Ponytail plugin: baseline / caveman / ponytail / yagni-oneliner
+pnpm exec niceeval exp ponytail-baseline
+pnpm exec niceeval exp caveman
+pnpm exec niceeval exp ponytail
+pnpm exec niceeval exp yagni-oneliner
 
 pnpm exec niceeval view
 ```

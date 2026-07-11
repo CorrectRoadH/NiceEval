@@ -24,7 +24,8 @@
 | 目录 | 用途 |
 |---|---|
 | [`zh/ai-sdk/`](zh/ai-sdk/) | **自己写 adapter**（`defineAgent` + `fromAiSdk`）接入 AI SDK v6 HTTP web agent，演示 remote adapter、事件流映射、双可观测 |
-| [`zh/coding-agent-skill/`](zh/coding-agent-skill/) | 评测 Claude Code **Skill / Plugin** 对编码任务的实际提升（sandbox 工作区、文件断言） |
+
+评测 Claude Code **Skill / Plugin** 对编码任务实际提升的示例（sandbox 工作区、文件断言）在 [coding-agent-skill](https://github.com/CorrectRoadH/coding-agent-skill)，一个独立仓库。
 
 ## 接入前（`zh/origin/`）
 

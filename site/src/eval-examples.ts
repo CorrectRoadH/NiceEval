@@ -246,7 +246,7 @@ const weatherTool = {
 
 const sandboxArtifact = {
   id: "sandbox-artifact",
-  // 改编自 examples/zh/coding-agent-skill/evals/ponytail-csv-sum.eval.ts。
+  // 改编自 https://github.com/CorrectRoadH/coding-agent-skill 的 evals/ponytail-csv-sum.eval.ts。
   // notes / timing 取自一次真实运行(claude-code+ponytail / claude-sonnet-4-6,
   // docker node:24,2026-07-03):agent Read CSV → Write sum_sales.py(csv.DictReader)
   // → python3 输出 351.0;judge closedQA 得 1 分;第 1 轮 16s,整个 attempt 51.4s / $0.296。
