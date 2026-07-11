@@ -46,6 +46,9 @@ npx niceeval exp
 # 运行一个实验组
 npx niceeval exp compare-models
 
+# 只运行该组里的一个配置(id = 组/文件名,不带扩展名)
+npx niceeval exp compare-models/gpt-5.4
+
 # 在该组里只运行 ID 以 weather 开头的 eval
 npx niceeval exp compare-models weather
 ```
@@ -53,6 +56,8 @@ npx niceeval exp compare-models weather
 <Note>
   eval 过滤参数只出现在 experiment 选择之后。裸 `npx niceeval weather` 不会运行；请使用 `npx niceeval exp local weather` 或 `npx niceeval exp compare weather`。
 </Note>
+
+第一个位置参数既能填实验组名，也能填单个配置的完整 id：精确匹配到 `组/文件名` 时只跑组内那一个配置，适合逐配置验证或对比排查某一格结果，不用把其它配置文件挪出目录。
 
 ## 常用 flags
 
@@ -84,7 +89,7 @@ npx niceeval exp compare-models weather
 | `--run` | string | `show` / `view` 命令专用:钉死看某一个结果目录(历史 run 或 `copySnapshots` 产物)。 |
 | `--report` | string | `show` / `view` 命令专用:用你的报告文件替换默认报告(文件默认导出 `defineReport(...)`)。 |
 | `--dry` | boolean | 只打印本次会匹配到的 eval × 运行配置,不实际执行。 |
-| `--quiet` | boolean | 关闭控制台 / live 进度输出(reporter 仍会写 artifacts)。 |
+| `--quiet` | boolean | 关闭控制台 / live 的逐条结果与末尾汇总(attempt 进度行仍写 stderr);errored / failed 的结果各在 stderr 补一行摘要,passed / skipped 静默;reporter 仍会写 artifacts。 |
 | `--force` | boolean | 忽略上次运行结果,不跳过已通过的 (experiment, eval) 组合,强制全部重跑。 |
 | `--strict` | boolean | CI 中推荐使用:让软阈值(`soft`)失败也计入整条 eval 的 verdict。 |
 | `--early-exit` / `--no-early-exit` | boolean | 某个 eval 的一次 attempt 通过后,停止该 eval 剩余的 attempts。 |

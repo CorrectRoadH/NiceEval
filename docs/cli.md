@@ -101,8 +101,10 @@ niceeval clean                        # 清掉这些历史运行结果
 ```sh
 niceeval exp compare --junit <path>           # 写 JUnit XML
 niceeval exp compare --json <path>            # 写 RunSummary JSON(供 CI / 下游脚本消费)
-niceeval exp compare --quiet                  # 只出最终汇总
+niceeval exp compare --quiet                  # 静默通过项;errored / failed 各补一行 stderr
 ```
+
+`--quiet` 关闭控制台 / live 的逐条结果与末尾汇总;attempt 级进度行仍写 stderr。verdict 为 errored 或 failed 的结果各在 stderr 补一行摘要(eval id、`[who]`、verdict、截断后的 error 或首个失败断言),passed / skipped 静默——沙箱起不来这类执行错不用等跑完读 `summary.json` 才发现。artifacts 与 `--junit` / `--json` 照写。
 
 ## 干跑
 

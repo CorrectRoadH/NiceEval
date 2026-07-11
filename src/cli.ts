@@ -17,6 +17,7 @@ import { stopAllSandboxes, liveSandboxCount } from "./sandbox/registry.ts";
 import { evalLevelStats } from "./shared/verdict.ts";
 import { sandboxRecommendedConcurrency } from "./sandbox/resolve.ts";
 import { Console as ConsoleReporter } from "./runner/reporters/console.ts";
+import { Quiet as QuietReporter } from "./runner/reporters/quiet.ts";
 import { Json, JUnit } from "./runner/reporters/json.ts";
 import { Live as LiveReporter, type LiveRow } from "./runner/reporters/live.ts";
 import { Artifacts as ArtifactsReporter } from "./runner/reporters/artifacts.ts";
@@ -129,7 +130,7 @@ const FLAG_OPTIONS = {
   report: { type: "string" },
   /** 只打印本次会匹配到的 eval × 运行配置,不实际执行。 */
   dry: { type: "boolean" },
-  /** 关闭控制台 / live 进度输出(reporter 仍会写 artifacts)。 */
+  /** 关闭控制台 / live 的逐条结果与末尾汇总(attempt 进度行仍写 stderr);errored / failed 的结果各在 stderr 补一行摘要,passed / skipped 静默;reporter 仍会写 artifacts。 */
   quiet: { type: "boolean" },
   /** 忽略上次运行结果,不跳过已通过的 (experiment, eval) 组合,强制全部重跑。 */
   force: { type: "boolean" },
@@ -545,6 +546,10 @@ async function main(): Promise<void> {
     } else {
       reporters.push(ConsoleReporter());
     }
+  } else {
+    // --quiet:进度流照旧直写 stderr,结果流换成最小报告器 —— errored / failed 各补一行
+    // stderr,passed / skipped 静默。没有它,attempt 出执行错时控制台会全程无声。
+    reporters.push(QuietReporter());
   }
   const artifacts = ArtifactsReporter();
   reporters.push( artifacts);

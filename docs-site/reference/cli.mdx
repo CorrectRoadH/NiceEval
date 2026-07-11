@@ -46,6 +46,9 @@ npx niceeval exp
 # Run one experiment group
 npx niceeval exp compare-models
 
+# Run only one configuration in that group (id = group/filename, no extension)
+npx niceeval exp compare-models/gpt-5.4
+
 # Inside that group, only run evals whose ID starts with weather
 npx niceeval exp compare-models weather
 ```
@@ -53,6 +56,8 @@ npx niceeval exp compare-models weather
 <Note>
   Eval-filter arguments only appear after the experiment selector. Bare `npx niceeval weather` does not run; use `npx niceeval exp local weather` or `npx niceeval exp compare weather` instead.
 </Note>
+
+The first positional argument accepts either an experiment group name or a single configuration's full id. An exact match on `group/filename` runs only that one configuration in the group — useful for verifying one cell or troubleshooting a single configuration without moving other files out of the directory.
 
 ## Common flags
 
@@ -84,7 +89,7 @@ The table below is generated from the CLI's flag-parsing table; any flag outside
 | `--run` | string | `show` / `view` command only: pin to a specific result directory (a historical run or `copySnapshots` output). |
 | `--report` | string | `show` / `view` command only: replace the default report with your own report file (the file's default export must be `defineReport(...)`). |
 | `--dry` | boolean | Only print which evals × run configs would match, without actually running them. |
-| `--quiet` | boolean | Turn off console / live progress output (the reporter still writes artifacts). |
+| `--quiet` | boolean | Turn off the console / live per-result stream and final summary (attempt progress lines still go to stderr); errored / failed results each still print a one-line summary to stderr, while passed / skipped stay silent; the reporter still writes artifacts. |
 | `--force` | boolean | Ignore the previous run's results — do not skip (experiment, eval) pairs that already passed, forcing a full rerun. |
 | `--strict` | boolean | Recommended in CI: make soft-threshold (`soft`) failures also count toward the whole eval's outcome. |
 | `--early-exit` / `--no-early-exit` | boolean | Stop an eval's remaining attempts once one attempt passes. |
