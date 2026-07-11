@@ -206,7 +206,7 @@ table.nre,
   border-radius: 8px;
   overflow: hidden;
   margin: 0 0 10px;
-  background: linear-gradient(180deg, color-mix(in oklch, var(--panel), var(--panel-2) 18%), var(--panel));
+  background: var(--panel);
 }
 .nre-overview .nre-kpi {
   padding: 12px 16px 13px;

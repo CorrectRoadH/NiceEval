@@ -31,8 +31,8 @@ body {
   background:
     linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
     linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
-    radial-gradient(circle at 72% 24%, rgba(185, 255, 61, 0.08), transparent 32rem),
-    radial-gradient(circle at 18% 3%, rgba(218, 109, 57, 0.1), transparent 24rem),
+    radial-gradient(circle at 72% 24%, rgba(185, 255, 61, 0.05), transparent 20rem),
+    radial-gradient(circle at 18% 3%, rgba(218, 109, 57, 0.06), transparent 16rem),
     var(--bg);
   background-size: 80px 80px, 80px 80px, auto, auto, auto;
   color: var(--text);
@@ -308,8 +308,7 @@ h1 {
   border: 1px solid var(--line-strong);
   border-radius: 12px;
   background: rgba(12, 12, 12, 0.92);
-  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.48);
-  backdrop-filter: blur(18px);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 12px 24px -8px rgba(0, 0, 0, 0.4);
 }
 
 .file-card {
