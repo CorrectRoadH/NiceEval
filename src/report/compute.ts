@@ -24,8 +24,9 @@ import type {
   ScoreboardData,
   TableData,
   TableRowMeta,
+  TableSubRow,
 } from "./types.ts";
-import { evalLevelStats } from "../shared/verdict.ts";
+import { evalLevelStats, foldEvalVerdict } from "../shared/verdict.ts";
 import {
   applyAggregator,
   assertUniqueMetricNames,
@@ -62,6 +63,13 @@ export interface TableDataOptions<M extends readonly Metric[]> {
   sort?: Metric;
   /** eval id 前缀过滤,同 CLI 位置参数语义。 */
   evals?: string | string[];
+  /**
+   * 展开维度:每行的 group 再按这个维度分一次组,渲染面把子行摆进这一行下面可展开的明细
+   * (典型 `expand: "eval"`——点开一个 experiment 行看它每道题的判定/原因,同一套 columns
+   * 在子群体上重算)。与 `rows` 是同一种维度输入,不限于 "eval",也不要求 rows 是
+   * "experiment"——任何行维度都能配 expand 展开出下一级。
+   */
+  expand?: DimensionInput;
 }
 
 /**
@@ -88,6 +96,47 @@ function experimentRowMeta(group: Item[]): TableRowMeta {
   };
 }
 
+/**
+ * 代表 attempt 第一条未过的断言(名 + detail,detail 缺席就只有名);没有未过断言
+ * (空 group 之外的 errored/skipped)则用 error。与 CaseList.data 的原因摘要同一套材料。
+ */
+function reasonFor(rep: Item): string | undefined {
+  const gate = rep.attempt.result.assertions.find((a) => !a.passed);
+  if (gate) return gate.detail ? `${gate.name} — ${gate.detail}` : gate.name;
+  return rep.attempt.result.error;
+}
+
+/**
+ * `expand` 展开:group 按 `expand` 维度再分组,同一套父表 columns 在每个子群体上重算一遍——
+ * 子行与父行同构(维度键 × 指标列),只是维度换了、群体收窄了。verdict/reason/ref/runs
+ * 对任何维度都通用(不是 eval 维度专属):折一下判定、挑代表 attempt。
+ */
+async function subRows<const M extends readonly Metric[]>(
+  group: Item[],
+  expand: DimensionInput,
+  columns: M,
+): Promise<TableSubRow<M[number]["name"]>[]> {
+  const groups = groupItems(group, expand);
+  const out: TableSubRow<M[number]["name"]>[] = [];
+  for (const [key, items] of groups) {
+    const cells: Record<string, MetricCell> = {};
+    for (const metric of columns) cells[metric.name] = await computeCell(metric, items);
+    const verdict = foldEvalVerdict(items.map((item) => item.attempt.result));
+    const rep = items.find((item) => item.attempt.result.verdict === verdict) ?? items[0]!;
+    out.push({
+      key,
+      cells: cells as Record<M[number]["name"], MetricCell>,
+      verdict,
+      reason: reasonFor(rep),
+      ref: rep.attempt.ref,
+      runs: items.length,
+      passedRuns: items.filter((item) => item.attempt.result.verdict === "passed").length,
+    });
+  }
+  out.sort((a, b) => a.key.localeCompare(b.key));
+  return out;
+}
+
 export async function tableData<const M extends readonly Metric[]>(
   input: SnapshotsInput,
   opts: TableDataOptions<M>,
@@ -105,10 +154,14 @@ export async function tableData<const M extends readonly Metric[]>(
       // sort 指标不在 columns 里时单独算一遍,只用于排序、不进输出
       sortCells.set(key, cells[opts.sort.name] ?? (await computeCell(opts.sort, group)));
     }
+    const meta: TableRowMeta = {
+      ...(opts.rows === "experiment" ? experimentRowMeta(group) : {}),
+      ...(opts.expand ? { subRows: await subRows(group, opts.expand, opts.columns) } : {}),
+    };
     rows.push({
       key,
       cells,
-      ...(opts.rows === "experiment" ? { meta: experimentRowMeta(group) } : {}),
+      ...(Object.keys(meta).length > 0 ? { meta } : {}),
     });
   }
   if (opts.sort) {

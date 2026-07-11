@@ -27,6 +27,9 @@ const en = {
   "table.agent": "Agent",
   "table.verdicts": "Verdicts",
   "table.filterPlaceholder": "Filter rows…",
+  "table.eval": "Eval",
+  "table.reason": "Reason",
+  "table.viewBreakdown": "Per-eval breakdown",
 
   "overview.snapshots": "Snapshots",
   "overview.evals": "Evals",
@@ -92,6 +95,9 @@ const zhCN: Record<ReportMessageKey, string> = {
   "table.agent": "Agent",
   "table.verdicts": "结果",
   "table.filterPlaceholder": "筛选行…",
+  "table.eval": "题目",
+  "table.reason": "原因",
+  "table.viewBreakdown": "逐题明细",
 
   "overview.snapshots": "快照",
   "overview.evals": "Evals",

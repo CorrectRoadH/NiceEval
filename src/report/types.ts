@@ -115,15 +115,40 @@ export interface MetricCell {
 }
 
 /**
+ * `expand` 展开出的一条子行:父行的 group 按 `expand` 维度再分一次组,同一套父表 `columns`
+ * 在子群体上重新算一遍格子——子行与父行是同一种东西(维度键 × 指标列),只是维度换了、
+ * 群体收窄了,渲染面可以复用同一套格子渲染逻辑,不是另起一套子行专属的展示字段。
+ * 额外三项(verdict / reason / ref)对任何维度都成立(拿 foldEvalVerdict 折一下、挑代表
+ * attempt),不是 eval 维度专属,不需要为其它 expand 维度另写一套。
+ */
+export interface TableSubRow<K extends string = string> {
+  /** 子维度键,如 eval id(`expand: "eval"` 时)。 */
+  key: string;
+  cells: Record<K, MetricCell>;
+  /** 子群体折叠判定(foldEvalVerdict 口径:任一 attempt 通过则通过,否则取最严重的)。 */
+  verdict: "passed" | "failed" | "errored" | "skipped";
+  /** 失败原因摘要:代表 attempt 第一条未过的断言名,没有则用 error;都没有则缺席。 */
+  reason?: string;
+  /** 代表 attempt 的深链(与 verdict 同一条:折叠判定对应的那条 attempt)。 */
+  ref: AttemptRef;
+  /** 子群体里的 attempt 总数;>1 时渲染面标出「通过轮数/总轮数」(flaky/重试一眼可见)。 */
+  runs: number;
+  passedRuns: number;
+}
+
+/**
  * 榜单行的元信息:rows: "experiment" 时随行(experiment 行天然有唯一的 agent/model 身份
  * 与 eval 级折叠计票);其它维度不携带。web / text 面在 meta 在场时补 Model / Agent /
- * Verdicts 列,与 view 原生榜单同列面。
+ * Verdicts 列,与 view 原生榜单同列面。`subRows` 由 `expand` 选项触发,不限于
+ * rows: "experiment"——任何行维度配 `expand` 都能展开出子行。
  */
-export interface TableRowMeta {
+export interface TableRowMeta<K extends string = string> {
   agent?: string;
   model?: string;
   /** eval 级折叠计票(foldEvalVerdict 口径,与 view 榜单同一套):每题折成单一判定后计数。 */
   verdicts?: { passed: number; failed: number; errored: number; skipped: number };
+  /** `expand` 维度展开出的子行;未设 `expand` 时缺席。 */
+  subRows?: TableSubRow<K>[];
 }
 
 /** 列键 K 来自 columns 元组的字面量 name:拼错列名编译不过,不是运行时 undefined。 */
@@ -131,7 +156,7 @@ export interface TableData<K extends string = string> {
   /** 行维度名,如 "agent"。 */
   dimension: string;
   columns: MetricColumn[];
-  rows: { key: string; cells: Record<K, MetricCell>; meta?: TableRowMeta }[];
+  rows: { key: string; cells: Record<K, MetricCell>; meta?: TableRowMeta<K> }[];
 }
 
 export interface MatrixData {

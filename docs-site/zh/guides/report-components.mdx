@@ -93,6 +93,18 @@ codex   80% 12/15   355 lines    $0.51
 
 `rows: "experiment"` 时每行自动带 agent 与 model 列——结果里现成的元信息，不用配置。给组件传 `filter`（`<MetricTable data={…} filter />`）时，网页面在表上方渲染一个过滤框，输入即隐藏不匹配的行——纯浏览操作，不改数据，终端面没有对应物；要固定口径的过滤，用 `evals` 前缀参数或换维度重算。
 
+加一个 `expand`（如 `expand: "eval"`），每行就能点开看更细一级：
+
+```tsx
+<MetricTable data={await MetricTable.data(selection, {
+  rows: "experiment",
+  columns: [passRate, costUSD],
+  expand: "eval",
+})} filter />
+```
+
+点开一行，看到的是这个 experiment 下每道题的判定、失败原因、以及同一套指标列在这道题上单独算出来的值——网页面是原生的展开/收起交互，不用等 JS；终端面是这一行下面缩进的失败清单。子行不是另一套东西，就是同一张表在更细的维度上再算一遍。
+
 ## `MetricMatrix` —— 逐题格子
 
 行 × 列两个维度、格子里一个指标，回答「哪道题谁挂了」。稀疏渲染：没有样本的格子空着，不编数。

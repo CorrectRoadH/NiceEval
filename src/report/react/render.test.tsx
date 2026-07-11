@@ -8,6 +8,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import type { TableData } from "../types.ts";
 
 import {
   CaseList,
@@ -25,6 +26,7 @@ import {
   matrixData,
   overviewData,
   overviewWithCost,
+  passRateColumn,
   scatterData,
   scoreboardData,
   tableData,
@@ -137,6 +139,62 @@ describe("MetricTable:meta 榜单 parity 与 filter", () => {
     expect(zh).toContain("1 通过");
     expect(zh).toContain('placeholder="筛选行…"');
     expect(zh).toContain("50%"); // display 是 format 产物,不本地化
+  });
+});
+
+describe("MetricTable:expand 展开子行", () => {
+  const withSubRows: TableData<"pass-rate"> = {
+    dimension: "experiment",
+    columns: [passRateColumn],
+    rows: [
+      {
+        key: "compare/bub",
+        cells: { "pass-rate": { value: 0.5, display: "50%", samples: 2, total: 2, refs: [] } },
+        meta: {
+          agent: "bub",
+          verdicts: { passed: 1, failed: 1, errored: 0, skipped: 0 },
+          subRows: [
+            {
+              key: "algebra/x",
+              cells: { "pass-rate": { value: 1, display: "100%", samples: 1, total: 1, refs: [] } },
+              verdict: "passed",
+              ref: { snapshot: "compare_bub/snap-1", attempt: "algebra/x/a0" },
+              runs: 1,
+              passedRuns: 1,
+            },
+            {
+              key: "algebra/y",
+              cells: { "pass-rate": { value: 0, display: "0%", samples: 1, total: 1, refs: [] } },
+              verdict: "failed",
+              reason: "expected 4, got 3",
+              ref: { snapshot: "compare_bub/snap-1", attempt: "algebra/y/a0" },
+              runs: 1,
+              passedRuns: 0,
+            },
+          ],
+        },
+      },
+    ],
+  };
+
+  it("展开明细渲染成原生 <details>,零 JS 也能点开;子表复用同一套 columns", () => {
+    const html = renderToStaticMarkup(<MetricTable data={withSubRows} attemptHref={attemptHref} />);
+    expect(html).toContain("nre-subrows-row");
+    expect(html).toContain("<details");
+    expect(html).toContain("nre-subtable");
+    expect(html).toContain("algebra/x");
+    expect(html).toContain("algebra/y");
+    expect(html).toContain("expected 4, got 3");
+    expect(html).toContain("nre-verdict-passed");
+    expect(html).toContain("nre-verdict-failed");
+    // 子行的深链走同一个 attemptHref
+    expect(html).toContain('href="/attempts/compare_bub/snap-1/algebra/y/a0"');
+    expect(html).not.toContain("<script");
+  });
+
+  it("没有 subRows 的行不产出展开明细(旧调用点行为不变)", () => {
+    const html = renderToStaticMarkup(<MetricTable data={tableDataWithMeta} />);
+    expect(html).not.toContain("nre-subrows-row");
   });
 });
 

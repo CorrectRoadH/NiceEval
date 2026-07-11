@@ -93,6 +93,18 @@ Both faces are pre-sorted by `sort`, sharing the same baseline order — to perm
 
 With `rows: "experiment"`, every row automatically carries agent and model columns — metadata already present in the results, no configuration needed. Passing `filter` (`<MetricTable data={…} filter />`) renders a filter box above the table on the web face; typing hides non-matching rows — a browsing operation only, never changing the data, with no terminal counterpart. For filtering that is part of the scoring, use the `evals` prefix parameter or recompute with a different dimension.
 
+Add `expand` (e.g. `expand: "eval"`) and every row becomes expandable to a finer level:
+
+```tsx
+<MetricTable data={await MetricTable.data(selection, {
+  rows: "experiment",
+  columns: [passRate, costUSD],
+  expand: "eval",
+})} filter />
+```
+
+Opening a row shows that experiment's per-eval verdicts, failure reasons, and the same metric columns recomputed for each eval individually. The web face is a native expand/collapse disclosure — no JS required; the terminal face is an indented failure list underneath that row. A sub-row isn't a different kind of thing — it's the same table recomputed one dimension deeper.
+
 ## `MetricMatrix` — per-question grid
 
 Two dimensions on rows × columns, one metric per cell, answering "which question did who fail". Sparse rendering: cells with no samples are left blank, never counted as zero.

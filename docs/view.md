@@ -136,7 +136,7 @@ view = **报告槽 + 证据室**:
 | 层 | 实现 |
 |---|---|
 | 读取层 | [`openResults`](results-lib.md#读openresults):版本分流与形状校验,读不了的落盘进 `skipped`(三种原因),壳渲染成横幅 |
-| 统计层 | 全部住在报告槽里:`defaultReport` 的计算函数(`RunOverview.data` / `MetricTable.data(rows: "experiment")` / `MetricScatter.data` / `CaseList.data`),口径是 `results.latest()` Selection + 跨快照去重 |
+| 统计层 | 全部住在报告槽里:`defaultReport` 的计算函数(`RunOverview.data` / `MetricTable.data(rows: "experiment", expand: "eval")` / `MetricScatter.data`),口径是 `results.latest()` Selection + 跨快照去重 |
 | 渲染层 | 报告槽 = `renderReportToStaticHtml` 的静态 HTML(官方组件 web 面 + 渐进增强 runtime + styles.css 内联);前端 React app 只承担证据室与壳(导航、界面语言、修复 prompt 按钮、skipped 横幅) |
 | 证据室 | AttemptModal / Traces / Runs / 导航壳——view 的本体,报告积木不重造它们 |
 

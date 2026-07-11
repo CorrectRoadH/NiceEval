@@ -536,6 +536,72 @@ describe("flag()", () => {
   });
 });
 
+// ───────────────────────── MetricTable.data · expand 展开 ─────────────────────────
+
+describe("MetricTable.data · expand", () => {
+  it("expand: \"eval\":子行按 eval 分组、同一套 columns 重算,verdict/reason/ref/runs 随行", async () => {
+    const s = snap({
+      experimentId: "exp/x",
+      results: [
+        res("A", "passed"),
+        res("B", "failed", {
+          assertions: [softAssertion("gate-check", 0, { passed: false, severity: "gate", detail: "expected 2, got 1" })],
+        }),
+      ],
+    });
+    const data = await MetricTable.data([s], { rows: "experiment", columns: [passRate], expand: "eval" });
+    expect(data.rows).toHaveLength(1);
+    const subRows = data.rows[0].meta?.subRows;
+    expect(subRows).toHaveLength(2);
+    // 按 key 字母序(A、B)
+    expect(subRows?.map((r) => r.key)).toEqual(["A", "B"]);
+    const a = subRows!.find((r) => r.key === "A")!;
+    expect(a.verdict).toBe("passed");
+    expect(a.reason).toBeUndefined();
+    expect(a.runs).toBe(1);
+    expect(a.passedRuns).toBe(1);
+    // 子行与父行同一套 columns:cells 里有 pass-rate,值口径与父行单独算这道题一致
+    expect(a.cells["pass-rate"].value).toBe(1);
+    const b = subRows!.find((r) => r.key === "B")!;
+    expect(b.verdict).toBe("failed");
+    expect(b.reason).toBe("gate-check — expected 2, got 1");
+    expect(b.cells["pass-rate"].value).toBe(0);
+    // ref 指向这道题的代表 attempt,供渲染面深链
+    expect(a.ref.attempt).toBe("A/a0");
+    expect(b.ref.attempt).toBe("B/a0");
+  });
+
+  it("多轮 attempt 折成一条子行:任一轮通过则 verdict=passed,runs/passedRuns 如实报", async () => {
+    const s = snap({
+      experimentId: "exp/x",
+      results: [res("flaky", "failed", { attempt: 0 }), res("flaky", "passed", { attempt: 1 })],
+    });
+    const data = await MetricTable.data([s], { rows: "experiment", columns: [passRate], expand: "eval" });
+    const sub = data.rows[0].meta!.subRows!;
+    expect(sub).toHaveLength(1);
+    expect(sub[0].key).toBe("flaky");
+    expect(sub[0].verdict).toBe("passed"); // 任一轮通过 → 该 eval 通过,对齐 earlyExit 语义
+    expect(sub[0].runs).toBe(2);
+    expect(sub[0].passedRuns).toBe(1);
+  });
+
+  it("不设 expand:meta 没有 subRows 字段(旧调用点行为不变)", async () => {
+    const s = snap({ experimentId: "exp/x", results: [res("A", "passed")] });
+    const data = await MetricTable.data([s], { rows: "experiment", columns: [passRate] });
+    expect(data.rows[0].meta?.subRows).toBeUndefined();
+  });
+
+  it("expand 不限于 rows: \"experiment\":任何行维度都能展开子维度", async () => {
+    const s = snap({
+      experimentId: "exp/x",
+      results: [res("A", "passed", { agent: "bub" }), res("B", "failed", { agent: "bub" })],
+    });
+    const data = await MetricTable.data([s], { rows: "agent", columns: [passRate], expand: "eval" });
+    expect(data.rows[0].key).toBe("bub");
+    expect(data.rows[0].meta?.subRows?.map((r) => r.key)).toEqual(["A", "B"]);
+  });
+});
+
 // ───────────────────────── RunOverview.data ─────────────────────────
 
 describe("RunOverview.data", () => {

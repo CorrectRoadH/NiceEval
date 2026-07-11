@@ -12,9 +12,8 @@ import { experimentGroupOf } from "../shared/aggregate.ts";
 import { defineReport, type ReportDefinition } from "./report.ts";
 import type { ReportNode } from "./tree.ts";
 import { Col, Section } from "./primitives.tsx";
-import { CaseList, MetricScatter, MetricTable, RunOverview } from "./components.tsx";
+import { MetricScatter, MetricTable, RunOverview } from "./components.tsx";
 import { costUSD, durationMs, passRate, tokens } from "./metrics.ts";
-import { DEFAULT_CASE_LIMIT } from "./default-report.tsx";
 
 /** 组键:experiment id 的目录前缀(与 view 榜单分组同一份推导);顶层实验(id 无 "/")无组。 */
 function groupOf(snapshot: Snapshot): string | undefined {
@@ -39,6 +38,9 @@ async function groupBlocks(scoped: Selection, keyPrefix: string): Promise<Report
         rows: "experiment",
         columns: [durationMs, passRate, tokens, costUSD],
         sort: passRate,
+        // 每个 experiment 行按 eval 展开明细(同一套 columns 在题级重算 + 判定/原因/深链):
+        // 点开一个 experiment 直接看它每道题为什么过/不过,不用去另一个板块找。
+        expand: "eval",
       })}
       filter
     />,
@@ -52,9 +54,9 @@ async function groupBlocks(scoped: Selection, keyPrefix: string): Promise<Report
  * 形态:顶部 {@link RunOverview};按 experiment 组(id 的目录前缀,如 `compare/bub-low`
  * 的 `compare`)每组一个 `<Section title={组名}>`,内含组内成本 × 通过率的
  * {@link MetricScatter}(组内可画点 < 2 时省略图)与组内榜单 {@link MetricTable}
- * (行 = experiment,附 Model / Agent / Verdicts 列,过滤输入框开);无组的实验直接平铺,
- * 不发明组名;尾部 {@link CaseList}(failed / errored,出厂截断如实报剩余)。
- * 组内 Selection 用 `Selection.filter`(只删不换)收窄,warnings 随行修剪。
+ * (行 = experiment,附 Model / Agent / Verdicts 列,过滤输入框开,`expand: "eval"`——每行可
+ * 展开看这个 experiment 每道题的判定/原因,零 JS 靠原生 `<details>`);无组的实验直接平铺,
+ * 不发明组名。组内 Selection 用 `Selection.filter`(只删不换)收窄,warnings 随行修剪。
  *
  * 它是普通的 {@link ReportDefinition}:`--report` 换掉它,或在自己的报告文件里
  * import 后当参照并排都行。
@@ -80,12 +82,10 @@ export const defaultReport: ReportDefinition = defineReport(async ({ selection }
     }
   }
 
-  const cases = await CaseList.data(selection, { limit: DEFAULT_CASE_LIMIT });
   return (
     <Col>
       <RunOverview data={await RunOverview.data(selection)} />
       {sections}
-      {cases.rows.length > 0 && <CaseList key="cases" data={cases} />}
     </Col>
   );
 });

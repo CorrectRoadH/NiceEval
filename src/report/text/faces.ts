@@ -100,7 +100,25 @@ export function tableText(data: TableData, ctx: TextContext): string {
     }),
     ...(hasVerdicts ? [row.meta?.verdicts ? verdictTallyText(row.meta.verdicts, locale) : MISSING_MARK] : []),
   ]);
-  return renderAlignedRows([header, ...rows]);
+  const table = renderAlignedRows([header, ...rows]);
+
+  // expand 展开的子行:表格本身只挤得下判定计票,原因得另起一块——每个有失败/错误子行
+  // 的父行下面跟一段缩进明细(✗/! + 原因 + 下钻命令),没有 expand 或全通过的行不产出。
+  const details: string[] = [];
+  for (const row of data.rows) {
+    const failing = (row.meta?.subRows ?? []).filter((sub) => sub.verdict === "failed" || sub.verdict === "errored");
+    if (failing.length === 0) continue;
+    const lines = [row.key];
+    for (const sub of failing) {
+      const mark = sub.verdict === "errored" ? "!" : "✗";
+      const runs = sub.runs > 1 ? ` (${sub.passedRuns}/${sub.runs})` : "";
+      const reason = sub.reason ? ` — ${sub.reason}` : "";
+      lines.push(`  ${mark} ${sub.key}${runs}${reason}`);
+      lines.push(`    → niceeval show ${sub.key}`);
+    }
+    details.push(indentBlock(lines.join("\n"), "  "));
+  }
+  return details.length > 0 ? `${table}\n\n${details.join("\n\n")}` : table;
 }
 
 // ───────────────────────── MetricMatrix ─────────────────────────

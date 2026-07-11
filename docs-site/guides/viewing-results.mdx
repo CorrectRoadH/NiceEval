@@ -51,7 +51,7 @@ The unit of storage is a **results snapshot** — one run of one experiment. The
 `niceeval show` uses the same positional argument semantics as `exp`: eval ID prefixes select which evals to look at, and flags select which facet to view.
 
 ```bash
-niceeval show                       # Leaderboard: pass rate, cost, duration, and failure list per experiment
+niceeval show                       # Leaderboard: pass rate, cost, duration per experiment, with failing evals and reasons underneath
 niceeval show weather               # Prefix filter: verdicts for every eval under weather/*
 niceeval show weather/brooklyn      # Single eval: attempts, assertion details, errors, and usage per experiment
 niceeval show weather/brooklyn --transcript   # The agent's full conversation and tool calls
@@ -68,7 +68,7 @@ Every view in `niceeval view` has a terminal equivalent:
 
 | View in `niceeval view` | Terminal equivalent |
 | --- | --- |
-| Default report (overview, per-group scatter plot and leaderboard, failure list) | `niceeval show` |
+| Default report (overview, per-group scatter plot and leaderboard — each row expandable to that experiment's per-eval verdicts and reasons) | `niceeval show` |
 | Attempt details (assertions, errors, usage) | `niceeval show <eval id>` |
 | Transcript | `niceeval show <eval id> --transcript` |
 | Trace waterfall | `niceeval show <eval id> --trace` |
@@ -77,7 +77,7 @@ Every view in `niceeval view` has a terminal equivalent:
 
 ### Default report
 
-Bare `niceeval show` renders the terminal version of the default report, top to bottom: a run overview (how many experiments and evals, verdict distribution, total cost, composition sources), one section per experiment group (groups split by the `/` prefix of the experiment id) — a quality × cost character plot plus a leaderboard — and a failure list:
+Bare `niceeval show` renders the terminal version of the default report, top to bottom: a run overview (how many experiments and evals, verdict distribution, total cost, composition sources) and one section per experiment group (groups split by the `/` prefix of the experiment id) — a quality × cost character plot plus a leaderboard. Rows with failed or errored evals get an indented breakdown underneath (which eval, why, and the drill-down command):
 
 ```text
 $ niceeval show
@@ -99,9 +99,9 @@ compare
   compare/bub-gpt-5.4     gpt-5.4   bub     4m 12s     87%         412.0k tokens   $0.42   13 passed / 2 failed
   compare/codex-gpt-5.4   gpt-5.4   codex   5m 03s     80%         521.0k tokens   $0.51   12 passed / 3 failed
 
-✗ weather/brooklyn · compare/codex-gpt-5.4 · failed · 41s · $0.04
-    calledTool("get_weather") — score 0
-    → niceeval show weather/brooklyn
+    compare/codex-gpt-5.4
+      ✗ weather/brooklyn — calledTool("get_weather") — tool was never called
+        → niceeval show weather/brooklyn
 ```
 
 Each leaderboard row is one experiment, with agent and model columns — when a group holds several configurations side by side, you can tell at a glance which row is which; verdicts are per-eval folded counts. When you run a group of multiple experiments, the summary table in `niceeval exp`'s closing block has this same leaderboard shape — the same table rendering, the same verdict-folding rules. The only difference is scope: the closing block summarizes only this run, while `show` is the current state composed across runs; each header states which it is.
@@ -262,7 +262,7 @@ Soft assertion scores are recorded in `assertions[].score`; outside `--strict`, 
 
 ## Debugging Advice
 
-- Each entry in the closing block's failure list comes with a drill-down command: start with `niceeval show <eval id>` to see the assertion details.
+- Every failed or errored eval in the leaderboard comes with a drill-down command: start with `niceeval show <eval id>` to see the assertion details.
 - To understand why the agent did something, look at `--transcript` (or the transcript view in `view`) to see its decision process.
 - For coding-agent failures, check `--diff` and the command event output; for tool-call problems, check `--trace` and `events.json`.
 - For deciding whether the defect is in the system under test or in the eval itself, and how to rerun after a fix, see [Agent Feedback Loop](/guides/agent-feedback-loop).

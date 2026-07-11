@@ -37,10 +37,19 @@
     for (var i = 0; i < siblings.length; i++) siblings[i].classList.remove("nre-sort-asc", "nre-sort-desc");
     th.classList.add(dir === "asc" ? "nre-sort-asc" : "nre-sort-desc");
 
-    var rows = Array.prototype.slice.call(tbody.rows);
-    rows.sort(function (a, b) {
-      var va = sortValue(a, index);
-      var vb = sortValue(b, index);
+    // 主行按「自己 + 紧随其后的展开明细行(若有,MetricTable 的 expand 子行)」成对处理——
+    // 明细行没有 data-sort-value,单独参与排序会沉到表尾、跟丢它所属的主行。
+    var all = Array.prototype.slice.call(tbody.rows);
+    var units = [];
+    for (var j = 0; j < all.length; j++) {
+      if (all[j].classList.contains("nre-subrows-row")) continue; // 已被上一个主行收编
+      var unit = [all[j]];
+      if (all[j + 1] && all[j + 1].classList.contains("nre-subrows-row")) unit.push(all[j + 1]);
+      units.push(unit);
+    }
+    units.sort(function (a, b) {
+      var va = sortValue(a[0], index);
+      var vb = sortValue(b[0], index);
       // 空值 = 缺数据:恒沉底,与「缺数据不编 0」同一姿势
       if (va === "" && vb === "") return 0;
       if (va === "") return 1;
@@ -52,7 +61,9 @@
       else out = String(va).localeCompare(String(vb));
       return dir === "asc" ? out : -out;
     });
-    for (var r = 0; r < rows.length; r++) tbody.appendChild(rows[r]);
+    for (var u = 0; u < units.length; u++) {
+      for (var k = 0; k < units[u].length; k++) tbody.appendChild(units[u][k]);
+    }
   });
 
   // ───────────────────────── 过滤:input[data-nre-filter] ─────────────────────────
@@ -67,8 +78,17 @@
     var query = input.value.trim().toLowerCase();
     var rows = table.tBodies[0].rows;
     for (var i = 0; i < rows.length; i++) {
-      var hide = query !== "" && rows[i].textContent.toLowerCase().indexOf(query) === -1;
-      rows[i].classList.toggle("nre-row-hidden", hide);
+      var row = rows[i];
+      var hide;
+      if (row.classList.contains("nre-subrows-row")) {
+        // 展开明细行跟着上一行(它所属的主行)走,不单独参与文本匹配——避免主行被过滤掉、
+        // 明细行却孤零零留在原地(或反过来,主行还在、明细行自己先被滤没了)。
+        var prev = rows[i - 1];
+        hide = prev ? prev.classList.contains("nre-row-hidden") : false;
+      } else {
+        hide = query !== "" && row.textContent.toLowerCase().indexOf(query) === -1;
+      }
+      row.classList.toggle("nre-row-hidden", hide);
     }
   });
 

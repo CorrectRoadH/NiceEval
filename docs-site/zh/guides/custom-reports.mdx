@@ -16,7 +16,7 @@ description: "一份报告就是一个报告文件：官方宿主打开结果、
 import { defaultReport } from "niceeval/report";
 ```
 
-`niceeval view` 就等于 `niceeval view --report <defaultReport>`，`show` 同理。它从上到下是：运行总览、每个实验组一节（质量 × 成本散点图 + 榜单）、失败清单。我们自己用的零件和给你的完全一样，没有私有数据通道，默认报告上的每个数字你都能用同样几行代码原样重算出来。
+`niceeval view` 就等于 `niceeval view --report <defaultReport>`，`show` 同理。它从上到下是：运行总览、每个实验组一节（质量 × 成本散点图 + 榜单，榜单每行可点开看这个实验下每道题的判定与原因）。我们自己用的零件和给你的完全一样，没有私有数据通道，默认报告上的每个数字你都能用同样几行代码原样重算出来。
 
 |  | 网页（人看） | 终端（agent 和你看） |
 | --- | --- | --- |

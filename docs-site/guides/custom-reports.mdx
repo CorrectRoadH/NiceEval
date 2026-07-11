@@ -16,7 +16,7 @@ The default report that `niceeval view` and `niceeval show` render without `--re
 import { defaultReport } from "niceeval/report";
 ```
 
-`niceeval view` is exactly `niceeval view --report <defaultReport>`, and `show` works the same way. Top to bottom it is: a run overview, one section per experiment group (quality × cost scatter plot + leaderboard), and a failure list. The parts we use ourselves are exactly the same as the ones you get, with no private data channel — every number on the default report can be recomputed by you, verbatim, with the same few lines of code.
+`niceeval view` is exactly `niceeval view --report <defaultReport>`, and `show` works the same way. Top to bottom it is: a run overview, one section per experiment group (quality × cost scatter plot + leaderboard, each row expandable to that experiment's per-eval verdicts and failure reasons). The parts we use ourselves are exactly the same as the ones you get, with no private data channel — every number on the default report can be recomputed by you, verbatim, with the same few lines of code.
 
 |  | Web (for people) | Terminal (for agents and you) |
 | --- | --- | --- |

@@ -283,6 +283,7 @@ await MetricTable.data(selection, {
   columns: [passRate, codeLines],     // 每列一个指标
   sort: passRate,                     // 构建时排序,方向随 better;两面同口径,预排即终排
   evals: "algebra/",                  // 可选:eval id 前缀过滤,同 CLI 语义
+  expand: "eval",                     // 可选:展开维度,见下文
 });                                   // → TableData
 
 await MetricMatrix.data(selection, {
@@ -322,6 +323,8 @@ await CaseList.data(selection, {
   redact: (s) => s.replaceAll(repoRoot, ""),   // 自由文本(error / 断言 detail / judge evidence)的发布消毒钩子
 });                                   // → CaseListData
 ```
+
+**`MetricTable.data` 的 `expand` 把行钻深一级,不是另一种展示。** 设了 `expand`(如 `expand: "eval"`),父行的 group 按这个维度再分一次组,渲染面把子行摆进这一行下面可展开的明细(web 面是原生 `<details>`,零 JS 也能点开;text 面是父行下方缩进的失败/错误清单)。子行与父行是同一种东西——同一套父表 `columns` 在子群体上重新算一遍格子,`MetricCellView` 原样复用,不是子行专属的展示字段;额外的 `verdict`(子群体折叠判定)/ `reason`(代表 attempt 第一条未过断言,或 error)/ `ref`(代表 attempt 深链)/ `runs`+`passedRuns`(子群体 attempt 数与通过数)对任何 `expand` 维度都成立,不是 `"eval"` 专属。`rows` 与 `expand` 是同一种维度输入,`expand` 也不要求 `rows` 必须是 `"experiment"`——`rows: "agent", expand: "eval"` 同样合法。`defaultReport`(裸跑填充)的榜单开着 `expand: "eval"`:点开一个 experiment 直接看它每道题的判定与原因,不需要另一个「失败清单」板块。
 
 **MetricScatter 就是「质量 × 成本 frontier」的积木**:[Experiments](experiments.md) 的一文件一配置意味着 `compare/bub-low`、`compare/bub-medium`、`compare/bub-high` 各是一个实验——`points: "experiment"` 让每个档位成为一个点,`series: "agent"` 把同 agent 的档位连成线,`better` 驱动的轴向让右上角恒为「又好又便宜」。点的 x/y 就是两个 `MetricCell`:按点维度分组后走同一台两级聚合引擎,所以 `samples` / `total` / `refs` 一应俱全,hover 与下钻不用另做一套。
 
