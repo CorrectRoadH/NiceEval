@@ -94,6 +94,50 @@ codex  78.0/100   40/50    38/50    │  codex  80%   $0.51
 
 页面树里只放双面组件和排版原语，不放裸 HTML 标签——终端面没法渲染一个 `<div>`。要自由内容，说明文字用 `<Text>`，更自由的走下面的自定义组件。
 
+## 复刻组摘要：GroupSummary
+
+默认报告每个实验组顶部那块紧凑统计（通过率、experiment/eval 数、failed/errored、总成本、最后运行时间）是官方组件 `GroupSummary`。它的计算函数 `GroupSummary.data` 只吃一份已经收窄好的 Selection——不管你怎么分组，把对应组的 Selection 传进去，就是默认报告用的同一套口径（eval 级折叠计票、null-safe 总成本、组内最后运行时间的最大值），不是另一套近似公式。
+
+默认报告按 experiment id 的目录前缀分组（`compare/bub-low` 属于组 `compare`，顶层实验不属于任何组）；用 `Selection.filter` 收窄出同一份组 Selection，自己就能摆出同一块：
+
+```tsx
+// reports/groups.tsx —— 复刻默认报告每组顶部的那块统计
+import { defineReport, Col, Section, GroupSummary } from "niceeval/report";
+import type { Snapshot } from "niceeval/report";
+
+// experiment id 的目录前缀当组名，和默认报告同一个约定：顶层实验（id 无 "/"）不属于任何组。
+function groupOf(snapshot: Snapshot): string | undefined {
+  const parts = snapshot.experimentId.split("/");
+  return parts.length > 1 ? parts.slice(0, -1).join("/") : undefined;
+}
+
+export default defineReport(async ({ selection }) => {
+  const groups = [...new Set(selection.snapshots.map(groupOf))];
+  return (
+    <Col>
+      {await Promise.all(
+        groups.map(async (key) => {
+          const scoped = selection.filter((s) => groupOf(s) === key);
+          const summary = <GroupSummary data={await GroupSummary.data(scoped)} />;
+          return key === undefined ? summary : (
+            <Section key={key} title={key}>{summary}</Section>
+          );
+        }),
+      )}
+    </Col>
+  );
+});
+```
+
+```text
+$ niceeval show --report reports/groups.tsx
+compare
+Pass rate 60% · 2 experiments · 6 evals · failed 1 · errored 1 · $1.50
+latest 2026-07-01T11:30:00Z
+```
+
+`GroupSummary` 之后想接着摆散点图或榜单，同一份 `scoped` Selection 原样喂给 `MetricScatter.data` / `MetricTable.data` 就行——默认报告的每个组就是这三块的组合，拆开看不过是给同一份 Selection 分别调用三个 `.data` 函数。
+
 ## 换口径：自定义指标
 
 默认报告里那张逐实验指标表的口径拆开就是 `MetricTable.data(selection, { rows: "experiment", columns: [passRate, costUSD, durationMs] })`——每个组件的数据算法挂在它自己身上，组件名后打个点就找到；换口径只是把 columns 换成自己的指标：

@@ -161,7 +161,7 @@ describe("榜单:跨快照合成的现刻水位(defaultReport 的 text 面)", ()
     expect(out).toContain("50%");
     // 失败清单:新判定的 fixtures/button,带失败断言与下钻命令
     expect(out).toContain("✗ fixtures/button");
-    expect(out).toContain('fileChanged("src/components/Button.tsx") — file was not modified');
+    expect(out).toContain('fileChanged("src/components/Button.tsx"): file was not modified');
     expect(out).toContain("→ niceeval show fixtures/button");
     expect(out).not.toContain("✗ weather/brooklyn");
   });

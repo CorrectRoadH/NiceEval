@@ -267,7 +267,7 @@ async function renderReportSlot(
 ): Promise<ReportSlotHtml> {
   const definition = report
     ? await loadReportFile(report.cwd, report.path, { freshImport: true })
-    : (await import("../report/default-report-definition.tsx")).defaultReport;
+    : (await import("../report/default-report.tsx")).defaultReport;
   const { renderReportToStaticHtml } = await import("../report/web.ts");
   const ctx = { selection, results };
   return {

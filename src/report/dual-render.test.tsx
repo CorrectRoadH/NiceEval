@@ -7,12 +7,16 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
+import type { EvalResult } from "../types.ts";
 import type { Results, Selection, Snapshot } from "../results/index.ts";
+import type { GroupSummaryData } from "./types.ts";
+import { evalLevelStats } from "../shared/verdict.ts";
 import {
   CaseList,
   Col,
   DefaultReport,
   DeltaTable,
+  GroupSummary,
   MetricBars,
   MetricLine,
   MetricMatrix,
@@ -35,6 +39,7 @@ import { createTextContext, renderNodeToText, validateReportTree } from "./tree.
 import {
   caseListData,
   deltaData,
+  groupSummaryData,
   lineData,
   matrixData,
   overviewData,
@@ -52,20 +57,191 @@ describe("RunOverview 双面", () => {
   const html = renderToStaticMarkup(<RunOverview data={overviewData} />);
   const term = text(<RunOverview data={overviewData} />);
 
-  it("text 面形态:头行 + 判定行 + 警告行", () => {
+  it("text 面形态:头行(含通过率)+ 判定行 + 警告行", () => {
     expect(term).toMatchInlineSnapshot(`
-      "2 experiments · 12 evals · 48 attempts · composed from 2 runs · latest 2026-07-01T11:30:00Z
+      "2 experiments · 12 evals · 48 attempts · Pass rate 70% 46/48 · composed from 2 runs · latest 2026-07-01T11:30:00Z
       passed 36 · failed 8 · errored 2 · skipped 2 · no data · 4m 21s
       ! snapshot covers 9 of 12 evals seen in history; re-run \`niceeval exp compare/bub\` for a full snapshot"
     `);
   });
 
-  it("两面同口径:成本全缺都是 no data 不编 $0;警告都在", () => {
+  it("两面同口径:通过率显示同一个 MetricCell.display(70%,不是 36/46 现算的 78%);成本全缺都是 no data 不编 $0;警告都在", () => {
     for (const face of [html, term]) {
+      expect(face).toContain("70%");
+      expect(face).not.toContain("78%");
+      expect(face).toContain("46/48"); // samples < total:两级聚合的覆盖率角标,两面一致
       expect(face).toContain("no data");
       expect(face).not.toContain("$0");
       expect(face).toContain("snapshot covers 9 of 12 evals");
     }
+  });
+});
+
+// fixtures.overviewData 是手工摆好的终值,只验证渲染面「原样显示 MetricCell,不重算」;
+// 下面这组用真实 Selection 走一遍 RunOverview.data(= compute.ts 的 overviewData()),
+// 专门验证 totals.passRate 本身的计算口径 —— 三种通过率公式在这个 fixture 上各不相同:
+//   两级聚合(唯一官方口径,docs/reports.md「通过率」):eval a 题内 2/3 通过、eval b 题内 1,
+//     跨题均值 (2/3 + 1) / 2 = 5/6 ≈ 83.3%
+//   attempt 原始占比(旧 bug 公式,曾经的 RunOverview 现场重算):3 passed / (3 passed + 1 failed) = 75%
+//   eval 折叠投票(evalLevelStats,GroupSummary/MetricTable meta 的口径):a、b 都折成 passed → 2/2 = 100%
+// 三个数互不相同,任何一处偷懒复用另一个公式都会在这里露馅。
+describe("RunOverview.data · passRate 两级聚合口径", () => {
+  function fakeVaryingAttemptsContext(): { selection: Selection; attempts: { evalId: string; result: { verdict: EvalResult["verdict"] } }[] } {
+    const dir = "/results/compare_bub/snap-1";
+    const base = {
+      experimentId: "compare/bub",
+      startedAt: "2026-07-01T10:00:00Z",
+      completedAt: "2026-07-01T10:05:00Z",
+      agent: "bub",
+      schemaVersion: 1,
+      dir,
+    };
+    const mk = (evalId: string, verdict: "passed" | "failed" | "skipped", attemptIndex: number, minute: number) => ({
+      evalId,
+      experimentId: "compare/bub",
+      result: {
+        id: evalId,
+        agent: "bub",
+        verdict,
+        attempt: attemptIndex,
+        startedAt: `2026-07-01T10:0${minute}:00Z`,
+        durationMs: 1000,
+        assertions: [],
+      },
+      ref: { snapshot: "compare_bub/snap-1", attempt: `${evalId}/a${attemptIndex}` },
+      snapshot: base,
+      events: async () => null,
+      trace: async () => null,
+      o11y: async () => null,
+      diff: async () => null,
+      sources: async () => null,
+    });
+    const attempts = [
+      // eval a:3 attempts,2 通过 1 失败 → 题内 partial credit 2/3
+      mk("algebra/a", "passed", 0, 0),
+      mk("algebra/a", "failed", 1, 1),
+      mk("algebra/a", "passed", 2, 2),
+      // eval b:1 attempt 通过 → 题内 1
+      mk("algebra/b", "passed", 0, 3),
+      // eval c:1 attempt 跳过 —— 两级聚合与 eval 折叠计票都要把它排除在分母外
+      mk("algebra/c", "skipped", 0, 4),
+    ];
+    const evalIds = [...new Set(attempts.map((a) => a.evalId))];
+    const snapshot: Snapshot = {
+      ...base,
+      evals: evalIds.map((id) => ({ id, attempts: attempts.filter((a) => a.evalId === id) })),
+      attempts,
+    } as unknown as Snapshot;
+    const selection: Selection = { snapshots: [snapshot], warnings: [], filter: () => selection };
+    return { selection, attempts };
+  }
+
+  it("totals.passRate = 两级聚合 83.3%,既不等于 attempt 原始占比 75%,也不等于 eval 折叠投票 100%", async () => {
+    const { selection, attempts } = fakeVaryingAttemptsContext();
+    const data = await RunOverview.data(selection);
+
+    expect(data.totals.passRate.value).toBeCloseTo(5 / 6, 10);
+    expect(data.totals.passRate.display).toBe("83.3%");
+    expect(data.totals.passRate.samples).toBe(4); // 5 attempts - 1 skipped(不进桶)
+    expect(data.totals.passRate.total).toBe(5);
+
+    // attempt 原始占比(旧 bug 公式):必须与两级聚合不同,证明没有从 passed/failed/errored 现算
+    const attemptFraction = data.totals.passed / (data.totals.passed + data.totals.failed + data.totals.errored);
+    expect(attemptFraction).toBeCloseTo(0.75, 10);
+    expect(attemptFraction).not.toBeCloseTo(data.totals.passRate.value as number, 3);
+
+    // eval 折叠投票(evalLevelStats,GroupSummary 的口径):也必须与两级聚合不同
+    const stats = evalLevelStats(
+      attempts.map((a) => ({ verdict: a.result.verdict, key: a.evalId })),
+      (r) => r.key,
+    );
+    expect(stats.passRate).toBeCloseTo(1, 10);
+    expect(stats.passRate).not.toBeCloseTo(data.totals.passRate.value as number, 3);
+  });
+
+  it("web 面与 text 面显示同一个 passRate.display,覆盖率角标(4/5)两面一致", async () => {
+    const { selection } = fakeVaryingAttemptsContext();
+    const data = await RunOverview.data(selection);
+    const html = renderToStaticMarkup(<RunOverview data={data} />);
+    const term = text(<RunOverview data={data} />);
+    for (const face of [html, term]) {
+      expect(face).toContain(data.totals.passRate.display);
+      expect(face).toContain("4/5");
+    }
+  });
+});
+
+// ───────────────────────── GroupSummary ─────────────────────────
+
+describe("GroupSummary 双面", () => {
+  const html = renderToStaticMarkup(<GroupSummary data={groupSummaryData} />);
+  const term = text(<GroupSummary data={groupSummaryData} />);
+
+  it("text 面形态:一行头(通过率 + experiment/eval 数 + failed/errored + 总成本)+ 最后运行时间", () => {
+    expect(term).toMatchInlineSnapshot(`
+      "Pass rate 60% 5/6 · 2 experiments · 6 evals · failed 1 · errored 1 · $1.50
+      latest 2026-07-01T11:30:00Z"
+    `);
+  });
+
+  it("两面同口径:通过率显示同一个 MetricCell.display(60%,不是现场重算);总成本、最后运行时间两面一致", () => {
+    for (const face of [html, term]) {
+      expect(face).toContain("60%");
+      expect(face).toContain("$1.50");
+      expect(face).toContain("2026-07-01T11:30:00Z");
+    }
+    // 覆盖率角标:samples(5) < total(6) —— 1 道 eval 是 skipped,没进分母
+    expect(html).toContain("5/6");
+    expect(term).toContain("5/6");
+  });
+
+  it("缺成本:两面都显示无数据文案,不编 $0", () => {
+    const missingCost: GroupSummaryData = { ...groupSummaryData, totalCostUSD: null };
+    const h = renderToStaticMarkup(<GroupSummary data={missingCost} />);
+    const t = text(<GroupSummary data={missingCost} />);
+    for (const face of [h, t]) {
+      expect(face).toContain("no data");
+      expect(face).not.toContain("$0");
+    }
+  });
+
+  it("零失败:web 面整个 errored 片段不渲染,text 面也没有 errored 分段;failed 仍如实显示 0(不是省略整个字段)", () => {
+    const allPassed: GroupSummaryData = {
+      ...groupSummaryData,
+      verdicts: { passed: 6, failed: 0, errored: 0, skipped: 0 },
+      passRate: { value: 1, display: "100%", samples: 6, total: 6, refs: [] },
+    };
+    const h = renderToStaticMarkup(<GroupSummary data={allPassed} />);
+    const t = text(<GroupSummary data={allPassed} />);
+    expect(h).not.toContain("nre-verdict-errored");
+    expect(h).not.toContain(">errored<");
+    expect(t).not.toContain("errored");
+    // failed 计数依旧渲染,哪怕是 0 —— 数据字段本身从不省略,只是 errored 的展示片段在 0 时省略
+    expect(h).toContain(">failed<");
+    expect(t).toContain("failed 0");
+  });
+
+  it("存在错误:两面都显示 errored 计数(与 groupSummaryData 基础 fixture 的 errored:1 一致)", () => {
+    expect(html).toContain("nre-verdict-errored");
+    expect(html).toContain(">errored<");
+    expect(term).toContain("errored 1");
+  });
+
+  it("zh-CN locale:web 面走中文字典(通过率/失败/错误/总成本/实验数),text 面同理;display 数字不本地化", () => {
+    const zhHtml = renderToStaticMarkup(<GroupSummary data={groupSummaryData} locale="zh-CN" />);
+    expect(zhHtml).toContain("通过率");
+    expect(zhHtml).toContain("失败");
+    expect(zhHtml).toContain("错误");
+    expect(zhHtml).toContain("总成本");
+    expect(zhHtml).toContain("实验数");
+    expect(zhHtml).toContain("60%"); // display 本身不随 locale 变
+
+    const zhCtx = createTextContext({ width: 80, locale: "zh-CN" });
+    const zhTerm = renderNodeToText(<GroupSummary data={groupSummaryData} />, zhCtx);
+    expect(zhTerm).toContain("通过率");
+    expect(zhTerm).toContain("失败 1");
+    expect(zhTerm).toContain("错误 1");
+    expect(zhTerm).toContain("60%");
   });
 });
 
@@ -460,6 +636,175 @@ function fakeContext(): { selection: Selection; results: Results } {
   return { selection, results };
 }
 
+/**
+ * 同 fakeContext,但 "algebra/y" 这条失败 eval 的 result 可注入 error/skipReason/assertions ——
+ * 专门驱动 <DefaultReport /> 的 failing board(official-report.tsx 的 buildBoard)走一遍真实
+ * reasonFor 优先级(与 MetricTable expand 子行、CaseList 同一套材料)。
+ */
+function fakeContextWithReason(resultExtra: Partial<EvalResult>): { selection: Selection; results: Results } {
+  const snapshot: Snapshot = (() => {
+    const dir = "/results/compare_bub/snap-1";
+    const base = {
+      experimentId: "compare/bub",
+      startedAt: "2026-07-01T10:00:00Z",
+      completedAt: "2026-07-01T10:05:00Z",
+      agent: "bub",
+      schemaVersion: 1,
+      dir,
+    };
+    const mk = (id: string, verdict: "passed" | "failed", index: number, extra: Partial<EvalResult> = {}) => ({
+      evalId: id,
+      experimentId: "compare/bub",
+      result: {
+        id,
+        agent: "bub",
+        verdict,
+        attempt: 0,
+        startedAt: `2026-07-01T10:0${index}:00Z`,
+        durationMs: 1000,
+        assertions: [],
+        ...extra,
+      },
+      ref: { snapshot: "compare_bub/snap-1", attempt: `${id}/a0` },
+      snapshot: base,
+      events: async () => null,
+      trace: async () => null,
+      o11y: async () => null,
+      diff: async () => null,
+      sources: async () => null,
+    });
+    const attempts = [mk("algebra/x", "passed", 0), mk("algebra/y", "failed", 1, resultExtra)];
+    return {
+      ...base,
+      evals: attempts.map((a) => ({ id: a.evalId, attempts: [a] })),
+      attempts,
+    } as unknown as Snapshot;
+  })();
+  const selection: Selection = {
+    snapshots: [snapshot],
+    warnings: [],
+    filter: () => selection,
+  };
+  const results = {
+    experiments: [{ id: "compare/bub", snapshots: [snapshot], latest: snapshot, evalIds: ["algebra/x", "algebra/y"] }],
+    skipped: [],
+    latest: () => selection,
+  } as Results;
+  return { selection, results };
+}
+
+/**
+ * 三份快照:两个不同组("compare"、"other")各一个 experiment,外加一个无组实验("solo")—
+ * 混合用例,专门驱动 defaultReport 遍历 `groupKeysOf` 产出 3 个不同组键(2 个具名组 +
+ * 1 个 `undefined`)。`filter` 落实真实语义(不像 fakeContext 那样恒等返回自己),
+ * 因为 defaultReport 会用 `selection.filter((s) => groupOf(s) === key)` 按组键收窄。
+ */
+function fakeMultiGroupContext(): { selection: Selection; results: Results } {
+  const mkSnapshot = (experimentId: string, agent: string, dirSuffix: string): Snapshot => {
+    const dir = `/results/${dirSuffix}`;
+    const base = {
+      experimentId,
+      startedAt: "2026-07-01T10:00:00Z",
+      completedAt: "2026-07-01T10:05:00Z",
+      agent,
+      schemaVersion: 1,
+      dir,
+    };
+    const attempt = {
+      evalId: "algebra/x",
+      experimentId,
+      result: {
+        id: "algebra/x",
+        agent,
+        verdict: "passed" as const,
+        attempt: 0,
+        startedAt: "2026-07-01T10:00:00Z",
+        durationMs: 1000,
+        assertions: [],
+      },
+      ref: { snapshot: dirSuffix, attempt: "algebra/x/a0" },
+      snapshot: base,
+      events: async () => null,
+      trace: async () => null,
+      o11y: async () => null,
+      diff: async () => null,
+      sources: async () => null,
+    };
+    return {
+      ...base,
+      evals: [{ id: attempt.evalId, attempts: [attempt] }],
+      attempts: [attempt],
+    } as unknown as Snapshot;
+  };
+
+  const snapshots = [
+    mkSnapshot("compare/bub", "bub", "compare_bub/snap-1"),
+    mkSnapshot("other/codex", "codex", "other_codex/snap-1"),
+    mkSnapshot("solo", "bub", "solo/snap-1"),
+  ];
+
+  const makeSelection = (snaps: Snapshot[]): Selection => ({
+    snapshots: snaps,
+    warnings: [],
+    filter: (predicate) => makeSelection(snaps.filter(predicate)),
+  });
+  const selection = makeSelection(snapshots);
+  const results = {
+    experiments: snapshots.map((s) => ({
+      id: s.experimentId,
+      snapshots: [s],
+      latest: s,
+      evalIds: ["algebra/x"],
+    })),
+    skipped: [],
+    latest: () => selection,
+  } as Results;
+  return { selection, results };
+}
+
+describe("<DefaultReport /> failing board · 原因优先级", () => {
+  const report = defineReport(async () => (
+    <Col>
+      <DefaultReport />
+    </Col>
+  ));
+
+  it("error 优先于失败 gate 与失败 soft", async () => {
+    const ctx = fakeContextWithReason({
+      error: "adapter crashed",
+      assertions: [
+        { name: "includes", severity: "gate", score: 0, passed: false, detail: "missing text" },
+        { name: "judge", severity: "soft", score: 0.2, passed: false },
+      ],
+    });
+    const out = await renderReportToText(report, ctx, { width: 100 });
+    expect(out).toContain("adapter crashed");
+    expect(out).not.toContain("includes");
+  });
+
+  it("多个失败 gate 按原始声明顺序拼接;失败 soft 不出现在原因里", async () => {
+    const ctx = fakeContextWithReason({
+      assertions: [
+        { name: "judge-first", severity: "soft", score: 0.1, passed: false },
+        { name: "includes", severity: "gate", score: 0, passed: false, detail: "missing text" },
+        { name: "matches", severity: "gate", score: 0, passed: false },
+      ],
+    });
+    const out = await renderReportToText(report, ctx, { width: 100 });
+    expect(out).toContain("includes: missing text, matches");
+    expect(out).not.toContain("judge-first");
+  });
+
+  it("errored 没有断言时仍显示 error(不需要 assertions 才有原因)", async () => {
+    const errored = await renderReportToText(
+      report,
+      fakeContextWithReason({ verdict: "errored", error: "ENOENT tool" }),
+      { width: 100 },
+    );
+    expect(errored).toContain("ENOENT tool");
+  });
+});
+
 describe("defineReport + 渲染入口", () => {
   const report = defineReport(async ({ selection }) => (
     <Col>
@@ -557,5 +902,21 @@ describe("defaultReport", () => {
     const zhText = await renderReportToText(defaultReport, fakeContext(), { locale: "zh-CN" });
     expect(zhText).toContain("1 个实验");
     expect(zhText).toContain("成功率");
+  });
+
+  it("grouped 与 ungrouped snapshots 混合:所有组和无分组实验都出现一次,组间保留空行", async () => {
+    const out = await renderReportToText(defaultReport, fakeMultiGroupContext(), { width: 100 });
+    // 两个具名组的 Section 标题各自只出现一次(标题独占一行)
+    expect(out.match(/^compare$/m) ?? []).toHaveLength(1);
+    expect(out.match(/^other$/m) ?? []).toHaveLength(1);
+    // 无组实验直接平铺相同 blocks,不发明虚构组名/标题
+    expect(out).toContain("solo");
+    expect(out).not.toContain("(ungrouped)");
+    // 三个 experiment 的榜单行都出现过一次
+    expect(out).toContain("compare/bub");
+    expect(out).toContain("other/codex");
+    // 组与组之间(text 面)保留 Col 的段落空行分隔,不因为 sections 数组被当成
+    // <Col> 单个子节点整体传入而在内层退化成单换行(nested-array 折叠 bug 回归)
+    expect(out).toMatch(/\n\nother\n/);
   });
 });

@@ -6,6 +6,7 @@
 import type {
   CaseListData,
   DeltaData,
+  GroupSummaryData,
   LineData,
   MatrixData,
   MetricColumn,
@@ -31,6 +32,9 @@ export const overviewData: OverviewData = {
     failed: 8,
     errored: 2,
     skipped: 2,
+    // 两级聚合口径(computeCell)刻意不等于 36/(36+8+2)≈78% 的 attempt 原始占比:
+    // 组件必须原样渲染这个字段,不得从上面四个 verdict 计票现场重算。
+    passRate: { value: 0.7, display: "70%", samples: 46, total: 48, refs: [] },
     costUSD: null, // 全部 attempt 都没报成本:null,组件必须显示缺数据而不是 $0
     durationMs: 261_000,
   },
@@ -49,6 +53,19 @@ export const overviewWithCost: OverviewData = {
   ...overviewData,
   totals: { ...overviewData.totals, costUSD: 1.234 },
   warnings: [],
+};
+
+/** GroupSummary.data 的产物形态:eval 级折叠计票 + 旧 GroupSelector 口径的通过率(包成 MetricCell)。 */
+export const groupSummaryData: GroupSummaryData = {
+  experiments: 2,
+  // evals = 全部 verdicts 之和(3+1+1+1=6);passRate 分母只数非 skipped 的 5 道
+  evals: 6,
+  attempts: 9,
+  verdicts: { passed: 3, failed: 1, errored: 1, skipped: 1 },
+  // 3 passed / (3 + 1 + 1) = 60%;samples=ran=5 < total=evals=6:1 道 skipped 未计入分母的覆盖率角标
+  passRate: { value: 0.6, display: "60%", samples: 5, total: 6, refs: [] },
+  totalCostUSD: 1.5,
+  lastRunAt: "2026-07-01T11:30:00Z",
 };
 
 export const tableData: TableData<"pass-rate" | "code-lines"> = {

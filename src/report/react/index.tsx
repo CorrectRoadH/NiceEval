@@ -11,6 +11,7 @@
 export {
   CaseList,
   DeltaTable,
+  GroupSummary,
   MetricBars,
   MetricLine,
   MetricMatrix,
@@ -22,6 +23,7 @@ export {
 export type {
   CaseListProps,
   DeltaTableProps,
+  GroupSummaryProps,
   MetricLineProps,
   MetricMatrixProps,
   MetricScatterProps,
@@ -35,6 +37,7 @@ export type {
   AttemptRef,
   CaseListData,
   DeltaData,
+  GroupSummaryData,
   LineAxis,
   LineData,
   MatrixData,

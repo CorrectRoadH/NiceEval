@@ -15,7 +15,7 @@ import {
   type ReportNode,
   type TextRenderOptions,
 } from "./tree.ts";
-import { prepareDefaultReportData, runWithDefaultReportData } from "./default-report.tsx";
+import { prepareDefaultReportData, runWithDefaultReportData } from "./official-report.tsx";
 
 export interface ReportContext {
   /** results.latest() 挑好的 Selection:现刻水位快照 + 结构化挑选警告,同默认报告口径。 */

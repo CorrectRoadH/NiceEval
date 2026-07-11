@@ -5,7 +5,7 @@ metadata:
   type: project
 ---
 
-**裁决**(2026-07-11):`defaultReport`(`src/report/default-report-definition.tsx`,`niceeval view`/`show`
+**裁决**(2026-07-11):`defaultReport`(`src/report/default-report.tsx`,`niceeval view`/`show`
 裸跑填充)的榜单 `MetricTable.data(...)` 加 `expand: "eval"`,每个 experiment 行可展开看这个实验
 下每道题的判定/原因/同一套指标列;报告尾部原来的独立 `<CaseList data={...} />` 板块删除。
 
@@ -33,7 +33,7 @@ metadata:
 - text 面(`niceeval show`,`src/report/text/faces.ts` 的 `tableText`)对应产出:表格本体不变,
   失败/错误的子行渲染成父行下面缩进的明细块(`✗ <id> — <reason>` + `→ niceeval show <id>`),
   取代了原来单独调 `caseListData`/`caseListText` 产出的尾部清单。
-- `<DefaultReport />`(大写,`src/report/default-report.tsx` 里给用户在自己报告里当锚点用的
+- `<DefaultReport />`(大写,`src/report/official-report.tsx` 里给用户在自己报告里当锚点用的
   「官方水位」)**没有改**——它的失败清单仍然是 `CaseList`,这是两个不同的导出
   (`defaultReport` 小写是裸跑填充物,`<DefaultReport />` 是可选摆件),改的范围只到裸跑那一份。
 - 文档同步:`docs/reports.md`(`expand` 选项说明)、`docs/view.md`(统计层计算函数表)、

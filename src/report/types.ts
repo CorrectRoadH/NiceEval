@@ -127,7 +127,11 @@ export interface TableSubRow<K extends string = string> {
   cells: Record<K, MetricCell>;
   /** 子群体折叠判定(foldEvalVerdict 口径:任一 attempt 通过则通过,否则取最严重的)。 */
   verdict: "passed" | "failed" | "errored" | "skipped";
-  /** 失败原因摘要:代表 attempt 第一条未过的断言名,没有则用 error;都没有则缺席。 */
+  /**
+   * 失败原因文案,按优先级取第一个在场的:`error` → `skipReason` → 未通过的 gate 断言
+   * (原始声明顺序,`name`,detail 在场则 `"name: detail"`,多条用「, 」连接)→ 缺席。
+   * soft 断言永不进入;soft 得分是独立概念,不会出现在这个字段里。
+   */
   reason?: string;
   /** 代表 attempt 的深链(与 verdict 同一条:折叠判定对应的那条 attempt)。 */
   ref: AttemptRef;
@@ -137,16 +141,35 @@ export interface TableSubRow<K extends string = string> {
 }
 
 /**
- * 榜单行的元信息:rows: "experiment" 时随行(experiment 行天然有唯一的 agent/model 身份
- * 与 eval 级折叠计票);其它维度不携带。web / text 面在 meta 在场时补 Model / Agent /
- * Verdicts 列,与 view 原生榜单同列面。`subRows` 由 `expand` 选项触发,不限于
- * rows: "experiment"——任何行维度配 `expand` 都能展开出子行。
+ * 榜单行的元信息:rows: "experiment" 时随行(experiment 行天然有唯一的 agent/model 身份、
+ * eval 级折叠计票与「这行覆盖了多少题/多少次尝试/最近何时跑的」);其它维度不携带。
+ * web / text 面在 meta 在场时补 Model / Agent / Verdicts 列,`evals`/`attempts`/
+ * `lastRunAt` 则渲染成行键下的一行紧凑摘要——与 view 原生榜单同一份信息密度。
+ * `subRows` 由 `expand` 选项触发,不限于 rows: "experiment"——任何行维度配 `expand`
+ * 都能展开出子行。
  */
 export interface TableRowMeta<K extends string = string> {
   agent?: string;
   model?: string;
   /** eval 级折叠计票(foldEvalVerdict 口径,与 view 榜单同一套):每题折成单一判定后计数。 */
   verdicts?: { passed: number; failed: number; errored: number; skipped: number };
+  /**
+   * `rows: "experiment"` 专属:这一行覆盖的 eval 数(去重后,summarizeItems 口径,与
+   * `verdicts` 四项之和一致)。其它行维度(agent/eval/自定义…)没有「这一行是几道题」的
+   * 独立语义(题本身就是行),不携带这个字段。
+   */
+  evals?: number;
+  /**
+   * `rows: "experiment"` 专属:这一行覆盖的 attempt 总数(原始计数,含多轮重试)。
+   * 大于 `evals` 说明存在多轮重试(early-exit 复测 / flaky 重跑);等于 `evals` 说明
+   * 每题只跑了一轮。同上,只在 `rows: "experiment"` 时语义成立。
+   */
+  attempts?: number;
+  /**
+   * `rows: "experiment"` 专属:这一行覆盖范围内快照 `startedAt` 的最大值(最近一次运行
+   * 时间,ISO 8601,字符串比较即可比大小)。组内没有任何 item 时缺席。
+   */
+  lastRunAt?: string;
   /** `expand` 维度展开出的子行;未设 `expand` 时缺席。 */
   subRows?: TableSubRow<K>[];
 }
@@ -242,15 +265,62 @@ export interface LineData {
   }[];
 }
 
+/**
+ * 一组 experiment(如 `defaultReport` 里同一 `<Section>` 内的全部 experiment)的摘要:
+ * experiment/eval/attempt 数量、eval 级折叠计票、通过率、总成本、最后运行时间——
+ * 恢复旧 `GroupSelector` 卡片曾展示的信息密度,但通过率是官方 `MetricCell` 形态,
+ * 不是裸数字,渲染面不用另外拼格式。
+ */
+export interface GroupSummaryData {
+  /** 组内 experiment 数(去重后的 experimentId 个数)。 */
+  experiments: number;
+  /**
+   * 组内 eval 数,按完整身份键(experimentId + eval id)去重——多 experiment 的组里
+   * 两个 experiment 各自的同名 eval(如都叫 "algebra/a")算两道题,不会被误合并成一道。
+   */
+  evals: number;
+  /** 组内 attempt 总数(原始计数,一轮 attempt 一票,不折叠)。 */
+  attempts: number;
+  /**
+   * eval 级折叠计票:同一 eval 的多轮 attempt 先折成一个判定(`foldEvalVerdict`,任一轮
+   * 通过则通过,否则取最严重的),再计数——与 `TableRowMeta.verdicts`、view 榜单同一口径,
+   * 不是 attempt 原始票数的直接计票。
+   */
+  verdicts: { passed: number; failed: number; errored: number; skipped: number };
+  /**
+   * 组的通过率:eval 级折叠计票的 `passed / (passed + failed + errored)`(`skipped` 不进
+   * 分母)——这是旧 `GroupSelector` 卡片的口径,不是 `OverviewData.totals.passRate` 那种
+   * `computeCell` 两级聚合(两者服务不同问题:「这组题多少算过」vs「整体质量几分」)。
+   * 分母为 0(组内没有任何已跑的 eval)时 `value` 为 `null`,不编 0%。
+   */
+  passRate: MetricCell;
+  /** 组内可测成本(`attemptCostUSD`)求和;一次 attempt 都没报成本 = `null`,不编 `0`。 */
+  totalCostUSD: number | null;
+  /** 组内快照 `startedAt` 的最大值(字符串比较,ISO 8601 天然可比);组内没有任何 item 时缺席。 */
+  lastRunAt?: string;
+}
+
 export interface OverviewData {
   snapshots: { experimentId: string; agent: string; model?: string; startedAt: string }[];
   totals: {
     evals: number;
     attempts: number;
+    /**
+     * 四个 attempt 原始判定计票(一个 attempt 一票),独立于 `passRate`:驱动页头的
+     * 判定计数展示,不是通过率公式的输入——不要从这四个数现场重算百分比。
+     */
     passed: number;
     failed: number;
     errored: number;
     skipped: number;
+    /**
+     * 通过率的唯一官方口径:`computeCell(passRate, items)`,与 `MetricTable.data(...,
+     * columns: [passRate])` 同一台两级聚合引擎(题内折叠 perEval、跨题折叠 across,默认都是
+     * mean)——一道题内多个 attempt 部分通过,贡献的是小数份额而不是二元票。`samples`/`total`
+     * 是两级聚合口径下的 attempt 计数(`total` 含 skipped,`samples` 不含),不等于上面四个
+     * verdict 计票的任何一个之和。
+     */
+    passRate: MetricCell;
     /** 任一 attempt 报了成本才有;全缺 = null,不编 0。 */
     costUSD: number | null;
     durationMs: number;
@@ -290,6 +360,7 @@ export interface CaseListData {
     verdict: "failed" | "errored";
     /** errored 的错误摘要(已过 redact)。 */
     error?: string;
+    /** 未通过的 gate 断言,原始声明顺序;soft 断言不决定判定,不列在这里。 */
     failedAssertions: { name: string; score: number; detail?: string; evidence?: string }[];
     durationMs: number;
     costUSD?: number;

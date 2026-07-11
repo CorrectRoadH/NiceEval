@@ -11,9 +11,11 @@
 // - core 中立:只认 Metric / Dimension 接口,不出现具体 agent 名的分支。
 
 import type {
+  AttemptRef,
   CaseListData,
   DeltaData,
   DimensionInput,
+  GroupSummaryData,
   LineData,
   MatrixData,
   Metric,
@@ -26,6 +28,7 @@ import type {
   TableRowMeta,
   TableSubRow,
 } from "./types.ts";
+import type { AssertionResult, EvalResult } from "../types.ts";
 import { evalLevelStats, foldEvalVerdict } from "../shared/verdict.ts";
 import {
   applyAggregator,
@@ -49,7 +52,7 @@ import {
   type Item,
   type SnapshotsInput,
 } from "./aggregate.ts";
-import { attemptCostUSD, examScore } from "./metrics.ts";
+import { attemptCostUSD, examScore, passRate } from "./metrics.ts";
 import { formatMetricValue, formatPlainNumber } from "./format.ts";
 
 // ───────────────────────── MetricTable.data ─────────────────────────
@@ -72,10 +75,89 @@ export interface TableDataOptions<M extends readonly Metric[]> {
   expand?: DimensionInput;
 }
 
+// 一组 Item 的 eval 全身份键:experimentId + eval id。单 experiment 场景(如 experimentRowMeta,
+// 一组本就只有一个 experimentId)下退化为只按 eval id 折叠,与旧行为一致;多 experiment 场景
+// (GroupSummary 的组可能跨多个 experiment)下避免两个 experiment 里同名 eval 被误合并成一道题。
+// 分隔符是 NUL(同 aggregate.ts 的 KEY_SEP 手法):不会出现在 eval id / experimentId 里,拼接键不串味。
+const GROUP_KEY_SEP = "\u0000";
+function fullEvalKey(item: Item): string {
+  return `${experimentIdOf(item)}${GROUP_KEY_SEP}${evalIdOf(item)}`;
+}
+
 /**
- * experiment 行的元信息:agent/model 身份(组内去重后拼接)+ eval 级折叠计票
- * (evalLevelStats,即 view 榜单/DefaultReport 榜单的同一套 foldEvalVerdict 口径)。
- * 其它行维度(agent/eval/自定义…)没有唯一身份,不携带。
+ * 一批 Item 的组级统计:eval 级折叠计票(evalLevelStats,与 view 榜单 / `TableRowMeta.verdicts`
+ * 同一套 foldEvalVerdict 口径,按完整身份键折叠)、experiment/eval/attempt 数量、总成本
+ * (null-safe 求和)、最后运行时间(组内快照 startedAt 的最大值)。`experimentRowMeta` 与
+ * `groupSummaryData` 共用这一份实现,不各自拼装 evalLevelStats。
+ *
+ * 内部纯函数,不导出、不进 index.ts:对外只经 `experimentRowMeta`(挑 verdicts)与
+ * `groupSummaryData`(挑全部字段,包成 `GroupSummaryData`)暴露,调用方拿不到 `Item[]`
+ * 本身,所以这里也不用担心被越权复用。
+ */
+function summarizeItems(items: Item[]): {
+  experiments: number;
+  evals: number;
+  attempts: number;
+  verdicts: { passed: number; failed: number; errored: number; skipped: number };
+  /** 折叠后代表每个「已跑」(非 skipped)eval 的一条 attempt 引用,与 ran 同序同数。 */
+  refs: AttemptRef[];
+  /** 计入通过率分母的 eval 数(passed + failed + errored,不含 skipped)。 */
+  ran: number;
+  totalCostUSD: number | null;
+  lastRunAt: string | undefined;
+} {
+  const experimentIds = new Set<string>();
+  for (const item of items) experimentIds.add(experimentIdOf(item));
+
+  const byEval = new Map<string, Item[]>();
+  for (const item of items) {
+    const key = fullEvalKey(item);
+    const list = byEval.get(key);
+    if (list) list.push(item);
+    else byEval.set(key, [item]);
+  }
+  const stats = evalLevelStats(
+    items.map((item) => ({ verdict: item.attempt.result.verdict, key: fullEvalKey(item) })),
+    (r) => r.key,
+  );
+  // 折叠代表 attempt:每个已跑的 eval 挑一条与折叠判定一致的 attempt 做证据引用
+  // (与 subRows() 挑代表 attempt 同一姿势),skipped 的 eval 不进分母、不出证据。
+  const refs: AttemptRef[] = [];
+  for (const group of byEval.values()) {
+    const verdict = foldEvalVerdict(group.map((item) => item.attempt.result));
+    if (verdict === "skipped") continue;
+    const rep = group.find((item) => item.attempt.result.verdict === verdict) ?? group[0]!;
+    refs.push(rep.attempt.ref);
+  }
+
+  let totalCostUSD: number | null = null;
+  for (const item of items) {
+    const cost = attemptCostUSD(item.attempt.result);
+    if (cost !== null) totalCostUSD = (totalCostUSD ?? 0) + cost;
+  }
+
+  let lastRunAt: string | undefined;
+  for (const item of items) {
+    const startedAt = item.snapshot.startedAt;
+    if (lastRunAt === undefined || startedAt > lastRunAt) lastRunAt = startedAt;
+  }
+
+  return {
+    experiments: experimentIds.size,
+    evals: stats.evals,
+    attempts: items.length,
+    verdicts: { passed: stats.passed, failed: stats.failed, errored: stats.errored, skipped: stats.skipped },
+    refs,
+    ran: stats.passed + stats.failed + stats.errored,
+    totalCostUSD,
+    lastRunAt,
+  };
+}
+
+/**
+ * experiment 行的元信息:agent/model 身份(组内去重后拼接)+ eval 级折叠计票 + eval/attempt
+ * 数量与最后运行时间(summarizeItems,即 view 榜单/DefaultReport 榜单的同一套 foldEvalVerdict
+ * 口径)。其它行维度(agent/eval/自定义…)没有唯一身份,不携带。
  */
 function experimentRowMeta(group: Item[]): TableRowMeta {
   const agents = new Set<string>();
@@ -85,25 +167,38 @@ function experimentRowMeta(group: Item[]): TableRowMeta {
     const model = item.attempt.result.model ?? item.snapshot.model;
     if (model !== undefined) models.add(model);
   }
-  const stats = evalLevelStats(
-    group.map((item) => ({ verdict: item.attempt.result.verdict, key: evalIdOf(item) })),
-    (r) => r.key,
-  );
+  const stats = summarizeItems(group);
   return {
     ...(agents.size > 0 ? { agent: [...agents].join(", ") } : {}),
     ...(models.size > 0 ? { model: [...models].join(", ") } : {}),
-    verdicts: { passed: stats.passed, failed: stats.failed, errored: stats.errored, skipped: stats.skipped },
+    verdicts: stats.verdicts,
+    evals: stats.evals,
+    attempts: stats.attempts,
+    ...(stats.lastRunAt !== undefined ? { lastRunAt: stats.lastRunAt } : {}),
   };
 }
 
 /**
- * 代表 attempt 第一条未过的断言(名 + detail,detail 缺席就只有名);没有未过断言
- * (空 group 之外的 errored/skipped)则用 error。与 CaseList.data 的原因摘要同一套材料。
+ * 一次 attempt 未通过的 gate 断言,原始声明顺序不变;soft 断言不参与判定,不算「失败原因」,
+ * 只影响得分,永不出现在这份列表里。`MetricTable expand` 子行、`CaseList`、`<DefaultReport />`
+ * 的 failing board 共用这同一份材料,保证同一个 attempt 在三处给出同一个原因。
  */
-function reasonFor(rep: Item): string | undefined {
-  const gate = rep.attempt.result.assertions.find((a) => !a.passed);
-  if (gate) return gate.detail ? `${gate.name} — ${gate.detail}` : gate.name;
-  return rep.attempt.result.error;
+export function failingGateAssertions(result: EvalResult): AssertionResult[] {
+  return result.assertions.filter((a) => !a.passed && a.severity === "gate");
+}
+
+/**
+ * 一次 attempt 的失败原因文案,按优先级取第一个在场的:
+ * `error` → `skipReason` → 未通过的 gate 断言(原始声明顺序,`name`,detail 在场则
+ * `"name: detail"`,多条用「, 」连接)→ 都缺席则无原因(如某道题恰好没有失败信号)。
+ * soft 断言永不进入这份原因文案,soft 得分是独立概念,不与 reason 混用同一个字段。
+ */
+export function reasonFor(result: EvalResult): string | undefined {
+  if (result.error !== undefined) return result.error;
+  if (result.skipReason !== undefined) return result.skipReason;
+  const gates = failingGateAssertions(result);
+  if (gates.length === 0) return undefined;
+  return gates.map((a) => (a.detail ? `${a.name}: ${a.detail}` : a.name)).join(", ");
 }
 
 /**
@@ -127,7 +222,7 @@ async function subRows<const M extends readonly Metric[]>(
       key,
       cells: cells as Record<M[number]["name"], MetricCell>,
       verdict,
-      reason: reasonFor(rep),
+      reason: reasonFor(rep.attempt.result),
       ref: rep.attempt.ref,
       runs: items.length,
       passedRuns: items.filter((item) => item.attempt.result.verdict === "passed").length,
@@ -441,6 +536,9 @@ export async function overviewData(input: SnapshotsInput): Promise<OverviewData>
     const cost = attemptCostUSD(result);
     if (cost !== null) costUSD = (costUSD ?? 0) + cost;
   }
+  // 通过率的唯一官方口径:两级聚合(computeCell),不是从上面四个 verdict 计票现场重算——
+  // 一道题内 attempt 部分通过要算部分 credit,不是二元投票。
+  const passRateCell = await computeCell(passRate, items);
   return {
     snapshots: snapshots.map((s) => ({
       experimentId: s.experimentId,
@@ -448,8 +546,49 @@ export async function overviewData(input: SnapshotsInput): Promise<OverviewData>
       model: s.model,
       startedAt: s.startedAt,
     })),
-    totals: { evals: evalIds.size, attempts: items.length, passed, failed, errored, skipped, costUSD, durationMs },
+    totals: {
+      evals: evalIds.size,
+      attempts: items.length,
+      passed,
+      failed,
+      errored,
+      skipped,
+      passRate: passRateCell,
+      costUSD,
+      durationMs,
+    },
     warnings: [...warnings],
+  };
+}
+
+// ───────────────────────── GroupSummary.data ─────────────────────────
+
+/**
+ * 一组 experiment 的摘要:experiment/eval/attempt 数量、eval 级折叠计票、通过率(旧
+ * `GroupSelector` 卡片口径,见 summarizeItems)、总成本(null-safe 求和)、最后运行时间
+ * (组内快照 startedAt 最大值)。`input` 就是调用方已经收窄好的组 Selection(如
+ * `defaultReport` 按 experiment 组前缀 filter 出来的那份)——本函数不再自己分组。
+ */
+export async function groupSummaryData(input: SnapshotsInput): Promise<GroupSummaryData> {
+  const { snapshots } = resolveInput(input);
+  const items = collectItems(snapshots);
+  const summary = summarizeItems(items);
+  const ratio = summary.ran > 0 ? summary.verdicts.passed / summary.ran : null; // 分母为 0 → 缺数据,不编 0%
+  const passRateCell: MetricCell = {
+    value: ratio,
+    display: ratio === null ? "—" : formatMetricValue(ratio, "%"),
+    samples: summary.ran,
+    total: summary.evals,
+    refs: summary.refs,
+  };
+  return {
+    experiments: summary.experiments,
+    evals: summary.evals,
+    attempts: summary.attempts,
+    verdicts: summary.verdicts,
+    passRate: passRateCell,
+    totalCostUSD: summary.totalCostUSD,
+    ...(summary.lastRunAt !== undefined ? { lastRunAt: summary.lastRunAt } : {}),
   };
 }
 
@@ -536,14 +675,13 @@ export async function caseListData(input: SnapshotsInput, opts?: CaseListDataOpt
       agent: result.agent,
       verdict: result.verdict as "failed" | "errored",
       error: result.error === undefined ? undefined : redact(result.error),
-      failedAssertions: result.assertions
-        .filter((assertion) => !assertion.passed)
-        .map((assertion) => ({
-          name: assertion.name,
-          score: assertion.score,
-          detail: assertion.detail === undefined ? undefined : redact(assertion.detail),
-          evidence: assertion.evidence === undefined ? undefined : redact(assertion.evidence),
-        })),
+      // gate 断言同 reasonFor 口径(soft 不决定判定,不算「为什么失败」,排除在外)
+      failedAssertions: failingGateAssertions(result).map((assertion) => ({
+        name: assertion.name,
+        score: assertion.score,
+        detail: assertion.detail === undefined ? undefined : redact(assertion.detail),
+        evidence: assertion.evidence === undefined ? undefined : redact(assertion.evidence),
+      })),
       durationMs: result.durationMs,
       costUSD: cost ?? undefined,
       ref: item.attempt.ref,

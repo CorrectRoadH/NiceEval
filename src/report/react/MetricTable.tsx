@@ -107,6 +107,17 @@ export function MetricTable({
                   data-sort-value={row.key}
                 >
                   {row.key}
+                  {/* rows: "experiment" 专属:eval/attempt 数 + 最后运行时间,行键下的一行紧凑摘要
+                      (旧 ExperimentRow 的 "N eval results · N runs · 最后运行时间") */}
+                  {row.meta?.evals !== undefined && (
+                    <div className="nre-row-meta-sub">
+                      {localeText(locale, "overview.evalsCount", { n: row.meta.evals })}
+                      {row.meta.attempts !== undefined && row.meta.attempts > row.meta.evals
+                        ? ` · ${localeText(locale, "overview.attemptsCount", { n: row.meta.attempts })}`
+                        : ""}
+                      {row.meta.lastRunAt ? ` · ${localeText(locale, "latestRun", { run: row.meta.lastRunAt })}` : ""}
+                    </div>
+                  )}
                 </th>
                 {hasMeta && hasModel && (
                   <td className="nre-td nre-meta-cell" data-sort-value={row.meta?.model ?? ""}>

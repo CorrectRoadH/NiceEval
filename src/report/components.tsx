@@ -11,6 +11,7 @@ import type { AttemptRef } from "../results/index.ts";
 import type {
   CaseListData,
   DeltaData,
+  GroupSummaryData,
   LineData,
   MatrixData,
   OverviewData,
@@ -21,6 +22,7 @@ import type {
 import {
   caseListData,
   deltaData,
+  groupSummaryData,
   lineData,
   matrixData,
   overviewData,
@@ -32,6 +34,7 @@ import {
   barsText,
   caseListText,
   deltaText,
+  groupSummaryText,
   lineText,
   matrixText,
   overviewText,
@@ -40,6 +43,7 @@ import {
   tableText,
 } from "./text/faces.ts";
 import { RunOverview as RunOverviewWeb } from "./react/RunOverview.tsx";
+import { GroupSummary as GroupSummaryWeb } from "./react/GroupSummary.tsx";
 import { MetricTable as MetricTableWeb } from "./react/MetricTable.tsx";
 import { MetricMatrix as MetricMatrixWeb } from "./react/MetricMatrix.tsx";
 import { MetricBars as MetricBarsWeb } from "./react/MetricBars.tsx";
@@ -53,6 +57,13 @@ import { CaseList as CaseListWeb } from "./react/CaseList.tsx";
 
 export interface RunOverviewProps {
   data: OverviewData;
+  /** chrome 文案 locale;省略时随宿主上下文(宿主外默认 "en")。 */
+  locale?: ReportLocale;
+  className?: string;
+}
+
+export interface GroupSummaryProps {
+  data: GroupSummaryData;
   /** chrome 文案 locale;省略时随宿主上下文(宿主外默认 "en")。 */
   locale?: ReportLocale;
   className?: string;
@@ -131,6 +142,20 @@ export const RunOverview = Object.assign(
   { data: overviewData },
 );
 RunOverview.displayName = "RunOverview";
+
+/**
+ * 组摘要:一组 experiment(典型用法是同一 `<Section>` 内的全部 experiment)的紧凑统计——
+ * 通过率(旧 GroupSelector 卡片口径)、experiment/eval/attempt 数、eval 级折叠计票、
+ * 总成本、最后运行时间。
+ */
+export const GroupSummary = Object.assign(
+  defineComponent<GroupSummaryProps>({
+    web: (props, ctx) => <GroupSummaryWeb {...props} locale={props.locale ?? ctx.locale} />,
+    text: ({ data }, ctx) => groupSummaryText(data, ctx),
+  }),
+  { data: groupSummaryData },
+);
+GroupSummary.displayName = "GroupSummary";
 
 /** 榜单:一行一个维度值、一列一个指标,回答「谁整体更好」。 */
 export const MetricTable = Object.assign(

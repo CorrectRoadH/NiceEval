@@ -71,6 +71,27 @@ passed 26 · failed 12 · errored 4 · skipped 0 · $0.93 · 9m 15s
 ! snapshot compare/codex-gpt-5.4 predates latest run by 2 days
 ```
 
+## `GroupSummary` —— 组摘要
+
+一组 experiment（如 `defaultReport` 里同一个 `<Section>` 内的全部 experiment）的紧凑统计块，回答「这组题综合算下来过了多少、花了多少、什么时候跑的」。组件本身不分组——先用 `Selection.filter` 把 Selection 收窄到这一组，再喂给 `GroupSummary.data`：
+
+```tsx
+const scoped = selection.filter((s) => s.experimentId.startsWith("compare/"));
+
+<Section title="compare">
+  <GroupSummary data={await GroupSummary.data(scoped)} />
+</Section>
+```
+
+```text
+Pass rate 73.3% · 2 experiments · 15 evals · failed 3 · errored 1 · $0.93
+latest 2026-07-09T10:00:00Z
+```
+
+通过率是 eval 级折叠计票口径：同一 eval 的多轮 attempt 先折成一个判定（任一轮通过则算通过，否则取最严重的），`passed / (passed + failed + errored)`，`skipped` 不进分母——与页头 `RunOverview` 那个两级聚合、带 partial credit 的 `passRate` 是两码事，两者服务不同问题：`GroupSummary` 回答「这组题过了几道」，`RunOverview` 回答「整体质量几分」，不要互相替代。`evals` 按 `experimentId + eval id` 的完整身份键去重——组里两个 experiment 各自的同名 eval 算两道题，不会被误合并成一道。`errored` 为 0 时这一段省略，但 `verdicts.errored` 这个数据字段本身永远在，省略只发生在渲染层。`totalCostUSD` 是组内可测 attempt 成本求和，一个 attempt 都没报成本时是 `null`，两面都渲染缺数据而不是 `$0`。
+
+要在自己的报告文件里摆同一块组摘要（不止 `defaultReport` 能用），直接调 `GroupSummary.data`——它和 `defaultReport` 用的是同一个公开计算函数，不是默认报告独占的能力。
+
 ## `MetricTable` —— 榜单
 
 一行一个维度值、一列一个指标的对比表，回答「谁整体更好」。行维度、指标列、排序全部可换，自定义指标（`defineMetric`）与内置指标同列。

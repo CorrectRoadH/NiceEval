@@ -101,8 +101,9 @@ export function MetricScatter({
       label: pointLabel(r.key),
       xValue,
       yValue,
-      // hover 内容:display 与 samples/total(docs/reports.md 行为清单)
-      title: `${r.key}\n${xLabel}: ${r.x.display}(${r.x.samples}/${r.x.total})\n${yLabel}: ${r.y.display}(${r.y.samples}/${r.y.total})`,
+      // hover 内容:experiment(点键)+ 系列(series,defaultReport 传的是 agent/model 维度,
+      // 有则加一行;无系列的散点没有这行)+ 两轴 display 与 samples/total(docs/reports.md 行为清单)
+      title: `${r.key}${r.series !== undefined ? `\n${r.series}` : ""}\n${xLabel}: ${r.x.display}(${r.x.samples}/${r.x.total})\n${yLabel}: ${r.y.display}(${r.y.samples}/${r.y.total})`,
       px: xScale.scale(xValue),
       py: yScale.scale(yValue),
     };

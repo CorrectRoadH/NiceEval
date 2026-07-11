@@ -14,7 +14,7 @@ const g = globalThis as { React?: unknown };
 if (g.React === undefined) g.React = React;
 import type { AttemptRef } from "../results/index.ts";
 import { runWithWebContext, validateReportTree, type WebContext } from "./tree.ts";
-import { prepareDefaultReportData, runWithDefaultReportData } from "./default-report.tsx";
+import { prepareDefaultReportData, runWithDefaultReportData } from "./official-report.tsx";
 import { DEFAULT_REPORT_LOCALE, type ReportLocale } from "./locale.ts";
 import type { ReportContext, ReportDefinition } from "./report.ts";
 

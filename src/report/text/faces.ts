@@ -8,6 +8,7 @@
 import type {
   CaseListData,
   DeltaData,
+  GroupSummaryData,
   LineData,
   MatrixData,
   MetricColumn,
@@ -46,6 +47,9 @@ export function overviewText(data: OverviewData, ctx: TextContext): string {
     countText(locale, "overview.experiments", snapshots.length),
     localeText(locale, "overview.evalsCount", { n: totals.evals }),
     localeText(locale, "overview.attemptsCount", { n: totals.attempts }),
+    // 通过率只渲染 computeCell 算好的同一个 MetricCell(cellText 复用缺数据/coverage 角标语义),
+    // 不从 passed/failed/errored 现场重算——与 web 面 RunOverview 同一份数据同一种读法。
+    `${localeText(locale, "overview.passRate")} ${cellText(totals.passRate)}`,
     countText(locale, "composedFrom", runs),
     ...(latest ? [localeText(locale, "latestRun", { run: latest })] : []),
   ].join(" · ");
@@ -59,6 +63,28 @@ export function overviewText(data: OverviewData, ctx: TextContext): string {
   ].join(" · ");
   const lines = [head, tallies];
   for (const warning of data.warnings) lines.push(`! ${warning.message}`);
+  return lines.join("\n");
+}
+
+// ───────────────────────── GroupSummary ─────────────────────────
+
+/**
+ * 一至两行:头行是通过率(GroupSummaryData.passRate.display,不重算比例)+ experiment/eval 数 +
+ * failed(+ errored,非零才列,与旧 GroupSelector 卡片一致)+ 总成本;第二行(有则加)是最后运行时间。
+ * 不依赖固定网格宽度,窄终端自然换行。
+ */
+export function groupSummaryText(data: GroupSummaryData, ctx: TextContext): string {
+  const locale = ctx.locale;
+  const head = [
+    `${localeText(locale, "overview.passRate")} ${cellText(data.passRate)}`,
+    countText(locale, "overview.experiments", data.experiments),
+    localeText(locale, "overview.evalsCount", { n: data.evals }),
+    `${localeText(locale, "verdict.failed")} ${data.verdicts.failed}`,
+    ...(data.verdicts.errored > 0 ? [`${localeText(locale, "verdict.errored")} ${data.verdicts.errored}`] : []),
+    data.totalCostUSD === null ? missingText(locale) : formatUSD(data.totalCostUSD),
+  ].join(" · ");
+  const lines = [head];
+  if (data.lastRunAt) lines.push(localeText(locale, "latestRun", { run: data.lastRunAt }));
   return lines.join("\n");
 }
 
@@ -102,6 +128,20 @@ export function tableText(data: TableData, ctx: TextContext): string {
   ]);
   const table = renderAlignedRows([header, ...rows]);
 
+  // rows: "experiment" 专属的行摘要(eval/attempt 数 + 最后运行时间):表格列已经挤满
+  // dimension/model/agent/指标/verdicts,这几个数字挤进行键下面单独一行,与 web 面
+  // 「行键下的小 sub-line」同一份信息、同一种「不进列」的取舍。
+  const metaLines: string[] = [];
+  for (const row of data.rows) {
+    if (row.meta?.evals === undefined) continue;
+    const parts = [localeText(locale, "overview.evalsCount", { n: row.meta.evals })];
+    if (row.meta.attempts !== undefined && row.meta.attempts > row.meta.evals) {
+      parts.push(localeText(locale, "overview.attemptsCount", { n: row.meta.attempts }));
+    }
+    if (row.meta.lastRunAt) parts.push(localeText(locale, "latestRun", { run: row.meta.lastRunAt }));
+    metaLines.push(`  ${row.key}: ${parts.join(" · ")}`);
+  }
+
   // expand 展开的子行:表格本身只挤得下判定计票,原因得另起一块——每个有失败/错误子行
   // 的父行下面跟一段缩进明细(✗/! + 原因 + 下钻命令),没有 expand 或全通过的行不产出。
   const details: string[] = [];
@@ -118,7 +158,12 @@ export function tableText(data: TableData, ctx: TextContext): string {
     }
     details.push(indentBlock(lines.join("\n"), "  "));
   }
-  return details.length > 0 ? `${table}\n\n${details.join("\n\n")}` : table;
+  const blocks = [
+    table,
+    ...(metaLines.length > 0 ? [metaLines.join("\n")] : []),
+    ...(details.length > 0 ? [details.join("\n\n")] : []),
+  ];
+  return blocks.join("\n\n");
 }
 
 // ───────────────────────── MetricMatrix ─────────────────────────

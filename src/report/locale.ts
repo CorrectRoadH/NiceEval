@@ -43,6 +43,9 @@ const en = {
   "overview.evalsCount": "{n} evals",
   "overview.attemptsCount": "{n} attempts",
 
+  /** GroupSummary 的 KPI dt 标签(其余字段复用 verdict.* / overview.* 已有 key)。 */
+  "groupSummary.experiments": "Experiments",
+
   "composedFrom.one": "composed from {n} run",
   "composedFrom.other": "composed from {n} runs",
   "latestRun": "latest {run}",
@@ -100,7 +103,7 @@ const zhCN: Record<ReportMessageKey, string> = {
   "table.viewBreakdown": "逐题明细",
 
   "overview.snapshots": "快照",
-  "overview.evals": "Evals",
+  "overview.evals": "题目",
   "overview.attempts": "尝试",
   "overview.passRate": "通过率",
   "overview.totalCost": "总成本",
@@ -110,6 +113,8 @@ const zhCN: Record<ReportMessageKey, string> = {
   "overview.experiments.other": "{n} 个实验",
   "overview.evalsCount": "{n} 道题",
   "overview.attemptsCount": "{n} 次 attempt",
+
+  "groupSummary.experiments": "实验数",
 
   "composedFrom.one": "合成自 {n} 个 run",
   "composedFrom.other": "合成自 {n} 个 run",

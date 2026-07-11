@@ -95,6 +95,14 @@ table.nre,
 .nre tbody th[scope="row"] {
   font-weight: 610;
 }
+/* rows: "experiment" 专属:行键下的紧凑摘要(eval/attempt 数、最后运行时间) */
+.nre .nre-row-meta-sub {
+  margin-top: 2px;
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 0.82em;
+  font-variant-numeric: tabular-nums;
+}
 .nre td {
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
@@ -317,6 +325,38 @@ table.nre,
   background: color-mix(in oklch, var(--warn), var(--panel) 92%);
   color: var(--text);
   font-size: 13px;
+}
+
+/* ---- GroupSummary:组摘要块(嵌在 Section 内的紧凑统计,不是 RunOverview 那种满宽页头 KPI 条)---- */
+.nre-group-summary .nre-group-kpis {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 22px;
+  row-gap: 6px;
+  margin: 0 0 6px;
+}
+.nre-group-summary .nre-group-kpi {
+  min-width: 68px;
+}
+.nre-group-summary .nre-group-kpi dt {
+  color: var(--soft);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.nre-group-summary .nre-group-kpi dd {
+  margin: 3px 0 0;
+  font-size: 16px;
+  line-height: 1.15;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.nre-group-summary .nre-group-kpi-rate dd { font-size: 18px; }
+.nre-group-summary-time {
+  color: var(--soft);
+  font-size: 0.85em;
+  margin: 0 0 0.75rem;
 }
 
 /* ---- MetricMatrix ---- */

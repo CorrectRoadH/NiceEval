@@ -5,7 +5,7 @@
 import type { ReactElement } from "react";
 import type { OverviewData } from "../types.ts";
 import { DEFAULT_REPORT_LOCALE, localeText, type ReportLocale } from "../locale.ts";
-import { cx, formatDurationMs, formatPercent, formatUSD } from "./format.ts";
+import { cx, formatDurationMs, formatUSD } from "./format.ts";
 
 export function RunOverview({
   data,
@@ -17,10 +17,26 @@ export function RunOverview({
   locale?: ReportLocale;
 }): ReactElement {
   const { totals } = data;
-  // 通过率口径与内置 passRate 指标一致:skipped → null 不进分母,errored/failed 计 0
-  const judged = totals.passed + totals.failed + totals.errored;
-  const passRate = judged > 0 ? formatPercent(totals.passed / judged) : null;
   const missing = <span className="nre-missing">{localeText(locale, "cell.missing")}</span>;
+  // 通过率只渲染 computeCell 算好的 MetricCell,不现场重算——覆盖率角标复用
+  // MetricCellView 的缺数据/coverage 语义(缺数据 = 显式文案,绝不画 0%)
+  const { passRate } = totals;
+  const passRateNode =
+    passRate.value === null ? (
+      missing
+    ) : (
+      <>
+        {passRate.display}
+        {passRate.samples < passRate.total && (
+          <sup
+            className="nre-coverage"
+            title={localeText(locale, "cell.coverageTitle", { samples: passRate.samples, total: passRate.total })}
+          >
+            {passRate.samples}/{passRate.total}
+          </sup>
+        )}
+      </>
+    );
 
   return (
     <header className={cx("nre", "nre-overview", className)}>
@@ -39,7 +55,7 @@ export function RunOverview({
         </div>
         <div className="nre-kpi">
           <dt>{localeText(locale, "overview.passRate")}</dt>
-          <dd>{passRate ?? missing}</dd>
+          <dd>{passRateNode}</dd>
         </div>
         <div className="nre-kpi">
           <dt>{localeText(locale, "overview.totalCost")}</dt>

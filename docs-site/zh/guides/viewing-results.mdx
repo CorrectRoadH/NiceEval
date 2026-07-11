@@ -68,7 +68,7 @@ niceeval show weather/brooklyn --history      # 跨 run 时间轴：抖动与回
 
 | `niceeval view` 里的视图 | 终端对应 |
 | --- | --- |
-| 默认报告（总览、每组的散点图与榜单，每行可点开看这个实验下每道题的判定与原因） | `niceeval show` |
+| 默认报告（总览、每组的组摘要 + 散点图 + 榜单，每行可点开看这个实验下每道题的判定与原因） | `niceeval show` |
 | attempt 详情（断言、错误、用量） | `niceeval show <eval id>` |
 | transcript | `niceeval show <eval id> --transcript` |
 | trace 瀑布图 | `niceeval show <eval id> --trace` |
@@ -77,34 +77,56 @@ niceeval show weather/brooklyn --history      # 跨 run 时间轴：抖动与回
 
 ### 默认报告
 
-不带 flag 的 `niceeval show` 渲染默认报告的终端版，从上到下两块：运行总览（几个 experiment、几个 eval、判定分布、总成本、合成来源），每个实验组一节（组按 experiment id 的 `/` 前缀划分）——组内一张质量 × 成本字符坐标图加一张榜单；榜单每行是一个 experiment，有失败/错误题的行下面跟一段缩进明细（哪道题、什么原因、下钻命令）：
+不带 flag 的 `niceeval show` 渲染默认报告的终端版。最上面是运行总览：几个 experiment、几个 eval、几次 attempt、通过率、合成自几个 run、判定分布（passed/failed/errored/skipped 的 attempt 原始计票）、总成本、总耗时。这里的通过率是两级聚合口径——同一道题在同一次快照下多次 attempt 部分通过，按份额计入（比如 3 次 attempt 过 2 次贡献 0.667，不是非过即不过的二元票），再对所有题取平均，与下面榜单里 `Pass rate` 列同一套公式、同一个数字。
+
+总览下面，每个实验组一节（组按 experiment id 的 `/` 前缀划分，如 `compare/bub-gpt-5.4` 的组是 `compare`）：有几个组就渲染几节，都摆在同一个页面上，不用来回切换。每节从上到下是组摘要（这组题综合算下来通过率多少、覆盖几个 experiment/几道题、failed 几个、errored 几个（0 个时省略这一项）、总成本、最后一次运行时间——通过率是这组 eval 折叠计票后的 `passed / (passed + failed + errored)`，`skipped` 不进分母，和总览那个两级聚合是两码事：组摘要回答「这组题过了几道」，总览回答「整体质量几分」）、一张质量 × 成本字符坐标图（组内可比较的点少于两个时省略，画不出比较就不画）、一张榜单。榜单每行是一个 experiment，行下面跟一行紧凑摘要（覆盖几道题、几次 attempt——只在多于题数时才列出、说明有重试、最后一次运行时间）；有失败/错误题的行再往下跟一段缩进明细，每条是「哪道题、什么原因、下钻命令」。失败原因只取三处之一：`error`（环境/adapter/agent runtime 报错）、跳过原因，或未通过的 gate 断言——按题目里声明的顺序列出，多条断言用「, 」连接，断言带 detail 就是「名字: detail」，不带就只有名字；soft 断言不参与判定，从不出现在失败原因里，它的分数是报告里另一处的展示，不会混进这段文字。
+
+没有 `/` 前缀的实验不属于任何组，直接摆出同一套组摘要 + 图 + 榜单，紧跟在已有分组的后面，不会因为没有组名被过滤掉，也不会被套上一个编造的组标题。
+
+以下是单个 `compare` 组的真实转录（`bub-gpt-5.4` 5 道题全过，其中一道题 3 次 attempt 里 2 次过、贡献部分通过率；`codex-gpt-5.4` 5 道题里 1 道两个 gate 都没过、1 道跑到 sandbox 超时算 errored）：
 
 ```text
 $ niceeval show
-2 experiments · 15 evals · 30 attempts · composed from 3 runs · latest 2026-07-09T10:00:00.000Z
-passed 25 · failed 5 · errored 0 · skipped 0 · $0.93 · 9m 15s
+2 experiments · 5 evals · 12 attempts · Pass rate 76.7% · composed from 1 run · latest 2026-07-09T10:00:00.000Z
+passed 9 · failed 2 · errored 1 · skipped 0 · $0.72 · 11m 58s
 
 compare
-      Pass rate ↑
-   87%│                                          A
-      │
-   80%│          B
-      └────────────────────────────────────────────→ Cost (axis reversed: right = better)
-       $0.51                                  $0.42
+  Pass rate 80% · 2 experiments · 10 evals · failed 1 · errored 1 · $0.72
+  latest 2026-07-09T10:00:00.000Z
+
+        Pass rate ↑
+   93.3%│                                                                      A
+        │
+        │
+        │
+        │
+        │
+        │
+        │
+     60%│B
+        └───────────────────────────────────────────────────────────────────────→ Cost (axis reversed: right = better)
+         $0.08                                                             $0.05
 
   better → upper right
   A compare/bub-gpt-5.4   B compare/codex-gpt-5.4
 
-  experiment              Model     Agent   Duration   Pass rate   Tokens          Cost    Verdicts
-  compare/bub-gpt-5.4     gpt-5.4   bub     4m 12s     87%         412.0k tokens   $0.42   13 passed / 2 failed
-  compare/codex-gpt-5.4   gpt-5.4   codex   5m 03s     80%         521.0k tokens   $0.51   12 passed / 3 failed
+  experiment              Model     Agent   Duration   Pass rate   Tokens        Cost    Verdicts
+  compare/bub-gpt-5.4     gpt-5.4   bub     50.3s      93.3%       6.4k tokens   $0.05   5 passed
+  compare/codex-gpt-5.4   gpt-5.4   codex   1m 23s     60%         7.8k tokens   $0.08   3 passed / 1 failed / 1 errored
+
+    compare/bub-gpt-5.4: 5 evals · 7 attempts · latest 2026-07-09T10:00:00.000Z
+    compare/codex-gpt-5.4: 5 evals · latest 2026-07-09T10:00:00.000Z
 
     compare/codex-gpt-5.4
-      ✗ weather/brooklyn — calledTool("get_weather") — tool was never called
+      ! api/validate — sandbox timeout after 180000ms
+        → niceeval show api/validate
+      ✗ weather/brooklyn — calledTool("get_weather"): tool was never called, noHallucinatedTemperature(): reply invents a temperature without any tool call
         → niceeval show weather/brooklyn
 ```
 
-榜单每行一个 experiment，带 agent 与 model 列——同组多配置并排时一眼看清每行是谁；verdicts 是按 eval 折叠后的判定计数。跑多 experiment 的组时，`niceeval exp` 收尾块里的汇总表就是这个榜单的形状——同一份表格渲染，判定折叠口径也相同；区别只在数据范围：收尾块只汇总本次 run，`show` 是跨 run 合成的现刻水位，各自在表头如实标注。网页版（`niceeval view`）同一份数据，榜单每行可以点开/收起这段明细，不用一直全部铺开。
+总览的 `5 evals` 和组摘要的 `10 evals` 不是同一个计数——总览按 eval id 去重（两个 experiment 都跑了 `weather/brooklyn` 只算一道题），组摘要按「experiment + eval id」的完整身份去重（同名题在两个 experiment 里各算各的，不会被误合并成一道）。`compare/bub-gpt-5.4` 行下面的摘要多带了一项 `7 attempts`——5 道题却有 7 次 attempt，说明其中有题重试过；`compare/codex-gpt-5.4` 那行 5 道题正好 5 次 attempt，不重试就不列这一项。`weather/brooklyn` 两个 gate 断言都没过，原因按声明顺序全列、用逗号连接；`api/validate` 是 sandbox 超时，`error` 优先于任何断言，原因就是这条错误本身。这份示例只有一个组；页面上其它组各自另起一节，没有 `/` 前缀的实验（比如独立跑的 `smoke-test`）不归在任何组里，直接把组摘要、图、榜单摆在最后一节的位置。
+
+榜单每行一个 experiment，带 Model 与 Agent 列——同组多配置并排时一眼看清每行是谁；Verdicts 是按 eval 折叠后的判定计数（同一题多次 attempt 先折成一个判定，再计数，和组摘要的折叠是同一套口径）。跑多 experiment 的组时，`niceeval exp` 收尾块里的汇总表就是这个榜单的形状——同一份表格渲染，判定折叠口径也相同；区别只在数据范围：收尾块只汇总本次 run，`show` 是跨 run 合成的现刻水位，各自在表头如实标注。网页版（`niceeval view`）同一份数据，组摘要和榜单都在，榜单每行可以点开/收起失败明细，不用一直全部铺开。
 
 ### 单个 eval
 
@@ -194,7 +216,7 @@ npx niceeval view
   失败后立刻运行 `npx niceeval view`，可以直接打开刚刚那次运行的 artifacts。
 </Tip>
 
-view 的首页是一份报告：不传 `--report` 时是默认报告——与 `show` 同一份内容（总览、每组的散点图与榜单）的网页版；传了 `--report` 就换成你自己的报告（与 `show --report` 吃同一个文件），见[自定义报告](/zh/guides/custom-reports)。证据部分（attempt 弹窗、transcript、trace 瀑布、run 列表）始终保留，报告里的数字点进去就是证据。
+view 的首页是一份报告：不传 `--report` 时是默认报告——与 `show` 同一份内容（总览、每组的组摘要 + 散点图 + 榜单）的网页版；传了 `--report` 就换成你自己的报告（与 `show --report` 吃同一个文件），见[自定义报告](/zh/guides/custom-reports)。证据部分（attempt 弹窗、transcript、trace 瀑布、run 列表）始终保留，报告里的数字点进去就是证据。
 
 网页版多几样浏览操作：点表头就地排序、在榜单的过滤框里筛行、点开一个 experiment 行看它每道题的判定与原因、悬停散点看数值——这些只影响眼前的视图，不改判定口径，刷新即恢复。报告上方有 **Copy fix prompt** 按钮，把全部失败打包成可直接粘给 coding agent 的修复 prompt（attempt 弹窗里有单条版）。报告文案有中英两份，随界面语言切换。
 

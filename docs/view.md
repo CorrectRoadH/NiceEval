@@ -71,7 +71,7 @@ niceeval view --out site              # 目录式静态导出:index.html + artif
 
 view = **报告槽 + 证据室**:
 
-- **报告槽(首页)**:恒由 `renderReportToStaticHtml` 渲染成静态 HTML,以 `<template>` 静态块烘在页面数据旁,前端只摆放不解析。默认填充公开导出的内置默认报告 `defaultReport`——运行总览 → 按实验组分节(每组一张质量 × 成本散点图 + 一张组内榜单)→ 失败清单,形态与列的契约见 [Reports · defaultReport](reports.md#defaultreport内置默认报告是一个公开导出的值);`--report <文件>` 整槽替换。报告槽渲染两遍(en 与 zh-CN)烘成两个 `<template>`,壳按当前界面语言摆放,切语言不重算数据。表头排序、榜单行过滤、散点 hover 这些浏览态交互来自官方组件随包的渐进增强 runtime(契约见 [Reports 的跨组件契约](reports.md#第一档react-组件--报告页是你应用里的一页)),server 与 `--out` 导出都把 runtime 与 styles.css 内联,无 JS 时页面内容完整。
+- **报告槽(首页)**:恒由 `renderReportToStaticHtml` 渲染成静态 HTML,以 `<template>` 静态块烘在页面数据旁,前端只摆放不解析。默认填充公开导出的内置默认报告 `defaultReport`——运行总览(`RunOverview`)之后,按 experimentId 的 `/` 前缀分组,每组一个 `Section`,组内依次是组摘要(`GroupSummary`:通过率、experiment/eval/attempt 数、failed 与 errored 计数——errored 为 0 时省略该项、总成本、最后运行时间)、组内成本 × 通过率散点(可画点少于两个时省略图)、组内榜单(`MetricTable`,行可展开看这个 experiment 下每道题的判定与原因)。所有组一次性全部渲染在同一页,不是选中一组才显示、其余隐藏的选择器状态;没有 `/` 前缀的实验(无分组)直接铺出同一套 blocks,不发明虚构的组标题。形态与列的完整契约见 [Reports · defaultReport](reports.md#defaultreport内置默认报告是一个公开导出的值);`--report <文件>` 整槽替换。报告槽渲染两遍(en 与 zh-CN)烘成两个 `<template>`,壳按当前界面语言摆放,切语言不重算数据。表头排序、榜单行过滤、散点 hover 这些浏览态交互来自官方组件随包的渐进增强 runtime(契约见 [Reports 的跨组件契约](reports.md#第一档react-组件--报告页是你应用里的一页)),server 与 `--out` 导出都把 runtime 与 styles.css 内联,无 JS 时页面内容完整。
 - **证据室**:Runs(所有 run 打平成一张表)、Traces(trace 瀑布图)两个 tab,加 `AttemptModal` 钻取(断言、错误、耗时、用量、transcript、trace)。报告槽里的数字经 `#/attempt/<snapshot>/<attempt>` 深链进来;证据室数据恒为全量,不随位置参数收窄。
 - **trace 瀑布图** —— 把 `trace.json` 画成时间轴瀑布,只读 canonical(`gen_ai.operation.name` → `kind`、`gen_ai.*`),不认任何原生 span 名,所以不同 agent 的图天然对齐、可叠加对比。
 - **Copy fix prompt(学 Next.js 16.3 的 Copy prompt)** —— 宿主壳里、报告槽上方的批量按钮:把全部失败(含 artifact 路径与修复步骤)打包成可直接粘给 coding agent 的英文修复 prompt,从 `viewData.snapshots` 现算,所以默认报告与 `--report` 两种填充下都在;`AttemptModal` 头部有单条版。实现在 `src/view/app/components/CopyControls.tsx` 的 `buildFixPrompt`。
@@ -136,7 +136,7 @@ view = **报告槽 + 证据室**:
 | 层 | 实现 |
 |---|---|
 | 读取层 | [`openResults`](results-lib.md#读openresults):版本分流与形状校验,读不了的落盘进 `skipped`(三种原因),壳渲染成横幅 |
-| 统计层 | 全部住在报告槽里:`defaultReport` 的计算函数(`RunOverview.data` / `MetricTable.data(rows: "experiment", expand: "eval")` / `MetricScatter.data`),口径是 `results.latest()` Selection + 跨快照去重 |
+| 统计层 | 全部住在报告槽里:`defaultReport` 的计算函数(`RunOverview.data` / `GroupSummary.data` / `MetricTable.data(rows: "experiment", expand: "eval")` / `MetricScatter.data`),口径是 `results.latest()` Selection + 跨快照去重 |
 | 渲染层 | 报告槽 = `renderReportToStaticHtml` 的静态 HTML(官方组件 web 面 + 渐进增强 runtime + styles.css 内联);前端 React app 只承担证据室与壳(导航、界面语言、修复 prompt 按钮、skipped 横幅) |
 | 证据室 | AttemptModal / Traces / Runs / 导航壳——view 的本体,报告积木不重造它们 |
 
@@ -148,7 +148,7 @@ view = **报告槽 + 证据室**:
 
 明确裁决的取舍(是裁决,不是缺口):
 
-- **行内展开钻取不迁移。** 旧榜单「点开一行展开 eval / attempt 明细」的交互不再存在:每个格子的数字经 `MetricCell.refs` 深链直达证据,失败明细由 `CaseList` 逐条列出,单条细看走 `AttemptModal`——「数字点进去就是证据」覆盖了展开的全部用途,不需要第二套钻取机制。
+- **行内展开钻取只回补进 `defaultReport` 榜单,不做成通用机制。** `defaultReport` 的组内榜单开着 `MetricTable` 的 `expand: "eval"`:点开一个 experiment 行,原生 `<details>` 展开出这个实验下每道题的判定与原因(与 [Reports · 计算函数与数据契约](reports.md#计算函数与数据契约)同一份 `reasonFor` 材料);不是另一套判定来源,子行复用同一套 `MetricCell`,单条深挖仍走 `AttemptModal`。没开 `expand` 的表(用户自定义报告、`<DefaultReport />` 锚点组件)没有这层展开,失败明细仍由 `CaseList` 逐条列出——每个格子的数字始终经 `MetricCell.refs` 深链直达证据室,不需要第二套跨块钻取机制。
 - **跨块全局搜索不做。** 过滤是每张表自己的 filter 框(渐进增强的浏览态);要固定口径的收窄,用位置参数前缀或自定义报告的计算参数。
 - **「一次看一组」不迁移。** 默认报告按实验组分节纵排,一页看全所有组;只想看一组时用位置参数前缀收窄 Selection,不做组选择器这类界面状态。
 

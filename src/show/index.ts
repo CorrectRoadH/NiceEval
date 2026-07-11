@@ -16,7 +16,7 @@ import { join, resolve } from "node:path";
 import { openResults, type AttemptRef, type Results } from "../results/index.ts";
 import { renderReportToText } from "../report/report.ts";
 import { ReportLoadError, loadReportFile } from "../report/load.ts";
-import { defaultReport } from "../report/default-report-definition.tsx";
+import { defaultReport } from "../report/default-report.tsx";
 import { detectLocale, t } from "../i18n/index.ts";
 import {
   composeShowSelection,

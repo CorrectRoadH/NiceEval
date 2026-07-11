@@ -1,227 +1,104 @@
-// DefaultReport:官方水位整块 —— 官方两扇门裸跑时渲染的就是它,零 props、纯声明。
-// 「渲染面纯同步」与它不冲突,靠的是一个数据事实:官方水位(overview、榜单、失败清单)
-// 只读瘦身条目、不碰任何懒加载 artifact,宿主对着已挑好的 Selection 总是把这份数据备好、经上下文
-// 注入(renderReportToText / renderReportToStaticHtml 里 prepareDefaultReportData)。
-// 它渲染的口径钉死为宿主注入的那份 Selection —— 零 props 意味着没有跟随的通道,这是锚点语义:
-// 官方口径与自定义口径并排对照。默认无特权:数据全部来自公开计算函数。
+// defaultReport:官方两扇门裸跑时渲染的内置默认报告(`niceeval show` ≡
+// `show --report <这一份>`;view 的接线在宿主侧)。与 <DefaultReport />(零 props 锚点、
+// 渲染宿主注入的官方水位)不同,这是一份普通 ReportDefinition:build 里用 ctx.selection
+// 现算,零特权 —— 数据全部来自公开计算函数,用户自己的报告文件写得出一模一样的东西。
 //
-// text 面是官方水位榜单(docs-site/zh/guides/report-components.mdx DefaultReport 节的
-// 示例块是行为规范):`Current verdicts` 头标注合成自几个 run、experiment 表带 eval 级
-// 折叠的 evals 列、Failing 清单每条带判定时间与下钻命令。裸跑 `show` 渲染的默认报告是
-// defaultReport 值(default-report-definition.tsx),不是本组件;那侧的行为规范在
-// docs-site/zh/guides/viewing-results.mdx 的示例块。
+// 单独成文件而不并进 official-report.tsx:report.ts(defineReport 的家)在模块图上
+// 先于 official-report.tsx 求值(它注入官方水位),official-report.tsx 顶层调 defineReport
+// 会踩 REPORT_DEFINITION 的 TDZ;这里晚于两者装载,没有环。
 
-import { basename } from "node:path";
-import type { Selection } from "../results/index.ts";
-import { foldEvalVerdict } from "../shared/verdict.ts";
-import { countText, localeText, type ReportLocale } from "./locale.ts";
-import { defineComponent, type TextContext } from "./tree.ts";
-import type { CaseListData, OverviewData, TableData } from "./types.ts";
-import { caseListData, overviewData, tableData } from "./compute.ts";
-import { attemptCostUSD, costUSD, durationMs, passRate } from "./metrics.ts";
-import { RunOverview, MetricTable, CaseList } from "./components.tsx";
-import { cellText } from "./text/faces.ts";
-import { renderAlignedRows } from "./text/layout.ts";
+import type { Selection, Snapshot } from "../results/index.ts";
+import { experimentGroupOf } from "../shared/aggregate.ts";
+import { defineReport, type ReportDefinition } from "./report.ts";
+import type { ReportNode } from "./tree.ts";
+import { Col, Section } from "./primitives.tsx";
+import { GroupSummary, MetricScatter, MetricTable, RunOverview } from "./components.tsx";
+import { costUSD, durationMs, passRate, tokens } from "./metrics.ts";
+import type { GroupSummaryData, ScatterData, TableData } from "./types.ts";
 
-/** 榜单的合成标注与 eval 级折叠(text 面用;与 verdicts/cases 出自同一 Selection)。 */
-export interface VerdictBoardData {
-  /** 判定合成自几个物理 run。 */
-  composedFromRuns: number;
-  /** 参与合成的最新 run(目录名,即时间戳)。 */
-  latestRun?: string;
-  /** experiment → eval 级折叠计票(evals 列的 13/15)。 */
-  tallies: Record<string, { passedEvals: number; totalEvals: number }>;
-  /** eval 级折叠后失败/出错的题,带判定时间;新失败在前。 */
-  failing: {
-    evalId: string;
-    experimentId: string;
-    verdict: "failed" | "errored";
-    /** 最新 attempt 的第一条失败断言("gate calledTool(...)")或错误摘要。 */
-    reason?: string;
-    /** 判定产生的时刻(最新 attempt 的 startedAt,缺失退快照时刻)。 */
-    verdictAt?: string;
-  }[];
-  /** limit 之外还有几条,如实报。 */
-  failingTruncated: number;
+/** 组键:experiment id 的目录前缀(与 view 榜单分组同一份推导);顶层实验(id 无 "/")无组。 */
+function groupOf(snapshot: Snapshot): string | undefined {
+  return experimentGroupOf(snapshot.experimentId);
 }
 
-export interface DefaultReportData {
-  overview: OverviewData;
-  /** 现刻榜单:experiment × (passRate, costUSD, durationMs)。 */
-  verdicts: TableData;
-  cases: CaseListData;
-  board: VerdictBoardData;
-}
-
-/** 失败清单的出厂截断;完整清单自己摆 <CaseList>(截断如实报剩余)。 */
-export const DEFAULT_CASE_LIMIT = 10;
-
-function buildBoard(selection: Selection): VerdictBoardData {
-  const tallies: VerdictBoardData["tallies"] = {};
-  const failing: VerdictBoardData["failing"] = [];
-  const runs = new Set<string>();
-  let latestRunDir = "";
-
+/** 全部组键,按 selection 内首次出现的顺序去重;顶层实验(id 无 "/")的组键是 `undefined`。 */
+function groupKeysOf(selection: Selection): (string | undefined)[] {
+  const keys: (string | undefined)[] = [];
   for (const snapshot of selection.snapshots) {
-    let passedEvals = 0;
-    for (const ev of snapshot.evals) {
-      for (const attempt of ev.attempts) {
-        runs.add(attempt.snapshot.dir);
-        if (attempt.snapshot.dir > latestRunDir) latestRunDir = attempt.snapshot.dir;
-      }
-      const verdict = foldEvalVerdict(ev.attempts.map((a) => a.result));
-      if (verdict === "passed") {
-        passedEvals += 1;
-        continue;
-      }
-      if (verdict !== "failed" && verdict !== "errored") continue;
-      const latest = ev.attempts.reduce((a, b) => (b.result.attempt >= a.result.attempt ? b : a));
-      const failedAssertion = latest.result.assertions.find((a) => !a.passed);
-      const reason = failedAssertion
-        ? `${failedAssertion.severity} ${failedAssertion.name}`
-        : latest.result.error !== undefined
-          ? `error: ${latest.result.error}`
-          : undefined;
-      failing.push({
-        evalId: ev.id,
-        experimentId: snapshot.experimentId,
-        verdict,
-        ...(reason !== undefined ? { reason } : {}),
-        ...(latest.result.startedAt !== undefined || snapshot.startedAt
-          ? { verdictAt: latest.result.startedAt ?? snapshot.startedAt }
-          : {}),
-      });
-    }
-    tallies[snapshot.experimentId] = { passedEvals, totalEvals: snapshot.evals.length };
+    const key = groupOf(snapshot);
+    if (!keys.includes(key)) keys.push(key);
   }
-
-  failing.sort((a, b) => (b.verdictAt ?? "").localeCompare(a.verdictAt ?? ""));
-  const shown = failing.slice(0, DEFAULT_CASE_LIMIT);
-  return {
-    composedFromRuns: runs.size,
-    ...(latestRunDir ? { latestRun: basename(latestRunDir) } : {}),
-    tallies,
-    failing: shown,
-    failingTruncated: failing.length - shown.length,
-  };
+  return keys;
 }
 
-/** 宿主渲染前备好官方水位:只读瘦身条目,代价可忽略。 */
-export async function prepareDefaultReportData(selection: Selection): Promise<DefaultReportData> {
-  return {
-    overview: await overviewData(selection),
-    verdicts: await tableData(selection, {
+interface GroupData {
+  summary: GroupSummaryData;
+  scatter: ScatterData;
+  table: TableData;
+}
+
+/** 一个组(已用 `groupOf` 收窄好的 Selection)的三份数据:摘要 + 成本×通过率散点 + 榜单。 */
+async function groupData(scoped: Selection): Promise<GroupData> {
+  const [summary, scatter, table] = await Promise.all([
+    GroupSummary.data(scoped),
+    MetricScatter.data(scoped, { points: "experiment", series: "agent", x: costUSD, y: passRate }),
+    MetricTable.data(scoped, {
       rows: "experiment",
-      columns: [passRate, costUSD, durationMs],
+      columns: [durationMs, passRate, tokens, costUSD],
       sort: passRate,
+      // 每个 experiment 行按 eval 展开明细(同一套 columns 在题级重算 + 判定/原因/深链):
+      // 点开一个 experiment 直接看它每道题为什么过/不过,不用去另一个板块找。
+      expand: "eval",
     }),
-    cases: await caseListData(selection, { limit: DEFAULT_CASE_LIMIT }),
-    board: buildBoard(selection),
-  };
+  ]);
+  return { summary, scatter, table };
 }
 
-let activeData: DefaultReportData | null = null;
-
-/** 宿主(与渲染入口)用:在注入好的官方水位下同步渲染。 */
-export function runWithDefaultReportData<T>(data: DefaultReportData, fn: () => T): T {
-  const prev = activeData;
-  activeData = data;
-  try {
-    return fn();
-  } finally {
-    activeData = prev;
-  }
+/** 一个组的积木:摘要 + 组内 frontier 散点(可画点 < 2 时省略,画不出比较就不画)+ 带过滤的榜单。 */
+function groupNodes(keyPrefix: string, data: GroupData): ReportNode[] {
+  const blocks: ReportNode[] = [<GroupSummary key={`${keyPrefix}:summary`} data={data.summary} />];
+  const drawable = data.scatter.rows.filter((r) => r.x.value !== null && r.y.value !== null).length;
+  if (drawable >= 2) blocks.push(<MetricScatter key={`${keyPrefix}:scatter`} data={data.scatter} />);
+  blocks.push(<MetricTable key={`${keyPrefix}:board`} data={data.table} filter />);
+  return blocks;
 }
 
-function requireData(): DefaultReportData {
-  if (!activeData) {
-    throw new Error(
-      "<DefaultReport /> renders the host-injected selection; render the report via " +
-        "`niceeval show --report` / `niceeval view --report` (or renderReportToText / renderReportToStaticHtml). " +
-        "Outside a host, compose the same blocks yourself: RunOverview, MetricTable, CaseList.",
-    );
-  }
-  return activeData;
-}
-
-/** 判定时间的相对标注(text 面的 "41s ago";渲染面纯同步,Date.now 不算 IO)。 */
-function agoText(iso: string | undefined, now: number): string {
-  if (!iso) return "";
-  const ms = now - Date.parse(iso);
-  if (!Number.isFinite(ms) || ms < 10_000) return "just now";
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 120) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 120) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 48) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
-}
-
-/** show 榜单(viewing-results.mdx「榜单」块):头 + experiment 表 + Failing 清单。 */
-function boardText(data: DefaultReportData, locale: ReportLocale): string {
-  const { verdicts, board, overview } = data;
-  const experiments = verdicts.rows.length;
-  const head = [
-    localeText(locale, "board.currentVerdicts"),
-    countText(locale, "overview.experiments", experiments),
-    countText(locale, "composedFrom", board.composedFromRuns),
-    ...(board.latestRun ? [localeText(locale, "latestRun", { run: board.latestRun })] : []),
-  ].join(" · ");
-  const headBlock = [head, ...overview.warnings.map((w) => `! ${w.message}`)].join("\n");
-
-  // 表:experiment | evals(eval 级折叠计票)| pass | cost | duration(顺序随 verdicts 预排)
-  const header = [verdicts.dimension, "evals", "pass", "cost", "duration"];
-  const rows = verdicts.rows.map((row) => {
-    const tally = board.tallies[row.key];
-    const cells = row.cells as Record<string, TableData["rows"][number]["cells"][string]>;
-    return [
-      row.key,
-      tally ? `${tally.passedEvals}/${tally.totalEvals}` : "—",
-      cells[passRate.name] ? cellText(cells[passRate.name]) : "—",
-      cells[costUSD.name] ? cellText(cells[costUSD.name]) : "—",
-      cells[durationMs.name] ? cellText(cells[durationMs.name]) : "—",
-    ];
-  });
-  const table = renderAlignedRows([header, ...rows]);
-
-  const blocks = [headBlock, table];
-  if (board.failing.length > 0) {
-    const now = Date.now();
-    const aligned = renderAlignedRows(
-      board.failing.map((f) => [
-        `✗ ${f.evalId}`,
-        f.experimentId,
-        f.reason ?? f.verdict,
-        agoText(f.verdictAt, now),
-      ]),
-    ).split("\n");
-    const lines: string[] = [localeText(locale, "board.failing")];
-    board.failing.forEach((f, i) => {
-      lines.push(`  ${aligned[i]}`);
-      lines.push(`      → niceeval show ${f.evalId}`);
-    });
-    if (board.failingTruncated > 0) {
-      lines.push(`  ${localeText(locale, "caseList.truncatedText", { n: board.failingTruncated })}`);
+/**
+ * 内置默认报告:官方宿主(`niceeval show` / `niceeval view`)裸跑时的报告槽出厂填充。
+ *
+ * 形态:顶部 {@link RunOverview};按 experiment 组(id 的目录前缀,如 `compare/bub-low`
+ * 的 `compare`)每组一个 `<Section title={组名}>`,内含组摘要 {@link GroupSummary}
+ * (通过率、experiment/eval/attempt 数、failed/errored、总成本、最后运行时间)、组内成本 ×
+ * 通过率的 {@link MetricScatter}(组内可画点 < 2 时省略图)与组内榜单 {@link MetricTable}
+ * (行 = experiment,附 Model / Agent / Verdicts 列与 eval/attempt 数、最后运行时间,
+ * 过滤输入框开,`expand: "eval"`——每行可展开看这个 experiment 每道题的判定/原因,零 JS
+ * 靠原生 `<details>`);无组的实验直接平铺同一套 blocks,不发明组名。组内 Selection 用
+ * `Selection.filter`(只删不换)收窄,warnings 随行修剪。
+ *
+ * 它是普通的 {@link ReportDefinition}:`--report` 换掉它,或在自己的报告文件里
+ * import 后当参照并排都行。
+ */
+export const defaultReport: ReportDefinition = defineReport(async ({ selection }) => {
+  const sections: ReportNode[] = [];
+  for (const key of groupKeysOf(selection)) {
+    const scoped = selection.filter((s) => groupOf(s) === key);
+    const data = await groupData(scoped);
+    const blocks = groupNodes(key ?? "(ungrouped)", data);
+    if (key === undefined) sections.push(...blocks);
+    else {
+      sections.push(
+        <Section key={key} title={key}>
+          {blocks}
+        </Section>,
+      );
     }
-    blocks.push(lines.join("\n"));
   }
-  return blocks.join("\n\n");
-}
 
-export const DefaultReport = defineComponent<Record<string, never>>({
-  web() {
-    const data = requireData();
-    return (
-      <div className="nre nre-default-report">
-        <RunOverview data={data.overview} />
-        <MetricTable data={data.verdicts} />
-        {data.cases.rows.length > 0 && <CaseList data={data.cases} />}
-      </div>
-    );
-  },
-  text(_props: Record<string, never>, ctx: TextContext) {
-    return boardText(requireData(), ctx.locale);
-  },
+  // 拼成一个扁平数组再整体作为 Col 的唯一子节点:JSX 里 `<Col><A/>{sections}</Col>` 会让
+  // `sections`(本身是数组)与 `<A/>` 一起被 React.createElement 打包成嵌套数组
+  // `[A, sections]`,text 面的数组分支(tree.ts renderNodeToText)按嵌套层级各自 join,
+  // 内层只用单换行而非 Col 的段落间距 "\n\n" —— 多组场景下组与组之间会丢空行。
+  // 这里手工展平成一层,交给 Col 的 childArray 统一处理。
+  const overview = <RunOverview key="overview" data={await RunOverview.data(selection)} />;
+  return <Col>{[overview, ...sections]}</Col>;
 });
-DefaultReport.displayName = "DefaultReport";

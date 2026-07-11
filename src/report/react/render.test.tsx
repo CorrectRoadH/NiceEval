@@ -42,7 +42,11 @@ describe("RunOverview", () => {
     expect(html).toContain("nre-overview");
     expect(html).toContain("<dd>12</dd>"); // 题目
     expect(html).toContain("<dd>48</dd>"); // attempts
-    expect(html).toContain("78%"); // 36 / (36+8+2),skipped 不进分母
+    // totals.passRate.display 原样渲染(两级聚合 70%),不是从 passed/failed/errored
+    // 现场重算的 78%(36/(36+8+2))—— 两个数刻意不同,证明组件没有偷懒重算
+    expect(html).toContain("70%");
+    expect(html).not.toContain("78%");
+    expect(html).toContain("46/48"); // samples < total:覆盖率角标(2 个 skipped attempt 不进桶)
     expect(html).toContain("4m 21s"); // 261000ms
   });
 
