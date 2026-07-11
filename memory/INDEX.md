@@ -72,7 +72,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 - 已修 [live-who-key-mismatch-freezes-rows](live-who-key-mismatch-freezes-rows.md) — 上一条修复漏改 live.ts 自己两处(eval:start / onEvalComplete)手写的 who,导致有 experimentId 时逐行永远卡"waiting for a slot"、`0/N` 不动,但表头总数正常涨,极像 sandbox/budget 卡死实则纯展示 bug;修为两处都改调 runWho()(`src/runner/reporters/live.ts`)
 - 已修 [quiet-progress-result-stream-asymmetry](quiet-progress-result-stream-asymmetry.md) — `--quiet` 下进度流直写 stderr 但结果流被摘空,errored 全程无声极像"还在跑",下游还把串行交接误读成并发失控;修为新增 Quiet reporter,errored/failed 各补一行 stderr(`src/runner/reporters/quiet.ts` + cli.ts)
 - 已修 [parallel-runs-same-ms-summary-clobber](parallel-runs-same-ms-summary-clobber.md) — 同命令并行 spawn 的 niceeval 进程毫秒同刻共享 run 目录,summary.json 互相盲写覆盖、判决单点丢失(同 spawn 启动耗时强相关,撞名非小概率);修法 = schemaVersion 4 快照制重设(见 results-per-snapshot 裁决)
-- 已修 [budget-probe-starves-global-semaphore](budget-probe-starves-global-semaphore.md) — 有 budget 的实验把「等成本样本」的探测循环包在全局信号量里面,攥着槽位空等,实测并发被压到远低于 maxConcurrency,极像配置错误实则是调度 bug(修在 `src/runner/run.ts`)
+- 已修 [budget-probe-starves-global-semaphore](budget-probe-starves-global-semaphore.md) — 有 budget 的实验把「等成本样本」的探测循环包在全局信号量里面攥着槽位空等;根治后发现探测/预测节流本身就是未文档化的多余设计,budget 已简化成只按已完成花费判断(修在 `src/runner/run.ts`)
 
 ## examples 与 tier-sync
 

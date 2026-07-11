@@ -3,7 +3,7 @@
 // reporter 编排 / 汇总在 report.ts,Sandbox 适配器在 remote-sandbox.ts。
 
 import { readFile } from "node:fs/promises";
-import { Effect, Cause, Duration, Exit } from "effect";
+import { Effect, Cause, Exit } from "effect";
 import { probeJudge } from "../scoring/judge.ts";
 import { t } from "../i18n/index.ts";
 import { cacheKey, computeFingerprint } from "./fingerprint.ts";
@@ -208,17 +208,16 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
   // 真的没过)才代表 agent 行为的样本,值得跑满 runs 去测通过率。earlyExit 开时两者都提前收尾。
   const erroredKeys = new Set<string>();
 
-  // budget 护栏带「在飞预扣」:实测成本只有 attempt 完成后才知道,若只检查已完成花费,
-  // maxConcurrency 个 attempt 会在任何成本回写前全部起飞,实际花费能冲到 budget 的十几倍。
-  // 口径:还没有任何【带成本】的完成样本时,同一 budgetKey 只放一个 attempt 在飞(探单次成本);
-  // 有样本后,用平均实测成本给每个在飞 attempt 预扣,预计总额到顶就等,已花到顶就停。
-  // costSamples 只数报了成本的 attempt —— 不报成本的完成(agent 无用量、模型不在价格表、
-  // 早期 errored)不能算 0 元样本,否则均值被拉成 0,护栏彻底失效。连续多次完成都拿不到
-  // 成本时,说明这个 agent 的 budget 根本不可执行:警告一次然后放行,而不是永远串行装样子。
+  // budget 护栏:只按「已完成 attempt 的实测花费」判断,不做预测性节流。之前的实现会按
+  // 「平均成本 × 在飞数」预扣,快到顶就让还没起飞的 attempt 排队等——这在探测阶段(还没有任何
+  // 成本样本时)等价于把同一 budgetKey 的并发摁到一个很小的数,且完全没有文档承诺过这个副作用
+  // (`docs-site/zh/guides/write-experiment.mdx` 对 `budget` 的描述只有一句「这一格配置的预算
+  // 上限」)。新语义:已完成 attempt 的花费加总一旦到顶,就不再放新 attempt 起飞(已经在飞的
+  // 照常跑完,不会被中途打断);到顶之前不做任何预测性限流,并发完全由 globalSem / runSem 决定。
+  // 代价是「已花 + 在飞未结算」的总花费可能短暂超出 budget——这是有意识的取舍:budget 是防止
+  // 无限烧钱的安全网,不是精确计费闸,不应该反过来限制吞吐。
   interface BudgetState {
     spent: number;
-    inflight: number;
-    costSamples: number;
     completedNoCost: number;
     unenforceableWarned: boolean;
   }
@@ -226,7 +225,7 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
   const budgetState = (key: string): BudgetState => {
     let s = budgetStates.get(key);
     if (!s) {
-      s = { spent: 0, inflight: 0, costSamples: 0, completedNoCost: 0, unenforceableWarned: false };
+      s = { spent: 0, completedNoCost: 0, unenforceableWarned: false };
       budgetStates.set(key, s);
     }
     return s;
@@ -289,13 +288,10 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
       (a) => {
         const budgetKey = a.run.experimentId ?? a.run.agent.name;
 
-        // preflight:「要不要开始跑」的许可判断(首过即停 + budget 探测),故意不持有 globalSem——
-        // 这两类判断都可能要等(budget 探测尤其可能 sleep-loop 好一阵子),而全局并发槽位是所有
-        // 实验共享的稀缺资源,等待中的 fiber 绝不能占着它空转,否则一个实验的 budget 探测能把
-        // 其它实验饿死到连第一个 attempt 都抢不到全局槽位(bug 复盘见
-        // memory: niceeval-budget-probe-starves-global-semaphore)。
-        // runSem(实验自己的 maxConcurrency)例外:它是实验私有资源,preflight 占着不影响别的实验,
-        // 且和 mempal 那类「必须串行」的语义一致,所以仍然把 preflight 包在 runSem 里面(见下方)。
+        // preflight:「要不要开始跑」的许可判断(首过即停 + budget 上限检查),不持有
+        // globalSem——两类判断都是即时返回,不该占着全局并发槽位做无谓等待。runSem(实验自己的
+        // maxConcurrency)例外:它是实验私有资源,preflight 占着不影响别的实验,且和 mempal
+        // 那类「必须串行」的语义一致,所以仍然把 preflight 包在 runSem 里面(见下方)。
         const preflight = Effect.gen(function* () {
             // 首过即停:同 key 已通过,或已 errored(重跑只会重复同一个框架错误)且开了 earlyExit
             // → 跳过未启动的 attempt。
@@ -314,39 +310,19 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
 
             const budget = a.run.budget;
             if (budget !== undefined) {
-              // 预扣循环:预计花费(已花 + 在飞×均值)到顶就等在飞的结算,已花到顶就整段停。
-              // 这段刻意不持有 globalSem(见上方注释);runSem 仍然罩着它,同实验内的等待不
-              // 影响别的实验。
-              for (;;) {
-                const s = budgetState(budgetKey);
-                if (s.spent >= budget) {
-                  if (!budgetReported.has(budgetKey)) {
-                    budgetReported.add(budgetKey);
-                    yield* reportMutex.withPermits(1)(
-                      Effect.promise(() =>
-                        emitReporterEvent(reporters, { type: "run:budgetExceeded", budget, spent: s.spent }),
-                      ),
-                    );
-                  }
-                  return false;
+              // 只看已完成 attempt 的实测花费(见上方 BudgetState 注释),到顶就跳过新 attempt,
+              // 没到顶就立即放行——不等待、不做预测性节流。
+              const s = budgetState(budgetKey);
+              if (s.spent >= budget) {
+                if (!budgetReported.has(budgetKey)) {
+                  budgetReported.add(budgetKey);
+                  yield* reportMutex.withPermits(1)(
+                    Effect.promise(() =>
+                      emitReporterEvent(reporters, { type: "run:budgetExceeded", budget, spent: s.spent }),
+                    ),
+                  );
                 }
-                if (s.costSamples === 0 && s.completedNoCost >= 3 && !s.unenforceableWarned) {
-                  // 连续几次完成都拿不到成本:budget 对这个 agent 不可执行,说清楚再放行。
-                  s.unenforceableWarned = true;
-                  process.stderr.write(t("runner.budgetUnenforceable", { budgetKey }));
-                }
-                if (s.costSamples === 0 && s.unenforceableWarned) {
-                  s.inflight += 1;
-                  return true;
-                }
-                const avg = s.costSamples > 0 ? s.spent / s.costSamples : undefined;
-                const projected =
-                  avg === undefined ? (s.inflight > 0 ? Number.POSITIVE_INFINITY : 0) : s.spent + s.inflight * avg;
-                if (projected < budget) {
-                  s.inflight += 1;
-                  return true;
-                }
-                yield* Effect.sleep(Duration.millis(200));
+                return false;
               }
             }
             return true;
@@ -373,23 +349,18 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
                 }),
               ),
             );
-            const result = yield* runAttemptEffect(a, opts, sandboxSem, attemptSignal).pipe(
-              Effect.ensuring(
-                Effect.sync(() => {
-                  if (a.run.budget !== undefined) {
-                    const s = budgetState(budgetKey);
-                    s.inflight = Math.max(0, s.inflight - 1);
-                  }
-                }),
-              ),
-            );
+            const result = yield* runAttemptEffect(a, opts, sandboxSem, attemptSignal);
             if (a.run.budget !== undefined) {
               const s = budgetState(budgetKey);
               if (result.estimatedCostUSD !== undefined) {
                 s.spent += result.estimatedCostUSD;
-                s.costSamples += 1;
               } else {
                 s.completedNoCost += 1;
+                if (s.spent === 0 && s.completedNoCost >= 3 && !s.unenforceableWarned) {
+                  // 连续几次完成都拿不到成本:budget 对这个 agent 不可执行,说清楚一次。
+                  s.unenforceableWarned = true;
+                  process.stderr.write(t("runner.budgetUnenforceable", { budgetKey }));
+                }
               }
             }
 
