@@ -184,8 +184,9 @@ export class SessionManager {
 
     const tok = (turn.usage?.inputTokens ?? 0) + (turn.usage?.outputTokens ?? 0);
     const tools = turn.events.filter((e) => e.type === "action.called").length;
+    const reason = turn.status === "failed" ? failureReason(turn.events) : undefined;
     this.deps.log(
-      `${turnLabel} ← ${turn.status} · ${t("session.tools", { count: tools })} · ${tok} tok · ${Math.round((Date.now() - t0) / 1000)}s`,
+      `${turnLabel} ← ${turn.status} · ${t("session.tools", { count: tools })} · ${tok} tok · ${Math.round((Date.now() - t0) / 1000)}s${reason ? ` · ${reason}` : ""}`,
     );
     return turn;
   }
@@ -219,6 +220,27 @@ export class SessionManager {
     }
     return r.result;
   }
+}
+
+/**
+ * 失败轮的进度行原因摘要:取本轮事件流里最后一个 `type: "error"` 事件的 message
+ * (与 TurnHandle.expectOk() / src/agents/shared.ts 的 diagnoseFailure 同一口径——
+ * 都认「最后一条 error 事件」为本轮失败的权威原因),压成单行并截断,避免 402/超时
+ * 这类关键信息只能事后翻 summary.json 才看得到。提不到时返回 undefined,调用方不补空后缀。
+ */
+function failureReason(events: readonly StreamEvent[]): string | undefined {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e.type === "error") return truncateOneLine(e.message, 120);
+  }
+  return undefined;
+}
+
+/** 单行截断,口径同 src/runner/reporters/table.ts 的 truncateOneLine(折叠空白 + 120 字符上限)。 */
+function truncateOneLine(s: string, width: number): string {
+  const clean = s.replace(/\s+/g, " ").trim();
+  if (clean.length <= width) return clean;
+  return `${clean.slice(0, width - 1)}…`;
 }
 
 export function lastAssistantText(events: readonly StreamEvent[]): string | undefined {

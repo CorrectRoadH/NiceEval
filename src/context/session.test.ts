@@ -1,10 +1,101 @@
 import { describe, expect, it } from "vitest";
 
-import { createAgentSession } from "./session.ts";
+import { createAgentSession, SessionManager } from "./session.ts";
+import type { Agent, Sandbox, StreamEvent, Turn, TurnInput } from "../types.ts";
 
 // createAgentSession() 是 ctx.session 的实现——一条会话线的存取器(见
 // docs-site/zh/concepts/adapter.mdx 的 AgentSession 契约)。这里直接测存取器本身;
 // 端到端的「同一条线同一个 ctx.session」由 SessionManager / RunSession 保证。
+
+function fakeSandbox(): Sandbox {
+  return {
+    workdir: "/sandbox/work",
+    runCommand: async () => { throw new Error("not implemented"); },
+    runShell: async () => { throw new Error("not implemented"); },
+    readFile: async () => "",
+    fileExists: async () => false,
+    readSourceFiles: async () => Object.assign([], {
+      text: () => "",
+      code: () => "",
+      fileMatching: () => undefined,
+      fileMatchingAll: () => undefined,
+      hasPath: () => false,
+    }),
+    writeFiles: async () => {},
+    uploadFiles: async () => {},
+    uploadDirectory: async () => {},
+    stop: async () => {},
+    sandboxId: "fake",
+    otlpHost: null,
+    downloadFile: async () => Buffer.from(""),
+    uploadFile: async () => {},
+  };
+}
+
+function agentReturning(turn: Turn): Agent {
+  return {
+    name: "fake-agent",
+    kind: "remote",
+    async send(_input: TurnInput): Promise<Turn> {
+      return turn;
+    },
+  };
+}
+
+function makeManager(turn: Turn) {
+  const lines: string[] = [];
+  const manager = new SessionManager({
+    agent: agentReturning(turn),
+    sandbox: fakeSandbox(),
+    flags: {},
+    signal: new AbortController().signal,
+    log: (msg) => lines.push(msg),
+  });
+  return { manager, lines };
+}
+
+describe("SessionManager.send() 进度行", () => {
+  it("failed 轮:进度行末尾追加最后一条 error 事件的 message", async () => {
+    const events: StreamEvent[] = [
+      { type: "message", role: "assistant", text: "" },
+      { type: "error", message: "402 Insufficient Balance" },
+    ];
+    const { manager, lines } = makeManager({ events, status: "failed" });
+    await manager.send(manager.primary, "hi");
+
+    const progressLine = lines.find((l) => l.includes("← failed"));
+    expect(progressLine).toContain("402 Insufficient Balance");
+  });
+
+  it("failed 轮但没有 error 事件:不追加空后缀,行尾保持原格式", async () => {
+    const { manager, lines } = makeManager({ events: [], status: "failed" });
+    await manager.send(manager.primary, "hi");
+
+    const progressLine = lines.find((l) => l.includes("← failed"));
+    expect(progressLine).toMatch(/\ds$/); // 以 "Ns" 收尾,没有多余的 " · " 后缀
+  });
+
+  it("completed 轮:即使事件里混了 error 事件也不提取原因(只在 failed 时生效)", async () => {
+    const events: StreamEvent[] = [{ type: "error", message: "不该出现在这里" }];
+    const { manager, lines } = makeManager({ events, status: "completed" });
+    await manager.send(manager.primary, "hi");
+
+    const progressLine = lines.find((l) => l.includes("← completed"));
+    expect(progressLine).not.toContain("不该出现在这里");
+  });
+
+  it("原因文本压成单行并截断到 120 字符", async () => {
+    const long = "x".repeat(200);
+    const events: StreamEvent[] = [{ type: "error", message: long }];
+    const { manager, lines } = makeManager({ events, status: "failed" });
+    await manager.send(manager.primary, "hi");
+
+    const progressLine = lines.find((l) => l.includes("← failed"))!;
+    const suffix = progressLine.split(" · ").at(-1)!;
+    expect(suffix.length).toBeLessThanOrEqual(120);
+    expect(suffix.endsWith("…")).toBe(true);
+  });
+});
 
 describe("createAgentSession", () => {
   describe("history()", () => {
