@@ -6,11 +6,33 @@ description: "Every official dual-faced component you can lay into a report file
 
 Every component in a report file is dual-faced: the web face is React rendering, the terminal face is character rendering, and both faces consume the same already-computed data — which door you go through is the host's decision (see [Custom Reports](/guides/custom-reports)). Each component's data algorithm hangs off the component itself — `<MetricTable data={await MetricTable.data(selection, …)} />` — a dot after the component name finds it, so computing and drawing are always paired. This page lists the official components one by one: what question each answers, how to call it in a report, and what its terminal output looks like.
 
+## Component categories
+
+Components split into three kinds: entity lists show experiments, evals, or attempts one item at a time; summary components summarize an entire selection; metric shapes aggregate a configurable dimension into a value. All three entity lists' `.data(selection)` return a plain array — narrow it with an ordinary JavaScript `.filter()` before handing `items` to the component. Filtering never hides inside the component itself.
+
+| Category | Component | What it shows |
+| --- | --- | --- |
+| Summary | `RunOverview` | One selection; summarizes its experiments, evals, and attempts |
+| Summary | `GroupSummary` | One narrowed-down selection; summarizes one group of experiments and evals |
+| Entity list | `ExperimentList` | One item per experiment; expands to that experiment's evals |
+| Entity list | `EvalList` | One item per experiment × eval; expands to that eval's attempts |
+| Entity list | `AttemptList` | One item per attempt; shows assertions, errors, judge remarks, and evidence |
+| Metric shape | `MetricTable` | One configurable row dimension; each cell is one aggregated metric value |
+| Metric shape | `MetricMatrix` | Two configurable dimensions crossed; each cell is one aggregated metric value |
+| Metric shape | `MetricBars` | Two configurable dimensions forming groups and series; each bar is one aggregated metric value |
+| Metric shape | `Scoreboard` | One configurable row dimension per row; scored by eval and eval group |
+| Metric shape | `MetricScatter` | One configurable dimension per point, usually experiment; coordinates are two aggregated metric values |
+| Metric shape | `MetricLine` | One point per experiment; x is an experiment flag, y is an aggregated metric value |
+| Metric shape | `DeltaTable` | One pair of experiments or result snapshots per row; cells hold metric values and their delta |
+
+`Row`, `Col`, `Section`, `Text`, and `Style` are layout primitives — they don't compute a result, so they don't count as one of the analysis shapes above.
+
 All components share one contract, not repeated below for each:
 
 - **Honest rendering.** Missing data renders as `—`, never padded to `0`; an incompletely-covered cell carries a `12/15` badge; truncation faithfully labels the remaining count and the original artifact path.
 - **Sort direction and orientation follow the metric's `better`.** A `higher` metric sorts descending, a `lower` one ascending — the "good" end is always at the top, or in the top-right.
 - **Evidence-room deep links.** On the web face, cells, points, and entries deep-link to the attempt popup; on the terminal face, a `niceeval show <eval id>` drill-down command is printed under each entry.
+- **Terminal output closes the feedback loop.** Every attempt has a short locator starting with `@`, such as `@1k2m9qrs`. It uniquely points to an experiment, a results snapshot, an eval, and an attempt. `✓` / `✗` / `!` / `–` mean passed / failed / errored / skipped; `[E]` means the eval source at run time is available, `[X]` means execution steps are available, `[⏱]` means OTel timing is available, `[D]` means a workspace diff is available. Execution steps always include messages, thinking, tool call/result, and skill loads; OTel just adds timing onto those same steps, it never opens a separate output.
 - **Both faces share the same scoring, and the web face is complete without JS.** Sort order is fixed at compute time by `sort`, so both faces show the same baseline order; drill-down is an ordinary link, expand/collapse uses `<details>`. The web face adds a browsing layer on top: click a header to re-sort in place, filter table rows, hover a chart point for its values — these only affect the view in front of you, never the data, and a refresh restores the baseline order; with JS disabled the interactions disappear but no content is lost (hover details fall back to in-chart tooltips).
 
 ## Layout primitives
@@ -35,28 +57,6 @@ Exam scorecard
   codex  78.0/100   40/50    38/50    │
 ```
 
-## `DefaultReport` — the whole official layout
-
-The official layout comes in two forms with distinct jobs. The value `defaultReport` (exported from `niceeval/report`) is the default report the two official doors render when run bare — a run overview, one section per experiment group (quality × cost scatter plot + leaderboard, groups split by the `/` prefix of the experiment id), and a failure list; see [Viewing results](/guides/viewing-results) for its shape. `niceeval view` equals `niceeval view --report` with it. The component `<DefaultReport />` is the official-layout anchor block you lay into your own report: a run overview, the current leaderboard (experiment × folded eval tallies / pass rate / cost / duration), and a failure list. Zero props, purely declarative — the official layout only reads slimmed-down entries, and the host always has it ready, injected via context; putting the official reading side by side with your own is exactly why you'd place it:
-
-```tsx
-<DefaultReport />
-```
-
-```text
-Current verdicts · 2 experiments · composed from 3 runs · latest 2026-07-09T10-00-00-000Z
-
-experiment              evals   pass   cost    duration
-compare/bub-gpt-5.4     13/15   87%    $0.42   4m 12s
-compare/codex-gpt-5.4   12/15   80%    $0.51   5m 03s
-
-Failing:
-  ✗ weather/brooklyn   compare/codex-gpt-5.4   gate calledTool("get_weather")   41s ago
-      → niceeval show weather/brooklyn
-```
-
-Each leaderboard row is one experiment; evals is the per-eval folded verdict tally. For the full default-report shape — agent / model columns riding along, per-group scatter plots — use the value `defaultReport`; to keep just the official block next to your own reading, use this component.
-
 ## `RunOverview` — the KPI header bar
 
 The "what is this batch of data" summary at the top of every report: how many configurations, how many questions, the pass distribution, total cost, and when it ran; picking warnings from the selection ride along with the data and are shown directly in the bar, honesty without you having to wire anything up.
@@ -70,6 +70,27 @@ The "what is this batch of data" summary at the top of every report: how many co
 passed 26 · failed 12 · errored 4 · skipped 0 · $0.93 · 9m 15s
 ! snapshot compare/codex-gpt-5.4 predates latest run by 2 days
 ```
+
+## `GroupSummary` — group summary
+
+A compact stats block for one group of experiments (say, the experiments a custom report groups into the same `<Section>` by directory prefix), answering "how much of this group passed, cost, and ran, taken together". The component itself doesn't group anything — narrow the selection to that one group with `Selection.filter` first, then hand it to `GroupSummary.data`:
+
+```tsx
+const scoped = selection.filter((s) => s.experimentId.startsWith("compare/"));
+
+<Section title="compare">
+  <GroupSummary data={await GroupSummary.data(scoped)} />
+</Section>
+```
+
+```text
+Pass rate 73.3% · 2 experiments · 15 evals · failed 3 · errored 1 · $0.93
+latest 2026-07-09T10:00:00Z
+```
+
+Pass rate here uses eval-level folded voting: the multiple attempts of the same eval first fold into one verdict (any attempt passing counts as passed, otherwise the most severe verdict wins), then `passed / (passed + failed + errored)`, with `skipped` excluded from the denominator — a different formula from the two-level, partial-credit `passRate` in the header `RunOverview`, and the two serve different questions: `GroupSummary` answers "how many of this group's questions passed", `RunOverview` answers "what's the overall quality score" — don't substitute one for the other. `evals` dedupes by the full identity key `experimentId + eval id` — the same-named eval under two experiments in the group counts as two questions, never merged into one. The `errored` segment is omitted when it's zero, but the underlying `verdicts.errored` field itself is always present — the omission only happens at render time. `totalCostUSD` is a null-safe sum of the group's measurable attempt costs; when not a single attempt reported a cost it's `null`, and both faces render missing data rather than `$0`.
+
+`GroupSummary` is an ordinary public component and `GroupSummary.data` is an ordinary public compute function — to group by directory prefix and lay out one block per group in your own report, narrow the selection the way shown above and call it the same way.
 
 ## `MetricTable` — leaderboard
 
@@ -161,13 +182,16 @@ codex   71.0/100   40/50          31/50 (1 missing)
 One point per configuration, one metric per axis, answering "who is both good and cheap". `series` connects points of the same agent's different tiers into a line; `better` drives axis orientation — a `lower` axis is drawn reversed, so the "good" corner is always top-right.
 
 ```tsx
-<MetricScatter data={await MetricScatter.data(selection, {
-  points: "experiment",     // each point = one configuration's aggregate
-  series: "agent",          // tiers of the same agent connect into a line
-  x: costUSD,
-  y: passRate,
-})} />
+<MetricScatter
+  selection={selection}
+  points="experiment"       // each point = one configuration's aggregate
+  series="agent"            // tiers of the same agent connect into a line
+  x={costUSD}
+  y={passRate}
+/>
 ```
+
+Pass `selection` directly and the host computes the data for you before rendering — that's how the default report writes it. To embed this chart in a React app you're already running, or when the data is precomputed, pass `data` instead: `<MetricScatter data={await MetricScatter.data(selection, { points: "experiment", series: "agent", x: costUSD, y: passRate })} />`. Passing both `data` and `selection`, or neither, fails at typecheck.
 
 ```text
 pass ↑                                    (good → top-right)
@@ -181,7 +205,7 @@ pass ↑                                    (good → top-right)
 A bub-high   B bub-medium   C codex-high   D codex-low
 ```
 
-The web face has hover on points (value plus `samples/total`), same-series lines connect points, and clicking deep-links to a drill-down. The terminal face labels points with letters and lists the legend below the chart; points missing x or y data are not drawn on either face, and the footnote faithfully reports "n points missing data"; when points are too dense to fit, it falls back to a coordinate table rather than crowding them. Dimension slots also accept `flag()` — grouping by a variable declared by the experiment, see the "Variables come from configuration" section of [Custom Reports](/guides/custom-reports).
+The web face has hover on points (value plus `samples/total`, falling back to an in-chart tooltip with JS disabled), same-series lines connect points, and clicking deep-links to a drill-down. The terminal face labels points with letters and lists the legend below the chart; points missing x or y data are not drawn on either face, and the footnote faithfully reports "n points missing data"; when points are too dense to fit, it falls back to a coordinate table rather than crowding them. When zero points are drawable (x or y has no measurable data at all), both faces say outright that those two metrics have no available data, instead of leaving a blank chart; with exactly one point, both faces say outright "need at least two experiments to compare"; with two or more, it draws normally — the component never disappears just because there aren't enough points, so you always know why a chart didn't render. Dimension slots also accept a custom dimension (`{ name, of }`, deriving a group name from data an attempt already has) and `flag()` (a variable declared by the experiment) — how to choose between them is in the "Change grouping: three kinds of dimensions" section of [Custom Reports](/guides/custom-reports).
 
 ## `MetricLine` — trend line
 
@@ -236,7 +260,7 @@ The three components below drill down through the same hierarchy — experiment 
 
 ## Experiment List (`ExperimentList`)
 
-One item per experiment: identity, declared `flags`, folded eval-verdict composition, and the official two-level-aggregation metrics (pass rate, tokens, cost, duration) — expanding to that experiment's evals.
+One item per experiment: identity, declared `flags`, folded eval-verdict composition, and the official two-level-aggregation metrics (pass rate, tokens, cost, duration) — expanding to that experiment's evals. It doesn't take column configuration — this is an experiment's diagnostic view, not a general-purpose metric table.
 
 ```tsx
 const experiments = await ExperimentList.data(selection);
@@ -244,17 +268,27 @@ const experiments = await ExperimentList.data(selection);
 <ExperimentList items={experiments.filter((exp) => exp.verdicts.errored === 0)} />
 ```
 
+`niceeval show` prints one summary line per experiment, with each eval taking just one line. The evidence letters after an attempt's locator tell a reader (human or agent) what's worth reading, without spelling out the drill-down command for every entry:
+
 ```text
 compare/bub-gpt-5.4 · bub · gpt-5.4
   pass 87% · 13 passed / 1 failed / 1 errored · 42 attempts · 4m 12s · $0.42
-  ✓ algebra/quadratic   @2F9K3A✓[E,X,⏱] @41BM7C✓[E,X,⏱]   18s avg · $0.02 avg
-  ✗ weather/brooklyn    @7K2M9Q✗[E,X,⏱] @8NX4DP✗[E,X] @9VQ2JE✗[E,X]   gate calledTool("get_weather")
-  ! fixtures/button     @C3H6TW![E,D]   command timed out after 120s
+  ✓ algebra/quadratic   @12f9k3aq✓[E,X,⏱] @141bm7cx✓[E,X,⏱]   18s avg · $0.02 avg
+  ✗ weather/brooklyn    @1k2m9qrs✗[E,X,⏱] @1nx4dpqr✗[E,X] @19vq2jex✗[E,X]   gate calledTool("get_weather")
+  ! fixtures/button     @1c3h6twx![E,D]   command timed out after 120s
+
+compare/codex-gpt-5.4 · codex · gpt-5.4
+  pass 80% · 12 passed / 3 failed · 45 attempts · 5m 03s · $0.51
+  ✓ algebra/quadratic   @1d8p4kwz✓[E,X,⏱]   16s · $0.02
+  ✗ algebra/matrix      @1e2j7mxa✗[E,X] @1f5r9nab✗[E,X,⏱] @1g4w8pcd✗[E,X,⏱]   gate equals("42")
+  ✗ weather/brooklyn    @1h6t3vbe✗[E,X,⏱] @1j9m2qfg✗[E,X,⏱] @1k7c5rxh✗[E,X,⏱]   gate calledTool("get_weather")
 
 inspect: niceeval show @<id> [--eval|--execution|--diff]
 ```
 
-Each attempt badge is a locator (`@2F9K3A`) plus a verdict mark and capability letters — `[E]` saved eval source, `[X]` execution steps, `[⏱]` OTel timing, `[D]` a workspace diff — so a reader (human or agent) knows what evidence is worth drilling into before running `niceeval show @<id>`. `.data(selection)` returns a plain `ExperimentListItem[]` ordered by experiment id; narrow to one agent, a directory prefix, or a run status with an ordinary `.filter()` — the component has no separate filter query language of its own.
+A locator is determined by the immutable identity `experimentId + snapshot.startedAt + evalId + attempt index`, and it stays the same across copying or publishing the results. The host resolves a locator against the current results root; when it doesn't exist or collides, it errors out directly rather than falling back to "the latest one." The `@` prefix keeps it unambiguous against an eval ID prefix selector.
+
+`.data(selection)` returns a plain `ExperimentListItem[]` ordered by experiment id; narrow to one agent, a directory prefix, or a run status with an ordinary `.filter()` — the component has no separate filter query language of its own. On the web face, the text search box is only a temporary browsing operation and never changes the `items` you passed in; the terminal face always prints the full array it was handed.
 
 ## Eval List (`EvalList`)
 
@@ -267,11 +301,11 @@ const evals = await EvalList.data(selection);
 ```
 
 ```text
-weather/brooklyn · compare/codex-gpt-5.4 · failed
+weather/brooklyn · compare/bub-gpt-5.4 · failed
   score 0.20 · 3 attempts · 41s avg · $0.04 avg
-  @7K2M9Q✗[E,X,⏱] · gate calledTool("get_weather") — tool was never called
-  @8NX4DP✗[E,X]   · gate calledTool("get_weather") — tool was never called
-  @9VQ2JE✗[E,X]   · gate calledTool("get_weather") — tool was never called
+  @1k2m9qrs✗[E,X,⏱] · gate calledTool("get_weather") — tool was never called
+  @1nx4dpqr✗[E,X]   · gate calledTool("get_weather") — tool was never called
+  @19vq2jex✗[E,X]   · gate calledTool("get_weather") — tool was never called
 
 inspect: niceeval show @<id> [--eval|--execution|--diff]
 ```
@@ -289,13 +323,13 @@ const attempts = await AttemptList.data(selection, { redact });
 ```
 
 ```text
-✗ @7K2M9Q · weather/brooklyn · compare/codex-gpt-5.4 · 41s · $0.04 · [E,X,⏱]
+✗ @1k2m9qrs · weather/brooklyn · compare/bub-gpt-5.4 · 41s · $0.04 · [E,X,⏱]
   gate calledTool("get_weather") · failed
     tool was never called
   soft judge("the answer is based on real-time data") · 0.2/1
     reply invents a temperature
 
-! @C3H6TW · fixtures/button · compare/bub-gpt-5.4 · 2m 00s · $0.09 · [E,D]
+! @1c3h6twx · fixtures/button · compare/bub-gpt-5.4 · 2m 00s · $0.09 · [E,D]
   command timed out after 120s
 inspect: niceeval show @<id> [--eval|--execution|--diff]
 

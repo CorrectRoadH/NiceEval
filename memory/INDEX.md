@@ -104,6 +104,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 - 已修 [gen-diff-code-run-residue-and-stale-claims](gen-diff-code-run-residue-and-stale-claims.md) — 运行残留文件混进 diff 页;intro 里的事实声明会过期
 - [gen-diff-code-venv-oom](gen-diff-code-venv-oom.md) — gen-diff-code 不排除 `.venv`/`__pycache__`,生成 166MB mdx 把 mint validate 撑爆
 - [mintlify-mdx-html-rendering-limits](mintlify-mdx-html-rendering-limits.md) — Mintlify MDX 渲染原生 HTML 的四个坑(GitHub 式 diff 页踩出)
+- 已修 [docs-result-outcome-field-doesnt-exist](docs-result-outcome-field-doesnt-exist.md) — 英文 docs-site 多篇示例代码用 `result.outcome` 判定通过/失败,真实字段名是 `verdict`,照抄会静默失效(EvalResult 上从未有过 `outcome` 字段)
 - [mintlify-zh-heading-anchor-slug](mintlify-zh-heading-anchor-slug.md) — 中文标题的锚点 slug 规则,github-slugger 直觉全错
 - [mintlify-npx-cache-corruption](mintlify-npx-cache-corruption.md) — docs:dev/validate 报 ENOTEMPTY / permission denied 是 npx 缓存损坏,清 `~/.npm/_npx` 别改脚本
 - 已修 [reference-docs-drift-generated-regions](reference-docs-drift-generated-regions.md) — 参考页手写漂移(matches 写成正则、虚构 .soft() 等);修法=TSDoc 唯一事实来源 + `pnpm docs:reference` 生成区块 + vitest 漂移守护,区块内永远不手改

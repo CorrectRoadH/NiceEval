@@ -13,10 +13,10 @@ A report is a report file. You never open a results directory, never write rende
 The default report that `niceeval view` and `niceeval show` render without `--report` is not a private implementation — it is a value exported from `niceeval/report`:
 
 ```ts
-import { defaultReport } from "niceeval/report";
+import { CostPassRateComparison } from "niceeval/report";
 ```
 
-`niceeval view` is exactly `niceeval view --report <defaultReport>`, and `show` works the same way. Top to bottom it is: a run overview, one section per experiment group (quality × cost scatter plot + leaderboard, each row expandable to that experiment's per-eval verdicts and failure reasons). The parts we use ourselves are exactly the same as the ones you get, with no private data channel — every number on the default report can be recomputed by you, verbatim, with the same few lines of code.
+`niceeval view` is exactly `niceeval view --report <CostPassRateComparison>`, and `show` works the same way. It has exactly two blocks, top to bottom: a cost × pass-rate scatter plot (one point per experiment, same-agent tiers connected into a line) and an experiment list (one row per experiment, expandable to that experiment's configuration, KPIs, and per-eval/attempt detail). The table is flat — the built-in default report does not group by directory prefix. The name is drawn from what it shows, not from being "the default": `CostPassRate` names the scatter's two axes, `Comparison` names the second half that lets you compare experiments; the name contains none of `Default` / `Official` / `BuiltIn` / `View`. The parts we use ourselves are exactly the same as the ones you get, with no private data channel — every number on the default report can be recomputed by you, verbatim, with the same few lines of code.
 
 |  | Web (for people) | Terminal (for agents and you) |
 | --- | --- | --- |
@@ -39,18 +39,22 @@ The report's foundation is `defineReport`: the host opens the results directory 
 // reports/exam.tsx — one definition, shared by both doors
 import {
   defineReport, Col, Section,
-  DefaultReport, Scoreboard,
+  MetricScatter, ExperimentList, Scoreboard,
+  costUSD, passRate,
 } from "niceeval/report";
 
-export default defineReport(async ({ selection }) => (
-  <Col>
-    <DefaultReport />
-    {/* The official layout is laid in as-is; delete this line if you don't want it */}
-    <Section title="Exam scorecard">
-      <Scoreboard data={await Scoreboard.data(selection, { rows: "agent", subjects: "evalGroup" })} />
-    </Section>
-  </Col>
-));
+export default defineReport(async ({ selection }) => {
+  const experiments = await ExperimentList.data(selection);
+  return (
+    <Col>
+      <MetricScatter selection={selection} points="experiment" series="agent" x={costUSD} y={passRate} />
+      <ExperimentList items={experiments} />
+      <Section title="Exam scorecard">
+        <Scoreboard data={await Scoreboard.data(selection, { rows: "agent", subjects: "evalGroup" })} />
+      </Section>
+    </Col>
+  );
+});
 ```
 
 ```bash
@@ -58,15 +62,17 @@ niceeval show --report reports/exam.tsx    # Terminal: the same tree goes throug
 niceeval view --report reports/exam.tsx    # Web: the same tree goes through the web face, attempt deep links land straight in the evidence room
 ```
 
-The injected context has only two pieces, both primitives from the [Results Data API](/guides/results-data) — the host has no private channel: `results` is exactly the return value of `openResults(".niceeval")` (experiments, historical snapshots, attempt-level `diff()`, `trace()` all live on it); `selection` is exactly the return value of `results.latest()` — the "current level" the host has already picked with "take the latest per experiment", the same policy as the default report, with snapshots at `selection.snapshots` and picking warnings at `selection.warnings`. A component's `data` function takes the selection directly, warnings riding along — `RunOverview` will faithfully display warnings for an incomplete snapshot; you never wire that up separately. When the default pick doesn't match what you want, pick your own from `results`; a hand-picked `Snapshot[]` array can be fed to every `data` function the same way.
+The injected context has only two pieces, both primitives from the [Results Data API](/guides/results-data) — the host has no private channel: `results` is exactly the return value of `openResults(".niceeval")` (experiments, historical snapshots, attempt-level `diff()`, `trace()` all live on it); `selection` is exactly the return value of `results.latest()` — the "current level" the host has already picked with "take the latest per experiment", the same policy as the default report, with snapshots at `selection.snapshots` and picking warnings at `selection.warnings`. You never need to wire those warnings up yourself: `niceeval show` and `niceeval view` render `selection.warnings` as a banner above the report body no matter which components your tree contains — a coverage gap or a stale snapshot surfaces even when your report has no `RunOverview` in it, exactly as it does for the built-in default report. When the default pick doesn't match what you want, pick your own from `results`; a hand-picked `Snapshot[]` array can be fed to every `data` function the same way.
 
-Command-line scope acts on the picking step first, so the report only ever gets the level within scope: the positional eval id prefix narrows which evals the selection covers (the denominator of coverage warnings narrows to the range too); `--run` swaps the result root for a specific directory; `--experiment` restricts the selection to that one experiment. `--history` and `--report` are mutually exclusive — trends belong in a report built with `exp.snapshots` yourself; evidence slices (`--transcript` / `--trace` / `--diff`) only show evidence, never render a report.
+A report file works with two shapes of data. Entity lists' `.data(selection)` return a plain array — `ExperimentListItem[]`, `EvalListItem[]`, `AttemptListItem[]`. The report author decides which entities to show with an ordinary JavaScript `.filter()` / `.slice()`, then passes the array to the list as `items`; components hide no separate filter DSL of their own. Metric shapes and summary components instead take a precomputed `data`; `MetricScatter` additionally offers a `selection` shorthand that the host computes before rendering. Either way, once a component holds its data it only ever renders what it was handed — it never reaches back into the results directory itself.
 
-`<DefaultReport />` takes zero props and is purely declarative: the official layout only reads slimmed-down entries (it never touches heavy artifacts like diffs), and the host always has it ready — whether to lay it in is up to you. It renders the official layout **of the selection the host injected into it** — it follows the command-line scope, but not any separate scoring you pick yourself inside the report; that is exactly its purpose — an official anchor sitting side by side with your own scoring for comparison. To get "official layout + your own scoring", arrange it yourself with the very same components underneath it — it has no private parts of its own.
+Command-line scope acts on the picking step first, so the report only ever gets the level within scope: the positional eval id prefix narrows which evals the selection covers (the denominator of coverage warnings narrows to the range too); `--run` swaps the result root for a specific directory; `--experiment` restricts the selection to that one experiment. `--history` and `--report` are mutually exclusive — trends belong in a report built with `exp.snapshots` yourself; evidence slices (`--eval` / `--execution` / `--diff`) only show evidence, never render a report.
+
+There is no anchor component for the official layout — `MetricScatter` and `ExperimentList` are ordinary official components like any other, always reading whatever selection the host injected, following the same command-line scope (positional prefix / `--run` / `--experiment`) as everything else in the tree. To get "official layout + your own scoring", import the very same components the built-in default report is built from and lay them in next to your own, exactly as the example above does — there is no droppable block to reach for, and no private parts hidden behind one.
 
 Every component on the page is **dual-faced**: the web face is React rendering, the terminal face is character rendering, and both faces consume the same already-computed data. In the report file you only ever see the component itself, never one face in particular — which door you go through is the host's decision. Official components cover the common layouts — leaderboard `MetricTable`, per-question grid `MetricMatrix`, grouped bars `MetricBars`, scorecard `Scoreboard`, quality × cost frontier `MetricScatter`, trend line `MetricLine`, paired comparison `DeltaTable`, and the three entity lists `ExperimentList` / `EvalList` / `AttemptList` — what question each answers, how to call it, and what its terminal character output looks like are covered one by one in [Report Components](/guides/report-components). They wire automatically into the host's evidence room: the web face's cells deep-link to the attempt popup, and the terminal face prints a `niceeval show <eval id>` drill-down command under each entry.
 
-The default report has no special privilege: it is the exported value `defaultReport`, a sibling of your own report; `<DefaultReport />` is the component that lays the same official block into your tree. Lay it into your own tree, "official layout + your own scoring", as shown above; skip laying it in if you don't want the official layout — composition happens in your tsx, with no tabs, no registry, no config.
+The default report has no special privilege: it is the exported value `CostPassRateComparison`, a sibling of your own report — the same `ReportDefinition` type your own `defineReport(...)` produces, with no private data channel. Reuse its two components as shown above for "official layout + your own scoring"; skip them if you don't want the official layout — composition happens in your tsx, with no tabs, no registry, no config.
 
 ## Layout: `Row` and `Col` hold on both faces
 
@@ -94,6 +100,50 @@ codex  78.0/100   40/50    38/50    │  codex  80%   $0.51
 
 The page tree only holds dual-faced components and layout primitives, never raw HTML tags — the terminal face has no way to render a `<div>`. For free-form content, use `<Text>`; for anything more free-form, go to custom components below.
 
+## By-group summary: `GroupSummary`
+
+To group experiments by directory prefix and put a compact stats block (pass rate, experiment/eval counts, failed/errored, total cost, last run time) atop each group, use the official `GroupSummary` component. Its compute function, `GroupSummary.data`, takes exactly one already-narrowed selection — however you group, feed it that group's selection and you get the same folding convention (eval-level folded voting, a null-safe total cost, the group's latest last-run time), not some separate approximation.
+
+A common grouping is an experiment id's directory prefix (`compare/bub-low` belongs to group `compare`; a top-level experiment belongs to no group). Narrow out each group's selection with `Selection.filter`, and you can lay out one block per group:
+
+```tsx
+// reports/groups.tsx — group by experiment id prefix, one stats block atop each group
+import { defineReport, Col, Section, GroupSummary } from "niceeval/report";
+import type { Snapshot } from "niceeval/report";
+
+// The experiment id's directory prefix is the group name; a top-level experiment (no "/" in its id) belongs to no group.
+function groupOf(snapshot: Snapshot): string | undefined {
+  const parts = snapshot.experimentId.split("/");
+  return parts.length > 1 ? parts.slice(0, -1).join("/") : undefined;
+}
+
+export default defineReport(async ({ selection }) => {
+  const groups = [...new Set(selection.snapshots.map(groupOf))];
+  return (
+    <Col>
+      {await Promise.all(
+        groups.map(async (key) => {
+          const scoped = selection.filter((s) => groupOf(s) === key);
+          const summary = <GroupSummary data={await GroupSummary.data(scoped)} />;
+          return key === undefined ? summary : (
+            <Section key={key} title={key}>{summary}</Section>
+          );
+        }),
+      )}
+    </Col>
+  );
+});
+```
+
+```text
+$ niceeval show --report reports/groups.tsx
+compare
+Pass rate 60% · 2 experiments · 6 evals · failed 1 · errored 1 · $1.50
+latest 2026-07-01T11:30:00Z
+```
+
+After `GroupSummary`, to follow up with a scatter plot or an experiment list for that same group, pass the same `scoped` selection to the scatter plot, or call `await ExperimentList.data(scoped)` to get an experiment array you can filter yourself. To freely swap the row dimension and metric columns, use the general-purpose `MetricTable` below instead.
+
 ## Change the scoring: custom metrics
 
 The scoring behind the default report's per-experiment metric table unpacks to `MetricTable.data(selection, { rows: "experiment", columns: [passRate, costUSD, durationMs] })` — every component's data algorithm hangs off the component itself; a dot after the component name finds it. Changing the scoring is just swapping `columns` for your own metrics:
@@ -111,7 +161,7 @@ const codeLines = defineMetric({
   label: "Code lines",
   better: "lower",
   unit: "lines",
-  where: (a) => a.result.outcome === "passed",
+  where: (a) => a.result.verdict === "passed",
   async value(attempt) {
     const diff = await attempt.diff();
     if (!diff) return null;
@@ -142,7 +192,41 @@ The final value in a cell is folded in **two levels**: multiple attempts of the 
 
 Both faces inherit the same honesty contract: sort direction follows the metric's `better`, an incompletely-covered cell carries a `12/15` badge (12 of 15 attempts had this metric measured), and missing data renders as `—` rather than `0`. A metric is defined only once and shared by both faces — the number a person sees on the web is the exact number an agent reads on stdout, so the scoring policy is never ambiguous. The instruction for an agent grows by only one line too: run `niceeval show --report reports/golf.tsx`, read stdout.
 
-## Variables come from configuration, not from naming
+`label` can be a single string, or given per language: `label: { en: "Code lines", "zh-CN": "代码行数" }` — when the viewer's interface language switches, a per-language label switches with it; give just one string and both languages use it. The number a metric computes never varies by language.
+
+Among the built-in metrics, `passRate` / `costUSD` / `durationMs` / `tokens` only read fields an attempt already carries — its verdict, its usage — so any results directory can compute them. `turns` (the agent's total turn count) is different: it reads `attempt.o11y()`, and that data doesn't necessarily travel with a publish — `copySnapshots` has to explicitly add `"o11y"` to `artifacts` to carry it along (see the "Publishing" section of the [Results Data API](/guides/results-data)); miss that and it renders as `—`, not `0`. Any metric you write yourself that reads an artifact like `o11y()` / `diff()` (the way `codeLines` above reads `attempt.diff()`) needs the same check before you publish.
+
+## Change grouping: three kinds of dimensions
+
+A dimension decides grouping — a table's rows, a matrix's rows and columns, a scatter plot's points. Each dimension slot takes one of three kinds of values:
+
+- **A built-in dimension**: `"agent"`, `"model"`, `"experiment"`, `"eval"`, `"evalGroup"`, `"snapshot"` — identity fields already present in the results.
+- **A custom dimension**: `{ name, of }`, a pure function that takes an attempt and returns a group name. It lives entirely in the report file — no experiment file needs to change.
+- **`flag()`**: references a variable an experiment declared in its `flags`.
+
+Which one to reach for depends on where the variable actually lives: when a grouping can be **computed** from data the results already carry, use a custom dimension — the report only decides "how to lay it out," it never asks the experiment to change its configuration just to support one particular layout. When a variable is **configuration** of the experiment itself — a scaling tier, something meant to drive a numeric axis, something you want visible at a glance where the experiment is defined — declare it as `flags`, and reference it from the report with `flag()`. A numeric axis (`MetricLine`'s `x`) only accepts `flag()`: a tick mark has to come from a declared number, and a function-derived group name can't serve as one.
+
+### Custom dimension: deriving a group from existing data
+
+For example, folding different models into their vendor and comparing pass rate by vendor — the grouping is computed from `result.model`, and no experiment file needs touching at all:
+
+```tsx
+import type { Dimension } from "niceeval/report";
+
+const vendor: Dimension = {
+  name: "vendor",
+  of: (a) => (a.result.model?.startsWith("gpt-") ? "OpenAI" : "Anthropic"),
+};
+
+<MetricTable data={await MetricTable.data(selection, {
+  rows: vendor,
+  columns: [passRate, costUSD],
+})} />
+```
+
+`of` can read everything an attempt already carries: `evalId`, `experimentId`, and the verdict and experiment metadata inside `result`. It can only derive, never invent — if the only thing distinguishing two groups of experiments is baked into a file name (`bub-baseline.ts` / `bub-mempal.ts`), `of` is reduced to parsing that name, and the grouping silently falls apart the moment the naming convention changes. When that's the case, the variable belongs back in configuration — see below.
+
+### `flag()`: variables come from configuration, not from naming
 
 When drawing a scaling trend like "parallel agent count × simulated latency × score", the variables on the chart should not be encoded into the experiment id (`ultra-16agents-300ms`) and then parsed back out of the string in the report — that is a convention, not configuration, and renaming anything scatters the whole chart. A variable's home is the experiment file's `flags`: one file per configuration, declaring the variable as data:
 

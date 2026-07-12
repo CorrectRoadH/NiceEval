@@ -148,7 +148,7 @@ for (const exp of results.experiments) {
     points.push({
       agent: exp.latest.agent,
       eval: attempt.evalId,
-      passed: attempt.result.outcome === "passed",
+      passed: attempt.result.verdict === "passed",
       shellCommands: o11y?.shellCommands.length ?? 0,
     });
   }

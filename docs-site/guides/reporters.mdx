@@ -46,7 +46,7 @@ Prerequisites: install the optional `braintrust` package (`npm install braintrus
 - Each attempt becomes one Braintrust row. `runs: 3` creates three rows, distinguished by `attempt` in metadata.
 - Soft assertions are recorded as scores by name. Gate assertions are recorded under a `gate:` prefix, so gate regressions and soft score regressions appear in the same Braintrust experiment diff surface.
 - Metrics include start/end time, token usage, and estimated cost. Missing data is omitted rather than filled with zero.
-- Metadata includes `agent`, `model`, `experiment`, `flags`, `outcome`, and failed assertion details, so Braintrust filters can slice by those dimensions.
+- Metadata includes `agent`, `model`, `experiment`, `flags`, `verdict`, and failed assertion details, so Braintrust filters can slice by those dimensions.
 
 ### Options
 
@@ -95,7 +95,7 @@ import type { Reporter } from "niceeval";
 
 const notify: Reporter = {
   async onEvalComplete(result) {
-    if (result.outcome === "failed") {
+    if (result.verdict === "failed") {
       await fetch("http://localhost:3000/notify", {
         method: "POST",
         body: JSON.stringify({ eval: result.id, agent: result.agent }),

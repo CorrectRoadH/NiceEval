@@ -46,15 +46,15 @@ AI 通常按任务选择这些入口：
   <Step title="读取失败">
     ```bash
     npx niceeval show
-    npx niceeval show @7K2M9Q
+    npx niceeval show @1k2m9qtr
     ```
 
     第一条命令显示当前各实验的通过率、成本、耗时，以及每个 Eval 的紧凑 Attempt locator。`[E]` / `[X]` / `[⏱]` / `[D]` 分别表示运行时 Eval 源码、执行步骤、OTel 时间和 diff 可用。第二条命令直接打开选中的 Attempt。
   </Step>
   <Step title="按问题读取证据">
     ```bash
-    npx niceeval show @7K2M9Q --execution
-    npx niceeval show @C3H6TW --diff
+    npx niceeval show @1k2m9qtr --execution
+    npx niceeval show @1c3h6tbn --diff
     ```
 
     `--execution` 合并 AI 输出与 trace：标准事件流提供消息、thinking、tool call/result 和 Skill load；OTel 在能够关联时给同一节点补开始时间、耗时、父子关系和错误状态。没有 OTel 时步骤仍完整，只不显示时间。
@@ -62,8 +62,8 @@ AI 通常按任务选择这些入口：
     不带证据 flag 时，`show @<id>` 给出一份紧凑的 Attempt 全景：Eval 断言、OTel 执行步骤、耗时瀑布和工作区变化。它展示**运行当时保存的 Eval 源码**，不读取当前工作区的同名文件；长内容只给摘要和展开命令。
 
     ```text
-    $ niceeval show @7K2M9Q
-    @7K2M9Q · weather/brooklyn · compare/codex-gpt-5.4 · failed
+    $ niceeval show @1k2m9qtr
+    @1k2m9qtr · weather/brooklyn · compare/codex-gpt-5.4 · failed
     snapshot 2026-07-09T10-00-00-000Z-x1f2 · attempt 2 · 41.2s · 12.3k tokens · $0.04
     eval source: evals/weather/brooklyn.eval.ts · sha256:8d47…
 
@@ -93,14 +93,14 @@ AI 通常按任务选择这些入口：
 
     evidence: Eval source [E] · execution [X] · OTel timing [⏱]
     full eval source: …/weather/brooklyn/a2/eval-source.ts
-    next: niceeval show @7K2M9Q [--eval|--execution|--diff]
+    next: niceeval show @1k2m9qtr [--eval|--execution|--diff]
     ```
 
     `--execution` 把 AI 消息、Skill load、工具调用和工具结果排成一棵执行树。下面的 Attempt 有 OTel，所以同一棵树同时带相对时间与耗时：
 
     ```text
-    $ niceeval show @7K2M9Q --execution
-    @7K2M9Q · weather/brooklyn · compare/codex-gpt-5.4 · failed · OTel timing
+    $ niceeval show @1k2m9qtr --execution
+    @1k2m9qtr · weather/brooklyn · compare/codex-gpt-5.4 · failed · OTel timing
 
       0.0s  user        布鲁克林今天天气怎么样？
       0.2s  assistant   我先读取天气工具的使用说明。
@@ -117,8 +117,8 @@ AI 通常按任务选择这些入口：
     没有 OTel 时仍用标准事件流展示相同的步骤，只去掉时间列和瀑布关系，不把“缺时间”误写成“没有执行”：
 
     ```text
-    $ niceeval show @8NX4DP --execution
-    @8NX4DP · weather/brooklyn · compare/bub-gpt-5.4 · failed
+    $ niceeval show @1nx4dpwq --execution
+    @1nx4dpwq · weather/brooklyn · compare/bub-gpt-5.4 · failed
 
     user        布鲁克林今天天气怎么样？
     assistant   我先读取天气工具的使用说明。
@@ -134,15 +134,15 @@ AI 通常按任务选择这些入口：
     diff 是被测 Agent 在 Sandbox 工作区造成的文件变化，不是 Eval 源码的新旧差异。它只会出现在带 `[D]` 的 locator 上。默认先给文件级摘要，避免把大段补丁塞进 Agent 上下文；`--diff=<文件>` 再展开单个文件，原始 artifact 路径始终保留：
 
     ```text
-    $ niceeval show @C3H6TW --diff
-    @C3H6TW · fixtures/button · compare/bub-gpt-5.4 · errored
+    $ niceeval show @1c3h6tbn --diff
+    @1c3h6tbn · fixtures/button · compare/bub-gpt-5.4 · errored
 
     M src/components/Button.tsx   +42 −3
     A src/components/Button.css   +18
 
     2 files changed · +60 −3
     full diff: …/fixtures/button/a1/diff.json
-    next: niceeval show @C3H6TW --diff=src/components/Button.tsx
+    next: niceeval show @1c3h6tbn --diff=src/components/Button.tsx
     ```
 
     用这组输出检查信息是否足够：
@@ -191,7 +191,7 @@ AI 通常按任务选择这些入口：
 
 ```text
 Failing:
-  ✗ weather/brooklyn · @7K2M9Q[E,X,⏱]
+  ✗ weather/brooklyn · @1k2m9qtr[E,X,⏱]
       gate calledTool("get_weather"): tool was never called
 
 Results: 14 passed, 1 failed, 0 errored, 0 skipped

@@ -1,10 +1,10 @@
 ---
 title: "View NiceEval results and debug agent behavior"
 sidebarTitle: "Viewing Results"
-description: "Every run writes structured artifacts to .niceeval/. There are two ways to read them: niceeval show drills down through the leaderboard, assertions, transcripts, traces, and diffs in the terminal; niceeval view shows the same evidence in a web page."
+description: "Every run writes structured artifacts to .niceeval/. There are two doors to read them: niceeval show drills down in the terminal, using @<locator> to pinpoint one attempt and step into its eval source, execution record, and diff; niceeval view shows the same evidence in a web page."
 ---
 
-After every run, [NiceEval](https://niceeval.com/) writes structured results into that experiment's **results snapshot** directory, `.niceeval/<experiment>/<snapshot>/`. There are two doors to read them, and both read the same artifacts: `niceeval show` is the terminal door, usable by both humans and coding agents; `niceeval view` is the web door, suited to humans browsing evidence. `show` is the terminal version of `view` — the verdicts you read from either one never diverge.
+After every run, [NiceEval](https://niceeval.com/) writes structured results into that experiment's **results snapshot** directory, `.niceeval/<experiment>/<snapshot>/`. There are two doors to read them, and both read the same batch of artifacts: `niceeval show` is the terminal door, usable by both humans and coding agents; `niceeval view` is the web door, suited to humans browsing evidence. Both doors share the same default report and the same verdict formula, and they select results by the exact same rule: for each experiment × eval pair, take the verdict with the latest timestamp, composed across however many runs that experiment has had. So rerunning just one eval by prefix doesn't make the rest of the report look incomplete or stale — every other eval keeps showing its own most recent verdict. Narrowing scope (an eval ID prefix, `--experiment`, `--run`) narrows both doors by the same rule.
 
 ## Console Output
 
@@ -48,63 +48,84 @@ The unit of storage is a **results snapshot** — one run of one experiment. The
 
 ## `niceeval show`: Terminal Drill-Down
 
-`niceeval show` uses the same positional argument semantics as `exp`: eval ID prefixes select which evals to look at, and flags select which facet to view.
+`niceeval show`'s positional argument comes in two forms: an eval id prefix selects which evals to look at, and `@<locator>` names one attempt precisely. Flags select which facet to view:
 
 ```bash
-niceeval show                       # Leaderboard: pass rate, cost, duration per experiment, with failing evals and reasons underneath
+niceeval show                       # Leaderboard: pass rate, cost, duration per experiment, each row followed by its failing evals and reasons
 niceeval show weather               # Prefix filter: verdicts for every eval under weather/*
-niceeval show weather/brooklyn      # Single eval: attempts, assertion details, errors, and usage per experiment
-niceeval show weather/brooklyn --transcript   # The agent's full conversation and tool calls
-niceeval show weather/brooklyn --trace        # Text version of the trace waterfall
-niceeval show fixtures/button --diff          # File changes in the sandbox
+niceeval show weather/brooklyn      # Single eval: each experiment's attempt row (with @<locator>), assertion detail for the default attempt
+niceeval show @1k2m9qrs             # Pinpoint one attempt: compact overview (assertion/execution/diff summary + which evidence is available)
+niceeval show @1k2m9qrs --eval      # The eval source saved when this attempt ran, with assertions annotated back onto it
+niceeval show @1k2m9qrs --execution # This attempt's messages, thinking, skill loads, and tool calls, with timing added when OTel is available
+niceeval show @1c3h6twx --diff      # File changes inside the sandbox
 niceeval show weather/brooklyn --history      # Cross-run timeline: flakiness and regression points
 ```
 
-Running the same experiment multiple times leaves multiple results. The default view answers one question — what's true right now: for each experiment × eval pair, it takes the latest verdict and composes it across runs. If a prefix run only reran part of the evals, the rest keep their verdicts from earlier runs, so the leaderboard always shows the full picture instead of going incomplete after a partial rerun. The composition is labeled: each row shows when its verdict was produced, and the leaderboard header states how many runs it was composed from. A composed state can mix different versions of the system under test, so treat a full `--force` rerun as the final verdict — `show` during iteration is for speed, the final full run is for truth.
+`@<locator>` is an attempt's persistent, opaque identity, shaped like `@1k2m9qrs`: it's derived deterministically from the identity tuple `{experimentId, snapshot time, evalId, attempt number}`, so parsing the same stored result repeatedly always yields the same value. It shows up in the compact index that `niceeval show` prints — whether that's the bare leaderboard, a prefix filter, or a single eval's attempt rows — so you can copy-paste straight to that run without first memorizing which experiment's which attempt number. In the index, a locator is usually followed by a bracketed summary of which evidence this attempt actually captured: `E` = eval source saved, `X` = an execution record exists, `⏱` = the execution record carries OTel timing, `D` = a workspace diff exists; missing evidence just doesn't appear in the brackets — it isn't a fixed four slots.
 
-With multiple experiments or multiple attempts, the evidence facet defaults to the latest failing attempt; use `--experiment` and `--attempt` to pick another, `--run <dir>` to pin a specific historical run, and `--history` to see the cross-run trend (below). Without `--report`, `show` renders the default report; pass `--report <file>` to swap in your own report — the same file also works with `view`, see [Custom Reports](/guides/custom-reports). Positional prefixes, `--run`, and `--experiment` also apply to `--report` (they narrow the selection the report receives). `--history` and `--report` are mutually exclusive: when an evidence-facet flag is present, `show` only shows evidence and does not render a report.
+Running the same experiment more than once leaves multiple results behind. The default view — without an `@<locator>` — answers exactly one question, "what's true right now": for each experiment × eval pair, it takes the verdict with the latest timestamp, composed across however many runs that experiment has had. When a prefix rerun only touches part of the evals, the rest keep their verdicts from earlier runs, so the report is always the current global state and never goes incomplete just because of one partial rerun. The composition is labeled — every verdict carries the time it was produced, so you can tell which runs a report was assembled from. A composed result can mix different versions of the system under test, though, so treat a `--force` full rerun as the final word; `show` during iteration is for speed, the closing full run is for truth.
+
+In the single-eval view, when there are multiple experiments or multiple attempts, the assertion-detail block defaults to expanding the latest failing attempt, or the latest attempt if none failed. That's just a default-expansion heuristic, not a precise selection — to look at one specific attempt (even one that isn't the latest failure), copy that row's `@<locator>` and `show` it directly: `@<locator>` is the only exact way to select an attempt. `--experiment` narrows the selection to one experiment, `--run <dir>` pins the view to a specific historical run's data on disk (or a `copySnapshots` artifact), and `--history` shows the cross-run trend (below). Without `--report`, `show` renders the default report; `--report <file>` swaps in your own report — the same file also works with `view`, see [Custom Reports](/guides/custom-reports). Positional prefixes, `--run`, and `--experiment` all apply to `--report` too, narrowing the selection the report receives; `--history` and `--report` are mutually exclusive, and when an evidence-facet flag is present, `show` only shows evidence and doesn't render a report.
 
 Every view in `niceeval view` has a terminal equivalent:
 
 | View in `niceeval view` | Terminal equivalent |
 | --- | --- |
-| Default report (overview, per-group scatter plot and leaderboard — each row expandable to that experiment's per-eval verdicts and reasons) | `niceeval show` |
-| Attempt details (assertions, errors, usage) | `niceeval show <eval id>` |
-| Transcript | `niceeval show <eval id> --transcript` |
-| Trace waterfall | `niceeval show <eval id> --trace` |
-| File changes | `niceeval show <eval id> --diff` |
+| Default report (a cost × pass-rate scatter plot plus a per-experiment table; each row expands to full config, KPIs, per-eval/attempt detail, and raw samples) | `niceeval show` |
+| That eval's verdict row per experiment + assertion detail for the default attempt | `niceeval show <eval id>` |
+| One attempt's compact overview (assertion, execution, and diff summaries plus evidence availability) | `niceeval show @<locator>` |
+| Eval source annotated with assertions (mapped back to source lines) | `niceeval show @<locator> --eval` |
+| The AI's conversation, thinking, skill loads, and tool calls (with timing when OTel is available) | `niceeval show @<locator> --execution` |
+| File changes | `niceeval show @<locator> --diff` |
 | Historical run list | `niceeval show <eval id> --history`; pin a specific one with `--run <dir>` |
 
 ### Default report
 
-Bare `niceeval show` renders the terminal version of the default report, top to bottom: a run overview (how many experiments and evals, verdict distribution, total cost, composition sources) and one section per experiment group (groups split by the `/` prefix of the experiment id) — a quality × cost character plot plus a leaderboard. Rows with failed or errored evals get an indented breakdown underneath (which eval, why, and the drill-down command):
+Bare `niceeval show` renders the terminal version of the default report. It's made of two blocks laid out on one screen: a cost × pass-rate scatter plot, and a per-experiment table. Both the chart and the table are flattened across the whole selection — they don't group by the experiment id's directory prefix, so every experiment's point lands on the one chart and every experiment's row lands in the one table.
+
+Each point on the scatter plot is one experiment: the x-axis is estimated cost, the y-axis is pass rate, and the cost axis is reversed (further right is cheaper, and better); point color distinguishes agents, and further toward the upper right is better. Pass rate here uses the two-level aggregation convention: when a question partially passes across multiple attempts within the same snapshot, it counts by share (3 attempts, 2 passing, contributes 0.667 — not a binary pass/fail vote), and that per-question value is then averaged across all questions — the same formula, the same number, as the table's `Pass rate` column.
+
+With only one experiment there's nothing to compare, so the scatter block says outright "need at least two experiments to compare"; if every value on the x- or y-axis metric is unmeasurable, it says outright "no data available." It never silently disappears — you always know why the chart didn't render. The first time you've only run one experiment, that's the message you'll see; run a second experiment and the chart shows up on its own.
+
+The per-experiment table has one row per experiment: collapsed, it shows the short name, model/agent, average duration, pass rate, tokens, estimated cost, and a compact verdict summary; opening a row reveals, in order, the full config, pass/fail/error and total-duration/total-cost KPIs, an internally scrollable per-eval/attempt diagnostic table, and the raw sample results. A failure reason comes from exactly one of three sources: `error`, a skip reason, or a failed gate assertion — soft assertions never become a failure reason. The terminal face reads the same data and lists each experiment's failure/error diagnostics compactly underneath its row.
+
+When the selected results have something worth flagging, the report lists those warnings first, above the chart and table: a question that has never produced a result anywhere in this experiment's history (incomplete coverage), an experiment whose latest snapshot is noticeably older than the others, or a snapshot that never finished running. This band is shared by every report — the default one and anything you hand in with `--report` alike — these warnings are never swallowed, and `show`'s terminal face matches `view`'s web face.
+
+Here's a real transcript (`bub-gpt-5.4` passes all 5 questions, one of them with 2 of 3 attempts passing, contributing a partial pass rate; `codex-gpt-5.4` fails both gates on 1 of its 5 questions, and hits a sandbox timeout on another, counted as errored):
 
 ```text
 $ niceeval show
-2 experiments · 15 evals · 30 attempts · composed from 3 runs · latest 2026-07-09T10:00:00.000Z
-passed 25 · failed 5 · errored 0 · skipped 0 · $0.93 · 9m 15s
 
-compare
-      Pass rate ↑
-   87%│                                          A
-      │
-   80%│          B
-      └────────────────────────────────────────────→ Cost (axis reversed: right = better)
-       $0.51                                  $0.42
+        Pass rate ↑
+   93.3%│                                                                      A
+        │
+        │
+        │
+        │
+        │
+        │
+        │
+     60%│B
+        └───────────────────────────────────────────────────────────────────────→ Cost (axis reversed: right = better)
+         $0.08                                                             $0.05
 
   better → upper right
   A compare/bub-gpt-5.4   B compare/codex-gpt-5.4
 
-  experiment              Model     Agent   Duration   Pass rate   Tokens          Cost    Verdicts
-  compare/bub-gpt-5.4     gpt-5.4   bub     4m 12s     87%         412.0k tokens   $0.42   13 passed / 2 failed
-  compare/codex-gpt-5.4   gpt-5.4   codex   5m 03s     80%         521.0k tokens   $0.51   12 passed / 3 failed
+  experiment              Model     Agent   Duration   Pass rate   Tokens        Cost    Verdicts
+  compare/bub-gpt-5.4     gpt-5.4   bub     50.3s      93.3%       6.4k tokens   $0.05   5 passed
+  compare/codex-gpt-5.4   gpt-5.4   codex   1m 23s     60%         7.8k tokens   $0.08   3 passed / 1 failed / 1 errored
 
     compare/codex-gpt-5.4
-      ✗ weather/brooklyn — calledTool("get_weather") — tool was never called
+      ! api/validate — sandbox timeout after 180000ms
+        → niceeval show api/validate
+      ✗ weather/brooklyn — calledTool("get_weather"): tool was never called, noHallucinatedTemperature(): reply invents a temperature without any tool call
         → niceeval show weather/brooklyn
 ```
 
-Each leaderboard row is one experiment, with agent and model columns — when a group holds several configurations side by side, you can tell at a glance which row is which; verdicts are per-eval folded counts. When you run a group of multiple experiments, the summary table in `niceeval exp`'s closing block has this same leaderboard shape — the same table rendering, the same verdict-folding rules. The only difference is scope: the closing block summarizes only this run, while `show` is the current state composed across runs; each header states which it is.
+The scatter plot's two points, A and B, are the table's two experiments: A (`compare/bub-gpt-5.4`, 93.3%, $0.05) sits in the upper right — accurate and cheap; B (`compare/codex-gpt-5.4`, 60%, $0.08) sits in the lower left. Each table row is one experiment, with Model and Agent columns — when several configurations sit side by side, you can tell at a glance which row is which; Verdicts is the per-eval folded verdict count (multiple attempts of the same question fold into one verdict first, then get counted). `compare/bub-gpt-5.4` passes all 5 questions, so nothing shows underneath its row; `compare/codex-gpt-5.4`'s row lists its failures and errors underneath: `weather/brooklyn` fails both gate assertions, and the reasons are listed in full, in declaration order, joined by commas; `api/validate` is a sandbox timeout, where `error` takes priority over any assertion, so the reason is that error itself. Every diagnostic line carries its own drill-down command.
+
+When you run multiple experiments, the summary table in `niceeval exp`'s closing block has the exact shape of this per-experiment table — the same table rendering, the same verdict-folding convention; the only difference is scope: the closing block summarizes just this run, while `show` is the latest result composed across however many runs there have been, and each header states which it is. The web version (`niceeval view`) shows the same data — the same scatter plot and table are both there, and each table row can expand or collapse its failure detail instead of always being fully laid out.
 
 ### Single eval
 
@@ -112,56 +133,155 @@ Each leaderboard row is one experiment, with agent and model columns — when a 
 $ niceeval show weather/brooklyn
 weather/brooklyn — Brooklyn weather lookup
 
-compare/bub-gpt-5.4     ✓ passed   1 attempt    38s   $0.03   (2h ago)
-compare/codex-gpt-5.4   ✗ failed   3 attempts   41s   $0.04   (just now)
+compare/bub-gpt-5.4     ✓ passed   1 attempt    38.0s   $0.03   (2h ago)    @1xqur9kx[E,X,⏱]
+compare/codex-gpt-5.4   ✗ failed   3 attempts   41.2s   $0.12   (40s ago)   @1k2m9qrs[E,X,⏱]   gate calledTool("get_weather")
 
-attempt 3 · compare/codex-gpt-5.4 · failed · 41s · 12.3k tokens · $0.04
+attempt 3 · compare/codex-gpt-5.4 · failed · 41.2s · 12.3k tokens · $0.04
   ✗ gate calledTool("get_weather") — tool was never called
   ✓ gate succeeded()
-  ✗ soft judge("reply is based on real-time data") — 0.2/1: reply invents a temperature without any tool call
+  ✗ soft judge("the answer is based on real-time data") — 0.2/1: reply invents a temperature without any tool call
 
 artifacts: .niceeval/compare_codex-gpt-5.4/2026-07-09T10-00-00-000Z-x1f2/weather/brooklyn/a2/
-next: niceeval show weather/brooklyn --transcript | --trace | --diff
+attempt locator: @1k2m9qrs
+next: niceeval show @1k2m9qrs [--eval|--execution|--diff]
 ```
 
-### Transcript, Trace, and Diff
+Each experiment's row in the compact index ends with the `@<locator>` for the attempt it represents (`compare/bub-gpt-5.4` has just one attempt, so it represents itself; `compare/codex-gpt-5.4` represents the failing attempt expanded by default); the detail block at the bottom repeats the exact `attempt locator:` again, and both places give the same value. To look at a different attempt — say, an earlier failure of `compare/codex-gpt-5.4` — find its locator via `--history` or the artifact directory, and `niceeval show @<locator>` jumps straight to it, no need to come back through this list first.
 
-`--transcript` renders `events.json` as a turn-by-turn conversation, with tool calls showing their arguments, results, and duration:
+### `@<locator>`: one attempt's overview
+
+`niceeval show @<locator>` without an evidence flag gives a compact overview: an assertion tally, whether the eval source is available, the execution record's event count and whether OTel timing is available, and a workspace diff summary — ending with a list of what evidence this attempt actually captured and the next command to run. Out of the four evidence facets, you see at a glance which have data and which don't, without having to run `--eval`/`--execution`/`--diff` just to find out which one is worth looking at:
 
 ```text
-$ niceeval show weather/brooklyn --transcript
-attempt 3 · compare/codex-gpt-5.4 · failed
+$ niceeval show @1k2m9qrs
+@1k2m9qrs · weather/brooklyn · compare/codex-gpt-5.4 · failed
+snapshot 2026-07-09T10:00:00.000Z · attempt 3 · 41.2s · 12.3k tokens · $0.04
 
-[user]      What's the weather in Brooklyn today?
-[assistant] Brooklyn is about 24°C and sunny today.
+assertions: 1 passed · 1 gate failed · 1 soft below target
+eval source: evals/weather/brooklyn.eval.ts · sha256:a3fa4555…
 
-(2 events · no tool calls · full stream: …/events.json)
+execution: 2 events · 0 skill loads · 0 tool calls · 1 AI messages
+timing: OTel spans recorded for this attempt — see --execution for per-step timing.
+
+changes: diff unavailable · no workspace diff was recorded for this attempt
+
+evidence: eval source [E] · execution [X] · OTel timing [⏱]
+artifacts: .niceeval/compare_codex-gpt-5.4/2026-07-09T10-00-00-000Z-x1f2/weather/brooklyn/a2/
+next: niceeval show @1k2m9qrs [--eval|--execution|--diff]
 ```
 
-`--trace` draws `trace.json` as a text waterfall. Span categories use the same normalized scheme as the web version, so waterfalls from different agents are directly comparable:
+This overview only gives summaries — it never reproduces a facet's full content; the full source, the full event stream, or the full file list each need their matching evidence flag. The `changes` line always states the specific reason a diff is unavailable: here it's "this attempt never collected a diff" (`weather/brooklyn` isn't a sandbox eval, so there was never any workspace change to collect in the first place); if it were a sandbox eval where the agent genuinely never touched a file, you'd get a different message, "produced no workspace file changes" — the two "unavailable" reasons are distinct and never share one vague message.
+
+### `--eval`, `--execution`, `--diff`: three evidence facets
+
+All three evidence flags work either right after `@<locator>` (pinpointing one attempt) or after a prefix that narrows uniquely to a single eval (picking the attempt chosen by the same default heuristic — the latest failure, or the latest attempt if none failed, the same one the single-eval detail block expands by default). If the prefix matches more than one eval, it errors out, and the error body gives you the `@<locator>` for every candidate eval right there — copy one and continue. You can pass multiple evidence flags at once to print every facet you want in one go.
+
+`--eval` is the eval source saved at run time, annotated line by line: gate failures and soft scores print directly under their matching source line, and an assertion that couldn't be pinned to a specific line (no position info, or the position points to another file) gets its own section instead of being dropped:
 
 ```text
-$ niceeval show weather/brooklyn --trace
-agent run                     ▕████████████████████▏ 41.2s
-├─ inference                  ▕█████░░░░░░░░░░░░░░░▏ 10.1s
-├─ inference                  ▕░░░░░█████████░░░░░░▏ 18.3s
-└─ inference                  ▕░░░░░░░░░░░░░░██████▏ 12.4s
+$ niceeval show @1k2m9qrs --eval
+@1k2m9qrs · weather/brooklyn · compare/codex-gpt-5.4 · failed
 
-(3 spans · no execute_tool spans · full trace: …/trace.json)
+eval source: evals/weather/brooklyn.eval.ts · sha256:a3fa4555…
+
+1  export default defineEval({
+2    id: "weather/brooklyn",
+3    async test(t) {
+4      const turn = await t.send("What's the weather in Brooklyn today?");
+5✗     turn.calledTool("get_weather");
+   gate · tool was never called
+6✓     turn.succeeded();
+7✗     t.check(turn.message, judge("the answer is based on real-time data"));
+   soft · 0.2/1 · reply invents a temperature without any tool call
+8    },
+9  });
+
+assertions: 1 passed · 1 gate failed · 1 soft below target
+
+full eval source: .niceeval/compare_codex-gpt-5.4/2026-07-09T10-00-00-000Z-x1f2/weather/brooklyn/a2/sources.json
 ```
 
-`--diff` gives a file-level summary by default. To see the full change to a single file, use `--diff=<file path>` — the path must be joined with `=`; positional arguments are always reserved for the eval ID prefix:
+What it shows is **the source saved at the moment this attempt ran**, not the current contents of the same-named file in your workspace — change the eval later and look at the old attempt again, and you'll still see the version it actually ran against. When no source was captured, it says so plainly, "eval source unavailable for this attempt," rather than faking an empty document.
+
+`--execution` lays the standard event stream (messages, thinking, skill loads, tool calls/results, subagents, errors) out as an execution tree; when this attempt had OTel wired in, the same nodes get relative time and duration added, and when it didn't, the skeleton, order, and content stay the same — just drop the time column and honestly label the end `timing unavailable`, so "no timing" is never mistaken for "no execution":
 
 ```text
-$ niceeval show fixtures/button --diff
-M src/components/Button.tsx   +42 −3
-A src/components/Button.css   +18
+$ niceeval show @1k2m9qrs --execution
+@1k2m9qrs · weather/brooklyn · compare/codex-gpt-5.4 · failed
 
-(full diff: …/diff.json)
-$ niceeval show fixtures/button --diff=src/components/Button.tsx
+0.0s   user        What's the weather in Brooklyn today?  100ms
+0.2s   assistant   Brooklyn is about 24°C and sunny today.  41.0s
+
+total 41.2s · 0 skill loads · 0 tool calls · 1 AI message
+full events: .niceeval/compare_codex-gpt-5.4/2026-07-09T10-00-00-000Z-x1f2/weather/brooklyn/a2/events.json
+full OTel trace: .niceeval/compare_codex-gpt-5.4/2026-07-09T10-00-00-000Z-x1f2/weather/brooklyn/a2/trace.json
 ```
 
-All three facets truncate long content, but the truncation always states the remaining count and the underlying artifact path — the output stays friendly to context windows while the full facts stay on disk, untouched.
+This attempt has just two messages and no tool-call nodes at all — which is exactly why the `calledTool("get_weather")` gate assertion above failed; `--execution` directly corroborates what `--eval`'s assertion annotation already told you. When there are skill loads and tool calls, `--execution` lays them into the same tree in the order they happened, splitting a tool call into two lines to read — "call" and "result":
+
+```text
+$ niceeval show @1c3h6twx --execution
+@1c3h6twx · fixtures/button · compare/bub-gpt-5.4 · errored
+
+0.0s   user        Add a loading state to the Button component.  100ms
+0.2s   assistant   Let me look at the current Button component first.  100ms
+0.3s   skill load  component-scaffold  400ms
+0.8s   tool call   write_file {"path":"src/components/Button.tsx"}  1.8s
+2.6s   tool result {"bytesWritten":1820}
+2.8s   assistant   Added the loading state and the matching styles.  1.2s
+
+total 4.0s · 1 skill load · 1 tool call · 2 AI messages
+full events: fixtures/button/a1/events.json
+full OTel trace: fixtures/button/a1/trace.json
+```
+
+Without OTel wired in, the same tree drops the time column and keeps the node content unchanged:
+
+```text
+$ niceeval show @1nx4dpqr --execution
+@1nx4dpqr · weather/brooklyn · compare/codex-gpt-5.4 · failed
+
+user        What's the weather in Brooklyn today?
+assistant   Brooklyn is about 24°C and sunny today.
+
+timing unavailable · OTel trace was not collected
+full events: .niceeval/compare_codex-gpt-5.4/2026-07-09T10-00-00-000Z-x1f2/weather/brooklyn/a2/events.json
+```
+
+`--diff` gives a file-level summary by default (the diff stored on disk only holds the post-change full text, with no baseline to diff added/removed line counts against, so every changed file gets marked `M` followed by its current line count, with no distinction between newly created and modified). To see one file's full content, use `--diff=<file path>` — the path must be joined with `=`; positional arguments are always reserved for the eval id prefix / `@<locator>`:
+
+```text
+$ niceeval show @1c3h6twx --diff
+@1c3h6twx · fixtures/button · compare/bub-gpt-5.4 · errored
+
+M   src/components/Button.css   18 lines
+M   src/components/Button.tsx   42 lines
+
+(2 files · full diff: fixtures/button/a1/diff.json)
+$ niceeval show @1c3h6twx --diff=src/components/Button.tsx
+```
+
+All three facets truncate long content, but the truncation always faithfully states the remaining count and the original artifact path — the output stays friendly to a context window, while the source of truth on disk stays complete, not a byte trimmed.
+
+### The shortest reading path for a coding agent
+
+Hand a coding agent this exact loop. Each step continues only when the previous layer wasn't enough to pin down the problem, so you don't stuff the full artifact into context right from the start:
+
+```text
+1. Run niceeval show, find a failing or errored eval, and pull an @<locator> from the compact index.
+2. Run niceeval show <eval-id> to read that question's verdict per experiment, the default
+   attempt's assertion detail, and the @<locator> at the end of each row.
+3. Run niceeval show @<locator> and read the compact overview to confirm what evidence this
+   attempt actually captured.
+4. Pick --eval, --execution, or --diff based on the question; you can pass multiple evidence
+   flags at once.
+5. When output is truncated, read the sources.json, events.json, trace.json, or diff.json path
+   printed at the end.
+6. After fixing, rerun that eval and verify the new @<locator> with niceeval show <eval-id>;
+   before calling it done, do a --force full rerun to confirm the overall result.
+```
+
+`--eval` answers "what did this question actually check, and why did each assertion pass or fail"; `--execution` answers "what did the agent do, what did it call, where did the time go"; `--diff` answers "what did the sandbox files actually end up as." Pick the evidence that matches your question first — you don't need to read all three every time.
 
 ### History and Flakiness: `--history`
 
@@ -188,13 +308,15 @@ An exact comparison between two runs — which evals a fix actually flipped — 
 npx niceeval view
 ```
 
-This opens the local viewer and, by default, shows the most recent run. You can browse evals, inspect transcripts, read diffs, inspect the event stream, and review assertions. Nothing is uploaded to an external service.
+This opens the local results viewer. Its home-page report follows the exact same selection rule as `niceeval show`: for each experiment × eval pair, it takes the verdict with the latest timestamp, composed across however many runs that experiment has had; narrowing scope (an eval ID prefix, `--experiment`) narrows it by that same rule. You can browse evals, inspect the agent's conversation and tool calls, read diffs, and check assertion results. Nothing is uploaded to an external service.
 
 <Tip>
   Run `npx niceeval view` right after a failure to open the artifacts from the run you just made.
 </Tip>
 
-`view`'s home page is a report: without `--report` it's the default report, and passing `--report` swaps in your own (it takes the same file as `show --report`), see [Custom Reports](/guides/custom-reports). The evidence side — attempt popovers, transcripts, trace waterfalls — is always there; the numbers in the report link straight through to the evidence behind them.
+`view`'s home page is a report: without `--report` it's the default report — the web rendering of the exact same content as `show` (a cost × pass-rate scatter plot plus a per-experiment table); pass `--report` to swap in your own report (it takes the same file as `show --report`), see [Custom Reports](/guides/custom-reports). The evidence side — the attempt popover, transcript, trace waterfall, run list — is always there; the numbers in the report link straight through to the evidence behind them.
+
+The web version adds a handful of browsing operations: click a header to sort in place, filter rows in the leaderboard's filter box, click open an experiment row to see its per-eval verdicts and reasons, hover a scatter point for its values — these only affect the view in front of you, never the scoring, and a refresh restores it. Above the report there's a **Copy fix prompt** button that packages every failure into a fix prompt ready to paste straight to a coding agent (the attempt popover has a single-failure version too). The report copy comes in both Chinese and English, switching with the interface language.
 
 ## Exporting and Static Hosting
 
@@ -206,7 +328,7 @@ There is exactly one way to publish results: `--out <dir>` exports the whole sit
 npx niceeval view --out site
 ```
 
-NiceEval writes `<dir>/index.html` and copies the artifacts the viewer reads (`sources.json`, `events.json`, `trace.json`) into `<dir>/artifact/`. Deploy the whole directory to any static host, such as Vercel, GitHub Pages, or `python3 -m http.server`; code views, transcripts, and trace waterfalls behave the same as local `niceeval view`.
+NiceEval writes `<dir>/index.html` and copies the artifacts the viewer reads (`sources.json`, `events.json`, `trace.json`) into `<dir>/artifact/`. Deploy the whole directory to any static host — Vercel, GitHub Pages, or `python3 -m http.server` — and the code view, transcript, and trace waterfall all match local `niceeval view`; table sorting, filtering, and chart hover keep working too — the scripts they need are inlined into the page, so with JS disabled the page is still fully readable, just without those browsing operations.
 
 `--out` only accepts a directory. There is no single-file export: code views, transcripts, and traces depend on artifact files, and a single HTML file cannot carry the full evidence. To share results, host the whole site and send the link.
 
@@ -249,20 +371,21 @@ OTLP traces or normalized span data.
 
 Observation summaries such as tool calls, commands, usage, and cost.
 
-## Outcome Meanings
+## Verdict Meanings
 
 <Tabs>
   <Tab title="passed">All gates passed.</Tab>
   <Tab title="failed">At least one gate failed, or a soft assertion missed its threshold under `--strict`.</Tab>
-  <Tab title="errored">The environment, timeout, adapter, or agent runtime failed.</Tab>
+  <Tab title="errored">The environment, a timeout, the adapter, or the agent runtime failed.</Tab>
   <Tab title="skipped">The eval was intentionally skipped.</Tab>
 </Tabs>
 
-Soft assertion scores are recorded in `assertions[].score`; outside `--strict`, they do not create another outcome.
+Soft assertion scores are recorded in `assertions[].score`; outside `--strict`, they never produce an additional verdict.
 
 ## Debugging Advice
 
-- Every failed or errored eval in the leaderboard comes with a drill-down command: start with `niceeval show <eval id>` to see the assertion details.
-- To understand why the agent did something, look at `--transcript` (or the transcript view in `view`) to see its decision process.
-- For coding-agent failures, check `--diff` and the command event output; for tool-call problems, check `--trace` and `events.json`.
+- Every failing or errored question in the leaderboard comes with its own drill-down command: start with `niceeval show <eval id>` for the assertion detail, then use the `@<locator>` at the end of a row to drill precisely into one attempt.
+- To see what an eval actually checked and why an assertion passed or failed, look at `--eval` (assertions annotated back onto their source lines).
+- To see what the agent did, what it called, and where the time went, look at `--execution` (or `view`'s evidence panel).
+- For a coding-agent failure, check `--diff` alongside the tool calls in `--execution`; together they show whether it "edited the wrong file" or "never called the tool it was supposed to."
 - For deciding whether the defect is in the system under test or in the eval itself, and how to rerun after a fix, see [Agent Feedback Loop](/guides/agent-feedback-loop).
