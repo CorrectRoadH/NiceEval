@@ -84,7 +84,7 @@ npx niceeval@0.5.4 view .niceeval/2026-07-10T08-00-00-000Z
   单文件模式 `niceeval view <path>` 指向版本不同的元数据文件时输出同样的提示后退出,而不是报「不是 niceeval 结果」。
 - **不能识别**(没有 `format`,也不满足 legacy 的 `results[]` + `startedAt` 启发式):当作无关 JSON 忽略。
 
-实现入口:版本判定只有一份,在 `src/results/format.ts` 的 `classifySummary`(view 经 `openResults` 消费);目录扫描的占位数据经 `viewData.skippedRuns` 进前端,由 `src/view/app/App.tsx` 的 incompatible-banner 渲染(三种原因:incompatible-version / malformed / incomplete);单文件模式在 `src/view/data.ts` 抛 `IncompatibleResultsError`,`src/cli.ts` 的 `exitOnIncompatibleResults` 打印提示退出;提示文案是 i18n key `cli.view.incompatible`(niceeval 落盘)与 `cli.view.incompatibleForeign`(第三方 harness,不拼 npx)。
+实现入口:版本判定只有一份,在 `src/results/format.ts` 的 `classifySnapshot`(view 经 `openResults` 消费);目录扫描的占位数据经 `viewData.skippedRuns` 进前端,由 `src/view/app/App.tsx` 的 incompatible-banner 渲染(三种原因:incompatible-version / malformed / incomplete);单文件模式在 `src/view/data.ts` 抛 `IncompatibleResultsError`,`src/cli.ts` 的 `exitOnViewUserError` 打印提示退出;提示文案是 i18n key `cli.view.incompatible`(niceeval 落盘)与 `cli.view.incompatibleForeign`(第三方 harness,不拼 npx)。
 
 ## `snapshot.json`
 
@@ -138,12 +138,12 @@ interface AttemptRecord {
   /** 本 attempt 开始的墙钟时刻;缺失时读取面回退快照的 startedAt。携带条目保留原条目的值,身份键与去重以它为锚。 */
   startedAt?: string;
   /**
-   * 不透明的 Attempt 定位符:`@` + 1 位 scheme 字符 + 7 位 base36 body(如 `@1x7f3q9`)。
+   * 不透明的 Attempt 定位符:`@` + 1 位 scheme 字符 + 7 位 base36 body(如 `@1x7f3q9k`)。
    * 由 `{experimentId, 快照 startedAt, evalId, attempt}` 这个不可变身份元组确定性派生——
    * 不是数组下标、不是磁盘路径。非携带条目由 writer 落盘时算出;携带条目(见下)原样复制
    * 上一轮的值,从不重算(原快照的 startedAt 已经不在本轮快照里,重算会算出不同的字符串)。
    * `niceeval show @<locator>` 与报告 / view 的 attempt 深链都靠它寻址,详见
-   * [Library](library.md) 的 `resolveLocator`。
+   * [Library · 按 locator 寻址一个 attempt](library.md#按-locator-寻址一个-attemptresolvelocator)。
    */
   locator?: string;
   /** 携带条目专用: artifact 目录(相对结果根目录),指向原快照里的落盘。 */

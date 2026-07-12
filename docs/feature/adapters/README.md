@@ -23,7 +23,7 @@
 | [Adapter 写法](authoring.md) | **怎么做出来**:递进式写法(收发消息 → 事件流 → 多轮会话 → HITL → tracing)、remote / sandbox 参考实现、采集层技巧、`shared` 工具袋 |
 | [采集设计](collection.md) | **从哪采、字段从哪来**:三条外部路线对比、双轨四通道、claude-code / codex / bub / AI SDK 的采集矩阵、接新对象的决策树 |
 | [Coding Agent Skills / Plugins DX](coding-agent-skills-plugins.md) | 沙箱型 coding agent 怎么安装 skill / plugin,并组织 A/B 实验 |
-| [Capabilities by Construction](../../capabilities-by-construction.md) | 能力从哪来的设计动机与源码落点:为什么没有 `capabilities` 声明式字段、`t` 上每个能力各自的构造证据是什么 |
+| [能力参考](../../../docs-site/zh/reference/capabilities.mdx) | `t` 上每个能力各自的构造证据是什么——逐能力的精确适配义务(设计动机见 [Adapter 契约 · 能力从哪来](contract.md#能力从哪来构造证明不是问卷)) |
 | [Observability · OTLP traces](../../observability.md#otlp-traces--统一瀑布图) | OTel 接入怎么喂 `niceeval view` 的调用瀑布图——只画图,不产出事件、不参与任何断言 |
 | [agent-eval 参考](reference/agent-eval.md) | Vercel agent-eval 怎么做同一件事的源码阅读记录——学习资料,不是 niceeval 的实现 |
 | [OTel GenAI 等标准参考](reference/otel-genai.md) | "agent 行为怎么记"的行业标准调研:OTel GenAI semconv 对比 agent-eval 自定义方案,附 OpenInference / OpenLLMetry / OpenAI Agents SDK / AG-UI / Langfuse |

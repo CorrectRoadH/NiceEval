@@ -256,6 +256,8 @@ async function runAttemptBody(
   };
   let agentCleanup: Cleanup | void = undefined;
   let agentDidSetup = false;
+  // EvalDef.setup() 返回的 cleanup 闭包;finally 里按 LIFO 跑(见下)。
+  let evalCleanup: Cleanup | void = undefined;
   // SandboxSpec.setup() 返回的 cleanup 闭包,按调用顺序收集;finally 里 LIFO 跑(见下)。
   const sandboxCleanups: Cleanup[] = [];
   try {
@@ -276,7 +278,7 @@ async function runAttemptBody(
       // setup 里需要 root 的(apt/pip)自己传 { root: true }。
       if (evalDef.setup) {
         log(t("runner.evalSetup"));
-        await evalDef.setup(withEvalLocalPaths(sandbox, evalDef.baseDir));
+        evalCleanup = await evalDef.setup(withEvalLocalPaths(sandbox, evalDef.baseDir));
       }
     }
 
@@ -447,6 +449,12 @@ async function runAttemptBody(
       if (agentDidSetup) await run.agent.teardown?.(sandbox, attemptCtx);
     } catch {
       // teardown 失败只是 diagnostic,不影响已出的结果
+    }
+    try {
+      // eval.setup 返回的 cleanup:排在 agent 级之后、sandbox 级之前(LIFO,与 setup 顺序对称)。
+      if (typeof evalCleanup === "function") await evalCleanup();
+    } catch {
+      // 同上,只作 diagnostic
     }
     if (usesSandbox) {
       // sandbox.setup 返回的 cleanup:LIFO(后 setup 先 cleanup),与 agent 级同构。

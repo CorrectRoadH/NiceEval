@@ -22,7 +22,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 - 已修 [bub-checkpoint-oversized-transfer-kills-attempt](bub-checkpoint-oversized-transfer-kills-attempt.md) — bub checkpoint 曾打包 `~/.cache/uv` 撑到 100MB+,e2b 文件 API 单次传输超时/重置;且缓存回填失败曾杀掉已装好 bub 的 attempt;修为只打 `~/.local` + 回填/还原失败降级警告(修在 `src/agents/bub.ts`)
 - 已修 [bub-ensurebub-warning-no-attribution-prefix](bub-ensurebub-warning-no-attribution-prefix.md) — ensureBub 的 checkpoint 回填/还原警告曾用裸 console.error,并发多配置下无法归属;修为穿入触发 attempt 的 ctx.log(`src/agents/bub.ts`)
 - 已修 [npx-skills-add-headless-hang](npx-skills-add-headless-hang.md) — `npx skills add` 默认交互式选 agent,headless 沙箱里卡死;修为 `-y -a <agent>`(claude-code.ts / codex.ts)
-- [claude-code-skill-tool-name-not-load-skill](claude-code-skill-tool-name-not-load-skill.md) — claude-code 原生 Skill 工具叫 `Skill`(入参 `{skill,args}`),`t.loadedSkill()` 是给 eve 协议的糖,断不中,要用 `calledTool("Skill", …)`
+- 已修 [claude-code-skill-tool-name-not-load-skill](claude-code-skill-tool-name-not-load-skill.md) — `t.loadedSkill()` 曾是 `calledTool("load_skill")` 的糖,而 parser 早已把 Skill 加载归一成 `skill.loaded` 一等事件 → 在 claude-code 上永远静默断不中;修为 `loadedSkill()` 直接读 `skill.loaded`(`src/scoring/scoped.ts`)
 - [codex-no-native-skill-tool](codex-no-native-skill-tool.md) — codex 没有原生 skill 工具,不显式提示"检查有没有 skill 文件"就几乎不会主动去读装好的 skill
 - 已修 [skill-loaded-input-field-is-skill-not-command](skill-loaded-input-field-is-skill-not-command.md) — 实现 `skill.loaded` 归一化时凭印象把入参字段猜成 `input.command`,正确字段是 `input.skill`(仓库已有实测 memory 记录了这个形状,没检索到就重新猜错了);修在 `src/o11y/parsers/claude-code.ts`
 - [mcp-tool-naming-claude-vs-codex](mcp-tool-naming-claude-vs-codex.md) — MCP 工具规范名两家不同:claude-code 是 `mcp__<server>__<tool>`,codex 是 `<server>.<tool>`(点分隔)

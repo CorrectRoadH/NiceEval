@@ -191,7 +191,19 @@ export function maxToolCalls(max: number): Spec {
 }
 
 export function loadedSkill(skill: string): Spec {
-  return calledTool("load_skill", { input: { skill } });
+  return {
+    name: `loadedSkill(${skill})`,
+    severity: "gate",
+    // 读 skill.loaded 一等事件,不按名字猜工具调用:各 agent 表达 Skill 加载的原生形态不同
+    // (Claude Code 是 Skill tool_use、eve 是 load-skill action kind),归一化的责任在 parser。
+    evaluate: (ctx) => {
+      const loaded = ctx.events.filter((e): e is Extract<StreamEvent, { type: "skill.loaded" }> => e.type === "skill.loaded");
+      const matched = loaded.filter((e) => e.skill === skill);
+      // 没命中时把实际加载过的 skill 列出来(常见失败是名字对不上,而不是一个都没加载)。
+      const shown = matched.length ? matched : loaded;
+      return { score: matched.length ? 1 : 0, evidence: shown.length ? shown.map((e) => e.skill).join(", ") : undefined };
+    },
+  };
 }
 
 export function noFailedActions(): Spec {

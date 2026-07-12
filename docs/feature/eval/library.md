@@ -179,7 +179,7 @@ export default defineEval({
 });
 ```
 
-**要放一整个文件夹**(比如带 `package.json` + 多个源文件的起始项目),用 `uploadDirectory(localDir, targetDir?)`。第一个参数是宿主机上的本地目录(相对路径解析到 eval 定义文件所在目录);第二个参数是 sandbox 内目标目录,省略就是 workdir——上传完整起始项目时就该省略:
+**要放一整个文件夹**(比如带 `package.json` + 多个源文件的起始项目),用 `uploadDirectory(localDir, targetDir?, opts?)`。第一个参数是宿主机上的本地目录(相对路径解析到 eval 定义文件所在目录);第二个参数是 sandbox 内目标目录,省略就是 workdir——上传完整起始项目时就该省略;第三个参数给排除规则(`opts.ignore`),用来把 `node_modules`、构建产物这类不该进沙箱的目录挡在外面:
 
 ```typescript
 export default defineEval({
@@ -234,7 +234,7 @@ export default defineEval({
 
 ## 命名与组织约定
 
-- 文件名以 `.eval.ts` 结尾才会被发现。
+- 文件名以 `.eval.ts` 或 `.eval.tsx` 结尾才会被发现(要在 eval 里写 JSX 时用 `.tsx`,两者的发现规则与 id 推导完全相同)。
 - 用目录表达分组:`evals/billing/refund.eval.ts` → `billing/refund`。
 - 数据集放 `evals/data/`,沙箱型 eval 要写入的起始文件素材可以放 `evals/fixtures/`(纯目录命名约定,运行器不会扫描或自动加载它——仍要在 `test()` 里手工 `t.sandbox.writeFiles`/`uploadFiles` 读取写入)。
 - `description` 写给人看,id 给机器引用。

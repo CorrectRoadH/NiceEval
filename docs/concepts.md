@@ -49,7 +49,7 @@
 | 中文 | English | 含义 |
 |---|---|---|
 | 数据集 | Dataset | 共享同一 `test` 逻辑、只有输入不同的一组 case,`.map` 扇出,id 零填充编号 |
-| 发现 | Discovery | 运行器扫 `evals/` 找 `*.eval.ts`、按路径推导 id;没有目录层面的隐式发现 |
+| 发现 | Discovery | 运行器扫 `evals/` 找 `*.eval.ts` / `*.eval.tsx`、按路径推导 id;没有目录层面的隐式发现 |
 
 ### 运行与结果
 
@@ -134,7 +134,7 @@
 
 **Assertion** / **断言** —— Scorer 的一次具体应用,带名字、严重度([gate / soft](#severity))、可选阈值,产出一个 0–1 的分数和过/挂。
 
-**Verdict** / **判定** —— 一个 Eval 的评分判定,只有四态:`passed` / `failed` / `errored` / `skipped`。规则:显式 `t.skip(reason)` → `skipped`;执行出错(超时、异常、作者错误)→ `errored`;任一 gate 断言不过,或 `--strict` 下有 soft 断言低于阈值 → `failed`;否则 → `passed`。**没有 `scored` 这个中间态**——soft 断言没达标,在非 `--strict` 下就是 `passed`,分数照样如实记录、供横向对比,只是不影响这四态判定。`failed` 只表示断言/评分不通过,`errored` 是环境、超时、adapter、agent runtime 等执行问题,两者互斥,报告、JUnit、CI 都按这个口径分开统计,别把 `errored` 当成 agent 任务做错了。
+**Verdict** / **判定** —— 一个 Eval 的评分判定,只有四态:`passed` / `failed` / `errored` / `skipped`。四态**按固定优先级折叠**,一条 attempt 同时满足多个条件时取最高的一档:**`errored`**(执行出错:超时、异常、作者错误)> **`failed`**(任一 gate 断言不过,或 `--strict` 下有 soft 断言低于阈值)> **`skipped`**(显式 `t.skip(reason)`)> **`passed`**。优先级不是可有可无的细节:`t.skip()` 之前已经记下的失败断言照样让这条判 `failed`,跳过不能掩盖已经暴露的失败;执行出错则压过一切,因为断言结果在出错的运行里不可信。**没有 `scored` 这个中间态**——soft 断言没达标,在非 `--strict` 下就是 `passed`,分数照样如实记录、供横向对比,只是不影响这四态判定。`failed` 只表示断言/评分不通过,`errored` 是环境、超时、adapter、agent runtime 等执行问题,两者互斥,报告、JUnit、CI 都按这个口径分开统计,别把 `errored` 当成 agent 任务做错了。
 
 **Severity** / **严重度** —— 断言的两档。**gate**:硬性要求,不过即判 `failed`,任何时候都生效。**soft**:质量分,不会单独让 eval 立即 `failed`——`.atLeast(x)` 本身就是 soft 带阈值的写法:非 `--strict` 下低于阈值仍判 `passed`(分数如实记录),`--strict` 下才降级为 `failed`;不调 `.atLeast()` 时走匹配器自己的默认档(如 judge 默认 soft、无阈值,纯记分永不 fail)。
 
@@ -160,7 +160,7 @@
 
 **Dataset** / **数据集** —— 一组共享同一 `test` 逻辑、只有输入不同的 case。用 `loadYaml`/`loadJson` 读进来,`.map(row => defineEval(...))` 扇出。生成的 id 形如 `sql/0000`、`sql/0001`(零填充 4 位)。
 
-**Discovery** / **发现** —— 运行器扫 `evals/` 找 `*.eval.ts` 文件,据路径推导 id 并排序。没有目录层面的隐式发现——沙箱型 eval 和会话型 eval 一样,必须有一个 `.eval.ts` 文件;起始文件靠 `test()` 里手工 `t.sandbox.writeFiles` / `uploadFiles` 放进沙箱(见 [Eval Authoring](feature/eval/library.md#沙箱型手工把文件放进沙箱)),不靠运行器扫目录。
+**Discovery** / **发现** —— 运行器扫 `evals/` 找 `*.eval.ts` 与 `*.eval.tsx` 文件(要在 eval 里写 JSX 时用 `.tsx`,发现规则与 id 推导完全相同),据路径推导 id 并排序。没有目录层面的隐式发现——沙箱型 eval 和会话型 eval 一样,必须有一个 eval 文件;起始文件靠 `test()` 里手工 `t.sandbox.writeFiles` / `uploadFiles` 放进沙箱(见 [Eval Authoring](feature/eval/library.md#沙箱型手工把文件放进沙箱)),不靠运行器扫目录。
 
 ## 运行与结果
 
@@ -200,12 +200,15 @@
 
 | 字段 | 类型 | 作用 |
 |---|---|---|
+| `name` | `LocalizedText` | 项目名,显示在 `niceeval view` 顶部;可给字符串,或按 locale 给多语言(`{ en, "zh-CN" }`) |
 | `judge` | `JudgeConfig` | 默认 Judge(裁判模型,见 [Scoring](feature/scoring/library.md#llm-as-judge)) |
 | `reporters` | `Reporter[]` | 全局报告器(见 [Observability](observability.md#reporters)) |
 | `maxConcurrency` | `number` | 并发上限(见 [Runner](runner.md#调度有界并发)) |
 | `timeoutMs` | `number` | 单 eval 超时 |
 | `sandbox` | `SandboxOption` | 项目默认 sandbox spec(`dockerSandbox()` 等工厂产出);experiment 可覆盖。两处都没设、又用了沙箱型 agent 时直接报错——没有隐式默认,也没有 `--sandbox` 这种 CLI 覆盖 |
-| `pricing` | `Record<string, Price>` | 价格表覆盖,合并在内置快照之上(见 [Observability](observability.md#换算成本价格表从哪来)) |
+| `workspace` | `string` | 上传进沙箱的工作区根目录;省略则用项目根 |
+| `telemetry` | `{ host?, port? }` | OTLP 接收配置(niceeval 唯一入口,不读 `NICEEVAL_OTLP_*` 环境变量):`port` 钉住接收端口,省略则每次运行动态分配;`host` 是报给 adapter 的接收端 hostname(见 [Observability](observability.md)) |
+| `pricing` | `Record<string, PriceOverride>` | 价格表覆盖,合并在内置快照之上;key 支持精确 model 名或 `provider/*` 通配(见 [Observability](observability.md#换算成本价格表从哪来)) |
 
 agent 不在 config 里注册:每个 experiment 直接引用一个 agent adapter(见 [Experiments](feature/experiments/README.md#defineexperiment-的形状))。config 只管项目级默认与全局资源。
 

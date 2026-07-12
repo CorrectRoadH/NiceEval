@@ -15,11 +15,24 @@ Effect 的 Layer 用法):transcript 里的 tool_use 是
 `{"name":"Skill","input":{"skill":"effect-ts","args":"..."}}`,随后跟一次
 `Read` 读 `.claude/skills/effect-ts/references/guide-layers.md`。
 
-**修法**(使用侧结论,不是要去改 `loadedSkill` 本身——它对 eve 仍然是对的语义):
-claude-code / codex 这类沙箱型 agent 的 skill 断言直接写
+**当时的修法**(使用侧绕行):claude-code 的 skill 断言直接写
 `t.calledTool("Skill", { input: { skill: "effect-ts" } })`,不要用 `t.loadedSkill()`。
 落点：`e2e/shared/evals.ts` 的 `skillUsed(p)` factory(`profile.skillDetection === "tool"` 分支)。
-适用场景:任何要断言"claude-code 真的用了某个 skill"的 eval。
+
+**最终修法**(2026-07-12,改的是 `loadedSkill` 本身):绕行方案把「按工具名猜」的负担推给了 eval 作者,
+而 Skill 加载早已在别处被定为一等事件——`skill.loaded`(`src/o11y/types.ts`),claude-code parser
+也已经把 Skill 的 `tool_use` 直接归一成它、并吃掉配对的 tool_result(`src/o11y/parsers/claude-code.ts`)。
+于是 `loadedSkill()` 那个 `calledTool("load_skill")` 糖在 claude-code 上**永远匹配不上**:parser 根本
+不再产出名叫 `load_skill`(或 `Skill`)的 `action.called`。修为 `loadedSkill()` 直接读 `skill.loaded`
+事件(`src/scoring/scoped.ts`),归一的责任回到 adapter/parser 手里,eval 作者照常写
+`t.loadedSkill("effect-ts")`。契约同步进 `docs/feature/adapters/contract.md`(Skill 加载是一等事件,
+伪装成 `action.called` 是 adapter 违约)与 `docs/assertions.md`。
+
+**教训**:同一个概念在事件层已经升成一等公民、断言层却还留着旧的「按名字猜」实现,这种半截迁移
+比两边都旧更危险——它在类型上、文档上都看不出问题,只在真跑一次 claude-code 时静默断不中。
+
+适用场景:任何要断言"agent 真的用了某个 skill"的 eval。
 
 关联:[[npx-skills-add-headless-hang]](同一次调研)、
-[[codex-no-native-skill-tool]](codex 那边完全没有对应工具,情况更极端)。
+[[codex-no-native-skill-tool]](codex 那边完全没有对应工具,情况更极端)、
+[[skill-loaded-input-field-is-skill-not-command]](同一次 `skill.loaded` 归一化的另一处踩坑)。

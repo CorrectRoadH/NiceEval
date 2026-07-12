@@ -99,9 +99,9 @@ claude-code 和 codex 用**同一套**模型,绝大部分**共享**,只有 5 个
 |---|---|---|---|
 | 起沙箱 + 写入起始文件 + `git` 基线 | ✅ 共享(runner 固定段) | — | — |
 | 装 CLI | ✗ | `npm i -g @anthropic-ai/claude-code` | `npm i -g @openai/codex` |
-| 鉴权 | ✗ | env `ANTHROPIC_API_KEY` | `codex login --with-api-key` + profile |
-| 拼调用 + 丢 prompt | ✗ | `claude --print [--model <m>] --dangerously-skip-permissions <prompt>` | `codex exec --profile default --json <prompt>` |
-| 模型/参数 | ✗ | CLI flag `--model`(来自 `ctx.model`) | 写 `~/.codex/default.config.toml`(同) |
+| 鉴权 | ✗ | env `ANTHROPIC_API_KEY` | env `CODEX_API_KEY`(setup 时在 `~/.codex/config.toml` 声明 `env_key`,运行时经 env 注入) |
+| 拼调用 + 丢 prompt | ✗ | `claude --print [--model <m>] --dangerously-skip-permissions <prompt>` | `codex exec --json <prompt>` |
+| 模型/参数 | ✗ | CLI flag `--model`(来自 `ctx.model`) | 写 `~/.codex/config.toml`(同) |
 | 读 transcript → 解析成 events | ✗ | `~/.claude/projects/.../{session}.jsonl` 最新一个 | `--json` stdout 即 JSONL |
 | 归一化 events → diff → 验证 | ✅ 共享 | — | — |
 
@@ -128,6 +128,7 @@ export default defineSandboxAgent({
     if (ctx.model) args.push("--model", ctx.model);              // 实验给了才传;否则用 CLI 原生默认
     if (ctx.flags.webResearch) args.push("--allowedTools", "WebSearch,WebFetch"); // 读实验参数
     if (ctx.session.id) args.push("--resume", ctx.session.id);   // 新会话线 id 为 undefined,自然不传
+    args.push(input.text);                                       // prompt 是最后一个位置参数
 
     const res = await sb.runCommand("claude", args, { env: auth() });
 

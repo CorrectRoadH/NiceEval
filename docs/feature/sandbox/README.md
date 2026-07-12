@@ -17,25 +17,46 @@
 interface Sandbox {
   /** agent 的默认工作目录;所有沙箱侧相对路径的解析基准。见 Library「路径与 workdir」。 */
   readonly workdir: string;
+  /** provider 原生的实例 id(如 Docker 容器 ID 前缀);用于关联日志、排查问题。 */
+  readonly sandboxId: string;
+  /**
+   * 沙箱内回连宿主 OTLP 端口用的 hostname(docker 是 `host.docker.internal` 之类);
+   * 远程云沙箱够不着宿主本地端口时为 `null` → 跳过 tracing。
+   */
+  readonly otlpHost: string | null;
 
-  runCommand(cmd: string, args?: string[], opts?: {
-    env?: Record<string, string>;
-    cwd?: string;     // 省略 → workdir;相对路径 → 解析到 workdir 下
-    root?: boolean;   // 以 root 跑(默认 false → 非 root);见 Library「用户与 root」
-  }): Promise<{ stdout: string; stderr: string; exitCode: number }>;
+  // 命令执行
+  runCommand(cmd: string, args?: string[], opts?: CommandOptions): Promise<CommandResult>;  // argv,不经 shell
+  runShell(script: string, opts?: CommandOptions): Promise<CommandResult>;                  // 整段 shell
 
-  runShell(script: string, opts?): Promise<CommandResult>;   // 整段 shell
+  // 文件 IO(相对路径 → workdir;targetDir 省略 → workdir)
+  readFile(path: string): Promise<string>;                      // 文本;不存在直接抛
+  fileExists(path: string): Promise<boolean>;
+  readSourceFiles(opts?: ReadSourceFilesOptions): Promise<SourceFiles>;  // 一次往返读全部源码
+  writeFiles(files: Record<string, string>, targetDir?: string): Promise<void>;
+  uploadFiles(files: SandboxFile[], targetDir?: string): Promise<void>;  // 批量,可含二进制
+  uploadDirectory(localDir: string, targetDir?: string, opts?: { ignore?: string[] }): Promise<void>;
+  downloadFile(path: string): Promise<Buffer>;                  // 二进制读
+  uploadFile(path: string, content: Buffer): Promise<void>;     // 二进制写
 
-  readFile(path: string): Promise<string>;                 // 相对路径 → workdir 下
-  writeFiles(files: Record<string, string>, targetDir?: string): Promise<void>;  // targetDir 省略 → workdir
-  uploadFiles(files: SandboxFile[], targetDir?: string): Promise<void>; // 批量(可含二进制);同上
-  uploadDirectory(localDir: string, targetDir?: string, opts?): Promise<void>;   // 同上
-
+  // 生命周期
   stop(): Promise<void>;
+
+  /** 可选:写一行进沙箱的原生日志流(于是 `docker logs` 能实时看到 agent 活动)。 */
+  appendLog?(line: string): Promise<void>;
+}
+
+interface CommandOptions {
+  env?: Record<string, string>;   // 叠加在沙箱默认环境之上,不清空默认值
+  cwd?: string;                   // 省略 → workdir;相对路径 → 解析到 workdir 下
+  root?: boolean;                 // 以 root 跑(默认 false → 非 root);见 Library「用户与 root」
+  stream?: boolean;               // 把本命令输出也送进沙箱原生日志流(不支持的 provider 忽略)
 }
 ```
 
 这是 provider 实现和 runner 使用的底层接口,所以包含 `stop()`。eval 作者在 `test(t)` 里拿到的是 author-facing 的 `t.sandbox`:只暴露文件 IO、命令执行和结果断言 / diff,不暴露 `stop()`。沙箱生命周期由 runner 统一管理。
+
+`readSourceFiles` 返回的 `SourceFiles` 仍是一个 `SourceFile[]`(`.filter` / `.map` 照用),额外挂了 `text()` / `code()`(剥注释)/ `fileMatching(re)` / `fileMatchingAll(res)` / `hasPath(re)` 几个便利方法,省掉每个 eval 目录里手写的 source helper。`appendLog` 是可选方法:声明了意图的 adapter 照调,provider 没实现就是 no-op。
 
 ### 为什么 `runCommand` 和 `runShell` 不合并成一个
 

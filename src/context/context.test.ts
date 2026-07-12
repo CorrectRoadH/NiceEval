@@ -352,7 +352,25 @@ describe("TurnHandle scoped assertions (parked/loadedSkill/noFailedActions/maxTo
     expect(cost.passed).toBe(false);
   });
 
-  it("turn.loadedSkill() checks a load_skill call scoped to this turn", async () => {
+  it("turn.loadedSkill() reads the skill.loaded event scoped to this turn", async () => {
+    const agent = scriptedAgent([
+      {
+        status: "completed",
+        events: [{ type: "skill.loaded", skill: "pdf-export", callId: "c1" }],
+      },
+    ]);
+    const { context, state } = makeContext(agent);
+    const turn = await context.send("export as pdf");
+    turn.loadedSkill("pdf-export");
+
+    const [result] = await state.collector.finalize(baseScoringContext(state));
+    expect(result.passed).toBe(true);
+  });
+
+  // Skill 加载是一等事件,不是「名字叫 load_skill 的工具调用」——adapter 负责归一
+  // (claude-code parser 就把 Skill tool_use 直接吐成 skill.loaded)。伪装成工具调用的
+  // 加载断言侧看不见,这是 adapter 违约,不是断言该兜的底(见 docs/feature/adapters/contract.md)。
+  it("turn.loadedSkill() does not match a tool call that merely happens to be named load_skill", async () => {
     const agent = scriptedAgent([
       {
         status: "completed",
@@ -364,6 +382,6 @@ describe("TurnHandle scoped assertions (parked/loadedSkill/noFailedActions/maxTo
     turn.loadedSkill("pdf-export");
 
     const [result] = await state.collector.finalize(baseScoringContext(state));
-    expect(result.passed).toBe(true);
+    expect(result.passed).toBe(false);
   });
 });

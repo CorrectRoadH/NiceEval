@@ -139,7 +139,7 @@ export default defineEval({
 | `toolOrder(names)` | 当前作用域工具调用按给定子序出现 | eve.dev |
 | `usedNoTools()` | 当前作用域完全没调工具 | eve.dev |
 | `maxToolCalls(max)` | 当前作用域工具调用数不超过 max | eve.dev |
-| `loadedSkill(skill)` | `calledTool("load_skill", { input: { skill } })` 的糖 | eve.dev |
+| `loadedSkill(skill)` | 当前作用域加载过该 skill(读 `skill.loaded` 事件,不按工具名猜) | eve.dev |
 | `calledSubagent(name, match?)` | 当前作用域有匹配子 agent 委派 | eve.dev |
 | `noFailedActions()` | 当前作用域没有 failed 的工具 / 子 agent 动作 | eve.dev |
 | `event(type, opts?)` | 当前作用域出现某类型事件,可指定 count | eve.dev |
@@ -156,6 +156,7 @@ export default defineEval({
 | 接收者 | API | 为什么专属 |
 |---|---|---|
 | `t` | `check` / `require` / `skip` / `log` | 记录 eval run 级断言或控制流,不属于某个 session / turn |
+| `t` | `group(title, fn)` | 组织 eval run 级的断言分组,不属于某个 session / turn |
 | `t` | `newSession()` | 只有 run 主上下文负责创建额外 session |
 | `t` | `sandbox.*` | 沙箱是 attempt / run 资源,不是某条会话或某一轮的资源 |
 | `turn` | `outputEquals(value)` / `outputMatches(schema)` | 只对这一轮的 `turn.data` 有意义 |
@@ -203,16 +204,37 @@ export default defineEval({
 });
 ```
 
+### 断言分组
+
+`t.group(title, fn)` 把一组断言归到一个有标题的分组下(对照 vitest 的 `test('title', …)`)。它是**纯组织 / 报告**能力,不改打分:组里每条断言仍各自独立计分,分组只决定它们在报告里怎么归拢。分组可嵌套,嵌套标题用 `›` 连接。
+
+| API | 作用 | 备注 |
+|---|---|---|
+| `await t.group(title, fn)` | 把 `fn` 里记录的断言归到 `title` 分组下 | 返回 `fn` 的返回值;可嵌套;不影响判定 |
+
+```typescript
+await t.group("天气查询", async () => {
+  t.calledTool("get_weather");
+  t.check(t.reply, includes("Brooklyn"));
+
+  await t.group("成本", () => {
+    t.maxCost(0.05);
+  });
+});
+```
+
 ### Sandbox:文件 IO
 
 | API | 作用 | 路径 / 目标 |
 |---|---|---|
 | `t.sandbox.writeFiles(files, targetDir?)` | 写入文本文件清单 | `targetDir` 省略 → workdir;key 是相对 `targetDir` 的路径 |
 | `t.sandbox.uploadFiles(files, targetDir?)` | 写入文本 / 二进制文件清单 | `targetDir` 省略 → workdir;每个文件的 `path` 是相对 `targetDir` 的路径 |
-| `t.sandbox.uploadDirectory(localDir, targetDir?, opts?)` | 递归上传宿主机目录 | `localDir` 相对路径解析到 eval 文件所在目录;`targetDir` 省略 → workdir |
-| `t.sandbox.readFile(path)` | 读取 sandbox 文件 | 相对路径解析到 workdir |
+| `t.sandbox.uploadDirectory(localDir, targetDir?, opts?)` | 递归上传宿主机目录 | `localDir` 相对路径解析到 eval 文件所在目录;`targetDir` 省略 → workdir;`opts.ignore` 是排除规则 |
+| `t.sandbox.uploadFile(path, content)` | 把一个 `Buffer` 写成 sandbox 里的单个文件 | `path` 是 sandbox 内路径(相对路径解析到 workdir);二进制素材用它 |
+| `t.sandbox.readFile(path)` | 读取 sandbox 文件的文本内容 | 相对路径解析到 workdir;文件不存在直接抛 |
+| `t.sandbox.downloadFile(path)` | 读取 sandbox 文件的二进制内容 | 返回 `Buffer`;取图片 / 压缩包等非文本产物用它 |
 | `t.sandbox.fileExists(path)` | 判断 sandbox 文件是否存在 | 相对路径解析到 workdir |
-| `t.sandbox.readSourceFiles(root?)` | 批量读取源码文件 | `root` 省略 → workdir |
+| `t.sandbox.readSourceFiles(opts?)` | 批量读取源码文件 | 从 workdir 起递归;`opts` 只调过滤规则(`extensions` / `ignoreDirs` / `ignoreFiles`),没有起始目录参数 |
 
 文件 IO 不限制只能写某个目录:只要 provider 允许、权限允许,`targetDir` 可以是 sandbox 内任何可写目录。但常规写法是**省略 `targetDir`**——它默认落到 workdir(agent 的工作目录,也是 git 基线和 diff 采集的锚点),而 workdir 的绝对值随 provider 不同(见 [Sandbox · 路径与 workdir](feature/sandbox/library.md#路径与-workdir一个坐标系)),hardcode 任何一个 provider 的绝对路径都会让 eval 换 provider 就坏。`writeFiles` / `uploadFiles` 的文件 key 不写绝对路径;目标目录用 `targetDir` 表达,文件 key 只表达该目标目录下的相对路径。必须要绝对路径时(比如拼进 prompt)用 `t.sandbox.workdir`。
 
@@ -234,6 +256,7 @@ export default defineEval({
 | `t.sandbox.fileChanged(path)` | 文件出现在生成 diff 里 | 延迟断言 |
 | `t.sandbox.fileDeleted(path)` | 文件被删除 | 延迟断言 |
 | `t.sandbox.notInDiff(re)` | diff 不含某模式 | 延迟断言 |
+| `t.sandbox.noFailedShellCommands()` | agent 跑过的 shell 命令都没有失败退出 | 延迟断言;只看 agent 自己发起的 shell 工具调用,不看 eval 里 `t.sandbox.runShell` 的验证命令 |
 
 **Sandbox 结果材料:**
 

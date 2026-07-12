@@ -60,7 +60,7 @@ type RuntimeActionRequest =
   | { kind: "remote-agent-call"; callId: string; name: string; remoteAgentName: string; nodeId: string; description: string; input: JsonObject };
 ```
 
-`load-skill` 在 eve 里真的是一种 action kind——这就是 niceeval `t.loadedSkill` = `calledTool("load_skill")` 语法糖的出处;subagent 调用也是 action 的一种,再由运行时展开成 `subagent.*` 事件。
+`load-skill` 在 eve 里是一种 action kind——niceeval 不照搬这个位置:Skill 加载在 niceeval 是 `skill.loaded` 一等事件,adapter 负责从各自的原生形态(eve 的 `load-skill` action kind、Claude Code 的 Skill `tool_use`)识别出来并归一,`t.loadedSkill` 只读这条事件(见[适配器契约](../contract.md#标准事件流))。subagent 调用在 eve 里也是 action 的一种,再由运行时展开成 `subagent.*` 事件。
 
 ### `InputRequest`:HITL 请求的完整形状
 

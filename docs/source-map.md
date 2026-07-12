@@ -89,7 +89,7 @@
 
 | 行为 | 文件 |
 |---|---|
-| 发现(evals/ 的 *.eval.ts,experiments/ 的实验,路径推导 id) | `src/runner/discover.ts` |
+| 发现(evals/ 的 *.eval.ts / *.eval.tsx,experiments/ 的实验,路径推导 id) | `src/runner/discover.ts` |
 | 有界并发调度 + 首过即停 + budget 在飞预扣 | `src/runner/run.ts` |
 | 单 attempt 生命周期(沙箱 / OTLP 接收器 Scope、超时硬边界、沙箱编排固定段) | `src/runner/attempt.ts` |
 | 指纹缓存((eval 源码 + 运行配置) 哈希,跨 run 结果携入) | `src/runner/fingerprint.ts` |

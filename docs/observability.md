@@ -1,7 +1,5 @@
 # Observability —— transcript、 artifact 与报告
 
-> 状态:标准事件流归一化、o11y 摘要、OTLP trace 归一化(线格式层 + 语义层 mapper)、artifact 落盘、用量成本与内置 reporters 均已实现。「OTLP traces」一节里 span 与事件流合并成 `ExecutionTree`(`buildExecutionTree(events, spans)`,供 `niceeval show --execution` 等消费)与一等 `skill.loaded` 事件,是已定稿但尚未实现的设计。
-
 评测的价值不止"过/挂",更在"为什么"。这一篇讲三件事:agent 的 **transcript** 如何被归一化成统一 trace、跑完落盘的**artifact**长什么样、**报告器**如何把结果回传。
 
 这是 niceeval "看得快"承诺的落点,见 [Vision](vision.md#看得快)。

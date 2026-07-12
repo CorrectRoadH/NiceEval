@@ -23,6 +23,8 @@ turn.judge.autoevals.closedQA("这一轮回答是否适合高中生理解");
 
 **模型解析优先级**(高 → 低):单次调用的 `{ model }` → 这个 eval 的 `judge.model` → 配置的 `judge.model` → 环境变量 `NICEEVAL_JUDGE_MODEL`。**没有内置默认模型**:解析不到 model 而 eval 用到了 judge 断言,会报清晰错误(而不是静默打向某个写死的模型)。
 
+**没解析到 API key 时,整个 judge 命名空间降级成 no-op**:`t.judge.autoevals.*` 照常可调、可链 `.atLeast()` / `.gate()`,但**一条 judge 断言都不记录**,不出现在报告里,eval 的其余断言照常评。这是有意的:judge 需要一个额外的裁判模型 key(`judge.apiKeyEnv` → `NICEEVAL_JUDGE_KEY` / `CODEX_API_KEY` / `OPENAI_API_KEY`),没配 key 的环境(别人的机器、只跑冒烟的 CI)不该因为「环境里没有 judge key」就整批 fail,也不该逼每个 eval 自己写一遍环境判断。代价是**没配 key 时 judge 断言是静默消失的**——CI 里要求 judge 必须真的跑,就用 `judge` 配置显式声明并在流水线里检查 key 是否注入,别依赖"报告里有 judge 分"来反推。
+
 ```typescript
 // niceeval.config.ts —— 全局默认
 defineConfig({ judge: { model: "anthropic/claude-haiku-4-5" } });

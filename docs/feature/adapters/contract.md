@@ -36,6 +36,7 @@ interface Turn {
 interface AgentContext {
   readonly signal: AbortSignal;
   readonly model?: string;               // experiment 给;省略 → 用 agent 原生默认
+  readonly reasoningEffort?: string;     // experiment 给("low"/"medium"/"high",取值由模型/adapter 定);省略 → 用 agent 原生默认
   readonly flags: Readonly<Record<string, unknown>>;  // experiment 的 flags,透传
   readonly sandbox: Sandbox;             // 仅沙箱型 agent 有意义(运行器按 kind: "sandbox" 备好)
   readonly session: AgentSession;        // 本条会话线的状态槽(存取器组,见下)
@@ -89,6 +90,7 @@ type StreamEvent =
       // 工具 / 技能调用发起。name = 原始名(如 "Bash"),tool = 归一后的规范名(如 "shell")
   | { type: "action.result"; callId: string; output?: JsonValue;
       status: "completed" | "failed" | "rejected" }        // 与 called 按 callId 配对
+  | { type: "skill.loaded"; skill: string; callId?: string }   // Skill 加载;callId 仅当原生协议把它表达成可关联的工具调用时才有
   | { type: "subagent.called"; callId: string; name: string; remoteUrl?: string }  // 子 agent 委派
   | { type: "subagent.completed"; callId: string; output?: JsonValue;
       status: "completed" | "failed" }
@@ -98,7 +100,7 @@ type StreamEvent =
   | { type: "error"; message: string };
 ```
 
-技能加载(`load_skill`)就是一种 `action.called`,所以 `t.loadedSkill` 只是 `t.calledTool("load_skill", …)` 的语法糖,无需单独事件类型。
+**Skill 加载是一等事件,不是"名字叫 `load_skill` 的工具调用"。** 各 agent 表达 Skill 加载的原生形态并不一样(Claude Code 是一次 Skill `tool_use`,eve 是 `load-skill` 这种 action kind,别的 agent 还可能只是读了个文件),归一的责任在 adapter:识别出"这是在加载 Skill",直接吐一条 `skill.loaded` 并带上 skill 名。`t.loadedSkill(skill)` 只读这条事件,**不按工具名去猜**——所以把 Skill 加载伪装成 `action.called` 是违约:断言侧看不见它。同一次加载不要既吐 `skill.loaded` 又吐 `action.called`,否则工具调用计数(`maxToolCalls` / `usedNoTools`)会把它重复计入。
 
 产出这条流时的三条纪律:
 
@@ -188,7 +190,8 @@ interface InputRequest {
 | `succeeded()` / `parked()` | `Turn.status` + 事件流(`parked` 看最后有意义事件是否 `input.requested`) | `status` 如实;HITL 停留吐 `input.requested` | `status` 恒 completed → `succeeded` **假通过(静默)** |
 | `messageIncludes()` / `t.reply` / `turn.message` | `message` 且 `role: "assistant"` 的事件文本 | 每段助手文本吐一条 `message`(工具结果**不是**助手消息,别混,见[参考笔记的踩坑记录](reference/agent-eval.md#claude-code-怎么转换)) | 断言 fail(响) |
 | `outputEquals()` / `outputMatches()` | `turn.data` | 结构化输出放 `data`,不要序列化塞进 `events` | fail(响) |
-| `calledTool()` / `toolOrder()` / `loadedSkill()` / `calledSubagent()` | 派生 `toolCalls` / `subagentCalls` | 每次调用吐 `called` + `result`(callId 配对);`name` 原始名 + `tool` 规范名;result `status` 如实 | fail(响) |
+| `calledTool()` / `toolOrder()` / `calledSubagent()` | 派生 `toolCalls` / `subagentCalls` | 每次调用吐 `called` + `result`(callId 配对);`name` 原始名 + `tool` 规范名;result `status` 如实 | fail(响) |
+| `loadedSkill()` | `skill.loaded` 事件 | 识别出原生协议里的 Skill 加载,吐 `skill.loaded` 并带 skill 名;不要伪装成 `action.called` | 断言恒不过 **假失败(响)** |
 | `notCalledTool()` / `usedNoTools()` / `maxToolCalls()` | 同上 | 同上——但这里靠的是**完整性** | **假通过(静默)** |
 | `noFailedActions()` | 派生 status | `action.result.status` 区分 `failed` / `rejected`,不要一律 completed | **假通过(静默)** |
 | `event()` / `eventOrder()` / `eventsSatisfy()` | 原始事件流 | 类型用标准词汇;时序保真,不合成、不重排 | `event` fail(响);`eventOrder` fail(响) |

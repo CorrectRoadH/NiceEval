@@ -80,17 +80,15 @@ await sandbox.runCommand("apt-get", ["install", "-y", "openjdk-17-jdk"], { root:
 await sandbox.runCommand("npm", ["install"]);   // 默认非 root,cwd 默认 workdir
 ```
 
-**这套语义跨 provider 一致**,且与主流沙箱服务同构 —— 各 provider 把 `{ root: true }` 映射到自己的原生机制:
+**这套语义跨 provider 一致**,且与主流沙箱服务同构 —— 三个内置 provider 各自把 `{ root: true }` 映射到自己的原生机制:
 
 | provider | 默认用户 | `{ root: true }` 映射 |
 | --- | --- | --- |
 | docker | `node`(UID 1000) | `exec --user root` |
 | E2B | 非 root(`user`) | `commands.run(cmd, { user: "root" })` |
 | Vercel Sandbox | 非 root(`vercel-sandbox`) | `runCommand(cmd, { sudo: true })` |
-| Daytona | create 时 `os_user` | per-command `user`(规划中) |
-| Modal | root | 已是 root → no-op |
 
-约定:**默认值(非 root)与 `root` 的语义在所有 provider 保持一致**,不因 provider 而变。本就全程 root 的 provider 把提 root 视作 no-op;完全无法提 root 的 provider 可不支持(抛错)—— 但这是"不支持",不是"语义不同"。eval 因此不必感知底下是哪个 provider。
+约定:**默认值(非 root)与 `root` 的语义在所有 provider 保持一致**,不因 provider 而变——自定义 provider(`defineSandbox()`)接哪个服务都照这条约定映射到该服务的原生机制。本就全程 root 的服务把提 root 视作 no-op;完全无法提 root 的服务可不支持(抛错)—— 但这是"不支持",不是"语义不同"。eval 因此不必感知底下是哪个 provider。
 
 ## provider 选择:没有默认值,没有按名字选
 

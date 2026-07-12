@@ -57,7 +57,7 @@ agent span 的必填属性是 `gen_ai.operation.name`(+远程形态的 `gen_ai.p
 
 OTel 兼容的另一套约定,核心是每条 span 必带 `openinference.span.kind`,枚举比 OTel GenAI 的 operation.name 丰富得多:`LLM` / `TOOL` / `CHAIN` / `AGENT` / `RETRIEVER` / `RERANKER` / `EMBEDDING` / `GUARDRAIL` / `EVALUATOR` / `PROMPT`。消息不走事件,**打平成索引属性**:`llm.input_messages.<i>.message.role` / `.content`;工具调用带 `tool_call.id` + `tool_call.function.name` / `.arguments`;token 与成本:`llm.token_count.prompt|completion|total`(含 cache read/write 细分)、`llm.cost.prompt|completion|total`(USD)。多模态内容有 `message_content.type`(`text` / `image` / `audio` / `reasoning` / `tool_use`)。
 
-对照价值:`GUARDRAIL` / `EVALUATOR` / `RERANKER` 这些 kind 说明"span 语义角色"的枚举可以比 niceeval 现在的 `turn | model | tool | agent | other` 细;`llm.cost.*` 直接把成本进 trace,niceeval 是在 runner 侧按价格表算的(`src/runner/pricing.ts`),两种放法。
+对照价值:`GUARDRAIL` / `EVALUATOR` / `RERANKER` 这些 kind 说明"span 语义角色"的枚举可以比 niceeval 现在的 `turn | model | tool | agent | other` 细;`llm.cost.*` 直接把成本进 trace,niceeval 是在收尾时按价格表估算的(`estimateCost`,见 `src/o11y/cost.ts`),两种放法。
 
 ### OpenLLMetry(Traceloop)—— gen_ai.* 的前身推手
 

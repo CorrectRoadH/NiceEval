@@ -14,9 +14,12 @@ export default defineEval({
   reporters?: Reporter[];          // 这个 eval 专用的报告器
   timeoutMs?: number;              // 覆盖默认超时
   metadata?: Record<string, unknown>;
+  async setup(sandbox) { /* 这条 eval 的沙箱预置 */ },
   async test(t) { /* 交互 + 断言 */ },
 });
 ```
+
+`setup` 是**这条 eval 的任务层预置**:拿到的是完整 `Sandbox`(不是 `test` 里那个受限的 `t.sandbox` 视图),在上传 workspace、打 git 基线之后、agent 接入之前跑,用来准备这次任务的素材(例如 `npm install` 起始项目的依赖)。可以返回一个 cleanup 函数,由运行器在 attempt 收尾时调用。它与另外两层 setup 分工不同:环境层的 `sandbox.setup`(不知道跑哪个 eval)、协议层的 `agent.setup`(装 CLI、写鉴权),见 [Sandbox](../sandbox/README.md)。
 
 **禁止**提供 `id` / `name` —— 它们从文件路径推导:`evals/weather/brooklyn.eval.ts` → id `weather/brooklyn`。改名即改 id,不会腐烂。
 

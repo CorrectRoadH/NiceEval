@@ -30,14 +30,16 @@ t.judge.autoevals.closedQA("礼貌").atLeast(0.7);      // soft + 阈值:--stric
 
 ## 判定规则
 
-所有断言收齐后,运行器直接折叠成一个互斥的 **Verdict**——只有四态,没有中间的 `scored`(定义见 [Concepts · Verdict](../../concepts.md#评测核心词汇)):
+所有断言收齐后,运行器直接折叠成一个互斥的 **Verdict**——只有四态,没有中间的 `scored`(定义见 [Concepts · Verdict](../../concepts.md#评测核心词汇))。四态**按固定优先级判定**,自上而下取第一个成立的:
 
 ```text
-显式 t.skip(reason)                                     → skipped
 执行出错(超时 / 异常 / 作者错误)                         → errored
 任一 gate 断言不过,或 --strict 下有 soft 断言低于阈值    → failed
+显式 t.skip(reason)                                     → skipped
 否则                                                     → passed
 ```
+
+优先级这个顺序是有意的,不是罗列:**`failed` 压过 `skipped`** —— `t.skip()` 之前已经记下的失败断言照样让这条判 `failed`,跳过不能把已经暴露的失败盖掉;**`errored` 压过一切** —— 运行本身出了错,这次的断言结果就不可信,不该拿来当"agent 做对/做错"的结论。
 
 `failed` 只表示断言 / 评分不通过,`errored` 是环境、超时、adapter、agent runtime 等执行问题——两者互斥,`summary.failed` 与 `summary.errored` 分开计数。看报告、JUnit 或 CI 判红时按这个口径区分"agent 做错了"和"环境出问题了",不要混着看。
 

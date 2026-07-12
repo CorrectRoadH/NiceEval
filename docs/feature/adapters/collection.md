@@ -106,9 +106,13 @@ export default defineAgent({
 
 `fromAiSdk` 做的事,对照矩阵读:`toolCallId` 直接就是 `callId`(不需要兜底);v5+ 的 `step.content` parts 自带真实顺序(reasoning → tool-call → tool-result → text),时序保真;`tool-error` part 映射成 `status: "failed"` 的 `action.result`,喂 `noFailedActions()`;v7 tool approval(`needsApproval` 工具)的 `tool-approval-request` part 映射成 `input.requested` 事件 + 整轮 `status: "waiting"`,resume 后被拦工具的执行结果从 `responseMessages` 里补成 `action.result`(拒绝 = `rejected`,不是 `failed`)——HITL 契约的「waiting + input.requested」两条义务由转换器直接满足;usage 用 `totalUsage`(全 step 聚合)优先、v7 的 cache tokens 从 `inputTokenDetails` 读(eve 按 step 记的粒度这里是可得而未取,见 [eve 笔记 · 启发 3](reference/eve-protocol.md#对-niceeval-适配器设计的启发));时间轨可选接 AI SDK 的 `experimental_telemetry`(OTel spans → mapper)。
 
+`fromAiSdk` 是**转换器**——`send` 怎么发(fetch 你的接口)还是你自己写。被测的 AI SDK 调用循环就在 eval 进程里跑得起来时,用 `aiSdkAgent`(`niceeval/adapter` 导出)把整条协议侧托管掉:你只写 `generate`(拿 `messages` / `model` / `signal` / `telemetry`,跑一次 `generateText` / `streamText`,原样返回结果),多轮会话的历史续接、事件流转换、HITL approval 的拦下与 resume 重放都由工厂承担;`data(result)` 抽本轮的结构化输出喂 `outputEquals` / `outputMatches`。model / tools / system prompt / `stopWhen` 都在 `generate` 里配——那是应用的事,工厂不掺和。
+
+要拿 trace 瀑布图,给 `aiSdkAgent` 传 `tracing: aiSdkOtel()`。`aiSdkOtel` 在**独立子路径** `niceeval/adapter/otel`(不从 `niceeval/adapter` re-export):OTel 三件套是可选 peer 依赖,只有 import 这个入口的项目才需要装。设了它,运行器就为这个 agent 开 per-attempt OTLP 接收器,每轮建好绑定接收端点的集成经 `generate` 的 `ctx.telemetry` 交给应用——原样透传给 `generateText` 的 `telemetry` 选项即可;不设则整条 OTel 管线不开,`ctx.telemetry` 恒为 `undefined`,应用侧零开销。注意这条路径是**进程内直调**,测的是函数而不是生产路径,只在被测循环确实就是你要评的那一份时用(取舍见 [接入你的 Agent · 为什么不直调](../../../docs-site/zh/guides/connect-your-agent.mdx))。
+
 应用用的是 AI SDK `useChat` 后端(UI Message Stream 协议)而不是自定义 JSON 接口时,优先用内置的 `uiMessageStreamAgent`(`niceeval/adapter` 导出,`src/agents/ui-message-stream.ts`)——它把 SSE 归约、全量历史重放、HITL 审批改写重发都托管了,adapter 只剩配置,完整可跑参考见 `examples/zh/tier1/ai-sdk-v7/`。
 
-自有 HTTP 服务同理走通道 0:协议是服务的私事,但如果服务是你写的,**让它直接返回 `StreamEvent` 兼容的 JSON 是最省的适配**——`toStreamEvents` 退化成透传,完整可跑参考见 `examples/zh/tier1/ai-sdk/`。
+自有 HTTP 服务同理走通道 0:协议是服务的私事,但如果服务是你写的,**让它直接返回 `StreamEvent` 兼容的 JSON 是最省的适配**——`toStreamEvents` 退化成透传,完整可跑参考见 `examples/zh/tier1/ai-sdk-v7/`。
 
 ## 接新未接管理层 CLI 的清单
 

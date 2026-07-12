@@ -196,6 +196,20 @@ reader 忠实反映这份重复,不擅自去重;**跨快照聚合前按身份键
 - `startedAt` 缺失时宁可不去重也不误删,并记入 warnings(kind `missing-startedAt`,见警告全集表);
 - [Reports 的计算函数](../reports/library.md#计算函数与数据契约)内置这条;自己写脚本跨快照累计时,要么复用计算函数,要么自己按键去重。
 
+## 按 locator 寻址一个 attempt:`resolveLocator`
+
+`AttemptLocator` 是 attempt 的不透明短标识(`@` + 1 位 scheme 字符 + 7 位 base36 body,如 `@1x7f3q9k`),由 `{experimentId, 快照 startedAt, evalId, attempt}` 这个不可变身份元组确定性派生——不是数组下标,也不编码磁盘路径。用户从 `niceeval show` 的输出、报告或 view 深链里复制到一个 locator,拿它回到库里定位同一个 attempt:
+
+```typescript
+import { openResults, resolveLocator, LocatorNotFoundError, MalformedLocatorError } from "niceeval/results";
+
+const results = await openResults(".niceeval");
+const attempt = resolveLocator(results, "@1x7f3q9k");   // → AttemptHandle
+console.log(attempt.evalId, attempt.result.verdict);
+```
+
+`openResults()` 收尾时已经把扫到的全部 attempt 建成 locator 索引,`resolveLocator` 只查这份索引,不碰磁盘。两种失败各自抛一个可分辨的错误,不返回 `null`:输入串本身语法不合法(不是 `@` 开头、body 长度或字符不对)抛 `MalformedLocatorError`;语法合法但索引里没有这个 attempt(结果目录被清理、locator 来自别的项目)抛 `LocatorNotFoundError`——CLI 据此分别给出"这不是一个 locator"与"这个 attempt 不在当前结果里"两种提示。
+
 ## 直接吃读取面:一个真实脚本
 
 折叠类的看法(表格、矩阵、成绩单、散点)去用 [Reports](../reports/README.md) 的计算函数;直接吃 reader 服务的是连算法都自定义的场景,比如「每个 agent 的 shell 命令分布直方图」——那是分布,不是折叠:
