@@ -7,6 +7,7 @@
 // renderReportToStaticHtml 在 ./web.ts(那一侧才 import react-dom)。宿主接线是下一波,
 // 这两个入口先以内部函数的身份可独立测试。
 
+import "./jsx-runtime-patch.ts";
 import type { Results, Selection, SelectionWarning } from "../results/index.ts";
 import {
   createTextContext,
