@@ -1,18 +1,18 @@
 # Phase Timings 与安装基准
 
-落地时 [Results Format](../../feature/results/architecture.md) 的 `AttemptRecord` 小节按本文重写。分期见文末。
+本机制由两部分组成：写入每个 Attempt 的阶段计时契约，以及直接调用单次 Attempt 引擎的安装基准工作台。`AttemptRecord.phases` 的持久化格式同时定义在 [Results Format](../../feature/results/architecture.md)。
 
 ## 要回答的问题
 
 横向对比 sandbox provider 与 adapter 的**安装速度**和**安装正确率**:docker / e2b / vercel 谁起得快、起得稳;codex / claude-code / bub 在各家沙箱里装 CLI 要多久、装挂的概率多大。这既是优化冷启动的前提(测不到就没法优化),也是超时归因的前提——一个 attempt 顶到 `timeoutMs`,到底是 agent 干活慢,还是 setup / 模型预热吃掉了预算,现在的数据回答不了。
 
-现状的缺口:`EvalResult` 只有 attempt 级总 `durationMs`,沙箱创建、环境钩子、装依赖、装 CLI、逐轮 send、评分全部糊在一个数里;errored 结果也没有「死在哪个阶段」的归因。阶段边界在 `runAttemptBody` 里以进度 `log()` 行的形式早已存在,但进度行是给人看的、只保留最近 20 条、不落盘,不构成机器口径。
+Attempt 级总 `durationMs` 无法区分沙箱创建、环境钩子、依赖安装、CLI 安装、逐轮 send 与评分，也无法指出 errored 结果终止在哪个阶段。进度 `log()` 是人读的临时反馈，不构成可持久化、可聚合的机器口径。
 
 设计分两层:**① 契约层** —— 每个 attempt 落盘 per-phase 计时(`phases` 字段),让每一次正常的 eval 运行都自动是一次采样;**② 基准层** —— `bench/` 直接调用 runner 内部单次 attempt 引擎的一组脚本,与单元测试、CI 门禁都无关,本地随手可跑:优化安装路径时改一版实现、跑一轮基准、和上一轮快照对比。
 
 ## 契约:`AttemptRecord.phases`
 
-`result.json` 的 `AttemptRecord`(同时是内存里的 `EvalResult`)新增一个可选字段:
+`result.json` 的 `AttemptRecord`（同时是内存里的 `EvalResult`）包含一个可选字段：
 
 ```typescript
 interface AttemptRecord {
@@ -66,9 +66,11 @@ interface PhaseTiming {
 - **为什么不给进度行加时间戳再挖掘**:进度行是人读的 UI 文案,把它变成机器口径意味着改文案就破坏数据管道;计时和展示各自独立,共享的只是阶段边界这几个代码位置。
 - **兼容性**:纯增量的可选字段,读取面「忠实磁盘、忽略未知字段」的契约不变,`schemaVersion` 不升。携带条目(`--resume`)的 phases 随 `result.json` 原样携带。
 
-### 消费面(一期范围)
+### 消费边界
 
-一期只落数据:runner 写入 + `niceeval/results` 读取面透传(`AttemptRecord` 加字段即自动读回),这是常规 `niceeval exp` 跑法(经 CLI、落 `result.json`)的消费路径。下节 `bench/` 是另一条更直接的消费路径:它不经过 CLI、不落 `.niceeval/result.json`,而是直接调用 runner 内部单次 attempt 引擎,`phases` 随返回值在内存里原样拿到——两条路径吃的是同一份 `phases` 字段,只是落盘与否、经不经过 discover 不同。`show` / `view` 的内建阶段分段展示不在本提案内,等基准跑出真实数据、知道哪种聚合视图有用之后再设计。
+普通 `niceeval exp` 由 runner 写入 `phases`，`niceeval/results` 读取面原样透传。`bench/` 不经过 CLI，也不写 `.niceeval/result.json`；它直接调用 runner 的单次 Attempt 引擎，从内存返回值读取同一份 `phases`。两条路径共享阶段名和计时语义，只在是否经过 discover、是否持久化上不同。
+
+`niceeval show`、`niceeval view` 与 Reports 不提供阶段分段视图；本工程机制的消费面是结果读取 API 与 `bench/`。
 
 ## 基准:`bench/` 直接调用的内部脚本
 
@@ -139,7 +141,7 @@ npx tsx bench/compare.ts bench/.snapshots/docker-codex-<old>.json bench/.snapsho
 
 ### 运行纪律
 
-- **真冷装先清宿主缓存**。bub 的 checkpoint / uv 缓存落在宿主侧,跨进程存活;不清缓存跑出的「首个 attempt」是进程冷、宿主热。清哪些路径写在 `bench/README.md`;`compare.ts` 的缓存卫生检查是这条人工纪律的机器兜底,不是替代品。一期不做显式 cold / warm 标记:标记需要扩展 adapter 契约(由谁上报「这次走了 checkpoint 恢复」),而「分列 + 按需清缓存」已覆盖判读需要。
+- **真冷装先清宿主缓存**。bub 的 checkpoint / uv 缓存落在宿主侧,跨进程存活;不清缓存跑出的「首个 attempt」是进程冷、宿主热。清哪些路径写在 `bench/README.md`;`compare.ts` 的缓存卫生检查是这条人工纪律的机器兜底,不是替代品。基准不引入显式 cold / warm 标记；首个 / 后续分列与按需清缓存共同定义冷、热口径。
 - **`sandbox.create` 的读数只测容器起停,不测镜像拉取**。跑 bench 之前统一 `docker pull` 预热用到的基础镜像(或固定 digest,保证跨快照镜像层缓存状态一致),不把「这次要不要拉镜像」设计成第二组冷 / 热变量——那会让 `sandbox.create` 失去跨快照可比性。真要测镜像拉取速度是另一个问题,不在这份基准范围内。
 - **一个矩阵一个进程**。全矩阵逐 provider 串行跑,绝不并行多个 `run.ts` 进程指向同一批 provider(避免无意义的资源争抢和难以复现的抖动)。
 - **结果不进 git**:`bench/.snapshots/` 是本地测量数据。
@@ -153,15 +155,9 @@ npx tsx bench/compare.ts bench/.snapshots/docker-codex-<old>.json bench/.snapsho
 2. **错误归因**:`sandbox.setup` 抛错的 fixture,phases 止于 `sandbox.setup` 且该条 `failed: true`,其后无条目(`agent.setup` 从未出现)。
 3. **remote 无沙箱阶段**:remote agent 的结果不含任何 `sandbox.*` / `baseline` / `diff` 条目。
 
-## 分期
-
-1. **一期(契约落地)**:runner 计时收集器 + `phases` 落盘 + results lib 类型透传 + 上节 vitest 断言;`docs/results-format.md` 的 `AttemptRecord` 小节按本文重写。
-2. **二期(基准落地)**:建 `bench/`(`probes.ts` + `stats.ts` + `run.ts` + `compare.ts`,直接调用 `runAttemptBody`),产出首份 agent × provider 安装速度 / 正确率榜;此后凡动冷启动、checkpoint、安装脚本的优化,以 bench 前后快照对比为验证手段。
-3. **三期(按需)**:`show` / `view` 的内建阶段分段展示、Reports 计算函数——形态由二期的真实数据反推,不预先定型。
-
 ## 相关阅读
 
 - [Sandbox · 沙箱在生命周期里的位置](../../feature/sandbox/architecture.md#沙箱在生命周期里的位置) —— phases 阶段边界的出处,也是 `runAttemptBody` 执行序的出处。
-- [Results Format](../../feature/results/architecture.md) —— `result.json` 的权威记录契约,落地后承载 `phases` 字段定稿。
+- [Results Format](../../feature/results/architecture.md) —— `result.json` 的权威记录契约与 `phases` 字段。
 - [E2E CI](../e2e-ci/README.md) —— 回归门禁侧的沙箱矩阵,与 bench 的分工见「运行纪律」;`bench/` 触达 runner 内部函数与 e2e 触达 CLI 子进程是同一类仓库内部特权。
 - [Observability](../../observability.md) —— 为什么 phases 不走 OTel trace。

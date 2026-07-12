@@ -51,7 +51,7 @@ docs/
 ├── engineering/                         仓库自身的工程机制
 │   ├── _template/                       新工程主题模板
 │   ├── e2e-ci/                          全链路 E2E
-│   ├── phase-timings/                   阶段耗时与安装 benchmark
+│   ├── benchmark/                       阶段耗时与安装 benchmark
 │   └── tier-sync/                       示例同步机制
 │
 └── 暂未归入 feature/ 的设计入口

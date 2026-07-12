@@ -127,6 +127,8 @@ interface AttemptRecord {
   attempt: number;
   fingerprint?: string;
   durationMs: number;
+  /** Runner 阶段计时，按执行顺序；只记录实际发生的阶段。 */
+  phases?: PhaseTiming[];
   assertions: AssertionResult[];
   usage?: Usage;
   estimatedCostUSD?: number;
@@ -149,7 +151,30 @@ interface AttemptRecord {
   hasTrace?: boolean;
   hasSources?: boolean;
 }
+
+type PhaseName =
+  | "sandbox.queue"
+  | "sandbox.create"
+  | "sandbox.setup"
+  | "baseline"
+  | "eval.setup"
+  | "agent.setup"
+  | "agent.tracing"
+  | "test"
+  | "diff"
+  | "score"
+  | "trace";
+
+interface PhaseTiming {
+  name: PhaseName;
+  /** 阶段耗时；失败阶段计到抛错或超时中断时。 */
+  durationMs: number;
+  /** 该阶段抛错或被超时中断；至多一条，且总在数组末尾。 */
+  failed?: true;
+}
 ```
+
+`phases` 缺失表示结果不是由带阶段计时的 runner 产出。数组顺序就是执行顺序；不适用、未定义或没有执行的阶段不写 0 值条目。阶段边界、失败封口、与 `durationMs` 的口径以及安装基准消费方式见 [Phase Timings 与安装基准](../../engineering/benchmark/README.md)。
 
 快照级字段(`experimentId` / `agent` / `model` / 实验运行配置)不在这里重复——reader 把 `snapshot.json` 的声明拼进每条读回的结果(`attempt.result`),拼合规则是「缺才补」:条目自带的值优先,`startedAt` 只在记录缺失时回退快照的值;`locator` 同理「缺才补」,niceeval 自己的 writer 恒会写这个字段,只有第三方 harness 没实现它时读取面才按当前身份兜底算一份。
 
