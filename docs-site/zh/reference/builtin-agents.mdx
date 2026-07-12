@@ -98,12 +98,19 @@ mcpServers?: McpServer[];
 #### `skills`
 
 ```ts
-skills?: string[];
+skills?: SkillSpec[];
 ```
 
-额外安装的 skill，格式为 GitHub `"org/repo"`（如 `"Effect-TS/skills"`）。
-setup 阶段在沙箱里执行 `npx skills add <org/repo>`；
-结果写进沙箱工作区的 skills-lock.json，claude CLI 启动时自动读取。
+装进沙箱的 Skill(本地目录/文件,或 repo + 可钉 ref + 可选启用集)。
+落在 project 级 `.claude/skills/<name>/`,claude CLI 原生发现。
+
+#### `plugins`
+
+```ts
+plugins?: ClaudeCodePluginSpec[];
+```
+
+Claude Code 原生 Plugin(先连 Marketplace,再从中装指定 Plugin)。
 
 ### `CodexConfig`
 
@@ -130,16 +137,25 @@ mcpServers?: McpServer[];
 ```
 
 额外 MCP server(每个沙箱 setup 时追加进 ~/.codex/config.toml)。
-格式对应 codex config.toml 的 [mcp_server.&lt;name&gt;] 表。
+格式对应 codex config.toml 的 [mcp_servers.&lt;name&gt;] 表。
 
 #### `skills`
 
 ```ts
-skills?: string[];
+skills?: SkillSpec[];
 ```
 
-额外安装的 skill，格式为 GitHub `"org/repo"`（如 `"Effect-TS/skills"`）。
-setup 阶段执行 `npx skills add <org/repo>`，结果写进 skills-lock.json。
+装进沙箱的 Skill(本地目录/文件,或 repo + 可钉 ref + 可选启用集)。
+落在 `.agents/skills/<name>/`,并写一段发现指引进 AGENTS.md —— codex 没有 Claude Code 那种
+原生 Skill 工具,只把文件装进去它不会自己去读(见 memory/codex-no-native-skill-tool.md)。
+
+#### `plugins`
+
+```ts
+plugins?: CodexPluginSpec[];
+```
+
+Codex 原生 Plugin(先连 Marketplace,再从中装指定 Plugin)。
 
 ### `BubConfig`
 
@@ -159,15 +175,24 @@ apiBase?: string;
 
 OpenAI 兼容代理的 base URL。省略时读 BUB_API_BASE env。
 
+#### `skills`
+
+```ts
+skills?: SkillSpec[];
+```
+
+装进沙箱的 Skill(本地目录/文件,或 repo + 可钉 ref + 可选启用集)。
+落在 `.agents/skills/<name>/`,并写一段发现指引进 AGENTS.md(bub 没有原生 Skill 加载机制)。
+
 #### `pythonPlugins`
 
 ```ts
-pythonPlugins?: string[];
+pythonPlugins?: PythonPluginSpec[];
 ```
 
-额外装进 bub tool 环境的 Python 包(pip 名或 git URL)。
-每个沙箱 setup 时作为 `uv tool install --with <pkg>` 追加到 bub 环境里。
-示例:["bub-plugin-memory", "git+`https://github.com/..."`]
+额外装进 bub tool 环境的 Python Package,每个沙箱 setup 时进 `uv tool install … --with <pkg>`。
+规范化后的 package 列表进安装 checkpoint key:plugin 集合不同的两个 agent 变体不会复用同一个
+安装 checkpoint(否则第二个变体会静默拿到第一个变体的环境)。
 
 {/* GENERATED:END builtin-agent-config */}
 

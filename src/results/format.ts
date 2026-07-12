@@ -24,9 +24,21 @@ export function experimentDirOf(experimentId: string): string {
   return experimentId.replace(/[^\w.@-]/g, "_");
 }
 
-/** artifact 文件名:种类即文件名。 */
+/**
+ * artifact 文件名。种类名是 TS 侧的驼峰(`agentSetup`),文件名是磁盘侧的 kebab
+ * (`agent-setup.json`)——两边各自守自己的惯例,映射表是唯一的翻译点。
+ */
+const ARTIFACT_FILES: Record<ArtifactKind, string> = {
+  events: "events.json",
+  trace: "trace.json",
+  o11y: "o11y.json",
+  agentSetup: "agent-setup.json",
+  diff: "diff.json",
+  sources: "sources.json",
+};
+
 export function artifactFileOf(kind: ArtifactKind): string {
-  return `${kind}.json`;
+  return ARTIFACT_FILES[kind];
 }
 
 /** snapshot.json 的版本判定结果;openResults 按它分流 ok / skipped / 静默忽略。 */

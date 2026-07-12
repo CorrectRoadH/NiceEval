@@ -98,12 +98,19 @@ Example: &#123; name: "browser", command: "npx", args: ["-y", "@anthropic/mcp-br
 #### `skills`
 
 ```ts
-skills?: string[];
+skills?: SkillSpec[];
 ```
 
-Extra skills to install, in GitHub `"org/repo"` form (e.g. `"Effect-TS/skills"`).
-During setup, runs `npx skills add <org/repo>` in the sandbox;
-the result is written to the sandbox workspace's skills-lock.json, which the claude CLI reads automatically on startup.
+Skills to install into the sandbox (a local directory/file, or a repo with an optional pinned ref and an optional enabled subset).
+They land in the project-level `.claude/skills/<name>/`, where the claude CLI discovers them natively.
+
+#### `plugins`
+
+```ts
+plugins?: ClaudeCodePluginSpec[];
+```
+
+Claude Code native plugins (connect the marketplace first, then install the named plugin from it).
 
 ### `CodexConfig`
 
@@ -130,16 +137,24 @@ mcpServers?: McpServer[];
 ```
 
 Additional MCP servers (appended into ~/.codex/config.toml on each sandbox setup).
-The shape corresponds to codex config.toml's [mcp_server.&lt;name&gt;] table.
+The shape corresponds to codex config.toml's [mcp_servers.&lt;name&gt;] table.
 
 #### `skills`
 
 ```ts
-skills?: string[];
+skills?: SkillSpec[];
 ```
 
-Extra skills to install, in GitHub `"org/repo"` form (e.g. `"Effect-TS/skills"`).
-Runs `npx skills add <org/repo>` during setup, and the result is written to skills-lock.json.
+Skills to install into the sandbox (a local directory/file, or a repo with an optional pinned ref and an optional enabled subset).
+They land in `.agents/skills/<name>/`, together with a discovery instruction written into AGENTS.md — codex has no native Skill tool like Claude Code, so merely installing the files does not make it read them (see memory/codex-no-native-skill-tool.md).
+
+#### `plugins`
+
+```ts
+plugins?: CodexPluginSpec[];
+```
+
+Codex native plugins (connect the marketplace first, then install the named plugin from it).
 
 ### `BubConfig`
 
@@ -159,15 +174,24 @@ apiBase?: string;
 
 Base URL for the OpenAI-compatible proxy. Falls back to the `BUB_API_BASE` env var if omitted.
 
+#### `skills`
+
+```ts
+skills?: SkillSpec[];
+```
+
+Skills to install into the sandbox (a local directory/file, or a repo with an optional pinned ref and an optional enabled subset).
+They land in `.agents/skills/<name>/`, with a discovery instruction written into AGENTS.md (bub has no native Skill loading mechanism).
+
 #### `pythonPlugins`
 
 ```ts
-pythonPlugins?: string[];
+pythonPlugins?: PythonPluginSpec[];
 ```
 
-Extra Python packages to install into the bub tool environment (pip names or git URLs).
-On each sandbox setup, appended into the bub environment as `uv tool install --with <pkg>`.
-Example: ["bub-plugin-memory", "git+`https://github.com/..."`]
+Extra Python packages to install into the bub tool environment; on each sandbox setup they go into `uv tool install … --with <pkg>`.
+The normalized package list is part of the install checkpoint key: two agent variants with different plugin sets never reuse the same
+install checkpoint (otherwise the second variant would silently inherit the first one's environment).
 
 {/* GENERATED:END builtin-agent-config */}
 

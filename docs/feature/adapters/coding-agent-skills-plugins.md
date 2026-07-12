@@ -17,7 +17,9 @@
 2. **Adapter 翻译配置。** Core 不知道 Claude Code、Codex 或 Bub 的配置目录与安装命令。
 3. **每个 Attempt 只安装一次。** 安装发生在 `Agent.setup`，早于第一次 `send`；多轮对话不重复安装。
 4. **来源必须可复现。** Repo Skill 可固定 ref，多 Skill Repo 必须明确选择启用集合。
-5. **无效组合在类型层拒绝。** `ClaudeCodePluginSpec` 不能传给 Codex，`CodexPluginSpec` 不能传给 Claude Code；Bub Config 没有 `mcpServers`，Claude Code 与 Codex Config 没有 `pythonPlugins`。
+5. **不支持的能力在类型层就不存在。** 一个 Agent 支持哪几类扩展，由它的 Config 上有哪些字段表达：Bub Config 没有 `mcpServers` 与 `plugins`，Claude Code 与 Codex Config 没有 `pythonPlugins`。这类无效组合写出来就编译不过，不留到运行期 fail fast。
+
+   两家的 Native Plugin 各有各的类型（`ClaudeCodePluginSpec` / `CodexPluginSpec`），因为两家的安装机制与 Marketplace 语义本就不同、且会继续分化（Codex 的 Marketplace 连接收 `--ref`，Claude Code 的不收）。但**类型系统不负责拦住「把只有 Codex 能读的 Marketplace 递给 Claude Code」**：那是 `source` 字段的**值**不合法，不是形状不合法，任何结构类型系统都判不出来——两个 Spec 的字段形状相同时，TypeScript 认为它们可以互相赋值，改不了。归属由**字段位置**声明（`plugins` 写在 `claudeCodeAgent({…})` 里就是 Claude Code 的），装不上时由该 Adapter 报错。
 6. **安装结果可审计。** setup 写出安装 Manifest，失败时能够判断实际装了什么。
 
 ## SkillSpec
@@ -189,7 +191,7 @@ Claude Code Adapter 先以 `marketplace.name` 建立 Marketplace 连接，再从
 
 ## Codex Native Plugin
 
-Codex Plugin 使用独立的 Codex 类型，不与 Claude Code Plugin 互换：
+Codex Plugin 有自己的类型——Marketplace 连接收 `ref`，这是 Claude Code 侧没有的：
 
 ```ts
 interface CodexPluginSpec {

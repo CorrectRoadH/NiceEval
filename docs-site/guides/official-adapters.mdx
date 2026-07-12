@@ -14,7 +14,8 @@ All three built-in Sandbox agents are constructed with `defineSandboxAgent`, aut
 
 - **Auth**: `ANTHROPIC_API_KEY` (overridable with the factory option `apiKey`), optional `ANTHROPIC_BASE_URL` (factory option `baseUrl`).
 - **Installing MCP servers**: the `mcpServers` option, written during `setup` into the sandbox's user-level `~/.claude.json` (the top-level `mcpServers` field).
-- **Installing Skills**: `skills: ["org/repo"]` (a GitHub repo); `setup` runs `npx skills add <org/repo> -y -a claude-code` (`-y -a` avoids getting stuck on an interactive agent-selection prompt in a tty-less sandbox), and the result is written into the sandbox workspace's `skills-lock.json`, which the claude CLI reads automatically on startup (the native `Skill` tool — assert with `t.calledTool("Skill", { input: { skill } })`, not `t.loadedSkill()`, which is sugar for the different `load_skill` protocol convention).
+- **Installing Skills**: `skills: SkillSpec[]` — a local Skill (`{ kind: "local", path }`, a file or directory read from your project root) or a repo Skill (`{ kind: "repo", source, ref, skills }`, which can pin a commit/tag and enable only part of a multi-Skill repository). Skills land in the project-level `.claude/skills/<name>/` inside the sandbox, where the claude CLI discovers them natively (the native `Skill` tool — assert with `t.calledTool("Skill", { input: { skill } })`, not `t.loadedSkill()`, which is sugar for the different `load_skill` protocol convention).
+- **Installing native plugins**: `plugins: ClaudeCodePluginSpec[]`; each entry declares the marketplace connection (`name` / `source` / optional `ref`) and the plugin name inside it. That type belongs to claude-code only — it cannot be passed to codex.
 - **Tracing**: the claude CLI's beta native telemetry (`CLAUDE_CODE_ENHANCED_TELEMETRY_BETA`); spans carry only structure and timing — details in [OTel Integration](/guides/connect-otel).
 
 ```ts
@@ -27,7 +28,16 @@ export default defineExperiment({
     mcpServers: [
       { name: "browser", command: "npx", args: ["-y", "@anthropic/mcp-browser"] },
     ],
-    skills: ["Effect-TS/skills"],
+    skills: [
+      { kind: "repo", source: "Effect-TS/skills", ref: "8f3c1a2", skills: ["effect"] },
+      { kind: "local", path: "skills/repository-guide.md" },
+    ],
+    plugins: [
+      {
+        marketplace: { name: "acme", source: "acme/claude-code-plugins", ref: "v1.3.0" },
+        name: "safe-shell",
+      },
+    ],
   }),
   model: "claude-sonnet-4-6",
   sandbox: dockerSandbox(),
@@ -43,7 +53,8 @@ export default defineExperiment({
     It is plural, `mcp_servers`: the singular `[mcp_server.x]` is silently ignored by the codex CLI — MCP simply never attaches, with no error. Check with `codex mcp list`.
   </Warning>
 
-- **Installing Skills**: `skills: ["org/repo"]`, using `npx skills add <org/repo> -y -a codex`, same as claude-code. codex has no native Skill tool like claude-code — installed skills land in the skills package's generic directory (`.agents/skills/<name>`), and the codex CLI does not proactively read them; the prompt must explicitly say "check the repo for a relevant skill/guide file" for the agent to read it into context via a shell command. Asserting "was it used" can only look at whether it actually ran the command that reads that file — there is no tool call to assert directly.
+- **Installing Skills**: `skills: SkillSpec[]`, the same type as claude-code. Skills land in `.agents/skills/<name>/`, and the adapter also writes a discovery instruction into AGENTS.md — codex has no native Skill tool, so merely installing the files does not make it read them. Asserting "was it used" can only look at whether it actually ran the shell command that reads that file — there is no tool call to assert directly.
+- **Installing native plugins**: `plugins: CodexPluginSpec[]`; each entry declares the marketplace connection (`name` / `source` / optional `ref`) and the plugin name inside it. That type belongs to codex only — it cannot be passed to claude-code.
 - **Tracing**: built in, configured through the `[otel.trace_exporter.otlp-http]` section of `config.toml`, protocol `http/json`.
 
 ```ts
@@ -56,7 +67,13 @@ export default defineExperiment({
     mcpServers: [
       { name: "browser", command: "npx", args: ["-y", "@anthropic/mcp-browser"] },
     ],
-    skills: ["Effect-TS/skills"],
+    skills: [{ kind: "repo", source: "Effect-TS/skills", ref: "8f3c1a2", skills: ["effect"] }],
+    plugins: [
+      {
+        marketplace: { name: "acme", source: "acme/codex-plugins", ref: "8f3c1a2" },
+        name: "repo-map",
+      },
+    ],
   }),
   model: "gpt-5.4",
   sandbox: dockerSandbox(),
@@ -66,8 +83,9 @@ export default defineExperiment({
 ### bub
 
 - **Auth**: `BUB_API_KEY` + `BUB_API_BASE` (an OpenAI-compatible proxy), overridable with the factory options `apiKey` / `apiBase`.
-- **Installing plugins**: `pythonPlugins: string[]` (pip package names or git URLs), appended during `setup` into bub's Python tool environment with `uv tool install --with <pkg>`.
-- bub currently does not support the `mcpServers` / `skills` options — there is no corresponding wrapper.
+- **Installing Skills**: `skills: SkillSpec[]`, the same type as the other two adapters. Skills land in `.agents/skills/<name>/`, with a discovery instruction written into AGENTS.md.
+- **Installing plugins**: `pythonPlugins: PythonPluginSpec[]` (`{ package }`: a PyPI package, a version specifier, or a git URL), added during `setup` to `uv tool install … --with <package>`. That type belongs to bub only; the package set is part of the install checkpoint key, so two variants with different plugins never reuse the same install cache.
+- bub has no `mcpServers` — MCP belongs to the adapters that support it, and the field simply does not exist on this config.
 - **Install method**: via `uv tool install` (a PyPI package, not an npm package); the first install builds a checkpoint cache to speed up later sandboxes.
 - **Tracing**: built in, injected via environment variables, protocol `http/protobuf`.
 
@@ -78,7 +96,8 @@ import { dockerSandbox } from "niceeval/sandbox";
 
 export default defineExperiment({
   agent: bubAgent({
-    pythonPlugins: ["bub-plugin-memory"],
+    skills: [{ kind: "local", path: "skills/repository-guide.md" }],
+    pythonPlugins: [{ package: "bub-plugin-memory==1.3.0" }],
   }),
   model: "gpt-5.4",
   sandbox: dockerSandbox(),
@@ -91,8 +110,9 @@ export default defineExperiment({
 |---|---|---|---|
 | Auth environment variable | `ANTHROPIC_API_KEY` | `CODEX_API_KEY` | `BUB_API_KEY` + `BUB_API_BASE` |
 | MCP server | ✅ `mcpServers` | ✅ `mcpServers` | ❌ |
-| Skill | ✅ `skills` (GitHub `org/repo`) | ✅ `skills` (GitHub `org/repo`) | ❌ |
-| Plugins | — | — | ✅ `pythonPlugins` (pip package / git URL) |
+| Skill | ✅ `skills: SkillSpec[]` (native discovery) | ✅ `skills: SkillSpec[]` (+ discovery instruction) | ✅ `skills: SkillSpec[]` (+ discovery instruction) |
+| Native plugin | ✅ `plugins: ClaudeCodePluginSpec[]` | ✅ `plugins: CodexPluginSpec[]` | ❌ |
+| Python plugin | ❌ | ❌ | ✅ `pythonPlugins: PythonPluginSpec[]` |
 | Tracing | ✅ (beta, structure and timing only) | ✅ | ✅ |
 | Install method | npm global package | npm global package | `uv tool install` (PyPI) |
 

@@ -1,14 +1,40 @@
 import { defineSandboxAgent } from "../define.ts";
 import { requireEnv, getEnv } from "../util.ts";
 import { shared } from "./shared.ts";
+import { cloneRepo, installSkills } from "./skills.ts";
+import { writeAgentSetupManifest } from "./manifest.ts";
 import { mapClaudeCodeSpans } from "../o11y/otlp/mappers/claude-code.ts";
-import type { Agent, McpServer } from "../types.ts";
+import { t } from "../i18n/index.ts";
+import type { Agent, AgentSetupManifest, McpServer, Sandbox, SkillSpec } from "../types.ts";
 
 // ───────────────────────────────────────────────────────────────────────────
 // Claude Code 的 agent adapter(沙箱型)。
 //
 // 连接方式:在沙箱里 spawn `claude` CLI,跑完读回 transcript JSONL → 标准事件流。
+// 扩展(skill / plugin / MCP)全部是构造参数,setup 里翻译成 Claude Code 的原生形态,
+// 装完写一份 manifest(见 docs/feature/adapters/coding-agent-skills-plugins.md)。
 // ───────────────────────────────────────────────────────────────────────────
+
+/** Claude Code 的 skill 目录(project 级):CLI 原生扫描它,不需要额外的发现指引。 */
+const SKILL_DIR = ".claude/skills";
+
+/**
+ * Claude Code 的原生 Plugin —— **只属于 Claude Code**,不能传给 Codex(Codex 有自己的
+ * {@link import("./codex.ts").CodexPluginSpec})。每一项同时声明 Marketplace 连接和其中的 Plugin 名:
+ * 连上 Marketplace 不等于启用它的全部 Plugin。
+ */
+export interface ClaudeCodePluginSpec {
+  marketplace: {
+    /** Marketplace 在 Claude Code 配置中的连接名(`claude plugin install <plugin>@<name>` 里的那个名字)。 */
+    name: string;
+    /** Marketplace 来源:GitHub `owner/repo`、Git URL 或路径。 */
+    source: string;
+    /** 固定 Marketplace 的 Tag、Commit 或 Branch;给了就先按 ref clone 下来再以本地路径连接。 */
+    ref?: string;
+  };
+  /** Marketplace 中的 Plugin 名。 */
+  name: string;
+}
 
 export interface ClaudeCodeConfig {
   /** Anthropic API key。省略时读 ANTHROPIC_API_KEY env。 */
@@ -29,11 +55,12 @@ export interface ClaudeCodeConfig {
    */
   mcpServers?: McpServer[];
   /**
-   * 额外安装的 skill，格式为 GitHub `"org/repo"`（如 `"Effect-TS/skills"`）。
-   * setup 阶段在沙箱里执行 `npx skills add <org/repo>`；
-   * 结果写进沙箱工作区的 skills-lock.json，claude CLI 启动时自动读取。
+   * 装进沙箱的 Skill(本地目录/文件,或 repo + 可钉 ref + 可选启用集)。
+   * 落在 project 级 `.claude/skills/<name>/`,claude CLI 原生发现。
    */
-  skills?: string[];
+  skills?: SkillSpec[];
+  /** Claude Code 原生 Plugin(先连 Marketplace,再从中装指定 Plugin)。 */
+  plugins?: ClaudeCodePluginSpec[];
 }
 
 export function claudeCodeAgent(config?: ClaudeCodeConfig): Agent {
@@ -77,15 +104,24 @@ export function claudeCodeAgent(config?: ClaudeCodeConfig): Agent {
         await shared.writeFile(sb, "~/.claude.json", JSON.stringify({ mcpServers: servers }, null, 2));
       }
 
+      const manifest: AgentSetupManifest = { skills: [] };
       if (config?.skills?.length) {
-        for (const source of config.skills) {
-          // source = "Effect-TS/skills"（GitHub org/repo）
-          // `npx skills add` 拉 repo、读 manifest、写 skills-lock.json，claude CLI 自动读取。
-          // -y 跳过确认；-a claude-code 显式指定目标 CLI——不加这两个 flag 时命令会打印一个
-          // "选择安装到哪些 agent" 的交互式多选框等 stdin，headless 沙箱里会一直卡到超时
-          // (无 tty，选择框永远等不到输入)。
-          await sb.runShell(`npx skills add ${shared.shellQuote(source)} -y -a claude-code`);
-        }
+        manifest.skills = await installSkills(sb, config.skills, { dir: SKILL_DIR });
+      }
+      if (config?.plugins?.length) {
+        manifest.nativePlugins = await installPlugins(sb, config.plugins);
+      }
+      if (config?.mcpServers?.length) {
+        // manifest 里只记「挂了哪个 server、怎么起」;env 里可能有 token,不落盘。
+        manifest.mcpServers = config.mcpServers.map((s) => ({
+          name: s.name,
+          command: s.command,
+          ...(s.args?.length ? { args: [...s.args] } : {}),
+        }));
+      }
+      // 什么都没装就不写 manifest:空 artifact 不落文件(同 results 的落盘规则)。
+      if (manifest.skills.length || manifest.nativePlugins?.length || manifest.mcpServers?.length) {
+        await writeAgentSetupManifest(sb, manifest);
       }
     },
 
@@ -114,6 +150,84 @@ export function claudeCodeAgent(config?: ClaudeCodeConfig): Agent {
       return { events, usage: parsed.usage, status: res.exitCode === 0 ? "completed" : "failed" };
     },
   });
+}
+
+/**
+ * 先按 `marketplace.name` 建立 Marketplace 连接(同名只连一次),再从该连接装指定 Plugin。
+ * `claude plugin marketplace add` 没有钉 ref 的入口,所以要钉 ref 时先自己按 ref clone 下来,
+ * 再以本地路径连接(CLI 支持 path 形态的 marketplace 源)—— 「来源必须可复现」不因 CLI 少个
+ * flag 就打折。
+ */
+async function installPlugins(
+  sb: Sandbox,
+  plugins: readonly ClaudeCodePluginSpec[],
+): Promise<NonNullable<AgentSetupManifest["nativePlugins"]>> {
+  const connected = new Set<string>();
+  const out: NonNullable<AgentSetupManifest["nativePlugins"]> = [];
+
+  for (const plugin of plugins) {
+    const { marketplace } = plugin;
+    if (!connected.has(marketplace.name)) {
+      const source = marketplace.ref
+        ? await cloneRepo(sb, marketplace.source, marketplace.ref)
+        : marketplace.source;
+      const add = await sb.runShell(`claude plugin marketplace add ${shared.shellQuote(source)}`);
+      if (add.exitCode !== 0) {
+        throw new Error(
+          t("plugin.marketplaceFailed", {
+            agent: "claude-code",
+            name: marketplace.name,
+            source: marketplace.source,
+            ref: marketplace.ref ?? "(default)",
+            tail: outputTail(add),
+          }),
+        );
+      }
+      connected.add(marketplace.name);
+    }
+
+    const id = `${plugin.name}@${marketplace.name}`;
+    const install = await sb.runShell(`claude plugin install ${shared.shellQuote(id)}`);
+    if (install.exitCode !== 0) {
+      throw new Error(
+        t("plugin.installFailed", {
+          agent: "claude-code",
+          name: plugin.name,
+          marketplace: marketplace.name,
+          tail: outputTail(install),
+        }),
+      );
+    }
+
+    const resolvedVersion = await installedVersion(sb, id);
+    out.push({
+      agent: "claude-code",
+      marketplace: {
+        name: marketplace.name,
+        source: marketplace.source,
+        ...(marketplace.ref !== undefined ? { ref: marketplace.ref } : {}),
+      },
+      name: plugin.name,
+      ...(resolvedVersion !== undefined ? { resolvedVersion } : {}),
+    });
+  }
+  return out;
+}
+
+/** `claude plugin list --json` → `[{ id: "<plugin>@<marketplace>", version, … }]`;取不到版本不阻断安装。 */
+async function installedVersion(sb: Sandbox, id: string): Promise<string | undefined> {
+  try {
+    const res = await sb.runShell("claude plugin list --json");
+    if (res.exitCode !== 0) return undefined;
+    const list = JSON.parse(res.stdout) as { id?: string; version?: string }[];
+    return list.find((p) => p.id === id)?.version;
+  } catch {
+    return undefined;
+  }
+}
+
+function outputTail(res: { stdout: string; stderr: string }, n = 12): string {
+  return (res.stdout + res.stderr).trim().split("\n").slice(-n).join("\n");
 }
 
 export default claudeCodeAgent();

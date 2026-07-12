@@ -67,7 +67,7 @@ export default defineExperiment({
         args: ["-y", "@anthropic/mcp-browser"],
       },
     ],
-    skills: ["Effect-TS/skills"],
+    skills: [{ kind: "repo", source: "Effect-TS/skills", ref: "8f3c1a2" }],
   }),
   model: "claude-sonnet-4-6",
   sandbox: dockerSandbox(),

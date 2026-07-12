@@ -404,6 +404,7 @@ function fakeAttempt(snapshot: Snapshot, result: EvalResult): AttemptHandle {
     events: async () => null,
     trace: async () => null,
     o11y: async () => null,
+    agentSetup: async () => null,
     diff: async () => null,
     sources: async () => null,
   };
@@ -509,6 +510,48 @@ describe("createResultsWriter", () => {
 
     const partial = results.latest().warnings.find((w) => w.kind === "partial-coverage")!;
     expect(partial).toMatchObject({ experimentId: "compare/a", covered: 2, total: 3 });
+  });
+
+  it("agentSetup:落成 agent-setup.json(不内联进 result.json),懒加载读回;没装扩展的 attempt 恒 null;copySnapshots 能带上", async () => {
+    const root = await makeRoot();
+    const writer = createResultsWriter(root, { producer: { name: "niceeval", version: "0.12.0" } });
+    const manifest = {
+      skills: [{ kind: "repo" as const, source: "Effect-TS/skills", ref: "8f3c1a2", skills: ["effect"] }],
+      nativePlugins: [
+        {
+          agent: "claude-code" as const,
+          marketplace: { name: "acme", source: "acme/claude-code-plugins", ref: "v1.3.0" },
+          name: "safe-shell",
+          resolvedVersion: "1.3.0",
+        },
+      ],
+      mcpServers: [{ name: "browser", command: "npx", args: ["-y", "@modelcontextprotocol/server-browser"] }],
+    };
+
+    const snap = await writer.snapshot({
+      experimentId: "skill-ab/claude-effect",
+      agent: "claude-code",
+      startedAt: "2026-07-11T08:00:00.000Z",
+    });
+    await snap.writeAttempt({ id: "q1", verdict: "passed", attempt: 1, durationMs: 10, assertions: [] }, { agentSetup: manifest });
+    await snap.writeAttempt({ id: "q2", verdict: "passed", attempt: 1, durationMs: 10, assertions: [] });
+    await writer.finish();
+
+    // 文件名是磁盘侧的 kebab;判决记录里不内联 manifest(它是 artifact,不是判决的一部分)
+    const attemptDir = join(snap.dir, "q1", "a1");
+    expect(await exists(join(attemptDir, "agent-setup.json"))).toBe(true);
+    expect(JSON.parse(await readFile(join(attemptDir, "result.json"), "utf-8")).agentSetup).toBeUndefined();
+    expect(await exists(join(snap.dir, "q2", "a1", "agent-setup.json"))).toBe(false);
+
+    const results = await openResults(root);
+    const [q1, q2] = results.experiments[0].latest.attempts;
+    expect(await q1.agentSetup()).toEqual(manifest);
+    expect(await q2.agentSetup()).toBeNull();
+
+    const dest = join(await makeRoot(), "published");
+    await copySnapshots(results.latest(), dest, { artifacts: ["agentSetup"] });
+    const copied = join(dest, "skill-ab_claude-effect", basename(snap.dir), "q1", "a1", "agent-setup.json");
+    expect(JSON.parse(await readFile(copied, "utf-8"))).toEqual(manifest);
   });
 
   it("snapshot() 缺 experimentId/agent/startedAt 抛可执行错误", async () => {

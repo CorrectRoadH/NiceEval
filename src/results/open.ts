@@ -10,7 +10,7 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import type { EvalResult } from "../types.ts";
 import type { O11ySummary, StreamEvent, TraceSpan } from "../types.ts";
-import type { DiffData, SourceArtifact } from "../types.ts";
+import type { AgentSetupManifest, DiffData, SourceArtifact } from "../types.ts";
 import { RESULT_FILE, SNAPSHOT_FILE, artifactFileOf, classifySnapshot } from "./format.ts";
 import { isNewerSnapshot, selectLatest } from "./select.ts";
 import {
@@ -359,6 +359,7 @@ function makeAttempt(snapshot: Snapshot, snapshotDir: string, attemptDir: string
     events: lazyArtifact<StreamEvent[]>(candidates, "events", record.events),
     trace: lazyArtifact<TraceSpan[]>(candidates, "trace", record.trace),
     o11y: lazyArtifact<O11ySummary>(candidates, "o11y", record.o11y),
+    agentSetup: lazyArtifact<AgentSetupManifest>(candidates, "agentSetup", record.agentSetup),
     diff: lazyArtifact<DiffData>(candidates, "diff", record.diff),
     sources: lazySources(candidates, candidateSnapshotRoots, record.sources),
   };

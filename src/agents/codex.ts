@@ -1,8 +1,16 @@
 import { defineSandboxAgent } from "../define.ts";
 import { requireEnv, getEnv } from "../util.ts";
 import { shared } from "./shared.ts";
+import {
+  appendProjectInstruction,
+  installSkills,
+  installedSkillNames,
+  skillDiscoveryInstruction,
+} from "./skills.ts";
+import { writeAgentSetupManifest } from "./manifest.ts";
 import { mapCodexSpans } from "../o11y/otlp/mappers/codex.ts";
-import type { Agent, McpServer } from "../types.ts";
+import { t } from "../i18n/index.ts";
+import type { Agent, AgentSetupManifest, McpServer, Sandbox, SkillSpec } from "../types.ts";
 
 // ───────────────────────────────────────────────────────────────────────────
 // OpenAI Codex CLI 的 agent adapter(沙箱型)。
@@ -10,7 +18,29 @@ import type { Agent, McpServer } from "../types.ts";
 // 连接方式:在沙箱里 spawn `codex exec --json`,stdout JSONL → parseCodex → 标准事件流。
 // 配置:鉴权本地(config / env),模型交给实验(ctx.model),推理努力程度经 ctx.reasoningEffort
 // (兼容旧的 ctx.flags.effort),其余参数经 ctx.flags。
+// 扩展(skill / plugin / MCP)是构造参数,setup 翻译成 codex 的原生形态并写 manifest。
 // ───────────────────────────────────────────────────────────────────────────
+
+/** codex 的 skill 目录(`skills` 生态的「通用」目录);codex 不原生扫描它,靠下面的发现指引。 */
+const SKILL_DIR = ".agents/skills";
+
+/**
+ * Codex 的原生 Plugin —— **只属于 Codex**,不能传给 Claude Code(它有自己的
+ * {@link import("./claude-code.ts").ClaudeCodePluginSpec})。字段当前相似不等于同一个类型:
+ * 任一方的 Marketplace 鉴权、锁文件、选择规则或安装参数变化时,另一方不必接受无意义字段。
+ */
+export interface CodexPluginSpec {
+  marketplace: {
+    /** Marketplace 在 Codex 配置中的连接名(`codex plugin add <plugin>@<name>` 里的那个名字)。 */
+    name: string;
+    /** Marketplace 来源:`owner/repo`、Git URL 或本地路径。 */
+    source: string;
+    /** 固定 Marketplace 的 Tag、Commit 或 Branch(→ `codex plugin marketplace add --ref`)。 */
+    ref?: string;
+  };
+  /** Marketplace 中的 Plugin 名。 */
+  name: string;
+}
 
 export interface CodexConfig {
   /** 代理 / OpenAI API key。省略时读 CODEX_API_KEY env。 */
@@ -19,14 +49,17 @@ export interface CodexConfig {
   baseUrl?: string;
   /**
    * 额外 MCP server(每个沙箱 setup 时追加进 ~/.codex/config.toml)。
-   * 格式对应 codex config.toml 的 [mcp_server.<name>] 表。
+   * 格式对应 codex config.toml 的 [mcp_servers.<name>] 表。
    */
   mcpServers?: McpServer[];
   /**
-   * 额外安装的 skill，格式为 GitHub `"org/repo"`（如 `"Effect-TS/skills"`）。
-   * setup 阶段执行 `npx skills add <org/repo>`，结果写进 skills-lock.json。
+   * 装进沙箱的 Skill(本地目录/文件,或 repo + 可钉 ref + 可选启用集)。
+   * 落在 `.agents/skills/<name>/`,并写一段发现指引进 AGENTS.md —— codex 没有 Claude Code 那种
+   * 原生 Skill 工具,只把文件装进去它不会自己去读(见 memory/codex-no-native-skill-tool.md)。
    */
-  skills?: string[];
+  skills?: SkillSpec[];
+  /** Codex 原生 Plugin(先连 Marketplace,再从中装指定 Plugin)。 */
+  plugins?: CodexPluginSpec[];
 }
 
 export function codexAgent(config?: CodexConfig): Agent {
@@ -81,14 +114,28 @@ export function codexAgent(config?: CodexConfig): Agent {
         await sb.runShell(`cat >> ~/.codex/config.toml <<'MCPEOF'\n\n${mcpToml}\nMCPEOF\n`);
       }
 
+      const manifest: AgentSetupManifest = { skills: [] };
       if (config?.skills?.length) {
-        for (const source of config.skills) {
-          // 同 claude-code adapter:-y -a codex 避免无 tty 环境下卡在交互式 agent 选择框。
-          // codex 没有 claude-code 那种原生 Skill 工具，装进的是 skills 包的"通用"目录
-          // （`.agents/skills/<name>`）——codex CLI 本身不会主动去读它，要在 prompt 里
-          // 显式提示"检查仓库里有没有 skill/guide 文件"，agent 才会用 shell 命令读进上下文。
-          await sb.runShell(`npx skills add ${shared.shellQuote(source)} -y -a codex`);
-        }
+        manifest.skills = await installSkills(sb, config.skills, { dir: SKILL_DIR });
+        // 发现指引不是可选装饰:没有它,codex 连一次读 skill 文件的 shell 调用都不会发生。
+        await appendProjectInstruction(
+          sb,
+          skillDiscoveryInstruction(SKILL_DIR, installedSkillNames(manifest.skills)),
+        );
+      }
+      if (config?.plugins?.length) {
+        manifest.nativePlugins = await installPlugins(sb, config.plugins);
+      }
+      if (config?.mcpServers?.length) {
+        // manifest 只记「挂了哪个 server、怎么起」;env 里可能有 token,不落盘。
+        manifest.mcpServers = config.mcpServers.map((s) => ({
+          name: s.name,
+          command: s.command,
+          ...(s.args?.length ? { args: [...s.args] } : {}),
+        }));
+      }
+      if (manifest.skills.length || manifest.nativePlugins?.length || manifest.mcpServers?.length) {
+        await writeAgentSetupManifest(sb, manifest);
       }
     },
 
@@ -127,6 +174,89 @@ export function codexAgent(config?: CodexConfig): Agent {
       return { events, usage: parsed.usage, status: res.exitCode === 0 ? "completed" : "failed" };
     },
   });
+}
+
+/**
+ * 先按 `marketplace.name` 连 Marketplace(同名只连一次,`--ref` 钉版本),再装指定 Plugin。
+ * 只按 codex 自己的 marketplace / plugin 协议走 —— 与 claude-code 的实现不共用命令、不共用类型。
+ */
+async function installPlugins(
+  sb: Sandbox,
+  plugins: readonly CodexPluginSpec[],
+): Promise<NonNullable<AgentSetupManifest["nativePlugins"]>> {
+  const connected = new Set<string>();
+  const out: NonNullable<AgentSetupManifest["nativePlugins"]> = [];
+
+  for (const plugin of plugins) {
+    const { marketplace } = plugin;
+    if (!connected.has(marketplace.name)) {
+      const refFlag = marketplace.ref ? ` --ref ${shared.shellQuote(marketplace.ref)}` : "";
+      const add = await sb.runShell(
+        `codex plugin marketplace add ${shared.shellQuote(marketplace.source)}${refFlag}`,
+      );
+      if (add.exitCode !== 0) {
+        throw new Error(
+          t("plugin.marketplaceFailed", {
+            agent: "codex",
+            name: marketplace.name,
+            source: marketplace.source,
+            ref: marketplace.ref ?? "(default)",
+            tail: outputTail(add),
+          }),
+        );
+      }
+      connected.add(marketplace.name);
+    }
+
+    const install = await sb.runShell(
+      `codex plugin add ${shared.shellQuote(`${plugin.name}@${marketplace.name}`)}`,
+    );
+    if (install.exitCode !== 0) {
+      throw new Error(
+        t("plugin.installFailed", {
+          agent: "codex",
+          name: plugin.name,
+          marketplace: marketplace.name,
+          tail: outputTail(install),
+        }),
+      );
+    }
+
+    const resolvedVersion = await installedVersion(sb, plugin.name, marketplace.name);
+    out.push({
+      agent: "codex",
+      marketplace: {
+        name: marketplace.name,
+        source: marketplace.source,
+        ...(marketplace.ref !== undefined ? { ref: marketplace.ref } : {}),
+      },
+      name: plugin.name,
+      ...(resolvedVersion !== undefined ? { resolvedVersion } : {}),
+    });
+  }
+  return out;
+}
+
+/** `codex plugin list --json` 的版本回读;取不到不阻断安装(manifest 里 resolvedVersion 省略)。 */
+async function installedVersion(sb: Sandbox, name: string, marketplace: string): Promise<string | undefined> {
+  try {
+    const res = await sb.runShell(`codex plugin list --json --marketplace ${shared.shellQuote(marketplace)}`);
+    if (res.exitCode !== 0) return undefined;
+    const raw = JSON.parse(res.stdout) as unknown;
+    const list = (Array.isArray(raw) ? raw : ((raw as { plugins?: unknown[] })?.plugins ?? [])) as {
+      id?: string;
+      name?: string;
+      version?: string;
+    }[];
+    const hit = list.find((p) => p.id === `${name}@${marketplace}` || p.name === name);
+    return typeof hit?.version === "string" ? hit.version : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function outputTail(res: { stdout: string; stderr: string }, n = 12): string {
+  return (res.stdout + res.stderr).trim().split("\n").slice(-n).join("\n");
 }
 
 export default codexAgent();

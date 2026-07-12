@@ -8,7 +8,7 @@
 
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { EvalResult, ExperimentRunInfo, LocalizedText } from "../types.ts";
+import type { AgentSetupManifest, EvalResult, ExperimentRunInfo, LocalizedText } from "../types.ts";
 import type { DiffData, O11ySummary, SourceArtifact, StreamEvent, TraceSpan } from "../types.ts";
 import { RESULTS_FORMAT, RESULTS_SCHEMA_VERSION } from "../types.ts";
 import { RESULT_FILE, SNAPSHOT_FILE, artifactFileOf, attemptDirOf, experimentDirOf } from "./format.ts";
@@ -54,6 +54,7 @@ export type AttemptEntry = Omit<
   | "sources"
   | "o11y"
   | "trace"
+  | "agentSetup"
   | "diff"
   | "rawTranscript"
   | "artifactBase"
@@ -67,6 +68,8 @@ export interface AttemptArtifacts {
   events?: StreamEvent[];
   trace?: TraceSpan[];
   o11y?: O11ySummary;
+  /** agent setup 的安装清单(沙箱型 coding agent 装了 Skill / plugin / MCP 才有)。 */
+  agentSetup?: AgentSetupManifest;
   diff?: DiffData;
   sources?: SourceArtifact[];
 }
@@ -181,7 +184,8 @@ export function createResultsWriter(root: string, opts: ResultsWriterOptions): R
       // startedAt 已经不在本轮快照里了,重算会用错的 snapshotStartedAt 算出不同的字符串,
       // 让已经发布/引用过的 locator 失效。真缺失(没经过 openResults 的手工构造)时如实留空,
       // 交给读取面按当前身份兜底算(见 open.ts 的 locator 回填),不在这里瞎猜。
-      const { agent, model, experimentId, experiment, events, sources, o11y, trace, diff, rawTranscript, ...rest } = result;
+      const { agent, model, experimentId, experiment, events, sources, o11y, trace, agentSetup, diff, rawTranscript, ...rest } =
+        result;
       void agent;
       void model;
       void experimentId;
@@ -190,6 +194,7 @@ export function createResultsWriter(root: string, opts: ResultsWriterOptions): R
       void sources;
       void o11y;
       void trace;
+      void agentSetup;
       void diff;
       void rawTranscript;
       const attemptDir = join(snap.dir, attemptDirOf(result));
@@ -208,6 +213,7 @@ export function createResultsWriter(root: string, opts: ResultsWriterOptions): R
       sources,
       o11y,
       trace,
+      agentSetup,
       diff,
       rawTranscript,
       artifactBase,
@@ -227,7 +233,7 @@ export function createResultsWriter(root: string, opts: ResultsWriterOptions): R
     // startedAt 是 attempt 级事实(每条各异,view 靠它显示「何时跑的」),原样落盘;
     // 读取面只在记录缺失时才回退快照的 startedAt。
     const record = { ...entry, ...(startedAt !== undefined ? { startedAt } : {}) };
-    await snap.writeAttempt(record as AttemptEntry, { events, sources, o11y, trace, diff });
+    await snap.writeAttempt(record as AttemptEntry, { events, sources, o11y, trace, agentSetup, diff });
   }
 
   return {
@@ -286,6 +292,11 @@ async function writeAttemptFiles(
   if (hasSources) writes.push(writeSourcesRef(snapDir, attemptDir, artifacts!.sources!, sourceStore));
   if (hasTrace) writes.push(writeFile(join(attemptDir, "trace.json"), JSON.stringify(artifacts!.trace), "utf-8"));
   if (artifacts?.o11y) writes.push(writeFile(join(attemptDir, "o11y.json"), JSON.stringify(artifacts.o11y), "utf-8"));
+  if (artifacts?.agentSetup) {
+    writes.push(
+      writeFile(join(attemptDir, artifactFileOf("agentSetup")), JSON.stringify(artifacts.agentSetup), "utf-8"),
+    );
+  }
   if (artifacts?.diff) writes.push(writeFile(join(attemptDir, "diff.json"), JSON.stringify(artifacts.diff), "utf-8"));
   await Promise.all(writes);
 

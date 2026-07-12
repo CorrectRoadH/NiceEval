@@ -83,4 +83,4 @@ export {
 export { RESULTS_FORMAT, RESULTS_SCHEMA_VERSION } from "../types.ts";
 export type { EvalResult, ExperimentRunInfo, RunSummary } from "../types.ts";
 export type { O11ySummary, StreamEvent, TraceSpan, Usage } from "../types.ts";
-export type { DiffData, SourceArtifact } from "../types.ts";
+export type { AgentSetupManifest, AgentSetupSkill, DiffData, SourceArtifact } from "../types.ts";

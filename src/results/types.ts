@@ -8,11 +8,11 @@
 
 import type { EvalResult, ExperimentRunInfo, LocalizedText } from "../types.ts";
 import type { O11ySummary, StreamEvent, TraceSpan } from "../types.ts";
-import type { DiffData, SourceArtifact } from "../types.ts";
+import type { AgentSetupManifest, DiffData, SourceArtifact } from "../types.ts";
 import type { AttemptLocator } from "./locator.ts";
 
-/** attempt 级 artifact 的种类;文件名恒为 `<kind>.json`,布局见 docs/results-format.md。 */
-export const ARTIFACT_KINDS = ["events", "trace", "o11y", "diff", "sources"] as const;
+/** attempt 级 artifact 的种类;文件名见 format.ts 的 artifactFileOf,布局见 docs/results-format.md。 */
+export const ARTIFACT_KINDS = ["events", "trace", "o11y", "agentSetup", "diff", "sources"] as const;
 export type ArtifactKind = (typeof ARTIFACT_KINDS)[number];
 
 /** 写这份结果的工具:niceeval 自己,或经 niceeval/results 写入面转换的第三方 harness。 */
@@ -87,6 +87,8 @@ export interface AttemptHandle {
   events(): Promise<StreamEvent[] | null>;
   trace(): Promise<TraceSpan[] | null>;
   o11y(): Promise<O11ySummary | null>;
+  /** 这次 attempt 的 agent setup 装了什么(Skill / native plugin / MCP / Python plugin);没装扩展的 agent 恒为 null。 */
+  agentSetup(): Promise<AgentSetupManifest | null>;
   diff(): Promise<DiffData | null>;
   sources(): Promise<SourceArtifact[] | null>;
 }

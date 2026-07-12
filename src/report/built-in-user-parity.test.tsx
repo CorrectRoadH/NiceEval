@@ -83,6 +83,7 @@ function snap(spec: SnapSpec): Snapshot {
     events: async () => null,
     trace: async () => null,
     o11y: async () => null,
+    agentSetup: async () => null,
     diff: async () => null,
     sources: async () => null,
   }));

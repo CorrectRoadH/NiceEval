@@ -1,9 +1,16 @@
 import { defineSandboxAgent } from "../define.ts";
 import { requireEnv, getEnv } from "../util.ts";
 import { shared } from "./shared.ts";
+import {
+  appendProjectInstruction,
+  installSkills,
+  installedSkillNames,
+  skillDiscoveryInstruction,
+} from "./skills.ts";
+import { writeAgentSetupManifest } from "./manifest.ts";
 import { createCheckpoint, restoreCheckpoint } from "../sandbox/checkpoint.ts";
 import { mapBubSpans } from "../o11y/otlp/mappers/bub.ts";
-import type { Agent, AgentContext, Sandbox } from "../types.ts";
+import type { Agent, AgentContext, AgentSetupManifest, Sandbox, SkillSpec } from "../types.ts";
 import { createHash, randomUUID } from "node:crypto";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -20,20 +27,37 @@ import { t } from "../i18n/index.ts";
 //    · 记忆:tape(总是开),落盘在 ~/.bub/tapes/<md5(ws)[:16]>__<md5(sess)[:16]>.jsonl。
 // ───────────────────────────────────────────────────────────────────────────
 
+/**
+ * Bub 的扩展单元 —— **只属于 Bub**:Bub 的插件是运行环境里的 Python Package,
+ * 与 Claude Code / Codex 的 native plugin 没有共同的安装协议,不共用类型。
+ */
+export interface PythonPluginSpec {
+  /** PyPI Package、Version Specifier 或 Git URL(如 `bub-plugin-memory==1.3.0`、`git+https://…@8f3c1a2`)。 */
+  package: string;
+}
+
 export interface BubConfig {
   /** OpenAI 兼容代理的 API key。省略时读 BUB_API_KEY env。 */
   apiKey?: string;
   /** OpenAI 兼容代理的 base URL。省略时读 BUB_API_BASE env。 */
   apiBase?: string;
   /**
-   * 额外装进 bub tool 环境的 Python 包(pip 名或 git URL)。
-   * 每个沙箱 setup 时作为 `uv tool install --with <pkg>` 追加到 bub 环境里。
-   * 示例:["bub-plugin-memory", "git+https://github.com/..."]
+   * 装进沙箱的 Skill(本地目录/文件,或 repo + 可钉 ref + 可选启用集)。
+   * 落在 `.agents/skills/<name>/`,并写一段发现指引进 AGENTS.md(bub 没有原生 Skill 加载机制)。
    */
-  pythonPlugins?: string[];
+  skills?: SkillSpec[];
+  /**
+   * 额外装进 bub tool 环境的 Python Package,每个沙箱 setup 时进 `uv tool install … --with <pkg>`。
+   * 规范化后的 package 列表进安装 checkpoint key:plugin 集合不同的两个 agent 变体不会复用同一个
+   * 安装 checkpoint(否则第二个变体会静默拿到第一个变体的环境)。
+   */
+  pythonPlugins?: PythonPluginSpec[];
 }
 
 const UV = "$HOME/.local/bin/uv";
+
+/** bub 的 skill 目录(`skills` 生态的「通用」目录);bub 不原生扫描它,靠 AGENTS.md 的发现指引。 */
+const SKILL_DIR = ".agents/skills";
 
 // TODO(upstream): BUB_OVERRIDE 钉在个人 fork 的修复分支上(tool-call 分支丢助手文本的修复
 // 尚未进上游,见 memory/bub-tapestore-otel…drift.md 台账),等上游包含后改回发布版。
@@ -66,32 +90,60 @@ const BUB = BUB_PINNED ? "$HOME/.local/bin/bub" : "$(command -v bub || echo $HOM
 // 名,不会继续复用老的大 checkpoint。
 const CHECKPOINT_SUBDIRS = [".local"];
 
-const INSTALL_SPEC =
-  `bub --override(${BUB_OVERRIDE}) --with ${OTEL_PLUGIN} --checkpoint(${CHECKPOINT_SUBDIRS.join(",")})`;
-const INSTALL_HASH = createHash("md5").update(INSTALL_SPEC).digest("hex").slice(0, 12);
-
-function diskCachePath(home: string): string {
-  const homeKey = createHash("md5").update(home).digest("hex").slice(0, 8);
-  return join(homedir(), ".cache", "niceeval", `bub-checkpoint-${homeKey}-${INSTALL_HASH}.bin`);
+/** 规范化 python plugin:去空白、丢空串、去重 —— 安装命令与 checkpoint key 用同一份列表。 */
+function normalizePackages(plugins?: readonly PythonPluginSpec[]): string[] {
+  const seen = new Set<string>();
+  for (const p of plugins ?? []) {
+    const pkg = p.package.trim();
+    if (pkg) seen.add(pkg);
+  }
+  return [...seen].sort();
 }
 
-// in-memory checkpoint + mutex keyed by sandbox $HOME,
-// so Docker(/home/node)と Vercel(/home/vercel-sandbox)でキャッシュが混ざらない。
+/** 安装环境的完整描述:bub 版本 + otel 插件 + python plugin 集合 + checkpoint 覆盖面。 */
+function installSpecOf(packages: readonly string[]): string {
+  const plugins = packages.length ? ` --with ${packages.join(" --with ")}` : "";
+  return `bub --override(${BUB_OVERRIDE}) --with ${OTEL_PLUGIN}${plugins} --checkpoint(${CHECKPOINT_SUBDIRS.join(",")})`;
+}
+
+function installHashOf(packages: readonly string[]): string {
+  return createHash("md5").update(installSpecOf(packages)).digest("hex").slice(0, 12);
+}
+
+function diskCachePath(home: string, installHash: string): string {
+  const homeKey = createHash("md5").update(home).digest("hex").slice(0, 8);
+  return join(homedir(), ".cache", "niceeval", `bub-checkpoint-${homeKey}-${installHash}.bin`);
+}
+
+// in-memory checkpoint + mutex keyed by (sandbox $HOME, 安装规格):
+// $HOME 分开 Docker(/home/node)と Vercel(/home/vercel-sandbox);安装规格分开 python plugin
+// 集合不同的 agent 变体 —— 少了后者,装了 plugin 的变体会静默复用 baseline 变体的环境。
 const memCheckpoints = new Map<string, Buffer>();
 const installsInProgress = new Map<string, Promise<void>>();
 
-async function ensureBub(sb: Sandbox, home: string, log: AgentContext["log"]): Promise<void> {
+async function ensureBub(
+  sb: Sandbox,
+  home: string,
+  log: AgentContext["log"],
+  packages: readonly string[],
+): Promise<void> {
   // 预制模板已把 bub 烘焙进镜像(PATH 上)→ 直接用,跳过 uv 安装 + checkpoint 全套。
   // pinned(git ref override)时不走此捷径:烘焙的 bub 无法验证是不是 ref 当前指向的
-  // 构建,必须按 override 真装(见 BUB_PINNED 注释)。
-  if (!BUB_PINNED && (await sb.runShell("command -v bub >/dev/null 2>&1")).exitCode === 0) return;
+  // 构建,必须按 override 真装(见 BUB_PINNED 注释)。有 python plugin 时同理不能走捷径:
+  // 镜像里烘焙的 bub 环境没有这些包。
+  if (!BUB_PINNED && packages.length === 0 && (await sb.runShell("command -v bub >/dev/null 2>&1")).exitCode === 0) {
+    return;
+  }
 
+  const installHash = installHashOf(packages);
+  const cacheKey = `${home}::${installHash}`;
+  const withPlugins = packages.map((p) => `--with '${p}'`).join(" ");
   const checkpointPaths = CHECKPOINT_SUBDIRS.map((d) => `${home}/${d}`);
-  const cachePath = diskCachePath(home);
+  const cachePath = diskCachePath(home, installHash);
 
   // restore 失败(多为 e2b 文件 API 对大 buffer 的瞬态超时/连接重置)不终结 attempt:
   // 缓存只是加速手段,落空就往下走全量安装。
-  const mem = memCheckpoints.get(home);
+  const mem = memCheckpoints.get(cacheKey);
   if (mem) {
     try { await restoreCheckpoint(sb, mem); return; } catch (e) {
       log(t("bub.checkpointRestoreFailed", { error: e instanceof Error ? e.message : String(e) }));
@@ -100,14 +152,14 @@ async function ensureBub(sb: Sandbox, home: string, log: AgentContext["log"]): P
 
   const disk = await readFile(cachePath).catch(() => undefined);
   if (disk) {
-    try { await restoreCheckpoint(sb, disk); memCheckpoints.set(home, disk); return; } catch { /* 损坏,回退 */ }
+    try { await restoreCheckpoint(sb, disk); memCheckpoints.set(cacheKey, disk); return; } catch { /* 损坏,回退 */ }
   }
 
-  const inflight = installsInProgress.get(home);
+  const inflight = installsInProgress.get(cacheKey);
   if (inflight) {
     // leader 失败(多为沙箱瞬态网络错)不级联杀 waiter:兜掉后走下面自己的安装路径重试。
     await inflight.catch(() => {});
-    const after = memCheckpoints.get(home);
+    const after = memCheckpoints.get(cacheKey);
     if (after) { await restoreCheckpoint(sb, after); return; }
   }
 
@@ -117,15 +169,17 @@ async function ensureBub(sb: Sandbox, home: string, log: AgentContext["log"]): P
   // 失败经由下方 throw e 传播给本 attempt;这把锁可能自始至终没有 waiter,
   // 不兜住 rejection 会变 unhandledRejection,把整个 runner 进程连同全矩阵杀掉。
   installPromise.catch(() => {});
-  installsInProgress.set(home, installPromise);
+  installsInProgress.set(cacheKey, installPromise);
 
   try {
     await sb.runShell(`test -x ${UV} || (curl -LsSf https://astral.sh/uv/install.sh | sh)`);
     await sb.runShell(`printf '%s\\n' '${BUB_OVERRIDE}' > ${BUB_OVERRIDE_FILE}`);
     let last = { stdout: "", stderr: "" };
     for (let attempt = 1; attempt <= 3; attempt++) {
+      // python plugin 与 bub 同一条 uv 命令装完:分两条(先装 bub、再 --reinstall 带 --with)
+      // 会让 checkpoint 抓到的环境与 key 描述的环境错位,且第二条命令白白重装一遍 bub。
       const install = await sb.runShell(
-        `${UV} tool install --reinstall --python 3.12 --prerelease allow 'bub' --overrides ${BUB_OVERRIDE_FILE} --with '${OTEL_PLUGIN}'`,
+        `${UV} tool install --reinstall --python 3.12 --prerelease allow 'bub' --overrides ${BUB_OVERRIDE_FILE} --with '${OTEL_PLUGIN}'${withPlugins ? ` ${withPlugins}` : ""}`,
       );
       if (install.exitCode === 0) break;
       last = install;
@@ -140,7 +194,7 @@ async function ensureBub(sb: Sandbox, home: string, log: AgentContext["log"]): P
     // (大 buffer 在 e2b 文件 API 上的瞬态错误)降级为警告,绝不反过来杀掉已就绪的 attempt。
     try {
       const cp = await createCheckpoint(sb, checkpointPaths);
-      memCheckpoints.set(home, cp);
+      memCheckpoints.set(cacheKey, cp);
       await mkdir(dirname(cachePath), { recursive: true }).catch(() => {});
       await writeFile(cachePath, cp).catch(() => {});
     } catch (e) {
@@ -152,7 +206,7 @@ async function ensureBub(sb: Sandbox, home: string, log: AgentContext["log"]): P
     throw e;
   } finally {
     // 成功/失败都清锁:锁只表达「正在装」,装完后 memCheckpoints 是唯一缓存事实源。
-    installsInProgress.delete(home);
+    installsInProgress.delete(cacheKey);
   }
 }
 
@@ -191,14 +245,8 @@ export function bubAgent(config?: BubConfig): Agent {
       // ensureBub 的 checkpoint 缓存回填在模块级共享锁(installsInProgress)里,天然可能
       // 跨多个 attempt 复用同一次安装:警告归属到「触发这次安装的那个 attempt」的 log,
       // 不追求归属到全部受益 attempt(已裁决口径)。
-      await ensureBub(sb, home, ctx.log);
-
-      if (config?.pythonPlugins?.length) {
-        const extraWith = config.pythonPlugins.map((p) => `--with '${p}'`).join(" ");
-        await sb.runShell(
-          `${UV} tool install --reinstall --python 3.12 --prerelease allow 'bub' --overrides ${BUB_OVERRIDE_FILE} --with '${OTEL_PLUGIN}' ${extraWith}`,
-        );
-      }
+      const packages = normalizePackages(config?.pythonPlugins);
+      await ensureBub(sb, home, ctx.log, packages);
 
       if (!(await sb.fileExists(`${workspace}/AGENTS.md`))) {
         await shared.writeFile(
@@ -216,6 +264,20 @@ export function bubAgent(config?: BubConfig): Agent {
             `After writing, verify with bash("cd ${workspace} && npm run build").`,
           ].join("\n"),
         );
+      }
+
+      const manifest: AgentSetupManifest = { skills: [] };
+      if (config?.skills?.length) {
+        manifest.skills = await installSkills(sb, config.skills, { dir: SKILL_DIR });
+        // bub 没有原生 Skill 加载机制:装进目录不等于会被读到,发现指引跟着一起写。
+        await appendProjectInstruction(
+          sb,
+          skillDiscoveryInstruction(SKILL_DIR, installedSkillNames(manifest.skills)),
+        );
+      }
+      if (packages.length) manifest.pythonPlugins = packages.map((pkg) => ({ package: pkg }));
+      if (manifest.skills.length || manifest.pythonPlugins?.length) {
+        await writeAgentSetupManifest(sb, manifest);
       }
     },
 

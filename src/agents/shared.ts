@@ -10,9 +10,18 @@ import {
   parseClaudeCodeTranscript,
   parseBubTranscript,
 } from "../o11y/parsers/index.ts";
-import type { Sandbox, StreamEvent } from "../types.ts";
+import type { AgentSetupManifest, AgentSetupSkill, Sandbox, SkillSpec, StreamEvent } from "../types.ts";
 import { t } from "../i18n/index.ts";
 import { shellQuote } from "../sandbox/shell.ts";
+import { writeAgentSetupManifest } from "./manifest.ts";
+import {
+  appendProjectInstruction,
+  excludeFromDiff,
+  installSkills,
+  installedSkillNames,
+  skillDiscoveryInstruction,
+  type InstallSkillsOptions,
+} from "./skills.ts";
 
 /** 每个沙箱里「已经装过的全局包」去重,避免每轮 send 重复 npm i -g。 */
 const installedBySandbox = new WeakMap<Sandbox, Set<string>>();
@@ -168,6 +177,28 @@ export const shared = {
   /** 把文本包成 shell 单引号字面量(含转义)。与 sandbox provider 同一份实现,别在 adapter 里手写。 */
   shellQuote,
   diagnoseFailure,
+  /**
+   * 把 SkillSpec 装进沙箱的 `opts.dir`(本地目录/文件按原字节上传;repo 按 ref clone、按
+   * 选择集拷贝),返回 manifest 用的 Skill 记录。装进 workspace 的东西自动排除出 diff。
+   */
+  installSkills(sandbox: Sandbox, specs: readonly SkillSpec[], opts: InstallSkillsOptions): Promise<AgentSetupSkill[]> {
+    return installSkills(sandbox, specs, opts);
+  },
+  /** manifest 里的 Skill 记录 → 沙箱里实际的目录名。 */
+  installedSkillNames,
+  /** 没有原生 Skill 加载机制的 agent 要写的发现指引段落(装了不提示 = 白装)。 */
+  skillDiscoveryInstruction,
+  /** 把一段 project instruction 追加进沙箱里的 AGENTS.md(新建的文件顺手排除出 diff)。 */
+  appendProjectInstruction,
+  /** 把 setup 自己写进 workspace 的路径排除出 agent diff(git 基线早于 agent.setup)。 */
+  excludeFromDiff,
+  /**
+   * setup 收尾写安装 manifest:落沙箱 `__niceeval__/agent-setup.json`,运行器抬成 attempt
+   * artifact `agent-setup.json`。什么都没装就别写(空 artifact 不落文件)。secret 不进 manifest。
+   */
+  writeAgentSetup(sandbox: Sandbox, manifest: AgentSetupManifest): Promise<void> {
+    return writeAgentSetupManifest(sandbox, manifest);
+  },
   /** 原始 codex JSONL → 标准事件流 + 用量 + 压缩计数。 */
   parseCodex(raw: string | undefined): ParsedTranscript {
     return parseCodexTranscript(raw);

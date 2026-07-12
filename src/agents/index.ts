@@ -71,15 +71,20 @@ export { BUILTIN_AGENTS } from "./builtin.ts";
 export { claudeCodeAgent } from "./claude-code.ts";
 export { codexAgent } from "./codex.ts";
 export { bubAgent } from "./bub.ts";
-export type { ClaudeCodeConfig } from "./claude-code.ts";
-export type { CodexConfig } from "./codex.ts";
-export type { BubConfig } from "./bub.ts";
+export type { ClaudeCodeConfig, ClaudeCodePluginSpec } from "./claude-code.ts";
+export type { CodexConfig, CodexPluginSpec } from "./codex.ts";
+export type { BubConfig, PythonPluginSpec } from "./bub.ts";
+
+// 安装 manifest 的落点:adapter 写(shared.writeAgentSetup),运行器读并抬成 attempt artifact。
+export { AGENT_SETUP_MANIFEST_PATH } from "./manifest.ts";
 
 export type {
   Agent,
   AgentContext,
   AgentSession,
   AgentSetup,
+  AgentSetupManifest,
+  AgentSetupSkill,
   AgentTeardown,
   AgentTracing,
   SpanMapper,
@@ -87,4 +92,5 @@ export type {
   SandboxAgentDef,
   RemoteAgentDef,
   McpServer,
+  SkillSpec,
 } from "../types.ts";

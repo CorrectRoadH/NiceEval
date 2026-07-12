@@ -3,7 +3,7 @@
 
 import type { Cleanup, LocalizedText, SourceArtifact } from "../shared/types.ts";
 import type { O11ySummary, StreamEvent, TraceSpan, Usage } from "../o11y/types.ts";
-import type { Agent } from "../agents/types.ts";
+import type { Agent, AgentSetupManifest } from "../agents/types.ts";
 import type { Sandbox, SandboxOption } from "../sandbox/types.ts";
 import type { AssertionResult, DiffData, JudgeConfig, Verdict } from "../scoring/types.ts";
 import type { TestContext } from "../context/types.ts";
@@ -53,6 +53,8 @@ export interface EvalResult {
   o11y?: O11ySummary;
   /** agent 经 OpenTelemetry 导出的运行追踪(有 tracing 能力且收到 span 时)。 */
   trace?: TraceSpan[];
+  /** 本 attempt 的 agent setup 实际装了什么(Skill / native plugin / MCP / Python plugin);不参与评分。 */
+  agentSetup?: AgentSetupManifest;
   diff?: DiffData;
   rawTranscript?: string;
   /** 携带条目(--resume 合入)专用:artifact 目录(相对结果根目录),指向原快照里的落盘。 */

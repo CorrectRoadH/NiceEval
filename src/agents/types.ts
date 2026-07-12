@@ -7,8 +7,9 @@ import type { StreamEvent, TraceSpan, Usage } from "../o11y/types.ts";
 import type { Sandbox } from "../sandbox/types.ts";
 
 /**
- * MCP server 描述符 —— Claude Code 与 Codex 共用的扩展插件单元。
- * 在 agent factory config 里声明,setup 阶段写进各自的配置文件。
+ * MCP server 描述符 —— 支持 MCP 的 adapter(Claude Code / Codex)共用的工具服务单元,
+ * 不是 native plugin 的一种。在 agent factory config 里声明,setup 阶段写进各自的配置文件。
+ * 见 docs/feature/adapters/coding-agent-skills-plugins.md「MCP Server」。
  */
 export interface McpServer {
   /** 服务器唯一名(config key)。 */
@@ -19,6 +20,57 @@ export interface McpServer {
   args?: string[];
   /** 注入服务器进程的环境变量。 */
   env?: Record<string, string>;
+}
+
+/**
+ * Skill 的来源描述 —— Claude Code / Codex / Bub 共用的**数据类型**:只统一「从哪里取得
+ * 哪份 Skill」,安装位置、发现机制、要不要额外写 project instruction 由各 Adapter 决定。
+ * 见 docs/feature/adapters/coding-agent-skills-plugins.md「SkillSpec」。
+ */
+export type SkillSpec =
+  | {
+      kind: "local";
+      /** 相对项目根(跑 niceeval 的目录)的 Skill 文件或目录:`SKILL.md`、含 `SKILL.md` 的目录,或单个 `.md`。 */
+      path: string;
+      /** 展示名;省略时由文件或目录名推导(`<dir>/SKILL.md` → `<dir>`,`foo.md` → `foo`)。 */
+      name?: string;
+    }
+  | {
+      kind: "repo";
+      /** GitHub `owner/repo` 或 Git URL。 */
+      source: string;
+      /** 多 Skill Repo 中要启用的 Skill;repo 只有一个 Skill 时可省略,多个时省略即 setup 失败。 */
+      skills?: string[];
+      /** Tag、Commit 或 Branch;省略表示 repo 默认 ref。 */
+      ref?: string;
+    };
+
+/** Manifest 里的一条 Skill 安装记录:本地(带内容哈希)或 repo(带来源与 ref)。 */
+export type AgentSetupSkill =
+  | { kind: "local"; name: string; path: string; sha256: string }
+  | { kind: "repo"; source: string; ref?: string; skills: string[] };
+
+/**
+ * 一次 Agent setup 实际装了什么 —— 沙箱型 Coding Agent Adapter 在 setup 收尾写出的安装清单。
+ * 沙箱内落在 `__niceeval__/agent-setup.json`,运行器把它作为 attempt artifact 存成
+ * `agent-setup.json`(见 docs/feature/results/architecture.md)。不参与评分,只回答「这次实际
+ * 装了什么」;**环境变量值与 secret 不写进来**(所以 mcpServers 只记 name/command/args)。
+ */
+export interface AgentSetupManifest {
+  /** 装进去的 Skill(按配置顺序;同名来自多个来源时逐条保留,不静默合并)。 */
+  skills: AgentSetupSkill[];
+  /** Agent 原生 Plugin(Claude Code / Codex 各自的 Marketplace 协议)。 */
+  nativePlugins?: Array<{
+    agent: "claude-code" | "codex";
+    marketplace: { name: string; source: string; ref?: string };
+    name: string;
+    /** 安装后 CLI 报告的版本;取不到时省略。 */
+    resolvedVersion?: string;
+  }>;
+  /** 挂上的 MCP server(不含 env:secret 不进 manifest)。 */
+  mcpServers?: Array<{ name: string; command: string; args?: string[] }>;
+  /** Bub 的 Python Plugin(规范化后的 package 串)。 */
+  pythonPlugins?: Array<{ package: string }>;
 }
 
 /** 随一轮消息附带的文件(图片等多模态输入)。 */

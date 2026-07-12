@@ -34,9 +34,12 @@
 
 | 行为 | 文件 |
 |---|---|
-| Claude Code skill / MCP setup | `src/agents/claude-code.ts`(`ClaudeCodeConfig.skills` / `mcpServers`) |
-| Codex skill / MCP setup | `src/agents/codex.ts`(`CodexConfig.skills` / `mcpServers`) |
-| bub Python plugin setup | `src/agents/bub.ts`(`BubConfig.pythonPlugins`) |
+| `SkillSpec` / `AgentSetupManifest` 类型 | `src/agents/types.ts` |
+| Skill 安装(本地形状、repo clone + ref、选择规则、发现指引) | `src/agents/skills.ts`(经 `shared.installSkills` 也给自定义 adapter 用) |
+| Claude Code skill / native plugin / MCP setup | `src/agents/claude-code.ts`(`ClaudeCodeConfig.skills` / `plugins` / `mcpServers`、`ClaudeCodePluginSpec`) |
+| Codex skill / native plugin / MCP setup | `src/agents/codex.ts`(`CodexConfig.skills` / `plugins` / `mcpServers`、`CodexPluginSpec`) |
+| bub skill / Python plugin setup | `src/agents/bub.ts`(`BubConfig.skills` / `pythonPlugins`、`PythonPluginSpec`;package 集合进安装 checkpoint key) |
+| 安装 manifest 的写(adapter)与读(运行器) | `src/agents/manifest.ts`、`src/runner/attempt.ts`(抬成 attempt artifact `agent-setup.json`) |
 | 本地 skill A/B 示例 | [coding-agent-skill](https://github.com/CorrectRoadH/coding-agent-skill)(独立仓库) |
 
 ## 标准事件流与可观测性([observability.md](observability.md))
@@ -122,8 +125,8 @@
 | 数据契约(Metric 字面量键泛型、TableData\<K\> … ExperimentListItem / EvalListItem / AttemptListItem;`MetricCell.refs: AttemptLocator[]` 必填) | `src/report/types.ts` |
 | 元素树 / `defineComponent`(双面)/ 渲染前树校验 / text 遍历渲染 | `src/report/tree.ts` |
 | 组件数据解析 pass(`resolveReportTree`:report `build()` 之后、render 之前递归遍历树;遇到 selection-form 组件就调它自己的 `.data` 计算并换成 data-form props,同层 sibling 并行、保持节点顺序;两个渲染入口都先跑它,报告作者因此不用手写 `.data()`) | `src/report/tree.ts`(`resolveReportTree`;被 `src/report/report.ts` 与 `src/report/web.ts` 调用) |
-| 排版原语 Row / Col / Section / Text / Style(五个内置双面组件) | `src/report/primitives.tsx` |
-| 官方组件 text 面(终端形态、字符坐标图、分栏排版) | `src/report/text/{faces,layout,plot}.ts` |
+| 排版原语 Row / Col / Section / Text / Style / Table(六个内置双面组件;Table 的 text 面在 `src/report/text/table.ts`,官方表状组件共用) | `src/report/primitives.tsx` |
+| 官方组件 text 面(终端形态、字符坐标图、分栏排版);文本排版工具箱(`stringWidth` / `padEnd` / `padStart` / `wrapText` / `indent` / `bar` / `columns`,从 `niceeval/report` 导出) | `src/report/text/{faces,layout,table,plot}.ts` |
 | `defineReport` / `ReportContext` / text 宿主装载入口 `renderReportToText`(`build` → `resolveReportTree` → 校验 → text 渲染;渲染前按 `ctx.selection.warnings` 预置一段警告横幅,对任何报告都生效——不依赖报告树里有没有 RunOverview) | `src/report/report.ts` |
 | `--report` 装载(两宿主共用:存在性/默认导出判别、dev server 的 mtime cache-busting) | `src/report/load.ts` |
 | show 宿主接线(无条件调 `selectCurrentResults` 产出报告槽 Selection、attemptCommand 下钻、裸跑选内置 `CostPassRateComparison` 作报告槽) | `src/show/index.ts`(现刻水位选择器已上移到中性的 `src/results/select.ts`;`src/show/compose.ts` 只留 `--history` 时间轴口径 `evalHistory` / `experimentHistory`,详情/证据切面渲染在 `src/show/render.ts`,测试 `src/show/show.test.ts`) |

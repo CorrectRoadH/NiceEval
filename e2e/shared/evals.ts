@@ -358,16 +358,18 @@ const SKILL_PROMPT =
   "What Effect-TS conventions should I follow for defining a service with a Layer? " +
   "Check whether this repo has a skill or guide file about it before answering, and if you use one, say which file.";
 
-/** skill 正调:装了 skillName 后,安装痕迹(lock 文件)与行为痕迹(真的被用到)都在。 */
+/** skill 正调:装了 skillName 后,安装痕迹(安装 manifest)与行为痕迹(真的被用到)都在。 */
 export function skillUsed(p: AgentProfile) {
   if (!p.sandboxTools || !p.skillName) throw new Error("skillUsed eval requires profile.skillName");
   const skill = p.skillName;
   return defineEval({
     description: `skill 正调:装了 ${skill} 之后确实被用到(安装痕迹 + 行为特征,不赌单一措辞)`,
     async test(t) {
-      await t.group("安装痕迹:skills-lock.json 记录了这个 skill", async () => {
-        const lock = await t.sandbox.readFile("skills-lock.json").catch(() => "");
-        t.check(lock, includes(skill));
+      // 安装痕迹的事实源是 adapter 写的安装 manifest(沙箱内 __niceeval__/agent-setup.json,
+      // 同一份内容作为 attempt artifact 存成 agent-setup.json),不是某个 installer 的私有 lock 文件。
+      await t.group("安装痕迹:agent-setup.json 记录了这个 skill", async () => {
+        const manifest = await t.sandbox.readFile("__niceeval__/agent-setup.json").catch(() => "");
+        t.check(manifest, includes(skill));
       });
 
       const turn = await t.send(SKILL_PROMPT);
@@ -400,8 +402,11 @@ export function skillAbsent(p: AgentProfile) {
   return defineEval({
     description: "skill 反调:没装 skill 时,既没有安装痕迹也不会假装读过 skill 文件",
     async test(t) {
-      const lockExists = await t.sandbox.fileExists("skills-lock.json");
-      t.check(lockExists, equals(false));
+      // 基线组什么都没装 → adapter 不写 manifest(空 artifact 不落文件);即便将来基线挂了 MCP
+      // 而有了 manifest,skills 也必须是空的 —— 断言按「manifest 里有没有 skill」写,不按文件在不在写。
+      const manifest = await t.sandbox.readFile("__niceeval__/agent-setup.json").catch(() => "{}");
+      const installed = (JSON.parse(manifest).skills ?? []) as unknown[];
+      t.check(installed.length, equals(0));
 
       const turn = await t.send(SKILL_PROMPT);
       turn.expectOk();

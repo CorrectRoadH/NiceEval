@@ -14,6 +14,7 @@ import { selectTraceSpans, enrichTraceWithIO } from "../o11y/otlp/select.ts";
 import { mapGenericSpans } from "../o11y/otlp/mappers/index.ts";
 import { createEvalContext } from "../context/context.ts";
 import { createAgentSession } from "../context/session.ts";
+import { readAgentSetupManifest } from "../agents/manifest.ts";
 import { EvalRequirementFailed, EvalSkipped, TurnFailed } from "../context/control-flow.ts";
 import { computeVerdict } from "../scoring/verdict.ts";
 import { deriveRunFacts, buildO11ySummary } from "../o11y/derive.ts";
@@ -26,6 +27,7 @@ import type { CapturedEvalSource } from "./eval-source.ts";
 import type {
   AgentContext,
   AgentSetup,
+  AgentSetupManifest,
   AgentTeardown,
   Cleanup,
   Config,
@@ -256,6 +258,8 @@ async function runAttemptBody(
   };
   let agentCleanup: Cleanup | void = undefined;
   let agentDidSetup = false;
+  /** agent.setup 写进沙箱的安装清单(装了 Skill / plugin / MCP 的沙箱型 adapter 才有)。 */
+  let agentSetup: AgentSetupManifest | undefined;
   // EvalDef.setup() 返回的 cleanup 闭包;finally 里按 LIFO 跑(见下)。
   let evalCleanup: Cleanup | void = undefined;
   // SandboxSpec.setup() 返回的 cleanup 闭包,按调用顺序收集;finally 里 LIFO 跑(见下)。
@@ -288,6 +292,11 @@ async function runAttemptBody(
       agentDidSetup = true;
       agentCleanup = await run.agent.setup(sandbox, attemptCtx);
     }
+
+    // 安装 manifest:adapter 在 setup 收尾写进沙箱的固定路径,核心只把它抬成 attempt artifact
+    // (不解释内容、不按 agent 名字分支)。什么都没装的 adapter 不写这个文件 → undefined,
+    // 不生成空 artifact。读在 setup 之后:test 阶段抛错也留得住这份「这次装了什么」的证据。
+    if (usesSandbox && agentDidSetup) agentSetup = await readAgentSetupManifest(sandbox);
 
     // OTLP 导出配置(file-based,如 codex 的 config.toml [otel] 块):与 setup 分开,
     // 在主配置写完后追加。仅当 tracing 开 + 有 endpoint 时调一次(env-based 的不实现 configure)。
@@ -431,6 +440,7 @@ async function runAttemptBody(
       sources,
       o11y,
       trace,
+      agentSetup,
       diff,
     };
   } catch (e) {
@@ -438,6 +448,7 @@ async function runAttemptBody(
       ...base,
       durationMs: Date.now() - t0,
       error: formatThrown(e),
+      ...(agentSetup !== undefined ? { agentSetup } : {}),
     };
   } finally {
     // teardown / cleanup 一律在 finally 跑(失败也跑),不改判定,各自兜错(diagnostic)。

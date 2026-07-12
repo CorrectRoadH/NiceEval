@@ -19,7 +19,7 @@ import type { ArtifactKind, AttemptHandle, Selection, Snapshot, SnapshotMeta } f
 import { ARTIFACT_KINDS } from "./types.ts";
 
 export interface CopySnapshotsOptions {
-  /** 要带上的 artifact 种类;省略 = 全部五类。diff 可达百 MB,发布时常见地不带;o11y 只有几 KB,报告用 turns 这类 artifact 档指标(见 docs/reports.md「两档内置指标」)时记得带上。 */
+  /** 要带上的 artifact 种类;省略 = 全部六类。diff 可达百 MB,发布时常见地不带;o11y 只有几 KB,报告用 turns 这类 artifact 档指标(见 docs/reports.md「两档内置指标」)时记得带上。 */
   artifacts?: ArtifactKind[];
 }
 
@@ -225,6 +225,7 @@ function slimForCopy(r: EvalResult, copied: Set<ArtifactKind>): Record<string, u
     sources,
     o11y,
     trace,
+    agentSetup,
     diff,
     rawTranscript,
     artifactBase,
@@ -241,6 +242,7 @@ function slimForCopy(r: EvalResult, copied: Set<ArtifactKind>): Record<string, u
   void sources;
   void o11y;
   void trace;
+  void agentSetup;
   void diff;
   void rawTranscript;
   void artifactBase;

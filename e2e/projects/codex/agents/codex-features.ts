@@ -6,6 +6,6 @@ import { codexAgent } from "niceeval/adapter";
 export default codexAgent({
   apiKey: process.env.CODEX_API_KEY,
   baseUrl: process.env.CODEX_BASE_URL,
-  skills: ["Effect-TS/skills"],
+  skills: [{ kind: "repo", source: "Effect-TS/skills" }],
   mcpServers: [{ name: "e2e", command: "npx", args: ["-y", "@modelcontextprotocol/server-everything"] }],
 });
