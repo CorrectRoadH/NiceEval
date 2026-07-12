@@ -7,6 +7,8 @@ import { join, relative } from "node:path";
 import type { AssertionResult, DiffData, EvalResult, Verdict } from "../types.ts";
 import type { AttemptEvidence, AttemptEvidenceCapabilities, AttemptHandle, Selection, Snapshot } from "../results/index.ts";
 import type { AnnotatedSourceLine } from "../results/index.ts";
+import { groupIncompatibleVersionSkips } from "../results/index.ts";
+import type { SkippedDir } from "../results/index.ts";
 import type { ExecutionNode } from "../o11y/execution-tree.ts";
 import { foldEvalVerdict } from "../shared/verdict.ts";
 import { attemptCostUSD } from "../report/metrics.ts";
@@ -65,6 +67,33 @@ export function attemptArtifactsPath(attempt: AttemptHandle, cwd: string): strin
     : join(attempt.snapshot.dir, attempt.ref.attempt);
   const rel = relative(cwd, abs);
   return rel.startsWith("..") ? abs : rel;
+}
+
+/**
+ * 裸 `show` 零可读结果时,skipped 目录的展示文案。niceeval 自己写的、schemaVersion 不兼容的
+ * 落盘按 producer 版本分组,一条 `npx niceeval@<version> show --run <结果根>` 覆盖同版本全部
+ * 快照——show 没有 view 的单快照直读模式,`--run` 认的是结果根(其下可以有多个 experiment),
+ * 不是单个快照目录,所以不对每个目录重复拼一条各自的命令(那条命令用同一个 root 跑起来
+ * 结果完全一样,重复只会刷屏)。其余(第三方 harness、版本信息缺失、malformed、incomplete)
+ * 没有可执行的统一建议,原样逐条列出。
+ */
+export function skippedRunsText(skipped: readonly SkippedDir[], root: string, cwd: string): string {
+  const { groups, rest } = groupIncompatibleVersionSkips(skipped);
+  const rootDisplay = relative(cwd, root) || ".";
+  const lines: string[] = [];
+  for (const g of groups) {
+    const count = g.dirs.length;
+    const version = g.producer.version;
+    const schema = g.schemaVersion !== undefined ? ` (schemaVersion ${g.schemaVersion})` : "";
+    const cmd = `npx niceeval@${version} show --run ${rootDisplay}`;
+    lines.push(
+      `  ${count} snapshot${count === 1 ? "" : "s"} written by niceeval ${version}${schema} — run \`${cmd}\` to view`,
+    );
+  }
+  for (const s of rest) {
+    lines.push(`  skipped ${s.dir} (${s.reason})`);
+  }
+  return lines.join("\n");
 }
 
 // ───────────────────────── attempt 挑选 ─────────────────────────
@@ -377,8 +406,11 @@ function evalSourceLineText(line: AnnotatedSourceLine, gutterWidth: number, widt
   const glyph = line.assertions.length === 0 ? " " : anyFailed ? "✗" : "✓";
   const marginWidth = gutterWidth + 2; // 行号列 + glyph + 分隔空格
   const prefix = `${padDisplay(String(line.line), gutterWidth)}${glyph} `;
-  const wrapped = wrapDisplay(line.text, Math.max(20, width - marginWidth));
-  const out = wrapped.map((text, i) => (i === 0 ? prefix + text : " ".repeat(marginWidth) + text));
+  // 源码行的空白(尤其是缩进)是语义的一部分:wrapDisplay 按单词重排会把连续空格
+  // 吃成一个、把缩进整体丢掉(agent-feedback-loop.mdx 的示例明确保留 2/4/6 格嵌套缩进)。
+  // 过长的源码行只裁一刀(clip,与其它证据切面的截断口径一致),不按词折成多行——
+  // 折行只对续行加统一 margin,救不回已经被吃掉的原始缩进,不如老实截断。
+  const out = [prefix + clip(line.text, Math.max(20, width - marginWidth))];
   const margin = " ".repeat(marginWidth);
   for (const a of line.assertions) {
     const detail = evalAssertionDetailLine(a);

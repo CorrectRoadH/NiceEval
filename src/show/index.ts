@@ -22,8 +22,6 @@ import {
   ATTEMPT_LOCATOR_PREFIX,
   LocatorNotFoundError,
   MalformedLocatorError,
-  type AttemptRef,
-  type Results,
 } from "../results/index.ts";
 // report.ts / load.ts have no JSX of their own, but ReportDefinition / ReportLoadError must
 // come from the SAME module instance CostPassRateComparison (built-ins, .tsx) is built
@@ -54,6 +52,7 @@ import {
   executionText,
   experimentHistoryText,
   pickDetailAttempt,
+  skippedRunsText,
   verdictReasonLine,
 } from "./render.ts";
 
@@ -90,22 +89,6 @@ function clampWidth(columns: number | undefined): number {
 
 // --report 的装载移到中性模块(两个宿主共用),show 的导出面与错误行为不变。
 export { loadReportFile } from "../../dist/report/load.js";
-
-/** 报告里的下钻命令:AttemptRef → `niceeval show <eval id>`(查不到时退 view 深链)。 */
-function makeAttemptCommand(results: Results): (ref: AttemptRef) => string {
-  const byRef = new Map<string, string>();
-  for (const exp of results.experiments) {
-    for (const snapshot of exp.snapshots) {
-      for (const attempt of snapshot.attempts) {
-        byRef.set(`${attempt.ref.snapshot}/${attempt.ref.attempt}`, attempt.evalId);
-      }
-    }
-  }
-  return (ref) => {
-    const id = byRef.get(`${ref.snapshot}/${ref.attempt}`);
-    return id !== undefined ? `niceeval show ${id}` : `niceeval view "#/attempt/${ref.snapshot}/${ref.attempt}"`;
-  };
-}
 
 export async function runShow(
   cwd: string,
@@ -152,10 +135,7 @@ async function show(
 
   const results = await openResults(root);
   if (results.experiments.length === 0) {
-    const skipped =
-      results.skipped.length > 0
-        ? `\n${results.skipped.map((s) => `  skipped ${s.dir} (${s.reason})`).join("\n")}\n`
-        : "";
+    const skipped = results.skipped.length > 0 ? `\n${skippedRunsText(results.skipped, root, cwd)}\n` : "";
     throw new ShowError(t("cli.show.noResults", { root }) + skipped);
   }
 
@@ -303,10 +283,8 @@ async function show(
   // "en" | "zh-CN",直接传递。
   const definition =
     flags.report !== undefined ? await loadReportFile(cwd, flags.report) : CostPassRateComparison;
-  const text = await renderReportToText(
-    definition,
-    { selection, results },
-    { width: io.width, attemptCommand: makeAttemptCommand(results), locale: detectLocale() },
-  );
+  // attemptCommand 留给 renderReportToText 的默认值:AttemptLocator 已经是可直接 `niceeval show
+  // @<locator>` 的真实 CLI 语法,不需要再反查 eval id 拼一条近似命令(见 tree.ts 的默认实现)。
+  const text = await renderReportToText(definition, { selection, results }, { width: io.width, locale: detectLocale() });
   io.out(text + "\n");
 }

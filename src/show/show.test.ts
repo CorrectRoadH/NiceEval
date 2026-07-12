@@ -5,7 +5,7 @@
 // - --history 时间轴只列真实执行,resume 携带的复印件不占行;
 // - --report 装载(合法 / 非法默认导出 / 文件缺失)、位置前缀收窄注入 Selection、attemptCommand 下钻;
 // - 互斥:--history 与 --report;
-// - 单 eval 详情与 --transcript 证据切面的输出形态。
+// - 单 eval 详情、`@<locator>` 精确定位与 --eval / --execution / --diff 证据切面的输出形态。
 //
 // fixture 直接写新布局(<expDir>/<snapDir>/snapshot.json + <evalId>/a<n>/result.json),
 // 依据是 docs/results-format.md 的稳定磁盘契约,不经 writer 运行时 API(避免与并行重写的
@@ -146,23 +146,21 @@ async function seedComposedRoot(): Promise<string> {
 // ───────────────────────── 榜单合成口径 ─────────────────────────
 
 describe("榜单:跨快照合成的现刻水位(CostPassRateComparison 的 text 面)", () => {
-  it("局部重跑不撕榜单:另一题从更早快照补齐,成本×通过率散点 + Experiment 工作台 + 失败诊断", async () => {
+  it("局部重跑不撕榜单:另一题从更早快照补齐,成本×通过率散点 + 实验列表 + 失败诊断", async () => {
     const root = await seedComposedRoot();
     const { out, code } = await show(root, []);
     expect(code).toBe(0);
     // 成本×通过率散点:seedComposedRoot 无成本数据 → 0 可画点,显式空态,不画空图
     expect(out).toContain("No data to plot");
     expect(out).not.toContain("better → upper right");
-    // Experiment 工作台:experiment 行带 Agent 与 eval 级折叠计票列(1 题通过 1 题失败)
-    expect(out).toContain("compare/bub");
-    expect(out).toContain("Agent");
-    expect(out).toContain("Result");
+    // 实验列表:experiment 行带身份与 eval 级折叠计票(1 题通过 1 题失败)
+    expect(out).toContain("compare/bub · bub");
+    expect(out).toContain("Pass rate 50%");
     expect(out).toContain("1 passed / 1 failed");
-    expect(out).toContain("50%");
-    // 失败诊断:新判定的 fixtures/button,带失败断言与下钻命令
-    expect(out).toContain("✗ fixtures/button");
+    // 失败诊断:新判定的 fixtures/button,带 locator 徽标与失败原因,展开到 Eval 一行
+    // (fixture 没声明 hasEvents/hasSources/hasTrace,证据能力方括号如实为空,不硬凑)。
+    expect(out).toMatch(/✗ fixtures\/button\s+@1[0-9a-z]{7}✗/);
     expect(out).toContain('fileChanged("src/components/Button.tsx"): file was not modified');
-    expect(out).toContain("→ niceeval show fixtures/button");
     expect(out).not.toContain("✗ weather/brooklyn");
     // 只有两个直接业务组件:没有 RunOverview / 组分 Section
     expect(out).not.toContain("Current verdicts");
@@ -175,7 +173,7 @@ describe("榜单:跨快照合成的现刻水位(CostPassRateComparison 的 text 
       const { out, code } = await show(root, []);
       expect(code).toBe(0);
       expect(out).toContain("没有可绘制的数据"); // 散点空态 zh chrome
-      expect(out).toContain("1 通过 / 1 失败"); // ExperimentTable verdict 词按 locale
+      expect(out).toContain("1 通过 / 1 失败"); // ExperimentList verdict 词按 locale
       // 数据本身不分语言:experiment id / eval id 原样。
       expect(out).toContain("compare/bub");
     } finally {
@@ -367,7 +365,7 @@ describe("--report 装载", () => {
         "const Custom = () => null;",
         "Custom[FACES] = {",
         "  web: () => null,",
-        "  text: (props, ctx) => `CUSTOM ${props.evals} · drill ${ctx.attemptCommand(props.ref)}`,",
+        "  text: (props, ctx) => `CUSTOM ${props.evals} · drill ${ctx.attemptCommand(props.locator)}`,",
         "};",
         "export default {",
         '  [Symbol.for("niceeval.report.definition")]: true,',
@@ -375,7 +373,7 @@ describe("--report 装载", () => {
         "    type: Custom,",
         "    props: {",
         "      evals: ctx.selection.snapshots.flatMap((s) => s.evals.map((e) => e.id)).sort().join(\",\"),",
-        "      ref: ctx.selection.snapshots[0].evals[0].attempts[0].ref,",
+        "      locator: ctx.selection.snapshots[0].evals[0].attempts[0].locator,",
         "    },",
         "  }),",
         "};",
@@ -551,7 +549,8 @@ describe("--eval", () => {
     const { out, code } = await show(root, ["weather/brooklyn"], { eval: true });
     expect(code).toBe(0);
     expect(out).toContain(`eval source: evals/weather/brooklyn.eval.ts · sha256:${sha.slice(0, 8)}`);
-    expect(out).toMatch(/2✗ turn\.calledTool\("get_weather"\);/);
+    // 源码行的缩进是语义的一部分,渲染必须原样保留(不按词重排折叠掉这两个空格)。
+    expect(out).toMatch(/2✗ {3}turn\.calledTool\("get_weather"\);/);
     expect(out).toContain("gate · tool was never called");
     expect(out).toContain("unmapped assertions (1, no source location):");
     expect(out).toContain("unlocated()");

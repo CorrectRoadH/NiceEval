@@ -7,7 +7,41 @@
 // 布局知识(路径、清洗、拆分、版本)全宇宙只有这一份实现;
 // src/runner/reporters/artifacts.ts 是写入面的薄壳,view 的读取经 openResults 消费。
 
-export { openResults, experimentOfSnapshot } from "./open.ts";
+export {
+  openResults,
+  experimentOfSnapshot,
+  resolveLocator,
+  LocatorNotFoundError,
+  MalformedLocatorError,
+} from "./open.ts";
+export {
+  ATTEMPT_LOCATOR_PREFIX,
+  buildLocatorIndex,
+  decodeAttemptLocator,
+  encodeAttemptLocator,
+  resolveAttemptLocator,
+  LocatorCollisionError,
+  type AttemptIdentity,
+  type AttemptLocator,
+  type LocatorAttempt,
+  type LocatorDecodeResult,
+  type LocatorResolution,
+} from "./locator.ts";
+export {
+  buildAnnotatedEvalSource,
+  type AnnotatedEvalSource,
+  type AnnotatedEvalSourceSummary,
+  type AnnotatedSourceLine,
+} from "./annotated-source.ts";
+export { loadAnnotatedEvalSource } from "./attempt-source.ts";
+export {
+  loadAttemptEvidence,
+  type AttemptEvidence,
+  type AttemptEvidenceCapabilities,
+  type EvidencePaths,
+} from "./attempt-evidence.ts";
+export { hashEvalSource, normalizeEvalSource } from "./source-hash.ts";
+export { groupIncompatibleVersionSkips, type SkippedVersionGroup } from "./skipped-notice.ts";
 export { dedupeAttempts, isNewerSnapshot } from "./select.ts";
 export { copySnapshots, type CopySnapshotsOptions, type CopySnapshotsResult } from "./copy.ts";
 export {
