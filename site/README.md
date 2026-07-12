@@ -2,9 +2,14 @@
 
 `site/` 是 NiceEval Landing Page。修改页面前先按当前项目依赖理解框架，不使用训练记忆中的 Next.js 约定替代本仓库版本。
 
-## Next.js 规则
+## Site
 
-本项目使用的 Next.js 版本包含破坏性变化，API、约定和文件结构可能不同。动手前读取 `node_modules/next/dist/docs/` 中与任务相关的文档，再沿现有代码组织实现。
+如果开发 Landing Page 用的是 NextJS
+<!-- BEGIN:nextjs-agent-rules -->
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may differ from your training data. Read the docs in `node_modules/next/dist/docs/` before coding.
+<!-- END:nextjs-agent-rules -->
 
 ## 验证
 
