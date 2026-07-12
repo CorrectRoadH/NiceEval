@@ -40,6 +40,24 @@ function normalizeToolName(name: string): ToolName {
   return normalizeShared(name, CLAUDE_TOOL_ALIASES);
 }
 
+// ───────────────────────── Skill 加载识别 ─────────────────────────
+
+/**
+ * Claude Code 原生调用 Skill 时,tool_use 块的 name 恒为 "Skill"(核对过 Claude Code CLI
+ * 自带的 SkillTool 定义:`buildTool({ name: SKILL_TOOL_NAME, ... })`,`SKILL_TOOL_NAME = "Skill"`,
+ * 严格大小写;这里放宽成大小写不敏感比较,只是防御性兜底,不代表原生真的会变大小写),
+ * input 的 schema 是 `z.object({ skill: z.string(), args: z.string().optional() })`——
+ * skill 名在 `input.skill`(不是 `command`),可能是限定名如 "ms-office-suite:pdf"。
+ */
+const SKILL_TOOL_NAME = "skill";
+
+/** name 是 Skill 工具、且 input.skill 是非空字符串时返回 skill 名;否则 undefined(交给调用方走普通 action.called)。 */
+function extractSkillName(name: string, input: JsonValue): string | undefined {
+  if (name.toLowerCase() !== SKILL_TOOL_NAME) return undefined;
+  const skill = get(input, "skill");
+  return typeof skill === "string" && skill ? skill : undefined;
+}
+
 // ───────────────────────── 小工具 ─────────────────────────
 
 function get(obj: unknown, key: string): unknown {
@@ -130,6 +148,10 @@ export function parseClaudeCodeTranscript(raw: string | undefined): ParsedTransc
   let requests = 0;
   let compactions = 0;
   let parseSuccess = true;
+  // 已识别成 skill.loaded 的 tool_use callId:对应的 tool_result 回来时要吃掉、
+  // 不再补发一条 action.result(否则会凭空多出一个没有 action.called 配对的孤儿事件,
+  // ExecutionTree 会把它当成占位工具调用节点,而 Skill 加载已经由 skill.loaded 表达过了)。
+  const skillCallIds = new Set<string>();
 
   if (!raw || !raw.trim()) {
     return { events, usage: { inputTokens: 0, outputTokens: 0 }, compactions: 0, parseSuccess: true };
@@ -175,6 +197,7 @@ export function parseClaudeCodeTranscript(raw: string | undefined): ParsedTransc
         if (toolResults.length > 0) {
           for (const r of toolResults) {
             const callId = String(get(r, "tool_use_id") ?? get(r, "id") ?? "unknown");
+            if (skillCallIds.has(callId)) continue; // Skill 加载的结果已经由 skill.loaded 表达过,不重复计入。
             const isError = get(r, "is_error") === true || !!get(r, "error");
             events.push({
               type: "action.result",
@@ -203,6 +226,14 @@ export function parseClaudeCodeTranscript(raw: string | undefined): ParsedTransc
             const name = String(get(b, "name") ?? "unknown");
             const callId = String(get(b, "id") ?? "unknown");
             const input = (get(b, "input") ?? {}) as JsonValue;
+
+            const skill = extractSkillName(name, input);
+            if (skill !== undefined) {
+              events.push({ type: "skill.loaded", skill, callId });
+              skillCallIds.add(callId);
+              continue;
+            }
+
             events.push({
               type: "action.called",
               callId,
@@ -214,6 +245,7 @@ export function parseClaudeCodeTranscript(raw: string | undefined): ParsedTransc
         }
       } else if (type === "tool_result" || type === "tool_response") {
         const callId = String(get(data, "tool_use_id") ?? get(data, "id") ?? "unknown");
+        if (skillCallIds.has(callId)) continue; // 同上:Skill 加载的结果不重复计入 action.result。
         const isError = get(data, "is_error") === true || !!get(data, "error");
         events.push({
           type: "action.result",

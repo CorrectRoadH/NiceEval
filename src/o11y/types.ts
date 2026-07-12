@@ -69,6 +69,11 @@ export type StreamEvent =
       output?: JsonValue;
       status: "completed" | "failed" | "rejected";
     }
+  /**
+   * 一次 Skill 加载:一等事件,由 adapter 从原生协议里识别出「这是加载 Skill」并直接产出,
+   * 不靠 renderer 按工具名/文本猜。`callId` 仅当原生协议把 Skill 加载表达成可关联的工具调用时才有。
+   */
+  | { type: "skill.loaded"; skill: string; callId?: string }
   /** 发起一次子 agent 调用(如 Task 工具、远程 sub-agent);`remoteUrl` 仅远程子 agent 有。 */
   | { type: "subagent.called"; callId: string; name: string; remoteUrl?: string }
   /** 一次子 agent 调用的结果,按 `callId` 与对应的 `subagent.called` 对位。 */

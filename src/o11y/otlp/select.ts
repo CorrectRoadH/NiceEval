@@ -48,10 +48,14 @@ export function selectTraceSpans(spans: TraceSpan[]): TraceSpan[] {
   return kept.sort((a, b) => a.startMs - b.startMs);
 }
 
-/** I/O 文本上限:文件内容/命令输出可能很大,截一下别把 trace 撑爆。 */
-const IO_MAX = 4000;
+/**
+ * I/O 文本上限:文件内容/命令输出可能很大,截一下别把 trace 撑爆。导出给
+ * `execution-tree.ts` 复用——ExecutionTree 的 action 节点给合并上去的 span 补同一份
+ * io.* attributes,必须和这里同一个截断预算,不能另立一个数字。
+ */
+export const IO_MAX = 4000;
 
-function ioText(v: unknown): string {
+export function ioText(v: unknown): string {
   const s = typeof v === "string" ? v : JSON.stringify(v);
   if (s === undefined) return "";
   return s.length > IO_MAX ? s.slice(0, IO_MAX) + `…(+${s.length - IO_MAX})` : s;
