@@ -30,7 +30,11 @@ import {
   IncompatibleResultsError,
   ViewInputError,
 } from "./view/index.ts";
-import { ReportLoadError } from "./report/load.ts";
+// load.ts 本身没有 JSX,但它的 ReportDefinition/ReportLoadError 要和 view 报告槽实际装载
+// --report 用的那份(dist/report/**,见 tsconfig.report-build.json)是同一个模块实例——
+// `unique symbol` 品牌与 class 的 instanceof 都按声明处的模块身份判定,raw src 和编译产物
+// 是两份不同源码位置,即使运行时同名同形,TS 类型与 instanceof 都不认。
+import { ReportLoadError } from "../dist/report/load.js";
 import { runShow } from "./show/index.ts";
 import { t } from "./i18n/index.ts";
 import { formatThrown, upsertManagedBlock } from "./util.ts";
@@ -68,15 +72,14 @@ interface Flags {
   port?: number;
   help: boolean;
   version: boolean;
-  // ── show 专属(位置参数仍是 eval id 前缀;这些 flag 选「怎么看」)──
-  transcript: boolean;
-  trace: boolean;
+  // ── show 专属(位置参数仍是 eval id 前缀 / `@<locator>`;这些 flag 选「怎么看」)──
+  eval: boolean;
+  execution: boolean;
   diff: boolean;
   /** --diff=<路径>(必须 = 连写;空格形式会把路径当 eval id 前缀,按文档如此)。 */
   diffPath?: string;
   history: boolean;
   experiment?: string;
-  attempt?: number;
   run?: string;
   report?: string;
 }
@@ -111,10 +114,12 @@ const FLAG_OPTIONS = {
   /** `view` 命令专用:指定本地服务器监听端口。 */
   port: { type: "string" },
   // show 的证据切面 / 时间轴 / 报告装载(docs-site/zh/guides/viewing-results.mdx)。
-  /** `show` 命令专用:渲染单个 eval 的完整对话与工具调用(证据切面)。 */
-  transcript: { type: "boolean" },
-  /** `show` 命令专用:渲染单个 eval 的 trace 瀑布文本版(证据切面)。 */
-  trace: { type: "boolean" },
+  // 证据切面只认 `@<locator>`(或收窄到单个 eval 的前缀)选出的那一个 attempt——不再有
+  // 数字 `--attempt`,选哪个 attempt 由 locator 精确指名,不是「先选 eval 再挑第几次」。
+  /** `show` 命令专用:该 attempt 运行时保存的 Eval 源码,gate/soft 断言标回源码行(证据切面)。 */
+  eval: { type: "boolean" },
+  /** `show` 命令专用:该 attempt 的标准执行事件流(消息、thinking、Skill load、工具调用/结果);有 OTel 时同一节点补时间(证据切面)。 */
+  execution: { type: "boolean" },
   // --diff 是布尔;--diff=<路径> 在 parseArgs 前预扫成 diffPath(路径必须 = 连写,
   // 空格形式的下一个 token 仍是位置参数 = eval id 前缀,与文档一致)。
   /** `show` 命令专用:sandbox 里的文件改动摘要;`--diff=<文件路径>` 看单个文件的完整改动(路径必须 `=` 连写)。 */
@@ -123,8 +128,6 @@ const FLAG_OPTIONS = {
   history: { type: "boolean" },
   /** `show` / `view` 命令专用:Selection 只留该实验。 */
   experiment: { type: "string" },
-  /** `show` 命令专用:指定详情 / 证据切面看第几次 attempt(与展示一致的 1 计序号)。 */
-  attempt: { type: "string" },
   /** `show` / `view` 命令专用:钉死看某一个结果目录(某次快照或 `copySnapshots` 产物)。 */
   run: { type: "string" },
   /** `show` / `view` 命令专用:用你的报告文件替换默认报告(文件默认导出 `defineReport(...)`)。 */
@@ -213,13 +216,12 @@ function parseArgs(argv: string[]): { command: string; positionals: string[]; fl
     open: values["no-open"] === true ? false : values.open === true ? true : undefined,
     help: values.help === true,
     version: values.version === true,
-    transcript: values.transcript === true,
-    trace: values.trace === true,
+    eval: values.eval === true,
+    execution: values.execution === true,
     diff: values.diff === true && diffPath === undefined,
     diffPath,
     history: values.history === true,
     experiment: values.experiment as string | undefined,
-    attempt: numberFlag("attempt", values.attempt as string | undefined),
     run: values.run as string | undefined,
     report: values.report as string | undefined,
   };
@@ -279,9 +281,10 @@ const AGENT_RULES_CONTENT = [
   "`node_modules/niceeval/INDEX.md`, then read the task-specific bundled guides it points",
   "to before writing any eval, experiment, adapter, or niceeval config. That index and",
   "the bundled Chinese docs are the authoritative version matching this installation.",
-  "After a run, drill into failures with `niceeval show <eval id>` (add `--transcript` /",
-  "`--trace` / `--diff` for evidence); the snapshot directories the CLI prints are the",
-  "structured source of truth: `snapshot.json` holds the run's metadata and each",
+  "After a run, drill into failures with `niceeval show` — pick an `@<locator>` from the",
+  "compact index it prints, then `niceeval show @<locator>` for a compact overview, or add",
+  "`--eval` / `--execution` / `--diff` for evidence; the snapshot directories the CLI prints",
+  "are the structured source of truth: `snapshot.json` holds the run's metadata and each",
   "`<evalId>/a<attempt>/result.json` holds that attempt's verdict and assertions, next to",
   "its artifact files (`events.json` / `trace.json` / `diff.json`).",
 ].join("\n");
@@ -410,13 +413,12 @@ async function main(): Promise<void> {
   if (command === "show") {
     // show 不依赖 niceeval.config.ts:读的是 .niceeval/(或 --run 指定的某个快照目录)的落盘结果。
     const code = await runShow(cwd, positionals, {
-      transcript: flags.transcript,
-      trace: flags.trace,
+      eval: flags.eval,
+      execution: flags.execution,
       diff: flags.diff,
       diffPath: flags.diffPath,
       history: flags.history,
       experiment: flags.experiment,
-      attempt: flags.attempt,
       run: flags.run,
       report: flags.report,
     });

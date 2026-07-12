@@ -1,49 +1,73 @@
 // niceeval show —— 终端宿主(行为规范:docs-site/zh/guides/viewing-results.mdx;
 // 宿主组合语义:docs/reports.md「宿主输入的组合语义」)。
 //
-// 位置参数 = eval id 前缀(选「看哪些 eval」),flag 选「看哪个切面」:
+// 位置参数 = eval id 前缀,或 `@<locator>`(精确指名单个 attempt,见 results/locator.ts):
 //   裸跑 / 前缀       报告槽 —— 内置默认报告的 text 面(show ≡ show --report <内置默认报告>)
 //   恰好一个 eval     单 eval 详情(attempt / 断言明细,宿主本体)
-//   --transcript / --trace / --diff[=路径]   证据切面(宿主本体):出现即走证据室,不渲染报告槽
+//   @<locator>        精确 attempt:无证据 flag → 紧凑全景;带 flag → 对应证据切面
+//   --eval / --execution / --diff[=路径]   证据切面(宿主本体):出现即走证据室,不渲染报告槽
 //   --history        跨 run 时间轴(内置趋势视图),与 --report 互斥
 //   --report <文件>  整槽换成用户报告;位置前缀 / --run / --experiment 先收窄 Selection 再注入
-//   --run <目录>     结果根换成该目录;--experiment Selection 只留该实验;--attempt 指定详情/证据的 attempt
+//   --run <目录>     结果根换成该目录;--experiment Selection 只留该实验
 //
-// 数据全部走 niceeval/results 的读取面(openResults + 合成 Selection),不自己爬目录。
+// 数据全部走 niceeval/results 的读取面(openResults + 合成 Selection + loadAttemptEvidence),
+// 不自己爬目录、不自己重算证据 capability。
 
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { openResults, type AttemptRef, type Results } from "../results/index.ts";
-import { renderReportToText } from "../report/report.ts";
-import { ReportLoadError, loadReportFile } from "../report/load.ts";
-import { CostPassRateComparison } from "../report/built-ins/index.ts";
+import {
+  openResults,
+  resolveLocator,
+  loadAttemptEvidence,
+  ATTEMPT_LOCATOR_PREFIX,
+  LocatorNotFoundError,
+  MalformedLocatorError,
+  type AttemptRef,
+  type Results,
+} from "../results/index.ts";
+// report.ts / load.ts have no JSX of their own, but ReportDefinition / ReportLoadError must
+// come from the SAME module instance CostPassRateComparison (built-ins, .tsx) is built
+// against — `unique symbol` branding and `instanceof` are keyed by declaration site, so a raw
+// src copy and the compiled dist copy of "the same" ReportDefinition are, to TypeScript and to
+// `instanceof`, two different types. The package-owned report runtime ships as precompiled
+// ESM (dist/report/**, built by `pnpm run build:report`, immune to a consumer's cwd/tsconfig
+// when niceeval is linked in — see tsconfig.report-build.json); show pulls all of it from
+// there, not just the .tsx-touching pieces.
+import { renderReportToText } from "../../dist/report/report.js";
+import { ReportLoadError, loadReportFile } from "../../dist/report/load.js";
+import { CostPassRateComparison } from "../../dist/report/built-ins/index.js";
 import { detectLocale, t } from "../i18n/index.ts";
+import { foldEvalVerdict } from "../shared/verdict.ts";
 import { selectCurrentResults, filterExperiments } from "../results/select.ts";
 import { evalHistory, experimentHistory } from "./compose.ts";
 import {
   attemptArtifactsPath,
+  attemptEvidenceHeader,
+  attemptIndexLine,
+  attemptOverviewText,
   attemptsOfEval,
+  cheapCapabilities,
   diffText,
-  displayAttemptNumber,
   evalDetailText,
   evalHistoryText,
+  evalSourceText,
+  executionText,
   experimentHistoryText,
   pickDetailAttempt,
-  traceText,
-  transcriptText,
+  verdictReasonLine,
 } from "./render.ts";
 
 export interface ShowFlags {
-  transcript?: boolean;
-  trace?: boolean;
+  /** 该 attempt 运行时保存的 Eval 源码,断言标回源码行(证据切面)。 */
+  eval?: boolean;
+  /** 该 attempt 的标准执行事件流 + OTel enrichment(证据切面)。 */
+  execution?: boolean;
   /** --diff(文件级摘要)。 */
   diff?: boolean;
   /** --diff=<路径>(单个文件的完整改动;路径必须 = 连写,位置参数永远留给 eval id 前缀)。 */
   diffPath?: string;
   history?: boolean;
   experiment?: string;
-  /** 人看的 1 计序号(详情块显示的 attempt 3 就传 3)。 */
-  attempt?: number;
   run?: string;
   report?: string;
 }
@@ -65,7 +89,7 @@ function clampWidth(columns: number | undefined): number {
 }
 
 // --report 的装载移到中性模块(两个宿主共用),show 的导出面与错误行为不变。
-export { loadReportFile } from "../report/load.ts";
+export { loadReportFile } from "../../dist/report/load.js";
 
 /** 报告里的下钻命令:AttemptRef → `niceeval show <eval id>`(查不到时退 view 深链)。 */
 function makeAttemptCommand(results: Results): (ref: AttemptRef) => string {
@@ -114,7 +138,7 @@ async function show(
   flags: ShowFlags,
   io: { out: (s: string) => void; err: (s: string) => void; width: number; now: number },
 ): Promise<void> {
-  const evidence = flags.transcript === true || flags.trace === true || flags.diff === true || flags.diffPath !== undefined;
+  const evidence = flags.eval === true || flags.execution === true || flags.diff === true || flags.diffPath !== undefined;
 
   // 组合语义矩阵(docs/reports.md):--history 与 --report 互斥,先于任何 IO 报出来。
   if (flags.history && flags.report !== undefined) {
@@ -133,6 +157,43 @@ async function show(
         ? `\n${results.skipped.map((s) => `  skipped ${s.dir} (${s.reason})`).join("\n")}\n`
         : "";
     throw new ShowError(t("cli.show.noResults", { root }) + skipped);
+  }
+
+  // `@<locator>` 位置参数:身份直达单个 attempt,与 eval id 前缀匹配完全不同的语义
+  // (`@` 打头对 eval id 天然无歧义,见 locator.ts),必须在下面的前缀匹配逻辑之前分流掉,
+  // 不然 "@1x7f3q" 会被当成一个谁都匹配不到的 eval id 前缀,报「no eval match」这种文不对题的
+  // 错误。这一步只解析并渲染出「当前 show 对单个已解析 attempt 能渲染的东西」(单 eval 详情 /
+  // 三个证据切面)——真正的 `--eval`/`--execution`/`--diff` 统一 attempt 全景是后续阶段。
+  const locatorArg = patterns.find((p) => p.startsWith(ATTEMPT_LOCATOR_PREFIX));
+  if (locatorArg !== undefined) {
+    if (patterns.length !== 1) {
+      throw new ShowError(
+        `An attempt locator ("${locatorArg}") must be the only positional argument; got ${patterns.length}: ${patterns.join(", ")}.`,
+      );
+    }
+    let attempt;
+    try {
+      attempt = resolveLocator(results, locatorArg);
+    } catch (e) {
+      if (e instanceof MalformedLocatorError) throw new ShowError(t("cli.show.locatorMalformed", { message: e.message }));
+      if (e instanceof LocatorNotFoundError) throw new ShowError(t("cli.show.locatorNotFound", { message: e.message }));
+      throw e;
+    }
+    const attemptEvidence = await loadAttemptEvidence(attempt);
+    const header = attemptEvidenceHeader(attemptEvidence);
+    const artifactPath = attemptArtifactsPath(attempt, cwd);
+    if (evidence) {
+      const blocks: string[] = [];
+      if (flags.eval) blocks.push(evalSourceText(attemptEvidence, { header, artifactPath, width: io.width }));
+      if (flags.execution) blocks.push(executionText(attemptEvidence, { header, artifactPath, width: io.width }));
+      if (flags.diff || flags.diffPath !== undefined) {
+        blocks.push(diffText({ header, diff: attemptEvidence.diff, artifactPath, file: flags.diffPath }));
+      }
+      io.out(blocks.join("\n\n") + "\n");
+      return;
+    }
+    io.out(attemptOverviewText(attemptEvidence, { header, artifactPath, width: io.width }) + "\n");
+    return;
   }
 
   if (flags.experiment !== undefined && filterExperiments(results.experiments, flags.experiment).length === 0) {
@@ -161,31 +222,36 @@ async function show(
   // 证据切面是宿主本体:出现即走证据室,不渲染报告槽(与默认报告同规则)。
   if (evidence) {
     if (matchedEvalIds.length !== 1) {
-      throw new ShowError(t("cli.show.evidenceNeedsEval", { matched: matchedEvalIds.length }));
+      // 撞多个 eval 时不止说「有几个」,直接给紧凑索引(locator + capability 字母 + 失败原因)
+      // 让 agent 一步摘到 `@<locator>`,不必再跑一轮 `show <eval id>` 才知道选谁。
+      const index = matchedEvalIds
+        .map((evalId) => {
+          const attempts = attemptsOfEval(selection.snapshots, evalId);
+          const rep = pickDetailAttempt(attempts);
+          const verdict = foldEvalVerdict(attempts.map((a) => a.result));
+          return attemptIndexLine({
+            evalId,
+            verdict,
+            locator: rep?.locator,
+            capabilities: rep ? cheapCapabilities(rep.result) : { eval: false, execution: false, timing: false, diff: false },
+            reason: rep ? verdictReasonLine(rep.result) : undefined,
+          });
+        })
+        .join("\n");
+      throw new ShowError(t("cli.show.evidenceNeedsEval", { matched: matchedEvalIds.length, index }));
     }
     const evalId = matchedEvalIds[0];
     const attempts = attemptsOfEval(selection.snapshots, evalId);
-    const picked = pickDetailAttempt(attempts, flags.attempt);
-    if (!picked) {
-      throw new ShowError(
-        t("cli.show.attemptNotFound", {
-          attempt: flags.attempt ?? "?",
-          evalId,
-          available: attempts.map((a) => displayAttemptNumber(a)).join(", ") || "(none)",
-        }),
-      );
-    }
-    const header = `attempt ${displayAttemptNumber(picked)} · ${picked.experimentId} · ${picked.result.verdict}`;
+    const picked = pickDetailAttempt(attempts);
+    if (!picked) throw new Error(`internal error: eval "${evalId}" matched by selection but has no attempts`);
+    const attemptEvidence = await loadAttemptEvidence(picked);
+    const header = attemptEvidenceHeader(attemptEvidence);
     const artifactPath = attemptArtifactsPath(picked, cwd);
     const blocks: string[] = [];
-    if (flags.transcript) {
-      blocks.push(transcriptText({ header, events: await picked.events(), artifactPath, width: io.width }));
-    }
-    if (flags.trace) {
-      blocks.push(traceText({ header, spans: await picked.trace(), artifactPath, width: io.width }));
-    }
+    if (flags.eval) blocks.push(evalSourceText(attemptEvidence, { header, artifactPath, width: io.width }));
+    if (flags.execution) blocks.push(executionText(attemptEvidence, { header, artifactPath, width: io.width }));
     if (flags.diff || flags.diffPath !== undefined) {
-      blocks.push(diffText({ header, diff: await picked.diff(), artifactPath, file: flags.diffPath }));
+      blocks.push(diffText({ header, diff: attemptEvidence.diff, artifactPath, file: flags.diffPath }));
     }
     io.out(blocks.join("\n\n") + "\n");
     return;
@@ -212,19 +278,12 @@ async function show(
   }
 
   // 单 eval 详情(宿主本体);--report 在场时报告槽优先,前缀只用来收窄 Selection。
+  // 挑哪个 attempt 展开明细不再收数字 --attempt——pickDetailAttempt 的默认启发式
+  // (最新一次失败,没有失败挑最新一次)是唯一路径;精确选某一次走 `@<locator>`。
   if (flags.report === undefined && patterns.length > 0 && matchedEvalIds.length === 1) {
     const evalId = matchedEvalIds[0];
     const attempts = attemptsOfEval(selection.snapshots, evalId);
-    const detail = pickDetailAttempt(attempts, flags.attempt);
-    if (flags.attempt !== undefined && !detail) {
-      throw new ShowError(
-        t("cli.show.attemptNotFound", {
-          attempt: flags.attempt,
-          evalId,
-          available: attempts.map((a) => displayAttemptNumber(a)).join(", ") || "(none)",
-        }),
-      );
-    }
+    const detail = pickDetailAttempt(attempts);
     io.out(
       evalDetailText({
         evalId,
@@ -236,11 +295,6 @@ async function show(
       }) + "\n",
     );
     return;
-  }
-
-  if (flags.attempt !== undefined) {
-    // --attempt 只对单 eval 的详情/证据生效;报告槽/榜单下无从对位。
-    throw new ShowError(t("cli.show.attemptNeedsEval"));
   }
 
   // 报告槽:--report 整槽替换,否则内置默认报告 CostPassRateComparison(同一条渲染路径)。

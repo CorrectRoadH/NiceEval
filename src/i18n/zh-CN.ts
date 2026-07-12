@@ -40,13 +40,18 @@ export const zhCN = {
     "niceeval — agent-native evals\n\n" +
     "用法:\n" +
     "  niceeval exp [组|实验] [eval-id 前缀…]   跑实验\n" +
-    "  niceeval show [eval-id 前缀…]            终端读结果\n" +
-    "      裸跑:每个 experiment 的现刻判定(跨 run 合成)\n" +
+    "  niceeval show [eval-id 前缀… | @<locator>]   终端读结果\n" +
+    "      裸跑:每个 experiment 的现刻判定(跨 run 合成),每行带紧凑 attempt 索引\n" +
+    "        (locator + 证据 capability 字母 [E,X,⏱,D] + 失败原因)\n" +
     "      单个 eval id:attempt 与断言明细\n" +
-    "      --transcript / --trace / --diff[=文件]   单 eval 的证据切面\n" +
+    "      @<locator>  精确一个 attempt:无 flag → 紧凑全景;带 flag → 对应证据切面\n" +
+    "      --eval        该 attempt 运行时保存的 Eval 源码,断言标回源码行\n" +
+    "      --execution   该 attempt 的执行事件流(消息/thinking/Skill/工具调用),\n" +
+    "        有 OTel 时同一节点补时间\n" +
+    "      --diff[=文件] sandbox 工作区文件改动摘要;=文件 展开单个文件\n" +
     "      --history   跨 run 时间轴(与 --report 互斥)\n" +
     "      --run <目录> 钉死结果目录   --experiment <id> 只看该实验\n" +
-    "      --attempt <n> 指定 attempt   --report <文件> 自定义报告\n" +
+    "      --report <文件> 自定义报告\n" +
     "  niceeval list                            列出发现到的 eval\n" +
     "  niceeval view [eval-id 前缀…|snapshot.json] [--out 目录] [--port n] [--no-open]\n" +
     "      报告槽 + 证据室;--report <文件> 整槽换成自定义报告(与 show 同一文件)\n" +
@@ -69,10 +74,9 @@ export const zhCN = {
   "cli.show.historyReportConflict":
     "`--history` and `--report` are mutually exclusive: --history is the built-in trend view. For a custom trend, compose exp.snapshots inside your report file instead.\n",
   "cli.show.evidenceNeedsEval":
-    "--transcript / --trace / --diff show one eval's evidence, but the selection matched {{matched}} evals. Narrow to a single eval id first: niceeval show <eval id> --transcript\n",
-  "cli.show.attemptNeedsEval":
-    "--attempt picks one attempt of a single eval; pass a full eval id (and --experiment when several experiments ran it).\n",
-  "cli.show.attemptNotFound": "Attempt {{attempt}} not found for {{evalId}}. Available attempts: {{available}}\n",
+    "--eval / --execution / --diff show one attempt's evidence, but the selection matched {{matched}} evals. Pick an attempt locator from the index below:\n{{index}}\n",
+  "cli.show.locatorMalformed": "{{message}}\n",
+  "cli.show.locatorNotFound": "{{message}}\n",
   "cli.eval.noMatch": "没有匹配的 eval:{{patterns}}。\n",
   "cli.eval.noMatchHintExperiment": "提示:\"{{pattern}}\" 是实验{{kind}},你大概想跑:niceeval exp {{pattern}}\n",
   "cli.eval.noMatchKnown": "已发现 {{count}} 个 eval:{{evals}}\n",

@@ -42,13 +42,21 @@ export const en = {
     "niceeval — agent-native evals\n\n" +
     "Usage:\n" +
     "  niceeval exp [group|experiment] [eval-id-prefix…]   run experiments\n" +
-    "  niceeval show [eval-id-prefix…]                     read results in the terminal\n" +
-    "      bare: current verdicts per experiment (composed across runs);\n" +
+    "  niceeval show [eval-id-prefix… | @<locator>]        read results in the terminal\n" +
+    "      bare: current verdicts per experiment (composed across runs), each row\n" +
+    "        with a compact attempt index (locator + evidence capability letters\n" +
+    "        [E,X,⏱,D] + failure reason)\n" +
     "      a single eval id: attempts + assertion details\n" +
-    "      --transcript / --trace / --diff[=file]   evidence slices of one eval\n" +
+    "      @<locator>  exactly one attempt: no flag -> compact overview;\n" +
+    "        with a flag -> that evidence slice\n" +
+    "      --eval        the Eval source captured when this attempt ran,\n" +
+    "        assertions mapped back to source lines\n" +
+    "      --execution   this attempt's execution event stream (messages/thinking/\n" +
+    "        Skill loads/tool calls); OTel adds timing to the same node when present\n" +
+    "      --diff[=file] sandbox workspace file-change summary; =file expands one file\n" +
     "      --history   cross-run timeline (mutually exclusive with --report)\n" +
     "      --run <dir>   pin a results dir    --experiment <id>   one experiment\n" +
-    "      --attempt <n>   pick an attempt    --report <file>   custom report\n" +
+    "      --report <file>   custom report\n" +
     "  niceeval list                                       list discovered evals\n" +
     "  niceeval view [eval-id-prefix…|snapshot.json] [--out dir] [--port n] [--no-open]\n" +
     "      report slot + evidence rooms; --report <file> swaps in your report\n" +
@@ -72,10 +80,9 @@ export const en = {
   "cli.show.historyReportConflict":
     "`--history` and `--report` are mutually exclusive: --history is the built-in trend view. For a custom trend, compose exp.snapshots inside your report file instead.\n",
   "cli.show.evidenceNeedsEval":
-    "--transcript / --trace / --diff show one eval's evidence, but the selection matched {{matched}} evals. Narrow to a single eval id first: niceeval show <eval id> --transcript\n",
-  "cli.show.attemptNeedsEval":
-    "--attempt picks one attempt of a single eval; pass a full eval id (and --experiment when several experiments ran it).\n",
-  "cli.show.attemptNotFound": "Attempt {{attempt}} not found for {{evalId}}. Available attempts: {{available}}\n",
+    "--eval / --execution / --diff show one attempt's evidence, but the selection matched {{matched}} evals. Pick an attempt locator from the index below:\n{{index}}\n",
+  "cli.show.locatorMalformed": "{{message}}\n",
+  "cli.show.locatorNotFound": "{{message}}\n",
   "cli.eval.noMatch": "No eval matched: {{patterns}}.\n",
   "cli.eval.noMatchHintExperiment": "Hint: \"{{pattern}}\" is an experiment{{kind}}; you probably meant: niceeval exp {{pattern}}\n",
   "cli.eval.noMatchKnown": "Discovered {{count}} evals: {{evals}}\n",

@@ -4,9 +4,10 @@
 // 全部纯函数(时间经 now 显式传入),证据数据由调用方 await 好了递进来。
 
 import { join, relative } from "node:path";
-import type { AssertionResult, Verdict, StreamEvent, TraceSpan } from "../types.ts";
-import type { DiffData } from "../types.ts";
-import type { AttemptHandle, Selection, Snapshot } from "../results/index.ts";
+import type { AssertionResult, DiffData, EvalResult, Verdict } from "../types.ts";
+import type { AttemptEvidence, AttemptEvidenceCapabilities, AttemptHandle, Selection, Snapshot } from "../results/index.ts";
+import type { AnnotatedSourceLine } from "../results/index.ts";
+import type { ExecutionNode } from "../o11y/execution-tree.ts";
 import { foldEvalVerdict } from "../shared/verdict.ts";
 import { attemptCostUSD } from "../report/metrics.ts";
 import { formatDurationMs, formatMetricValue, formatPlainNumber, formatUSD } from "../report/format.ts";
@@ -79,21 +80,15 @@ export function attemptsOfEval(snapshots: Snapshot[], evalId: string): AttemptHa
 }
 
 /**
- * 证据切面与详情块默认挑最新一次失败的 attempt;没有失败挑最新一次。
- * --attempt 收人看的 1 计序号;--experiment 已在 Selection 合成时收窄。
+ * 详情块 / eval-id 前缀证据切面默认挑最新一次失败的 attempt;没有失败挑最新一次。
+ * 精确选某一次 attempt 走 `@<locator>`(`resolveLocator`),不再有数字 `--attempt`——
+ * --experiment 已在 Selection 合成时收窄。
  */
-export function pickDetailAttempt(
-  attempts: AttemptHandle[],
-  attemptNumber?: number,
-): AttemptHandle | undefined {
+export function pickDetailAttempt(attempts: AttemptHandle[]): AttemptHandle | undefined {
   if (attempts.length === 0) return undefined;
   const byTime = [...attempts].sort((a, b) =>
     (a.result.startedAt ?? "").localeCompare(b.result.startedAt ?? "") || a.result.attempt - b.result.attempt,
   );
-  if (attemptNumber !== undefined) {
-    const wanted = byTime.filter((a) => a.result.attempt === attemptNumber - 1);
-    return wanted.at(-1);
-  }
   const failing = byTime.filter((a) => a.result.verdict === "failed" || a.result.verdict === "errored");
   return failing.at(-1) ?? byTime.at(-1);
 }
@@ -130,6 +125,95 @@ export function attemptHeader(attempt: AttemptHandle): string {
   return parts.join(" · ");
 }
 
+// ───────────────────────── AttemptEvidence 共用 ─────────────────────────
+// evalSourceText / executionText / attemptOverviewText(--eval / --execution / 默认全景)
+// 与 evalDetailText 的紧凑索引列共用的小件:locator 头、capability 字母、失败原因、
+// 断言计票摘要。三个证据 renderer 与全景面都只消费同一份 AttemptEvidence,不各自读
+// artifact 或重新判定 capability(loadAttemptEvidence 已经算好)。
+
+/** `--eval` / `--execution` / 全景块的头行:`@<locator> · <evalId> · <experimentId> · <verdict>`。 */
+export function attemptEvidenceHeader(evidence: AttemptEvidence): string {
+  return [evidence.locator, evidence.identity.evalId, evidence.identity.experimentId, evidence.result.verdict].join(" · ");
+}
+
+/** capability 位 → 展示字母,只列为 true 的位;全部为 false 时返回空串(不打空 `[]`)。 */
+export function capabilityLetters(capabilities: AttemptEvidenceCapabilities): string {
+  const letters: string[] = [];
+  if (capabilities.eval) letters.push("E");
+  if (capabilities.execution) letters.push("X");
+  if (capabilities.timing) letters.push("⏱");
+  if (capabilities.diff) letters.push("D");
+  return letters.length > 0 ? `[${letters.join(",")}]` : "";
+}
+
+/**
+ * 紧凑多 attempt 索引(裸 `niceeval show`、单 eval 多 experiment 行、evidence flag 撞多个
+ * eval 时的消歧提示)用的廉价 capability 估算:只读瘦身 `EvalResult` 字段(`hasSources` /
+ * `hasEvents` / `hasTrace`),不为了点亮一个字母去读 artifact —— 与
+ * `report/compute.ts::attemptRow` 的 `hasEvidence` 同一个「只认瘦身字段」的口径(它同样只用
+ * `hasEvents` / `hasTrace`,同样不读 diff.json)。`diff` 位没有对应的瘦身字段(不像
+ * events/trace/sources,写入面从不给 diff 算一个 has* 布尔),而 diff.json 可达上百 MB,
+ * 不该为了这一个字母在渲染路径上打开它(见 docs/reports.md「可达百 MB 的 diff 永远不该在
+ * 渲染路径上被读」)——因此这里恒报 `false`;只有 `loadAttemptEvidence()` real 出的
+ * capabilities(单 attempt 路径,如 `@<locator>` 全景)才知道真实答案。
+ */
+export function cheapCapabilities(result: EvalResult): AttemptEvidenceCapabilities {
+  return {
+    eval: result.hasSources === true,
+    execution: result.hasEvents === true,
+    timing: result.hasEvents === true && result.hasTrace === true,
+    diff: false,
+  };
+}
+
+/**
+ * 一次 attempt 未通过的判定原因,单行、不含 detail——供紧凑索引行使用。precedence 与
+ * `report/compute.ts::reasonFor` 同一条规则(error → skipReason → 未通过的 gate 断言,
+ * soft 永不进入),但格式更短(`gate <name>`,不带 `: <detail>`——detail 留给
+ * `--eval`/单 eval 详情块的完整断言明细),这里独立实现而不是导入 report/ 的函数:
+ * report 包正被并行重写(见 plan/attempt-evidence-feedback-loop.md),show 的紧凑索引不应
+ * 依赖它的内部实现细节。
+ */
+export function verdictReasonLine(result: EvalResult): string | undefined {
+  if (result.error !== undefined) return result.error;
+  if (result.skipReason !== undefined) return result.skipReason;
+  const gates = result.assertions.filter((a) => !a.passed && a.severity === "gate");
+  if (gates.length === 0) return undefined;
+  return gates.map((a) => `gate ${a.name}`).join(", ");
+}
+
+/** 紧凑多 attempt 索引的一行:`✗ weather/brooklyn  @7K2M9Q[E,X,⏱]  gate calledTool(...)`。 */
+export function attemptIndexLine(opts: {
+  evalId: string;
+  verdict: Verdict;
+  locator: string | undefined;
+  capabilities: AttemptEvidenceCapabilities;
+  reason?: string;
+}): string {
+  const loc = opts.locator ? `${opts.locator}${capabilityLetters(opts.capabilities)}` : MISSING;
+  const parts = [`${verdictMark(opts.verdict)} ${opts.evalId}`, loc];
+  if (opts.reason) parts.push(opts.reason);
+  return parts.join("  ");
+}
+
+/**
+ * 断言计票摘要,`--eval` 与全景面共用:`assertions: 1 passed · 1 gate failed · 1 soft below
+ * target`。直接读 `EvalResult.assertions`(恒可用的瘦身字段)而不是
+ * `AnnotatedEvalSource.summary`——两者对同一批断言算出的计票恒等(`AnnotatedEvalSource` 正是
+ * 用这同一个数组喂 `buildAnnotatedEvalSource` 的),但 `evalSource` 可能是 `null`
+ * (未捕获源码),读 `result.assertions` 让这条摘要不因缺源码而跟着消失。
+ */
+export function assertionSummaryLine(assertions: AssertionResult[]): string {
+  const passed = assertions.filter((a) => a.passed).length;
+  const gateFailed = assertions.filter((a) => !a.passed && a.severity === "gate").length;
+  const softBelow = assertions.filter((a) => !a.passed && a.severity === "soft").length;
+  const parts: string[] = [];
+  if (passed > 0) parts.push(`${passed} passed`);
+  if (gateFailed > 0) parts.push(`${gateFailed} gate failed`);
+  if (softBelow > 0) parts.push(`${softBelow} soft below target`);
+  return `assertions: ${parts.length > 0 ? parts.join(" · ") : "(none)"}`;
+}
+
 export interface EvalDetailOptions {
   evalId: string;
   snapshots: Snapshot[];
@@ -152,7 +236,9 @@ export function evalDetailText(opts: EvalDetailOptions): string {
     .find((d) => d !== undefined);
   blocks.push(description ? `${evalId} — ${description}` : evalId);
 
-  // 每 experiment 一行:折叠判定、attempt 数、最新 attempt 的耗时、总成本、判定时间
+  // 每 experiment 一行:折叠判定、attempt 数、最新 attempt 的耗时、总成本、判定时间、
+  // 代表 attempt 的紧凑索引(locator + capability 字母 + 失败原因)——agent 从这张榜单
+  // 就能直接摘到一个 `@<locator>` 下钻,不必先跑一遍 `--eval`/`--execution` 才知道选谁。
   const rows: string[][] = [];
   for (const snapshot of snapshots) {
     const ev = snapshot.evals.find((e) => e.id === evalId);
@@ -164,6 +250,9 @@ export function evalDetailText(opts: EvalDetailOptions): string {
       const c = attemptCostUSD(attempt.result);
       if (c !== null) cost = (cost ?? 0) + c;
     }
+    const rep = pickDetailAttempt(ev.attempts);
+    const locatorCell = rep?.locator ? `${rep.locator}${capabilityLetters(cheapCapabilities(rep.result))}` : MISSING;
+    const reasonCell = rep ? (verdictReasonLine(rep.result) ?? "") : "";
     rows.push([
       snapshot.experimentId,
       `${verdictMark(verdict)} ${verdict}`,
@@ -171,6 +260,8 @@ export function evalDetailText(opts: EvalDetailOptions): string {
       formatDurationMs(latest.result.durationMs),
       cost === null ? MISSING : formatUSD(cost),
       `(${relativeAgo(latest.result.startedAt ?? snapshot.startedAt, now)})`,
+      locatorCell,
+      reasonCell,
     ]);
   }
   if (rows.length > 0) blocks.push(renderAlignedRows(rows));
@@ -191,7 +282,12 @@ export function evalDetailText(opts: EvalDetailOptions): string {
     const tail: string[] = [];
     const artifacts = attemptArtifactsPath(detail, cwd);
     if ( artifacts) tail.push(`artifacts: ${artifacts}/`);
-    tail.push(`next: niceeval show ${evalId} --transcript | --trace | --diff`);
+    if (detail.locator) tail.push(`attempt locator: ${detail.locator}`);
+    tail.push(
+      detail.locator
+        ? `next: niceeval show ${detail.locator} [--eval|--execution|--diff]`
+        : `next: niceeval show ${evalId} [--eval|--execution|--diff]`,
+    );
     blocks.push(tail.join("\n"));
   }
 
@@ -242,7 +338,7 @@ export function experimentHistoryText(experimentId: string, rows: ExperimentHist
   return `${head}\n\n${indentBlock(table, "  ")}`;
 }
 
-// ───────────────────────── 证据切面:transcript ─────────────────────────
+// ───────────────────────── 截断预算(--eval / --execution / 全景共用) ─────────────────────────
 
 const MAX_EVENTS = 80;
 const MAX_TEXT = 600;
@@ -262,146 +358,299 @@ function jsonPreview(value: unknown, max = 200): string {
   return clip(text, max);
 }
 
-const ROLE_PAD = 12;
+// ───────────────────────── 证据切面:--eval(Eval 源码标注) ─────────────────────────
 
-function eventLines(event: StreamEvent, width: number): string[] {
-  const body = (tag: string, text: string): string[] => {
-    const wrapped = wrapDisplay(clip(text), Math.max(20, width - ROLE_PAD));
-    return wrapped.map((line, i) => (i === 0 ? padDisplay(tag, ROLE_PAD) + line : " ".repeat(ROLE_PAD) + line));
-  };
-  switch (event.type) {
+const MAX_SOURCE_LINES = 400;
+
+/** gate 失败 / soft 恒带分——与 assertionLine 的严重度口径一致,但不带断言 name(源码行本身就是名字)。 */
+function evalAssertionDetailLine(a: AssertionResult): string | undefined {
+  if (a.severity === "soft") {
+    const detail = !a.passed && a.detail ? ` · ${a.detail}` : "";
+    return `soft · ${scoreText(a.score)}/1${detail}`;
+  }
+  if (!a.passed) return `gate${a.detail ? ` · ${a.detail}` : ""}`;
+  return undefined;
+}
+
+function evalSourceLineText(line: AnnotatedSourceLine, gutterWidth: number, width: number): string[] {
+  const anyFailed = line.assertions.some((a) => !a.passed);
+  const glyph = line.assertions.length === 0 ? " " : anyFailed ? "✗" : "✓";
+  const marginWidth = gutterWidth + 2; // 行号列 + glyph + 分隔空格
+  const prefix = `${padDisplay(String(line.line), gutterWidth)}${glyph} `;
+  const wrapped = wrapDisplay(line.text, Math.max(20, width - marginWidth));
+  const out = wrapped.map((text, i) => (i === 0 ? prefix + text : " ".repeat(marginWidth) + text));
+  const margin = " ".repeat(marginWidth);
+  for (const a of line.assertions) {
+    const detail = evalAssertionDetailLine(a);
+    if (detail === undefined) continue;
+    for (const wrapped2 of wrapDisplay(detail, Math.max(20, width - marginWidth))) out.push(margin + wrapped2);
+  }
+  return out;
+}
+
+/**
+ * `--eval`:运行时保存的 Eval 源码,gate/soft 断言标回源码行,外加 unmapped 断言(永不丢弃)
+ * 与断言计票摘要。`evidence.evalSource === null` 时如实说明源码未捕获,不伪造空文档。
+ */
+export function evalSourceText(
+  evidence: AttemptEvidence,
+  opts: { header: string; artifactPath?: string; width: number },
+): string {
+  const { header, artifactPath, width } = opts;
+  const source = evidence.evalSource;
+  const artifact = artifactPath ? join(artifactPath, "sources.json") : undefined;
+  if (!source) {
+    return `${header}\n\n(eval source unavailable for this attempt${artifact ? ` · expected: ${artifact}` : ""})`;
+  }
+
+  const blocks: string[] = [header, `eval source: ${source.sourcePath} · sha256:${source.sourceSha256.slice(0, 8)}…`];
+
+  const gutterWidth = String(source.lines.length).length;
+  const shownLines = source.lines.slice(0, MAX_SOURCE_LINES);
+  const lineLines = shownLines.flatMap((line) => evalSourceLineText(line, gutterWidth, width));
+  if (source.lines.length > shownLines.length) {
+    lineLines.push(`(${source.lines.length - shownLines.length} more lines not shown)`);
+  }
+  blocks.push(lineLines.join("\n"));
+
+  if (source.unmapped.length > 0) {
+    const unmappedLines = source.unmapped.map((a) => indentBlock(wrapDisplay(assertionLine(a), width - 2).join("\n"), "  "));
+    blocks.push(
+      [`unmapped assertions (${source.unmapped.length}, no source location):`, ...unmappedLines].join("\n"),
+    );
+  }
+
+  blocks.push(assertionSummaryLine(evidence.result.assertions));
+  if (artifact) blocks.push(`full eval source: ${artifact}`);
+  return blocks.join("\n\n");
+}
+
+// ───────────────────────── 证据切面:--execution(标准事件流 + OTel enrichment) ─────────────────────────
+
+const EXEC_LABEL_PAD = 12;
+const EXEC_TIME_PAD = 6;
+
+function relSeconds(ms: number, originMs: number): string {
+  return `${((ms - originMs) / 1000).toFixed(1)}s`;
+}
+
+/** 一个 ExecutionNode 的一行(或折行后多行);时间列只在整棵树 timingAvailable 时出现。 */
+function execBody(
+  time: string | undefined,
+  label: string,
+  text: string,
+  duration: string | undefined,
+  width: number,
+  timingAvailable: boolean,
+): string[] {
+  const timeCol = timingAvailable ? padDisplay(time ?? "", EXEC_TIME_PAD) + " " : "";
+  const marginWidth = timeCol.length + EXEC_LABEL_PAD;
+  const wrapped = wrapDisplay(clip(text), Math.max(20, width - marginWidth));
+  return wrapped.map((line, i) => {
+    if (i !== 0) return " ".repeat(marginWidth) + line;
+    const head = timeCol + padDisplay(label, EXEC_LABEL_PAD) + line;
+    return duration ? `${head}  ${duration}` : head;
+  });
+}
+
+/**
+ * action / subagent 节点渲染成两行(call + result)——节点模型把 call+result 合并成一个
+ * ExecutionNode(按 callId),但分两行读更符合「先看调用、再看结果」的阅读顺序,
+ * 与 docs-site/zh/guides/agent-feedback-loop.mdx 的示例一致。
+ */
+function executionNodeLines(node: ExecutionNode, originMs: number, timingAvailable: boolean, width: number): string[] {
+  const time = node.kind !== "telemetry" && node.span ? relSeconds(node.span.startMs, originMs) : undefined;
+  const duration = node.kind !== "telemetry" && node.span ? formatDurationMs(node.span.endMs - node.span.startMs) : undefined;
+  const resultTime = node.kind !== "telemetry" && node.span ? relSeconds(node.span.endMs, originMs) : undefined;
+
+  switch (node.kind) {
     case "message":
-      return body(`[${event.role}]`, event.text);
+      return execBody(time, node.role, node.text, duration, width, timingAvailable);
     case "thinking":
-      return body("[thinking]", clip(event.text, 200));
-    case "action.called":
-      return body("[tool]", `${event.name}(${jsonPreview(event.input)})`);
-    case "action.result":
-      return body("", `→ ${event.status}${event.output !== undefined ? `: ${jsonPreview(event.output)}` : ""}`);
-    case "subagent.called":
-      return body("[subagent]", event.name);
-    case "subagent.completed":
-      return body("", `→ ${event.status}`);
+      return execBody(time, "thinking", clip(node.text, 200), duration, width, timingAvailable);
+    case "skill.loaded":
+      return execBody(time, "skill load", node.skill, duration, width, timingAvailable);
+    case "action": {
+      const status = node.status !== "completed" ? ` (${node.status})` : "";
+      const call = execBody(time, "tool call", `${node.name} ${jsonPreview(node.input)}`, duration, width, timingAvailable);
+      const result = execBody(
+        resultTime,
+        "tool result",
+        `${node.output !== undefined ? jsonPreview(node.output) : "(no result)"}${status}`,
+        undefined,
+        width,
+        timingAvailable,
+      );
+      return [...call, ...result];
+    }
+    case "subagent": {
+      const status = node.status !== "completed" ? ` (${node.status})` : "";
+      const call = execBody(time, "subagent", node.name, duration, width, timingAvailable);
+      if (node.output === undefined && node.status === "pending") return call;
+      const result = execBody(
+        resultTime,
+        "subagent result",
+        `${node.output !== undefined ? jsonPreview(node.output) : "(no result)"}${status}`,
+        undefined,
+        width,
+        timingAvailable,
+      );
+      return [...call, ...result];
+    }
     case "input.requested":
-      return body("[input]", event.request.prompt ?? event.request.display ?? "(input requested)");
+      return execBody(
+        time,
+        "input",
+        node.request.prompt ?? node.request.display ?? "(input requested)",
+        duration,
+        width,
+        timingAvailable,
+      );
     case "compaction":
-      return body("[compaction]", event.reason ?? "context compacted");
+      return execBody(time, "compaction", node.reason ?? "context compacted", duration, width, timingAvailable);
     case "error":
-      return body("[error]", event.message);
+      return execBody(time, "error", node.message, duration, width, timingAvailable);
+    case "telemetry":
+      return execBody(
+        relSeconds(node.span.startMs, originMs),
+        "telemetry",
+        node.span.name || node.span.kind || "span",
+        formatDurationMs(node.span.endMs - node.span.startMs),
+        width,
+        true,
+      );
   }
 }
 
-export function transcriptText(opts: {
-  header: string;
-  events: StreamEvent[] | null;
-  artifactPath?: string;
-  width: number;
-}): string {
-  const { header, events, artifactPath, width } = opts;
-  const source = artifactPath ? join( artifactPath, "events.json") : undefined;
-  if (!events || events.length === 0) {
-    return `${header}\n\n(no events recorded for this attempt${source ? ` · expected: ${source}` : ""})`;
+/**
+ * `--execution`:标准事件流骨架(message / thinking / skill load / tool call+result / subagent /
+ * input.requested / compaction / error),有 OTel 时同一节点补相对时间与耗时;没有 OTel 时
+ * 节点、顺序与内容不变,只去掉时间列,并在结尾如实标 timing unavailable
+ * (ExecutionTree 的契约:骨架不因时间有无而变形,见 o11y/execution-tree.ts 头注)。
+ */
+export function executionText(
+  evidence: AttemptEvidence,
+  opts: { header: string; artifactPath?: string; width: number },
+): string {
+  const { header, artifactPath, width } = opts;
+  const tree = evidence.execution;
+  const eventsSource = artifactPath ? join(artifactPath, "events.json") : undefined;
+  if (!tree) {
+    return `${header}\n\n(no events recorded for this attempt${eventsSource ? ` · expected: ${eventsSource}` : ""})`;
   }
-  const shown = events.slice(0, MAX_EVENTS);
-  const lines = shown.flatMap((event) => eventLines(event, width));
-  const toolCalls = events.filter((e) => e.type === "action.called").length;
-  const footer = [
-    `${events.length} ${events.length === 1 ? "event" : "events"}`,
-    toolCalls === 0 ? "no tool calls" : `${toolCalls} tool calls`,
-    ...(events.length > shown.length ? [`${events.length - shown.length} more events not shown`] : []),
-    ...(source ? [`full stream: ${source}`] : []),
-  ].join(" · ");
-  return `${header}\n\n${lines.join("\n")}\n\n(${footer})`;
+
+  const timingAvailable = tree.timingAvailable;
+  const spanStarts = tree.nodes.flatMap((n) => (n.span ? [n.span.startMs] : []));
+  const originMs = spanStarts.length > 0 ? Math.min(...spanStarts) : 0;
+
+  const shown = tree.nodes.slice(0, MAX_EVENTS);
+  const lines = shown.flatMap((node) => executionNodeLines(node, originMs, timingAvailable, width));
+
+  const tail: string[] = [];
+  if (timingAvailable) {
+    const skillLoads = tree.nodes.filter((n) => n.kind === "skill.loaded").length;
+    const toolCalls = tree.nodes.filter((n) => n.kind === "action").length;
+    const aiMessages = tree.nodes.filter((n) => n.kind === "message" && n.role === "assistant").length;
+    tail.push(
+      [
+        `total ${formatDurationMs(evidence.result.durationMs)}`,
+        `${skillLoads} skill ${skillLoads === 1 ? "load" : "loads"}`,
+        `${toolCalls} tool ${toolCalls === 1 ? "call" : "calls"}`,
+        `${aiMessages} AI ${aiMessages === 1 ? "message" : "messages"}`,
+        ...(tree.nodes.length > shown.length ? [`${tree.nodes.length - shown.length} more events not shown`] : []),
+      ].join(" · "),
+    );
+  } else {
+    tail.push(
+      [
+        "timing unavailable · OTel trace was not collected",
+        ...(tree.nodes.length > shown.length ? [`${tree.nodes.length - shown.length} more events not shown`] : []),
+      ].join(" · "),
+    );
+  }
+  if (eventsSource) tail.push(`full events: ${eventsSource}`);
+  if (timingAvailable && artifactPath) tail.push(`full OTel trace: ${join(artifactPath, "trace.json")}`);
+
+  return `${header}\n\n${lines.join("\n")}\n\n${tail.join("\n")}`;
 }
 
-// ───────────────────────── 证据切面:trace ─────────────────────────
+// ───────────────────────── 默认全景:AttemptEvidence 紧凑总览 ─────────────────────────
 
-const MAX_SPANS = 40;
-const TRACE_BAR_WIDTH = 20;
+const MAX_OVERVIEW_DIFF_NAMES = 5;
 
-/** span 类目与 web 版同一套标准化口径(SpanKind),不读原生 span 名;other 保留原名如实展示。 */
-function spanLabel(span: TraceSpan): string {
-  switch (span.kind) {
-    case "turn":
-      return "agent run";
-    case "model":
-      return "inference";
-    case "tool": {
-      const tool = span.attributes?.["tool_name"];
-      return typeof tool === "string" ? `execute_tool ${tool}` : "execute_tool";
-    }
-    case "agent":
-      return "invoke_agent";
-    default:
-      return span.name || "other";
-  }
+function overviewDiffLine(diff: DiffData): string {
+  const names = [
+    ...Object.keys(diff.generatedFiles).sort().map((p) => `M ${p}`),
+    ...[...diff.deletedFiles].sort().map((p) => `D ${p}`),
+  ];
+  const shown = names.slice(0, MAX_OVERVIEW_DIFF_NAMES);
+  const more = names.length > shown.length ? ` · +${names.length - shown.length} more` : "";
+  return `changes: ${names.length} ${names.length === 1 ? "file" : "files"} changed · ${shown.join(", ")}${more}`;
 }
 
-function traceBar(startMs: number, endMs: number, windowStart: number, windowEnd: number): string {
-  const total = Math.max(1, windowEnd - windowStart);
-  const from = Math.max(0, Math.min(TRACE_BAR_WIDTH - 1, Math.floor(((startMs - windowStart) / total) * TRACE_BAR_WIDTH)));
-  const to = Math.max(from + 1, Math.min(TRACE_BAR_WIDTH, Math.ceil(((endMs - windowStart) / total) * TRACE_BAR_WIDTH)));
-  return `▕${"░".repeat(from)}${"█".repeat(to - from)}${"░".repeat(TRACE_BAR_WIDTH - to)}▏`;
-}
+/**
+ * `niceeval show @<locator>` 不带证据 flag 时的默认面:紧凑全景,只给摘要——Eval 断言计票、
+ * 执行事件计数、可选 OTel 时间指示、工作区 diff 摘要,不复现 `--eval` 的完整源码、
+ * `--execution` 的完整事件流或 `--diff` 的完整文件列表(那些内容各自的证据 flag 才给)。
+ */
+export function attemptOverviewText(
+  evidence: AttemptEvidence,
+  opts: { header: string; artifactPath?: string; width: number },
+): string {
+  const { header, artifactPath } = opts;
+  const r = evidence.result;
 
-export function traceText(opts: {
-  header: string;
-  spans: TraceSpan[] | null;
-  artifactPath?: string;
-  width: number;
-}): string {
-  const { header, spans, artifactPath } = opts;
-  const source = artifactPath ? join( artifactPath, "trace.json") : undefined;
-  if (!spans || spans.length === 0) {
-    return `${header}\n\n(no trace recorded for this attempt${source ? ` · expected: ${source}` : ""})`;
-  }
+  const metaParts = [`snapshot ${evidence.identity.snapshotStartedAt}`, `attempt ${evidence.identity.attempt + 1}`, formatDurationMs(r.durationMs)];
+  if (r.usage) metaParts.push(`${formatMetricValue(r.usage.inputTokens + r.usage.outputTokens)} tokens`);
+  const cost = attemptCostUSD(r);
+  if (cost !== null) metaParts.push(formatUSD(cost));
 
-  const windowStart = Math.min(...spans.map((s) => s.startMs));
-  const windowEnd = Math.max(...spans.map((s) => s.endMs));
-  const ids = new Set(spans.map((s) => s.spanId));
-  const children = new Map<string, TraceSpan[]>();
-  const roots: TraceSpan[] = [];
-  for (const span of spans) {
-    if (span.parentSpanId && ids.has(span.parentSpanId)) {
-      const list = children.get(span.parentSpanId) ?? [];
-      list.push(span);
-      children.set(span.parentSpanId, list);
-    } else {
-      roots.push(span);
-    }
-  }
-  const byStart = (a: TraceSpan, b: TraceSpan) => a.startMs - b.startMs;
-  roots.sort(byStart);
-  for (const list of children.values()) list.sort(byStart);
+  const blocks: string[] = [[header, metaParts.join(" · ")].join("\n")];
 
-  const rows: { label: string; span: TraceSpan }[] = [];
-  const walk = (span: TraceSpan, prefix: string, childPrefix: string) => {
-    rows.push({ label: prefix + spanLabel(span), span });
-    const kids = children.get(span.spanId) ?? [];
-    kids.forEach((kid, i) => {
-      const last = i === kids.length - 1;
-      walk(kid, childPrefix + (last ? "└─ " : "├─ "), childPrefix + (last ? "   " : "│  "));
-    });
-  };
-  for (const root of roots) walk(root, "", "");
-
-  const shown = rows.slice(0, MAX_SPANS);
-  const labelWidth = Math.max(...shown.map((r) => r.label.length));
-  const lines = shown.map(
-    (r) =>
-      `${padDisplay(r.label, labelWidth)}  ${traceBar(r.span.startMs, r.span.endMs, windowStart, windowEnd)} ${formatDurationMs(
-        r.span.endMs - r.span.startMs,
-      )}${r.span.status === "error" ? " ✗" : ""}`,
+  blocks.push(
+    [
+      assertionSummaryLine(r.assertions),
+      evidence.evalSource
+        ? `eval source: ${evidence.evalSource.sourcePath} · sha256:${evidence.evalSource.sourceSha256.slice(0, 8)}…`
+        : "eval source: unavailable (not captured for this attempt)",
+    ].join("\n"),
   );
 
-  const toolSpans = spans.filter((s) => s.kind === "tool").length;
-  const footer = [
-    `${spans.length} ${spans.length === 1 ? "span" : "spans"}`,
-    toolSpans === 0 ? "no execute_tool spans" : `${toolSpans} execute_tool spans`,
-    ...(rows.length > shown.length ? [`${rows.length - shown.length} more spans not shown`] : []),
-    ...(source ? [`full trace: ${source}`] : []),
-  ].join(" · ");
-  return `${header}\n\n${lines.join("\n")}\n\n(${footer})`;
+  if (evidence.execution) {
+    const nodes = evidence.execution.nodes;
+    const skillLoads = nodes.filter((n) => n.kind === "skill.loaded").length;
+    const toolCalls = nodes.filter((n) => n.kind === "action").length;
+    const aiMessages = nodes.filter((n) => n.kind === "message" && n.role === "assistant").length;
+    const execLines = [`execution: ${nodes.length} events · ${skillLoads} skill loads · ${toolCalls} tool calls · ${aiMessages} AI messages`];
+    if (evidence.capabilities.timing) {
+      execLines.push("timing: OTel spans recorded for this attempt — see --execution for per-step timing.");
+    }
+    blocks.push(execLines.join("\n"));
+  } else {
+    blocks.push("execution: unavailable (no events recorded for this attempt)");
+  }
+
+  if (evidence.diff && evidence.capabilities.diff) {
+    blocks.push(overviewDiffLine(evidence.diff));
+  } else if (evidence.diff) {
+    blocks.push("changes: diff unavailable · this attempt did not produce workspace file changes");
+  } else {
+    blocks.push("changes: diff unavailable · no workspace diff was recorded for this attempt");
+  }
+
+  const capWords = [
+    evidence.capabilities.eval ? "eval source [E]" : undefined,
+    evidence.capabilities.execution ? "execution [X]" : undefined,
+    evidence.capabilities.timing ? "OTel timing [⏱]" : undefined,
+    evidence.capabilities.diff ? "diff [D]" : undefined,
+  ].filter((x): x is string => x !== undefined);
+
+  const tail: string[] = [`evidence: ${capWords.length > 0 ? capWords.join(" · ") : "(none captured for this attempt)"}`];
+  if (artifactPath) tail.push(`artifacts: ${artifactPath}/`);
+  tail.push(`next: niceeval show ${evidence.locator} [--eval|--execution|--diff]`);
+  blocks.push(tail.join("\n"));
+
+  return blocks.join("\n\n");
 }
 
 // ───────────────────────── 证据切面:diff ─────────────────────────

@@ -15,6 +15,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
 import { openResults } from "../results/index.ts";
 import { RESULTS_FORMAT, RESULTS_SCHEMA_VERSION, type EvalResult, type Verdict } from "../types.ts";
 import { selectCurrentResults } from "../results/select.ts";
@@ -283,14 +284,10 @@ describe("单 eval 详情", () => {
     expect(out).toContain('✗ soft judge("回答基于实时数据") — 0.2/1: reply invents a temperature');
     // artifacts 路径 = <experiment-dir>/<snapshot-dir>/<evalId>/a<n>(root 相对)
     expect(out).toContain("compare_codex/2026-07-09T10-00-00-000Z/weather/brooklyn/a1");
-    expect(out).toContain("next: niceeval show weather/brooklyn --transcript | --trace | --diff");
-  });
-
-  it("--attempt 指定不存在的 attempt:直说可用序号", async () => {
-    const root = await seedComposedRoot();
-    const { err, code } = await show(root, ["fixtures/button"], { attempt: 5 });
-    expect(code).toBe(1);
-    expect(err).toContain("Attempt 5 not found for fixtures/button");
+    // 每 experiment 一行都带紧凑索引(locator + 失败原因),详情块再补一条精确的 attempt locator
+    expect(out).toMatch(/✗ failed\s+2 attempts.*@1[0-9a-z]{7}.*gate calledTool/);
+    expect(out).toMatch(/attempt locator: @1[0-9a-z]{7}/);
+    expect(out).toMatch(/next: niceeval show @1[0-9a-z]{7} \[--eval\|--execution\|--diff\]/);
   });
 });
 
@@ -453,10 +450,10 @@ describe("--report 装载", () => {
   });
 });
 
-// ───────────────────────── 证据切面:--transcript ─────────────────────────
+// ───────────────────────── 证据切面:--execution ─────────────────────────
 
-describe("--transcript", () => {
-  it("逐轮对话 + 截断标注(事件数 · 工具调用数 · 原始 artifact 路径)", async () => {
+describe("--execution", () => {
+  it("标准事件流(消息);没有 OTel 时如实标 timing unavailable", async () => {
     const root = await makeRoot();
     const dir = await writeSnapshot(
       root,
@@ -473,20 +470,163 @@ describe("--transcript", () => {
       "utf-8",
     );
 
-    const { out, code } = await show(root, ["weather/brooklyn"], { transcript: true });
+    const { out, code } = await show(root, ["weather/brooklyn"], { execution: true });
     expect(code).toBe(0);
-    expect(out).toContain("attempt 3 · compare/codex · failed");
-    expect(out).toContain("[user]");
-    expect(out).toContain("布鲁克林今天天气怎么样?");
-    expect(out).toContain("[assistant]");
-    expect(out).toContain("(2 events · no tool calls · full stream: ");
-    expect(out).toContain("events.json)");
+    expect(out).toMatch(/^@1[0-9a-z]{7} · weather\/brooklyn · compare\/codex · failed/m);
+    expect(out).toMatch(/user\s+布鲁克林今天天气怎么样?/);
+    expect(out).toMatch(/assistant\s+布鲁克林今天大约 24°C,晴。/);
+    expect(out).toContain("timing unavailable · OTel trace was not collected");
+    expect(out).toContain("full events: ");
+    expect(out).toContain("events.json");
   });
 
-  it("多个 eval 匹配时证据切面报错:先收窄到单个 eval", async () => {
+  it("execution === null 时如实说没有事件记录", async () => {
+    const root = await makeRoot();
+    await writeSnapshot(
+      root,
+      "2026-07-08T10-00-00-000Z",
+      { experimentId: "compare/bub", startedAt: "2026-07-08T10:00:00.000Z" },
+      [res("weather/brooklyn", "passed")],
+    );
+    const { out, code } = await show(root, ["weather/brooklyn"], { execution: true });
+    expect(code).toBe(0);
+    expect(out).toContain("no events recorded for this attempt");
+  });
+
+  it("多个 eval 匹配时证据切面报错:给紧凑索引(locator + 失败原因)而不是只报个数", async () => {
     const root = await seedComposedRoot();
-    const { err, code } = await show(root, [], { transcript: true });
+    const { err, code } = await show(root, [], { execution: true });
     expect(code).toBe(1);
-    expect(err).toContain("Narrow to a single eval id");
+    expect(err).toContain("matched 2 evals");
+    expect(err).toMatch(/✗ fixtures\/button\s+@1[0-9a-z]{7}/);
+    expect(err).toContain('gate fileChanged("src/components/Button.tsx")');
+  });
+});
+
+// ───────────────────────── 证据切面:--eval ─────────────────────────
+
+describe("--eval", () => {
+  it("evalSource === null 时如实说源码未捕获", async () => {
+    const root = await makeRoot();
+    await writeSnapshot(
+      root,
+      "2026-07-08T10-00-00-000Z",
+      { experimentId: "compare/bub", startedAt: "2026-07-08T10:00:00.000Z" },
+      [res("weather/brooklyn", "failed", { assertions: [{ name: "succeeded()", severity: "gate", score: 0, passed: false }] })],
+    );
+    const { out, code } = await show(root, ["weather/brooklyn"], { eval: true });
+    expect(code).toBe(0);
+    expect(out).toContain("eval source unavailable for this attempt");
+  });
+
+  it("有捕获的源码时:源码行标回断言,unmapped 断言单独成段,断言计票摘要", async () => {
+    const root = await makeRoot();
+    const dir = await writeSnapshot(
+      root,
+      "2026-07-08T10-00-00-000Z",
+      { experimentId: "compare/bub", startedAt: "2026-07-08T10:00:00.000Z" },
+      [
+        res("weather/brooklyn", "failed", {
+          assertions: [
+            {
+              name: 'calledTool("get_weather")',
+              severity: "gate",
+              score: 0,
+              passed: false,
+              detail: "tool was never called",
+              loc: { file: "evals/weather/brooklyn.eval.ts", line: 2 },
+            },
+            { name: "unlocated()", severity: "soft", score: 0.5, passed: false, detail: "no loc on this one" },
+          ],
+        }),
+      ],
+    );
+    const attemptDir = join(dir, "weather/brooklyn/a0");
+    const content = 'defineEval({\n  turn.calledTool("get_weather");\n});\n';
+    const sha = createHash("sha256").update(content).digest("hex");
+    await writeFile(join(attemptDir, "sources.json"), JSON.stringify([{ path: "evals/weather/brooklyn.eval.ts", sha256: sha }]), "utf-8");
+    await mkdir(join(dir, "sources"), { recursive: true });
+    await writeFile(join(dir, "sources", `${sha}.json`), JSON.stringify({ content }), "utf-8");
+
+    const { out, code } = await show(root, ["weather/brooklyn"], { eval: true });
+    expect(code).toBe(0);
+    expect(out).toContain(`eval source: evals/weather/brooklyn.eval.ts · sha256:${sha.slice(0, 8)}`);
+    expect(out).toMatch(/2✗ turn\.calledTool\("get_weather"\);/);
+    expect(out).toContain("gate · tool was never called");
+    expect(out).toContain("unmapped assertions (1, no source location):");
+    expect(out).toContain("unlocated()");
+    expect(out).toContain("assertions: 1 gate failed · 1 soft below target");
+  });
+});
+
+// ───────────────────────── @<locator> ─────────────────────────
+
+describe("show @<locator>", () => {
+  it("解析到对应 attempt,渲染紧凑全景(不当成 eval id 前缀匹配)", async () => {
+    const root = await makeRoot();
+    await writeSnapshot(root, "2026-07-08T10-00-00-000Z", { experimentId: "compare/bub", startedAt: "2026-07-08T10:00:00.000Z" }, [
+      res("weather/brooklyn", "passed"),
+    ]);
+    const results = await openResults(root);
+    const attempt = results.experiments[0]!.latest.evals[0]!.attempts[0]!;
+    const locator = attempt.locator!;
+    expect(locator).toMatch(/^@1[0-9a-z]{7}$/);
+
+    const { out, code } = await show(root, [locator]);
+    expect(code).toBe(0);
+    expect(out).toContain(`${locator} · weather/brooklyn · compare/bub · passed`);
+    expect(out).toContain("attempt 1 · ");
+    expect(out).toContain("execution: unavailable (no events recorded for this attempt)");
+    expect(out).toContain("changes: diff unavailable");
+    expect(out).toContain(`next: niceeval show ${locator} [--eval|--execution|--diff]`);
+  });
+
+  it("配 --execution 走证据切面,不是紧凑全景", async () => {
+    const root = await makeRoot();
+    await writeSnapshot(root, "2026-07-08T10-00-00-000Z", { experimentId: "compare/bub", startedAt: "2026-07-08T10:00:00.000Z" }, [
+      res("weather/brooklyn", "passed"),
+    ]);
+    const results = await openResults(root);
+    const locator = results.experiments[0]!.latest.evals[0]!.attempts[0]!.locator!;
+
+    const { out, code } = await show(root, [locator], { execution: true });
+    expect(code).toBe(0);
+    expect(out).toContain(`${locator} · weather/brooklyn · compare/bub · passed`);
+    expect(out).toContain("no events recorded for this attempt");
+    // 紧凑全景独有的行不应该出现在证据切面输出里
+    expect(out).not.toContain("next: niceeval show");
+  });
+
+  it("语法不对的 locator 报「not a valid attempt locator」,退出码 1,不崩", async () => {
+    const root = await makeRoot();
+    await writeSnapshot(root, "2026-07-08T10-00-00-000Z", { experimentId: "compare/bub", startedAt: "2026-07-08T10:00:00.000Z" }, [
+      res("weather/brooklyn", "passed"),
+    ]);
+    const { err, code } = await show(root, ["@not-valid"]);
+    expect(code).toBe(1);
+    expect(err).toContain("not a valid attempt locator");
+  });
+
+  it("语法合法但索引里没有的 locator 报「No attempt found」,退出码 1,不崩", async () => {
+    const root = await makeRoot();
+    await writeSnapshot(root, "2026-07-08T10-00-00-000Z", { experimentId: "compare/bub", startedAt: "2026-07-08T10:00:00.000Z" }, [
+      res("weather/brooklyn", "passed"),
+    ]);
+    const { err, code } = await show(root, ["@1nosuch1"]);
+    expect(code).toBe(1);
+    expect(err).toContain("No attempt found");
+  });
+
+  it("locator 与其它位置参数混用时报错,不静默只取第一个", async () => {
+    const root = await makeRoot();
+    await writeSnapshot(root, "2026-07-08T10-00-00-000Z", { experimentId: "compare/bub", startedAt: "2026-07-08T10:00:00.000Z" }, [
+      res("weather/brooklyn", "passed"),
+    ]);
+    const results = await openResults(root);
+    const locator = results.experiments[0]!.latest.evals[0]!.attempts[0]!.locator!;
+
+    const { err, code } = await show(root, [locator, "weather/brooklyn"]);
+    expect(code).toBe(1);
+    expect(err).toContain("must be the only positional argument");
   });
 });
