@@ -49,12 +49,12 @@
       "import": "./src/results/index.ts"
     },
     "./report": {
-      "types": "./src/report/index.ts",
-      "import": "./src/report/index.ts"
+      "types": "./dist/report/index.d.ts",
+      "import": "./dist/report/index.js"
     },
     "./report/react": {
-      "types": "./src/report/react/index.tsx",
-      "import": "./src/report/react/index.tsx"
+      "types": "./dist/report/react/index.d.ts",
+      "import": "./dist/report/react/index.js"
     },
     "./report/react/styles.css": "./src/report/react/styles.css",
     "./report/react/enhance.js": "./src/report/react/enhance.js"
@@ -63,6 +63,7 @@
     "INDEX.md",
     "src",
     "bin",
+    "dist",
     "docs-site/zh",
     "docs-site/images"
   ],
@@ -76,7 +77,8 @@
     "tiers:sync": "node scripts/sync-tiers.mjs sync",
     "tiers:check": "node scripts/sync-tiers.mjs check",
     "view:build": "vite build --config src/view/app/vite.config.ts",
-    "prepare": "pnpm run view:build",
+    "build:report": "tsc -p tsconfig.report-build.json && node scripts/prune-report-dist.mjs",
+    "prepare": "pnpm run view:build && pnpm run build:report",
     "site:dev": "cd site && node scripts/dev.mjs",
     "site:build": "cd site && next build",
     "docs:dev": "cd docs-site && npx --yes mint@latest dev",

@@ -97,9 +97,14 @@ CLI 只有两类输入：位置参数选择“跑哪些 eval”（eval id 前缀
 发版走 CI（`.github/workflows/release.yml`），**不要在本地 `npm publish`**（本地没有
 发布凭证，publish 会 401/404）。触发方式只有一种：`git tag vX.Y.Z` → push tag 到
 origin。标签号就是发布版本号，CI 自己从标签名解析版本号、在 runner 本地写入
-`package.json`（不写回仓库，main 上不需要预先提交版本号变更）→ typecheck →
-`pnpm publish`（NPM_TOKEN secret，provenance）→ 创建 GitHub Release。预发布版（如
-`0.5.0-alpha.1`）自动发对应 dist-tag，正式版发 latest。
+`package.json`（不写回仓库，main 上不需要预先提交版本号变更）→ install（经 `prepare`
+生命周期自动触发 `pnpm run build:report`，见下）→ typecheck → `pnpm publish`（NPM_TOKEN
+secret，provenance）→ 创建 GitHub Release。预发布版（如 `0.5.0-alpha.1`）自动发对应
+dist-tag，正式版发 latest。
+
+包大部分发 TypeScript 源码（消费侧用 tsx 加载，无 build 步骤）；唯一例外是
+`src/report/**`（报告 web 面的 JSX），发布前编译成 `dist/report/**` 预编译 ESM
+（`pnpm run build:report`，见 `tsconfig.report-build.json`）。
 
 ## 记录问题的规范
 
