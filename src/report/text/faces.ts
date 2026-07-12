@@ -478,7 +478,7 @@ export function evalListText(items: EvalListItem[], ctx: TextContext): string {
   const blocks = items.map((item) => {
     const identity = `${item.evalId} · ${item.experimentId} · ${localeText(locale, `verdict.${item.verdict}`)}`;
     const summary = [
-      `${localeText(locale, "attemptList.score")} ${cellText(item.score)}`,
+      localeText(locale, "attemptList.score", { score: cellText(item.score) }),
       localeText(locale, "overview.attemptsCount", { n: item.attempts.length }),
       `${formatDurationMs(item.duration.value ?? 0)} avg`,
       item.cost.value === null ? `${missingText(locale)} avg` : `${formatUSD(item.cost.value)} avg`,

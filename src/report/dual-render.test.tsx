@@ -475,6 +475,11 @@ describe("EvalList 双面", () => {
       expect(term).toContain(piece);
     }
   });
+
+  it("text 面的 score 行插值正确:不留字面量占位符 {score}(回归——曾把带插值的 locale 模板当纯标签用,漏传 vars)", () => {
+    expect(term).toContain("score 0%");
+    expect(term).not.toContain("{score}");
+  });
 });
 
 describe("ExperimentList 双面", () => {
