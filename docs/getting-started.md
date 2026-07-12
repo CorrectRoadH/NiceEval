@@ -204,7 +204,7 @@ Discovered 3 evals
 Results:  2 passed, 1 failed, 0 skipped
 ```
 
-详细 artifact 落在该实验的快照目录 `.niceeval/<experiment>/<snapshot>/`:快照级 `snapshot.json`,以及每个 attempt 目录下的 `result.json`(判决与断言)与按需生成的 `events.json`、`sources.json`、`trace.json`、`o11y.json`、`diff.json`。结构详见 [Results Format](results-format.md)。
+详细 artifact 落在该实验的快照目录 `.niceeval/<experiment>/<snapshot>/`:快照级 `snapshot.json`,以及每个 attempt 目录下的 `result.json`(判决与断言)与按需生成的 `events.json`、`sources.json`、`trace.json`、`o11y.json`、`diff.json`。结构详见 [Results Format](feature/results/architecture.md)。
 
 ## 接进 CI
 
@@ -219,6 +219,6 @@ Results:  2 passed, 1 failed, 0 skipped
 
 ## 接着读
 
-- [Authoring](eval-authoring.md) —— 多轮、数据集扇出、fixture 进阶。
-- [Scoring](scoring.md) —— 全部评分手段。
-- [CLI](cli.md) —— 全部命令与标志。
+- [Authoring](feature/eval/README.md) —— 多轮、数据集扇出、fixture 进阶。
+- [Scoring](feature/scoring/README.md) —— 全部评分手段。
+- [CLI 参考](../docs-site/zh/reference/cli.mdx) —— 全部命令与标志。

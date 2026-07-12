@@ -8,7 +8,7 @@
 |---|---|---|
 | **A. 被测对象内部是多 agent** | 一次 `t.send`,里面有 planner / researcher / writer 分工 | ✅ 主体 |
 | **B. eval 编排多个 agent 对手戏** | 主被测 agent 对着另一个 agent(模拟用户、谈判对手)你来我往 | ✅ 次之 |
-| **C. 同一 eval 跑多个 agent 对比** | claude-code vs codex 谁做得好 | ❌ 已有,走 [experiments](../../experiments.md) 矩阵,不在本文 |
+| **C. 同一 eval 跑多个 agent 对比** | claude-code vs codex 谁做得好 | ❌ 已有,走 [experiments](../../feature/experiments/README.md) 矩阵,不在本文 |
 
 ## 现状与差距
 

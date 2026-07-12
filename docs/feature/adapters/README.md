@@ -51,10 +51,10 @@ experiment.agent    选「连哪个被测对象」(自实现的 adapter)
 experiment.sandbox  选「沙箱型 agent 在哪跑」(docker / vercel / 三方;没有 CLI 覆盖)
 ```
 
-任意沙箱型 agent × 任意 sandbox provider 自由组合:`claude-code` 可跑 docker 也可跑 vercel;同一个 docker 沙箱可跑 `claude-code` 也可跑 `bub`。运行器按 experiment(或 config 兜底)的 `sandbox` 字段备好 `Sandbox` 交给 `ctx.sandbox`,二者只通过 `Sandbox` 接口交互。remote agent 忽略 sandbox。详见 [Sandbox](../../sandbox.md)。
+任意沙箱型 agent × 任意 sandbox provider 自由组合:`claude-code` 可跑 docker 也可跑 vercel;同一个 docker 沙箱可跑 `claude-code` 也可跑 `bub`。运行器按 experiment(或 config 兜底)的 `sandbox` 字段备好 `Sandbox` 交给 `ctx.sandbox`,二者只通过 `Sandbox` 接口交互。remote agent 忽略 sandbox。详见 [Sandbox](../sandbox/README.md)。
 
 ## 相关阅读
 
 - [Observability](../../observability.md) —— transcript → 标准事件流的归一化、o11y、用量。
-- [Scoring](../../scoring.md) / [Assertions](../../assertions.md) —— 这套事件流之上的全部断言。
+- [Scoring](../scoring/README.md) / [Assertions](../../assertions.md) —— 这套事件流之上的全部断言。
 - [Vision](../../vision.md) —— 为什么名字只能用于路由、为什么没有通用协议。

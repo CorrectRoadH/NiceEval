@@ -1,184 +1,125 @@
-# CLI 参考
+# CLI —— 内部架构
 
-`niceeval` 的命令行。设计目标:运行配置可签入、可复现;真正执行 eval 时必须通过 `experiments/` 里的 experiment。
+这一篇讲 `niceeval` 命令行**怎么实现**:入口模块怎么分层、一次调用的数据从 argv 到退出码怎么流转,以及调度核心为什么用 Effect-TS、用在哪几处。面向要改这部分代码的人。
 
-> 本篇描述 CLI 的目标模型和当前约定。若代码实现与这里的设计不一致,应进一步讨论并决定是修代码、修设计,还是记录为明确的阶段性差异。
+这不是命令 / flag 参考——命令、flag、环境变量、退出码这些面向用户的行为契约,单源在 `src/cli.ts` 的 `FLAG_OPTIONS` 各项 JSDoc,由 `pnpm docs:reference` 生成进 [`docs-site/zh/reference/cli.mdx`](../docs-site/zh/reference/cli.mdx)(英文版 `docs-site/reference/cli.mdx`)——要查某个 flag 干什么,去那里,不要在这篇找。`show` / `view` 各自的命令行为与真实输出示例见 [`feature/show/cli.md`](feature/show/cli.md) / [`feature/view/cli.md`](feature/view/cli.md)。
 
-## 两类参数:`exp` 选择「怎么跑」,后续位置参数筛「哪些 eval」
-
-执行 eval 时先选 experiment,再可选地用 eval id 前缀缩小范围:
-
-- `niceeval exp [组|配置]` = 跑**哪个运行配置**。agent、model、flags、runs、预算等都来自 experiment 文件。
-- `niceeval exp [组|配置] [eval id 前缀...]` = 在该 experiment 下只跑部分 eval。这个位置参数只筛 eval,不是 agent 名、URL 或模型。
-- CLI flag 只做调度级临时覆盖,例如 `--runs`、`--max-concurrency`、`--timeout`。`--agent` / `--model` 不覆盖 experiment;要换 agent 或 model,新增或复制一个 experiment 文件。沙箱 provider 同理不接受 CLI 覆盖——写在 experiment(或 config)的 `sandbox` 字段里。
-
-```sh
-niceeval exp <实验组|配置> <选哪些 eval> <flag:调度覆盖>
-#             └怎么跑┘       └eval filter┘   └可选覆盖┘
-```
-
-裸 `niceeval weather` 不会运行;要写成 `niceeval exp local weather` 或 `niceeval exp compare weather`。这样结果始终带 experiment 身份,能复现也能在 `niceeval view` 里按配置对比。
-
-## 命令
-
-```sh
-niceeval exp [组|配置] [pattern...]  # 跑实验:全部 / 一组 / 单个配置;可再用 eval id 前缀过滤
-niceeval show [pattern...|@<locator>]   # 终端读结果:榜单 / 单 eval 明细 / @<locator> 精确 attempt / --eval / --execution / --diff / --history / --report
-niceeval init                # 生成 evals/ 与 niceeval.config.ts;写入/刷新 niceeval-agent-rules 托管区块(指向随包 docs-site,区块外内容不动)——项目已有 AGENTS.md 就写那份,只有 CLAUDE.md 就写进 CLAUDE.md,都没有则新建 AGENTS.md
-niceeval list                # 只列出发现到的 eval,不运行
-niceeval clean               # 删除 .niceeval/ 下历史快照
-niceeval watch               # 监听文件变化,改即重跑(规划中)
-niceeval view [结果目录|snapshot.json]  # 起本地 web 查看器并打开浏览器,读 .niceeval/ 历史快照出图
-```
-
-`exp` 运行结束后(含 `--quiet`)对每个实验在 stdout 打出一行本次快照目录(`Structured results: <快照目录>(snapshot.json + 每 attempt 的 result.json / events.json / trace.json / diff.json)`),这是 agent 反馈闭环的入口:coding agent 直接读结构化结果与各 attempt 的 artifact,不解析人类向的流式输出。
-
-实验 = 可签入的运行配置(哪个 agent/几次/预算)。**一文件一配置,一文件夹一组可对比实验**(`niceeval exp <组>` 跑整组)。详见 [Experiments](experiments.md)。
-
-`pattern` 是 `exp` 命令后的 eval id 前缀过滤,可多个。匹配规则:`id === pattern` 或 `id` 以 `pattern + "/"` 开头(精确或目录前缀):
-
-```sh
-niceeval exp                 # 跑 experiments/ 下全部实验
-niceeval exp local weather   # 在 local 实验里跑 weather 或 weather/*
-niceeval exp local weather/brooklyn  # 在 local 实验里跑单个 eval
-niceeval exp compare fixtures/ billing/  # 在 compare 组里跑多个前缀,并集
-```
-
-## 选择被测对象(agent,写进 experiment)
-
-```sh
-niceeval exp <组|配置>             # agent / model 来自 experiments/<组|配置>.ts
-```
-
-agent、model、flags、sandbox provider 都属于 experiment,不是临时 CLI flag。要连你自己的服务,写一个 agent adapter,再在 experiment 里引用它;URL 和鉴权是 adapter / experiment 的私有配置,不是位置参数。沙箱型 agent 在哪跑(docker / vercel / e2b / 三方)写在 experiment(或 config)的 `sandbox` 字段里,用 `dockerSandbox()` / `vercelSandbox()` / `e2bSandbox()`(从 `niceeval/sandbox` 导入)——没有默认值,没写就在起沙箱时直接报错。
-
-## 调度
-
-```sh
-niceeval exp compare --runs <n>               # 临时覆盖每个 eval 的 runs
-niceeval exp compare --early-exit             # 先过一次即停其余(默认开)
-niceeval exp compare --no-early-exit          # 关掉,要完整通过率分布
-niceeval exp compare --max-concurrency <n>    # 并发上限
-niceeval exp compare --timeout <ms>           # 单 eval 超时
-niceeval exp compare --force                  # 忽略指纹缓存,全量重跑
-niceeval exp compare --tag <tag>              # 按单个标签过滤
-```
-
-不带 `--force` 时,续跑携带的基线是跨全部历史快照、每 `(experimentId, evalId)` 取最新一份(`src/view/data.ts` 的 `loadLatestResultsPerEval`):上次判定是 `passed` 或 `failed`、且 fingerprint 匹配的直接携入新快照,只真跑 `errored`(框架/环境层面的不确定失败)或缺失的。所以「补齐一组实验」就是重跑 `niceeval exp <组>` 本身。注意带 eval-id 位置参数时,新快照只含本次计划内的 eval——补跑别用位置参数,否则产出部分结果快照(见 memory 的 rerun-with-eval-filter-partial-snapshot)。
-
-## 评分与退出
-
-```sh
-niceeval exp compare --strict     # soft 低于阈值也判红(CI 用)
-niceeval exp compare --budget <usd>           # 整个 run 的估算成本上限,累计超了就停止派发新 attempt
-```
-
-沙箱型里跑什么校验命令、跑不跑,是 `test(t)` 里的普通代码:`t.sandbox.runCommand` 跑命令,`t.check(result, commandSucceeded())` 断言退出码。
-
-退出码按 **eval 级折叠**判定(与报表/view 同一口径,`foldEvalVerdict`:任一 attempt 通过 → 该 eval 通过,对齐 `runs`+`earlyExit` 吸收抖动的语义):折叠后仍有 `failed`(含 `--strict` 下 soft 未达标而改判的)或 `errored` 的 eval → 非零;全部 eval `passed` / `skipped` 时返回 `0`。注意判决只逐条落在各 attempt 自己的 `result.json` 里,没有 run 级的 `passed/failed/errored` 聚合字段;消费方判"全绿"要读全部 `result.json`(或经 [Results Lib](results-lib.md) 的 `openResults`)自行按 eval 折叠。`failed` 与 `errored` 在报告里分开统计。
-
-每个 eval 的 token 用量与估算成本会出现在控制台和每个 attempt 的 `result.json`,跨 agent 对比即得「质量 × 成本」。详见 [Observability](observability.md#用量与成本token--计费)。
-
-## 查看结果
-
-```sh
-niceeval show                         # 终端榜单:每个 experiment 的现刻判定,跨 run 合成
-niceeval show weather/brooklyn        # 单个 eval:attempt、断言明细,每行带 @<locator>
-niceeval show @<locator>              # 精确一个 attempt:无 flag → 紧凑全景;--eval / --execution / --diff 看对应证据切面
-niceeval show weather/brooklyn --history   # 跨 run 时间轴(只列真实执行;与 --report 互斥)
-niceeval show --report reports/exam.tsx    # 报告槽换成自定义报告(与 view --report 同一文件)
-niceeval view                         # 起本地 web,自动打开浏览器,读 .niceeval/
-niceeval view .niceeval/<experiment>/<快照>/snapshot.json   # 单文件模式:只看这一份快照
-niceeval view --port 4317             # 固定端口;被占用时向后找可用端口
-niceeval view --no-open               # 只启动服务并打印 URL(适合远端 shell / CI)
-niceeval view --out site              # 目录式静态导出,不启动服务(index.html + 查看器 artifact)
-niceeval clean                        # 清掉这些历史快照
-```
-
-每次 `exp` 运行按实验写快照目录(`.niceeval/<experiment>/<快照>/snapshot.json` + 每个 attempt 的 `result.json` / JSON artifact);`view` 启动本地服务后默认用系统浏览器打开 URL,并直接读这些结构化 artifact。当前查看器先提供 Next.js evals 风格的密集榜单:按 experiment 聚合、可排序、可搜索、可展开看单个 eval attempt 的断言/错误/用量。结果保存格式见 [Results Format](results-format.md)。
-
-## 输出
-
-```sh
-niceeval exp compare --junit <path>           # 写 JUnit XML
-niceeval exp compare --json <path>            # 写 RunSummary JSON(供 CI / 下游脚本消费)
-niceeval exp compare --quiet                  # 静默通过项;errored / failed 各补一行 stderr
-```
-
-`--quiet` 关闭控制台 / live 的逐条结果与末尾汇总;attempt 级进度行仍写 stderr。verdict 为 errored 或 failed 的结果各在 stderr 补一行摘要(eval id、`[who]`、verdict、截断后的 error 或首个失败断言),passed / skipped 静默——沙箱起不来这类执行错不用等跑完读落盘结果才发现。artifacts 与 `--junit` / `--json` 照写。
-
-## 干跑
-
-```sh
-niceeval exp compare --dry        # 只发现、不真正调用 agent / LLM
-```
-
-`--dry` 用来检查发现和过滤是否如预期,不烧 token。
-
-## 环境变量
-
-```sh
-# agent 的 API key(按 adapter 决定读哪个)
-ANTHROPIC_API_KEY=sk-ant-...        # claude-code / 直连
-OPENAI_API_KEY=sk-...               # codex / 直连
-BUB_API_KEY=...                     # bub
-AI_GATEWAY_API_KEY=...              # 经网关的变体
-
-# 沙箱 provider 认证(auto 探测用)
-VERCEL_API_TOKEN=...                # 用 vercel sandbox
-VERCEL_TEAM_ID=...                  # Vercel team
-# 都没有 → 自动用本地 docker
-
-# 裁判模型(LLM-as-judge)
-# 复用上面对应 vendor 的 key,或在 config 里单独指定
-NICEEVAL_JUDGE_MODEL=...            # config / eval 未指定 judge.model 时的兜底(没有内置默认模型)
-
-# 调度项(标志 > 环境变量 > config > 内置默认,见下节)
-NICEEVAL_RUNS=3                     # 对应 --runs
-NICEEVAL_MAX_CONCURRENCY=4          # 对应 --max-concurrency
-NICEEVAL_TIMEOUT=600000             # 对应 --timeout(毫秒)
-NICEEVAL_BUDGET=5                   # 对应 --budget(美元)
-
-# CLI 输出语言
-NICEEVAL_LANG=en                    # en / zh-CN;覆盖系统 locale
-NICEEVAL_LOCALE=zh-CN               # NICEEVAL_LANG 未设置时生效
-```
-
-CLI 文案默认跟随 `NICEEVAL_LANG` / `NICEEVAL_LOCALE`、`LC_ALL` / `LC_MESSAGES` / `LANG`。检测到 `zh` 使用 `zh-CN`,检测到其它语言使用 `en`;都没有时默认 `zh-CN`。这只影响 CLI / runtime 输出,不改变 eval 结果里的机器字段,也不翻译 LLM judge prompt。
-
-## 配置优先级
-
-同一项调度配置的覆盖顺序(高 → 低):
+## 模块地图
 
 ```text
-CLI 标志  →  环境变量  →  niceeval.config.ts  →  内置默认
+src/cli.ts              入口:parseArgs → 按 command 分派 → main() 收尾(退出码 / 中断处理)
+├─ runner/discover.ts    发现 evals/ 与 experiments/
+├─ runner/run.ts         调度核心:两级并发闸、指纹携带、budget、reporter 编排(Effect)
+│  └─ runner/attempt.ts  单个 attempt 生命周期:沙箱/OTel 资源、超时、评分(Effect)
+├─ runner/reporters/*    Console / Live / Quiet / JUnit / Json / Artifacts
+├─ show/index.ts         只读路径:解析落盘 result.json,渲染终端证据切面(不经 run.ts)
+└─ view/index.ts         只读路径:起本地 server 或 --out 静态导出(不经 run.ts)
 ```
 
-例:`--max-concurrency 4` 压过 config 里的 `maxConcurrency: 8`。agent / model / flags 不走 CLI 覆盖,复制 experiment 文件修改。
+`show` 与 `view` 不依赖 `niceeval.config.ts`,不发现 eval、不跑 agent——它们直接读 `.niceeval/` 下已经落盘的快照(见 [Results](feature/results/architecture.md)),所以不进入 `run.ts` / `attempt.ts` 这条 Effect 调度链,是两条独立的同步-为主读取路径。
 
-## 典型用法
+## 数据流:argv → 退出码
 
-下面每行都先选 experiment,再可选 eval id 前缀:
-
-```sh
-# 本地开发:零云依赖评一个 coding agent
-ANTHROPIC_API_KEY=sk-ant-... niceeval exp local fixtures/
-
-# 衡量稳定性:跑 10 次看通过率,不首过即停
-niceeval exp local fixtures/button --runs 10 --no-early-exit
-
-# 评已部署服务的会话质量(URL 是 agent / experiment 私事)
-niceeval exp prod-smoke weather billing
-
-# CI:严格模式 + JUnit
-niceeval exp ci --strict --junit .niceeval/junit.xml
-
-# 只看会发现什么,不烧钱
-niceeval exp compare --dry
+```text
+process.argv
+  → parseArgs()          # node:util parseArgs,表驱动 FLAG_OPTIONS;--diff=<path> 在此之前预扫成 diffPath
+  → { command, positionals, flags }
+  → --help / --version 直接输出退出,不需要 config
+  → command 分派:
+      view  → resolveViewInput → startViewServer / buildView(--out)   # 只读路径
+      show  → runShow(cwd, positionals, flags)                        # 只读路径
+      clean / init / watch → 各自的一次性动作,直接退出
+      list  → loadConfig + discoverEvals,打印后退出
+      exp   → loadConfig + discoverEvals + discoverExperiments
+              → 展开成 AgentRun[](每个 experiment 一条,--agent/--model 在此处直接拒绝)
+              → --dry 时只打印匹配预览,不调用 agent
+              → 规划携带(planCarry,读上次结果决定哪些 (experiment, eval) 可跳过)
+              → 建 reporters(TTY → Live;非 TTY / --quiet → Console / Quiet;外加 artifacts / junit / json)
+              → 注册 SIGINT/SIGTERM 三级响应(见下)
+              → runEvals({ config, evals, agentRuns, reporters, signal, priorResults, carryPlan, … })  # 进入 Effect 调度核心
+              → 收尾:stopAllSandboxes() 兜底强清、打印每个快照目录、按 evalLevelStats 折叠退出码
 ```
+
+`exp` 是唯一进入 Effect 调度核心(`run.ts` → `attempt.ts`)的分支;其余命令要么是一次性的同步动作,要么是只读路径,不需要结构化并发或资源生命周期管理,因而不用 Effect(见下节)。
+
+## flag 解析:表驱动,单源
+
+`FLAG_OPTIONS`(`src/cli.ts`)是 `node:util` `parseArgs` 的 options 表,每一项的 JSDoc 注释就是它在生成的 CLI 参考页 flag 表里的说明——改 flag 语义只改这条注释,不用碰生成脚本(`scripts/generate-reference.ts`)。`--no-x` 形式的负向 flag 显式声明成独立表项(而不是依赖 `parseArgs` 的 `allowNegative`,后者要求 Node 20.14+,而 `engines` 只保证 >=18)。`strict: true` 让未知 flag 直接报错,不静默吞掉后面的位置参数。
+
+`--diff=<path>` 是表驱动解析之外唯一的例外:`--diff` 本身是布尔 flag(裸 `--diff` = 文件级摘要),`=<path>` 形式必须在喂给 `parseArgs` 之前手工预扫出来(空格分隔的 `--diff <path>` 里 `<path>` 会被当成位置参数 = eval id 前缀,这是刻意的,不是 bug)。
+
+## Effect-TS 用在哪、为什么
+
+Effect 只用在调度核心——`runner/run.ts`、`runner/attempt.ts`、`sandbox/resolve.ts` 的 `createSandbox`——不用在 `cli.ts` 本身,也不用在 `show` / `view` 的只读路径。三个具体问题决定了这条边界画在哪:
+
+### 1. 两级并发闸,不是简单的信号量
+
+`run.ts` 用 `Effect.forEach(attempts, ..., { concurrency: "unbounded" })`:每个 attempt 立刻有自己的 fiber,真正的并发上限由两级 `Effect.Semaphore` 把守(全局 `globalSem` + 可选的实验级 `runSem`)。关键设计是 preflight/body 两段拆分:
+
+```typescript
+const preflight = Effect.gen(function* () { /* 首过即停、budget 检查——不持有任何 semaphore */ });
+const body      = Effect.gen(function* () { /* 真正跑 attempt——占 globalSem 一个 permit */ });
+const gated     = Effect.gen(function* () {
+  const proceed = yield* preflight;
+  if (!proceed) return;
+  yield* globalSem.withPermits(1)(body);
+});
+return runSem ? runSem.withPermits(1)(gated) : gated;
+```
+
+preflight(要不要跑这个 attempt)不占 permit——它是即时返回的判断,占着全局并发槽位空等没有意义。`runSem`(实验级 `maxConcurrency`)包住整个 `gated`,因为它是该实验的私有资源,串行化"必须串行"的实验(如跨 eval 累积记忆状态)不该占用别的实验的并发位。获取定序恒为 `runSem → globalSem`,不会死锁。
+
+### 2. 资源生命周期:`Effect.scoped` + `acquireRelease` 保证释放
+
+一次 attempt 要创建再停掉沙箱、要开再关 OTel 接收器。这两样用 `Effect.acquireRelease` 包住:
+
+```typescript
+// sandbox/resolve.ts
+Effect.acquireRelease(
+  Effect.promise<Sandbox>(async () => /* create */),
+  (sb) => Effect.promise(() => stopSandbox(sb)),
+);
+```
+
+`attempt.ts` 把整个 attempt body 包进 `Effect.scoped(...)`:无论 body 成功、抛错,还是被中断(Ctrl+C),`Scope` 的 finalizer 都保证跑完——容器一定会被 `stop()`,OTel 接收器一定会被 `close()`。这是"不留孤儿沙箱"承诺的实现机制,不是靠 `try/finally` 手写覆盖每条退出路径。
+
+### 3. 取消是一等信号,不是事后检查
+
+`cli.ts` 的 SIGINT/SIGTERM 处理器建一个 `AbortController`,`abort()` 之后把 `{ signal: ctrl.signal }` 传给 `Effect.runPromiseExit`——这一步把 Node 的 `AbortSignal` 世界桥接进 Effect 的 fiber 中断世界:
+
+```typescript
+const exit = await Effect.runPromiseExit(
+  Effect.forEach(attempts, ..., { concurrency: "unbounded", discard: true }).pipe(
+    Effect.catchAllCause((cause) =>
+      Cause.isInterrupted(cause) ? Effect.void : Effect.failCause(cause),
+    ),
+  ),
+  { signal: ctrl.signal },
+);
+```
+
+`runPromiseExit`(而非 `runPromise`)返回一个 `Exit` 而不抛错,让"用户按了 Ctrl+C"能被当成正常的部分结果收尾(用已完成的 results 出一份汇总),而不是让中断变成一条看起来像 bug 的崩溃栈。`catchAllCause` 把中断类的 `Cause` 咽下、非中断的意外照常上抛——这两类必须分开处理,否则一次 Ctrl+C 要么被误判成真·缺陷,要么真缺陷被误当成正常中断吞掉。
+
+每个 attempt 自己还有硬性的超时边界(`Effect.timeoutTo`),独立于外层的用户中断信号:到点中断整段 body、触发 `Scope` release(停容器),产出一条 `errored` 结果——即便 adapter 完全无视传给它的 signal 也能被这层拦下来,这是"一个卡死的 attempt 不会挂起整批"承诺的硬边界,`run.ts` 层面的两级并发闸解决不了这个问题(它只管发不发新 attempt,不管已经在飞的会不会卡死)。
+
+### 为什么 `cli.ts` 本身不用 Effect
+
+`cli.ts` 的职责到 `runEvals({ ..., signal: ctrl.signal })` 这一次调用为止就结束了——它构造 `AbortController`、组装调度所需的数据(`AgentRun[]`、reporters、并发上限),然后把控制权和一个 `AbortSignal` 交给调度核心,自己不持有任何需要跨越成功/失败/中断都保证释放的资源。`show` / `view` 同理:读一份落盘的 JSON、渲染、退出,没有需要结构化并发或跨路径资源清理的场景。Effect 在这里买的是两样东西——"资源释放不看退出路径"和"结构化取消"——只在真正有并发 attempt、真正持有沙箱/网络资源的调度核心才用得上这两样;把这套机制铺到线性的 argv 解析或一次性的同步读取路径上,只是仪式,不解决任何问题。
+
+## 中断:三级响应
+
+```text
+第 1 次 Ctrl+C   → ctrl.abort() → Effect 收到中断信号 → 各 attempt 的 Scope 跑 release(优雅停容器)
+                   同时起 12s 看门狗:到点若仍有存活沙箱,直接强清
+第 2 次 Ctrl+C   → 立即强清(stopAllSandboxes,带超时)后退出,不再等优雅路径
+第 3 次 Ctrl+C   → 硬退(process.exit),此时多半已无可清理的
+```
+
+目标是任何情况下都不留孤儿沙箱:第 1 次给 Effect 的 Scope finalizer 一个机会走优雅路径;用户等不及时,第 2 次直接兜底强清;`main()` 的顶层 `.catch()` 对真·崩溃路径同样先 `stopAllSandboxes()` 再退出,三条路径共用同一个兜底函数。
 
 ## 相关阅读
 
-- [Getting Started](getting-started.md) —— 从安装到第一次运行。
-- [Runner](runner.md) —— 这些标志背后的调度语义。
-- [Config](concepts.md#配置词汇) —— `niceeval.config.ts` 字段。
+- [Runner](runner.md) —— 调度行为的契约(并发、首过即停、budget、指纹缓存)——这篇讲行为,本篇讲这些行为背后的 Effect 机制。
+- [Sandbox · Architecture](feature/sandbox/architecture.md) —— `acquireRelease` 在 provider 创建上的另一处用法、provisioning 重试如何临时归还并发槽位。
+- [Show · CLI](feature/show/cli.md) / [View · CLI](feature/view/cli.md) —— 这两条只读命令各自的行为与真实输出。
+- [docs-site CLI 参考](../docs-site/zh/reference/cli.mdx) —— 面向用户的命令 / flag / 环境变量文档。

@@ -53,7 +53,7 @@
 | codex 用量从 `turn.completed.usage` 抠出 | `src/o11y/parsers/codex.ts` |
 | 用量 → 成本(实测优先 → 用户覆盖 → 内置快照) | `src/o11y/cost.ts` |
 
-## Sandbox([sandbox.md](sandbox.md))
+## Sandbox([feature/sandbox/](feature/sandbox/README.md))
 
 | 行为 | 文件 |
 |---|---|
@@ -66,7 +66,7 @@
 | 沙箱编排固定段(git 基线 / 采 diff;起始文件上传已改为 `test()` 里手工调用,不再是固定段) | `src/runner/sandbox-prep.ts` |
 | 沙箱生命周期钩子(`SandboxSpec.setup()` / `.teardown()` 链式方法、多钩子顺序、失败语义) | `src/sandbox/types.ts`(`SandboxHooks<Self>`,类型定义);`src/runner/attempt.ts`(按序调用 `sandboxSetupHooks` / 逆序调用 `sandboxTeardownHooks`) |
 
-## Scoring([scoring.md](scoring.md))
+## Scoring([feature/scoring/](feature/scoring/README.md))
 
 | 行为 | 文件 |
 |---|---|
@@ -76,7 +76,7 @@
 | LLM-as-judge(OpenAI 兼容 /chat/completions) | `src/scoring/judge.ts` |
 | 判定规则(passed / failed / errored / skipped,无 `scored` 中间态) | `src/scoring/verdict.ts` |
 
-## `t` 上下文与会话([eval-authoring.md](eval-authoring.md))
+## `t` 上下文与会话([feature/eval/](feature/eval/README.md))
 
 | 行为 | 文件 |
 |---|---|
@@ -85,7 +85,7 @@
 | 控制流信号(skip / require 失败 / turn 失败) | `src/context/control-flow.ts` |
 | `t.sandbox.file(path)` 延迟引用(到 finalize 才读沙箱文件) | `src/context/context.ts`(`FileRef`) |
 
-## Runner / CLI / Experiments([runner.md](runner.md) / [cli.md](cli.md) / [experiments.md](experiments.md))
+## Runner / CLI / Experiments([runner.md](runner.md) / [cli.md](cli.md) 架构 / [feature/experiments/](feature/experiments/README.md))
 
 | 行为 | 文件 |
 |---|---|
@@ -105,7 +105,7 @@
 
 ## Results Lib 与 Reports
 
-设计文档:[results-lib.md](results-lib.md) / [reports.md](reports.md) / [view.md](view.md) 合流一节。实现落点(show 与 view 两个宿主的 `--report` 装载都已接线;view = 报告槽 + 证据室,裸跑渲染内置的 `CostPassRateComparison`;两个宿主的报告槽 Selection 都由中性的 `selectCurrentResults` 无条件产出):
+设计文档:[feature/results/](feature/results/README.md) / [feature/reports/](feature/reports/README.md) / [feature/view/](feature/view/README.md) 合流一节。实现落点(show 与 view 两个宿主的 `--report` 装载都已接线;view = 报告槽 + 证据室,裸跑渲染内置的 `CostPassRateComparison`;两个宿主的报告槽 Selection 都由中性的 `selectCurrentResults` 无条件产出):
 
 | 行为 | 文件 |
 |---|---|

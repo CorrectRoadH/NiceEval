@@ -1,6 +1,6 @@
 # Assertions —— 断言参考(作用域 + 来源)
 
-这一篇是断言的速查参考:每条 API 做什么、看哪一轮、属于哪一类。怎么把它们组织进 eval,见 [Eval Authoring](eval-authoring.md);判定规则与 judge 细节见 [Scoring](scoring.md)。
+这一篇是断言的速查参考:每条 API 做什么、看哪一轮、属于哪一类。怎么把它们组织进 eval,见 [Eval Authoring](feature/eval/README.md);判定规则与 judge 细节见 [Scoring](feature/scoring/README.md)。
 
 > **来源一句话:** 会话 / 作用域断言 DX 借自 **eve.dev evals**;sandbox / diff 的工程形状借自 **Vercel agent-eval**;`--budget` 等护栏借鉴 **crabbox**;`closedQA` / `factuality` / `summarizes` 直接用 **autoevals(Braintrust)**。
 
@@ -214,7 +214,7 @@ export default defineEval({
 | `t.sandbox.fileExists(path)` | 判断 sandbox 文件是否存在 | 相对路径解析到 workdir |
 | `t.sandbox.readSourceFiles(root?)` | 批量读取源码文件 | `root` 省略 → workdir |
 
-文件 IO 不限制只能写某个目录:只要 provider 允许、权限允许,`targetDir` 可以是 sandbox 内任何可写目录。但常规写法是**省略 `targetDir`**——它默认落到 workdir(agent 的工作目录,也是 git 基线和 diff 采集的锚点),而 workdir 的绝对值随 provider 不同(见 [Sandbox · 路径与 workdir](sandbox.md#路径与-workdir一个坐标系)),hardcode 任何一个 provider 的绝对路径都会让 eval 换 provider 就坏。`writeFiles` / `uploadFiles` 的文件 key 不写绝对路径;目标目录用 `targetDir` 表达,文件 key 只表达该目标目录下的相对路径。必须要绝对路径时(比如拼进 prompt)用 `t.sandbox.workdir`。
+文件 IO 不限制只能写某个目录:只要 provider 允许、权限允许,`targetDir` 可以是 sandbox 内任何可写目录。但常规写法是**省略 `targetDir`**——它默认落到 workdir(agent 的工作目录,也是 git 基线和 diff 采集的锚点),而 workdir 的绝对值随 provider 不同(见 [Sandbox · 路径与 workdir](feature/sandbox/library.md#路径与-workdir一个坐标系)),hardcode 任何一个 provider 的绝对路径都会让 eval 换 provider 就坏。`writeFiles` / `uploadFiles` 的文件 key 不写绝对路径;目标目录用 `targetDir` 表达,文件 key 只表达该目标目录下的相对路径。必须要绝对路径时(比如拼进 prompt)用 `t.sandbox.workdir`。
 
 ### Sandbox:命令执行
 
@@ -367,7 +367,7 @@ t.judge.autoevals.closedQA("语气是否礼貌").atLeast(0.7);   // soft 阈值
 | 来源 | 给了 niceeval 什么 | 出处 |
 |---|---|---|
 | **eve.dev evals** | 声明式 DX、路径即身份、gate/soft 分层、t / session / turn 接收者模型、`t.check` / `t.require`、匹配器、LLM-judge 接口 | `docs/architecture.md`、`docs/README.md` |
-| **Vercel agent-eval** | Adapter / Sandbox 工程形状、sandbox diff、transcript 归一化与可观测、experiment 层、本地 `niceeval view` | `docs/vision.md`、`docs/experiments.md` |
+| **Vercel agent-eval** | Adapter / Sandbox 工程形状、sandbox diff、transcript 归一化与可观测、experiment 层、本地 `niceeval view` | `docs/vision.md`、`docs/feature/experiments/` |
 | **crabbox** | capability 分发纪律、`--budget` / `maxCost` 的 spend cap、source-map 文档观 | `docs/vision.md`、`docs/runner.md` |
 | **autoevals(Braintrust)** | `closedQA` / `factuality` / `summarizes` 三个 judge | `src/scoring/judge.ts` |
 
@@ -381,7 +381,7 @@ t.judge.autoevals.closedQA("语气是否礼貌").atLeast(0.7);   // soft 阈值
 
 ## 接下来读什么
 
-- [Eval Authoring](eval-authoring.md) —— 怎么把这些 API 组织进单轮 / 多轮 / 数据集 / 沙箱型 eval。
-- [Scoring](scoring.md) —— 判定规则、judge 细节、效率 / 成本断言。
+- [Eval Authoring](feature/eval/library.md) —— 怎么把这些 API 组织进单轮 / 多轮 / 数据集 / 沙箱型 eval。
+- [Scoring](feature/scoring/README.md) —— 判定规则、judge 细节、效率 / 成本断言。
 - [Adapter 契约](feature/adapters/contract.md) —— 断言读的标准事件流从哪来,以及每条断言对 adapter 的数据义务。
 - [Observability](observability.md) —— transcript / usage / cost 的数据来源。

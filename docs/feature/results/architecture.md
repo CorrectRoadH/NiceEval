@@ -1,6 +1,6 @@
-# Results Format —— 结果保存格式
+# Results —— 架构
 
-这篇记录 `Artifacts()` 报告器写到本地磁盘的格式,也是 `niceeval view` 的离线输入契约。实现入口是 `src/results/writer.ts`(`Artifacts()` reporter 是它的薄壳);核心持久化类型在 `src/results/`,运行时类型在 `src/types.ts` 的 `EvalResult`、`StreamEvent`、`TraceSpan`、`O11ySummary` 和 `DiffData`。
+这是磁盘上的快照 / attempt 结果格式规范,也是 `niceeval view` 的离线输入契约;为什么格式与库合一见 [README](README.md),TS 读写 API 见 [Library](library.md)。实现入口是 `src/results/writer.ts`(`Artifacts()` reporter 是它的薄壳);核心持久化类型在 `src/results/`,运行时类型在 `src/types.ts` 的 `EvalResult`、`StreamEvent`、`TraceSpan`、`O11ySummary` 和 `DiffData`。
 
 ## 目录结构
 
@@ -50,7 +50,7 @@
 }
 ```
 
-版本历史:`1` 初版;`2`(2026-07)= `ExperimentRunInfo.flags` 改名 `params`;`3`(2026-07-10)= 改回 `flags`(A/B feature flag 语义定稿,见 docs/reports.md 裁决记录);`4`(2026-07-11)= 落盘单位从 run 改为快照——实验目录在外层,快照元数据住 `snapshot.json`,判决住 attempt 级 `result.json`(裁决背景见 memory 的 results-per-snapshot 条目);`5` = `result.json` 新增 `locator`(不透明的 Attempt 定位符,见「`result.json`」);`sources.json` 从逐 attempt 内联全量源码改为「attempt 级引用 + 快照级 `sources/<sha256>.json` 去重仓库」(见「`sources.json`」)。
+版本历史:`1` 初版;`2`(2026-07)= `ExperimentRunInfo.flags` 改名 `params`;`3`(2026-07-10)= 改回 `flags`(A/B feature flag 语义定稿,见 [Reports 裁决记录](../reports/architecture.md#迭代问题裁决记录));`4`(2026-07-11)= 落盘单位从 run 改为快照——实验目录在外层,快照元数据住 `snapshot.json`,判决住 attempt 级 `result.json`(裁决背景见 memory 的 results-per-snapshot 条目);`5` = `result.json` 新增 `locator`(不透明的 Attempt 定位符,见「`result.json`」);`sources.json` 从逐 attempt 内联全量源码改为「attempt 级引用 + 快照级 `sources/<sha256>.json` 去重仓库」(见「`sources.json`」)。
 
 设计原则是**不做兼容机制**。没有迁移函数,没有多版本 normalize loader,没有 per-artifact 版本号:整个快照(snapshot.json + 全部 attempt 文件)共用顶层这一个 `schemaVersion`。读取器只认与自己相同的版本;版本不同就是不兼容,唯一的处理是提示用写这份结果的 niceeval 版本查看:
 
@@ -140,7 +140,7 @@ interface AttemptRecord {
    * 不是数组下标、不是磁盘路径。非携带条目由 writer 落盘时算出;携带条目(见下)原样复制
    * 上一轮的值,从不重算(原快照的 startedAt 已经不在本轮快照里,重算会算出不同的字符串)。
    * `niceeval show @<locator>` 与报告 / view 的 attempt 深链都靠它寻址,详见
-   * [Results Lib](results-lib.md) 的 `resolveLocator`。
+   * [Library](library.md) 的 `resolveLocator`。
    */
   locator?: string;
   /** 携带条目专用: artifact 目录(相对结果根目录),指向原快照里的落盘。 */
@@ -158,7 +158,7 @@ interface AttemptRecord {
 - **本快照跑出的条目**:artifact 与 `result.json` 同目录,不需要任何路径引用字段。
 - **携带条目**(`--resume` 把上一轮已通过、fingerprint 匹配的结果合入本快照,让最新快照保持完整):`startedAt` 保留原条目的时刻,另带 `artifactBase`(相对结果根,指向原快照的 attempt 目录),`has*` 真值原样携带。`artifactBase` 就是事实上的「携带」标记。
 
-`o11y.json` 和 `diff.json` 没有对应的 `has*` 标记;读取面的懒加载语义(缺失返回 `null`)吸收了存在性判断,见 [Results Lib](results-lib.md)。
+`o11y.json` 和 `diff.json` 没有对应的 `has*` 标记;读取面的懒加载语义(缺失返回 `null`)吸收了存在性判断,见 [Library](library.md)。
 
 ## Attempt 级文件
 
@@ -201,7 +201,7 @@ interface AttemptRecord {
   共享是常态——重试、或数组默认导出的多个 eval),内容只在 `sources/` 下存一份,按内容哈希
   (不是按路径)去重;哈希撞见即复用,不重写。
 
-`niceeval view` 与 `AttemptHandle.sources()`(见 [Results Lib](results-lib.md))把两者拼回
+`niceeval view` 与 `AttemptHandle.sources()`(见 [Library](library.md))把两者拼回
 `SourceArtifact[]`(`{path, content}[]`,与 schemaVersion 4 及更早版本的语义一致)供上层消费——
 消费方不需要知道落盘拆成了两层,只有直接读盘的脚本(`jq` / 手写工具)需要知道这个引用 + 仓库的
 两步解析。`niceeval view` 用它把 `t.send`、断言和运行结果叠回源码行。
@@ -210,7 +210,7 @@ interface AttemptRecord {
 同样的 `artifactBase` 回退:读取面按 `artifactBase` 定位到原快照,原快照的 `sources.json`
 引用 + 原快照自己的 `sources/` 去重仓库依然完整,不需要复制。`copySnapshots` 发布时则相反——
 产物必须自包含,不能带 `artifactBase` 回退指针,所以复制时把引用解引用出完整内容后,在目标
-快照里按内容重新去重落盘(见 [Results Lib](results-lib.md)「复制与瘦身」)。
+快照里按内容重新去重落盘(见 [Library](library.md)「复制与瘦身」)。
 
 ### `trace.json`
 
@@ -247,7 +247,7 @@ interface DiffData {
 
 ## 读取规则
 
-编程消费用 [`openResults`](results-lib.md)——布局知识全部被库消化。手工(`jq` / 脚本)读的路线:
+编程消费用 [`openResults`](library.md)——布局知识全部被库消化。手工(`jq` / 脚本)读的路线:
 
 1. 定位快照:`.niceeval/<experiment>/` 下最新的时间戳目录,读 `snapshot.json` 确认身份与版本。
 2. 逐 attempt 读 `<evalId>/a<attempt>/result.json` 拿判决、断言、用量、成本、`locator`。
@@ -269,3 +269,9 @@ interface DiffData {
 - 快照级: `snapshot.json`、`sources/<sha256>.json`(eval 源码去重仓库);
 - attempt 级: `result.json`、`events.json`、`sources.json`(引用,不内联内容)、`trace.json`、`o11y.json`、`diff.json`;
 - 每个文件都是 JSON,不是 JSONL。
+
+## 相关阅读
+
+- [README](README.md) —— 为什么格式与库合一、库的边界、四个消费方。
+- [Library](library.md) —— `niceeval/results` 的 TS 读写 API。
+- [Reports](../reports/README.md) —— 建立在本库读取面之上的积木。

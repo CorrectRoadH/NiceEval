@@ -17,7 +17,7 @@
 - 找所有 `*.eval.ts`,`import` 后看默认导出 —— 单个 eval 用文件 id;数组则扇出,id 加零填充索引(`sql/0000`)。没有另一种基于目录约定的隐式发现——沙箱型 eval 也必须有一个 `.eval.ts` 文件。
 - 按相对路径排序,保证 id 稳定、输出可比。
 - 应用过滤:`niceeval exp <组|配置>` 后的位置参数(id 前缀,如 `weather` 命中 `weather/*`)、`--tag`。
-- `niceeval exp` 时另从 `experiments/` 扫实验文件(默认导出 `defineExperiment` 的 `.ts`),据路径推导实验 id;**目录段即"可对比组"** —— `niceeval exp <组>` 跑整个文件夹、同组互为对照(见 [实验怎么组织](experiments.md#实验怎么组织文件夹--一组可对比的实验))。实验的 `evals` 字段再筛要跑哪些 eval(见[矩阵展开](#矩阵展开与通过率))。
+- `niceeval exp` 时另从 `experiments/` 扫实验文件(默认导出 `defineExperiment` 的 `.ts`),据路径推导实验 id;**目录段即"可对比组"** —— `niceeval exp <组>` 跑整个文件夹、同组互为对照(见 [实验怎么组织](feature/experiments/library.md#实验怎么组织文件夹--一组可对比的实验))。实验的 `evals` 字段再筛要跑哪些 eval(见[矩阵展开](#矩阵展开与通过率))。
 
 ## 调度:有界并发
 
@@ -27,7 +27,7 @@
 
 ## 矩阵展开与通过率
 
-一次 `exp` 运行把一批配置展成 attempt:通常来自**一组文件夹里的多个单一配置**(`compare/bub-gpt-5.4` + `compare/codex-gpt-5.4`,见 [实验怎么组织](experiments.md#实验怎么组织文件夹--一组可对比的实验));再 × `eval × runs`。比如 2 个实验配置 × `runs: 5` × 3 个 eval = 30 个 attempt。汇总按 `(agent, model, eval)` 分组,不再是单一判定,而是**通过率** + 平均耗时 / token / 成本:
+一次 `exp` 运行把一批配置展成 attempt:通常来自**一组文件夹里的多个单一配置**(`compare/bub-gpt-5.4` + `compare/codex-gpt-5.4`,见 [实验怎么组织](feature/experiments/library.md#实验怎么组织文件夹--一组可对比的实验));再 × `eval × runs`。比如 2 个实验配置 × `runs: 5` × 3 个 eval = 30 个 attempt。汇总按 `(agent, model, eval)` 分组,不再是单一判定,而是**通过率** + 平均耗时 / token / 成本:
 
 ```text
 fixtures/button   claude-code   pass@5 = 4/5 (80%)   mean 34s · 58k tok · $0.44
@@ -68,9 +68,9 @@ fixtures/button   codex         pass@5 = 3/5 (60%)   mean 41s · 72k tok · $0.3
 
 ## 环境预置不进运行器,但按顺序调它
 
-niceeval **没有 run / experiment 级生命周期钩子**——`ExperimentDef` 仍是纯配置数据,不携带任何生命周期字段,运行器不会替用户在整个 run 前后跑任意 `setup` / `teardown`。但"跑 agent 前要不要准备环境"这件事确实需要一个家:沙箱创建后、git 基线之前,运行器会调用 `experiment.sandbox` 链上挂的环境钩子(`SandboxSpec.setup()` / `.teardown()`,见 [Sandbox · 沙箱生命周期钩子](sandbox.md#沙箱生命周期钩子setup--teardown));沙箱固定段("发现 → 调度 → 沙箱起停 / git 基线 / 采 diff → 评分 → 报告"这条主轴)之内,还分出这条 eval 的任务夹具(`EvalDef.setup` 或 `test(t)`)和 agent 自己的一次性预置([`SandboxAgent.setup`](feature/adapters/contract.md#agent-契约))。运行器只固定这几个调用点的**顺序**,钩子内部做什么、要不要按实验变化,全部交给对应的作者决定,不写进运行器本身。整个 run 共享的外部服务(mock API、DB)仍然用外部编排(`docker compose` / CI 脚本)起停、经 env 传入——这类资源跨进程共享,不属于任何一次沙箱的生命周期。四类职责的完整分工表见 [环境预置放哪](sandbox.md#环境预置放哪)。
+niceeval **没有 run / experiment 级生命周期钩子**——`ExperimentDef` 仍是纯配置数据,不携带任何生命周期字段,运行器不会替用户在整个 run 前后跑任意 `setup` / `teardown`。但"跑 agent 前要不要准备环境"这件事确实需要一个家:沙箱创建后、git 基线之前,运行器会调用 `experiment.sandbox` 链上挂的环境钩子(`SandboxSpec.setup()` / `.teardown()`,见 [Sandbox · 沙箱生命周期钩子](feature/sandbox/library.md#沙箱生命周期钩子setup--teardown));沙箱固定段("发现 → 调度 → 沙箱起停 / git 基线 / 采 diff → 评分 → 报告"这条主轴)之内,还分出这条 eval 的任务夹具(`EvalDef.setup` 或 `test(t)`)和 agent 自己的一次性预置([`SandboxAgent.setup`](feature/adapters/contract.md#agent-契约))。运行器只固定这几个调用点的**顺序**,钩子内部做什么、要不要按实验变化,全部交给对应的作者决定,不写进运行器本身。整个 run 共享的外部服务(mock API、DB)仍然用外部编排(`docker compose` / CI 脚本)起停、经 env 传入——这类资源跨进程共享,不属于任何一次沙箱的生命周期。四类职责的完整分工表见 [环境预置放哪](feature/sandbox/library.md#环境预置放哪)。
 
-**下游分析**(二次评分、自定义指标)走 [reporter](observability.md#reporters),不另设运行钩子——这是从 agent-eval 的 `onRunComplete` 收敛过来的(见 [Experiments 砍字段](experiments.md#从-agent-eval-砍掉了什么以及为什么))。
+**下游分析**(二次评分、自定义指标)走 [reporter](observability.md#reporters),不另设运行钩子——这是从 agent-eval 的 `onRunComplete` 收敛过来的(见 [Experiments 砍字段](feature/experiments/architecture.md#从-agent-eval-砍掉了什么以及为什么))。
 
 ## 运行器事件
 
@@ -99,6 +99,6 @@ run:summary        { passed, failed, skipped, errored, durationMs, usage, estima
 ## 相关阅读
 
 - [Architecture](architecture.md) —— 运行器在四段数据流里的位置与端到端时序。
-- [Sandbox](sandbox.md) —— 预热与复用的 provider 支持,以及环境预置放哪。
+- [Sandbox](feature/sandbox/README.md) —— 预热与复用的 provider 支持,以及环境预置放哪。
 - [Observability](observability.md) —— 运行器产出的 artifact 与报告。
-- [CLI](cli.md) —— 暴露这些调度行为的标志。
+- [CLI](cli.md) —— `exp` 怎么把这些调度行为接进 Effect 核心。

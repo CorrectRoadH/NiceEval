@@ -31,6 +31,14 @@ function treeEntryBasenames(content: string): Set<string> {
   );
 }
 
+// 树状图里以 `/` 收尾的条目是目录(如 `feature/`、`adapters/`)。索引只画到二级目录,
+// 不逐文件列出子目录内容——声明一个目录即视为覆盖它底下的全部文件(含更深的子目录)。
+function treeDirEntries(content: string): Set<string> {
+  return new Set(
+    [...content.matchAll(/(?:├──|└──)\s+([\w.-]+)\//g)].map((m) => m[1]),
+  );
+}
+
 describe("docs 一致性", () => {
   const docsFiles = walk("docs", ".md");
 
@@ -40,10 +48,14 @@ describe("docs 一致性", () => {
       relativeLinks(index).map((t) => join("docs", t)),
     );
     const treeBasenames = treeEntryBasenames(index);
+    const treeDirs = treeDirEntries(index);
     const unindexed = docsFiles.filter((f) => {
       if (f === "docs/README.md" || linked.has(f)) return false;
-      const base = f.slice("docs/".length).split("/").pop() as string;
-      return !treeBasenames.has(base);
+      const segments = f.slice("docs/".length).split("/");
+      const base = segments[segments.length - 1];
+      if (treeBasenames.has(base)) return false;
+      const dirSegments = segments.slice(0, -1);
+      return !dirSegments.some((seg) => treeDirs.has(seg));
     });
     expect(unindexed, "这些文档没有被 docs/README.md 索引").toEqual([]);
   });

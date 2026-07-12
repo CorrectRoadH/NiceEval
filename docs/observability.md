@@ -177,7 +177,7 @@ spans 是异步推来的,必须知道「这批 span 属于哪一轮 `send`」。
         diff.json
 ```
 
-`snapshot.json` 只放身份与版本元数据(`experimentId`、`agent`、`model`、`startedAt`、收尾补写的 `completedAt`),**不含任何逐 attempt 数据**。判决与断言的权威记录住在每个 attempt 目录的 `result.json`——attempt 完成时一次写成,之后不再改写;通过数、失败数、总用量、总成本这类聚合不落盘,由读取面([Results Lib](results-lib.md)的 `openResults`)逐条推导。每个 attempt 的重数据按需写入自己的目录,文件内容都是 JSON array/object,不是 JSONL / NDJSON。完整 schema、版本号设计、路径转义规则和 view 读取规则见 [Results Format](results-format.md)。
+`snapshot.json` 只放身份与版本元数据(`experimentId`、`agent`、`model`、`startedAt`、收尾补写的 `completedAt`),**不含任何逐 attempt 数据**。判决与断言的权威记录住在每个 attempt 目录的 `result.json`——attempt 完成时一次写成,之后不再改写;通过数、失败数、总用量、总成本这类聚合不落盘,由读取面([Results Lib](feature/results/library.md)的 `openResults`)逐条推导。每个 attempt 的重数据按需写入自己的目录,文件内容都是 JSON array/object,不是 JSONL / NDJSON。完整 schema、版本号设计、路径转义规则和 view 读取规则见 [Results Format](feature/results/architecture.md)。
 
 `result.json` 形如:
 
@@ -259,7 +259,7 @@ Run totals:  3 evals · 142k tok · $1.12   (agent: claude-code)
 }
 ```
 
-run 级合计不落盘:总时长、总用量、总成本由消费方([Results Lib](results-lib.md)的 `openResults` 逐条推导,或 reporter 层现算)累加得到。这让「跨 agent 对比」从只有 pass-rate 变成 **pass-rate × 时间 × $**,也能算出 pass@$1(单位成本下的通过率)这类指标。
+run 级合计不落盘:总时长、总用量、总成本由消费方([Results Lib](feature/results/library.md)的 `openResults` 逐条推导,或 reporter 层现算)累加得到。这让「跨 agent 对比」从只有 pass-rate 变成 **pass-rate × 时间 × $**,也能算出 pass@$1(单位成本下的通过率)这类指标。
 
 ### 时间也是一等指标(效率三件套)
 
@@ -277,12 +277,12 @@ run 级合计不落盘:总时长、总用量、总成本由消费方([Results Li
 
 ### 把成本变成可断言 / 可护栏的维度
 
-- **断言效率**(见 [Scoring](scoring.md#5-效率成本断言)):`t.maxTokens(50_000)` / `t.maxCost(0.5)` —— agent 答对了但烧太多,也判失败。
+- **断言效率**(见 [Scoring](feature/scoring/library.md#效率--成本断言)):`t.maxTokens(50_000)` / `t.maxCost(0.5)` —— agent 答对了但烧太多,也判失败。
 - **预算护栏**:`--budget <usd>` 给整个 run 设上限,累计花费超了就停止派发新 attempt(借鉴 crabbox 的 spend cap),避免一次跑爆账单。
 
 ## 结果可视化:`niceeval view`
 
-控制台是「当下」的;但你常常想**事后看图**:这次比上次贵了多少?哪个 agent 性价比高?所以 niceeval 提供一个本地查看器(对标 agent-eval 的 playground:一个读结果目录的 web UI),只读 `.niceeval/<experiment>/<snapshot>/` 下的 `snapshot.json` 与逐 attempt `result.json` 这些**结构化 artifact**,不连任何外部服务。结果落盘格式见 [Results Format](results-format.md);查看器现状、已知的文档差异和计划中的功能(比如挑两次运行对比)见 [View](view.md)。
+控制台是「当下」的;但你常常想**事后看图**:这次比上次贵了多少?哪个 agent 性价比高?所以 niceeval 提供一个本地查看器(对标 agent-eval 的 playground:一个读结果目录的 web UI),只读 `.niceeval/<experiment>/<snapshot>/` 下的 `snapshot.json` 与逐 attempt `result.json` 这些**结构化 artifact**,不连任何外部服务。结果落盘格式见 [Results Format](feature/results/architecture.md);查看器见 [View](feature/view/README.md),计划中的功能(比如挑两次运行对比)见 [View 增强](roadmap/view-enhancements.md)。
 
 可视化能力完全建立在「 artifact 结构化 + 带 usage/cost」之上 —— 换句话说,**只要数据采全了,图是免费的**;不想用内置查看器,同一份 artifact 也能喂给下游 dashboard。
 
@@ -303,7 +303,7 @@ interface Reporter {
 报告器在**独立串行队列**上被回调,不阻塞执行池(见 [Runner](runner.md#调度有界并发))。内置:
 
 - **`Console()`** —— 默认,流式逐行输出,失败断言内联展开。
-- **`Artifacts()`** —— 默认按实验写快照目录(`.niceeval/<experiment>/<snapshot>/`):`snapshot.json` 快照元数据 + 每个 attempt 的 `result.json`(判决、断言、用量,一次写成)与按需生成的 `events.json`、`sources.json`、`trace.json`、`o11y.json`、`diff.json`,供 `niceeval view` 读取。具体格式见 [Results Format](results-format.md)。
+- **`Artifacts()`** —— 默认按实验写快照目录(`.niceeval/<experiment>/<snapshot>/`):`snapshot.json` 快照元数据 + 每个 attempt 的 `result.json`(判决、断言、用量,一次写成)与按需生成的 `events.json`、`sources.json`、`trace.json`、`o11y.json`、`diff.json`,供 `niceeval view` 读取。具体格式见 [Results Format](feature/results/architecture.md)。
 - **`JUnit(path)`** —— JUnit XML,接 CI 测试报告 UI。
 - **`Json(path)`** —— 机器可读全量。
 - **`Braintrust(config?)`** —— 把一次运行作为一个 Braintrust experiment 上报,每个 attempt 一行:soft 断言按名字记分,gate 断言记在 `gate:` 前缀下(实验 diff 里 gate 回归和 soft 分数回归用同一套机制看);metrics 带 start/end、token 用量与估算成本,metadata 带 agent / model / experiment / flags 身份维度与失败断言明细。`braintrust` 包是可选 peer 依赖(动态 import,没装时 onRunStart 报错并提示安装);鉴权走 `BRAINTRUST_API_KEY` 或工厂参数 `apiKey`。源码 `src/runner/reporters/braintrust.ts`。
@@ -334,8 +334,8 @@ eval 级 reporter 经作用域包装接入(`scopeReporter`,见 `src/runner/repor
 
 ## 相关阅读
 
-- [Scoring](scoring.md) —— 作用域断言如何消费 o11y。
+- [Scoring](feature/scoring/README.md) —— 作用域断言如何消费 o11y。
 - [Runner](runner.md) —— 报告队列与 artifact 落盘的调度。
-- [Results Format](results-format.md) —— `.niceeval/<experiment>/<snapshot>/` 的目录结构与 JSON 文件契约。
+- [Results Format](feature/results/architecture.md) —— `.niceeval/<experiment>/<snapshot>/` 的目录结构与 JSON 文件契约。
 - [Adapter 写法](feature/adapters/authoring.md) —— 接新 agent 需要的解析器、采集层怎么弄到原始数据。
 - [agent-eval 参考:采集 / 转换 / 落地三层](feature/adapters/reference/agent-eval.md) —— Vercel agent-eval 怎么写 adapter 的学习记录。

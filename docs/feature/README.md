@@ -4,6 +4,6 @@
 
 还没定为当前契约、只是提案阶段的功能放 [`../roadmap/`](../roadmap/),不放在这里。
 
-新开一个功能子目录,从 [`_template/`](_template/README.md) 复制起步:功能说明、CLI 预期反馈、架构各一篇,按需增减。
+新开一个功能子目录,从 [`_template/`](_template/README.md) 复制起步:功能说明、架构各一篇必备;`cli.md`(有 CLI 面的功能,写命令/flag 的预期反馈)和 `library.md`(纯 TS API 调用的功能,写怎么 import、怎么调)按功能形态二选一或都写,按需增减。
 
 子目录清单见 [`docs/README.md`](../README.md)。

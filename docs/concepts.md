@@ -1,6 +1,6 @@
 # Concepts
 
-> 状态:本页词条描述当前已实现行为。`AttemptLocator`、`AttemptEvidence`、`AnnotatedEvalSource`、`ExecutionTree`,以及报告组件里的 `ExperimentList` / `EvalList` / `AttemptList`(完整定义见 [Reports](reports.md))均已实现,取代了旧的 `AttemptRef`(快照/attempt 路径对)、彼此独立的标准事件流与 trace 瀑布图,以及 `ExperimentTable`、`CaseList`、`MetricTable.expand`(均已删除,无兼容层)。`niceeval view` 证据室的 attempt 路由(`src/view/app/`)同样消费 `#/attempt/@<locator>` 单段格式,报告页与 view 靠同一个 locator 身份契约打通,见 [View](view.md) 的状态说明。
+> 状态:本页词条描述当前已实现行为。`AttemptLocator`、`AttemptEvidence`、`AnnotatedEvalSource`、`ExecutionTree`,以及报告组件里的 `ExperimentList` / `EvalList` / `AttemptList`(完整定义见 [Reports](feature/reports/README.md))均已实现,取代了旧的 `AttemptRef`(快照/attempt 路径对)、彼此独立的标准事件流与 trace 瀑布图,以及 `ExperimentTable`、`CaseList`、`MetricTable.expand`(均已删除,无兼容层)。`niceeval view` 证据室的 attempt 路由(`src/view/app/`)同样消费 `#/attempt/@<locator>` 单段格式,报告页与 view 靠同一个 locator 身份契约打通,见 [View](feature/view/README.md)。
 
 什么时候读这一篇:
 
@@ -27,7 +27,7 @@
 | 断言 | Assertion | Scorer 的一次具体应用,带名字、严重度、可选阈值,产出 0–1 分数和过/挂 |
 | 判定 | Verdict | 一个 Eval 的评分判定,四态:`passed` / `failed` / `errored` / `skipped`,没有中间态 |
 | 严重度 | Severity | 断言的两档:gate 不过即 `failed`;soft 只记分,`--strict` 下低于阈值才降级 `failed` |
-| Judge(LLM-as-judge) | Judge(LLM-as-judge) | 用一个大模型当裁判给开放式回答打分的 Scorer,默认 soft、无阈值,详见 [Scoring](scoring.md#3-llm-as-judge) |
+| Judge(LLM-as-judge) | Judge(LLM-as-judge) | 用一个大模型当裁判给开放式回答打分的 Scorer,默认 soft、无阈值,详见 [Scoring](feature/scoring/library.md#llm-as-judge) |
 
 ### 被测对象与适配器
 
@@ -77,7 +77,7 @@
 
 ### 结果数据与报告
 
-本组词的完整契约在 [Results Lib](results-lib.md)、[Reports](reports.md) 与 [View](view.md)。
+本组词的完整契约在 [Results Lib](feature/results/library.md)、[Reports](feature/reports/README.md) 与 [View](feature/view/README.md)。
 
 | 中文 | English | 含义 |
 |---|---|---|
@@ -144,7 +144,7 @@
 
 **Sandbox** / **沙箱** —— 封装"在哪里、如何隔离地跑命令"的对象。统一接口:`workdir` / `runCommand` / `readFile` / `writeFiles` / `uploadDirectory` / `stop`。实现包括 Docker、Vercel Sandbox、其它三方。命令工作目录通过 `runCommand` / `runShell` 的 `cwd` option 表达,不提供可变的 working directory。
 
-**workdir** —— 沙箱内 agent 的默认工作目录,也是 git 基线和 diff 采集的锚点;绝对值随 provider 不同(docker `/home/sandbox/workspace`、e2b `/home/user/workspace`、vercel `/vercel/sandbox`)。API 里所有沙箱侧相对路径、省略的 `targetDir` / `cwd` 都解析到它;eval 作者用相对路径写完整条 eval,必须要绝对路径时读 `t.sandbox.workdir`。详见 [Sandbox · 路径与 workdir](sandbox.md#路径与-workdir一个坐标系)。
+**workdir** —— 沙箱内 agent 的默认工作目录,也是 git 基线和 diff 采集的锚点;绝对值随 provider 不同(docker `/home/sandbox/workspace`、e2b `/home/user/workspace`、vercel `/vercel/sandbox`)。API 里所有沙箱侧相对路径、省略的 `targetDir` / `cwd` 都解析到它;eval 作者用相对路径写完整条 eval,必须要绝对路径时读 `t.sandbox.workdir`。详见 [Sandbox · 路径与 workdir](feature/sandbox/library.md#路径与-workdir一个坐标系)。
 
 **`t.sandbox`** —— 沙箱型 eval 里暴露给 `test(t)` 的沙箱操作接口。它分三类:文件 IO(`writeFiles` / `readFile`)、命令执行(`runCommand` / `runShell`)和结果断言 / diff(`fileChanged` / `diff` / `file`)。沙箱生命周期由 runner 管,`stop()` 不暴露给 eval 作者。
 
@@ -160,15 +160,15 @@
 
 **Dataset** / **数据集** —— 一组共享同一 `test` 逻辑、只有输入不同的 case。用 `loadYaml`/`loadJson` 读进来,`.map(row => defineEval(...))` 扇出。生成的 id 形如 `sql/0000`、`sql/0001`(零填充 4 位)。
 
-**Discovery** / **发现** —— 运行器扫 `evals/` 找 `*.eval.ts` 文件,据路径推导 id 并排序。没有目录层面的隐式发现——沙箱型 eval 和会话型 eval 一样,必须有一个 `.eval.ts` 文件;起始文件靠 `test()` 里手工 `t.sandbox.writeFiles` / `uploadFiles` 放进沙箱(见 [Eval Authoring](eval-authoring.md#沙箱型手工把文件放进沙箱)),不靠运行器扫目录。
+**Discovery** / **发现** —— 运行器扫 `evals/` 找 `*.eval.ts` 文件,据路径推导 id 并排序。没有目录层面的隐式发现——沙箱型 eval 和会话型 eval 一样,必须有一个 `.eval.ts` 文件;起始文件靠 `test()` 里手工 `t.sandbox.writeFiles` / `uploadFiles` 放进沙箱(见 [Eval Authoring](feature/eval/library.md#沙箱型手工把文件放进沙箱)),不靠运行器扫目录。
 
 ## 运行与结果
 
 **Runner** / **运行器** —— 调度引擎。负责发现、有界并发执行、重试、首过即停、缓存,以及把结果交给报告器。详见 [Runner](runner.md)。
 
-**Experiment** / **实验** —— 一份可签入的**运行配置**,描述「怎么跑这批 eval」:用哪个 [Agent](#agent)、跑几次、过滤哪些、预算多少。由 `defineExperiment` 定义在 `experiments/` 下,id 从路径推导。**一文件 = 一个单一配置**;**一个文件夹 = 一组要并排对比的实验**(`niceeval exp <组>` 跑整组),可比性由目录表达。它**不碰评分**——「怎么算对」是 eval 的事。详见 [Experiments](experiments.md)。
+**Experiment** / **实验** —— 一份可签入的**运行配置**,描述「怎么跑这批 eval」:用哪个 [Agent](#agent)、跑几次、过滤哪些、预算多少。由 `defineExperiment` 定义在 `experiments/` 下,id 从路径推导。**一文件 = 一个单一配置**;**一个文件夹 = 一组要并排对比的实验**(`niceeval exp <组>` 跑整组),可比性由目录表达。它**不碰评分**——「怎么算对」是 eval 的事。详见 [Experiments](feature/experiments/README.md)。
 
-**Comparison group** / **可对比组** —— `experiments/` 下的一个文件夹,装一组"要并排比较"的单一配置(如同模型下 bub vs codex)。同组互为对照、`niceeval view` 并列展示;不同组是不同的对比维度。比文件内数组多表达了"可比性"语义。详见 [实验怎么组织](experiments.md#实验怎么组织文件夹--一组可对比的实验)。
+**Comparison group** / **可对比组** —— `experiments/` 下的一个文件夹,装一组"要并排比较"的单一配置(如同模型下 bub vs codex)。同组互为对照、`niceeval view` 并列展示;不同组是不同的对比维度。比文件内数组多表达了"可比性"语义。详见 [实验怎么组织](feature/experiments/library.md#实验怎么组织文件夹--一组可对比的实验)。
 
 **Run** —— 一次 `niceeval` 调用对一批 eval 的完整执行,产出一份 **summary**。
 
@@ -192,7 +192,7 @@
 
 **Reporter** / **报告器** —— 消费运行结果的插件,可实现分阶段 `onEvent`(`run:start` / `eval:start` / `eval:complete` / `run:summary` 等),也兼容 `onRunStart` / `onEvalComplete` / `onRunComplete`。内置控制台、JUnit、JSON;可接第三方实验跟踪平台。报告器在独立的串行队列上回调,不阻塞执行池。详见 [Reporters](observability.md#reporters)。
 
-**Artifact** / **artifact** —— 落盘的结构化产物。落盘单位是**结果快照**(一个 experiment 的一次运行):快照目录 `.niceeval/<experiment>/<snapshot>/` 下放快照级 `snapshot.json`(身份与版本元数据),每个 attempt 目录(`<evalId>/a<attempt>/`)下放判决与断言的权威记录 `result.json`,以及按需生成的 `events.json`、`sources.json`、`trace.json`、`o11y.json`、`diff.json`。每个文件都是 JSON,不是 JSONL / NDJSON。attempt 目录路径是磁盘存储细节;report / CLI 层寻址同一个 Attempt 用的是 `AttemptLocator`(见「结果数据与报告」词表),不直接引用路径或数组下标。详见 [Results Format](results-format.md)。
+**Artifact** / **artifact** —— 落盘的结构化产物。落盘单位是**结果快照**(一个 experiment 的一次运行):快照目录 `.niceeval/<experiment>/<snapshot>/` 下放快照级 `snapshot.json`(身份与版本元数据),每个 attempt 目录(`<evalId>/a<attempt>/`)下放判决与断言的权威记录 `result.json`,以及按需生成的 `events.json`、`sources.json`、`trace.json`、`o11y.json`、`diff.json`。每个文件都是 JSON,不是 JSONL / NDJSON。attempt 目录路径是磁盘存储细节;report / CLI 层寻址同一个 Attempt 用的是 `AttemptLocator`(见「结果数据与报告」词表),不直接引用路径或数组下标。详见 [Results Format](feature/results/architecture.md)。
 
 ## 配置词汇
 
@@ -200,21 +200,21 @@
 
 | 字段 | 类型 | 作用 |
 |---|---|---|
-| `judge` | `JudgeConfig` | 默认 Judge(裁判模型,见 [Scoring](scoring.md#3-llm-as-judge)) |
+| `judge` | `JudgeConfig` | 默认 Judge(裁判模型,见 [Scoring](feature/scoring/library.md#llm-as-judge)) |
 | `reporters` | `Reporter[]` | 全局报告器(见 [Observability](observability.md#reporters)) |
 | `maxConcurrency` | `number` | 并发上限(见 [Runner](runner.md#调度有界并发)) |
 | `timeoutMs` | `number` | 单 eval 超时 |
 | `sandbox` | `SandboxOption` | 项目默认 sandbox spec(`dockerSandbox()` 等工厂产出);experiment 可覆盖。两处都没设、又用了沙箱型 agent 时直接报错——没有隐式默认,也没有 `--sandbox` 这种 CLI 覆盖 |
 | `pricing` | `Record<string, Price>` | 价格表覆盖,合并在内置快照之上(见 [Observability](observability.md#换算成本价格表从哪来)) |
 
-agent 不在 config 里注册:每个 experiment 直接引用一个 agent adapter(见 [Experiments](experiments.md#defineexperiment-的形状))。config 只管项目级默认与全局资源。
+agent 不在 config 里注册:每个 experiment 直接引用一个 agent adapter(见 [Experiments](feature/experiments/README.md#defineexperiment-的形状))。config 只管项目级默认与全局资源。
 
 **Strict mode** / **严格模式** —— 默认情况下 soft 断言低于阈值仍判 `passed`;`--strict` 下同样的情况改判 `failed`。用于 CI 把质量回归当成红灯。
 
-**环境预置** —— niceeval 把准备逻辑放在普通代码里。要在跑 agent 前准备环境,放三处之一:这条 eval 的沙箱预置写在 `test(t)` 里(手工 `t.sandbox.writeFiles` / `runCommand`),连 agent / 装 CLI 写在 [`SandboxAgent.setup`](feature/adapters/contract.md#agent-契约),整个 run 共享的外部服务(mock API、DB)用外部编排(`docker compose` / CI 脚本)起停、经 env 传入。详见 [Sandbox · 环境预置放哪](sandbox.md#环境预置放哪)。
+**环境预置** —— niceeval 把准备逻辑放在普通代码里。要在跑 agent 前准备环境,放三处之一:这条 eval 的沙箱预置写在 `test(t)` 里(手工 `t.sandbox.writeFiles` / `runCommand`),连 agent / 装 CLI 写在 [`SandboxAgent.setup`](feature/adapters/contract.md#agent-契约),整个 run 共享的外部服务(mock API、DB)用外部编排(`docker compose` / CI 脚本)起停、经 env 传入。详见 [Sandbox · 环境预置放哪](feature/sandbox/library.md#环境预置放哪)。
 
 ## 相关阅读
 
 - [Architecture](architecture.md) —— 这些名词在模块图里各自的位置。
-- [Authoring](eval-authoring.md) —— Eval / Task / Dataset 怎么写。
-- [Scoring](scoring.md) —— Scorer / Assertion / Severity / Verdict 的完整手册。
+- [Authoring](feature/eval/README.md) —— Eval / Task / Dataset 怎么写。
+- [Scoring](feature/scoring/README.md) —— Scorer / Assertion / Severity / Verdict 的完整手册。
