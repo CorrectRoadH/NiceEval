@@ -108,10 +108,10 @@ interface AttemptEvidence {
 
 ### 修正包内/用户模块加载边界
 
-- [ ] 删除把 `globalThis.React` 当运行时依赖的补丁设计。
-- [ ] package-owned CLI、report runtime 和 built-in 必须固定使用 niceeval 自己的 tsconfig/JSX 语义，不读取消费方 tsconfig。
+- [x] 删除把 `globalThis.React` 当运行时依赖的补丁设计。
+- [x] package-owned CLI、report runtime 和 built-in 必须固定使用 niceeval 自己的 tsconfig/JSX 语义，不读取消费方 tsconfig。
 - [ ] user-owned config、Eval、Agent 和 `--report` 文件由单独的 user-module loader 加载。
-- [ ] 优先验证 tsx 的显式 `tsconfig` + namespace 是否能可靠隔离两类模块；若不能，package-owned runtime 发布预编译 ESM，tsx 只处理用户模块。
+- [x] 优先验证 tsx 的显式 `tsconfig` + namespace 是否能可靠隔离两类模块；若不能，package-owned runtime 发布预编译 ESM，tsx 只处理用户模块。
 - [ ] 加消费方 e2e：无 tsconfig、classic JSX、react-jsx、symlink/link/file 依赖四种情况都能运行 built-in 和用户 `.tsx` 报告。
 - [ ] 在 `/Users/ctrdh/Code/coding-agent-memory-evals` 裸跑 `pnpm exec niceeval show`，确认不再出现 `React is not defined`。
 

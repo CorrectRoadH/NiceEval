@@ -24,6 +24,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 - 已修 [npx-skills-add-headless-hang](npx-skills-add-headless-hang.md) — `npx skills add` 默认交互式选 agent,headless 沙箱里卡死;修为 `-y -a <agent>`(claude-code.ts / codex.ts)
 - [claude-code-skill-tool-name-not-load-skill](claude-code-skill-tool-name-not-load-skill.md) — claude-code 原生 Skill 工具叫 `Skill`(入参 `{skill,args}`),`t.loadedSkill()` 是给 eve 协议的糖,断不中,要用 `calledTool("Skill", …)`
 - [codex-no-native-skill-tool](codex-no-native-skill-tool.md) — codex 没有原生 skill 工具,不显式提示"检查有没有 skill 文件"就几乎不会主动去读装好的 skill
+- 已修 [skill-loaded-input-field-is-skill-not-command](skill-loaded-input-field-is-skill-not-command.md) — 实现 `skill.loaded` 归一化时凭印象把入参字段猜成 `input.command`,正确字段是 `input.skill`(仓库已有实测 memory 记录了这个形状,没检索到就重新猜错了);修在 `src/o11y/parsers/claude-code.ts`
 - [mcp-tool-naming-claude-vs-codex](mcp-tool-naming-claude-vs-codex.md) — MCP 工具规范名两家不同:claude-code 是 `mcp__<server>__<tool>`,codex 是 `<server>.<tool>`(点分隔)
 - [run-command-canonical-tool-name-portability](run-command-canonical-tool-name-portability.md) — 断言"跑过 shell"要用规范类目 `"shell"`,不要用某一家的原始工具名字面量(如 `"command_execution"` 只对 codex 恰好成立)
 - [docker-apple-silicon-amd64-emulation-slow](docker-apple-silicon-amd64-emulation-slow.md) — 本机 Apple Silicon 上 dockerSandbox 默认拉 amd64 镜像走模拟,沙箱型 eval 实测比原生慢好几倍,timeoutMs 要留余量
@@ -81,6 +82,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 - 已修 [cli-exp-multi-experiment-positional-noop](cli-exp-multi-experiment-positional-noop.md) — `niceeval exp a b` 不会跑两个实验,`exp` 只认 `positionals[0]` 当选择器,第二个及以后一律是 eval 过滤器,不共享目录的 flat 实验没有一条命令跑多个的写法;修在 docs-site 的 codex-skill/plugin 示例命令
 - 已修 [live-carry-row-shows-waiting-forever](live-carry-row-shows-waiting-forever.md) — 被携入(carry)的行永远等不到 eval:start,live 表格卡在 waiting for a slot 到进程结束,底层调度其实是对的;修为 carry 判断提成 planCarry() 共用、cli.ts 提前算好传给 live 表格,LiveRow 新增 carriedVerdict 让携入行第一帧就渲染真实 verdict(`fingerprint.ts` + `cli.ts` + `runner/reporters/live.ts`)
 - 已修 [live-raw-stderr-write-desyncs-redraw](live-raw-stderr-write-desyncs-redraw.md) — sandbox teardown 失败/budget 不可执行/reporter 抛错等独立诊断行绕开 live 表格裸写 stderr,回跳量与实际光标错位,每帧越滚越多刷屏(行数不超屏也会触发,和 live-overflow-redraw-appends-frames 是两条不同根因);修为新增 `src/tty-line.ts` 统一诊断行出口,live.ts 订阅后先清显示再放行(`tty-line.ts` + `sandbox/registry.ts` + `runner/run.ts` + `runner/report.ts` + `sandbox/docker.ts` + `sandbox/vercel.ts` + `runner/reporters/live.ts`)
+- 已修 [show-skipped-version-hint-missing](show-skipped-version-hint-missing.md) — `niceeval show` 全部落盘不可读时只报 `skipped <dir> (reason)`,不像 `view` 那样给 `npx niceeval@<version>` 建议;`show --run` 认结果根不认单快照,修为按版本分组给统一 `--run` 建议(`src/results/skipped-notice.ts` + `src/show/render.ts` 的 `skippedRunsText`)
 
 ## examples 与 tier-sync
 
@@ -133,3 +135,8 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 - [bench-direct-invocation-not-niceeval-project](bench-direct-invocation-not-niceeval-project.md) — 裁决(2026-07-11):phase-timings.md 的 bench/ 是直接调 runAttemptBody 的脚本,不是 niceeval 项目+Reports 报告页;曾选 show 对比/compare.mjs 均否决
 - [carry-includes-failed-verdict](carry-includes-failed-verdict.md) — 裁决(2026-07-11):resume/carry 携入条件从「只 passed」改为「passed 或 failed」,只有 errored 重跑;曾选「只 passed 携入」否决(failed 也是判定确定的终态,没理由白花成本重复验证)
 - [metrictable-expand-replaces-default-report-caselist](metrictable-expand-replaces-default-report-caselist.md) — 裁决(2026-07-11):defaultReport 榜单加 MetricTable.data 的 expand 选项(TableSubRow,web 面原生 details、text 面缩进明细),experiment 行点开看逐题判定/原因,取代裸跑报告尾部单独的 CaseList 板块;`<DefaultReport/>` 官方水位锚点不受影响仍用 CaseList
+- 已实现 [entitylist-components-replace-experimenttable-caselist](entitylist-components-replace-experimenttable-caselist.md) — 裁决(2026-07-12):`ExperimentList`/`EvalList`/`AttemptList` 三个实体层级组件取代混合实体的 `ExperimentTable`、独立的 `CaseList`,以及仅一天前才定案的 `MetricTable.expand`/`TableSubRow`(见上一条);`MetricTable` 收窄回纯维度 × 指标;`AttemptListItem` 额外带 `capabilities`(与 docs 早先旁注不同,正文已更新)
+- [execution-tree-merges-events-and-otel-spans](execution-tree-merges-events-and-otel-spans.md) — 裁决(2026-07-12):`buildExecutionTree(events, spans)` 把标准事件流与 OTel span 合并进一棵树,事件当骨架、span 只补时间,推翻 `docs/observability.md` 现行"events 与 spans 永不合并"的旧决定;设计已定稿代码未实现
+- 已修 [global-react-jsx-shim-rejected](global-react-jsx-shim-rejected.md) — 裁决(2026-07-12):否决 `src/report/jsx-runtime-patch.ts` 的 `globalThis.React` 全局补丁(914a0bd 引入),改为 package-owned report runtime 发布预编译 ESM、固定自己的 JSX 语义,不依赖消费方 cwd/tsconfig;补丁已删除,`dist/report/**` 已接线(`pnpm run build:report`)
+- [report-build-rootdir-and-module-identity](report-build-rootdir-and-module-identity.md) — 落地上一条裁决时的三个构建期坑:rootDir 收窄到 src/report 撞 TS6059、declaration 撞 unique symbol「cannot be named」、raw src 与编译产物是两份模块实例(WebContext 状态/`ReportDefinition`品牌互不相认)
+- [attempt-locator-and-source-dedup](attempt-locator-and-source-dedup.md) — 裁决(2026-07-12):`AttemptLocator`/eval 源码去重接入 writer/open/copy,schemaVersion 4→5;携带条目的 locator 只能原样复制不能重算(原快照 startedAt 读取时已丢失),`buildLocatorIndex` 不适用于携带链路;sources 去重是快照根两层存储(attempt 级引用 + `sources/<sha256>.json`),`copySnapshots` 靠 `attempt.sources()` 解引用后重新落盘,不是单文件 `copyFile`

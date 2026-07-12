@@ -23,7 +23,7 @@ niceeval exp <实验组|配置> <选哪些 eval> <flag:调度覆盖>
 
 ```sh
 niceeval exp [组|配置] [pattern...]  # 跑实验:全部 / 一组 / 单个配置;可再用 eval id 前缀过滤
-niceeval show [pattern...]   # 终端读结果:榜单 / 单 eval 明细 / --transcript / --trace / --diff / --history / --report
+niceeval show [pattern...|@<locator>]   # 终端读结果:榜单 / 单 eval 明细 / @<locator> 精确 attempt / --eval / --execution / --diff / --history / --report
 niceeval init                # 生成 evals/ 与 niceeval.config.ts;写入/刷新 niceeval-agent-rules 托管区块(指向随包 docs-site,区块外内容不动)——项目已有 AGENTS.md 就写那份,只有 CLAUDE.md 就写进 CLAUDE.md,都没有则新建 AGENTS.md
 niceeval list                # 只列出发现到的 eval,不运行
 niceeval clean               # 删除 .niceeval/ 下历史快照
@@ -83,7 +83,8 @@ niceeval exp compare --budget <usd>           # 整个 run 的估算成本上限
 
 ```sh
 niceeval show                         # 终端榜单:每个 experiment 的现刻判定,跨 run 合成
-niceeval show weather/brooklyn        # 单个 eval:attempt、断言明细;--transcript / --trace / --diff 看证据
+niceeval show weather/brooklyn        # 单个 eval:attempt、断言明细,每行带 @<locator>
+niceeval show @<locator>              # 精确一个 attempt:无 flag → 紧凑全景;--eval / --execution / --diff 看对应证据切面
 niceeval show weather/brooklyn --history   # 跨 run 时间轴(只列真实执行;与 --report 互斥)
 niceeval show --report reports/exam.tsx    # 报告槽换成自定义报告(与 view --report 同一文件)
 niceeval view                         # 起本地 web,自动打开浏览器,读 .niceeval/

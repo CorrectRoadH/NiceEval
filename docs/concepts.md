@@ -1,5 +1,7 @@
 # Concepts
 
+> 状态:本页词条描述当前已实现行为。`AttemptLocator`、`AttemptEvidence`、`AnnotatedEvalSource`、`ExecutionTree`,以及报告组件里的 `ExperimentList` / `EvalList` / `AttemptList`(完整定义见 [Reports](reports.md))均已实现,取代了旧的 `AttemptRef`(快照/attempt 路径对)、彼此独立的标准事件流与 trace 瀑布图,以及 `ExperimentTable`、`CaseList`、`MetricTable.expand`(均已删除,无兼容层)。唯一尚未跟进的角落是 `niceeval view` 证据室的 attempt 路由(`src/view/app/`)仍在消费旧的两段式深链,还没切到 `#/attempt/@<locator>` 单段格式,见 [View](view.md) 的状态说明。
+
 什么时候读这一篇:
 
 - 你碰到一个不认识的 niceeval 术语;
@@ -64,9 +66,10 @@
 | 首过即停 | EarlyExit | 取通过率时先过一次即中止其余 attempt 的策略(可关);配置名 `earlyExit` |
 | 指纹 | Fingerprint | `(eval 代码 + 配置)` 的哈希,用于缓存去重:未变且已通过的默认跳过 |
 | Transcript | Transcript | agent 一次运行的逐事件原始记录(各 agent 自己的 JSONL),归一化后供消费 |
-| 标准事件流 | StreamEvent / events | transcript 或 `send` 返回归一化成的统一事件模型(message / tool_call / tool_result / thinking / error),断言和报告的事实来源,详见 [Observability](observability.md#transcript--标准事件流) |
+| 标准事件流 | StreamEvent / events | transcript 或 `send` 返回归一化成的统一事件模型(message / thinking / `action.called` / `action.result` / error),断言和报告的事实来源,也是 `ExecutionTree` 的事件骨架,详见 [Observability](observability.md#transcript--标准事件流) |
 | o11y 摘要 | o11y summary | 从标准事件流派生的统计(工具调用、文件、耗时、token、成本),注入沙箱供行为断言 |
-| trace 瀑布图 | Trace waterfall | OTLP span 画出的统一时间轨;只管可视化,不产出事件、不参与断言,详见 [Observability](observability.md#otlp-traces--统一瀑布图) |
+| trace 瀑布图 | Trace waterfall | OTLP span 画出的统一时间轨;在 `ExecutionTree` 里是事件骨架之上的可选 enrichment,详见 [Observability](observability.md#otlp-traces--统一瀑布图) |
+| 执行树 | ExecutionTree | 标准事件流骨架(message / thinking / `skill.loaded` / `action.called`+`action.result` 按 call ID 合并 / `subagent.called`+`completed` / `input.requested` / compaction / error)与可关联的 OTel span 合成的统一执行记录;span 只按明确 correlation ID 或 GenAI 语义属性关联到节点,关联不上就保留成单独标注的 telemetry-only 节点,不按名字/文本猜;没有 OTel 时骨架的节点、顺序、内容不变,只是时间显示不可用 |
 | 用量 | Usage | 一次运行的 token 计数(`inputTokens` / `outputTokens` / 可选 cache 读写) |
 | 成本 | Cost | 用量经价格表换算的估算金额(`estimatedCostUSD`);`--budget <usd>` 给整个 run 设上限 |
 | 报告器 | Reporter | 运行中流式消费结果的插件(控制台、JUnit、JSON…);与运行后的「报告」(Report)是两个词 |
@@ -80,6 +83,9 @@
 |---|---|---|
 | 结果快照 | Snapshot | 结果读取面的单位:一个 experiment 在一次 run 里的结果(experiment × run,不是 run);与快照测试无关;沙箱侧的 microVM 快照一律写"沙箱快照(`snapshotId`)" |
 | Selection(挑选结果) | Selection | `results.latest()` 的返回物:挑好的快照 + 结构化挑选警告;唯一方法 `filter`(只删不换) |
+| Attempt 定位符 | AttemptLocator | 由 `{experimentId, 快照 startedAt, evalId, attempt}` 不可变元组派生的带版本、`@` 前缀短确定性字符串;不是数组下标也不是目录路径。reader 打开结果根时建一份 locator → AttemptHandle 索引,缺失 / 损坏 / 碰撞一律结构化报错,不回退"最新失败" |
+| Attempt 证据 | AttemptEvidence | 每个 Attempt 只装配一次的中性证据聚合:locator、身份、`EvalResult`、`AnnotatedEvalSource`、`ExecutionTree`、diff、artifact 路径与能力位(`eval` / `execution` / `timing` / `diff`);`show` / `view` / 静态导出 / 报告列表共用同一份,不各自重读 artifact |
+| 标注 Eval 源码 | AnnotatedEvalSource | 发现时捕获、按快照去重一份、SHA-256 归一化的运行时 Eval 源码;每条断言按 `SourceLoc` 标回源码行(状态 / 严重度 / 分数 / detail / evidence),没有 `SourceLoc` 的断言进"未映射断言"桶,不静默丢弃;网页 CodeView 与 `show --eval` 共用同一份 model |
 | 指标 | Metric | 「一个 attempt 算出一个值」的计算单元,经「attempt → 题,题 → 组」两级聚合;缺数据算 `null` 不算 0 |
 | 维度 | Dimension | 决定 attempt 分到哪一组的分组键(agent / experiment / evalGroup / snapshot …) |
 | 报告 | Report | `defineReport` 定义的 `.tsx` 报告文件,返回一棵组件树,经 `--report` 交给宿主渲染 |
@@ -176,7 +182,7 @@
 
 **Fingerprint** / **指纹** —— `(eval 代码 + 配置)` 的哈希,用于缓存去重:指纹未变且已通过的,默认跳过。
 
-**Transcript** —— agent 一次运行的逐事件记录。原始形态是各 agent 自己的 JSONL,被**归一化**成统一事件模型(message / tool_call / tool_result / thinking / error)后供断言和报告消费。详见 [Observability](observability.md)。
+**Transcript** —— agent 一次运行的逐事件记录。原始形态是各 agent 自己的 JSONL,被**归一化**成统一事件模型(message / thinking / `action.called` / `action.result` / error)后供断言和报告消费。详见 [Observability](observability.md)。
 
 **o11y summary** —— 从**标准事件流**(见 [Observability](observability.md))派生的统计:工具调用计数、读/改的文件、shell 命令、web 请求、思考块数、**耗时、token 用量、估算成本**等。会注入沙箱(`__niceeval__/results.json`),让你在沙箱内手工跑的验证测试能断言 agent 的**行为**而不只是结果。
 
@@ -186,7 +192,7 @@
 
 **Reporter** / **报告器** —— 消费运行结果的插件,可实现分阶段 `onEvent`(`run:start` / `eval:start` / `eval:complete` / `run:summary` 等),也兼容 `onRunStart` / `onEvalComplete` / `onRunComplete`。内置控制台、JUnit、JSON;可接第三方实验跟踪平台。报告器在独立的串行队列上回调,不阻塞执行池。详见 [Reporters](observability.md#reporters)。
 
-**Artifact** / **artifact** —— 落盘的结构化产物。落盘单位是**结果快照**(一个 experiment 的一次运行):快照目录 `.niceeval/<experiment>/<snapshot>/` 下放快照级 `snapshot.json`(身份与版本元数据),每个 attempt 目录(`<evalId>/a<attempt>/`)下放判决与断言的权威记录 `result.json`,以及按需生成的 `events.json`、`sources.json`、`trace.json`、`o11y.json`、`diff.json`。每个文件都是 JSON,不是 JSONL / NDJSON。详见 [Results Format](results-format.md)。
+**Artifact** / **artifact** —— 落盘的结构化产物。落盘单位是**结果快照**(一个 experiment 的一次运行):快照目录 `.niceeval/<experiment>/<snapshot>/` 下放快照级 `snapshot.json`(身份与版本元数据),每个 attempt 目录(`<evalId>/a<attempt>/`)下放判决与断言的权威记录 `result.json`,以及按需生成的 `events.json`、`sources.json`、`trace.json`、`o11y.json`、`diff.json`。每个文件都是 JSON,不是 JSONL / NDJSON。attempt 目录路径是磁盘存储细节;report / CLI 层寻址同一个 Attempt 用的是 `AttemptLocator`(见「结果数据与报告」词表),不直接引用路径或数组下标。详见 [Results Format](results-format.md)。
 
 ## 配置词汇
 

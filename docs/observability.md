@@ -1,5 +1,7 @@
 # Observability —— transcript、 artifact 与报告
 
+> 状态:标准事件流归一化、o11y 摘要、OTLP trace 归一化(线格式层 + 语义层 mapper)、artifact 落盘、用量成本与内置 reporters 均已实现。「OTLP traces」一节里 span 与事件流合并成 `ExecutionTree`(`buildExecutionTree(events, spans)`,供 `niceeval show --execution` 等消费)与一等 `skill.loaded` 事件,是已定稿但尚未实现的设计。
+
 评测的价值不止"过/挂",更在"为什么"。这一篇讲三件事:agent 的 **transcript** 如何被归一化成统一 trace、跑完落盘的**artifact**长什么样、**报告器**如何把结果回传。
 
 这是 niceeval "看得快"承诺的落点,见 [Vision](vision.md#看得快)。
@@ -63,7 +65,13 @@ expect(o11y.totalToolCalls).toBeLessThan(50);
 
 ## OTLP traces → 统一瀑布图
 
-`StreamEvent` 回答「做了什么」;**trace 回答「各花了多久、谁套谁」**。配了 OTel 接入的 agent(沙箱型声明 `tracing` 块;remote agent 配 `defineConfig({ telemetry })`)经 OpenTelemetry 把 OTLP traces 导出到运行器(沙箱型每个沙箱起一个本机 OTLP/HTTP 接收器,remote agent 共享一个固定端口接收器,端点经 `ctx.telemetry.endpoint` 交给 agent),跑完归一成 `TraceSpan[]` 挂到 `EvalResult.trace`,`niceeval view` 画成瀑布图。**这条线完全独立于事件流:span 只喂瀑布图,不产出任何 `StreamEvent`,也不影响任何断言**——事件流永远来自 `send` 返回的 `Turn.events`。
+`StreamEvent` 回答「做了什么」;**trace 回答「各花了多久、谁套谁」**。配了 OTel 接入的 agent(沙箱型声明 `tracing` 块;remote agent 配 `defineConfig({ telemetry })`)经 OpenTelemetry 把 OTLP traces 导出到运行器(沙箱型每个沙箱起一个本机 OTLP/HTTP 接收器,remote agent 共享一个固定端口接收器,端点经 `ctx.telemetry.endpoint` 交给 agent),跑完归一成 `TraceSpan[]` 挂到 `EvalResult.trace`,`niceeval view` 画成瀑布图。
+
+**断言永远只读事件流,从不读 span。** `send` 返回的 `Turn.events` 是断言唯一的数据源,这一条没有变过——多了 trace 也不给断言开后门。变的是**展示层怎么用这两条数据**:span 不再只喂瀑布图,还作为**可选 enrichment** 合并进事件骨架,构成 `ExecutionTree`,供 `niceeval show --execution` 这类需要「一份读完」的视图消费。
+
+**这一条和本文档此前记录的决策相反。** 此前的设计是「事件流与 span 完全独立、永不合并」,理由是断言不该依赖脆弱的 span 关联——一旦断言读 span,span 归属判错就会直接污染判分。这条顾虑本身没有过期,新设计把它原样保留:**断言依然只读事件流,span 从不产出、也从不改写任何 `StreamEvent`**。变的是给人 / agent 看的那一面——把 events 和 trace 分成两份文件、两套 renderer 去读,对着一次失败要来回翻两个视图拼时间线;`ExecutionTree` 用纯函数 `buildExecutionTree(events, spans)` 把两者合并成一份视图,只服务展示,不反哺判分。
+
+`ExecutionTree` 的骨架就是标准事件流本身:`message`、`thinking`、`skill.loaded`(**新增的一等事件**——agent 加载 Skill 时归一化直接产出,不再靠「识别到叫 `load_skill` 的工具调用」这类按名字猜的老办法)、`action.called`/`action.result`(按 `callId` 合并成一个调用节点)、`subagent.called`/`subagent.completed`、`input.requested`、`compaction`、`error`。**骨架的节点、顺序、内容永远不因 OTel 有没有接入而变**——OTel span 只是叠加在同一个节点上的可选信息:起止时间、耗时、父子关系、错误状态。合并靠**显式 correlation ID 或 GenAI 语义约定属性**(如 `gen_ai.tool.call.id`),**永远不靠拿 span 名字 / 文本去猜哪个事件对应哪个 span**。没有 OTel 接入时,节点照样全部显示,只是耗时标「timing unavailable」;span 存在但唯一关联不上任何事件时,保留成一个单独标注的 telemetry-only 节点,不悄悄猜着合并到某个事件上。
 
 这条线分两层,两层都得归一,但**含义层(语义约定)才是接新 agent 的真功夫**:
 
@@ -255,13 +263,15 @@ run 级合计不落盘:总时长、总用量、总成本由消费方([Results Li
 
 ### 时间也是一等指标(效率三件套)
 
-成本不是新指标里唯一的一个。**wall-clock 时间一直就记录**(`StreamEvent` 里每个工具调用有 `durationMs`,运行器还包住每个 `send` 和整个 eval 计时),现在和 token / 成本**并排**成组:
+成本不是新指标里唯一的一个。**wall-clock 时间一直就记录**——运行器给每个 attempt 整体计时,落进 `O11ySummary.durationMs`,现在和 token / 成本**并排**成组:
 
 | 维度 | 粒度 | 来源 |
 |---|---|---|
-| **时间(wall-clock)** | 每 turn / 每 eval / 整个 run(+ 平均) | 运行器计时,adapter 不用做事 |
+| **时间(wall-clock)** | 每 attempt / 整个 run(+ 平均) | 运行器计时,adapter 不用做事 |
 | **token 用量** | 同 | 标准事件流 / transcript 抠出 |
 | **估算成本 $** | 同 | usage × 价格表(或网关实测) |
+
+这份计时是**聚合粒度**的:`O11ySummary.durationMs` 只有整个 attempt 一个数,`StreamEvent` 本身不带任何一次工具调用 / 任何一轮的耗时。要细到「这次工具调用花了多久」「这一轮模型想了多久」,唯一的来源是 OTel span——见上面 [ExecutionTree](#otlp-traces--统一瀑布图):有 span 且能唯一关联上就在对应节点显示耗时,没有就诚实显示 timing unavailable,不拿整个 attempt 的耗时去反推单个节点。
 
 三个都留是因为**它们不总相关**:命中缓存的运行可能便宜但慢,推理重的可能贵但快 —— 只看一个会误判。所以控制台 `(42s) 38.2k tok $0.31` 三个并列,`niceeval view` 也能画「质量 × 成本 × 延迟」。
 
