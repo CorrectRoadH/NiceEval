@@ -20,8 +20,9 @@ description: "安装 NiceEval，写三个文件，10 分钟内对你自己的应
     ```
   </Step>
   <Step title="查看结果">
-    ```text
-    pnpm exec niceeval view
+    ```bash
+    pnpm exec niceeval show         # 终端摘要，适合直接交给 AI 阅读
+    pnpm exec niceeval view         # 网页查看器，适合人浏览证据
     ```
   </Step>
 </Steps>
@@ -94,7 +95,8 @@ export default defineEval({
 
 ```bash
 pnpm exec niceeval exp my-bot   # 跑起来
-pnpm exec niceeval view         # 本地查看器里看结果
+pnpm exec niceeval show         # 在终端读结果；失败项会给出继续下钻的命令
+pnpm exec niceeval view         # 需要交互浏览时打开本地查看器
 ```
 
 到这里第一条 eval 已经跑通。

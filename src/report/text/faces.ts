@@ -337,8 +337,14 @@ export function scatterText(data: ScatterData, ctx: TextContext): string {
   const footnotes: string[] = [];
   if (missing > 0) footnotes.push(countText(locale, "pointsMissing", missing));
 
+  const axes = { x: axisLabel(data.x, locale), y: axisLabel(data.y, locale) };
+  // 0 个可画点:x/y 指标没有可用数据(与 web 面同一事实)。
   if (drawable.length === 0) {
-    return [missingText(locale), ...footnotes].join("\n");
+    return [localeText(locale, "scatter.noData", axes), ...footnotes].join("\n");
+  }
+  // 恰好 1 个可画点:成本 × 通过率的比较至少要两个实验,单点不成图。
+  if (drawable.length === 1) {
+    return [localeText(locale, "scatter.needTwo", axes), ...footnotes].join("\n");
   }
 
   // 点太密排不下时降级为坐标表,不硬挤

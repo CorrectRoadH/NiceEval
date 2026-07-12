@@ -16,14 +16,10 @@ import { join, resolve } from "node:path";
 import { openResults, type AttemptRef, type Results } from "../results/index.ts";
 import { renderReportToText } from "../report/report.ts";
 import { ReportLoadError, loadReportFile } from "../report/load.ts";
-import { defaultReport } from "../report/default-report.tsx";
+import { CostPassRateComparison } from "../report/built-ins/index.ts";
 import { detectLocale, t } from "../i18n/index.ts";
-import {
-  composeShowSelection,
-  evalHistory,
-  experimentHistory,
-  filterExperiments,
-} from "./compose.ts";
+import { selectCurrentResults, filterExperiments } from "../results/select.ts";
+import { evalHistory, experimentHistory } from "./compose.ts";
 import {
   attemptArtifactsPath,
   attemptsOfEval,
@@ -148,7 +144,7 @@ async function show(
     );
   }
 
-  const selection = composeShowSelection(results, { experiment: flags.experiment, patterns });
+  const selection = selectCurrentResults(results, { experiment: flags.experiment, patterns });
   const matchedEvalIds = [
     ...new Set(selection.snapshots.flatMap((s) => s.evals.map((e) => e.id))),
   ].sort();
@@ -247,12 +243,12 @@ async function show(
     throw new ShowError(t("cli.show.attemptNeedsEval"));
   }
 
-  // 报告槽:--report 整槽替换,否则内置默认报告 defaultReport(同一条渲染路径)。
+  // 报告槽:--report 整槽替换,否则内置默认报告 CostPassRateComparison(同一条渲染路径)。
   // locale = CLI 界面语言(NICEEVAL_LANG / LC_* / LANG 检测):报告 chrome 文案跟随
   // 终端语言(docs/reports.md「locale:渲染面的语言」);Locale 与 ReportLocale 同为
   // "en" | "zh-CN",直接传递。
   const definition =
-    flags.report !== undefined ? await loadReportFile(cwd, flags.report) : defaultReport;
+    flags.report !== undefined ? await loadReportFile(cwd, flags.report) : CostPassRateComparison;
   const text = await renderReportToText(
     definition,
     { selection, results },

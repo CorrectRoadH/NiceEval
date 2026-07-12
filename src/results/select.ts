@@ -7,18 +7,21 @@
 import type {
   AttemptHandle,
   DedupeWarning,
+  Eval,
   Experiment,
+  Results,
   Selection,
   SelectionWarning,
   Snapshot,
 } from "./types.ts";
+import { evalPrefixPredicate } from "../shared/aggregate.ts";
 
 /** Results.latest() 的实现:每个实验取最新一次快照(= exp.snapshots[0]),生成挑选警告。 */
 export function selectLatest(
   experiments: Experiment[],
   opts?: { experiments?: string | string[] },
 ): Selection {
-  const selected = filterByExperimentPrefix(experiments, opts?.experiments);
+  const selected = filterExperiments(experiments, opts?.experiments);
   const snapshots = selected.map((exp) => exp.latest);
   const warnings: SelectionWarning[] = [];
 
@@ -62,6 +65,113 @@ export function selectLatest(
       });
     }
   }
+  return makeSelection(snapshots, warnings);
+}
+
+/** selectCurrentResults 的范围输入:experiment id 前缀与 eval id 前缀,都可缺省。 */
+export interface ResultScope {
+  /** experiment id 前缀(--experiment),分段匹配语义同 filterExperiments。 */
+  experiment?: string;
+  /** eval id 前缀(位置参数),收窄 Selection 覆盖的 eval;覆盖警告分母同步收窄到范围内。 */
+  patterns?: string[];
+}
+
+/**
+ * 两个宿主(show / view)共用的现刻水位选择器:每个 experiment × eval 取时间上最新的那份
+ * 判定,跨 run 合成。results.latest() 只挑「每实验最新快照」,带 eval 前缀的局部重跑会产出
+ * 残缺快照;现刻水位承诺「不会因为一次局部重跑变残缺」,所以在实验的全部历史快照上逐 eval
+ * 向更早的 run 补齐,再把合成好的 Selection 交给宿主注入报告槽——内置默认报告与 --report 吃
+ * 同一份。
+ *
+ * 同一 eval 的全部 attempts 必须整批取自包含它的最新快照,不把历史快照的 attempts 平铺后
+ * 按 eval 聚合——否则会把不同运行的重试混成一次虚构运行。合成快照的 dir/元数据只服务报告
+ * 分组与来源展示,证据身份一律来自 attempt 自己的 ref。
+ * 警告随 Selection 重算:partial-coverage 的分母 = 已知并集 ∩ 范围(范围收窄时分母同步收窄,
+ * 不让范围外的缺口刷屏);stale / unfinished 与 results.latest() 同口径。
+ */
+export function selectCurrentResults(results: Results, scope: ResultScope = {}): Selection {
+  const match =
+    scope.patterns && scope.patterns.length > 0 ? evalPrefixPredicate(scope.patterns) : () => true;
+  const experiments = filterExperiments(results.experiments, scope.experiment);
+
+  const snapshots: Snapshot[] = [];
+  const warnings: SelectionWarning[] = [];
+
+  for (const exp of experiments) {
+    // 逐题取最新:快照按最新在前,首个出现即最新判定
+    const taken = new Map<string, { ev: Eval; snapshot: Snapshot }>();
+    for (const snapshot of exp.snapshots) {
+      for (const ev of snapshot.evals) {
+        if (!match(ev.id) || taken.has(ev.id)) continue;
+        taken.set(ev.id, { ev, snapshot });
+      }
+    }
+    if (taken.size === 0) continue;
+
+    const picks = [...taken.values()].sort((a, b) => a.ev.id.localeCompare(b.ev.id));
+    let startedAt = "";
+    let newest: Snapshot = picks[0].snapshot;
+    for (const pick of picks) {
+      if (pick.snapshot.startedAt > startedAt) {
+        startedAt = pick.snapshot.startedAt;
+        newest = pick.snapshot;
+      }
+    }
+    const evals = picks.map((p) => p.ev);
+    const base = exp.latest;
+    snapshots.push({
+      experimentId: exp.id,
+      startedAt,
+      agent: base.agent,
+      ...(base.model !== undefined ? { model: base.model } : {}),
+      producer: base.producer,
+      schemaVersion: base.schemaVersion,
+      evals,
+      attempts: evals.flatMap((ev) => ev.attempts),
+      dir: newest.dir,
+      ...(newest.completedAt !== undefined ? { completedAt: newest.completedAt } : {}),
+      ...(base.knownEvalIds ? { knownEvalIds: [...base.knownEvalIds] } : {}),
+    });
+
+    // 残缺检测:跨快照补齐后仍缺,只可能是历史上见过(或 knownEvalIds 声明过)
+    // 却从未在可读落盘里出现的题 —— 分母收窄到范围内,不让范围外的缺口刷屏。
+    const total = exp.evalIds.filter(match).length;
+    if (evals.length < total) {
+      warnings.push({
+        kind: "partial-coverage",
+        experimentId: exp.id,
+        covered: evals.length,
+        total,
+        message: `verdicts cover ${evals.length} of ${total} evals seen in history; re-run \`niceeval exp ${exp.id}\` for a full snapshot`,
+      });
+    }
+  }
+
+  let latestStartedAt = "";
+  for (const snapshot of snapshots) {
+    if (snapshot.startedAt > latestStartedAt) latestStartedAt = snapshot.startedAt;
+  }
+  for (const snapshot of snapshots) {
+    if (snapshot.startedAt < latestStartedAt) {
+      warnings.push({
+        kind: "stale-snapshot",
+        experimentId: snapshot.experimentId,
+        startedAt: snapshot.startedAt,
+        latestStartedAt,
+        message: `verdicts for "${snapshot.experimentId}" were produced at ${snapshot.startedAt}, before the latest run in this selection (${latestStartedAt})`,
+      });
+    }
+    if (snapshot.completedAt === undefined) {
+      warnings.push({
+        kind: "unfinished-snapshot",
+        experimentId: snapshot.experimentId,
+        startedAt: snapshot.startedAt,
+        dir: snapshot.dir,
+        message: `snapshot "${snapshot.experimentId}" (${snapshot.startedAt}) is unfinished (the process was interrupted); completed attempts are read as-is, but the set may be incomplete`,
+      });
+    }
+  }
+
   return makeSelection(snapshots, warnings);
 }
 
@@ -127,7 +237,8 @@ export function isNewerSnapshot(a: Snapshot, b: Snapshot): boolean {
   return a.dir.localeCompare(b.dir) > 0;
 }
 
-function filterByExperimentPrefix(experiments: Experiment[], filter?: string | string[]): Experiment[] {
+/** experiment id 分段前缀过滤(--experiment / latest({ experiments }) 同一语义);包内使用,不进公共 barrel。 */
+export function filterExperiments(experiments: Experiment[], filter?: string | string[]): Experiment[] {
   if (filter === undefined) return experiments;
   // 允许 "compare/" 这种带尾斜杠的写法,与 "compare" 等价;分段匹配不误配 "compare2"。
   const prefixes = (Array.isArray(filter) ? filter : [filter]).map((p) => p.replace(/\/+$/, ""));

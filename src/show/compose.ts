@@ -1,131 +1,13 @@
-// show 宿主的 Selection 合成与时间轴口径(docs-site/zh/guides/viewing-results.mdx 是行为规范)。
+// show 专属的跨 run 时间轴口径(--history;docs-site/zh/guides/viewing-results.mdx 是行为规范)。
 //
-// 「现刻水位」= 每个 experiment × eval 取时间上最新的那份判定,跨 run 合成:
-// results.latest() 只挑「每实验最新快照」,带 eval 前缀的局部重跑会产出残缺快照;
-// 榜单承诺「不会因为一次局部重跑变残缺」,所以宿主在实验的全部历史快照上逐 eval
-// 向更早的 run 补齐,再把合成好的 Selection 注入报告槽——内置默认报告与 --report 吃同一份,
-// 默认报告口径 = 宿主注入口径。本文件只消费 niceeval/results 的读取面。
+// 现刻水位 Selection(两个宿主共用)住在 ../results/select.ts 的 selectCurrentResults;
+// 本文件只留 show 独有的时间轴计算:每个快照 / 每次真实执行一行,resume 携带的复印件不占行。
+// 数据只消费 niceeval/results 的读取面。
 
 import { foldEvalVerdict } from "../shared/verdict.ts";
-import { evalPrefixPredicate } from "../report/aggregate.ts";
 import { attemptCostUSD } from "../report/metrics.ts";
-import { makeSelection } from "../results/select.ts";
 import type { Verdict } from "../types.ts";
-import type {
-  AttemptHandle,
-  Eval,
-  Experiment,
-  Results,
-  Selection,
-  SelectionWarning,
-  Snapshot,
-} from "../results/index.ts";
-
-export interface ComposeOptions {
-  /** experiment id 前缀(--experiment),与 latest({ experiments }) 同一分段匹配语义。 */
-  experiment?: string;
-  /** eval id 前缀(位置参数),收窄 Selection 覆盖的 eval;覆盖警告分母 = 已知并集 ∩ 范围。 */
-  patterns?: string[];
-}
-
-/** --experiment 的实验过滤,同 results.latest({ experiments }) 的分段前缀语义。 */
-export function filterExperiments(experiments: Experiment[], prefix?: string): Experiment[] {
-  if (prefix === undefined) return experiments;
-  const p = prefix.replace(/\/+$/, "");
-  return experiments.filter((exp) => exp.id === p || exp.id.startsWith(p + "/"));
-}
-
-/**
- * 合成「现刻水位」Selection:每个实验一份合成快照,快照里每道题的判定取该题最后一次
- * 出现的快照(--resume 携带的复印件身份与原判定相同,取到哪份内容都一致)。
- * 警告随 Selection 重算:partial-coverage 的分母 = 已知并集 ∩ 范围;stale / unfinished
- * 与 results.latest() 同口径。
- */
-export function composeShowSelection(results: Results, opts: ComposeOptions = {}): Selection {
-  const match =
-    opts.patterns && opts.patterns.length > 0 ? evalPrefixPredicate(opts.patterns) : () => true;
-  const experiments = filterExperiments(results.experiments, opts.experiment);
-
-  const snapshots: Snapshot[] = [];
-  const warnings: SelectionWarning[] = [];
-
-  for (const exp of experiments) {
-    // 逐题取最新:快照按最新在前,首个出现即最新判定
-    const taken = new Map<string, { ev: Eval; snapshot: Snapshot }>();
-    for (const snapshot of exp.snapshots) {
-      for (const ev of snapshot.evals) {
-        if (!match(ev.id) || taken.has(ev.id)) continue;
-        taken.set(ev.id, { ev, snapshot });
-      }
-    }
-    if (taken.size === 0) continue;
-
-    const picks = [...taken.values()].sort((a, b) => a.ev.id.localeCompare(b.ev.id));
-    let startedAt = "";
-    let newest: Snapshot = picks[0].snapshot;
-    for (const pick of picks) {
-      if (pick.snapshot.startedAt > startedAt) {
-        startedAt = pick.snapshot.startedAt;
-        newest = pick.snapshot;
-      }
-    }
-    const evals = picks.map((p) => p.ev);
-    const base = exp.latest;
-    snapshots.push({
-      experimentId: exp.id,
-      startedAt,
-      agent: base.agent,
-      ...(base.model !== undefined ? { model: base.model } : {}),
-      producer: base.producer,
-      schemaVersion: base.schemaVersion,
-      evals,
-      attempts: evals.flatMap((ev) => ev.attempts),
-      dir: newest.dir,
-      ...(newest.completedAt !== undefined ? { completedAt: newest.completedAt } : {}),
-      ...(base.knownEvalIds ? { knownEvalIds: [...base.knownEvalIds] } : {}),
-    });
-
-    // 残缺检测:跨快照补齐后仍缺,只可能是历史上见过(或 knownEvalIds 声明过)
-    // 却从未在可读落盘里出现的题 —— 分母收窄到范围内,不让范围外的缺口刷屏。
-    const total = exp.evalIds.filter(match).length;
-    if (evals.length < total) {
-      warnings.push({
-        kind: "partial-coverage",
-        experimentId: exp.id,
-        covered: evals.length,
-        total,
-        message: `verdicts cover ${evals.length} of ${total} evals seen in history; re-run \`niceeval exp ${exp.id}\` for a full snapshot`,
-      });
-    }
-  }
-
-  let latestStartedAt = "";
-  for (const snapshot of snapshots) {
-    if (snapshot.startedAt > latestStartedAt) latestStartedAt = snapshot.startedAt;
-  }
-  for (const snapshot of snapshots) {
-    if (snapshot.startedAt < latestStartedAt) {
-      warnings.push({
-        kind: "stale-snapshot",
-        experimentId: snapshot.experimentId,
-        startedAt: snapshot.startedAt,
-        latestStartedAt,
-        message: `verdicts for "${snapshot.experimentId}" were produced at ${snapshot.startedAt}, before the latest run in this selection (${latestStartedAt})`,
-      });
-    }
-    if (snapshot.completedAt === undefined) {
-      warnings.push({
-        kind: "unfinished-snapshot",
-        experimentId: snapshot.experimentId,
-        startedAt: snapshot.startedAt,
-        dir: snapshot.dir,
-        message: `snapshot "${snapshot.experimentId}" (${snapshot.startedAt}) is unfinished (the process was interrupted); completed attempts are read as-is, but the set may be incomplete`,
-      });
-    }
-  }
-
-  return makeSelection(snapshots, warnings);
-}
+import type { AttemptHandle, Experiment } from "../results/index.ts";
 
 // ───────────────────────── 时间轴(--history)─────────────────────────
 

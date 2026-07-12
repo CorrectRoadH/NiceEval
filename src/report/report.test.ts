@@ -857,7 +857,7 @@ describe("GroupSummary.data", () => {
       results: [res("B", "passed")],
     });
     const sel = selection([inGroup, outOfGroup], []);
-    const scoped = sel.filter((s) => s.experimentId === "exp/a"); // 只留组内快照,模拟 defaultReport 的组 Selection
+    const scoped = sel.filter((s) => s.experimentId === "exp/a"); // 只留组内快照,模拟按实验组收窄的 Selection
     const data = await GroupSummary.data(scoped);
     expect(data.lastRunAt).toBe(inGroup.startedAt);
     expect(data.lastRunAt).not.toBe(outOfGroup.startedAt);

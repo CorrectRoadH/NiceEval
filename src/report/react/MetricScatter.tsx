@@ -74,18 +74,30 @@ export function MetricScatter({
       </p>
     ) : null;
 
-  // 一张全缺的图不画空坐标系:缺数据文案 + 注脚,与表格的「绝不画 0」同一态度
+  const xLabel = resolveMetricLabel(data.x.label, locale, data.x.key);
+  const yLabel = resolveMetricLabel(data.y.label, locale, data.y.key);
+
+  // 0 个可画点:x/y 指标没有可用数据 —— 明确说缺哪两个指标,不画一张空坐标系
+  // (与表格的「绝不画 0」同态度)。
   if (drawableRows.length === 0) {
     return (
       <figure className={cx("nre", "nre-metric-scatter", className)}>
-        <p className="nre-missing">{localeText(locale, "cell.missing")}</p>
+        <p className="nre-scatter-empty nre-missing">{localeText(locale, "scatter.noData", { x: xLabel, y: yLabel })}</p>
         {missingNote}
       </figure>
     );
   }
 
-  const xLabel = resolveMetricLabel(data.x.label, locale, data.x.key);
-  const yLabel = resolveMetricLabel(data.y.label, locale, data.y.key);
+  // 恰好 1 个可画点:成本 × 通过率的对比至少要两个实验,单点不成图 —— 显式说清而不是画个孤点。
+  if (drawableRows.length === 1) {
+    return (
+      <figure className={cx("nre", "nre-metric-scatter", className)}>
+        <p className="nre-scatter-empty">{localeText(locale, "scatter.needTwo", { x: xLabel, y: yLabel })}</p>
+        {missingNote}
+      </figure>
+    );
+  }
+
   const axisLabel = (label: string, col: MetricColumn) => `${label}${col.unit ? `(${col.unit})` : ""}`;
 
   const xScale = axisScale(drawableRows.map((r) => r.x.value as number), data.x.better, MARGIN.left, MARGIN.left + PLOT_W);
@@ -101,7 +113,7 @@ export function MetricScatter({
       label: pointLabel(r.key),
       xValue,
       yValue,
-      // hover 内容:experiment(点键)+ 系列(series,defaultReport 传的是 agent/model 维度,
+      // hover 内容:experiment(点键)+ 系列(series,CostPassRateComparison 传的是 agent 维度,
       // 有则加一行;无系列的散点没有这行)+ 两轴 display 与 samples/total(docs/reports.md 行为清单)
       title: `${r.key}${r.series !== undefined ? `\n${r.series}` : ""}\n${xLabel}: ${r.x.display}(${r.x.samples}/${r.x.total})\n${yLabel}: ${r.y.display}(${r.y.samples}/${r.y.total})`,
       px: xScale.scale(xValue),

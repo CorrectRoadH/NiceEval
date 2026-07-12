@@ -17,7 +17,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openResults } from "../results/index.ts";
 import { RESULTS_FORMAT, RESULTS_SCHEMA_VERSION, type EvalResult, type Verdict } from "../types.ts";
-import { composeShowSelection, evalHistory } from "./compose.ts";
+import { selectCurrentResults } from "../results/select.ts";
+import { evalHistory } from "./compose.ts";
 import { runShow, type ShowFlags } from "./index.ts";
 
 // ───────────────────────── fixture 工具 ─────────────────────────
@@ -143,27 +144,27 @@ async function seedComposedRoot(): Promise<string> {
 
 // ───────────────────────── 榜单合成口径 ─────────────────────────
 
-describe("榜单:跨快照合成的现刻水位(defaultReport 的 text 面)", () => {
-  it("局部重跑不撕榜单:另一题从更早快照补齐,分组 Section + 榜单 + 失败清单", async () => {
+describe("榜单:跨快照合成的现刻水位(CostPassRateComparison 的 text 面)", () => {
+  it("局部重跑不撕榜单:另一题从更早快照补齐,成本×通过率散点 + Experiment 工作台 + 失败诊断", async () => {
     const root = await seedComposedRoot();
     const { out, code } = await show(root, []);
     expect(code).toBe(0);
-    // 顶部 RunOverview:合成快照的整体口径
-    expect(out).toContain("1 experiment · 2 evals · 2 attempts");
-    expect(out).not.toContain("verdicts cover");
-    // 实验组 Section("compare/bub" 的组是 "compare");组内可画点 <2,scatter 省略
-    expect(out).toContain("compare\n");
-    // 榜单 parity:experiment 行带 Agent 与 eval 级折叠计票列(1 题通过 1 题失败)
+    // 成本×通过率散点:seedComposedRoot 无成本数据 → 0 可画点,显式空态,不画空图
+    expect(out).toContain("No data to plot");
+    expect(out).not.toContain("better → upper right");
+    // Experiment 工作台:experiment 行带 Agent 与 eval 级折叠计票列(1 题通过 1 题失败)
     expect(out).toContain("compare/bub");
     expect(out).toContain("Agent");
     expect(out).toContain("Result");
     expect(out).toContain("1 passed / 1 failed");
     expect(out).toContain("50%");
-    // 失败清单:新判定的 fixtures/button,带失败断言与下钻命令
+    // 失败诊断:新判定的 fixtures/button,带失败断言与下钻命令
     expect(out).toContain("✗ fixtures/button");
     expect(out).toContain('fileChanged("src/components/Button.tsx"): file was not modified');
     expect(out).toContain("→ niceeval show fixtures/button");
     expect(out).not.toContain("✗ weather/brooklyn");
+    // 只有两个直接业务组件:没有 RunOverview / 组分 Section
+    expect(out).not.toContain("Current verdicts");
   });
 
   it("CLI 界面语言传给报告渲染:NICEEVAL_LANG=zh-CN 时 chrome 文案是中文", async () => {
@@ -172,8 +173,8 @@ describe("榜单:跨快照合成的现刻水位(defaultReport 的 text 面)", ()
     try {
       const { out, code } = await show(root, []);
       expect(code).toBe(0);
-      expect(out).toContain("合成自 1 个 run"); // RunOverview 的 zh chrome(composed-from 标注)
-      expect(out).toContain("1 通过 / 1 失败"); // verdict 词按 locale
+      expect(out).toContain("没有可绘制的数据"); // 散点空态 zh chrome
+      expect(out).toContain("1 通过 / 1 失败"); // ExperimentTable verdict 词按 locale
       // 数据本身不分语言:experiment id / eval id 原样。
       expect(out).toContain("compare/bub");
     } finally {
@@ -184,7 +185,7 @@ describe("榜单:跨快照合成的现刻水位(defaultReport 的 text 面)", ()
   it("合成 Selection:每 experiment × eval 取最新判定;compose 不产生残缺警告", async () => {
     const root = await seedComposedRoot();
     const results = await openResults(root);
-    const selection = composeShowSelection(results);
+    const selection = selectCurrentResults(results);
     expect(selection.snapshots).toHaveLength(1);
     const evals = selection.snapshots[0].evals.map((e) => e.id).sort();
     expect(evals).toEqual(["fixtures/button", "weather/brooklyn"]);
@@ -214,13 +215,13 @@ describe("位置前缀收窄", () => {
     );
     const results = await openResults(root);
 
-    const weather = composeShowSelection(results, { patterns: ["weather"] });
+    const weather = selectCurrentResults(results, { patterns: ["weather"] });
     expect(weather.snapshots[0].evals.map((e) => e.id)).toEqual(["weather/brooklyn"]);
     // 分母 = {weather/brooklyn, weather/queens}:缺 queens → 1/2;algebra 的缺口不进来
     const coverage = weather.warnings.find((w) => w.kind === "partial-coverage");
     expect(coverage).toMatchObject({ covered: 1, total: 2 });
 
-    const algebra = composeShowSelection(results, { patterns: ["algebra"] });
+    const algebra = selectCurrentResults(results, { patterns: ["algebra"] });
     expect(algebra.warnings.filter((w) => w.kind === "partial-coverage")).toEqual([]);
   });
 
@@ -414,7 +415,7 @@ describe("--report 装载", () => {
       [res("weather/brooklyn", "passed")],
     );
     const results = await openResults(root);
-    const selection = composeShowSelection(results, { experiment: "compare/codex" });
+    const selection = selectCurrentResults(results, { experiment: "compare/codex" });
     expect(selection.snapshots.map((s) => s.experimentId)).toEqual(["compare/codex"]);
   });
 

@@ -9,13 +9,14 @@ import { describe, expect, it } from "vitest";
 
 import type { EvalResult } from "../types.ts";
 import type { Results, Selection, Snapshot } from "../results/index.ts";
-import type { GroupSummaryData } from "./types.ts";
+import type { ExperimentTableData, GroupSummaryData, ScatterData } from "./types.ts";
+import type { ExperimentTableProps, MetricScatterProps } from "./index.ts";
 import { evalLevelStats } from "../shared/verdict.ts";
 import {
   CaseList,
   Col,
-  DefaultReport,
   DeltaTable,
+  ExperimentTable,
   GroupSummary,
   MetricBars,
   MetricLine,
@@ -28,12 +29,14 @@ import {
   Section,
   Style,
   Text,
-  defaultReport,
+  costUSD,
   defineComponent,
   defineReport,
   isReportDefinition,
+  passRate,
   renderReportToText,
 } from "./index.ts";
+import { CostPassRateComparison } from "./built-ins/index.ts";
 import { renderReportToStaticHtml } from "./web.ts";
 import { createTextContext, renderNodeToText, validateReportTree } from "./tree.ts";
 import {
@@ -637,67 +640,9 @@ function fakeContext(): { selection: Selection; results: Results } {
 }
 
 /**
- * 同 fakeContext,但 "algebra/y" 这条失败 eval 的 result 可注入 error/skipReason/assertions ——
- * 专门驱动 <DefaultReport /> 的 failing board(official-report.tsx 的 buildBoard)走一遍真实
- * reasonFor 优先级(与 MetricTable expand 子行、CaseList 同一套材料)。
- */
-function fakeContextWithReason(resultExtra: Partial<EvalResult>): { selection: Selection; results: Results } {
-  const snapshot: Snapshot = (() => {
-    const dir = "/results/compare_bub/snap-1";
-    const base = {
-      experimentId: "compare/bub",
-      startedAt: "2026-07-01T10:00:00Z",
-      completedAt: "2026-07-01T10:05:00Z",
-      agent: "bub",
-      schemaVersion: 1,
-      dir,
-    };
-    const mk = (id: string, verdict: "passed" | "failed", index: number, extra: Partial<EvalResult> = {}) => ({
-      evalId: id,
-      experimentId: "compare/bub",
-      result: {
-        id,
-        agent: "bub",
-        verdict,
-        attempt: 0,
-        startedAt: `2026-07-01T10:0${index}:00Z`,
-        durationMs: 1000,
-        assertions: [],
-        ...extra,
-      },
-      ref: { snapshot: "compare_bub/snap-1", attempt: `${id}/a0` },
-      snapshot: base,
-      events: async () => null,
-      trace: async () => null,
-      o11y: async () => null,
-      diff: async () => null,
-      sources: async () => null,
-    });
-    const attempts = [mk("algebra/x", "passed", 0), mk("algebra/y", "failed", 1, resultExtra)];
-    return {
-      ...base,
-      evals: attempts.map((a) => ({ id: a.evalId, attempts: [a] })),
-      attempts,
-    } as unknown as Snapshot;
-  })();
-  const selection: Selection = {
-    snapshots: [snapshot],
-    warnings: [],
-    filter: () => selection,
-  };
-  const results = {
-    experiments: [{ id: "compare/bub", snapshots: [snapshot], latest: snapshot, evalIds: ["algebra/x", "algebra/y"] }],
-    skipped: [],
-    latest: () => selection,
-  } as Results;
-  return { selection, results };
-}
-
-/**
- * 三份快照:两个不同组("compare"、"other")各一个 experiment,外加一个无组实验("solo")—
- * 混合用例,专门驱动 defaultReport 遍历 `groupKeysOf` 产出 3 个不同组键(2 个具名组 +
- * 1 个 `undefined`)。`filter` 落实真实语义(不像 fakeContext 那样恒等返回自己),
- * 因为 defaultReport 会用 `selection.filter((s) => groupOf(s) === key)` 按组键收窄。
+ * 三份快照、三个 experiment("compare/bub"、"other/codex"、"solo"),全部通过、无成本——
+ * 一个多实验 Selection 夹具:ExperimentTable 出三行工作台,MetricScatter 三个点都无成本
+ * (0 可画点,如实走空态)。`filter` 落实真实语义(不像 fakeContext 那样恒等返回自己)。
  */
 function fakeMultiGroupContext(): { selection: Selection; results: Results } {
   const mkSnapshot = (experimentId: string, agent: string, dirSuffix: string): Snapshot => {
@@ -762,53 +707,14 @@ function fakeMultiGroupContext(): { selection: Selection; results: Results } {
   return { selection, results };
 }
 
-describe("<DefaultReport /> failing board · 原因优先级", () => {
-  const report = defineReport(async () => (
-    <Col>
-      <DefaultReport />
-    </Col>
-  ));
-
-  it("error 优先于失败 gate 与失败 soft", async () => {
-    const ctx = fakeContextWithReason({
-      error: "adapter crashed",
-      assertions: [
-        { name: "includes", severity: "gate", score: 0, passed: false, detail: "missing text" },
-        { name: "judge", severity: "soft", score: 0.2, passed: false },
-      ],
-    });
-    const out = await renderReportToText(report, ctx, { width: 100 });
-    expect(out).toContain("adapter crashed");
-    expect(out).not.toContain("includes");
-  });
-
-  it("多个失败 gate 按原始声明顺序拼接;失败 soft 不出现在原因里", async () => {
-    const ctx = fakeContextWithReason({
-      assertions: [
-        { name: "judge-first", severity: "soft", score: 0.1, passed: false },
-        { name: "includes", severity: "gate", score: 0, passed: false, detail: "missing text" },
-        { name: "matches", severity: "gate", score: 0, passed: false },
-      ],
-    });
-    const out = await renderReportToText(report, ctx, { width: 100 });
-    expect(out).toContain("includes: missing text, matches");
-    expect(out).not.toContain("judge-first");
-  });
-
-  it("errored 没有断言时仍显示 error(不需要 assertions 才有原因)", async () => {
-    const errored = await renderReportToText(
-      report,
-      fakeContextWithReason({ verdict: "errored", error: "ENOENT tool" }),
-      { width: 100 },
-    );
-    expect(errored).toContain("ENOENT tool");
-  });
-});
-
 describe("defineReport + 渲染入口", () => {
+  // 混合两种 props 形态:selection 形态的 ExperimentTable(宿主渲染前 resolve)与
+  // data 形态的 RunOverview / Scoreboard(预计算)——一棵树验证 resolver 只解析该解析的、
+  // 不动已备好数据的节点。
   const report = defineReport(async ({ selection }) => (
     <Col>
-      <DefaultReport />
+      <RunOverview data={await RunOverview.data(selection)} />
+      <ExperimentTable selection={selection} filter />
       <Section title="考试成绩单">
         <Scoreboard data={await Scoreboard.data(selection, { rows: "agent", subjects: "evalGroup" })} />
       </Section>
@@ -822,34 +728,35 @@ describe("defineReport + 渲染入口", () => {
     expect(() => defineReport(42)).toThrow(/expects a build function/);
   });
 
-  it("renderReportToText:同一棵树走 text 面,DefaultReport 渲染宿主注入的 Selection", async () => {
+  it("renderReportToText:同一棵树走 text 面,selection 形态组件解析宿主注入的 Selection", async () => {
     const out = await renderReportToText(report, fakeContext(), { width: 100 });
-    // 官方水位 = show 榜单(viewing-results.mdx):Current verdicts 头 + experiment 榜单 + 失败清单
-    expect(out).toContain("Current verdicts · 1 experiment · composed from 1 run");
-    expect(out).toContain("experiment");
-    expect(out).toContain("evals");
+    // RunOverview(data 形态,预计算)
+    expect(out).toContain("1 experiment · 2 evals · 2 attempts");
+    // ExperimentTable(selection 形态,resolve 后):主行 + eval 级折叠计票 + 失败诊断
     expect(out).toContain("compare/bub");
-    expect(out).toContain("1/2"); // eval 级折叠计票
+    expect(out).toContain("Agent");
+    expect(out).toContain("Result");
+    expect(out).toContain("1 passed / 1 failed");
     expect(out).toContain("50%");
-    expect(out).toContain("Failing:");
     expect(out).toContain("✗ algebra/y");
-    expect(out).toContain("→ niceeval show algebra/y"); // 失败清单每条自带下钻命令
+    expect(out).toContain("→ niceeval show algebra/y"); // 失败诊断每条自带下钻命令
     // 自己的口径:成绩单
     expect(out).toContain("考试成绩单");
-    expect(out).toContain("bub     50/100");
+    expect(out).toContain("bub");
+    expect(out).toContain("50/100");
   });
 
-  it("renderReportToStaticHtml:同一棵树走 web 面,官方组件自动接证据室深链", async () => {
+  it("renderReportToStaticHtml:同一棵树走 web 面,selection 形态组件自动接证据室深链", async () => {
     const html = await renderReportToStaticHtml(report, fakeContext());
-    expect(html).toContain("nre-default-report");
+    expect(html).toContain("nre-experiment-table");
     expect(html).toContain("nre-scoreboard");
     expect(html).toContain("考试成绩单");
-    // 宿主注入的 attemptHref:CaseList 的下钻是普通 <a>,默认 view 路由
+    // 宿主注入的 attemptHref:ExperimentTable 的 eval 下钻是普通 <a>,默认 view 路由
     expect(html).toContain('href="#/attempt/compare_bub/snap-1/algebra/y/a0"');
     expect(html).not.toContain("<script");
   });
 
-  it("树里混进 <div>:两个宿主渲染前同一遍校验拦住", async () => {
+  it("树里混进 <div>:两个宿主 resolve 后同一遍校验拦住", async () => {
     const bad = defineReport(() => (
       <Col>
         <div>nope</div>
@@ -859,72 +766,108 @@ describe("defineReport + 渲染入口", () => {
     await expect(renderReportToStaticHtml(bad, fakeContext())).rejects.toThrow(/Raw HTML <div>/);
   });
 
-  it("<DefaultReport /> 在宿主之外渲染:一句直说的错误", () => {
-    expect(() => renderToStaticMarkup(<DefaultReport />)).toThrow(/renders the host-injected selection/);
+  it("selection 形态组件裸嵌进 React(不经宿主 resolve):web 面直说未解析", () => {
+    const { selection } = fakeContext();
+    // selection 形态在类型上合法,但裸调用路径(不过 resolveReportTree)只接收 data 形态,
+    // web 面拿不到 data —— 运行时直说,而不是画一张空组件。
+    expect(() => renderToStaticMarkup(<ExperimentTable selection={selection} />)).toThrow(
+      /received unresolved \(selection-form\) props/,
+    );
   });
 });
 
-// ───────────────────────── defaultReport(内置默认报告)─────────────────────────
+// ───────────────────────── 数据组件互斥 props(类型层负向)─────────────────────────
+// 只在 pnpm run typecheck 生效(src 纳入 tsconfig);函数从不执行,仅让 tsc 校验每条
+// ts-expect-error 注释对应一处编译错误。直接标注 Props 类型(而非 JSX)——JSX 的 union
+// 属性检查对「缺必填字段」较宽松,直接的类型赋值才严格钉住互斥不变量:同时传 data 与
+// selection、或两者都不传、或 selection 形态缺必填计算选项,全部编译失败。正向 JSX 用法由
+// CostPassRateComparison / defineReport 报告在同一文件里编译验证。
+function metricScatterPropsTypeChecks(selection: Selection, data: ScatterData): void {
+  const ok1: MetricScatterProps = { data }; // 合法:data 形态
+  const ok2: MetricScatterProps = { selection, points: "experiment", series: "agent", x: costUSD, y: passRate }; // 合法:selection 形态
+  // @ts-expect-error 同时传 data 与 selection:非法
+  const bad1: MetricScatterProps = { data, selection, points: "experiment", x: costUSD, y: passRate };
+  // @ts-expect-error data 与 selection 都不传:非法
+  const bad2: MetricScatterProps = { pointHref: () => "/x" };
+  // @ts-expect-error selection 形态缺必填的 x / y:非法
+  const bad3: MetricScatterProps = { selection, points: "experiment" };
+  void ok1;
+  void ok2;
+  void bad1;
+  void bad2;
+  void bad3;
+}
 
-describe("defaultReport", () => {
-  it("是普通 ReportDefinition;text 面 = RunOverview + 分组 Experiment 工作台 + 失败诊断", async () => {
-    expect(isReportDefinition(defaultReport)).toBe(true);
-    const out = await renderReportToText(defaultReport, fakeContext(), { width: 100 });
-    // 顶部 RunOverview
-    expect(out).toContain("1 experiment · 2 evals · 2 attempts");
-    // "compare/bub" 的组是 "compare":Section 标题;组内可画点 <2(无成本数据),scatter 省略
-    expect(out).toContain("compare\n");
+function experimentTablePropsTypeChecks(selection: Selection, data: ExperimentTableData): void {
+  const ok1: ExperimentTableProps = { data }; // 合法:data 形态
+  const ok2: ExperimentTableProps = { selection, filter: true }; // 合法:selection 形态
+  // @ts-expect-error 同时传 data 与 selection:非法
+  const bad1: ExperimentTableProps = { data, selection };
+  // @ts-expect-error data 与 selection 都不传:非法
+  const bad2: ExperimentTableProps = { filter: true };
+  void ok1;
+  void ok2;
+  void bad1;
+  void bad2;
+}
+void metricScatterPropsTypeChecks;
+void experimentTablePropsTypeChecks;
+
+// ───────────────────────── CostPassRateComparison(内置默认报告)─────────────────────────
+
+describe("CostPassRateComparison", () => {
+  it("是普通 ReportDefinition;text 面 = 成本×通过率散点 + Experiment 工作台,别无它物", async () => {
+    expect(isReportDefinition(CostPassRateComparison)).toBe(true);
+    const out = await renderReportToText(CostPassRateComparison, fakeContext(), { width: 100 });
+    // 散点:fakeContext 无成本数据 → 0 可画点,显式说明缺哪两个指标(而不是画一张空图)
+    expect(out).toContain("No data to plot");
     expect(out).not.toContain("better → upper right");
-    // 工作台主行用短名,完整 experiment id 不挤进主表;Agent 与 eval 级折叠计票保留
+    // Experiment 工作台主行 + eval 级折叠计票 + 失败诊断(selection 形态经 resolve 得到数据)
     expect(out).toContain("bub");
     expect(out).toContain("Agent");
     expect(out).toContain("Result");
     expect(out).toContain("1 passed / 1 failed");
-    // 失败/错误诊断随所属 experiment 输出
+    expect(out).toContain("50%");
     expect(out).toContain("✗ algebra/y");
+    expect(out).toContain("→ niceeval show algebra/y");
+    // 只有两个直接业务组件:没有 RunOverview / GroupSummary / Section 分组
+    expect(out).not.toContain("Current verdicts");
   });
 
-  it("web 面:整行 details 工作台 + 过滤/排序属性 + 展开诊断结构,主行无 refs", async () => {
-    const html = await renderReportToStaticHtml(defaultReport, fakeContext());
-    expect(html).toContain("nre-section");
-    expect(html).toContain(">compare</h2>");
-    expect(html).toContain("data-nre-experiment-filter");
-    expect(html).toContain("data-nre-experiment-sort");
+  it("web 面:散点空态 + 整行 details 工作台 + 过滤属性,无 <script>,无 Section 分组", async () => {
+    const html = await renderReportToStaticHtml(CostPassRateComparison, fakeContext());
+    expect(html).toContain("nre-metric-scatter");
+    expect(html).toContain("nre-scatter-empty"); // 0 可画点的空态
     expect(html).toContain('<details class="nre-experiment-entry">');
-    expect(html).toContain('<summary class="nre-experiment-summary">');
-    expect(html).toContain("nre-experiment-config");
-    expect(html).toContain("nre-experiment-kpis");
+    expect(html).toContain("data-nre-experiment-filter");
     expect(html).toContain("nre-experiment-evals");
-    expect(html).toContain("nre-experiment-raw");
-    expect(html).toContain("nre-experiment-pill");
-    expect(html).not.toContain("nre-subrows-summary");
-    expect(html).not.toContain("nre-ref");
+    expect(html).not.toContain("nre-section");
     expect(html).not.toContain("<script");
   });
 
-  it("locale 管线:web 面 zh-CN 走字典(chrome 与内置指标 label),text 面默认 en 不变", async () => {
-    const zh = await renderReportToStaticHtml(defaultReport, fakeContext(), { locale: "zh-CN" });
-    expect(zh).toContain("成功率"); // passRate 的 zh-CN label
-    expect(zh).toContain('placeholder="筛选实验…"');
-    expect(zh).toContain("通过 1"); // RunOverview 的 verdict 词
-    const zhText = await renderReportToText(defaultReport, fakeContext(), { locale: "zh-CN" });
-    expect(zhText).toContain("1 个实验");
-    expect(zhText).toContain("成功率");
+  it("locale 变体:en / zh-CN 都渲染(chrome 分语言),散点空态两面同一事实", async () => {
+    const zhHtml = await renderReportToStaticHtml(CostPassRateComparison, fakeContext(), { locale: "zh-CN" });
+    expect(zhHtml).toContain("成功率"); // passRate 的 zh-CN label(ExperimentTable 表头)
+    expect(zhHtml).toContain('placeholder="筛选实验…"');
+    const enHtml = await renderReportToStaticHtml(CostPassRateComparison, fakeContext(), { locale: "en" });
+    expect(enHtml).toContain("Pass rate");
+    const zhText = await renderReportToText(CostPassRateComparison, fakeContext(), { locale: "zh-CN" });
+    expect(zhText).toContain("没有可绘制的数据"); // 散点空态 zh
+    const enText = await renderReportToText(CostPassRateComparison, fakeContext(), { locale: "en" });
+    expect(enText).toContain("No data to plot");
   });
 
-  it("grouped 与 ungrouped snapshots 混合:所有组和无分组实验都出现一次,组间保留空行", async () => {
-    const out = await renderReportToText(defaultReport, fakeMultiGroupContext(), { width: 100 });
-    // 两个具名组的 Section 标题各自只出现一次(标题独占一行)
-    expect(out.match(/^compare$/m) ?? []).toHaveLength(1);
-    expect(out.match(/^other$/m) ?? []).toHaveLength(1);
-    // 无组实验直接平铺相同 blocks,不发明虚构组名/标题
-    expect(out).toContain("solo");
-    expect(out).not.toContain("(ungrouped)");
-    // 三个 experiment 的短名主行都出现过一次
+  it("多实验 fixture:每个 experiment 一行工作台,散点如实处理全部无成本", async () => {
+    const out = await renderReportToText(CostPassRateComparison, fakeMultiGroupContext(), { width: 100 });
+    // 三个 experiment 的短名主行都出现
     expect(out).toMatch(/^\s*bub\s+/m);
     expect(out).toMatch(/^\s*codex\s+/m);
-    // 组与组之间(text 面)保留 Col 的段落空行分隔,不因为 sections 数组被当成
-    // <Col> 单个子节点整体传入而在内层退化成单换行(nested-array 折叠 bug 回归)
-    expect(out).toMatch(/\n\nother\n/);
+    expect(out).toContain("solo");
+    // 散点空态(三点都无成本)
+    expect(out).toContain("No data to plot");
+    // 没有组分 Section 标题(不再按目录前缀分组)
+    expect(out).not.toMatch(/^compare$/m);
+    const html = await renderReportToStaticHtml(CostPassRateComparison, fakeMultiGroupContext());
+    expect(html).not.toContain("nre-section");
   });
 });

@@ -53,6 +53,10 @@ const en = {
   "scatter.betterHint": "better ↗",
   "scatter.betterUpperRight": "better → upper right",
   "scatter.axisReversed": "(axis reversed: right = better)",
+  /** 0 个可画点:x/y 指标没有可用数据。 */
+  "scatter.noData": "No data to plot {x} × {y}",
+  /** 恰好 1 个可画点:比较至少要两个实验。 */
+  "scatter.needTwo": "At least 2 experiments needed to compare {x} × {y}",
   "pointsMissing.one": "{n} point missing data",
   "pointsMissing.other": "{n} points missing data",
 
@@ -123,6 +127,8 @@ const zhCN: Record<ReportMessageKey, string> = {
   "scatter.betterHint": "更好 ↗",
   "scatter.betterUpperRight": "更好 → 右上",
   "scatter.axisReversed": "(轴反向:右 = 更好)",
+  "scatter.noData": "{x} × {y} 没有可绘制的数据",
+  "scatter.needTwo": "至少需要 2 个实验才能比较 {x} × {y}",
   "pointsMissing.one": "{n} 个点缺数据",
   "pointsMissing.other": "{n} 个点缺数据",
 

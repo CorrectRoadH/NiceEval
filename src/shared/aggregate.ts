@@ -36,12 +36,22 @@ export function displayExperimentName(id: string | undefined): string | undefine
 
 /**
  * 实验 id 的组推导:去掉末段的目录前缀("compare/bub-low" → "compare");
- * 无 "/" 的顶层实验不属于任何组,返回 undefined。view 榜单分组与 defaultReport
+ * 无 "/" 的顶层实验不属于任何组,返回 undefined。view 榜单分组与自定义报告
  * 的分组用同一份,两边的「组」永远指同一个东西。
  */
 export function experimentGroupOf(experimentId: string): string | undefined {
   if (!experimentId.includes("/")) return undefined;
   return experimentId.split("/").slice(0, -1).join("/");
+}
+
+/**
+ * eval id 前缀过滤,同 CLI 位置参数的分段语义(src/runner/discover.ts):
+ * "algebra" 匹配自身与 "algebra/..." 子级,不误配 "algebra2";允许 "algebra/" 尾斜杠写法,等价。
+ */
+export function evalPrefixPredicate(evals?: string | string[]): (id: string) => boolean {
+  if (evals === undefined) return () => true;
+  const prefixes = (Array.isArray(evals) ? evals : [evals]).map((p) => p.replace(/\/+$/, ""));
+  return (id) => prefixes.some((prefix) => id === prefix || id.startsWith(prefix + "/"));
 }
 
 /** 无 experimentId 时的兜底标签。 */

@@ -25,7 +25,7 @@
 | 断言 | Assertion | Scorer 的一次具体应用,带名字、严重度、可选阈值,产出 0–1 分数和过/挂 |
 | 判定 | Verdict | 一个 Eval 的评分判定,四态:`passed` / `failed` / `errored` / `skipped`,没有中间态 |
 | 严重度 | Severity | 断言的两档:gate 不过即 `failed`;soft 只记分,`--strict` 下低于阈值才降级 `failed` |
-| Judge(裁判模型) | Judge(LLM-as-judge) | 用一个大模型当裁判给开放式回答打分的 Scorer,默认 soft、无阈值,详见 [Scoring](scoring.md#3-llm-as-judge) |
+| Judge(LLM-as-judge) | Judge(LLM-as-judge) | 用一个大模型当裁判给开放式回答打分的 Scorer,默认 soft、无阈值,详见 [Scoring](scoring.md#3-llm-as-judge) |
 
 ### 被测对象与适配器
 
@@ -85,8 +85,27 @@
 | 报告 | Report | `defineReport` 定义的 `.tsx` 报告文件,返回一棵组件树,经 `--report` 交给宿主渲染 |
 | 双面组件 | Dual-render component | `defineComponent({ web, text })` 的产物:一个定义、两个纯函数渲染面,同一棵树两个宿主共用 |
 | 宿主 | Host | 打开结果、挑 Selection、渲染报告的那一侧:`show` 是终端宿主,`view` 是网页宿主 |
-| 默认报告 | DefaultReport | 不传 `--report` 时宿主渲染的内置报告(运行总览 + 逐实验指标表 + 失败清单);「榜单」只是其中逐实验指标表的口语叫法 |
+| 默认报告 | —(角色名,非 API) | 不传 `--report` 时 show/view 渲染的那份内置报告(当前是 `CostPassRateComparison`:成本 × 成功率散点图 + 逐实验明细表)。它是一份普通 `ReportDefinition`,和包外用户报告逐节点同构、无任何渲染器特权;「默认」只表示宿主在缺省时选它,不是报告内容的特殊类别 |
 | 报告槽 / 证据室 | —(内部代号) | 宿主结构的两半:报告槽整个归 `--report`,证据室(transcript / trace / diff 下钻)是宿主本体;这两个词不出现在公开站 |
+
+### 报告组件
+
+中文正文首次提到组件时写“中文名（`API 名`）”，后续可只写中文名或 `API 名`。组件按主展示单位分成整体概览、Experiment 诊断、通用指标视图、Eval 成绩、Experiment 比较与 Attempt 证据。这里的中文名描述组件的稳定形态，不用“榜单”“工作台”这类会随页面语境变化的别名。完整用法和终端输出见[报告组件一览](../docs-site/zh/guides/report-components.mdx)。
+
+| 分类 | 中文 | English | API | 主展示单位 |
+|---|---|---|---|---|
+| 整体概览 | 运行总览 | Run overview | `RunOverview` | 一批 Selection;汇总其中的 experiment、Eval 和 Attempt |
+| 整体概览 | 组摘要 | Group summary | `GroupSummary` | 收窄后的一批 Selection;汇总一组 experiment 和 Eval |
+| Experiment 诊断 | 实验明细表 | Experiment table | `ExperimentTable` | 每行一个 experiment;展开到 Eval 和 Attempt |
+| 通用指标视图 | 指标表 | Metric table | `MetricTable` | 一个可配置行维度;每格是一个聚合指标值 |
+| 通用指标视图 | 指标矩阵 | Metric matrix | `MetricMatrix` | 两个可配置维度的交叉格;每格是一个聚合指标值 |
+| 通用指标视图 | 分组条形图 | Grouped bar chart | `MetricBars` | 两个可配置维度形成分组和系列;每根条是一个聚合指标值 |
+| Eval 成绩 | 成绩单 | Scoreboard | `Scoreboard` | 每行一个可配置维度值;按 Eval 和 Eval 分组计算分数 |
+| Experiment 比较 | 指标散点图 | Metric scatter plot | `MetricScatter` | 每点一个可配置维度值,通常是 experiment;坐标是两个聚合指标值 |
+| Experiment 比较 | 指标趋势图 | Metric line chart | `MetricLine` | 每点一个 experiment;横轴是 experiment flag,纵轴是聚合指标值 |
+| Experiment 比较 | 成对差异表 | Paired delta table | `DeltaTable` | 每行一对 experiment 或结果快照;格内是指标值及差值 |
+| Attempt 证据 | 案例清单 | Case list | `CaseList` | 每条一个失败或出错的 Attempt |
+| 行 / 列 / 分节 / 文本 / 样式 | Row / column / section / text / style | `Row` / `Col` / `Section` / `Text` / `Style` | 如何组织报告版面和补充说明;它们不计算结果 |
 
 ### 配置与 CLI
 

@@ -1,7 +1,7 @@
 ---
 title: "NiceEval CLI：命令、flags 和退出码参考"
 sidebarTitle: "命令行"
-description: "NiceEval CLI 参考：exp、init、list、clean 和 view 命令，以及 experiment、eval 过滤、sandbox、并发、预算和 JUnit CI 输出。"
+description: "NiceEval CLI 参考：exp、show、view、init、list 和 clean 命令，以及结果下钻、experiment、eval 过滤、并发、预算和 CI 输出。"
 ---
 
 [NiceEval](https://niceeval.com/) CLI 是发现、运行和查看 eval 的入口。实际执行 eval 时采用 experiment-first 模型：**`exp` 选择可签入的运行配置**，experiment 后的位置参数才按 eval ID 前缀过滤。agent、model 和 flags 写在 `experiments/`，不靠临时 CLI 参数。
@@ -21,8 +21,11 @@ description: "NiceEval CLI 参考：exp、init、list、clean 和 view 命令，
   <Card title="npx niceeval clean" icon="trash">
     删除 `.niceeval/` 下历史快照 artifacts。
   </Card>
+  <Card title="npx niceeval show [id-prefix]" icon="terminal">
+    在终端读取结果；按 eval ID 前缀下钻断言、transcript、trace、diff 和历史。
+  </Card>
   <Card title="npx niceeval view" icon="eye">
-    打开结果查看器，查看最近一次运行的 artifacts。
+    打开网页结果查看器，读默认报告并交互浏览 transcript、trace、diff 与历史；默认范围与 `show` 相同。
   </Card>
 </CardGroup>
 
@@ -122,7 +125,22 @@ npx niceeval exp compare-models weather-tool
 npx niceeval view
 ```
 
-打开本地结果查看器。默认查看最近一次落盘的结果快照。
+打开本地结果查看器。它和 `show` 共用同一份默认报告和同一套默认选择——对每个 experiment、每个 eval，取历次运行里最新的那份判定；只补跑部分 eval 时，其余 eval 从更早的运行补齐。`show` 输出终端文本，`view` 输出网页并提供可交互的证据浏览；eval ID 前缀、`--experiment`、`--run` 对两者的收窄一致。完整说明见[查看结果](/zh/guides/viewing-results)。
+
+## `show [id-prefix...]`
+
+```bash
+npx niceeval show
+npx niceeval show weather/brooklyn
+npx niceeval show weather/brooklyn --transcript
+npx niceeval show weather/brooklyn --trace
+npx niceeval show fixtures/button --diff
+npx niceeval show weather/brooklyn --history
+```
+
+`show` 是终端结果入口，适合人直接阅读，也适合 coding agent 在上下文窗口里逐级下钻。位置参数只按 eval ID 前缀筛选；不带位置参数时显示默认报告，指定到单个 eval 时显示各 experiment 的 attempt、断言、错误与用量。
+
+证据切面 `--transcript`、`--trace`、`--diff` 要求最终只匹配一个 eval。多 experiment 或多 attempt 时，默认选择最新一次失败的 attempt；用 `--experiment` 和 `--attempt` 指定其它结果。`--run` 钉住某次结果目录，`--history` 查看跨 run 趋势。完整的阅读顺序、输出示例和 artifact 说明见[查看结果](/zh/guides/viewing-results)。
 
 ## `--early-exit` 与 `--strict`
 

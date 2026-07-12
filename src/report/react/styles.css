@@ -526,6 +526,12 @@ table.nre,
   font-size: 0.85em;
   margin: 0.25rem 0 0;
 }
+/* 散点空态(0 可画点)/ 不足以成图(1 可画点):明说缺什么,不画空坐标系 */
+.nre-metric-scatter .nre-scatter-empty {
+  color: var(--muted);
+  padding: 1.5rem 0.5rem;
+  text-align: center;
+}
 
 /* enhance.js 的样式化 tooltip(无 JS 时退化为 SVG <title>) */
 .nre .nre-tooltip {
@@ -694,11 +700,3 @@ table.nre,
   color: var(--muted);
   margin: 0.25rem 0;
 }
-
-/* ---- DefaultReport(官方水位整块)---- */
-.nre-default-report {
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-}
-.nre-default-report > .nre { margin: 0; }

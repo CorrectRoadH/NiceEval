@@ -13,10 +13,10 @@ description: "一份报告就是一个报告文件：官方宿主打开结果、
 `niceeval view` 和 `niceeval show` 不传 `--report` 时渲染的默认报告不是私有实现，而是 `niceeval/report` 公开导出的一个值：
 
 ```ts
-import { defaultReport } from "niceeval/report";
+import { CostPassRateComparison } from "niceeval/report";
 ```
 
-`niceeval view` 就等于 `niceeval view --report <defaultReport>`，`show` 同理。它从上到下是：运行总览、每个实验组一节（质量 × 成本散点图 + 榜单，榜单每行可点开看这个实验下每道题的判定与原因）。我们自己用的零件和给你的完全一样，没有私有数据通道，默认报告上的每个数字你都能用同样几行代码原样重算出来。
+`niceeval view` 就等于 `niceeval view --report <CostPassRateComparison>`，`show` 同理。它只有两块，从上到下：一张成本 × 通过率散点图（每个实验一个点，同 agent 的点连成线），一张实验明细表（一行一个实验，可展开看配置、KPI、逐 Eval/Attempt 和 raw sample）。整表拉平，不按实验分组。我们自己用的零件和给你的完全一样，没有私有数据通道，默认报告上的每个数字你都能用同样几行代码原样重算出来。
 
 |  | 网页（人看） | 终端（agent 和你看） |
 | --- | --- | --- |
@@ -39,13 +39,15 @@ import { defaultReport } from "niceeval/report";
 // reports/exam.tsx —— 一份定义，两扇门共用
 import {
   defineReport, Col, Section,
-  DefaultReport, Scoreboard,
+  MetricScatter, ExperimentTable, Scoreboard,
+  costUSD, passRate,
 } from "niceeval/report";
 
 export default defineReport(async ({ selection }) => (
   <Col>
-    <DefaultReport />
-    {/* 官方水位原样铺进来，不要就删这行 */}
+    {/* 想把官方默认那两块摆在自己口径旁边当对照，就照它的写法自己摆同样两块 */}
+    <MetricScatter selection={selection} points="experiment" series="agent" x={costUSD} y={passRate} />
+    <ExperimentTable selection={selection} filter />
     <Section title="考试成绩单">
       <Scoreboard data={await Scoreboard.data(selection, { rows: "agent", subjects: "evalGroup" })} />
     </Section>
@@ -58,15 +60,17 @@ niceeval show --report reports/exam.tsx    # 终端：同一棵树走文本面
 niceeval view --report reports/exam.tsx    # 网页：同一棵树走网页面，attempt 深链直达证据室
 ```
 
-注入的上下文只有两样，全部是[结果数据 API](/zh/guides/results-data) 的原语，宿主没有私有通道：`results` 就是 `openResults(".niceeval")` 的返回（实验、历次快照、attempt 级 `diff()`、`trace()` 都在上面）；`selection` 就是 `results.latest()` 的返回 Selection——宿主按「每个实验取最新」挑好的现刻水位，与默认报告同口径，快照在 `selection.snapshots`，挑选警告在 `selection.warnings`。组件的 `data` 函数直接吃 Selection，警告随行——`RunOverview` 会把残缺快照的警告如实显示，不用你另外接线；默认挑法不合口径时，拿 `results` 自己挑，手工挑的 `Snapshot[]` 数组同样能喂给每个 `data` 函数。
+注入的上下文只有两样，全部是[结果数据 API](/zh/guides/results-data) 的原语，宿主没有私有通道：`results` 就是 `openResults(".niceeval")` 的返回（实验、历次快照、attempt 级 `diff()`、`trace()` 都在上面）；`selection` 是宿主替你挑好的那份结果。挑选规则是：对每个实验、每道 eval，取该实验历史运行里最新的那次判定——只按前缀重跑了一部分 eval，其余 eval 的判定从更早的运行补齐，不会因为一次局部重跑就整体退回某一份残缺快照。默认报告吃的就是这份 `selection`，快照在 `selection.snapshots`，挑选提醒在 `selection.warnings`。默认挑法不合口径时，拿 `results` 自己挑，手工挑的 `Snapshot[]` 数组同样能喂给每个组件。
 
-命令行的范围先作用在挑选上，报告拿到的就是范围内的水位：位置参数的 eval id 前缀收窄 Selection 覆盖的 eval（覆盖警告的分母同样收窄到范围内），`--run` 把结果根换成指定目录，`--experiment` 让 Selection 只留该实验。`--history` 与 `--report` 互斥——趋势在报告里用 `exp.snapshots` 自己摆；证据切面（`--transcript` / `--trace` / `--diff`）只看证据，不渲染报告。
+报告文件里摆组件有两种写法。散点图 `MetricScatter` 和实验明细表 `ExperimentTable` 直接收 `selection`：`<MetricScatter selection={selection} … />`、`<ExperimentTable selection={selection} />`，宿主在渲染前替你把数据算好，报告里不用写 `await`、`.data()` 或中间变量——默认报告就是这么写的。其余组件（`Scoreboard`、`MetricTable`、`GroupSummary` 等）收算好的 `data`：你在报告函数体里 `await` 对应的 `.data()` 计算函数，把数据折出来再传进去（`<Scoreboard data={await Scoreboard.data(selection, …)} />`）。`MetricScatter` / `ExperimentTable` 收 `selection` 的写法也能改收 `data`——把某块嵌进你自己已经跑起来的 React 应用，或数据是预先算好、缓存、跨进程读来的时候用；这时组件不碰结果目录，只渲染你给的数据。同时给它们传 `data` 和 `selection`、或两者都不传，类型检查都会报错。
 
-`<DefaultReport />` 零 props、纯声明：官方水位只读瘦身条目（不碰 diff 这类重 artifact），宿主总是替你备好，摆不摆在你。它渲染的是**宿主注入的那份 Selection** 的官方水位——跟随命令行范围，但不跟随你在报告里自己另挑的口径；这正是它的意义：当官方锚点，和你的口径并排对照。要「官方摆法 + 自选口径」，用它脚下的同一批组件自己摆——它没有任何私有零件。
+挑选提醒（覆盖不全、快照过期、有没跑完的运行）不用你在报告里专门摆一个组件来显示：不管你的报告摆了哪些组件，`niceeval show` 和 `niceeval view` 都会把 `selection.warnings` 显示在报告正文上方，不会因为你没摆某一块就静默丢掉。
+
+命令行的范围先作用在挑选上，报告拿到的就是收窄到这个范围后的 `selection`：位置参数的 eval id 前缀收窄 Selection 覆盖的 eval（覆盖提醒的分母同样收窄到范围内），`--run` 把结果根换成指定目录，`--experiment` 让 Selection 只留该实验。`--history` 与 `--report` 互斥——趋势在报告里用 `exp.snapshots` 自己摆；证据切面（`--transcript` / `--trace` / `--diff`）只看证据，不渲染报告。
 
 页面里的每个组件都是**双面**的：网页面是 React 渲染，终端面是字符渲染，两面吃同一份算好的数据。你在报告文件里只见到组件本身，从不碰某一面——走哪扇门由宿主决定。官方组件覆盖常见摆法——榜单 `MetricTable`、逐题格子 `MetricMatrix`、分组条形 `MetricBars`、成绩单 `Scoreboard`、质量 × 成本 frontier `MetricScatter`、趋势线 `MetricLine`、成对对比 `DeltaTable`、失败清单 `CaseList`——每个组件回答什么问题、怎么调用、终端字符输出长什么样，逐个见[报告组件](/zh/guides/report-components)。它们在宿主里自动接上证据室：网页面的格子深链到 attempt 弹窗，终端面在条目下印出 `niceeval show <eval id>` 下钻命令。
 
-默认报告没有特权：它就是上面导出的那个值 `defaultReport`，你的报告和它同级；`<DefaultReport />` 是把同一块官方内容整块摆进你的树的组件。「官方水位 + 自己的口径」像上面那样把它摆进自己的树；不要官方水位就不摆——组合发生在你的 tsx 里，没有 tab、没有注册表、没有配置。
+默认报告没有特权：它就是上面导出的那个值 `CostPassRateComparison`，你的报告和它同级。要「官方摆法 + 自己的口径」，把它那两块组件（`MetricScatter` + `ExperimentTable`）照原样摆进你的树，和你自己的口径并排对照——默认报告没有任何私有零件，你摆出来的和它一模一样；不要官方那两块就不摆。组合发生在你的 tsx 里，没有 tab、没有注册表、没有配置。
 
 ## 排版：Row 与 Col 在两个面都成立
 
@@ -94,18 +98,18 @@ codex  78.0/100   40/50    38/50    │  codex  80%   $0.51
 
 页面树里只放双面组件和排版原语，不放裸 HTML 标签——终端面没法渲染一个 `<div>`。要自由内容，说明文字用 `<Text>`，更自由的走下面的自定义组件。
 
-## 复刻组摘要：GroupSummary
+## 按组摘要：GroupSummary
 
-默认报告每个实验组顶部那块紧凑统计（通过率、experiment/eval 数、failed/errored、总成本、最后运行时间）是官方组件 `GroupSummary`。它的计算函数 `GroupSummary.data` 只吃一份已经收窄好的 Selection——不管你怎么分组，把对应组的 Selection 传进去，就是默认报告用的同一套口径（eval 级折叠计票、null-safe 总成本、组内最后运行时间的最大值），不是另一套近似公式。
+想把实验按目录前缀分组、每组顶部摆一块紧凑统计（通过率、experiment/eval 数、failed/errored、总成本、最后运行时间），用官方组件 `GroupSummary`。它的计算函数 `GroupSummary.data` 只吃一份已经收窄好的 Selection——不管你怎么分组，把对应组的 Selection 传进去，就是同一套折叠口径（eval 级折叠计票、null-safe 总成本、组内最后运行时间的最大值），不是另一套近似公式。
 
-默认报告按 experiment id 的目录前缀分组（`compare/bub-low` 属于组 `compare`，顶层实验不属于任何组）；用 `Selection.filter` 收窄出同一份组 Selection，自己就能摆出同一块：
+常见的分法是按 experiment id 的目录前缀（`compare/bub-low` 属于组 `compare`，顶层实验不属于任何组）；用 `Selection.filter` 收窄出每组的 Selection，就能一组摆一块：
 
 ```tsx
-// reports/groups.tsx —— 复刻默认报告每组顶部的那块统计
+// reports/groups.tsx —— 按 experiment id 前缀分组，每组顶部摆一块统计
 import { defineReport, Col, Section, GroupSummary } from "niceeval/report";
 import type { Snapshot } from "niceeval/report";
 
-// experiment id 的目录前缀当组名，和默认报告同一个约定：顶层实验（id 无 "/"）不属于任何组。
+// experiment id 的目录前缀当组名：顶层实验（id 无 "/"）不属于任何组。
 function groupOf(snapshot: Snapshot): string | undefined {
   const parts = snapshot.experimentId.split("/");
   return parts.length > 1 ? parts.slice(0, -1).join("/") : undefined;
@@ -136,11 +140,11 @@ Pass rate 60% · 2 experiments · 6 evals · failed 1 · errored 1 · $1.50
 latest 2026-07-01T11:30:00Z
 ```
 
-`GroupSummary` 之后想接着摆散点图或默认首页同款实验工作台，同一份 `scoped` Selection 原样喂给 `MetricScatter.data` / `ExperimentTable.data` 就行——默认报告的每个组就是这三块的组合。想自由换行维度和指标列，再用下面的通用 `MetricTable`。
+`GroupSummary` 之后想接着摆散点图或实验明细表，把同一份 `scoped` Selection 直接传给 `<MetricScatter selection={scoped} points="experiment" series="agent" x={costUSD} y={passRate} />` 和 `<ExperimentTable selection={scoped} />` 就行——组件替你从这份收窄好的 Selection 折出数据。想自由换行维度和指标列，再用下面的通用 `MetricTable`。
 
 ## 换口径：自定义指标
 
-默认报告的逐实验工作台由 `ExperimentTable.data(selection)` 产出；它固定保留配置、KPI、逐 Eval/Attempt 和 raw sample。下面的例子是另一种需求：用通用 `MetricTable` 自由换指标口径——每个组件的数据算法都挂在自己身上，换口径只需换 columns：
+默认报告的实验明细表就是 `ExperimentTable`——它固定保留配置、KPI、逐 Eval/Attempt 和 raw sample。下面的例子是另一种需求：用通用 `MetricTable` 自由换指标口径——每个组件的数据算法都挂在自己身上，换口径只需换 columns：
 
 ```tsx
 // reports/golf.tsx —— code-golf：谁写出能用的代码，谁写得短
@@ -324,4 +328,4 @@ niceeval view --report reports/exam.tsx --out site
 
 ## 界线：内置命令不长配置
 
-一次只渲染一份报告，`--report` 收显式文件路径——没有 `reports/` 目录自动发现、没有插件注册表、没有配置文件。自定义指标和自定义组件都住在你的报告文件里，随文件一起递入，宿主不为它们长任何注册面。不传 `--report` 时渲染的就是内置的 `defaultReport`，你的报告和它是同级实现。
+一次只渲染一份报告，`--report` 收显式文件路径——没有 `reports/` 目录自动发现、没有插件注册表、没有配置文件。自定义指标和自定义组件都住在你的报告文件里，随文件一起递入，宿主不为它们长任何注册面。不传 `--report` 时渲染的就是内置的 `CostPassRateComparison`，你的报告和它是同级实现。

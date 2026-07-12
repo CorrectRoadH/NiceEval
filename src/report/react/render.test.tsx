@@ -310,7 +310,7 @@ describe("MetricScatter", () => {
     expect(html).toContain('href="/exp/compare/bub-low"');
   });
 
-  it("全部点都缺数据时不画空坐标系", () => {
+  it("全部点都缺数据时不画空坐标系:显式说明缺哪两个指标", () => {
     const empty = renderToStaticMarkup(
       <MetricScatter
         data={{
@@ -320,8 +320,22 @@ describe("MetricScatter", () => {
       />,
     );
     expect(empty).not.toContain("<svg");
-    expect(empty).toContain("no data");
+    expect(empty).toContain("No data to plot"); // 0 可画点:命名 x/y 指标,不画空图
     expect(empty).toContain("4 points missing data");
+  });
+
+  it("恰好 1 个可画点:比较至少要两个实验,不画孤点图", () => {
+    const single = renderToStaticMarkup(
+      <MetricScatter
+        data={{
+          ...scatterData,
+          // 只留第一个点可画,其余 x 置空
+          rows: scatterData.rows.map((r, i) => (i === 0 ? r : { ...r, x: { ...r.x, value: null } })),
+        }}
+      />,
+    );
+    expect(single).not.toContain("<svg");
+    expect(single).toContain("At least 2 experiments needed to compare");
   });
 });
 

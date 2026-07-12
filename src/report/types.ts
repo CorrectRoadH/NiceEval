@@ -266,7 +266,7 @@ export interface LineData {
 }
 
 /**
- * 一组 experiment(如 `defaultReport` 里同一 `<Section>` 内的全部 experiment)的摘要:
+ * 一组 experiment(如自定义报告里同一 `<Section>` 内的全部 experiment)的摘要:
  * experiment/eval/attempt 数量、eval 级折叠计票、通过率、总成本、最后运行时间——
  * 恢复旧 `GroupSelector` 卡片曾展示的信息密度,但通过率是官方 `MetricCell` 形态,
  * 不是裸数字,渲染面不用另外拼格式。

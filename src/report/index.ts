@@ -30,9 +30,8 @@ export type {
 export { Row, Col, Section, Text, Style } from "./primitives.tsx";
 export type { LayoutProps, SectionProps, StyleProps } from "./primitives.tsx";
 
-// 官方水位整块(零 props 的锚点)与内置默认报告(报告槽的出厂填充,一份普通 ReportDefinition)
-export { DefaultReport } from "./official-report.tsx";
-export { defaultReport } from "./default-report.tsx";
+// 内置报告(show / view 裸跑时报告槽的出厂填充,一份普通 ReportDefinition,无 renderer 特权)
+export { CostPassRateComparison } from "./built-ins/index.ts";
 
 // locale:官方组件 chrome 文案的语言(en / zh-CN);指标 label 可按 locale 给字典
 export { DEFAULT_REPORT_LOCALE, resolveMetricLabel } from "./locale.ts";
@@ -110,6 +109,6 @@ export type {
 // 数据层输入的类型(家在 niceeval/results,这里 re-export 方便写指标 / 报告)
 export type { AttemptHandle, Results, Selection, Snapshot } from "../results/index.ts";
 
-// experiment id 的组键推导:defaultReport 按目录前缀分组用的就是这一份(见 default-report.tsx);
-// 在此重新导出,让自定义报告能用同一份口径分组,不必自己重新写这两行逻辑。
+// experiment id 的组键推导(id 的目录前缀,如 `compare/bub-low` 的 `compare`)。
+// 重新导出,让自定义报告能按同一份口径把 experiment 分组,不必自己重写这两行逻辑。
 export { experimentGroupOf } from "../shared/aggregate.ts";

@@ -1,16 +1,17 @@
 // view 的数据层:读取经 niceeval/results 的 openResults(布局/版本知识只住在那)。
-// 这里只做编排:挑选(results.latest();位置前缀 / --experiment / --report 在场时经
-// composeShowSelection 与 show 同口径合成)、快照明细注入(attemptRef / artifactBase)、
-// skipped 透传、报告槽渲染(renderReportSlot:裸跑填充 defaultReport,--report 整槽替换,
-// en / zh-CN 双语各渲染一遍)。统计口径整体住在报告槽里(defaultReport 的官方计算函数),
-// viewData 不再携带 overview / 榜单这类统计产物,见 docs/view.md「用 Reports 积木重建 view」。
+// 这里只做编排:报告槽 Selection 恒经 selectCurrentResults(现刻水位;与 show 调同一个函数,
+// 两扇门判定不分叉)、快照明细注入(attemptRef / artifactBase)、skipped 透传、报告槽渲染
+// (renderReportSlot:裸跑填充 CostPassRateComparison,--report 整槽替换,en / zh-CN 双语各渲染一遍)。
+// --report 只换报告定义,注入的 Selection 与裸跑同一份。统计口径整体住在报告槽里
+// (报告组件的官方计算函数),viewData 不再携带 overview / 榜单这类统计产物,
+// 见 docs/view.md「用 Reports 积木重建 view」。
 
 import { statSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { dedupeAttempts, openResults } from "../results/index.ts";
 import type { AttemptHandle, Results, Selection, Snapshot, SkippedDir } from "../results/index.ts";
 import { loadReportFile } from "../report/load.ts";
-import { composeShowSelection, filterExperiments } from "../show/compose.ts";
+import { selectCurrentResults, filterExperiments } from "../results/select.ts";
 import type { EvalResult } from "../types.ts";
 import type { ReportSlotHtml, SkippedRunNotice, ViewData, ViewEvalResult, ViewSnapshot } from "./shared/types.ts";
 import { t } from "../i18n/index.ts";
@@ -27,7 +28,7 @@ export interface ViewScan {
   artifactDirs: Map<string, string>;
   /**
    * 报告槽:报告树经 renderReportToStaticHtml 渲染出的静态 HTML(en / zh-CN 各一份),
-   * 裸跑填充内置默认报告 defaultReport,--report 整槽替换。作为两个 <template> 静态块
+   * 裸跑填充内置默认报告 CostPassRateComparison,--report 整槽替换。作为两个 <template> 静态块
    * 烘进页面(与 __NICEEVAL_VIEW_DATA__ 相邻),不进 viewData —— 前端只负责把当前
    * 界面语言对应的那块 HTML 摆进报告槽位置,不解析。
    */
@@ -141,10 +142,10 @@ export async function loadLatestResultsPerEval(root = ".niceeval"): Promise<Eval
 
 /**
  * `niceeval view` 的数据装载入口:server 每次请求现读现算,`--out` 导出用同一份。
- * 位置前缀 / --experiment 在场时,报告槽 Selection 经 composeShowSelection 合成
- * (与 `niceeval show` 同一口径,两扇门判定不分叉);其余情况维持 results.latest()。
+ * 报告槽 Selection 恒经 selectCurrentResults 合成(现刻水位;与 `niceeval show` 调同一个
+ * 函数,裸跑与局部收窄不分叉),位置前缀 / --experiment 只作为 scope 传入,不切换选择口径。
  * --report 本身不改挑选——它只换报告槽的填充,注入的 Selection 与裸跑同一份,
- * 「裸跑 ≡ --report <defaultReport>」靠这条成立(docs/reports.md「宿主输入的组合语义」)。
+ * 「裸跑 ≡ --report <CostPassRateComparison>」靠这条成立(docs/reports.md「宿主输入的组合语义」)。
  * 证据室数据(快照明细 / skipped)恒为全量,深链在任何收窄下都可达。
  * 零可读结果一律抛 ViewInputError,不渲染/导出空页面(server 起不来,--out 非零退出)。
  */
@@ -155,7 +156,6 @@ export async function loadViewScan(input?: string, opts: ViewScanOptions = {}): 
   assertSingleFileReadable(results, target);
 
   const patterns = opts.patterns ?? [];
-  const narrowed = patterns.length > 0 || opts.experiment !== undefined;
 
   // 零可读结果直说,不渲染/导出一张空页面(与 show 的「匹配不到直说」同一原则;
   // CI 静态发布还靠这个非零退出保住上一次部署,空报告不顶上线)。零可读最常见的
@@ -176,10 +176,11 @@ export async function loadViewScan(input?: string, opts: ViewScanOptions = {}): 
     );
   }
 
-  const baseSelection = results.latest();
-  const selection = narrowed
-    ? composeShowSelection(results, { experiment: opts.experiment, patterns })
-    : baseSelection;
+  // 报告槽 Selection:恒经现刻水位选择器合成,与 show 裸跑同口径(两扇门判定不分叉)。
+  const selection = selectCurrentResults(results, { experiment: opts.experiment, patterns });
+  // latestPerExperiment 只服务证据室 UI 的 latest 标记(ViewSnapshot.latest / viewData.snapshots),
+  // 与报告槽 Selection 完全无关,绝不复用为报告 Selection。
+  const latestPerExperiment = results.latest();
 
   if (patterns.length > 0 && selection.snapshots.every((s) => s.evals.length === 0)) {
     const known = [
@@ -190,7 +191,7 @@ export async function loadViewScan(input?: string, opts: ViewScanOptions = {}): 
     );
   }
 
-  // 报告槽:裸跑填充 defaultReport,--report 整槽替换。报告吃同一份注入 Selection,
+  // 报告槽:裸跑填充 CostPassRateComparison,--report 整槽替换。报告吃同一份注入 Selection,
   // web 面在计算侧静态渲染成 HTML(en / zh-CN 各一遍,切界面语言不重算数据)。
   const reportHtml = await renderReportSlot(opts.report, results, selection);
 
@@ -198,8 +199,8 @@ export async function loadViewScan(input?: string, opts: ViewScanOptions = {}): 
   // (与官方计算函数的聚合口径一致,Runs / Traces 的计数因此不被复印件灌票)。
   const artifactDirs = new Map<string, string>();
   // latest 标记恒按 results.latest() 口径打(ViewSnapshot.latest 的声明语义),
-  // 不随收窄后的合成 Selection 漂移 —— 榜单行与快照的关联靠它成立。
-  const latestSet = new Set(baseSelection.snapshots);
+  // 与报告槽 Selection(现刻水位,可能合成自更早快照)是两个独立概念,不混用。
+  const latestSet = new Set(latestPerExperiment.snapshots);
   const allAttempts: AttemptHandle[] = [];
   for (const exp of results.experiments) {
     for (const snap of exp.snapshots) allAttempts.push(...snap.attempts);
@@ -242,11 +243,10 @@ export async function loadViewScan(input?: string, opts: ViewScanOptions = {}): 
   const viewData: ViewData = {
     ...(latestSnapshot?.name !== undefined ? { name: latestSnapshot.name } : {}),
     ...(latestSnapshot ? { lastRunAt: latestSnapshot.startedAt } : {}),
-    // 合成 Selection 的快照是跨快照拼出来的,来源快照数从 attempt 的 snapshot 反向引用数;
-    // 默认 Selection(latest 口径)保持原表达式,行为不变。
-    composedRuns: narrowed
-      ? new Set(selection.snapshots.flatMap((s) => s.attempts.map((a) => a.snapshot.dir))).size
-      : new Set(selection.snapshots.map((s) => s.dir)).size,
+    // 合成 Selection 的快照是跨快照拼出来的,来源物理 run 数从 attempt 自己的 snapshot
+    // 反向引用取——每个 attempt 的 .snapshot 恒指向它真实所在的贡献快照(无论 Selection
+    // 是否合成),所以这条对裸跑与收窄一律成立,不需要分支。
+    composedRuns: new Set(selection.snapshots.flatMap((s) => s.attempts.map((a) => a.snapshot.dir))).size,
     snapshots,
     skippedRuns: results.skipped.map(toSkippedNotice),
   };
@@ -255,7 +255,7 @@ export async function loadViewScan(input?: string, opts: ViewScanOptions = {}): 
 
 /**
  * 报告槽渲染:装载报告文件(--report;dev server 语义 —— 文件变更下次请求整页重算,
- * 经 mtime cache-busting),缺省用内置默认报告 defaultReport → 注入 Selection →
+ * 经 mtime cache-busting),缺省用内置默认报告 CostPassRateComparison → 注入 Selection →
  * web 面 renderToStaticMarkup 成静态 HTML,en / zh-CN 各渲染一遍(chrome 文案按 locale)。
  * react / react-dom 动态加载:data.ts 还被 runner 的续跑携带(loadLatestResultsPerEval)
  * 消费,渲染依赖不进那条路径。attemptHref 缺省即 `#/attempt/<snapshot>/<attempt>` 深链路由。
@@ -267,7 +267,7 @@ async function renderReportSlot(
 ): Promise<ReportSlotHtml> {
   const definition = report
     ? await loadReportFile(report.cwd, report.path, { freshImport: true })
-    : (await import("../report/default-report.tsx")).defaultReport;
+    : (await import("../report/built-ins/index.ts")).CostPassRateComparison;
   const { renderReportToStaticHtml } = await import("../report/web.ts");
   const ctx = { selection, results };
   return {

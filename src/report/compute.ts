@@ -161,7 +161,7 @@ function summarizeItems(items: Item[]): {
 
 /**
  * experiment 行的元信息:agent/model 身份(组内去重后拼接)+ eval 级折叠计票 + eval/attempt
- * 数量与最后运行时间(summarizeItems,即 view 榜单/DefaultReport 榜单的同一套 foldEvalVerdict
+ * 数量与最后运行时间(summarizeItems,即 view 榜单/ExperimentTable 的同一套 foldEvalVerdict
  * 口径)。其它行维度(agent/eval/自定义…)没有唯一身份,不携带。
  */
 function experimentRowMeta(group: Item[]): TableRowMeta {
@@ -185,8 +185,8 @@ function experimentRowMeta(group: Item[]): TableRowMeta {
 
 /**
  * 一次 attempt 未通过的 gate 断言,原始声明顺序不变;soft 断言不参与判定,不算「失败原因」,
- * 只影响得分,永不出现在这份列表里。`MetricTable expand` 子行、`CaseList`、`<DefaultReport />`
- * 的 failing board 共用这同一份材料,保证同一个 attempt 在三处给出同一个原因。
+ * 只影响得分,永不出现在这份列表里。`MetricTable expand` 子行、`CaseList`、`ExperimentTable`
+ * 的失败诊断共用这同一份材料,保证同一个 attempt 在三处给出同一个原因。
  */
 export function failingGateAssertions(result: EvalResult): AssertionResult[] {
   return result.assertions.filter((a) => !a.passed && a.severity === "gate");
@@ -700,8 +700,8 @@ export async function overviewData(input: SnapshotsInput): Promise<OverviewData>
 /**
  * 一组 experiment 的摘要:experiment/eval/attempt 数量、eval 级折叠计票、通过率(旧
  * `GroupSelector` 卡片口径,见 summarizeItems)、总成本(null-safe 求和)、最后运行时间
- * (组内快照 startedAt 最大值)。`input` 就是调用方已经收窄好的组 Selection(如
- * `defaultReport` 按 experiment 组前缀 filter 出来的那份)——本函数不再自己分组。
+ * (组内快照 startedAt 最大值)。`input` 就是调用方已经收窄好的组 Selection(如自定义报告
+ * 按 experiment 组前缀 filter 出来的那份)——本函数不再自己分组。
  */
 export async function groupSummaryData(input: SnapshotsInput): Promise<GroupSummaryData> {
   const { snapshots } = resolveInput(input);

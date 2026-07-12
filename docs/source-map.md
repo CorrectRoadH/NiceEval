@@ -105,13 +105,13 @@
 
 ## Results Lib 与 Reports
 
-设计文档:[results-lib.md](results-lib.md) / [reports.md](reports.md) / [view.md](view.md) 合流一节。实现落点(show 与 view 两个宿主的 `--report` 装载都已接线;view = 报告槽 + 证据室,裸跑渲染 `defaultReport`):
+设计文档:[results-lib.md](results-lib.md) / [reports.md](reports.md) / [view.md](view.md) 合流一节。实现落点(show 与 view 两个宿主的 `--report` 装载都已接线;view = 报告槽 + 证据室,裸跑渲染内置的 `CostPassRateComparison`;两个宿主的报告槽 Selection 都由中性的 `selectCurrentResults` 无条件产出):
 
 | 行为 | 文件 |
 |---|---|
 | `openResults`:实验/结果快照/eval 分层、版本分流(skipped 三种原因)、懒加载(attempt 目录→artifactBase 携带条目回退) | `src/results/open.ts` |
 | 布局与版本知识(attempt 目录规则、快照分类、完整 producer) | `src/results/format.ts` |
-| `results.latest()`(Selection + 四种警告)/ `Selection.filter` / `dedupeAttempts`(身份键去重) | `src/results/select.ts` |
+| `results.latest()`(= `selectLatest`,每实验取最新一次快照 + 四种挑选警告)/ `selectCurrentResults`(现刻水位合成器:对每个 experiment × eval 跨该实验全部历史快照取最新判定,合成一份报告用 Snapshot,警告随范围重算;show 与 view 共用的报告槽 Selection 就出自这里)/ `Selection.filter` / `dedupeAttempts`(身份键去重)/ `ResultScope`(`{ experiment?, patterns? }` 范围输入) | `src/results/select.ts` |
 | `createResultsWriter`(快照目录独占创建、快照级元数据落盘、attempt 记录与 artifact 增量落盘、`finish()` 补 `completedAt`) | `src/results/writer.ts` |
 | `copySnapshots`(发布原语:瘦身复制 + knownEvalIds 补记) | `src/results/copy.ts` |
 | 分层契约(Experiment / Snapshot / Eval / AttemptHandle / AttemptRef / Selection / 警告类型) | `src/results/types.ts` |
@@ -121,22 +121,22 @@
 | 十个计算函数(挂组件上的 `.data`:RunOverview / GroupSummary / ExperimentTable / MetricTable / MetricMatrix(=MetricBars)/ Scoreboard / MetricScatter / MetricLine / DeltaTable / CaseList) | `src/report/compute.ts`(装配在 `src/report/components.tsx`) |
 | 数据契约(Metric 字面量键泛型、TableData\<K\> … CaseListData;`MetricCell.refs` 必填) | `src/report/types.ts` |
 | 元素树 / `defineComponent`(双面)/ 渲染前树校验 / text 遍历渲染 | `src/report/tree.ts` |
+| 组件数据解析 pass(`resolveReportTree`:report `build()` 之后、render 之前递归遍历树;遇到 selection-form 组件就调它自己的 `.data` 计算并换成 data-form props,同层 sibling 并行、保持节点顺序;两个渲染入口都先跑它,报告作者因此不用手写 `.data()`) | `src/report/tree.ts`(`resolveReportTree`;被 `src/report/report.ts` 与 `src/report/web.ts` 调用) |
 | 排版原语 Row / Col / Section / Text / Style(五个内置双面组件) | `src/report/primitives.tsx` |
 | 官方组件 text 面(终端形态、字符坐标图、分栏排版) | `src/report/text/{faces,layout,plot}.ts` |
-| `defineReport` / `ReportContext` / text 宿主装载入口 `renderReportToText` | `src/report/report.ts` |
+| `defineReport` / `ReportContext` / text 宿主装载入口 `renderReportToText`(`build` → `resolveReportTree` → 校验 → text 渲染;渲染前按 `ctx.selection.warnings` 预置一段警告横幅,对任何报告都生效——不依赖报告树里有没有 RunOverview) | `src/report/report.ts` |
 | `--report` 装载(两宿主共用:存在性/默认导出判别、dev server 的 mtime cache-busting) | `src/report/load.ts` |
-| show 宿主接线(组合语义矩阵、attemptCommand 下钻、内置默认报告即出厂报告槽) | `src/show/index.ts`(Selection 合成与时间轴口径在 `src/show/compose.ts`,详情/证据切面渲染在 `src/show/render.ts`,测试 `src/show/show.test.ts`) |
-| web 宿主装载入口 `renderReportToStaticHtml`(唯一 import react-dom 的一侧) | `src/report/web.ts` |
-| `DefaultReport`(官方水位整块,零 props、宿主注入 Selection,可摆进用户自己的报告当锚点) | `src/report/official-report.tsx` |
-| `defaultReport`(内置默认报告值,普通 `ReportDefinition`,`niceeval/report` 公开导出;裸跑 ≡ `--report` 它) | `src/report/default-report.tsx` |
-| 实验组推导(experimentId 的 `/` 前缀分组,`defaultReport` 分节用,住中性共享层) | `src/shared/aggregate.ts`(`experimentGroupOf`) |
+| show 宿主接线(无条件调 `selectCurrentResults` 产出报告槽 Selection、attemptCommand 下钻、裸跑选内置 `CostPassRateComparison` 作报告槽) | `src/show/index.ts`(现刻水位选择器已上移到中性的 `src/results/select.ts`;`src/show/compose.ts` 只留 `--history` 时间轴口径 `evalHistory` / `experimentHistory`,详情/证据切面渲染在 `src/show/render.ts`,测试 `src/show/show.test.ts`) |
+| web 宿主装载入口 `renderReportToStaticHtml`(唯一 import react-dom 的一侧;同样 `build` → `resolveReportTree` → 校验 → web 渲染,渲染前按 `ctx.selection.warnings` 预置同一段警告横幅) | `src/report/web.ts` |
+| 内置默认报告 `CostPassRateComparison`(普通 `ReportDefinition`,正文只摆 `MetricScatter` + `ExperimentTable` 两个 selection-form 组件,与包外用户报告逐节点同构、无渲染器特权;裸 show/view 选它,`niceeval/report` 公开导出) | `src/report/built-ins/cost-pass-rate-comparison.tsx`(目录 barrel `src/report/built-ins/index.ts` 只显式导出值,不建字符串 registry) |
+| 实验组推导(experimentId 的 `/` 前缀 → 组名,`niceeval/report` 公开导出,供用户报告用 `GroupSummary` / `Section` 自行分节;内置默认报告不再按目录前缀分节,此 helper 住中性共享层) | `src/shared/aggregate.ts`(`experimentGroupOf`) |
 | 报告 chrome 文案的 locale 字典(`ReportLocale = "en" \| "zh-CN"`,渲染入口 options 收 `locale`,经 `WebContext` / `TextContext` 携带) | `src/report/locale.ts` |
 | 十一个组件的 web 面 + 稳定散列配色 + styles.css(令牌与 view 同源,`.nre` 作用域自带;实验诊断工作台见 `react/ExperimentTable.tsx`) | `src/report/react/`(零件复用入口 `index.tsx`;演示 `scripts/report-react-demo.tsx`) |
 | 渐进增强 runtime(表头排序 / 行过滤 / hover tooltip,只作用于 `.nre` 与 `data-nre-*`;宿主内联) | `src/report/react/enhance.js` |
 | 双面验收(renderToStaticMarkup + text 快照,两面同口径) | `src/report/dual-render.test.tsx` |
 | view attempt 深链(`#/attempt/<snapshot>/<attempt>`,路由参数即 AttemptRef `{ snapshot, attempt }`) | `src/view/app/lib/attempt-route.ts`、`src/view/app/App.tsx`、`src/view/data.ts`(`annotateResult` 注入,ref 直接用 `niceeval/results` 的 `attempt.ref`) |
-| view 数据层(openResults;`__NICEEVAL_VIEW_DATA__` 只携带证据室数据:快照明细 + skipped + 壳元信息,统计住报告槽) | `src/view/data.ts`(数据契约在 `src/view/shared/types.ts`) |
-| view 报告槽(裸跑填充 `defaultReport`、`--report` 整槽替换;组合语义经 show 的 Selection 合成、`renderReportSlot` 静态渲染、en/zh-CN 两遍烘成两个 `<template>` 静态块、增强 runtime 与官方样式内联、位置参数判定 `resolveViewInput`) | `src/view/data.ts`、`src/view/server.ts`、`src/view/index.ts`、前端摆放 `src/view/app/{main.tsx,App.tsx}`(测试 `src/view/view-report.test.ts`) |
+| view 数据层(openResults;`__NICEEVAL_VIEW_DATA__` 只携带证据室数据:快照明细 + skipped + 壳元信息,统计住报告槽)。`results.latest()` 结果(命名为 `latestPerExperiment`)只用于给证据室快照打「latest」标记,与报告槽 Selection 是两条独立通道,不参与报告计算 | `src/view/data.ts`(数据契约在 `src/view/shared/types.ts`) |
+| view 报告槽(裸跑填充内置 `CostPassRateComparison`、`--report` 整槽替换;报告槽 Selection 由 view 直接调 `selectCurrentResults` 产出——不再 import `src/show/*`;`renderReportSlot` 静态渲染、en/zh-CN 两遍烘成两个 `<template>` 静态块、增强 runtime 与官方样式内联、位置参数判定 `resolveViewInput`) | `src/view/data.ts`、`src/view/server.ts`、`src/view/index.ts`、前端摆放 `src/view/app/{main.tsx,App.tsx}`(测试 `src/view/view-report.test.ts`) |
 | **未落地** | memory-evals 静态导出流水线(reports.md 场景三)、view 的 Compare(view.md 计划) |
 
 ## 与设计文档的已知差异(实现取舍)

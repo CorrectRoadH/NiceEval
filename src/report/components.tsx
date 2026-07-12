@@ -7,7 +7,7 @@
 
 import { defineComponent, isHostWebContextActive } from "./tree.ts";
 import type { ReportLocale } from "./locale.ts";
-import type { AttemptRef } from "../results/index.ts";
+import type { AttemptRef, Selection } from "../results/index.ts";
 import type {
   CaseListData,
   DeltaData,
@@ -32,6 +32,7 @@ import {
   scoreboardData,
   tableData,
 } from "./compute.ts";
+import type { ExperimentTableDataOptions, ScatterDataOptions } from "./compute.ts";
 import {
   barsText,
   caseListText,
@@ -73,14 +74,28 @@ export interface GroupSummaryProps {
   className?: string;
 }
 
-export interface ExperimentTableProps {
-  data: ExperimentTableData;
+/** ExperimentTable 两臂共享的纯渲染选项(不含数据来源)。 */
+interface ExperimentTableRenderProps {
   attemptHref?: (ref: AttemptRef) => string;
   /** web 面在工作台前显示实验过滤输入框；渐进增强 runtime 按整条 experiment 过滤。 */
   filter?: boolean;
   locale?: ReportLocale;
   className?: string;
 }
+
+/** resolve 之后 web / text 面看到的形态:数据已备好,零 IO。 */
+export interface ExperimentTableResolvedProps extends ExperimentTableRenderProps {
+  data: ExperimentTableData;
+}
+
+/**
+ * 互斥两臂:直接给算好的 `data`,或给 `selection`(+ 可选 `evals` 过滤)让宿主渲染前解析。
+ * 同时传 `data` 与 `selection`、或两者都不传,都在 typecheck 阶段失败。计算选项复用
+ * `ExperimentTableDataOptions`。
+ */
+export type ExperimentTableProps =
+  | (ExperimentTableResolvedProps & { selection?: never; evals?: never })
+  | ({ data?: never } & ExperimentTableDataOptions & ExperimentTableRenderProps & { selection: Selection });
 
 export interface MetricTableProps {
   data: TableData;
@@ -112,14 +127,35 @@ export interface ScoreboardProps {
   className?: string;
 }
 
-export interface MetricScatterProps {
-  data: ScatterData;
+/** MetricScatter 两臂共享的纯渲染选项(不含数据来源)。 */
+interface MetricScatterRenderProps {
   /** 点一个点 → 该配置的下钻页。 */
   pointHref?: (row: ScatterData["rows"][number]) => string;
   /** chrome 文案 locale;省略时随宿主上下文(宿主外默认 "en")。 */
   locale?: ReportLocale;
   className?: string;
 }
+
+/** resolve 之后 web / text 面看到的形态:数据已备好,零 IO。 */
+export interface MetricScatterResolvedProps extends MetricScatterRenderProps {
+  data: ScatterData;
+}
+
+/**
+ * 互斥两臂:要么直接给算好的 `data`(用于用户自己的 React 页面 / 预计算 / 跨边界序列化),
+ * 要么给 `selection` + 计算选项让宿主在渲染前解析(见 tree.ts 的 resolveReportTree)。
+ * 同时传 `data` 与 `selection`、或两者都不传,都在 typecheck 阶段失败。计算选项复用
+ * `ScatterDataOptions`,不手写会漂移的副本。
+ */
+export type MetricScatterProps =
+  | (MetricScatterResolvedProps & {
+      selection?: never;
+      points?: never;
+      series?: never;
+      x?: never;
+      y?: never;
+    })
+  | ({ data?: never } & ScatterDataOptions & MetricScatterRenderProps & { selection: Selection });
 
 export interface MetricLineProps {
   data: LineData;
@@ -145,6 +181,27 @@ export interface CaseListProps {
 }
 
 // ───────────────────────── 装配 ─────────────────────────
+
+const SCATTER_UNRESOLVED_MESSAGE =
+  "MetricScatter received unresolved (selection-form) props outside the report host pipeline. " +
+  "Render through defineReport + niceeval show/view (or renderReportToText/renderReportToStaticHtml), " +
+  "or precompute with `await MetricScatter.data(selection, options)` and pass the result as `data`.";
+
+const EXPERIMENT_TABLE_UNRESOLVED_MESSAGE =
+  "ExperimentTable received unresolved (selection-form) props outside the report host pipeline. " +
+  "Render through defineReport + niceeval show/view (or renderReportToText/renderReportToStaticHtml), " +
+  "or precompute with `await ExperimentTable.data(selection, options)` and pass the result as `data`.";
+
+/** 渲染面(web / text)只吃已解析的数据形态;selection 形态漏解析时直说,而不是画一张空组件。 */
+function requireScatterData(props: { data?: ScatterData }): ScatterData {
+  if (props.data === undefined) throw new Error(SCATTER_UNRESOLVED_MESSAGE);
+  return props.data;
+}
+
+function requireExperimentTableData(props: { data?: ExperimentTableData }): ExperimentTableData {
+  if (props.data === undefined) throw new Error(EXPERIMENT_TABLE_UNRESOLVED_MESSAGE);
+  return props.data;
+}
 
 /** 页头 KPI 条:何时跑的、几个配置、几道题、通过率、总成本;Selection 的警告随行显示在条内。 */
 export const RunOverview = Object.assign(
@@ -172,9 +229,23 @@ GroupSummary.displayName = "GroupSummary";
 
 /** Experiment 诊断工作台:主行看整体表现,原生展开查看配置、KPI 与逐 eval/attempt 证据。 */
 export const ExperimentTable = Object.assign(
-  defineComponent<ExperimentTableProps>({
-    web: (props, ctx) => <ExperimentTableWeb {...props} locale={props.locale ?? ctx.locale} attemptHref={props.attemptHref ?? (isHostWebContextActive() ? ctx.attemptHref : undefined)} />,
-    text: ({ data }, ctx) => experimentTableText(data, ctx),
+  defineComponent<ExperimentTableProps, ExperimentTableResolvedProps>({
+    resolve: async (props) => {
+      if ("data" in props && props.data !== undefined) return props;
+      const { selection, evals, ...rest } = props;
+      return { ...rest, data: await experimentTableData(selection, { evals }) };
+    },
+    web: (props, ctx) => {
+      requireExperimentTableData(props);
+      return (
+        <ExperimentTableWeb
+          {...props}
+          locale={props.locale ?? ctx.locale}
+          attemptHref={props.attemptHref ?? (isHostWebContextActive() ? ctx.attemptHref : undefined)}
+        />
+      );
+    },
+    text: (props, ctx) => experimentTableText(requireExperimentTableData(props), ctx),
   }),
   { data: experimentTableData },
 );
@@ -240,9 +311,17 @@ Scoreboard.displayName = "Scoreboard";
 
 /** 质量 × 成本 frontier:每个点一个配置、两个指标各占一轴,「好」的角落恒在右上。 */
 export const MetricScatter = Object.assign(
-  defineComponent<MetricScatterProps>({
-    web: (props, ctx) => <MetricScatterWeb {...props} locale={props.locale ?? ctx.locale} />,
-    text: ({ data }, ctx) => scatterText(data, ctx),
+  defineComponent<MetricScatterProps, MetricScatterResolvedProps>({
+    resolve: async (props) => {
+      if ("data" in props && props.data !== undefined) return props;
+      const { selection, points, series, x, y, ...rest } = props;
+      return { ...rest, data: await scatterData(selection, { points, series, x, y }) };
+    },
+    web: (props, ctx) => {
+      requireScatterData(props);
+      return <MetricScatterWeb {...props} locale={props.locale ?? ctx.locale} />;
+    },
+    text: (props, ctx) => scatterText(requireScatterData(props), ctx),
   }),
   { data: scatterData },
 );

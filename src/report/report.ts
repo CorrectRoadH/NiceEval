@@ -7,18 +7,20 @@
 // renderReportToStaticHtml 在 ./web.ts(那一侧才 import react-dom)。宿主接线是下一波,
 // 这两个入口先以内部函数的身份可独立测试。
 
-import type { Results, Selection } from "../results/index.ts";
+import type { Results, Selection, SelectionWarning } from "../results/index.ts";
 import {
   createTextContext,
   renderNodeToText,
+  resolveReportTree,
   validateReportTree,
   type ReportNode,
   type TextRenderOptions,
 } from "./tree.ts";
-import { prepareDefaultReportData, runWithDefaultReportData } from "./official-report.tsx";
+import type { ReportLocale } from "./locale.ts";
 
 export interface ReportContext {
-  /** results.latest() 挑好的 Selection:现刻水位快照 + 结构化挑选警告,同默认报告口径。 */
+  /** 宿主按现刻水位规则挑好的 Selection:每个 experiment × eval 取跨快照合成的最新判定,外加结构化挑选
+   警告;show 裸跑、view 裸跑与两者的 --report 收到的是同一份。 */
   selection: Selection;
   /** 默认挑法不合口径时,全量数据自己挑(见 docs/results-lib.md)。 */
   results: Results;
@@ -53,8 +55,17 @@ export function isReportDefinition(value: unknown): value is ReportDefinition {
 }
 
 /**
- * text 宿主的装载语义:build → 渲染前树校验 → 备好官方水位(DefaultReport 的数据)
- * → 遍历渲染 text 面。不需要 react-dom。
+ * 挑选警告的 text 形态:每条渲染好的 message 前缀 "! ",一行一条(与 RunOverview /
+ * overviewText 里 warnings 的 "! <message>" 约定一致)。宿主级前置块——不依赖报告是否
+ * 摆了 RunOverview,裸跑 / --report 都在报告顶上如实报残缺,不静默。
+ */
+function renderSelectionWarningsText(warnings: SelectionWarning[], _locale: ReportLocale): string {
+  return warnings.map((w) => `! ${w.message}`).join("\n");
+}
+
+/**
+ * text 宿主的装载语义:build → 渲染前解析数据组件(唯一的 await 边界)→ 树校验 → 遍历渲染
+ * text 面;Selection 有挑选警告时在报告顶部前置一块 "! <message>"。不需要 react-dom。
  */
 export async function renderReportToText(
   definition: ReportDefinition,
@@ -62,8 +73,11 @@ export async function renderReportToText(
   options?: TextRenderOptions,
 ): Promise<string> {
   const node = await definition.build(ctx);
-  validateReportTree(node);
-  const defaultData = await prepareDefaultReportData(ctx.selection);
+  const resolved = await resolveReportTree(node);
+  validateReportTree(resolved);
   const textCtx = createTextContext(options);
-  return runWithDefaultReportData(defaultData, () => renderNodeToText(node, textCtx));
+  const body = renderNodeToText(resolved, textCtx);
+  return ctx.selection.warnings.length > 0
+    ? [renderSelectionWarningsText(ctx.selection.warnings, textCtx.locale), body].join("\n\n")
+    : body;
 }

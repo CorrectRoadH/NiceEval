@@ -12,9 +12,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 // 编译模式下都可渲染;只定义一次,不覆盖宿主已有的全局。
 const g = globalThis as { React?: unknown };
 if (g.React === undefined) g.React = React;
-import type { AttemptRef } from "../results/index.ts";
-import { runWithWebContext, validateReportTree, type WebContext } from "./tree.ts";
-import { prepareDefaultReportData, runWithDefaultReportData } from "./official-report.tsx";
+import type { AttemptRef, SelectionWarning } from "../results/index.ts";
+import { resolveReportTree, runWithWebContext, validateReportTree, type WebContext } from "./tree.ts";
 import { DEFAULT_REPORT_LOCALE, type ReportLocale } from "./locale.ts";
 import type { ReportContext, ReportDefinition } from "./report.ts";
 
@@ -25,20 +24,45 @@ export interface StaticHtmlOptions {
   locale?: ReportLocale;
 }
 
-/** build → 渲染前树校验(与 text 宿主同一遍)→ 备好官方水位 → 静态渲染 web 面。 */
+/**
+ * 挑选警告的 HTML 形态:宿主级前置块,与 RunOverview 里的警告用同一套结构和类名
+ * (`.nre nre-report-warnings` 外壳内一个 `ul.nre-warnings` + `li.nre-warning[data-kind]`,
+ * 复用 styles.css 已有的 `.nre .nre-warnings` 样式)。经 renderToStaticMarkup 走 React,
+ * message 文本自动转义,不裸拼 HTML。裸跑 / --report 都在报告顶上如实报残缺,不静默。
+ */
+function renderSelectionWarningsHtml(warnings: SelectionWarning[]): string {
+  return renderToStaticMarkup(
+    React.createElement(
+      "div",
+      { className: "nre nre-report-warnings" },
+      React.createElement(
+        "ul",
+        { className: "nre-warnings" },
+        warnings.map((w, i) =>
+          React.createElement("li", { key: i, className: "nre-warning", "data-kind": w.kind }, w.message),
+        ),
+      ),
+    ),
+  );
+}
+
+/**
+ * build → 渲染前解析数据组件(唯一的 await 边界)→ 树校验(与 text 宿主同一遍)→ 静态渲染
+ * web 面;Selection 有挑选警告时在报告顶部前置一块警告 HTML。
+ */
 export async function renderReportToStaticHtml(
   definition: ReportDefinition,
   ctx: ReportContext,
   options?: StaticHtmlOptions,
 ): Promise<string> {
   const node = await definition.build(ctx);
-  validateReportTree(node);
-  const defaultData = await prepareDefaultReportData(ctx.selection);
+  const resolved = await resolveReportTree(node);
+  validateReportTree(resolved);
   const webCtx: WebContext = {
     attemptHref: options?.attemptHref ?? ((ref) => `#/attempt/${ref.snapshot}/${ref.attempt}`),
     locale: options?.locale ?? DEFAULT_REPORT_LOCALE,
   };
-  return runWithDefaultReportData(defaultData, () =>
-    runWithWebContext(webCtx, () => renderToStaticMarkup(node as ReactNode)),
-  );
+  const body = runWithWebContext(webCtx, () => renderToStaticMarkup(resolved as ReactNode));
+  const warnings = ctx.selection.warnings.length > 0 ? renderSelectionWarningsHtml(ctx.selection.warnings) : "";
+  return warnings + body;
 }

@@ -21,6 +21,7 @@ import type {
   FlagRef,
 } from "./types.ts";
 import { formatMetricValue } from "./format.ts";
+import { evalPrefixPredicate } from "../shared/aggregate.ts";
 
 // 复合键分隔符:NUL 不会出现在 eval id / experimentId / ISO 时间里,拼接键不会串味
 const KEY_SEP = "\u0000";
@@ -77,15 +78,7 @@ export function collectItems(snapshots: Snapshot[]): Item[] {
   return attempts.map((attempt) => ({ attempt, snapshot: snapshotByAttempt.get(attempt)! }));
 }
 
-/**
- * eval id 前缀过滤,同 CLI 位置参数的分段语义(src/runner/discover.ts):
- * "algebra" 匹配自身与 "algebra/..." 子级,不误配 "algebra2";允许 "algebra/" 尾斜杠写法,等价。
- */
-export function evalPrefixPredicate(evals?: string | string[]): (id: string) => boolean {
-  if (evals === undefined) return () => true;
-  const prefixes = (Array.isArray(evals) ? evals : [evals]).map((p) => p.replace(/\/+$/, ""));
-  return (id) => prefixes.some((prefix) => id === prefix || id.startsWith(prefix + "/"));
-}
+export { evalPrefixPredicate };
 
 export function filterItems(items: Item[], evals?: string | string[]): Item[] {
   if (evals === undefined) return items;

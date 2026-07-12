@@ -3,7 +3,7 @@
 //
 // viewData 只携带证据室与壳需要的东西:快照明细(attemptRef / artifactBase 已注入)、
 // skipped、项目名与 run 元信息。统计口径(KPI / 榜单 / 挑选警告)整体住在报告槽的
-// 静态 HTML 里(defaultReport 或 --report 的报告自己算),壳与报告之间没有第二条数据通道。
+// 静态 HTML 里(CostPassRateComparison 或 --report 的报告自己算),壳与报告之间没有第二条数据通道。
 
 import type { EvalResult, LocalizedText } from "../../types.ts";
 import type { ReportLocale } from "../../report/locale.ts";
@@ -41,7 +41,8 @@ export interface ViewSnapshot {
   startedAt: string;
   /** 快照的根相对路径(= AttemptRef.snapshot,两段:`<experiment-dir>/<snapshot-dir>`)。 */
   run: string;
-  /** 是否该实验最新一次快照 —— 榜单(results.latest() 口径)的成员。 */
+  /** 是否为该实验在 results.latest() 口径下的最新一次快照 —— 证据室的 latest 标记,与报告槽 Selection
+   (现刻水位,可能合成自更早快照)是两个独立概念,不要混用。 */
   latest: boolean;
   /** 该快照的 attempt 明细(跨快照去重后的幸存条目;attemptRef / artifactBase 已注入)。 */
   results: ViewEvalResult[];

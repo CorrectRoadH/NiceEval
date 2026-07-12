@@ -4,7 +4,28 @@ sidebarTitle: "报告组件"
 description: "报告文件里能摆的全部官方双面组件：每个组件回答什么问题、怎么调用、网页面长什么样、终端字符输出长什么样。"
 ---
 
-报告文件里的每个组件都是双面的：网页面是 React 渲染，终端面是字符渲染，两面吃同一份算好的数据，走哪扇门由宿主决定（见[自定义报告](/zh/guides/custom-reports)）。每个组件的数据算法挂在它自己身上——`<MetricTable data={await MetricTable.data(selection, …)} />`，组件名后打个点就找到，算和画永远配对。本页逐个列出官方组件：它回答什么问题、在报告里怎么调用、终端输出长什么样。
+报告文件里的每个组件都是双面的：网页面是 React 渲染，终端面是字符渲染，两面吃同一份算好的数据，走哪扇门由宿主决定（见[自定义报告](/zh/guides/custom-reports)）。每个组件的数据算法挂在它自己身上，组件名后打个点就找到，算和画永远配对。本页逐个列出官方组件：它展示哪一层数据、在报告里怎么调用、终端输出长什么样。
+
+## 名称与用途
+
+英文术语描述组件形态，API 名是代码里的导出名。组件分三类：实体列表逐项展示 experiment、Eval 或 Attempt；汇总组件概括整批 Selection；指标图形把指定维度聚合成值。三个实体列表的 `.data(selection)` 都返回普通数组，报告作者先用 JavaScript `.filter()` 收窄，再把 `items` 交给组件。过滤条件不藏在组件里。中文正文首次提到时用“中文名（`API 名`）”，后续可以只写中文名或 `API 名`。
+
+| 分类 | 中文名 | English | API | 主展示单位 |
+| --- | --- | --- | --- | --- |
+| 汇总 | 运行总览 | Run overview | `RunOverview` | 一批 Selection；汇总其中的 experiment、Eval 和 Attempt |
+| 汇总 | 组摘要 | Group summary | `GroupSummary` | 收窄后的一批 Selection；汇总一组 experiment 和 Eval |
+| 实体列表 | 实验列表 | Experiment list | `ExperimentList` | 每项一个 experiment；展开到该 experiment 的 Eval |
+| 实体列表 | Eval 列表 | Eval list | `EvalList` | 每项一个 experiment × Eval；展开到该 Eval 的 Attempt |
+| 实体列表 | Attempt 列表 | Attempt list | `AttemptList` | 每项一个 Attempt；显示断言、错误、Judge 评语和证据 |
+| 指标图形 | 指标表 | Metric table | `MetricTable` | 一个可配置行维度；每格是一个聚合指标值 |
+| 指标图形 | 指标矩阵 | Metric matrix | `MetricMatrix` | 两个可配置维度的交叉格；每格是一个聚合指标值 |
+| 指标图形 | 分组条形图 | Grouped bar chart | `MetricBars` | 两个可配置维度形成分组和系列；每根条是一个聚合指标值 |
+| 指标图形 | 成绩单 | Scoreboard | `Scoreboard` | 每行一个可配置维度值；按 Eval 和 Eval 分组计算分数 |
+| 指标图形 | 指标散点图 | Metric scatter plot | `MetricScatter` | 每点一个可配置维度值，通常是 experiment；坐标是两个聚合指标值 |
+| 指标图形 | 指标趋势图 | Metric line chart | `MetricLine` | 每点一个 experiment；横轴是 experiment flag，纵轴是聚合指标值 |
+| 指标图形 | 成对差异表 | Paired delta table | `DeltaTable` | 每行一对 experiment 或结果快照；格内是指标值及差值 |
+
+`Row`、`Col`、`Section`、`Text` 和 `Style` 是排版原语，不计算结果，因此不算一种分析图。它们的中文统称分别是行、列、分节、文本和样式；代码里始终使用 API 名。
 
 所有组件共守同一套契约，下面不再逐个重复：
 
@@ -35,31 +56,9 @@ description: "报告文件里能摆的全部官方双面组件：每个组件回
   codex  78.0/100   40/50    38/50    │
 ```
 
-## `DefaultReport` —— 官方水位整块
+## 运行总览（`RunOverview`）
 
-官方水位有两种形式，各管一件事。值 `defaultReport`（从 `niceeval/report` 导出）是官方两扇门裸跑时渲染的默认报告本身——运行总览、每个实验组一节（质量 × 成本散点图 + 榜单，组按 experiment id 的 `/` 前缀划分）、失败清单，形态见[查看结果](/zh/guides/viewing-results)；`niceeval view` 等于 `niceeval view --report` 它。组件 `<DefaultReport />` 是摆进你自己报告里的官方水位锚点块：运行总览、现刻榜单（experiment × evals 折叠计票 / 通过率 / 成本 / 耗时）、失败清单。组件零 props、纯声明——官方水位只读瘦身条目，宿主总是替你备好，经上下文注入；官方口径与你的口径并排对照，正是摆它的理由：
-
-```tsx
-<DefaultReport />
-```
-
-```text
-Current verdicts · 2 experiments · composed from 3 runs · latest 2026-07-09T10-00-00-000Z
-
-experiment              evals   pass   cost    duration
-compare/bub-gpt-5.4     13/15   87%    $0.42   4m 12s
-compare/codex-gpt-5.4   12/15   80%    $0.51   5m 03s
-
-Failing:
-  ✗ weather/brooklyn   compare/codex-gpt-5.4   gate calledTool("get_weather")   41s ago
-      → niceeval show weather/brooklyn
-```
-
-榜单每行一个 experiment，evals 是按 eval 折叠后的判定计票。要 agent / model 随行列、分组散点这些默认报告的完整形态，用值 `defaultReport`；要在自己口径旁只留官方水位一块，用这个组件。
-
-## `RunOverview` —— 页头 KPI 条
-
-每张报告开头「这批数据是什么」：几个配置、几道题、通过分布、总成本、何时跑的；Selection 里的挑选警告随数据一起进来、直接显示在条内，诚实不靠你记得接线。
+每张报告开头「这批数据是什么」：几个配置、几道题、通过分布、总成本、何时跑的；Selection 里的挑选警告随数据一起进来、直接显示在条内，诚实不用你另外传一遍。
 
 ```tsx
 <RunOverview data={await RunOverview.data(selection)} />
@@ -71,9 +70,9 @@ passed 26 · failed 12 · errored 4 · skipped 0 · $0.93 · 9m 15s
 ! snapshot compare/codex-gpt-5.4 predates latest run by 2 days
 ```
 
-## `GroupSummary` —— 组摘要
+## 组摘要（`GroupSummary`）
 
-一组 experiment（如 `defaultReport` 里同一个 `<Section>` 内的全部 experiment）的紧凑统计块，回答「这组题综合算下来过了多少、花了多少、什么时候跑的」。组件本身不分组——先用 `Selection.filter` 把 Selection 收窄到这一组，再喂给 `GroupSummary.data`：
+一组 experiment（比如按目录前缀归在同一个 `<Section>` 里的那些 experiment）的紧凑统计块，回答「这组题综合算下来过了多少、花了多少、什么时候跑的」。组件本身不分组——先用 `Selection.filter` 把 Selection 收窄到这一组，再喂给 `GroupSummary.data`：
 
 ```tsx
 const scoped = selection.filter((s) => s.experimentId.startsWith("compare/"));
@@ -90,24 +89,23 @@ latest 2026-07-09T10:00:00Z
 
 通过率是 eval 级折叠计票口径：同一 eval 的多轮 attempt 先折成一个判定（任一轮通过则算通过，否则取最严重的），`passed / (passed + failed + errored)`，`skipped` 不进分母——与页头 `RunOverview` 那个两级聚合、带 partial credit 的 `passRate` 是两码事，两者服务不同问题：`GroupSummary` 回答「这组题过了几道」，`RunOverview` 回答「整体质量几分」，不要互相替代。`evals` 按 `experimentId + eval id` 的完整身份键去重——组里两个 experiment 各自的同名 eval 算两道题，不会被误合并成一道。`errored` 为 0 时这一段省略，但 `verdicts.errored` 这个数据字段本身永远在，省略只发生在渲染层。`totalCostUSD` 是组内可测 attempt 成本求和，一个 attempt 都没报成本时是 `null`，两面都渲染缺数据而不是 `$0`。
 
-要在自己的报告文件里摆同一块组摘要（不止 `defaultReport` 能用），直接调 `GroupSummary.data`——它和 `defaultReport` 用的是同一个公开计算函数，不是默认报告独占的能力。
+组摘要是普通的公开组件，`GroupSummary.data` 是普通的公开计算函数——想在自己的报告里按目录前缀分组、每组摆一块，按上面的写法收窄 Selection 再调它就行。
 
-## `ExperimentTable` —— 实验诊断工作台
+## 实验明细表（`ExperimentTable`）
 
-默认报告的主表不是一张通用指标表，而是完整的实验诊断工作台。一行一个 experiment，关闭时只显示短名称、model、agent、平均耗时、成功率、Tokens、预估成本和一枚判定摘要；点整行展开后，依次看到完整实验配置、汇总 KPI、逐 Eval/Attempt 诊断和原始样例结果。具体证据通过 `AttemptRef` 深链进入查看器的 attempt 详情。
+默认报告的主表不是一张通用指标表，而是可展开的实验明细表。一行一个 experiment，关闭时只显示短名称、model、agent、平均耗时、成功率、Tokens、预估成本和一枚判定摘要；点整行展开后，依次看到完整实验配置、汇总 KPI、逐 Eval/Attempt 诊断和原始样例结果。具体证据通过 `AttemptRef` 深链进入查看器的 attempt 详情。
 
 ```tsx
-<ExperimentTable
-  data={await ExperimentTable.data(selection)}
-  filter
-/>
+<ExperimentTable selection={selection} filter />
 ```
+
+直接把 `selection` 传给它，宿主渲染前替你算好数据——默认报告就是这么写的。要在自己已经跑起来的 React 应用里嵌这块、或数据是预先算好的，改传 `data`：`<ExperimentTable data={await ExperimentTable.data(selection)} filter />`；同时传 `data` 和 `selection`、或两者都不传，类型检查都会报错。
 
 网页面默认按成功率降序，可点击任一表头临时排序；`filter` 加入实验过滤框。无客户端 JavaScript 时仍保留预排后的完整内容，展开使用原生 `<details>`。终端面输出同一份主榜，并在对应 experiment 下列出失败和错误的 Eval。
 
 它与 `MetricTable` 是两种组件：`ExperimentTable` 的展开内容是配置、诊断总量和证据；`MetricTable` 是任意维度 × 指标的通用比较表，`expand` 只会把同一套指标换一个维度重算。需要复刻默认首页时用前者，需要自由换维度和指标时用后者。
 
-## `MetricTable` —— 榜单
+## 指标表（`MetricTable`）
 
 一行一个维度值、一列一个指标的对比表，回答「谁整体更好」。行维度、指标列、排序全部可换，自定义指标（`defineMetric`）与内置指标同列。
 
@@ -141,7 +139,7 @@ codex   80% 12/15   355 lines    $0.51
 
 点开一行，看到的是这个 experiment 下每道题的判定、失败原因、以及同一套指标列在这道题上单独算出来的值——网页面是原生的展开/收起交互，不用等 JS；终端面是这一行下面缩进的失败清单。子行不是另一套东西，就是同一张表在更细的维度上再算一遍。
 
-## `MetricMatrix` —— 逐题格子
+## 指标矩阵（`MetricMatrix`）
 
 行 × 列两个维度、格子里一个指标，回答「哪道题谁挂了」。稀疏渲染：没有样本的格子空着，不编数。
 
@@ -160,7 +158,7 @@ next: niceeval show geometry/area
 
 网页面点格子深链到该格的 attempt；终端面在表下印下钻命令。
 
-## `MetricBars` —— 分组条形
+## 分组条形图（`MetricBars`）
 
 同一份矩阵数据的另一种摆法（`MetricBars.data` 就是 `MetricMatrix.data` 的别名）：按组并排比大小，回答「每个科目上谁领先、差多少」。组维度一组条、系列维度一根条、条长是指标值——benchmark 发布图（Terminal-Bench、BrowseComp 各一组，每个 agent 一根柱）就是这个形状。
 
@@ -183,7 +181,7 @@ geometry
 
 网页面是竖向分组柱：柱顶标数值，系列颜色与其它组件的稳定配色一致，图例自动生成。终端面横向条形，字符宽度即刻度，同组内按值排序（方向随 `better`）。`better: "lower"` 的指标（成本、耗时）条形反向填充，短条恒为「好」。
 
-## `Scoreboard` —— 考试成绩单
+## 成绩单（`Scoreboard`）
 
 总分 + 分科小计，回答「这套题它能得几分」。逐题分值制：权重按 eval id 前缀配置，分母对所有被打分者恒定，没跑到的题挣 0 分并如实报 `missing`。
 
@@ -202,18 +200,21 @@ bub     86.5/100   45/50          41.5/50
 codex   71.0/100   40/50          31/50 (1 missing)
 ```
 
-## `MetricScatter` —— 质量 × 成本 frontier
+## 指标散点图（`MetricScatter`）
 
 每个点一个配置、两个指标各占一轴，回答「又好又便宜的是谁」。`series` 把同 agent 不同档位的点连成线；`better` 驱动轴向——`lower` 的轴反向画，「好」的角落恒在右上。
 
 ```tsx
-<MetricScatter data={await MetricScatter.data(selection, {
-  points: "experiment",     // 每个点 = 一个配置的聚合
-  series: "agent",          // 同 agent 的档位连成线
-  x: costUSD,
-  y: passRate,
-})} />
+<MetricScatter
+  selection={selection}
+  points="experiment"       // 每个点 = 一个配置的聚合
+  series="agent"            // 同 agent 的档位连成线
+  x={costUSD}
+  y={passRate}
+/>
 ```
+
+直接把 `selection` 传给它，宿主渲染前替你算好数据——默认报告就是这么写的。要在自己已经跑起来的 React 应用里嵌这张图、或数据是预先算好的，改传 `data`：`<MetricScatter data={await MetricScatter.data(selection, { points: "experiment", series: "agent", x: costUSD, y: passRate })} />`；同时传 `data` 和 `selection`、或两者都不传，类型检查都会报错。
 
 ```text
 pass ↑                                    （好 → 右上）
@@ -227,11 +228,11 @@ pass ↑                                    （好 → 右上）
 A bub-high   B bub-medium   C codex-high   D codex-low
 ```
 
-网页面点带悬停提示（值与 `samples/total`，禁用 JS 时退化为图内提示）、同系列连线、点击深链下钻。终端面用字母标点、图例列在图下；x 或 y 缺数据的点两个面都不画，注脚如实报「n 个点缺数据」；点太密排不下时降级为坐标表，不硬挤。维度槽也收自定义维度（`{ name, of }`，从 attempt 已有数据算组名）和 `flag()`（experiment 声明的变量），怎么选见[自定义报告](/zh/guides/custom-reports)的「换分组」一节。
+网页面点带悬停提示（值与 `samples/total`，禁用 JS 时退化为图内提示）、同系列连线、点击深链下钻。终端面用字母标点、图例列在图下；x 或 y 缺数据的点两个面都不画，注脚如实报「n 个点缺数据」；点太密排不下时降级为坐标表，不硬挤。画得出来的点是 0 个（x 或 y 全缺数据）时，两个面都明说这两个指标没有可用数据，不留一片空白；只有 1 个点时，明说「至少要两个实验才能比较」；2 个及以上才正常出图——组件从不因为点不够就整块消失，让你不知道图为什么没了。维度槽也收自定义维度（`{ name, of }`，从 attempt 已有数据算组名）和 `flag()`（experiment 声明的变量），怎么选见[自定义报告](/zh/guides/custom-reports)的「换分组」一节。
 
-## `MetricLine` —— 趋势线
+## 指标趋势图（`MetricLine`）
 
-x 是有序变量、每个系列一条线，回答「变量拧大，分数怎么走」——并行 agent 数 × 模拟延迟 × 得分这类 scaling 图就是它。与 `MetricScatter` 的分工：scatter 的两轴都是测出来的指标（找 frontier），line 的 x 是你配置的变量（看趋势）。变量在 experiment 的 `flags` 里声明，报告用 `flag()` 直接引用，不从 experiment 命名里解析。
+x 是有序变量、每个系列一条线，回答「变量拧大，分数怎么走」——并行 agent 数 × 模拟延迟 × 得分这类 scaling 图就是它。与 `MetricScatter` 的分工：散点图的两轴都是测出来的指标（找优势前沿），趋势图的 x 是你配置的变量（看趋势）。变量在 experiment 的 `flags` 里声明，报告用 `flag()` 直接引用，不从 experiment 命名里解析。
 
 ```tsx
 <MetricLine data={await MetricLine.data(selection, {
@@ -258,7 +259,7 @@ A 1 agents   B 4 agents   C 16 agents
 
 每个点是一个 experiment 的聚合，与其它组件同一台两级聚合引擎，`samples` / `total` / `refs` 一应俱全；同系列的点按 x 排序连线。网页面每个点可 hover、可深链下钻。终端面同系列共用一个字母、沿 x 排布，趋势肉眼可读；y 缺数据的点不画、注脚报数，点太密降级为坐标表。
 
-## `DeltaTable` —— 成对对比
+## 成对差异表（`DeltaTable`）
 
 每行一对配置、每列一个指标，格子里 A、B、Δ 三个值，回答「这个开关值不值」「这次修复翻转了什么」。涨跌好坏由 `better` 判定，任一侧缺数据 Δ 显示为缺，不硬算。「这次 vs 上次」（同一配置的两个结果快照）也是它：`pairs` 的 `a` / `b` 除 experiment id 外也收快照键 `<experimentId> @ <startedAt>`——时间轴对比要用到旧快照，`results.latest()` 里没有，配手挑的快照数组（如 `[exp.latest, exp.snapshots[1]]`）用。
 
@@ -278,9 +279,9 @@ bub     87% → 93%   +6%        $0.42 → $0.45   +$0.03
 codex   80% → 80%   ±0         $0.51 → —       —
 ```
 
-## `CaseList` —— 失败案例清单
+## 案例清单（`CaseList`）
 
-失败与出错的 attempt 逐条列出：失败断言、error 摘要、judge 评语。榜单回答「多少」，它回答「为什么」。
+失败与出错的 attempt 逐条列出：失败断言、error 摘要、judge 评语。指标表回答「多少」，它回答「为什么」。
 
 ```tsx
 <CaseList data={await CaseList.data(selection, { verdicts: ["failed", "errored"], limit: 20 })} />

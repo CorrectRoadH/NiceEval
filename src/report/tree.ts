@@ -59,18 +59,27 @@ export interface WebContext {
   locale: ReportLocale;
 }
 
-export interface ComponentFaces<P> {
-  /** 真 React JSX 在这个面里;返回静态可渲染的 ReactNode。 */
-  web(props: P, ctx: WebContext): ReactNode;
-  text(props: P, ctx: TextContext): string;
+export interface ComponentFaces<P, R = P> {
+  /**
+   * 可选的数据解析面:把声明式 props(selection + 计算选项)在渲染前解析成纯数据 props(R)。
+   * 宿主的 {@link resolveReportTree} 在 build 之后、validate / render 之前调用它——这是整条
+   * 管线里唯一允许 await / IO 的组件级步骤;渲染面(web / text)只看已解析的 R,保持同步、零 IO。
+   * 不实现 resolve 时 R = P,组件被当作纯数据组件直接渲染。
+   */
+  resolve?(props: P): Promise<R>;
+  /** 真 React JSX 在这个面里;返回静态可渲染的 ReactNode。只看已解析的 R。 */
+  web(props: R, ctx: WebContext): ReactNode;
+  text(props: R, ctx: TextContext): string;
 }
 
 /**
  * 双面组件的产物:可直接用于 JSX(React 把它当函数组件调用,走 web 面),
- * text 宿主经 COMPONENT_FACES 调 text 面。
+ * text 宿主经 COMPONENT_FACES 调 text 面。R(解析后 props 形态)在存储边界抹成 any——
+ * 树遍历只按 ComponentFaces 的结构调用 resolve / web / text,不需要在类型层追踪 R。
  */
 export type ReportComponent<P> = ((props: P) => ReactNode) & {
-  [COMPONENT_FACES]: ComponentFaces<P>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [COMPONENT_FACES]: ComponentFaces<P, any>;
   displayName?: string;
 };
 
@@ -104,14 +113,18 @@ export function isHostWebContextActive(): boolean {
  * 定义一个双面组件:faces 两键必填 —— 少实现一个面编译不过,配对是结构义务。
  * 基础实现不 import react;产物以可调用组件的形状兼容 React 渲染。
  */
-export function defineComponent<P>(faces: ComponentFaces<P>): ReportComponent<P> {
+export function defineComponent<P, R = P>(faces: ComponentFaces<P, R>): ReportComponent<P> {
   if (typeof faces?.web !== "function" || typeof faces?.text !== "function") {
     throw new Error(
       "defineComponent requires both faces: { web(props, ctx), text(props, ctx) }. " +
         "Every report component must render in both hosts (niceeval view and niceeval show).",
     );
   }
-  const component = ((props: P) => faces.web(props, activeWebContext ?? DEFAULT_WEB_CONTEXT)) as ReportComponent<P>;
+  // 直接调用路径:把组件当普通 React 组件嵌进用户自己的页面时走这里,web 面只接收数据形态
+  // props(R)。带 resolve 的组件若拿 selection 形态 props 走这条裸路径,web 面会缺 data ——
+  // 这类组件只有经宿主的 resolveReportTree 解析后才安全渲染;纯数据 props 一直可以裸嵌。
+  const component = ((props: P) =>
+    faces.web(props as unknown as R, activeWebContext ?? DEFAULT_WEB_CONTEXT)) as ReportComponent<P>;
   component[COMPONENT_FACES] = faces;
   return component;
 }
@@ -119,6 +132,58 @@ export function defineComponent<P>(faces: ComponentFaces<P>): ReportComponent<P>
 export function facesOf(type: unknown): ComponentFaces<unknown> | undefined {
   if (typeof type !== "function") return undefined;
   return (type as Partial<ReportComponent<unknown>>)[COMPONENT_FACES] as ComponentFaces<unknown> | undefined;
+}
+
+// ───────────────────────── 数据解析(渲染前唯一的 await 边界)─────────────────────────
+
+/**
+ * 报告 build 之后、树校验与 text/web 渲染之前的解析遍历:把声明式数据组件(实现了
+ * `faces.resolve` 的双面组件,如 selection 形态的 MetricScatter / ExperimentTable)的 props
+ * 就地换成算好的数据形态 props。计算发生在这里(唯一允许 await 的组件级步骤),两个渲染面
+ * 之后都只看已解析的树、保持同步零 IO。遍历形状与 {@link validateReportTree} /
+ * {@link renderNodeToText} 一致:
+ *
+ * - 同层数组兄弟并行解析(`Promise.all`),保持原始顺序 / keys;
+ * - 双面组件带 resolve 的:调 `faces.resolve(props)` 换 props(有 children 再递归解析);
+ * - 双面组件无 resolve 的(Row / Col / Section / RunOverview…):只递归 children,自身 props
+ *   原样保留(title / className 等不能动);
+ * - 普通函数组件:同步调用展开,展开结果继续解析(与 validate / render 对函数组件的处理一致);
+ * - 字符串 intrinsic(<div>):原样返回,交给随后的 validateReportTree 报同一条错误。
+ *
+ * resolver 跑完后,树里已没有函数组件 / 未解析 props;validate / render 里对这两者的分支在
+ * 正常管线下是 no-op,但保留着——手搭树直接调 validate / render(不过 resolver)的低层用法仍需要。
+ */
+export async function resolveReportTree(node: ReportNode): Promise<ReportNode> {
+  if (node === null || node === undefined || typeof node === "boolean") return node;
+  if (typeof node === "string" || typeof node === "number") return node;
+  if (Array.isArray(node)) return Promise.all(node.map(resolveReportTree));
+  if (!isReportElement(node)) return node;
+  const { type, props } = node;
+  // 字符串 intrinsic:不在这里报错,让 resolve 后的 validateReportTree 抛统一的那条。
+  if (typeof type === "string") return node;
+  if (type === REACT_FRAGMENT) {
+    const children = await resolveReportTree(props.children as ReportNode);
+    return { ...node, props: { ...props, children } };
+  }
+  const faces = facesOf(type);
+  if (faces) {
+    if (typeof faces.resolve === "function") {
+      const resolvedProps = { ...((await faces.resolve(props)) as Record<string, unknown>) };
+      if (resolvedProps.children !== undefined) {
+        resolvedProps.children = await resolveReportTree(resolvedProps.children as ReportNode);
+      }
+      return { ...node, props: resolvedProps };
+    }
+    // 无 resolve 的容器 / 数据组件:只解析 children,自身 props 原样保留。
+    const children = await resolveReportTree(props.children as ReportNode);
+    return { ...node, props: { ...props, children } };
+  }
+  if (typeof type === "function") {
+    // 普通函数组件:调用展开,展开结果整体替换本节点后继续解析。
+    const expanded = (type as (p: unknown) => ReportNode)(props);
+    return resolveReportTree(expanded);
+  }
+  return node;
 }
 
 // ───────────────────────── 树校验 ─────────────────────────
