@@ -35,7 +35,7 @@
 |---|---|---|
 | 适配器 | Adapter | 某个 Agent 的具体实现,由用户编写;拥有协议、认证、CLI 参数、transcript 位置等全部特殊性 |
 | 沙箱 | Sandbox | 封装「在哪里、如何隔离地跑命令」的对象;实现有 Docker、Vercel Sandbox 等 |
-| Provider | Provider | 某个 Sandbox 的具体实现选择(`docker` / `vercel` / …);`auto` 按环境探测 |
+| Provider | Provider | 某个 Sandbox 的具体实现选择；由 `dockerSandbox()`、`vercelSandbox()`、`e2bSandbox()` 或自定义工厂显式构造 |
 | 工作目录 | workdir | 沙箱内 agent 的默认工作目录,git 基线与 diff 采集的锚点;沙箱侧相对路径都解析到它 |
 | `t.sandbox` | `t.sandbox` | 沙箱型 eval 里 `test(t)` 拿到的沙箱操作接口:文件 IO、命令执行、断言 / diff 三类 |
 | 能力 | Capability | `t` 上暴露哪些动作,由 `send` 的构造证据决定,不是声明式的能力位 |
@@ -148,7 +148,7 @@
 
 **`t.sandbox`** —— 沙箱型 eval 里暴露给 `test(t)` 的沙箱操作接口。它分三类:文件 IO(`writeFiles` / `readFile`)、命令执行(`runCommand` / `runShell`)和结果断言 / diff(`fileChanged` / `diff` / `file`)。沙箱生命周期由 runner 管,`stop()` 不暴露给 eval 作者。
 
-**Provider** —— 某个 Sandbox 的具体实现选择(`docker` / `vercel` / …)。`auto` 表示按环境探测(有云 token 用云,否则用 Docker)。
+**Provider** —— 某个 Sandbox 的具体实现选择。沙箱型 Agent 必须从 experiment 或项目级 config 获得工厂函数产出的 `SandboxSpec`；NiceEval 不根据云 token、本机 Docker 状态或其它环境条件猜测 Provider。
 
 **Capability** / **能力** —— `t` 上暴露哪些动作(会话续接、工具调用观测、文件 diff、trace…),完全由**构造证据**决定,不是声明式的能力位:`send` 里接了 `ctx.session` 的续接存取器就有多轮,返回过 `waiting` + `input.requested` 就有 HITL,用官方转换器就带完整性证明(负断言可信),`defineSandboxAgent` 构造就有 `t.sandbox`。`Agent` 接口上不存在 `capabilities` 字段。核心**按构造证据分发**,不按名字分支。这是 [Vision](vision.md) 的承重墙。逐能力的精确义务见[能力参考](../docs-site/zh/reference/capabilities.mdx)与[适配器契约](feature/adapters/contract.md#能力从哪来构造证明不是问卷)。
 

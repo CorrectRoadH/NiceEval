@@ -64,7 +64,7 @@ src/
 │
 ├─ sandbox/                 # —— 沙箱型 agent 在哪里跑的全部特殊性都在这里 ——
 │  ├─ types.ts              #   Sandbox 接口
-│  ├─ resolve.ts            #   provider 选择(auto / docker / vercel / …)
+│  ├─ resolve.ts            #   显式 SandboxSpec → provider 实例
 │  ├─ docker.ts
 │  └─ vercel.ts
 │

@@ -57,7 +57,7 @@ eve 能用一个 url 当 target,是因为它定义了一套协议、被测 agent
 
 ### `Sandbox` —— 沙箱型 agent 在哪里跑
 
-一个 `Sandbox` 把"隔离环境"的全部特殊性关进一个盒子:跑命令、读写文件、上传/下载、用 `cwd` 指定命令目录、起停。Docker 是一个实现,Vercel Sandbox 是一个实现,其它三方各是一个实现。provider 按环境自动选择(有云 token 用云,否则用 Docker),也可显式指定。它与 Agent 正交:任意沙箱型 agent × 任意 sandbox provider自由组合。详见 [Sandbox](feature/sandbox/README.md)。
+一个 `Sandbox` 把"隔离环境"的全部特殊性关进一个盒子:跑命令、读写文件、上传/下载、用 `cwd` 指定命令目录、起停。Docker 是一个实现,Vercel Sandbox 是一个实现,其它三方各是一个实现。Provider 由工厂函数显式构造并写进 experiment 或项目级 config；NiceEval 不根据运行环境猜测 Provider。它与 Agent 正交:任意沙箱型 agent × 任意 sandbox provider自由组合。详见 [Sandbox](feature/sandbox/README.md)。
 
 ## 边界画在"行为"上
 
