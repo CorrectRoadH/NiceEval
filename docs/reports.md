@@ -102,6 +102,13 @@ export default async function EvalsPage() {
 function RunOverview(props: { data: OverviewData; className?: string }): JSX.Element;
         // 页头 KPI 条:何时跑的、几个配置、几道题、通过率、总成本 —— 每张报告页的「这批数据是什么」
 
+function ExperimentTable(props: {
+  data: ExperimentTableData;
+  attemptHref?: (ref: AttemptRef) => string;
+  filter?: boolean;
+  className?: string;
+}): JSX.Element;
+
 function MetricTable(props: {
   data: TableData;
   attemptHref?: (ref: AttemptRef) => string;  // 传了,格子可点、下钻去处你定;不传,纯展示
@@ -138,6 +145,7 @@ function CaseList(props: {
 
 - **RunOverview**:通过率、成本、耗时这排数字下面标注数据来源(几个快照、何时跑的);`RunOverview.data(selection)` 收 Selection,warnings 随行直接显示在条内——诚实不靠使用者记得接线(若把 warnings 做成要手动透传的独立参数,忘了就静默丢失,这正是收 Selection 的动机)。
 - **GroupSummary**:紧凑摘要块,只渲染 `GroupSummaryData` 算好的 `MetricCell` / 计数,不现场重算比例——通过率(eval 级折叠口径)、experiment/eval/attempt 数、failed 计数;`errored` 在组内为 0 时省略这一片段的展示,但数据字段 `verdicts.errored` 本身不受影响,不会因为渲染取舍丢数据;总成本走 null-safe 求和,全缺渲染成缺数据,不画 `$0`;有 `lastRunAt` 就多渲染一行,没有就不渲染。
+- **ExperimentTable**:默认报告的实验诊断工作台,与通用指标表分开。一行一个 experiment,主行用短名、本地化时间、四个官方 `MetricCell` 和单枚判定摘要;整行原生 `<details>` 展开完整 experiment 配置、汇总 KPI、逐 Eval/Attempt 诊断与 raw sample。主行不渲染 `MetricCell.refs`,证据链接只落在具体 Eval/Attempt。数据默认按通过率降序预排,web 面可排序与过滤,text 面输出同一主榜及失败/错误诊断。
 - **MetricTable**:按 `sort` 预排,方向随指标的 `better`(higher 降序、lower 升序,「好」的一头在上);`samples < total` 的格子带覆盖率角标;一组全 `null` 渲染成「缺数据」,绝不画 0;`rows: "experiment"` 时行携带 agent / model 元信息,渲染为普通列;`filter` prop 在 web 面渲染行过滤输入框(浏览态,增强 runtime 接管,见下方契约),text 面无对应物——固定口径的过滤走计算参数。
 - **MetricMatrix**:稀疏渲染(没有样本的格子空着);`cell.refs` + `attemptHref` 让「哪道题谁挂了,一眼看穿」之后的下一步——「给我看那次 attempt」——就在手边。
 - **Scoreboard**:总分 + 分科小计,`missing`(没跑、按 0 计的题数)如实展示在科目行,固定分母的口径不藏。
@@ -330,7 +338,7 @@ await CaseList.data(selection, {
 });                                   // → CaseListData
 ```
 
-**`MetricTable.data` 的 `expand` 把行钻深一级,不是另一种展示。** 设了 `expand`(如 `expand: "eval"`),父行的 group 按这个维度再分一次组,渲染面把子行摆进这一行下面可展开的明细(web 面是原生 `<details>`,零 JS 也能点开;text 面是父行下方缩进的失败/错误清单)。子行与父行是同一种东西——同一套父表 `columns` 在子群体上重新算一遍格子,`MetricCellView` 原样复用,不是子行专属的展示字段;额外的 `verdict`(子群体折叠判定)/ `reason`(代表 attempt 的失败原因,按优先级取第一个在场的:`error` → `skipReason` → 未通过的 gate 断言——原始声明顺序,`name`,detail 在场则 `"name: detail"`,多条用「, 」连接;soft 断言永不进入)/ `ref`(代表 attempt 深链)/ `runs`+`passedRuns`(子群体 attempt 数与通过数)对任何 `expand` 维度都成立,不是 `"eval"` 专属。这份原因摘要与 `CaseList.data` 的 `failedAssertions`(同样只列未通过的 gate 断言)、`<DefaultReport />` failing board 出自同一个 `reasonFor`,三处对同一个 attempt 给出同一个原因。`rows` 与 `expand` 是同一种维度输入,`expand` 也不要求 `rows` 必须是 `"experiment"`——`rows: "agent", expand: "eval"` 同样合法。`defaultReport`(裸跑填充)的榜单开着 `expand: "eval"`:点开一个 experiment 直接看它每道题的判定与原因,不需要另一个「失败清单」板块。
+**`MetricTable.data` 的 `expand` 把行钻深一级,不是另一种展示。** 设了 `expand`(如 `expand: "eval"`),父行的 group 按这个维度再分一次组,渲染面把子行摆进这一行下面可展开的明细(web 面是原生 `<details>`,零 JS 也能点开;text 面是父行下方缩进的失败/错误清单)。子行与父行是同一种东西——同一套父表 `columns` 在子群体上重新算一遍格子,`MetricCellView` 原样复用,不是子行专属的展示字段;额外的 `verdict`(子群体折叠判定)/ `reason`(代表 attempt 的失败原因,按优先级取第一个在场的:`error` → `skipReason` → 未通过的 gate 断言——原始声明顺序,`name`,detail 在场则 `"name: detail"`,多条用「, 」连接;soft 断言永不进入)/ `ref`(代表 attempt 深链)/ `runs`+`passedRuns`(子群体 attempt 数与通过数)对任何 `expand` 维度都成立,不是 `"eval"` 专属。这份原因摘要与 `CaseList.data` 的 `failedAssertions`、`ExperimentTable.data` 和 `<DefaultReport />` failing board 出自同一个 `reasonFor`,对同一个 attempt 给出同一个原因。`rows` 与 `expand` 是同一种维度输入,`expand` 也不要求 `rows` 必须是 `"experiment"`——`rows: "agent", expand: "eval"` 同样合法。默认报告需要配置、KPI、逐 Attempt 与 raw sample,因此使用独立的公开 `ExperimentTable`,不把这些异构信息塞进 `MetricTable.expand`。
 
 **MetricScatter 就是「质量 × 成本 frontier」的积木**:[Experiments](experiments.md) 的一文件一配置意味着 `compare/bub-low`、`compare/bub-medium`、`compare/bub-high` 各是一个实验——`points: "experiment"` 让每个档位成为一个点,`series: "agent"` 把同 agent 的档位连成线,`better` 驱动的轴向让右上角恒为「又好又便宜」。点的 x/y 就是两个 `MetricCell`:按点维度分组后走同一台两级聚合引擎,所以 `samples` / `total` / `refs` 一应俱全,hover 与下钻不用另做一套。
 
@@ -692,22 +700,17 @@ function defineReport(build: (ctx: ReportContext) => ReportNode | Promise<Report
     <MetricScatter data={await MetricScatter.data(scopedToGroup, {
       points: "experiment", series: "agent", x: costUSD, y: passRate,
     })} />
-    <MetricTable data={await MetricTable.data(scopedToGroup, {
-      rows: "experiment",
-      columns: [durationMs, passRate, tokens, costUSD],
-      sort: passRate,
-      expand: "eval",
-    })} filter />
+    <ExperimentTable data={await ExperimentTable.data(scopedToGroup)} filter />
   </Section>
 
   {/* id 没有 "/" 前缀的实验没有组:直接摆同一套 blocks(GroupSummary + 可选
-      MetricScatter + MetricTable),不套 Section、不发明 "Ungrouped" 之类的虚构组名。 */}
+      MetricScatter + ExperimentTable),不套 Section、不发明 "Ungrouped" 之类的虚构组名。 */}
 </Col>
 ```
 
 - 所有实验组与无组实验同时渲染,没有「只看当前组」的选择态。组的展示顺序是各组在 Selection 里首次出现的顺序。
-- `MetricTable` 的 `rows: "experiment"` 让每行带 `TableRowMeta`:Model / Agent 渲染为普通列,`verdicts`(eval 级折叠计票)渲染为 Verdicts 列,`evals` / `attempts` / `lastRunAt` 渲染成行键下的紧凑摘要——同组多配置并排时不丢「这行是谁、覆盖了多少题、最近何时跑的」。
-- `expand: "eval"` 让每个 experiment 行可以展开看它每道题的判定与失败原因(`TableSubRow.reason`——`error` → `skipReason` → 未通过的 gate 断言,原始声明顺序,detail 在场则 `"name: detail"`,多条用「, 」连接;soft 断言永不进入,详见「计算函数与数据契约」);默认报告不再另设一块「失败清单」——点开一行就是「为什么」。
+- `ExperimentTable.data` 产出完整的可序列化工作台数据:主行聚合指标、配置、KPI、逐 Eval 折叠、逐 Attempt 证据与 raw sample。失败原因统一为 `error` → `skipReason` → 未通过的 gate 断言;soft 得分住独立 `scoreSummary`。
+- 默认报告不使用通用 `MetricTable.expand` 伪装这份工作台。`MetricTable.expand` 仍是公开的同构指标下钻能力,但不承载配置 chips、诊断总量或 raw sample。
 - `filter` 开着 web 面的行过滤输入框(渐进增强 runtime 接管,text 面无对应物)。
 
 `<DefaultReport />` 组件是另一个更简单的锚点,不是 `defaultReport` 值的别名:零 props,把 RunOverview + 一张不分组的 experiment 榜单(`passRate` / `costUSD` / `durationMs`)+ CaseList 摆进你自己的报告树——同样零特权,同样钉在宿主注入的 Selection 上,但组装的积木和视觉密度与 `defaultReport` 不同,它自己的行为规范在 `docs-site/zh/guides/report-components.mdx` 的 DefaultReport 节。值与组件的分工:值给宿主与 `--report` 语义引用——「裸跑渲染什么」有一个可指认、可 import 的对象;组件给报告作者摆进自己的树,与自己的口径并排对照。

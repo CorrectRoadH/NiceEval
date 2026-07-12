@@ -156,7 +156,7 @@ describe("榜单:跨快照合成的现刻水位(defaultReport 的 text 面)", ()
     // 榜单 parity:experiment 行带 Agent 与 eval 级折叠计票列(1 题通过 1 题失败)
     expect(out).toContain("compare/bub");
     expect(out).toContain("Agent");
-    expect(out).toContain("Verdicts");
+    expect(out).toContain("Result");
     expect(out).toContain("1 passed / 1 failed");
     expect(out).toContain("50%");
     // 失败清单:新判定的 fixtures/button,带失败断言与下钻命令

@@ -92,6 +92,21 @@ latest 2026-07-09T10:00:00Z
 
 要在自己的报告文件里摆同一块组摘要（不止 `defaultReport` 能用），直接调 `GroupSummary.data`——它和 `defaultReport` 用的是同一个公开计算函数，不是默认报告独占的能力。
 
+## `ExperimentTable` —— 实验诊断工作台
+
+默认报告的主表不是一张通用指标表，而是完整的实验诊断工作台。一行一个 experiment，关闭时只显示短名称、model、agent、平均耗时、成功率、Tokens、预估成本和一枚判定摘要；点整行展开后，依次看到完整实验配置、汇总 KPI、逐 Eval/Attempt 诊断和原始样例结果。具体证据通过 `AttemptRef` 深链进入查看器的 attempt 详情。
+
+```tsx
+<ExperimentTable
+  data={await ExperimentTable.data(selection)}
+  filter
+/>
+```
+
+网页面默认按成功率降序，可点击任一表头临时排序；`filter` 加入实验过滤框。无客户端 JavaScript 时仍保留预排后的完整内容，展开使用原生 `<details>`。终端面输出同一份主榜，并在对应 experiment 下列出失败和错误的 Eval。
+
+它与 `MetricTable` 是两种组件：`ExperimentTable` 的展开内容是配置、诊断总量和证据；`MetricTable` 是任意维度 × 指标的通用比较表，`expand` 只会把同一套指标换一个维度重算。需要复刻默认首页时用前者，需要自由换维度和指标时用后者。
+
 ## `MetricTable` —— 榜单
 
 一行一个维度值、一列一个指标的对比表，回答「谁整体更好」。行维度、指标列、排序全部可换，自定义指标（`defineMetric`）与内置指标同列。

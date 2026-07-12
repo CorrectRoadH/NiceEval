@@ -867,7 +867,7 @@ describe("defineReport + 渲染入口", () => {
 // ───────────────────────── defaultReport(内置默认报告)─────────────────────────
 
 describe("defaultReport", () => {
-  it("是普通 ReportDefinition;text 面 = RunOverview + 分组榜单(meta 列)+ 失败清单", async () => {
+  it("是普通 ReportDefinition;text 面 = RunOverview + 分组 Experiment 工作台 + 失败诊断", async () => {
     expect(isReportDefinition(defaultReport)).toBe(true);
     const out = await renderReportToText(defaultReport, fakeContext(), { width: 100 });
     // 顶部 RunOverview
@@ -875,29 +875,37 @@ describe("defaultReport", () => {
     // "compare/bub" 的组是 "compare":Section 标题;组内可画点 <2(无成本数据),scatter 省略
     expect(out).toContain("compare\n");
     expect(out).not.toContain("better → upper right");
-    // 榜单 parity:Agent 与 eval 级折叠计票列
-    expect(out).toContain("compare/bub");
+    // 工作台主行用短名,完整 experiment id 不挤进主表;Agent 与 eval 级折叠计票保留
+    expect(out).toContain("bub");
     expect(out).toContain("Agent");
-    expect(out).toContain("Verdicts");
+    expect(out).toContain("Result");
     expect(out).toContain("1 passed / 1 failed");
-    // 尾部失败清单
+    // 失败/错误诊断随所属 experiment 输出
     expect(out).toContain("✗ algebra/y");
   });
 
-  it("web 面:分组 Section + 过滤输入框 + 排序 data 属性,无 <script>", async () => {
+  it("web 面:整行 details 工作台 + 过滤/排序属性 + 展开诊断结构,主行无 refs", async () => {
     const html = await renderReportToStaticHtml(defaultReport, fakeContext());
     expect(html).toContain("nre-section");
     expect(html).toContain(">compare</h2>");
-    expect(html).toContain("data-nre-filter");
-    expect(html).toContain("data-nre-sort");
-    expect(html).toContain("nre-verdict-pill");
+    expect(html).toContain("data-nre-experiment-filter");
+    expect(html).toContain("data-nre-experiment-sort");
+    expect(html).toContain('<details class="nre-experiment-entry">');
+    expect(html).toContain('<summary class="nre-experiment-summary">');
+    expect(html).toContain("nre-experiment-config");
+    expect(html).toContain("nre-experiment-kpis");
+    expect(html).toContain("nre-experiment-evals");
+    expect(html).toContain("nre-experiment-raw");
+    expect(html).toContain("nre-experiment-pill");
+    expect(html).not.toContain("nre-subrows-summary");
+    expect(html).not.toContain("nre-ref");
     expect(html).not.toContain("<script");
   });
 
   it("locale 管线:web 面 zh-CN 走字典(chrome 与内置指标 label),text 面默认 en 不变", async () => {
     const zh = await renderReportToStaticHtml(defaultReport, fakeContext(), { locale: "zh-CN" });
     expect(zh).toContain("成功率"); // passRate 的 zh-CN label
-    expect(zh).toContain('placeholder="筛选行…"');
+    expect(zh).toContain('placeholder="筛选实验…"');
     expect(zh).toContain("通过 1"); // RunOverview 的 verdict 词
     const zhText = await renderReportToText(defaultReport, fakeContext(), { locale: "zh-CN" });
     expect(zhText).toContain("1 个实验");
@@ -912,9 +920,9 @@ describe("defaultReport", () => {
     // 无组实验直接平铺相同 blocks,不发明虚构组名/标题
     expect(out).toContain("solo");
     expect(out).not.toContain("(ungrouped)");
-    // 三个 experiment 的榜单行都出现过一次
-    expect(out).toContain("compare/bub");
-    expect(out).toContain("other/codex");
+    // 三个 experiment 的短名主行都出现过一次
+    expect(out).toMatch(/^\s*bub\s+/m);
+    expect(out).toMatch(/^\s*codex\s+/m);
     // 组与组之间(text 面)保留 Col 的段落空行分隔,不因为 sections 数组被当成
     // <Col> 单个子节点整体传入而在内层退化成单换行(nested-array 折叠 bug 回归)
     expect(out).toMatch(/\n\nother\n/);

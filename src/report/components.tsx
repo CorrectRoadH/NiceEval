@@ -11,6 +11,7 @@ import type { AttemptRef } from "../results/index.ts";
 import type {
   CaseListData,
   DeltaData,
+  ExperimentTableData,
   GroupSummaryData,
   LineData,
   MatrixData,
@@ -22,6 +23,7 @@ import type {
 import {
   caseListData,
   deltaData,
+  experimentTableData,
   groupSummaryData,
   lineData,
   matrixData,
@@ -34,6 +36,7 @@ import {
   barsText,
   caseListText,
   deltaText,
+  experimentTableText,
   groupSummaryText,
   lineText,
   matrixText,
@@ -44,6 +47,7 @@ import {
 } from "./text/faces.ts";
 import { RunOverview as RunOverviewWeb } from "./react/RunOverview.tsx";
 import { GroupSummary as GroupSummaryWeb } from "./react/GroupSummary.tsx";
+import { ExperimentTable as ExperimentTableWeb } from "./react/ExperimentTable.tsx";
 import { MetricTable as MetricTableWeb } from "./react/MetricTable.tsx";
 import { MetricMatrix as MetricMatrixWeb } from "./react/MetricMatrix.tsx";
 import { MetricBars as MetricBarsWeb } from "./react/MetricBars.tsx";
@@ -65,6 +69,15 @@ export interface RunOverviewProps {
 export interface GroupSummaryProps {
   data: GroupSummaryData;
   /** chrome 文案 locale;省略时随宿主上下文(宿主外默认 "en")。 */
+  locale?: ReportLocale;
+  className?: string;
+}
+
+export interface ExperimentTableProps {
+  data: ExperimentTableData;
+  attemptHref?: (ref: AttemptRef) => string;
+  /** web 面在工作台前显示实验过滤输入框；渐进增强 runtime 按整条 experiment 过滤。 */
+  filter?: boolean;
   locale?: ReportLocale;
   className?: string;
 }
@@ -156,6 +169,16 @@ export const GroupSummary = Object.assign(
   { data: groupSummaryData },
 );
 GroupSummary.displayName = "GroupSummary";
+
+/** Experiment 诊断工作台:主行看整体表现,原生展开查看配置、KPI 与逐 eval/attempt 证据。 */
+export const ExperimentTable = Object.assign(
+  defineComponent<ExperimentTableProps>({
+    web: (props, ctx) => <ExperimentTableWeb {...props} locale={props.locale ?? ctx.locale} attemptHref={props.attemptHref ?? (isHostWebContextActive() ? ctx.attemptHref : undefined)} />,
+    text: ({ data }, ctx) => experimentTableText(data, ctx),
+  }),
+  { data: experimentTableData },
+);
+ExperimentTable.displayName = "ExperimentTable";
 
 /** 榜单:一行一个维度值、一列一个指标,回答「谁整体更好」。 */
 export const MetricTable = Object.assign(

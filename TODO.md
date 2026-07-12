@@ -23,7 +23,7 @@
   <Section title={groupName}>
     <GroupSummary data={await GroupSummary.data(groupSelection)} />
     <MetricScatter data={scatterData} />
-    <MetricTable data={tableData} filter />
+    <ExperimentTable data={experimentData} filter />
   </Section>
 
   {/* 无分组实验直接摆相同 blocks，不发明虚构组名。 */}
@@ -31,7 +31,7 @@
 ```
 
 - [x] 不新增通用网格/卡片排版原语。组摘要确实是一个有独立数据契约的报告块，因此新增 `GroupSummary` 双面组件；`Section` 仍负责分组容器。
-- [x] `MetricTable` 继续负责 experiment 主表与 `expand: "eval"` 明细，不新建一份只供默认报告使用的 `ExperimentTable`。
+- [x] 默认报告使用公开双面 `ExperimentTable` 复刻旧诊断工作台；通用 `MetricTable.expand` 保留给自定义报告，但不承担默认首页。
 - [x] 旧 `CostScoreChart` 的正确图表行为由现有 `MetricScatter` 承接；只校准数据和视觉规则，不恢复旧 React 组件。
 - [x] 旧 `GroupSelector` 不迁回；它提供的组汇总数字迁入 `GroupSummary`，选择交互废弃。
 
@@ -139,11 +139,11 @@ error
 → 无失败原因
 ```
 
-- [x] 在中性共享层提取原因摘要纯函数，供 `MetricTable expand`、`CaseList` 和 `<DefaultReport />` 的 failing board 共用。
+- [x] 在中性共享层提取原因摘要纯函数，供 `ExperimentTable`、`MetricTable expand`、`CaseList` 和 `<DefaultReport />` 的 failing board 共用。
 - [x] 不允许 `src/report/compute.ts` 与 `src/report/official-report.tsx` 各自再写 `.find(a => !a.passed)`。
 - [x] gate 文案保留 name 与 detail；多个 gate 用稳定分隔符连接。
 - [x] soft assertion 不进入 failure reason。
-- [ ] passed attempt 的 soft 得分如需展示，新增独立 `scoreSummary?: string`；不要塞进名为 `reason` 的字段。**阻塞原因**：条件项——当前没有任何渲染面（`MetricTable expand`、`CaseList`、`<DefaultReport />` failing board）尝试展示 passed attempt 的 soft 得分，触发条件不成立，故未新增该字段；后续若某个 face 需要展示，再按此处约定的独立字段补上，不得塞进 `reason`。
+- [x] `ExperimentTable` 的 passed attempt soft 得分使用独立 `scoreSummary?: string`，不塞进 `reason`。
 - [ ] 如果新增 `TableSubRow.scoreSummary`，同步 web/text face、类型、TSDoc 和参考文档。**阻塞原因**：依赖上一项，`scoreSummary` 未新增，此项不适用。
 - [x] errored/skipped 没有 assertion 时仍分别显示 `error`/`skipReason`。
 
@@ -152,10 +152,10 @@ error
 ## 7. 重组 defaultReport
 
 - [x] 把默认报告内的组装拆为三个无副作用 helper：计算 group keys、计算单组 data、生成单组 nodes。
-- [x] 每个命名组渲染 `Section → GroupSummary → 可选 MetricScatter → MetricTable`。
+- [x] 每个命名组渲染 `Section → GroupSummary → 可选 MetricScatter → ExperimentTable`。
 - [x] 无分组实验直接渲染相同 blocks，不创建 `Ungrouped`/`Other` 等虚构标题。
 - [x] scatter 仍只在至少两个点的 x/y 都可测时出现。
-- [x] `MetricTable` 保持 `rows: "experiment"`、`expand: "eval"`、`filter` 和按 `passRate` 预排序。
+- [x] `ExperimentTable` 默认按 `passRate` 降序预排，web 面支持列排序与过滤；整行展开配置、KPI、逐 Eval/Attempt 和 raw sample。
 - [x] 表格继续携带 agent/model/Verdict 元信息。
 - [x] 为 experiment 主行补回 eval 数、attempt 数和最后运行时间；优先扩充通用 `TableRowMeta`，不要读取 view 私有模型。
 - [x] 新增字段必须对所有行维度语义成立；若只对 `rows: "experiment"` 成立，应明确放在 experiment meta 分支并在类型/TSDoc 中说明。

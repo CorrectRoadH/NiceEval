@@ -42,6 +42,61 @@
   margin: 1rem 0;
 }
 
+/* ---- ExperimentTable:旧 view 的 experiment 诊断工作台,零 JS 用 details/summary ---- */
+.nre-experiment-table { border: 1px solid var(--line); border-radius: 9px; overflow: hidden; background: var(--panel); }
+.nre-experiment-head,
+.nre-experiment-summary { display: grid; grid-template-columns: minmax(220px,1.25fr) minmax(120px,.8fr) minmax(90px,.6fr) minmax(100px,.65fr) minmax(90px,.55fr) minmax(110px,.7fr) minmax(90px,.6fr) minmax(160px,.9fr); column-gap: 16px; align-items: center; }
+.nre-experiment-head { padding: 12px 20px; color: var(--muted); font-size: 12px; font-weight: 560; text-transform: uppercase; letter-spacing: .05em; border-bottom: 1px solid var(--line); }
+.nre-experiment-head button { appearance:none; border:0; padding:0; background:transparent; color:inherit; font:inherit; text-transform:inherit; letter-spacing:inherit; text-align:left; cursor:pointer; }
+.nre-experiment-head button::after { content:"↕"; margin-left:6px; color:var(--soft); font-size:11px; }
+.nre-experiment-head button.nre-sort-asc::after { content:"↑"; color:var(--text); }
+.nre-experiment-head button.nre-sort-desc::after { content:"↓"; color:var(--text); }
+.nre-experiment-table-wrap > .nre-filter { margin-bottom:16px; }
+.nre-experiment-entry { border-bottom: 1px solid var(--line); }
+.nre-experiment-entry:last-child { border-bottom: 0; }
+.nre-experiment-summary { padding: 13px 20px; cursor: pointer; list-style: none; transition: background .12s; }
+.nre-experiment-summary::-webkit-details-marker { display: none; }
+.nre-experiment-summary:hover { background: color-mix(in oklch,var(--panel-2),var(--panel) 25%); }
+.nre-experiment-summary > span { min-width: 0; }
+.nre-experiment-name { position: relative; padding-left: 30px; }
+.nre-experiment-name::before { content:""; position:absolute; left:5px; top:6px; width:7px; height:7px; border-right:1.5px solid var(--muted); border-bottom:1.5px solid var(--muted); transform:rotate(-45deg); transition:transform .15s; }
+.nre-experiment-entry[open] .nre-experiment-name::before { transform: rotate(45deg); }
+.nre-experiment-name b { display:block; overflow-wrap:anywhere; font-weight:650; }
+.nre-experiment-name small { display:block; margin-top:3px; color:var(--muted); font-size:12px; font-weight:400; }
+.nre-num { font-variant-numeric:tabular-nums; font-feature-settings:"tnum"; white-space:nowrap; }
+.nre-good { color:var(--good); }.nre-bad { color:var(--bad); }.nre-warn { color:var(--warn); }
+.nre-experiment-pill { display:inline-flex; min-height:22px; align-items:center; border:1px solid var(--line); border-radius:999px; padding:0 8px; color:var(--muted); font-size:12px; white-space:nowrap; }
+.nre-experiment-detail { padding:20px 30px 24px; background:color-mix(in oklch,var(--panel-2),var(--panel) 24%); border-top:1px solid var(--line); }
+.nre-experiment-config { display:flex; flex-wrap:wrap; gap:8px; margin:0 0 18px; }
+.nre-experiment-chip { display:inline-flex; align-items:center; gap:6px; min-height:26px; border:1px solid color-mix(in oklch,var(--line),transparent 16%); border-radius:999px; padding:4px 9px; color:var(--muted); font-size:12px; line-height:1.2; }
+.nre-experiment-chip b { color:var(--text); font-weight:560; }
+.nre-experiment-kpis { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); border-bottom:1px solid var(--line); margin:-2px 0 18px; }
+.nre-experiment-kpi { padding:0 18px 16px 0; min-width:0; }
+.nre-experiment-kpi span { display:block; color:var(--soft); font-size:11px; text-transform:uppercase; letter-spacing:.07em; }
+.nre-experiment-kpi b { display:block; margin-top:7px; font-size:18px; font-weight:680; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+.nre-experiment-detail h3 { margin:0 0 14px; font-size:13px; color:var(--muted); font-weight:580; text-transform:uppercase; letter-spacing:.06em; }
+.nre-experiment-evals { display:grid; max-height:430px; overflow:auto; padding-right:4px; }
+.nre-experiment-eval-head,
+.nre-experiment-eval-row { display:grid; grid-template-columns:76px minmax(220px,1.1fr) minmax(260px,1fr) 84px 100px 82px 54px; column-gap:16px; align-items:baseline; padding:11px 0; border-bottom:1px solid color-mix(in oklch,var(--line),transparent 35%); font-size:13px; color:inherit; text-decoration:none; }
+.nre-experiment-eval-head { position:sticky; top:0; z-index:1; background:color-mix(in oklch,var(--panel-2),var(--panel) 24%); color:var(--soft); font-size:11px; text-transform:uppercase; letter-spacing:.06em; }
+.nre-experiment-eval-row:hover { background:color-mix(in oklch,var(--panel-2),var(--panel) 30%); }
+.nre-experiment-eval-group > summary { cursor:pointer; list-style:none; }
+.nre-experiment-eval-group > summary::-webkit-details-marker { display:none; }
+.nre-experiment-eval-group > summary .nre-experiment-eval-id::before { content:"›"; display:inline-block; width:18px; color:var(--muted); transition:transform .15s; }
+.nre-experiment-eval-group[open] > summary .nre-experiment-eval-id::before { transform:rotate(90deg); }
+.nre-experiment-eval-id { overflow-wrap:anywhere; font-weight:560; }
+.nre-experiment-reason { min-width:0; color:color-mix(in oklch,var(--muted),var(--text) 6%); display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; line-clamp:2; overflow:hidden; line-height:1.25; }
+.nre-experiment-verdict { font-weight:600; }.nre-passed { color:var(--good); }.nre-failed { color:var(--bad); }.nre-errored { color:var(--warn); }.nre-skipped { color:var(--muted); }
+.nre-experiment-eval-row small { display:block; margin-top:2px; color:var(--soft); font-size:11px; }
+.nre-run-ratio { color:var(--soft); }
+.nre-experiment-attempts { display:grid; margin-left:8px; border-left:2px solid color-mix(in oklch,var(--nre-c0),transparent 55%); background:color-mix(in oklch,var(--panel-2),transparent 55%); }
+.nre-experiment-attempt { padding-left:12px; }
+.nre-experiment-raw { margin-top:16px; border-top:1px solid color-mix(in oklch,var(--line),transparent 15%); padding-top:14px; color:color-mix(in oklch,var(--muted),var(--text) 6%); }
+.nre-experiment-raw summary { cursor:pointer; color:var(--muted); font-size:13px; font-weight:560; user-select:none; }
+.nre-experiment-raw summary span { margin-left:8px; color:var(--soft); font-weight:400; }
+.nre-experiment-raw pre { margin-top:12px; max-height:360px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; border:1px solid var(--line); border-radius:7px; padding:12px; background:var(--panel); font-size:12px; }
+@media(max-width:1000px){.nre-experiment-table{overflow-x:auto}.nre-experiment-head,.nre-experiment-summary{min-width:1040px}.nre-experiment-detail{min-width:1040px}.nre-experiment-kpis{grid-template-columns:repeat(4,minmax(0,1fr))}}
+
 /* ---- 维度键上色:同一个 key 在任何块里同色(文字) ---- */
 .nre .nre-c0 { color: var(--nre-c0); }
 .nre .nre-c1 { color: var(--nre-c1); }

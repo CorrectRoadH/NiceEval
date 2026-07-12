@@ -12,9 +12,9 @@ import { experimentGroupOf } from "../shared/aggregate.ts";
 import { defineReport, type ReportDefinition } from "./report.ts";
 import type { ReportNode } from "./tree.ts";
 import { Col, Section } from "./primitives.tsx";
-import { GroupSummary, MetricScatter, MetricTable, RunOverview } from "./components.tsx";
-import { costUSD, durationMs, passRate, tokens } from "./metrics.ts";
-import type { GroupSummaryData, ScatterData, TableData } from "./types.ts";
+import { ExperimentTable, GroupSummary, MetricScatter, RunOverview } from "./components.tsx";
+import { costUSD, passRate } from "./metrics.ts";
+import type { ExperimentTableData, GroupSummaryData, ScatterData } from "./types.ts";
 
 /** 组键:experiment id 的目录前缀(与 view 榜单分组同一份推导);顶层实验(id 无 "/")无组。 */
 function groupOf(snapshot: Snapshot): string | undefined {
@@ -34,32 +34,25 @@ function groupKeysOf(selection: Selection): (string | undefined)[] {
 interface GroupData {
   summary: GroupSummaryData;
   scatter: ScatterData;
-  table: TableData;
+  experiments: ExperimentTableData;
 }
 
-/** 一个组(已用 `groupOf` 收窄好的 Selection)的三份数据:摘要 + 成本×通过率散点 + 榜单。 */
+/** 一个组(已用 `groupOf` 收窄好的 Selection)的三份数据:摘要 + 成本×通过率散点 + Experiment 工作台。 */
 async function groupData(scoped: Selection): Promise<GroupData> {
-  const [summary, scatter, table] = await Promise.all([
+  const [summary, scatter, experiments] = await Promise.all([
     GroupSummary.data(scoped),
     MetricScatter.data(scoped, { points: "experiment", series: "agent", x: costUSD, y: passRate }),
-    MetricTable.data(scoped, {
-      rows: "experiment",
-      columns: [durationMs, passRate, tokens, costUSD],
-      sort: passRate,
-      // 每个 experiment 行按 eval 展开明细(同一套 columns 在题级重算 + 判定/原因/深链):
-      // 点开一个 experiment 直接看它每道题为什么过/不过,不用去另一个板块找。
-      expand: "eval",
-    }),
+    ExperimentTable.data(scoped),
   ]);
-  return { summary, scatter, table };
+  return { summary, scatter, experiments };
 }
 
-/** 一个组的积木:摘要 + 组内 frontier 散点(可画点 < 2 时省略,画不出比较就不画)+ 带过滤的榜单。 */
+/** 一个组的积木:摘要 + 组内 frontier 散点(可画点 < 2 时省略)+ 可展开的 Experiment 工作台。 */
 function groupNodes(keyPrefix: string, data: GroupData): ReportNode[] {
   const blocks: ReportNode[] = [<GroupSummary key={`${keyPrefix}:summary`} data={data.summary} />];
   const drawable = data.scatter.rows.filter((r) => r.x.value !== null && r.y.value !== null).length;
   if (drawable >= 2) blocks.push(<MetricScatter key={`${keyPrefix}:scatter`} data={data.scatter} />);
-  blocks.push(<MetricTable key={`${keyPrefix}:board`} data={data.table} filter />);
+  blocks.push(<ExperimentTable key={`${keyPrefix}:experiments`} data={data.experiments} filter />);
   return blocks;
 }
 
@@ -69,10 +62,9 @@ function groupNodes(keyPrefix: string, data: GroupData): ReportNode[] {
  * 形态:顶部 {@link RunOverview};按 experiment 组(id 的目录前缀,如 `compare/bub-low`
  * 的 `compare`)每组一个 `<Section title={组名}>`,内含组摘要 {@link GroupSummary}
  * (通过率、experiment/eval/attempt 数、failed/errored、总成本、最后运行时间)、组内成本 ×
- * 通过率的 {@link MetricScatter}(组内可画点 < 2 时省略图)与组内榜单 {@link MetricTable}
- * (行 = experiment,附 Model / Agent / Verdicts 列与 eval/attempt 数、最后运行时间,
- * 过滤输入框开,`expand: "eval"`——每行可展开看这个 experiment 每道题的判定/原因,零 JS
- * 靠原生 `<details>`);无组的实验直接平铺同一套 blocks,不发明组名。组内 Selection 用
+ * 通过率的 {@link MetricScatter}(组内可画点 < 2 时省略图)与组内 {@link ExperimentTable}
+ * (一行一个 experiment,整行原生 `<details>` 展开配置、KPI、逐 eval/attempt 证据和原始
+ * 样例;主行不铺 attempt refs);无组的实验直接平铺同一套 blocks,不发明组名。组内 Selection 用
  * `Selection.filter`(只删不换)收窄,warnings 随行修剪。
  *
  * 它是普通的 {@link ReportDefinition}:`--report` 换掉它,或在自己的报告文件里

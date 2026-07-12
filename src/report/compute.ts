@@ -15,6 +15,9 @@ import type {
   CaseListData,
   DeltaData,
   DimensionInput,
+  ExperimentAttemptRowData,
+  ExperimentEvalRowData,
+  ExperimentTableData,
   GroupSummaryData,
   LineData,
   MatrixData,
@@ -53,7 +56,9 @@ import {
   type SnapshotsInput,
 } from "./aggregate.ts";
 import { attemptCostUSD, examScore, passRate } from "./metrics.ts";
+import { costUSD, durationMs, tokens } from "./metrics.ts";
 import { formatMetricValue, formatPlainNumber } from "./format.ts";
+import { displayExperimentName, totalTokens } from "../shared/aggregate.ts";
 
 // ───────────────────────── MetricTable.data ─────────────────────────
 
@@ -275,6 +280,135 @@ export async function tableData<const M extends readonly Metric[]>(
     columns: opts.columns.map(toColumn),
     rows,
   } as TableData<M[number]["name"]>;
+}
+
+// ───────────────────────── ExperimentTable.data ─────────────────────────
+
+export interface ExperimentTableDataOptions {
+  /** eval id 前缀过滤，同 CLI 位置参数语义。 */
+  evals?: string | string[];
+}
+
+function scoreSummary(result: EvalResult): string | undefined {
+  const scored = result.assertions.filter((a) => a.score !== undefined && a.score !== null);
+  if (scored.length === 0) return undefined;
+  return scored
+    .map((a) => {
+      const score = formatPlainNumber(a.score);
+      return a.threshold === undefined
+        ? `${a.name} ${score}`
+        : `${a.name} ${score}/${formatPlainNumber(a.threshold)}`;
+    })
+    .join(" · ");
+}
+
+function attemptRow(item: Item): ExperimentAttemptRowData {
+  const result = item.attempt.result;
+  return {
+    attempt: result.attempt,
+    verdict: result.verdict,
+    reason: reasonFor(result),
+    scoreSummary: result.verdict === "passed" ? scoreSummary(result) : undefined,
+    startedAt: result.startedAt,
+    durationMs: result.durationMs,
+    tokens: totalTokens([result.usage]),
+    totalCostUSD: attemptCostUSD(result),
+    ref: item.attempt.ref,
+    hasEvidence:
+      result.hasEvents === true ||
+      result.hasTrace === true ||
+      result.assertions.some((a) => a.score !== undefined && a.score !== null),
+  };
+}
+
+function experimentEvalRows(items: Item[]): ExperimentEvalRowData[] {
+  const groups = groupItems(items, "eval");
+  const rows: ExperimentEvalRowData[] = [];
+  for (const [key, group] of groups) {
+    const sorted = [...group].sort((a, b) => a.attempt.result.attempt - b.attempt.result.attempt);
+    const verdict = foldEvalVerdict(sorted.map((item) => item.attempt.result));
+    const representative = sorted.find((item) => item.attempt.result.verdict === verdict) ?? sorted[0]!;
+    const costs = sorted.map((item) => attemptCostUSD(item.attempt.result)).filter((n): n is number => n !== null);
+    rows.push({
+      key,
+      verdict,
+      reason: reasonFor(representative.attempt.result),
+      scoreSummary: verdict === "passed" ? scoreSummary(representative.attempt.result) : undefined,
+      durationMs: sorted.reduce((sum, item) => sum + item.attempt.result.durationMs, 0),
+      tokens: totalTokens(sorted.map((item) => item.attempt.result.usage)),
+      totalCostUSD: costs.length === 0 ? null : costs.reduce((sum, n) => sum + n, 0),
+      runs: sorted.length,
+      passedRuns: sorted.filter((item) => item.attempt.result.verdict === "passed").length,
+      representativeRef: representative.attempt.ref,
+      attempts: sorted.map(attemptRow),
+    });
+  }
+  rows.sort((a, b) => a.key.localeCompare(b.key));
+  return rows;
+}
+
+/**
+ * 构建旧 view ExperimentTable 的完整、可序列化工作台数据。计算全部发生在 Node 面；
+ * web/text face 只负责排版，因此同一份定义不会再长出第三套公式。
+ */
+export async function experimentTableData(
+  input: SnapshotsInput,
+  opts?: ExperimentTableDataOptions,
+): Promise<ExperimentTableData> {
+  const { snapshots } = resolveInput(input);
+  const items = filterItems(collectItems(snapshots), opts?.evals);
+  const groups = groupItems(items, "experiment");
+  const rows: ExperimentTableData["rows"] = [];
+  for (const [experimentId, group] of groups) {
+    const stats = summarizeItems(group);
+    const newest = [...group].sort((a, b) => b.snapshot.startedAt.localeCompare(a.snapshot.startedAt))[0]!;
+    const results = group.map((item) => item.attempt.result);
+    const rawSample =
+      results.find((result) => result.verdict === "errored") ??
+      results.find((result) => result.verdict === "failed") ??
+      results[0];
+    const experiment = newest.snapshot.experiment ?? newest.attempt.result.experiment;
+    rows.push({
+      key: experimentId,
+      experimentId,
+      label: displayExperimentName(experimentId) ?? experimentId,
+      agent: newest.snapshot.agent,
+      model: newest.attempt.result.model ?? newest.snapshot.model,
+      config: {
+        runs: experiment?.runs ?? stats.attempts,
+        earlyExit: experiment?.earlyExit,
+        sandbox: experiment?.sandbox,
+        timeoutMs: experiment?.timeoutMs,
+        budget: experiment?.budget,
+        flags: experiment?.flags,
+      },
+      lastRunAt: stats.lastRunAt!,
+      summary: {
+        evals: stats.evals,
+        attempts: stats.attempts,
+        verdicts: stats.verdicts,
+        durationMs: group.reduce((sum, item) => sum + item.attempt.result.durationMs, 0),
+        totalCostUSD: stats.totalCostUSD,
+        passRate: await computeCell(passRate, group),
+        duration: await computeCell(durationMs, group),
+        tokens: await computeCell(tokens, group),
+        cost: await computeCell(costUSD, group),
+      },
+      evals: experimentEvalRows(group),
+      rawSample,
+    });
+  }
+  // 旧 view 的默认榜单顺序:通过率高的在前,缺数据沉底。web 增强可再按任一列重排;
+  // 无 JS 与 text 面仍从第一帧读到同一份官方预排。
+  rows.sort((a, b) => {
+    const av = a.summary.passRate.value;
+    const bv = b.summary.passRate.value;
+    if (av === null && bv === null) return 0;
+    if (av === null) return 1;
+    if (bv === null) return -1;
+    return bv - av;
+  });
+  return { rows };
 }
 
 // ───────────────────────── MetricMatrix.data(= MetricBars.data)─────────────────────────

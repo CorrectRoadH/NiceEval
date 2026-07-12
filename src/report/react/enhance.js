@@ -92,6 +92,45 @@
     }
   });
 
+  // ExperimentTable 以原生 details 表达「主行 + 展开诊断」，不是 table/tbody。
+  // 单独按 summary 的八列排序、按整条 details 的文本过滤；无 JS 时保持数据侧顺序且内容完整。
+  document.addEventListener("click", function (e) {
+    var control = closest(e.target, "[data-nre-experiment-sort]");
+    if (!control) return;
+    var board = control.closest(".nre-experiment-table");
+    if (!board) return;
+    var index = Number(control.getAttribute("data-nre-experiment-sort"));
+    var dir = control.classList.contains("nre-sort-asc") ? "desc" : "asc";
+    var controls = board.querySelectorAll("[data-nre-experiment-sort]");
+    for (var i = 0; i < controls.length; i++) controls[i].classList.remove("nre-sort-asc", "nre-sort-desc");
+    control.classList.add(dir === "asc" ? "nre-sort-asc" : "nre-sort-desc");
+    var entries = Array.prototype.slice.call(board.querySelectorAll(":scope > .nre-experiment-entry"));
+    entries.sort(function (a, b) {
+      var ac = a.querySelector(".nre-experiment-summary").children[index];
+      var bc = b.querySelector(".nre-experiment-summary").children[index];
+      var av = ac ? ac.getAttribute("data-sort-value") || ac.textContent.trim() : "";
+      var bv = bc ? bc.getAttribute("data-sort-value") || bc.textContent.trim() : "";
+      if (av === "" && bv === "") return 0;
+      if (av === "") return 1;
+      if (bv === "") return -1;
+      var an = Number(av), bn = Number(bv);
+      var out = !isNaN(an) && !isNaN(bn) ? an - bn : String(av).localeCompare(String(bv));
+      return dir === "asc" ? out : -out;
+    });
+    for (var j = 0; j < entries.length; j++) board.appendChild(entries[j]);
+  });
+
+  document.addEventListener("input", function (e) {
+    var input = closest(e.target, "input[data-nre-experiment-filter]");
+    if (!input) return;
+    var scope = input.parentElement;
+    var entries = scope ? scope.querySelectorAll(".nre-experiment-entry") : [];
+    var query = input.value.trim().toLowerCase();
+    for (var i = 0; i < entries.length; i++) {
+      entries[i].classList.toggle("nre-row-hidden", query !== "" && entries[i].textContent.toLowerCase().indexOf(query) === -1);
+    }
+  });
+
   // ───────────────────────── tooltip:.nre-scatter-point / .nre-line-point ─────────────────────────
   // 首次 hover 时把点内 <title> 的内容搬进 data-nre-title(避免与原生 tooltip 重影),
   // 渲染样式化 tooltip div(定位在点上方,挂在所属 figure 里)。无 JS 时 <title> 原样生效。

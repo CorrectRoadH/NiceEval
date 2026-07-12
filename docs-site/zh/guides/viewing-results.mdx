@@ -68,7 +68,7 @@ niceeval show weather/brooklyn --history      # 跨 run 时间轴：抖动与回
 
 | `niceeval view` 里的视图 | 终端对应 |
 | --- | --- |
-| 默认报告（总览、每组的组摘要 + 散点图 + 榜单，每行可点开看这个实验下每道题的判定与原因） | `niceeval show` |
+| 默认报告（总览、每组的组摘要 + 散点图 + 实验工作台；整行展开配置、KPI、逐 Eval/Attempt 和 raw sample） | `niceeval show` |
 | attempt 详情（断言、错误、用量） | `niceeval show <eval id>` |
 | transcript | `niceeval show <eval id> --transcript` |
 | trace 瀑布图 | `niceeval show <eval id> --trace` |
@@ -79,7 +79,7 @@ niceeval show weather/brooklyn --history      # 跨 run 时间轴：抖动与回
 
 不带 flag 的 `niceeval show` 渲染默认报告的终端版。最上面是运行总览：几个 experiment、几个 eval、几次 attempt、通过率、合成自几个 run、判定分布（passed/failed/errored/skipped 的 attempt 原始计票）、总成本、总耗时。这里的通过率是两级聚合口径——同一道题在同一次快照下多次 attempt 部分通过，按份额计入（比如 3 次 attempt 过 2 次贡献 0.667，不是非过即不过的二元票），再对所有题取平均，与下面榜单里 `Pass rate` 列同一套公式、同一个数字。
 
-总览下面，每个实验组一节（组按 experiment id 的 `/` 前缀划分，如 `compare/bub-gpt-5.4` 的组是 `compare`）：有几个组就渲染几节，都摆在同一个页面上，不用来回切换。每节从上到下是组摘要（这组题综合算下来通过率多少、覆盖几个 experiment/几道题、failed 几个、errored 几个（0 个时省略这一项）、总成本、最后一次运行时间——通过率是这组 eval 折叠计票后的 `passed / (passed + failed + errored)`，`skipped` 不进分母，和总览那个两级聚合是两码事：组摘要回答「这组题过了几道」，总览回答「整体质量几分」）、一张质量 × 成本字符坐标图（组内可比较的点少于两个时省略，画不出比较就不画）、一张榜单。榜单每行是一个 experiment，行下面跟一行紧凑摘要（覆盖几道题、几次 attempt——只在多于题数时才列出、说明有重试、最后一次运行时间）；有失败/错误题的行再往下跟一段缩进明细，每条是「哪道题、什么原因、下钻命令」。失败原因只取三处之一：`error`（环境/adapter/agent runtime 报错）、跳过原因，或未通过的 gate 断言——按题目里声明的顺序列出，多条断言用「, 」连接，断言带 detail 就是「名字: detail」，不带就只有名字；soft 断言不参与判定，从不出现在失败原因里，它的分数是报告里另一处的展示，不会混进这段文字。
+总览下面，每个实验组一节（组按 experiment id 的 `/` 前缀划分，如 `compare/bub-gpt-5.4` 的组是 `compare`）：有几个组就渲染几节，都摆在同一个页面上，不用来回切换。每节从上到下是组摘要、一张质量 × 成本图（组内可比较的点少于两个时省略）和实验工作台。工作台每行是一个 experiment：关闭态显示短名称、model/agent、平均耗时、成功率、Tokens、预估成本和紧凑判定摘要；点整行展开后依次看到完整配置、通过/失败/错误与总耗时/总成本 KPI、可内部滚动的逐 Eval/Attempt 诊断表和原始样例结果。失败原因只取三处之一：`error`、跳过原因，或未通过的 gate 断言；soft 断言不进入失败原因。终端面读取同一份数据，只把失败/错误诊断紧凑列在所属 experiment 下。
 
 没有 `/` 前缀的实验不属于任何组，直接摆出同一套组摘要 + 图 + 榜单，紧跟在已有分组的后面，不会因为没有组名被过滤掉，也不会被套上一个编造的组标题。
 

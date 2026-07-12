@@ -8,6 +8,7 @@
 import type {
   CaseListData,
   DeltaData,
+  ExperimentTableData,
   GroupSummaryData,
   LineData,
   MatrixData,
@@ -86,6 +87,33 @@ export function groupSummaryText(data: GroupSummaryData, ctx: TextContext): stri
   const lines = [head];
   if (data.lastRunAt) lines.push(localeText(locale, "latestRun", { run: data.lastRunAt }));
   return lines.join("\n");
+}
+
+// ───────────────────────── ExperimentTable ─────────────────────────
+
+/** 主榜完整列 + 每个 experiment 的失败/错误诊断；终端不模拟网页展开状态。 */
+export function experimentTableText(data: ExperimentTableData, ctx: TextContext): string {
+  const zh = ctx.locale === "zh-CN";
+  const verdicts = (row: ExperimentTableData["rows"][number]) => {
+    const words = zh ? { passed:"通过", failed:"失败", errored:"错误", skipped:"跳过" } : { passed:"passed", failed:"failed", errored:"errored", skipped:"skipped" };
+    return (["passed","failed","errored","skipped"] as const).filter(k => row.summary.verdicts[k]).map(k => `${row.summary.verdicts[k]} ${words[k]}`).join(" / ") || MISSING_MARK;
+  };
+  const table = renderAlignedRows([
+    zh ? ["实验","模型","Agent","平均耗时","成功率","Tokens","预估成本","结果"] : ["Experiment","Model","Agent","Avg duration","Pass rate","Tokens","Est. cost","Result"],
+    ...data.rows.map(row => [row.label,row.model ?? MISSING_MARK,row.agent,cellText(row.summary.duration),cellText(row.summary.passRate),cellText(row.summary.tokens),cellText(row.summary.cost),verdicts(row)]),
+  ]);
+  const details = data.rows.flatMap(row => {
+    const failing = row.evals.filter(e => e.verdict === "failed" || e.verdict === "errored");
+    if (!failing.length) return [];
+    const config = [`runs=${row.config.runs}`, ...(row.config.earlyExit === undefined ? [] : [`earlyExit=${row.config.earlyExit}`]), ...(row.config.sandbox ? [`sandbox=${row.config.sandbox}`] : []), ...(row.config.budget === undefined ? [] : [`budget=${formatUSD(row.config.budget)}`])].join(" · ");
+    const lines = [`${row.experimentId} — ${config}`];
+    for (const e of failing) {
+      lines.push(`  ${e.verdict === "errored" ? "!" : "✗"} ${e.key}${e.runs > 1 ? ` (${e.passedRuns}/${e.runs})` : ""}${e.reason ? ` — ${e.reason}` : ""} · ${formatDurationMs(e.durationMs)} · ${formatPlainNumber(e.tokens)} tokens · ${e.totalCostUSD === null ? MISSING_MARK : formatUSD(e.totalCostUSD)}`);
+      lines.push(`    → niceeval show ${e.key}`);
+    }
+    return [lines.join("\n")];
+  });
+  return [table, ...details].join("\n\n");
 }
 
 // ───────────────────────── MetricTable ─────────────────────────

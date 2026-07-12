@@ -300,6 +300,81 @@ export interface GroupSummaryData {
   lastRunAt?: string;
 }
 
+/**
+ * Experiment 工作台的数据契约。它与通用的 `TableData` 有意分开：父行回答一次
+ * experiment 的整体表现，展开区则保留配置、KPI、逐 eval/attempt 证据与原始样例。
+ * 默认报告和自定义报告使用同一个公开组件，不存在默认报告私有字段。
+ */
+export interface ExperimentTableData {
+  rows: ExperimentTableRowData[];
+}
+
+export interface ExperimentTableRowData {
+  /** 完整 experiment id，也是稳定行键。 */
+  key: string;
+  experimentId: string;
+  /** 主行短名（experiment id 的最后一段）。 */
+  label: string;
+  agent: string;
+  model?: string;
+  config: {
+    runs: number;
+    earlyExit?: boolean;
+    sandbox?: string;
+    timeoutMs?: number;
+    budget?: number;
+    flags?: Record<string, unknown>;
+  };
+  /** 所含快照中最近的 startedAt。 */
+  lastRunAt: string;
+  summary: {
+    evals: number;
+    attempts: number;
+    verdicts: { passed: number; failed: number; errored: number; skipped: number };
+    /** attempt 墙钟耗时之和；展开 KPI 的“总耗时”。 */
+    durationMs: number;
+    /** attempt 成本之和；全缺时为 null。 */
+    totalCostUSD: number | null;
+    /** 主行四格走官方两级聚合引擎，web/text face 不现场重算。 */
+    passRate: MetricCell;
+    duration: MetricCell;
+    tokens: MetricCell;
+    cost: MetricCell;
+  };
+  evals: ExperimentEvalRowData[];
+  /** 优先 error、其次 failure、再取首条，供折叠的调试 JSON 使用。 */
+  rawSample?: import("../types.ts").EvalResult;
+}
+
+export interface ExperimentEvalRowData {
+  key: string;
+  verdict: "passed" | "failed" | "errored" | "skipped";
+  reason?: string;
+  /** 通过时的软评分摘要；与失败原因分字段，避免 reason 语义漂移。 */
+  scoreSummary?: string;
+  durationMs: number;
+  tokens: number;
+  totalCostUSD: number | null;
+  runs: number;
+  passedRuns: number;
+  representativeRef: AttemptRef;
+  attempts: ExperimentAttemptRowData[];
+}
+
+export interface ExperimentAttemptRowData {
+  attempt: number;
+  verdict: "passed" | "failed" | "errored" | "skipped";
+  reason?: string;
+  scoreSummary?: string;
+  startedAt?: string;
+  durationMs: number;
+  tokens: number;
+  totalCostUSD: number | null;
+  ref: AttemptRef;
+  /** 有事件、trace 或评分时，宿主证据室能提供更深的 attempt 内容。 */
+  hasEvidence: boolean;
+}
+
 export interface OverviewData {
   snapshots: { experimentId: string; agent: string; model?: string; startedAt: string }[];
   totals: {

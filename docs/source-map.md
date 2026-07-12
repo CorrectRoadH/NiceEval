@@ -118,7 +118,7 @@
 | `defineMetric` 与内置指标(verdict 逐项表态) | `src/report/metrics.ts` |
 | `flag()`(experiment flags 当维度 / 轴) | `src/report/flag.ts` |
 | 两级聚合引擎 / 维度 / MetricCell 计算 / 聚合前去重接线 | `src/report/aggregate.ts` |
-| 九个计算函数(挂组件上的 `.data`:RunOverview / GroupSummary / MetricTable / MetricMatrix(=MetricBars)/ Scoreboard / MetricScatter / MetricLine / DeltaTable / CaseList) | `src/report/compute.ts`(装配在 `src/report/components.tsx`) |
+| 十个计算函数(挂组件上的 `.data`:RunOverview / GroupSummary / ExperimentTable / MetricTable / MetricMatrix(=MetricBars)/ Scoreboard / MetricScatter / MetricLine / DeltaTable / CaseList) | `src/report/compute.ts`(装配在 `src/report/components.tsx`) |
 | 数据契约(Metric 字面量键泛型、TableData\<K\> … CaseListData;`MetricCell.refs` 必填) | `src/report/types.ts` |
 | 元素树 / `defineComponent`(双面)/ 渲染前树校验 / text 遍历渲染 | `src/report/tree.ts` |
 | 排版原语 Row / Col / Section / Text / Style(五个内置双面组件) | `src/report/primitives.tsx` |
@@ -131,7 +131,7 @@
 | `defaultReport`(内置默认报告值,普通 `ReportDefinition`,`niceeval/report` 公开导出;裸跑 ≡ `--report` 它) | `src/report/default-report.tsx` |
 | 实验组推导(experimentId 的 `/` 前缀分组,`defaultReport` 分节用,住中性共享层) | `src/shared/aggregate.ts`(`experimentGroupOf`) |
 | 报告 chrome 文案的 locale 字典(`ReportLocale = "en" \| "zh-CN"`,渲染入口 options 收 `locale`,经 `WebContext` / `TextContext` 携带) | `src/report/locale.ts` |
-| 十个组件的 web 面 + 稳定散列配色 + styles.css(令牌与 view 同源,`.nre` 作用域自带;`GroupSummary` 见 `react/GroupSummary.tsx`) | `src/report/react/`(零件复用入口 `index.tsx`;演示 `scripts/report-react-demo.tsx`) |
+| 十一个组件的 web 面 + 稳定散列配色 + styles.css(令牌与 view 同源,`.nre` 作用域自带;实验诊断工作台见 `react/ExperimentTable.tsx`) | `src/report/react/`(零件复用入口 `index.tsx`;演示 `scripts/report-react-demo.tsx`) |
 | 渐进增强 runtime(表头排序 / 行过滤 / hover tooltip,只作用于 `.nre` 与 `data-nre-*`;宿主内联) | `src/report/react/enhance.js` |
 | 双面验收(renderToStaticMarkup + text 快照,两面同口径) | `src/report/dual-render.test.tsx` |
 | view attempt 深链(`#/attempt/<snapshot>/<attempt>`,路由参数即 AttemptRef `{ snapshot, attempt }`) | `src/view/app/lib/attempt-route.ts`、`src/view/app/App.tsx`、`src/view/data.ts`(`annotateResult` 注入,ref 直接用 `niceeval/results` 的 `attempt.ref`) |

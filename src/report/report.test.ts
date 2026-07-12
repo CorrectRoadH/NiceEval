@@ -24,6 +24,7 @@ import {
   RunOverview,
   Scoreboard,
 } from "./components.tsx";
+import { experimentTableData } from "./compute.ts";
 
 // ───────────────────────── fake 数据(按 results 读取契约造)─────────────────────────
 
@@ -130,6 +131,84 @@ function selection(snapshots: Snapshot[], warnings: SelectionWarning[]): Selecti
     },
   };
 }
+
+describe("ExperimentTable.data", () => {
+  it("保留父行配置/KPI、逐 eval/attempt、原因、证据与 raw sample", async () => {
+    const s = snap({
+      experimentId: "group/codex-e2b--mempal",
+      agent: "codex",
+      model: "gpt-5.4-mini",
+      runStartedAt: "2026-07-10T22:44:00.000Z",
+      results: [
+        res("memory/a", "failed", {
+          attempt: 0,
+          durationMs: 1_000,
+          assertions: [
+            { name: "gate", severity: "gate", passed: false, score: 0, detail: "wrong" },
+            { name: "style", severity: "soft", passed: false, score: 0.4 },
+          ],
+          usage: { inputTokens: 10, outputTokens: 5, costUSD: 0.1 },
+          hasEvents: true,
+        }),
+        res("memory/a", "passed", {
+          attempt: 1,
+          durationMs: 2_000,
+          assertions: [{ name: "style", severity: "soft", passed: true, score: 0.8, threshold: 0.7 }],
+          usage: { inputTokens: 20, outputTokens: 10, costUSD: 0.2 },
+        }),
+        res("memory/b", "errored", { error: "timeout", durationMs: 3_000 }),
+      ],
+    });
+    s.experiment = { id: s.experimentId, runs: 2, earlyExit: false, sandbox: "e2b:fast", budget: 2, flags: { cache: true } };
+
+    const data = await experimentTableData([s]);
+    expect(data.rows).toHaveLength(1);
+    const row = data.rows[0]!;
+    expect(row).toMatchObject({
+      key: "group/codex-e2b--mempal",
+      label: "codex-e2b--mempal",
+      agent: "codex",
+      model: "gpt-5.4-mini",
+      lastRunAt: "2026-07-10T22:44:00.000Z",
+      config: { runs: 2, earlyExit: false, sandbox: "e2b:fast", budget: 2, flags: { cache: true } },
+      summary: {
+        evals: 2,
+        attempts: 3,
+        verdicts: { passed: 1, failed: 0, errored: 1, skipped: 0 },
+        durationMs: 6_000,
+      },
+    });
+    expect(row.summary.totalCostUSD).toBeCloseTo(0.3);
+    expect(row.summary.passRate.value).toBe(0.25);
+    expect(row.evals[0]).toMatchObject({
+      key: "memory/a",
+      verdict: "passed",
+      runs: 2,
+      passedRuns: 1,
+      durationMs: 3_000,
+      tokens: 45,
+      scoreSummary: "style 0.8/0.7",
+    });
+    expect(row.evals[0]!.totalCostUSD).toBeCloseTo(0.3);
+    expect(row.evals[0]!.attempts[0]).toMatchObject({ reason: "gate: wrong", hasEvidence: true });
+    expect(row.evals[1]).toMatchObject({ key: "memory/b", verdict: "errored", reason: "timeout" });
+    expect(row.rawSample?.id).toBe("memory/b");
+  });
+
+  it("eval 过滤、空成本与 soft 失败原因保持原语义", async () => {
+    const s = snap({
+      experimentId: "exp/x",
+      results: [
+        res("keep/a", "passed", { assertions: [{ name: "soft", severity: "soft", passed: false, score: 0.2 }] }),
+        res("drop/b", "failed"),
+      ],
+    });
+    const row = (await experimentTableData([s], { evals: "keep" })).rows[0]!;
+    expect(row.summary.totalCostUSD).toBeNull();
+    expect(row.evals).toHaveLength(1);
+    expect(row.evals[0]).toMatchObject({ key: "keep/a", reason: undefined, scoreSummary: "soft 0.2" });
+  });
+});
 
 // ───────────────────────── 两级聚合 ─────────────────────────
 

@@ -136,11 +136,11 @@ Pass rate 60% · 2 experiments · 6 evals · failed 1 · errored 1 · $1.50
 latest 2026-07-01T11:30:00Z
 ```
 
-`GroupSummary` 之后想接着摆散点图或榜单，同一份 `scoped` Selection 原样喂给 `MetricScatter.data` / `MetricTable.data` 就行——默认报告的每个组就是这三块的组合，拆开看不过是给同一份 Selection 分别调用三个 `.data` 函数。
+`GroupSummary` 之后想接着摆散点图或默认首页同款实验工作台，同一份 `scoped` Selection 原样喂给 `MetricScatter.data` / `ExperimentTable.data` 就行——默认报告的每个组就是这三块的组合。想自由换行维度和指标列，再用下面的通用 `MetricTable`。
 
 ## 换口径：自定义指标
 
-默认报告里那张逐实验指标表的口径拆开就是 `MetricTable.data(selection, { rows: "experiment", columns: [passRate, costUSD, durationMs] })`——每个组件的数据算法挂在它自己身上，组件名后打个点就找到；换口径只是把 columns 换成自己的指标：
+默认报告的逐实验工作台由 `ExperimentTable.data(selection)` 产出；它固定保留配置、KPI、逐 Eval/Attempt 和 raw sample。下面的例子是另一种需求：用通用 `MetricTable` 自由换指标口径——每个组件的数据算法都挂在自己身上，换口径只需换 columns：
 
 ```tsx
 // reports/golf.tsx —— code-golf：谁写出能用的代码，谁写得短
