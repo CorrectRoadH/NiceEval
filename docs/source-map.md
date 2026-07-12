@@ -118,8 +118,8 @@
 | `defineMetric` 与内置指标(verdict 逐项表态) | `src/report/metrics.ts` |
 | `flag()`(experiment flags 当维度 / 轴) | `src/report/flag.ts` |
 | 两级聚合引擎 / 维度 / MetricCell 计算 / 聚合前去重接线 | `src/report/aggregate.ts` |
-| 十个计算函数(挂组件上的 `.data`:RunOverview / GroupSummary / ExperimentTable / MetricTable / MetricMatrix(=MetricBars)/ Scoreboard / MetricScatter / MetricLine / DeltaTable / CaseList) | `src/report/compute.ts`(装配在 `src/report/components.tsx`) |
-| 数据契约(Metric 字面量键泛型、TableData\<K\> … CaseListData;`MetricCell.refs` 必填) | `src/report/types.ts` |
+| 十一个计算函数(挂组件上的 `.data`:RunOverview / GroupSummary / ExperimentList / EvalList / AttemptList / MetricTable / MetricMatrix(=MetricBars)/ Scoreboard / MetricScatter / MetricLine / DeltaTable) | `src/report/compute.ts`(装配在 `src/report/components.tsx`) |
+| 数据契约(Metric 字面量键泛型、TableData\<K\> … ExperimentListItem / EvalListItem / AttemptListItem;`MetricCell.refs: AttemptLocator[]` 必填) | `src/report/types.ts` |
 | 元素树 / `defineComponent`(双面)/ 渲染前树校验 / text 遍历渲染 | `src/report/tree.ts` |
 | 组件数据解析 pass(`resolveReportTree`:report `build()` 之后、render 之前递归遍历树;遇到 selection-form 组件就调它自己的 `.data` 计算并换成 data-form props,同层 sibling 并行、保持节点顺序;两个渲染入口都先跑它,报告作者因此不用手写 `.data()`) | `src/report/tree.ts`(`resolveReportTree`;被 `src/report/report.ts` 与 `src/report/web.ts` 调用) |
 | 排版原语 Row / Col / Section / Text / Style(五个内置双面组件) | `src/report/primitives.tsx` |
@@ -128,10 +128,10 @@
 | `--report` 装载(两宿主共用:存在性/默认导出判别、dev server 的 mtime cache-busting) | `src/report/load.ts` |
 | show 宿主接线(无条件调 `selectCurrentResults` 产出报告槽 Selection、attemptCommand 下钻、裸跑选内置 `CostPassRateComparison` 作报告槽) | `src/show/index.ts`(现刻水位选择器已上移到中性的 `src/results/select.ts`;`src/show/compose.ts` 只留 `--history` 时间轴口径 `evalHistory` / `experimentHistory`,详情/证据切面渲染在 `src/show/render.ts`,测试 `src/show/show.test.ts`) |
 | web 宿主装载入口 `renderReportToStaticHtml`(唯一 import react-dom 的一侧;同样 `build` → `resolveReportTree` → 校验 → web 渲染,渲染前按 `ctx.selection.warnings` 预置同一段警告横幅) | `src/report/web.ts` |
-| 内置默认报告 `CostPassRateComparison`(普通 `ReportDefinition`,正文只摆 `MetricScatter` + `ExperimentTable` 两个 selection-form 组件,与包外用户报告逐节点同构、无渲染器特权;裸 show/view 选它,`niceeval/report` 公开导出) | `src/report/built-ins/cost-pass-rate-comparison.tsx`(目录 barrel `src/report/built-ins/index.ts` 只显式导出值,不建字符串 registry) |
+| 内置默认报告 `CostPassRateComparison`(普通 `ReportDefinition`,正文只摆 `MetricScatter`(selection-form)+ `ExperimentList`(build() 里直接 `await .data(selection)`),与包外用户报告逐节点同构、无渲染器特权;裸 show/view 选它,`niceeval/report` 公开导出) | `src/report/built-ins/cost-pass-rate-comparison.tsx`(目录 barrel `src/report/built-ins/index.ts` 只显式导出值,不建字符串 registry) |
 | 实验组推导(experimentId 的 `/` 前缀 → 组名,`niceeval/report` 公开导出,供用户报告用 `GroupSummary` / `Section` 自行分节;内置默认报告不再按目录前缀分节,此 helper 住中性共享层) | `src/shared/aggregate.ts`(`experimentGroupOf`) |
 | 报告 chrome 文案的 locale 字典(`ReportLocale = "en" \| "zh-CN"`,渲染入口 options 收 `locale`,经 `WebContext` / `TextContext` 携带) | `src/report/locale.ts` |
-| 十一个组件的 web 面 + 稳定散列配色 + styles.css(令牌与 view 同源,`.nre` 作用域自带;实验诊断工作台见 `react/ExperimentTable.tsx`) | `src/report/react/`(零件复用入口 `index.tsx`;演示 `scripts/report-react-demo.tsx`) |
+| 十一个组件的 web 面 + 稳定散列配色 + styles.css(令牌与 view 同源,`.nre` 作用域自带;三个实体列表见 `react/{ExperimentList,EvalList,AttemptList}.tsx`,locator + 证据能力徽标的共用渲染在 `AttemptList.tsx` 的 `AttemptLocatorBadge`/`AttemptRow`) | `src/report/react/`(零件复用入口 `index.tsx`;演示 `scripts/report-react-demo.tsx`) |
 | 渐进增强 runtime(表头排序 / 行过滤 / hover tooltip,只作用于 `.nre` 与 `data-nre-*`;宿主内联) | `src/report/react/enhance.js` |
 | 双面验收(renderToStaticMarkup + text 快照,两面同口径) | `src/report/dual-render.test.tsx` |
 | view attempt 深链(`#/attempt/<snapshot>/<attempt>`,路由参数即 AttemptRef `{ snapshot, attempt }`) | `src/view/app/lib/attempt-route.ts`、`src/view/app/App.tsx`、`src/view/data.ts`(`annotateResult` 注入,ref 直接用 `niceeval/results` 的 `attempt.ref`) |

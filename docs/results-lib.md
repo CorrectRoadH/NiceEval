@@ -80,7 +80,7 @@ await copySnapshots(results.latest(), "site/data/run", {
 
 `o11y` 曾经也在「常见地不带」那一档,理由是「查看器不读」——这个理由是循环论证:因为没消费者所以不带,因为不带所以做不了消费它的内置指标。`turns`(见 [Reports「两档内置指标」](reports.md#两档内置指标瘦身字段-vs-artifact))成为消费者后,循环断开:`o11y.json` 实测几 KB 一个(和 `diff` 可达百 MB 完全不是一个量级),没有不带的理由。
 
-动机来自真实消费者:coding-agent-memory-evals 把最新快照进仓库供静态托管,曾是 40 行手写脚本——按落盘 mtime 挑「最新」(口径还错了:该挑快照),再按白名单拷贝 artifact 文件(布局知识第三次泄漏)。`copySnapshots` 之后这段只剩上面几行,挑选交给 `results.latest()`(见[静态导出场景](reports.md#dx-模拟))。复制不改 artifact 内容、不消毒——发布消毒是自由文本的事,归 [Reports 的 `CaseList.data({ redact })`](reports.md#计算函数与数据契约)。三条契约细节(2026-07-10 拍板):
+动机来自真实消费者:coding-agent-memory-evals 把最新快照进仓库供静态托管,曾是 40 行手写脚本——按落盘 mtime 挑「最新」(口径还错了:该挑快照),再按白名单拷贝 artifact 文件(布局知识第三次泄漏)。`copySnapshots` 之后这段只剩上面几行,挑选交给 `results.latest()`(见[静态导出场景](reports.md#dx-模拟))。复制不改 artifact 内容、不消毒——发布消毒是自由文本的事,归 [Reports 的 `AttemptList.data({ redact })`](reports.md#计算函数与数据契约)。三条契约细节(2026-07-10 拍板):
 
 - **覆盖事实随数据走(`knownEvalIds`)。** `partial-coverage` 的分母是实验的历史并集,而发布目录没有历史——只复制选中快照,发布目录上重新 `openResults().latest()`,警告会静默消失,「缺口永远被算出来」在官方教的发布路径上断掉。修法不是持久化警告(那违反「reader 派生物删了可重算」),而是让警告的**依据**随数据走:`copySnapshots` 给每个复制出的快照补记 `knownEvalIds`(复制时刻该实验的 `exp.evalIds`);reader 端 `exp.evalIds` 的定义是**并集(本地历史, 各快照携带的 knownEvalIds)**——不是「优先字段」:把快照复制进已有历史的目录时,本地并集可能更大,优先字段会让分母缩水。字段是格式的一部分,`writer.snapshot()` 同样可声明(第三方转换器交代已知覆盖);可选新增字段不破坏兼容,按 [Results Format 版本规则](results-format.md#版本与升级设计)不递增 schemaVersion。「复制忠实于源」的承诺相应精确化:不改 artifact 内容,但随行补记挑选时的覆盖事实(落在复制出的 `snapshot.json` 上)。
 - **目标目录非空即报错**,不静默覆盖、不合并——发布脚本要幂等就自己先清目录;盘上不该出现「我没写的东西被动过」的惊讶。

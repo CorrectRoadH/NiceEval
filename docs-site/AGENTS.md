@@ -32,7 +32,7 @@
 - **OTel 接入**：Tier 2 的接入方式。只在讲 `send + OTel` 时使用，不要把 OTel 写进 Tier 1。
 - **Flags**：experiment 传入的 feature flags，经 `ctx.flags` 到 Adapter，经 `t.flags` 到 eval。不要写成 CLI flags，除非指命令行参数。
 - **Runner**：运行器。面向用户文档里避免写 “NiceEval core”；需要表达执行主体时写 NiceEval 或 runner。
-- **默认报告（`CostPassRateComparison`）**：不传 `--report` 时 `niceeval show` / `niceeval view` 渲染的那份内置报告——一张成本 × 通过率散点图 + 一张逐实验明细表（`ExperimentTable`），不分组、不带运行总览或失败清单。不要写「官方榜单」「默认榜单」——没有独立于报告之外的「榜单」实体；「榜单」只用作那张逐实验明细表的口语叫法。
+- **默认报告（`CostPassRateComparison`）**：不传 `--report` 时 `niceeval show` / `niceeval view` 渲染的那份内置报告——一张成本 × 通过率散点图 + 一份实验列表（`ExperimentList`），不分组、不带运行总览或失败清单。不要写「官方榜单」「默认榜单」——没有独立于报告之外的「榜单」实体；「榜单」只用作那份实验列表的口语叫法。
 - **Snapshot**：结果读取面的单位（experiment × run）。中文写“结果快照”（同页后续可简写“快照”）；与快照测试无关；沙箱 microVM 快照一律写“沙箱快照（`snapshotId`）”。
 - **Selection**：`results.latest()` 的返回物（挑好的结果快照 + 挑选警告）。中文直接写 `Selection`，不写“选集”。
 - **Severity**：断言的 gate / soft 两档。中文写“严重度”，不写“严重级”；能直接写 gate / soft 的句子不要提“严重度”这个上位词。
