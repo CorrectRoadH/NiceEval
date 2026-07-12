@@ -7,6 +7,7 @@ import type { Agent } from "../agents/types.ts";
 import type { Sandbox, SandboxOption } from "../sandbox/types.ts";
 import type { AssertionResult, DiffData, JudgeConfig, Verdict } from "../scoring/types.ts";
 import type { TestContext } from "../context/types.ts";
+import type { CapturedEvalSource } from "./eval-source.ts";
 
 // ───────────────────────── 结果 / 报告 ─────────────────────────
 
@@ -32,6 +33,14 @@ export interface EvalResult {
   attempt: number;
   /** 本 attempt 开始的墙钟时刻(ISO);view 按 eval 粒度展示「何时跑的」。 */
   startedAt?: string;
+  /**
+   * 不透明的 Attempt 定位符(`@` 前缀短确定性编码,见 `src/results/locator.ts` 的 AttemptLocator),
+   * 由 {experimentId, 快照 startedAt, evalId, attempt} 身份元组派生。非携带条目由 writer 在落盘时
+   * 算出;携带条目(`--resume` 合入)原样复制上一轮的值,从不重算——原快照的 startedAt 已经不在
+   * 当前快照里,重算会算出不同的字符串,详见 writer.ts 对携带分支的说明。省略时读取面按当前
+   * 已知身份兜底算出(第三方 harness 未实现 locator 时的降级,不保证跨 --resume 稳定)。
+   */
+  locator?: string;
   durationMs: number;
   assertions: AssertionResult[];
   usage?: Usage;
@@ -55,8 +64,13 @@ export interface EvalResult {
 
 /** `snapshot.json` 的格式标记;把 niceeval 报告和其它工具的同名文件区分开。 */
 export const RESULTS_FORMAT = "niceeval.results";
-/** 结果格式版本,只在破坏兼容读取时递增;读取器只认相同版本。见 docs/results-format.md。 */
-export const RESULTS_SCHEMA_VERSION = 4;
+/**
+ * 结果格式版本,只在破坏兼容读取时递增;读取器只认相同版本。见 docs/results-format.md。
+ * `5`(见 memory 的 attempt-locator-and-source-dedup 条目)= result.json 新增 `locator` 字段;
+ * `sources.json` 从逐 attempt 内联全量内容改为「attempt 级引用 + 快照级 `sources/<sha256>.json`
+ * 去重仓库」,`AttemptHandle.sources()` 的公开返回形状不变(仍是 `SourceArtifact[] | null`)。
+ */
+export const RESULTS_SCHEMA_VERSION = 5;
 
 /** 一次运行的纯运行时内存聚合(reporter 契约用);落盘格式契约在 niceeval/results 的 SnapshotMeta / AttemptRecord,见 docs/results-format.md。 */
 export interface RunSummary {
@@ -141,6 +155,11 @@ export interface DiscoveredEval extends EvalDef {
   baseDir: string;
   /** 定义文件绝对路径,用于内容指纹缓存。 */
   sourcePath: string;
+  /**
+   * discovery 时捕获的规范化源码(归一化文本 + 项目相对路径 + SHA-256),见 `eval-source.ts`。
+   * 同一文件里多个 eval(数组默认导出)共享同一份引用——哈希与内容天然相同,不重复读盘。
+   */
+  source: CapturedEvalSource;
 }
 
 export interface ExperimentDef {

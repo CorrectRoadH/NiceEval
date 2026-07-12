@@ -11,7 +11,9 @@ import { join } from "node:path";
 import type { EvalResult, ExperimentRunInfo, LocalizedText } from "../types.ts";
 import type { DiffData, O11ySummary, SourceArtifact, StreamEvent, TraceSpan } from "../types.ts";
 import { RESULTS_FORMAT, RESULTS_SCHEMA_VERSION } from "../types.ts";
-import { RESULT_FILE, SNAPSHOT_FILE, attemptDirOf, experimentDirOf } from "./format.ts";
+import { RESULT_FILE, SNAPSHOT_FILE, artifactFileOf, attemptDirOf, experimentDirOf } from "./format.ts";
+import { encodeAttemptLocator } from "./locator.ts";
+import { hashEvalSource, normalizeEvalSource } from "./source-hash.ts";
 import type { Producer, SnapshotMeta } from "./types.ts";
 
 export interface ResultsWriterOptions {
@@ -123,10 +125,13 @@ export function createResultsWriter(root: string, opts: ResultsWriterOptions): R
     const dir = await createSnapshotDir(root, decl.experimentId);
     await writeFile(join(dir, SNAPSHOT_FILE), JSON.stringify(meta, null, 2), "utf-8");
     created.push({ experimentId: decl.experimentId, dir });
+    // 快照级源码去重仓库:sha256 → 落盘 Promise,同一快照内并发/重复的 writeAttempt 共享同一次写入
+    // (Map 的 has/set 之间没有 await,JS 单线程语义下不会重复起两次写)。
+    const sourceStore = new Map<string, Promise<void>>();
     const writer: SnapshotWriter = {
       dir,
       async writeAttempt(entry: AttemptEntry, artifacts?: AttemptArtifacts): Promise<void> {
-        await writeAttemptFiles(dir, entry, artifacts);
+        await writeAttemptFiles(dir, { experimentId: meta.experimentId, startedAt: meta.startedAt }, entry, artifacts, sourceStore);
       },
     };
     return { meta, dir, writer, declCompletedAt: decl.completedAt, declName: decl.name };
@@ -171,7 +176,11 @@ export function createResultsWriter(root: string, opts: ResultsWriterOptions): R
 
     if (result.artifactBase) {
       // 携带条目(--resume 合入):本轮没有任何新数据,不写 artifact、不重算 has*,
-      // startedAt(身份锚)与 artifactBase 原样保留。
+      // startedAt(身份锚)与 artifactBase 原样保留。locator 同理原样保留(在 ...rest 里,
+      // 没被解构掉)、从不重算——`result` 是上一轮 openResults() 读回的记录,原快照的
+      // startedAt 已经不在本轮快照里了,重算会用错的 snapshotStartedAt 算出不同的字符串,
+      // 让已经发布/引用过的 locator 失效。真缺失(没经过 openResults 的手工构造)时如实留空,
+      // 交给读取面按当前身份兜底算(见 open.ts 的 locator 回填),不在这里瞎猜。
       const { agent, model, experimentId, experiment, events, sources, o11y, trace, diff, rawTranscript, ...rest } = result;
       void agent;
       void model;
@@ -258,7 +267,13 @@ export function createResultsWriter(root: string, opts: ResultsWriterOptions): R
 }
 
 /** 一条 attempt 的落盘:拆 artifact 文件、算 has*、写 result.json;空数据不落文件。 */
-async function writeAttemptFiles(snapDir: string, entry: AttemptEntry, artifacts?: AttemptArtifacts): Promise<void> {
+async function writeAttemptFiles(
+  snapDir: string,
+  snapshot: { experimentId: string; startedAt: string },
+  entry: AttemptEntry,
+  artifacts: AttemptArtifacts | undefined,
+  sourceStore: Map<string, Promise<void>>,
+): Promise<void> {
   const attemptDir = join(snapDir, attemptDirOf(entry));
   await mkdir(attemptDir, { recursive: true });
 
@@ -268,14 +283,57 @@ async function writeAttemptFiles(snapDir: string, entry: AttemptEntry, artifacts
 
   const writes: Promise<unknown>[] = [];
   if (hasEvents) writes.push(writeFile(join(attemptDir, "events.json"), JSON.stringify(artifacts!.events), "utf-8"));
-  if (hasSources) writes.push(writeFile(join(attemptDir, "sources.json"), JSON.stringify(artifacts!.sources), "utf-8"));
+  if (hasSources) writes.push(writeSourcesRef(snapDir, attemptDir, artifacts!.sources!, sourceStore));
   if (hasTrace) writes.push(writeFile(join(attemptDir, "trace.json"), JSON.stringify(artifacts!.trace), "utf-8"));
   if (artifacts?.o11y) writes.push(writeFile(join(attemptDir, "o11y.json"), JSON.stringify(artifacts.o11y), "utf-8"));
   if (artifacts?.diff) writes.push(writeFile(join(attemptDir, "diff.json"), JSON.stringify(artifacts.diff), "utf-8"));
   await Promise.all(writes);
 
-  const record = { ...entry, hasEvents, hasTrace, hasSources };
+  // locator:caller(如第三方 harness 直接调 SnapshotWriter.writeAttempt)已经带了就尊重,
+  // 否则按当前身份元组算一份 —— 这条路径只服务「非携带」的新写入,携带条目走
+  // writeAttemptForImpl 的 artifactBase 分支,原样透传 result.locator,从不落到这里重算。
+  const locator =
+    entry.locator ??
+    encodeAttemptLocator({
+      experimentId: snapshot.experimentId,
+      snapshotStartedAt: snapshot.startedAt,
+      evalId: entry.id,
+      attempt: entry.attempt,
+    });
+
+  const record = { ...entry, locator, hasEvents, hasTrace, hasSources };
   await writeFile(join(attemptDir, RESULT_FILE), JSON.stringify(record, null, 2), "utf-8");
+}
+
+/**
+ * sources 是唯一「两层」的 artifact:attempt 目录下只落一份小引用(`{path, sha256}[]`),
+ * 真正的源码内容按 sha256 去重存进快照根的 `sources/<sha256>.json`——同一快照内多个 attempt
+ * 引用同一份 eval 源码(同文件、同内容)只写一次盘。sourceStore 是这个快照专属的去重登记表
+ * (调用方按快照生命周期传入同一个 Map),覆盖并发与重复两种场景。
+ */
+async function writeSourcesRef(
+  snapDir: string,
+  attemptDir: string,
+  sources: SourceArtifact[],
+  sourceStore: Map<string, Promise<void>>,
+): Promise<void> {
+  const storeDir = join(snapDir, "sources");
+  const refs: { path: string; sha256: string }[] = [];
+  for (const src of sources) {
+    const sha256 = hashEvalSource(normalizeEvalSource(src.content));
+    refs.push({ path: src.path, sha256 });
+    if (!sourceStore.has(sha256)) {
+      sourceStore.set(
+        sha256,
+        (async () => {
+          await mkdir(storeDir, { recursive: true });
+          await writeFile(join(storeDir, `${sha256}.json`), JSON.stringify({ content: src.content }), "utf-8");
+        })(),
+      );
+    }
+  }
+  await Promise.all(refs.map((r) => sourceStore.get(r.sha256)!));
+  await writeFile(join(attemptDir, artifactFileOf("sources")), JSON.stringify(refs), "utf-8");
 }
 
 /** 快照目录:独占创建(EEXIST 换随机后缀重试,≤5 次)。 */

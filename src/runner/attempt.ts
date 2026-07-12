@@ -22,6 +22,7 @@ import { t } from "../i18n/index.ts";
 import { formatThrown } from "../util.ts";
 import { captureGeneratedFiles, initGitAndCommit } from "./sandbox-prep.ts";
 import { createRemoteSandbox, withEvalLocalPaths } from "./remote-sandbox.ts";
+import type { CapturedEvalSource } from "./eval-source.ts";
 import type {
   AgentContext,
   AgentSetup,
@@ -405,7 +406,7 @@ async function runAttemptBody(
     if (cost !== undefined) o11y.estimatedCostUSD = cost;
 
     // 收 test 引用到的 eval 源码(按 send / 断言的 loc 去重),供 view 渲染代码视图。
-    const sources = await collectSources(events, assertions);
+    const sources = await collectSources(events, assertions, evalDef.source);
 
     return {
       id: evalDef.id,
@@ -472,18 +473,26 @@ async function runAttemptBody(
 }
 
 /**
- * 收集 test 引用到的 eval 源码:从 send(user message)与断言的 loc 去重出文件集,逐个读回。
- * loc.file 相对项目根(= 进程 cwd,CLI 从那儿发现 / 跑 eval),所以按 cwd 解析。读不到就跳过。
+ * 收集 test 引用到的 eval 源码:从 send(user message)与断言的 loc 去重出文件集。
+ * 命中 eval 自己的定义文件(绝大多数情况——send / 断言几乎总在 eval 主体里直接调用)时,
+ * 直接用 discovery 时已经读好、归一化、算过哈希的 `evalSource`,不重新读盘;loc 指向
+ * 其它文件(共享 helper 里包装 t.send / 断言的少见情形)才现读现取,读不到就跳过
+ * (路径在沙箱内 / 已删 / 权限),view 用 loc 也能降级显示行号。
  */
 async function collectSources(
   events: readonly StreamEvent[],
   assertions: readonly EvalResult["assertions"][number][],
+  evalSource: CapturedEvalSource,
 ): Promise<SourceArtifact[]> {
   const paths = new Set<string>();
   for (const e of events) if (e.type === "message" && e.loc) paths.add(e.loc.file);
   for (const a of assertions) if (a.loc) paths.add(a.loc.file);
   const out: SourceArtifact[] = [];
   for (const path of paths) {
+    if (path === evalSource.path) {
+      out.push({ path, content: evalSource.content });
+      continue;
+    }
     try {
       out.push({ path, content: await readSourceFile(resolvePath(process.cwd(), path), "utf-8") });
     } catch {

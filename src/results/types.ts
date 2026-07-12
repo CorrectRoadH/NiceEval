@@ -9,6 +9,7 @@
 import type { EvalResult, ExperimentRunInfo, LocalizedText } from "../types.ts";
 import type { O11ySummary, StreamEvent, TraceSpan } from "../types.ts";
 import type { DiffData, SourceArtifact } from "../types.ts";
+import type { AttemptLocator } from "./locator.ts";
 
 /** attempt 级 artifact 的种类;文件名恒为 `<kind>.json`,布局见 docs/results-format.md。 */
 export const ARTIFACT_KINDS = ["events", "trace", "o11y", "diff", "sources"] as const;
@@ -77,6 +78,12 @@ export interface AttemptHandle {
   ref: AttemptRef;
   /** 所属快照(反向引用);去重「保留最新快照里的那份」靠它比较新旧。 */
   snapshot: Snapshot;
+  /**
+   * 不透明的 Attempt 定位符(见 `locator.ts`);openResults() 产出的 handle 恒会填这个字段
+   * (result.json 里有就直接用,没有则按当前身份兜底算,见 open.ts 的回填逻辑)。可选只是为了
+   * 不强制手工构造的 AttemptHandle(测试里的内存 fake)也必须带上——真实读取路径永远有值。
+   */
+  locator?: AttemptLocator;
   events(): Promise<StreamEvent[] | null>;
   trace(): Promise<TraceSpan[] | null>;
   o11y(): Promise<O11ySummary | null>;

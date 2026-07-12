@@ -14,6 +14,7 @@ import { RESULTS_FORMAT } from "../types.ts";
 import { RESULT_FILE, SNAPSHOT_FILE, artifactFileOf, experimentDirOf } from "./format.ts";
 import { experimentOfSnapshot } from "./open.ts";
 import { isNewerSnapshot } from "./select.ts";
+import { hashEvalSource, normalizeEvalSource } from "./source-hash.ts";
 import type { ArtifactKind, AttemptHandle, Selection, Snapshot, SnapshotMeta } from "./types.ts";
 import { ARTIFACT_KINDS } from "./types.ts";
 
@@ -84,8 +85,11 @@ async function copyOneSnapshot(snapshot: Snapshot, selected: Snapshot[], destRoo
   const destSnapDir = join(destRoot, experimentDirOf(snapshot.experimentId), basename(snapshot.dir));
   await mkdir(destSnapDir, { recursive: true });
 
+  // sources 的去重仓库(sources/<sha256>.json)是快照级的:同一份源码被多个 attempt 引用时,
+  // 复制到目的地也只应该有一份——这个 Set 记录本快照已经落过盘的 hash,整快照的 attempt 共享。
+  const copiedSourceHashes = new Set<string>();
   for (const attempt of snapshot.attempts) {
-    await copyOneAttempt(attempt, destSnapDir, kinds);
+    await copyOneAttempt(attempt, destSnapDir, kinds, copiedSourceHashes);
   }
 
   const knownEvalIds = experimentOfSnapshot(snapshot)?.evalIds ?? fallbackUnion(selected, snapshot.experimentId);
@@ -105,16 +109,60 @@ async function copyOneSnapshot(snapshot: Snapshot, selected: Snapshot[], destRoo
   await writeFile(join(destSnapDir, SNAPSHOT_FILE), JSON.stringify(meta, null, 2), "utf-8");
 }
 
-async function copyOneAttempt(attempt: AttemptHandle, destSnapDir: string, kinds: ArtifactKind[]): Promise<void> {
+async function copyOneAttempt(
+  attempt: AttemptHandle,
+  destSnapDir: string,
+  kinds: ArtifactKind[],
+  copiedSourceHashes: Set<string>,
+): Promise<void> {
   const destAttemptDir = join(destSnapDir, attempt.ref.attempt);
   await mkdir(destAttemptDir, { recursive: true });
 
-  const files = await findArtifactFiles(attempt, kinds);
+  // sources 是唯一「两层」的 artifact(attempt 级引用 + 快照级去重仓库),不能像其它四类那样
+  // 单文件 copyFile 原字节完事——原字节只是引用,不带内容。走读取面已经会解引用+回退的
+  // attempt.sources() 拿到完整内容,再在目的地按内容哈希重新去重落盘,天然吸收 artifactBase
+  // 回退链(携带条目复制后,原快照可能不在目的地里,必须此刻把内容落到自己脚下)。
+  const genericKinds = kinds.filter((k) => k !== "sources");
+  const files = await findArtifactFiles(attempt, genericKinds);
   await Promise.all(files.map(({ kind, source }) => copyFile(source, join(destAttemptDir, artifactFileOf(kind)))));
   const copied = new Set(files.map((f) => f.kind));
 
+  if (kinds.includes("sources")) {
+    const wroteSources = await copySources(attempt, destSnapDir, destAttemptDir, copiedSourceHashes);
+    if (wroteSources) copied.add("sources");
+  }
+
   const record = slimForCopy(attempt.result, copied);
   await writeFile(join(destAttemptDir, RESULT_FILE), JSON.stringify(record, null, 2), "utf-8");
+}
+
+/**
+ * sources 的复制:经 attempt.sources() 拿到已解引用的完整内容(null / 空数组 = 没有,不写任何
+ * 文件,与其它 artifact「空数据不落文件」的约定一致),按内容 sha256 写进目的快照的
+ * `sources/<sha256>.json`(同一快照内已经写过的 hash 不重写),attempt 目录下落一份引用。
+ */
+async function copySources(
+  attempt: AttemptHandle,
+  destSnapDir: string,
+  destAttemptDir: string,
+  copiedSourceHashes: Set<string>,
+): Promise<boolean> {
+  const sources = await attempt.sources();
+  if (!sources || sources.length === 0) return false;
+
+  const destStoreDir = join(destSnapDir, "sources");
+  const refs: { path: string; sha256: string }[] = [];
+  for (const src of sources) {
+    const sha256 = hashEvalSource(normalizeEvalSource(src.content));
+    refs.push({ path: src.path, sha256 });
+    if (!copiedSourceHashes.has(sha256)) {
+      await mkdir(destStoreDir, { recursive: true });
+      await writeFile(join(destStoreDir, `${sha256}.json`), JSON.stringify({ content: src.content }), "utf-8");
+      copiedSourceHashes.add(sha256);
+    }
+  }
+  await writeFile(join(destAttemptDir, artifactFileOf("sources")), JSON.stringify(refs), "utf-8");
+  return true;
 }
 
 /** 目标目录非空即报错:盘上不该出现「我没写的东西被动过」的惊讶;发布脚本要幂等就自己先清目录。 */

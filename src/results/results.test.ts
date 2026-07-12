@@ -17,8 +17,15 @@ import {
   createResultsWriter,
   dedupeAttempts,
   openResults,
+  resolveLocator,
+  loadAnnotatedEvalSource,
+  LocatorNotFoundError,
+  MalformedLocatorError,
+  LocatorCollisionError,
+  encodeAttemptLocator,
   type AttemptHandle,
   type EvalResult,
+  type Results,
   type Snapshot,
   type SnapshotMeta,
 } from "./index.ts";
@@ -730,5 +737,433 @@ describe("copySnapshots", () => {
     expect(collided.warnings[0]).toMatch(/multiple snapshots selected/);
     const destDirs = await readdir(join(dest2, "e"));
     expect(destDirs).toEqual([basename(tuesday)]);
+  });
+});
+
+// ───────────────────────── AttemptLocator 集成 ─────────────────────────
+
+describe("AttemptLocator · 落盘 / 读取 / 携带 / 撞车", () => {
+  it("非携带条目由 writer 按身份算出 locator 并落盘;确定性(同身份重开两次相同);resolveLocator 能找到", async () => {
+    const root = await makeRoot();
+    const writer = createResultsWriter(root, { producer: { name: "niceeval", version: "1.0.0" } });
+    const snap = await writer.snapshot({ experimentId: "e", agent: "bub", startedAt: "2026-07-01T08:00:00.000Z" });
+    await snap.writeAttempt({ id: "q1", verdict: "passed", attempt: 0, durationMs: 1, assertions: [] });
+    await snap.writeAttempt({ id: "q2", verdict: "passed", attempt: 0, durationMs: 1, assertions: [] });
+    await writer.finish();
+
+    const record1 = JSON.parse(await readFile(join(snap.dir, "q1/a0/result.json"), "utf-8"));
+    expect(record1.locator).toMatch(/^@1[0-9a-z]{7}$/);
+    expect(record1.locator).toBe(
+      encodeAttemptLocator({ experimentId: "e", snapshotStartedAt: "2026-07-01T08:00:00.000Z", evalId: "q1", attempt: 0 }),
+    );
+
+    const record2 = JSON.parse(await readFile(join(snap.dir, "q2/a0/result.json"), "utf-8"));
+    expect(record2.locator).not.toBe(record1.locator); // 不同 evalId → 不同 locator
+
+    const resultsA = await openResults(root);
+    const resultsB = await openResults(root); // 独立重开一次:身份不变,locator 必须一致
+    const q1a = resultsA.experiments[0].latest.evals.find((e) => e.id === "q1")!.attempts[0];
+    const q1b = resultsB.experiments[0].latest.evals.find((e) => e.id === "q1")!.attempts[0];
+    expect(q1a.locator).toBe(record1.locator);
+    expect(q1b.locator).toBe(record1.locator);
+
+    expect(resolveLocator(resultsA, record1.locator).evalId).toBe("q1");
+  });
+
+  it("携带条目(--resume 合入)原样复制原 locator,不按新快照的 startedAt 重算", async () => {
+    const root = await makeRoot();
+    const writer1 = createResultsWriter(root, { producer: { name: "niceeval", version: "1.0.0" } });
+    await writer1.writeAttemptFor({
+      id: "q1",
+      experimentId: "e",
+      agent: "bub",
+      verdict: "passed",
+      attempt: 0,
+      startedAt: "2026-07-01T08:00:00.000Z",
+      durationMs: 1,
+      assertions: [],
+    });
+    await writer1.finish();
+
+    const opened1 = await openResults(root);
+    const original = opened1.experiments[0].latest.evals.find((e) => e.id === "q1")!.attempts[0];
+    const originalLocator = original.locator!;
+
+    // 第二轮:carry 合入 q1(artifactBase 指回第一轮的快照),locator 从上一轮读回的记录里原样带过来。
+    // q2(真正新跑的)先写:snapshot() 的 startedAt 由「该实验首条落盘结果的 attempt 时刻」锚定
+    // (writer.ts 的注释),让第二轮快照的真实 startedAt("07-02")明确不同于原快照("07-01")——
+    // 这样如果 locator 被错误地按「当前快照」重算,会得到一个可判别的不同字符串。
+    const writer2 = createResultsWriter(root, { producer: { name: "niceeval", version: "1.0.0" } });
+    await writer2.writeAttemptFor({
+      id: "q2",
+      experimentId: "e",
+      agent: "bub",
+      verdict: "passed",
+      attempt: 0,
+      startedAt: "2026-07-02T08:00:00.000Z",
+      durationMs: 1,
+      assertions: [],
+    });
+    const carried: EvalResult = {
+      ...original.result,
+      experimentId: "e",
+      agent: "bub",
+      artifactBase: `${original.ref.snapshot}/${original.ref.attempt}`,
+    };
+    await writer2.writeAttemptFor(carried);
+    await writer2.finish();
+
+    const opened2 = await openResults(root);
+    const newest = opened2.experiments[0].latest;
+    const carriedAttempt = newest.evals.find((e) => e.id === "q1")!.attempts[0];
+    expect(carriedAttempt.locator).toBe(originalLocator);
+    expect(resolveLocator(opened2, originalLocator).evalId).toBe("q1");
+
+    // 反证:如果按「新快照的 startedAt」重算,会得到一个不同的字符串——证明确实是原样复制,不是重算。
+    const wronglyRecomputed = encodeAttemptLocator({
+      experimentId: "e",
+      snapshotStartedAt: newest.startedAt,
+      evalId: "q1",
+      attempt: 0,
+    });
+    expect(originalLocator).not.toBe(wronglyRecomputed);
+  });
+
+  it("resolveLocator:malformed 与 not-found 是两种可判别的错误", async () => {
+    const root = await makeRoot();
+    await writeSnapshot(root, "e", "2026-07-01T08-00-00-000Z-a", meta({ experimentId: "e", agent: "bub", startedAt: "2026-07-01T08:00:00.000Z" }));
+    const results = await openResults(root);
+
+    expect(() => resolveLocator(results, "not-a-locator")).toThrow(MalformedLocatorError);
+    expect(() => resolveLocator(results, "@1nosuch1")).toThrow(LocatorNotFoundError); // 语法合法(7 位 body),索引里没有
+  });
+
+  it("两个不同身份的 attempt 撞出同一个 locator 字符串:openResults() 抛 LocatorCollisionError,不静默覆盖", async () => {
+    const root = await makeRoot();
+    const writer = createResultsWriter(root, { producer: { name: "niceeval", version: "1.0.0" } });
+    const snap = await writer.snapshot({ experimentId: "e", agent: "bub", startedAt: "2026-07-01T08:00:00.000Z" });
+    await snap.writeAttempt({ id: "q1", verdict: "passed", attempt: 0, durationMs: 1, assertions: [] });
+    await snap.writeAttempt({ id: "q2", verdict: "passed", attempt: 0, durationMs: 1, assertions: [] });
+    await writer.finish();
+
+    // 人为制造撞车:把 q2 的 locator 改成和 q1 一样(真实哈希撞车不可复现,这里直接模拟其效果——
+    // 索引建立逻辑只关心「同一 locator 字符串映射到身份三元组不同的两个 attempt」)。
+    const q1Path = join(snap.dir, "q1/a0/result.json");
+    const q2Path = join(snap.dir, "q2/a0/result.json");
+    const q1Record = JSON.parse(await readFile(q1Path, "utf-8"));
+    const q2Record = JSON.parse(await readFile(q2Path, "utf-8"));
+    q2Record.locator = q1Record.locator;
+    await writeFile(q2Path, JSON.stringify(q2Record), "utf-8");
+
+    await expect(openResults(root)).rejects.toThrow(LocatorCollisionError);
+  });
+
+  it("多 experiment:同 evalId/attempt 在不同 experiment 下产出不同 locator,resolveLocator 精确定位到各自的 experiment", async () => {
+    const root = await makeRoot();
+    const writer = createResultsWriter(root, { producer: { name: "niceeval", version: "1.0.0" } });
+    const snapA = await writer.snapshot({ experimentId: "compare/bub", agent: "bub", startedAt: "2026-07-01T08:00:00.000Z" });
+    const snapB = await writer.snapshot({ experimentId: "compare/codex", agent: "codex", startedAt: "2026-07-01T08:00:00.000Z" });
+    await snapA.writeAttempt({ id: "algebra/q1", verdict: "passed", attempt: 0, durationMs: 1, assertions: [] });
+    await snapB.writeAttempt({ id: "algebra/q1", verdict: "passed", attempt: 0, durationMs: 1, assertions: [] });
+    await writer.finish();
+
+    const results = await openResults(root);
+    const a = results.experiments.find((e) => e.id === "compare/bub")!.latest.evals[0]!.attempts[0]!;
+    const b = results.experiments.find((e) => e.id === "compare/codex")!.latest.evals[0]!.attempts[0]!;
+    // 同 evalId、同 attempt 序号,只有 experimentId 不同 → locator 必须不同(身份元组含 experimentId)。
+    expect(a.locator).not.toBe(b.locator);
+
+    expect(resolveLocator(results, a.locator!).experimentId).toBe("compare/bub");
+    expect(resolveLocator(results, b.locator!).experimentId).toBe("compare/codex");
+  });
+
+  it("同一 evalId 的不同 attempt 序号产出不同 locator,resolveLocator 各自精确定位到对应 attempt", async () => {
+    const root = await makeRoot();
+    const writer = createResultsWriter(root, { producer: { name: "niceeval", version: "1.0.0" } });
+    const snap = await writer.snapshot({ experimentId: "e", agent: "bub", startedAt: "2026-07-01T08:00:00.000Z" });
+    await snap.writeAttempt({ id: "q1", verdict: "failed", attempt: 0, durationMs: 1, assertions: [] });
+    await snap.writeAttempt({ id: "q1", verdict: "passed", attempt: 1, durationMs: 1, assertions: [] });
+    await writer.finish();
+
+    const results = await openResults(root);
+    const attempts = results.experiments[0]!.latest.evals.find((e) => e.id === "q1")!.attempts;
+    expect(attempts).toHaveLength(2);
+    const [a0, a1] = attempts;
+    expect(a0!.locator).not.toBe(a1!.locator);
+    expect(resolveLocator(results, a0!.locator!).result).toMatchObject({ attempt: 0, verdict: "failed" });
+    expect(resolveLocator(results, a1!.locator!).result).toMatchObject({ attempt: 1, verdict: "passed" });
+  });
+
+  it("历史快照(非 latest)的 attempt 依然被建进索引,resolveLocator 能定位到旧快照里的那份", async () => {
+    const root = await makeRoot();
+    const writer1 = createResultsWriter(root, { producer: { name: "niceeval", version: "1.0.0" } });
+    const monday = await writer1.snapshot({ experimentId: "e", agent: "bub", startedAt: "2026-07-01T08:00:00.000Z" });
+    await monday.writeAttempt({ id: "q1", verdict: "failed", attempt: 0, durationMs: 1, assertions: [] });
+    await writer1.finish();
+
+    const writer2 = createResultsWriter(root, { producer: { name: "niceeval", version: "1.0.0" } });
+    const friday = await writer2.snapshot({ experimentId: "e", agent: "bub", startedAt: "2026-07-05T08:00:00.000Z" });
+    await friday.writeAttempt({ id: "q1", verdict: "passed", attempt: 0, durationMs: 1, assertions: [] });
+    await writer2.finish();
+
+    const results = await openResults(root);
+    const exp = results.experiments[0]!;
+    expect(exp.snapshots).toHaveLength(2); // 两次快照都在(忠实磁盘,不合并/不丢弃历史)
+    const oldAttempt = exp.snapshots.find((s) => s.startedAt === "2026-07-01T08:00:00.000Z")!.attempts[0]!;
+    const newAttempt = exp.snapshots.find((s) => s.startedAt === "2026-07-05T08:00:00.000Z")!.attempts[0]!;
+    expect(oldAttempt.locator).not.toBe(newAttempt.locator); // 不同 startedAt → 不同身份 → 不同 locator
+
+    expect(resolveLocator(results, oldAttempt.locator!).result.verdict).toBe("failed");
+    expect(resolveLocator(results, newAttempt.locator!).result.verdict).toBe("passed");
+  });
+
+  it("手工构造的 Results(未经 openResults())上调 resolveLocator:索引查不到,统一按 not-found 处理,不抛意外错误", () => {
+    const snapshot = fakeSnapshot({ experimentId: "e", startedAt: "2026-07-01T08:00:00.000Z", dir: "/tmp/e/s1" });
+    const attempt = fakeAttempt(snapshot, record({ id: "q1", attempt: 0 }));
+    snapshot.attempts = [attempt];
+    snapshot.evals = [{ id: "q1", attempts: [attempt] }];
+    const handMadeResults: Results = {
+      experiments: [{ id: "e", snapshots: [snapshot], latest: snapshot, evalIds: ["q1"] }],
+      skipped: [],
+      // filter() 本测试不调用,用不到,给个占位实现即可满足 Selection 接口。
+      latest: () => ({ snapshots: [snapshot], warnings: [], filter: () => { throw new Error("not implemented"); } }),
+    };
+    // 这份 locator 语法合法、甚至真的对应 handMadeResults 里那个 attempt 的身份,
+    // 但 handMadeResults 没经过 openResults(),locatorIndexByResults 里查不到它 —— 空索引,not-found。
+    const syntacticallyValidLocator = encodeAttemptLocator({
+      experimentId: "e",
+      snapshotStartedAt: "2026-07-01T08:00:00.000Z",
+      evalId: "q1",
+      attempt: 0,
+    });
+    expect(() => resolveLocator(handMadeResults, syntacticallyValidLocator)).toThrow(LocatorNotFoundError);
+  });
+
+  it("copySnapshots:普通(非 sources)attempt 的 locator 原样复制,目标结果根上 resolveLocator 依然命中", async () => {
+    const root = await makeRoot();
+    const writer = createResultsWriter(root, { producer: { name: "niceeval", version: "1.0.0" } });
+    const snap = await writer.snapshot({ experimentId: "e", agent: "bub", startedAt: "2026-07-01T08:00:00.000Z" });
+    await snap.writeAttempt({ id: "q1", verdict: "passed", attempt: 0, durationMs: 1, assertions: [] });
+    await snap.writeAttempt({ id: "q1", verdict: "failed", attempt: 1, durationMs: 1, assertions: [] });
+    await writer.finish();
+
+    const results = await openResults(root);
+    const [a0, a1] = results.experiments[0]!.latest.evals[0]!.attempts;
+    const locator0 = a0!.locator!;
+    const locator1 = a1!.locator!;
+
+    const dest = join(await makeRoot(), "published");
+    await copySnapshots(results.latest(), dest, { artifacts: [] });
+
+    const destResults = await openResults(dest);
+    expect(resolveLocator(destResults, locator0).result.attempt).toBe(0);
+    expect(resolveLocator(destResults, locator1).result.attempt).toBe(1);
+  });
+});
+
+// ───────────────────────── sources 去重仓库 ─────────────────────────
+
+describe("sources · 快照级去重仓库", () => {
+  it("两个 attempt 共享字节相同的 eval 源码:去重仓库只落一份 blob(文件数 = 1)", async () => {
+    const root = await makeRoot();
+    const writer = createResultsWriter(root, { producer: { name: "niceeval", version: "1.0.0" } });
+    const snap = await writer.snapshot({ experimentId: "e", agent: "bub", startedAt: "2026-07-01T08:00:00.000Z" });
+    const content = "export default { test() {} };\n";
+    await snap.writeAttempt({ id: "q1", verdict: "passed", attempt: 0, durationMs: 1, assertions: [] }, { sources: [{ path: "evals/shared.eval.ts", content }] });
+    await snap.writeAttempt({ id: "q2", verdict: "passed", attempt: 0, durationMs: 1, assertions: [] }, { sources: [{ path: "evals/shared.eval.ts", content }] });
+    await writer.finish();
+
+    const storeFiles = await readdir(join(snap.dir, "sources"));
+    expect(storeFiles).toHaveLength(1);
+  });
+
+  it("两个 attempt 的 eval 源码内容不同:各自落一份 blob(文件数 = 2)", async () => {
+    const root = await makeRoot();
+    const writer = createResultsWriter(root, { producer: { name: "niceeval", version: "1.0.0" } });
+    const snap = await writer.snapshot({ experimentId: "e", agent: "bub", startedAt: "2026-07-01T08:00:00.000Z" });
+    await snap.writeAttempt(
+      { id: "q1", verdict: "passed", attempt: 0, durationMs: 1, assertions: [] },
+      { sources: [{ path: "evals/a.eval.ts", content: "export default { test() {} };\n" }] },
+    );
+    await snap.writeAttempt(
+      { id: "q2", verdict: "passed", attempt: 0, durationMs: 1, assertions: [] },
+      { sources: [{ path: "evals/b.eval.ts", content: "export default { test() { /* different */ } };\n" }] },
+    );
+    await writer.finish();
+
+    const storeFiles = await readdir(join(snap.dir, "sources"));
+    expect(storeFiles).toHaveLength(2);
+  });
+
+  it("经真实 --resume carry 流程(writeAttemptFor 的 artifactBase 分支)携带的 attempt,其 sources() 引用在新快照里依然能解到原快照内容", async () => {
+    const root = await makeRoot();
+    const content = "export default { test() {} };\n";
+    const writer1 = createResultsWriter(root, { producer: { name: "niceeval", version: "1.0.0" } });
+    await writer1.writeAttemptFor({
+      id: "q1",
+      experimentId: "e",
+      agent: "bub",
+      verdict: "passed",
+      attempt: 0,
+      startedAt: "2026-07-01T08:00:00.000Z",
+      durationMs: 1,
+      assertions: [],
+      sources: [{ path: "evals/q1.eval.ts", content }],
+    });
+    await writer1.finish();
+
+    const opened1 = await openResults(root);
+    const original = opened1.experiments[0]!.latest.evals.find((e) => e.id === "q1")!.attempts[0]!;
+    expect(await original.sources()).toEqual([{ path: "evals/q1.eval.ts", content }]);
+
+    // 第二轮:q2 是真正新跑的(锚定新快照的 startedAt 明确晚于原快照),q1 是 carry 合入 ——
+    // artifactBase 指回第一轮的快照,与 locator carry 测试同一套构造手法。
+    const writer2 = createResultsWriter(root, { producer: { name: "niceeval", version: "1.0.0" } });
+    await writer2.writeAttemptFor({
+      id: "q2",
+      experimentId: "e",
+      agent: "bub",
+      verdict: "passed",
+      attempt: 0,
+      startedAt: "2026-07-02T08:00:00.000Z",
+      durationMs: 1,
+      assertions: [],
+    });
+    const carried: EvalResult = {
+      ...original.result,
+      experimentId: "e",
+      agent: "bub",
+      artifactBase: `${original.ref.snapshot}/${original.ref.attempt}`,
+    };
+    await writer2.writeAttemptFor(carried);
+    await writer2.finish();
+
+    const opened2 = await openResults(root);
+    const carriedAttempt = opened2.experiments[0]!.latest.evals.find((e) => e.id === "q1")!.attempts[0]!;
+    // 新快照下没有为携带条目重新写 sources.json/blob(carry 分支不写 artifact),
+    // sources() 必须靠 artifactBase 回退到原快照的去重仓库才能解出内容。
+    expect(await carriedAttempt.sources()).toEqual([{ path: "evals/q1.eval.ts", content }]);
+  });
+
+  it("同一快照内相同内容只落一份 blob;不同内容各一份;attempt.sources() 各自读回正确内容", async () => {
+    const root = await makeRoot();
+    const writer = createResultsWriter(root, { producer: { name: "niceeval", version: "1.0.0" } });
+    const snap = await writer.snapshot({ experimentId: "e", agent: "bub", startedAt: "2026-07-01T08:00:00.000Z" });
+    const shared = [{ path: "evals/shared.eval.ts", content: "export default { test() {} };\n" }];
+    const other = [{ path: "evals/other.eval.ts", content: "export default { test() { /* different */ } };\n" }];
+    await snap.writeAttempt({ id: "q1", verdict: "passed", attempt: 0, durationMs: 1, assertions: [] }, { sources: shared });
+    await snap.writeAttempt({ id: "q2", verdict: "passed", attempt: 0, durationMs: 1, assertions: [] }, { sources: shared });
+    await snap.writeAttempt({ id: "q3", verdict: "passed", attempt: 0, durationMs: 1, assertions: [] }, { sources: other });
+    await writer.finish();
+
+    const storeFiles = await readdir(join(snap.dir, "sources"));
+    expect(storeFiles).toHaveLength(2); // 三份引用,内容只两种 → 两个 blob
+
+    // attempt 级 sources.json 只是引用(小,不含 content),不是全量内容。
+    const q1Ref = JSON.parse(await readFile(join(snap.dir, "q1/a0/sources.json"), "utf-8"));
+    expect(q1Ref).toEqual([{ path: "evals/shared.eval.ts", sha256: expect.any(String) }]);
+    expect(JSON.stringify(q1Ref)).not.toContain("export default");
+
+    const results = await openResults(root);
+    const evalById = (id: string) => results.experiments[0].latest.evals.find((e) => e.id === id)!.attempts[0];
+    await expect(evalById("q1").sources()).resolves.toEqual(shared);
+    await expect(evalById("q2").sources()).resolves.toEqual(shared);
+    await expect(evalById("q3").sources()).resolves.toEqual(other);
+  });
+
+  it("携带条目(artifactBase 回退)的 sources() 仍能解到原快照的去重仓库", async () => {
+    const root = await makeRoot();
+    const oldSnap = await writeSnapshot(
+      root,
+      "e",
+      "2026-06-30T08-00-00-000Z-xxxx",
+      meta({ experimentId: "e", agent: "bub", startedAt: "2026-06-30T08:00:00.000Z", completedAt: "2026-06-30T08:10:00.000Z" }),
+    );
+    await writeResultFile(oldSnap, "q1/a0", record({ id: "q1", attempt: 0, hasSources: true }));
+    await mkdir(join(oldSnap, "sources"), { recursive: true });
+    await writeFile(join(oldSnap, "sources", "abc123.json"), JSON.stringify({ content: "export default {};\n" }), "utf-8");
+    await writeArtifactFile(oldSnap, "q1/a0", "sources.json", [{ path: "evals/q1.eval.ts", sha256: "abc123" }]);
+
+    const newSnap = await writeSnapshot(
+      root,
+      "e",
+      "2026-07-01T08-00-00-000Z-yyyy",
+      meta({ experimentId: "e", agent: "bub", startedAt: "2026-07-01T08:00:00.000Z", completedAt: "2026-07-01T08:10:00.000Z" }),
+    );
+    await writeResultFile(
+      newSnap,
+      "q1/a0",
+      record({ id: "q1", attempt: 0, startedAt: "2026-06-30T08:01:00.000Z", artifactBase: "e/2026-06-30T08-00-00-000Z-xxxx/q1/a0", hasSources: true }),
+    );
+
+    const results = await openResults(root);
+    const carried = results.experiments[0].latest.evals.find((e) => e.id === "q1")!.attempts[0];
+    expect(await carried.sources()).toEqual([{ path: "evals/q1.eval.ts", content: "export default {};\n" }]);
+  });
+
+  it("copySnapshots:sources 引用与去重仓库一起复制,内容按目的地重新去重(同一份不重复落盘)", async () => {
+    const root = await makeRoot();
+    const writer = createResultsWriter(root, { producer: { name: "niceeval", version: "1.0.0" } });
+    const snap = await writer.snapshot({ experimentId: "e", agent: "bub", startedAt: "2026-07-01T08:00:00.000Z" });
+    const shared = [{ path: "evals/shared.eval.ts", content: "export default { test() {} };\n" }];
+    await snap.writeAttempt({ id: "q1", verdict: "passed", attempt: 0, durationMs: 1, assertions: [] }, { sources: shared });
+    await snap.writeAttempt({ id: "q2", verdict: "passed", attempt: 0, durationMs: 1, assertions: [] }, { sources: shared });
+    await writer.finish();
+
+    const originalLocator = JSON.parse(await readFile(join(snap.dir, "q1/a0/result.json"), "utf-8")).locator;
+
+    const results = await openResults(root);
+    const dest = join(await makeRoot(), "published");
+    await copySnapshots(results.latest(), dest, { artifacts: ["sources"] });
+
+    const destSnapDir = join(dest, "e", basename(snap.dir));
+    const destStoreFiles = await readdir(join(destSnapDir, "sources"));
+    expect(destStoreFiles).toHaveLength(1); // 复制后在目的地重新按内容去重,仍只一份
+
+    const destResults = await openResults(dest);
+    const q1 = destResults.experiments[0].latest.evals.find((e) => e.id === "q1")!.attempts[0];
+    expect(await q1.sources()).toEqual(shared);
+    expect(q1.result.locator).toBe(originalLocator); // locator 随 result.json 原样复制,不重算
+  });
+});
+
+// ───────────────────────── loadAnnotatedEvalSource(端到端打通) ─────────────────────────
+
+describe("loadAnnotatedEvalSource · discovery 捕获 → 去重存储 → 检索 → 标注 打通链路", () => {
+  it("给一个真实落盘的 attempt,取回 sources() 内容并按 loc 标注断言", async () => {
+    const root = await makeRoot();
+    const writer = createResultsWriter(root, { producer: { name: "niceeval", version: "1.0.0" } });
+    const snap = await writer.snapshot({ experimentId: "e", agent: "bub", startedAt: "2026-07-01T08:00:00.000Z" });
+    const content = "import { defineEval } from \"niceeval\";\nexport default defineEval({\n  test() {},\n});\n";
+    const assertions = [
+      { name: "check-1", passed: true, severity: "gate", score: 1, loc: { file: "evals/a.eval.ts", line: 3 } },
+      { name: "no-loc", passed: false, severity: "soft", score: 0 },
+    ] as unknown as EvalResult["assertions"];
+    await snap.writeAttempt(
+      { id: "q1", verdict: "passed", attempt: 0, durationMs: 1, assertions },
+      { sources: [{ path: "evals/a.eval.ts", content }] },
+    );
+    await writer.finish();
+
+    const results = await openResults(root);
+    const attempt = results.experiments[0].latest.evals.find((e) => e.id === "q1")!.attempts[0];
+    const annotated = await loadAnnotatedEvalSource(attempt);
+    expect(annotated).not.toBeNull();
+    expect(annotated!.sourcePath).toBe("evals/a.eval.ts");
+    expect(annotated!.lines[2]!.assertions.map((a) => a.name)).toEqual(["check-1"]);
+    expect(annotated!.unmapped.map((a) => a.name)).toEqual(["no-loc"]);
+    expect(annotated!.summary).toMatchObject({ totalAssertions: 2, mappedAssertions: 1, unmappedAssertions: 1 });
+  });
+
+  it("没有 sources() 时返回 null,不伪造空文档", async () => {
+    const root = await makeRoot();
+    const writer = createResultsWriter(root, { producer: { name: "niceeval", version: "1.0.0" } });
+    const snap = await writer.snapshot({ experimentId: "e", agent: "bub", startedAt: "2026-07-01T08:00:00.000Z" });
+    await snap.writeAttempt({ id: "q1", verdict: "passed", attempt: 0, durationMs: 1, assertions: [] });
+    await writer.finish();
+
+    const results = await openResults(root);
+    const attempt = results.experiments[0].latest.evals.find((e) => e.id === "q1")!.attempts[0];
+    expect(await loadAnnotatedEvalSource(attempt)).toBeNull();
   });
 });

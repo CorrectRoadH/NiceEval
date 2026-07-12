@@ -5,6 +5,7 @@ import { readdir } from "node:fs/promises";
 import { dirname, join, relative, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { pad4 } from "../util.ts";
+import { captureEvalSource } from "./eval-source.ts";
 import type { DiscoveredEval, DiscoveredExperiment, EvalDef, ExperimentDef } from "../types.ts";
 
 const SKIP_DIRS = new Set(["node_modules", ".git", ".niceeval", "dist", ".next"]);
@@ -42,10 +43,13 @@ export async function discoverEvals(root: string): Promise<DiscoveredEval[]> {
     if (!def) continue;
     const baseId = relative(dir, file).replace(/\.eval\.tsx?$/, "").split(sep).join("/");
     const baseDir = dirname(file);
+    // discovery 时读一次、归一化、算 SHA-256:同一文件(数组默认导出多个 eval)只读一次盘,
+    // 全部共享同一份 CapturedEvalSource 引用——写入面按哈希去重靠的就是这份内容天然相同。
+    const source = await captureEvalSource(file, { root });
     if (Array.isArray(def)) {
-      def.forEach((d, i) => out.push({ ...d, id: `${baseId}/${pad4(i)}`, baseDir, sourcePath: file }));
+      def.forEach((d, i) => out.push({ ...d, id: `${baseId}/${pad4(i)}`, baseDir, sourcePath: file, source }));
     } else {
-      out.push({ ...def, id: baseId, baseDir, sourcePath: file });
+      out.push({ ...def, id: baseId, baseDir, sourcePath: file, source });
     }
   }
   return out;

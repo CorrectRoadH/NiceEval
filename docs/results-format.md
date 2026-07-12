@@ -11,10 +11,12 @@
   <experiment>/                      # 实验目录:experimentId 清洗后的名字
     <timestamp>-<suffix>/            # 快照目录:时间戳 + 随机后缀,独占创建
       snapshot.json                  # 快照元数据(快照开始时写入,收尾补 completedAt)
+      sources/                       # 快照级 eval 源码去重仓库,按内容 SHA-256 建档
+        <sha256>.json                # { content }:一份源码文本,快照内多少 attempt 引用它都只存一份
       <evalId>/a<attempt>/           # 单个 eval attempt 的目录
-        result.json                  # 判决、断言、用量 —— attempt 完成时一次写成
+        result.json                  # 判决、断言、用量、locator —— attempt 完成时一次写成
         events.json
-        sources.json
+        sources.json                 # 引用 sources/ 里的条目,不内联源码内容(见下)
         trace.json
         o11y.json
         diff.json
@@ -37,7 +39,7 @@
 ```json
 {
   "format": "niceeval.results",
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "producer": {
     "name": "niceeval",
     "version": "0.12.0"
@@ -48,7 +50,7 @@
 }
 ```
 
-版本历史:`1` 初版;`2`(2026-07)= `ExperimentRunInfo.flags` 改名 `params`;`3`(2026-07-10)= 改回 `flags`(A/B feature flag 语义定稿,见 docs/reports.md 裁决记录);`4`(2026-07-11)= 落盘单位从 run 改为快照——实验目录在外层,快照元数据住 `snapshot.json`,判决住 attempt 级 `result.json`(裁决背景见 memory 的 results-per-snapshot 条目)。
+版本历史:`1` 初版;`2`(2026-07)= `ExperimentRunInfo.flags` 改名 `params`;`3`(2026-07-10)= 改回 `flags`(A/B feature flag 语义定稿,见 docs/reports.md 裁决记录);`4`(2026-07-11)= 落盘单位从 run 改为快照——实验目录在外层,快照元数据住 `snapshot.json`,判决住 attempt 级 `result.json`(裁决背景见 memory 的 results-per-snapshot 条目);`5` = `result.json` 新增 `locator`(不透明的 Attempt 定位符,见「`result.json`」);`sources.json` 从逐 attempt 内联全量源码改为「attempt 级引用 + 快照级 `sources/<sha256>.json` 去重仓库」(见「`sources.json`」)。
 
 设计原则是**不做兼容机制**。没有迁移函数,没有多版本 normalize loader,没有 per-artifact 版本号:整个快照(snapshot.json + 全部 attempt 文件)共用顶层这一个 `schemaVersion`。读取器只认与自己相同的版本;版本不同就是不兼容,唯一的处理是提示用写这份结果的 niceeval 版本查看:
 
@@ -132,6 +134,15 @@ interface AttemptRecord {
   skipReason?: string;
   /** 本 attempt 开始的墙钟时刻;缺失时读取面回退快照的 startedAt。携带条目保留原条目的值,身份键与去重以它为锚。 */
   startedAt?: string;
+  /**
+   * 不透明的 Attempt 定位符:`@` + 1 位 scheme 字符 + 7 位 base36 body(如 `@1x7f3q9`)。
+   * 由 `{experimentId, 快照 startedAt, evalId, attempt}` 这个不可变身份元组确定性派生——
+   * 不是数组下标、不是磁盘路径。非携带条目由 writer 落盘时算出;携带条目(见下)原样复制
+   * 上一轮的值,从不重算(原快照的 startedAt 已经不在本轮快照里,重算会算出不同的字符串)。
+   * `niceeval show @<locator>` 与报告 / view 的 attempt 深链都靠它寻址,详见
+   * [Results Lib](results-lib.md) 的 `resolveLocator`。
+   */
+  locator?: string;
   /** 携带条目专用: artifact 目录(相对结果根目录),指向原快照里的落盘。 */
   artifactBase?: string;
   hasEvents?: boolean;
@@ -140,7 +151,7 @@ interface AttemptRecord {
 }
 ```
 
-快照级字段(`experimentId` / `agent` / `model` / 实验运行配置)不在这里重复——reader 把 `snapshot.json` 的声明拼进每条读回的结果(`attempt.result`),拼合规则是「缺才补」:条目自带的值优先,`startedAt` 只在记录缺失时回退快照的值。
+快照级字段(`experimentId` / `agent` / `model` / 实验运行配置)不在这里重复——reader 把 `snapshot.json` 的声明拼进每条读回的结果(`attempt.result`),拼合规则是「缺才补」:条目自带的值优先,`startedAt` 只在记录缺失时回退快照的值;`locator` 同理「缺才补」,niceeval 自己的 writer 恒会写这个字段,只有第三方 harness 没实现它时读取面才按当前身份兜底算一份。
 
 两类条目:
 
@@ -169,16 +180,37 @@ interface AttemptRecord {
 
 ### `sources.json`
 
-类型是 `SourceArtifact[]`:
+一个 attempt 引用到的 eval 源码在**两处**落盘,分工是「引用轻、内容重」:
 
-```typescript
-interface SourceArtifact {
-  path: string;
-  content: string;
-}
-```
+- **attempt 级 `sources.json`**:一份引用列表,不内联源码内容——
 
-它只包含本次 test/断言通过 `loc` 引用到的 eval 源码片段。`niceeval view` 用它把 `t.send`、断言和运行结果叠回源码行。
+  ```typescript
+  type SourcesRef = { path: string; sha256: string }[];
+  ```
+
+  它只列出本次 test / 断言经 `loc` 引用到的文件(path)与其归一化后内容的 SHA-256。
+- **快照级 `sources/<sha256>.json`**:去重仓库,内容按哈希建档——
+
+  ```typescript
+  interface SourceBlob {
+    content: string;
+  }
+  ```
+
+  同一快照内不管多少个 attempt 引用同一份源码(同一个 eval 文件被多个 attempt / 多个 eval
+  共享是常态——重试、或数组默认导出的多个 eval),内容只在 `sources/` 下存一份,按内容哈希
+  (不是按路径)去重;哈希撞见即复用,不重写。
+
+`niceeval view` 与 `AttemptHandle.sources()`(见 [Results Lib](results-lib.md))把两者拼回
+`SourceArtifact[]`(`{path, content}[]`,与 schemaVersion 4 及更早版本的语义一致)供上层消费——
+消费方不需要知道落盘拆成了两层,只有直接读盘的脚本(`jq` / 手写工具)需要知道这个引用 + 仓库的
+两步解析。`niceeval view` 用它把 `t.send`、断言和运行结果叠回源码行。
+
+携带条目(`--resume` 合入)不在新快照里重写 `sources.json` 或 `sources/`——沿用其它 artifact
+同样的 `artifactBase` 回退:读取面按 `artifactBase` 定位到原快照,原快照的 `sources.json`
+引用 + 原快照自己的 `sources/` 去重仓库依然完整,不需要复制。`copySnapshots` 发布时则相反——
+产物必须自包含,不能带 `artifactBase` 回退指针,所以复制时把引用解引用出完整内容后,在目标
+快照里按内容重新去重落盘(见 [Results Lib](results-lib.md)「复制与瘦身」)。
 
 ### `trace.json`
 
@@ -218,8 +250,8 @@ interface DiffData {
 编程消费用 [`openResults`](results-lib.md)——布局知识全部被库消化。手工(`jq` / 脚本)读的路线:
 
 1. 定位快照:`.niceeval/<experiment>/` 下最新的时间戳目录,读 `snapshot.json` 确认身份与版本。
-2. 逐 attempt 读 `<evalId>/a<attempt>/result.json` 拿判决、断言、用量、成本。
-3. 需要证据时读同目录的 `events.json`、`trace.json`、`sources.json`、`o11y.json`、`diff.json`;携带条目按 `artifactBase`(相对结果根)回原快照取。
+2. 逐 attempt 读 `<evalId>/a<attempt>/result.json` 拿判决、断言、用量、成本、`locator`。
+3. 需要证据时读同目录的 `events.json`、`trace.json`、`sources.json`、`o11y.json`、`diff.json`;携带条目按 `artifactBase`(相对结果根)回原快照取。`sources.json` 只是引用,内容在 `<快照根>/sources/<sha256>.json`——携带条目要去原快照的 `sources/`,不是当前快照的。
 
 两种非正常落盘的判定:
 
@@ -234,6 +266,6 @@ interface DiffData {
 
 因此,不要在文档或工具里假设本地结果有 `results.jsonl`、transcript NDJSON 或固定测试输出文件。当前稳定契约是:
 
-- 快照级: `snapshot.json`;
-- attempt 级: `result.json`、`events.json`、`sources.json`、`trace.json`、`o11y.json`、`diff.json`;
+- 快照级: `snapshot.json`、`sources/<sha256>.json`(eval 源码去重仓库);
+- attempt 级: `result.json`、`events.json`、`sources.json`(引用,不内联内容)、`trace.json`、`o11y.json`、`diff.json`;
 - 每个文件都是 JSON,不是 JSONL。

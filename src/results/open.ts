@@ -13,6 +13,13 @@ import type { O11ySummary, StreamEvent, TraceSpan } from "../types.ts";
 import type { DiffData, SourceArtifact } from "../types.ts";
 import { RESULT_FILE, SNAPSHOT_FILE, artifactFileOf, classifySnapshot } from "./format.ts";
 import { isNewerSnapshot, selectLatest } from "./select.ts";
+import {
+  encodeAttemptLocator,
+  resolveAttemptLocator,
+  LocatorCollisionError,
+  type AttemptIdentity,
+  type AttemptLocator,
+} from "./locator.ts";
 import type {
   ArtifactKind,
   AttemptHandle,
@@ -33,6 +40,96 @@ const experimentBySnapshot = new WeakMap<Snapshot, Experiment>();
 /** 库内部:快照所属的 Experiment(仅对 openResults 产出的快照存在)。 */
 export function experimentOfSnapshot(snapshot: Snapshot): Experiment | undefined {
   return experimentBySnapshot.get(snapshot);
+}
+
+// locator → AttemptHandle 索引同样挂在 openResults() 产出的 Results 上,不进公开类型
+// (Results 接口保持精简,索引经 resolveLocator() 这个自由函数取用,与 experimentOfSnapshot
+// 同一种「WeakMap 记归属」模式)。openResults() 之外手工拼出来的 Results 对象查不到索引,
+// resolveLocator() 对此的处理是「查不到 = 空索引」,一律 not-found,不抛意外错误。
+const locatorIndexByResults = new WeakMap<Results, Map<AttemptLocator, AttemptHandle>>();
+
+/** locator 语法合法、但索引里没有这个 key——落盘已被清理、复制时没带上,或纯粹打错。 */
+export class LocatorNotFoundError extends Error {
+  constructor(public readonly locator: string) {
+    super(
+      `No attempt found for locator "${locator}" in this results root. It may be stale ` +
+        "(the snapshot was deleted, or copySnapshots didn't include it) or mistyped.",
+    );
+    this.name = "LocatorNotFoundError";
+  }
+}
+
+/** locator 字符串本身不合法(前缀 / scheme 字符 / body 字符集或长度不对)。 */
+export class MalformedLocatorError extends Error {
+  constructor(
+    public readonly input: string,
+    public readonly reason: string,
+  ) {
+    super(`"${input}" is not a valid attempt locator: ${reason}`);
+    this.name = "MalformedLocatorError";
+  }
+}
+
+/**
+ * 拿 CLI 位置参数里的原始 `@...` 字符串,在 `openResults()` 建好的 locator 索引里查找。
+ * 找不到 / 语法不对是两种不同的用户错误(打错 vs 过期),用两个可判别的 Error 子类分开抛,
+ * 不折叠成一句通用报错——上层(CLI)按 `instanceof` 决定提示文案。
+ */
+export function resolveLocator(results: Results, input: string): AttemptHandle {
+  const index = locatorIndexByResults.get(results) ?? new Map<AttemptLocator, AttemptHandle>();
+  const resolution = resolveAttemptLocator(index, input);
+  switch (resolution.kind) {
+    case "found":
+      return resolution.handle;
+    case "malformed":
+      throw new MalformedLocatorError(resolution.input, resolution.reason);
+    case "not-found":
+      throw new LocatorNotFoundError(resolution.locator);
+  }
+}
+
+/**
+ * 扫描出的全部 attempt 建一份 locator → AttemptHandle 索引(openResults() 收尾时调一次)。
+ * 遍历顺序 = experiments(字典序)→ exp.snapshots(新→旧,buildExperiments 已排好序)→
+ * snapshot.attempts;「先遇到的赢」自然保留最新快照里的那份(--resume 携带条目在新旧两个
+ * 快照里都能扫到时,新快照排在前面先被记进索引,旧快照那份被跳过——同一份 locator 重复
+ * 出现不是撞车)。三元组(experimentId/evalId/attempt 序号)不同却撞出同一个 locator
+ * 字符串,才是真撞车,直接抛 LocatorCollisionError,不静默覆盖。
+ */
+function buildAttemptLocatorIndex(experiments: Experiment[]): Map<AttemptLocator, AttemptHandle> {
+  const index = new Map<AttemptLocator, AttemptHandle>();
+  for (const exp of experiments) {
+    for (const snapshot of exp.snapshots) {
+      for (const attempt of snapshot.attempts) {
+        const locator = attempt.locator;
+        if (locator === undefined) continue; // 理论上不会发生(makeAttempt 恒回填),防御性跳过
+        const existing = index.get(locator);
+        if (existing === undefined) {
+          index.set(locator, attempt);
+          continue;
+        }
+        if (
+          existing.experimentId !== attempt.experimentId ||
+          existing.evalId !== attempt.evalId ||
+          existing.result.attempt !== attempt.result.attempt
+        ) {
+          throw new LocatorCollisionError(locator, [identityForError(existing), identityForError(attempt)]);
+        }
+      }
+    }
+  }
+  return index;
+}
+
+/** LocatorCollisionError 诊断信息用:携带条目场景下这不一定是「真」身份(snapshotStartedAt
+ *  取当前所在快照的值,携带条目原本可能来自更早的快照),但足够定位是哪两个 attempt 撞的。 */
+function identityForError(attempt: AttemptHandle): AttemptIdentity {
+  return {
+    experimentId: attempt.experimentId,
+    snapshotStartedAt: attempt.snapshot.startedAt,
+    evalId: attempt.evalId,
+    attempt: attempt.result.attempt,
+  };
 }
 
 interface ScanState {
@@ -63,7 +160,13 @@ export async function openResults(dir: string): Promise<Results> {
   }
 
   state.skipped.sort((a, b) => b.dir.localeCompare(a.dir));
-  return makeResults(buildExperiments(state.snapshots), state.skipped);
+  const experiments = buildExperiments(state.snapshots);
+  // 建 locator 索引:必须在全部快照扫完、Experiment 归组完成之后,返回 Results 之前——
+  // 撞车(LocatorCollisionError)在这里抛,不静默吞、不拖到消费方第一次 resolveLocator() 才发现。
+  const locatorIndex = buildAttemptLocatorIndex(experiments);
+  const results = makeResults(experiments, state.skipped);
+  locatorIndexByResults.set(results, locatorIndex);
+  return results;
 }
 
 function makeResults(experiments: Experiment[], skipped: SkippedDir[]): Results {
@@ -196,6 +299,16 @@ async function readSnapshotDir(dir: string, meta: SnapshotMeta, state: ScanState
     if (record.model === undefined && meta.model !== undefined) record.model = meta.model;
     record.startedAt ??= meta.startedAt;
     if (record.experiment === undefined && meta.experiment !== undefined) record.experiment = meta.experiment;
+    // locator 同理「缺才补」:niceeval 自己的 writer(schemaVersion 5 起)恒会写这个字段,
+    // 携带条目原样携带上一轮的值——只有真缺失(第三方 harness 没实现 locator,或手工构造的
+    // 落盘)才按当前身份兜底算一份;这份兜底不保证跨未来的 --resume 稳定,但至少确定性、
+    // 可解析,不比完全没有 locator 差。
+    record.locator ??= encodeAttemptLocator({
+      experimentId: record.experimentId,
+      snapshotStartedAt: meta.startedAt,
+      evalId: record.id,
+      attempt: record.attempt,
+    });
 
     const attempt = makeAttempt(snapshot, dir, attemptDir, record);
     let ev = evalsById.get(record.id);
@@ -219,7 +332,17 @@ function makeAttempt(snapshot: Snapshot, snapshotDir: string, attemptDir: string
   // 候选 artifact 目录:本 attempt 目录为主;--resume 携带条目的 artifact 留在原快照里,
   // artifactBase(相对结果根 = 快照目录的上两级)指向那里,作为回退。
   const candidates: string[] = [attemptDir];
-  if (record.artifactBase) candidates.push(resolve(dirname(dirname(snapshotDir)), record.artifactBase));
+  // sources 的去重仓库(sources/<sha256>.json)挂在「快照根」,不是 attempt 目录——每个候选
+  // attempt 目录都要配一个对应的快照根,顺序与 candidates 一一对应,lazySources 按下标取用。
+  const candidateSnapshotRoots: string[] = [snapshotDir];
+  if (record.artifactBase) {
+    const resultsRoot = dirname(dirname(snapshotDir));
+    candidates.push(resolve(resultsRoot, record.artifactBase));
+    // artifactBase 恒为 `<实验目录>/<快照目录>/<evalId 路径>/a<n>`;experimentDirOf/快照目录名
+    // 都不含 `/`,所以前两段就是原快照根,即便 evalId 自己带 `/`(多段)也不影响这个切法。
+    const [expDir, snapDirName] = record.artifactBase.split("/");
+    candidateSnapshotRoots.push(resolve(resultsRoot, expDir ?? "", snapDirName ?? ""));
+  }
 
   const ref = {
     snapshot: `${basename(dirname(snapshotDir))}/${basename(snapshotDir)}`,
@@ -232,11 +355,12 @@ function makeAttempt(snapshot: Snapshot, snapshotDir: string, attemptDir: string
     result: record,
     ref,
     snapshot,
+    locator: record.locator as AttemptLocator,
     events: lazyArtifact<StreamEvent[]>(candidates, "events", record.events),
     trace: lazyArtifact<TraceSpan[]>(candidates, "trace", record.trace),
     o11y: lazyArtifact<O11ySummary>(candidates, "o11y", record.o11y),
     diff: lazyArtifact<DiffData>(candidates, "diff", record.diff),
-    sources: lazyArtifact<SourceArtifact[]>(candidates, "sources", record.sources),
+    sources: lazySources(candidates, candidateSnapshotRoots, record.sources),
   };
 }
 
@@ -263,6 +387,75 @@ function lazyArtifact<T>(candidateDirs: string[], kind: ArtifactKind, inline: T 
       } catch {
         throw new Error(`Artifact ${file} is not valid JSON. The file may be corrupted; re-run the eval or delete this attempt directory.`);
       }
+    }
+    return null;
+  };
+  return () => {
+    memo ??= load().catch((e: unknown) => {
+      memo = undefined;
+      throw e;
+    });
+    return memo;
+  };
+}
+
+/** 一条 sources 引用条目(attempt 级 `sources.json` 的落盘形状,schemaVersion 5 起)。 */
+interface SourceRef {
+  path: string;
+  sha256: string;
+}
+
+/**
+ * sources 的懒加载器:与 lazyArtifact 同样的存在性/记忆化/坏 JSON 语义,但多一层——
+ * attempt 目录下的 `sources.json` 只是引用(`{path, sha256}[]`),真内容按 sha256 在对应
+ * 快照根的 `sources/<sha256>.json` 里(去重仓库,见 writer.ts 的 writeSourcesRef)。
+ * candidateSnapshotRoots 与 candidateDirs 下标一一对应:命中哪个候选 attempt 目录的引用,
+ * 就去哪个候选对应的快照根找仓库——本 attempt 目录对本快照根,artifactBase 回退对原快照根。
+ * 仓库里缺单条 blob(理论不该发生,引用与仓库应同时存在)如实跳过那一条,不让整个方法失败。
+ */
+function lazySources(
+  candidateDirs: string[],
+  candidateSnapshotRoots: string[],
+  inline: SourceArtifact[] | undefined,
+): () => Promise<SourceArtifact[] | null> {
+  let memo: Promise<SourceArtifact[] | null> | undefined;
+  const load = async (): Promise<SourceArtifact[] | null> => {
+    if (inline !== undefined) return inline;
+    for (let i = 0; i < candidateDirs.length; i++) {
+      const refFile = join(candidateDirs[i]!, artifactFileOf("sources"));
+      let text: string;
+      try {
+        text = await readFile(refFile, "utf-8");
+      } catch (e) {
+        if (isMissingFile(e)) continue;
+        throw new Error(`Cannot read artifact ${refFile} (${e instanceof Error ? e.message : String(e)}).`);
+      }
+      let refs: SourceRef[];
+      try {
+        refs = JSON.parse(text) as SourceRef[];
+      } catch {
+        throw new Error(`Artifact ${refFile} is not valid JSON. The file may be corrupted; re-run the eval or delete this attempt directory.`);
+      }
+      const storeDir = join(candidateSnapshotRoots[i]!, "sources");
+      const out: SourceArtifact[] = [];
+      for (const ref of refs) {
+        const blobFile = join(storeDir, `${ref.sha256}.json`);
+        let blobText: string;
+        try {
+          blobText = await readFile(blobFile, "utf-8");
+        } catch (e) {
+          if (isMissingFile(e)) continue; // 仓库缺这一条(极端情况):跳过,不拖垮其它条目
+          throw new Error(`Cannot read source blob ${blobFile} (${e instanceof Error ? e.message : String(e)}).`);
+        }
+        let blob: { content: string };
+        try {
+          blob = JSON.parse(blobText) as { content: string };
+        } catch {
+          throw new Error(`Source blob ${blobFile} is not valid JSON. It may be corrupted.`);
+        }
+        out.push({ path: ref.path, content: blob.content });
+      }
+      return out;
     }
     return null;
   };
