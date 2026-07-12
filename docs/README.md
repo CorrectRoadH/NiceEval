@@ -19,10 +19,8 @@ docs/
 │   ├── experiments/                     怎么跑这批 eval:`defineExperiment`
 │   ├── sandbox/                         在哪里跑:隔离环境
 │   ├── scoring/                         评分器与判定
-│   ├── results/                         结果的磁盘格式与读写库
-│   ├── reports/                         自己搭报告页的积木
-│   ├── view/                            本地结果查看器(`niceeval view`)
-│   └── show/                            终端读结果(`niceeval show`)
+│   ├── results/                         运行产物：`.niceeval/` 的布局、读写与搬运
+│   └── reports/                         查看与呈现结果：show、view 与报告组件
 │
 ├── roadmap/                             还没定为当前契约的提案
 │   ├── multi-agent/                     多 agent eval 的三种场景

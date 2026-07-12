@@ -100,7 +100,7 @@ await attempt.sources();       // SourceArtifact[] | null
 要点:
 
 - **懒加载即存在性判断。** artifact 缺失返回 `null`,不抛错。`result.json` 里只有 `hasEvents` / `hasTrace` / `hasSources`,连 `hasO11y` / `hasDiff` 标记都没有——这类不对称全被方法语义吸收,消费方不再碰路径。
-- **版本过滤沿用格式规范。** 按 [Architecture · 版本与升级设计](architecture.md#版本与升级设计)判定,不兼容的落盘进 `skipped` 并带 `schemaVersion` 与**完整的** `producer`(name + version),与 [View 的报错与降级](../view/cli.md#报错与降级)同一姿势。带完整 producer 是硬要求:`npx niceeval@<version> view` 的提示只对 `producer.name === "niceeval"` 成立,第三方 harness 写的落盘拿它的版本号拼 npx 命令是一句错误提示——只给 `producerVersion` 一个裸版本号,消费方连做对这个分支的信息都没有。历史版本的 run 级 `summary.json` 也在这里被识别并归入 `skipped("incompatible-version")`,npx 提示照拼——这是版本识别,不是迁移。能读进来的每个快照带自己的 `producer` / `schemaVersion`,「这份结果是谁、用什么版本写的」是快照的直达字段。
+- **版本过滤沿用格式规范。** 按 [Architecture · 版本与升级设计](architecture.md#版本与升级设计)判定,不兼容的落盘进 `skipped` 并带 `schemaVersion` 与完整的 `producer`(name + version),供 [View](../reports/view.md#结果版本与错误) 和其它调用方生成正确的版本建议。只有 `producer.name === "niceeval"` 时才能拼 `npx niceeval@<version>`；第三方 producer 保留自己的名字与版本。历史 run 级 `summary.json` 可被识别为不兼容结果,但不会被迁移。每个可读快照也直接暴露自己的 `producer` / `schemaVersion`。
 - **`skipped` 的第三种原因:`"incomplete"`。** 有 attempt 落盘、没有 `snapshot.json` 的目录——只可能出现在「快照目录建好、元数据还没写完」的极小窗口里进程死亡,或人为删文件。与 `"malformed"`(元数据是坏 JSON)区分开,诊断动作完全不同。进程中断的常态是**未收尾快照**(`snapshot.json` 在、缺 `completedAt`):判决与 artifact 同级落盘、随 attempt 完成即写,中断只丢未完成的 attempt,已完成的照常读出——`latest()` 对选中的未收尾快照给结构化警告(见警告全集表),不是数据黑洞。
 - **分组是切片,不是看法。** 实验归组、eval 分组都是确定性切片(不合并、不聚合、不去重),与「忠实磁盘」不冲突;有看法的合并聚合仍然全部在消费方。
 - **同一进程内按 handle 记忆化。** 两个都要读 diff 的消费方不会把「可达百 MB」的 `diff.json` 读两遍;扫全部历史仍然可能慢,但要慢得线性、可预期。
@@ -128,7 +128,7 @@ interface Snapshot {
 }
 ```
 
-快照与实验归组只切片、不合并、不去重;合并与聚合永远发生在消费方([Reports](../reports/README.md) 的计算函数,或你自己的脚本),reader 不预设看法——这条教训来自 view 旧 `aggregateRows` 把全部历史揉成一行的前车之鉴(已收编修复,见 [View · 用 Reports 积木重建 view](../view/architecture.md#用-reports-积木重建-view))。
+快照与实验归组只切片、不合并、不去重;合并与聚合永远发生在消费方([Reports](../reports/README.md) 的计算函数,或你自己的脚本),reader 不预设看法。
 
 ## 选择快照:`results.latest()` 返回 Selection
 

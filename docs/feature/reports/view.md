@@ -1,0 +1,75 @@
+# `niceeval view` —— 在浏览器读结果
+
+`niceeval view` 把结果根呈现为本地网页：首页是报告槽，Runs、Traces 和 Attempt 详情组成证据室。它不依赖外部服务；本地模式每次请求重新读取磁盘，静态导出则把当时的结果复制成可托管目录。
+
+## 打开与收窄
+
+```sh
+niceeval view
+niceeval view weather                  # eval id 前缀，只收窄报告槽
+niceeval view --experiment compare/bub
+niceeval view --run site-data/run
+niceeval view --no-open                # 只打印 URL
+niceeval view --report reports/exam.tsx
+```
+
+位置参数有两种含义：存在的文件表示只打开这一份 `snapshot.json`；其它字符串表示 eval id 前缀。存在的目录不能作为位置参数，结果根要用 `--run <dir>` 传入。
+
+收窄作用于报告槽的 Selection。证据室始终保留结果根中的完整 attempt 集，因此报告中的 `#/attempt/@<locator>` 深链不会因为首页过滤而失效。
+
+## 页面构成
+
+- **报告槽：** 默认显示成本 × 通过率散点和 experiment 列表。`--report` 用同一份自定义报告文件替换整个槽。
+- **Runs：** 把所有 attempt 展成可筛选列表。
+- **Traces：** 用 canonical OTel 字段显示执行瀑布图。
+- **Attempt 详情：** 判定、断言、错误、usage、对话、trace 和 diff 的入口。
+- **Copy fix prompt：** 把单条或全部失败整理成可交给 coding agent 的修复 prompt。
+
+## 静态导出
+
+```sh
+niceeval view --out site
+```
+
+输出恒为目录：
+
+```text
+site/
+├── index.html
+└── artifact/
+    └── <snapshot-and-attempt-path>/
+        ├── sources.json
+        ├── events.json
+        └── trace.json
+```
+
+网页会按需 fetch 证据文件，因此不提供“单个 HTML”导出。`diff.json` 可能非常大，`o11y.json` 也不被证据室直接读取，两者不会随 view 静态站复制。要发布一份精确控制 artifact 的数据集，先用 [`copySnapshots()`](../results/library.md#复制与瘦身copysnapshots) 生成结果根，再对它运行 `view --run <dir> --out <site>`。
+
+## 结果版本与错误
+
+扫描整个结果根时，单个不可读快照不会挡住其它结果；页面顶部会列出被跳过的快照及原因。明确指定单个 `snapshot.json` 时，该文件不可读会让命令失败。
+
+| 场景 | 行为 |
+|---|---|
+| 非 niceeval JSON | 忽略 |
+| schemaVersion 不兼容 | 跳过并建议用产出它的 niceeval 版本打开 |
+| JSON 损坏或必需字段错误 | 标为 malformed |
+| attempt 已写入但缺 `snapshot.json` | 标为 incomplete |
+| 单个 attempt 缺可选 artifact | 页面可打开，在该证据位置显示缺失 |
+
+零可读结果时，本地 server 不启动，`--out` 也不会生成空站。读取不会迁移或改写历史结果。
+
+## 自定义首页
+
+```sh
+niceeval view --report reports/exam.tsx
+```
+
+报告文件同时可被 `niceeval show --report` 使用。官方组件都有 web 和 text 两个渲染面，所以同一份报告在浏览器与终端保持相同数据口径；浏览器宿主额外注入 attempt 深链。写法见 [Library](library.md#交给-show--view-渲染)。
+
+## 相关阅读
+
+- [Show](show.md) —— 同一批结果的终端入口。
+- [Reports Library](library.md) —— 自定义报告槽。
+- [Results](../results/README.md) —— view 读取与导出的数据。
+- [Architecture](architecture.md) —— 报告宿主和证据室边界。

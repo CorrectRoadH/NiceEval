@@ -1,6 +1,6 @@
 # Concepts
 
-> 状态:本页词条描述当前已实现行为。`AttemptLocator`、`AttemptEvidence`、`AnnotatedEvalSource`、`ExecutionTree`,以及报告组件里的 `ExperimentList` / `EvalList` / `AttemptList`(完整定义见 [Reports](feature/reports/README.md))均已实现,取代了旧的 `AttemptRef`(快照/attempt 路径对)、彼此独立的标准事件流与 trace 瀑布图,以及 `ExperimentTable`、`CaseList`、`MetricTable.expand`(均已删除,无兼容层)。`niceeval view` 证据室的 attempt 路由(`src/view/app/`)同样消费 `#/attempt/@<locator>` 单段格式,报告页与 view 靠同一个 locator 身份契约打通,见 [View](feature/view/README.md)。
+> 状态:本页词条描述当前已实现行为。`AttemptLocator`、`AttemptEvidence`、`AnnotatedEvalSource`、`ExecutionTree`,以及报告组件里的 `ExperimentList` / `EvalList` / `AttemptList`(完整定义见 [Reports](feature/reports/README.md))均已实现,取代了旧的 `AttemptRef`(快照/attempt 路径对)、彼此独立的标准事件流与 trace 瀑布图,以及 `ExperimentTable`、`CaseList`、`MetricTable.expand`(均已删除,无兼容层)。`niceeval view` 证据室的 attempt 路由(`src/view/app/`)同样消费 `#/attempt/@<locator>` 单段格式,报告页与 view 靠同一个 locator 身份契约打通,见 [View](feature/reports/view.md)。
 
 什么时候读这一篇:
 
@@ -77,7 +77,7 @@
 
 ### 结果数据与报告
 
-本组词的完整契约在 [Results Lib](feature/results/library.md)、[Reports](feature/reports/README.md) 与 [View](feature/view/README.md)。
+本组词的完整契约在 [Results Lib](feature/results/library.md)、[Reports](feature/reports/README.md) 与 [View](feature/reports/view.md)。
 
 | 中文 | English | 含义 |
 |---|---|---|

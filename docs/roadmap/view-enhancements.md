@@ -6,7 +6,7 @@
 
 跟 `experiments/compare/`(文档里"一组可对比实验"的示例文件夹名,见 [Experiments](../feature/experiments/library.md#实验怎么组织文件夹--一组可对比的实验))是两回事,别混——这里指 view 里一个新增的小 tab。
 
-**动机:** 报告槽的默认口径是「现刻水位」(对每个实验、每个 eval,从该实验的历史快照里取最新一次判定,跨快照补齐成一份),选不出"这次 vs 上次"。参考对象是 [Architecture · 外部参考](../feature/view/architecture.md#agent-eval-playground)里的 playground `/compare` 页。
+**动机:** 报告槽的默认口径是「现刻水位」(对每个实验、每个 eval,从该实验的历史快照里取最新一次判定,跨快照补齐成一份),选不出"这次 vs 上次"。参考对象是 [References](../references.md#vercel-agent-eval--packagesplayground) 记录的 playground `/compare` 页。
 
 **数据模型:** `viewData.snapshots` 已经是**不合并**的快照列表,按 `(experimentId, startedAt)` 索引,每个快照携带 attempt 明细——Compare 需要的历史身份现成保留着。这份数据随 `viewData` 一起烘焙进静态 HTML(不像 playground 能按需查 fs)。
 

@@ -1,34 +1,97 @@
 # Reports —— 架构
 
-`niceeval/report` 的边界与不变量,以及设计迭代中裁决过的问题记录。使用侧 API 见 [Library](library.md);整体动机见 [README](README.md)。
+Reports 把同一份结果事实呈现到三个位置：终端宿主 `show`、网页宿主 `view`、用户自己的 React 页面。三者共用指标与数据计算；官方宿主还共用一棵双面报告树。
 
-## 边界与不变量
+```text
+.niceeval/ ── openResults / Selection ── 组件.data() ── 可序列化数据
+                                                        │
+                         ┌──────────────────────────────┼────────────────────┐
+                         ▼                              ▼                    ▼
+                  report tree text 面            report tree web 面       React 组件
+                  niceeval show                  niceeval view            用户页面
+```
 
-- **core 中立不破。** 指标函数是用户代码,想读什么 artifact 读什么;但计算函数与组件只认 `Metric` / `Dimension` 接口,不出现 `agent === "codex"` 这类分支。「考试」「benchmark」「frontier」都不是 core 概念,只是积木摆法。
-- **Report 不写事实。** 唯一事实来源仍是 Results Format;组件数据是派生物,删了随时可重算,因此不需要迁移机制。
-- **null ≠ 0。** `null` = 此 attempt 测不了这个指标,不进聚合;`0` = 测了,结果是零,照常进。每个指标(含内置)对四个 verdict 逐一表态;`MetricCell` 用 `samples` / `total` 如实报覆盖率,一组全 `null` 渲染成缺数据,绝不补 0(与[成本设计](../../observability.md#换算成本价格表从哪来)「未知模型不瞎猜」同一原则)。scoreboard 的固定分母是显式的考试契约、不是这条的例外:没答的题 0 分挣,`missing` 如实报。
-- **报告不重新判卷。** 指标只消费落盘的 `verdict` 与断言,不推翻 run 时的判定口径;换口径的正确位置是重跑,不是报告。
-- **选择诚实。** 残缺快照、被跳过的 run、发生过的去重,全部以 `warnings` / `skipped` 返回给调用方,不静默;组件对 `samples < total`、全 `null` 的格子和缺数据的点如实渲染。宿主渲染入口(`renderReportToText` / `renderReportToStaticHtml`)另在报告输出前统一渲染 `selection.warnings` 横幅(见 [Library · 宿主级警告横幅](library.md#宿主级警告横幅)),任何报告——无论它的树里含不含 `RunOverview`——都不会静默吞掉挑选警告。
-- **跨快照聚合先去重。** 计算函数在聚合前按 [Results Lib 的身份键](../results/library.md#身份键与去重)去重——`--resume` 会让同一 attempt 存在于多份落盘,细节与键的定义见那边。
-- **快照身份保留在结果库。** 合并与聚合永远发生在计算函数里,可被用户的选择与聚合配置覆盖。
-- **数据 ↔ 两面成对。** 每种数据产物必须同时有 web 面与 text 面——`defineComponent` 的 `faces` 两键必填,配对是结构义务而非配对表;双面验收测试守护两面判读一致。缺一面就不能发新组件(否则 `--report` 在两个宿主下不对称)。
+## 事实与看法
 
-## 迭代问题裁决记录
+Results 保存事实：判定、断言、事件、trace、diff 和运行元数据。Reports 只派生看法：指标、聚合、排序、图表和列表。
 
-早先挂在这里的「待定 DX 问题」已全部裁决(2026-07-10),每条记决定与理由:
+派生数据不写回结果根，不带独立 schemaVersion。删除报告缓存后可从原始结果重新计算；跨部署保存组件 data 时，计算端与渲染端必须使用同一 niceeval 版本。
 
-1. **时间轴 delta:不做新组件,`DeltaTable` 收快照键。** `pairs` 的 `a` / `b` 除 experiment id 外也收快照键 `<experimentId> @ <startedAt>`(与 `"snapshot"` 维度同一格式)。时间轴对比本来就要旧快照,`latest()` 里没有——配手挑的 `Snapshot[]`(如 `[exp.latest, exp.snapshots[1]]`)按快照键配对。view 的 Compare 落地时对齐这同一个键,两套「对比」语义不分叉。
-2. **`refs` 完整携带,不设上限。** 「每个数字点进去就是证据」不打折;单格样本数有限,全历史矩阵的规模由消费方用 Selection 控制,不由组件截断。
-3. **组件数据不打版本戳。** 同应用内计算与渲染同包同版本,天然无偏斜;分离部署(CI 算数据、另一仓库渲染)把两侧锁在同一 niceeval 版本是**硬要求**,不是建议——版本戳解决不了偏斜,只能把它报出来,锁版本让它不发生。
-4. **官方组件不开 slots / render props。** 样式面只有三样:稳定 `nre-*` 类名、`className` 透传、`<Style>`。半自定义的正确姿势是 `defineComponent` 整个换——在官方组件上开渲染口子就是造中间层,格子渲染、点标签策略这类需求都归自定义组件。
-5. **view 的 attempt 级深链:改判给 `AttemptLocator`。** 随 `AttemptLocator` 重设计改判为不透明的 `#/attempt/@<locator>` 单段路由(见 [View · 用 Reports 积木重建 view](../view/architecture.md#用-reports-积木重建-view))。「报告页是前门、view 是证据室」的分工闭环不变,变的只是深链参数的编码。
-6. **`view --report` 的装载语义。** dev server 模式:报告文件变更**整页重算**,不做细粒度热重载——计算全部住在报告函数体里,整页重算是唯一与这条边界一致的语义。`--out` 模式:报告树在计算侧 `renderToStaticMarkup` 成 HTML 烘进报告槽,证据室沿用 `__NICEEVAL_VIEW_DATA__` 的数据契约不动。两个宿主共用同一套装载语义,实现顺序(show 先行)不影响这两条。
-7. **`missing-startedAt` 不透出到组件数据。** `writer.snapshot()` 的 `startedAt` 必填,官方产出与走写入面的第三方转换永不缺;缺失只可能来自 legacy 落盘,计算函数「不去重、如实保留重复」的兜底即终稿,不给各 `data` 产物加 warnings 通道(`dedupeAttempts` 直调时警告仍随返回值走)。
+## Selection 是计算入口
+
+所有官方 `.data(...)` 接受 `Selection | Snapshot[]`。Selection 同时携带快照和选择警告，避免报告把数据与“这批数据是否完整”的信息拆开。
+
+`show` 与 `view` 对命令行范围使用同一套选择规则：
+
+1. `--run` 确定结果根。
+2. `--experiment` 和 eval id 位置参数收窄范围。
+3. 宿主按现刻水位规则，为每个 experiment × eval 选择跨历史最新判定。
+4. 局部补跑、过旧或未完成快照形成结构化 warning。
+5. 同一份 Selection 交给默认报告或 `--report`。
+
+报告若需要历史趋势，可从 `ReportContext.results` 自行选择 `Snapshot[]`；不能把宿主注入的现刻水位 Selection 当成完整历史。
+
+## 计算与渲染分离
+
+组件的 `.data(...)` 是异步计算面，可以通过 `AttemptHandle` 懒加载 artifact。组件渲染面是同步纯函数，只接收计算完成的普通数据。
+
+这条边界保证：
+
+- 可达数百 MB 的 diff 不会意外进入每次 React render。
+- 同一份 data 可以在 RSC 中直接传递，也可以写成 JSON 给 SPA。
+- text 与 web 面拿到相同终值、覆盖率和 attempt 引用。
+- 缺 artifact 时计算返回 `null`，渲染层不会自行猜值。
+
+## 报告树与两个宿主
+
+`defineReport` 的 build 函数返回由 `Row`、`Col`、`Section`、`Text`、`Style` 和双面组件组成的树。宿主管线固定为：
+
+```text
+definition.build(ctx)
+  → resolveReportTree(node)
+  → validateReportTree(node)
+  → render text 或 static HTML
+```
+
+- **build：** 报告作者可 `await` 数据、过滤数组、组合组件。
+- **resolve：** 框架把 selection-form 组件解析成 data-form。当前 `MetricScatter` 可直接接 `selection`；实体列表需由作者显式调用 `.data()`，以便用普通数组 API 过滤。
+- **validate：** 确保树中每个报告组件都有 text 和 web 两面，不接受任意 HTML intrinsic。
+- **render：** 纯同步输出终端文本或静态 HTML。
+
+`defineComponent` 要求同时定义 `text` 与 `web`。因此任何可放入 `--report` 的组件都能被两个官方宿主判读；只用于用户网站的普通 React 组件不受这项约束。
+
+## `show` 与 `view` 的职责
+
+两个宿主共享报告槽，但证据体验不同：
+
+| 层 | `show` | `view` |
+|---|---|---|
+| 报告槽 | text 面 | static HTML web 面 |
+| 默认填充 | `CostPassRateComparison` | `CostPassRateComparison` |
+| attempt 下钻 | `niceeval show @<locator>` | `#/attempt/@<locator>` |
+| 证据 | `--eval` / `--execution` / `--diff` | Runs / Traces / Attempt modal |
+| 自定义 | `--report <file>` | `--report <file>` |
+
+`view` 的导航壳与证据室不属于报告树。`--report` 只替换首页报告槽；attempt locator 仍由宿主注入，组件中的证据引用继续通向证据室。
+
+## 指标聚合不变量
+
+- `null` 表示测不了，不参与聚合；`0` 表示测得为零，正常参与。
+- 一般指标先把同一 eval 的多个 attempt 折成题级值，再跨 eval 聚合，避免重试次数改变题目权重。
+- Scoreboard 使用固定题集分母，未跑题按 0 分并计入 `missing`；这是其显式考试语义。
+- 报告消费落盘 verdict，不重新判卷。
+- 跨快照计算先按 Results 的 attempt 身份键去重。
+- 每个 `MetricCell` 保留 `samples`、`total` 和完整 `refs`，覆盖率与证据链不可被渲染层丢弃。
+
+## 静态网页
+
+web 面先输出完整可读的静态 HTML。官方 CSS 使用稳定 `nre-*` 类名；`className` 和 `Style` 提供样式入口。增强脚本只增加临时排序、过滤和 tooltip，不改变计算口径或初始数据。
+
+`view --out` 把报告 HTML、证据室壳和前端会读取的 artifact 一起导出。报告 HTML 不是结果格式，`__NICEEVAL_VIEW_DATA__` 也不是编程读取契约；程序消费结果应使用 `niceeval/results`。
 
 ## 相关阅读
 
-- [README](README.md) —— 为什么需要 Report、两档积木的取舍。
-- [Library](library.md) —— React 组件、计算函数、数据契约、`defineReport` 与双面组件的完整 API。
-- [Results Lib](../results/library.md) —— 身份键与去重、`--resume` 下同一 attempt 的多份落盘。
-- [Observability](../../observability.md) —— 成本设计:未知模型不瞎猜,与「null ≠ 0」同一原则。
-- [View](../view/architecture.md) —— attempt 级深链改判 `AttemptLocator` 的实现细节。
+- [README](README.md) —— 三种查看入口怎么选。
+- [Library](library.md) —— 组件与组合配方。
+- [Show](show.md) / [View](view.md) —— 两个官方宿主。
+- [Results](../results/README.md) —— 持久化事实与 attempt 身份。

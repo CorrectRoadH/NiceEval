@@ -282,7 +282,7 @@ run 级合计不落盘:总时长、总用量、总成本由消费方([Results Li
 
 ## 结果可视化:`niceeval view`
 
-控制台是「当下」的;但你常常想**事后看图**:这次比上次贵了多少?哪个 agent 性价比高?所以 niceeval 提供一个本地查看器(对标 agent-eval 的 playground:一个读结果目录的 web UI),只读 `.niceeval/<experiment>/<snapshot>/` 下的 `snapshot.json` 与逐 attempt `result.json` 这些**结构化 artifact**,不连任何外部服务。结果落盘格式见 [Results Format](feature/results/architecture.md);查看器见 [View](feature/view/README.md),计划中的功能(比如挑两次运行对比)见 [View 增强](roadmap/view-enhancements.md)。
+控制台是「当下」的;但你常常想**事后看图**:这次比上次贵了多少?哪个 agent 性价比高?所以 niceeval 提供一个本地查看器(对标 agent-eval 的 playground:一个读结果目录的 web UI),只读 `.niceeval/<experiment>/<snapshot>/` 下的 `snapshot.json` 与逐 attempt `result.json` 这些**结构化 artifact**,不连任何外部服务。结果落盘格式见 [Results Format](feature/results/architecture.md);查看器见 [View](feature/reports/view.md),计划中的功能(比如挑两次运行对比)见 [View 增强](roadmap/view-enhancements.md)。
 
 可视化能力完全建立在「 artifact 结构化 + 带 usage/cost」之上 —— 换句话说,**只要数据采全了,图是免费的**;不想用内置查看器,同一份 artifact 也能喂给下游 dashboard。
 

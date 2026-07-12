@@ -105,7 +105,7 @@
 
 ## Results Lib 与 Reports
 
-设计文档:[feature/results/](feature/results/README.md) / [feature/reports/](feature/reports/README.md) / [feature/view/](feature/view/README.md) 合流一节。实现落点(show 与 view 两个宿主的 `--report` 装载都已接线;view = 报告槽 + 证据室,裸跑渲染内置的 `CostPassRateComparison`;两个宿主的报告槽 Selection 都由中性的 `selectCurrentResults` 无条件产出):
+设计文档:[feature/results/](feature/results/README.md) / [feature/reports/](feature/reports/README.md) 合流一节。实现落点(show 与 view 两个宿主的 `--report` 装载都已接线;view = 报告槽 + 证据室,裸跑渲染内置的 `CostPassRateComparison`;两个宿主的报告槽 Selection 都由中性的 `selectCurrentResults` 无条件产出):
 
 | 行为 | 文件 |
 |---|---|

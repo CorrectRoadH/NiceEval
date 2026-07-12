@@ -2,7 +2,7 @@
 
 这一篇讲 `niceeval` 命令行**怎么实现**:入口模块怎么分层、一次调用的数据从 argv 到退出码怎么流转,以及调度核心为什么用 Effect-TS、用在哪几处。面向要改这部分代码的人。
 
-这不是命令 / flag 参考——命令、flag、环境变量、退出码这些面向用户的行为契约,单源在 `src/cli.ts` 的 `FLAG_OPTIONS` 各项 JSDoc,由 `pnpm docs:reference` 生成进 [`docs-site/zh/reference/cli.mdx`](../docs-site/zh/reference/cli.mdx)(英文版 `docs-site/reference/cli.mdx`)——要查某个 flag 干什么,去那里,不要在这篇找。`show` / `view` 各自的命令行为与真实输出示例见 [`feature/show/cli.md`](feature/show/cli.md) / [`feature/view/cli.md`](feature/view/cli.md)。
+这不是命令 / flag 参考——命令、flag、环境变量、退出码这些面向用户的行为契约,单源在 `src/cli.ts` 的 `FLAG_OPTIONS` 各项 JSDoc,由 `pnpm docs:reference` 生成进 [`docs-site/zh/reference/cli.mdx`](../docs-site/zh/reference/cli.mdx)(英文版 `docs-site/reference/cli.mdx`)——要查某个 flag 干什么,去那里,不要在这篇找。`show` / `view` 各自的命令行为与真实输出示例见 [`feature/reports/show.md`](feature/reports/show.md) / [`feature/reports/view.md`](feature/reports/view.md)。
 
 ## 模块地图
 
@@ -121,5 +121,5 @@ const exit = await Effect.runPromiseExit(
 
 - [Runner](runner.md) —— 调度行为的契约(并发、首过即停、budget、指纹缓存)——这篇讲行为,本篇讲这些行为背后的 Effect 机制。
 - [Sandbox · Architecture](feature/sandbox/architecture.md) —— `acquireRelease` 在 provider 创建上的另一处用法、provisioning 重试如何临时归还并发槽位。
-- [Show · CLI](feature/show/cli.md) / [View · CLI](feature/view/cli.md) —— 这两条只读命令各自的行为与真实输出。
+- [Show](feature/reports/show.md) / [View](feature/reports/view.md) —— 这两条只读命令各自的行为与真实输出。
 - [docs-site CLI 参考](../docs-site/zh/reference/cli.mdx) —— 面向用户的命令 / flag / 环境变量文档。

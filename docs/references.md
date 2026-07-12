@@ -28,7 +28,7 @@
 
 ## 相关阅读
 
-- [View](feature/view/README.md) —— 上面几条学到的东西,具体设计在这篇;Compare 是[计划中的小功能](roadmap/view-enhancements.md)。
+- [View](feature/reports/view.md) —— 上面几条学到的东西,具体设计在这篇;Compare 是[计划中的小功能](roadmap/view-enhancements.md)。
 - [Observability](observability.md#结果可视化niceeval-view) —— `niceeval view` 现有能力全貌,对照着看这篇的"还差什么"更清楚。
 - [agent-eval 适配笔记](feature/adapters/reference/agent-eval.md) —— agent-eval 的 adapter 实现(采集 / 转换 / 落地)的源码阅读记录。
 - [OTel GenAI 等标准参考](feature/adapters/reference/otel-genai.md) —— "agent 行为怎么记"的行业标准调研,对比 agent-eval 的自定义方案。
