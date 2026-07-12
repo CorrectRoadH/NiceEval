@@ -14,10 +14,15 @@ niceeval 是一个 TypeScript evals 库。CLI 入口在 `bin/niceeval.mjs`，运
 - **改 `docs-site/`** → 必须先读 `docs-site/AGENTS.md`（公开站的写作指南、术语表和校验规则）。
 
 ## 开发工作流
+### 设计Agent
 实现功能或者修复bug
 - 变更 docs，写下预期的cli的用法与输入、写下library应该用用户怎么用这个api在代码中
 - 变更 docs-site，教用户如何使用该功能
 - 写下变更PLAN在 plan 下面。会有其它 agent 并行来执行
+### 实现Agent
+- 实现功能
+- 在真实的eval相关的repo(如`/Users/ctrdh/Code/coding-agent-memory-evals`) 里面执行 pnpm exec niceeval xxx 测试输出是否与docs下面的预期一样。
+- 如果不是cli相关功能，应该思考用户的用法是否一致
 
 ## 设计原则：beta，不背惯性包袱
 
