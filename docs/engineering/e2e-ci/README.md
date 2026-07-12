@@ -327,6 +327,6 @@ jobs:
 - 不和 tier1 共享 eval:`examples/zh/tier1` 的 eval 继续服务文档叙事,e2e 的套件独立编写、独立演进,两边不建同步关系;从 tier1 拷的只有应用和 adapter(受 drift check 约束)。
 - 不用任何形式的假 AI/本地 mock server:e2e 全程调真实模型,费用通过便宜模型、小 `runs`、per-experiment `budget` 护栏控制,不通过伪造响应控制;PR 门禁和 nightly 的区别是"模型、样本量、跑多勤",不是"真的假的"。
 - 不测"OTel 派生事件"这类断言——OTel 只喂瀑布图,e2e 要测的是它产出了 `trace.json`,不是它替代了事件映射。
-- 不用 `--tag` 做 CI 内的用例切分(当前实现只收单值,与文档不一致;分层用 experiment 的 `evals` 过滤器表达,更明确)。
+- 不用 `--tag` 切分 CI 用例层级；L0 / L1 / L2 的覆盖范围由各 experiment 的 `evals` 过滤器声明，使每层运行哪些 Eval 成为可签入、可审查的配置。
 - 不支持 fork 来的 PR 跑需要 secrets 的 e2e job(GitHub 默认不把 secrets 传给 fork PR;需要更严格的隔离方案的话另开提案)。
 - 版本字段只做格式契约校验,不把具体 `producer.version` 写死到测试里;版本不兼容的读取行为由 view loader 自己测。
