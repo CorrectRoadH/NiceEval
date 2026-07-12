@@ -202,6 +202,12 @@ table.nre,
   margin-left: 0.25em;
 }
 
+/* ---- <Table> 原语:作者自定义列;右对齐是 class,不是内联样式 ---- */
+.nre th.nre-align-right,
+.nre td.nre-align-right {
+  text-align: right;
+}
+
 /* ---- 渐进增强:排序指示(enhance.js 点表头时切类)与行过滤 ---- */
 .nre th[data-nre-sort] {
   cursor: pointer;

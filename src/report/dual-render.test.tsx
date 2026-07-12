@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 import type { EvalResult } from "../types.ts";
 import type { Results, Selection, Snapshot } from "../results/index.ts";
 import type { GroupSummaryData, ScatterData } from "./types.ts";
-import type { MetricScatterProps } from "./index.ts";
+import type { AttemptLocator, MetricScatterProps } from "./index.ts";
 import { evalLevelStats } from "../shared/verdict.ts";
 import {
   AttemptList,
@@ -29,13 +29,17 @@ import {
   Scoreboard,
   Section,
   Style,
+  Table,
   Text,
+  bar,
   costUSD,
   defineComponent,
   defineReport,
   isReportDefinition,
+  padEnd,
   passRate,
   renderReportToText,
+  stringWidth,
 } from "./index.ts";
 import { CostPassRateComparison } from "./built-ins/index.ts";
 import { renderReportToStaticHtml } from "./web.ts";
@@ -544,6 +548,160 @@ describe("排版原语", () => {
   });
 });
 
+// ───────────────────────── Table(自定义表的标准件)─────────────────────────
+//
+// 官方的 MetricTable / MetricMatrix / Scoreboard / DeltaTable 的 text 面就建在它上面
+// (上面那几个 describe 的内联快照即它的输出);这里验收作者直接用它时的四条契约:
+// 显示宽度对齐(中文不撕歪)、右对齐、缺数据 —、超宽折行。
+
+/** 某个片段的右边缘落在第几显示列 —— 右对齐验收看的就是它。 */
+function displayEndOf(line: string, piece: string): number {
+  const at = line.indexOf(piece);
+  expect(at).toBeGreaterThanOrEqual(0);
+  return stringWidth(line.slice(0, at + piece.length));
+}
+
+describe("Table 双面", () => {
+  const cjkTable = (
+    <Table
+      columns={[
+        { key: "eval", header: "题目" },
+        { key: "pass", header: "通过率", align: "right" },
+        { key: "cost", header: "成本", align: "right" },
+      ]}
+      rows={[
+        {
+          key: "记忆/写缓存",
+          locator: "@160iuj3h" as AttemptLocator,
+          cells: { eval: "记忆/写缓存", pass: "87%", cost: "$0.09" },
+        },
+        {
+          key: "浏览/表单填写",
+          locator: "@1qrdcfq8" as AttemptLocator,
+          cells: { eval: "浏览/表单填写", pass: null, cost: null },
+        },
+      ]}
+    />
+  );
+
+  it("中文列宽:按显示宽度对齐(CJK 记 2 列),不是 .length —— String.padEnd 撕歪表的那一步", () => {
+    const term = text(cjkTable);
+    expect(term).toMatchInlineSnapshot(`
+      "题目            通过率    成本   attempt
+      记忆/写缓存        87%   $0.09   @160iuj3h
+      浏览/表单填写        —       —   @1qrdcfq8"
+    `);
+
+    const [header, first, second] = term.split("\n");
+    // 每列的右边缘落在同一显示列:中文格子多一倍显示宽度,补齐必须按显示宽度算
+    expect(displayEndOf(first, "87%")).toBe(displayEndOf(header, "通过率"));
+    expect(displayEndOf(second, "—")).toBe(displayEndOf(header, "通过率"));
+    expect(displayEndOf(first, "$0.09")).toBe(displayEndOf(header, "成本"));
+    expect(displayEndOf(first, "@160iuj3h")).toBe(displayEndOf(second, "@1qrdcfq8"));
+    // 上面那几条不是巧合:UTF-16 码元数与显示宽度在中文上就是不同的两个数,
+    // 拿 .length 补齐(或 String.prototype.padEnd)必然歪
+    expect("记忆/写缓存".length).toBe(6);
+    expect(stringWidth("记忆/写缓存")).toBe(11);
+  });
+
+  it("align: \"right\":长短不一的数字右边缘对齐;默认列仍是左对齐", () => {
+    const term = text(
+      <Table
+        columns={[
+          { key: "agent", header: "agent" },
+          { key: "cost", header: "cost", align: "right" },
+        ]}
+        rows={[
+          { key: "bub", cells: { agent: "bub", cost: "$9.00" } },
+          { key: "codex", cells: { agent: "codex", cost: "$123.45" } },
+        ]}
+      />,
+    );
+    expect(term).toMatchInlineSnapshot(`
+      "agent      cost
+      bub       $9.00
+      codex   $123.45"
+    `);
+    const [, first, second] = term.split("\n");
+    expect(displayEndOf(first, "$9.00")).toBe(displayEndOf(second, "$123.45"));
+    // 左对齐列的左边缘对齐(不传 align 就是 left)
+    expect(first.startsWith("bub")).toBe(true);
+    expect(second.startsWith("codex")).toBe(true);
+  });
+
+  it("null → —,不补 0;cells 里干脆缺这个键也是 —;两面同源", () => {
+    const node = (
+      <Table
+        columns={[
+          { key: "agent", header: "agent" },
+          { key: "pass", header: "pass", align: "right" },
+          { key: "cost", header: "cost", align: "right" },
+        ]}
+        rows={[
+          { key: "bub", cells: { agent: "bub", pass: "87%", cost: "$0.42" } },
+          { key: "claude", cells: { agent: "claude", pass: null } }, // cost 键根本不在
+        ]}
+      />
+    );
+    const term = text(node);
+    const html = renderToStaticMarkup(node);
+    expect(term).toMatchInlineSnapshot(`
+      "agent    pass    cost
+      bub       87%   $0.42
+      claude      —       —"
+    `);
+    for (const face of [term, html]) {
+      expect(face).toContain("—");
+      expect(face).not.toContain("$0.00");
+      expect(face).not.toContain("0%");
+    }
+    expect(html).toContain('<td class="nre-align-right"><span class="nre-missing">—</span></td>');
+  });
+
+  it("超宽:先折最宽的左对齐列(数字列不折),压到下限仍放不下就丢列并如实报数", () => {
+    const wide = (
+      <Table
+        columns={[
+          { key: "eval", header: "eval" },
+          { key: "reason", header: "reason" },
+          { key: "cost", header: "cost", align: "right" },
+        ]}
+        rows={[
+          {
+            key: "weather/brooklyn",
+            cells: {
+              eval: "weather/brooklyn",
+              reason: "gate calledTool(\"get_weather\") — the tool was never called by the agent",
+              cost: "$0.04",
+            },
+          },
+        ]}
+      />
+    );
+    const narrow = renderNodeToText(wide, createTextContext({ width: 48 }));
+    // 折行:一条逻辑行铺成多条物理行,没有一行溢出 48 列
+    const lines = narrow.split("\n");
+    expect(lines.length).toBeGreaterThan(2);
+    for (const line of lines) expect(stringWidth(line)).toBeLessThanOrEqual(48);
+    // 数字列没被折:$0.04 完整出现在某一行上
+    expect(narrow).toContain("$0.04");
+    expect(narrow).toContain("never called");
+
+    // 压到下限还是放不下 → 从右侧丢列,如实报剩余列数(不静默截断)
+    const tiny = renderNodeToText(wide, createTextContext({ width: 20 }));
+    expect(tiny).toContain("(1 more column not shown)");
+    expect(tiny).not.toContain("$0.04");
+  });
+
+  it("行带 locator:web 面链到证据室,text 面多一列 attempt", () => {
+    const html = renderToStaticMarkup(cjkTable);
+    expect(html).toContain('<a class="nre-locator" href="#/attempt/@160iuj3h">@160iuj3h</a>');
+    expect(html).toContain("<thead>");
+    expect(html).toContain("<tbody>");
+    expect(text(cjkTable)).toContain("@160iuj3h");
+  });
+});
+
 // ───────────────────────── 树校验与自定义组件 ─────────────────────────
 
 describe("渲染前树校验", () => {
@@ -578,7 +736,9 @@ describe("defineComponent", () => {
     expect(() => defineComponent({ web: () => null })).toThrow(/requires both faces/);
   });
 
-  it("自定义双面组件:同一份数据两面判读一致,text 面拿到宽度", () => {
+  // custom-reports.mdx「换形态」的 PassBars 示例,逐字同源:text 面用公开的文本排版工具箱
+  // (stringWidth / padEnd / bar),不用 String.prototype.padEnd —— 中文名的那一行是护栏。
+  it("自定义双面组件:同一份数据两面判读一致,text 面拿到宽度;中文行不撕歪", () => {
     interface BarRow {
       key: string;
       ratio: number | null;
@@ -598,22 +758,33 @@ describe("defineComponent", () => {
         );
       },
       text({ rows }, { width }) {
-        const bar = (n: number) => "█".repeat(Math.round(n * 10)).padEnd(10, "░");
         expect(width).toBe(80);
+        const label = Math.max(...rows.map((r) => stringWidth(r.key)));
+        const barWidth = Math.min(20, width - label - 8);
         return rows
-          .map((r) => `${r.key.padEnd(8)} ${r.ratio === null ? "—".padEnd(10) : bar(r.ratio)} ${r.display}`)
+          .map((r) => {
+            const chart = r.ratio === null ? padEnd("—", barWidth) : bar(r.ratio, barWidth);
+            return `${padEnd(r.key, label)}  ${chart}  ${r.display}`;
+          })
           .join("\n");
       },
     });
     const rows: BarRow[] = [
       { key: "bub", ratio: 0.87, display: "87%" },
-      { key: "claude", ratio: null, display: "—" },
+      { key: "codex", ratio: 0.8, display: "80%" },
+      { key: "克劳德", ratio: null, display: "—" },
     ];
     const term = text(<PassBars rows={rows} />);
     expect(term).toMatchInlineSnapshot(`
-      "bub      █████████░ 87%
-      claude   —          —"
+      "bub     █████████████████░░░  87%
+      codex   ████████████████░░░░  80%
+      克劳德  —                     —"
     `);
+    // 三行的条形都从同一显示列开始:"克劳德" 是 3 个码元、6 个显示列,
+    // 拿 .padEnd(label) 补齐会把这一行整体左移 3 列
+    const starts = term.split("\n").map((line, i) => stringWidth(line.slice(0, line.indexOf(["█", "█", "—"][i]))));
+    expect(new Set(starts).size).toBe(1);
+
     const html = renderToStaticMarkup(<PassBars rows={rows} />);
     expect(html).toContain("87%");
     expect(html).toContain("—"); // 缺数据两面都是 —,不补 0

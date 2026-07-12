@@ -30,6 +30,11 @@ const en = {
   "table.eval": "Eval",
   "table.reason": "Reason",
   "table.viewBreakdown": "Per-eval breakdown",
+  /** <Table> 的 locator 列表头(行带 locator 时自动追加)。 */
+  "table.attempt": "attempt",
+  /** <Table> 压到下限仍放不下时,从右侧丢列并如实报数。 */
+  "table.columnsHidden.one": "({n} more column not shown)",
+  "table.columnsHidden.other": "({n} more columns not shown)",
 
   "overview.snapshots": "Snapshots",
   "overview.evals": "Evals",
@@ -104,6 +109,9 @@ const zhCN: Record<ReportMessageKey, string> = {
   "table.eval": "题目",
   "table.reason": "原因",
   "table.viewBreakdown": "逐题明细",
+  "table.attempt": "Attempt",
+  "table.columnsHidden.one": "(还有 {n} 列未列出)",
+  "table.columnsHidden.other": "(还有 {n} 列未列出)",
 
   "overview.snapshots": "快照",
   "overview.evals": "题目",
@@ -174,7 +182,7 @@ export function localeText(
 /** 带单复数的计数文案:n === 1 用 `<base>.one`,其余 `<base>.other`(zh-CN 两键同值)。 */
 export function countText(
   locale: ReportLocale,
-  base: "overview.experiments" | "composedFrom" | "pointsMissing" | "scoreboard.missing",
+  base: "overview.experiments" | "composedFrom" | "pointsMissing" | "scoreboard.missing" | "table.columnsHidden",
   n: number,
 ): string {
   return localeText(locale, `${base}.${n === 1 ? "one" : "other"}` as ReportMessageKey, { n });

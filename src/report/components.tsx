@@ -292,7 +292,7 @@ export const MetricMatrix: ReportComponent<MetricMatrixProps> & { data: typeof m
         attemptHref={props.attemptHref ?? (isHostWebContextActive() ? ctx.attemptHref : undefined)}
       />
     ),
-    text: ({ data }) => matrixText(data),
+    text: ({ data }, ctx) => matrixText(data, ctx),
   }),
   { data: matrixData },
 );

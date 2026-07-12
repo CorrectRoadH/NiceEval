@@ -112,7 +112,7 @@
 | 指标图形 | 指标散点图 | Metric scatter plot | `MetricScatter` | 每点一个可配置维度值,通常是 experiment;坐标是两个聚合指标值 |
 | 指标图形 | 指标趋势图 | Metric line chart | `MetricLine` | 每点一个 experiment;横轴是 experiment flag,纵轴是聚合指标值 |
 | 指标图形 | 成对差异表 | Paired delta table | `DeltaTable` | 每行一对 experiment 或结果快照;格内是指标值及差值 |
-| 行 / 列 / 分节 / 文本 / 样式 | Row / column / section / text / style | `Row` / `Col` / `Section` / `Text` / `Style` | 如何组织报告版面和补充说明;它们不计算结果 |
+| 行 / 列 / 分节 / 文本 / 样式 / 表格 | Row / column / section / text / style / table | `Row` / `Col` / `Section` / `Text` / `Style` / `Table` | 如何组织报告版面和补充说明;它们不计算结果 |
 
 ### 配置与 CLI
 

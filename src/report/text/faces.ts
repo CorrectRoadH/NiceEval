@@ -21,6 +21,7 @@ import type {
   TableData,
 } from "../types.ts";
 import type { TextContext } from "../tree.ts";
+import type { TableColumn, TableRow } from "../primitives.tsx";
 import {
   attemptItemReason,
   capabilityBadge,
@@ -31,7 +32,8 @@ import {
   verdictMark,
 } from "../format.ts";
 import { countText, localeText, resolveMetricLabel, type ReportLocale } from "../locale.ts";
-import { indentBlock, padDisplay, renderAlignedRows, textBar, wrapDisplay } from "./layout.ts";
+import { indentBlock, padDisplay, textBar, wrapDisplay } from "./layout.ts";
+import { renderTableText } from "./table.ts";
 import { renderCharPlot, renderCoordinateTable, type PlotPoint } from "./plot.ts";
 
 const MISSING_MARK = "—";
@@ -120,24 +122,27 @@ export function tableText(data: TableData, ctx: TextContext): string {
   const hasMeta = data.rows.some((row) => row.meta !== undefined);
   const hasModel = data.rows.some((row) => row.meta?.model !== undefined);
   const hasVerdicts = data.rows.some((row) => row.meta?.verdicts !== undefined);
-  const header = [
-    data.dimension,
-    ...(hasMeta && hasModel ? [localeText(locale, "table.model")] : []),
-    ...(hasMeta ? [localeText(locale, "table.agent")] : []),
-    ...data.columns.map((c) => resolveMetricLabel(c.label, locale, c.key)),
-    ...(hasVerdicts ? [localeText(locale, "table.verdicts")] : []),
+  const columns: TableColumn[] = [
+    { key: "dimension", header: data.dimension },
+    ...(hasMeta && hasModel ? [{ key: "model", header: localeText(locale, "table.model") }] : []),
+    ...(hasMeta ? [{ key: "agent", header: localeText(locale, "table.agent") }] : []),
+    // 指标列的键用序号,不用 metric name —— 维度名、"model" 这些键都在同一个命名空间里,
+    // 指标恰好叫 "agent" 时不能把 meta 列顶掉。
+    ...data.columns.map((c, i) => ({ key: `metric${i}`, header: resolveMetricLabel(c.label, locale, c.key) })),
+    ...(hasVerdicts ? [{ key: "verdicts", header: localeText(locale, "table.verdicts") }] : []),
   ];
-  const rows = data.rows.map((row) => [
-    row.key,
-    ...(hasMeta && hasModel ? [row.meta?.model ?? MISSING_MARK] : []),
-    ...(hasMeta ? [row.meta?.agent ?? MISSING_MARK] : []),
-    ...data.columns.map((col) => {
+  const rows: TableRow[] = data.rows.map((row) => {
+    const cells: Record<string, string | null> = { dimension: row.key };
+    if (hasMeta && hasModel) cells.model = row.meta?.model ?? null;
+    if (hasMeta) cells.agent = row.meta?.agent ?? null;
+    data.columns.forEach((col, i) => {
       const cell = (row.cells as Record<string, TableData["rows"][number]["cells"][string]>)[col.key];
-      return cell ? cellText(cell) : MISSING_MARK;
-    }),
-    ...(hasVerdicts ? [row.meta?.verdicts ? verdictTallyText(row.meta.verdicts, locale) : MISSING_MARK] : []),
-  ]);
-  const table = renderAlignedRows([header, ...rows]);
+      cells[`metric${i}`] = cell ? cellText(cell) : null;
+    });
+    if (hasVerdicts) cells.verdicts = row.meta?.verdicts ? verdictTallyText(row.meta.verdicts, locale) : null;
+    return { key: row.key, cells };
+  });
+  const table = renderTableText({ columns, rows, locale }, ctx);
 
   // rows: "experiment" 专属的行摘要(eval/attempt 数 + 最后运行时间):表格列已经挤满
   // dimension/model/agent/指标/verdicts,这几个数字挤进行键下面单独一行,与 web 面
@@ -159,7 +164,7 @@ export function tableText(data: TableData, ctx: TextContext): string {
 
 // ───────────────────────── MetricMatrix ─────────────────────────
 
-export function matrixText(data: MatrixData): string {
+export function matrixText(data: MatrixData, ctx: TextContext): string {
   // 表体全是维度键与 display,没有 chrome 文案;"next:" 是命令提示,不本地化。
   const rowKeys: string[] = [];
   const columnKeys: string[] = [];
@@ -169,15 +174,19 @@ export function matrixText(data: MatrixData): string {
     if (!columnKeys.includes(entry.column)) columnKeys.push(entry.column);
     byPosition.set(JSON.stringify([entry.row, entry.column]), entry.cell);
   }
-  const header = [data.rows, ...columnKeys];
-  const rows = rowKeys.map((row) => [
-    row,
-    ...columnKeys.map((column) => {
+  const columns: TableColumn[] = [
+    { key: "dimension", header: data.rows },
+    ...columnKeys.map((column, i) => ({ key: `column${i}`, header: column })),
+  ];
+  const rows: TableRow[] = rowKeys.map((row) => {
+    const cells: Record<string, string | null> = { dimension: row };
+    columnKeys.forEach((column, i) => {
       const cell = byPosition.get(JSON.stringify([row, column]));
-      return cell ? cellText(cell) : MISSING_MARK; // 稀疏格子在文本里以 — 呈现,不编数
-    }),
-  ]);
-  const table = renderAlignedRows([header, ...rows]);
+      cells[`column${i}`] = cell ? cellText(cell) : null; // 稀疏格子在文本里以 — 呈现,不编数
+    });
+    return { key: row, cells };
+  });
+  const table = renderTableText({ columns, rows, locale: ctx.locale }, ctx);
 
   // 下钻命令:行维度是 eval 时,指向最值得看的一行(先挑有缺格的,再挑按 better 最差的)
   if (data.rows !== "eval" || rowKeys.length === 0) return table;
@@ -265,20 +274,31 @@ export function scoreboardText(data: ScoreboardData, ctx: TextContext): string {
       if (!subjectKeys.includes(subject.key)) subjectKeys.push(subject.key);
     }
   }
-  const header = [data.dimension, localeText(locale, "scoreboard.totalText"), ...subjectKeys];
-  const rows = data.rows.map((row) => [
-    row.key,
-    `${row.total.display}/${data.fullMarks}`,
-    ...subjectKeys.map((key) => {
+  const columns: TableColumn[] = [
+    { key: "dimension", header: data.dimension },
+    { key: "total", header: localeText(locale, "scoreboard.totalText") },
+    ...subjectKeys.map((key, i) => ({ key: `subject${i}`, header: key })),
+  ];
+  const rows: TableRow[] = data.rows.map((row) => {
+    const cells: Record<string, string | null> = {
+      dimension: row.key,
+      total: `${row.total.display}/${data.fullMarks}`,
+    };
+    subjectKeys.forEach((key, i) => {
       const subject = row.subjects.find((s) => s.key === key);
-      if (!subject) return MISSING_MARK;
+      if (!subject) {
+        cells[`subject${i}`] = null;
+        return;
+      }
       const score = `${formatPlainNumber(subject.earned)}/${formatPlainNumber(subject.possible)}`;
-      return subject.missing > 0
-        ? `${score} ${localeText(locale, "scoreboard.missingText", { n: subject.missing })}`
-        : score;
-    }),
-  ]);
-  const table = renderAlignedRows([header, ...rows]);
+      cells[`subject${i}`] =
+        subject.missing > 0
+          ? `${score} ${localeText(locale, "scoreboard.missingText", { n: subject.missing })}`
+          : score;
+    });
+    return { key: row.key, cells };
+  });
+  const table = renderTableText({ columns, rows, locale }, ctx);
   if (data.weights.length === 0) return table;
   // 实际生效的权重表 —— 成绩单可审计
   const weights = data.weights.map((w) => `${w.prefix} ×${w.weight}`).join(" · ");
@@ -408,18 +428,25 @@ export function lineText(data: LineData, ctx: TextContext): string {
 // ───────────────────────── DeltaTable ─────────────────────────
 
 export function deltaText(data: DeltaData, ctx: TextContext): string {
-  const header = ["pair", ...data.columns.map((c) => resolveMetricLabel(c.label, ctx.locale, c.key))];
-  const rows = data.rows.map((row) => [
-    row.key,
-    ...data.columns.map((col) => {
+  const columns: TableColumn[] = [
+    { key: "pair", header: "pair" },
+    ...data.columns.map((c, i) => ({ key: `metric${i}`, header: resolveMetricLabel(c.label, ctx.locale, c.key) })),
+  ];
+  const rows: TableRow[] = data.rows.map((row) => {
+    const cells: Record<string, string | null> = { pair: row.key };
+    data.columns.forEach((col, i) => {
       const cell = (row.cells as Record<string, DeltaData["rows"][number]["cells"][string]>)[col.key];
-      if (!cell) return MISSING_MARK;
+      if (!cell) {
+        cells[`metric${i}`] = null;
+        return;
+      }
       const a = cell.a.value === null ? MISSING_MARK : cell.a.display;
       const b = cell.b.value === null ? MISSING_MARK : cell.b.display;
-      return `${a} → ${b}   ${cell.display}`;
-    }),
-  ]);
-  return renderAlignedRows([header, ...rows]);
+      cells[`metric${i}`] = `${a} → ${b}   ${cell.display}`;
+    });
+    return { key: row.key, cells };
+  });
+  return renderTableText({ columns, rows, locale: ctx.locale }, ctx);
 }
 
 // ───────────────────────── 实体列表(ExperimentList / EvalList / AttemptList)─────────────────────────

@@ -26,9 +26,23 @@ export type {
   WebContext,
 } from "./tree.ts";
 
-// 排版原语(五个内置双面组件)
-export { Row, Col, Section, Text, Style } from "./primitives.tsx";
-export type { LayoutProps, SectionProps, StyleProps } from "./primitives.tsx";
+// 排版原语(六个内置双面组件)
+export { Row, Col, Section, Text, Style, Table } from "./primitives.tsx";
+export type { LayoutProps, SectionProps, StyleProps, TableColumn, TableProps, TableRow } from "./primitives.tsx";
+
+// 文本排版工具箱:自定义组件的 text 面用的就是官方组件那把尺子。
+// 表格有 <Table> 承担,这里只给表以外的形态用 —— 尤其别拿 String.prototype.padEnd 对齐:
+// 它数 UTF-16 码元不数显示列宽,一带中文列就撕歪。renderAlignedRows 刻意不导出。
+export {
+  stringWidth,
+  padDisplay as padEnd,
+  padStartDisplay as padStart,
+  wrapDisplay as wrapText,
+  indentBlock as indent,
+  textBar as bar,
+  joinColumns as columns,
+} from "./text/layout.ts";
+export type { ColumnAlign } from "./text/layout.ts";
 
 // 内置报告(show / view 裸跑时报告槽的出厂填充,一份普通 ReportDefinition,无 renderer 特权)
 export { CostPassRateComparison } from "./built-ins/index.ts";

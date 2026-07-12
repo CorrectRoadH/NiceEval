@@ -25,7 +25,7 @@ description: "报告文件里能摆的全部官方双面组件：每个组件回
 | 指标图形 | 指标趋势图 | Metric line chart | `MetricLine` | 每点一个 experiment；横轴是 experiment flag，纵轴是聚合指标值 |
 | 指标图形 | 成对差异表 | Paired delta table | `DeltaTable` | 每行一对 experiment 或结果快照；格内是指标值及差值 |
 
-`Row`、`Col`、`Section`、`Text` 和 `Style` 是排版原语，不计算结果，因此不算一种分析图。它们的中文统称分别是行、列、分节、文本和样式；代码里始终使用 API 名。
+`Row`、`Col`、`Section`、`Text`、`Style` 和 `Table` 是排版原语，不计算结果，因此不算一种分析图。它们的中文统称分别是行、列、分节、文本、样式和表格；代码里始终使用 API 名。
 
 所有组件共守同一套契约，下面不再逐个重复：
 
@@ -56,6 +56,44 @@ description: "报告文件里能摆的全部官方双面组件：每个组件回
   bub    86.5/100   45/50    41.5/50  │ 满分 100。
   codex  78.0/100   40/50    38/50    │
 ```
+
+## 表格（`Table`）
+
+第六个排版原语：官方组件摆不出的表，用它摆。它不计算任何东西——列由你定，格子是你算好的显示值，它只负责把两个面都排整齐。
+
+```tsx
+<Table
+  columns={[
+    { key: "eval", header: "题目" },
+    { key: "pass", header: "通过率", align: "right" },
+    { key: "cost", header: "成本", align: "right" },
+  ]}
+  rows={[
+    {
+      key: "记忆/写缓存",
+      locator: "@160iuj3h",
+      cells: { eval: "记忆/写缓存", pass: "87%", cost: "$0.09" },
+    },
+    {
+      key: "浏览/表单填写",
+      locator: "@1qrdcfq8",
+      cells: { eval: "浏览/表单填写", pass: null, cost: null },
+    },
+  ]}
+/>
+```
+
+```text
+题目            通过率    成本   attempt
+记忆/写缓存        87%   $0.09   @160iuj3h
+浏览/表单填写        —       —   @1qrdcfq8
+```
+
+列宽按**终端显示宽度**算，中文和全角字符记 2 列——中文题目名、中文 agent 名都不会把表撕歪。`align: "right"` 让数字列右对齐，小数点自然对齐。格子是 `null` 就渲染 `—`，不补 0。行上带 `locator` 就多出一列 attempt：网页面链到证据室，终端面列出 locator，直接喂给 `niceeval show <locator>`。
+
+表比终端宽时先压最宽的左对齐列（按显示宽度折行），右对齐列不折行——数字折行读不了；压到下限仍放不下，就从右侧丢列，并在表下如实报丢了几列，不静默截断。
+
+指标表、指标矩阵、成绩单和成对差异表的终端面就建在 `Table` 上，所以你的表和官方的表用的是同一把尺子。表格之外的形态要自己排字符时，用[自定义报告](/zh/guides/custom-reports)「换形态」一节里那套文本排版函数。
 
 ## 运行总览（`RunOverview`）
 
