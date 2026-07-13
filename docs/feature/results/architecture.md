@@ -262,7 +262,7 @@ interface PhaseTiming {
 
 类型是 `AgentSetupManifest`。沙箱型 Coding Agent Adapter 用它记录该 Attempt 实际安装的 Skill、Agent Native Plugin、MCP Server 与 Python Plugin。Manifest 保存来源、固定 ref、Plugin / Skill 名和可公开的解析版本，不保存 API Key、Token 或其它环境变量值。
 
-它不参与评分，只提供复现与诊断证据。没有安装这些扩展的 Adapter 不生成该文件。完整结构与各 Adapter 的类型边界见 [Coding Agent Skills / Plugins](../adapters/coding-agent-skills-plugins.md#安装-manifest)。
+它不参与评分，只提供复现与诊断证据。没有安装这些扩展的 Adapter 不生成该文件。完整边界见 [Coding Agent 扩展](../adapters/architecture/coding-agent-extensions.md#manifest)。
 
 ### `diff.json`
 

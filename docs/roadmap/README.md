@@ -5,4 +5,5 @@
 设计定稿后按目标形态重写并移入 [`../feature/`](../feature/)，不在原文追加“现已定稿”的时间线说明。
 
 - [Multi-Agent](multi-agent/README.md) —— 多 agent eval 的三种场景
+- [Adapters](adapters/README.md) —— LangGraph、OpenClaw 与其它候选接入
 - [View 增强](view-enhancements.md) —— Compare 挑两次运行对比、Eval 目录页

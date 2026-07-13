@@ -12,7 +12,7 @@ import type { Agent, AgentSetupManifest, McpServer, Sandbox, SkillSpec } from ".
 //
 // 连接方式:在沙箱里 spawn `claude` CLI,跑完读回 transcript JSONL → 标准事件流。
 // 扩展(skill / plugin / MCP)全部是构造参数,setup 里翻译成 Claude Code 的原生形态,
-// 装完写一份 manifest(见 docs/feature/adapters/coding-agent-skills-plugins.md)。
+// 装完写一份 manifest(见 docs/feature/adapters/architecture/coding-agent-extensions.md)。
 // ───────────────────────────────────────────────────────────────────────────
 
 /** Claude Code 的 skill 目录(project 级):CLI 原生扫描它,不需要额外的发现指引。 */

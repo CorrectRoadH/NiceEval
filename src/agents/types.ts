@@ -9,7 +9,7 @@ import type { Sandbox } from "../sandbox/types.ts";
 /**
  * MCP server 描述符 —— 支持 MCP 的 adapter(Claude Code / Codex)共用的工具服务单元,
  * 不是 native plugin 的一种。在 agent factory config 里声明,setup 阶段写进各自的配置文件。
- * 见 docs/feature/adapters/coding-agent-skills-plugins.md「MCP Server」。
+ * 见 docs/feature/adapters/architecture/coding-agent-extensions.md「类型边界」。
  */
 export interface McpServer {
   /** 服务器唯一名(config key)。 */
@@ -25,7 +25,7 @@ export interface McpServer {
 /**
  * Skill 的来源描述 —— Claude Code / Codex / Bub 共用的**数据类型**:只统一「从哪里取得
  * 哪份 Skill」,安装位置、发现机制、要不要额外写 project instruction 由各 Adapter 决定。
- * 见 docs/feature/adapters/coding-agent-skills-plugins.md「SkillSpec」。
+ * 见 docs/feature/adapters/architecture/coding-agent-extensions.md「类型边界」。
  */
 export type SkillSpec =
   | {

@@ -79,22 +79,22 @@ OTEL_TRACES_EXPORT_INTERVAL=1000                      # 拉到近实时,eval 场
 
 ## 跟现有采集矩阵的关系
 
-**已落地(2026-07)**:下文"升级档"描述的接线已经实现——`claudeCodeAgent` 的 `tracing.env` 注入本页这组 env,与 bub/codex 一样默认开启(见 `src/agents/claude-code.ts`),[采集矩阵](../collection.md#采集矩阵现状与-src-对齐)的时间轨一行已同步。span 只有结构与计时(未开内容 flag),行为轨与断言仍走 transcript 旁读,与下文结论一致。
+**已落地(2026-07)**:下文"升级档"描述的接线已经实现——`claudeCodeAgent` 的 `tracing.env` 注入本页这组 env,与 bub/codex 一样默认开启(见 `src/agents/claude-code.ts`)。span 只有结构与计时(未开内容 flag),行为轨与断言仍走 transcript 旁读,与下文结论一致。
 
 ## 结论:这条路径值不值得接
 
-**不建议现在替换行为轨(`StreamEvent[]`)的采集方式。** 磁盘旁读 transcript 免费给全量内容(prompt / 工具参数 / 工具输出 / 助手文本),OTel 版本要拿到同等内容得开三个额外 flag、还处于 beta(字段随时可能变,`user_prompt` 等内容属性文档原文写明"不是稳定 span schema 的一部分")。负断言完整性([契约](../contract.md#负断言的完整性规则))经不起一个 beta 功能说变就变。
+**不建议现在替换行为轨(`StreamEvent[]`)的采集方式。** 磁盘旁读 transcript 免费给全量内容(prompt / 工具参数 / 工具输出 / 助手文本),OTel 版本要拿到同等内容得开三个额外 flag、还处于 beta(字段随时可能变,`user_prompt` 等内容属性文档原文写明"不是稳定 span schema 的一部分")。负断言完整性见 [断言证据](../architecture/evidence.md)。
 
 **值得作为时间轨(`TraceSpan[]`)的可选升级路径考虑,分两档:**
 
 1. **保底档(不用动 adapter 代码):** 什么都不接,继续用 transcript 时间戳合成 span——这是现状,降级安全,`view` 少一些真实的 span 层级细节(比如工具"等权限"和"真正执行"分不开),但断言不受影响。
-2. **升级档(可选,给需要更真实瀑布图的用户):** `claudeCodeAgent` 配置里加一个开关,setup 阶段给沙箱里跑 `claude` 的进程注入上面那组 env(复用沙箱已经有的 `TraceReceiver`,跟 remote agent 的 tracing 走同一个接收器/同一个 `o11y/otlp/mappers/` 归一管线),用户自己决定要不要为了更真实的瀑布图打开内容脱敏(`OTEL_LOG_TOOL_DETAILS` 等)。这是**加法**,不影响现有行为轨,失败也只是"没拿到 trace",不影响断言——符合[采集设计](../collection.md)里"时间轨缺数据是降级,不是契约问题"的既有原则。
+2. **升级档(可选,给需要更真实瀑布图的用户):** `claudeCodeAgent` 配置里加一个开关,setup 阶段给沙箱里跑 `claude` 的进程注入上面那组 env(复用沙箱已经有的 `TraceReceiver`,跟 remote agent 的 tracing 走同一个接收器/同一个 `o11y/otlp/mappers/` 归一管线),用户自己决定要不要为了更真实的瀑布图打开内容脱敏(`OTEL_LOG_TOOL_DETAILS` 等)。这是**加法**,不影响现有行为轨,失败也只是"没拿到 trace",不影响断言——符合[采集设计](../architecture/collection.md)里"时间轨缺数据是降级,不是契约问题"的既有原则。
 
 **不建议**因为这个能力去改变现有"等 `runCommand` 返回再读 transcript"的行为轨轮询模型:近实时的是 span(计时结构),不是行为数据本身——`StreamEvent[]` 需要的完整内容(尤其是断言要读的工具参数/输出/助手文本)目前只有磁盘旁读的完整 transcript 能免费给,OTel 版本要么没内容要么要额外开脱敏 flag 且不保证字段稳定性。
 
 ## 相关阅读
 
-- [采集设计](../collection.md) —— 双轨四通道设计、claude-code 现有采集矩阵。
+- [行为与 Trace 采集](../architecture/collection.md) —— 双轨采集设计。
 - [agent-eval 参考](agent-eval.md) —— agent-eval 的 claude-code 适配源码阅读(纯磁盘旁读,不涉及 OTel)。
 - [OTel GenAI 等标准参考](otel-genai.md) —— OTel GenAI semconv 本身讲的是"字段该叫什么",这篇讲的是"Claude Code 到底发不发、多快发"。
 - [Observability](../../../observability.md) —— niceeval 的 `TraceReceiver` / OTLP 解析管线现状。

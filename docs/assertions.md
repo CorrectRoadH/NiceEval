@@ -406,5 +406,5 @@ t.judge.autoevals.closedQA("语气是否礼貌").atLeast(0.7);   // soft 阈值
 
 - [Eval Authoring](feature/eval/library.md) —— 怎么把这些 API 组织进单轮 / 多轮 / 数据集 / 沙箱型 eval。
 - [Scoring](feature/scoring/README.md) —— 判定规则、judge 细节、效率 / 成本断言。
-- [Adapter 契约](feature/adapters/contract.md) —— 断言读的标准事件流从哪来,以及每条断言对 adapter 的数据义务。
+- [Adapter · 断言证据与完整性](feature/adapters/architecture/evidence.md) —— 断言读的标准事件流从哪来,以及每条断言对 adapter 的数据义务。
 - [Observability](observability.md) —— transcript / usage / cost 的数据来源。

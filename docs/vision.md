@@ -53,7 +53,7 @@ eve 能用一个 url 当 target,是因为它定义了一套协议、被测 agent
 - **Agent** 是抽象(niceeval 眼里"一条连到 AI 的连接")。`Agent.kind` 只有两类。
 - **Adapter** 是它的实现,由用户编写;按 `kind` 分两类:远程(`defineAgent`,按你服务的协议发请求)、沙箱(`defineSandboxAgent`,在 `Sandbox` 里 spawn coding agent 的 CLI)。进程内直调你的函数不是独立的第三类——它只是远程型 `send` 内部的一种实现方式,而且不推荐:测函数绕过了用户实际走的链路,见[接入你的 Agent · 为什么不直调](../docs-site/zh/guides/connect-your-agent.mdx)。
 
-核心通过 `Agent.kind` 和 `send` 的构造证据(而不是声明式能力位)决定 `t` 暴露哪些动作:会话型暴露 `t.send` / `t.calledTool`;沙箱型额外暴露 `t.sandbox`,里面按语义分成文件 IO、命令执行、结果断言 / diff。接一个新 agent(无论是你的 agent 还是 bub)= 实现一个 Adapter,**不动核心一行**。详见 [Adapter 契约](feature/adapters/contract.md)。
+核心通过 `Agent.kind` 和 `send` 的构造证据(而不是声明式能力位)决定 `t` 暴露哪些动作:会话型暴露 `t.send` / `t.calledTool`;沙箱型额外暴露 `t.sandbox`,里面按语义分成文件 IO、命令执行、结果断言 / diff。接一个新 agent(无论是你的 agent 还是 bub)= 实现一个 Adapter,**不动核心一行**。详见 [Adapters](feature/adapters/README.md)。
 
 ### `Sandbox` —— 沙箱型 agent 在哪里跑
 

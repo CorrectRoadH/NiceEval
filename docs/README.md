@@ -36,7 +36,7 @@ docs/
 │
 ├── feature/                             已定稿的目标功能契约
 │   ├── _template/                       新功能文档模板
-│   ├── adapters/                        连接 AI / Agent
+│   ├── adapters/                        连接 AI / Agent；各 SDK 契约见 adapters/sdk/
 │   ├── eval/                            编写 Eval：defineEval
 │   ├── experiments/                     组织运行配置：defineExperiment
 │   ├── sandbox/                         隔离运行环境

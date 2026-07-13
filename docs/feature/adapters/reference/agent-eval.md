@@ -8,7 +8,7 @@
 - Codex 转换:`packages/agent-eval/src/lib/o11y/parsers/codex.ts`
 - 采集(怎么拿到原始 transcript):`packages/agent-eval/src/lib/agents/claude-code.ts`、`codex.ts`、`shared.ts`
 
-这是**学习笔记**,记录别人的具体实现,供设计归一化管线时对照;不是 niceeval 的实现描述——niceeval 自己的 Agent 契约见 [Adapter 契约](../contract.md),能力分档见 [Adapter 写法](../authoring.md)。
+这是**学习笔记**,记录别人的具体实现,供设计归一化管线时对照;不是 niceeval 的实现描述——niceeval 自己的数据契约见 [Adapter Architecture](../architecture.md),调用方式见 [Adapter Library](../library.md)。
 
 ## 目标层长什么样:`TranscriptEvent` / `Transcript`
 
@@ -210,6 +210,6 @@ await sandbox.writeFiles({ '__agent_eval__/results.json': JSON.stringify(context
 
 ## 相关阅读
 
-- [Adapter 契约](../contract.md) / [Adapter 写法](../authoring.md) —— niceeval 自己的 Agent 契约、逐 API 适配义务、能力分档、采集层设计。
+- [Adapter Architecture](../architecture.md) / [Adapter Library](../library.md) —— niceeval 自己的数据契约、调用方式与采集设计。
 - [Observability](../../../observability.md) —— niceeval 的标准事件流(`callId` 配对)、OTLP trace、 artifact 落盘。
 - [References](../../../references.md) —— 调研其它外部项目(如 agent-eval 的 playground/view)学到什么。

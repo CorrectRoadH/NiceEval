@@ -369,7 +369,7 @@ describe("TurnHandle scoped assertions (parked/loadedSkill/noFailedActions/maxTo
 
   // Skill 加载是一等事件,不是「名字叫 load_skill 的工具调用」——adapter 负责归一
   // (claude-code parser 就把 Skill tool_use 直接吐成 skill.loaded)。伪装成工具调用的
-  // 加载断言侧看不见,这是 adapter 违约,不是断言该兜的底(见 docs/feature/adapters/contract.md)。
+  // 加载断言侧看不见,这是 adapter 违约,不是断言该兜的底(见 docs/feature/adapters/architecture/events.md)。
   it("turn.loadedSkill() does not match a tool call that merely happens to be named load_skill", async () => {
     const agent = scriptedAgent([
       {

@@ -1,4 +1,4 @@
-// 安装 Manifest 的落点与读写(定稿见 docs/feature/adapters/coding-agent-skills-plugins.md
+// 安装 Manifest 的落点与读写(定稿见 docs/feature/adapters/architecture/coding-agent-extensions.md
 // 「安装 Manifest」、docs/feature/results/architecture.md「agent-setup.json」)。
 //
 // 分工:**adapter 写**(setup 收尾,知道自己装了什么)、**运行器读**(把它抬成 attempt artifact)。

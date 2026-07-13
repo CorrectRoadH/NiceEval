@@ -92,7 +92,7 @@ LLM 工程平台的数据模型:`Trace`(一次请求)+ 嵌套 `Observation`(span
 
 ## 对 niceeval 的印证与启发
 
-1. **显式 id 配对是共识,agent-eval 是孤例。** OTel(`gen_ai.tool.call.id`)、OpenInference(`tool_call.id`)、AG-UI(`toolCallId`)、OTel 事件体(`tool_call` / `tool_call_response` 的 `id`)全部显式配对;只有 agent-eval 靠顺序。niceeval `StreamEvent` 的 `callId` 站在多数这边(契约纪律见 [Adapter 契约](../contract.md#标准事件流))。
+1. **显式 id 配对是共识,agent-eval 是孤例。** OTel(`gen_ai.tool.call.id`)、OpenInference(`tool_call.id`)、AG-UI(`toolCallId`)、OTel 事件体(`tool_call` / `tool_call_response` 的 `id`)全部显式配对;只有 agent-eval 靠顺序。niceeval `StreamEvent` 的 `callId` 站在多数这边(见 [标准事件模型](../architecture/events.md))。
 2. **工具名跨 agent 归一是 eval 特有的需求,没有任何标准替你做。** 所有标准都保留原始工具名——它们的用户只看自己一个系统,不需要"Claude 的 `Bash` 和 Codex 的 `shell` 是同一件事"。要写 `calledTool("shell")` 这种跨 agent 断言,canonical `ToolName` 映射表(agent-eval 先做,niceeval 沿用)必须自己维护,这层没法外包给标准。
 3. **"拿 OTel 当唯一数据源"不可行,transcript 侧不可替代。** OTel 把消息内容、工具入参这些 eval 最需要断言的东西做成 opt-in(线上敏感数据顾虑);我们又不控制 agent 的 instrumentation(coding agent CLI 发什么是什么)。所以断言数据源必须走 transcript → `StreamEvent[]`,trace 只补"各花了多久、谁套谁"——双轨不是冗余,是两个 schema 各自只解决一半问题。
 4. **mapper 的归一目标可以逐步加宽。** agent spans 新增了 `invoke_workflow` / `plan`,provider 页和 `mcp.*` 在增长;OTel 自己出了 `gen_ai.evaluation.result` 事件。niceeval 的 `SpanKind` 现在收 `turn | model | tool | agent | other` 够用,将来要区分 plan / handoff / guardrail 时,先看标准里有没有现成词,别自造。
@@ -104,4 +104,4 @@ LLM 工程平台的数据模型:`Trace`(一次请求)+ 嵌套 `Observation`(span
 - [otel-instrumentation.md](otel-instrumentation.md) —— 应用侧埋点里内容默认采不采(数据可得性)。
 - [agent-eval 笔记](agent-eval.md) —— 自定义路线的具体实现(采集 / 转换 / 落地、顺序配对的坑)。
 - [Observability](../../../observability.md) —— niceeval 的双轨:StreamEvent 断言 + canonical GenAI trace。
-- [Adapter 契约](../contract.md) —— `StreamEvent` 词汇与逐断言的数据义务。
+- [Adapter Architecture](../architecture.md) —— `StreamEvent` 词汇与证据不变量。

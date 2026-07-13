@@ -1,7 +1,7 @@
 // SkillSpec 的安装实现 —— 三个内置沙箱型 adapter(claude-code / codex / bub)共用的那一半:
 // 「从哪里取得哪份 Skill」(本地目录/文件、repo + ref + 选择集)。另一半——装到哪个目录、
 // 要不要额外写发现指引——留在各 adapter 里,由它们传 `dir` 并自己写 project instruction。
-// 定稿见 docs/feature/adapters/coding-agent-skills-plugins.md。
+// 定稿见 docs/feature/adapters/architecture/coding-agent-extensions.md。
 //
 // 为什么不调 `npx skills add`:那个 installer 没有钉 ref 的入口,也没有机器可读的「这个 repo
 // 里有哪些 skill」输出(-l 只打人看的带 ANSI 的清单),而契约要求「来源必须可复现」(钉 ref)

@@ -147,7 +147,7 @@ export default defineExperiment({
 });
 ```
 
-这是一个真实的 downstream 场景:记忆条件测试里,MCP server(构造期配置,决定"有没有这个工具")走 `codexAgent({ mcpServers: [...] })`;环境层(这次实验要不要装某个二进制、预热、维护跨 attempt 的记忆状态)走 `.setup()` / `.teardown()`。两条职责线不混:MCP/skills/model 依旧只从 adapter factory 进,钩子不复制 factory 拥有的配置知识,见 [Adapter 契约 · 三类配置的归属](../adapters/contract.md#三类配置的归属本地配--实验传入--ctx-透传)。
+这是一个真实的 downstream 场景:记忆条件测试里,MCP server(构造期配置,决定"有没有这个工具")走 `codexAgent({ mcpServers: [...] })`;环境层(这次实验要不要装某个二进制、预热、维护跨 attempt 的记忆状态)走 `.setup()` / `.teardown()`。两条职责线不混:MCP/skills/model 依旧只从 adapter factory 进,钩子不复制 factory 拥有的配置知识,见 [Adapter · 配置归属不变量](../adapters/architecture/agent-contract.md#配置归属不变量)。
 
 跨 attempt 状态本身没有框架原语——没有 `persistentState` 这类东西。载入 / 回存是用户在 `setup` / `teardown` 里自己写的普通代码(读写一个外部 KV、文件、数据库,用什么都行);要用哪个键隔离不同实验的状态,靠 `ctx.experimentId`——`AgentContext` 新增的只读字段,值是路径推导的实验 id(与结果里 `experimentId` 同源),不经 experiment 跑时是 `undefined`。[载入…回存] 这段读写外部状态的代码是临界区,想让同一实验的 attempt 不并发踩踏,在 experiment 上声明 `maxConcurrency: 1` 即可串行,不需要框架另设锁。
 
@@ -162,7 +162,7 @@ remote 型 agent(`kind: "remote"`)没有真实沙箱,`experiment.sandbox` 对它
 | 要准备的东西 | 放哪 | 怎么清理 |
 |---|---|---|
 | **这次实验**要按配置变化的环境(装二进制、预热模型、写 hook 文件、跨 attempt 状态) | [沙箱生命周期钩子](#沙箱生命周期钩子setup--teardown):`sandbox.setup()` / `.teardown()` | `teardown` 显式回收(回存状态、清外部资源);沙箱内文件随销毁自动没了 |
-| 连 agent、装 CLI、写 agent 自己的主配置(每 attempt 一次) | [`SandboxAgent.setup`](../adapters/contract.md#agent-契约) | 随沙箱销毁,无需手工清 |
+| 连 agent、装 CLI、写 agent 自己的主配置(每 attempt 一次) | [`SandboxAgent.setup`](../adapters/architecture/agent-contract.md#生命周期不变量) | 随沙箱销毁,无需手工清 |
 | **这条 eval** 的任务夹具、对跑到它的所有实验都生效的沙箱预置 | `EvalDef.setup` 或 `test(t)` 里的普通代码(`t.sandbox.writeFiles` / `runCommand`) | 随沙箱销毁;要清沙箱外的东西用 `try/finally` |
 | **整个 run 共享**的外部服务(mock API、共享 DB、license) | 外部编排:`docker compose up -d && niceeval exp … && docker compose down`,或 CI 脚本 | 外部编排负责,URL 经 env 传入 agent / eval |
 

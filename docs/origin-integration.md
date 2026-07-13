@@ -32,7 +32,7 @@ examples/zh/tier1/<name>/
 
 ### adapter 骨架
 
-adapter 的 `send` 每轮做的事,按顺序,不声明任何 `capabilities`——`t` 上解锁什么由 `send` 实际做到了什么决定(见[契约 · 能力从哪来](feature/adapters/contract.md#能力从哪来构造证明不是问卷)):
+adapter 的 `send` 每轮做的事,按顺序,不声明任何 `capabilities`——`t` 上解锁什么由 `send` 实际做到了什么决定(见[能力由构造证明](feature/adapters/architecture/agent-contract.md#能力由构造证明)):
 
 ```ts
 // agents/<name>.ts

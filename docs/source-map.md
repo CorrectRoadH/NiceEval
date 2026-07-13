@@ -15,7 +15,9 @@
 | `defineEval` / `defineConfig` / `defineExperiment` / `defineAgent` / `defineSandboxAgent` / `defineSandbox` | `src/define.ts` |
 | `requireEnv` / 工具 | `src/util.ts` |
 
-## Agents 与 Adapters([adapters/contract.md](feature/adapters/contract.md) / [adapters/authoring.md](feature/adapters/authoring.md))
+## Agents 与 Adapters([入口](feature/adapters/README.md) / [库用法](feature/adapters/library.md) / [架构](feature/adapters/architecture.md))
+
+公共调用与组合按任务位于 `feature/adapters/library/`；数据结构、状态机与完整性不变量位于 `feature/adapters/architecture/`。
 
 | 行为 | 文件 |
 |---|---|
@@ -29,8 +31,11 @@
 | `fromAiSdk`(AI SDK 结果 → 标准事件流,v4/v5/v7 字段漂移兜底;v7 tool approval → `input.requested` + `status: "waiting"`) | `src/agents/ai-sdk.ts`(+ 同目录 `.test.ts`) |
 | 内置 adapter(claude-code / codex / bub) | **由被测项目自带**(`agents/*.ts`),niceeval 提供 `shared` + 解析器 |
 | `uiMessageStreamAgent`(AI SDK UI Message Stream 协议的内置无侵入 adapter) | `src/agents/ui-message-stream.ts` |
+| SDK 原生事件流转换器(`fromClaudeSdkMessages` / `fromPiAgentEvents` / `fromCodexThreadEvents`) | `src/agents/sdk-streams.ts`(+ 同目录 `.test.ts`);逐 SDK 契约见 `docs/feature/adapters/sdk/` |
+| LangGraph 官方事件流转换器(目标契约,待实现) | `src/agents/langgraph.ts`(规划落点);契约见 `docs/feature/adapters/sdk/langgraph.md` |
+| OpenClaw sandbox Agent(目标契约,待实现) | `src/agents/openclaw.ts` + `src/o11y/parsers/openclaw.ts`(规划落点);契约见 `docs/feature/adapters/sdk/openclaw.md` |
 
-## Coding Agent Skills / Plugins DX([adapters/coding-agent-skills-plugins.md](feature/adapters/coding-agent-skills-plugins.md))
+## Coding Agent Skills / Plugins DX([用法](feature/adapters/library/coding-agent-extensions.md) / [架构](feature/adapters/architecture/coding-agent-extensions.md))
 
 | 行为 | 文件 |
 |---|---|

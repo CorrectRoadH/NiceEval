@@ -60,7 +60,7 @@ type RuntimeActionRequest =
   | { kind: "remote-agent-call"; callId: string; name: string; remoteAgentName: string; nodeId: string; description: string; input: JsonObject };
 ```
 
-`load-skill` 在 eve 里是一种 action kind——niceeval 不照搬这个位置:Skill 加载在 niceeval 是 `skill.loaded` 一等事件,adapter 负责从各自的原生形态(eve 的 `load-skill` action kind、Claude Code 的 Skill `tool_use`)识别出来并归一,`t.loadedSkill` 只读这条事件(见[适配器契约](../contract.md#标准事件流))。subagent 调用在 eve 里也是 action 的一种,再由运行时展开成 `subagent.*` 事件。
+`load-skill` 在 eve 里是一种 action kind——niceeval 不照搬这个位置:Skill 加载在 niceeval 是 `skill.loaded` 一等事件,adapter 负责从各自的原生形态(eve 的 `load-skill` action kind、Claude Code 的 Skill `tool_use`)识别出来并归一,`t.loadedSkill` 只读这条事件(见[标准事件模型](../architecture/events.md))。subagent 调用在 eve 里也是 action 的一种,再由运行时展开成 `subagent.*` 事件。
 
 ### `InputRequest`:HITL 请求的完整形状
 
@@ -123,5 +123,5 @@ interface RuntimeIdentity {
 
 - [agent-eval 笔记](agent-eval.md) —— 逆向适配路线:采集 / 转换 / 落地三层与顺序配对的坑。
 - [OTel GenAI 等标准](otel-genai.md) —— 标准化遥测路线;三条路线的汇总对照表在那篇。
-- [Adapter 契约](../contract.md) —— niceeval 自己的 `StreamEvent` 词汇与逐 API 义务。
+- [Adapter Architecture](../architecture.md) —— niceeval 自己的事件模型与实现不变量。
 - [Observability](../../../observability.md) —— 双轨设计:StreamEvent 断言 + canonical GenAI trace。

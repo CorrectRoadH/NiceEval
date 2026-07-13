@@ -6,7 +6,7 @@
 
 ## Transcript → 标准事件流
 
-每个 agent 都吐自己格式的 transcript(Claude Code 一种 JSONL、Codex 另一种、bub 又一种)。直接消费这些就得到处写 `if (agent === ...)`。adapter 的核心活,就是把它**归一化**成那条[标准事件流 `StreamEvent[]`](feature/adapters/contract.md#标准事件流) —— 它既是 trace,也是整套断言的唯一数据源,断言和报告只面对它。
+每个 agent 都吐自己格式的 transcript(Claude Code 一种 JSONL、Codex 另一种、bub 又一种)。直接消费这些就得到处写 `if (agent === ...)`。adapter 的核心活,就是把它**归一化**成那条[标准事件流 `StreamEvent[]`](feature/adapters/architecture/events.md) —— 它既是 trace,也是整套断言的唯一数据源,断言和报告只面对它。
 
 每个 agent 一个解析器,住在 `o11y/parsers/<agent>.ts`,把原始 JSONL 映射成标准 `StreamEvent[]`。**这是接新 agent 的第二件事**(第一件是 adapter 的 `send`):没有解析器,trace 就退化成不透明字符串。归一化失败不崩:保留原始 JSONL,并在该 eval 的 `result.json` 上标 `parseSuccess: false`。
 
@@ -19,9 +19,9 @@ type ToolName =
   | "glob" | "grep" | "list_dir" | "agent_task" | "unknown";
 ```
 
-core 再从这条流派生两样:`deriveRunFacts(events)`(toolCalls / subagents / parked,供断言,见 [Adapter 契约](feature/adapters/contract.md#派生事实core-算共享agent-无关)),以及下面给人/给沙箱内手工跑的验证测试看的 o11y 摘要。
+core 再从这条流派生两样:`deriveRunFacts(events)`(toolCalls / subagents / parked,供断言,见 [标准事件模型 · 派生事实](feature/adapters/architecture/events.md#派生事实)),以及下面给人/给沙箱内手工跑的验证测试看的 o11y 摘要。
 
-原始 transcript 具体怎么从 agent CLI 弄到手(磁盘旁读 / stdout 捕获 / OTLP 推送)、采集层与转换层的边界怎么分,属于"怎么写 adapter"的范畴,见 [Adapter 写法 · 采集层](feature/adapters/authoring.md#采集层原始数据怎么从-agent-cli-弄到手)。
+原始 transcript 具体怎么从 agent CLI 弄到手(磁盘旁读 / stdout 捕获 / OTLP 推送)、采集层与转换层的边界怎么分,属于"怎么写 adapter"的范畴,见 [Sandbox Agent · Transcript 采集](feature/adapters/library/sandbox-agent.md#transcript-采集)。
 
 ## o11y 派生摘要
 
@@ -325,5 +325,5 @@ eval 级 reporter 经作用域包装接入(`scopeReporter`,见 `src/runner/repor
 - [Scoring](feature/scoring/README.md) —— 作用域断言如何消费 o11y。
 - [Runner](runner.md) —— 报告队列与 artifact 落盘的调度。
 - [Results Format](feature/results/architecture.md) —— `.niceeval/<experiment>/<snapshot>/` 的目录结构与 JSON 文件契约。
-- [Adapter 写法](feature/adapters/authoring.md) —— 接新 agent 需要的解析器、采集层怎么弄到原始数据。
+- [编写 Adapter](feature/adapters/library/writing-an-adapter.md) / [流式协议与共享工具](feature/adapters/library/streaming.md) —— 接新 Agent 的解析器、采集和 reducer 组合方式。
 - [agent-eval 参考:采集 / 转换 / 落地三层](feature/adapters/reference/agent-eval.md) —— Vercel agent-eval 怎么写 adapter 的学习记录。

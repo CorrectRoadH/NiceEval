@@ -2,7 +2,7 @@
 
 **来源:** 各框架官方文档 / 源码(2026-07 抓取,URL 见各节)。这是**调研记录**:如果要把「用这些框架写的 agent」接进 niceeval,每家的 API 面和遥测面长什么样。和两篇姊妹调研对照着读:[otel-genai.md](otel-genai.md) 讲「记录 agent 行为的 schema 标准」,[otel-instrumentation.md](otel-instrumentation.md) 讲「应用侧现成 OTel 埋点里有什么数据」;本篇讲**框架原生 API 本身**。
 
-覆盖四家:OpenAI Agents SDK、Claude Agent SDK、LangGraph、pi。AI SDK 不重复(已是内建 adapter,见 [collection.md](../collection.md) 通道 0),但列进末尾对照表。
+覆盖四家:OpenAI Agents SDK、Claude Agent SDK、LangGraph、pi。AI SDK 不重复(已是内建 adapter,见 [行为与 Trace 采集](../architecture/collection.md)),但列进末尾对照表。
 
 ## OpenAI Agents SDK(`openai-agents` / `@openai/agents`)
 
@@ -66,4 +66,4 @@
 - [otel-instrumentation.md](otel-instrumentation.md) —— 应用侧现成 OTel 埋点里有什么数据(mixin 可行性的证据)。
 - [otel-genai.md](otel-genai.md) —— 记录 agent 行为的 schema 标准对照(OTel GenAI / OpenInference / AG-UI …)。
 - [Observability · OTLP traces](../../../observability.md#otlp-traces--统一瀑布图) —— OTel 在当前设计里的实际角色(只画瀑布图,不产出事件)。
-- [Adapter 契约](../contract.md) —— 这些原语要映射到的目标形状。
+- [标准事件模型](../architecture/events.md) —— 这些原语要映射到的目标形状。

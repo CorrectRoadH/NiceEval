@@ -148,7 +148,7 @@ export default defineExperiment({
 });
 ```
 
-常规运行时,agent 由 experiment 提供 —— 这让同一份 eval 能换着被测对象跑(本地 vs 部署、agent A vs agent B),同时运行配置可签入、可复现。怎么写一个 agent,详见 [Adapter 写法](../adapters/authoring.md);experiment 的完整形状见 [Experiments](../experiments/README.md)。
+常规运行时,agent 由 experiment 提供 —— 这让同一份 eval 能换着被测对象跑(本地 vs 部署、agent A vs agent B),同时运行配置可签入、可复现。怎么写一个 agent,详见 [编写 Adapter](../adapters/library/writing-an-adapter.md);experiment 的完整形状见 [Experiments](../experiments/README.md)。
 
 ## 沙箱型:手工把文件放进沙箱
 
