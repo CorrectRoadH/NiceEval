@@ -132,6 +132,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 
 ## 设计决定
 
+- [e2e-repo-autonomy-replaces-shared-suite](e2e-repo-autonomy-replaces-shared-suite.md) — 裁决（2026-07-13）：E2E 从共享 factory/profile + 中央 verifier 翻案为独立 repo；每个 repo 自有 app/adapter/eval/experiment/验收，根仓只注入候选包并编排，crabbox 原样执行 repo 命令
 - [ai-bundled-docs-root-index](ai-bundled-docs-root-index.md) — 裁决：AI 随包文档以 npm 包根 `INDEX.md` 为稳定路由入口，不放进 Mintlify 内容树；INIT 与托管指引只依赖该入口
 - [terminology-overhaul-2026-07](terminology-overhaul-2026-07.md) — 术语大改名裁决(两批):Outcome→Verdict(经 Conclusion 同日翻案,eve/TTCN-3 先例)、Backend→Provider、早停→首过即停(代码名不动)、Judge/Attempt/Turn/artifact/Selection 中文直用、值断言/严重度/dual-render、结果快照限定语;多义词逐语境甄别纪律
 - [sandbox-field-no-bare-string](sandbox-field-no-bare-string.md) — `sandbox` 字段只接受工厂产出的 SandboxSpec:不接受裸字符串、没有默认值、没有自动探测(用户 review 明确定案)

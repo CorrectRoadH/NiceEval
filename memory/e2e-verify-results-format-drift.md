@@ -11,6 +11,6 @@ metadata:
 
 对照 `docs/engineering/e2e-ci/README.md` §5，verify.mjs 本该做三件事：①退出码+落盘对账、②缓存行为专项（--force vs 不带时 `artifactBase` 的断言）、③artifact 形状专项（抽查 `snapshot.json`/`result.json`/`events.json` 字段）。实际代码只实现了①，且用错文件名，等于 0/3 生效；②③从未写过。`e2e/README.md` 和 `verify.mjs` 自己的头部注释也还停在旧措辞。
 
-**修法**：e2e 正在重构，不值得现在修 verify.mjs 再被推翻一次。临时止血 = 暂停 `e2e.yml` 的自动触发（`push`/`pull_request`/`schedule` 三个触发器全部注释掉，只留 `workflow_dispatch`），不拿一个已知会红的检查挡日常 push（`.github/workflows/e2e.yml`,2026-07-13）。真正修复要等 e2e 重构落地时一并做：把 `latestSummary()` 一类的手工扫描换成 `openResults()`（或至少复用 `format.ts` 导出的 `RESULT_FILE`/`SNAPSHOT_FILE` 常量），并补上文档承诺但代码缺失的缓存行为、artifact 形状两项专项校验，重构完成后把三个触发器加回来。
+**修法**：e2e 正在重构，不值得现在修 verify.mjs 再被推翻一次。临时止血 = 暂停 `e2e.yml` 的自动触发（`push`/`pull_request`/`schedule` 三个触发器全部注释掉，只留 `workflow_dispatch`），不拿一个已知会红的检查挡日常 push（`.github/workflows/e2e.yml`,2026-07-13）。最终设计随后翻案为「独立 repo 自有验收，根编排器不读 `.niceeval/`」：适配 repo 通过 `--json` / `openResults()` 验收自己的领域契约，Results 与 cache 形状由专门 contract repo 验证，见 [[e2e-repo-autonomy-replaces-shared-suite]]。重构完成后再恢复三个自动触发器。
 
 另有一个独立的、无关的红：`ci.yml` 的 `Package and site` job 里 `INIT.md` 与 `site/public/INIT.md` 内容不同步（纯文案漂移，diff 就能看出来），未处理，不在本条目范围内。
