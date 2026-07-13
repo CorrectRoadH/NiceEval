@@ -245,7 +245,9 @@ experiment 跑(如脱离 CLI、直接构造 `AgentRun` 的场景)时为 undefine
 readonly sandbox: Sandbox;
 ```
 
-仅沙箱型 agent 有(运行器按 --sandbox 备好)。
+所有 agent 都有:沙箱型是运行器按项目/experiment 配置备好的真实沙箱句柄,remote 型是
+`createRemoteSandbox()` 产出的 stub(仅含 `workdir`/`sandboxId`/`otlpHost`/`stop` 等
+元信息,其余方法调用即抛错)。
 
 #### `session`
 

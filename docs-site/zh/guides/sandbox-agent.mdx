@@ -88,6 +88,7 @@ export default defineExperiment({
 createSandbox
   → sandbox spec 的 .setup() 钩子?    # 环境准备（按实验装东西）；没挂就跳过
   → git init && git commit
+  → eval 的 setup?                   # 这条 eval 的任务夹具（如果定义了）
   → adapter.setup?                   # 装 CLI / 写 agent 配置
   → test(t): uploadDirectory(...)     # 写入这条 eval 的起始文件
   → adapter.send(input, ctx)

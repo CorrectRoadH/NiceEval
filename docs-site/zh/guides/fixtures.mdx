@@ -117,8 +117,10 @@ t.check(result.stdout.trim(), includes(/ok/));
 也可以运行项目自己的 test/lint/build 脚本：
 
 ```ts
+import { commandSucceeded } from "niceeval/expect";
+
 const result = await t.sandbox.runCommand("npm", ["test"]);
-t.check(result.exitCode, includes(0));
+t.check(result, commandSucceeded());
 ```
 
 ## 用 experiment 做对照组

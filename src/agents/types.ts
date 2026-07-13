@@ -221,7 +221,11 @@ export interface AgentContext {
    * 具体取值)是两个维度——这里只是「跑的是哪个实验」的稳定标识,不携带条件内容。
    */
   readonly experimentId?: string;
-  /** 仅沙箱型 agent 有(运行器按 --sandbox 备好)。 */
+  /**
+   * 所有 agent 都有:沙箱型是运行器按项目/experiment 配置备好的真实沙箱句柄,remote 型是
+   * `createRemoteSandbox()` 产出的 stub(仅含 `workdir`/`sandboxId`/`otlpHost`/`stop` 等
+   * 元信息,其余方法调用即抛错)。
+   */
   readonly sandbox: Sandbox;
   readonly session: AgentSession;
   /**

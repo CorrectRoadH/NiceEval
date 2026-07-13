@@ -32,7 +32,7 @@ description: "报告文件里能摆的全部官方双面组件：每个组件回
 - **诚实渲染。** 缺数据渲染 `—` 不补 0；覆盖不全的格子带 `12/15` 角标；截断如实标注剩余数量与原始 artifact 路径。
 - **排序与方向随指标的 `better`。** higher 的指标降序、lower 的升序，「好」的一头恒在上、在右上。
 - **证据室深链。** 网页面的格子、点和条目深链到 Attempt 详情；终端面用同一 Attempt locator 交给 `niceeval show @<id>`。
-- **终端输出形成反馈闭环。** 每个 Attempt 有一个以 `@` 开头的短 locator，例如 `@1k2m9qrs`。它唯一指向 experiment、结果快照、Eval 和 Attempt。`✓` / `✗` / `!` / `–` 是 passed / failed / errored / skipped；`[E]` 表示运行时 Eval 源码可用，`[X]` 表示执行步骤可用，`[⏱]` 表示 OTel 时间可用，`[D]` 表示工作区 diff 可用。执行步骤统一包含消息、thinking、tool call/result 和 Skill load；OTel 只给这些步骤补时间，不另开一份输出。
+- **终端输出形成反馈闭环。** 每个 Attempt 有一个以 `@` 开头的短 locator，例如 `@1k2m9qrs`。它唯一指向 experiment、结果快照、Eval 和 Attempt。`✓` / `✗` / `!` / `–` 是 passed / failed / errored / skipped。列表不用字母缩写编码证据可用性——locator 本身就是证据入口；打开 attempt（`niceeval show @<locator>`）后再列出实际可用的证据命令。执行步骤统一包含消息、thinking、tool call/result 和 Skill load；OTel 只给这些步骤补时间，不另开一份输出。
 - **两面同口径，网页面不依赖 JS 也完整。** 排序在计算时由 `sort` 定死，终端和网页看到同一份基准顺序；下钻是普通链接、展开折叠用 `<details>`。网页面另有一层浏览操作：点表头就地重排、榜单行过滤、图表点位悬停看数值——只影响眼前的视图，不改数据口径，刷新即回基准顺序；浏览器禁用 JS 时这些操作消失，内容一样不少（悬停信息退化为图内提示）。
 
 ## 排版原语
@@ -147,15 +147,15 @@ const experiments = await ExperimentList.data(selection);
 ```text
 compare/bub-gpt-5.4 · bub · gpt-5.4
   pass 87% · 13 passed / 1 failed / 1 errored · 42 attempts · 4m 12s · $0.42
-  ✓ algebra/quadratic   @12f9k3aq✓[E,X,⏱] @141bm7cx✓[E,X,⏱]   18s avg · $0.02 avg
-  ✗ weather/brooklyn    @1k2m9qrs✗[E,X,⏱] @1nx4dpqr✗[E,X] @19vq2jex✗[E,X]   gate calledTool("get_weather")
-  ! fixtures/button     @1c3h6twx![E,D]   command timed out after 120s
+  ✓ algebra/quadratic   @12f9k3aq✓ @141bm7cx✓   18s avg · $0.02 avg
+  ✗ weather/brooklyn    @1k2m9qrs✗ @1nx4dpqr✗ @19vq2jex✗   gate calledTool("get_weather")
+  ! fixtures/button     @1c3h6twx!   command timed out after 120s
 
 compare/codex-gpt-5.4 · codex · gpt-5.4
   pass 80% · 12 passed / 3 failed · 45 attempts · 5m 03s · $0.51
-  ✓ algebra/quadratic   @1d8p4kwz✓[E,X,⏱]   16s · $0.02
-  ✗ algebra/matrix      @1e2j7mxa✗[E,X] @1f5r9nab✗[E,X,⏱] @1g4w8pcd✗[E,X,⏱]   gate equals("42")
-  ✗ weather/brooklyn    @1h6t3vbe✗[E,X,⏱] @1j9m2qfg✗[E,X,⏱] @1k7c5rxh✗[E,X,⏱]   gate calledTool("get_weather")
+  ✓ algebra/quadratic   @1d8p4kwz✓   16s · $0.02
+  ✗ algebra/matrix      @1e2j7mxa✗ @1f5r9nab✗ @1g4w8pcd✗   gate equals("42")
+  ✗ weather/brooklyn    @1h6t3vbe✗ @1j9m2qfg✗ @1k7c5rxh✗   gate calledTool("get_weather")
 
 inspect: niceeval show @<id> [--eval|--execution|--diff]
 ```
@@ -181,13 +181,13 @@ const evals = await EvalList.data(selection);
 ```text
 weather/brooklyn · compare/bub-gpt-5.4 · failed
   score 0.20 · 3 attempts · 41s avg · $0.04 avg
-  @1k2m9qrs✗[E,X,⏱] · gate calledTool("get_weather") — tool was never called
-  @1nx4dpqr✗[E,X]   · gate calledTool("get_weather") — tool was never called
-  @19vq2jex✗[E,X]   · gate calledTool("get_weather") — tool was never called
+  @1k2m9qrs✗ · gate calledTool("get_weather") — tool was never called
+  @1nx4dpqr✗ · gate calledTool("get_weather") — tool was never called
+  @19vq2jex✗ · gate calledTool("get_weather") — tool was never called
 
 fixtures/button · compare/bub-gpt-5.4 · errored
   score — · 1 attempt · 2m 00s · $0.09
-  @1c3h6twx![E,D] · command timed out after 120s
+  @1c3h6twx! · command timed out after 120s
 
 inspect: niceeval show @<id> [--eval|--execution|--diff]
 ```
@@ -209,13 +209,13 @@ const attempts = await AttemptList.data(selection, { redact });
 `niceeval show` 每项完整输出一个 Attempt，不再折叠到 Eval 汇总。这里已经是叶子层，只在末尾给一条与该 Attempt 可用证据对应的模板：
 
 ```text
-✗ @1k2m9qrs · weather/brooklyn · compare/bub-gpt-5.4 · 41s · $0.04 · [E,X,⏱]
+✗ @1k2m9qrs · weather/brooklyn · compare/bub-gpt-5.4 · 41s · $0.04
   gate calledTool("get_weather") · failed
     tool was never called
   soft judge("回答基于实时数据") · 0.2/1
     reply invents a temperature
 
-! @1c3h6twx · fixtures/button · compare/bub-gpt-5.4 · 2m 00s · $0.09 · [E,D]
+! @1c3h6twx · fixtures/button · compare/bub-gpt-5.4 · 2m 00s · $0.09
   command timed out after 120s
 inspect: niceeval show @<id> [--eval|--execution|--diff]
 

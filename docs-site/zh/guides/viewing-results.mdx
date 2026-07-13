@@ -91,8 +91,8 @@ niceeval show weather/brooklyn --history      # 跨 run 时间轴：抖动与回
 $ niceeval show weather/brooklyn
 weather/brooklyn — 布鲁克林天气查询
 
-compare/bub-gpt-5.4     ✓ passed   1 attempt    38.0s   $0.03   (2h ago)    @1xqur9kx[E,X,⏱]
-compare/codex-gpt-5.4   ✗ failed   3 attempts   41.2s   $0.12   (40s ago)   @1k2m9qrs[E,X,⏱]   gate calledTool("get_weather")
+compare/bub-gpt-5.4     ✓ passed   1 attempt    38.0s   $0.03   (2h ago)    @1xqur9kx
+compare/codex-gpt-5.4   ✗ failed   3 attempts   41.2s   $0.12   (40s ago)   @1k2m9qrs   gate calledTool("get_weather")
 
 attempt 3 · compare/codex-gpt-5.4 · failed · 41.2s · 12.3k tokens · $0.04
   ✗ gate calledTool("get_weather") — tool was never called
@@ -101,7 +101,7 @@ attempt 3 · compare/codex-gpt-5.4 · failed · 41.2s · 12.3k tokens · $0.04
 
 artifacts: .niceeval/compare_codex-gpt-5.4/2026-07-09T10-00-00-000Z-x1f2/weather/brooklyn/a2/
 attempt locator: @1k2m9qrs
-next: niceeval show @1k2m9qrs [--eval|--execution|--diff]
+next: niceeval show @1k2m9qrs [--eval|--execution]
 ```
 
 每个 experiment 一行的紧凑索引末尾就带着代表 attempt 的 `@<locator>`（`compare/bub-gpt-5.4` 只有一次 attempt 就代表它自己，`compare/codex-gpt-5.4` 代表的是默认展开的那一次失败）；展开的明细块结尾再重复一次精确的 `attempt locator:`，两处给的是同一个值。想看别的 attempt（比如 `compare/codex-gpt-5.4` 更早失败的那次），去 `--history` 或 artifact 目录里找到它的 locator，`niceeval show @<locator>` 直接跳过去，不需要先回到这张列表。
@@ -130,9 +130,10 @@ timing: OTel spans recorded for this attempt — see --execution for per-step ti
 
 changes: diff unavailable · no workspace diff was recorded for this attempt
 
-evidence: eval source [E] · execution [X] · OTel timing [⏱]
 artifacts: .niceeval/compare_codex-gpt-5.4/2026-07-09T10-00-00-000Z-x1f2/weather/brooklyn/a2/
-next: niceeval show @1k2m9qrs [--eval|--execution|--diff]
+available:
+  niceeval show @1k2m9qrs --eval
+  niceeval show @1k2m9qrs --execution
 ```
 
 这份全景只给摘要，不复现某个切面的完整内容——完整源码、完整事件流或完整文件列表分别要对应的证据 flag 才给。`changes` 一行永远说明 diff 不可用的具体原因：这里是「这次 Attempt 从未收集过 diff」（`weather/brooklyn` 不是 sandbox eval，压根不会有工作区改动可收集）；如果是 sandbox eval 但 agent 确实没碰任何文件，会是另一句「没有产生工作区文件改动」；两种「不可用」原因不同，不共用一句含糊的提示。

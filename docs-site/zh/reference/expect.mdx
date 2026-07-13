@@ -200,13 +200,18 @@ atLeast(threshold: number): ValueAssertion;
 ## 自定义 matcher
 
 ```ts
-import { makeAssertion } from "niceeval/expect";
+import { makeAssertion, type Assertion } from "niceeval/expect";
 
-const validEmail = makeAssertion("valid email", (value) => {
-  return typeof value === "string" && value.includes("@") ? 1 : 0;
-});
+function validEmail(): Assertion {
+  return makeAssertion({
+    name: "valid email",
+    score(value) {
+      return typeof value === "string" && value.includes("@") ? 1 : 0;
+    },
+  });
+}
 
 t.check(t.reply, validEmail());
 ```
 
-自定义 matcher 应返回 0 到 1 之间的分数，并给出清晰名称。
+`makeAssertion` 接受单个 spec 对象（`name`、可选 `severity`/`threshold`、`score`），直接返回一个 `Assertion`；按惯例用一个同名函数包一层再调用，而不是把 `makeAssertion` 本身当工厂调用。

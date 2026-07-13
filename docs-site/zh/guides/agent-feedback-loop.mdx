@@ -49,7 +49,7 @@ AI 通常按任务选择这些入口：
     npx niceeval show @1k2m9qtr
     ```
 
-    第一条命令显示当前各实验的通过率、成本、耗时，以及每个 Eval 的紧凑 Attempt locator。`[E]` / `[X]` / `[⏱]` / `[D]` 分别表示运行时 Eval 源码、执行步骤、OTel 时间和 diff 可用。第二条命令直接打开选中的 Attempt。
+    第一条命令显示当前各实验的通过率、成本、耗时，以及每个 Eval 的紧凑 Attempt locator——locator 本身就是证据入口，不在列表里编码证据可用性。第二条命令直接打开选中的 Attempt，页面末尾的 `available:` 只列出这个 Attempt 实际可用的证据命令。
   </Step>
   <Step title="按问题读取证据">
     ```bash
@@ -68,7 +68,7 @@ AI 通常按任务选择这些入口：
     eval source: evals/weather/brooklyn.eval.ts · sha256:8d47…
 
      8  export default defineEval({
-     9    id: "weather/brooklyn",
+     9    description: "Brooklyn weather query",
     10    async test(t) {
     11      const turn = await t.send("布鲁克林今天天气怎么样？");
     12 ✗    turn.calledTool("get_weather");
@@ -88,7 +88,8 @@ AI 通常按任务选择这些入口：
         received: 1
         source: evals/memory/swelancer-manager-proposals.eval.ts:40:11
 
-    execution [X,⏱]
+    execution: 3 events · 0 skill loads · 0 tool calls · 1 AI messages
+    timing: OTel spans recorded for this attempt — see --execution for per-step timing.
     agent run                     ▕████████████████████▏ 41.2s
     ├─ inference                  ▕█████░░░░░░░░░░░░░░░▏ 10.1s · "布鲁克林今天大约 24°C，晴。"
     ├─ inference                  ▕░░░░░█████████░░░░░░▏ 18.3s
@@ -98,9 +99,10 @@ AI 通常按任务选择这些入口：
     changes · diff unavailable
     reason: this Attempt did not produce workspace file changes
 
-    evidence: Eval source [E] · execution [X] · OTel timing [⏱]
     full eval source: …/weather/brooklyn/a2/eval-source.ts
-    next: niceeval show @1k2m9qtr [--eval|--execution|--diff]
+    available:
+      niceeval show @1k2m9qtr --eval
+      niceeval show @1k2m9qtr --execution
     ```
 
     `--execution` 把 AI 消息、Skill load、工具调用和工具结果排成一棵执行树。它只展示 Agent 可理解的事件；没有关联到这些事件的 SDK / runtime span 不逐行输出，只报告省略数量并保留 `trace.json` 路径。下面的 Attempt 有 OTel，所以能关联的节点同时带相对时间与耗时：
@@ -155,7 +157,7 @@ AI 通常按任务选择这些入口：
     full events: …/weather/brooklyn/a2/events.json
     ```
 
-    diff 是被测 Agent 在 Sandbox 工作区造成的文件变化，不是 Eval 源码的新旧差异。它只会出现在带 `[D]` 的 locator 上。默认先给文件级摘要，避免把大段补丁塞进 Agent 上下文；`--diff=<文件>` 再展开单个文件，原始 artifact 路径始终保留：
+    diff 是被测 Agent 在 Sandbox 工作区造成的文件变化，不是 Eval 源码的新旧差异。只有 sandbox eval 才会收集到 diff——非 sandbox eval 或 agent 确实没碰任何文件时，attempt 页的 `available:` 列表会省略 `--diff`。默认先给文件级摘要，避免把大段补丁塞进 Agent 上下文；`--diff=<文件>` 再展开单个文件，原始 artifact 路径始终保留：
 
     ```text
     $ niceeval show @1c3h6tbn --diff
@@ -215,7 +217,7 @@ AI 通常按任务选择这些入口：
 
 ```text
 Failing:
-  ✗ weather/brooklyn · @1k2m9qtr[E,X,⏱]
+  ✗ weather/brooklyn · @1k2m9qtr
       gate calledTool("get_weather"): tool was never called
 
 Results: 14 passed, 1 failed, 0 errored, 0 skipped

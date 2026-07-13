@@ -1,7 +1,7 @@
 ---
 title: "NiceEval 中的 eval：生命周期、verdict 与文件"
 sidebarTitle: "评估"
-description: "eval 是一个测试用例：描述、agent 引用和 test 函数。了解 eval 如何被发现、调度、评分和报告。"
+description: "eval 是一个测试用例：描述和 test 函数，agent-neutral。了解 eval 如何被发现、调度、评分和报告。"
 ---
 
 一个 eval 是一个可运行的测试用例。它通常由一个 `*.eval.ts` 文件导出，通过 `defineEval` 声明。
@@ -28,8 +28,9 @@ export default defineEval({
 | 字段 | 说明 |
 |---|---|
 | `description` | 给人看的描述，出现在报告里 |
-| `agent` | 使用哪个 Adapter，可由配置或 CLI 覆盖 |
 | `test(t)` | 交互和断言逻辑 |
+
+eval 本身不声明用哪个 Agent——它默认保持 agent-neutral，同一个 eval 可以在不同 experiment 下跑不同 Agent。选哪个 Agent 是 experiment 的字段，不由 CLI 临时覆盖。
 
 <Note>
   不要手写 `id` 或 `name`。[NiceEval](https://niceeval.com/) 从文件路径推导 ID。
@@ -73,13 +74,13 @@ npx niceeval exp local weather/brooklyn
 
 <CardGroup cols={2}>
   <Card title="passed" icon="circle-check" color="#22c55e">
-    所有 gate 断言通过，并且没有未满足的硬失败。
+    所有 gate 断言通过（`--strict` 下 soft 断言也都达到阈值），并且没有执行错误。
   </Card>
   <Card title="failed" icon="circle-xmark" color="#ef4444">
-    至少一个 gate 断言失败，或运行本身失败。
+    至少一个 gate 断言失败，或 `--strict` 下有 soft 断言低于阈值。
   </Card>
-  <Card title="passed" icon="chart-bar" color="#f59e0b">
-    没有 gate 失败，但 soft 分数需要保留为分值。
+  <Card title="errored" icon="triangle-exclamation" color="#f59e0b">
+    执行异常、超时或作者错误，本次执行无法形成可信结论。
   </Card>
   <Card title="skipped" icon="forward" color="#6b7280">
     eval 主动跳过，通常通过 `t.skip(reason)`。

@@ -137,7 +137,7 @@ export default defineAgent({
 
 ## 第四步：把工具解析成事件
 
-应用的返回里不只有回复文本——Chat Completions 形返回的 `tool_calls` 记录了这轮调过什么工具。Adapter 最重要的工作就是**把接口的返回归一成标准事件流**：本轮发生的每件事一个对象，按真实发生顺序排进 `Turn.events`，对象是下面九种类型之一（各字段的实际值，[契约页有一轮的完整示例](/zh/concepts/adapter)）：
+应用的返回里不只有回复文本——Chat Completions 形返回的 `tool_calls` 记录了这轮调过什么工具。Adapter 最重要的工作就是**把接口的返回归一成标准事件流**：本轮发生的每件事一个对象，按真实发生顺序排进 `Turn.events`，对象是下面十种类型之一（各字段的实际值，[契约页有一轮的完整示例](/zh/concepts/adapter)）：
 
 ```ts
 type StreamEvent =
@@ -145,6 +145,7 @@ type StreamEvent =
   | { type: "action.called"; callId: string; name: string; input: JsonValue; tool?: ToolName }
   | { type: "action.result"; callId: string; output?: JsonValue;
       status: "completed" | "failed" | "rejected" }
+  | { type: "skill.loaded"; skill: string; callId?: string }
   | { type: "subagent.called"; callId: string; name: string; remoteUrl?: string }
   | { type: "subagent.completed"; callId: string; output?: JsonValue;
       status: "completed" | "failed" }

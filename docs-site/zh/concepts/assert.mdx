@@ -52,25 +52,26 @@ t.maxTokens(80_000).atLeast(0.7);                 // 降为 soft 并带阈值
 
 ## 判定规则
 
-所有断言收齐后，运行器按这个顺序折叠成一个结果：
+所有断言收齐后，运行器按固定优先级取第一个成立项，折叠成一个结果：
 
 ```
-执行出错(超时 / 异常 / 作者错误)                  → failed
-显式调用了 t.skip(reason)                        → skipped
-任一 gate 断言失败                                → failed
-所有 gate 都过，但至少一个 soft 低于阈值           → passed(--strict 下标红)
-否则                                              → passed
+执行异常、超时或作者错误                           → errored
+任一 gate 断言失败，或 --strict 下 soft 低于阈值    → failed
+显式调用了 t.skip(reason)                          → skipped
+否则                                               → passed
 ```
+
+`errored` 压过一切，因为执行证据已经不可信；`failed` 压过 `skipped`，避免 `t.skip()` 掩盖此前记录的硬失败。
 
 <CardGroup cols={2}>
   <Card title="passed" icon="circle-check" color="#22c55e">
-    没有错误，所有 gate 断言通过，所有 soft 断言都达到阈值。
+    没有错误，所有 gate 断言通过，所有 soft 断言都达到阈值（或未开 `--strict`）。
   </Card>
   <Card title="failed" icon="circle-xmark" color="#ef4444">
-    执行出错，或至少一个 gate 断言没通过。硬失败。
+    至少一个 gate 断言没通过，或 `--strict` 下有 soft 断言低于阈值。硬失败。
   </Card>
-  <Card title="passed（计分）" icon="chart-bar" color="#f59e0b">
-    所有 gate 都过，但至少一个 soft 低于阈值。质量回归——默认不报红，`--strict` 下才报红。
+  <Card title="errored" icon="triangle-exclamation" color="#f59e0b">
+    执行异常、超时或作者错误，本次执行无法形成可信结论——不伪装成断言失败。
   </Card>
   <Card title="skipped" icon="forward" color="#6b7280">
     调用了 `t.skip("reason")`。完全排除在通过率统计之外。

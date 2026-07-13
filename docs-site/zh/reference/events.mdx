@@ -1,7 +1,7 @@
 ---
 title: "标准事件流参考"
 sidebarTitle: "事件流"
-description: "StreamEvent 的九种事件：每种的字段、什么时候吐、哪些断言消费它。adapter 的核心工作就是产出这条流。"
+description: "StreamEvent 的十种事件：每种的字段、什么时候吐、哪些断言消费它。adapter 的核心工作就是产出这条流。"
 ---
 
 adapter 的 `send` 返回一个 `Turn`，其中 `events: StreamEvent[]` 是**断言的唯一数据源**：`t.calledTool()`、`t.reply`、`toolOrder`、`noFailedActions`……全部从这条流上读。把你的 agent"这一轮做了什么"翻成这条流，整套断言就都能用。
@@ -79,7 +79,7 @@ token 用量或 OTel span 反推得到)。存在时优先于按价格表(`define
 
 ## StreamEvent 变体一览
 
-`StreamEvent` 的九种变体，逐字段列出（消费它们的断言 / 使用细节见下面的「事件总表」和「逐事件说明」）：
+`StreamEvent` 的十种变体，逐字段列出（消费它们的断言 / 使用细节见下面的「事件总表」和「逐事件说明」）：
 
 {/* GENERATED:BEGIN stream-events */}
 

@@ -194,7 +194,7 @@ interface AgentContext {
   readonly flags: Readonly<Record<string, unknown>>;  // Tier 3 的 feature A/B：experiment.flags 透传；没配时是 {}
   readonly experimentId?: string;  // 路径推导的实验 id，与结果里的 experimentId 同源；不经 experiment 跑时是 undefined
 
-  readonly sandbox?: Sandbox;      // 仅 defineSandboxAgent 构造的 Agent 会拿到
+  readonly sandbox: Sandbox;       // 非 sandbox 型 Agent 也会拿到一个 Sandbox（remote agent 是无操作的 stub）
 }
 
 interface AgentSession {
@@ -239,7 +239,7 @@ interface Turn {
 ]
 ```
 
-对象统共九种类型（`message`、`action.*`、`input.requested`……完整清单见[事件流参考](/zh/reference/events)）。断言读的就是这个数组：`t.calledTool("get_weather")` 数 `action.called`，`t.reply` 取最后一条 assistant `message`。注意 `send` 每次只返回**本轮**的数组——跨轮拼成整条会话线是运行器的事，见下一节。多数情况下你也不手写这些对象：官方转换器的返回值就是一个填好 `events`、`usage`、`status` 的完整 `Turn`，怎么选转换器见[写 send](/zh/guides/write-send)。
+对象统共十种类型（`message`、`action.*`、`input.requested`……完整清单见[事件流参考](/zh/reference/events)）。断言读的就是这个数组：`t.calledTool("get_weather")` 数 `action.called`，`t.reply` 取最后一条 assistant `message`。注意 `send` 每次只返回**本轮**的数组——跨轮拼成整条会话线是运行器的事，见下一节。多数情况下你也不手写这些对象：官方转换器的返回值就是一个填好 `events`、`usage`、`status` 的完整 `Turn`，怎么选转换器见[写 send](/zh/guides/write-send)。
 
 `data` 不是"随便放点什么"的口袋，它只有一条规则：**要什么，由 eval 在 send 上用 schema 声明；声明了才有 data，拿到手就是声明的类型。**
 
