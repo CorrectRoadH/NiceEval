@@ -6,10 +6,11 @@ description: "手写 Adapter 的 send 函数，一条主线七步走：发消息
 
 [Adapter](/zh/concepts/adapter) 讲了契约：`send` 传入 `TurnInput` 和 `AgentContext`，返回 `Turn`。这一页讲怎么写它——从"发一条消息拿到回复"的最小形态起步，一步一步加到完整接入。每一步只在上一步的代码上多几行，前面已有的部分在代码里用 `// ……省略` 标出；每一步末尾说明这几行解锁了哪些断言。改完任何一步都能立刻验证：把新解锁的断言写进一条 eval 重跑 `npx niceeval exp`，`niceeval view` 里能看到这一步新增的数据——多轮轨迹、用量、工具事件、待回答请求。
 
-两个贯穿全文的原则：
+三个贯穿全文的原则：
 
 - **接的位置永远是用户前端本来就在用的那个接口。** 页面调哪个端点、收什么格式，Adapter 就调哪个端点、收什么格式——不为 eval 开新接口，也不 import 应用内部代码直调函数（为什么，见[接入你的 Agent](/zh/guides/connect-your-agent)）。
 - **你唯一真正手写的是 transport**——URL、鉴权、请求体每家本来就不一样。解析（原始返回 → 标准事件流）有官方转换器，从 `niceeval/adapter` 导出；编排（会话续接、HITL 暂停恢复）的状态槽就挂在 `ctx.session` 上，取用即可，不需要额外声明什么。
+- **运行反馈走 `ctx`，不直接写终端。** 长步骤用 `ctx.progress(...)`；需要在运行后回顾的退化或异常上下文用 `ctx.diagnostic(...)`；无法继续时抛错。不要从 Adapter 调用 `console.log/error` 或写 `process.stdout/stderr`。
 
 ![一次 t.send 的完整往返：eval 调用 t.send，运行器组装 TurnInput 与 ctx，adapter 调用你的应用并返回标准事件流 Turn。](/images/agent-turn-roundtrip-zh.svg)
 
@@ -38,6 +39,7 @@ const BASE_URL = "http://localhost:8080";   // 要按 experiment 切换地址，
 export default defineAgent({
   name: "chat-app",
   async send(input, ctx) {
+    ctx.progress({ message: "等待 Chat API" });
     const res = await fetch(`${BASE_URL}/v1/chat/completions`, {  // ← 前端本来就在用的接口
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -55,6 +57,20 @@ export default defineAgent({
   },
 });
 ```
+
+如果接口返回了可继续处理、但证据不完整的响应，报告 diagnostic 而不是把原始响应全部打印出来：
+
+```ts
+if (!res.requestId) {
+  ctx.diagnostic({
+    code: "missing-request-id",
+    level: "warning",
+    message: "响应没有 request id，无法与服务端日志关联",
+  });
+}
+```
+
+`progress` 不落盘；diagnostic 会随 Attempt 保存并可通过 locator 回顾。HTTP 连接失败或响应无法解析时直接抛错，runner 会记录错误发生在 `agent.run`，并把 Attempt 标为 `errored`。
 
 **这一步解锁**：`t.reply`、`t.messageIncludes()`、judge 的全部对话材料，以及 experiment 侧的**模型对比**（`ctx.model` 就是 experiment 声明的 `model`，运行器原样递给你、Adapter 不解释含义，只转发——不需要等到后面的步骤，也不需要应用配合做任何改造，分档见 [Tier](/zh/concepts/tier)）。
 

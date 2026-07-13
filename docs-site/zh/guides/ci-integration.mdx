@@ -11,8 +11,14 @@ Evals 应该和测试一样进入 CI。它们能在 PR 阶段发现 agent 行为
 默认情况下，只要存在失败的 gate，[NiceEval](https://niceeval.com/) 将以非零状态码退出。CI 中通常使用 `--strict`，让失败更明确。
 
 ```bash
-npx niceeval exp ci --strict
+NICEEVAL_LANG=en npx niceeval exp ci \
+  --output ci \
+  --strict \
+  --json .niceeval/ci-summary.json \
+  --junit .niceeval/junit.xml
 ```
+
+CI profile 不输出 ANSI、spinner 或动态表格。日志使用单一有序 stdout 流，只追加 start、低频 heartbeat、失败/错误、diagnostic 和最终 result；通过的 Attempt 不逐条打印。
 
 ## GitHub Actions 示例
 
@@ -32,8 +38,12 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npx niceeval exp ci --strict
+      - run: >-
+          npx niceeval exp ci --output ci --strict
+          --json .niceeval/ci-summary.json
+          --junit .niceeval/junit.xml
         env:
+          NICEEVAL_LANG: en
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
@@ -52,18 +62,19 @@ jobs:
   </Step>
 </Steps>
 
-## JUnit reporter
+## JSON、JUnit 和结构化错误
 
-```ts
-import { defineConfig } from "niceeval";
-import { Console, JUnit } from "niceeval/reporters";
-
-export default defineConfig({
-  reporters: [Console(), JUnit(".niceeval/junit.xml")],
-});
+```text
+niceeval: start total=24 configs=3 concurrency=10 reused=18
+niceeval: errored locator=@2h8m4k1 eval=fixtures/button experiment=ci/codex phase=sandbox-provision code=sandbox-rate-limit message="E2B sandbox allocation failed after 5 attempts"
+niceeval: result=failed passed=23 failed=0 errored=1 reused=18 duration=128s
+niceeval: json=.niceeval/ci-summary.json
+niceeval: junit=.niceeval/junit.xml
 ```
 
-CI 可以上传 JUnit XML，让失败出现在测试报告 UI 里。想把结果同时上报到 Braintrust 这类实验平台，见 [Reporter 上报](./reporters)。
+退出码是第一层红绿信号；JSON、JUnit 和结果快照是完整机器接口，日志行只用于搜索和 annotation。`errored` 行带 locator、正式 phase、稳定 code 和一层 message。详细 cause、stack 和 diagnostics 保存在 Attempt 的 `result.json`，可在保留 artifact 后运行 `niceeval show @<locator>` 回顾。
+
+CLI 显式要求的 JSON/JUnit 和默认 results artifact 都是 required 输出：写入失败必须让 job 判红，不能只留 warning 后退出 0。想把结果同时上报到 Braintrust 这类实验平台，见 [Reporter 上报](./reporters)。
 
 ## 只检查发现
 
@@ -80,7 +91,7 @@ npx niceeval list
 ## 控制并发
 
 ```bash
-npx niceeval exp ci --max-concurrency 2
+npx niceeval exp ci --output ci --max-concurrency 2
 ```
 
 标准 GitHub-hosted runner 上，sandbox eval 并发不宜过高。远程 HTTP eval 可以按服务限流能力调高。

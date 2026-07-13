@@ -18,6 +18,7 @@ export default defineEval({
   reporters?: Reporter[];
   timeoutMs?: number;
   metadata?: Record<string, unknown>;
+  async setup(sandbox, ctx) { /* task fixture + progress/diagnostic */ },
   async test(t) { /* interactions + assertions */ },
 });
 ```
@@ -110,6 +111,38 @@ export default defineEval({
 ```
 
 详见 [Fixtures](/zh/guides/fixtures)。
+
+## 从 Eval 报告长步骤和诊断
+
+`setup` 用于这条 Eval 的任务夹具。第二个参数绑定到 eval setup 阶段；`test(t)` 里的反馈绑定到 eval run 阶段：
+
+```ts
+export default defineEval({
+  async setup(sandbox, ctx) {
+    ctx.progress({ message: "安装 fixture 依赖" });
+    await sandbox.runCommand("npm", ["install"]);
+  },
+
+  async test(t) {
+    t.progress({ message: "上传隐藏测试", current: 1, total: 2 });
+    await t.sandbox.uploadDirectory("../fixtures/project");
+
+    const preflight = await inspectFixture();
+    if (preflight.usedFallback) {
+      t.diagnostic({
+        code: "fixture-check-degraded",
+        level: "warning",
+        message: "Fixture 预检使用了备用检查器",
+        data: { checker: preflight.checker },
+      });
+    }
+
+    await t.send("完成任务");
+  },
+});
+```
+
+`progress` 只更新运行中的短期状态，不进入结果。`diagnostic` 会写进当前 Attempt 的 `result.json`，但不会代替断言或自动改变判定：业务结论仍用 `t.check` / `t.require` / gate；基础设施无法继续时抛出异常。
 
 ## 命名约定
 

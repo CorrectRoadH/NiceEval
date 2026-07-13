@@ -110,9 +110,21 @@ import { defineSandboxAgent } from "niceeval/adapter";
 
 export default defineSandboxAgent({
   name: "my-agent",
+  async setup(sandbox, ctx) {
+    ctx.progress({ message: "检查 my-agent 安装" });
+    await sandbox.runCommand("npm", ["install", "-g", "my-agent"]);
+  },
   async send(input, ctx) {
+    ctx.progress({ message: "运行 my-agent CLI" });
     await ctx.sandbox.runCommand("my-agent", ["run", input.text, "--json-out", "agent-events.json"]);
     const transcript = await ctx.sandbox.readFile("agent-events.json");
+    if (transcript.trim() === "") {
+      ctx.diagnostic({
+        code: "empty-transcript",
+        level: "warning",
+        message: "my-agent 没有写出 transcript，工具断言可能缺少证据",
+      });
+    }
     return {
       status: "completed",
       events: parseTranscript(transcript),
@@ -120,6 +132,24 @@ export default defineSandboxAgent({
   },
 });
 ```
+
+`setup`、每次 `send` 和 `teardown` 都拿到各自作用域的反馈方法：
+
+- `ctx.progress({ message, current?, total? })` 更新当前短期状态，适合安装 CLI、运行 Turn、读取 transcript；不要逐 token 或逐 JSONL frame 调用。
+- `ctx.diagnostic({ code, level, message, data?, dedupeKey? })` 保存协议退化、transcript 缺失和清理问题。它会进入终端永久事件和 `result.json`。
+- 无法继续运行时抛出异常，runner 会把 Attempt 标为 `errored`，并保存发生阶段、错误码、message、cause 和 stack。
+
+不要从 Adapter 直接调用 `console.log/error` 或写 `process.stdout/stderr`。它们会打散 Human dashboard，也会破坏 CI 日志顺序。
+
+运行中看到 Sandbox 或 Adapter 错误时，终端会给出 Attempt locator：
+
+```text
+✗ @2h8m4k1 fixtures/button [local] errored · agent setup
+    agent-install-failed: npm install my-agent exited with code 1
+    Inspect: niceeval show @2h8m4k1
+```
+
+运行 `niceeval show @2h8m4k1` 可查看结构化错误、diagnostics 和已完成的生命周期阶段；有 OTel trace 时再用 `--execution` 查看执行树。Sandbox 创建失败可能发生在 telemetry 建立前，所以错误回顾不依赖 trace。
 
 ## `ctx.model` 与 `ctx.flags`
 

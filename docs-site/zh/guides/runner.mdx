@@ -61,9 +61,18 @@ npx niceeval exp local --timeout 300000 --budget 5
 
 ## Reporter
 
-runner 在 eval 完成后把结果交给 reporters：
+运行中的反馈由 `--output` 选择消费者模型；Reporter 负责把完成后的结果写到其它目的地。两者不是同一层：
 
-- console reporter 提供实时反馈。
+```bash
+npx niceeval exp local --output human  # 人：TTY dashboard + 永久错误/诊断
+npx niceeval exp local --output agent  # AI：稳定 envelope + locator handoff
+npx niceeval exp local --output ci     # CI：单一有序 stdout 事件流
+```
+
+省略时使用 `auto`：TTY 选择 Human，CI 环境选择 CI，其它非 TTY 选择 Agent。输出模型只改变反馈，不改变调度、判定或 artifact。
+
+Runner 在 Eval 完成后把结果交给 Reporters：
+
 - JSON artifacts 用于后续分析。
 - JUnit reporter 适合 CI。
 - Braintrust reporter 把一次运行作为实验上报，跨提交比较。
@@ -72,11 +81,11 @@ runner 在 eval 完成后把结果交给 reporters：
 
 ## 输出目录
 
-每次运行会写入该实验的结果快照目录 `.niceeval/<experiment>/<快照>/`，包括快照级 `snapshot.json`，以及每个 attempt 的 `result.json`（判决与断言）和按需生成的 `events.json`、`sources.json`、`trace.json`、`o11y.json`、`diff.json` 等拆分 artifact。
+每次运行会写入该实验的结果快照目录 `.niceeval/<experiment>/<快照>/`，包括快照级 `snapshot.json`，以及每个 Attempt 的 `result.json`（判定、断言、结构化错误、diagnostics）和按需生成的 `events.json`、`sources.json`、`trace.json`、`o11y.json`、`diff.json` 等拆分 artifact。瞬时 progress 不落盘。
 
 ## 推荐调试流程
 
 1. 先跑 `npx niceeval list` 确认发现结果。
 2. 用 `npx niceeval exp <实验> <ID 前缀>` 缩小到一个 eval。
-3. 失败后运行 `npx niceeval view` 查看 transcript 和 diff。
+3. 失败后复制终端里的 locator，先运行 `npx niceeval show @<locator>` 看错误或断言摘要；需要 Agent 行为时再加 `--execution`，需要文件变化时加 `--diff`。
 4. 再扩大到完整 suite 或 experiment。
