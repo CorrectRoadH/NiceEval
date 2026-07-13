@@ -72,9 +72,17 @@ await sandbox.runCommand("npm", ["install"]);     // cwd 省略 → workdir
 - 退避睡眠期间临时归还并发槽位(`retry.ts` 的 `ProvisionSlot`),睡醒后再排队要回来——被限流的 attempt 只是在等,不该攥着 `sandboxSem` 的名额陪跑 `setTimeout`,不然一批 429 会把整批实际并发拖成远低于 `--max-concurrency` 声明值的个位数。
 - 重试全部耗尽后仍按原语义走:`verdict: "errored"`(基建问题,不是 agent 表现)。
 
-这套分类 + 重试只覆盖"创建沙箱"这一步,provider 无关——Runner / Adapter 不需要知道具体是哪个 provider 抛的错误。沙箱创建成功后、运行期间被限流终止(如并发过高导致的沙箱被杀)不在这个机制内,应优先靠控制并发(见 [Runner](../../runner.md))避免,而不是靠重试掩盖。
+Provisioning 的分类只覆盖"创建沙箱"这一步。沙箱创建成功后被 provider 终止属于 lifecycle failure,不能当成同一个实例里的普通 IO 失败继续重试;应保留明确终止原因,由 attempt 层决定是否允许重新创建整个环境。
 
 `defineSandbox` 的自定义 provider 不套用这层重试——它的 `create()` 是用户自己的函数,错误语义由用户自己决定。
+
+## 已创建 Sandbox 的文件 IO 重试
+
+所有 provider(含 `defineSandbox`)返回的 Sandbox 都经过同一个包装层。包装层只对固定目标的幂等文件操作做默认重试:`readFile`、`fileExists`、`readSourceFiles`、`downloadFile`、`writeFiles`、`uploadFiles`、`uploadDirectory`、`uploadFile`。一次批量写即使只完成一部分,重跑仍覆盖同一组目标路径。
+
+默认最多 3 次,指数退避并带抖动。只有传输层的瞬时错误进入重试:429、5xx、`fetch failed`、连接重置、临时 DNS / 网络不可达。文件不存在、权限错误、路径错误、取消、Sandbox terminated 都第一次抛出。E2B 的 `fileExists` 必须把瞬时传输错误继续抛出,不能伪装成 `false`。
+
+`runCommand`、`runShell`、`appendLog`、`stop` 永远不隐式重试:框架不知道命令在失败前产生了哪些副作用。需要重试命令时由调用者把幂等性写成显式业务策略。IO 重试全部耗尽后抛回原始 error,让 attempt 保存错误链与 partial evidence。
 
 ## 再接一个 provider
 
@@ -91,14 +99,18 @@ await sandbox.runCommand("npm", ["install"]);     // cwd 省略 → workdir
 
 旧文档曾推荐显式传 `"/workspace"`——它与任何 provider 的真实 workdir 都不一致,按它写的文件会落在 agent cwd 和 git 基线之外(agent 看不见、diff 采不到)。新代码和新示例都应写成"省略 `targetDir` / `cwd`",必要时通过 `sandbox.workdir` 取真实绝对路径。
 
-## 性能:复用与预热
+## 性能:预制环境、复用与预热
 
-沙箱冷启动是关键路径上的大头。两个杠杆:
+沙箱冷启动和重复安装是关键路径上的大头。优先级如下:
+
+1. 把稳定重依赖做进 Docker image、E2B template 或 Vercel snapshot;每次 attempt 只从这个起点创建。
+2. `sandbox.setup` 只做按 experiment 变化的小配置、状态恢复与预检。
+3. 仍有必要时再考虑预热池或跨 case 复用。
 
 - **预热池** —— 提前起若干沙箱挂在池里,case 来了直接领,把冷启动移出关键路径。
 - **跨 case 复用** —— 同 runtime 的沙箱在一个 case 跑完后重置(`git clean` 回基线)而非销毁,给下一个 case 用。需权衡"复用省时" vs "全新更干净",默认全新,可开复用。
 
-这些是 [Runner](../../runner.md) 的调度职责,沙箱 provider 只需支持 reset / 快速 create。
+预制环境的构建与发布归项目和 provider 原生工具;NiceEval 的 typed spec 负责消费。预热池与复用是 [Runner](../../runner.md) 的调度职责。
 
 ## 相关阅读
 

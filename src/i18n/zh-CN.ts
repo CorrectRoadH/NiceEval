@@ -12,6 +12,8 @@ export const zhCN = {
   "bub.installFailed": "bub 安装失败(重试 {{attempts}} 次):\n{{tail}}",
   "bub.setupNotRun": "bub adapter 的 setup() 尚未在该沙箱运行(缺 home/workspace 信息);运行器应先调 setup 再 send。",
   "checkpoint.emptyTar": "checkpoint: tar 为空(paths: {{paths}})",
+  "checkpoint.archiveFailed": "checkpoint 归档失败(exit {{exitCode}}): {{detail}}",
+  "checkpoint.restoreFailed": "checkpoint 恢复失败(exit {{exitCode}}): {{detail}}",
   "skill.localMissing": "本地 skill 路径不存在:\"{{path}}\"(解析到 {{resolved}})。path 相对跑 niceeval 的项目根解析。",
   "skill.localDirNoSkillFile": "本地 skill 目录 \"{{path}}\" 里没有 SKILL.md。目录形态的 skill 必须在根下带一个 SKILL.md。",
   "skill.localUnsupportedShape": "本地 skill 路径 \"{{path}}\" 形态不支持。只接受:含 SKILL.md 的目录,或单个 .md 文件。",

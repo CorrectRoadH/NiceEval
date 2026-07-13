@@ -15,6 +15,7 @@ import type {
   ReadSourceFilesOptions,
 } from "../types.ts";
 import type { SandboxProvisionErrorKind } from "./errors.ts";
+import { classifySandboxIoError } from "./errors.ts";
 import { readSourceFilesByList } from "./source-files.ts";
 import { collectLocalFiles } from "./local-files.ts";
 import { shellQuote } from "./shell.ts";
@@ -100,7 +101,9 @@ export class E2BSandbox implements Sandbox {
     try {
       await this.sbx.files.read(this.abs(path), { format: "bytes" });
       return true;
-    } catch {
+    } catch (error) {
+      // 不把瞬时网络/服务错误伪装成“不存在”，交给统一 IO 层重试。
+      if (classifySandboxIoError(error) !== "unknown") throw error;
       return false;
     }
   }

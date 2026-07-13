@@ -14,6 +14,8 @@ export const en = {
   "bub.installFailed": "bub install failed after {{attempts}} attempts:\n{{tail}}",
   "bub.setupNotRun": "bub adapter setup() has not run in this sandbox (missing home/workspace info). The runner must call setup before send.",
   "checkpoint.emptyTar": "checkpoint: tar is empty (paths: {{paths}})",
+  "checkpoint.archiveFailed": "checkpoint archive failed (exit {{exitCode}}): {{detail}}",
+  "checkpoint.restoreFailed": "checkpoint restore failed (exit {{exitCode}}): {{detail}}",
   "skill.localMissing": "Local skill path \"{{path}}\" does not exist (resolved to {{resolved}}). Paths are resolved from the project root you run niceeval in.",
   "skill.localDirNoSkillFile": "Local skill directory \"{{path}}\" has no SKILL.md. A directory-shaped skill must contain SKILL.md at its root.",
   "skill.localUnsupportedShape": "Local skill path \"{{path}}\" has an unsupported shape. Accepted: a directory containing SKILL.md, or a single .md file.",

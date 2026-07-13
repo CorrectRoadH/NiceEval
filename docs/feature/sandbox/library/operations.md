@@ -16,6 +16,8 @@
 
 少量内联文本用 `writeFiles`，宿主目录用 `uploadDirectory`，二进制单文件用 `uploadFile`。
 
+这些固定路径的文件操作会对瞬时网络错误自动做有限重试，包括 429、5xx、`fetch failed` 和连接重置。文件不存在、权限错误、取消或 Sandbox terminated 不重试。批量写重跑时仍覆盖同一组目标路径。
+
 ## 命令
 
 ```ts
@@ -24,6 +26,8 @@ const shell = await t.sandbox.runShell("pnpm lint && pnpm test");
 ```
 
 两者只执行并返回结果，不自动评分。使用 `commandSucceeded()` 等 matcher 判断结果。
+
+`runCommand` 和 `runShell` 不会自动重试。命令可能已经产生部分副作用，NiceEval 无法安全判断能否重复执行；只有调用者确认命令幂等时，才应在 eval 或 hook 里显式写重试策略。
 
 Sandbox stop 和销毁属于 runner 生命周期，不暴露给 eval 作者。
 

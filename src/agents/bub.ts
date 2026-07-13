@@ -16,6 +16,14 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { t } from "../i18n/index.ts";
+import {
+  BUB_CHECKPOINT_SUBDIRS,
+  BUB_INSTALL_MARKER,
+  DEFAULT_BUB_OTEL_PLUGIN,
+  DEFAULT_BUB_OVERRIDE,
+  bubInstallHash,
+  normalizeBubPackages,
+} from "./bub-install-spec.ts";
 
 // ───────────────────────────────────────────────────────────────────────────
 // bub 的 agent adapter(沙箱型)。
@@ -64,50 +72,32 @@ const SKILL_DIR = ".agents/skills";
 // 可用 NICEEVAL_BUB_OVERRIDE / NICEEVAL_BUB_OTEL_PLUGIN 覆盖,不必改源码。
 const BUB_OVERRIDE =
   getEnv("NICEEVAL_BUB_OVERRIDE") ??
-  "bub @ git+https://github.com/CorrectRoadH/bub.git@fix/tape-assistant-text-with-tool-calls";
+  DEFAULT_BUB_OVERRIDE;
 const BUB_OVERRIDE_FILE = "/tmp/bub-override.txt";
 // otel 插件跟上游 main 走(bub-contrib#50 起从 bub.tape 导入,要求 bub ≥ 0.3.10dev,
 // 与上面的 override 分支兼容)。插件不发 PyPI,git 依赖是唯一安装方式。
 const OTEL_PLUGIN =
   getEnv("NICEEVAL_BUB_OTEL_PLUGIN") ??
-  "git+https://github.com/bubbuild/bub-contrib.git#subdirectory=packages/bub-tapestore-otel";
+  DEFAULT_BUB_OTEL_PLUGIN;
 
-// override 钉在 git ref 上时,镜像里烘焙的 bub 不可信:模板构建时间早于 ref 当前指向的
-// commit 的话,`command -v bub` 命中的就是修复前的旧构建 —— e2b 模板 fasteval-agents 上
-// 整轮 bub turn failed(send 后无 AI 回复)就是这么来的:override 分支修好了,但捷径
-// 让它从未被安装。所以 pinned 时绕开 PATH 捷径、恒走 uv 安装(有 checkpoint 缓存,
-// 不是每沙箱都全量装),且运行时钉死用 $HOME/.local/bin/bub —— 只改 ensureBub 不改这里
-// 的话,PATH 上的 /usr/local/bin/bub 仍会先于新装的被 command -v 找到,白装。
-const BUB_PINNED = BUB_OVERRIDE.includes("git+");
-// bub 二进制:pinned → 恒用 uv 装到 $HOME/.local/bin 的那个;非 pinned → 优先用镜像里
-// (预制模板)烘焙在 PATH 上的 bub(装到 /usr/local/bin,见 sandbox/docker/Dockerfile)。
-const BUB = BUB_PINNED ? "$HOME/.local/bin/bub" : "$(command -v bub || echo $HOME/.local/bin/bub)";
+// NiceEval 的预制配方与运行时安装都写到 $HOME/.local；显式使用该路径，避免 PATH 上
+// 另一个未知版本的 bub 抢先命中。
+const BUB = "$HOME/.local/bin/bub";
 
 // checkpoint 只打 $HOME/.local:uv 装的 python 工具链、bub 的 tool venv 和 bin shim 全在
 // 这里,restore 后即可运行。~/.cache/uv 是 wheel/构建缓存,只在「下一次安装」有用,而
 // restore 场景 bub 已经装好、不会再装——打进去只是把单次 HTTP 传输撑到 100MB+,在 e2b
 // 文件 API 上超时/连接重置概率明显偏高。子目录列表参与 INSTALL_HASH:改它会换缓存文件
 // 名,不会继续复用老的大 checkpoint。
-const CHECKPOINT_SUBDIRS = [".local"];
+const CHECKPOINT_SUBDIRS = BUB_CHECKPOINT_SUBDIRS;
 
 /** 规范化 python plugin:去空白、丢空串、去重 —— 安装命令与 checkpoint key 用同一份列表。 */
 function normalizePackages(plugins?: readonly PythonPluginSpec[]): string[] {
-  const seen = new Set<string>();
-  for (const p of plugins ?? []) {
-    const pkg = p.package.trim();
-    if (pkg) seen.add(pkg);
-  }
-  return [...seen].sort();
-}
-
-/** 安装环境的完整描述:bub 版本 + otel 插件 + python plugin 集合 + checkpoint 覆盖面。 */
-function installSpecOf(packages: readonly string[]): string {
-  const plugins = packages.length ? ` --with ${packages.join(" --with ")}` : "";
-  return `bub --override(${BUB_OVERRIDE}) --with ${OTEL_PLUGIN}${plugins} --checkpoint(${CHECKPOINT_SUBDIRS.join(",")})`;
+  return normalizeBubPackages((plugins ?? []).map((plugin) => plugin.package));
 }
 
 function installHashOf(packages: readonly string[]): string {
-  return createHash("md5").update(installSpecOf(packages)).digest("hex").slice(0, 12);
+  return bubInstallHash(packages, BUB_OVERRIDE, OTEL_PLUGIN);
 }
 
 function diskCachePath(home: string, installHash: string): string {
@@ -127,15 +117,16 @@ async function ensureBub(
   log: AgentContext["log"],
   packages: readonly string[],
 ): Promise<void> {
-  // 预制模板已把 bub 烘焙进镜像(PATH 上)→ 直接用,跳过 uv 安装 + checkpoint 全套。
-  // pinned(git ref override)时不走此捷径:烘焙的 bub 无法验证是不是 ref 当前指向的
-  // 构建,必须按 override 真装(见 BUB_PINNED 注释)。有 python plugin 时同理不能走捷径:
-  // 镜像里烘焙的 bub 环境没有这些包。
-  if (!BUB_PINNED && packages.length === 0 && (await sb.runShell("command -v bub >/dev/null 2>&1")).exitCode === 0) {
+  const installHash = installHashOf(packages);
+  const marker = `${home}/${BUB_INSTALL_MARKER}`;
+  // 只信任带完整安装规格指纹的预制环境。仅 command -v bub 无法证明版本、OTel 插件和
+  // 用户 pythonPlugins 一致；NiceEval 的 E2B Bub 配方和运行时安装都会写这个 marker。
+  if ((await sb.runShell(
+    `test -x ${BUB} && test "$(cat '${marker}' 2>/dev/null)" = '${installHash}'`,
+  )).exitCode === 0) {
     return;
   }
 
-  const installHash = installHashOf(packages);
   const cacheKey = `${home}::${installHash}`;
   const withPlugins = packages.map((p) => `--with '${p}'`).join(" ");
   const checkpointPaths = CHECKPOINT_SUBDIRS.map((d) => `${home}/${d}`);
@@ -189,6 +180,11 @@ async function ensureBub(
           tail: (last.stdout + last.stderr).split("\n").slice(-15).join("\n"),
         }));
       }
+    }
+    const markerDir = marker.slice(0, marker.lastIndexOf("/"));
+    const mark = await sb.runShell(`mkdir -p '${markerDir}' && printf '%s' '${installHash}' > '${marker}'`);
+    if (mark.exitCode !== 0) {
+      throw new Error(`Failed to write Bub installation marker: ${mark.stderr || mark.stdout}`);
     }
     // 到这里 bub 已装进本沙箱,checkpoint 只是给后续沙箱的缓存回填:capture/下载失败
     // (大 buffer 在 e2b 文件 API 上的瞬态错误)降级为警告,绝不反过来杀掉已就绪的 attempt。

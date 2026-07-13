@@ -24,6 +24,10 @@
       "types": "./src/sandbox/index.ts",
       "import": "./src/sandbox/index.ts"
     },
+    "./sandbox/e2b-template": {
+      "types": "./src/sandbox/e2b-agent-template.ts",
+      "import": "./src/sandbox/e2b-agent-template.ts"
+    },
     "./adapter": {
       "types": "./src/agents/index.ts",
       "import": "./src/agents/index.ts"

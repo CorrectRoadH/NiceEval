@@ -12,20 +12,24 @@
 //   defineExperiment({ sandbox: vercelSandbox({ snapshotId: "snap_..." }), ... })
 
 import { Sandbox as VSandbox } from "@vercel/sandbox";
+import {
+  BUB_INSTALL_MARKER,
+  DEFAULT_BUB_OTEL_PLUGIN,
+  DEFAULT_BUB_OVERRIDE,
+  bubInstallHash,
+} from "../../src/agents/bub-install-spec.ts";
 
-// 与 src/agents/bub.ts / sandbox/docker/Dockerfile 保持一致。
-const BUB_OVERRIDE = "bub @ git+https://github.com/CorrectRoadH/bub.git@fix/tape-assistant-text-with-tool-calls";
-const OTEL_PLUGIN =
-  "git+https://github.com/CorrectRoadH/bub-contrib.git@fix/tapestore-otel-tape-entry-validation" +
-  "#subdirectory=packages/bub-tapestore-otel";
+const BUB_INSTALL_HASH = bubInstallHash([]);
+const CODEX_VERSION = "0.144.1";
+const CLAUDE_CODE_VERSION = "2.1.207";
 
 const token = process.env.VERCEL_API_TOKEN;
 const teamId = process.env.VERCEL_TEAM_ID;
 const projectId = process.env.VERCEL_PROJECT_ID ?? "vercel-sandbox-default-project";
 const credParams = token && teamId ? { token, teamId, projectId } : {};
 
-async function run(sb: InstanceType<typeof VSandbox>, script: string): Promise<void> {
-  const r = await sb.runCommand({ cmd: "bash", args: ["-c", script], sudo: true, timeoutMs: 900_000 });
+async function run(sb: InstanceType<typeof VSandbox>, script: string, sudo = true): Promise<void> {
+  const r = await sb.runCommand({ cmd: "bash", args: ["-c", script], sudo, timeoutMs: 900_000 });
   const out = (await r.stdout()) + (await r.stderr());
   if (r.exitCode !== 0) throw new Error(`安装步骤失败(exit ${r.exitCode}):\n${out.split("\n").slice(-20).join("\n")}`);
 }
@@ -37,22 +41,24 @@ console.log("装 git / curl / build-essential…");
 await run(sb, "command -v git && command -v curl || (dnf install -y git curl gcc gcc-c++ make || (apt-get update && apt-get install -y git curl build-essential))");
 
 console.log("装 codex + claude-code(npm -g → /usr/local/bin)…");
-await run(sb, "npm install -g @openai/codex @anthropic-ai/claude-code");
+await run(sb, `npm install -g @openai/codex@${CODEX_VERSION} @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}`);
 
-console.log("装 uv + bub(→ /usr/local/bin)…");
+console.log("按运行时用户装 uv + bub，并写安装规格指纹…");
 await run(
   sb,
   [
-    "export UV_INSTALL_DIR=/usr/local/bin UV_TOOL_BIN_DIR=/usr/local/bin UV_TOOL_DIR=/opt/uv-tools",
     "curl -LsSf https://astral.sh/uv/install.sh | sh",
-    `printf '%s\\n' '${BUB_OVERRIDE}' > /tmp/bub-override.txt`,
-    `uv tool install --python 3.12 --prerelease allow 'bub' --overrides /tmp/bub-override.txt --with '${OTEL_PLUGIN}'`,
+    `printf '%s\\n' '${DEFAULT_BUB_OVERRIDE}' > /tmp/bub-override.txt`,
+    `$HOME/.local/bin/uv tool install --python 3.12 --prerelease allow 'bub' --overrides /tmp/bub-override.txt --with '${DEFAULT_BUB_OTEL_PLUGIN}'`,
+    `mkdir -p "$HOME/$(dirname '${BUB_INSTALL_MARKER}')"`,
+    `printf '%s' '${BUB_INSTALL_HASH}' > "$HOME/${BUB_INSTALL_MARKER}"`,
     "rm -f /tmp/bub-override.txt",
   ].join(" && "),
+  false,
 );
 
 console.log("自检三个 CLI…");
-await run(sb, "command -v codex && command -v claude && command -v bub");
+await run(sb, "command -v codex && command -v claude && test -x $HOME/.local/bin/bub", false);
 
 console.log("拍快照…");
 const snap = await sb.snapshot();

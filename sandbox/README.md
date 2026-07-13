@@ -1,107 +1,86 @@
-# 预制 agent 沙箱模板
+# 预制 coding-agent 环境
 
-把 **codex / claude-code / bub** 三个 coding-agent CLI 预先烘焙进沙箱镜像/模板,
-让后续 eval **跳过 setup 阶段的安装**(npm 全局装 + uv 装 bub,通常几十秒~几分钟)直接开跑。
+这个目录保存 NiceEval 自己维护的可复现构建配方。预制环境是性能建议，不是运行前提：
+Adapter 仍会检查 CLI，缺少时执行运行时安装。
 
-按平台分文件夹,每个平台的产物类型不同:
+职责分成两层：
 
-```text
-sandbox/
-  docker/   # docker image —— Dockerfile + bub-override.txt(e2b 也读这份 Dockerfile)
-  e2b/      # e2b template —— e2b.toml(参数备查;实际构建读 ../docker/Dockerfile)
-  vercel/   # vercel snapshot —— build-vercel-snapshot.mts(microVM 跑等价安装后拍快照)
-```
+- Sandbox/provider 决定环境制品是什么、怎样构建、发布、过期和启动。
+- Agent Adapter 声明自己需要什么 CLI，并在 `setup` 时验证或安装。它不替用户选择 provider。
 
-docker 与 e2b **共用 [`docker/Dockerfile`](./docker/Dockerfile)**(vercel 用等价的运行时安装脚本)。
-关键约定:三个 CLI 都装到 `/usr/local/bin` —— 对所有沙箱用户(docker `node` / e2b `user` /
-vercel `vercel-sandbox`)都在 `PATH` 上。agent adapter 的 `setup()` 会 `command -v` 探测,
-命中就跳过安装(见 [`src/agents/codex.ts`](../src/agents/codex.ts)、`claude-code.ts`、`bub.ts`)。
+因此不存在跨 provider 的 `snapshot("name")` 构建命令。Docker image、E2B template 和
+Vercel snapshot 保留各自的原生生命周期；Experiment 统一用 typed sandbox spec 消费它们。
 
-> 没有预制模板也能正常跑 —— adapter 探测不到就回退到原来的安装流程。预制只是更快。
+## E2B：基于官方 Agent 模板继续派生
 
----
+E2B 已提供 Claude Code 的 `claude` template 和 Codex 的 `codex` template。NiceEval 的
+`e2bCodingAgentTemplate()` 直接从这两个官方起点派生。E2B 暂无 Bub 官方 template，NiceEval
+为 Bub 提供固定到不可变 Git commit 的等价配方，并写安装规格指纹供 Adapter 校验。
 
-## Docker
+先登录 E2B，再构建三个独立模板：
 
 ```bash
-cd sandbox/docker
-docker build -t niceeval-agents:node24 .
+e2b auth login
+pnpm tsx sandbox/e2b/build-agent-template.mts claude-code acme-claude-evals
+pnpm tsx sandbox/e2b/build-agent-template.mts codex acme-codex-evals
+pnpm tsx sandbox/e2b/build-agent-template.mts bub acme-bub-evals
 ```
 
-用(eval / experiment 里):
+用户可以直接编辑 [`e2b/build-agent-template.mts`](./e2b/build-agent-template.mts)，在
+`Template.build()` 前继续链 E2B 原生 `.aptInstall()`、`.runCmd()` 或 `.copy()`。这保留了
+“基于官方模板继续改”的能力，不把 provider 的构建 API 包进 NiceEval 私有 DSL。
 
-```ts
-import { dockerSandbox } from "niceeval/sandbox";
-export default defineExperiment({
-  sandbox: dockerSandbox({ image: "niceeval-agents:node24" }),
-  // …
-});
-```
-
-发布(让别人直接拉):`docker tag` + `docker push` 到你的 registry,文档里给出镜像名即可。
-
-## E2B
-
-需先 `e2b auth login`。`e2b template create` 从 `sandbox/docker` 目录读 `Dockerfile`(+ 同目录
-`bub-override.txt`)构建模板 `niceeval-agents`(内存必须显式给大 —— e2b 默认 base 只有 ~481MB,
-跑 `npm install` Next.js 依赖会 OOM):
-
-```bash
-cd sandbox/docker
-e2b template create niceeval-agents \
-  --memory-mb 4096 --cpu-count 2 \
-  -c "tail -f /dev/null" \
-  --ready-cmd "command -v codex && command -v claude && command -v bub"
-```
-
-> 内存/CPU 在**构建时**定,创建沙箱时不能改 —— 这正是必须用预制模板(而非默认 base)的原因。
-> 旧版 CLI 的 `e2b template build` 已废弃;[`e2b/e2b.toml`](./e2b/e2b.toml) 记录等价参数备查。
-
-用:
+Experiment 只引用最终 alias：
 
 ```ts
 import { e2bSandbox } from "niceeval/sandbox";
+
 export default defineExperiment({
-  sandbox: e2bSandbox({ template: "niceeval-agents" }),
+  sandbox: e2bSandbox({ template: "acme-codex-evals" }),
   // …
 });
 ```
 
-模板构建在你的 e2b team 下;团队成员直接按模板名引用。
+## Docker：NiceEval 的三 Agent 基线镜像
 
-## Vercel
-
-Vercel 没有「从 Dockerfile 构建模板」,只能对运行中的 microVM 拍快照。
-[`vercel/build-vercel-snapshot.mts`](./vercel/build-vercel-snapshot.mts) 在 microVM 里跑等价安装后 snapshot:
+[`docker/Dockerfile`](./docker/Dockerfile) 预装 Codex、Claude Code 和 Bub。Bub 与运行时
+Adapter 使用相同的 `$HOME/.local` 布局和安装规格指纹；三个 Agent 的版本都固定，升级后
+应重建一个新 tag。
 
 ```bash
-# 需要 VERCEL_API_TOKEN + VERCEL_TEAM_ID [+ VERCEL_PROJECT_ID]
-node --import tsx sandbox/vercel/build-vercel-snapshot.mts
-# → 打印 snapshotId: snap_xxx
+docker build -t acme/niceeval-agents:2026-07-13 sandbox/docker
 ```
 
-用:
+用不可变 tag 或 digest 运行 CI，不要依赖会移动的 `latest`：
 
 ```ts
-import { vercelSandbox } from "niceeval/sandbox";
-export default defineExperiment({
-  sandbox: vercelSandbox({ snapshotId: "snap_xxx" }),
-  // …
-});
+sandbox: dockerSandbox({ image: "acme/niceeval-agents:2026-07-13" })
 ```
 
----
+要加项目依赖，写一个从该 image `FROM` 的项目 Dockerfile；不必 fork Adapter。
 
-## 改了 bub 的安装规格怎么办
+## Vercel：从已配置的 microVM 拍 snapshot
 
-bub 的 `BUB_OVERRIDE` / `OTEL_PLUGIN` 在几处出现,改一处要同步其余:
+Vercel 的制品是运行中 Sandbox 的 snapshot。脚本安装三个 Agent、完成自检后调用
+`snapshot()`，并打印要写进 Experiment 的 ID：
 
-1. [`src/agents/bub.ts`](../src/agents/bub.ts)(运行时回退安装 + 探测)
-2. [`docker/bub-override.txt`](./docker/bub-override.txt)(docker / e2b 烘焙时 `COPY` 进去的 override 行)
-   + [`docker/Dockerfile`](./docker/Dockerfile) 里 `--with` 的 OTEL 插件 URL
-3. [`vercel/build-vercel-snapshot.mts`](./vercel/build-vercel-snapshot.mts)(vercel 烘焙)
+```bash
+# VERCEL_API_TOKEN + VERCEL_TEAM_ID [+ VERCEL_PROJECT_ID]
+node --import tsx sandbox/vercel/build-vercel-snapshot.mts
+# => snapshotId: snap_xxx
+```
 
-> override 文件用 `COPY` 而非 shell 写入 —— e2b 的 Dockerfile 解析会吃掉反斜杠 / 双引号。
-> `--overrides` 不能省:OTEL 插件依赖上游 `bubbuild/bub`,与 fork 冲突,靠 override 统一解析。
+```ts
+sandbox: vercelSandbox({ snapshotId: "snap_xxx" })
+```
 
-改完重新构建对应后端的模板。
+若需继续定制，在拍 snapshot 前向脚本增加命令。Snapshot 有 provider 自己的过期策略；
+CI 应把 ID 当成部署产物管理，并定期重建，而不是在每个 Attempt 内重新安装。
+
+## Bub 一致性约定
+
+Bub 的默认版本、OTel 插件和安装指纹的唯一代码源是
+[`src/agents/bub-install-spec.ts`](../src/agents/bub-install-spec.ts)。E2B 和 Vercel 构建代码
+直接复用它；Dockerfile 不能导入 TypeScript，修改该文件后必须同步
+[`docker/bub-override.txt`](./docker/bub-override.txt)、Dockerfile 的插件 URL和 marker hash，
+再重建制品。测试会守护这些值不漂移。
