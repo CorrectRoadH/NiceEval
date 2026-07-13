@@ -2,7 +2,6 @@
 //   "%" → 87%    "ms" → 1.2s    "$" → $0.31    其余 → 1.2k 缩写(带 unit 后缀)
 // metric.display 可整体覆盖;这里只负责默认。
 
-import type { AttemptEvidenceCapabilities } from "../results/attempt-evidence.ts";
 import type { AssertionResult, Verdict } from "../types.ts";
 
 /** 一位小数、去掉无意义的 ".0" 尾巴。 */
@@ -78,8 +77,7 @@ export function formatPercent(ratio: number): string {
   return `${Math.round(ratio * 100)}%`;
 }
 
-// ── 实体列表(ExperimentList / EvalList / AttemptList)共用的判定符与证据能力位 ──
-// web / text 两面对同一个 AttemptListItem 给出同一个标记(docs-site「终端输出形成反馈闭环」)。
+// ── 实体列表(ExperimentList / EvalList / AttemptList)共用的判定符 ──
 
 /** passed / failed / errored / skipped 的判定符。 */
 export function verdictMark(verdict: Verdict): string {
@@ -93,19 +91,6 @@ export function verdictMark(verdict: Verdict): string {
     case "skipped":
       return "–";
   }
-}
-
-/**
- * 证据能力标记:`[E,X,⏱]` 式方括号列表,固定顺序 eval → execution → timing → diff,
- * 缺哪个不列哪个;四位全无时返回空串(没有证据可看,不画空 `[]`)。
- */
-export function capabilityBadge(capabilities: AttemptEvidenceCapabilities): string {
-  const marks: string[] = [];
-  if (capabilities.eval) marks.push("E");
-  if (capabilities.execution) marks.push("X");
-  if (capabilities.timing) marks.push("⏱");
-  if (capabilities.diff) marks.push("D");
-  return marks.length > 0 ? `[${marks.join(",")}]` : "";
 }
 
 /**

@@ -41,7 +41,7 @@ import {
   renderReportToText,
   stringWidth,
 } from "./index.ts";
-import { CostPassRateComparison } from "./built-ins/index.ts";
+import { ExperimentComparison } from "./built-ins/index.ts";
 import { renderReportToStaticHtml } from "./web.ts";
 import { createTextContext, renderNodeToText, validateReportTree } from "./tree.ts";
 import {
@@ -462,7 +462,7 @@ describe("AttemptList 双面", () => {
   const html = renderToStaticMarkup(<AttemptList items={attemptListItems} />);
   const term = text(<AttemptList items={attemptListItems} />);
 
-  it("两面同口径:判定符 + locator + 证据能力标记 + 断言/error 明细 + 下钻命令一致", () => {
+  it("两面同口径:判定符 + locator + 断言/error 明细 + 下钻命令一致", () => {
     for (const piece of ["roots-correct", "expected x=2, got x=3", "TypeError", "@1a4a4a4", "@1c1c1c1"]) {
       expect(html).toContain(piece);
       expect(term).toContain(piece);
@@ -470,9 +470,8 @@ describe("AttemptList 双面", () => {
     // web 面走证据室路由(#/attempt/@<locator>);text 面只列 locator 本身,不重复整条命令
     // (docs/feature/reports/architecture.md「text 输出只在整份报告末尾给一次命令模板」)。
     expect(html).toContain('href="#/attempt/@1a4a4a4"');
-    // 证据能力标记两面一致:failedAttempt 有 eval/execution/timing,erroredAttempt 只有 execution
-    expect(term).toContain("[E,X,⏱]");
-    expect(html).toContain("[E,X,⏱]");
+    expect(term).not.toMatch(/\[[EXD⏱,]+\]/);
+    expect(html).not.toMatch(/\[[EXD⏱,]+\]/);
   });
 
   it("total > items.length 时两面都如实报剩余数量", () => {
@@ -541,10 +540,13 @@ describe("ExperimentList 双面", () => {
     expect(term).toContain("50%");
   });
 
-  it("text 面是逐条卡片,不是 renderTableText 的产物:空行分隔每个 experiment、展开到 eval 的行缩进——表格没有这层嵌套", () => {
+  it("text 面先给比较表,再按 experiment 给 Eval / Attempt 父子表", () => {
     const blocks = term.split("\n\n");
-    expect(blocks).toHaveLength(experimentListItems.length);
-    expect(term.split("\n").some((l) => /^  \S/.test(l))).toBe(true); // 展开到 eval 的行缩进两格
+    expect(blocks).toHaveLength(experimentListItems.length + 1);
+    expect(blocks[0]).toContain("Model");
+    expect(blocks[0]).toContain("Avg");
+    expect(blocks[1]!.match(/algebra\/quadratic/g)).toHaveLength(1);
+    expect(blocks[1]).toMatch(/✗ failed\s+algebra\/quadratic[\s\S]*├─ @1a4a4a4[\s\S]*└─ @1b5b5b5/);
   });
 });
 
@@ -987,11 +989,11 @@ describe("defineReport + 渲染入口", () => {
     const out = await renderReportToText(report, fakeContext(), { width: 100 });
     // RunOverview(data 形态,预计算)
     expect(out).toContain("1 experiment · 2 evals · 2 attempts");
-    // ExperimentList:主行 + eval 级折叠计票 + 失败诊断(locator 徽标带证据能力标记)
-    expect(out).toContain("compare/bub · bub");
+    // ExperimentList:主行 + eval 级折叠计票 + 逐 Attempt locator 与失败诊断
+    expect(out).toMatch(/compare\/bub\s+default\s+bub/);
     expect(out).toContain("1 passed / 1 failed");
     expect(out).toContain("50%");
-    expect(out).toMatch(/✗ algebra\/y\s+@[0-9a-z]+✗/);
+    expect(out).toMatch(/✗ failed\s+algebra\/y[\s\S]*└─ @[0-9a-z]+/);
     // 自己的口径:成绩单
     expect(out).toContain("考试成绩单");
     expect(out).toContain("bub");
@@ -1051,7 +1053,7 @@ describe("defineReport + 渲染入口", () => {
 // ts-expect-error 注释对应一处编译错误。直接标注 Props 类型(而非 JSX)——JSX 的 union
 // 属性检查对「缺必填字段」较宽松,直接的类型赋值才严格钉住互斥不变量:同时传 data 与
 // selection、或两者都不传、或 selection 形态缺必填计算选项,全部编译失败。正向 JSX 用法由
-// CostPassRateComparison / defineReport 报告在同一文件里编译验证。
+// ExperimentComparison / defineReport 报告在同一文件里编译验证。
 function metricScatterPropsTypeChecks(selection: Selection, data: ScatterData): void {
   const ok1: MetricScatterProps = { data }; // 合法:data 形态
   const ok2: MetricScatterProps = { selection, points: "experiment", series: "agent", x: costUSD, y: passRate }; // 合法:selection 形态
@@ -1070,56 +1072,58 @@ function metricScatterPropsTypeChecks(selection: Selection, data: ScatterData): 
 
 void metricScatterPropsTypeChecks;
 
-// ───────────────────────── CostPassRateComparison(内置默认报告)─────────────────────────
+// ───────────────────────── ExperimentComparison(内置默认报告)─────────────────────────
 
-describe("CostPassRateComparison", () => {
+describe("ExperimentComparison", () => {
   it("是普通 ReportDefinition;text 面 = 成本×通过率散点 + 实验列表,别无它物", async () => {
-    expect(isReportDefinition(CostPassRateComparison)).toBe(true);
-    const out = await renderReportToText(CostPassRateComparison, fakeContext(), { width: 100 });
+    expect(isReportDefinition(ExperimentComparison)).toBe(true);
+    const out = await renderReportToText(ExperimentComparison, fakeContext(), { width: 100 });
     // 散点:fakeContext 无成本数据 → 0 可画点,显式说明缺哪两个指标(而不是画一张空图)
     expect(out).toContain("No data to plot");
     expect(out).not.toContain("better → upper right");
     // 实验列表主行 + eval 级折叠计票 + 失败诊断(ExperimentList.data 在 build() 里直接 await)
-    expect(out).toContain("compare/bub · bub");
+    expect(out).toMatch(/compare\/bub\s+default\s+bub/);
     expect(out).toContain("1 passed / 1 failed");
     expect(out).toContain("50%");
-    expect(out).toMatch(/✗ algebra\/y\s+@[0-9a-z]+✗/);
+    expect(out).toMatch(/✗ failed\s+algebra\/y[\s\S]*└─ @[0-9a-z]+/);
     // 只有两个直接业务组件:没有 RunOverview / GroupSummary / Section 分组
     expect(out).not.toContain("Current verdicts");
   });
 
   it("web 面:散点空态 + 实验列表 <details> 展开区,无 <script>,无 Section 分组", async () => {
-    const html = await renderReportToStaticHtml(CostPassRateComparison, fakeContext());
+    const html = await renderReportToStaticHtml(ExperimentComparison, fakeContext());
     expect(html).toContain("nre-metric-scatter");
     expect(html).toContain("nre-scatter-empty"); // 0 可画点的空态
-    expect(html).toContain('<li class="nre-experiment-entry">');
+    expect(html).toContain('<details class="nre-experiment-entry">');
+    expect(html).toContain("nre-experiment-head");
+    expect(html).toContain('data-nre-experiment-filter=""');
     expect(html).toContain("nre-experiment-evals");
     expect(html).not.toContain("nre-section");
     expect(html).not.toContain("<script");
   });
 
   it("locale 变体:en / zh-CN 都渲染(chrome 分语言),散点空态两面同一事实", async () => {
-    const zhHtml = await renderReportToStaticHtml(CostPassRateComparison, fakeContext(), { locale: "zh-CN" });
+    const zhHtml = await renderReportToStaticHtml(ExperimentComparison, fakeContext(), { locale: "zh-CN" });
     expect(zhHtml).toContain("成功率"); // passRate 的 zh-CN label(ExperimentList 主行)
-    const enHtml = await renderReportToStaticHtml(CostPassRateComparison, fakeContext(), { locale: "en" });
+    const enHtml = await renderReportToStaticHtml(ExperimentComparison, fakeContext(), { locale: "en" });
     expect(enHtml).toContain("Pass rate");
-    const zhText = await renderReportToText(CostPassRateComparison, fakeContext(), { locale: "zh-CN" });
+    const zhText = await renderReportToText(ExperimentComparison, fakeContext(), { locale: "zh-CN" });
     expect(zhText).toContain("没有可绘制的数据"); // 散点空态 zh
-    const enText = await renderReportToText(CostPassRateComparison, fakeContext(), { locale: "en" });
+    const enText = await renderReportToText(ExperimentComparison, fakeContext(), { locale: "en" });
     expect(enText).toContain("No data to plot");
   });
 
   it("多实验 fixture:每个 experiment 一项,散点如实处理全部无成本", async () => {
-    const out = await renderReportToText(CostPassRateComparison, fakeMultiGroupContext(), { width: 100 });
+    const out = await renderReportToText(ExperimentComparison, fakeMultiGroupContext(), { width: 100 });
     // 三个 experiment 的身份行都出现(experimentId · agent,不再截短成最后一段)
-    expect(out).toContain("compare/bub · bub");
-    expect(out).toContain("other/codex · codex");
-    expect(out).toContain("solo · bub");
+    expect(out).toMatch(/compare\/bub\s+default\s+bub/);
+    expect(out).toMatch(/other\/codex\s+default\s+codex/);
+    expect(out).toMatch(/solo\s+default\s+bub/);
     // 散点空态(三点都无成本)
     expect(out).toContain("No data to plot");
     // 没有组分 Section 标题(不再按目录前缀分组)
     expect(out).not.toMatch(/^compare$/m);
-    const html = await renderReportToStaticHtml(CostPassRateComparison, fakeMultiGroupContext());
+    const html = await renderReportToStaticHtml(ExperimentComparison, fakeMultiGroupContext());
     expect(html).not.toContain("nre-section");
   });
 });

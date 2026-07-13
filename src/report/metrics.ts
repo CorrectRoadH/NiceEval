@@ -13,7 +13,7 @@
 //
 // 两档指标(docs/feature/reports/library.md「内置指标」):以上除 turns 外全部只读 attempt.result
 // 的瘦身字段——任何 producer、任何 copySnapshots artifacts 选择都算得出,内置报告
-// CostPassRateComparison 只用这一档。turns 读 attempt.o11y()(懒加载 artifact),发布时若
+// ExperimentComparison 只用这一档。turns 读 attempt.o11y()(懒加载 artifact),发布时若
 // o11y 没随行就诚实渲染缺数据「—」,不算 0——报告作者自己摆时心里要有这根弦,内置报告不用它。
 
 import type { EvalResult } from "../types.ts";

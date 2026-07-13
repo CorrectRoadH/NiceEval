@@ -136,7 +136,7 @@ function selection(snapshots: Snapshot[], warnings: SelectionWarning[]): Selecti
 }
 
 describe("ExperimentList.data", () => {
-  it("身份、flags、Eval 判定构成、官方两级聚合汇总指标,展开到 Eval 携带 locator 与证据能力", async () => {
+  it("身份、flags、Eval 判定构成、官方两级聚合汇总指标,展开到 Eval 携带全部 Attempt locator", async () => {
     const s = snap({
       experimentId: "group/codex-e2b--mempal",
       agent: "codex",
@@ -181,8 +181,6 @@ describe("ExperimentList.data", () => {
     expect(evalA.verdict).toBe("passed"); // 任一轮通过 → 该题通过
     expect(evalA.attempts.map((a) => a.attempt)).toEqual([0, 1]);
     expect(evalA.attempts[0]!.locator).toMatch(/^@1[0-9a-z]{7}$/);
-    expect(evalA.attempts[0]!.capabilities.execution).toBe(true); // attempt0 的 hasEvents:true
-    expect(evalA.attempts[1]!.capabilities.execution).toBe(false);
     // 每次 attempt 独立编码,即使同一道题也不撞车
     expect(evalA.attempts[0]!.locator).not.toBe(evalA.attempts[1]!.locator);
 
@@ -243,7 +241,7 @@ describe("EvalList.data", () => {
 });
 
 describe("AttemptList.data", () => {
-  it("每项一个 Attempt:身份、判定、assertions、耗时、成本、locator 与证据能力标记", async () => {
+  it("每项一个 Attempt:身份、判定、assertions、耗时、成本与 locator", async () => {
     const s = snap({
       experimentId: "exp/x",
       results: [
@@ -270,9 +268,6 @@ describe("AttemptList.data", () => {
     });
     expect(item.assertions).toHaveLength(1);
     expect(item.locator).toMatch(/^@1[0-9a-z]{7}$/);
-    // 证据能力:cheap 计算,不调用完整 loadAttemptEvidence——execution 来自 hasEvents,
-    // eval 来自 hasSources,diff 懒加载(fixture 的 diff() 恒返回 null → false)。
-    expect(item.capabilities).toEqual({ eval: true, execution: true, timing: false, diff: false });
   });
 
   it("redact 作用于 error 与断言 detail/evidence,不作用于身份字段", async () => {

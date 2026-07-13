@@ -48,7 +48,7 @@ export default defineReport(async ({ selection }) => {
           y={passRate}
         />
       </Section>
-      <ExperimentList items={experiments} />
+      <ExperimentList items={experiments} filter />
     </Col>
   );
 });
@@ -123,15 +123,50 @@ const group = selection.filter((snapshot) => snapshot.experimentId.startsWith("c
 
 ### 实体列表
 
-实体列表用于从汇总下钻到事实，不允许自由配置列。
+实体列表用于从汇总下钻到事实，不允许自由配置列。固定列不等于所有渲染面使用相同排版：web 面可以用表格支持人工比较，text 面可以用紧凑列表支持终端阅读，但两面必须消费同一份 `.data()` 结果。
 
 #### `ExperimentList`
 
 每项显示 experiment 身份、agent / model、flags、判定构成、官方指标和其中的 eval。适合总览页的主列表。
 
+web 面是固定列的 experiment 比较表，而不是无表头的松散卡片列表。主表一行一个 experiment，列顺序固定为：
+
+| 列 | 内容 |
+|---|---|
+| Experiment | experiment id；副行显示 eval 数、attempt 数（多于 eval 数时）和最后运行时间 |
+| Model | model；缺失时显示明确空值 |
+| Agent | agent |
+| Avg duration | 官方 `durationMs` 聚合值 |
+| Pass rate | 官方 `passRate` 聚合值；默认按此列从高到低排序 |
+| Tokens | 官方 `tokens` 聚合值 |
+| Est. cost | 官方 `costUSD` 聚合值 |
+| Result | passed / failed / errored / skipped 的 eval 级判定构成 |
+
+表头支持点击排序；`filter` 为 web 面增加过滤输入框，可按 experiment、agent、model、flag 或 eval 文本收窄行。排序和过滤只改变浏览状态，不改变数据、指标口径或 text 面输出。每个 experiment 行使用原生 `<details>` 展开，展开区显示 flags 和 Eval 列表；每个 Eval 下把全部 Attempt 逐条列出，每条显示判定、locator、耗时 / 成本或失败原因，可继续下钻到 Attempt 详情。
+
+text 面先输出与 web 同口径的八列 experiment 比较表，再按 experiment 输出 Eval / Attempt 明细表。Eval 是父行，不是 Attempt 行上的重复字段；Attempt 用 `├─` / `└─` 子行显示一对多关系。明细列固定为状态、Eval / Attempt、结果、耗时、成本；窄终端复用标准 text table renderer 折行或从右侧隐藏低优先级列，并明确报告隐藏列数：
+
+```text
+Experiment      Model          Agent   Avg duration   Pass rate   Result                  Tokens   Est. cost
+compare/codex   gpt-5.4-mini   codex   1m 12s        50%         1 passed / 1 failed     42k      $0.08
+
+compare/codex
+Status      Eval / Attempt       Result                       Duration   Cost
+✓ passed    algebra/retry
+  ✗         ├─ @1first01         equals(42)                   16.0s      $0.02
+  ✓         └─ @1second2         —                            18.2s      $0.02
+✗ failed    weather/tool
+  ✗         └─ @1third03         calledTool("get_weather")   42.1s      $0.04
+```
+
+窄屏允许表格横向滚动，不能为了适应宽度删除列、把多个无标签数值挤成一串，或退化成无法判断各数字含义的无表头布局。
+
 ```tsx
 const items = await ExperimentList.data(selection);
-<ExperimentList items={items.filter((x) => x.experimentId.startsWith("prod/"))} />
+<ExperimentList
+  items={items.filter((x) => x.experimentId.startsWith("prod/"))}
+  filter
+/>
 ```
 
 #### `EvalList`
@@ -145,7 +180,7 @@ const items = await EvalList.data(selection);
 
 #### `AttemptList`
 
-每项显示一次 attempt 的判定、断言、错误、Judge 证据、locator 和可用证据类型。适合做“最近失败”或“待处理失败”区块。
+每项显示一次 attempt 的判定、断言、错误、Judge 证据和 locator。适合做“最近失败”或“待处理失败”区块。
 
 ```tsx
 const all = await AttemptList.data(selection, {
@@ -234,7 +269,7 @@ const data = await MetricScatter.data(selection, {
 <MetricScatter data={data} pointHref={(row) => `/experiments/${row.key}`} />
 ```
 
-x 或 y 缺失的点不绘制，并显示缺失数量。少于两个可画点时组件显示明确空态，不用调用方自行隐藏。
+x 或 y 缺失的点不绘制，并显示缺失数量。零个可画点时组件显示明确空态；只有一个可画点时照常画出该点，不把“比较”错误地当成至少两个实验的门槛。
 
 #### `MetricLine`
 

@@ -271,7 +271,7 @@ describe("MetricScatter", () => {
     expect(empty).toContain("4 points missing data");
   });
 
-  it("恰好 1 个可画点:比较至少要两个实验,不画孤点图", () => {
+  it("恰好 1 个可画点:照常画出单点", () => {
     const single = renderToStaticMarkup(
       <MetricScatter
         data={{
@@ -281,8 +281,8 @@ describe("MetricScatter", () => {
         }}
       />,
     );
-    expect(single).not.toContain("<svg");
-    expect(single).toContain("At least 2 experiments needed to compare");
+    expect(single).toContain("<svg");
+    expect(single).toContain("nre-scatter-point");
   });
 });
 
@@ -339,10 +339,10 @@ describe("AttemptList", () => {
     expect(html).not.toContain("more not shown");
   });
 
-  it("每条 attempt 带 locator + 默认证据室深链 + 证据能力标记", () => {
+  it("每条 attempt 带 locator + 默认证据室深链,不追加字母缩写", () => {
     expect(html).toContain('href="#/attempt/@1a4a4a4"');
     expect(html).toContain('href="#/attempt/@1c1c1c1"');
-    expect(html).toContain("[E,X,⏱]"); // failedAttempt: eval + execution + timing
+    expect(html).not.toMatch(/\[[EXD⏱,]+\]/);
   });
 
   it("长文本(evidence)收进 <details>,零 JS 可展开", () => {
@@ -373,18 +373,34 @@ describe("EvalList", () => {
 });
 
 describe("ExperimentList", () => {
-  const html = renderToStaticMarkup(<ExperimentList items={experimentListItems} />);
+  const html = renderToStaticMarkup(<ExperimentList items={experimentListItems} filter />);
 
-  it("主行:身份、agent/model、官方两级聚合指标", () => {
+  it("web 面是带过滤框与八个固定列头的 experiment 比较表", () => {
+    expect(html).toContain('data-nre-experiment-filter=""');
+    for (const header of ["Experiment", "Model", "Agent", "Avg duration", "Pass rate", "Tokens", "Est. cost", "Result"]) {
+      expect(html).toContain(`>${header}</button>`);
+    }
+    expect(html).toContain('data-nre-experiment-sort="4" class="nre-sort-desc"');
+  });
+
+  it("主行:身份、agent/model、官方两级聚合指标与判定构成", () => {
     expect(html).toContain("compare/bub");
     expect(html).toContain("compare/codex");
     expect(html).toContain("gpt-5.4");
     expect(html).toContain("50%"); // passRate.display
+    expect(html).toContain("1 passed / 1 failed");
+    expect(html).toContain("memory=true");
   });
 
-  it("展开到 Eval:判定符 + 该题 Attempt 的 locator 徽标内联", () => {
+  it("展开到 Eval:同一道题的全部 Attempt 逐条显示", () => {
     expect(html).toContain("algebra/quadratic");
     expect(html).toContain('href="#/attempt/@1a4a4a4"');
+    expect(html).toContain('href="#/attempt/@1b5b5b5"');
+    expect(html.match(/algebra\/quadratic/g)).toHaveLength(1);
+    expect(html).toContain("nre-experiment-eval-header");
+    expect(html.match(/nre-experiment-attempt-row/g)).toHaveLength(3);
+    expect(html).toContain("├─");
+    expect(html).toContain("└─");
   });
 
   it("零 JS 靠原生 <details>,无 <script>", () => {

@@ -19,7 +19,7 @@ niceeval view --report reports/exam.tsx
 
 ## 页面构成
 
-- **报告槽：** 默认显示成本 × 通过率散点和 experiment 列表。`--report` 用同一份自定义报告文件替换整个槽。
+- **报告槽：** 默认先显示成本 × 通过率散点，再显示 experiment 比较表。比较表由 `ExperimentList` 的 web 面渲染：一行一个 experiment，固定列出实验、模型、Agent、平均耗时、成功率、Tokens、预估成本和结果摘要；表头可排序，表前可按 experiment、agent、model 或 eval 文本过滤。每行可展开查看该 experiment 的 eval 与 attempt 证据。`--report` 用同一份自定义报告文件替换整个槽。
 - **Runs：** 把所有 attempt 展成可筛选列表。
 - **Traces：** 用 canonical OTel 字段显示执行瀑布图。
 - **Attempt 详情：** 判定、断言、错误、usage、对话、trace 和 diff 的入口。
@@ -66,6 +66,8 @@ niceeval view --report reports/exam.tsx
 ```
 
 报告文件同时可被 `niceeval show --report` 使用。官方组件都有 web 和 text 两个渲染面，所以同一份报告在浏览器与终端保持相同数据口径；浏览器宿主额外注入 attempt 深链。写法见 [Library](library.md#交给-show--view-渲染)。
+
+`ExperimentList` 的两个渲染面共享同一份实体与指标数据，但不强求相同排版：web 面使用适合人工横向比较的固定列表格，text 面使用适合终端读取的紧凑列表。两面中的成功率、成本、耗时、Tokens、判定构成和证据引用必须来自同一份计算结果。
 
 ## 相关阅读
 

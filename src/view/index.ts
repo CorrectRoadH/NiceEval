@@ -77,7 +77,7 @@ export function resolveViewInput(
  * 导出静态报告(--out):只有目录式一种形态。写 <dir>/index.html,并把前端会 fetch 的 artifact
  * (sources.json / events.json / trace.json)复制到 <dir>/artifact/<base>/——与本地
  * server 的 /artifact/<rel> 路由同一布局,整个目录扔给任何静态托管即是完整体验。
- * 首页即报告槽(裸跑填充 CostPassRateComparison,--report 整槽替换),证据室同站。
+ * 首页即报告槽(裸跑填充 ExperimentComparison,--report 整槽替换),证据室同站。
  * 单文件(*.html)导出已移除:代码/transcript/trace 视图依赖 artifact 文件,单文件注定残缺,
  * 存在本身就在诱导用户导出一份看不了证据的报告(docs/feature/reports/view.md「静态导出」)。
  */

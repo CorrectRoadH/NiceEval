@@ -52,7 +52,7 @@ export const zhCN = {
     "  niceeval exp [组|实验] [eval-id 前缀…]   跑实验\n" +
     "  niceeval show [eval-id 前缀… | @<locator>]   终端读结果\n" +
     "      裸跑:每个 experiment 的现刻判定(跨 run 合成),每行带紧凑 attempt 索引\n" +
-    "        (locator + 证据 capability 字母 [E,X,⏱,D] + 失败原因)\n" +
+    "        (locator + 失败原因)\n" +
     "      单个 eval id:attempt 与断言明细\n" +
     "      @<locator>  精确一个 attempt:无 flag → 紧凑全景;带 flag → 对应证据切面\n" +
     "      --eval        该 attempt 运行时保存的 Eval 源码,断言标回源码行\n" +

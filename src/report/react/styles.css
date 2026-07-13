@@ -42,7 +42,7 @@
   margin: 1rem 0;
 }
 
-/* ---- 判定符与证据能力徽标:AttemptList / EvalList / ExperimentList 共用的最小单元 ---- */
+/* ---- locator 与判定符:AttemptList / EvalList / ExperimentList 共用的最小单元 ---- */
 .nre .nre-locator { display:inline-flex; align-items:center; gap:4px; color:var(--nre-c0); font-variant-numeric:tabular-nums; text-decoration:none; white-space:nowrap; }
 .nre .nre-locator:hover { text-decoration:underline; }
 .nre .nre-locator-mark { font-weight:700; }
@@ -50,7 +50,6 @@
 .nre .nre-locator.nre-verdict-failed .nre-locator-mark,
 .nre .nre-locator.nre-verdict-errored .nre-locator-mark { color:var(--bad); }
 .nre .nre-locator.nre-verdict-skipped .nre-locator-mark { color:var(--soft); }
-.nre .nre-locator-caps { color:var(--muted); font-size:.85em; }
 
 /* ---- AttemptList:实体列表的叶子层,一条卡片一个 Attempt ---- */
 .nre-attempt-list .nre-attempts { list-style:none; margin:0; padding:0; }
@@ -93,25 +92,53 @@
 .nre-eval-list .nre-attempts { list-style:none; margin:0 0 12px; padding:0 0 0 20px; border-left:2px solid color-mix(in oklch,var(--nre-c0),transparent 55%); }
 .nre-eval-list .nre-eval-list-empty { border:1px dashed var(--line-strong); border-radius:8px; padding:18px; color:var(--muted); text-align:center; background:var(--panel); }
 
-/* ---- ExperimentList:实体列表的第一级,一条 <details> 一个 experiment ---- */
-.nre-experiment-list .nre-experiments { list-style:none; margin:0; padding:0; border:1px solid var(--line); border-radius:9px; overflow:hidden; background:var(--panel); }
+/* ---- ExperimentList:web 面固定八列比较表,一条 <details> 一个 experiment ---- */
+.nre-experiment-table { border:1px solid var(--line); border-radius:9px; overflow:hidden; background:var(--panel); }
+.nre-experiment-head,
+.nre-experiment-summary { display:grid; grid-template-columns:minmax(220px,1.25fr) minmax(120px,.8fr) minmax(90px,.6fr) minmax(100px,.65fr) minmax(90px,.55fr) minmax(110px,.7fr) minmax(90px,.6fr) minmax(160px,.9fr); column-gap:16px; align-items:center; }
+.nre-experiment-head { padding:12px 20px; color:var(--muted); font-size:12px; font-weight:560; text-transform:uppercase; letter-spacing:.05em; border-bottom:1px solid var(--line); }
+.nre-experiment-head button { appearance:none; border:0; padding:0; background:transparent; color:inherit; font:inherit; text-transform:inherit; letter-spacing:inherit; text-align:left; cursor:pointer; }
+.nre-experiment-head button::after { content:"↕"; margin-left:6px; color:var(--soft); font-size:11px; }
+.nre-experiment-head button.nre-sort-asc::after { content:"↑"; color:var(--text); }
+.nre-experiment-head button.nre-sort-desc::after { content:"↓"; color:var(--text); }
+.nre-experiment-table-wrap > .nre-filter { height:34px; min-width:260px; margin-bottom:16px; border:1px solid var(--line); border-radius:7px; padding:0 11px; background:var(--panel); color:var(--text); font:inherit; }
 .nre-experiment-list .nre-experiment-entry { border-bottom:1px solid var(--line); }
 .nre-experiment-list .nre-experiment-entry:last-child { border-bottom:0; }
-.nre-experiment-list .nre-experiment-summary { display:flex; flex-wrap:wrap; gap:.9em; align-items:baseline; padding:13px 20px; cursor:pointer; list-style:none; }
+.nre-experiment-list .nre-experiment-summary { padding:13px 20px; cursor:pointer; list-style:none; transition:background .12s; }
 .nre-experiment-list .nre-experiment-summary::-webkit-details-marker { display:none; }
 .nre-experiment-list .nre-experiment-summary:hover { background:color-mix(in oklch,var(--panel-2),var(--panel) 25%); }
-.nre-experiment-list .nre-experiment-id { font-weight:650; overflow-wrap:anywhere; }
-.nre-experiment-list .nre-experiment-agent,
-.nre-experiment-list .nre-experiment-model { color:var(--muted); font-size:.9em; }
-.nre-experiment-list .nre-experiment-cell { font-variant-numeric:tabular-nums; }
-.nre-experiment-list .nre-experiment-meta-sub { flex-basis:100%; color:var(--soft); font-size:12px; }
-.nre-experiment-list .nre-experiment-evals { list-style:none; margin:0; padding:8px 20px 16px; display:grid; gap:6px; background:color-mix(in oklch,var(--panel-2),var(--panel) 24%); }
-.nre-experiment-list .nre-experiment-eval-row { display:flex; flex-wrap:wrap; gap:.6em; align-items:baseline; font-size:13px; }
+.nre-experiment-list .nre-experiment-summary > span { min-width:0; }
+.nre-experiment-list .nre-experiment-name { position:relative; padding-left:30px; }
+.nre-experiment-list .nre-experiment-name::before { content:""; position:absolute; left:5px; top:6px; width:7px; height:7px; border-right:1.5px solid var(--muted); border-bottom:1.5px solid var(--muted); transform:rotate(-45deg); transition:transform .15s; }
+.nre-experiment-list .nre-experiment-entry[open] .nre-experiment-name::before { transform:rotate(45deg); }
+.nre-experiment-list .nre-experiment-id { display:block; overflow-wrap:anywhere; font-weight:650; }
+.nre-experiment-list .nre-experiment-name small { display:block; margin-top:3px; color:var(--muted); font-size:12px; font-weight:400; }
+.nre-experiment-list .nre-num { font-variant-numeric:tabular-nums; font-feature-settings:"tnum"; white-space:nowrap; }
+.nre-experiment-list .nre-good { color:var(--good); }
+.nre-experiment-list .nre-warn { color:var(--warn); }
+.nre-experiment-list .nre-bad { color:var(--bad); }
+.nre-experiment-list .nre-experiment-pill { display:inline-flex; min-height:22px; align-items:center; border:1px solid var(--line); border-radius:999px; padding:0 8px; color:var(--muted); font-size:12px; white-space:nowrap; }
+.nre-experiment-list .nre-experiment-detail { padding:18px 30px 22px; background:color-mix(in oklch,var(--panel-2),var(--panel) 24%); border-top:1px solid var(--line); }
+.nre-experiment-list .nre-experiment-flags { display:flex; flex-wrap:wrap; gap:8px; margin:0 0 14px; color:var(--soft); font-size:12px; }
+.nre-experiment-list .nre-experiment-flags b { border:1px solid color-mix(in oklch,var(--line),transparent 16%); border-radius:999px; padding:3px 8px; color:var(--text); font-weight:560; }
+.nre-experiment-list .nre-experiment-evals { list-style:none; margin:0; padding:0; display:grid; gap:6px; }
+.nre-experiment-list .nre-experiment-eval,
+.nre-experiment-list .nre-experiment-attempts { list-style:none; margin:0; padding:0; }
+.nre-experiment-list .nre-experiment-eval { padding:4px 0 9px; border-bottom:1px solid color-mix(in oklch,var(--line),transparent 28%); }
+.nre-experiment-list .nre-experiment-eval:last-child { border-bottom:0; }
+.nre-experiment-list .nre-experiment-eval-header,
+.nre-experiment-list .nre-experiment-attempt-row { display:grid; grid-template-columns:20px minmax(220px,1fr) minmax(150px,.7fr) minmax(260px,1fr); column-gap:12px; align-items:baseline; font-size:13px; }
+.nre-experiment-list .nre-experiment-eval-header { padding:7px 0 5px; }
+.nre-experiment-list .nre-experiment-attempt-row { padding:5px 0 5px 20px; color:var(--muted); }
 .nre-experiment-list .nre-eval-id { font-weight:560; overflow-wrap:anywhere; }
+.nre-experiment-list .nre-eval-attempt-count { color:var(--soft); font-size:12px; }
+.nre-experiment-list .nre-eval-summary { color:var(--muted); font-size:.92em; overflow-wrap:anywhere; }
+.nre-experiment-list .nre-attempt-branch { color:var(--line-strong); font-variant-numeric:tabular-nums; }
 .nre-experiment-list .nre-eval-attempt-badges { display:inline-flex; flex-wrap:wrap; gap:.6em; }
-.nre-experiment-list .nre-eval-avg,
+.nre-experiment-list .nre-eval-attempt-metrics,
 .nre-experiment-list .nre-eval-reason { color:var(--muted); font-size:.92em; }
 .nre-experiment-list .nre-experiment-list-empty { border:1px dashed var(--line-strong); border-radius:8px; padding:18px; color:var(--muted); text-align:center; background:var(--panel); }
+@media(max-width:1000px){.nre-experiment-table{overflow-x:auto}.nre-experiment-head,.nre-experiment-summary{min-width:1040px}.nre-experiment-detail{min-width:1040px}}
 
 /* ---- verdict 判定色(AttemptList/EvalList/ExperimentList 的 verdict 文字与判定符共用) ---- */
 .nre .nre-verdict-passed { color:var(--good); }

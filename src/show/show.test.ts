@@ -146,33 +146,30 @@ async function seedComposedRoot(): Promise<string> {
 
 // ───────────────────────── 榜单合成口径 ─────────────────────────
 
-describe("榜单:跨快照合成的现刻水位(show 专用 attempt 表)", () => {
-  it("局部重跑不撕榜单:另一题从更早快照补齐,单实验不出现比较空态", async () => {
+describe("默认报告:跨快照合成的现刻水位(ExperimentComparison text 面)", () => {
+  it("局部重跑不撕报告:另一题从更早快照补齐,缺成本时散点明确空态", async () => {
     const root = await seedComposedRoot();
     const { out, code } = await show(root, []);
     expect(code).toBe(0);
-    expect(out).not.toContain("No data to plot");
-    expect(out).not.toContain("At least 2 experiments");
+    expect(out).toContain("No data to plot Cost × Pass rate");
+    expect(out).toContain("1 point missing data");
+    expect(out).not.toContain("needed to compare");
     expect(out).not.toContain("COMPARISON");
-    expect(out).toContain("EXPERIMENT  compare/bub · bub");
-    expect(out).toContain("SUMMARY     1 passed · 1 failed · 0 errored · 0 skipped · 2 attempts");
-    expect(out).toMatch(/STATUS\s+EVAL\s+ATTEMPT\s+RESULT\s+DURATION\s+COST/);
-    expect(out).toMatch(/✗ failed\s+fixtures\/button\s+@1[0-9a-z]{7}\s+file was not modified/);
-    expect(out).toMatch(/✓ passed\s+weather\/brooklyn\s+@1[0-9a-z]{7}\s+—/);
-    expect(out).not.toMatch(/@1[0-9a-z]{7}[✓✗]/);
-    expect(out).not.toContain("[E,X,");
-    expect(out).toContain("DRILL DOWN  niceeval show @<attempt>");
+    expect(out).toMatch(/compare\/bub\s+default\s+bub\s+1s\s+50%/);
+    expect(out).toContain("1 passed / 1 failed");
+    expect(out).toMatch(/✗ failed\s+fixtures\/button[\s\S]*└─ @1[0-9a-z]{7}[\s\S]*fileChanged/);
+    expect(out).toMatch(/✓ passed\s+weather\/brooklyn[\s\S]*└─ @1[0-9a-z]{7}/);
+    expect(out).not.toMatch(/\[[EXD⏱,]+\]/);
   });
 
-  it("裸 show 使用稳定表头,不受自定义报告 locale chrome 影响", async () => {
+  it("裸 show 的默认报告 chrome 跟随 locale", async () => {
     const root = await seedComposedRoot();
     process.env.NICEEVAL_LANG = "zh-CN";
     try {
       const { out, code } = await show(root, []);
       expect(code).toBe(0);
-      expect(out).toMatch(/STATUS\s+EVAL\s+ATTEMPT\s+RESULT\s+DURATION\s+COST/);
-      expect(out).toContain("1 passed · 1 failed");
-      expect(out).not.toContain("没有可绘制的数据");
+      expect(out).toContain("预估成本 × 成功率 没有可绘制的数据");
+      expect(out).toContain("1 通过 / 1 失败");
       expect(out).toContain("compare/bub");
     } finally {
       process.env.NICEEVAL_LANG = "en";
@@ -183,13 +180,13 @@ describe("榜单:跨快照合成的现刻水位(show 专用 attempt 表)", () =>
     const root = await seedComposedRoot();
     const { out, code } = await show(root, [], {}, 60);
     expect(code).toBe(0);
-    expect(out).toContain("…");
+    expect(out).toContain("fixtures/button");
     for (const line of out.trimEnd().split("\n")) {
       expect(stringWidth(line), line).toBeLessThanOrEqual(60);
     }
   });
 
-  it("多个 experiment 先显示紧凑比较表,再逐 experiment 显示 attempt 表", async () => {
+  it("多个 experiment 显示散点图,再逐 experiment → Eval → Attempt", async () => {
     const root = await makeRoot();
     await writeSnapshot(root, "2026-07-08T10-00-00-000Z", { experimentId: "compare/a", agent: "codex", model: "mini", startedAt: "2026-07-08T10:00:00.000Z" }, [
       res("q1", "passed", { estimatedCostUSD: 0.1 }),
@@ -201,11 +198,13 @@ describe("榜单:跨快照合成的现刻水位(show 专用 attempt 表)", () =>
     ]);
     const { out, code } = await show(root, []);
     expect(code).toBe(0);
-    expect(out).toMatch(/COMPARISON\nEXPERIMENT\s+AGENT\s+MODEL\s+PASS\s+FAILED\s+ERROR\s+SKIP\s+DURATION\s+COST/);
-    expect(out).toContain("50% 1/2");
-    expect(out).toContain("100% 2/2");
-    expect(out.match(/^EXPERIMENT  compare\//gm)).toHaveLength(2);
-    expect(out).not.toContain("At least 2 experiments");
+    expect(out).toContain("better → upper right");
+    expect(out).toContain("A compare/a   B compare/b");
+    expect(out).toMatch(/compare\/b\s+large\s+claude\s+1s\s+100%/);
+    expect(out).toMatch(/compare\/a\s+mini\s+codex\s+1s\s+50%/);
+    expect(out).toMatch(/✓ passed\s+q1[\s\S]*└─ @1[0-9a-z]{7}/);
+    expect(out).toMatch(/✗ failed\s+q2[\s\S]*└─ @1[0-9a-z]{7}/);
+    expect(out).not.toContain("needed to compare");
   });
 
   it("合成 Selection:每 experiment × eval 取最新判定;compose 不产生残缺警告", async () => {

@@ -32,6 +32,19 @@ const en = {
   "table.viewBreakdown": "Per-eval breakdown",
   /** <Table> 的 locator 列表头(行带 locator 时自动追加)。 */
   "table.attempt": "attempt",
+  "experimentList.experiment": "Experiment",
+  "experimentList.avgDuration": "Avg duration",
+  "experimentList.passRate": "Pass rate",
+  "experimentList.tokens": "Tokens",
+  "experimentList.estimatedCost": "Est. cost",
+  "experimentList.result": "Result",
+  "experimentList.status": "Status",
+  "experimentList.evalAttempt": "Eval / Attempt",
+  "experimentList.duration": "Duration",
+  "experimentList.cost": "Cost",
+  "experimentList.filterPlaceholder": "Filter experiments…",
+  "experimentList.defaultModel": "default",
+  "experimentList.flags": "Flags",
   /** <Table> 压到下限仍放不下时,从右侧丢列并如实报数。 */
   "table.columnsHidden.one": "({n} more column not shown)",
   "table.columnsHidden.other": "({n} more columns not shown)",
@@ -60,8 +73,6 @@ const en = {
   "scatter.axisReversed": "(axis reversed: right = better)",
   /** 0 个可画点:x/y 指标没有可用数据。 */
   "scatter.noData": "No data to plot {x} × {y}",
-  /** 恰好 1 个可画点:比较至少要两个实验。 */
-  "scatter.needTwo": "At least 2 experiments needed to compare {x} × {y}",
   "pointsMissing.one": "{n} point missing data",
   "pointsMissing.other": "{n} points missing data",
 
@@ -110,6 +121,19 @@ const zhCN: Record<ReportMessageKey, string> = {
   "table.reason": "原因",
   "table.viewBreakdown": "逐题明细",
   "table.attempt": "Attempt",
+  "experimentList.experiment": "实验",
+  "experimentList.avgDuration": "平均耗时",
+  "experimentList.passRate": "成功率",
+  "experimentList.tokens": "Tokens",
+  "experimentList.estimatedCost": "预估成本",
+  "experimentList.result": "结果",
+  "experimentList.status": "状态",
+  "experimentList.evalAttempt": "题目 / Attempt",
+  "experimentList.duration": "耗时",
+  "experimentList.cost": "成本",
+  "experimentList.filterPlaceholder": "筛选实验…",
+  "experimentList.defaultModel": "默认",
+  "experimentList.flags": "Flags",
   "table.columnsHidden.one": "(还有 {n} 列未列出)",
   "table.columnsHidden.other": "(还有 {n} 列未列出)",
 
@@ -135,7 +159,6 @@ const zhCN: Record<ReportMessageKey, string> = {
   "scatter.betterUpperRight": "更好 → 右上",
   "scatter.axisReversed": "(轴反向:右 = 更好)",
   "scatter.noData": "{x} × {y} 没有可绘制的数据",
-  "scatter.needTwo": "至少需要 2 个实验才能比较 {x} × {y}",
   "pointsMissing.one": "{n} 个点缺数据",
   "pointsMissing.other": "{n} 个点缺数据",
 

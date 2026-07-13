@@ -1,15 +1,15 @@
-// Phase 4 验收:证明内置报告 CostPassRateComparison 与一份普通用户 --report 文件走的是
+// Phase 4 验收:证明内置报告 ExperimentComparison 与一份普通用户 --report 文件走的是
 // 完全同一套机制 —— 不是长得像,而是同一条 build → resolveReportTree → validate → render 管线。
 //
 // 证据链(plan/built-in-reports-user-parity.md「Phase 4」):
-//   1. test/fixtures/report/cost-pass-rate-comparison-public-copy.tsx 只从公开 barrel import,
+//   1. test/fixtures/report/experiment-comparison-public-copy.tsx 只从公开 barrel import,
 //      与 built-in 逐节点同构(见文件头)。
 //   2. 同一 ReportContext 下分别 build + resolveReportTree,深比较 resolved 树:组件类型 / 顺序 /
 //      resolved data / props keys 全部结构化相等(不靠 definition 引用相等,两份是独立文件)。
 //   3. 两份分别过 renderReportToText / renderReportToStaticHtml,比较事实(散点键 / 表格行 /
 //      attempt 深链),不做 HTML 字面 snapshot。
 //   4. 覆盖 plan 的 9 个必测场景。
-//   5. 架构不变量:renderer 源码零 "CostPassRateComparison" / "built-ins" 分支。
+//   5. 架构不变量:renderer 源码零 "ExperimentComparison" / "built-ins" 分支。
 //   6. show / view 只在「无 --report」分支选内置报告,--report 只换 definition,不碰
 //      Selection / resolve / validate / render。
 
@@ -22,8 +22,8 @@ import type { AttemptHandle, Results, Selection, Snapshot } from "../results/ind
 import type { ExperimentListItem, ScatterData } from "./types.ts";
 import { encodeAttemptLocator } from "../results/locator.ts";
 import { Col, ExperimentList, defineReport } from "./index.ts";
-import { CostPassRateComparison } from "./built-ins/index.ts";
-import publicCopy from "../../test/fixtures/report/cost-pass-rate-comparison-public-copy.tsx";
+import { ExperimentComparison } from "./built-ins/index.ts";
+import publicCopy from "../../test/fixtures/report/experiment-comparison-public-copy.tsx";
 import { renderReportToText } from "./report.ts";
 import { renderReportToStaticHtml } from "./web.ts";
 import {
@@ -278,15 +278,15 @@ function expectedLocatorFor(attempt: AttemptHandle): string {
 
 describe("resolved 树结构化等价(built-in ≡ 包外 public-copy)", () => {
   it("两份是独立 ReportDefinition,不是同一引用", () => {
-    expect(CostPassRateComparison).not.toBe(publicCopy);
-    expect(typeof CostPassRateComparison.build).toBe("function");
+    expect(ExperimentComparison).not.toBe(publicCopy);
+    expect(typeof ExperimentComparison.build).toBe("function");
     expect(typeof publicCopy.build).toBe("function");
   });
 
   for (const { name, ctx } of SCENARIOS) {
     it(`同一 ReportContext 下 resolved 树逐节点相等 — ${name}`, async () => {
       const c = ctx();
-      const builtIn = await resolvedTreeOf(CostPassRateComparison, c);
+      const builtIn = await resolvedTreeOf(ExperimentComparison, c);
       const user = await resolvedTreeOf(publicCopy, ctx()); // 各用一份等价 ctx,证明不依赖共享状态
 
       // 组件类型与顺序:<Col> 包 [MetricScatter, ExperimentList],别无它物。
@@ -308,7 +308,7 @@ describe("resolved 树结构化等价(built-in ≡ 包外 public-copy)", () => {
 
 describe("必测场景:resolved data 事实", () => {
   it("场景 1+2:多 experiment/agent,成本与通过率都有值;缺成本的点如实 x=null,实验列表仍出项", async () => {
-    const tree = await resolvedTreeOf(CostPassRateComparison, richContext());
+    const tree = await resolvedTreeOf(ExperimentComparison, richContext());
     const scatter = scatterOf(tree)!;
     const experiments = experimentListOf(tree)!;
 
@@ -342,7 +342,7 @@ describe("必测场景:resolved data 事实", () => {
   });
 
   it("场景 3:恰好一个可画点(另一实验缺成本)", async () => {
-    const tree = await resolvedTreeOf(CostPassRateComparison, oneDrawableContext());
+    const tree = await resolvedTreeOf(ExperimentComparison, oneDrawableContext());
     const scatter = scatterOf(tree)!;
     const drawable = scatter.rows.filter((r) => r.x.value !== null && r.y.value !== null);
     expect(drawable).toHaveLength(1);
@@ -350,20 +350,20 @@ describe("必测场景:resolved data 事实", () => {
   });
 
   it("场景 4:空 Selection —— 散点无 rows、实验列表为空数组", async () => {
-    const tree = await resolvedTreeOf(CostPassRateComparison, emptyContext());
+    const tree = await resolvedTreeOf(ExperimentComparison, emptyContext());
     expect(scatterOf(tree)!.rows).toEqual([]);
     expect(experimentListOf(tree)).toEqual([]);
   });
 
   it("场景 4 变体:全 skipped —— 每个点 x/y 都不可测,0 可画点", async () => {
-    const tree = await resolvedTreeOf(CostPassRateComparison, allSkippedContext());
+    const tree = await resolvedTreeOf(ExperimentComparison, allSkippedContext());
     const scatter = scatterOf(tree)!;
     expect(scatter.rows.every((r) => r.x.value === null && r.y.value === null)).toBe(true);
     expect(scatter.rows.filter((r) => r.x.value !== null && r.y.value !== null)).toHaveLength(0);
   });
 
   it("场景 5:failed/errored/skipped 混合 —— ExperimentList 展开区结果摘要正确(eval 级折叠计票)", async () => {
-    const tree = await resolvedTreeOf(CostPassRateComparison, richContext());
+    const tree = await resolvedTreeOf(ExperimentComparison, richContext());
     const codex = experimentListOf(tree)!.find((e) => e.experimentId === "compare/codex-mid")!;
     // algebra/x errored、algebra/y skipped、algebra/z passed → eval 级折叠 {passed:1, errored:1, skipped:1}
     expect(codex.verdicts).toEqual({ passed: 1, failed: 0, errored: 1, skipped: 1 });
@@ -374,7 +374,7 @@ describe("必测场景:resolved data 事实", () => {
   });
 
   it("场景 6:同 experiment 多 eval、多 attempts —— 展开层与 attempt locator 正确", async () => {
-    const tree = await resolvedTreeOf(CostPassRateComparison, richContext());
+    const tree = await resolvedTreeOf(ExperimentComparison, richContext());
     const bub = experimentListOf(tree)!.find((e) => e.experimentId === "compare/bub-low")!;
     expect(bub.evalRows.map((e) => e.evalId).sort()).toEqual(["algebra/x", "algebra/y"]);
     const multi = bub.evalRows.find((e) => e.evalId === "algebra/x")!;
@@ -394,12 +394,12 @@ describe("必测场景:resolved data 事实", () => {
 describe("built-in 与 public-copy 渲染出的事实相同", () => {
   for (const { name, ctx } of SCENARIOS) {
     it(`text / web 事实一致 — ${name}`, async () => {
-      const builtinText = await renderReportToText(CostPassRateComparison, ctx(), { width: 100 });
+      const builtinText = await renderReportToText(ExperimentComparison, ctx(), { width: 100 });
       const userText = await renderReportToText(publicCopy, ctx(), { width: 100 });
       // 同一机制、同一 options:text 输出逐字相等(最强的事实级证据)。
       expect(userText).toBe(builtinText);
 
-      const builtinHtml = await renderReportToStaticHtml(CostPassRateComparison, ctx());
+      const builtinHtml = await renderReportToStaticHtml(ExperimentComparison, ctx());
       const userHtml = await renderReportToStaticHtml(publicCopy, ctx());
       // 事实比较(不做整段 HTML snapshot):散点点键、attempt 深链集合相同。
       expect(scatterKeysOf(userHtml)).toEqual(scatterKeysOf(builtinHtml));
@@ -411,7 +411,7 @@ describe("built-in 与 public-copy 渲染出的事实相同", () => {
     const ctx = richContext();
     // renderReportToStaticHtml 默认 attemptHref = view 的 `#/attempt/@<locator>`(不透明单段路由,
     // 与 view/data.ts renderReportSlot 不传 attemptHref 时同一条默认路径)。
-    const builtinHtml = await renderReportToStaticHtml(CostPassRateComparison, ctx);
+    const builtinHtml = await renderReportToStaticHtml(ExperimentComparison, ctx);
     const userHtml = await renderReportToStaticHtml(publicCopy, richContext());
     const builtinHrefs = hrefsOf(builtinHtml);
     const userHrefs = hrefsOf(userHtml);
@@ -437,31 +437,28 @@ describe("built-in 与 public-copy 渲染出的事实相同", () => {
 
 describe("散点空态 / 单点 / 多点行为", () => {
   it("0 可画点(空 Selection):text 说 No data、web 走 nre-scatter-empty nre-missing", async () => {
-    const text = await renderReportToText(CostPassRateComparison, emptyContext(), { width: 100 });
+    const text = await renderReportToText(ExperimentComparison, emptyContext(), { width: 100 });
     expect(text).toContain("No data to plot");
     expect(text).not.toContain("better → upper right");
-    const html = await renderReportToStaticHtml(CostPassRateComparison, emptyContext());
+    const html = await renderReportToStaticHtml(ExperimentComparison, emptyContext());
     expect(html).toContain("nre-scatter-empty");
     expect(html).toContain("nre-missing");
   });
 
-  it("恰好 1 可画点:text/web 都说「至少 2 个实验」而不是画孤点", async () => {
-    const text = await renderReportToText(CostPassRateComparison, oneDrawableContext(), { width: 100 });
-    expect(text).toContain("At least 2 experiments needed to compare");
-    expect(text).not.toContain("better → upper right");
-    const html = await renderReportToStaticHtml(CostPassRateComparison, oneDrawableContext());
-    expect(html).toContain("nre-scatter-empty");
-    // 单点不是「缺数据」空态:散点空态本身不带 nre-missing 变体类(与 0 可画点的
-    // "nre-scatter-empty nre-missing" 区分开)。ExperimentList 展开区自己的缺成本格子
-    // 也合法渲染 nre-missing,不属于这条散点专属的断言范围。
+  it("恰好 1 可画点:text/web 都正常画单点", async () => {
+    const text = await renderReportToText(ExperimentComparison, oneDrawableContext(), { width: 100 });
+    expect(text).toContain("better → upper right");
+    const html = await renderReportToStaticHtml(ExperimentComparison, oneDrawableContext());
+    expect(html).toContain("nre-scatter-point");
+    expect(html).not.toContain("nre-scatter-empty");
     expect(html).not.toContain("nre-scatter-empty nre-missing");
-    expect(html).not.toContain("<svg");
+    expect(html).toContain("<svg");
   });
 
   it("≥2 可画点:正常绘图(text 有 better → upper right,web 有 svg)", async () => {
-    const text = await renderReportToText(CostPassRateComparison, richContext(), { width: 100 });
+    const text = await renderReportToText(ExperimentComparison, richContext(), { width: 100 });
     expect(text).toContain("better → upper right");
-    const html = await renderReportToStaticHtml(CostPassRateComparison, richContext());
+    const html = await renderReportToStaticHtml(ExperimentComparison, richContext());
     expect(html).toContain("<svg");
     expect(html).not.toContain("nre-scatter-empty");
   });
@@ -472,7 +469,7 @@ describe("散点空态 / 单点 / 多点行为", () => {
 describe("场景 7:en / zh-CN 数据 resolve 一次、chrome 分别本地化", () => {
   it("resolve 一次的同一棵树,en / zh-CN 各渲染一遍:data 事实相同,只有 chrome 文案不同", async () => {
     // 关键:build + resolveReportTree 只做一次,拿到唯一的 resolved 树;两个 locale 复用它。
-    const node = (await CostPassRateComparison.build(richContext())) as ReportNode;
+    const node = (await ExperimentComparison.build(richContext())) as ReportNode;
     const resolved = await resolveReportTree(node);
     validateReportTree(resolved);
 
@@ -518,7 +515,7 @@ describe("场景 7:en / zh-CN 数据 resolve 一次、chrome 分别本地化", (
     // 注意:spy 挂在 ExperimentList.data 本身,不是 compute.experimentListData —— components.tsx
     // 用 `Object.assign(component, { data: experimentListData })` 把函数值复制成一个普通属性,
     // 那份拷贝在 components.tsx 求值时(模块加载期)就定死了,晚于此的 vi.spyOn(compute, …) патch
-    // 不到已经复制走的引用。直接调用方(built-ins/cost-pass-rate-comparison.tsx)读的是
+    // 不到已经复制走的引用。直接调用方(built-ins/experiment-comparison.tsx)读的是
     // `ExperimentList.data` 这个属性,所以要在这个属性上打桩。MetricScatter 不受影响:它的
     // resolve() 住在 components.tsx 里,调用的是 scatterData 这个 import 绑定本身(ESM 实时绑定),
     // vi.spyOn(compute, "scatterData") 打得中。
@@ -526,7 +523,7 @@ describe("场景 7:en / zh-CN 数据 resolve 一次、chrome 分别本地化", (
     try {
       // ExperimentList 没有 resolve 面,.data() 直接在 build() 里 await——计算发生在 build,
       // 不是 resolveReportTree;MetricScatter 仍是 selection-form,resolve 阶段才调它的 .data()。
-      const node = (await CostPassRateComparison.build(richContext())) as ReportNode;
+      const node = (await ExperimentComparison.build(richContext())) as ReportNode;
       expect(experimentListSpy).toHaveBeenCalledTimes(1);
       const resolved = await resolveReportTree(node);
       expect(scatterSpy).toHaveBeenCalledTimes(1);
@@ -603,38 +600,38 @@ describe("场景 9:最小用户报告只放 <ExperimentList> —— 不计算散
 describe("架构不变量:renderer 不认识 built-in", () => {
   const RENDERER_FILES = ["./report.ts", "./web.ts", "./tree.ts"];
   for (const rel of RENDERER_FILES) {
-    it(`${rel} 源码里没有 "CostPassRateComparison" / "built-ins" 分支`, () => {
+    it(`${rel} 源码里没有 "ExperimentComparison" / "built-ins" 分支`, () => {
       const src = readFileSync(new URL(rel, import.meta.url), "utf8");
-      expect(src).not.toContain("CostPassRateComparison");
+      expect(src).not.toContain("ExperimentComparison");
       expect(src).not.toContain("built-ins");
     });
   }
 });
 
-// ═════════════════════════ 8. 宿主选择:show 索引与可替换报告槽分开 ═════════════════════════
+// ═════════════════════════ 8. 宿主选择:show / view 共用默认 definition ═════════════════════════
 
-describe("宿主选择:裸 show 是诊断索引,--report 与 view 走报告 definition", () => {
-  it("show / view 源码:裸 show 选择专用索引,--report 才装载 definition", () => {
+describe("宿主选择:裸 show / view 共用 ExperimentComparison,--report 替换 definition", () => {
+  it("show / view 源码:Selection 先合成,随后选择内置或用户 definition", () => {
     const showSrc = readFileSync(new URL("../show/index.ts", import.meta.url), "utf8");
-    expect(showSrc).toMatch(/flags\.report === undefined[\s\S]*showIndexText\(selection, io\.width\)/);
-    expect(showSrc).toMatch(/const definition = await loadReportFile\(cwd, flags\.report\)/);
-    expect(showSrc).not.toMatch(/import \{ CostPassRateComparison \}/);
+    expect(showSrc).toMatch(/import \{ ExperimentComparison \} from "\.\.\/\.\.\/dist\/report\/built-ins\/index\.js"/);
+    expect(showSrc).toMatch(/flags\.report === undefined \? ExperimentComparison : await loadReportFile\(cwd, flags\.report\)/);
+    expect(showSrc).not.toContain("showIndexText(selection");
     // Selection 在报告槽之前、与 report 无关地由 selectCurrentResults 合成。
     expect(showSrc).toMatch(/selectCurrentResults\(results, \{ experiment: flags\.experiment, patterns \}\)/);
 
     const viewSrc = readFileSync(new URL("../view/data.ts", import.meta.url), "utf8");
-    // view 的报告槽:report 有值走 loadReportFile,否则 CostPassRateComparison;Selection 同样先于报告槽合成。
-    expect(viewSrc).toMatch(/report\s*\?[\s\S]*loadReportFile[\s\S]*:\s*\(await import\([^)]*built-ins[^)]*\)\)\.CostPassRateComparison/);
+    // view 的报告槽:report 有值走 loadReportFile,否则 ExperimentComparison;Selection 同样先于报告槽合成。
+    expect(viewSrc).toMatch(/report\s*\?[\s\S]*loadReportFile[\s\S]*:\s*\(await import\([^)]*built-ins[^)]*\)\)\.ExperimentComparison/);
     expect(viewSrc).toMatch(/selectCurrentResults\(results, \{ experiment: opts\.experiment, patterns \}\)/);
   });
 
-  it("CostPassRateComparison 与 public-copy 作为显式报告时事实完全相同", async () => {
+  it("ExperimentComparison 与 public-copy 作为显式报告时事实完全相同", async () => {
     for (const { ctx } of SCENARIOS) {
-      const bareText = await renderReportToText(CostPassRateComparison, ctx(), { width: 100 });
+      const bareText = await renderReportToText(ExperimentComparison, ctx(), { width: 100 });
       const reportText = await renderReportToText(publicCopy, ctx(), { width: 100 });
       expect(reportText).toBe(bareText);
 
-      const bareHtml = await renderReportToStaticHtml(CostPassRateComparison, ctx());
+      const bareHtml = await renderReportToStaticHtml(ExperimentComparison, ctx());
       const reportHtml = await renderReportToStaticHtml(publicCopy, ctx());
       expect(scatterKeysOf(reportHtml)).toEqual(scatterKeysOf(bareHtml));
       expect(hrefsOf(reportHtml)).toEqual(hrefsOf(bareHtml));

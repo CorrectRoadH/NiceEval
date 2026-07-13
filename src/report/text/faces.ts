@@ -9,7 +9,6 @@ import type {
   AttemptListItem,
   DeltaData,
   EvalListItem,
-  ExperimentListEvalRow,
   ExperimentListItem,
   GroupSummaryData,
   LineData,
@@ -24,7 +23,6 @@ import type { TextContext } from "../tree.ts";
 import type { TableColumn, TableRow } from "../primitives.tsx";
 import {
   attemptItemReason,
-  capabilityBadge,
   formatDurationMs,
   formatMetricValue,
   formatPlainNumber,
@@ -325,11 +323,6 @@ export function scatterText(data: ScatterData, ctx: TextContext): string {
   if (drawable.length === 0) {
     return [localeText(locale, "scatter.noData", axes), ...footnotes].join("\n");
   }
-  // 恰好 1 个可画点:成本 × 通过率的比较至少要两个实验,单点不成图。
-  if (drawable.length === 1) {
-    return [localeText(locale, "scatter.needTwo", axes), ...footnotes].join("\n");
-  }
-
   // 点太密排不下时降级为坐标表,不硬挤
   if (drawable.length > POINT_MARKS.length || ctx.width < 44) {
     const table = renderCoordinateTable(
@@ -451,45 +444,93 @@ export function deltaText(data: DeltaData, ctx: TextContext): string {
 
 // ───────────────────────── 实体列表(ExperimentList / EvalList / AttemptList)─────────────────────────
 //
-// 三面共用的紧凑标记:`locator✓[E,X,⏱]`(判定符紧跟 locator,证据能力方括号紧跟判定符,
-// 中间不留空格)——docs-site/zh/guides/report-components.mdx「终端输出形成反馈闭环」定的形态。
+// 三面共用的紧凑标记:`locator✓`(判定符紧跟 locator,中间不留空格)。
 // ExperimentList / EvalList 逐 attempt 只列这一个标记 + 各自的原因/耗时摘要,不重复整段
 // niceeval show 命令;要看某个 attempt 的完整证据,agent 自己拼 `niceeval show <locator>`——
 // 命令模板只在 AttemptList(叶子层)展示完整断言明细时才值得,不在中间层重复。
 
-function locatorBadge(item: { locator: string; verdict: AttemptListItem["verdict"]; capabilities: AttemptListItem["capabilities"] }): string {
-  return `${item.locator}${verdictMark(item.verdict)}${capabilityBadge(item.capabilities)}`;
+function locatorBadge(item: { locator: string; verdict: AttemptListItem["verdict"] }): string {
+  return `${item.locator}${verdictMark(item.verdict)}`;
 }
 
 // ── ExperimentList ──
 
-function experimentListEvalLine(row: ExperimentListEvalRow): string {
-  const badges = row.attempts.map(locatorBadge).join(" ");
-  const trailer =
-    row.verdict === "passed"
-      ? [formatDurationMs(row.duration.value ?? 0), row.cost.value === null ? undefined : formatUSD(row.cost.value)]
-          .filter((s): s is string => s !== undefined)
-          .join(" · ")
-      : (row.reason ?? "");
-  return `  ${verdictMark(row.verdict)} ${row.evalId}   ${badges}   ${trailer}`;
+function experimentSummaryTable(items: ExperimentListItem[], ctx: TextContext): string {
+  const locale = ctx.locale;
+  const compact = ctx.width < 100;
+  const columns: TableColumn[] = [
+    { key: "experiment", header: compact && locale === "en" ? "Exp." : localeText(locale, "experimentList.experiment") },
+    { key: "model", header: localeText(locale, "table.model") },
+    { key: "agent", header: localeText(locale, "table.agent") },
+    { key: "duration", header: compact && locale === "en" ? "Avg" : localeText(locale, "experimentList.avgDuration"), align: "right" },
+    { key: "passRate", header: compact && locale === "en" ? "Pass" : localeText(locale, "experimentList.passRate"), align: "right" },
+    { key: "result", header: localeText(locale, "experimentList.result") },
+    { key: "tokens", header: localeText(locale, "experimentList.tokens"), align: "right" },
+    { key: "cost", header: compact && locale === "en" ? "Cost" : localeText(locale, "experimentList.estimatedCost"), align: "right" },
+  ];
+  const rows: TableRow[] = items.map((item) => ({
+    key: item.experimentId,
+    cells: {
+      experiment: item.experimentId,
+      model: item.model ?? localeText(locale, "experimentList.defaultModel"),
+      agent: item.agent,
+      duration: cellText(item.duration),
+      passRate: cellText(item.passRate),
+      result: verdictTallyText(item.verdicts, locale),
+      tokens: cellText(item.tokens),
+      cost: cellText(item.cost),
+    },
+  }));
+  const metadata = items.flatMap((item) =>
+    wrapDisplay(
+      `${item.experimentId}: ${localeText(locale, "overview.evalsCount", { n: item.evals })} · ${localeText(locale, "overview.attemptsCount", { n: item.attempts })} · ${item.lastRunAt}`,
+      Math.max(8, ctx.width - 2),
+    ).map((line) => `  ${line}`),
+  );
+  return [renderTableText({ columns, rows, locale }, ctx), metadata.join("\n")].join("\n");
+}
+
+function experimentDetailTable(item: ExperimentListItem, ctx: TextContext): string {
+  const locale = ctx.locale;
+  const columns: TableColumn[] = [
+    { key: "status", header: localeText(locale, "experimentList.status") },
+    { key: "entity", header: localeText(locale, "experimentList.evalAttempt") },
+    { key: "result", header: localeText(locale, "experimentList.result") },
+    { key: "duration", header: localeText(locale, "experimentList.duration"), align: "right" },
+    { key: "cost", header: localeText(locale, "experimentList.cost"), align: "right" },
+  ];
+  const rows: TableRow[] = item.evalRows.flatMap((row) => {
+    const parent: TableRow = {
+      key: row.evalId,
+      cells: {
+        status: `${verdictMark(row.verdict)} ${localeText(locale, `verdict.${row.verdict}`)}`,
+        entity: row.evalId,
+        result: "",
+        duration: "",
+        cost: "",
+      },
+    };
+    const attempts: TableRow[] = row.attempts.map((attempt, index) => ({
+      key: attempt.locator,
+      cells: {
+        status: `  ${verdictMark(attempt.verdict)}`,
+        entity: `${index === row.attempts.length - 1 ? "└─" : "├─"} ${attempt.locator}`,
+        result: attemptItemReason(attempt) ?? MISSING_MARK,
+        duration: attempt.verdict === "skipped" && attempt.durationMs === 0 ? null : formatDurationMs(attempt.durationMs),
+        cost: attempt.costUSD === undefined ? null : formatUSD(attempt.costUSD),
+      },
+    }));
+    return [parent, ...attempts];
+  });
+  const flags = item.flags && Object.keys(item.flags).length > 0
+    ? `${localeText(locale, "experimentList.flags")} ${Object.entries(item.flags).map(([key, value]) => `${key}=${String(value)}`).join(" · ")}`
+    : undefined;
+  return [item.experimentId, flags, renderTableText({ columns, rows, locale }, ctx)].filter(Boolean).join("\n");
 }
 
 export function experimentListText(items: ExperimentListItem[], ctx: TextContext): string {
-  const locale = ctx.locale;
-  if (items.length === 0) return localeText(locale, "attemptList.empty");
-  const blocks = items.map((item) => {
-    const identity = item.model ? `${item.experimentId} · ${item.agent} · ${item.model}` : `${item.experimentId} · ${item.agent}`;
-    const summary = [
-      `${localeText(locale, "overview.passRate")} ${cellText(item.passRate)}`,
-      verdictTallyText(item.verdicts, locale),
-      localeText(locale, "overview.attemptsCount", { n: item.attempts }),
-      formatDurationMs(item.duration.value ?? 0),
-      item.cost.value === null ? missingText(locale) : formatUSD(item.cost.value),
-    ].join(" · ");
-    const evalLines = item.evalRows.map(experimentListEvalLine);
-    return [identity, `  ${summary}`, ...evalLines].join("\n");
-  });
-  return blocks.join("\n\n");
+  if (items.length === 0) return localeText(ctx.locale, "attemptList.empty");
+  return [experimentSummaryTable(items, ctx), ...items.map((item) => experimentDetailTable(item, ctx))].join("\n\n");
 }
 
 // ── EvalList ──
@@ -518,7 +559,7 @@ export function evalListText(items: EvalListItem[], ctx: TextContext): string {
 
 // ── AttemptList ──
 
-/** 一个 AttemptListItem 的完整 text 卡片:判定符 + locator + 身份 + 耗时/成本 + 证据能力,
+/** 一个 AttemptListItem 的完整 text 卡片:判定符 + locator + 身份 + 耗时/成本,
  * 然后逐条断言(gate 与 soft 都列,与 web 面的 AttemptRow 同一份材料)。 */
 function attemptListItemText(item: AttemptListItem, ctx: TextContext, locale: ReportLocale): string {
   const head = [
@@ -527,7 +568,6 @@ function attemptListItemText(item: AttemptListItem, ctx: TextContext, locale: Re
     item.experimentId,
     formatDurationMs(item.durationMs),
     ...(item.costUSD !== undefined ? [formatUSD(item.costUSD)] : []),
-    ...(capabilityBadge(item.capabilities) ? [capabilityBadge(item.capabilities)] : []),
   ].join(" · ");
   const lines = [head];
   if (item.error) {

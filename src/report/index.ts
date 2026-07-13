@@ -45,7 +45,7 @@ export {
 export type { ColumnAlign } from "./text/layout.ts";
 
 // 内置报告(show / view 裸跑时报告槽的出厂填充,一份普通 ReportDefinition,无 renderer 特权)
-export { CostPassRateComparison } from "./built-ins/index.ts";
+export { ExperimentComparison } from "./built-ins/index.ts";
 
 // locale:官方组件 chrome 文案的语言(en / zh-CN);指标 label 可按 locale 给字典
 export { DEFAULT_REPORT_LOCALE, resolveMetricLabel } from "./locale.ts";
@@ -95,7 +95,6 @@ export type {
 // 数据契约(组件的 data props)
 export type {
   Aggregator,
-  AttemptEvidenceCapabilities,
   AttemptListItem,
   AttemptLocator,
   DeltaData,

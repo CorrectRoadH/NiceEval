@@ -1,5 +1,5 @@
 // AttemptList:实体列表的叶子层——每项一个 Attempt,固定展示判定、断言、error、Judge 评语
-// (assertions 的 detail/evidence)与证据引用(locator + 证据能力标记)。它不预设只看失败,
+// (assertions 的 detail/evidence)与证据引用(locator)。它不预设只看失败,
 // 报告作者过滤 items、用 .slice() 限量,total 让渲染面如实报告剩余数量,不静默截断。
 // ExperimentList / EvalList 的下钻数组是同一个 AttemptListItem[],这里的渲染逻辑因此
 // 也是它们展开区里"逐条 attempt"那一层的唯一实现(通过 AttemptRow 导出复用,不重写一遍)。
@@ -9,17 +9,16 @@ import type { AttemptListItem } from "../types.ts";
 import type { AttemptLocator } from "../../results/locator.ts";
 import { DEFAULT_REPORT_LOCALE, localeText, type ReportLocale } from "../locale.ts";
 import { colorClassForKey } from "./colors.ts";
-import { capabilityBadge, cx, formatDurationMs, formatUSD, verdictMark } from "./format.ts";
+import { cx, formatDurationMs, formatUSD, verdictMark } from "./format.ts";
 
-/** locator + 判定符 + 证据能力标记的普通 <a>,AttemptList/EvalList/ExperimentList 共用。 */
+/** locator + 判定符的普通 <a>,AttemptList/EvalList/ExperimentList 共用。 */
 export function AttemptLocatorBadge({
   item,
   attemptHref,
 }: {
-  item: Pick<AttemptListItem, "locator" | "verdict" | "capabilities">;
+  item: Pick<AttemptListItem, "locator" | "verdict">;
   attemptHref: (locator: AttemptLocator) => string;
 }): ReactElement {
-  const caps = capabilityBadge(item.capabilities);
   return (
     <a
       className={cx("nre-locator", `nre-verdict-${item.verdict}`)}
@@ -27,7 +26,6 @@ export function AttemptLocatorBadge({
     >
       {item.locator}
       <span className="nre-locator-mark">{verdictMark(item.verdict)}</span>
-      {caps && <span className="nre-locator-caps">{caps}</span>}
     </a>
   );
 }

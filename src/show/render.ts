@@ -5,7 +5,7 @@
 
 import { join, relative } from "node:path";
 import type { AssertionResult, DiffData, EvalResult, Verdict } from "../types.ts";
-import type { AttemptEvidence, AttemptEvidenceCapabilities, AttemptHandle, Selection, Snapshot } from "../results/index.ts";
+import type { AttemptEvidence, AttemptHandle, Snapshot } from "../results/index.ts";
 import type { AnnotatedSourceLine } from "../results/index.ts";
 import { groupIncompatibleVersionSkips } from "../results/index.ts";
 import type { SkippedDir } from "../results/index.ts";
@@ -13,7 +13,7 @@ import type { ExecutionNode } from "../o11y/execution-tree.ts";
 import { foldEvalVerdict } from "../shared/verdict.ts";
 import { attemptCostUSD } from "../report/metrics.ts";
 import { formatDurationMs, formatMetricValue, formatPlainNumber, formatUSD } from "../report/format.ts";
-import { indentBlock, padDisplay, renderAlignedRows, stringWidth, wrapDisplay } from "../report/text/layout.ts";
+import { indentBlock, padDisplay, renderAlignedRows, wrapDisplay } from "../report/text/layout.ts";
 import type { EvalHistoryRow, ExperimentHistoryRow } from "./compose.ts";
 
 const MISSING = "—";
@@ -43,172 +43,6 @@ function verdictMark(verdict: Verdict): string {
   if (verdict === "passed") return "✓";
   if (verdict === "skipped") return "-";
   return "✗";
-}
-
-function showVerdictLabel(verdict: Verdict): string {
-  switch (verdict) {
-    case "passed":
-      return "✓ passed";
-    case "failed":
-      return "✗ failed";
-    case "errored":
-      return "! errored";
-    case "skipped":
-      return "○ skipped";
-  }
-}
-
-/** 按终端显示宽度截断，末尾保留一个省略号；不从 CJK 字符中间切开。 */
-function clipDisplay(text: string, width: number): string {
-  if (stringWidth(text) <= width) return text;
-  if (width <= 1) return "…";
-  let out = "";
-  let used = 0;
-  for (const ch of text) {
-    const next = stringWidth(ch);
-    if (used + next > width - 1) break;
-    out += ch;
-    used += next;
-  }
-  return out + "…";
-}
-
-function commandExitCode(evidence: string | undefined): string | undefined {
-  if (!evidence) return undefined;
-  try {
-    const parsed: unknown = JSON.parse(evidence);
-    if (typeof parsed === "object" && parsed !== null && "exitCode" in parsed) {
-      const exitCode = parsed.exitCode;
-      if (typeof exitCode === "number") return String(exitCode);
-    }
-  } catch {
-    // Assertion evidence is allowed to be arbitrary text; fall through to textual hints.
-  }
-  return /(?:returncode|retcode|exit(?:ed| code)?)\D{0,8}(-?\d+)/i.exec(evidence)?.[1];
-}
-
-/** 默认索引 RESULT 列：只给能决定下一步的短原因，完整 evidence 留在 attempt 首页。 */
-export function showResultReason(result: EvalResult): string {
-  if (result.verdict === "passed") return MISSING;
-  if (result.error !== undefined) return result.error;
-  if (result.skipReason !== undefined) return result.skipReason;
-  const gate = result.assertions.find((assertion) => !assertion.passed && assertion.severity === "gate");
-  if (!gate) return MISSING;
-  const expected = equalsExpected(gate.name);
-  if (expected !== undefined && gate.evidence !== undefined) {
-    return `expected ${expected}, received ${gate.evidence} · ${gate.name}`;
-  }
-  if (gate.name === "commandSucceeded()") {
-    const exitCode = commandExitCode(gate.evidence);
-    return `${exitCode === undefined ? "command failed" : `command exited ${exitCode}`} · ${gate.name}`;
-  }
-  return gate.detail ? `${gate.detail} · ${gate.name}` : gate.name;
-}
-
-function average(values: number[]): number {
-  return values.length === 0 ? 0 : values.reduce((sum, value) => sum + value, 0) / values.length;
-}
-
-function snapshotSummary(snapshot: Snapshot): string {
-  const counts: Record<Verdict, number> = { passed: 0, failed: 0, errored: 0, skipped: 0 };
-  for (const attempt of snapshot.attempts) counts[attempt.result.verdict] += 1;
-  const costs = snapshot.attempts.map((attempt) => attemptCostUSD(attempt.result)).filter((cost): cost is number => cost !== null);
-  const duration = average(snapshot.attempts.map((attempt) => attempt.result.durationMs));
-  return [
-    `${counts.passed} passed`,
-    `${counts.failed} failed`,
-    `${counts.errored} errored`,
-    `${counts.skipped} skipped`,
-    attemptsLabel(snapshot.attempts.length),
-    formatDurationMs(duration),
-    costs.length === 0 ? MISSING : formatUSD(average(costs)),
-  ].join(" · ");
-}
-
-function warningText(selection: Selection, width: number): string {
-  return selection.warnings
-    .flatMap((warning) => {
-      const lines = wrapDisplay(warning.message, Math.max(20, width - 9));
-      return lines.map((line, index) => `${index === 0 ? "WARNING  " : "         "}${line}`);
-    })
-    .join("\n");
-}
-
-function labeledBlock(label: string, value: string, width: number): string {
-  const prefix = padDisplay(label, 12);
-  return wrapDisplay(value, Math.max(8, width - stringWidth(prefix)))
-    .map((line, index) => `${index === 0 ? prefix : " ".repeat(stringWidth(prefix))}${line}`)
-    .join("\n");
-}
-
-function experimentAttemptTable(snapshot: Snapshot, width: number): string {
-  const separator = width >= 100 ? "   " : width >= 70 ? "  " : " ";
-  const fixedWidth = 9 + 9 + 8 + 5 + stringWidth(separator) * 5;
-  const flexible = Math.max(10, width - fixedWidth);
-  const naturalEval = Math.max(4, ...snapshot.attempts.map((attempt) => stringWidth(attempt.evalId)));
-  const evalWidth = Math.min(naturalEval, Math.max(4, Math.floor(flexible * 0.52)));
-  const resultWidth = Math.max(6, flexible - evalWidth);
-  const rows: string[][] = [["STATUS", "EVAL", "ATTEMPT", "RESULT", "DURATION", "COST"]];
-  for (const ev of snapshot.evals) {
-    for (const attempt of ev.attempts) {
-      const result = attempt.result;
-      const cost = attemptCostUSD(result);
-      rows.push([
-        showVerdictLabel(result.verdict),
-        clipDisplay(ev.id, evalWidth),
-        attempt.locator ?? MISSING,
-        clipDisplay(showResultReason(result), resultWidth),
-        result.verdict === "skipped" && result.durationMs === 0 ? MISSING : formatDurationMs(result.durationMs),
-        cost === null ? MISSING : formatUSD(cost),
-      ]);
-    }
-  }
-  return renderAlignedRows(rows, ["left", "left", "left", "left", "right", "right"], separator);
-}
-
-function comparisonTable(snapshots: Snapshot[], width: number): string {
-  const rows: string[][] = [["EXPERIMENT", "AGENT", "MODEL", "PASS", "FAILED", "ERROR", "SKIP", "DURATION", "COST"]];
-  for (const snapshot of snapshots) {
-    const verdicts = snapshot.evals.map((ev) => foldEvalVerdict(ev.attempts.map((attempt) => attempt.result)));
-    const passed = verdicts.filter((verdict) => verdict === "passed").length;
-    const failed = verdicts.filter((verdict) => verdict === "failed").length;
-    const errored = verdicts.filter((verdict) => verdict === "errored").length;
-    const skipped = verdicts.filter((verdict) => verdict === "skipped").length;
-    const ran = verdicts.length - skipped;
-    const costs = snapshot.attempts.map((attempt) => attemptCostUSD(attempt.result)).filter((cost): cost is number => cost !== null);
-    rows.push([
-      clipDisplay(snapshot.experimentId, Math.max(12, Math.floor(width * 0.24))),
-      snapshot.agent,
-      snapshot.model ?? MISSING,
-      ran === 0 ? MISSING : `${Math.round((passed / ran) * 1000) / 10}% ${passed}/${ran}`,
-      String(failed),
-      String(errored),
-      String(skipped),
-      formatDurationMs(average(snapshot.attempts.map((attempt) => attempt.result.durationMs))),
-      costs.length === 0 ? MISSING : formatUSD(average(costs)),
-    ]);
-  }
-  return renderAlignedRows(rows, ["left", "left", "left", "right", "right", "right", "right", "right", "right"]);
-}
-
-/** docs/feature/reports/show.md 的默认结果索引；只服务裸 show，不是可替换报告组件。 */
-export function showIndexText(selection: Selection, width: number): string {
-  const blocks: string[] = [];
-  const warnings = warningText(selection, width);
-  if (warnings) blocks.push(warnings);
-  if (selection.snapshots.length >= 2) blocks.push(`COMPARISON\n${comparisonTable(selection.snapshots, width)}`);
-  for (const snapshot of selection.snapshots) {
-    blocks.push(
-      [
-        labeledBlock("EXPERIMENT", `${snapshot.experimentId} · ${snapshot.agent}${snapshot.model ? ` · ${snapshot.model}` : ""}`, width),
-        labeledBlock("SUMMARY", snapshotSummary(snapshot), width),
-        "",
-        experimentAttemptTable(snapshot, width),
-      ].join("\n"),
-    );
-  }
-  blocks.push(labeledBlock("DRILL DOWN", "niceeval show @<attempt> [--eval | --execution | --diff]", width));
-  return blocks.join("\n\n");
 }
 
 function attemptsLabel(n: number): string {
@@ -353,43 +187,13 @@ export function attemptHeader(attempt: AttemptHandle): string {
 
 // ───────────────────────── AttemptEvidence 共用 ─────────────────────────
 // evalSourceText / executionText / attemptOverviewText(--eval / --execution / 默认全景)
-// 与 evalDetailText 的紧凑索引列共用的小件:locator 头、capability 字母、失败原因、
+// 与 evalDetailText 的紧凑索引列共用的小件:locator 头、失败原因、
 // 断言计票摘要。三个证据 renderer 与全景面都只消费同一份 AttemptEvidence,不各自读
 // artifact 或重新判定 capability(loadAttemptEvidence 已经算好)。
 
 /** `--eval` / `--execution` / 全景块的头行:`@<locator> · <evalId> · <experimentId> · <verdict>`。 */
 export function attemptEvidenceHeader(evidence: AttemptEvidence): string {
   return [evidence.locator, evidence.identity.evalId, evidence.identity.experimentId, evidence.result.verdict].join(" · ");
-}
-
-/** capability 位 → 展示字母,只列为 true 的位;全部为 false 时返回空串(不打空 `[]`)。 */
-export function capabilityLetters(capabilities: AttemptEvidenceCapabilities): string {
-  const letters: string[] = [];
-  if (capabilities.eval) letters.push("E");
-  if (capabilities.execution) letters.push("X");
-  if (capabilities.timing) letters.push("⏱");
-  if (capabilities.diff) letters.push("D");
-  return letters.length > 0 ? `[${letters.join(",")}]` : "";
-}
-
-/**
- * 紧凑多 attempt 索引(裸 `niceeval show`、单 eval 多 experiment 行、evidence flag 撞多个
- * eval 时的消歧提示)用的廉价 capability 估算:只读瘦身 `EvalResult` 字段(`hasSources` /
- * `hasEvents` / `hasTrace`),不为了点亮一个字母去读 artifact —— 与
- * `report/compute.ts::attemptRow` 的 `hasEvidence` 同一个「只认瘦身字段」的口径(它同样只用
- * `hasEvents` / `hasTrace`,同样不读 diff.json)。`diff` 位没有对应的瘦身字段(不像
- * events/trace/sources,写入面从不给 diff 算一个 has* 布尔),而 diff.json 可达上百 MB,
- * 不该为了这一个字母在渲染路径上打开它(见 docs/feature/reports/architecture.md「计算与
- * 渲染分离」)——因此这里恒报 `false`;只有 `loadAttemptEvidence()` real 出的
- * capabilities(单 attempt 路径,如 `@<locator>` 全景)才知道真实答案。
- */
-export function cheapCapabilities(result: EvalResult): AttemptEvidenceCapabilities {
-  return {
-    eval: result.hasSources === true,
-    execution: result.hasEvents === true,
-    timing: result.hasEvents === true && result.hasTrace === true,
-    diff: false,
-  };
 }
 
 /**
@@ -408,15 +212,14 @@ export function verdictReasonLine(result: EvalResult): string | undefined {
   return gates.map((a) => `gate ${a.name}`).join(", ");
 }
 
-/** 紧凑多 attempt 索引的一行:`✗ weather/brooklyn  @7K2M9Q[E,X,⏱]  gate calledTool(...)`。 */
+/** 紧凑多 attempt 索引的一行:`✗ weather/brooklyn  @7K2M9Q  gate calledTool(...)`。 */
 export function attemptIndexLine(opts: {
   evalId: string;
   verdict: Verdict;
   locator: string | undefined;
-  capabilities: AttemptEvidenceCapabilities;
   reason?: string;
 }): string {
-  const loc = opts.locator ? `${opts.locator}${capabilityLetters(opts.capabilities)}` : MISSING;
+  const loc = opts.locator ?? MISSING;
   const parts = [`${verdictMark(opts.verdict)} ${opts.evalId}`, loc];
   if (opts.reason) parts.push(opts.reason);
   return parts.join("  ");
@@ -463,7 +266,7 @@ export function evalDetailText(opts: EvalDetailOptions): string {
   blocks.push(description ? `${evalId} — ${description}` : evalId);
 
   // 每 experiment 一行:折叠判定、attempt 数、最新 attempt 的耗时、总成本、判定时间、
-  // 代表 attempt 的紧凑索引(locator + capability 字母 + 失败原因)——agent 从这张榜单
+  // 代表 attempt 的紧凑索引(locator + 失败原因)——agent 从这张榜单
   // 就能直接摘到一个 `@<locator>` 下钻,不必先跑一遍 `--eval`/`--execution` 才知道选谁。
   const rows: string[][] = [];
   for (const snapshot of snapshots) {
@@ -477,7 +280,7 @@ export function evalDetailText(opts: EvalDetailOptions): string {
       if (c !== null) cost = (cost ?? 0) + c;
     }
     const rep = pickDetailAttempt(ev.attempts);
-    const locatorCell = rep?.locator ? `${rep.locator}${capabilityLetters(cheapCapabilities(rep.result))}` : MISSING;
+    const locatorCell = rep?.locator ?? MISSING;
     const reasonCell = rep ? (verdictReasonLine(rep.result) ?? "") : "";
     rows.push([
       snapshot.experimentId,

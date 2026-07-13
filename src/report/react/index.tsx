@@ -38,7 +38,6 @@ export type {
 
 // 数据契约类型(家在 ../types.ts,「算」与「画」两侧共用同一份)
 export type {
-  AttemptEvidenceCapabilities,
   AttemptListItem,
   AttemptLocator,
   DeltaData,

@@ -1,7 +1,7 @@
 // view 的数据层:读取经 niceeval/results 的 openResults(布局/版本知识只住在那)。
 // 这里只做编排:报告槽 Selection 恒经 selectCurrentResults(现刻水位;与 show 调同一个函数,
 // 两扇门判定不分叉)、快照明细注入(locator / artifactBase)、skipped 透传、报告槽渲染
-// (renderReportSlot:裸跑填充 CostPassRateComparison,--report 整槽替换,en / zh-CN 双语各渲染一遍)。
+// (renderReportSlot:裸跑填充 ExperimentComparison,--report 整槽替换,en / zh-CN 双语各渲染一遍)。
 // --report 只换报告定义,注入的 Selection 与裸跑同一份。统计口径整体住在报告槽里
 // (报告组件的官方计算函数),viewData 不再携带 overview / 榜单这类统计产物,
 // 见 docs/feature/reports/view.md「打开与收窄」。
@@ -37,7 +37,7 @@ export interface ViewScan {
   attemptsByBase: Map<string, AttemptHandle>;
   /**
    * 报告槽:报告树经 renderReportToStaticHtml 渲染出的静态 HTML(en / zh-CN 各一份),
-   * 裸跑填充内置默认报告 CostPassRateComparison,--report 整槽替换。作为两个 <template> 静态块
+   * 裸跑填充内置默认报告 ExperimentComparison,--report 整槽替换。作为两个 <template> 静态块
    * 烘进页面(与 __NICEEVAL_VIEW_DATA__ 相邻),不进 viewData —— 前端只负责把当前
    * 界面语言对应的那块 HTML 摆进报告槽位置,不解析。
    */
@@ -154,7 +154,7 @@ export async function loadLatestResultsPerEval(root = ".niceeval"): Promise<Eval
  * 报告槽 Selection 恒经 selectCurrentResults 合成(现刻水位;与 `niceeval show` 调同一个
  * 函数,裸跑与局部收窄不分叉),位置前缀 / --experiment 只作为 scope 传入,不切换选择口径。
  * --report 本身不改挑选——它只换报告槽的填充,注入的 Selection 与裸跑同一份,
- * 「裸跑 ≡ --report <CostPassRateComparison>」靠这条成立(docs/feature/reports/architecture.md「Selection 是计算入口」)。
+ * 「裸跑 ≡ --report <ExperimentComparison>」靠这条成立(docs/feature/reports/architecture.md「Selection 是计算入口」)。
  * 证据室数据(快照明细 / skipped)恒为全量,深链在任何收窄下都可达。
  * 零可读结果一律抛 ViewInputError,不渲染/导出空页面(server 起不来,--out 非零退出)。
  */
@@ -200,7 +200,7 @@ export async function loadViewScan(input?: string, opts: ViewScanOptions = {}): 
     );
   }
 
-  // 报告槽:裸跑填充 CostPassRateComparison,--report 整槽替换。报告吃同一份注入 Selection,
+  // 报告槽:裸跑填充 ExperimentComparison,--report 整槽替换。报告吃同一份注入 Selection,
   // web 面在计算侧静态渲染成 HTML(en / zh-CN 各一遍,切界面语言不重算数据)。
   const reportHtml = await renderReportSlot(opts.report, results, selection);
 
@@ -288,7 +288,7 @@ export async function loadAttemptIndex(input?: string): Promise<Map<string, Atte
 
 /**
  * 报告槽渲染:装载报告文件(--report;dev server 语义 —— 文件变更下次请求整页重算,
- * 经 mtime cache-busting),缺省用内置默认报告 CostPassRateComparison → 注入 Selection →
+ * 经 mtime cache-busting),缺省用内置默认报告 ExperimentComparison → 注入 Selection →
  * web 面 renderToStaticMarkup 成静态 HTML,en / zh-CN 各渲染一遍(chrome 文案按 locale)。
  * react / react-dom 动态加载:data.ts 还被 runner 的续跑携带(loadLatestResultsPerEval)
  * 消费,渲染依赖不进那条路径。attemptHref 缺省即 `#/attempt/@<locator>` 深链路由(web.ts 的默认值),
@@ -307,7 +307,7 @@ async function renderReportSlot(
   // 一个走 src。
   const definition = report
     ? await loadReportFile(report.cwd, report.path, { freshImport: true })
-    : (await import("../../dist/report/built-ins/index.js")).CostPassRateComparison;
+    : (await import("../../dist/report/built-ins/index.js")).ExperimentComparison;
   const { renderReportToStaticHtml } = await import("../../dist/report/web.js");
   const ctx = { selection, results };
   return {

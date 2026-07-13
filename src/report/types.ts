@@ -4,12 +4,11 @@
 
 import type { AttemptHandle, SelectionWarning } from "../results/types.ts";
 import type { AttemptLocator } from "../results/locator.ts";
-import type { AttemptEvidenceCapabilities } from "../results/attempt-evidence.ts";
 import type { AssertionResult, Verdict } from "../types.ts";
 import type { LocalizedLabel, ReportLocale } from "./locale.ts";
 
 export type { SelectionWarning };
-export type { AttemptLocator, AttemptEvidenceCapabilities };
+export type { AttemptLocator };
 export type { LocalizedLabel, ReportLocale };
 
 // ───────────────────────── 指标与聚合 ─────────────────────────
@@ -336,10 +335,8 @@ export interface DeltaData<K extends string = string> {
 // `EvalListItem.attempts` 的元素,报告作者可以直接把这些嵌套数组喂给 `<AttemptList items={...} />`。
 
 /**
- * `AttemptList` 一项 = 一个 Attempt:身份、判定、断言、error、耗时、成本、locator,外加
- * 证据能力标记(有没有保存的 Eval 源码 / 执行事件 / OTel 计时 / diff——与 `AttemptEvidence.capabilities`
- * 同一个类型,不重新发明四个布尔位的含义)。`ExperimentList` / `EvalList` 的下钻数组复用同一个
- * 类型,不是各自的精简版。
+ * `AttemptList` 一项 = 一个 Attempt:身份、判定、断言、error、耗时、成本和 locator。
+ * `ExperimentList` / `EvalList` 的下钻数组复用同一个类型,不是各自的精简版。
  */
 export interface AttemptListItem {
   evalId: string;
@@ -352,15 +349,6 @@ export interface AttemptListItem {
   durationMs: number;
   costUSD?: number;
   locator: AttemptLocator;
-  /**
-   * 证据能力标记:`eval`(运行时 Eval 源码已保存)、`execution`(执行事件非空)、
-   * `timing`(执行事件 + 这次运行接入过 OTel)、`diff`(工作区有文件改动)。逐位定义与
-   * `AttemptEvidence.capabilities` 完全一致——这里复用同一个类型,不重复声明四个布尔位的门槛。
-   * 计算函数从 `EvalResult` 上已有的 `hasEvents` / `hasSources` / `hasTrace` 摘要位与一次
-   * `attempt.diff()` 懒加载算出,不对每个 item 调用完整的 `loadAttemptEvidence`
-   * (那还会额外装配 Eval 源码标注与 ExecutionTree,这里只要四个布尔位)。
-   */
-  capabilities: AttemptEvidenceCapabilities;
 }
 
 /**

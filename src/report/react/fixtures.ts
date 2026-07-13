@@ -330,7 +330,6 @@ const failedAttempt: AttemptListItem = {
   durationMs: 32_000,
   costUSD: 0.12,
   locator: locator("@1a4a4a4"),
-  capabilities: { eval: true, execution: true, timing: true, diff: false },
 };
 
 const erroredAttempt: AttemptListItem = {
@@ -343,7 +342,13 @@ const erroredAttempt: AttemptListItem = {
   assertions: [],
   durationMs: 4_500,
   locator: locator("@1c1c1c1"),
-  capabilities: { eval: false, execution: true, timing: false, diff: false },
+};
+
+const failedRetryAttempt: AttemptListItem = {
+  ...failedAttempt,
+  attempt: 4,
+  durationMs: 35_000,
+  locator: locator("@1b5b5b5"),
 };
 
 export const attemptListItems: AttemptListItem[] = [failedAttempt, erroredAttempt];
@@ -376,13 +381,14 @@ export const experimentListItems: ExperimentListItem[] = [
     experimentId: "compare/bub",
     agent: "bub",
     model: "gpt-5.4",
+    flags: { memory: true },
     verdicts: { passed: 1, failed: 1, errored: 0, skipped: 0 },
     passRate: { value: 0.5, display: "50%", samples: 2, total: 2, refs: [] },
     cost: { value: 0.12, display: "$0.12", samples: 1, total: 2, refs: [failedAttempt.locator] },
     duration: { value: 32_000, display: "32.0s", samples: 2, total: 2, refs: [] },
     tokens: { value: null, display: "—", samples: 0, total: 2, refs: [] },
     evals: 2,
-    attempts: 2,
+    attempts: 3,
     lastRunAt: "2026-07-01T10:00:00Z",
     evalRows: [
       {
@@ -391,7 +397,7 @@ export const experimentListItems: ExperimentListItem[] = [
         reason: "roots-correct: expected x=2, got x=3",
         duration: { value: 32_000, display: "32.0s", samples: 1, total: 1, refs: [failedAttempt.locator] },
         cost: { value: 0.12, display: "$0.12", samples: 1, total: 1, refs: [failedAttempt.locator] },
-        attempts: [failedAttempt],
+        attempts: [failedAttempt, failedRetryAttempt],
       },
       {
         evalId: "algebra/simple",

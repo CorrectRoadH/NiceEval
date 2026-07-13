@@ -91,7 +91,7 @@
 | 报告 | Report | `defineReport` 定义的 `.tsx` 报告文件,返回一棵组件树,经 `--report` 交给宿主渲染 |
 | 双面组件 | Dual-render component | `defineComponent({ web, text })` 的产物:一个定义、两个纯函数渲染面,同一棵树两个宿主共用 |
 | 宿主 | Host | 打开结果、挑 Selection、渲染报告的那一侧:`show` 是终端宿主,`view` 是网页宿主 |
-| 默认报告 | —(角色名,非 API) | 不传 `--report` 时 view 渲染的内置 `CostPassRateComparison`(成本 × 成功率散点图 + 逐实验明细表)。它是一份普通 `ReportDefinition`,也可显式传给 show；裸 show 的默认面是专用 attempt 索引，不是报告 definition |
+| 默认报告 | —(角色名,非 API) | 不传 `--report` 时 show / view 都渲染内置 `ExperimentComparison`(成本 × 成功率散点图 + 逐实验明细表)，分别选择 text / web 面。它是一份普通 `ReportDefinition`，没有宿主特权 |
 | 报告槽 / 证据室 | —(内部代号) | 宿主结构的两半:报告槽整个归 `--report`,证据室(transcript / trace / diff 下钻)是宿主本体;这两个词不出现在公开站 |
 
 ### 报告组件

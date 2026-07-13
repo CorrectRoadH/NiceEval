@@ -18,6 +18,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
   AttemptList,
   DeltaTable,
+  ExperimentList,
   MetricBars,
   MetricLine,
   MetricMatrix,
@@ -29,6 +30,7 @@ import {
 import {
   attemptListItems,
   deltaData,
+  experimentListItems,
   lineData,
   matrixData,
   overviewData,
@@ -63,6 +65,8 @@ const page = renderToStaticMarkup(
         默认 `#/attempt/<locator>`,不在这里自定去处。 */}
     <h2>AttemptList</h2>
     <AttemptList items={attemptListItems} />
+    <h2>ExperimentList</h2>
+    <ExperimentList items={experimentListItems} filter />
   </main>,
 );
 

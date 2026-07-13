@@ -11,7 +11,6 @@
 // - core 中立:只认 Metric / Dimension 接口,不出现具体 agent 名的分支。
 
 import type {
-  AttemptEvidenceCapabilities,
   AttemptListItem,
   AttemptLocator,
   DeltaData,
@@ -248,34 +247,6 @@ export async function tableData<const M extends readonly Metric[]>(
 // (docs/feature/reports/library.md「实体列表」)。AttemptListItem 是三者共用的叶子形状——
 // ExperimentList / EvalList 的下钻数组直接复用它,不各自精简一份。
 
-/**
- * 一个 attempt 的证据能力标记,只读已有的瘦身摘要位(`hasSources` / `hasEvents` / `hasTrace`)
- * 加一次 `diff()` 懒加载——不调用完整的 `loadAttemptEvidence`(那还会额外装配 Eval 源码标注
- * 与 ExecutionTree,这里只要四个布尔位)。三位定义与 `AttemptEvidence.capabilities` 完全一致:
- *
- * - `eval`:`hasSources` 为真。真正的门槛是 `AnnotatedEvalSource` 非空且有内容(源码行或断言
- *   非空),但 sources 存在时 `buildAnnotatedEvalSource` 恒产出至少一行源码,断言又永远来自
- *   `result.assertions`(不需要 IO)——`hasSources` 是这个条件的精确瘦身版,不是近似。
- * - `execution`:`hasEvents` 为真,与 `loadAttemptEvidence` 的 `events !== null && events.length > 0`
- *   同一个判定,写入面按同一条规则算的 `hasEvents` 就是它的瘦身镜像。
- * - `timing`:`hasEvents && hasTrace` 为真——`execution` 成立且这次运行接入过 OTel
- *   (`ExecutionTree.timingAvailable` = `spans.length > 0`,`hasTrace` 正是这个判定的瘦身镜像)。
- * - `diff`:唯一需要 IO 的一位,`attempt.diff()` 非空且至少改动/删除了一个文件——落盘没有
- *   与 `hasEvents` 对应的瘦身摘要位,只能懒加载判定;成本是每个 item 一次 `diff()` 读取,
- *   不是完整证据装配的四路 Promise.all。
- */
-async function attemptCapabilities(attempt: AttemptHandle): Promise<AttemptEvidenceCapabilities> {
-  const result = attempt.result;
-  const diff = await attempt.diff();
-  const diffCapable = diff !== null && (Object.keys(diff.generatedFiles).length > 0 || diff.deletedFiles.length > 0);
-  return {
-    eval: result.hasSources === true,
-    execution: result.hasEvents === true,
-    timing: result.hasEvents === true && result.hasTrace === true,
-    diff: diffCapable,
-  };
-}
-
 /** 自由文本(error / 断言 detail / evidence)的发布消毒钩子;身份字段(name/severity/loc)不经它。 */
 function redactAssertions(assertions: AssertionResult[], redact: (text: string) => string): AssertionResult[] {
   if (assertions.length === 0) return assertions;
@@ -287,7 +258,7 @@ function redactAssertions(assertions: AssertionResult[], redact: (text: string) 
 }
 
 /** AttemptList / ExperimentList / EvalList 共用的叶子构造:一个 Item → 一个 AttemptListItem。 */
-async function attemptListItemOf(item: Item, redact: (text: string) => string): Promise<AttemptListItem> {
+function attemptListItemOf(item: Item, redact: (text: string) => string): AttemptListItem {
   const result = item.attempt.result;
   const cost = attemptCostUSD(result);
   return {
@@ -301,7 +272,6 @@ async function attemptListItemOf(item: Item, redact: (text: string) => string): 
     durationMs: result.durationMs,
     ...(cost !== null ? { costUSD: cost } : {}),
     locator: locatorOf(item),
-    capabilities: await attemptCapabilities(item.attempt),
   };
 }
 
@@ -320,7 +290,7 @@ export async function attemptListData(
   const { snapshots } = resolveInput(input);
   const redact = opts?.redact ?? identityRedact;
   const items = collectItems(snapshots);
-  return Promise.all(items.map((item) => attemptListItemOf(item, redact)));
+  return items.map((item) => attemptListItemOf(item, redact));
 }
 
 /** `EvalList.data(selection)`:每个 `experimentId + evalId` 一项,按 evalId 再按 experimentId 升序。 */
@@ -339,7 +309,7 @@ export async function evalListData(input: SnapshotsInput): Promise<EvalListItem[
     const sorted = [...group].sort((a, b) => a.attempt.result.attempt - b.attempt.result.attempt);
     const verdict = foldEvalVerdict(sorted.map((item) => item.attempt.result));
     const representative = sorted.find((item) => item.attempt.result.verdict === verdict) ?? sorted[0]!;
-    const attempts = await Promise.all(sorted.map((item) => attemptListItemOf(item, identityRedact)));
+    const attempts = sorted.map((item) => attemptListItemOf(item, identityRedact));
     out.push({
       evalId: evalIdOf(sorted[0]!),
       experimentId: experimentIdOf(sorted[0]!),
@@ -370,7 +340,7 @@ export async function experimentListData(input: SnapshotsInput): Promise<Experim
       const sorted = [...evalItems].sort((a, b) => a.attempt.result.attempt - b.attempt.result.attempt);
       const verdict = foldEvalVerdict(sorted.map((item) => item.attempt.result));
       const representative = sorted.find((item) => item.attempt.result.verdict === verdict) ?? sorted[0]!;
-      const attempts = await Promise.all(sorted.map((item) => attemptListItemOf(item, identityRedact)));
+      const attempts = sorted.map((item) => attemptListItemOf(item, identityRedact));
       evalRows.push({
         evalId,
         verdict,
@@ -400,7 +370,14 @@ export async function experimentListData(input: SnapshotsInput): Promise<Experim
       evalRows,
     });
   }
-  out.sort((a, b) => a.experimentId.localeCompare(b.experimentId));
+  // ExperimentList 是默认实验比较表:初始态按成功率从高到低,缺数据沉底;
+  // 同分时按 experiment id 稳定排序。web 增强可临时重排,text 面沿用同一基准顺序。
+  out.sort((a, b) => {
+    if (a.passRate.value === null && b.passRate.value === null) return a.experimentId.localeCompare(b.experimentId);
+    if (a.passRate.value === null) return 1;
+    if (b.passRate.value === null) return -1;
+    return b.passRate.value - a.passRate.value || a.experimentId.localeCompare(b.experimentId);
+  });
   return out;
 }
 
@@ -772,4 +749,3 @@ function deltaDisplay(metric: Metric, delta: number | null): string {
   const text = displayValue(metric, delta); // 负号由格式化自带
   return delta > 0 ? `+${text}` : text;
 }
-

@@ -3,8 +3,8 @@
 // 覆盖:
 // - 组合语义与 show 对齐:位置前缀收窄报告槽 Selection、--experiment 过滤、匹配不到直说;
 // - 单文件模式共存:存在的文件路径 → 单文件模式,目录报错直说走 --run,其余按 eval 前缀;
-// - 报告槽恒在:裸跑填充 CostPassRateComparison,--report 整槽替换;en / zh-CN 双语各渲染一遍;
-//   裸跑 ≡ --report <re-export CostPassRateComparison 的文件>(等价性);
+// - 报告槽恒在:裸跑填充 ExperimentComparison,--report 整槽替换;en / zh-CN 双语各渲染一遍;
+//   裸跑 ≡ --report <re-export ExperimentComparison 的文件>(等价性);
 // - --out 静态导出:index.html 含两个语言的报告块、官方样式与增强 runtime,报告块零 <script>;
 // - dev server 装载语义:报告文件变更 → 下次装载整页重算(mtime cache-busting)。
 //
@@ -169,10 +169,10 @@ describe("loadViewScan · 组合语义", () => {
   });
 });
 
-// ─────────────────── 报告槽恒在:裸跑 ≡ --report <CostPassRateComparison> ───────────────────
+// ─────────────────── 报告槽恒在:裸跑 ≡ --report <ExperimentComparison> ───────────────────
 
 describe("loadViewScan · 默认报告槽(裸跑)", () => {
-  it("裸跑产出的报告槽 HTML 与 --report <re-export CostPassRateComparison 的文件> 完全一致(双语)", async () => {
+  it("裸跑产出的报告槽 HTML 与 --report <re-export ExperimentComparison 的文件> 完全一致(双语)", async () => {
     const root = await seedRoot();
     const bare = await loadViewScan(root);
     const viaReport = await loadViewScan(root, {
@@ -340,7 +340,7 @@ describe("buildView · --out 与 --report", () => {
     ).toBe(true);
   });
 
-  it("默认导出(无 --report):报告槽填充 CostPassRateComparison,双语块与增强 runtime 恒内联", async () => {
+  it("默认导出(无 --report):报告槽填充 ExperimentComparison,双语块与增强 runtime 恒内联", async () => {
     const root = await seedRoot();
     const out = join(root, "site");
     await buildView({ input: root, out });

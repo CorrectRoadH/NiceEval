@@ -418,7 +418,7 @@ describe("宿主接线 · show text 面与 view web 面反映同一批事实", (
       expect(face).toContain("compare/bub");
       expect(face).toContain("q2"); // 周一补齐的失败 eval,若宿主回退 results.latest() 就会消失
     }
-    expect(text).toContain("1 passed · 1 failed");
+    expect(text).toContain("1 passed / 1 failed");
     expect(html).toContain("50%");
     // 现刻水位覆盖齐全 → 两面都不出 partial-coverage(text: "verdicts cover"; html: data-kind)。
     expect(hasPartialCoverageText(text)).toBe(false);
@@ -493,7 +493,7 @@ function hasPartialCoverageHtml(html: string): boolean {
   return html.includes('data-kind="partial-coverage"');
 }
 
-describe("默认宿主事实对照 · show 索引与 view 报告同口径", () => {
+  describe("默认宿主事实对照 · show / view 渲染同一报告的两面", () => {
   it("通过计数一致:同一 fixture 两面反映 3 过 1 败", async () => {
     const root = await makeRoot();
     await writeSnapshot(root, "2026-07-01T08-00-00-000Z", { experimentId: "compare/bub", startedAt: "2026-07-01T08:00:00.000Z" }, [
@@ -504,7 +504,7 @@ describe("默认宿主事实对照 · show 索引与 view 报告同口径", () =
     ]);
     const text = await showText(root, []);
     const html = await viewHtml(root);
-    expect(text).toContain("3 passed · 1 failed");
+    expect(text).toContain("3 passed / 1 failed");
     expect(html).toContain("75%");
     for (const face of [text, html]) expect(face).toContain("compare/bub");
     // 无残缺:两面都不出 partial-coverage,布尔一致(某面偷偷补/漏警告即失配)。

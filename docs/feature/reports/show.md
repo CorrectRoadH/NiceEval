@@ -5,7 +5,7 @@
 ## 从榜单下钻到 attempt
 
 ```sh
-niceeval show                              # 当前结果的紧凑榜单
+niceeval show                              # 当前结果的默认 ExperimentComparison
 niceeval show memory/swelancer             # 按 eval id 前缀收窄
 niceeval show @1qrdcfq8                    # 打开一个 attempt 的诊断首页
 niceeval show @1qrdcfq8 --eval             # 断言标回 eval 源码
@@ -17,65 +17,52 @@ niceeval show memory/swelancer --history   # 这个 eval 的真实执行历史
 
 榜单中的 `@<locator>` 是 attempt 的稳定引用。它必须带 `@`，既不是数组下标也不是文件路径。把 locator 复制给后续命令，便可从汇总数字回到同一次执行的证据。
 
-## 裸 `show`：先告诉 agent 下一步查什么
+## 裸 `show`：默认报告的 text 面
 
-裸 `niceeval show` 的主输出是一张同构的 attempt 表。每行只保留做下一步判断需要的字段：四态判定、eval id、locator、结果原因、耗时和成本。
+裸 `niceeval show` 与显式渲染内置 `ExperimentComparison` 等价。报告先输出成本 × 成功率散点图，再输出 `ExperimentList`。只有一个可画 experiment 时也照常显示一个点，不要求至少两个实验。
+
+`ExperimentList` 的 text 面保持实体层级：一个 experiment 下列 Eval，一个 Eval 下再列它的全部 Attempt。不能把 Eval 与 Attempt 压平成一张“每行一个 Attempt、重复 Eval id”的表。
 
 ```sh
 $ niceeval show
 WARNING  snapshot dev-e2b/codex-e2b @ 2026-07-12T10:08:29.361Z is unfinished;
          8 completed attempts are shown, but the snapshot may be incomplete.
 
-EXPERIMENT  dev-e2b/codex-e2b · codex · gpt-5.4-mini
-SUMMARY     4 passed · 2 failed · 1 errored · 1 skipped · 8 attempts · 1m 58s · $0.17
+平均每个 eval 成本（越低越好） × 成功率
+... A
 
-STATUS      EVAL                                      ATTEMPT     RESULT                                      DURATION  COST
-✓ passed    memory/agent-037-updatetag-cache          @160iuj3h   —                                           2m 0s     $0.09
-✓ passed    memory/repomod-hello-world-api            @1sxmo0m1   —                                           2m 58s    $0.57
-✗ failed    memory/swelancer-manager-proposals        @1qrdcfq8   expected 4, received 1 · equals(4)           50.0s     $0.05
-✓ passed    memory/terminal-cancel-async-tasks        @1pcdj0az   —                                           2m 48s    $0.13
-✗ failed    memory/terminal-pypi-server               @13wrnsc4   command exited 1 · commandSucceeded()       2m 53s    $0.19
-! errored   memory/sandbox-provision                  @1mz7k20p   sandbox creation timed out after 30s        30.0s     —
-○ skipped   memory/windows-only                       @1j4v6s9a   requires platform win32                     —         —
-✓ passed    memory/tool-call-observability            @18etnsw5   —                                           18.1s     $0.02
+越靠右上越好
+A dev-e2b/codex-e2b
 
-DRILL DOWN  niceeval show @<attempt> [--eval | --execution | --diff]
+实验                    模型            Agent   平均耗时   成功率   结果               Tokens    预估成本
+dev-e2b/codex-e2b      gpt-5.4-mini    codex   1m 58s    66.7%   4 通过 / 2 失败    198.9k    $0.17
+6 道题 · 6 次 attempt · 2026-07-12T10:08:29.361Z
+
+dev-e2b/codex-e2b
+状态      题目 / Attempt                          结果                                      耗时      成本
+✓ 通过    memory/agent-037-updatetag-cache
+  ✓       └─ @160iuj3h                            —                                         2m 0s     $0.09
+✓ 通过    memory/repomod-hello-world-api
+  ✓       └─ @1sxmo0m1                            —                                         2m 58s    $0.57
+✗ 失败    memory/swelancer-manager-proposals
+  ✗       └─ @1qrdcfq8                            expected 4, received 1 · equals(4)          50.0s     $0.05
+✓ 通过    memory/terminal-cancel-async-tasks
+  ✓       └─ @1pcdj0az                            —                                         2m 48s    $0.13
+✗ 失败    memory/terminal-pypi-server
+  ✗       └─ @13wrnsc4                            command exited 1 · commandSucceeded()      2m 53s    $0.19
+✓ 通过    memory/tool-call-observability
+  ✓       └─ @18etnsw5                            —                                         18.1s     $0.02
 ```
 
-四个 verdict 都有唯一图标，并同时打印与结果契约一致的完整单词：
-
-| Verdict | 显示 | 含义 |
-|---|---|---|
-| `passed` | `✓ passed` | Eval 完成并通过 gate |
-| `failed` | `✗ failed` | Eval 完成，但 gate 未通过 |
-| `errored` | `! errored` | Eval 没有正常完成 |
-| `skipped` | `○ skipped` | Eval 未执行或无需执行 |
-
-图标只出现一次。locator 只打印 `@<id>`，不再追加判定图标。默认表也不打印 `[E,X,⏱,D]`：这些缩写不能说明证据内容，且通常每行相同。locator 本身就是证据入口；打开 attempt 后再列可执行的证据命令。
-
-`RESULT` 列按 verdict 给最有行动价值的原因：
-
-- `failed`：优先显示 expected / received，再显示 matcher 或首条 gate 失败。
-- `errored`：显示异常或基础设施错误；不伪装成断言失败。
-- `skipped`：显示 skip reason、缓存原因或前置条件。
-- `passed`：显示 `—`，不重复“passed”。
-
-表格只承载短而同构的字段。原因超出终端宽度时截断并保留省略标记；完整内容在 attempt 首页。表头和列边界固定，颜色只能增强显示，不能成为区分状态的唯一手段。
-
-### 一个 experiment 与多个 experiment
-
-只有一个 experiment 时，不显示“至少两个实验才能比较”之类的比较组件空态；它与定位失败无关。直接输出该 experiment 的摘要和 attempt 表。
-
-有两个及以上 experiment 时，先给紧凑比较表，再逐 experiment 给 attempt 表：
+同一个 Eval 有重试时，只出现一个 Eval 标题，下面按 attempt 序号逐条列 locator、该 Attempt 自己的判定，以及耗时 / 成本或失败原因：
 
 ```text
-COMPARISON
-EXPERIMENT             AGENT   MODEL           PASS       FAILED  ERROR  SKIP  DURATION  COST
-compare/codex-mini     codex   gpt-5.4-mini    83.3% 5/6  1       0      0     1m 42s    $0.21
-compare/codex-large    codex   gpt-5.4         91.7% 11/12 1      0      0     2m 31s    $0.84
+✓ 通过    memory/flaky-retry
+  ✗       ├─ @1first01                            expected ready, received pending            18.0s     $0.02
+  ✓       └─ @1second2                            —                                           21.4s     $0.03
 ```
 
-比较表只比较有意义的聚合事实，不用字符画模拟散点图。网页中的成本 × 通过率散点仍由 `niceeval view` 呈现。
+locator 只打印 `@<id>` 与 verdict，不追加证据能力缩写。locator 本身就是证据入口；打开 Attempt 后再列实际可执行的证据命令。
 
 ## 失败诊断首页
 
@@ -108,7 +95,7 @@ available:
   niceeval show @1qrdcfq8 --diff
 ```
 
-这页应当足以判断“为什么失败”。证据能力不再编码成字母；只有实际可用的命令才出现在 `available`。没有捕获某类证据时省略对应命令。只有在需要理解断言上下文、agent 为什么给出这个结果、或具体改了什么时，才继续打开证据切面。
+这页应当足以判断“为什么失败”。只有实际可用的命令才出现在 `available`；没有捕获某类证据时省略对应命令。只有在需要理解断言上下文、agent 为什么给出这个结果、或具体改了什么时，才继续打开证据切面。
 
 ## `--eval`：把断言放回源码
 

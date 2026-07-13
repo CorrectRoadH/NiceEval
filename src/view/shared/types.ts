@@ -3,7 +3,7 @@
 //
 // viewData 只携带证据室与壳需要的东西:快照明细(locator / artifactBase 已注入)、
 // skipped、项目名与 run 元信息。统计口径(KPI / 榜单 / 挑选警告)整体住在报告槽的
-// 静态 HTML 里(CostPassRateComparison 或 --report 的报告自己算),壳与报告之间没有第二条数据通道。
+// 静态 HTML 里(ExperimentComparison 或 --report 的报告自己算),壳与报告之间没有第二条数据通道。
 
 import type { EvalResult, LocalizedText } from "../../types.ts";
 import type { ReportLocale } from "../../report/locale.ts";

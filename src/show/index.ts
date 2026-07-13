@@ -2,7 +2,7 @@
 // 宿主组合语义:docs/feature/reports/architecture.md「Selection 是计算入口」)。
 //
 // 位置参数 = eval id 前缀,或 `@<locator>`(精确指名单个 attempt,见 results/locator.ts):
-//   裸跑 / 前缀       show 专用的紧凑 attempt 索引(单 eval 前缀仍进入详情)
+//   裸跑 / 多 eval 前缀  默认 ExperimentComparison 的 text 面(单 eval 前缀仍进入详情)
 //   恰好一个 eval     单 eval 详情(attempt / 断言明细,宿主本体)
 //   @<locator>        精确 attempt:无证据 flag → 紧凑全景;带 flag → 对应证据切面
 //   --eval / --execution / --diff[=路径]   证据切面(宿主本体):出现即走证据室,不渲染报告槽
@@ -11,7 +11,7 @@
 //   --run <目录>     结果根换成该目录;--experiment Selection 只留该实验
 //
 // 数据全部走 niceeval/results 的读取面(openResults + 合成 Selection + loadAttemptEvidence),
-// 不自己爬目录、不自己重算证据 capability。
+// 不自己爬目录；证据可用性只由 loadAttemptEvidence 在单 Attempt 页面计算。
 
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -24,7 +24,7 @@ import {
   MalformedLocatorError,
 } from "../results/index.ts";
 // report.ts / load.ts have no JSX of their own, but ReportDefinition / ReportLoadError must
-// come from the SAME module instance CostPassRateComparison (built-ins, .tsx) is built
+// come from the SAME module instance ExperimentComparison (built-ins, .tsx) is built
 // against — `unique symbol` branding and `instanceof` are keyed by declaration site, so a raw
 // src copy and the compiled dist copy of "the same" ReportDefinition are, to TypeScript and to
 // `instanceof`, two different types. The package-owned report runtime ships as precompiled
@@ -32,6 +32,7 @@ import {
 // when niceeval is linked in — see tsconfig.report-build.json); show pulls all of it from
 // there, not just the .tsx-touching pieces.
 import { renderReportToText } from "../../dist/report/report.js";
+import { ExperimentComparison } from "../../dist/report/built-ins/index.js";
 import { ReportLoadError, loadReportFile } from "../../dist/report/load.js";
 import { detectLocale, t } from "../i18n/index.ts";
 import { foldEvalVerdict } from "../shared/verdict.ts";
@@ -43,7 +44,6 @@ import {
   attemptIndexLine,
   attemptOverviewText,
   attemptsOfEval,
-  cheapCapabilities,
   diffText,
   evalDetailText,
   evalHistoryText,
@@ -52,7 +52,6 @@ import {
   experimentHistoryText,
   pickDetailAttempt,
   skippedRunsText,
-  showIndexText,
   verdictReasonLine,
 } from "./render.ts";
 
@@ -202,7 +201,7 @@ async function show(
   // 证据切面是宿主本体:出现即走证据室,不渲染报告槽(与默认报告同规则)。
   if (evidence) {
     if (matchedEvalIds.length !== 1) {
-      // 撞多个 eval 时不止说「有几个」,直接给紧凑索引(locator + capability 字母 + 失败原因)
+      // 撞多个 eval 时不止说「有几个」,直接给紧凑索引(locator + 失败原因)
       // 让 agent 一步摘到 `@<locator>`,不必再跑一轮 `show <eval id>` 才知道选谁。
       const index = matchedEvalIds
         .map((evalId) => {
@@ -213,7 +212,6 @@ async function show(
             evalId,
             verdict,
             locator: rep?.locator,
-            capabilities: rep ? cheapCapabilities(rep.result) : { eval: false, execution: false, timing: false, diff: false },
             reason: rep ? verdictReasonLine(rep.result) : undefined,
           });
         })
@@ -277,16 +275,11 @@ async function show(
     return;
   }
 
-  // 裸 show 是终端诊断索引(docs/feature/reports/show.md),不是 web 默认分析报告的 text 面。
-  // --report 才进入可替换报告槽；view 仍可选择 CostPassRateComparison 作为自己的默认面。
-  // locale = CLI 界面语言(NICEEVAL_LANG / LC_* / LANG 检测):报告 chrome 文案跟随
+  // 裸 show 与裸 view 选择同一个普通默认 definition,这里只是渲染 text 面。
+  // --report 替换同一个报告槽。locale = CLI 界面语言(NICEEVAL_LANG / LC_* / LANG 检测):报告 chrome 文案跟随
   // 终端语言(docs/feature/reports/library.md「locale:渲染面的语言」);Locale 与 ReportLocale 同为
   // "en" | "zh-CN",直接传递。
-  if (flags.report === undefined) {
-    io.out(showIndexText(selection, io.width) + "\n");
-    return;
-  }
-  const definition = await loadReportFile(cwd, flags.report);
+  const definition = flags.report === undefined ? ExperimentComparison : await loadReportFile(cwd, flags.report);
   // attemptCommand 留给 renderReportToText 的默认值:AttemptLocator 已经是可直接 `niceeval show
   // @<locator>` 的真实 CLI 语法,不需要再反查 eval id 拼一条近似命令(见 tree.ts 的默认实现)。
   const text = await renderReportToText(definition, { selection, results }, { width: io.width, locale: detectLocale() });

@@ -90,6 +90,8 @@ export interface GroupSummaryProps {
  */
 export interface ExperimentListProps {
   items: ExperimentListItem[];
+  /** web 面在比较表前显示实验过滤框；text 面忽略。 */
+  filter?: boolean;
   /** chrome 文案 locale;省略时随宿主上下文(宿主外默认 "en")。 */
   locale?: ReportLocale;
   className?: string;
@@ -254,7 +256,7 @@ EvalList.displayName = "EvalList";
 
 /**
  * Attempt 列表:实体列表的叶子层,每项一个 Attempt,固定展示判定、断言、error、Judge 评语
- * (assertions 的 detail/evidence)与证据引用(locator + 证据能力标记)。它不预设只看失败;
+ * (assertions 的 detail/evidence)与证据引用(locator)。它不预设只看失败;
  * 报告作者过滤 `AttemptListItem[]`、用 `.slice()` 限量,`total` 让渲染面如实报告剩余数量。
  */
 export const AttemptList: ReportComponent<AttemptListProps> & { data: typeof attemptListData } = Object.assign(

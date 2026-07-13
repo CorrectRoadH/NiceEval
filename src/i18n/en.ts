@@ -54,8 +54,7 @@ export const en = {
     "  niceeval exp [group|experiment] [eval-id-prefix…]   run experiments\n" +
     "  niceeval show [eval-id-prefix… | @<locator>]        read results in the terminal\n" +
     "      bare: current verdicts per experiment (composed across runs), each row\n" +
-    "        with a compact attempt index (locator + evidence capability letters\n" +
-    "        [E,X,⏱,D] + failure reason)\n" +
+    "        with a compact attempt index (locator + failure reason)\n" +
     "      a single eval id: attempts + assertion details\n" +
     "      @<locator>  exactly one attempt: no flag -> compact overview;\n" +
     "        with a flag -> that evidence slice\n" +

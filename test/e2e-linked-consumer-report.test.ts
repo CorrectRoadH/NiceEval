@@ -23,7 +23,7 @@
 // 每个场景:临时目录 + 落一份新布局(schemaVersion 5,docs/feature/results/architecture.md)结果 +
 // symlink node_modules/niceeval → 仓库根,真实子进程跑
 // `node <consumer>/node_modules/niceeval/bin/niceeval.js show --report report.mjs`,断言退出码 0、stdout 渲染出
-// 显式报告(CostPassRateComparison 摆的 ExperimentList),stderr 没有 ReferenceError /
+// 显式报告(ExperimentComparison 摆的 ExperimentList),stderr 没有 ReferenceError /
 // React 相关字样。
 
 import { spawn } from "node:child_process";
@@ -93,7 +93,7 @@ interface CliResult {
 async function runConsumerShow(consumerDir: string, niceevalBin: string): Promise<CliResult> {
   await writeFile(
     join(consumerDir, "report.mjs"),
-    'export { CostPassRateComparison as default } from "niceeval/report";\n',
+    'export { ExperimentComparison as default } from "niceeval/report";\n',
     "utf-8",
   );
   const child = spawn(process.execPath, [niceevalBin, "show", "--report", "report.mjs"], { cwd: consumerDir, stdio: "pipe" });
@@ -110,7 +110,7 @@ function assertCleanReportRender(result: CliResult): void {
   expect(result.stderr).not.toMatch(/React is not defined/);
   expect(result.stdout).not.toMatch(/ReferenceError/);
   expect(result.code).toBe(0);
-  // 显式报告是 CostPassRateComparison:ExperimentList 渲染出这个 agent 行与通过率——
+  // 显式报告是 ExperimentComparison:ExperimentList 渲染出这个 agent 行与通过率——
   // 真实 JSX 组件树、真实 react-dom 无关(text 面走 renderNodeToText,不含 react-dom),
   // 但同一批 .tsx 源码在 show 的加载路径上被解析求值,能吐出正确内容就证明没有半路崩溃。
   expect(result.stdout).toContain("Cost × Pass rate");
