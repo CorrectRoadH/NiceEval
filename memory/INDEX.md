@@ -10,7 +10,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 
 ## 沙箱与内置 agent
 
-- [skill-install-via-git-not-skills-cli](skill-install-via-git-not-skills-cli.md) — 设计裁决:repo skill 改走 git clone(`skills` CLI 没法钉 ref、也枚举不出仓库里有哪些 skill);**沙箱真机安装路径全未验证**,`claude plugin install` 无 tty 可能弹确认框卡死
+- [skill-install-via-git-not-skills-cli](skill-install-via-git-not-skills-cli.md) — 设计裁决:repo skill 改走 git clone(`skills` CLI 没法钉 ref、也枚举不出仓库里有哪些 skill);已真机验证(无 headless 卡死),但 Claude Code 原生 `Skill` 工具在 e2e 默认的 `deepseek-v4-flash` 代理模型下不自动触发
 - [native-plugin-marketplace-name-not-caller-assignable](native-plugin-marketplace-name-not-caller-assignable.md) — `ClaudeCodePluginSpec`/`CodexPluginSpec` 的 `marketplace.name` 文档暗示调用方自定,真实 CLI 按目标仓库 manifest 自己的 `name` 注册,名字不匹配时 `marketplace add` 静默成功、下一步 `plugin install/add` 才报错;真实仓库复现,此 fixture 已落成两条 Docker 真机 e2e(Claude Code + Codex),bug 本身未修
 - 已修 [codex-plugin-list-json-shape-guessed-wrong](codex-plugin-list-json-shape-guessed-wrong.md) — `codex plugin list --json` 真实形状是 `{ installed: [...] }` + `pluginId` 字段,旧代码猜成裸数组/`{ plugins: [...] }` + `id`,`resolvedVersion` 对任何真实安装恒返回 undefined;native plugin 真机 e2e 复现(修在 `src/agents/codex.ts`)
 - 已修 [brief-crashes-on-preview-undefined](brief-crashes-on-preview-undefined.md) — `JSON.stringify(undefined)` 返回值 undefined 不是字符串,`brief()` 不兜底会让断言预览 undefined 字段值时抛 TypeError 而不是显示 "undefined"(修在 `src/util.ts`)

@@ -9,7 +9,14 @@ import agent from "../agents/claude-code.ts";
 // .claude/skills/local-smoke/SKILL.md 会必然失败。"native-plugin-" 前缀同理排除——它需要
 // claude-code-native-plugin.ts 那个挂了 Native Plugin 的 agent,见 experiments/native-plugin.ts;
 // 基线 agent 没连这个 marketplace,读 agent-setup.json 的 nativePlugins 会必然失败。
+// "multi-skill-" 前缀同理排除——它需要 claude-code-multi-skill.ts 那个挂了多 Skill 仓库
+// (anthropics/skills)选择性安装的 agent,见 experiments/multi-skill.ts;基线 agent 没装
+// 这个 repo Skill,读 .claude/skills/template/SKILL.md 会必然失败。
 export default {
-  ...ciExperiment(agent, { excludeIdPrefixes: ["feature-", "local-skill-", "native-plugin-"], runs: 2, budget: 2 }),
+  ...ciExperiment(agent, {
+    excludeIdPrefixes: ["feature-", "local-skill-", "native-plugin-", "multi-skill-"],
+    runs: 2,
+    budget: 2,
+  }),
   model: "deepseek-v4-flash",
 };
