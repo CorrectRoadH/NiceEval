@@ -29,8 +29,10 @@ diff.json      39B   ← 对比:文档里被点名"可达百 MB"的那个,实际
 - **落点唯一**:`snap.writeAttempt()`(`src/results/writer.ts`),不在 adapter / OTLP 解析 / 事件归一化里做。adapter 自己先削一刀会让断言看到不完整输出,是 bug 不是保护(已写进 `docs/feature/adapters/architecture/events.md` 不变量 7)。
 - **上限**:`events.json` / `trace.json` 里任意字符串值 256 KiB(UTF-8,按字符边界回退);`sources` / `diff` / `o11y` 不截断。截断值末尾追加 `[niceeval] truncated <orig> → <kept> bytes`,并在 `StreamEvent` / `TraceSpan` 上打结构化 `truncated?: Truncation[]`(`{path, originalBytes}`)——marker 给人看,程序判断读结构化字段(「只给文本等于逼消费方正则解析」,与 Selection 警告同一条原则)。
 - **明确不做 span 属性去重**:去重要判定「哪个 key 是 canonical」,那是 agent 侧属性约定,core 不该猜;截断之后两份各 256 KiB,重复代价可忽略。
-- **明确不设单文件总量上限**:现实中的爆炸是单值爆炸,不是一万条正常 span 累加;加文件预算就要回答「超了丢哪一条」,那是有看法的取舍,不属于忠实落盘。
+- **writer 不设单文件总量上限,发布边界必须设。** 本地 writer 不能在预算耗尽时猜该丢哪条事件、span 或源码;`copySnapshots` 则在创建目标目录前对所有待发布文件做固定 50 MiB 预检,超限整体失败并给出排除 artifact / 重新生成历史结果的动作。逐值 256 KiB 只能防单值爆炸,不能被表述成整个文件「发布安全」。
 
-`truncated` 是新增可选字段,按 [Architecture 版本规则](../docs/feature/results/architecture.md#版本与升级设计)不递增 `schemaVersion`。截断只对新写入生效,`copySnapshots` 不改 artifact 内容,历史上那个 101MB 不会被追溯截断。
+`truncated` 是新增可选字段,按 [Architecture 版本规则](../docs/feature/results/architecture.md#版本与升级设计)不递增 `schemaVersion`。截断只对新写入生效,`copySnapshots` 不改 artifact 内容,历史上那个 101MB 不会被追溯截断;发布预检会在复制前拒绝它。
+
+这只修 niceeval 的持久化爆炸。bub/tape 在把工具输出送进模型请求前仍需独立字节预算;否则 50 MB action.result 仍会先触发 413,results 只能保证这次失败不会再产出 101 MB trace。
 
 代码实现未落地(文档契约先行),落点见上。相关:[[view-sources-artifact-serving-not-dereferenced]]、[[static-site-export-drops-sources]]。

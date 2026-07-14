@@ -326,7 +326,7 @@ Agent 的一次工具调用可以产出任意大的输出——一条递归 grep
 契约:
 
 - **落点唯一**:`snap.writeAttempt()`(见 [Library](library.md))。不在 adapter、不在 OTLP 解析、不在事件归一化里做——任何 adapter、任何 sandbox 产出的 artifact 都被同一条规则约束,adapter 作者不需要记得截断。
-- **适用范围**:`events.json` 的事件字段与 `trace.json` 的 span 属性里的**任意字符串值**。不只工具输出——`thinking` 文本、`error` 消息同样可能爆。`result.json` / `o11y.json` / `snapshot.json` 只有定长摘要,不涉及。`sources.json` 与 `sources/` 不截断:源码是断言定位的锚,且已按内容去重。`diff.json` 不截断:它的每个文件是完整语义单位,截断后不再是一份能 apply 的证据,体积由 [`copySnapshots`](library.md#复制与瘦身copysnapshots) 的 artifact 白名单管理。
+- **适用范围**:`events.json` 的事件字段与 `trace.json` 的 span 属性里的**任意字符串值**。不只工具输出——`thinking` 文本、`error` 消息同样可能爆。`result.json` / `o11y.json` / `snapshot.json` 保存摘要,不参与这条逐值截断。`sources.json` 与 `sources/` 不截断:源码是断言定位的锚,且已按内容去重。`diff.json` 不截断:它的每个文件是完整语义单位,截断后不再是一份能 apply 的证据。未被逐值截断的文件和累计后的 artifact 总量统一由 [`copySnapshots`](library.md#复制与瘦身copysnapshots) 的发布预算兜底。
 - **上限**:每个字符串值 256 KiB(UTF-8 字节),常量 `ARTIFACT_VALUE_MAX_BYTES`。截断按 UTF-8 字符边界回退,不切断多字节字符。
 - **没有 flag、没有配置项。**「需要完整落盘」的场景不存在:评分看的是运行时全量,诊断一条失控命令 256 KiB 绰绰有余(足够看清它 grep 进了 `node_modules`)。给旋钮只会让某天有人把它调大、再把仓库塞爆。
 
@@ -353,9 +353,11 @@ view 显示「输出过大,已截断(原始 51.5 MB)」靠的是它,不是正则
 两条明确不做:
 
 - **不对 span 属性做去重。** 同一份工具结果被 instrumentation 同时挂在 `output.value`(OpenInference 约定)与 `gen_ai.tool.call.result`(GenAI semconv)下、两份字节完全相同,是现实中会遇到的写法。截断之后两份各 256 KiB,重复的代价可忽略;而去重要判定「哪个 key 是 canonical」,那是 agent 侧的属性约定,core 不猜——`tagSpan` 的「raw 属性只增不改」继续成立。
-- **不设单文件总量上限。** 现实中的爆炸是单值爆炸(一条失控命令),不是一万条正常 span 累加。加文件预算就要回答「超了丢哪一条」,那是有看法的取舍,不属于忠实落盘。
+- **writer 不设单文件总量上限。** 逐值上限防的是一条失控命令在 events、span 属性和后续 LLM input 中反复膨胀,不承诺整个文件小于某个值。writer 不能在文件预算耗尽时猜该丢哪条事件、哪个 span 或哪份源码;本地结果仍忠实落盘。进入 Git / 静态托管前必须走 `copySnapshots`,由发布边界做整文件预检,不能把「每个值至多 256 KiB」误读成「整个文件发布安全」。
 
-`truncated` 是新增可选字段,按[版本规则](#版本与升级设计)不递增 `schemaVersion`——老读取器读到的仍然是字符串。截断只对新写入生效:`copySnapshots` 不改 artifact 内容,历史上落下的超大文件不会被追溯截断。
+`truncated` 是新增可选字段,按[版本规则](#版本与升级设计)不递增 `schemaVersion`——老读取器读到的仍然是字符串。截断只对新写入生效:`copySnapshots` 不改 artifact 内容,历史上落下的超大文件不会被追溯截断;它会在发布预检中被明确拒绝,而不是原样进入一个注定无法 push 的目录。
+
+这条规则只约束 niceeval 的**持久化边界**。Agent runtime 在把工具结果发给模型前仍需自己的字节预算:如果一个工具层先把 50 MB 输出完整送进模型请求并收到 413,`writeAttempt` 只能阻止这 50 MB 随后把 `events.json` / `trace.json` 撑爆,不能让已经失败的请求恢复成功。运行时 transport 限流与结果落盘截断是两个独立护栏,不能拿其中一个替代另一个。
 
 ## 读取规则
 

@@ -46,19 +46,20 @@ import { openResults, copySnapshots } from "niceeval/results";
 const results = await openResults(".niceeval");
 await copySnapshots(results.latest(), "site/data/run", {
   artifacts: ["sources", "events", "trace", "o11y", "agentSetup"],
-                                                            // diff 不截断、可达百 MB,发布时常见地不带;
-});                                                     // events / trace 有 256 KiB 值上限,发布安全
+                                                            // diff 不截断,缺省也不带;
+});                                                     // 所有待发布文件还会经过 50 MiB 单文件预检
 ```
 
 `o11y` 曾经也在「常见地不带」那一档,理由是「查看器不读」——这个理由是循环论证:因为没消费者所以不带,因为不带所以做不了消费它的内置指标。`turns`(见 [Reports 的内置指标](../reports/library.md#内置指标))成为消费者后,循环断开:`o11y.json` 实测几 KB 一个,没有不带的理由。
 
-体积的分界线是[截断](architecture.md#大值截断),不是文件名:`events` / `trace` 的字符串值有 256 KiB 上限,发布带上它们是安全的;`diff` 不截断(每个文件是完整语义单位),是唯一可能拖到百 MB 的一档,所以它才是默认排除的那个。
+逐值[截断](architecture.md#大值截断)与整文件发布预算解决不同问题:`events` / `trace` 的 256 KiB 上限会切断一条失控工具输出被重复落盘的常见爆炸链,但一个文件可以含很多正常值,不能据此宣称文件大小有界。`diff`、源码 blob 与历史版本的 events / trace 也可能超过 Git host 的单文件限制。因此 `.niceeval/` 是本地事实根,不是默认可提交目录;进 Git / 静态托管的结果集先经过 `copySnapshots`。
 
 动机来自真实消费者:coding-agent-memory-evals 把最新快照进仓库供静态托管,曾是 40 行手写脚本——按落盘 mtime 挑「最新」(口径还错了:该挑快照),再按白名单拷贝 artifact 文件(布局知识第三次泄漏)。`copySnapshots` 之后这段只剩上面几行,挑选交给 `results.latest()`(见[静态导出](../reports/view.md#静态导出))。复制不改 artifact 内容、不消毒——发布消毒是自由文本的事,归 [Reports 的 `AttemptList.data({ redact })`](../reports/library.md#数据计算与缓存边界)。三条契约细节(2026-07-10 拍板):
 
 - **覆盖事实随数据走(`knownEvalIds`)。** `partial-coverage` 的分母是实验的历史并集,而发布目录没有历史——只复制选中快照,发布目录上重新 `openResults().latest()`,警告会静默消失,「缺口永远被算出来」在官方教的发布路径上断掉。修法不是持久化警告(那违反「reader 派生物删了可重算」),而是让警告的**依据**随数据走:`copySnapshots` 给每个复制出的快照补记 `knownEvalIds`(复制时刻该实验的 `exp.evalIds`);reader 端 `exp.evalIds` 的定义是**并集(本地历史, 各快照携带的 knownEvalIds)**——不是「优先字段」:把快照复制进已有历史的目录时,本地并集可能更大,优先字段会让分母缩水。字段是格式的一部分,`writer.snapshot()` 同样可声明(第三方转换器交代已知覆盖);可选新增字段不破坏兼容,按 [Architecture · 版本与升级设计](architecture.md#版本与升级设计)不递增 schemaVersion。「复制忠实于源」的承诺相应精确化:不改 artifact 内容,但随行补记挑选时的覆盖事实(落在复制出的 `snapshot.json` 上)。
 - **目标目录非空即报错**,不静默覆盖、不合并——发布脚本要幂等就自己先清目录;盘上不该出现「我没写的东西被动过」的惊讶。
-- **`artifacts` 合法值全集** `"events" | "trace" | "o11y" | "agentSetup" | "diff" | "sources"`,缺省全带。
+- **发布前整文件预检。** `copySnapshots` 在创建目标目录前先规划并序列化全部目标文件;任一文件超过固定的 `PUBLISH_FILE_MAX_BYTES = 50 * 1024 * 1024` 就整体失败,错误列出源路径、实际字节数与处理动作(从 `artifacts` 排除该类证据,或用当前 writer 重新生成历史 events / trace)。不自动删半个 artifact,也不留下半成品目标目录。50 MiB 为 GitHub 的 100 MB 单文件硬限保留余量,同时覆盖其它常见 Git host;它不是可调旋钮,避免发布脚本把保护调没。
+- **`artifacts` 合法值全集** `"events" | "trace" | "o11y" | "agentSetup" | "diff" | "sources"`;缺省带 `events` / `trace` / `o11y` / `agentSetup` / `sources`,不带 `diff`。显式带 `diff` 仍受同一发布预算约束。
 
 ## 读:`openResults`
 

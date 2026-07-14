@@ -317,7 +317,7 @@ NiceEval 写入 `<dir>/index.html`，并把查看器要读取的 artifact（`sou
 - `diff.json` 和 `o11y.json` 不会被复制。查看器不读取它们，且 diff 可能达到上百 MB。
 - 用 `file://` 直接打开 `index.html` 时浏览器不允许 fetch artifact，代码视图会提示源码不可用。本地预览用 http 服务打开。
 
-最简单的流程是在跑过 eval 的机器上导出，把产物目录直接部署，不需要额外步骤。要让站点随 push 自动更新，把 `.niceeval/` 提交进仓库、CI 上一行 `view --out` 导出——workflow 与平台接线见[通过 CI 发布报告](/zh/guides/publish-report)。
+最简单的流程是在跑过 eval 的机器上导出，把产物目录直接部署，不需要额外步骤。要让站点随 push 自动更新，先用 `copySnapshots` 生成经过单文件预算检查的发布结果根，把它提交进仓库，再让 CI 对这个目录运行 `view --run <目录> --out`——workflow 与平台接线见[通过 CI 发布报告](/zh/guides/publish-report)。
 
 ## Artifact 说明
 
