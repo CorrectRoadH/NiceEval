@@ -9,7 +9,7 @@
 - 文档正文不写“已实现 / 未实现 / 目前代码还是 / 之后再做”等实现状态。
 - 只有设计本身改变时才改契约；实现进度、变更审计和历史过程不改变契约措辞。
 
-要判断设计落到了哪里，使用 [Source Map](source-map.md) 定位源码并直接检查实现。要记录实现踩坑或设计翻案，进入 [`memory/INDEX.md`](../memory/INDEX.md)。
+讨论或修改设计时，现状一律以 docs 的声明为准；docs 未声明的行为视为未定稿，先补契约，不从源码反推。只有进入实现与核对阶段，才使用 [Source Map](source-map.md) 定位源码并直接检查实现。要记录实现踩坑或设计翻案，进入 [`memory/INDEX.md`](../memory/INDEX.md)。
 
 ## 按意图进入
 
@@ -91,6 +91,8 @@ docs/
 - 不在正文保留“要不要”“再议”等开放问题。未裁决内容留在 Roadmap 或对话中。
 - 设计变化时重写受影响小节，不在旧段落后追加修正说明。
 - 不用当前类型或当前输出反向限制目标设计。示例展示的是期望 API 与期望反馈。
+- 数据建模先于字段罗列：先写清实体之间谁从属于谁、靠什么关联，再给每个实体的精确形状。
+- 公开配置与结果的数据结构以穷尽形状定稿——TS interface 代码块或字段表，未列出的字段即不存在。「有没有某字段」这类问题以形状声明为准，不以源码为准。
 
 Feature 文档具体怎样拆成 `README.md`、`library.md`、`cli.md` 与 `architecture.md`，由 [`feature/README.md`](feature/README.md) 和模板定义。Engineering 文档的组织方式由 [`engineering/README.md`](engineering/README.md) 定义。
 

@@ -108,6 +108,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 
 ## docs 与 docs-site
 
+- 已修 [design-status-from-docs-not-src](design-status-from-docs-not-src.md) — 设计讨论时 agent 两次从源码反推现状被推翻;修法=查询纪律与穷尽形状约定升格为 CLAUDE.md / docs 规则,architecture.md 职责纳入数据建模
 - 已修 [codex-agent-env-var-doc-drift](codex-agent-env-var-doc-drift.md) — codex agent 鉴权是 `CODEX_API_KEY` 不是 `OPENAI_API_KEY`,文档曾照名字直觉写错
 - [docs-otel-mixin-not-implemented](docs-otel-mixin-not-implemented.md) — connect-otel.mdx 曾把未落地的 `otelEvents()` 提案写成已实现 + 死链
 - [gen-diff-code-langgraph-config-stale](gen-diff-code-langgraph-config-stale.md) — gen-diff-code 的 langgraph 配对配置和 origin 实际语言对不上
