@@ -1,8 +1,8 @@
 # Origin 应用接入手册
 
-这份文档最初是**工单**:`examples/zh/origin/` 下五个独立应用,按应用逐个说明怎么把它们接进 niceeval。**五个应用已经全部接完**(见文末「现状」),产出按分档铺在 `examples/zh/tier1|tier2|tier3/<name>/`(分层索引见 [examples/zh · 接入分层](../examples/zh/origin/README.md#接入分层origin--tier1--tier2--tier3))。本文现在的作用是记录接入时踩过的坑和当前实现的形状,再接一个类似的应用时可以照抄;当前实现的权威来源永远是各 tier 目录的源码和各自的 README,本文只是导读。
+`examples/zh/origin/` 下五个独立应用,按应用逐个说明怎么把它们接进 niceeval,产出按分档铺在 `examples/zh/tier1|tier2|tier3/<name>/`(分层索引见 [examples/zh · 接入分层](../examples/zh/origin/README.md#接入分层origin--tier1--tier2--tier3))。本文记录接入配方和各应用的陷阱,再接一个类似的应用时可以照抄;权威来源永远是各 tier 目录的源码和各自的 README,本文只是导读。
 
-先记住三条铁律(接类似应用时依然适用):
+先记住三条铁律:
 
 1. **不改 origin 的任何文件。** 接入产物放 `examples/zh/tier1/<同名>/`:从 origin 复制整个应用,被复制的文件保持逐字节不变(除 `package.json` / `pnpm-workspace.yaml` / `tsconfig.json` 三个集成脚手架文件,以及 `.env.example`——tier 侧要补 judge 独立凭证等 eval 变量),接入代码全部是**新增**文件。`pnpm run gen:diff-code` 会 diff origin 和 tier1 两个目录生成 before/after 文档页,"应用侧零改动"是这些页面的核心卖点,改一个字节都会破坏它;这条铁律由 CI 的 `pnpm tiers:check`(verbatim 校验)看守,见 [tier-sync](engineering/example-tier-sync/README.md)。
 2. **协议以实际输出为准。** 动手写映射之前,先把应用跑起来,`curl -N` 打一轮 `/api/chat` 把 SSE 帧看一遍。本文的帧格式描述来自当前代码,但代码会演化,别背文档。
@@ -12,7 +12,7 @@
 
 接入分三档(定义见 [docs-site · Tier](../docs-site/zh/concepts/tier.mdx)):**Tier 1(只接 send)**、**Tier 2(send + OTel)**、**Tier 3(侵入改造 + experiment flags)**。
 
-三档现在各有物化目录,同一个应用逐层叠 delta:`tier1/<name>`(纯无侵入,全套断言)、`tier2/<name>`(有 OTel 输出的三个应用:ai-sdk-v7、codex-sdk、langgraph——加 telemetry 配置与 spanMapper/收尾宽限,换瀑布图)、`tier3/<name>`(五个应用都有——按文末「Tier 3 侵入点」改应用内部代码,暴露 experiment flags)。哪个应用有哪几层见 [examples/zh 分层索引](../examples/zh/origin/README.md#接入分层origin--tier1--tier2--tier3);层间用 `pnpm tiers:sync` 保持同步(机制见 [tier-sync](engineering/example-tier-sync/README.md))。本文余下部分讲 Tier 1 的接入配方——那是每个应用的地基。
+三档各有物化目录,同一个应用逐层叠 delta:`tier1/<name>`(纯无侵入,全套断言)、`tier2/<name>`(有 OTel 输出的三个应用:ai-sdk-v7、codex-sdk、langgraph——加 telemetry 配置与 spanMapper/收尾宽限,换瀑布图)、`tier3/<name>`(五个应用都有——按文末「Tier 3 侵入点」改应用内部代码,暴露 experiment flags)。哪个应用有哪几层见 [examples/zh 分层索引](../examples/zh/origin/README.md#接入分层origin--tier1--tier2--tier3);层间用 `pnpm tiers:sync` 保持同步(机制见 [tier-sync](engineering/example-tier-sync/README.md))。本文余下部分讲 Tier 1 的接入配方——那是每个应用的地基。
 
 ## 统一的接入配方
 
@@ -89,7 +89,7 @@ adapter 要这样做:
 
 ### OTel:只画瀑布图,和事件映射完全无关(这一节的产物在 tier2)
 
-不管应用有没有 OTel 输出,事件映射(上面几节讲的)都一样要做——**OTel 现在只喂 `niceeval view` 的调用瀑布图,不产出任何事件,也不影响任何断言**,详见 [Observability · OTLP traces](observability.md#otlp-traces--统一瀑布图)。
+不管应用有没有 OTel 输出,事件映射(上面几节讲的)都一样要做——**OTel 只喂 `niceeval view` 的调用瀑布图,不产出任何事件,也不影响任何断言**,详见 [Observability · OTLP traces](observability.md#otlp-traces--统一瀑布图)。
 
 五个应用里,ai-sdk-v7、codex-sdk、langgraph 发 OTel span,claude-sdk、pi-sdk 不发(claude-sdk 的 CLI 遥测只有 metrics+logs,niceeval 只消费 trace spans;pi-agent-core 没有官方 OTel 集成)。这层接线是 Tier 2 的 delta,落在 `examples/zh/tier2/<name>/`(tier1 不配 telemetry、没有瀑布图);有 span 的应用接法都一样:
 
@@ -167,9 +167,9 @@ experiment 至少两个:单配置基线 + 一个 `compare-models/` 实验组(ai-
 - [ ] 有 OTel 的:view 瀑布图非空
 - [ ] eval README 写明这个应用做不到什么(没有 OTel 的写清楚、负断言不完全靠事件完整性证明的写清楚)
 
-## Tier 3 侵入点(已实现,产出在 examples/zh/tier3/)
+## Tier 3 侵入点(产出在 examples/zh/tier3/)
 
-feature A/B test 已落地:每个应用挑一个最小侵入点做成**请求体可选字段**(不是环境变量——环境变量意味着换变体要重启应用,一次 experiment 运行里 A/B 不了;默认行为不变的铁律不变):
+feature A/B test 的做法:每个应用挑一个最小侵入点做成**请求体可选字段**(不是环境变量——环境变量意味着换变体要重启应用,一次 experiment 运行里 A/B 不了;默认行为不变的铁律不变):
 
 - ai-sdk-v7:system prompt(`instructions`)、工具子集(`tools`)→ `tier3/ai-sdk-v7`;
 - claude-sdk:system prompt → `tier3/claude-sdk`;
@@ -179,17 +179,10 @@ feature A/B test 已落地:每个应用挑一个最小侵入点做成**请求体
 
 experiment 侧用 `flags` → `ctx.flags` 透传,写法见 [Experiments](feature/experiments/README.md);每个 tier3 目录的 README 有完整的 flags 流动链路。
 
-## 现状(五个应用已全部接完,三档分层落位)
+## 接入沉淀的官方件
 
-本工单描述的五个应用已全部接入并实测通过,Tier 1 产出在 `examples/zh/tier1/<name>/`;OTel 接线后来按分档定义剥进 `tier2/`,侵入改造落在 `tier3/`(见上文各节)。实现比本工单最初设想的更简单,主要是两处收紧:
-
-- **没有 `server-lifecycle.ts` 这类"eval 侧拉起应用子进程"的机制。** 五个应用都由使用者自己按各自方式启动(`pnpm start` / `python server.py`),adapter 只经环境变量(`<NAME>_URL`)指向一个已经在跑的实例。这与"eval 不代管被测进程"的既定原则一致,比最初设想的自动拉起子进程更简单也更贴合真实用法。
-- **OTel 只画瀑布图,不派生任何事件。** 五个应用的事件断言全部来自 `send` 里的官方转换器或手写帧映射,与有没有接 OTel 无关。
-
-接入沉淀出的官方件,现在都还在:
-
-- **`uiMessageStreamAgent`**(`src/agents/ui-message-stream.ts`,从 `niceeval/adapter` 导出):AI SDK UI Message Stream 协议的内置无侵入 adapter,`tier1/ai-sdk-v7` 的 adapter 已缩成纯配置。
-- **`fromCodexThreadEvents` 补全**:ThreadEvent 的工具项(`command_execution` / `mcp_tool_call` / `file_change` → 配对的 `action.*`)与 `turn.completed` 的 usage 聚合,现在是 `tier1/codex-sdk` 事件断言的唯一数据来源(不再依赖任何 span 派生)。
+- **`uiMessageStreamAgent`**(`src/agents/ui-message-stream.ts`,从 `niceeval/adapter` 导出):AI SDK UI Message Stream 协议的内置无侵入 adapter,`tier1/ai-sdk-v7` 的 adapter 因此缩成纯配置。
+- **`fromCodexThreadEvents`**:ThreadEvent 的工具项(`command_execution` / `mcp_tool_call` / `file_change` → 配对的 `action.*`)与 `turn.completed` 的 usage 聚合,是 `tier1/codex-sdk` 事件断言的唯一数据来源(不依赖任何 span 派生)。
 - **`mapCodexSpans`**(`src/o11y/otlp/mappers/codex.ts`,从 `niceeval/adapter` 导出):把 codex 自家 span 命名归一成 canonical GenAI 语义,只用来让瀑布图和内置 `codexAgent` 保持一致。
 
-五个 `niceeval exp` 基线在 Tier 1 阶段全绿实测过(`ai-sdk-v7` 的多模型对比也验证过),五个 before/after 文档页已生成并挂进 `docs-site/docs.json` 导航。tier3 的五组 compare-* 实验也已对着真实 key 整轮实测:四个 prompt A/B 全绿(pi-sdk 的极简变体曾让模型心算跳过工具,见 `tier3/pi-sdk/experiments/compare-prompts/concise.ts` 注释),codex-sdk 的 compare-sandbox 按预期呈现 read-only 变体下 create-file 断言失败。这轮实测还顺带揪出并修掉了 runner 的一个丢结果 bug(`memory/runner-earlyexit-key-misses-experiment.md`)。
+五个应用各有一个 before/after 文档页(`gen:diff-code` 生成),挂在 `docs-site/docs.json` 导航。

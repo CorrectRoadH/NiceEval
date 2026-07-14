@@ -103,6 +103,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 - [codex-sdk-web-search-s2a-flaky](codex-sdk-web-search-s2a-flaky.md) — codex-sdk 走 s2a 代理时内置 web_search 极不稳定,WebSearchItem 无成败字段
 - [examples-eval-niceeval-file-link-depth](examples-eval-niceeval-file-link-depth.md) — `examples/zh/eval/<name>` 的 `file:`/`link:` 深度容易少写一层,pnpm 不报错但装错
 - [origin-examples-real-ai-credentials](origin-examples-real-ai-credentials.md) — origin 示例已删 mock 模式,全部用真实 DeepSeek/Codex 代理凭据
+- 已修 [prompt-ab-variant-loosens-tool-discipline](prompt-ab-variant-loosens-tool-discipline.md) — 整份替换 systemPrompt 的 A/B 变体会顺带改松工具纪律:模型心算跳过工具,HITL/calledTool 断言失真;变体里工具规则要写得和默认 prompt 一样硬(修在 tier3/pi-sdk concise.ts)
 - [vm0-has-public-rest-contract](vm0-has-public-rest-contract.md) — vm0 有公开版本化 REST 契约,"无公开 API"的旧调研结论是错的
 
 ## docs 与 docs-site

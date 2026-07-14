@@ -32,8 +32,8 @@
 | 内置 adapter(claude-code / codex / bub) | **由被测项目自带**(`agents/*.ts`),niceeval 提供 `shared` + 解析器 |
 | `uiMessageStreamAgent`(AI SDK UI Message Stream 协议的内置无侵入 adapter) | `src/agents/ui-message-stream.ts` |
 | SDK 原生事件流转换器(`fromClaudeSdkMessages` / `fromPiAgentEvents` / `fromCodexThreadEvents`) | `src/agents/sdk-streams.ts`(+ 同目录 `.test.ts`);逐 SDK 契约见 `docs/feature/adapters/sdk/` |
-| LangGraph 官方事件流转换器(目标契约,待实现) | `src/agents/langgraph.ts`(规划落点);契约见 `docs/feature/adapters/sdk/langgraph.md` |
-| OpenClaw sandbox Agent(目标契约,待实现) | `src/agents/openclaw.ts` + `src/o11y/parsers/openclaw.ts`(规划落点);契约见 `docs/feature/adapters/sdk/openclaw.md` |
+| LangGraph 官方事件流转换器(`fromLangGraphEvents`) | `src/agents/langgraph.ts`;契约见 `docs/feature/adapters/sdk/langgraph.md` |
+| OpenClaw sandbox Agent(`openClawAgent`) | `src/agents/openclaw.ts` + `src/o11y/parsers/openclaw.ts`;契约见 `docs/feature/adapters/sdk/openclaw.md` |
 
 ## Coding Agent Skills / Plugins DX([用法](feature/adapters/library/coding-agent-extensions.md) / [架构](feature/adapters/architecture/coding-agent-extensions.md))
 
@@ -71,7 +71,7 @@
 | 显式 `SandboxSpec` 解析与 provider 实例创建(无默认值、无环境探测) | `src/sandbox/resolve.ts` |
 | Provisioning 限流分类 + 退避重试(各 provider 的 `classifyProvisionError` → 中性 kind → `createProvider()` 统一重试) | `src/sandbox/errors.ts`、`src/sandbox/retry.ts`;各 provider 文件的 `classifyProvisionError` |
 | `defineSandbox`(自定义 provider 逃生舱:`create()` 直接产出 `Sandbox` 实例,`resolve.ts` 里 `r.create` 优先于内置 backend switch) | `src/define.ts`、`src/sandbox/resolve.ts`(`createBackend`) |
-| 沙箱编排固定段(git 基线 / 采 diff;起始文件上传已改为 `test()` 里手工调用,不再是固定段) | `src/runner/sandbox-prep.ts` |
+| 沙箱编排固定段(git 基线 / 采 diff;起始文件上传是 `test()` 里的手工调用,不属于固定段) | `src/runner/sandbox-prep.ts` |
 | 沙箱生命周期钩子(`SandboxSpec.setup()` / `.teardown()` 链式方法、多钩子顺序、失败语义) | `src/sandbox/types.ts`(`SandboxHooks<Self>`,类型定义);`src/runner/attempt.ts`(按序调用 `sandboxSetupHooks` / 逆序调用 `sandboxTeardownHooks`) |
 
 ## Scoring([feature/scoring/](feature/scoring/README.md))
@@ -113,7 +113,7 @@
 
 ## Results Lib 与 Reports
 
-设计文档:[feature/results/](feature/results/README.md) / [feature/reports/](feature/reports/README.md) 合流一节。实现落点(show 与 view 两个宿主的 `--report` 装载都已接线;裸 show / view 都选择 `ExperimentComparison` 的对应渲染面;两个宿主的 Selection 都由中性的 `selectCurrentResults` 无条件产出):
+设计文档:[feature/results/](feature/results/README.md) / [feature/reports/](feature/reports/README.md) 合流一节。实现落点(show 与 view 两个宿主共用同一套 `--report` 装载;裸 show / view 都选择 `ExperimentComparison` 的对应渲染面;两个宿主的 Selection 都由中性的 `selectCurrentResults` 无条件产出):
 
 | 行为 | 文件 |
 |---|---|
@@ -137,21 +137,21 @@
 | show 宿主接线(无条件调 `selectCurrentResults` 产出 Selection、裸跑选择 `ExperimentComparison` 的 text 面、`--report` 装载自定义 text 报告、attempt locator 下钻) | `src/show/index.ts`(现刻水位选择器在中性的 `src/results/select.ts`;单 Eval、Attempt 详情与证据切面渲染在 `src/show/render.ts`;`src/show/compose.ts` 只留 `--history` 时间轴口径;测试 `src/show/show.test.ts`) |
 | web 宿主装载入口 `renderReportToStaticHtml`(唯一 import react-dom 的一侧;同样 `build` → `resolveReportTree` → 校验 → web 渲染,渲染前按 `ctx.selection.warnings` 预置同一段警告横幅) | `src/report/web.ts` |
 | view 内置默认报告 `ExperimentComparison`(普通 `ReportDefinition`,正文只摆 `MetricScatter`(selection-form)+ `ExperimentList`(build() 里直接 `await .data(selection)`),与包外用户报告逐节点同构、无渲染器特权;`niceeval/report` 公开导出,也可显式传给 `show --report`) | `src/report/built-ins/experiment-comparison.tsx`(目录 barrel `src/report/built-ins/index.ts` 只显式导出值,不建字符串 registry) |
-| 实验组推导(experimentId 的 `/` 前缀 → 组名,`niceeval/report` 公开导出,供用户报告用 `GroupSummary` / `Section` 自行分节;内置默认报告不再按目录前缀分节,此 helper 住中性共享层) | `src/shared/aggregate.ts`(`experimentGroupOf`) |
+| 实验组推导(experimentId 的 `/` 前缀 → 组名,`niceeval/report` 公开导出,供用户报告用 `GroupSummary` / `Section` 自行分节;内置默认报告不按目录前缀分节,此 helper 住中性共享层) | `src/shared/aggregate.ts`(`experimentGroupOf`) |
 | 报告 chrome 文案的 locale 字典(`ReportLocale = "en" \| "zh-CN"`,渲染入口 options 收 `locale`,经 `WebContext` / `TextContext` 携带) | `src/report/locale.ts` |
 | 十一个组件的 web 面 + 稳定散列配色 + styles.css(令牌与 view 同源,`.nre` 作用域自带;三个实体列表见 `react/{ExperimentList,EvalList,AttemptList}.tsx`,locator 与判定符的共用渲染在 `AttemptList.tsx` 的 `AttemptLocatorBadge`/`AttemptRow`) | `src/report/react/`(零件复用入口 `index.tsx`;演示 `scripts/report-react-demo.tsx`) |
 | 渐进增强 runtime(表头排序 / 行过滤 / hover tooltip,只作用于 `.nre` 与 `data-nre-*`;宿主内联) | `src/report/react/enhance.js` |
 | 双面验收(renderToStaticMarkup + text 快照,两面同口径) | `src/report/dual-render.test.tsx` |
 | view attempt 深链(`#/attempt/@<locator>`,路由参数是不透明的 `AttemptLocator`,与报告槽 `ctx.attemptHref` 同一格式) | `src/view/app/lib/attempt-route.ts`、`src/view/app/App.tsx`、`src/view/data.ts`(`annotateResult` 注入,locator 直接用 `niceeval/results` 的 `attempt.locator`)、`src/view/shared/types.ts`(`ViewEvalResult.locator` 类型来自 `src/results/locator.ts`) |
 | view 数据层(openResults;`__NICEEVAL_VIEW_DATA__` 只携带证据室数据:快照明细 + skipped + 壳元信息,统计住报告槽)。`results.latest()` 结果(命名为 `latestPerExperiment`)只用于给证据室快照打「latest」标记,与报告槽 Selection 是两条独立通道,不参与报告计算 | `src/view/data.ts`(数据契约在 `src/view/shared/types.ts`) |
-| view 报告槽(裸跑填充内置 `ExperimentComparison`、`--report` 整槽替换;报告槽 Selection 由 view 直接调 `selectCurrentResults` 产出——不再 import `src/show/*`;`renderReportSlot` 静态渲染、en/zh-CN 两遍烘成两个 `<template>` 静态块、增强 runtime 与官方样式内联、位置参数判定 `resolveViewInput`) | `src/view/data.ts`、`src/view/server.ts`、`src/view/index.ts`、前端摆放 `src/view/app/{main.tsx,App.tsx}`(测试 `src/view/view-report.test.ts`) |
-| **未落地** | memory-evals 静态导出流水线(reports.md 场景三)、view 的 Compare(view.md 计划) |
+| view 报告槽(裸跑填充内置 `ExperimentComparison`、`--report` 整槽替换;报告槽 Selection 由 view 直接调 `selectCurrentResults` 产出——不 import `src/show/*`;`renderReportSlot` 静态渲染、en/zh-CN 两遍烘成两个 `<template>` 静态块、增强 runtime 与官方样式内联、位置参数判定 `resolveViewInput`) | `src/view/data.ts`、`src/view/server.ts`、`src/view/index.ts`、前端摆放 `src/view/app/{main.tsx,App.tsx}`(测试 `src/view/view-report.test.ts`) |
+| **Roadmap(未定落点)** | memory-evals 静态导出流水线(reports.md 场景三)、view 的 Compare([roadmap/view-enhancements](roadmap/view-enhancements.md)) |
 
 ## 与设计文档的已知差异(实现取舍)
 
 - **judge 走 OpenAI 兼容 `/chat/completions`**,base/key 解析顺序:`judge.baseUrl/apiKeyEnv` → `NICEEVAL_JUDGE_BASE`/`CODEX_BASE_URL` → OpenAI 官方。这样在只有 OpenAI 兼容代理(无 Anthropic key)的环境里 judge 自动复用代理。model 解析:eval/config 的 `judge.model` → `NICEEVAL_JUDGE_MODEL`;**没有内置默认模型**,解析不到而用到 judge 断言时报清晰错误。
-- **MVP 范围**:`niceeval view` 已实现为本地 web 查看器;`init`、指纹缓存、Vercel/E2B 沙箱、budget/strict/tag/JUnit flag 已实现。`watch` 仍未实现。运行器支持 remote `defineAgent` 的会话型 eval；文件写入、diff、验证命令仍只属于沙箱型 agent。
+- **能力归属**:`niceeval view` 是本地 web 查看器。运行器支持 remote `defineAgent` 的会话型 eval；文件写入、diff、验证命令只属于沙箱型 agent。
 - **TestContext 类型**:用一个宽接口承载全部动作(运行时按 capability 守卫),而非文档设想的 TS 条件类型 —— 因为被测项目经 `tsx` 运行(不做类型检查),宽接口更省心且不影响运行时正确性。
-- **接收者与评分 API 已按目标设计落地**:作用域断言对齐 eve 的接收者模型(`t` = run 级聚合视图、`session` = 单 session snapshot、`turn` = 单 Turn snapshot,同一套作用域断言词汇)、会话驱动 API 补齐到 eve 形状(`t.send(input)` / `t.sendFile(path, text?)` / `t.requireInputRequest` / `t.respond` / `t.respondAll` / `t.newSession()`)、结果读取字段按接收者分开、judge 按接收者决定默认材料、判定类型合并成单一 `Verdict`、链式断言收窄成 `.atLeast(x)` / `.gate(x?)`、移除 `defineEval.workspace`、`t.sandbox` 作为 eval 内唯一的沙箱操作接口 且不暴露 `stop()`、验证命令改成 `t.sandbox.runCommand` + `t.check(result, commandSucceeded())`、judge 收窄成固定的 `autoevals.{closedQA,factuality,summarizes}`、`t.transcript` 命名空间已移除。
+- **接收者与评分 API**:作用域断言对齐 eve 的接收者模型(`t` = run 级聚合视图、`session` = 单 session snapshot、`turn` = 单 Turn snapshot,同一套作用域断言词汇);会话驱动 API 为 eve 形状(`t.send(input)` / `t.sendFile(path, text?)` / `t.requireInputRequest` / `t.respond` / `t.respondAll` / `t.newSession()`);结果读取字段按接收者分开;judge 按接收者决定默认材料;判定类型是单一 `Verdict`;链式断言是 `.atLeast(x)` / `.gate(x?)`;没有 `defineEval.workspace`;`t.sandbox` 是 eval 内唯一的沙箱操作接口且不暴露 `stop()`;验证命令写成 `t.sandbox.runCommand` + `t.check(result, commandSucceeded())`;judge 是固定的 `autoevals.{closedQA,factuality,summarizes}`;没有 `t.transcript` 命名空间。
 - **`RunCompletion.earlyExitUnstarted` 恒为 `0`**:`src/runner/run.ts` 的 budget 护栏对每个因预算到顶未派发的 attempt 各发一条反馈层的 `budget-exhausted`(`DurableFeedbackEvent`),`cli.ts` 的 `assembleRunCompletion()` 读取后折算进 `RunCompletion.unstarted`,`status` 能在预算耗尽时落到 `incomplete`。首过即停省下的次数没有对应事件携带「计划次数 vs 实际派发次数」的比较,`earlyExitUnstarted` 因此仍固定为 `0`。agent/ci 展示这个比较所需的 `planned=`/`attempts=`/`rate=` 字段(docs/feature/experiments/cli.md「runs 与首过即停怎样展示」)同样尚无 renderer 实现。
 - **`ReporterError.required` 的输入恒来自当次注册**:`src/runner/report.ts` 的 `runReporter()` 已经按 `ReporterRegistration.required` 正确分类失败诊断;`assembleRunCompletion()` 消费这份分类,不是写死值。

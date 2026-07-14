@@ -21,7 +21,7 @@ function recordingSandbox(results: readonly CommandResult[]): SandboxFixture {
 
   return {
     sandbox: {
-      workdir: "/workspace",
+      workdir: "/home/sandbox/workspace",
       sandboxId: "fixture",
       otlpHost: null,
       async runCommand(command, args, options) {
@@ -74,15 +74,17 @@ it("runCommand 保留参数边界、cwd、env 和 root 语义", async () => {
 路径规则适合表驱动，每个 case 指向一条允许或拒绝语义：
 
 ```ts
+const workdir = "/home/sandbox/workspace"
+
 it.each([
-  { input: "src/a.ts", expected: "/workspace/src/a.ts" },
-  { input: "./src/../src/a.ts", expected: "/workspace/src/a.ts" },
-  { input: "../../etc/passwd", error: /workspace|outside/ },
-])("解析 sandbox 路径 $input", ({ input, expected, error }) => {
+  { path: "src/a.ts", expected: "/home/sandbox/workspace/src/a.ts" },
+  { path: "./src/../src/a.ts", expected: "/home/sandbox/workspace/src/a.ts" },
+  { path: "../../etc/passwd", error: /workdir|outside/ },
+])("解析 sandbox 路径 $path", ({ path, expected, error }) => {
   if (error) {
-    expect(() => resolveWorkspacePath("/workspace", input)).toThrow(error)
+    expect(() => resolveSandboxPath(workdir, path)).toThrow(error)
   } else {
-    expect(resolveWorkspacePath("/workspace", input)).toBe(expected)
+    expect(resolveSandboxPath(workdir, path)).toBe(expected)
   }
 })
 ```

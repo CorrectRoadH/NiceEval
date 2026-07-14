@@ -4,7 +4,7 @@
 
 ## 写:`createResultsWriter`
 
-writer 与 reader 是同一组类型的两半,而且是**字面的**两半:reader 的 `attempt.result`(瘦身 `EvalResult`)由两部分拼成——快照级字段(experimentId / agent / model / startedAt / 实验运行配置 / producer)来自 `writer.snapshot()` 的一次声明,是快照层注入的装饰;其余全部字段就是 `writeAttempt` 第一参数的类型。第二参数是 reader 懒加载能拿到的那几样 artifact 的类型。**「writeAttempt 参数 + snapshot() 声明 = reader 读回的全部,由类型拼合背书」**:快照级字段不在 attempt 参数类型里,不存在「谁的值为准」的运行时问题。两版落选形状的记录:「大字段内联的完整 EvalResult」是另一个类型,编译器背书当场不成立;「第一参 = 完整的 attempt.result」含 experiment 元数据,与「快照级只声明一次」互相矛盾(2026-07-10 修正)。「大字段拆文件、判决落 attempt 记录」的布局知识全部在库内。EvalResult 的「瘦身条目 + 拆出的 artifact」两拆,与 Reports 侧读到的形状是同一件事。
+writer 与 reader 是同一组类型的两半,而且是**字面的**两半:reader 的 `attempt.result`(瘦身 `EvalResult`)由两部分拼成——快照级字段(experimentId / agent / model / startedAt / 实验运行配置 / producer)来自 `writer.snapshot()` 的一次声明,是快照层注入的装饰;其余全部字段就是 `writeAttempt` 第一参数的类型。第二参数是 reader 懒加载能拿到的那几样 artifact 的类型。**「writeAttempt 参数 + snapshot() 声明 = reader 读回的全部,由类型拼合背书」**:快照级字段不在 attempt 参数类型里,不存在「谁的值为准」的运行时问题。这个拼合形状不可替换:「大字段内联的完整 EvalResult」是另一个类型,编译器背书当场不成立;「第一参 = 完整的 attempt.result」含 experiment 元数据,与「快照级只声明一次」互相矛盾。「大字段拆文件、判决落 attempt 记录」的布局知识全部在库内。EvalResult 的「瘦身条目 + 拆出的 artifact」两拆,与 Reports 侧读到的形状是同一件事。
 
 ```typescript
 import { createResultsWriter } from "niceeval/results";
@@ -50,20 +50,20 @@ await copySnapshots(results.latest(), "site/data/run", {
 });                                                     // 所有待发布文件还会经过 50 MiB 单文件预检
 ```
 
-`o11y` 曾经也在「常见地不带」那一档,理由是「查看器不读」——这个理由是循环论证:因为没消费者所以不带,因为不带所以做不了消费它的内置指标。`turns`(见 [Reports 的内置指标](../reports/library.md#内置指标))成为消费者后,循环断开:`o11y.json` 实测几 KB 一个,没有不带的理由。
+`o11y` 在缺省携带之列。「查看器不读所以不带」是循环论证——因为没消费者所以不带,因为不带所以做不了消费它的内置指标;`turns`(见 [Reports 的内置指标](../reports/library.md#内置指标))就是它的消费者,且 `o11y.json` 实测几 KB 一个,没有不带的理由。
 
 逐值[截断](architecture.md#大值截断)与整文件发布预算解决不同问题:`events` / `trace` 的 256 KiB 上限会切断一条失控工具输出被重复落盘的常见爆炸链,但一个文件可以含很多正常值,不能据此宣称文件大小有界。`diff`、源码 blob 与历史版本的 events / trace 也可能超过 Git host 的单文件限制。因此 `.niceeval/` 是本地事实根,不是默认可提交目录;进 Git / 静态托管的结果集先经过 `copySnapshots`。
 
-动机来自真实消费者:coding-agent-memory-evals 把最新快照进仓库供静态托管,曾是 40 行手写脚本——按落盘 mtime 挑「最新」(口径还错了:该挑快照),再按白名单拷贝 artifact 文件(布局知识第三次泄漏)。`copySnapshots` 之后这段只剩上面几行,挑选交给 `results.latest()`(见[静态导出](../reports/view.md#静态导出))。复制不改 artifact 内容、不消毒——发布消毒是自由文本的事,归 [Reports 的 `AttemptList.data({ redact })`](../reports/library.md#数据计算与缓存边界)。三条契约细节(2026-07-10 拍板):
+动机来自真实消费者:coding-agent-memory-evals 把最新快照进仓库供静态托管——没有这个原语,消费方只能手写几十行脚本:按落盘 mtime 挑「最新」(口径还是错的:该挑快照),再按白名单拷贝 artifact 文件(布局知识泄漏)。`copySnapshots` 把这段收敛成上面几行,挑选交给 `results.latest()`(见[静态导出](../reports/view.md#静态导出))。复制不改 artifact 内容、不消毒——发布消毒是自由文本的事,归 [Reports 的 `AttemptList.data({ redact })`](../reports/library.md#数据计算与缓存边界)。三条契约细节:
 
-- **覆盖事实随数据走(`knownEvalIds`)。** `partial-coverage` 的分母是实验的历史并集,而发布目录没有历史——只复制选中快照,发布目录上重新 `openResults().latest()`,警告会静默消失,「缺口永远被算出来」在官方教的发布路径上断掉。修法不是持久化警告(那违反「reader 派生物删了可重算」),而是让警告的**依据**随数据走:`copySnapshots` 给每个复制出的快照补记 `knownEvalIds`(复制时刻该实验的 `exp.evalIds`);reader 端 `exp.evalIds` 的定义是**并集(本地历史, 各快照携带的 knownEvalIds)**——不是「优先字段」:把快照复制进已有历史的目录时,本地并集可能更大,优先字段会让分母缩水。字段是格式的一部分,`writer.snapshot()` 同样可声明(第三方转换器交代已知覆盖);可选新增字段不破坏兼容,按 [Architecture · 版本与升级设计](architecture.md#版本与升级设计)不递增 schemaVersion。「复制忠实于源」的承诺相应精确化:不改 artifact 内容,但随行补记挑选时的覆盖事实(落在复制出的 `snapshot.json` 上)。
+- **覆盖事实随数据走(`knownEvalIds`)。** `partial-coverage` 的分母是实验的历史并集,而发布目录没有历史——只复制选中快照,发布目录上重新 `openResults().latest()`,警告会静默消失,「缺口永远被算出来」在官方教的发布路径上断掉。解法不是持久化警告(那违反「reader 派生物删了可重算」),而是让警告的**依据**随数据走:`copySnapshots` 给每个复制出的快照补记 `knownEvalIds`(复制时刻该实验的 `exp.evalIds`);reader 端 `exp.evalIds` 的定义是**并集(本地历史, 各快照携带的 knownEvalIds)**——不是「优先字段」:把快照复制进已有历史的目录时,本地并集可能更大,优先字段会让分母缩水。字段是格式的一部分,`writer.snapshot()` 同样可声明(第三方转换器交代已知覆盖);可选新增字段不破坏兼容,按 [Architecture · 版本与升级设计](architecture.md#版本与升级设计)不递增 schemaVersion。「复制忠实于源」的精确含义:不改 artifact 内容,但随行补记挑选时的覆盖事实(落在复制出的 `snapshot.json` 上)。
 - **目标目录非空即报错**,不静默覆盖、不合并——发布脚本要幂等就自己先清目录;盘上不该出现「我没写的东西被动过」的惊讶。
 - **发布前整文件预检。** `copySnapshots` 在创建目标目录前先规划并序列化全部目标文件;任一文件超过固定的 `PUBLISH_FILE_MAX_BYTES = 50 * 1024 * 1024` 就整体失败,错误列出源路径、实际字节数与处理动作(从 `artifacts` 排除该类证据,或用当前 writer 重新生成历史 events / trace)。不自动删半个 artifact,也不留下半成品目标目录。50 MiB 为 GitHub 的 100 MB 单文件硬限保留余量,同时覆盖其它常见 Git host;它不是可调旋钮,避免发布脚本把保护调没。
 - **`artifacts` 合法值全集** `"events" | "trace" | "o11y" | "agentSetup" | "diff" | "sources"`;缺省带 `events` / `trace` / `o11y` / `agentSetup` / `sources`,不带 `diff`。显式带 `diff` 仍受同一发布预算约束。
 
 ## 读:`openResults`
 
-两条设计决策。**层次跟使用者的心智走**(「所有实验 → 单次跑的实验 → 每道题」)——磁盘布局与这个心智同构(实验目录在外层),reader 的分层就是目录树的类型化投影;producer / schemaVersion 是快照自己的字段。**「results」一个词不在层级里重复**:分层把它拆成 `experiments` / `snapshots` / `attempt.result` 各归其位;入口名考虑过 `openExperiments`,否掉——模块叫 `niceeval/results`,返回物上除了 `experiments` 还有 `skipped` / `latest()`,示例里的变量名怎么写都是 `results`,入口叫 experiments 只会让三者失配。API 如下:
+两条设计决策。**层次跟使用者的心智走**(「所有实验 → 单次跑的实验 → 每道题」)——磁盘布局与这个心智同构(实验目录在外层),reader 的分层就是目录树的类型化投影;producer / schemaVersion 是快照自己的字段。**「results」一个词不在层级里重复**:分层把它拆成 `experiments` / `snapshots` / `attempt.result` 各归其位;入口不叫 `openExperiments`——模块叫 `niceeval/results`,返回物上除了 `experiments` 还有 `skipped` / `latest()`,示例里的变量名怎么写都是 `results`,入口叫 experiments 只会让三者失配。API 如下:
 
 ```typescript
 import { openResults } from "niceeval/results";
@@ -167,11 +167,11 @@ latest.warnings[0];
 // }
 ```
 
-结构化是给程序判断的(CI 里「覆盖缩水就 fail」直接比 `covered < total`),`message` 是渲染好的英文句子,要展示就原样打;第一稿的「普通字符串数组」被否——「渲染与否在消费方」的承诺只对可判断的数据成立,只给文本等于逼消费方正则解析。渲染与否在消费方,但缺口永远被算出来,不静默。
+结构化是给程序判断的(CI 里「覆盖缩水就 fail」直接比 `covered < total`),`message` 是渲染好的英文句子,要展示就原样打;warnings 不是普通字符串数组——「渲染与否在消费方」的承诺只对可判断的数据成立,只给文本等于逼消费方正则解析。渲染与否在消费方,但缺口永远被算出来,不静默。
 
-**Selection 有且只有一个方法:`filter(predicate)`(2026-07-10 拍板)。** 最常见的自定义不是另起口径,而是微调官方口径——「latest 减掉一个已知坏掉的实验」「排除 partial 的快照」。若一 `.filter()` 就降级成裸 `Snapshot[]`,幸存快照本该有的警告全丢。`selection.filter((s) => …)` 返回新 Selection:快照删减,warnings 按规则修剪——**experimentId 不在幸存快照中的警告丢弃,非实验作用域的警告保留**(为将来非 per-experiment 的 kind 留位置)。边界同样明确:`filter` 只做删减;「换成该实验上一个完整快照」这类**替换式**重挑不给方法(那才是 DSL 的开端),回 `exp.snapshots` 自己挑,挑出来的裸数组没有挑选过程、没有 warnings,也如实——这是显式立场,不是漏做。
+**Selection 有且只有一个方法:`filter(predicate)`。** 最常见的自定义不是另起口径,而是微调官方口径——「latest 减掉一个已知坏掉的实验」「排除 partial 的快照」。若一 `.filter()` 就降级成裸 `Snapshot[]`,幸存快照本该有的警告全丢。`selection.filter((s) => …)` 返回新 Selection:快照删减,warnings 按规则修剪——**experimentId 不在幸存快照中的警告丢弃,非实验作用域的警告保留**(为将来非 per-experiment 的 kind 留位置)。边界同样明确:`filter` 只做删减;「换成该实验上一个完整快照」这类**替换式**重挑不给方法(那才是 DSL 的开端),回 `exp.snapshots` 自己挑,挑出来的裸数组没有挑选过程、没有 warnings,也如实——这是显式立场,不是漏做。
 
-**Selection 是下游的通用输入**:Reports 的计算函数与 `copySnapshots` 都收 `Selection | Snapshot[]`。收 Selection 时 warnings 随行——`RunOverview` 把警告直接渲染在 KPI 条内,「诚实不靠使用者记得渲染」才真正成立(早先草案要求手动把 `warnings` 传进 `overview()`,忘了就静默丢失,承诺不成立);手工挑的 `Snapshot[]` 没有挑选过程,自然没有 warnings 可带,也如实。
+**Selection 是下游的通用输入**:Reports 的计算函数与 `copySnapshots` 都收 `Selection | Snapshot[]`。收 Selection 时 warnings 随行——`RunOverview` 把警告直接渲染在 KPI 条内,「诚实不靠使用者记得渲染」才真正成立(若要使用者手动把 `warnings` 单独传进 `overview()`,忘了就静默丢失,承诺不成立);手工挑的 `Snapshot[]` 没有挑选过程,自然没有 warnings 可带,也如实。
 
 ### 警告 kind 全集
 
@@ -184,7 +184,7 @@ latest.warnings[0];
 | `unfinished-snapshot` | `Selection` | 选中快照缺 `completedAt`(进程中断,未收尾);已落盘 attempt 照常读出,警告提示集合可能不完整 | `experimentId`, `startedAt`, `dir` |
 | `missing-startedAt` | `dedupeAttempts` | 身份键缺 `startedAt`,宁可不去重也不误删 | `experimentId`, `evalId` |
 
-公开面的全集由参考页承载(`pnpm docs:reference` 从 TSDoc 生成),guide 只举例并声明「不止一种」。`missing-startedAt` **不透出到组件数据**(2026-07-10 裁决):`writer.snapshot()` 的 `startedAt` 必填,官方产出与走写入面的转换永不缺,缺失只可能来自携带条目缺锚的极端情况;计算函数「不去重、如实保留重复」即终稿,`dedupeAttempts` 直调时警告随返回值走。
+公开面的全集由参考页承载(`pnpm docs:reference` 从 TSDoc 生成),guide 只举例并声明「不止一种」。`missing-startedAt` **不透出到组件数据**:`writer.snapshot()` 的 `startedAt` 必填,官方产出与走写入面的转换永不缺,缺失只可能来自携带条目缺锚的极端情况;计算函数对这类条目不去重、如实保留重复,`dedupeAttempts` 直调时警告随返回值走。
 
 ## 身份键与去重
 

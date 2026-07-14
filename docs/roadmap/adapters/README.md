@@ -1,11 +1,6 @@
 # Adapter 路线图
 
-这里记录尚未落地或仍需外部稳定性的接入目标。已支持对象的契约位于 [`../../feature/adapters/sdk/`](../../feature/adapters/sdk/README.md)。
-
-## 现在实现
-
-1. **LangGraph event streaming converter**：实现 `fromLangGraphEvents()`，覆盖 message、tool、interrupt、lifecycle、usage 和 namespace；不绑定部署方式。
-2. **OpenClaw sandbox Agent**：先用真实 CLI、transcript、session 和 fallback fixtures 固定协议，再实现 `openClawAgent()`。
+这里记录仍需外部稳定性、契约未定的接入候选。已定稿对象（含 [LangGraph](../../feature/adapters/sdk/langgraph.md) 与 [OpenClaw](../../feature/adapters/sdk/openclaw.md)）的契约页位于 [`../../feature/adapters/sdk/`](../../feature/adapters/sdk/README.md)。
 
 ## 观察
 

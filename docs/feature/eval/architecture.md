@@ -35,7 +35,7 @@ export default rows.map((row) =>
 
 ### 补充:作用域按接收者决定,对齐 eve
 
-核对 eve 源码(本机 `/Users/ctrdh/Code/eve/packages/eve/src/evals/`)后,把 1.1 说的"作用域"坐实成经验证的设计,订正上一版的误读。
+核对 eve 源码(本机 `/Users/ctrdh/Code/eve/packages/eve/src/evals/`),把 1.1 说的"作用域"坐实成经验证的设计。
 
 **eve 的真实实现**:`assertions/scoped.ts` 的 `createScopedAssertions` 是**一份实现**,导出 `succeeded` / `messageIncludes` / `calledTool` / `notCalledTool` / `toolOrder` / `usedNoTools` / `maxToolCalls` / `calledSubagent` / `noFailedActions` / `event` / `notEvent` / `eventOrder` / `eventsSatisfy` / `parked` 这一整套,靠调用时绑定的 `scope` 决定读哪份数据,一共绑在三个地方:
 
@@ -49,7 +49,7 @@ export default rows.map((row) =>
 
 - `t.*` 保留"聚合整个 eval run"的语义——这次 eval 执行的全部轮次、含 `t.newSession()` 开的额外 session,直接对应 eve 的 `timing: "final"` 层。这一层聚合是有意为之,不是要移除的"黑箱"。
 - `session.*`(`t.newSession()` 的返回值)复用 `t.*` 的同一套**作用域断言词汇**,但只看这个 session 在断言记录时已有的事件。
-- `turn.*`(`t.send()` 的返回值)也复用同一套**作用域断言词汇**,但只看这一轮自己的事件和用量,不再是旧版文档里的 4 个手写方法。`turn.outputEquals` / `turn.outputMatches` 是 turn 独有的(只对单轮结果有意义,聚合层不需要),继续保留。
+- `turn.*`(`t.send()` 的返回值)也复用同一套**作用域断言词汇**,但只看这一轮自己的事件和用量。`turn.outputEquals` / `turn.outputMatches` 是 turn 独有的(只对单轮结果有意义,聚合层不需要)。
 
 也就是:**接收者决定作用域,不是断言名字决定作用域。** author-facing 接收者是 `t` / `session` / `turn`;`Attempt` 只作为 runner/result 里的执行单位存在,不是写 eval 时要操作的一层。完整清单见 [Scoring · 作用域](../scoring/architecture/scopes.md)。
 

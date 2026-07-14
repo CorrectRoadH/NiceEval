@@ -1,12 +1,12 @@
 # OpenClaw
 
-OpenClaw 的目标接入面是内置 sandbox Agent：
+OpenClaw 的接入面是内置 sandbox Agent：
 
 ```ts
 openClawAgent(config)
 ```
 
-该工厂是待实现的目标契约。它应复用 `defineSandboxAgent`、共享安装工具、session 存取器与 canonical OTel mapper，不把 OpenClaw 方言加入 core。
+该工厂复用 `defineSandboxAgent`、共享安装工具、session 存取器与 canonical OTel mapper，不把 OpenClaw 方言加入 core。
 
 实现前必须用真实 CLI 与 transcript fixture 固定以下事实：
 

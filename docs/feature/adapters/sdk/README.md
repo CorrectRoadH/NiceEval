@@ -2,7 +2,7 @@
 
 这里按 SDK 或 coding agent 名称拆分接入契约。每篇只记录该对象特有的公开入口和协议边界；通用写法见 [`../library.md`](../library.md)，架构纪律见 [`../architecture.md`](../architecture.md)。
 
-## 已支持
+## 索引
 
 | 对象 | 入口 | 形态 |
 |---|---|---|
@@ -10,17 +10,10 @@
 | [Claude Agent SDK](claude-agent-sdk.md) | `fromClaudeSdkMessages` | SDK 事件转换器 |
 | [Codex SDK](codex-sdk.md) | `fromCodexThreadEvents` | SDK 事件转换器 |
 | [pi-agent-core](pi-agent-core.md) | `fromPiAgentEvents` | SDK 事件转换器 |
+| [LangGraph](langgraph.md) | `fromLangGraphEvents` | 官方事件流转换器（不提供绑定部署方式的 Agent 工厂） |
 | [Claude Code](claude-code.md) | `claudeCodeAgent` | Sandbox coding-agent Adapter |
 | [Codex CLI](codex-cli.md) | `codexAgent` | Sandbox coding-agent Adapter |
 | [Bub](bub.md) | `bubAgent` | Sandbox coding-agent Adapter |
+| [OpenClaw](openclaw.md) | `openClawAgent` | Sandbox coding-agent Adapter（完整性以真实 fixture 为准） |
 
-通用扩展调用见 [配置 Coding Agent 扩展](../library/coding-agent-extensions.md)。同名 CLI Adapter 与 SDK 转换器是不同接入形态。
-
-## 下一批实现
-
-| 对象 | 目标 |
-|---|---|
-| [LangGraph](langgraph.md) | 新增官方事件流转换器，不提供绑定部署方式的 Agent 工厂 |
-| [OpenClaw](openclaw.md) | 新增 sandbox Agent；先用真实 fixture 验证完整性 |
-
-其它候选及不接判据见 [Adapter Roadmap](../../../roadmap/adapters/README.md)。
+通用扩展调用见 [配置 Coding Agent 扩展](../library/coding-agent-extensions.md)。同名 CLI Adapter 与 SDK 转换器是不同接入形态。其它候选及不接判据见 [Adapter Roadmap](../../../roadmap/adapters/README.md)。
