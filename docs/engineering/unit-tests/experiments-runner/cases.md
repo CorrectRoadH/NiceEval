@@ -168,7 +168,7 @@ it("已完成花费到顶后不再派发新 attempt，在飞的照常完成", as
 | `eval:complete` 携带的 EvalResult 在事件触发前已写好最终 locator；`snapshotStartedAt` 在展开任何 attempt 前确定且与落盘一致 | 正例：事件内 locator 与落盘一致 |
 | 成功、失败、中断三条路径下所有已创建 sandbox 被 stop（stoppedIds == createdIds）；中断时 status=interrupted | 正例：interrupt 中途释放全部；边界：创建中被中断 |
 | 预热池按 `min(池大小, 计划 attempt 数)` 预创建；池空回落即时创建；run 结束销毁未领用沙箱 | 边界：池 > attempt 数不多建；反例：run 结束不留孤儿沙箱 |
-| 跨 case 复用默认关闭；开启后收尾重置而非销毁，`stop` 只在最后一次使用后发生，每个 attempt 仍完整走 setup 链与 git 基线 | 正例：N attempt 复用只 1 次 stop；正例：每 attempt 都调 setup；反例：默认不复用 |
+| 跨 case 复用默认关闭；开启后收尾重置而非销毁，`stop` 只在最后一次使用后发生，每个 attempt 仍完整走 setup 链与分类账锚点 | 正例：N attempt 复用只 1 次 stop；正例：每 attempt 都调 setup；反例：默认不复用 |
 | 生命周期阶段按固定顺序发出且取自 LifecyclePhase 闭集；无对应钩子的步骤直接跳过；phase 只由 runner 发出 | 正例：无 setup 钩子时 phases 无 sandbox.setup；反例：hook 调 progress 不切 phase |
 | `diagnostic` 同 attempt 内相同 `dedupeKey` 折叠并累计 count；`error` 级与 cleanup 阶段的 diagnostic 都不改变 verdict | 正例：并发同 key 只留一条；反例：error 级后 verdict 仍 passed |
 

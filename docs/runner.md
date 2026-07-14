@@ -39,8 +39,9 @@ fixtures/button   codex         pass@5 = 3/5 (60%)   mean 41s · 72k tok · $0.3
 取通过率本可以跑满 N 次,但若只关心"能不能做到",先过一次即可停其余:
 
 - 每个 eval 配一个 `AbortController`。
-- 某 attempt 通过且 `earlyExit` 开 → `abort()` 同 eval 其余 attempt;被 abort 的不计入分母。
-- 某 attempt `errored`(框架/环境层面的意外,不是断言没过)且 `earlyExit` 开 → 同样 `abort()` 其余 attempt。errored 通常会确定性重复,跑满 `runs` 只是重复烧同一个错误;只有 `failed` 才是 agent 行为的样本,值得跑满 `runs` 测通过率。
+- **只有 `passed` 触发首过即停**:某 attempt 通过且 `earlyExit` 开 → `abort()` 同 eval 其余 attempt;被 abort 的不计入分母。
+- `errored` 不触发:超时、限流、沙箱挂掉这类瞬态基建错误在下一个 attempt 上完全可能自愈,因一次 errored 停掉其余样本等于放弃重试机会,还会把基建抖动放大成整题无结果。
+- 确定性错误不靠 earlyExit 兜,走独立的 **run 级 fail-fast**:凭据缺失、模板不存在、作者代码必现抛错这类同因必复现的错误,识别出(预检命中,或同一错误 code 在同一 eval 连续复现)即停止派发受同一配置影响的后续 attempt,如实报 errored——这是止损,不是「首过即停」,两个机制互不混用。
 - 默认开;`--no-early-exit` 关(想要完整通过率分布时)。
 
 ## 预算护栏(budget)
@@ -54,15 +55,15 @@ fixtures/button   codex         pass@5 = 3/5 (60%)   mean 41s · 72k tok · $0.3
 沙箱冷启动的优先级排序(先预制环境、再小 setup、最后才是池化)在 [Sandbox · 性能](feature/sandbox/architecture.md#性能预制环境复用与预热)——provider 侧提供"创建、重置、销毁"的能力;什么时候预创建、什么时候复用是运行器的调度决策,契约如下:
 
 - **预热池**:开启后,运行器在调度开始时按 `min(预热池大小, 计划 attempt 数)` 预先创建同 spec 沙箱挂进池里;attempt 到达 `sandbox.create` 阶段时先领池中现货,领到则该阶段只计领取耗时,池空则回落到即时创建。池只在同一次 run 内存活,run 结束时未被领用的沙箱一并销毁。
-- **跨 case 复用**:开启后,attempt 收尾不销毁沙箱,而是重置回基线(`git clean` + 回到空基线 commit,`$HOME` 等基线外路径不保证清理)再交给同 spec 的下一个 attempt;`sandbox.stop` 只在最后一次使用后发生。默认**关闭**——全新沙箱是隔离性的默认值,复用是用启动时间换隔离强度的显式选择,只应在 setup 成本可证明地主导总耗时、且 eval 不在基线外留状态时开启。
-- 两者都不改变生命周期钩子的调用顺序:复用的沙箱在每个 attempt 里仍然按 [固定调用链](feature/sandbox/architecture.md#沙箱在生命周期里的位置) 走一遍 `sandbox.setup` 链与 git 基线,钩子必须幂等。
+- **跨 case 复用**:开启后,attempt 收尾不销毁沙箱,而是按变更分类账重置回锚点状态(`$HOME` 等 workdir 外路径不保证清理)再交给同 spec 的下一个 attempt;`sandbox.stop` 只在最后一次使用后发生。默认**关闭**——全新沙箱是隔离性的默认值,复用是用启动时间换隔离强度的显式选择,只应在 setup 成本可证明地主导总耗时、且 eval 不在 workdir 外留状态时开启。
+- 两者都不改变生命周期钩子的调用顺序:复用的沙箱在每个 attempt 里仍然按 [固定调用链](feature/sandbox/architecture.md#沙箱在生命周期里的位置) 走一遍 `sandbox.setup` 链与分类账锚点,钩子必须幂等。
 - [`--keep-sandbox`](feature/sandbox/cli.md) 生效时跨 case 复用关闭:留存的现场必须属于那一次 attempt,不能被 `git clean` 重置交给下一个。预热池不受影响——run 结束时未被领用的池内沙箱照常销毁,留存只作用于跑过 attempt 的沙箱。
 
 ## 缓存:指纹去重
 
 `runner/fingerprint.ts` 对每个 eval 算 `(eval 代码 + 相关配置)` 的哈希:
 
-- 上次判定是 `passed` 或 `failed`、且指纹未变 → 默认**跳过**,直接复用结果。两者都是"跑完了、判定确定"的终态,没理由重花一次 agent/sandbox 成本去复现同一个已知结果。
+- 上次判定是 `passed` 或 `failed`、且指纹未变 → 默认**跳过**,结果**携带合入**本次快照(带 `artifactBase` 指回原 artifact,落盘语义见 [Results · 两类条目](feature/results/architecture.md#resultjson)),最新快照因此保持完整。两者都是"跑完了、判定确定"的终态,没理由重花一次 agent/sandbox 成本去复现同一个已知结果。
 - 改了 fixture、改了配置、或 `--force` → 重跑。
 - `errored`(框架/环境层面的不确定失败,如超时、沙箱挂了)和 `skipped` 不缓存,总会重试——它们的判定本身不可信,不是可复用的终态。
 
@@ -71,13 +72,13 @@ fixtures/button   codex         pass@5 = 3/5 (60%)   mean 41s · 72k tok · $0.3
 ## 超时:双层保护
 
 - **Adapter 内层超时** —— agent CLI 自己的超时。
-- **运行器外层超时** —— `Promise.race` 一个 `AbortSignal.timeout`,即使 agent 卡死也能强行收尾,标记该 attempt / eval 为 `errored`(error: timeout)并触发 abort。
+- **运行器外层超时** —— attempt deadline 用 Effect 的 interruption 中断 Scope 里的 verdict-producing 工作 fiber,把超时转换成 `errored`(error: timeout)draft;外层 Scope 不关闭,有界收尾(teardown 链、留存决策)仍在同一个 Scope 的 release 里照常完成——与 [Sandbox 的 Scope / finalizer 模型](feature/sandbox/architecture.md#留存keep与注册表)同一套语义,即使 agent 卡死也能强行收尾。
 
 外层是兜底,保证一个卡死的 case 不会挂起整批。
 
 ## 环境预置不进运行器,但按顺序调它
 
-niceeval **没有 run / experiment 级生命周期钩子**——`ExperimentDef` 仍是纯配置数据,不携带任何生命周期字段,运行器不会替用户在整个 run 前后跑任意 `setup` / `teardown`。但"跑 agent 前要不要准备环境"这件事确实需要一个家:沙箱创建后、git 基线之前,运行器会调用 `experiment.sandbox` 链上挂的环境钩子(`SandboxSpec.setup()` / `.teardown()`,见 [Sandbox · 沙箱生命周期钩子](feature/sandbox/library.md#沙箱生命周期钩子setup--teardown));沙箱固定段("发现 → 调度 → 沙箱起停 / git 基线 / 采 diff → 评分 → 报告"这条主轴)之内,还分出这条 eval 的任务夹具(`EvalDef.setup` 或 `test(t)`)和 agent 自己的一次性预置([`SandboxAgent.setup`](feature/adapters/architecture/agent-contract.md#生命周期不变量))。运行器只固定这几个调用点的**顺序**,钩子内部做什么、要不要按实验变化,全部交给对应的作者决定,不写进运行器本身。整个 run 共享的外部服务(mock API、DB)仍然用外部编排(`docker compose` / CI 脚本)起停、经 env 传入——这类资源跨进程共享,不属于任何一次沙箱的生命周期。四类职责的完整分工表见 [环境预置放哪](feature/sandbox/library.md#环境预置放哪)。
+niceeval **没有 run / experiment 级生命周期钩子**——`ExperimentDef` 仍是纯配置数据,不携带任何生命周期字段,运行器不会替用户在整个 run 前后跑任意 `setup` / `teardown`。但"跑 agent 前要不要准备环境"这件事确实需要一个家:沙箱创建后、变更分类账锚点之前,运行器会调用 `experiment.sandbox` 链上挂的环境钩子(`SandboxSpec.setup()` / `.teardown()`,见 [Sandbox · 沙箱生命周期钩子](feature/sandbox/library.md#沙箱生命周期钩子setup--teardown));沙箱固定段("发现 → 调度 → 沙箱起停 / 分类账锚点 / 折叠 agent diff → 评分 → 报告"这条主轴)之内,还分出这条 eval 的任务夹具(`EvalDef.setup` 或 `test(t)`)和 agent 自己的一次性预置([`SandboxAgent.setup`](feature/adapters/architecture/agent-contract.md#生命周期不变量))。运行器只固定这几个调用点的**顺序**,钩子内部做什么、要不要按实验变化,全部交给对应的作者决定,不写进运行器本身。整个 run 共享的外部服务(mock API、DB)仍然用外部编排(`docker compose` / CI 脚本)起停、经 env 传入——这类资源跨进程共享,不属于任何一次沙箱的生命周期。四类职责的完整分工表见 [环境预置放哪](feature/sandbox/library.md#环境预置放哪)。
 
 **下游分析**(二次评分、自定义指标)走 [reporter](observability.md#reporters),不另设运行钩子——这是从 agent-eval 的 `onRunComplete` 收敛过来的(见 [Experiments 砍字段](feature/experiments/architecture.md#从-agent-eval-砍掉了什么以及为什么))。
 
@@ -116,7 +117,7 @@ interface RunCompletion {
 }
 ```
 
-- budget 耗尽且仍有未派发的 attempt(见[预算护栏](#预算护栏budget))→ `incomplete`,`unstarted` 就是这部分数量。
+- budget 耗尽或确定性错误触发 run 级 fail-fast(见[首过即停](#首过即停earlyexit))而停止派发时 → `incomplete`,`unstarted` 是这两类未派发 attempt 的合计。
 - 用户或平台中断(Ctrl+C / SIGTERM)→ `interrupted`。
 - 任一 [required reporter](cli.md#required-reporter) 写失败 → 非 `complete`;失败明细进 `reporterErrors`,`required` 字段区分它是否让整体判红。
 - 首过即停(earlyExit)省略的重复验证次数单独计入 `earlyExitUnstarted`,不进入 `unstarted`——它是已知 verdict 下主动省下的成本,不是遗漏。

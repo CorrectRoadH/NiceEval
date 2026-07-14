@@ -8,7 +8,7 @@
 
 | 契约 | 场景 |
 |---|---|
-| attempt 调用链顺序固定：createSandbox → sandbox.setup 钩子链 → git 空基线 → EvalDef.setup → SandboxAgent.setup → test(t) → collectGeneratedFiles → SandboxAgent.teardown → sandbox.teardown → sandbox.stop | 正例：事件记录按序断言全链；边界：某钩子未定义时跳过但其余顺序不变 |
+| attempt 调用链顺序固定：createSandbox → sandbox.setup 钩子链 → 分类账锚点 → EvalDef.setup → SandboxAgent.setup → test(t) → 折叠 agent 归因增量 → 评分/判定 → eval cleanup → SandboxAgent.teardown → sandbox.teardown → commitKeepOrStop | 正例：事件记录按序断言全链；边界：某钩子未定义时跳过但其余顺序不变 |
 | setup 抛错时已成功 setup 的 cleanup 按逆序执行，teardown 链与 stop 仍被调用 | 反例：setup:b 抛错后 cleanup:a、teardown、stop 全跑；边界：第一个/最后一个抛 |
 | test 失败或中断路径下 SandboxAgent.teardown → sandbox.teardown → stop 均为 finally 语义 | 反例：test 抛错；边界：teardown 自身抛错不阻断 stop |
 | sandbox.setup 抛错按执行错误计（verdict `errored`）；sandbox.teardown 报错只记日志，不改变已完成判定 | 正例：setup 抛 → errored；反例：teardown 抛 → 结果不变且有日志 |
@@ -150,7 +150,7 @@ it("runCommand 保留参数边界、cwd、env 和 root 语义", async () => {
 
 | 契约 | 场景 |
 |---|---|
-| git 基线打在 sandbox.setup 钩子链之后，环境层钩子写入的文件不出现在最终 diff | 反例：setup 写的文件不在 diff；正例：基线后写入的在 |
+| 分类账锚点打在 sandbox.setup 钩子链之后，环境层钩子写入的文件不出现在 agent diff；send 窗口外的 fixture / 校验写入同样不在，send 窗口内的变化在 | 反例：setup 与 test() 写的 fixture 不在 agent diff；正例：send 窗口内 agent 写入的在；反例：send 之后手工写入的隐藏校验文件不在 |
 | `noFailedShellCommands` 只统计 Agent 自己发起的 shell 调用，不看 eval 手工跑的验证命令 | 反例：eval 的 runCommand 失败不触发；正例：agent shell 非零退出触发 |
 | fileChanged/fileDeleted/notInDiff 是延迟断言对最终 diff 求值；`file(path)` 在 finalize 时才读取 | 正例：注册时不读文件；反例：fileDeleted 对仅修改的文件不通过 |
 | diff.get/isEmpty/matches 读取最终工作区变化 | 正例：get 返回单文件 diff；边界：无改动时 isEmpty true |

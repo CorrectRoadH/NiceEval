@@ -34,7 +34,7 @@
 | 适配器 | Adapter | 某个 Agent 的具体实现,由用户编写;拥有协议、认证、CLI 参数、transcript 位置等全部特殊性 |
 | 沙箱 | Sandbox | 封装「在哪里、如何隔离地跑命令」的对象;实现有 Docker、Vercel Sandbox 等 |
 | Provider | Provider | 某个 Sandbox 的具体实现选择；由 `dockerSandbox()`、`vercelSandbox()`、`e2bSandbox()` 或自定义工厂显式构造 |
-| 工作目录 | workdir | 沙箱内 agent 的默认工作目录,git 基线与 diff 采集的锚点;沙箱侧相对路径都解析到它 |
+| 工作目录 | workdir | 沙箱内 agent 的默认工作目录,变更分类账与 agent diff 的锚点;沙箱侧相对路径都解析到它 |
 | `t.sandbox` | `t.sandbox` | 沙箱型 eval 里 `test(t)` 拿到的沙箱操作接口:文件 IO、命令执行、断言 / diff 三类 |
 | 能力 | Capability | `t` 上暴露哪些动作,由 `send` 的构造证据决定,不是声明式的能力位 |
 | 接入等级 | Integration tier | 按「Adapter 接到哪里、额外拿到什么观测数据」分的三级:Tier 1 只接 `send`,Tier 2 `send` + OTel,Tier 3 侵入改造 + flags |
@@ -142,7 +142,7 @@
 
 **Sandbox** / **沙箱** —— 封装"在哪里、如何隔离地跑命令"的对象。统一接口:`workdir` / `runCommand` / `readFile` / `writeFiles` / `uploadDirectory` / `stop`。实现包括 Docker、Vercel Sandbox、其它三方。命令工作目录通过 `runCommand` / `runShell` 的 `cwd` option 表达,不提供可变的 working directory。
 
-**workdir** —— 沙箱内 agent 的默认工作目录,也是 git 基线和 diff 采集的锚点;绝对值随 provider 不同(docker `/home/sandbox/workspace`、e2b `/home/user/workspace`、vercel `/vercel/sandbox`)。API 里所有沙箱侧相对路径、省略的 `targetDir` / `cwd` 都解析到它;eval 作者用相对路径写完整条 eval,必须要绝对路径时读 `t.sandbox.workdir`。详见 [Sandbox · 路径与 workdir](feature/sandbox/library.md#路径与-workdir一个坐标系)。
+**workdir** —— 沙箱内 agent 的默认工作目录,也是变更分类账和 agent diff 的锚点;绝对值随 provider 不同(docker `/home/sandbox/workspace`、e2b `/home/user/workspace`、vercel `/vercel/sandbox`)。API 里所有沙箱侧相对路径、省略的 `targetDir` / `cwd` 都解析到它;eval 作者用相对路径写完整条 eval,必须要绝对路径时读 `t.sandbox.workdir`。详见 [Sandbox · 路径与 workdir](feature/sandbox/library.md#路径与-workdir一个坐标系)。
 
 **`t.sandbox`** —— 沙箱型 eval 里暴露给 `test(t)` 的沙箱操作接口。它分三类:文件 IO(`writeFiles` / `readFile`)、命令执行(`runCommand` / `runShell`)和结果断言 / diff(`fileChanged` / `diff` / `file`)。沙箱生命周期由 runner 管,`stop()` 不暴露给 eval 作者。
 

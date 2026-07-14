@@ -11,7 +11,7 @@
 | id 只从文件路径推导（`evals/weather/brooklyn.eval.ts` → `weather/brooklyn`），配置对象禁止 `id` / `name` | 正例：嵌套目录的路径→id；类型负例：`@ts-expect-error` 传 id/name；运行时传入报明确错误 |
 | 只有 `.eval.ts` / `.eval.tsx` 被发现，两种后缀规则一致 | 正例：两种后缀同规则 id；反例：`.ts`、`.test.ts` 不被发现 |
 | 默认导出数组扇出为多个 eval，id 加 4 位零填充索引，顺序稳定 | 正例：3 行数组 → `x/0000..0002`；边界：单元素数组仍带索引、空数组 |
-| `setup(sandbox, ctx)` 拿到完整 `Sandbox`（非 `t.sandbox` 受限视图），时机在 workspace 上传、git 基线之后、agent 接入之前 | 类型正例：参数含完整面；顺序断言：setup 在 agent 首次 send 前 |
+| `setup(sandbox, ctx)` 拿到完整 `Sandbox`（非 `t.sandbox` 受限视图），时机在环境层钩子与分类账锚点之后、agent 接入之前 | 类型正例：参数含完整面；顺序断言：setup 在 agent 首次 send 前 |
 | `setup` 返回的 cleanup 在 attempt 收尾时被调用 | 正例：恰好一次；边界：test 抛异常时仍被调用 |
 | `setup` 的 ctx 提供 progress/diagnostic，scope 绑定 `eval.setup` | 正例：setup 内 diagnostic 事件的 scope 字段 |
 
@@ -119,7 +119,7 @@ it("多个 pending request 时拒绝无法对位的字符串回答", async () =>
 | `t.sandbox` 只在 agent 声明 sandbox capability 时存在；未声明时访问得到明确 capability 错误而非 undefined | 类型负例：`@ts-expect-error`；运行时反例：非类型化调用命中 guard 报错 |
 | 起始文件没有自动发现或隐式拷贝，写入只经 `writeFiles` / `uploadFiles` / `uploadDirectory` 显式发生 | 反例：fixture 目录存在但未上传时 sandbox 为空 |
 | `uploadDirectory(localDir, targetDir?, opts?)` 的 `localDir` 相对 eval 定义文件目录解析；省略 `targetDir` 落 workdir；`opts.ignore` 排除子目录 | 正例：recording Sandbox 收到规范化路径；正例：ignore 挡住 node_modules |
-| 沙箱创建时已打好空 git 基线，`t.sandbox.diff` / `fileChanged` 随时可读 | 边界：未写任何起始文件直接读 diff 不报错 |
+| `t.sandbox.diff` / `fileChanged` 读 agent 归因增量，首次 send 前恒为空、可读不报错 | 边界：未 send 直接读 diff 为空不报错；反例：写入 fixture 后未 send，`fileChanged` 不通过 |
 | `t.sandbox` 只含立即 IO/命令与结果视图/延迟断言两组 API，`stop()` 等生命周期动作不暴露 | 类型负例：t.sandbox 上无 stop；类型正例：两组 API 齐全 |
 | `t.sandbox.diff.get(path)` 返回可直接传入 `t.check(...)` 或 judge `{ on }` 的值 | 正例：diff 内容传 includes 匹配器 |
 

@@ -44,7 +44,7 @@ interface PhaseTiming {
 | `sandbox.queue` | 等待容器创建信号量(并发限流)的排队时间 | remote agent |
 | `sandbox.create` | provider 起沙箱(`createSandbox`) | remote agent |
 | `sandbox.setup` | `SandboxSpec.setup()` 钩子链,phase 级合计一条,`children` 逐 hook 并继续展开沙箱命令 | remote agent / 没挂钩子 |
-| `workspace.baseline` | git init + 空基线 commit | remote agent |
+| `workspace.baseline` | 变更分类账锚点(runner 私有 git ledger 首笔 commit) | remote agent |
 | `eval.setup` | `EvalDef.setup` | 没定义 |
 | `agent.setup` | `Agent.setup`(装 CLI、写主配置;**安装基准的主角**) | 没定义 |
 | `telemetry.configure` | tracing 出口配置(file-based OTLP) | 没配 tracing |
@@ -78,7 +78,7 @@ interface PhaseTiming {
 - **为什么是有序数组而不是固定字段 record**:顺序天然携带「死在哪一步之前」;缺席语义干净(没跑 = 没条目,不用在 0 / undefined 之间选);新增阶段不改类型形状。聚合侧按 `name` 分组,和 record 一样是一行代码。
 - **为什么住 `result.json` 而不是 OTel trace**:trace 是条件产物(agent 配了 tracing、receiver 起了才有),而 runner phase/hook/command/turn 计时必须无条件产出。phases 是判定记录旁的运行事实,家在权威记录里；`show --timing` 可以按 `traceId` 把两者组合成一个视图,但不因此把 runner 节点伪造成 OTel span,也不把 span 复制进 phases。
 - **为什么不给进度行加时间戳再挖掘**:进度行是人读的 UI 文案,把它变成机器口径意味着改文案就破坏数据管道;计时和展示各自独立,共享的只是阶段边界这几个代码位置。
-- **兼容性**:纯增量的可选字段与闭集增补,读取面「忠实磁盘、忽略未知字段」的契约不变,`schemaVersion` 不升。读取器读到闭集之外的阶段名时原样透传、渲染面按未知阶段列在末尾,不报错。携带条目(`--resume`)的 phases 随 `result.json` 原样携带。
+- **兼容性**:纯增量的可选字段与闭集增补,读取面「忠实磁盘、忽略未知字段」的契约不变,`schemaVersion` 不升。读取器读到闭集之外的阶段名时原样透传、渲染面按未知阶段列在末尾,不报错。携带条目的 phases 随 `result.json` 原样携带。
 
 ### 消费边界
 
