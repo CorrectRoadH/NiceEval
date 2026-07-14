@@ -1,0 +1,7 @@
+# 设计裁决:agent diff 改为 send 窗口归因的私有 git 分类账
+
+- **裁决**(2026-07-14):`t.sandbox.diff` / `fileChanged` 语义定为 **agent 归因增量**——runner 维护私有 git ledger(GIT_DIR 在沙箱内、workdir 外),每次 `t.send()` 前后落 commit,agent diff = 各 send 窗口 diff 的按时序并集;分类账 add 强制无视 `.gitignore`。契约落在 `docs/feature/sandbox/architecture.md`「变更归因」节。
+- **曾选方案 1:空基线 + `git diff HEAD`**。锚点打在 `EvalDef.setup` / `test()` 之前,一次性 diff 到最终态。否决理由:契约级假阳性——`test()` 里写入的起始 fixture 相对空基线必然「变化」,官方示例 `writeFiles` 后直接 `fileChanged` 恒真,agent 什么都不做也通过;`t.send()` 之后写入的隐藏校验文件同样混进 diff;`agent.setup` 落位要靠 `.git/info/exclude` 打补丁(见 [agent-setup-workspace-writes-pollute-diff](agent-setup-workspace-writes-pollute-diff.md),分类账把这类补丁整体取代);workdir 里放 runner 的 `.git` 还让 agent 看到一个意外的 git repo。
+- **曾选方案 2:provider 快照式 diff**(docker 容器层 diff / commit)。否决理由:只有 Docker 有原生通道,e2b/vercel 无对等物,核心按 provider 分支破坏中立边界;只给路径不给内容,支撑不了 `diff.get(path)` 断言;全文件系统噪声大(CLI 缓存、tmp);每 send 打一次快照秒级起步,做不了窗口归因。workdir 之外的盲区由留存现场回答,不由更大的 diff 回答。
+- 复盘评审时被用户以「依赖 git 不全面」挑战过一轮,结论维持:不全面的是 workdir 作用域(任何引擎都要选作用域),git 是唯一便携、增量、带内容存储、能做逐窗口归因的引擎。
+- **同日第二轮评审修正三处**:①「分类账无视 ignore、成本由增量索引吸收」被推翻——`EvalDef.setup` 里一次 `npm install` 会让首笔 commit 哈希整棵 node_modules,多窗口二进制变化持续放大 object 库;改为 runner 私有归因排除清单(默认排 `.git`/node_modules/构建与包管理缓存,锚点冻结,agent 改 `.gitignore` 无效,`defineEval({ diff: { include/ignore } })` 调整)。②「并发 send 窗口合并」被推翻——合并只是掩盖写入竞争;改为 sandbox 型 send 经 workspace 信号量串行,并新增 Adapter 义务:`send()` 须等可能写 workdir 的子进程全部退出才返回。③「可回放」不能只是实现细节——补 `niceeval sandbox history` / `sandbox diff` 公开出口。

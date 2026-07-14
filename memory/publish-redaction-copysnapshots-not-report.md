@@ -1,0 +1,5 @@
+# 设计裁决:发布消毒在 copySnapshots({ redact }),报告 redact 降为展示层
+
+- **裁决**(2026-07-14):结果数据分两级——`.niceeval/` 本地事实根(未消毒)与发布拷贝(只能经 `copySnapshots` 单一管线产出,`view --out` 的 artifact 复制走同一管线)。artifact 级消毒是 `copySnapshots` 的 `redact` 选项(改写自由文本值、身份分类字段不动、sources 改写后重算 sha256);`AttemptList.data({ redact })` 明确降为展示层遮蔽。契约落在 `docs/feature/results/library.md` copySnapshots 节 + `docs/feature/reports/view.md` 静态导出节。
+- **曾选方案:发布消毒归 `AttemptList.data({ redact })`**。否决理由:redact 只作用于报告组件数据,`view --out` 照样把 `sources/events/trace` 原样复制进 `artifact/` 且网页按需 fetch——列表脱敏挡不住深链一点开就是原文,prompt、工具参数、完整输出、源码全可能被发布;「消毒归报告」给的是虚假安全感。外部契约 review(2026-07-14)将其列为 P0 后翻案。
+- ~~缺省仍不消毒,但必须是显式选择~~ **同日第二轮评审抓实「说显式、API 却可省略」的矛盾**,升级为:`redact: fn | false` 必填;范围按排除法(全部字符串值 − 身份分类白名单,覆盖 o11y / agent-setup / snapshot 元数据 / span name);发布根补 `publish: { redacted }` 标记;`view --out` 对无标记根要求 `--allow-sensitive-artifacts`;sandbox params 经 provider `publicConfig()` 投影。仍不做自动 DLP 扫描。清单见 [external-review-round2-rulings](external-review-round2-rulings.md)。

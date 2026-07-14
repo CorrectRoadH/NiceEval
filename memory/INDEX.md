@@ -36,10 +36,13 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 - [docker-apple-silicon-amd64-emulation-slow](docker-apple-silicon-amd64-emulation-slow.md) — 本机 Apple Silicon 上 dockerSandbox 默认拉 amd64 镜像走模拟,沙箱型 eval 实测比原生慢好几倍,timeoutMs 要留余量
 - [claude-code-persistent-memory-breaks-verbal-isolation](claude-code-persistent-memory-breaks-verbal-isolation.md) — claude-code 会把"帮我记住"写进磁盘 memory,newSession 后合法记得;session-isolation 反证要测 transcript 不回放历史,不测回答不含事实
 - [sandbox-provision-ratelimit-retry](sandbox-provision-ratelimit-retry.md) — 设计裁决:provisioning 瞬时错误退避重试(2026-07-14 两轮:先扩围到传输层,评审再否决盲重试)——瞬时按后果分拒绝类(直接重试)/歧义类(须 provision token 对账、销毁重建后才能重试,无检索通道则第一次抛),防泄漏计费实例;vercel 外层封顶收窄防嵌套放大;重试在 resolve.ts 而非 runner
+- [diff-attribution-send-window-ledger](diff-attribution-send-window-ledger.md) — 设计裁决:agent diff 改为 send 窗口归因的私有 git 分类账(2026-07-14),推翻「空基线 + git diff HEAD」(fixture 写入让 fileChanged 恒真的契约级假阳性);快照式 diff 同场否决
+- [keep-dormancy-provider-forms](keep-dormancy-provider-forms.md) — 设计裁决:留存现场转入 provider 休眠形态(docker stop 停驻 / e2b pause 可 resume;2026-07-14),推翻「keep = 保持运行」;docker pause 与 commit 转镜像同场否决
 - 已修 [provision-retry-holds-concurrency-slot](provision-retry-holds-concurrency-slot.md) — provisioning 退避重试期间攥着 sandboxSem 并发名额陪跑 setTimeout,一批 429 能把实际并发拖到远低于 --max-concurrency 声明值(个位数);修为 ProvisionSlot 退避前 release、睡醒后 reacquire(`src/sandbox/retry.ts` + `resolve.ts` + `runner/attempt.ts`)
 
 ## judge
 
+- [judge-missing-key-unavailable-not-silent](judge-missing-key-unavailable-not-silent.md) — 设计裁决:judge 缺 key 记 unavailable 断言(gate → errored;2026-07-14),推翻「静默不记录 + CI 自查」;unavailable 态同时承载证据覆盖缺口
 - [judge-agent-default-material](judge-agent-default-material.md) — `t.judge.agent` 默认材料写死成 diff,对话型 eval 会被误判 0 分
 - [judge-criteria-cannot-see-tool-calls](judge-criteria-cannot-see-tool-calls.md) — judge 默认材料看不到工具调用,criteria 要求「基于工具作答」会恒判 0
 - 已修 [judge-config-precheck-hard-fails-without-key](judge-config-precheck-hard-fails-without-key.md) — 显式设 `judge.model` 后没有对应 API key 曾是跑前直接抛错退出;现预检只对「实际要跑且源码含 judge」的 eval 生效(修在 `src/runner/run.ts` judgeProbeTargets)
@@ -48,6 +51,8 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 
 ## 写 eval:context、断言与类型
 
+- [external-review-round2-rulings](external-review-round2-rulings.md) — 设计裁决:第二轮外部评审翻案清单(2026-07-14)——coverage 省略=unknown、AssertionResult 判别联合、redact 必填、earlyExit 只认 passed、keep=failed|all、passRate 三拆、Selection 物化 attempts、ExperimentRunInfo 存 resolved
+- [eval-architecture-original-notes](eval-architecture-original-notes.md) — Eval 架构的原始手动笔记与 eve 源码核对记录(2026-07-14 从 docs 原样迁入,正文已重写为正式架构文档)
 - [context-spread-getter-freezes-t-reply](context-spread-getter-freezes-t-reply.md) — 顶层 `t.reply` / `t.events` / `t.sessionId` 永远冻结在初始值,断言要用 turn 作用域取
 - [pending-tool-call-status-defaults-completed](pending-tool-call-status-defaults-completed.md) — 等审批中的调用在 facts 里默认 completed,"批准前没执行"要对事件流查 action.result 而不是 notCalledTool(status)
 - 已修 [loose-gate-regex-plus-soft-judge-false-pass](loose-gate-regex-plus-soft-judge-false-pass.md) — 宽泛 OR 正则 gate + soft judge 阈值叠加,会把明确失败判成 passed(gate 正则别放过泛词)
@@ -56,6 +61,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 
 ## o11y 采集与 view
 
+- [publish-redaction-copysnapshots-not-report](publish-redaction-copysnapshots-not-report.md) — 设计裁决:发布消毒移到 copySnapshots({ redact }),AttemptList.redact 降为展示层(2026-07-14),推翻「消毒归报告」——view --out 原样发布 artifact,列表脱敏挡不住深链
 - [ai-sdk-otel-needsapproval-no-execute-tool-span](ai-sdk-otel-needsapproval-no-execute-tool-span.md) — @ai-sdk/otel 不给 `needsApproval:true` 的工具产 execute_tool span,action 断言派生不出
 - [langsmith-dialect-langchain-completion-shape-gap](langsmith-dialect-langchain-completion-shape-gap.md) — langsmith 方言解析不了 LangChain ChatOpenAI 实际吐的 gen_ai.completion 形状,message 事件恒空
 - [codex-mapcodexspans-not-publicly-exported](codex-mapcodexspans-not-publicly-exported.md) — `mapCodexSpans` 没从 `niceeval/adapter` 公开导出,外部包只能省略 spanMapper 走通用 heuristic

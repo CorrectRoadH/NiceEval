@@ -9,3 +9,4 @@
 - `5`(2026-07-12)`result.json` 新增 `locator`;`sources.json` 从逐 attempt 内联全量源码改为「attempt 级引用 + 快照级 `sources/<sha256>.json` 去重仓库」(见 attempt-locator-and-source-dedup 条目)。
 - `6`(2026-07-13)`error` 从自由字符串改为结构化 `AttemptError`(operation/code/message/cause/stack),新增有界 `diagnostics`。
 - `7`(2026-07-14)`AttemptError.operation` / `DiagnosticRecord.operation` 改名 `phase`,取值统一为 `LifecyclePhase` 闭集(见 lifecycle-phase-vocabulary-unification 条目);`phases` 收尾段与 `steps` 属同期新增的可选字段,本身不要求升版,搭改名的车一起进 7。
+- `8`(2026-07-14)两轮外部契约评审的破坏性重构打包升版:`AssertionResult` 从 `passed/score` 平铺改为 `outcome` 判别联合(`groupPath` 数组、结构化 `loc`、`optional`);`diff.json` 从 `generatedFiles/deletedFiles` 改为逐 send 窗口 delta 序列;`result.json` 新增 `coverage`,`snapshot.json` 新增 `publish` 标记、`experiment` 投影改存 resolved 值(`selectedEvalIds` 等,`model` 移除只留顶层);`LifecyclePhase` 增 `sandbox.suspend`(可选字段搭车)。见 external-review-round2-rulings 条目。
