@@ -18,7 +18,7 @@ t.check(t.sandbox.file("package.json"), matches(PackageSchema));
 | `fileDeleted(path)` | 延迟断言 | 文件在最终 diff 中被删除 |
 | `notInDiff(re)` | 延迟断言 | 最终 diff 不含模式 |
 | `noFailedShellCommands()` | 延迟断言 | Agent 发起的 shell 工具没有失败退出 |
-| `diff.get(path)` | 结果材料 | 读取某文件的 diff |
+| `diff.get(path)` | 结果材料 | 某个生成/修改文件的最终内容；文件不在 diff 里返回 `undefined` |
 | `diff.isEmpty()` | 结果材料 | 判断最终 diff 是否为空 |
 | `diff.matches(re)` | 结果材料 | 判断最终 diff 是否命中正则 |
 | `file(path)` | 延迟材料 | finalize 时读取 Sandbox 文件，交给 matcher |

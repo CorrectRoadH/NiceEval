@@ -10,7 +10,11 @@ t.judge.autoevals.summarizes(source);
 turn.judge.autoevals.closedQA("这一轮是否回答问题?").gate();
 ```
 
-只有 `closedQA`、`factuality` 和 `summarizes` 三个固定入口，不提供平铺别名。
+只有三个固定入口，不提供平铺别名；第二参数统一是 `{ on?: string; model?: string }`：
+
+- `closedQA(question, opts?)` —— `question` 是让裁判回答的封闭式问题。
+- `factuality(expected, opts?)` —— `expected` 是对照用的事实参考答案。
+- `summarizes(source, opts?)` —— `source` 是被总结的原始材料。
 
 ## 默认材料
 
@@ -28,6 +32,11 @@ t.judge.autoevals.closedQA("diff 是否只修改目标逻辑?", {
 ## 模型与鉴权
 
 模型优先级：单次 `{ model }` → eval judge config → 项目 judge config → `NICEEVAL_JUDGE_MODEL`。没有内置默认模型。
+
+```ts
+// 单条断言换更强的裁判,不动全局配置
+t.judge.autoevals.factuality("布鲁克林今天是晴天", { model: "gpt-4o" }).atLeast(0.8);
+```
 
 没有解析到 API key 时，judge 命名空间保持可调用但不记录 judge Assertion。CI 必须要求 judge 真正执行时，应显式检查 key 注入，不能从报告里是否有分数反推。
 

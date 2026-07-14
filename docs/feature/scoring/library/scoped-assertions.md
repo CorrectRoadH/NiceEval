@@ -30,12 +30,51 @@ t.calledTool("get_weather", { count: 2 }); // 全 attempt
 | `noFailedActions()` | 没有 failed 工具或子 Agent 动作 |
 | `event(type, opts?)` / `notEvent(type)` | 出现或未出现事件 |
 | `eventOrder(types)` | 事件类型按给定子序出现 |
-| `eventsSatisfy(label, predicate)` | 用谓词检查事件流 |
+| `eventsSatisfy(predicate, label?)` | 用谓词检查事件流 |
 | `maxTokens(max)` / `maxCost(usd)` | token 或估算成本不超上限 |
 
 负断言和上限断言依赖完整证据；Adapter 漏事件或 usage 时可能静默通过。见 [证据与完整性](../architecture/evidence.md)。
 
 Sandbox 专属结果断言见 [断言 Sandbox 结果](../../sandbox/library/asserting-results.md)。
+
+## 匹配条件的字段全集
+
+`calledTool` / `notCalledTool` 的 `match` 是 `ToolMatch`，多个字段之间是 AND：
+
+| 字段 | 语义 |
+|---|---|
+| `input?: Record<string, unknown>` | 只匹配入参包含这些键值的调用（浅层包含，非深度相等） |
+| `count?: number` | 精确匹配调用次数；省略只要求「至少一次」 |
+| `status?: "completed" \| "failed" \| "rejected"` | 只匹配处于该状态的调用 |
+
+`calledSubagent` 的 `match` 是 `SubagentMatch`，语义同 `ToolMatch`：`{ count?: number; status?: "completed" | "failed"; remoteUrl?: string | RegExp }`，`remoteUrl` 只匹配指向该远程地址的子 Agent 委派。`event(type, opts?)` 的 `opts` 是 `{ count?: number }`，同样是精确次数。
+
+```ts
+t.calledTool("get_weather", { input: { city: "Brooklyn" }, count: 1 });
+
+// HITL 拒绝分支:被拒的工具调用状态是 rejected,不是 failed
+const request = t.requireInputRequest({ optionIds: ["approve", "reject"] });
+await t.respond({ request, optionId: "reject" });
+t.calledTool("send_email", { status: "rejected" });
+```
+
+## 顺序与谓词
+
+`toolOrder(names)` / `eventOrder(types)` 断言的是**子序**：目标项按给定相对顺序出现即通过，中间夹杂其它调用或事件不影响结果：
+
+```ts
+t.toolOrder(["read_file", "write_file"]);          // 先读后写;中间调了别的工具也通过
+t.eventOrder(["action.called", "action.result"]);
+```
+
+规则超出既有词汇时，用 `eventsSatisfy(predicate, label?)` 对作用域的整段事件流写谓词。`predicate` 是 `(events: readonly StreamEvent[]) => boolean`，`label` 进报告名，用来在失败时说明断的是什么：
+
+```ts
+t.eventsSatisfy(
+  (events) => events.filter((e) => e.type === "thinking").length <= 3,
+  "thinking 不超过 3 次",
+);
+```
 
 ## 接收者专属能力
 
