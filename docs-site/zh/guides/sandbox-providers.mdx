@@ -257,7 +257,9 @@ await restoreCheckpoint(nextSandbox, data);
 
 这适合运行时缓存，不会创建可发布的 image/template/snapshot，也不管理共享、版本和过期。归档或恢复失败会直接抛错。
 
-## 文件 IO 重试
+## 瞬时错误重试
+
+内置 Provider 创建沙箱时，限流、`fetch failed`、连接重置、5xx、临时网络不可达这类瞬时失败会自动做指数退避重试；模板不存在、凭据缺失这类配置错误第一次就报错。重试用尽后该 Attempt 记为 errored。`defineSandbox` 自定义 Provider 的 `create` 是你自己的函数，NiceEval 不替它重试。
 
 `readFile`、`downloadFile`、`uploadFile`、批量写入和目录上传会对 429、5xx、`fetch failed`、连接重置等瞬时传输错误自动做有限重试。文件不存在、权限错误、取消和 Sandbox terminated 不重试。
 

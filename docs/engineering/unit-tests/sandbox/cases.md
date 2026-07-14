@@ -140,7 +140,7 @@ it("runCommand 保留参数边界、cwd、env 和 root 语义", async () => {
 
 | 契约 | 场景 |
 |---|---|
-| provider 原生限流错误归类为中性 kind `rate_limit`；createProvider 只对可重试 kind 指数退避（封顶+抖动），其它错误第一次即抛 | 正例：三家原生错误各自归类；反例：凭据错误零重试 |
+| provider 原生限流错误归类为中性 kind `rate_limit`；provider 没认出的错误兜底走与文件 IO 共用的瞬时分类器，传输层瞬时错误同样可重试；createProvider 对可重试 kind 指数退避（封顶+抖动），确定性错误第一次即抛 | 正例：三家原生限流各自归类、create 期间 `fetch failed`／连接重置进入重试；反例：凭据错误、模板不存在零重试 |
 | 退避睡眠期间临时归还并发槽位，睡醒后重新排队，不占着 sandboxSem 陪跑 | 正例：一批 429 期间其它 attempt 能获得槽位 |
 | 重试耗尽后 verdict `errored`；defineSandbox 自定义 provider 的 create 不套用这层重试 | 反例：自定义 provider 抛限流只调一次 |
 

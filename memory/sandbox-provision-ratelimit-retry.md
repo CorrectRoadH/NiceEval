@@ -1,6 +1,6 @@
 ---
 name: sandbox-provision-ratelimit-retry
-description: 设计裁决——sandbox provisioning 限流错误按 provider 归类成中性 kind,退避重试放在 resolve.ts 而不是 runner,不覆盖运行期限流
+description: 设计裁决——sandbox provisioning 瞬时错误(限流 + 传输层)退避重试,分类放 provider + 共用瞬时分类器兜底,重试放在 resolve.ts 而不是 runner,不覆盖运行期限流
 metadata:
   type: project
 ---
@@ -12,3 +12,5 @@ metadata:
 **范围裁决**:这次只覆盖"创建沙箱"这一步的限流重试。沙箱创建成功后、运行期间因限流被终止(如并发过高导致的 sandbox kill,见 [[e2b-sandbox]])**不**在这个机制内——运行期问题定性为"应该靠控制并发避免",不是"重试掩盖";如果之后要做运行期重试,那是重跑整个 attempt 的更大范围决定,需要另外裁决(会牵涉 `verdict: "errored"` 目前"确定性、`earlyExit` 时跳过剩余 runs"的语义,见 `docs/sandbox.md` 与 `src/runner/run.ts` 的 errored 注释)。
 
 **踩坑**:调研时发现 `@vercel/sandbox` SDK 自己对单次 fetch 的 429 已经有内部重试(`with-retry.js`,5 次指数退避、读 `Retry-After` header);我们在 `resolve.ts` 加的重试是外层兜底(耗尽内部重试后仍 429,或 `create()` 轮询 session 状态过程中撞限流),两层不冲突但容易被误以为重复造轮子——加之前先确认 SDK 有没有自己的重试层,再决定外层要不要包、包多重。
+
+**翻案(2026-07-14)**:provisioning 可重试范围从"仅 `rate_limit`"扩到"限流 + 传输层瞬时错误"。触发证据:e2b 真实跑分中 `Sandbox.create` 阶段多次出现 `fetch failed · SocketError other side closed`(locator @1r4kwea6 等,同轮 4 次基建失败里占 2+),按旧裁决被归 `unknown` 直接判死 attempt——而同样的错误消息出现在 `uploadFile` 会被文件 IO 层自动重试,两层双标没有道理。**曾选方案**:向 e2b 提上游 FR 让 SDK 自己重试 create。否决理由:`withProvisionRetry` 的退避/还槽位/activity 汇报机制全在,缺的只是分类器兜底一行逻辑;且旧裁决"其它错误第一次就抛"的论据是"重试对配置错误没有意义",传输错误本不在该论据覆盖内。新契约:provider `classifyProvisionError` 认原生限流后,未认出的错误过一遍 `classifySandboxIoError` 兜底,瞬时 kind 一律退避重试;文档已按新契约重写(`docs/feature/sandbox/architecture.md`「Provisioning 失败与重试」)。附带观察:e2b envd 把 permission denied 包成 `500:` 前缀 message,会被瞬时分类器的 5xx 正则误判成可重试——确定性错误多陪跑几次退避后仍如实抛出,只慢不错,暂不为它加白名单。

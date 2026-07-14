@@ -88,11 +88,11 @@ await sandbox.runCommand("npm", ["install"]);     // cwd 省略 → workdir
 
 ## Provisioning 失败与重试
 
-`createSandbox()` 创建沙箱时可能撞上 provider 侧的限流(E2B/Vercel 云配额、Docker Hub 镜像拉取限流)——这类失败的本质是"再等等就好",与模板不存在、凭据缺失这类"配置就是错的"失败不同,框架在 provisioning 阶段对两者分别处理:
+`createSandbox()` 跨网络调用 provider 控制面,会撞上两类本质不同的失败。瞬时失败的本质是"再等等就好":限流(E2B/Vercel 云配额、Docker Hub 镜像拉取限流),以及传输层瞬时错误(`fetch failed`、连接重置、5xx、临时 DNS / 网络不可达)。确定性失败是"配置就是错的":模板不存在、凭据缺失、权限不足。框架在 provisioning 阶段对两者分别处理:
 
-- 各内置 provider 把自己 SDK 原生的限流错误(e2b 的 `RateLimitError`、vercel 的 `APIError{ response.status: 429 }`、docker 拉镜像时 message 里的 `toomanyrequests`)归类成一个中性的 kind(目前只有 `"rate_limit"`);这层分类留在各 provider 自己的文件里,不外泄到 Adapter / Runner。
-- `resolve.ts` 的 `createProvider()` 对被归为可重试的错误做指数退避重试(封顶次数 + 抖动);其它错误第一次就抛出——重试对着"配置就是错的"没有意义,只会拖慢失败反馈。
-- 退避睡眠期间临时归还并发槽位(`retry.ts` 的 `ProvisionSlot`),睡醒后再排队要回来——被限流的 attempt 只是在等,不该攥着 `sandboxSem` 的名额陪跑 `setTimeout`,不然一批 429 会把整批实际并发拖成远低于 `--max-concurrency` 声明值的个位数。
+- 分类分两层,都留在 sandbox/ 内、不外泄到 Adapter / Runner:各内置 provider 先把自己 SDK 原生的限流错误(e2b 的 `RateLimitError`、vercel 的 `APIError{ response.status: 429 }`、docker 拉镜像时 message 里的 `toomanyrequests`)归类成中性的 `"rate_limit"`;provider 没认出的错误再过一遍与文件 IO 重试共用的保守瞬时分类器(见下节),识别出的传输层瞬时错误同样判为可重试。创建沙箱是幂等的——失败的 create 没有留下会被复用的实例,重试传输错误不会造成半个环境。
+- `resolve.ts` 的 `createProvider()` 对可重试错误做指数退避重试(封顶次数 + 抖动);确定性错误第一次就抛出——重试对着"配置就是错的"没有意义,只会拖慢失败反馈。
+- 退避睡眠期间临时归还并发槽位(`retry.ts` 的 `ProvisionSlot`),睡醒后再排队要回来——在退避的 attempt 只是在等,不该攥着 `sandboxSem` 的名额陪跑 `setTimeout`,不然一批 429 会把整批实际并发拖成远低于 `--max-concurrency` 声明值的个位数。
 - 重试全部耗尽后仍按原语义走:`verdict: "errored"`(基建问题,不是 agent 表现)。
 
 Provisioning 的分类只覆盖"创建沙箱"这一步。沙箱创建成功后被 provider 终止属于 lifecycle failure,不能当成同一个实例里的普通 IO 失败继续重试;应保留明确终止原因,由 attempt 层决定是否允许重新创建整个环境。
