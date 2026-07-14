@@ -214,7 +214,7 @@ const snap = await writer.snapshot({   // 建快照目录(独占创建,撞名换
 });
 
 for (const r of convertedResults) {
-  await snap.writeAttempt(r.result, {  // 写 result.json(判决权威落点,一次写成)+ 拆 artifact 文件
+  await snap.writeAttempt(r.result, {  // 写 result.json(判定权威落点,一次写成)+ 拆 artifact 文件
     events: r.events,                  // 第二参 = artifact,都可选;缺哪样读取面就懒加载出 null
     diff: r.diff,
   });                                  // 拆 artifact 文件、算目录、回填引用,全在库内发生
@@ -223,7 +223,7 @@ for (const r of convertedResults) {
 await writer.finish();                 // 给每个快照补 completedAt,没有任何收尾聚合
 ```
 
-`writer.snapshot()` 就是读取面「实验 → 快照」层次的镜像：转多个 experiment 就开多个快照目录，experimentId / agent / model / startedAt 这些快照级元数据在这里声明一次，不用塞进每条 attempt；可选的 `knownEvalIds`（该实验已知的 eval 并集）也在这里声明——它是残缺检测的分母，转换只覆盖部分题目时如实交代全集，下游的覆盖警告就能算出来（`copySnapshots` 发布时会自动补记这个字段，见下文）。转完的目录就是标准结果目录：`niceeval show` / `niceeval view` 直接能看，报告积木直接能算，不用抄格式文档；`producer` 会原样出现在读取面的 `snap.producer` 上。**每个文件恰好写入一次**是写入面的核心承诺:`snapshot.json` 开跑即写、收尾只补 `completedAt`;`result.json` 与 artifact 随 attempt 完成落盘。进程中断只丢未完成的 attempt,已完成的判决与 artifact 已经在盘上——真正「有 attempt 落盘却没有 `snapshot.json`」的极端情况才归 `skipped("incomplete")`,未收尾但元数据齐全的快照能正常读,只带一条警告。
+`writer.snapshot()` 就是读取面「实验 → 快照」层次的镜像：转多个 experiment 就开多个快照目录，experimentId / agent / model / startedAt 这些快照级元数据在这里声明一次，不用塞进每条 attempt；可选的 `knownEvalIds`（该实验已知的 eval 并集）也在这里声明——它是残缺检测的分母，转换只覆盖部分题目时如实交代全集，下游的覆盖警告就能算出来（`copySnapshots` 发布时会自动补记这个字段，见下文）。转完的目录就是标准结果目录：`niceeval show` / `niceeval view` 直接能看，报告积木直接能算，不用抄格式文档；`producer` 会原样出现在读取面的 `snap.producer` 上。**每个文件恰好写入一次**是写入面的核心承诺:`snapshot.json` 开跑即写、收尾只补 `completedAt`;`result.json` 与 artifact 随 attempt 完成落盘。进程中断只丢未完成的 attempt,已完成的判定与 artifact 已经在盘上——真正「有 attempt 落盘却没有 `snapshot.json`」的极端情况才归 `skipped("incomplete")`,未收尾但元数据齐全的快照能正常读,只带一条警告。
 
 ## 发布：`copySnapshots`
 

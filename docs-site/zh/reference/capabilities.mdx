@@ -22,13 +22,13 @@ description: "NiceEval 怎么知道你的 adapter 做到了什么：没有声明
 
 ## 为什么没有声明这一层
 
-上一版设计里有 `capabilities: { conversation, toolObservability }` 这类布尔声明，用来补"代码证明不了的部分"。这一层已经被拿掉，原因是它承诺的事情本身就不该由声明来担保：
+NiceEval 不设 `capabilities: { conversation, toolObservability }` 这类布尔声明层来补"代码证明不了的部分"，因为这类声明承诺的事情本身就不该由声明来担保：
 
 - **构造即证明**：用了 `defineSandboxAgent`，说明被测对象在沙箱里改文件——不需要再声明一遍 `workspace: true`。
 - **字段即证明**：写了 `tracing`（怎么把 OTLP 端点交给 CLI），tracing 就成立。字段本身就是使用凭证，不需要旁边再放一个布尔值重复一遍。
 - **来源即证明**：`fromAiSdk(result)` 消费的 `result.steps` 是 AI SDK 契约保证的**全量**工具循环记录，返回值自带"事件流完整"的证明；内置 CLI 的 parser 同理。手工映射时，事件完不完整取决于你的映射代码写没写全——这不是一个可以靠声明担保的东西，声明了也不会让代码更完整。
 - **行为即证明**：HITL 没有能力位——`send` 返回 `status: "waiting"` + `input.requested` 事件，行为本身可见。
-- **接了就续得上**：会话续接不再是"声明了才有"的开关。`ctx.session` 一直都在；用了 `id`/`capture` 或 `history` 存取器就会续接上下文，不用就每轮都是全新会话——两种都是正常状态，都不会报错，区别只在你的 adapter 实际怎么写。
+- **接了就续得上**：会话续接没有"声明了才有"的开关。`ctx.session` 一直都在；用了 `id`/`capture` 或 `history` 存取器就会续接上下文，不用就每轮都是全新会话——两种都是正常状态，都不会报错，区别只在你的 adapter 实际怎么写。
 
 ```ts
 export default defineAgent({

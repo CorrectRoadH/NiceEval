@@ -64,7 +64,7 @@ npx niceeval exp compare-models weather
 
 ## 常用 flags
 
-下表由 CLI 的 flag 解析表生成，表外的 flag 一律按未知 flag 报错并以非零状态退出。**没有**用于选择 sandbox 后端的 CLI flag：sandbox 后端只能写在代码里——在 experiment（`defineExperiment`）里设置 `sandbox`，或者在 `niceeval.config.ts`（`defineConfig`）里设置作为项目级兜底，值来自 `niceeval/sandbox` 的 `dockerSandbox()` / `vercelSandbox()` / `e2bSandbox()`。
+下表由 CLI 的 flag 解析表生成，表外的 flag 一律按未知 flag 报错并以非零状态退出。**没有**用于选择 sandbox provider 的 CLI flag：sandbox provider 只能写在代码里——在 experiment（`defineExperiment`）里设置 `sandbox`，或者在 `niceeval.config.ts`（`defineConfig`）里设置作为项目级兜底，值来自 `niceeval/sandbox` 的 `dockerSandbox()` / `vercelSandbox()` / `e2bSandbox()`。
 
 {/* GENERATED:BEGIN cli-flags */}
 

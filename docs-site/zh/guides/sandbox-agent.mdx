@@ -41,11 +41,11 @@ export default defineExperiment({
 export ANTHROPIC_API_KEY=sk-ant-...
 npx niceeval exp local fixtures/button
 
-npx niceeval exp local fixtures/button --runs 10 --early-exit
+npx niceeval exp local fixtures/button --runs 10
 ```
 
 <Note>
-  没有对应的 CLI flag——后端选择完全写在代码里。如果 experiment 和 `niceeval.config.ts` 都没设置 `sandbox`，[NiceEval](https://niceeval.com/) 在创建 sandbox 时会直接报错，不会自动探测。
+  没有对应的 CLI flag——provider 选择完全写在代码里。如果 experiment 和 `niceeval.config.ts` 都没设置 `sandbox`，[NiceEval](https://niceeval.com/) 在创建 sandbox 时会直接报错，不会自动探测。
 </Note>
 
 云端跑 coding agent 时，可以直接使用 NiceEval 已发布的 E2B 公共模板，避免每个 Attempt 安装 CLI：
@@ -63,9 +63,9 @@ export default defineExperiment({
 });
 ```
 
-Claude Code 使用 `correctroads-default-team/niceeval-claude-code:v0.6.1`，Bub 使用 `correctroads-default-team/niceeval-bub:v0.6.1`。版本 tag 适合 CI；省略 tag 会跟随当前稳定构建。如何继续增加系统包、二进制或模型缓存，见 [Sandbox 后端 · 从官方基线继续构建以提速](/zh/guides/sandbox-providers#从官方基线继续构建以提速)。
+Claude Code 使用 `correctroads-default-team/niceeval-claude-code:v0.6.1`，Bub 使用 `correctroads-default-team/niceeval-bub:v0.6.1`。版本 tag 适合 CI；省略 tag 会跟随当前稳定构建。如何继续增加系统包、二进制或模型缓存，见 [沙箱 provider · 从官方基线继续构建以提速](/zh/guides/sandbox-providers#从官方基线继续构建以提速)。
 
-内置 agent 从 `niceeval/adapter` 导出的是工厂函数。需要配置鉴权、代理、MCP 或 GitHub skill 时，把这些写进工厂参数；模型仍然写在 experiment 的 `model` 字段，sandbox 后端仍然写在 `sandbox` 字段：
+内置 agent 从 `niceeval/adapter` 导出的是工厂函数。需要配置鉴权、代理、MCP 或 GitHub skill 时，把这些写进工厂参数；模型仍然写在 experiment 的 `model` 字段，sandbox provider 仍然写在 `sandbox` 字段：
 
 ```ts
 import { defineExperiment } from "niceeval";
@@ -118,7 +118,7 @@ createSandbox
 
 起始文件和验证命令都写在 `test(t)` 中。agent 执行阶段只能看到你已经写进 sandbox 的文件。
 
-环境钩子（`.setup()` / `.teardown()`）挂在 experiment `sandbox` 字段的 spec 上，用来做"按实验变化的环境准备"——装某个实验专属的二进制、预热、跨 attempt 载入和回存状态。它排在 git 基线之前，所以写下的文件不会被算进 agent 产出的 diff。写法和规则见 [Sandbox 后端 · 环境钩子](/zh/guides/sandbox-providers#环境钩子)。
+环境钩子（`.setup()` / `.teardown()`）挂在 experiment `sandbox` 字段的 spec 上，用来做"按实验变化的环境准备"——装某个实验专属的二进制、预热、跨 attempt 载入和回存状态。它排在 git 基线之前，所以写下的文件不会被算进 agent 产出的 diff。写法和规则见 [沙箱 provider · 环境钩子](/zh/guides/sandbox-providers#环境钩子)。
 
 ## 自定义 sandbox agent
 
@@ -161,12 +161,12 @@ export default defineSandboxAgent({
 运行中看到 Sandbox 或 Adapter 错误时，终端会给出 Attempt locator：
 
 ```text
-✗ @2h8m4k1 fixtures/button [local] errored · agent setup
+✗ @12h8m4k1 fixtures/button [local] errored · agent setup
     agent-install-failed: npm install my-agent exited with code 1
-    Inspect: niceeval show @2h8m4k1
+    Inspect: niceeval show @12h8m4k1
 ```
 
-运行 `niceeval show @2h8m4k1` 可查看结构化错误、diagnostics 和已完成的生命周期阶段；`--timing` 给各阶段的耗时分解（排队、Sandbox 启动、setup 每个钩子、测试、收尾），可直接看出错误或超时发生在哪一步、之前的时间花在哪里；有 OTel trace 时再用 `--execution` 查看执行树。Sandbox 创建失败可能发生在 telemetry 建立前，所以错误回顾不依赖 trace。
+运行 `niceeval show @12h8m4k1` 可查看结构化错误、diagnostics 和已完成的生命周期阶段；`--timing` 给各阶段的耗时分解（排队、Sandbox 启动、setup 每个钩子、测试、收尾），可直接看出错误或超时发生在哪一步、之前的时间花在哪里；有 OTel trace 时再用 `--execution` 查看执行树。Sandbox 创建失败可能发生在 telemetry 建立前，所以错误回顾不依赖 trace。
 
 ## `ctx.model` 与 `ctx.flags`
 

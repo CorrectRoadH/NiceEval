@@ -104,7 +104,7 @@ npx niceeval exp prompt-variants/concise
 | `timeoutMs` | 单个 attempt 的超时 |
 | `budget` | 这一格配置的预算上限 |
 | `maxConcurrency` | 这一格配置的并发上限 |
-| `sandbox` | sandbox agent 使用的后端，如 `dockerSandbox()` / `e2bSandbox()`；spec 上可以链 `.setup()` / `.teardown()` 挂按实验变化的环境钩子 |
+| `sandbox` | sandbox agent 使用的 provider，如 `dockerSandbox()` / `e2bSandbox()`；spec 上可以链 `.setup()` / `.teardown()` 挂按实验变化的环境钩子 |
 
 Experiment 本身是纯配置数据，没有 `setup` / `teardown` 这类字段。要在跑 agent 前按实验准备环境（装二进制、预热、跨 attempt 载入和回存状态），挂在 `sandbox` 字段的 spec 上：
 
@@ -118,8 +118,8 @@ export default defineExperiment({
 });
 ```
 
-固定的 Agent CLI、系统包和大模型缓存应先做进 image/template/snapshot；`.setup()` 不应在每个 Attempt 重建同一套环境。如何从官方 Docker 镜像、E2B 模板或 Vercel runtime 继续派生来提速，见 [Sandbox 后端 · 从官方基线继续构建以提速](/zh/guides/sandbox-providers#从官方基线继续构建以提速)。
+固定的 Agent CLI、系统包和大模型缓存应先做进 image/template/snapshot；`.setup()` 不应在每个 Attempt 重建同一套环境。如何从官方 Docker 镜像、E2B 模板或 Vercel runtime 继续派生来提速，见 [沙箱 provider · 从官方基线继续构建以提速](/zh/guides/sandbox-providers#从官方基线继续构建以提速)。
 
-钩子的执行时机、多钩子顺序和失败语义见 [Sandbox 后端 · 环境钩子](/zh/guides/sandbox-providers#环境钩子)。
+钩子的执行时机、多钩子顺序和失败语义见 [沙箱 provider · 环境钩子](/zh/guides/sandbox-providers#环境钩子)。
 
 跨配置比较的设计建议见[实验矩阵](/zh/guides/experiments)。adapter 如何消费 `ctx.model` 和 `ctx.flags` 见[Adapter](/zh/concepts/adapter)。

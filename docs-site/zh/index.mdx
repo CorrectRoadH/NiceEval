@@ -166,7 +166,7 @@ READ https://raw.githubusercontent.com/CorrectRoadH/niceeval/refs/heads/main/doc
 
 <AccordionGroup>
   <Accordion title="需要注册账号吗？">
-    不需要。跑 eval 和 `niceeval view` 看报告全在本地完成；只有被测对象本身是需要隔离工作区的 coding agent 时，才会用到 Docker 或 E2B 这类 sandbox 后端。
+    不需要。跑 eval 和 `niceeval view` 看报告全在本地完成；只有被测对象本身是需要隔离工作区的 coding agent 时，才会用到 Docker 或 E2B 这类 sandbox provider。
   </Accordion>
   <Accordion title="我的 Agent 不是用 TypeScript / JavaScript 写的，能接吗？">
     能。Adapter 只是对着应用本来暴露的接口（HTTP、gRPC、WebSocket 都行）收发；应用本身用什么语言写、部署在哪里，[NiceEval](https://niceeval.com/) 不关心，见 [Adapter](/zh/concepts/adapter)。

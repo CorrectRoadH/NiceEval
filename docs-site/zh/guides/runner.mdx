@@ -42,10 +42,11 @@ npx niceeval exp local --max-concurrency 8
 ## runs 与 early-exit
 
 ```bash
-npx niceeval exp local fixtures/button --runs 5 --early-exit
+npx niceeval exp local fixtures/button --runs 5
+npx niceeval exp local fixtures/button --runs 5 --no-early-exit
 ```
 
-`runs` 用于测 pass rate。`early-exit` 会在某个 attempt 通过后停止同一 eval 的剩余尝试。
+`runs` 用于测 pass rate。首过即停默认开启：某个 Attempt 通过后，同一 eval 的剩余 Attempt 会被停止。想拿完整的通过率分布时，用 `--no-early-exit` 关闭，让每个 eval 跑满 `runs` 次。
 
 ## 缓存
 

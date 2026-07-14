@@ -25,7 +25,7 @@ export default defineExperiment({
 - `model` / `flags`：透传语义。[NiceEval](https://niceeval.com/) 不解释它们的含义，原样经 `ctx` 递给 Adapter，由 Adapter 随请求转发、应用按需切换——这正是 [Tier](/zh/concepts/tier) 里模型对比（Tier 1）和 feature A/B（Tier 3）的通道。
 - `runs`、`budget`、并发、`sandbox` 等运行参数：怎么跑、跑多少。完整字段见[写实验](/zh/guides/write-experiment)。
 
-Experiment 是纯配置数据，没有 `setup` / `teardown` 这类生命周期字段。要按实验准备环境（装二进制、预热、跨 attempt 存取状态），挂在 `sandbox` 字段的 spec 上——`dockerSandbox()` 等工厂返回的对象可以链 `.setup()` / `.teardown()`，见 [Sandbox 后端 · 环境钩子](/zh/guides/sandbox-providers#环境钩子)。
+Experiment 是纯配置数据，没有 `setup` / `teardown` 这类生命周期字段。要按实验准备环境（装二进制、预热、跨 attempt 存取状态），挂在 `sandbox` 字段的 spec 上——`dockerSandbox()` 等工厂返回的对象可以链 `.setup()` / `.teardown()`，见 [沙箱 provider · 环境钩子](/zh/guides/sandbox-providers#环境钩子)。
 
 ## 矩阵对比
 

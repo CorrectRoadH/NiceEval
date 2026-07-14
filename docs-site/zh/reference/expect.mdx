@@ -136,7 +136,7 @@ export function makeAssertion(spec: {
 t.check(t.reply, includes("Paris"));
 t.check(t.reply, includes(/order #\d+/i));
 t.check(turn.data, equals({ intent: "refund" }));
-t.check(t.reply, matches(/#[A-Z0-9]{8}/));
+t.check(turn.data, matches(OrderSchema)); // Standard Schema / Zod 结构校验;正则匹配用 includes
 t.check(t.reply, similarity("The answer explains the refund window").atLeast(0.8));
 t.check(turn.data, satisfies((value) => Array.isArray(value)));
 ```
