@@ -182,6 +182,34 @@ sandbox: e2bSandbox({ template: "acme-codex-evals:2026-07-13" })
 
 Adapter 不自动替 experiment 选择这个 template:同一个 Codex Adapter 可以跑 Docker、E2B 或 Vercel,选择权属于 sandbox spec。反过来,sandbox 也不猜要运行哪个 Agent。预装只是快速路径;模板缺 CLI 时 Claude/Codex Adapter 会回退安装,Bub 则先核对完整安装规格指纹,不把 PATH 上任意一个 `bub` 当成兼容版本。
 
+E2B 的派生故事没有跨 provider 复制,但同一条「从官方基线继续」的原则对 Docker 与 Vercel 同样成立,只是走各自的原生工具。Docker 的官方基线就是 NiceEval 的默认镜像 `node:24-slim`(省略 `image` 时按 runtime 选它):写一个 Dockerfile 从它派生、把 Agent CLI 烘焙进去,experiment 只引用产物 tag。`npm install -g` 装进 `/usr/local/bin`,正好落在沙箱注入的 PATH 上;沙箱默认以非 root 的 `node`(UID 1000)用户跑命令,装到别处(如 `~/.local/bin`)的 Agent 需自己进 PATH。
+
+```dockerfile
+# Dockerfile
+FROM node:24-slim
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates git \
+  && rm -rf /var/lib/apt/lists/*
+RUN npm install -g @openai/codex@0.144.1
+```
+
+```typescript
+// docker build -t acme-codex-evals:2026-07-13 . 之后
+sandbox: dockerSandbox({ image: "acme-codex-evals:2026-07-13" })
+```
+
+Vercel 没有 template registry,也没有 Dockerfile;快照从一台跑起来的 microVM 拍出来。用 Vercel SDK 从官方 runtime(`node24`)起沙箱、装 Agent CLI、调 `.snapshot()` 拿到 `snap_...`,experiment 再引用这个 ID:
+
+```typescript
+// scripts/build-vercel-snapshot.ts
+import { Sandbox } from "@vercel/sandbox";
+
+const sandbox = await Sandbox.create({ runtime: "node24" });
+await sandbox.runCommand({ cmd: "npm", args: ["install", "-g", "@openai/codex@0.144.1"], sudo: true });
+const { snapshotId } = await sandbox.snapshot(); // snap_...
+await sandbox.stop();
+```
+
 Vercel snapshot 只有 Team/Project 共享,没有 E2B `template publish` 对应的公共发布语义。NiceEval 仓库可记录维护者项目的 snapshot ID 供该项目复用,公共用户仍需在自己的 Vercel Project 运行构建脚本。文档和 API 必须把这个权限差异说出来,不能把“拿到 ID”写成“任何账号可启动”。
 
 Bub 若配置 `pythonPlugins`,模板 factory 要收到同一份 package 集合:`e2bCodingAgentTemplate("bub", { bubPythonPackages: ["bub-plugin-memory==1.3.0"] })`。Factory 与 Adapter 共用规范化和 hash 代码,插件顺序、空白和重复项不会制造假差异;集合真的不同则不会误用预装环境。

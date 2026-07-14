@@ -118,7 +118,7 @@ export default defineExperiment({
 });
 ```
 
-固定的 Agent CLI、系统包和大模型缓存应先做进 image/template/snapshot；`.setup()` 不应在每个 Attempt 重建同一套环境。如何从 Codex / Claude Code 官方 E2B template 继续派生，见 [Sandbox 后端 · 基于官方 Agent 模板继续定制](/zh/guides/sandbox-providers#基于官方-agent-模板继续定制)。
+固定的 Agent CLI、系统包和大模型缓存应先做进 image/template/snapshot；`.setup()` 不应在每个 Attempt 重建同一套环境。如何从官方 Docker 镜像、E2B 模板或 Vercel runtime 继续派生来提速，见 [Sandbox 后端 · 从官方基线继续构建以提速](/zh/guides/sandbox-providers#从官方基线继续构建以提速)。
 
 钩子的执行时机、多钩子顺序和失败语义见 [Sandbox 后端 · 环境钩子](/zh/guides/sandbox-providers#环境钩子)。
 

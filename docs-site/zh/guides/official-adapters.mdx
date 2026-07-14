@@ -85,7 +85,7 @@ export default defineExperiment({
 - **鉴权**：`BUB_API_KEY` + `BUB_API_BASE`（OpenAI 兼容代理），工厂参数 `apiKey` / `apiBase` 可覆盖。
 - **装 Skill**：`skills: SkillSpec[]`，与另外两个 Adapter 同一个类型。装进 `.agents/skills/<name>/`，发现指引写进 AGENTS.md。
 - **装插件**：`pythonPlugins: PythonPluginSpec[]`（`{ package }`：PyPI 包、版本约束或 git URL），`setup` 阶段进 `uv tool install … --with <package>`。这个类型只属于 bub；package 集合进安装 checkpoint key，插件不同的两个变体不会复用同一份安装缓存。
-- **预制 Bub**：NiceEval 的 E2B 配方会把 Bub、OTel 插件和 Python 插件集合算成安装指纹。Adapter 只复用指纹完全一致的环境；仅在 PATH 里放一个 `bub` 不足以证明兼容。构建入口见 [Sandbox 后端 · 基于官方 Agent 模板继续定制](/zh/guides/sandbox-providers#基于官方-agent-模板继续定制)。
+- **预制 Bub**：NiceEval 的 E2B 配方会把 Bub、OTel 插件和 Python 插件集合算成安装指纹。Adapter 只复用指纹完全一致的环境；仅在 PATH 里放一个 `bub` 不足以证明兼容。构建入口见 [Sandbox 后端 · 从官方基线继续构建以提速](/zh/guides/sandbox-providers#从官方基线继续构建以提速)。
 - bub 没有 `mcpServers`——MCP 只属于支持它的 Adapter，Config 上压根没有这个字段。
 - **安装方式**：走 `uv tool install`（PyPI 包，不是 npm 包），首次安装会建 checkpoint 缓存加速后续沙箱。
 - **tracing**：内置，通过环境变量注入，协议 `http/protobuf`。
