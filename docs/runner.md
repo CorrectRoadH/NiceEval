@@ -49,6 +49,14 @@ fixtures/button   codex         pass@5 = 3/5 (60%)   mean 41s · 72k tok · $0.3
 
 预算耗尽而导致的未派发 attempt 数量计入运行[完成状态](#完成状态)的 `unstarted`,让整次运行的结论落在 `incomplete`,不能在 CI 里伪装成全绿。
 
+## 预热与复用:冷启动移出关键路径
+
+沙箱冷启动的优先级排序(先预制环境、再小 setup、最后才是池化)在 [Sandbox · 性能](feature/sandbox/architecture.md#性能预制环境复用与预热)——provider 侧提供"创建、重置、销毁"的能力;什么时候预创建、什么时候复用是运行器的调度决策,契约如下:
+
+- **预热池**:开启后,运行器在调度开始时按 `min(预热池大小, 计划 attempt 数)` 预先创建同 spec 沙箱挂进池里;attempt 到达 `sandbox.create` 阶段时先领池中现货,领到则该阶段只计领取耗时,池空则回落到即时创建。池只在同一次 run 内存活,run 结束时未被领用的沙箱一并销毁。
+- **跨 case 复用**:开启后,attempt 收尾不销毁沙箱,而是重置回基线(`git clean` + 回到空基线 commit,`$HOME` 等基线外路径不保证清理)再交给同 spec 的下一个 attempt;`sandbox.stop` 只在最后一次使用后发生。默认**关闭**——全新沙箱是隔离性的默认值,复用是用启动时间换隔离强度的显式选择,只应在 setup 成本可证明地主导总耗时、且 eval 不在基线外留状态时开启。
+- 两者都不改变生命周期钩子的调用顺序:复用的沙箱在每个 attempt 里仍然按 [固定调用链](feature/sandbox/architecture.md#沙箱在生命周期里的位置) 走一遍 `sandbox.setup` 链与 git 基线,钩子必须幂等。
+
 ## 缓存:指纹去重
 
 `runner/fingerprint.ts` 对每个 eval 算 `(eval 代码 + 相关配置)` 的哈希:

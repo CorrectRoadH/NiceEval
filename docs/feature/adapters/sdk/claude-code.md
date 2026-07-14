@@ -9,7 +9,8 @@ const agent = claudeCodeAgent({
   skills: [{ kind: "local", path: "skills/review/SKILL.md" }],
   mcpServers: [{ name: "browser", command: "npx", args: ["-y", "server"] }],
   plugins: [{
-    marketplace: { name: "acme", source: "acme/claude-plugins", ref: "v1.3.0" },
+    // name 必须等于 acme/claude-plugins 仓库 manifest 里声明的 name,不是随意起的别名
+    marketplace: { name: "acme-plugins", source: "acme/claude-plugins", ref: "v1.3.0" },
     name: "safe-shell",
   }],
 });

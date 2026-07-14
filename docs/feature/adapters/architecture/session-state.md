@@ -27,7 +27,7 @@ interface AgentSession {
 send(prompt)
   ← Turn { status: waiting, events: [..., input.requested] }
 requireInputRequest(filter)
-respond({ requestId, optionId | text })
+respond({ request, optionId | text })
   → 同一 AgentSession 恢复
   ← Turn { status: completed | waiting, events: [...] }
 ```

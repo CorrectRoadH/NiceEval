@@ -26,7 +26,7 @@ niceeval 的位置一句话:**契约形状学 eve(强类型事件、callId、`re
 
 ## 事件词汇:26 种类型,带三级坐标
 
-`HandleMessageStreamEvent` 是 26 个成员的判别联合。和 niceeval `StreamEvent`(9 种)最大的结构差异:**几乎每个事件带 `sequence`(全序)+ `turnId` + `stepIndex` 坐标**——事件不止有顺序,还有归属;而 niceeval 的事件只有数组顺序,turn 归属靠"哪次 `send` 返回的"隐式表达。
+`HandleMessageStreamEvent` 是 26 个成员的判别联合。和 niceeval `StreamEvent`(10 种)最大的结构差异:**几乎每个事件带 `sequence`(全序)+ `turnId` + `stepIndex` 坐标**——事件不止有顺序,还有归属;而 niceeval 的事件只有数组顺序,turn 归属靠"哪次 `send` 返回的"隐式表达。
 
 按层列出(字段为源码原文):
 
@@ -107,11 +107,11 @@ interface RuntimeIdentity {
 2. **`action.result.error: { code, message }`。** niceeval 只有 `status`,失败原因埋在 `output` 字符串里;"消费方不该解析工具私有输出来判断失败"这个理由对 view 和断言同样成立。
 3. **usage 按 step 记。** niceeval 的 `usage` 挂在 `Turn`(整轮聚合);eve 挂在 `step.completed`(每次模型调用一份)。transcript 里常有 per-step 用量,聚合前丢掉了瀑布图想要的粒度。
 4. **agent 自报元数据(`RuntimeIdentity`)。** `Turn` 或 `session.started` 级的可选 `runtime?: { modelId, version, … }`,让"实际用的模型"从抠磁盘变成契约字段——网关场景的成本核算靠它才准。
-5. **带 `requestId` 的逐请求回答。** eve 的回答是 `{ requestId, optionId?, text? }`;niceeval 的 `respond(...responses)` 把回答 join 成一段普通 send 文本,多个待答请求并发时表达不了"哪个回答给哪个请求"(`respondAll` 只能全选同一 option)。将来要支持,对比一眼可见:
+5. **逐请求回答的键形状。** eve 的回答是 `{ requestId, optionId?, text? }`,以 id 字符串定位;niceeval 的 `t.respond({ request, optionId | text })` 同样逐请求定位,键是 `requireInputRequest` 返回的请求对象(`respondAll(optionId)` 全选同一 option)。两边能力等价,差异只剩键的形状——要不要额外接受裸 `requestId` 字符串是人体工学取舍,不是功能缺口:
 
    ```typescript
-   await t.respond("yes");                                  // 现状:回答作为下一轮文本,靠 agent 自己对上
-   await t.respond({ requestId: req.requestId, optionId: "approve" });  // eve 形状:显式定位
+   await t.respond({ request, optionId: "approve" });                   // niceeval:请求对象定位
+   await t.respond({ requestId: req.requestId, optionId: "approve" });  // eve 形状:id 字符串定位
    ```
 
 6. **`authorization.*` 与 `input.requested` 分开。** 授权(OAuth / 连接)和 HITL 问答是两种"停",eve 分成两组事件、各带 verdict;niceeval 目前只有一种。评测带三方连接的 agent 时会需要。

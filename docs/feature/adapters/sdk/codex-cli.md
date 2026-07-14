@@ -9,7 +9,8 @@ const agent = codexAgent({
   skills: [{ kind: "repo", source: "acme/codex-skills", ref: "v2" }],
   mcpServers: [{ name: "browser", command: "npx", args: ["-y", "server"] }],
   plugins: [{
-    marketplace: { name: "acme", source: "acme/codex-plugins", ref: "v2" },
+    // name 必须等于 acme/codex-plugins 仓库 manifest 里声明的 name,不是随意起的别名
+    marketplace: { name: "acme-plugins", source: "acme/codex-plugins", ref: "v2" },
     name: "repo-map",
   }],
 });

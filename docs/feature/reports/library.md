@@ -104,6 +104,14 @@ export default async function EvalsPage() {
 
 ### 概览组件
 
+#### `ExperimentComparison`
+
+裸 `niceeval show` 与 `niceeval view` 首页渲染的内置默认报告：先是成本 × 成功率散点（`MetricScatter` 的口径），再是 `ExperimentList`。它是官方维护的组合件而非新的数据源——两个子块消费与单独使用时完全相同的 `.data()` 计算结果；只有一个可画 experiment 时散点照常显示单点。在自定义报告里可以整体引用它，也可以直接摆两个子组件得到同样的数据口径：
+
+```tsx
+<ExperimentComparison data={await ExperimentComparison.data(selection)} />
+```
+
 #### `RunOverview`
 
 显示快照时间、experiment / eval / attempt 数、通过率、总成本和 Selection 警告。适合作为报告页头。

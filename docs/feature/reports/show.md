@@ -85,8 +85,8 @@ failures:
     source: evals/memory/swelancer-manager-proposals.eval.ts:40:11
 
 execution: 12 events · 0 skill loads · 7 tool calls · 4 AI messages
-timing: sandbox 9.3s (queue 0.2s · create 5.6s · setup 3.5s) · agent setup 12.1s ·
-        test 26.4s · diff 0.3s · score 1.4s · teardown +0.8s
+timing: sandbox.queue 0.2s · sandbox.create 5.6s · sandbox.setup 3.5s · agent.setup 12.1s ·
+        eval.run 26.3s · workspace.diff 0.3s · scoring.evaluate 1.4s · teardown +0.8s
 
 changes: 1 file changed · M manager_decisions.json
 
@@ -100,26 +100,26 @@ available:
 
 这页应当足以判断“为什么失败”。只有实际可用的命令才出现在 `available`；没有捕获某类证据时省略对应命令。只有在需要理解断言上下文、agent 为什么给出这个结果、或具体改了什么时，才继续打开证据切面。
 
-`timing:` 行是 `result.json` 里 `phases` 的一行摘要：主链阶段按执行序分解（sandbox 排队 / 启动 / setup、agent 安装、测试主体、评分），收尾段合计成一个 `teardown +N` 尾项——收尾不计入 attempt 总耗时，所以用 `+` 与主链区分。落盘没有 `phases`（旧结果或第三方 harness 写入）时这一行如实输出 `phase timing unavailable`，不猜。
+`timing:` 行是 `result.json` 里 `phases` 的一行摘要，阶段名就是 `LifecyclePhase` 闭集里的名字：主链阶段按执行序列出，为保持一行可读只列耗时可见的大头（`workspace.baseline`、`telemetry.*` 这类极短阶段并入 `--timing` 的完整分解）；收尾段合计成一个 `teardown +N` 尾项——收尾不计入 attempt 总耗时，所以用 `+` 与主链区分。落盘没有 `phases`（旧结果或第三方 harness 写入）时这一行如实输出 `phase timing unavailable`，不猜。
 
-`errored` attempt 的首页不用 trace 也必须能解释基础设施错误。它先显示结构化 error 的 phase/operation、code、message 与有限 cause,再列本 attempt 的 diagnostics;stack 放在后面并保持原始换行:
+`errored` attempt 的首页不用 trace 也必须能解释基础设施错误。它先显示结构化 error 的 phase、code、message 与有限 cause,再列本 attempt 的 diagnostics;stack 放在后面并保持原始换行。error 的 `phase`、diagnostics 的 phase 与 `timing:` 行用的是同一套 `LifecyclePhase` 名字,同一次失败在三处叫同一个名:
 
 ```text
-$ niceeval show @2h8m4k1
-@2h8m4k1 · memory/agent-029-use-cache · compare/claude-e2b · errored
+$ niceeval show @12h8m4k1
+@12h8m4k1 · memory/agent-029-use-cache · compare/claude-e2b · errored
 
 error:
-  phase: sandbox provision
+  phase: sandbox.create
   code: sandbox-rate-limit
   message: E2B sandbox allocation failed after 5 attempts
   cause: RateLimitError · too many concurrent sandboxes
 
 diagnostics:
-  warning · sandbox.provision · fallback-region
+  warning · sandbox.create · fallback-region
     Primary region was unavailable; retried in us-west (2 occurrences)
 
 execution: unavailable (attempt failed before telemetry was configured)
-timing: sandbox queue 1.2s · sandbox create 2m 6s ✗ failed here
+timing: sandbox.queue 1.2s · sandbox.create 2m 6s ✗ failed here
 ```
 
 diagnostic 的 level 不等于 verdict:一个 passed/failed attempt 也可以带 cleanup warning。榜单只显示致命 error 的一层原因;diagnostics、cause 和 stack 留在 locator 首页,避免几十个并发 sandbox 错误淹没终端。
@@ -171,36 +171,38 @@ full OTel trace: .niceeval/.../trace.json
 
 ## `--timing`：时间花在哪个生命周期阶段
 
-首页的 `timing:` 行回答「大头在哪」；`--timing` 给完整分解：逐阶段一行，`sandbox.setup` / `sandbox.teardown` 钩子链展开到链上每个钩子，收尾段单独分组并标明不计入总耗时。数据来自 `result.json` 的 `phases`，不依赖 OTel。它与 `--execution` 分工明确：`--timing` 回答「环境与调度花了多久」（runner 侧阶段），`--execution` 回答「agent 内部每一步花了多久」（事件与 OTel span）。
+首页的 `timing:` 行回答「大头在哪」；`--timing` 给完整分解：逐阶段一行，`sandbox.setup` / `sandbox.teardown` 钩子链展开到链上每个钩子，`eval.run` 展开到每次 send，收尾段单独分组并标明不计入总耗时。数据来自 `result.json` 的 `phases`（阶段边界与两段语义见 [Results Format](../results/architecture.md#resultjson)），不依赖 OTel。它与 `--execution` 分工明确：`--timing` 回答「环境与调度花了多久」（runner 侧阶段），`--execution` 回答「agent 内部每一步花了多久」（事件与 OTel span）。
 
 ```text
 $ niceeval show @1qrdcfq8 --timing
 @1qrdcfq8 · memory/swelancer-manager-proposals · dev-e2b/codex-e2b · failed
 total 50.0s
 
-sandbox.queue        0.2s
-sandbox.create       5.6s
-sandbox.setup        3.5s
-  ├─ warmModelCache      2.9s
-  └─ setup#2             0.6s
-baseline             0.1s
-agent.setup         12.1s
-test                26.4s
-diff                 0.3s
-score                1.4s
-trace                0.3s
+sandbox.queue          0.2s
+sandbox.create         5.6s
+sandbox.setup          3.5s
+  ├─ warmModelCache        2.9s
+  └─ setup#2               0.6s
+workspace.baseline     0.1s
+agent.setup           12.1s
+telemetry.configure    0.1s
+eval.run              26.3s
+  └─ send#1               22.4s
+workspace.diff         0.3s
+scoring.evaluate       1.4s
+telemetry.collect      0.3s
 
 teardown (not counted in total):
-agent.teardown       0.2s
-sandbox.teardown     0.1s
-sandbox.stop         0.5s
+agent.teardown         0.2s
+sandbox.teardown       0.1s
+sandbox.stop           0.5s
 ```
 
 主链各阶段之和小于等于 `total`，差值是阶段间的粘合代码，不单独列行。errored 或超时的 attempt 里，`--timing` 直接标出死在哪一步——最后一条主链阶段带 `✗`，其后没有主链条目；沙箱从未创建成功时收尾段整段缺席：
 
 ```text
-$ niceeval show @2h8m4k1 --timing
-@2h8m4k1 · memory/agent-029-use-cache · compare/claude-e2b · errored
+$ niceeval show @12h8m4k1 --timing
+@12h8m4k1 · memory/agent-029-use-cache · compare/claude-e2b · errored
 total 2m 8s
 
 sandbox.queue        1.2s

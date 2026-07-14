@@ -46,8 +46,7 @@ docs/
 │
 ├── roadmap/                             尚未定稿的功能设计
 │   ├── multi-agent/                     多 Agent Eval 场景
-│   ├── view-enhancements.md             View 的候选增强
-│   └── scoped-attempt-feedback.md       adapter/provider 的结构化 progress/diagnostic 出口
+│   └── view-enhancements.md             View 的候选增强
 │
 ├── engineering/                         仓库自身的工程机制
 │   ├── _template/                       新工程主题模板
@@ -56,11 +55,10 @@ docs/
 │   ├── benchmark/                       阶段耗时与安装 benchmark
 │   └── example-tier-sync/               示例同步机制
 │
-└── 暂未归入 feature/ 的设计入口
+└── 未归入 feature/ 的设计入口
     ├── concepts.md                      术语与心智模型
     ├── architecture.md                  核心边界
     ├── origin-integration.md            Origin 应用接入
-    ├── capabilities-by-construction.md  能力由构造证明
     ├── observability.md                 Observability
     ├── runner.md                        执行引擎
     ├── cli.md                           CLI 内部架构

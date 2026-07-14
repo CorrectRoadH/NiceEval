@@ -52,15 +52,16 @@ interface ScopedFeedback {
 - 两个方法都不接受 `phase`、`scope`、颜色、输出流或 ANSI。runner 已经知道当前回调属于 `sandbox.setup`、`eval.run` 还是 `agent.run`,并据此决定 Human active 行显示的正式阶段。
 - 两个方法都不改变执行结论。要让 setup/attempt 进入 `errored`,抛出异常;要让 eval 判定失败,使用 `t.check` / `t.require` / gate 断言。`diagnostic({ level: "error" })` 只表示一条需要永久保留的错误诊断。
 
-各入口拿到的 scope 固定,调用方不能冒充其它生命周期:
+各入口拿到的 scope 固定,调用方不能冒充其它生命周期;scope 的取值就是 [Results Format 的 `LifecyclePhase`](../results/architecture.md#resultjson) 闭集成员,与落盘 `phases` / `error.phase` 同一套名字:
 
-| 代码入口 | 反馈入口 | runner 绑定的 scope | 典型内容 |
+| 代码入口 | 反馈入口 | runner 绑定的 phase | 典型内容 |
 |---|---|---|---|
-| 自定义 `SandboxSpec.create(options)` | `options.feedback` | `sandbox.provision` | 分配实例、拉镜像、恢复 snapshot |
+| 自定义 `SandboxSpec.create(options)` | `options.feedback` | `sandbox.create` | 分配实例、拉镜像、恢复 snapshot |
 | `sandbox.setup/teardown` | hook `ctx.progress/diagnostic` | `sandbox.setup` / `sandbox.teardown` | 安装环境依赖、预热、回存状态 |
 | `EvalDef.setup` | setup `ctx.progress/diagnostic` | `eval.setup` | 准备这条 eval 的 fixture |
+| `EvalDef.setup` 返回的 cleanup | cleanup `ctx.progress/diagnostic` | `eval.teardown` | 回收这条 eval 的 fixture |
 | `EvalDef.test` | `t.progress/diagnostic` | `eval.run` | eval 自己执行的长步骤 |
-| `Agent.setup/send/teardown` | `ctx.progress/diagnostic` | 当前 `agent.*` operation | 安装 CLI、turn/tool 进度、协议诊断 |
+| `Agent.setup/send/teardown` | `ctx.progress/diagnostic` | 当前 `agent.*` 阶段 | 安装 CLI、turn/tool 进度、协议诊断 |
 
 同一个方法在不同回调里拿到的是不同的绑定对象,不能保存后跨回调复用。下面三条消息分别属于 sandbox setup、eval run 和 agent run,runner 会把它们投影到正确阶段:
 
@@ -100,7 +101,7 @@ export const agent = defineSandboxAgent({
 | 未捕获异常、timeout、provider/adapter 执行失败 | 是,作为结构化 `error` 写入 `result.json` | 终端的一行摘要 → locator → `niceeval show` |
 | OTel trace | 有则保存,但不是错误记录的前提 | `niceeval show @locator --execution` / view trace |
 
-trace 不能替代 diagnostic/error:Sandbox provision 可能发生在 telemetry 建立前,teardown 可能发生在 trace 收集后,自定义 provider 也可能完全没有 tracing。`result.json` 是失败能否回顾的最低保证;trace 只回答“内部步骤怎样串起来、各花多久”。
+trace 不能替代 diagnostic/error:沙箱创建可能发生在 telemetry 建立前,teardown 可能发生在 trace 收集后,自定义 provider 也可能完全没有 tracing。`result.json` 是失败能否回顾的最低保证;trace 只回答“内部步骤怎样串起来、各花多久”。
 
 diagnostic 是有界摘要,不是原始 SDK 日志转储。相同 `dedupeKey` 在同一 attempt 内折叠为一条并累计 `count`;`data` 只放定位所需的结构化小字段,不得放 token、完整 transcript 或无限增长的 stdout/stderr。原始 agent 行为属于 `events.json`,trace 属性属于 `trace.json`。
 

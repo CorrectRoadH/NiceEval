@@ -12,6 +12,8 @@ Native Plugin 不统一：Claude Code 和 Codex 使用各自的 PluginSpec，Bub
 
 TypeScript 是结构类型系统；两个供应商 Spec 恰好同形时，类型系统无法根据 marketplace source 的值判断是否传错。归属由字段所在的 factory 确定，实际来源是否合法由 Adapter setup 校验。
 
+`marketplace.name` 不是调用方任意起的连接别名：真实 CLI 在 `marketplace add` 时按目标仓库自己 manifest 里的 `name` 注册，名字对不上时 add 静默成功、直到下一步 `plugin install <plugin>@<name>` 才失败。因此契约是 **`marketplace.name` 必须等于目标仓库 manifest 声明的 `name`**；Adapter setup 在 add 之后回读已注册的 marketplace 列表校验这个名字，对不上立刻抛出带两个名字的错误，不把失败拖延到 install 一步。
+
 ## 安装顺序
 
 1. 准备 CLI 主配置和鉴权。

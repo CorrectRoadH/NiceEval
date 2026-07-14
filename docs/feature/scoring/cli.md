@@ -2,7 +2,7 @@
 
 ## `--strict`
 
-默认模式下，soft Assertion 无论是否有 threshold 都只记录分数，不使 attempt failed。使用 `--strict` 后，带 `.atLeast(x)` 的 soft Assertion 低于阈值时改判 failed；没有阈值的 soft Assertion仍只记录。
+`--strict` 改变 soft Assertion 对 Verdict 的影响；判定规则单点定义在 [Severity 与 Verdict](architecture/severity-and-verdict.md)，这里只给用法。
 
 ```sh
 npx niceeval exp compare --strict

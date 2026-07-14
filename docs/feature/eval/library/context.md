@@ -17,7 +17,7 @@ const otherTurn = await other.send("查旧金山天气");
 |---|---|
 | `await t.send(input)` | 发送字符串或结构化消息，等待稳定后返回 Turn |
 | `await t.sendFile(path, text?)` | 把项目内本地文件作为 data URL 随本轮发送，MIME 按扩展名推断 |
-| `t.requireInputRequest(filter?)` | 要求最近一轮恰好有一个匹配的待输入请求，并返回它 |
+| `t.requireInputRequest(filter?)` | 要求最近一轮恰好有一个匹配的待输入请求，并返回它。`filter` 的字段全集是 `{ prompt?: string \| RegExp; optionIds?: string[] }`：`prompt` 匹配请求向用户展示的提问文本，`optionIds` 要求请求恰好提供这组选项 |
 | `await t.respond(...responses)` | 回答指定请求，并作为同一 session 的下一轮发送 |
 | `await t.respondAll(optionId)` | 用一个 option 回答当前 session 的全部待处理请求 |
 | `t.newSession()` | 创建独立 session；它的事件仍进入 `t.*` 的 attempt 聚合 |

@@ -290,7 +290,7 @@ const sandbox = e2bSandbox({ template: "niceeval-agents" })
 
 `progress` 只更新当前 sandbox setup 的短期 activity;`diagnostic` 才进入永久输出。它们不能指定 `sandbox-setup` 等 phase——runner 从当前 hook 自动得出阶段。诊断也不会吞掉或制造失败:上例明确选择降级继续;如果环境不可用,应直接抛出原错误,让 attempt 进入 `errored`。
 
-自定义 provider 在 `create` options 上取得绑定到 `sandbox.provision` 的 `feedback`:
+自定义 provider 在 `create` options 上取得绑定到 `sandbox.create` 的 `feedback`:
 
 ```typescript
 export default defineSandbox({

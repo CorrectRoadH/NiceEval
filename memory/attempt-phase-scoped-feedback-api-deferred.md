@@ -14,3 +14,5 @@
 **适用场景**:下一次要做这件事的人,先确认 runner 内部的 phase 枚举已经在真实的 human / agent / ci 三种反馈里跑够久、映射关系稳定,再决定是否把 `ScopedFeedback` 提升为公开 API;不要因为 `docs/feature/experiments/cli.md` 已经画好完整的 operation-scope 表格就默认"顺手也实现了"——这是本次工作明确排除在外的范围,不是遗漏。落地时优先检查会不会把 `agent == X` / `sandbox == Y` 式判断带进 `runner/run.ts` / `runner/attempt.ts` 这类核心路径。
 
 关联:`docs/feature/experiments/cli.md`「Attempt 阶段」一节(完整设计,含此处推迟的 operation-scope 表与 `ScopedFeedback` 接口);`plan/exp-output-feedback-models.md` 的 A2 章节「给 provider、hook、adapter scoped feedback」(与本条裁决对应的未实现 TODO)。
+
+**新判断**(2026-07-14,见 scoped-feedback-finalized 条目):设计契约已定稿并单一归属 `docs/feature/experiments/library.md`,roadmap 提案页删除;本条的推迟继续约束**实现排期**与「警惕核心路径特判」的落地纪律,不再约束文档的定稿状态。

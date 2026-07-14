@@ -24,7 +24,7 @@ export default defineEval({
 });
 ```
 
-`t.reply` 是最后一条 assistant 消息;`t.sessionId` 是当前主会话 id;`t.events` 是主 session 目前捕获到的强类型事件流。`t.send(input)` 接受字符串或结构化消息,返回一个不可变的 **Turn**,带 `message` / `data`(结构化输出)/ `toolCalls` / `status` / `events`。带本地文件的一轮用 `t.sendFile(path, text?)`,文件会作为 data URL 附加到这一轮输入里,MIME 类型按 `path` 扩展名推断。
+`t.reply` 是最后一条 assistant 消息;`t.sessionId` 是当前主会话 id;`t.events` 是主 session 目前捕获到的强类型事件流。`t.send(input)` 接受字符串或结构化消息,返回一个不可变的 **Turn**(字段全集见 [Context · 读取结果](library/context.md#读取结果))。带本地文件的一轮用 `t.sendFile(path, text?)`,文件会作为 data URL 附加到这一轮输入里,MIME 类型按 `path` 扩展名推断。
 
 ## 多轮
 
@@ -72,7 +72,7 @@ t.calledTool("send_email");
 
 ```typescript
 await t.send("把这批改动逐项提交审批。");
-t.requireInputRequest({ display: /审批/ });
+t.requireInputRequest({ prompt: /审批/ });
 
 await t.respondAll("approve");
 t.succeeded();
