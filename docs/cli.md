@@ -98,7 +98,7 @@ attempt plan 时立即计算
 `locator = encodeAttemptLocator({ experimentId, snapshotStartedAt, evalId, attempt })`。这个值作为 attempt
 身份的一部分传进 `runAttempt`,不是完成后再写回结果。于是 verdict 定稿时提交的留存注册表、feedback
 coordinator 的 failure / kept 事件、reporter 的 `eval:complete` 与最终 `result.json` 从第一次观察起就拿到
-同一个 locator。Artifacts writer 经 `RunShape.snapshotStartedAt` 使用同一个锚点;携带(`--resume` 合入)
+同一个 locator。Artifacts writer 经 `RunShape.snapshotStartedAt` 使用同一个锚点;自动携带的
 条目仍原样保留旧 locator,不按当前 invocation 重算。
 
 ## flag 解析:表驱动,单源
