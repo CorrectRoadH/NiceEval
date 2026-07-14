@@ -98,16 +98,16 @@
 | 行为 | 文件 |
 |---|---|
 | 发现(evals/ 的 *.eval.ts / *.eval.tsx,experiments/ 的实验,路径推导 id) | `src/runner/discover.ts` |
-| 有界并发调度 + 首过即停 + budget 在飞预扣 | `src/runner/run.ts` |
-| 单 attempt 生命周期(沙箱 / OTLP 接收器 Scope、超时硬边界、沙箱编排固定段) | `src/runner/attempt.ts` |
+| 有界并发调度 + 首过即停 + budget 已花费护栏(不做预测性预扣) | `src/runner/run.ts` |
+| 单 attempt 生命周期(沙箱 / OTLP 接收器 Scope、超时硬边界、沙箱编排固定段、AttemptPhase 转换) | `src/runner/attempt.ts` |
 | 指纹缓存((eval 源码 + 运行配置) 哈希,跨 run 结果携入) | `src/runner/fingerprint.ts` |
-| reporter 编排 + 运行级汇总 + eval 级 reporter 作用域(scopeReporter / filterSummary) | `src/runner/report.ts` |
+| reporter 编排 + 运行级汇总 + eval 级 reporter 作用域(scopeReporter / filterSummary)+ required/best-effort 兜错(runReporter) | `src/runner/report.ts` |
 | remote 占位 Sandbox / eval 级本地路径视图(Proxy) | `src/runner/remote-sandbox.ts` |
-| 报告器(Console / Json / JUnit / Live / 符号表) | `src/runner/reporters/{console,json,live,table,shared,index}.ts` |
-| Braintrust 上报(运行 → experiment,attempt → 一行) | `src/runner/reporters/braintrust.ts` |
-| eval 级折叠 / 计票口径(CLI 表格与 view 共用) | `src/shared/verdict.ts` |
-| 本地结果保存格式(快照目录 `.niceeval/<experiment>/<snapshot>/snapshot.json` + attempt 级 `result.json` / JSON artifact) | `src/runner/reporters/artifacts.ts`(reporter 薄壳,按 experimentId 路由到快照 writer)、`src/results/writer.ts`(`createResultsWriter`)、`src/results/types.ts`(`SnapshotMeta` / `AttemptRecord`) |
-| CLI(exp / show / list / view / clean / init,--help,parseArgs 表驱动,.env 加载,NICEEVAL_* 环境变量层) | `src/cli.ts` |
+| 反馈 coordinator(profile 解析、纯 reducer、human/agent/ci renderer、终端 sink、可注入 FeedbackIO) | `src/runner/feedback/{profile,reducer,renderer,human,agent,ci,sink,coordinator,io,testing,index}.ts` |
+| 机器 / 平台 reporter(Artifacts / Json / JUnit(同目录 temp→rename 原子写)/ Braintrust) | `src/runner/reporters/{artifacts,json,braintrust,index}.ts` |
+| eval 级折叠 / 计票口径(CLI 退出码与 view 共用) | `src/shared/verdict.ts` |
+| 本地结果保存格式(快照目录 `.niceeval/<experiment>/<snapshot>/snapshot.json` + attempt 级 `result.json` / JSON artifact;fresh attempt 完成后立即写入最终 `locator`,与 Artifacts writer 共用同一个 `snapshotStartedAt`) | `src/runner/reporters/artifacts.ts`(reporter 薄壳,按 experimentId 路由到快照 writer)、`src/results/writer.ts`(`createResultsWriter`)、`src/results/types.ts`(`SnapshotMeta` / `AttemptRecord`)、`src/runner/run.ts`(locator 生成点) |
+| CLI(exp / show / list / view / clean / init,--help,parseArgs 表驱动,.env 加载,NICEEVAL_* 环境变量层,`--output` profile 解析) | `src/cli.ts` |
 | `niceeval show` 终端宿主(Selection 合成「现刻水位」、--history 复印件不占行、--report 装载 + 组合语义矩阵、证据切面 transcript/trace/diff) | `src/show/{index,compose,render}.ts` |
 | 数据集加载器(loadJson / loadYaml) | `src/loaders/index.ts` |
 
@@ -153,3 +153,5 @@
 - **MVP 范围**:`niceeval view` 已实现为本地 web 查看器;`init`、指纹缓存、Vercel/E2B 沙箱、budget/strict/tag/JUnit flag 已实现。`watch` 仍未实现。运行器支持 remote `defineAgent` 的会话型 eval；文件写入、diff、验证命令仍只属于沙箱型 agent。
 - **TestContext 类型**:用一个宽接口承载全部动作(运行时按 capability 守卫),而非文档设想的 TS 条件类型 —— 因为被测项目经 `tsx` 运行(不做类型检查),宽接口更省心且不影响运行时正确性。
 - **接收者与评分 API 已按目标设计落地**:作用域断言对齐 eve 的接收者模型(`t` = run 级聚合视图、`session` = 单 session snapshot、`turn` = 单 Turn snapshot,同一套作用域断言词汇)、会话驱动 API 补齐到 eve 形状(`t.send(input)` / `t.sendFile(path, text?)` / `t.requireInputRequest` / `t.respond` / `t.respondAll` / `t.newSession()`)、结果读取字段按接收者分开、judge 按接收者决定默认材料、判定类型合并成单一 `Verdict`、链式断言收窄成 `.atLeast(x)` / `.gate(x?)`、移除 `defineEval.workspace`、`t.sandbox` 作为 eval 内唯一的沙箱操作接口 且不暴露 `stop()`、验证命令改成 `t.sandbox.runCommand` + `t.check(result, commandSucceeded())`、judge 收窄成固定的 `autoevals.{closedQA,factuality,summarizes}`、`t.transcript` 命名空间已移除。
+- **`RunCompletion.earlyExitUnstarted` 恒为 `0`**:`src/runner/run.ts` 的 budget 护栏对每个因预算到顶未派发的 attempt 各发一条反馈层的 `budget-exhausted`(`DurableFeedbackEvent`),`cli.ts` 的 `assembleRunCompletion()` 读取后折算进 `RunCompletion.unstarted`,`status` 能在预算耗尽时落到 `incomplete`。首过即停省下的次数没有对应事件携带「计划次数 vs 实际派发次数」的比较,`earlyExitUnstarted` 因此仍固定为 `0`。agent/ci 展示这个比较所需的 `planned=`/`attempts=`/`rate=` 字段(docs/feature/experiments/cli.md「runs 与首过即停怎样展示」)同样尚无 renderer 实现。
+- **`ReporterError.required` 的输入恒来自当次注册**:`src/runner/report.ts` 的 `runReporter()` 已经按 `ReporterRegistration.required` 正确分类失败诊断;`assembleRunCompletion()` 消费这份分类,不是写死值。

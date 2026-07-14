@@ -288,22 +288,22 @@ run 级合计不落盘:总时长、总用量、总成本由消费方([Results Li
 
 ## Reporters
 
-报告器消费运行结果,实现三个回调:
+报告器消费运行结果,实现若干可选回调:
 
 ```typescript
 interface Reporter {
-  onRunStart(evals: Eval[], agent: Agent): void | Promise<void>;
-  onEvalComplete(result: EvalResult): void | Promise<void>;
-  onRunComplete(summary: RunSummary): void | Promise<void>;
+  onRunStart?(evals: { id: string }[], agent: Agent, shape?: RunShape): void | Promise<void>;
+  onEvalComplete?(result: EvalResult): void | Promise<void>;
+  onRunComplete?(summary: RunSummary): void | Promise<void>;
+  onEvent?(event: ReporterEvent): void | Promise<void>;
 }
 ```
 
-报告器在**独立串行队列**上被回调,不阻塞执行池(见 [Runner](runner.md#调度有界并发))。内置:
+Reporter 只负责把完成结果送到别处,不负责终端展示——运行中的 human / agent / ci 反馈由 `niceeval exp --output ...` 选择的反馈 coordinator 负责,是独立于 Reporter 的另一条通道(见 [Experiments · CLI 反馈模型](feature/experiments/cli.md))。报告器在**独立串行队列**上被回调,不阻塞执行池(见 [Runner](runner.md#调度有界并发))。内置:
 
-- **`Console()`** —— 默认,流式逐行输出,失败断言内联展开。
-- **`Artifacts()`** —— 默认按实验写快照目录(`.niceeval/<experiment>/<snapshot>/`):`snapshot.json` 快照元数据 + 每个 attempt 的 `result.json`(判决、断言、用量,一次写成)与按需生成的 `events.json`、`sources.json`、`trace.json`、`o11y.json`、`diff.json`,供 `niceeval view` 读取。具体格式见 [Results Format](feature/results/architecture.md)。
-- **`JUnit(path)`** —— JUnit XML,接 CI 测试报告 UI。
-- **`Json(path)`** —— 机器可读全量。
+- **`Artifacts()`** —— CLI 默认自带、视为 required(见 [CLI · required reporter](cli.md#required-reporter)):按实验写快照目录(`.niceeval/<experiment>/<snapshot>/`):`snapshot.json` 快照元数据 + 每个 attempt 的 `result.json`(判决、断言、用量,一次写成)与按需生成的 `events.json`、`sources.json`、`trace.json`、`o11y.json`、`diff.json`,供 `niceeval view` 读取。具体格式见 [Results Format](feature/results/architecture.md)。
+- **`JUnit(path)`** —— JUnit XML,接 CI 测试报告 UI;CLI 显式传 `--junit <path>` 时同样视为 required,同目录临时文件 + 原子 rename 写入,不留半成品。
+- **`Json(path)`** —— 机器可读全量;CLI 显式传 `--json <path>` 时同样视为 required,写入语义同上。
 - **`Braintrust(config?)`** —— 把一次运行作为一个 Braintrust experiment 上报,每个 attempt 一行:soft 断言按名字记分,gate 断言记在 `gate:` 前缀下(实验 diff 里 gate 回归和 soft 分数回归用同一套机制看);metrics 带 start/end、token 用量与估算成本,metadata 带 agent / model / experiment / flags 身份维度与失败断言明细。`braintrust` 包是可选 peer 依赖(动态 import,没装时 onRunStart 报错并提示安装);鉴权走 `BRAINTRUST_API_KEY` 或工厂参数 `apiKey`。源码 `src/runner/reporters/braintrust.ts`。
 
 配置全局或单 eval 专用:
@@ -311,7 +311,7 @@ interface Reporter {
 ```typescript
 import { Braintrust, JUnit } from "niceeval/reporters";
 
-// niceeval.config.ts —— 全局,观测所有 eval(Console / Artifacts 由 CLI 始终自带,不用写)
+// niceeval.config.ts —— 全局,观测所有 eval(Artifacts 由 CLI 始终自带,不用写)
 defineConfig({ reporters: [JUnit(".niceeval/junit.xml"), Braintrust({ project: "weather" })] });
 
 // 某个 eval 专用:实例只观测引用它的 eval
@@ -319,6 +319,8 @@ defineEval({ reporters: [Braintrust({ project: "weather" })], async test(t) { ..
 ```
 
 eval 级 reporter 经作用域包装接入(`scopeReporter`,见 `src/runner/report.ts`):`onEvalComplete` 按 eval id 过滤,`onRunComplete` 收到重新计数的子集汇总;同一实例被多个 eval 引用时合并观测集(共享一个目的地,比如同一个 Braintrust 实验),已经挂在全局 `reporters` 里的实例在 eval 上再列一遍也不会重复上报。
+
+`Config.reporters` / `EvalDef.reporters` 挂载的 reporter 默认是 best-effort:抛错折成一条永久 diagnostic,不影响运行完成状态,也不阻断其它 reporter 收尾或在飞的 attempt。CLI 默认自带的 `Artifacts` 与显式指定的 `--json` / `--junit` 是 required——它们是 agent / CI 读结果的唯一权威入口,写失败必须让 [完成状态](runner.md#完成状态)判红(见 [CLI · required reporter](cli.md#required-reporter))。
 
 ## 相关阅读
 

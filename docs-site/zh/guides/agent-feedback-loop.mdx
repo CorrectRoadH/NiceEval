@@ -213,19 +213,22 @@ AI 通常按任务选择这些入口：
 
 ## AI 应该从输出里读什么
 
-`exp` 运行结束后会给出三类信息：失败摘要、结果统计和结果快照目录。典型输出如下：
+`--output agent` 运行中只向 stderr 追加低频 checkpoint（存活信号，不是结果数据源），结束时向 stdout 打印一个有界 handoff block——这才是 AI 应该解析的部分：
 
 ```text
-Failing:
-  ✗ weather/brooklyn · @1k2m9qtr
-      gate calledTool("get_weather"): tool was never called
-
-Results: 14 passed, 1 failed, 0 errored, 0 skipped
-Structured results: .niceeval/local/2026-07-09T10-00-00-000Z-x1f2/
-  (snapshot.json + 每 attempt 的 result.json / events.json / trace.json / diff.json)
+NICEEVAL RESULT failed
+summary: 14 passed, 1 failed, 0 errored (0 reused)
+snapshots:
+  - .niceeval/local/2026-07-09T10-00-00-000Z-x1f2/
+failures:
+  - @1k2m9qtr weather/brooklyn [local]
+    gate: tool was never called
+next:
+  niceeval show @1k2m9qtr
+  niceeval show @1k2m9qtr --execution
 ```
 
-AI 应先从失败项选中 Attempt locator，再按证据位执行 `niceeval show @<id>` 或对应证据 flag，不要从头解析运行期间不断刷新的进度行。需要机器读取时，结果快照是事实来源：
+AI 应先从 `failures` 选中 Attempt locator，再按证据位执行 `next` 给出的 `niceeval show @<id>` 或对应证据 flag，不要解析运行期间 stderr 上低频追加的 checkpoint 行——那些只用于判断进程是否存活。失败条数超过上限（默认 5 条）时,handoff 只展开前几条并给出总数,完整清单读结果快照。需要机器读取时，结果快照是事实来源：
 
 ```text
 .niceeval/<experiment>/<快照>/

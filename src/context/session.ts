@@ -236,7 +236,7 @@ function failureReason(events: readonly StreamEvent[]): string | undefined {
   return undefined;
 }
 
-/** 单行截断,口径同 src/runner/reporters/table.ts 的 truncateOneLine(折叠空白 + 120 字符上限)。 */
+/** 单行截断:折叠空白 + 120 字符上限。 */
 function truncateOneLine(s: string, width: number): string {
   const clean = s.replace(/\s+/g, " ").trim();
   if (clean.length <= width) return clean;

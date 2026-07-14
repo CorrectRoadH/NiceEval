@@ -1,4 +1,4 @@
-// CLI 表格(runner/reporters/table.ts)与 view 榜单(view/aggregate.ts)共用的聚合小工具。
+// report 聚合(report/aggregate.ts)与 view 榜单(view/app/lib/rows.ts)共用的聚合小工具。
 // 实验标签推导、token/成本求和、verdict 排序各只有一份 —— 否则同一个实验在终端和网页上
 // 会显示成两个名字 / 两组数。保持环境无关(纯函数,只 type import)。
 

@@ -45,7 +45,9 @@ fixtures/button   codex         pass@5 = 3/5 (60%)   mean 41s · 72k tok · $0.3
 
 ## 预算护栏(budget)
 
-实验可设 `budget`(整个 run 的估算成本上限 $),`--budget` 覆盖。运行器在派发每个 attempt 前检查已花成本(用量 × 价格表,见 [Observability](observability.md#用量与成本token--计费)),并给**在飞的 attempt 做预扣**:还没有任何完成样本时,同一 budget 域只放一个 attempt 在飞(先探出单次成本);有样本后按平均实测成本给每个在飞 attempt 预扣,预计总额到顶就等在飞的结算。已花到顶则**停止派发新 attempt**(在飞的跑完),整个 run 提前收尾并发 `run:budgetExceeded`。没有预扣的话,`maxConcurrency` 个 attempt 会在任何成本回写前全部起飞,实际花费能冲到 budget 的好几倍。借鉴 crabbox 的 spend cap,避免一次跑爆账单。
+实验可设 `budget`(整个 run 的估算成本上限 $),`--budget` 覆盖。运行器只按**已完成 attempt 的实测花费**判断:同一 budget 域(experimentId,或没有 experiment 时的 agent 名)的已完成花费一旦到顶,就**停止派发新 attempt**——已经在飞的照常跑完,不会被中途打断;到顶之前不做任何预测性节流,并发完全由 `--max-concurrency` 与实验级 `maxConcurrency` 决定。这是有意的取舍:budget 是防止无限烧钱的安全网,不是精确计费闸,不应该反过来限制吞吐——已花 + 在飞未结算的总花费可能因此短暂超出 budget。连续多个 attempt 完成都拿不到成本数据(agent 不报用量)时,budget 对该域不可执行,运行器给一条去重后的 warning 而不是每个 attempt 重复提示。
+
+预算耗尽而导致的未派发 attempt 数量计入运行[完成状态](#完成状态)的 `unstarted`,让整次运行的结论落在 `incomplete`,不能在 CI 里伪装成全绿。
 
 ## 缓存:指纹去重
 
@@ -72,31 +74,61 @@ niceeval **没有 run / experiment 级生命周期钩子**——`ExperimentDef` 
 
 ## 运行器事件
 
-运行器发一串事件,供 CLI dashboard、reporter、外部集成消费:
+`Reporter.onEvent` 收到一串结构化事件,把结果同步到 artifact、CI 报告或外部平台:
 
 ```text
-run:start          { total, agent, model }
-eval:start         { id, attempt }
-eval:complete      { id, attempt, verdict, durationMs, usage, estimatedCostUSD }
-run:earlyExit      { id }
-run:budgetExceeded { spentUSD, budgetUSD }
-run:saved          { outputDir }
-run:summary        { passed, failed, skipped, errored, durationMs, usage, estimatedCostUSD }
+run:start           { evals, agent, shape }   # shape = { evals, configs, totalRuns, maxConcurrency, snapshotStartedAt }
+eval:start          { eval, agent, model, attempt, experimentId }
+eval:complete       { result }                # EvalResult,fresh 结果此时已带最终 locator(见下)
+run:earlyExit       { evalId, experimentId }
+run:budgetExceeded  { budget, spent }
+run:saved           { summary }
+run:summary         { summary }
 ```
 
-`verdict` 是互斥的判定分类:`passed` / `failed` / `errored` / `skipped`,没有 `scored` 中间态。`run:summary.failed` 只统计断言/评分不通过,环境、超时、adapter 或 agent runtime 问题统计到 `errored`。
+`verdict` 是互斥的判定分类:`passed` / `failed` / `errored` / `skipped`,没有 `scored` 中间态。`run:summary.failed` 只统计断言/评分不通过,环境、超时、adapter 或 agent runtime 问题统计到 `errored`。`eval:complete` 携带的 `EvalResult` 在触发这个事件前已经写好最终 `locator`(在展开/调度任何 attempt 之前就确定的 `snapshotStartedAt`,与落盘 `result.json` 完全一致),reporter 不需要等 artifact 落盘就能拿到稳定的 attempt 身份。
+
+终端反馈(human dashboard、agent envelope、CI 的单一 stdout 事件流)不消费这条 `Reporter` 事件流——它们由一个独立的反馈 coordinator 消费另一条内部事件通道,只服务 `--output` 选出的 profile,不对外暴露,详见 [CLI · 反馈 coordinator](cli.md#反馈-coordinator一个-run-只有一个终端协调者)。
+
+## 完成状态
+
+verdict 计数回答"每条 eval 判定成什么",不回答"这次运行是否完整覆盖了计划"。完成状态是独立于 verdict 计数的第二个结论:
+
+```ts
+type CompletionStatus = "complete" | "incomplete" | "interrupted";
+
+interface RunCompletion {
+  status: CompletionStatus;
+  /** budget 耗尽导致未派发的 attempt 数。 */
+  unstarted: number;
+  /** 首过即停在已知 verdict 下主动省略的计划次数——省下的重复验证,不算"未完整覆盖"。 */
+  earlyExitUnstarted: number;
+  reporterErrors: readonly ReporterError[];
+}
+```
+
+- budget 耗尽且仍有未派发的 attempt(见[预算护栏](#预算护栏budget))→ `incomplete`,`unstarted` 就是这部分数量。
+- 用户或平台中断(Ctrl+C / SIGTERM)→ `interrupted`。
+- 任一 [required reporter](cli.md#required-reporter) 写失败 → 非 `complete`;失败明细进 `reporterErrors`,`required` 字段区分它是否让整体判红。
+- 首过即停(earlyExit)省略的重复验证次数单独计入 `earlyExitUnstarted`,不进入 `unstarted`——它是已知 verdict 下主动省下的成本,不是遗漏。
+
+CI 的最终结论(退出码、`niceeval: result=...` 行)必须读 `RunCompletion`,不能只看 `passed` / `failed` / `errored` 计数——预算耗尽但零 `failed` / `errored` 的一次运行仍然不是"全绿"。
 
 ## 退出码
 
-- 全 `passed` → `0`。
-- 任一 `failed`(含 `--strict` 下 soft 未达标而改判的)→ 非零。
-- 任一 `errored` → 非零。
+退出码由 `RunCompletion.status` 与按 `(experiment, eval)` 折叠后的 verdict 共同决定;三种 `--output` profile(见 [Experiments · CLI 反馈模型](feature/experiments/cli.md))共用同一套语义:
 
-供 CI 直接判红绿。
+- `0` —— `status: "complete"`,且没有任一 `(experiment, eval)` 组合判定为 `failed`(含 `--strict` 下 soft 未达标而改判的)或 `errored`。
+- `1` —— 至少一个组合 `failed` / `errored`;或 `status: "incomplete"`(budget 未覆盖全部计划);或存在 required reporter 写失败。
+- `2` —— CLI / 运行器未捕获的崩溃。
+- `130` —— `status: "interrupted"`(用户或平台中断)。
+
+退出码按 eval 折叠,不按 attempt 折叠:同一个 eval 被 `runs` + `earlyExit` 重试吸收的失败(先挂一次、后来某次通过)不会让进程判红,只有该 eval 最终判定为 `failed` / `errored` 才计入。
 
 ## 相关阅读
 
 - [Architecture](architecture.md) —— 运行器在四段数据流里的位置与端到端时序。
+- [Experiments · CLI 反馈模型](feature/experiments/cli.md) —— human / agent / ci 三种 profile 怎样展示这篇讲的调度、预算与完成状态。
+- [CLI](cli.md) —— `exp` 怎么把这些调度行为接进 Effect 核心与反馈 coordinator。
 - [Sandbox](feature/sandbox/README.md) —— 预热与复用的 provider 支持,以及环境预置放哪。
 - [Observability](observability.md) —— 运行器产出的 artifact 与报告。
-- [CLI](cli.md) —— `exp` 怎么把这些调度行为接进 Effect 核心。

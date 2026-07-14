@@ -4,7 +4,7 @@ sidebarTitle: "Reporters"
 description: "Use built-in reporters to send eval results to Braintrust experiments, JUnit XML, or custom destinations."
 ---
 
-[NiceEval](https://niceeval.com/) runs and scores evals itself. Reporters send the results elsewhere. Console output and `.niceeval/` artifacts are built-in reporters and are always enabled. Other reporters are imported from `niceeval/reporters` and mounted as needed.
+[NiceEval](https://niceeval.com/) runs and scores evals itself. Reporters send completed results elsewhere. Feedback while a run is in flight (Human/Agent/CI) is chosen with `niceeval exp --output ...`, not a user-configured Reporter; the `.niceeval/` results artifacts are always on. Other reporters are imported from `niceeval/reporters` and mounted as needed.
 
 There are two mount points:
 
@@ -110,4 +110,4 @@ const notify: Reporter = {
 - `onRunComplete(summary)`: run complete, with the aggregate summary.
 - `onEvent(event)`: lower-level event stream, such as `eval:start` and `run:budgetExceeded`.
 
-Reporter errors only print diagnostics; they do not stop the run. Custom reporters are only needed for destinations not covered by built-ins. `.niceeval/` artifacts already record all results, so post-run analysis can read them directly. See [Viewing Results](./viewing-results).
+Reporters mounted on config/eval are best-effort by default: an error becomes a permanent diagnostic but never interrupts an in-flight attempt. The CLI's explicit `--json` / `--junit` and the default results artifacts are required outputs — a write failure turns the whole run red. Custom reporters are only needed for destinations not covered by built-ins. `.niceeval/` artifacts already record all results, so post-run analysis can read them directly. See [Viewing Results](./viewing-results).

@@ -41,14 +41,19 @@ import type {
   Telemetry,
   TraceSpan,
 } from "../types.ts";
-import { runWho } from "./types.ts";
-import type { AgentRun, Attempt, RunOptions } from "./types.ts";
+import { reportAttemptLifecycle } from "./feedback/sink.ts";
+import type { AgentRun, Attempt, AttemptPhase, AttemptRef, RunOptions } from "./types.ts";
 
 export function runAttemptEffect(
   a: Attempt,
   opts: RunOptions,
   sandboxSem: Effect.Semaphore,
   parentSignal?: AbortSignal,
+  /** 每次跨入一个新 `AttemptPhase` 边界时同步回调一次(与下面的 `enterPhase` 同一调用点,见
+   *  该函数)。run.ts 用它在本地跟踪「这个 attempt 目前所在的阶段」,好在 attempt 失败/errored
+   *  时把 phase 塞进 `reportFailure()`(见 sink.ts 的 `FailureInput.phase`)—— 到那时
+   *  attempt:complete 已经让 coordinator 把 active map 里的条目删掉,没有别的地方能事后查到。 */
+  onPhase?: (phase: AttemptPhase) => void,
 ): Effect.Effect<EvalResult> {
   const config = opts.config;
   const { evalDef, run, attempt } = a;
@@ -76,19 +81,29 @@ export function runAttemptEffect(
   const timeoutSignal = AbortSignal.timeout(timeoutMs);
   const signal = parentSignal ? AbortSignal.any([parentSignal, timeoutSignal]) : timeoutSignal;
 
-  // 流式进度打到宿主 stderr(结果走 stdout,互不干扰)。容器主日志【不】放这些进度标记 ——
-  // 那里留给 agent 的原始输出(adapter 给 agent 命令开 { stream: true })。
-  const who = runWho({ agentName: run.agent.name, model: run.model, experimentId: run.experimentId });
+  // Attempt 阶段的正式生命周期投影(见 docs/feature/experiments/cli.md「Attempt 阶段」)。
+  // run.ts 在这个 attempt 的 body Effect 真正开始跑之前,已经先发出过一次 attempt:start(占位
+  // phase,见 run.ts 的 attempt:start emission,和这里的 eval:start 是同一个调用点),所以这里
+  // 只需要在每个「实际执行到的」边界调 enterPhase() 覆盖上一个 phase(attempt:phase),不需要
+  // 自己区分「第一次」。没有对应 hook/配置的步骤直接不调用,不产生空阶段(如没有 setup 的 agent
+  // 跳过 agent-setup)。没有活跃 feedback coordinator 时 reportAttemptLifecycle 静默 no-op,
+  // 不产生任何终端输出。
+  const identity: AttemptRef = { experimentId: run.experimentId, evalId: evalDef.id, attempt };
+  const enterPhase = (phase: AttemptPhase) => {
+    onPhase?.(phase);
+    reportAttemptLifecycle({ type: "attempt:phase", at: Date.now(), identity, phase });
+  };
   // 同时保留最近 20 条进度消息,timeout 时嵌入 error 字段方便定位卡在哪一步。
   const recentLogs: string[] = [];
   const log = (m: string) => {
     recentLogs.push(m);
     if (recentLogs.length > 20) recentLogs.shift();
-    if (opts.onProgress) {
-      opts.onProgress(evalDef.id, who, m);
-    } else {
-      process.stderr.write(`  · ${evalDef.id} [${who}] ${m}\n`);
-    }
+    // 附着在「当前阶段」上的次要文本(见 ActiveAttempt.detail);attempt:start 早于本函数任何
+    // 调用点发出(见上),active map 里一定已经有这个 identity 的条目。这是 log() 唯一的出口 ——
+    // 没有裸写 stderr 的兜底分支(那是给已删除的 Live reporter 用的旧接线,见
+    // docs/feature/experiments/cli.md「一个 run 内只有一个终端协调者」);由当前活跃的 profile
+    // renderer(human/agent/ci)决定这条 detail 要不要、怎么展示。
+    reportAttemptLifecycle({ type: "attempt:progress", at: Date.now(), identity, detail: m });
   };
 
   return Effect.scoped(
@@ -108,6 +123,7 @@ export function runAttemptEffect(
               Effect.gen(function* () {
                 // ── 沙箱:acquire=起,release=stop(成功 / 失败 / 中断都跑)──
                 // sandboxSem 只覆盖「容器创建」阶段;容器起好后立即释放,后续 npm install / agent 不占位。
+                enterPhase("sandbox-provision");
                 log(t("runner.startSandbox"));
                 return yield* createSandbox({
                   sandbox: sandboxSpec,
@@ -183,6 +199,7 @@ export function runAttemptEffect(
           otel: otelChannel,
           signal: AbortSignal.any([signal, interruptSignal]),
           log,
+          enterPhase,
         }),
       );
     }),
@@ -230,6 +247,8 @@ interface AttemptResources {
   otel?: AgentOtelChannel;
   signal: AbortSignal;
   log: (m: string) => void;
+  /** 进入一个正式 AttemptPhase 边界(见 runAttemptEffect 顶部的定义)。 */
+  enterPhase: (phase: AttemptPhase) => void;
 }
 
 // attempt 的固定段(上传→基线→setup→驱动 agent→采 diff→脚本→评分→判定)。
@@ -242,7 +261,7 @@ async function runAttemptBody(
   res: AttemptResources,
 ): Promise<EvalResult> {
   const { evalDef, run, attempt } = a;
-  const { sandbox, sandboxSetupHooks, sandboxTeardownHooks, receiver, telemetry, otel, signal, log } = res;
+  const { sandbox, sandboxSetupHooks, sandboxTeardownHooks, receiver, telemetry, otel, signal, log, enterPhase } = res;
   const usesSandbox = run.agent.kind === "sandbox";
   // 整个 attempt 共用一份 agent ctx(sandbox 钩子 / agent setup / tracing configure / teardown 都用它)。
   const attemptCtx: AgentContext = {
@@ -270,17 +289,22 @@ async function runAttemptBody(
       // eval.setup 跑——改动进 git 基线,不会被误算进 agent 产出的 diff。按追加顺序依次执行;
       // 单个抛错走下面的执行错误路径(与 eval.setup / agent.setup 同一条),已跑过的 cleanup /
       // sandbox.teardown 钩子仍在 finally 里跑(见 catch/finally)。
-      if (sandboxSetupHooks.length > 0) log(t("runner.startSandboxSetup"));
+      if (sandboxSetupHooks.length > 0) {
+        enterPhase("sandbox-setup");
+        log(t("runner.startSandboxSetup"));
+      }
       for (const hook of sandboxSetupHooks) {
         const cleanup = await hook(sandbox, attemptCtx);
         if (typeof cleanup === "function") sandboxCleanups.push(cleanup);
       }
 
+      enterPhase("workspace-setup");
       await initGitAndCommit(sandbox);
 
       // eval 级 setup(starter prep:npm install / 装系统依赖等)。命令默认非 root;
       // setup 里需要 root 的(apt/pip)自己传 { root: true }。
       if (evalDef.setup) {
+        enterPhase("eval-setup");
         log(t("runner.evalSetup"));
         evalCleanup = await evalDef.setup(withEvalLocalPaths(sandbox, evalDef.baseDir));
       }
@@ -288,6 +312,7 @@ async function runAttemptBody(
 
     // agent 自己的 lifecycle:装 CLI、写 config(每个沙箱一次,不在每轮 send 里)。
     if (run.agent.setup) {
+      enterPhase("agent-setup");
       log(t("runner.startAgentSetup"));
       agentDidSetup = true;
       agentCleanup = await run.agent.setup(sandbox, attemptCtx);
@@ -301,11 +326,13 @@ async function runAttemptBody(
     // OTLP 导出配置(file-based,如 codex 的 config.toml [otel] 块):与 setup 分开,
     // 在主配置写完后追加。仅当 tracing 开 + 有 endpoint 时调一次(env-based 的不实现 configure)。
     if (telemetry && run.agent.tracing?.configure) {
+      enterPhase("telemetry-setup");
       log(t("runner.startAgentTracing"));
       await run.agent.tracing.configure(sandbox, attemptCtx);
     }
 
     // 构造 t,跑 test
+    enterPhase("running");
     log(t("runner.driveAgent"));
     const judge = resolveJudge(evalDef.judge, config.judge);
     const { context, state } = createEvalContext({
@@ -343,6 +370,7 @@ async function runAttemptBody(
     if (skipReason) log(t("runner.skip", { reason: skipReason }));
 
     // 采 diff(脚本如 next build 在采集后才跑,避免 .next 污染 diff)。remote agent 没有 workspace。
+    if (!skipReason && usesSandbox) enterPhase("diff");
     const diff =
       skipReason || !usesSandbox
         ? { generatedFiles: {}, deletedFiles: [] }
@@ -377,7 +405,10 @@ async function runAttemptBody(
         }
       },
     };
-    if (!skipReason) log(t("runner.scoreJudge"));
+    if (!skipReason) {
+      enterPhase("scoring");
+      log(t("runner.scoreJudge"));
+    }
     const assertions = skipReason ? [] : await state.collector.finalize(scoringContext);
     const verdict = computeVerdict({ error, assertions, skipReason, strict: run.strict });
 
@@ -387,6 +418,7 @@ async function runAttemptBody(
     // 再 selectTraceSpans 按 kind 挑出回合/模型/工具,丢掉 "other" 噪声(干净小 trace 整段保留)。
     let trace: TraceSpan[] | undefined;
     if (receiver) {
+      enterPhase("trace");
       await receiver.settle(250, 1500);
       const spans = receiver.collect();
       if (spans.length) {
@@ -400,6 +432,7 @@ async function runAttemptBody(
     } else if (otel) {
       // 共享通道:receiver 不归本 attempt 关,trace 只取归属到本 attempt 的 span
       //(逐轮攒的 + 按本 attempt traceId sweep 回的迟到批)。
+      enterPhase("trace");
       const late = await otel.sweep(state.manager.otelTraceIds);
       const spans = [...state.manager.otelSpans, ...late];
       if (spans.length) {
@@ -455,6 +488,9 @@ async function runAttemptBody(
     // LIFO:agent 级(setup 最晚 → cleanup / teardown 先跑)在前,sandbox 级(最早就绪)收尾在后
     //(即 sandbox.setup 返回的 cleanup、sandbox.teardown 钩子最后跑,沙箱销毁前)。
     // 沙箱 stop / 接收器 close 不在这里 —— 由 runAttemptEffect 的 Scope 在本函数返回后回收。
+    // teardown 覆盖 agent/eval/sandbox cleanup、hook teardown 和最终 sandbox stop(见
+    // docs/feature/experiments/cli.md「Attempt 阶段」);每个 attempt 都会走到这里,无条件报。
+    enterPhase("teardown");
     try {
       if (typeof agentCleanup === "function") await agentCleanup();
       if (agentDidSetup) await run.agent.teardown?.(sandbox, attemptCtx);

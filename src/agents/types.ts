@@ -238,9 +238,10 @@ export interface AgentContext {
    */
   readonly telemetry?: Telemetry;
   /**
-   * 写一行进运行器自身的进度日志(落 stderr,或调用方传入的 `onProgress` 回调)。
-   * 超时失败时,最近若干行会并入结果的 error 信息,方便定位卡在哪一步。
-   * 与 `Sandbox.appendLog` 是两回事:那个是把一行写进容器自己的原生日志
+   * 报告一句短的运行态进度:只更新 `human` profile dashboard 当前 active 行的次要文本
+   * (见 docs/feature/experiments/cli.md「Attempt 阶段」的 `running.detail`),`agent` / `ci`
+   * profile 不展示。超时失败时,最近若干行会并入结果的 error 信息,方便定位卡在哪一步;
+   * 不写入 results。与 `Sandbox.appendLog` 是两回事:那个是把一行写进容器自己的原生日志
    * (`docker logs` 能看到),这里只是运行器的观测通道。
    */
   log(msg: string): void;

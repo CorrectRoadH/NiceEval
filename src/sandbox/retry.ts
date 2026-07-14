@@ -3,6 +3,8 @@
 // 可重试(目前仅 rate_limit)的错误才会退避重试;其它错误第一次就抛出。
 
 import { isRetryableProvisionError, type SandboxProvisionErrorKind } from "./errors.ts";
+import { t } from "../i18n/index.ts";
+import { reportActivity } from "../runner/feedback/sink.ts";
 
 const MAX_ATTEMPTS = 4;
 const BASE_DELAY_MS = 1000;
@@ -34,8 +36,16 @@ export async function withProvisionRetry<T>(
       // 退避期间只是在睡觉,不是在真的创建沙箱:攥着并发槽位陪跑 setTimeout 会让被限流的
       // provider 把整批并发名额拖垮成"看起来卡在个位数并发"——先还名额,睡醒了再排队要回来。
       if (slot) await slot.release();
+      // 「activity」而非「diagnostic」—— 这是正常的退避进度,不是需要去重/永久留痕的
+      // warning(与 docker.ts 的镜像拉取进度、vercel.ts 的 session rotate 通知同一个理由,
+      // 见 sink.ts 的 reportActivity 说明)。让 human dashboard 的 active slot 在整个退避
+      // 窗口里有可见更新,而不是冻结到重试成功或耗尽为止。
+      const delayMs = delayFor(attempt);
+      reportActivity(
+        t("sandbox.provisionRetry", { delayMs: Math.round(delayMs), attempt: attempt + 1, maxAttempts: MAX_ATTEMPTS }).trimEnd(),
+      );
       try {
-        await new Promise((resolve) => setTimeout(resolve, delayFor(attempt)));
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
       } finally {
         if (slot) await slot.reacquire();
       }

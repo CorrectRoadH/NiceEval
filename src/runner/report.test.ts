@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
-import { filterSummary, scopeReporter } from "./report.ts";
-import type { Agent, EvalResult, Reporter, RunShape, RunSummary } from "../types.ts";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { emitReporterEvent, filterSummary, runReporter, scopeReporter } from "./report.ts";
+import { activateFeedbackSink, activeFeedbackSinkCount } from "./feedback/sink.ts";
+import type { Agent, EvalResult, Reporter, ReporterRegistration, RunShape, RunSummary } from "../types.ts";
 
 function result(id: string, overrides: Partial<EvalResult> = {}): EvalResult {
   return {
@@ -105,5 +106,141 @@ describe("scopeReporter", () => {
     expect(scoped.onEvalComplete).toBeUndefined();
     expect(scoped.onRunComplete).toBeUndefined();
     expect(scoped.onEvent).toBeUndefined();
+  });
+});
+
+// runReporter()/emitReporterEvent() 是「required/best-effort」判定实际生效的地方(见
+// `ReporterRegistration` 的字段注释):它们只负责把 reg.name/reg.required 原样转发进
+// `reportReporterError()`,不做判定本身——判定(是否让 completion/CI 退出码判红)在下游
+// (coordinator → reducer → cli.ts 的 assembleRunCompletion)。这里用一个假 FeedbackSink
+// 直接断言转发的字段,不需要拉起整个 coordinator。
+describe("runReporter / emitReporterEvent · required/best-effort 原样转发,不吞错也不中断其它 reporter", () => {
+  afterEach(() => {
+    // 每个 activateFeedbackSink() 都要在测试内退出,避免遗留在 sink.ts 的活跃栈里
+    // 污染下一个测试(与 feedback/coordinator.test.ts 同一条兜底校验)。
+    expect(activeFeedbackSinkCount()).toBe(0);
+  });
+
+  function withFakeSink<T>(
+    fn: (calls: { reporter: string; required: boolean; message: string }[]) => Promise<T>,
+  ): Promise<T> {
+    const calls: { reporter: string; required: boolean; message: string }[] = [];
+    const deactivate = activateFeedbackSink({
+      activity() {},
+      diagnostic() {},
+      interrupted() {},
+      reporterError(input) {
+        calls.push(input);
+      },
+      failure() {},
+      budgetExhausted() {},
+      lifecycle() {},
+    });
+    return fn(calls).finally(deactivate);
+  }
+
+  it("required reporter 抛错:reportReporterError 收到注册时的真实 name 与 required=true,而不是 stage 名字", () =>
+    withFakeSink(async (calls) => {
+      const reg: ReporterRegistration = { reporter: {}, name: "artifacts", required: true };
+      await runReporter(reg, "onEvalComplete", () => {
+        throw new Error("disk full");
+      });
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toMatchObject({ reporter: "artifacts", required: true });
+      // stage 是失败发生阶段的次要上下文,拼进 message,不覆盖 reporter 字段本身。
+      expect(calls[0]!.message).toContain("onEvalComplete");
+      expect(calls[0]!.message).toContain("disk full");
+    }));
+
+  it("message 只含 formatThrown() 的第一行,不把完整 .stack(本地绝对路径 + 调用帧)灌进机器 envelope", () =>
+    withFakeSink(async (calls) => {
+      const reg: ReporterRegistration = { reporter: {}, name: "json", required: true };
+      await runReporter(reg, "onRunComplete", () => {
+        // 真实 Error 的 .stack 恒为多行:第一行 "Error: message",之后每行一个 "    at ..." 调用帧
+        // (含本地绝对文件路径)。reportReporterError 的 message 是喂给 agent/ci 的单行 key=value
+        // envelope 里的一个字段值,不是 EvalResult.error 那种有专门落盘位置的完整记录——必须只取
+        // 第一行,不能把调用栈和本地路径原样透传出去。
+        throw new Error("EISDIR: illegal operation on a directory, rename");
+      });
+      expect(calls).toHaveLength(1);
+      const { message } = calls[0]!;
+      expect(message).toBe("onRunComplete: Error: EISDIR: illegal operation on a directory, rename");
+      expect(message).not.toContain("\n");
+      expect(message).not.toContain("    at ");
+      expect(message).not.toContain(import.meta.url.replace("file://", "")); // 本文件自己的绝对路径不出现在调用帧里
+    }));
+
+  it("best-effort reporter(如 config.reporters)抛错同样上报,但 required=false", () =>
+    withFakeSink(async (calls) => {
+      const reg: ReporterRegistration = { reporter: {}, name: "config-reporter-0", required: false };
+      await runReporter(reg, "onRunComplete", () => {
+        throw new Error("network blip");
+      });
+      expect(calls[0]).toMatchObject({ reporter: "config-reporter-0", required: false });
+    }));
+
+  it("runReporter 永不 reject——即便 reporter 抛错,调用方(Promise.all 聚合)仍能等到它 resolve", () =>
+    withFakeSink(async () => {
+      await expect(
+        runReporter({ reporter: {}, name: "x", required: true }, "onRunStart", () => {
+          throw new Error("boom");
+        }),
+      ).resolves.toBeUndefined();
+    }));
+
+  it("同一个 reporter 在不同 stage 各失败一次,折叠成同一个 reporter 身份(name 不变),不是两个不相关的报告", () =>
+    withFakeSink(async (calls) => {
+      const reg: ReporterRegistration = { reporter: {}, name: "artifacts", required: true };
+      await runReporter(reg, "onEvalComplete", () => {
+        throw new Error("first failure");
+      });
+      await runReporter(reg, "onRunComplete", () => {
+        throw new Error("second failure");
+      });
+      expect(calls).toHaveLength(2);
+      expect(calls[0]!.reporter).toBe("artifacts");
+      expect(calls[1]!.reporter).toBe("artifacts"); // 两次都是同一个 reporter 身份,供下游按 key 去重折叠
+    }));
+
+  it("emitReporterEvent 对每个注册项独立兜错:一个 reporter 抛错不阻止其它 reporter 收到同一个事件", () =>
+    withFakeSink(async (calls) => {
+      const seen: string[] = [];
+      const throwing: ReporterRegistration = {
+        reporter: {
+          onEvent: () => {
+            throw new Error("boom");
+          },
+        },
+        name: "throwing",
+        required: false,
+      };
+      const ok: ReporterRegistration = {
+        reporter: { onEvent: (e) => void seen.push(e.type) },
+        name: "ok",
+        required: false,
+      };
+      await emitReporterEvent([throwing, ok], { type: "run:earlyExit", evalId: "e/1" });
+      expect(seen).toEqual(["run:earlyExit"]); // ok reporter 仍然收到了同一个事件
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toMatchObject({ reporter: "throwing", required: false });
+    }));
+
+  it("没有活跃 coordinator 时(run 未激活 / 已 finish)退回 bootstrap stderr,不吞错、仍然 resolve", async () => {
+    expect(activeFeedbackSinkCount()).toBe(0); // 确认这条测试真的走的是「没有活跃 sink」分支
+    const writes: string[] = [];
+    const spy = vi.spyOn(process.stderr, "write").mockImplementation((chunk: unknown) => {
+      writes.push(String(chunk));
+      return true;
+    });
+    try {
+      await expect(
+        runReporter({ reporter: {}, name: "artifacts", required: true }, "onRunStart", () => {
+          throw new Error("disk full");
+        }),
+      ).resolves.toBeUndefined();
+      expect(writes.join("")).toContain("disk full");
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

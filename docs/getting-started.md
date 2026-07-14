@@ -27,11 +27,11 @@ your-project/
 ```typescript
 // niceeval.config.ts
 import { defineConfig } from "niceeval";
-import { Console, JUnit } from "niceeval/reporters";
+import { JUnit } from "niceeval/reporters";
 
 export default defineConfig({
   judge: { model: "anthropic/claude-haiku-4-5" }, // 默认裁判模型
-  reporters: [Console(), JUnit(".niceeval/junit.xml")],
+  reporters: [JUnit(".niceeval/junit.xml")], // 终端反馈由 `niceeval exp --output human|agent|ci` 选择,不是 Reporter
   maxConcurrency: 8,
   timeoutMs: 300_000,
   // 沙箱 provider 不在这里配 —— 它由 experiment 的 sandbox 字段决定

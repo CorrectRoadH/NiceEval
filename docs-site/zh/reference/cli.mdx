@@ -90,8 +90,8 @@ npx niceeval exp compare-models weather
 | `--experiment` | string | `show` / `view` 命令专用:Selection 只留该实验。 |
 | `--run` | string | `show` / `view` 命令专用:钉死看某一个结果目录(某次快照或 `copySnapshots` 产物)。 |
 | `--report` | string | `show` / `view` 命令专用:渲染你的报告文件(文件默认导出 `defineReport(...)`);show 用它替换 Attempt 索引,view 用它替换默认分析报告。 |
-| `--dry` | boolean | 只打印本次会匹配到的 eval × 运行配置,不实际执行。 |
-| `--quiet` | boolean | 关闭控制台 / live 的逐条结果与末尾汇总(attempt 进度行仍写 stderr);errored / failed 的结果各在 stderr 补一行摘要,passed / skipped 静默;reporter 仍会写 artifacts。 |
+| `--dry` | boolean | 只打印本次会匹配到的 eval × 运行配置,不实际执行(按下面 `--output` 选中的 profile 给出预览)。 |
+| `--output` | string | 反馈 profile:`auto`(默认)按环境自动选择,`human` / `agent` / `ci` 强制指定;只改变终端展示,不改变选择、调度、判定、artifact 或退出码。`auto` 依次判定:stderr 是 TTY → human;否则 `CI`(或其它常见 CI 平台环境变量)存在 → ci;否则 → agent。 |
 | `--force` | boolean | 忽略上次运行结果,不跳过已通过的 (experiment, eval) 组合,强制全部重跑。 |
 | `--strict` | boolean | CI 中推荐使用:让软阈值(`soft`)失败也计入整条 eval 的 verdict。 |
 | `--early-exit` / `--no-early-exit` | boolean | 某个 eval 的一次 attempt 通过后,停止该 eval 剩余的 attempts。 |
@@ -117,6 +117,23 @@ npx niceeval exp compare-models weather-tool
 ```
 
 运行命名 experiment，用矩阵比较 agents、models 或 flags。第二个参数开始是 eval ID 前缀过滤。
+
+## `--output`：human / agent / ci
+
+`--output` 选一种终端反馈模型，只改变展示，不改变选择、调度、判定、artifact 或退出码；省略时的默认值 `auto` 按环境自动选择。三种消费者各有推荐命令：
+
+```bash
+# 人在 TTY 前：动态 dashboard + 永久失败/诊断行
+npx niceeval exp compare --output human
+
+# coding agent / 自动修复循环：低频 checkpoint + 有界 handoff block
+npx niceeval exp compare --output agent
+
+# CI job：单一有序 stdout 事件流 + 退出码 + JSON/JUnit
+npx niceeval exp compare --output ci --strict --json .niceeval/ci-summary.json --junit .niceeval/junit.xml
+```
+
+三种 profile 的完整对比见[运行器 · Reporter](/zh/guides/runner#reporter)；人在终端里怎么读 dashboard 与结束摘要见上面的[常用 flags](#常用-flags)与本页各命令示例；AI 反馈闭环的完整用法（读输出、按 locator 下钻、局部重跑）见 [AI 反馈闭环](/zh/guides/agent-feedback-loop)；CI 集成（GitHub Actions、退出码、JSON/JUnit）见 [CI 集成](/zh/guides/ci-integration)。
 
 ## `view`
 

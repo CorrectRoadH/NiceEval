@@ -39,7 +39,7 @@ The goal of the loop isn't to make a command exit green — it's to form and ver
 <Steps>
   <Step title="Run the experiment">
     ```bash
-    npx niceeval exp local
+    npx niceeval exp local --output agent
     ```
 
     Read the exit code first: `0` means every eval passed; `1` means at least one eval failed or errored; `2` means NiceEval itself failed to complete the run. The exit code decides whether to keep going; the console text is for locating the cause.
@@ -170,7 +170,7 @@ The goal of the loop isn't to make a command exit green — it's to form and ver
   </Step>
   <Step title="Rerun locally, verify the hypothesis">
     ```bash
-    npx niceeval exp local weather/brooklyn --force
+    npx niceeval exp local weather/brooklyn --output agent --force
     npx niceeval show weather/brooklyn
     ```
 
@@ -178,7 +178,7 @@ The goal of the loop isn't to make a command exit green — it's to form and ver
   </Step>
   <Step title="Full rerun to confirm no regression">
     ```bash
-    npx niceeval exp local --force
+    npx niceeval exp local --output agent --force
     npx niceeval show
     ```
 
@@ -188,19 +188,22 @@ The goal of the loop isn't to make a command exit green — it's to form and ver
 
 ## What the agent should read from the output
 
-`exp` closes with three kinds of information: a failure summary, result stats, and the results snapshot directory. A typical run looks like this:
+`--output agent` only appends low-frequency checkpoints to stderr while the run is in flight (a liveness signal, not a results source) and prints one bounded handoff block to stdout at the end — that block is what the agent should parse:
 
 ```text
-Failing:
-  ✗ weather/brooklyn · @1k2m9qtr[E,X,⏱]
-      gate calledTool("get_weather"): tool was never called
-
-Results: 14 passed, 1 failed, 0 errored, 0 skipped
-Structured results: .niceeval/local/2026-07-09T10-00-00-000Z-x1f2/
-  (snapshot.json + per-attempt result.json / events.json / trace.json / diff.json)
+NICEEVAL RESULT failed
+summary: 14 passed, 1 failed, 0 errored (0 reused)
+snapshots:
+  - .niceeval/local/2026-07-09T10-00-00-000Z-x1f2/
+failures:
+  - @1k2m9qtr weather/brooklyn [local]
+    gate: tool was never called
+next:
+  niceeval show @1k2m9qtr
+  niceeval show @1k2m9qtr --execution
 ```
 
-The agent should pick an attempt locator from the failure list, then run `niceeval show @<id>` or the matching evidence flag — not parse the progress lines that keep refreshing while the run is in flight. When something needs to read the results programmatically, the results snapshot is the source of truth:
+The agent should pick an attempt locator from `failures`, then run one of the `next` commands (`niceeval show @<id>` or the matching evidence flag) — not parse the low-frequency checkpoint lines on stderr while the run is in flight; those only signal that the process is still alive. When the failure count exceeds the handoff cap (5 by default), only the first few are expanded, with a total count for the rest; the results snapshot has the full list. When something needs to read the results programmatically, the results snapshot is the source of truth:
 
 ```text
 .niceeval/<experiment>/<snapshot>/
@@ -244,18 +247,18 @@ This protocol can go straight into a task description. It works equally well for
 ```text
 Read node_modules/niceeval/INDEX.md, then follow the index to read whatever
 docs relate to the task.
-Run npx niceeval exp local, and decide the next step from the exit code and
-the failure summary. For every failing eval, pick an attempt locator from the
-report; then run niceeval show @<id> and choose the default eval-source view,
---execution, or --diff depending on the question you're asking. Write down a
-hypothesis for the failure, and decide whether to fix the system under test,
-the eval, or the experiment environment. After fixing, rerun the affected eval
-with --force and compare the new verdict and evidence.
+Run npx niceeval exp local --output agent, and decide the next step from the
+exit code and the failure locators. For every failing eval, pick an attempt
+locator from the report; then run niceeval show @<id> and choose the default
+eval-source view, --execution, or --diff depending on the question you're
+asking. Write down a hypothesis for the failure, and decide whether to fix
+the system under test, the eval, or the experiment environment. After fixing,
+rerun the affected eval with --force and compare the new verdict and evidence.
 If the same problem produces no new evidence or improvement for three rounds
 in a row, stop and report back — don't reach for a green result by loosening
 an assertion.
 Once every local failure is cleared, do a full verification with
-npx niceeval exp local --force; only exit code 0 counts as done.
+npx niceeval exp local --output agent --force; only exit code 0 counts as done.
 ```
 
 Running a real agent can cost money. During experimentation, add `--budget <dollars>` to cap this round's cumulative spend; a budget only bounds a single command — it's not a substitute for the stop condition above.

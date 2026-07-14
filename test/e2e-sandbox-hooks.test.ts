@@ -31,7 +31,7 @@ afterAll(async () => {
 });
 
 async function runFixtureCli(): Promise<void> {
-  const child = spawn(process.execPath, [join(repoRoot, "bin", "niceeval.js"), "exp", "--force", "--quiet"], {
+  const child = spawn(process.execPath, [join(repoRoot, "bin", "niceeval.js"), "exp", "--force", "--output", "agent"], {
     cwd: fixtureDir,
     stdio: "pipe",
   });

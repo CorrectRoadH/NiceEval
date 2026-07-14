@@ -66,13 +66,13 @@ jobs:
 
 ```text
 niceeval: start total=24 configs=3 concurrency=10 reused=18
-niceeval: errored locator=@2h8m4k1 eval=fixtures/button experiment=ci/codex phase=sandbox-provision code=sandbox-rate-limit message="E2B sandbox allocation failed after 5 attempts"
+niceeval: errored locator=@2h8m4k1 eval=fixtures/button experiment=ci/codex phase=sandbox-provision reason="E2B sandbox allocation failed after 5 attempts"
 niceeval: result=failed passed=23 failed=0 errored=1 reused=18 duration=128s
 niceeval: json=.niceeval/ci-summary.json
 niceeval: junit=.niceeval/junit.xml
 ```
 
-退出码是第一层红绿信号；JSON、JUnit 和结果快照是完整机器接口，日志行只用于搜索和 annotation。`errored` 行带 locator、正式 phase、稳定 code 和一层 message。详细 cause、stack 和 diagnostics 保存在 Attempt 的 `result.json`，可在保留 artifact 后运行 `niceeval show @<locator>` 回顾。
+退出码是第一层红绿信号；JSON、JUnit 和结果快照是完整机器接口，日志行只用于搜索和 annotation。`errored` 行带 locator、eval/experiment 身份、已知时的正式 phase，以及一层 `reason` 摘要。详细 cause、stack 和 diagnostics 保存在 Attempt 的 `result.json`，可在保留 artifact 后运行 `niceeval show @<locator>` 回顾。
 
 CLI 显式要求的 JSON/JUnit 和默认 results artifact 都是 required 输出：写入失败必须让 job 判红，不能只留 warning 后退出 0。想把结果同时上报到 Braintrust 这类实验平台，见 [Reporter 上报](./reporters)。
 

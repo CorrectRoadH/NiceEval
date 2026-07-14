@@ -41,6 +41,7 @@ export const en = {
   "cli.dry.row": "  {{who}}{{experiment}}: {{evals}}  ×{{runs}}\n",
   "cli.error": "niceeval error: {{error}}\n",
   "cli.flag.invalidNumber": "Flag --{{flag}} expects a number, got \"{{value}}\".\n",
+  "cli.flag.invalidOutput": "Flag --output expects one of auto|human|agent|ci, got \"{{value}}\".\n",
   "runner.budgetUnenforceable":
     "budget for {{budgetKey}}: several attempts completed without any cost data (agent reports no usage and the model is not in the price table) — the budget cannot be enforced for this agent; continuing without the guard.\n",
   "judge.modelMissing":
@@ -79,7 +80,8 @@ export const en = {
     "  niceeval init                                       scaffold config + evals/\n\n" +
     "Flags:\n" +
     "  --runs n  --max-concurrency n  --timeout ms  --budget usd  --tag t\n" +
-    "  --early-exit / --no-early-exit  --strict  --force  --dry  --quiet\n" +
+    "  --early-exit / --no-early-exit  --strict  --force  --dry\n" +
+    "  --output auto|human|agent|ci\n" +
     "  --junit path  --json path  --out dir  --port n  --open / --no-open  -h, --help  -v, --version\n\n" +
     "Positional args only select which evals to run (id prefixes); which agent and\n" +
     "how to run come from experiments/ + flags. Env overrides (flag > env > config):\n" +
@@ -140,6 +142,38 @@ export const en = {
   "docker.imagePullStart": "Pulling Docker image: {{image}}...",
   "docker.readFileFailed": "Failed to read file {{path}}: {{stderr}}",
   "docker.unsupportedRuntime": "Unsupported runtime: {{runtime}}",
+  "feedback.human.active": "ACTIVE",
+  "feedback.human.budgetExhausted": "budget exhausted for {{experimentId}} (spent {{spent}}, unstarted {{unstarted}})",
+  "feedback.human.compare": "Compare: niceeval view {{group}}",
+  "feedback.human.counts": "{{total}} total · {{reused}} reused · {{running}} running · {{queued}} queued · {{completed}} completed",
+  "feedback.human.diffHint": "Diff:    niceeval show {{locator}} --diff",
+  "feedback.human.failuresHeader": "FAILURES",
+  "feedback.human.heartbeat": "{{elapsed}} elapsed · {{counts}}",
+  "feedback.human.inspect": "Inspect: niceeval show {{locator}}",
+  "feedback.human.moreActive": "… {{count}} more active",
+  "feedback.human.plan": "Plan: {{total}} attempts · {{evals}} evals × {{configs}} configs · concurrency {{concurrency}}",
+  "feedback.human.resultFailed": "FAILED",
+  "feedback.human.resultIncomplete": "INCOMPLETE",
+  "feedback.human.resultInterrupted": "INTERRUPTED",
+  "feedback.human.resultPassed": "PASSED",
+  "feedback.human.resultsHeader": "Results:",
+  "feedback.human.resultsMore": "… {{count}} more",
+  "feedback.human.reuse": "Reuse: {{reused}} settled results from the latest matching snapshots",
+  "feedback.human.summaryLine": "{{passed}} passed · {{failed}} failed · {{errored}} errored  ({{reused}} reused)",
+  "feedback.human.suppressedFailures": "… {{count}} more failures suppressed",
+  "feedback.human.trace": "Trace:   niceeval show {{locator}} --execution",
+  "feedback.phase.agentSetup": "agent setup",
+  "feedback.phase.diff": "capturing diff",
+  "feedback.phase.evalSetup": "eval setup",
+  "feedback.phase.running": "running eval",
+  "feedback.phase.sandboxProvision": "creating sandbox",
+  "feedback.phase.sandboxSetup": "sandbox setup",
+  "feedback.phase.scoring": "scoring",
+  "feedback.phase.teardown": "cleaning up",
+  "feedback.phase.telemetrySetup": "configuring telemetry",
+  "feedback.phase.trace": "collecting trace",
+  "feedback.phase.workspaceSetup": "preparing workspace",
+  "feedback.rendererError": "  · [feedback] renderer failed while handling {{context}} (ignored): {{message}}\n",
   "hitl.answerNeedsOptionOrText": "The object form of t.respond needs either optionId or text (neither was given).",
   "hitl.invalidOption": "Answer \"{{optionId}}\" is not an option of request {{requestId}} ({{options}}).",
   "hitl.noOptions": "this request has no options",
@@ -221,6 +255,7 @@ export const en = {
   "sandbox.dependencyMissing.e2b": "E2B sandbox requires 'e2b'. Install it with: pnpm add e2b",
   "sandbox.dependencyMissing.vercel": "Vercel sandbox requires '@vercel/sandbox'. Install it with: pnpm add @vercel/sandbox",
   "sandbox.forceCleanup": "  · [sandbox] force-cleaning {{count}} sandboxes...\n",
+  "sandbox.provisionRetry": "  · [sandbox] provisioning rate-limited, retrying in {{delayMs}}ms (attempt {{attempt}}/{{maxAttempts}})...\n",
   "sandbox.stopFailed": "  · [sandbox] failed to stop sandbox {{id}} (ignored; provider TTL should clean it up): {{message}}\n",
   "sandbox.stopTimeout": "stop timed out ({{timeoutMs}}ms)",
   "scoring.evalError": "evaluation error: {{error}}",

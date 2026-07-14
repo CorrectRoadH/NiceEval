@@ -260,9 +260,11 @@ startup-time configuration (defineConfig(&#123; telemetry: &#123; port &#125; &#
 log(msg: string): void;
 ```
 
-Write a line to the runner's own progress log (goes to stderr, or the caller-supplied `onProgress` callback).
-On a timeout failure, the most recent lines are merged into the result's error information, to help locate
-where it got stuck. This is different from `Sandbox.appendLog`: that one writes a line into the container's
+Report a short line of live progress: it only updates the secondary text on the current active row of the
+`human` profile dashboard (see the `running.detail` entry under "Attempt phases" in
+`docs/feature/experiments/cli.md`); the `agent` / `ci` profiles never show it. On a timeout failure, the most
+recent lines are merged into the result's error information, to help locate where it got stuck; it is never
+written to results. This is different from `Sandbox.appendLog`: that one writes a line into the container's
 own native log (visible with `docker logs`); this one is only the runner's observability channel.
 
 {/* GENERATED:END agent-def */}

@@ -46,7 +46,8 @@ docs/
 │
 ├── roadmap/                             尚未定稿的功能设计
 │   ├── multi-agent/                     多 Agent Eval 场景
-│   └── view-enhancements.md             View 的候选增强
+│   ├── view-enhancements.md             View 的候选增强
+│   └── scoped-attempt-feedback.md       adapter/provider 的结构化 progress/diagnostic 出口
 │
 ├── engineering/                         仓库自身的工程机制
 │   ├── _template/                       新工程主题模板

@@ -24,7 +24,7 @@ import { buildFindScript, shellQuote } from "./shell.ts";
 import { createExecDemuxer, extractFileFromTar, packFilesToTar, readableToBuffer } from "./docker-stream.ts";
 import { resolveSandboxPath } from "./paths.ts";
 import { t } from "../i18n/index.ts";
-import { beforeExternalTerminalWrite } from "../tty-line.ts";
+import { reportActivity } from "../runner/feedback/sink.ts";
 import type { SandboxProvisionErrorKind } from "./errors.ts";
 
 /**
@@ -177,12 +177,12 @@ export class DockerSandbox implements Sandbox {
       const image = this.docker.getImage(imageName);
       await image.inspect();
     } catch {
-      // 镜像不存在,拉取。
-      beforeExternalTerminalWrite();
-      console.log(t("docker.imagePullStart", { image: imageName }));
+      // 镜像不存在,拉取。「activity」而非「diagnostic」—— 这是正常进度,不是需要去重/永久
+      // 留痕的 warning(见 A2 阶段 ScopedFeedback.progress 落地前的过渡出口,sink.ts 的
+      // reportActivity 说明)。
+      reportActivity(t("docker.imagePullStart", { image: imageName }).trimEnd());
       await this.pullImage(imageName);
-      beforeExternalTerminalWrite();
-      console.log(t("docker.imagePullDone", { image: imageName }));
+      reportActivity(t("docker.imagePullDone", { image: imageName }).trimEnd());
     }
   }
 

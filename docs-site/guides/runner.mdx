@@ -61,9 +61,18 @@ Timeout protects a single eval. Budget protects the cost of the entire run.
 
 ## Reporter
 
+Feedback while a run is in flight is chosen by `--output`, a separate layer from reporters — reporters write completed results elsewhere:
+
+```bash
+npx niceeval exp local --output human  # a person: TTY dashboard + permanent errors/diagnostics
+npx niceeval exp local --output agent  # an AI: stable envelope + locator handoff
+npx niceeval exp local --output ci     # CI: a single ordered stdout event stream
+```
+
+The default is `auto`: a TTY picks human, a CI environment picks ci, any other non-TTY picks agent. The output model only changes feedback — it never changes scheduling, verdicts, or artifacts.
+
 After each eval finishes, the runner hands the result to reporters:
 
-- the console reporter provides live feedback
 - JSON artifacts support later analysis
 - the JUnit reporter fits CI
 - the Braintrust reporter reports a run as an experiment for comparison across commits

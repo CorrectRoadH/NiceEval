@@ -4,6 +4,7 @@
 // (reporter 错误按框架约定只记 diagnostic,不会让运行崩)。
 
 import type { EvalResult, Reporter } from "../../types.ts";
+import { reportActivity } from "../feedback/sink.ts";
 
 export interface BraintrustConfig {
   /** Braintrust 项目名;省略时用 "niceeval"。 */
@@ -98,7 +99,7 @@ export function Braintrust(config: BraintrustConfig = {}): Reporter {
         await sdk?.flush();
         const summary = await experiment.summarize();
         if (summary.experimentUrl) {
-          process.stderr.write(`Braintrust experiment: ${summary.experimentUrl}\n`);
+          reportActivity(`Braintrust experiment: ${summary.experimentUrl}`);
         }
       } finally {
         experiment = undefined;

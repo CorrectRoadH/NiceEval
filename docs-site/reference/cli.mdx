@@ -87,8 +87,8 @@ The table below is generated from the CLI's flag-parsing table; any flag outside
 | `--experiment` | string | `show` / `view` command only: narrow the selection to a single experiment. |
 | `--run` | string | `show` / `view` command only: pin to a specific result directory (a snapshot or `copySnapshots` output). |
 | `--report` | string | `show` / `view` command only: replace the default report with your own report file (the file's default export must be `defineReport(...)`). |
-| `--dry` | boolean | Only print which evals × run configs would match, without actually running them. |
-| `--quiet` | boolean | Turn off the console / live per-result stream and final summary (attempt progress lines still go to stderr); errored / failed results each still print a one-line summary to stderr, while passed / skipped stay silent; the reporter still writes artifacts. |
+| `--dry` | boolean | Only print which evals × run configs would match, without actually running them (rendered as a preview in whichever `--output` profile is selected below). |
+| `--output` | string | Feedback profile: `auto` (default) picks one automatically from the environment; `human` / `agent` / `ci` force a specific one. It only changes terminal output — never selection, scheduling, verdicts, artifacts, or the exit code. `auto` resolves in order: stderr is a TTY → `human`; otherwise `CI` (or another common CI platform env var) is set → `ci`; otherwise → `agent`. |
 | `--force` | boolean | Ignore the previous run's results — do not skip (experiment, eval) pairs that already passed, forcing a full rerun. |
 | `--strict` | boolean | Recommended in CI: make soft-threshold (`soft`) failures also count toward the whole eval's outcome. |
 | `--early-exit` / `--no-early-exit` | boolean | Stop an eval's remaining attempts once one attempt passes. |
@@ -114,6 +114,23 @@ npx niceeval exp compare-models weather-tool
 ```
 
 Run a named experiment, comparing agents, models, or flags in a matrix. Arguments from the second position onward filter eval IDs by prefix.
+
+## `--output`: human / agent / ci
+
+`--output` picks a terminal feedback model. It only changes what gets displayed — never selection, scheduling, verdicts, artifacts, or the exit code. The default, `auto`, picks one automatically from the environment. Each consumer has a recommended command:
+
+```bash
+# A person at a TTY: a dynamic dashboard plus permanent failure/diagnostic lines
+npx niceeval exp compare --output human
+
+# A coding agent / auto-fix loop: low-frequency checkpoints plus a bounded handoff block
+npx niceeval exp compare --output agent
+
+# A CI job: a single ordered stdout event stream plus the exit code and JSON/JUnit
+npx niceeval exp compare --output ci --strict --json .niceeval/ci-summary.json --junit .niceeval/junit.xml
+```
+
+See [Runner · Reporter](/guides/runner#reporter) for how the three profiles compare; see [Agent Feedback Loop](/guides/agent-feedback-loop) for the full agent loop (reading output, drilling into a locator, targeted reruns); see [CI Integration](/guides/ci-integration) for GitHub Actions setup, exit codes, and JSON/JUnit.
 
 ## `view`
 

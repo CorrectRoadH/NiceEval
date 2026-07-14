@@ -7,7 +7,7 @@
 // 重数据分文件,snapshot.json 只留快照元数据,view 展开某条 trace 时再按需 fetch 它的 trace.json。
 
 import { readFile } from "node:fs/promises";
-import type { Reporter } from "../../types.ts";
+import type { Reporter, RunShape } from "../../types.ts";
 import { createResultsWriter, type ResultsWriter } from "../../results/writer.ts";
 
 /** niceeval 自身的 npm 版本,写进 producer.version;版本不匹配时读取器靠它拼 npx 提示。 */
@@ -28,11 +28,17 @@ export function Artifacts(root = ".niceeval"): ArtifactsReporter {
   return {
     outputDirs: () => writer?.snapshotDirs() ?? [],
 
-    async onRunStart() {
+    async onRunStart(_evals, _agent, shape?: RunShape) {
       // 每次 run 换一个新 writer(同一个 reporter 实例可能被复用):writer 内部按
       // experimentId 懒建各自的快照目录,这里只重置引用。
+      // snapshotStartedAt 显式接收自 runner(shape.snapshotStartedAt,见 RunShape 的注释)——
+      // 不再各自按「该 experiment 第一条落盘 result 的 attempt startedAt」猜,与 runner
+      // 在 result.locator 里编码的身份锚点是同一个值。省略只出现在没有真实 shape 的
+      // 直调场景(如测试手写 Reporter 调用),此时退回 createResultsWriter 自己的兜底
+      // (result.startedAt,见 writer.ts 的 ResultsWriterOptions.snapshotStartedAt)。
       writer = createResultsWriter(root, {
         producer: { name: "niceeval", version: await producerVersion() },
+        snapshotStartedAt: shape?.snapshotStartedAt,
       });
     },
 

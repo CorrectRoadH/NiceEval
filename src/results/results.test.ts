@@ -1002,6 +1002,63 @@ describe("AttemptLocator · 落盘 / 读取 / 携带 / 撞车", () => {
     expect(resolveLocator(destResults, locator0).result.attempt).toBe(0);
     expect(resolveLocator(destResults, locator1).result.attempt).toBe(1);
   });
+
+  it("createResultsWriter({ snapshotStartedAt }):writeAttemptFor() 的隐式声明统一用这个锚点,不再按各 result 自己的 attempt startedAt 分别猜", async () => {
+    const root = await makeRoot();
+    const snapshotStartedAt = "2026-07-10T00:00:00.000Z";
+    const writer = createResultsWriter(root, {
+      producer: { name: "niceeval", version: "1.0.0" },
+      snapshotStartedAt,
+    });
+
+    // 两个不同 experiment,各自的 result.startedAt 与 writer 级锚点都不同 —— 如果还在按
+    // 「该 experiment 首条落盘结果的 attempt 时刻」猜,两份 snapshot.json 的 startedAt 会
+    // 分别变成各自 result 的 attempt 时刻,而不是这里统一传入的 snapshotStartedAt。
+    await writer.writeAttemptFor({
+      id: "q1", experimentId: "e1", agent: "bub", verdict: "passed", attempt: 0,
+      startedAt: "2020-01-01T00:00:00.000Z", durationMs: 1, assertions: [],
+    });
+    await writer.writeAttemptFor({
+      id: "q1", experimentId: "e2", agent: "bub", verdict: "passed", attempt: 0,
+      startedAt: "2021-06-15T00:00:00.000Z", durationMs: 1, assertions: [],
+    });
+    await writer.finish();
+
+    const results = await openResults(root);
+    const expE1 = results.experiments.find((e) => e.id === "e1")!;
+    const expE2 = results.experiments.find((e) => e.id === "e2")!;
+    expect(expE1.latest.startedAt).toBe(snapshotStartedAt);
+    expect(expE2.latest.startedAt).toBe(snapshotStartedAt); // 两个 experiment 共用同一个锚点,不碰撞
+
+    // attempt 级 startedAt(墙钟事实)依然各自独立保留,没有被锚点覆盖 ——
+    // 快照身份锚点与 attempt 墙钟事实是两回事,继续分别保存。
+    const attempt1 = expE1.latest.evals[0]!.attempts[0]!;
+    const attempt2 = expE2.latest.evals[0]!.attempts[0]!;
+    expect(attempt1.result.startedAt).toBe("2020-01-01T00:00:00.000Z");
+    expect(attempt2.result.startedAt).toBe("2021-06-15T00:00:00.000Z");
+
+    // locator 由统一锚点 + experimentId 派生,两边不因为共享锚点而碰撞。
+    expect(attempt1.locator).not.toBe(attempt2.locator);
+    expect(attempt1.locator).toBe(
+      encodeAttemptLocator({ experimentId: "e1", snapshotStartedAt, evalId: "q1", attempt: 0 }),
+    );
+    expect(attempt2.locator).toBe(
+      encodeAttemptLocator({ experimentId: "e2", snapshotStartedAt, evalId: "q1", attempt: 0 }),
+    );
+  });
+
+  it("createResultsWriter() 省略 snapshotStartedAt 时保留旧的按首条 result.startedAt 猜测行为(第三方直调兼容)", async () => {
+    const root = await makeRoot();
+    const writer = createResultsWriter(root, { producer: { name: "niceeval", version: "1.0.0" } });
+    await writer.writeAttemptFor({
+      id: "q1", experimentId: "e", agent: "bub", verdict: "passed", attempt: 0,
+      startedAt: "2020-03-03T00:00:00.000Z", durationMs: 1, assertions: [],
+    });
+    await writer.finish();
+
+    const results = await openResults(root);
+    expect(results.experiments[0]!.latest.startedAt).toBe("2020-03-03T00:00:00.000Z");
+  });
 });
 
 // ───────────────────────── sources 去重仓库 ─────────────────────────

@@ -12,16 +12,27 @@ import { pathToFileURL } from "node:url";
 import { parseArgs as nodeParseArgs } from "node:util";
 import { discoverEvals, discoverExperiments, makeFilter } from "./runner/discover.ts";
 import { runEvals, type AgentRun } from "./runner/run.ts";
-import { runWho } from "./runner/types.ts";
 import { planCarry } from "./runner/fingerprint.ts";
 import { stopAllSandboxes, liveSandboxCount } from "./sandbox/registry.ts";
 import { evalLevelStats } from "./shared/verdict.ts";
 import { sandboxRecommendedConcurrency } from "./sandbox/resolve.ts";
-import { Console as ConsoleReporter } from "./runner/reporters/console.ts";
-import { Quiet as QuietReporter } from "./runner/reporters/quiet.ts";
 import { Json, JUnit } from "./runner/reporters/json.ts";
-import { Live as LiveReporter, type LiveRow } from "./runner/reporters/live.ts";
 import { Artifacts as ArtifactsReporter } from "./runner/reporters/artifacts.ts";
+import {
+  resolveOutputProfile,
+  createFeedbackCoordinator,
+  createNodeFeedbackIO,
+  createHumanRenderer,
+  createAgentRenderer,
+  createCiRenderer,
+  renderAgentPlanEnvelope,
+  renderHumanDryPlan,
+  renderCiDryPlan,
+  computeCiExitCode,
+  reportActivity,
+  type OutputProfileFlag,
+  type AgentPlanRow,
+} from "./runner/feedback/index.ts";
 import {
   buildView,
   startViewServer,
@@ -38,7 +49,17 @@ import { ReportLoadError } from "../dist/report/load.js";
 import { runShow } from "./show/index.ts";
 import { t } from "./i18n/index.ts";
 import { formatThrown, upsertManagedBlock } from "./util.ts";
-import type { Config, DiscoveredExperiment, Reporter } from "./types.ts";
+import type {
+  CompletionStatus,
+  Config,
+  DiscoveredExperiment,
+  ReporterError,
+  ReporterRegistration,
+  RunCompletion,
+  RunFeedbackPlan,
+  RunFeedbackState,
+  RunSummary,
+} from "./types.ts";
 
 /**
  * view 的可预期用户错误:版本不同的报告(npx 提示)、位置参数/组合语义错误、
@@ -60,7 +81,8 @@ interface Flags {
   timeout?: number;
   earlyExit?: boolean;
   dry: boolean;
-  quiet: boolean;
+  /** 反馈 profile,已解析/校验(`auto` 默认值也算已解析——具体环境判定见 `resolveOutputProfile`)。 */
+  output: OutputProfileFlag;
   force: boolean;
   strict: boolean;
   budget?: number;
@@ -132,10 +154,10 @@ const FLAG_OPTIONS = {
   run: { type: "string" },
   /** `show` / `view` 命令专用:渲染你的报告文件(文件默认导出 `defineReport(...)`);show 用它替换 Attempt 索引,view 用它替换默认分析报告。 */
   report: { type: "string" },
-  /** 只打印本次会匹配到的 eval × 运行配置,不实际执行。 */
+  /** 只打印本次会匹配到的 eval × 运行配置,不实际执行(按下面 `--output` 选中的 profile 给出预览)。 */
   dry: { type: "boolean" },
-  /** 关闭控制台 / live 的逐条结果与末尾汇总(attempt 进度行仍写 stderr);errored / failed 的结果各在 stderr 补一行摘要,passed / skipped 静默;reporter 仍会写 artifacts。 */
-  quiet: { type: "boolean" },
+  /** 反馈 profile:`auto`(默认)按环境自动选择,`human` / `agent` / `ci` 强制指定;只改变终端展示,不改变选择、调度、判定、artifact 或退出码。`auto` 依次判定:stderr 是 TTY → human;否则 `CI`(或其它常见 CI 平台环境变量)存在 → ci;否则 → agent。 */
+  output: { type: "string" },
   /** 忽略上次运行结果,不跳过已通过的 (experiment, eval) 组合,强制全部重跑。 */
   force: { type: "boolean" },
   /** CI 中推荐使用:让软阈值(`soft`)失败也计入整条 eval 的 verdict。 */
@@ -160,6 +182,16 @@ function numberFlag(name: string, raw: string | undefined): number | undefined {
     process.exit(1);
   }
   return n;
+}
+
+const OUTPUT_PROFILE_VALUES = ["auto", "human", "agent", "ci"] as const;
+
+/** `--output` 解析仅接受 `auto|human|agent|ci`;非法值直接报清晰用法并退出,不静默回退到某个默认值。 */
+function outputFlag(raw: string | undefined): OutputProfileFlag {
+  if (raw === undefined) return "auto";
+  if ((OUTPUT_PROFILE_VALUES as readonly string[]).includes(raw)) return raw as OutputProfileFlag;
+  process.stderr.write(t("cli.flag.invalidOutput", { value: raw }));
+  process.exit(1);
 }
 
 function parseArgs(argv: string[]): { command: string; positionals: string[]; flags: Flags } {
@@ -209,7 +241,7 @@ function parseArgs(argv: string[]): { command: string; positionals: string[]; fl
     out: values.out as string | undefined,
     port: numberFlag("port", values.port as string | undefined),
     dry: values.dry === true,
-    quiet: values.quiet === true,
+    output: outputFlag(values.output as string | undefined),
     force: values.force === true,
     strict: values.strict === true,
     earlyExit: values["no-early-exit"] === true ? false : values["early-exit"] === true ? true : undefined,
@@ -355,6 +387,42 @@ function evalsFilterFromExperiment(
   if (Array.isArray(evals)) expFilter = (id) => evals.includes(id) || evals.some((e) => id.startsWith(e + "/"));
   else if (typeof evals === "function") expFilter = evals;
   return (id) => expFilter(id) && patternFilter(id);
+}
+
+/**
+ * run 结束后把 coordinator 累计的诊断折成 `RunCompletion`(见 docs/feature/experiments/cli.md
+ * 「运行完成状态不只看 verdict 计数」)。只读已经真实发生过的诊断,不额外发明信号:
+ * - `"interrupted"` 诊断只在 run.ts 判定为真·中断(Effect exit 真实标记中断,不是「signal 被
+ *   abort 过」这种更弱的信号)时才会出现,见 `runner/run.ts` 的 `reportInterrupted()` 调用点。
+ * - `"budget-exhausted:<experimentId>"` 诊断的 `count` 就是该 experiment 因预算耗尽未派发的
+ *   attempt 数(见 `runner/feedback/reducer.ts` 对 `budget-exhausted` 事件的注释),跨
+ *   experiment 求和得到 `unstarted`。
+ * - `"reporter-error:<reporter>"` 诊断转成 `ReporterError[]`;`required` 字段来自事件自带的
+ *   `data.required`,直接反映这个 reporter 注册时的真实 required/best-effort 分类(见上面
+ *   构造 `reporters: ReporterRegistration[]` 的地方——artifacts / --json / --junit 恒
+ *   `required: true`,`config.reporters` 恒 `false`),不是一个统一写死的占位值。
+ * - `earlyExitUnstarted` 需要比较「计划要跑多少次」与「实际跑了多少次」,这份比较目前没有任何
+ *   已发出事件携带,留空(0)而不是编一个不可靠的近似值。
+ */
+function assembleRunCompletion(state: RunFeedbackState): RunCompletion {
+  let unstarted = 0;
+  let interrupted = false;
+  const reporterErrors: ReporterError[] = [];
+  for (const d of state.diagnostics) {
+    if (d.key === "interrupted") {
+      interrupted = true;
+    } else if (d.key.startsWith("budget-exhausted:")) {
+      unstarted += d.count;
+    } else if (d.key.startsWith("reporter-error:")) {
+      reporterErrors.push({
+        reporter: typeof d.data?.reporter === "string" ? d.data.reporter : d.key.slice("reporter-error:".length),
+        required: d.data?.required === true,
+        message: d.message,
+      });
+    }
+  }
+  const status: CompletionStatus = interrupted ? "interrupted" : unstarted > 0 ? "incomplete" : "complete";
+  return { status, unstarted, earlyExitUnstarted: 0, reporterErrors };
 }
 
 /** package.json 的 version 字段;-v/--version 直接回显这个号。 */
@@ -513,69 +581,119 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  // profile 只改变反馈,不改变选择/调度/判定;显式值覆盖 auto 检测(见 resolveOutputProfile)。
+  // --dry 和真正开跑共用同一个已解析 profile。
+  const outputProfile = resolveOutputProfile({
+    explicit: flags.output,
+    isTTY: process.stderr.isTTY === true,
+    env: process.env,
+  });
+
+  // matchedByRun[i] 对应 agentRuns[i] 匹配到的 eval 集合;--dry 预览与真正开跑时的
+  // RunFeedbackPlan(总量、去重 eval 数)共用同一份计算,不重复过滤一遍。
+  const matchedByRun = agentRuns.map((run) => evals.filter((e) => run.evalFilter(e.id)));
+  const totalRuns = agentRuns.reduce((sum, run, i) => sum + matchedByRun[i]!.length * run.runs, 0);
+  const uniqueEvalIds = new Set(matchedByRun.flat().map((e) => e.id));
+
   if (flags.dry) {
-    process.stdout.write(t("cli.dry.header", { evals: evals.length, configs: agentRuns.length }));
-    for (const run of agentRuns) {
-      const matched = evals.filter((e) => run.evalFilter(e.id));
-      const who = run.model ? `${run.agent.name}/${run.model}` : run.agent.name;
-      process.stdout.write(t("cli.dry.row", {
-        who,
-        experiment: run.experimentId ? ` (exp ${run.experimentId})` : "",
-        evals: matched.map((e) => e.id).join(", ") || t("cli.dry.noMatches"),
-        runs: run.runs,
-      }));
+    // --dry 只按所选 profile 打印计划,不运行、不落盘 —— 三种 profile 各自的展示逻辑
+    // 都在 runner/feedback/{human,agent,ci}.ts 里,这里只负责拼数据、选函数、写流、退出。
+    if (outputProfile === "agent") {
+      const rows: AgentPlanRow[] = [];
+      for (let i = 0; i < agentRuns.length; i++) {
+        const run = agentRuns[i]!;
+        const label = run.experimentId ?? (run.model ? `${run.agent.name}/${run.model}` : run.agent.name);
+        for (const e of matchedByRun[i]!) rows.push({ label, evalId: e.id });
+      }
+      process.stdout.write(
+        renderAgentPlanEnvelope({
+          total: totalRuns,
+          evals: uniqueEvalIds.size,
+          configs: agentRuns.length,
+          runs: Math.max(1, ...agentRuns.map((r) => r.runs)),
+          rows,
+        }) + "\n",
+      );
+    } else if (outputProfile === "ci") {
+      process.stdout.write(
+        renderCiDryPlan({
+          total: totalRuns,
+          evals: uniqueEvalIds.size,
+          configs: agentRuns.length,
+          rows: agentRuns.map((run, i) => ({
+            experimentId: run.experimentId,
+            who: run.model ? `${run.agent.name}/${run.model}` : run.agent.name,
+            evalIds: matchedByRun[i]!.map((e) => e.id),
+            runs: run.runs,
+          })),
+        }),
+      );
+    } else {
+      process.stdout.write(
+        renderHumanDryPlan({
+          evals: evals.length,
+          configs: agentRuns.length,
+          rows: agentRuns.map((run, i) => ({
+            who: run.model ? `${run.agent.name}/${run.model}` : run.agent.name,
+            experimentSuffix: run.experimentId ? ` (exp ${run.experimentId})` : "",
+            evalIds: matchedByRun[i]!.map((e) => e.id),
+            runs: run.runs,
+          })),
+        }),
+      );
     }
     process.exit(0);
   }
 
-  // 提前算好(而不是等 runEvals 内部算):live 表格要在第一帧就知道哪些行会被携入
-  // (carry),直接渲染成已完成,不然会显示"waiting for a slot"直到进程退出——它们
-  // 永远等不到 eval:start,run.ts 压根不会为携入的 (experimentId, evalId) 派发 attempt。
-  // 两处必须共用同一份 planCarry() 判断,否则各自算一遍,一旦判断不一致,live 表格
-  // 显示的"携入"和 run.ts 实际调度的"携入"就会对不上。
+  // 提前算好携入计划:coordinator 的 plan 事件(reused/reusedByExperiment)与 runEvals 内部
+  // 实际调度必须共用同一份 planCarry() 判断,否则两边各自算一遍,一旦不一致,dashboard/
+  // envelope 展示的"携入"就会和 run.ts 真实调度的"携入"对不上(见 memory 的
+  // live-carry-row-shows-waiting-forever)。
   const priorResults = flags.force ? undefined : await loadLatestResultsPerEval(join(cwd, ".niceeval"));
   const carryPlan = priorResults?.length ? await planCarry(evals, agentRuns, priorResults) : undefined;
-  const carriedVerdictByKey = new Map<string, string>();
-  for (const r of carryPlan?.carriedResults ?? []) {
-    if (r.experimentId) carriedVerdictByKey.set(`${r.experimentId}|${r.id}`, r.verdict);
-  }
-
-  const reporters: Reporter[] = [];
-  let onProgress: ((evalId: string, who: string, msg: string) => void) | undefined;
-
-  if (!flags.quiet) {
-    if (process.stderr.isTTY) {
-      // TTY 模式:用 live display 替换 Console reporter,把 attempt log 路由到状态表行尾
-      const liveRows: LiveRow[] = [];
-      for (const agentRun of agentRuns) {
-        // who 必须与 attempt.ts 的进度上报同源(runWho):曾用 agent/model,同 agent 同 model
-        // 的实验变体(xxx 与 xxx--agents-md)会被折叠成一行,0/2 看起来像同一 eval 跑两次。
-        const who = runWho({ agentName: agentRun.agent.name, model: agentRun.model, experimentId: agentRun.experimentId });
-        const matched = evals.filter((e) => agentRun.evalFilter(e.id));
-        for (const evalDef of matched) {
-          const carriedVerdict = agentRun.experimentId
-            ? carriedVerdictByKey.get(`${agentRun.experimentId}|${evalDef.id}`)
-            : undefined;
-          liveRows.push({ evalId: evalDef.id, who, total: agentRun.runs, carriedVerdict });
-        }
-      }
-      const totalAttempts = liveRows.reduce((s, r) => s + r.total, 0);
-      const live = LiveReporter(liveRows, totalAttempts);
-      reporters.push(live);
-      onProgress = (evalId, who, msg) => live.progress(evalId, who, msg);
-    } else {
-      reporters.push(ConsoleReporter());
+  const reusedByExperiment: { experimentId: string; evalIds: string[] }[] = [];
+  {
+    const grouped = new Map<string, Set<string>>();
+    for (const r of carryPlan?.carriedResults ?? []) {
+      if (!r.experimentId) continue;
+      const ids = grouped.get(r.experimentId) ?? new Set<string>();
+      ids.add(r.id);
+      grouped.set(r.experimentId, ids);
     }
-  } else {
-    // --quiet:进度流照旧直写 stderr,结果流换成最小报告器 —— errored / failed 各补一行
-    // stderr,passed / skipped 静默。没有它,attempt 出执行错时控制台会全程无声。
-    reporters.push(QuietReporter());
+    for (const [experimentId, ids] of grouped) reusedByExperiment.push({ experimentId, evalIds: [...ids] });
   }
-  const artifacts = ArtifactsReporter();
-  reporters.push( artifacts);
-  if (flags.junit) reporters.push(JUnit(flags.junit));
-  if (flags.json) reporters.push(Json(flags.json));
-  reporters.push(...(config.reporters ?? []));
+
+  // 无全局默认:并发上限由 sandbox provider 的推荐值决定(多个 agentRun 各有 sandbox 时取
+  // 最小值,最保守的 provider 决定上限)。同一个值既进 RunFeedbackPlan.shape,也传给 runEvals——
+  // 两处必须是同一个数字,dashboard 展示的并发上限不能和真实调度的并发上限对不上。
+  const sandboxRecs = agentRuns.map((r) => sandboxRecommendedConcurrency(r.sandbox));
+  const sandboxDefaultConcurrency = sandboxRecs.length > 0 ? Math.min(...sandboxRecs) : 10;
+  const maxConcurrency =
+    flags.maxConcurrency ??
+    envNumber("NICEEVAL_MAX_CONCURRENCY") ??
+    config.maxConcurrency ??
+    sandboxDefaultConcurrency;
+
+  const plan: RunFeedbackPlan = {
+    shape: { evals: uniqueEvalIds.size, configs: agentRuns.length, totalRuns, maxConcurrency },
+    reused: carryPlan?.carriedResults.length ?? 0,
+    reusedByExperiment,
+  };
+
+  // 一个 run 内只有一个终端协调者(见 docs/feature/experiments/cli.md「输出流和落盘节奏」):
+  // 三种 profile 各自的展示逻辑全部在 renderer 里,这里只按解析出的 profile 选一个构造好、
+  // 交给 coordinator。run:start 前(coordinator.start(plan) 之前)的一切都还没有活跃 sink,
+  // 出错走 bootstrap stderr;之后所有诊断都经它。
+  const io = createNodeFeedbackIO();
+  const commandLabel = ["niceeval", command, ...positionals].join(" ").trim();
+  const renderer =
+    outputProfile === "human"
+      ? createHumanRenderer({ io, command: commandLabel })
+      : outputProfile === "agent"
+        ? createAgentRenderer({ io })
+        : createCiRenderer({ io });
+  const coordinator = createFeedbackCoordinator({ profile: outputProfile, renderer, io });
+  coordinator.start(plan);
 
   // Ctrl+C / kill 的三级响应,核心目标:任何情况下都不留下孤儿沙箱。
   //   1 次:abort controller → runEvals 把它喂给 Effect signal → 各 attempt 的 Scope 跑 release
@@ -586,28 +704,29 @@ async function main(): Promise<void> {
   //   3 次:真不耐烦了,硬退(此时多半已无可清理的)。
   const ctrl = new AbortController();
   let signalCount = 0;
-  // 兜底强清 + 退出:只跑一次,带超时(stopAllSandboxes 内每个 stop 各自有超时)。
+  // 兜底强清 + 退出:只跑一次,带超时(stopAllSandboxes 内每个 stop 各自有超时)。先停 dashboard
+  // 的 tick/动态区域(coordinator.stopDynamic()),避免硬退时终端卡在半帧 ANSI 状态。
   let forcing = false;
   const forceCleanupAndExit = (code: number) => {
     if (forcing) return;
     forcing = true;
-    void stopAllSandboxes().finally(() => process.exit(code));
+    void Promise.all([coordinator.stopDynamic(), stopAllSandboxes()]).finally(() => process.exit(code));
   };
   for (const sig of ["SIGINT", "SIGTERM"] as const) {
     process.on(sig, () => {
       signalCount += 1;
       if (signalCount === 1) {
-        process.stderr.write(t("cli.interruptCleanup"));
+        reportActivity(t("cli.interruptCleanup").trimEnd());
         ctrl.abort();
         // 看门狗:graceful 清理 12s 还没让进程自己收口,就强清兜底。
         setTimeout(() => {
           if (liveSandboxCount() > 0) {
-            process.stderr.write(t("cli.fallbackCleanupTimeout"));
+            reportActivity(t("cli.fallbackCleanupTimeout").trimEnd());
             forceCleanupAndExit(130);
           }
         }, 12_000).unref();
       } else if (signalCount === 2) {
-        process.stderr.write(t("cli.forceCleanupExit"));
+        reportActivity(t("cli.forceCleanupExit").trimEnd());
         forceCleanupAndExit(130);
       } else {
         process.exit(130); // 第三次:硬退
@@ -615,47 +734,76 @@ async function main(): Promise<void> {
     });
   }
 
-  // 无全局默认:并发上限由 sandbox provider 的推荐值决定。
-  // 多个 agentRun 各有 sandbox 时取最小值(最保守的 provider 决定上限)。
-  const sandboxRecs = agentRuns.map((r) => sandboxRecommendedConcurrency(r.sandbox));
-  const sandboxDefaultConcurrency = sandboxRecs.length > 0 ? Math.min(...sandboxRecs) : 10;
-
-  const summary = await runEvals({
-    config,
-    evals,
-    agentRuns,
-    reporters,
-    maxConcurrency:
-      flags.maxConcurrency ??
-      envNumber("NICEEVAL_MAX_CONCURRENCY") ??
-      config.maxConcurrency ??
-      sandboxDefaultConcurrency,
-    signal: ctrl.signal,
-    onProgress,
-    priorResults,
-    carryPlan,
+  // reporter 只剩正交的机器/artifact 出口:human/agent/ci 的展示完全由上面的 coordinator +
+  // renderer 负责,不再有 Console/Live/Quiet 这类兼职当 reporter 的展示层(见 docs 的
+  // 「CLI 只负责解析 profile、构造 coordinator/reporters、运行和退出」)。每个 reporter 在这里
+  // 按来源分类 required/best-effort(见 `ReporterRegistration` 的字段注释):默认落盘的
+  // artifacts、显式指定的 --json/--junit 是 agent/CI 读结果的唯一入口,写失败必须让
+  // completion/退出码判红;用户 `config.reporters` 只是补充观测,失败只折成一条 diagnostic,
+  // 不影响 completion。
+  const reporters: ReporterRegistration[] = [];
+  const artifacts = ArtifactsReporter();
+  reporters.push({ reporter: artifacts, name: "artifacts", required: true });
+  if (flags.junit) reporters.push({ reporter: JUnit(flags.junit), name: "junit", required: true, target: flags.junit });
+  if (flags.json) reporters.push({ reporter: Json(flags.json), name: "json", required: true, target: flags.json });
+  (config.reporters ?? []).forEach((reporter, i) => {
+    reporters.push({ reporter, name: `config-reporter-${i}`, required: false });
   });
+
+  let summary: RunSummary;
+  try {
+    summary = await runEvals({
+      config,
+      evals,
+      agentRuns,
+      reporters,
+      maxConcurrency,
+      signal: ctrl.signal,
+      priorResults,
+      carryPlan,
+    });
+  } catch (e) {
+    // 真崩溃前先撤下 dashboard,不让半帧 ANSI 状态和下面 main().catch 打印的错误交织。
+    await coordinator.stopDynamic();
+    throw e;
+  }
 
   // 正常返回(含被中断后走部分汇总)后再兜一刀:Scope finalizer 没停掉的残留沙箱在这里强清。
   // 跑顺利时登记表已空,是 no-op。
   await stopAllSandboxes();
 
-  // agent 反馈闭环的入口:跑完直接给出每个已创建快照的目录,agent 读 snapshot.json 与各
-  // attempt 的 result.json / artifact(events/trace/diff),不必解析人类向的流式输出。
-  // --quiet 下也输出。相对 cwd 的路径更友好;结果落在 cwd 外时(relative 路径以 .. 开头)
-  // 原样打印绝对路径。
-  for (const { dir } of artifacts.outputDirs()) {
-    const rel = relative(cwd, dir);
-    process.stdout.write(t("cli.resultsPath", { path: rel && !rel.startsWith("..") ? rel : dir }));
-  }
+  // completion 要先算好,--json/--junit 是否"这次真的写出"才有依据(见下)。
+  const completion = assembleRunCompletion(coordinator.state);
 
-  // 退出码按 eval 级判定,不按 attempt:summary.failed/errored 统计的是每次 attempt,
-  // 被 runs+earlyExit 重试吸收的失败(先挂一次、后来过了)不该把进程判红——否则
-  // 「runs 吸收单次抖动」在 CI 退出码这层永远不成立。折叠口径与报表/view 共用
-  // foldEvalVerdict(任一轮通过 → 该 eval 通过),粒度 experimentId|eval id。
-  const stats = evalLevelStats(summary.results, (r) => `${r.experimentId ?? ""}|${r.id}`);
-  const failedExit = stats.failed > 0 || stats.errored > 0;
-  process.exit(failedExit ? 1 : 0);
+  // --json/--junit 是正交机器出口,只在这次运行真的写出对应文件时才把路径交给 coordinator
+  // (它转发给 ci renderer 打印独立的 json=/junit= 行,见 docs「CI 怎么用」)。判据是
+  // completion.reporterErrors 里有没有这次 required reporter("json"/"junit")的失败记录——
+  // 不能用 existsSync 探测磁盘:atomicWriteFile(json.ts)失败时原地保留上一次运行遗留的旧文件,
+  // existsSync 只会看到"文件存在"就误判成这次写成功,把上一轮的陈旧内容当成本次结果打印出去。
+  const jsonPath = flags.json && !completion.reporterErrors.some((e) => e.reporter === "json") ? flags.json : undefined;
+  const junitPath =
+    flags.junit && !completion.reporterErrors.some((e) => e.reporter === "junit") ? flags.junit : undefined;
+
+  // agent 反馈闭环的入口:跑完直接给出每个已创建快照的目录,agent/ci 读 snapshot.json 与各
+  // attempt 的 result.json / artifact(events/trace/diff),不必解析人类向的流式输出。相对 cwd
+  // 的路径更友好;结果落在 cwd 外时(relative 路径以 .. 开头)原样打印绝对路径。打印本身由
+  // renderer 的 "saved" 处理完成,这里只负责把路径交给 coordinator。
+  const paths = artifacts.outputDirs().map(({ dir }) => {
+    const rel = relative(cwd, dir);
+    return rel && !rel.startsWith("..") ? rel : dir;
+  });
+
+  await coordinator.finish({ summary, completion, paths, json: jsonPath, junit: junitPath });
+
+  // 退出码统一走 CompletionStatus 驱动的语义(interrupted → 130、incomplete/required reporter
+  // 失败 → 1),不再只看 verdict 计数;三种 profile 共用同一套退出码,不是 ci 专属。failed/errored
+  // 先按 (experiment, eval) 折叠再喂给 computeCiExitCode——它只认 RunSummary 原始字段,不知道
+  // 「同一 eval 的重试轮不该重复计红」这条 eval 级判定规则(被 runs+earlyExit 重试吸收的失败,
+  // 先挂一次、后来过了,不该把进程判红,否则 CI 判定与 evalLevelStats 报表口径不一致;
+  // 见 memory 的 cli-exit-code-attempt-level-not-eval-level)。
+  const foldedStats = evalLevelStats(summary.results, (r) => `${r.experimentId ?? ""}|${r.id}`);
+  const exitCode = computeCiExitCode({ ...summary, failed: foldedStats.failed, errored: foldedStats.errored }, completion);
+  process.exit(exitCode);
 }
 
 main().catch(async (e) => {

@@ -10,7 +10,7 @@
 
 import type { Sandbox } from "../types.ts";
 import { t } from "../i18n/index.ts";
-import { writeStderrLine } from "../tty-line.ts";
+import { reportDiagnostic } from "../runner/feedback/sink.ts";
 
 const live = new Set<Sandbox>();
 
@@ -41,7 +41,14 @@ export async function stopSandbox(sb: Sandbox, timeoutMs = DEFAULT_STOP_TIMEOUT_
     ]);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    writeStderrLine(t("sandbox.stopFailed", { id: sb.sandboxId, message: msg }));
+    // 稳定 key 不含具体 sandbox id:同一类失败(如 provider 限流导致大批 stop 超时)去重折叠成
+    // 一条永久事件、count 累加,而不是刷屏出几十行几乎相同的诊断;具体是哪个沙箱失败进 data。
+    reportDiagnostic({
+      key: "sandbox-stop-failed",
+      severity: "warning",
+      message: t("sandbox.stopFailed", { id: sb.sandboxId, message: msg }).trimEnd(),
+      data: { sandboxId: sb.sandboxId, message: msg },
+    });
   } finally {
     if (timer) clearTimeout(timer);
     live.delete(sb);
@@ -55,7 +62,12 @@ export async function stopSandbox(sb: Sandbox, timeoutMs = DEFAULT_STOP_TIMEOUT_
 export async function stopAllSandboxes(timeoutMs = DEFAULT_STOP_TIMEOUT_MS): Promise<number> {
   const all = [...live];
   if (all.length === 0) return 0;
-  writeStderrLine(t("sandbox.forceCleanup", { count: all.length }));
+  reportDiagnostic({
+    key: "sandbox-force-cleanup",
+    severity: "warning",
+    message: t("sandbox.forceCleanup", { count: all.length }).trimEnd(),
+    data: { count: all.length },
+  });
   await Promise.allSettled(all.map((sb) => stopSandbox(sb, timeoutMs)));
   return all.length;
 }

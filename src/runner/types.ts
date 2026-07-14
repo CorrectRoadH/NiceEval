@@ -1,13 +1,14 @@
 // runner 域类型:结果 / 汇总 / reporter 契约,eval / experiment / config 定义,
 // 以及调度器的编排类型(AgentRun / RunOptions / Attempt)。
 
-import type { Cleanup, LocalizedText, SourceArtifact } from "../shared/types.ts";
+import type { Cleanup, JsonValue, LocalizedText, SourceArtifact } from "../shared/types.ts";
 import type { O11ySummary, StreamEvent, TraceSpan, Usage } from "../o11y/types.ts";
 import type { Agent, AgentSetupManifest } from "../agents/types.ts";
 import type { Sandbox, SandboxOption } from "../sandbox/types.ts";
 import type { AssertionResult, DiffData, JudgeConfig, Verdict } from "../scoring/types.ts";
 import type { TestContext } from "../context/types.ts";
 import type { CapturedEvalSource } from "./eval-source.ts";
+import type { AttemptLocator } from "../results/locator.ts";
 
 // ───────────────────────── 结果 / 报告 ─────────────────────────
 
@@ -105,6 +106,17 @@ export interface RunShape {
   /** 本次运行实际生效的全局并发数(flag/env/config/sandbox 默认值解析后的结果);
    *  实验级 maxConcurrency 只在该实验内部限流,不改这个全局值。 */
   maxConcurrency: number;
+  /**
+   * 本次 invocation 的快照身份锚点(ISO 时间戳),在调度任何 attempt 前确定。fresh
+   * `EvalResult.locator` 编码进去的 `snapshotStartedAt`(见 `results/locator.ts` 的
+   * `AttemptIdentity`)与 Artifacts writer 写进 `snapshot.json` 的 `startedAt` 共用
+   * 同一个值 —— 不同 experiment 在同一次 invocation 内共享它也不会碰撞(locator 身份
+   * 还含 experimentId)。`runEvals()` 恒在 `onRunStart` 触发前把它填进这里,这是它
+   * 从 run.ts 传给 Artifacts 等 reporter 的唯一途径;省略只出现在测试/第三方手写
+   * `RunShape` 的直调场景。见 docs/feature/experiments/cli.md「Locator 必须在
+   * result 发布前确定」。
+   */
+  snapshotStartedAt?: string;
 }
 
 export interface Reporter {
@@ -112,6 +124,30 @@ export interface Reporter {
   onRunStart?(evals: { id: string }[], agent: Agent, shape?: RunShape): void | Promise<void>;
   onEvalComplete?(result: EvalResult): void | Promise<void>;
   onRunComplete?(summary: RunSummary): void | Promise<void>;
+}
+
+/**
+ * 内部 reporter 注册项:CLI/runner 给每个 `Reporter` 实例附上「叫什么名字」「失败是否致命」
+ * 两条元数据,不改变用户实现 `Reporter` 的公共形状——`Reporter` 接口本身不变,用户只需要实现
+ * 上面那四个回调,从不需要知道 `ReporterRegistration` 的存在。`name` 是
+ * `reportReporterError()` / `DiagnosticNotice.key` 里 `reporter-error:<name>` 的稳定标识:
+ * 同一个 reporter 反复失败折叠成一条诊断、`count` 递增,不同 reporter 各自一条,由这个字段的
+ * 取值决定,不是「在哪个回调阶段失败」(onRunStart/onEvalComplete/…)决定——后者只作为
+ * 诊断消息里的次要上下文,不参与去重身份。
+ *
+ * `required` 语义(见 docs/feature/experiments/cli.md「运行完成状态不只看 verdict 计数」):
+ * - 默认 Artifacts reporter、CLI 显式 `--json` / `--junit`:`required: true`——它们的产物是
+ *   agent/CI 读取权威结果的唯一入口,写失败必须让 `RunCompletion` 判红、CI 退出码非零。
+ * - 用户 `Config.reporters` / `EvalDef.reporters`:`required: false`——失败只折成一条
+ *   diagnostic,不影响 completion,也不阻断其它 reporter 收尾或后续 attempt。
+ *
+ * `target` 是可选的落盘路径(如 `--json`/`--junit` 指定的文件),纯展示 / 排障用途,不参与判定。
+ */
+export interface ReporterRegistration {
+  reporter: Reporter;
+  name: string;
+  required: boolean;
+  target?: string;
 }
 
 export type ReporterEvent =
@@ -264,7 +300,16 @@ export interface PriceOverride {
 /**
  * 进度行 / 日志里标识一个 run 配置的短名。有 experiment 时用其 basename(唯一,
  * 能区分同 agent 同 model 的实验变体,如 xxx 与 xxx--agents-md;与汇总表口径一致);
- * 无 experiment 时退回 agent/model。live display 以它作行聚合 key,两处必须同源。
+ * 无 experiment 时退回 agent/model。现有 live display 以它(拼 evalId)作行聚合 key,
+ * 两处必须同源(改这里的格式要同步核对 live.ts 的 key 计算,见 memory 的
+ * live-who-key-mismatch-freezes-rows —— 上一次格式改动漏改 live.ts 自己手写的两处曾冻结整表)。
+ *
+ * 这是展示 label,不是 identity —— 两个不同的 (evalId, attempt) 可能巧合算出同一个 who
+ * (同 experiment 同 eval 的第 2 次重试与另一条 eval 的第 1 次重试,展示上都叫同一个 basename)。
+ * 反馈系统新的事件/状态(见上面 `AttemptRef` / `AttemptKey` / `encodeAttemptKey`)一律用
+ * `{experimentId, evalId, attempt}` 做 identity/Map key,`who` 只作为 `ActiveAttempt.who`
+ * 之类的展示字段附着,不参与去重或查找 —— 把展示 label 错当成 identity key 曾经是 live 表格
+ * 两个真实 bug 的根因(另见 memory 的 live-rows-fold-experiment-variants)。
  */
 export function runWho(run: { agentName: string; model?: string; experimentId?: string }): string {
   if (run.experimentId) return run.experimentId.split("/").pop()!;
@@ -294,11 +339,16 @@ export interface RunOptions {
   config: Config;
   evals: DiscoveredEval[];
   agentRuns: AgentRun[];
-  reporters: Reporter[];
+  /**
+   * 已注册的 reporter,携带 name/required 元数据(见 `ReporterRegistration`)。这是内部编排
+   * 通道——调用方(今天只有 `cli.ts`)按来源(默认 artifacts / 显式 --json·--junit / 用户
+   * `Config.reporters`)把裸 `Reporter` 各自包一层元数据后传进来;eval 级 `EvalDef.reporters`
+   * 不经过这里,由 `runEvals()` 自己按 `scopeReporter()` 包装、统一记作 `required: false`
+   *(见 run.ts 的 scopedSets 处理)。
+   */
+  reporters: ReporterRegistration[];
   maxConcurrency: number;
   signal?: AbortSignal;
-  /** TTY live display 的进度回调;设置后 attempt 的 log 消息路由到它而不是 stderr。 */
-  onProgress?: (evalId: string, who: string, msg: string) => void;
   /** 上次运行的结果。verdict 为 passed/failed 的 (experimentId, evalId) 组合跳过重跑,结果直接合入本次汇总。 */
   priorResults?: EvalResult[];
   /**
@@ -324,3 +374,251 @@ export interface Attempt {
   key: string;
   fingerprint: string;
 }
+
+// ───────────────────────── 反馈 profile / 事件 / reducer 状态 ─────────────────────────
+// `niceeval exp` 的 human / agent / ci 反馈模型(见 docs/feature/experiments/cli.md)。
+// 本节只定义类型 + 纯 reducer 需要的输入输出契约;profile renderer、terminal coordinator、
+// runner 侧的实际事件发射均由后续阶段实现 —— 这里先把事件形状和状态形状钉死,后续阶段
+// 不需要重新设计事件联合类型。
+
+/** 三种最终反馈 profile。`--output auto` 只是 CLI flag 的输入值,解析后必然落在这三者之一。 */
+export type OutputProfile = "human" | "agent" | "ci";
+
+/**
+ * Attempt 的正式生命周期阶段,runner 把自己驱动的固定顺序投影成这个闭集合枚举
+ *(见 docs/feature/experiments/cli.md「Attempt 阶段」)。没有对应 hook/配置的步骤直接跳过,
+ * 不产生空阶段;不是 adapter / sandbox provider / 用户 hook 可以自行设置的公共字段
+ *(那个更大的 per-owner operation scope API 不在本阶段范围内)。
+ *
+ * `waiting for a slot` 是 attempt 开始前的调度态,不属于这个枚举;
+ * `passed` / `failed` / `errored` / `reused` / `early-exit` / `budget-unstarted` 是阶段结束后的
+ * outcome,同样不塞进这里。
+ */
+export type AttemptPhase =
+  | "sandbox-provision"
+  | "sandbox-setup"
+  | "workspace-setup"
+  | "eval-setup"
+  | "agent-setup"
+  | "telemetry-setup"
+  | "running"
+  | "diff"
+  | "scoring"
+  | "trace"
+  | "teardown";
+
+/**
+ * 反馈系统里一次 attempt 的稳定身份:reducer 用它做 active map 的 key、事件的关联字段。
+ * 只含调度身份三元组 —— 不含 agent/model/展示 label(那是 `who`,来自 `runWho()`,
+ * 见该函数注释:展示 label 不能当 identity key 用,folding 两个不同 config 到同一个 key
+ * 曾经就是 live 表格两个真实 bug 的根因),也不含 `AttemptLocator` 需要的
+ * `snapshotStartedAt`(那是落盘身份,由 `results/locator.ts` 的 `AttemptIdentity` 独立管理;
+ * 完成/failure 事件在 locator 确定后直接携带派生好的 `AttemptLocator` 字符串,反馈层
+ * 不重新推导身份 —— 两个同名概念的 identity 类型故意不同名,以免和落盘身份互相看错)。
+ */
+export interface AttemptRef {
+  /** 未挂靠 experiment 时为 undefined(直接指定 agent/model 跑,不经过 experiment);不用空字符串占位。 */
+  experimentId?: string;
+  evalId: string;
+  /** 0-indexed,与 `EvalResult.attempt` / `AttemptLocator` 的 attempt 同一口径。 */
+  attempt: number;
+}
+
+/** `AttemptRef` 的确定性字符串编码,只作 `RunFeedbackState.active` 的 Map key 使用 ——
+ *  不是展示文本(那是 `who`),也不是 `AttemptLocator`(那需要额外的 `snapshotStartedAt`)。 */
+export type AttemptKey = string & { readonly __brand: "AttemptKey" };
+
+/** 由 `AttemptRef` 派生 `AttemptKey`;同一身份永远编码出同一个 key。 */
+export function encodeAttemptKey(ref: AttemptRef): AttemptKey {
+  return `${ref.experimentId ?? ""}|${ref.evalId}|${ref.attempt}` as AttemptKey;
+}
+
+/**
+ * dashboard 当前可见的一个 active slot。`phase` 是正式状态,`detail` 只是该 phase 下的次要文本
+ *(如 `running` 阶段的 `tool: shell` / `turn 2`)—— 两者是两个字段,不把 adapter 的 raw progress
+ * string 直接当状态用;phase 变化时 `detail` 清空(旧阶段的次要文本不该残留到新阶段)。
+ */
+export interface ActiveAttempt {
+  identity: AttemptRef;
+  /** 展示 label,等价 `runWho()` 的结果;渲染要用,但绝不作为 identity/key。 */
+  who: string;
+  phase: AttemptPhase;
+  /** 进入当前 phase 的墙钟时间(epoch ms),用于渲染阶段耗时;每次 phase 变化都会更新。 */
+  phaseStartedAt: number;
+  detail?: string;
+}
+
+/**
+ * 一次失败/错误的永久通知:human 撤下 dashboard 后追加一行、agent/ci 立即追加一行,都读它。
+ * 字段全部结构化(locator / identity / verdict / phase 都是具名字段),profile renderer 不需要
+ * 解析 `reason` 之外的任何文本就能拼出机器可读的输出。
+ */
+export interface FailureNotice {
+  at: number;
+  locator: AttemptLocator;
+  identity: AttemptRef;
+  who: string;
+  verdict: "failed" | "errored";
+  /** 一层可行动摘要(gate 断言名、error 消息……),不是完整 stack/transcript;详情走 `niceeval show`。 */
+  reason: string;
+  /** 失败发生时所在的阶段(如 `sandbox-provision`);框架层错误(如 timeout)可能没有明确阶段。 */
+  phase?: AttemptPhase;
+}
+
+/**
+ * 去重后的诊断通知(warning/error):相同 `key` 的诊断只保留一条,`count` 累加受影响次数
+ *(见 docs/feature/experiments/cli.md「什么动态更新,什么逐条追加」的去重规则)。
+ * `data` 携带结构化字段(如 budget 的 experimentId/spent/unstarted),agent/ci 直接读取,
+ * 不解析 `message`(`message` 只是 human 展示用的一句话)。
+ */
+export interface DiagnosticNotice {
+  at: number;
+  key: string;
+  severity: "warning" | "error";
+  message: string;
+  /** 相同 key 累计出现的次数,由 reducer 去重时递增。 */
+  count: number;
+  identity?: AttemptRef;
+  data?: Readonly<Record<string, JsonValue>>;
+}
+
+/** 运行完整性结论,独立于 verdict 计数。CI 退出码不能只看 failed/errored ——
+ *  budget 未覆盖全部计划、用户中断、required reporter 失败都必须让 completion 非「complete」。 */
+export type CompletionStatus = "complete" | "incomplete" | "interrupted";
+
+/** 一个 reporter 收尾失败的记录;`required` 区分它是否让 completion 判红(见 ReporterRegistration)。 */
+export interface ReporterError {
+  reporter: string;
+  required: boolean;
+  message: string;
+}
+
+export interface RunCompletion {
+  status: CompletionStatus;
+  /** budget 耗尽导致未派发的 attempt 数;不含首过即停省略的次数(见 `earlyExitUnstarted`)。 */
+  unstarted: number;
+  /** 首过即停在已知 verdict 下主动省略的计划次数 —— 这是「省下的重复验证」,不是「未完整覆盖」。 */
+  earlyExitUnstarted: number;
+  reporterErrors: readonly ReporterError[];
+}
+
+/**
+ * 事件 → 状态的纯 reducer 产出(见 `src/runner/feedback/reducer.ts`)。所有计数、active map、
+ * cost 累计、failure/diagnostic 去重都只在 reducer 里算一次;三种 profile 的 renderer 只读取
+ * 这份状态,不各自维护第二份推导。
+ *
+ * `total = reused + running + queued + completed` 在处理完每一个事件之后都成立,是 reducer 的
+ * 不变量(见 reducer.test.ts 的表驱动用例,每一步都断言,不只在流程末尾断言一次)。
+ */
+export interface RunFeedbackState {
+  total: number;
+  reused: number;
+  running: number;
+  queued: number;
+  completed: number;
+  elapsedMs: number;
+  estimatedCostUSD?: number;
+  active: ReadonlyMap<AttemptKey, ActiveAttempt>;
+  failures: readonly FailureNotice[];
+  diagnostics: readonly DiagnosticNotice[];
+}
+
+/** 一次 run 的初始计划,携带 carry/reuse 明细(按 experiment 分组的已复用 eval id 清单)。 */
+export interface RunFeedbackPlan {
+  shape: RunShape;
+  /** 携入(carry)结果数,直接计入 `RunFeedbackState.reused`,不需要重新调度。 */
+  reused: number;
+  /** 按 experiment 分组的携入 eval 清单,供 human 摘要打印「哪些被复用」。 */
+  reusedByExperiment: readonly { experimentId: string; evalIds: readonly string[] }[];
+}
+
+/**
+ * 只影响 dashboard 当前帧、reducer 不为它保留历史的事件:新值使旧值失去意义,所以覆盖而不是
+ * 追加(见 docs/feature/experiments/cli.md「什么动态更新,什么逐条追加」的判断标准)。
+ * `attempt:early-exit` 同样折进这一组 —— 它不打印永久行,只把已知 verdict 的省略次数收进
+ * `completed`(见 reducer 实现)。
+ */
+export type AttemptLifecycleEvent =
+  | { type: "attempt:queued"; at: number; identity: AttemptRef; who: string }
+  | { type: "attempt:start"; at: number; identity: AttemptRef; who: string; phase: AttemptPhase }
+  | { type: "attempt:phase"; at: number; identity: AttemptRef; phase: AttemptPhase }
+  | { type: "attempt:progress"; at: number; identity: AttemptRef; detail: string }
+  | {
+      type: "attempt:complete";
+      at: number;
+      identity: AttemptRef;
+      who: string;
+      verdict: Verdict;
+      estimatedCostUSD?: number;
+    }
+  | { type: "attempt:early-exit"; at: number; identity: AttemptRef; who: string };
+
+/**
+ * 运行级时钟 tick:唯一允许更新 `RunFeedbackState.elapsedMs` 的事件,由 coordinator 的定时器产出
+ *(见 plan 的可注入 `FeedbackIO` clock)。reducer 保持纯函数,不自己读 `Date.now()`,elapsedMs
+ * 因此只能通过事件携带的值前进 —— 这也让 reducer 测试可以喂任意 elapsed 值,不必真的等待。
+ */
+export interface FeedbackTickEvent {
+  type: "tick";
+  at: number;
+  elapsedMs: number;
+}
+
+/**
+ * 永久事件:human 撤下 dashboard 后追加一行、agent 按 envelope 追加、ci 按 stdout 事件追加,
+ * 一旦发生就不会被后续状态覆盖掉(与上面按当前帧覆盖的 `AttemptLifecycleEvent` 相对)。
+ * 字段全部结构化,profile renderer 不解析 `message` 之外的任何文本、不解析 i18n 字符串。
+ */
+export type DurableFeedbackEvent =
+  | { type: "plan"; at: number; plan: RunFeedbackPlan }
+  | {
+      type: "failure";
+      at: number;
+      locator: AttemptLocator;
+      identity: AttemptRef;
+      who: string;
+      verdict: "failed" | "errored";
+      reason: string;
+      phase?: AttemptPhase;
+    }
+  | {
+      type: "diagnostic";
+      at: number;
+      key: string;
+      severity: "warning" | "error";
+      message: string;
+      identity?: AttemptRef;
+      data?: Readonly<Record<string, JsonValue>>;
+    }
+  /**
+   * emitter 对每一个因 budget 到顶而不派发的 attempt 各发一次(与 `attempt:early-exit` 同构,
+   * 见 reducer 实现);`unstarted` 是 emitter 自己记的、发出这条时的累计未派发数,写进
+   * `DiagnosticNotice.data` 供 agent/ci 直接读取,不是 reducer 用来计算「这次要挪多少」的输入
+   *(reducer 只按事件触发次数折算,保持纯函数不需要额外记住上一次的值)。
+   */
+  | { type: "budget-exhausted"; at: number; experimentId: string; spent: number; unstarted: number }
+  | { type: "interrupted"; at: number }
+  | { type: "reporter-error"; at: number; reporter: string; required: boolean; message: string }
+  | { type: "summary"; at: number; summary: RunSummary; completion: RunCompletion }
+  | {
+      type: "saved";
+      at: number;
+      /** 本次 invocation 实际落盘的快照结果路径。不含 `--json`/`--junit` 聚合文件——那两个由
+       *  `json`/`junit` 两个独立字段单独携带,而不是塞进这个数组后靠猜文件后缀去反推「哪一个
+       *  是聚合报告、哪些是快照目录」;CI 的 result 收尾需要把 `json=`/`junit=`/`snapshots=`
+       *  打成三条独立的行(见 docs/feature/experiments/cli.md「CI 怎么用」的字面例子),
+       *  结构化字段让它不需要解析路径字符串就能做到。 */
+      paths: readonly string[];
+      /** 实际写出的 `--json` 聚合报告路径。未传 `--json`,或写入失败(见 required reporter
+       *  语义),都省略这个字段——省略表示「不打印这一行」,不是打印一个空路径。 */
+      json?: string;
+      /** 实际写出的 `--junit` 聚合报告路径,语义同 `json`。 */
+      junit?: string;
+    };
+
+/**
+ * runner → feedback coordinator 的内部事件通道,与公共 `Reporter` / `ReporterEvent` 分开:
+ * profile renderer 只消费这里的具名字段,不解析 `ReporterEvent` 里的 i18n 文案或表格列宽
+ *(见 docs/feature/experiments/cli.md「输出流和落盘节奏」)。
+ */
+export type RunFeedbackEvent = AttemptLifecycleEvent | FeedbackTickEvent | DurableFeedbackEvent;

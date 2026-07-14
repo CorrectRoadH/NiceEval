@@ -19,6 +19,17 @@ import type { Producer, SnapshotMeta } from "./types.ts";
 export interface ResultsWriterOptions {
   /** 谁在写这份结果:niceeval 自己,或第三方 harness(name 如实写,别冒充 "niceeval")。 */
   producer: Producer;
+  /**
+   * 本次 invocation 的快照身份锚点(ISO 时间戳,即 runner 的 `RunShape.snapshotStartedAt`)。
+   * `writeAttemptFor()` 的隐式 snapshot 声明统一用它做 `startedAt`,不再按「该 experiment
+   * 第一条落盘 result 的 attempt startedAt」猜 —— 那个锚点依赖并发完成顺序,不确定;
+   * 同一 writer 处理多个 experiment 时也共享这同一个值(locator 身份还含 experimentId,
+   * 不会碰撞)。省略时退回旧行为:每次隐式声明按 `result.startedAt ?? now()` 各自取锚,
+   * 供未提供该值的直调场景使用(测试、结果转换脚本、第三方 harness 直接调
+   * `createResultsWriter()` 而不经过 niceeval 自己的 runner)。显式调用 `writer.snapshot()`
+   * 声明快照的调用方不受这个选项影响,必须自己传 `SnapshotDeclaration.startedAt`。
+   */
+  snapshotStartedAt?: string;
 }
 
 /** 快照级声明:一个 experiment 声明一次,这些字段不塞进每条 attempt。 */
@@ -172,8 +183,11 @@ export function createResultsWriter(root: string, opts: ResultsWriterOptions): R
       experimentId: result.experimentId,
       agent: result.agent,
       model: result.model,
-      // 快照 startedAt 以该实验首条落盘结果的 attempt 时刻为锚(首条 ≈ 实验开跑)。
-      startedAt: result.startedAt ?? new Date().toISOString(),
+      // 快照 startedAt 优先用 writer 级的 invocation 锚点(见 ResultsWriterOptions.snapshotStartedAt)——
+      // niceeval 自己的 runner 恒会提供,多个 experiment 共享同一个值。省略时(第三方直调
+      // createResultsWriter() 未传该选项)退回旧行为:以本次调用这个 result 自己的 attempt
+      // startedAt 为锚,首条落盘的 result 决定了这个 experiment 快照的身份锚点。
+      startedAt: opts.snapshotStartedAt ?? result.startedAt ?? new Date().toISOString(),
       experiment: result.experiment,
     });
 
@@ -303,6 +317,9 @@ async function writeAttemptFiles(
   // locator:caller(如第三方 harness 直接调 SnapshotWriter.writeAttempt)已经带了就尊重,
   // 否则按当前身份元组算一份 —— 这条路径只服务「非携带」的新写入,携带条目走
   // writeAttemptForImpl 的 artifactBase 分支,原样透传 result.locator,从不落到这里重算。
+  // niceeval 自己的 runner(src/runner/run.ts)在 fresh attempt 完成时已经把 locator 写进
+  // entry.locator(用的正是同一个 snapshot.startedAt),所以这条 encodeAttemptLocator 兜底
+  // 对 niceeval 自身运行永不触发,只在第三方 harness 未预先算好 locator 时才会走到。
   const locator =
     entry.locator ??
     encodeAttemptLocator({

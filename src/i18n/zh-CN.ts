@@ -39,6 +39,7 @@ export const zhCN = {
   "cli.dry.row": "  {{who}}{{experiment}}: {{evals}}  ×{{runs}}\n",
   "cli.error": "niceeval 出错:{{error}}\n",
   "cli.flag.invalidNumber": "标志 --{{flag}} 需要数字,收到 \"{{value}}\"。\n",
+  "cli.flag.invalidOutput": "标志 --output 需要 auto|human|agent|ci 之一,收到 \"{{value}}\"。\n",
   "runner.budgetUnenforceable":
     "{{budgetKey}} 的 budget:连续多个 attempt 完成后都拿不到成本数据(agent 不上报用量且模型不在价格表)——该 agent 的 budget 无法执行,取消护栏继续跑。\n",
   "judge.modelMissing":
@@ -73,7 +74,8 @@ export const zhCN = {
     "  niceeval init                            脚手架 config + evals/\n\n" +
     "标志:\n" +
     "  --runs n  --max-concurrency n  --timeout ms  --budget usd  --tag t\n" +
-    "  --early-exit / --no-early-exit  --strict  --force  --dry  --quiet\n" +
+    "  --early-exit / --no-early-exit  --strict  --force  --dry\n" +
+    "  --output auto|human|agent|ci\n" +
     "  --junit path  --json path  --out dir  --port n  --open / --no-open  -h, --help  -v, --version\n\n" +
     "位置参数只选「跑哪些 eval」(id 前缀);对着哪个 agent、怎么跑来自 experiments/ 与\n" +
     "标志。环境变量覆盖(标志 > 环境变量 > config):\n" +
@@ -135,6 +137,38 @@ export const zhCN = {
   "docker.imagePullStart": "Pulling Docker image: {{image}}...",
   "docker.readFileFailed": "Failed to read file {{path}}: {{stderr}}",
   "docker.unsupportedRuntime": "Unsupported runtime: {{runtime}}",
+  "feedback.human.active": "ACTIVE",
+  "feedback.human.budgetExhausted": "{{experimentId}} 预算已耗尽(已花 {{spent}},未跑 {{unstarted}})",
+  "feedback.human.compare": "Compare: niceeval view {{group}}",
+  "feedback.human.counts": "共 {{total}} · 复用 {{reused}} · 运行中 {{running}} · 排队 {{queued}} · 已完成 {{completed}}",
+  "feedback.human.diffHint": "Diff:    niceeval show {{locator}} --diff",
+  "feedback.human.failuresHeader": "FAILURES",
+  "feedback.human.heartbeat": "已运行 {{elapsed}} · {{counts}}",
+  "feedback.human.inspect": "Inspect: niceeval show {{locator}}",
+  "feedback.human.moreActive": "… 还有 {{count}} 项运行中",
+  "feedback.human.plan": "计划:{{total}} 个 attempt · {{evals}} 个 eval × {{configs}} 个配置 · 并发 {{concurrency}}",
+  "feedback.human.resultFailed": "FAILED",
+  "feedback.human.resultIncomplete": "INCOMPLETE",
+  "feedback.human.resultInterrupted": "INTERRUPTED",
+  "feedback.human.resultPassed": "PASSED",
+  "feedback.human.resultsHeader": "Results:",
+  "feedback.human.resultsMore": "… 还有 {{count}} 个",
+  "feedback.human.reuse": "复用:{{reused}} 条来自最近匹配快照的已判定结果",
+  "feedback.human.summaryLine": "{{passed}} 通过 · {{failed}} 失败 · {{errored}} 出错  (复用 {{reused}})",
+  "feedback.human.suppressedFailures": "… 还有 {{count}} 条失败被折叠",
+  "feedback.human.trace": "Trace:   niceeval show {{locator}} --execution",
+  "feedback.phase.agentSetup": "agent 预置",
+  "feedback.phase.diff": "采集 diff",
+  "feedback.phase.evalSetup": "eval 预置",
+  "feedback.phase.running": "运行 eval",
+  "feedback.phase.sandboxProvision": "创建沙箱",
+  "feedback.phase.sandboxSetup": "沙箱预置",
+  "feedback.phase.scoring": "评分",
+  "feedback.phase.teardown": "清理中",
+  "feedback.phase.telemetrySetup": "配置 telemetry",
+  "feedback.phase.trace": "收集 trace",
+  "feedback.phase.workspaceSetup": "准备工作区",
+  "feedback.rendererError": "  · [feedback] renderer 处理 {{context}} 失败(已忽略):{{message}}\n",
   "hitl.answerNeedsOptionOrText": "t.respond 的对象形式需要 optionId 或 text 二选一(两者都没给)。",
   "hitl.invalidOption": "回答 \"{{optionId}}\" 不是请求 {{requestId}} 的可选项({{options}})。",
   "hitl.noOptions": "该请求没有可选项",
@@ -216,6 +250,7 @@ export const zhCN = {
   "sandbox.dependencyMissing.e2b": "E2B sandbox requires 'e2b'. Install it with: pnpm add e2b",
   "sandbox.dependencyMissing.vercel": "Vercel sandbox requires '@vercel/sandbox'. Install it with: pnpm add @vercel/sandbox",
   "sandbox.forceCleanup": "  · [sandbox] 强制清理 {{count}} 个沙箱…\n",
+  "sandbox.provisionRetry": "  · [sandbox] 创建被限流,{{delayMs}}ms 后重试(第 {{attempt}}/{{maxAttempts}} 次)…\n",
   "sandbox.stopFailed": "  · [sandbox] 停沙箱 {{id}} 失败(已忽略,靠 provider 过期兜底):{{message}}\n",
   "sandbox.stopTimeout": "stop 超时({{timeoutMs}}ms)",
   "scoring.evalError": "评估出错: {{error}}",

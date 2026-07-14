@@ -7,3 +7,4 @@
 - [Multi-Agent](multi-agent/README.md) —— 多 agent eval 的三种场景
 - [Adapters](adapters/README.md) —— LangGraph、OpenClaw 与其它候选接入
 - [View 增强](view-enhancements.md) —— Compare 挑两次运行对比、Eval 目录页
+- [Scoped Attempt Feedback](scoped-attempt-feedback.md) —— adapter/provider 按 owner 隔离的结构化 progress/diagnostic 出口
