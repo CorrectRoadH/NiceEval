@@ -1,24 +1,21 @@
 ---
 title: "NiceEval architecture: evals, agents, and sandboxes"
 sidebarTitle: "Overview"
-description: "Understand how NiceEval, Adapters, and sandbox backends work together to evaluate any AI agent through one API."
+description: "Understand how NiceEval, Adapters, and Sandbox Providers work together to evaluate any AI agent through one API."
 ---
 
-NiceEval separates **what you evaluate** from **how the subject under test is connected**. NiceEval discovers evals, schedules runs, scores assertions, and writes reports. Adapters call the system under test. Sandbox backends isolate filesystems for coding-agent tasks.
+NiceEval's core design separates "the evaluation logic" from "how the subject under test is connected". NiceEval owns discovery, scheduling, scoring, and reporting. Adapters call the system under test. Sandbox Providers isolate the filesystem.
 
 ## Four layers
 
 ```text
 Eval files / fixtures
-        |
-        v
+        ↓
 NiceEval
-        |
-        v
+        ↓
 Adapter
-        |
-        v
-Subject under test / Sandbox backend
+        ↓
+Subject under test / Sandbox Provider
 ```
 
 ## What NiceEval owns
@@ -28,71 +25,85 @@ Subject under test / Sandbox backend
     Finds `*.eval.ts` files and fixture directories, then derives stable IDs from paths.
   </Card>
   <Card title="Scheduling" icon="timeline">
-    Controls concurrency, retries, attempts, runs, and early exit.
+    Controls the run pool size, retries, attempts, and early exit.
   </Card>
   <Card title="Assertions and scoring" icon="chart-bar">
     Collects `t.check`, scoped assertions, judge scores, and test results.
   </Card>
   <Card title="Cache" icon="database">
-    Skips cases that already passed when the fingerprint is unchanged.
+    Skips cases that already passed when the fingerprint of their inputs is unchanged.
   </Card>
   <Card title="Reports" icon="file-lines">
-    Writes console, JSON, JUnit, and local viewer data.
+    Writes console, JSON, JUnit, and other reports.
   </Card>
   <Card title="Artifacts" icon="folder-open">
-    Saves summaries, event streams, transcripts, diffs, traces, and logs.
+    Saves summaries, event streams, transcripts, diffs, and test output.
   </Card>
 </CardGroup>
 
 ## Adapter
 
 <Note>
-  `Agent` is the abstraction NiceEval calls. `Adapter` is the concrete implementation you write. NiceEval does not know your private protocol, CLI arguments, or auth rules.
+  `Agent` is the abstraction NiceEval sees. `Adapter` is the concrete implementation you write. NiceEval does not know your agent's private protocol, CLI arguments, or auth rules.
 </Note>
 
-That boundary keeps the runner and scorers generic. Evaluating your own AI app, Claude Code, Codex, or a custom agent should not change core scoring behavior.
+That boundary keeps NiceEval generic. Evaluating your own AI agent, Claude Code, Codex, or a custom agent does not change the logic of the runner or the scorers.
 
 ## Sandbox
 
 <Tabs>
   <Tab title="Docker">
-    Local container backend for coding-agent evals in development and CI.
+    Local container Provider, for coding-agent evals in development and CI.
   </Tab>
   <Tab title="Vercel Sandbox">
-    Cloud sandbox backend for stronger isolation or larger resources.
+    Cloud Sandbox Provider, for stronger isolation or larger run resources.
   </Tab>
-  <Tab title="Third-party backend">
-    Any service can integrate by implementing the `Sandbox` interface.
+  <Tab title="Third-party Provider">
+    Any other sandbox service can be integrated by implementing the `Sandbox` interface.
   </Tab>
 </Tabs>
 
 ## Key terms
 
 <AccordionGroup>
-  <Accordion title="Eval">A test case: description, optional agent reference, and `test(t)`.</Accordion>
-  <Accordion title="Agent">The connection NiceEval calls by name. It returns a standard `Turn`.</Accordion>
-  <Accordion title="Adapter">The concrete implementation that knows how to call your runtime or CLI.</Accordion>
-  <Accordion title="Sandbox">The isolated runtime used by coding agents.</Accordion>
-  <Accordion title="Turn">The immutable result snapshot from one `t.send()` or `t.respond()`.</Accordion>
-  <Accordion title="Artifact">A structured result file written after a run.</Accordion>
-  <Accordion title="Experiment">A checked-in run configuration for comparing agents, models, flags, runs, budgets, and sandboxes.</Accordion>
+  <Accordion title="Eval">
+    A test case: a description and a `test(t)` function, agent-neutral — which Agent it runs against is decided by the experiment.
+  </Accordion>
+  <Accordion title="Agent">
+    A connection NiceEval calls by name, responsible for returning a standard `Turn`.
+  </Accordion>
+  <Accordion title="Adapter">
+    The concrete implementation of an `Agent`, which knows how to call your runtime or CLI.
+  </Accordion>
+  <Accordion title="Sandbox">
+    The isolated runtime environment used by coding agents.
+  </Accordion>
+  <Accordion title="Turn">
+    The immutable result snapshot of one `t.send()`.
+  </Accordion>
+  <Accordion title="Artifact">
+    A structured result file written to disk after a run.
+  </Accordion>
+  <Accordion title="Experiment">
+    A run configuration that compares multiple agents, models, or flags as a matrix.
+  </Accordion>
 </AccordionGroup>
 
 ## End-to-end flow
 
 <Steps>
   <Step title="Discovery">Find eval files and fixtures.</Step>
-  <Step title="Scheduling">Plan attempts from concurrency, cache, runs, and early-exit settings.</Step>
-  <Step title="Agent send">Call the selected adapter and receive a standard `Turn`.</Step>
+  <Step title="Scheduling">Plan the run from concurrency, cache, and attempts.</Step>
+  <Step title="Agent send">Call the adapter so the subject under test produces a `Turn`.</Step>
   <Step title="Scoring">Run assertions, judge checks, and tests.</Step>
-  <Step title="Outcome">Fold results into `passed`, `failed`, `errored`, or `skipped`.</Step>
-  <Step title="Reporting & artifacts">Write reports and structured files.</Step>
+  <Step title="Verdict">Fold every result into `passed`, `failed`, `errored`, or `skipped`.</Step>
+  <Step title="Reporting & artifacts">Write reports and save structured files.</Step>
 </Steps>
 
-## Related
+## Related reading
 
-- [Evals](/concepts/evals) - what an eval is and how its lifecycle works.
-- [Adapter](/concepts/adapter) - how to write an adapter and use it in an experiment.
-- [Drive](/concepts/drive) - `t.send()`, sessions, and HITL from the eval side.
-- [Assert](/concepts/assert) - assertion vocabulary and outcome rules.
-- [Judge](/concepts/judge) - LLM-as-judge for open-ended quality.
+- [Evals](/concepts/evals) — what an eval is, and the details of its lifecycle.
+- [Adapter](/concepts/adapter) — how to write an adapter and reference it in an experiment.
+- [Drive](/concepts/drive) — `t.send()`, sessions, and HITL: how to produce the `Turn` data that assertions read.
+- [Assert](/concepts/assert) — assertion vocabulary and verdict rules.
+- [Judge](/concepts/judge) — LLM-as-judge, for scoring open-ended quality.

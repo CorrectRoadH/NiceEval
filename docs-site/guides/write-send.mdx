@@ -6,16 +6,17 @@ description: "Hand-write the Adapter's send function along one storyline in seve
 
 [Adapter](/concepts/adapter) covers the contract: `send` receives `TurnInput` and `AgentContext` and returns a `Turn`. This page covers how to write it — starting from the minimal "send one message, get the reply" form and building step by step to a complete integration. Each step adds only a few lines to the previous step's code; parts already shown are marked with `// …omitted` in the code, and each step ends by noting which assertions those lines unlock. Every step is immediately verifiable: write the newly unlocked assertions into an eval, rerun `npx niceeval exp`, and `niceeval view` shows the data this step added — multi-turn trajectories, usage, tool events, pending requests.
 
-Two principles run through the whole page:
+Three principles run through the whole page:
 
 - **Always connect at the interface your user-facing frontend already uses.** Whatever endpoint the page calls and whatever format it receives, the Adapter calls that endpoint and receives that format — do not open a new endpoint for evals, and do not import app internals to call functions directly (for why, see [Connect your agent](/guides/connect-your-agent)).
 - **The only thing you truly hand-write is transport** — URL, auth, and request body differ per app anyway. Parsing (raw response → standard event stream) has official converters, exported from `niceeval/adapter`; the state slots for orchestration (session continuation, HITL pause/resume) hang off `ctx.session`, ready to use, with nothing extra to declare.
+- **Runtime feedback goes through `ctx`, never straight to the terminal.** Use `ctx.progress(...)` for long steps; use `ctx.diagnostic(...)` for degradations or unusual context you want to review after the run; throw when you cannot continue. Do not call `console.log/error` from an Adapter, and do not write to `process.stdout/stderr`.
 
 ![Full round trip of one t.send: the eval calls t.send, the runner assembles TurnInput and ctx, the adapter calls your app and returns a Turn with the standard event stream.](/images/agent-turn-roundtrip-en.svg)
 
 ## Starting point: what shape is your app's interface?
 
-NiceEval does not invent protocols. Your app is almost certainly built on one of the industry protocols below (or a variant of one), and the official pieces cover exactly these shapes:
+[NiceEval](https://niceeval.com/) does not invent protocols. Your app is almost certainly built on one of the industry protocols below (or a variant of one), and the official pieces cover exactly these shapes:
 
 | Protocol | Who defines it | In one sentence | Reference |
 |---|---|---|---|
@@ -38,6 +39,7 @@ const BASE_URL = "http://localhost:8080";   // to switch the URL per experiment,
 export default defineAgent({
   name: "chat-app",
   async send(input, ctx) {
+    ctx.progress({ message: "Waiting for the Chat API" });
     const res = await fetch(`${BASE_URL}/v1/chat/completions`, {  // ← the interface the frontend already uses
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -55,6 +57,20 @@ export default defineAgent({
   },
 });
 ```
+
+If the interface returns a response you can keep working with but whose evidence is incomplete, report a diagnostic instead of printing the whole raw response:
+
+```ts
+if (!res.requestId) {
+  ctx.diagnostic({
+    code: "missing-request-id",
+    level: "warning",
+    message: "the response has no request id, so it cannot be correlated with server logs",
+  });
+}
+```
+
+`progress` is not persisted; a diagnostic is saved with the Attempt and can be reviewed through its locator. If the HTTP connection fails or the response cannot be parsed, just throw — the runner records that the error occurred in `agent.run` and marks the Attempt `errored`.
 
 **This step unlocks**: `t.reply`, `t.messageIncludes()`, all the conversation material for judges, and **model comparison** on the experiment side (`ctx.model` is exactly the `model` declared in the experiment; the runner hands it to you verbatim and the Adapter does not interpret it, only forwards it — you do not need to wait for a later step, and the app does not need to cooperate with any change; see [Tier](/concepts/tier) for the tiers).
 
@@ -137,7 +153,7 @@ The full `Usage` fields also include the optional `cacheReadTokens` / `cacheWrit
 
 ## Step 4: parse tools into events
 
-The app's response contains more than reply text — the `tool_calls` in a Chat Completions-shaped response record which tools this turn called. The Adapter's most important job is **normalizing the interface's response into the standard event stream**: one object per thing that happened this turn, ordered by actual occurrence in `Turn.events`, each object one of the nine types below (for the actual field values, [the contract page has a complete one-turn example](/concepts/adapter)):
+The app's response contains more than reply text — the `tool_calls` in a Chat Completions-shaped response record which tools this turn called. The Adapter's most important job is **normalizing the interface's response into the standard event stream**: one object per thing that happened this turn, ordered by actual occurrence in `Turn.events`, each object one of the ten types below (for the actual field values, [the contract page has a complete one-turn example](/concepts/adapter)):
 
 ```ts
 type StreamEvent =
@@ -145,6 +161,7 @@ type StreamEvent =
   | { type: "action.called"; callId: string; name: string; input: JsonValue; tool?: ToolName }
   | { type: "action.result"; callId: string; output?: JsonValue;
       status: "completed" | "failed" | "rejected" }
+  | { type: "skill.loaded"; skill: string; callId?: string }
   | { type: "subagent.called"; callId: string; name: string; remoteUrl?: string }
   | { type: "subagent.completed"; callId: string; output?: JsonValue;
       status: "completed" | "failed" }
@@ -209,7 +226,7 @@ One honest disclosure: the Chat Completions shape **does not promise** that "res
 When the app stops mid-turn to wait for a human (tool approval, missing information), `send` has obligations on both sides:
 
 - **The pausing turn**: return `status: "waiting"`, and emit one `input.requested` event with a stable `id` per pending question — `t.parked()` and `t.requireInputRequest()` read them, and answers are matched by this `id`.
-- **The answer turn**: `t.respond(...)` in the eval reaches the Adapter as **just another ordinary `send`** (still the same session line, the same state); the human verdict arrives in structured form via `input.responses`, one entry per answer carrying `requestId` and `optionId` or `text` (shapes in [the answer input shapes](/concepts/adapter#input-turninput)). The Adapter hands the verdict back to the app first, then continues fetching the result. For calls a human rejected, set the `action.result` `status` to `"rejected"` rather than `"failed"` — a rejection is a human decision, not a tool failure, so `noFailedActions()` does not misfire.
+- **The answer turn**: `t.respond(...)` in the eval reaches the Adapter as **just another ordinary `send`** (still the same session line, the same state); the human verdict arrives in structured form via `input.responses`, one entry per answer carrying `requestId` and `optionId` or `text` (shapes in [Inputs for the different answers](/concepts/adapter#inputs-for-the-different-answers)). The Adapter hands the verdict back to the app first, then continues fetching the result. For calls a human rejected, set the `action.result` `status` to `"rejected"` rather than `"failed"` — a rejection is a human decision, not a tool failure, so `noFailedActions()` does not misfire.
 
 The "scene read halfway when the turn paused" (say, an SSE stream read halfway through) also lives on `ctx.session`: `ctx.session.hold(scene)` when pausing, `ctx.session.take()` at the start of the answer turn — taking clears it, single consumption.
 
@@ -275,7 +292,7 @@ For interfaces without HITL, delete the three held-scene parts (`Pending`, `hold
 
 If the app is already instrumented (standard OTel HTTP server instrumentation is enough), the integration comes in two halves — one is startup-time configuration, the other lives in `send`. Keeping them apart means separating "what never changes" from "what changes every turn".
 
-**The endpoint is startup-time configuration; it is not passed from send.** NiceEval's OTLP receiver address is the same on every run, so it does not go through `ctx`: pin the receiver port in `niceeval.config.ts`, point the app's OTel exporter at that fixed URL on startup, and never touch it again no matter how many eval runs follow:
+**The endpoint is startup-time configuration; it is not passed from send.** [NiceEval](https://niceeval.com/)'s OTLP receiver address is the same on every run, so it does not go through `ctx`: pin the receiver port in `niceeval.config.ts`, point the app's OTel exporter at that fixed URL on startup, and never touch it again no matter how many eval runs follow:
 
 ```ts
 // niceeval.config.ts

@@ -92,7 +92,7 @@ setup?: (sandbox: Sandbox) => Promise<void | Cleanup> | void | Cleanup;
 
 Eval-level preparation: receives the sandbox (after the workspace is uploaded, the git baseline is set, and before dependencies are installed).
 Commands run as non-root by default (the agent's natural environment); when installing system dependencies, pass `{ root: true }`
-to `runCommand` (e.g. `runCommand("apt-get", ["install", …], { root: true })`) — semantics are consistent across backends.
+to `runCommand` (e.g. `runCommand("apt-get", ["install", …], { root: true })`) — semantics are consistent across providers.
 
 #### `test`
 
@@ -194,7 +194,7 @@ every other `newSession()` session — commonly used for scenarios like "multipl
 readonly signal: AbortSignal;
 ```
 
-The abort signal for this attempt; fires on timeout / early exit / user Ctrl-C, and is passed to the adapter's long-running calls for cancellation.
+The abort signal for this attempt; fires on timeout / EarlyExit / user Ctrl-C, and is passed to the adapter's long-running calls for cancellation.
 
 #### `model`
 
@@ -234,7 +234,7 @@ Prints a line of debug logging; goes through the live progress callback if one e
 skip(reason: string): never;
 ```
 
-Immediately aborts this eval and marks it skipped (outcome / `EvalResult.skipReason`); `reason` cannot be empty.
+Immediately aborts this eval and marks it skipped (verdict / `EvalResult.skipReason`); `reason` cannot be empty.
 
 #### `check`
 

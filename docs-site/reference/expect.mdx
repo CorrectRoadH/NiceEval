@@ -192,21 +192,26 @@ Turns it into a hard-gate assertion: when the threshold isn't met (omitting `thr
 atLeast(threshold: number): ValueAssertion;
 ```
 
-Turns it into a soft-threshold assertion: when `threshold` isn't met, this assertion is recorded as failed, but by default it does not drag down the whole eval's outcome;
-under `--strict`, a soft-threshold failure also makes the whole eval's outcome count as failed. Returns a new instance, does not mutate the original.
+Turns it into a soft-threshold assertion: when `threshold` isn't met, this assertion is recorded as failed, but by default it does not drag down the whole eval's verdict;
+under `--strict`, a soft-threshold failure also makes the whole eval's verdict count as failed. Returns a new instance, does not mutate the original.
 
 {/* GENERATED:END value-assertion */}
 
 ## Custom matchers
 
 ```ts
-import { makeAssertion } from "niceeval/expect";
+import { makeAssertion, type Assertion } from "niceeval/expect";
 
-const validEmail = makeAssertion("valid email", (value) => {
-  return typeof value === "string" && value.includes("@") ? 1 : 0;
-});
+function validEmail(): Assertion {
+  return makeAssertion({
+    name: "valid email",
+    score(value) {
+      return typeof value === "string" && value.includes("@") ? 1 : 0;
+    },
+  });
+}
 
 t.check(t.reply, validEmail());
 ```
 
-Custom matchers should return a score between 0 and 1, with a clear name.
+`makeAssertion` takes a single spec object (`name`, optional `severity`/`threshold`, and `score`) and returns an `Assertion` directly; by convention you wrap it in a function of the same name and call that, rather than calling `makeAssertion` itself as the factory at the call site.

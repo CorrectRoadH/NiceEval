@@ -104,6 +104,22 @@ Useful for checking one cell in isolation — confirming a single configuration 
 | `timeoutMs` | Timeout for a single attempt |
 | `budget` | Budget limit for this configuration |
 | `maxConcurrency` | Concurrency limit for this configuration |
-| `sandbox` | Sandbox backend for sandbox agents, such as `dockerSandbox()` or `e2bSandbox()` |
+| `sandbox` | Sandbox provider used by sandbox agents, such as `dockerSandbox()` or `e2bSandbox()`; chain `.setup()` / `.teardown()` on the spec to attach environment hooks that vary per experiment |
+
+An experiment is pure configuration data; it has no `setup` / `teardown` fields of its own. To prepare the environment per experiment before the agent runs — install binaries, warm caches, load and store state across attempts — attach the hooks to the spec in the `sandbox` field:
+
+```ts
+export default defineExperiment({
+  agent: codexAgent({ mcpServers: [mempalMcp] }),
+  sandbox: e2bSandbox({ template: "fasteval-agents" })
+    .setup(mempalSetup("codex"))        // preflight, write dynamic config, warm up, load state
+    .teardown(mempalTeardown("codex")), // store state back
+  maxConcurrency: 1,                    // loading and storing state cannot overlap, so declare serial execution
+});
+```
+
+Fixed agent CLIs, system packages, and large model caches belong in the image, template, or snapshot; `.setup()` should not rebuild the same environment on every attempt. For how to derive from an official Docker image, E2B template, or Vercel runtime to speed this up, see [Sandbox providers · Build on the official baselines to speed things up](/guides/sandbox-providers#build-on-the-official-baselines-to-speed-things-up).
+
+For when hooks run, how multiple hooks are ordered, and what failure means, see [Sandbox providers · Environment hooks](/guides/sandbox-providers#environment-hooks).
 
 See [Experiment Matrix](/guides/experiments) for design advice on cross-configuration comparison. See [Adapter](/concepts/adapter) for how the adapter consumes `ctx.model` and `ctx.flags`.

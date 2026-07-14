@@ -1,10 +1,10 @@
 ---
-title: "niceeval assertions: values, scoped facts, tests, and cost"
+title: "NiceEval assertions: values, scoped facts, tests, and cost"
 sidebarTitle: "Assert"
-description: "niceeval's assertion vocabulary — value assertions, scoped assertions, test-as-scoring, and efficiency checks — plus gate vs soft severity and the outcome rules that fold them into a result."
+description: "NiceEval's assertion vocabulary — value assertions, scoped assertions, test-as-scoring, and efficiency checks — plus gate vs soft severity and the rules that fold them into a verdict."
 ---
 
-Assertion is the process of taking everything an agent did during an eval — every message, tool call, file change, and token spent — and folding it into a single, actionable outcome. niceeval gives you four assertion mechanisms that complement each other: some check values immediately, some assess the whole run after it completes, some execute tests inside the sandbox, and some measure efficiency. All four produce the same `Assertion` type and feed into the same outcome rules. For the fifth mechanism — asking a language model to judge open-ended quality — see [Judge](/concepts/judge).
+Assertion is the process of taking everything an agent did during an eval — every message, tool call, file change, and token spent — and folding it into a single, actionable result. [NiceEval](https://niceeval.com/) gives you four assertion mechanisms that complement each other: some check values immediately, some assess the whole run after it completes, some execute tests inside the sandbox, and some measure efficiency. All four produce the same `Assertion` type and feed into the same verdict rules. For the fifth mechanism — asking a language model to judge open-ended quality — see [Judge](/concepts/judge).
 
 ## The four assertion mechanisms
 
@@ -25,7 +25,7 @@ Assertion is the process of taking everything an agent did during an eval — ev
 
 ## Gate vs soft severity
 
-Every assertion carries a **severity** that determines how it influences the final outcome. There are exactly two severities:
+Every assertion carries a **severity** that determines how it influences the final verdict. There are exactly two severities:
 
 <Tabs>
   <Tab title="gate">
@@ -50,34 +50,36 @@ t.check(t.reply, similarity(expected).gate());    // promote to gate
 t.maxTokens(80_000).atLeast(0.7);                 // demote to soft with a threshold
 ```
 
-## Outcome rules
+## Verdict rules
 
-Once all assertions are collected, the runner folds them into a single outcome in this order:
+Once all assertions are collected, the runner takes the first matching rule in this fixed order and folds them into a single result:
 
 ```
-Execution error (timeout / thrown exception / author mistake)  →  failed
-Explicit t.skip(reason) was called                             →  skipped
-Any gate assertion failed                                       →  failed
-All gates passed, but at least one soft is below its threshold →  passed (flagged under --strict)
-Otherwise                                                       →  passed
+Execution error, timeout, or author mistake                       → errored
+Any gate assertion failed, or a soft is below its threshold
+  under --strict                                                  → failed
+t.skip(reason) was called explicitly                              → skipped
+Otherwise                                                         → passed
 ```
+
+`errored` outranks everything else, because the execution evidence can no longer be trusted. `failed` outranks `skipped`, so that a `t.skip()` cannot mask a hard failure recorded earlier.
 
 <CardGroup cols={2}>
   <Card title="passed" icon="circle-check" color="#22c55e">
-    No errors, all gate assertions passed, all soft assertions met their thresholds.
+    No errors, all gate assertions passed, all soft assertions met their thresholds (or you did not run with `--strict`).
   </Card>
   <Card title="failed" icon="circle-xmark" color="#ef4444">
-    Execution error **or** at least one gate assertion did not pass. Hard failure.
+    At least one gate assertion did not pass, or a soft assertion fell below its threshold under `--strict`. Hard failure.
   </Card>
-  <Card title="passed (scored)" icon="chart-bar" color="#f59e0b">
-    All gates passed, but at least one soft fell below its threshold. Quality regression — silent by default, red under `--strict`.
+  <Card title="errored" icon="triangle-exclamation" color="#f59e0b">
+    An execution error, timeout, or author mistake — this run cannot support a trustworthy conclusion, and it is not disguised as an assertion failure.
   </Card>
   <Card title="skipped" icon="forward" color="#6b7280">
     `t.skip("reason")` was called. Excluded from pass-rate calculations entirely.
   </Card>
 </CardGroup>
 
-When you run an eval more than once (`runs > 1`), the per-eval summary becomes a **pass rate** (the fraction of runs that produced `passed`) and an average latency, rather than a single outcome.
+When you run an eval more than once (`runs > 1`), the per-eval summary becomes a **pass rate** (the fraction of runs that produced `passed`) and an average latency, rather than a single verdict.
 
 ## 1. Value assertions — `niceeval/expect` matchers
 
@@ -239,5 +241,5 @@ Custom matchers compose with the same chain methods as built-ins: `.gate()`, `.a
 
 - [Drive](/concepts/drive) — `t.send()`, `t.newSession()`, and HITL: how you produce the Turn data these assertions read from.
 - [Judge](/concepts/judge) — the fifth scoring mechanism, for open-ended quality that can't be expressed as a fixed rule.
-- [Adapter](/concepts/adapter) — how the standard event stream is produced, which scoped assertions depend on.
-- [Evals](/concepts/evals) — how assertions fold into the eval lifecycle and outcome types.
+- [Write send](/guides/write-send) — how the standard event stream is produced, and what scoped assertions depend on.
+- [Evals](/concepts/evals) — how assertions fold into the eval lifecycle and verdict types.

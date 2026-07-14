@@ -81,11 +81,11 @@ See [Reporter integrations](./reporters) for how to wire reporters in and config
 
 ## Output directory
 
-Each run writes to that experiment's results snapshot directory, `.niceeval/<experiment>/<snapshot>/`, including snapshot-level `snapshot.json` and, per attempt, `result.json` (verdict and assertions) plus artifacts generated as needed such as `events.json`, `sources.json`, `trace.json`, `o11y.json`, and `diff.json`.
+Each run writes to that experiment's results snapshot directory, `.niceeval/<experiment>/<snapshot>/`, including snapshot-level `snapshot.json` and, per attempt, `result.json` (verdict, assertions, structured errors, diagnostics) plus artifacts generated as needed such as `events.json`, `sources.json`, `trace.json`, `o11y.json`, and `diff.json`. Transient progress is never persisted.
 
 ## Recommended debugging flow
 
 1. Run `npx niceeval list` to confirm discovery.
 2. Narrow to one eval with `npx niceeval exp <experiment> <id-prefix>`.
-3. After a failure, run `npx niceeval view` to inspect transcript and diff.
+3. After a failure, copy the locator from the terminal and run `npx niceeval show @<locator>` to see the error or the assertion summary. Add `--execution` when you need the agent's behavior, and `--diff` when you need the file changes.
 4. Then widen back out to the full suite or experiment.

@@ -4,7 +4,7 @@ sidebarTitle: "Drive"
 description: "t.send() and the Turn it returns, t.sendFile(), multi-turn conversations, t.newSession(), and HITL through t.respond() / t.respondAll()."
 ---
 
-Before assertions or judge scoring, you need to make the agent do something. **Drive** is the part of `test(t)` that sends input and gets results back: `t.send()`, `t.sendFile()`, `t.newSession()`, and HITL through `t.respond()` / `t.respondAll()`. Every drive API produces a **Turn**. All assertions and judge checks in NiceEval read from Turn data. See [Assert](/concepts/assert) and [Judge](/concepts/judge) for the scoring side.
+Before assertions or judge scoring, you need to make the agent do something. **Drive** is the part of `test(t)` that sends input and gets results back: `t.send()`, `t.sendFile()`, `t.newSession()`, and HITL through `t.respond()` / `t.respondAll()`. Every drive API produces a **Turn**. All assertions and judge checks in [NiceEval](https://niceeval.com/) read from Turn data. See [Assert](/concepts/assert) and [Judge](/concepts/judge) for the scoring side.
 
 ## `t.send()` and the `Turn` it returns
 
@@ -14,7 +14,7 @@ Before assertions or judge scoring, you need to make the agent do something. **D
 const turn = await t.send("What's the weather like in Brooklyn today?");
 
 turn.message;    // last assistant message
-turn.data;       // structured output, only when this send declared output
+turn.data;       // structured output: only when this send declared output; typed by the declaration (see below)
 turn.status;     // "completed" | "failed" | "waiting"
 turn.events;     // StreamEvent[] for this turn
 turn.usage;      // { inputTokens, outputTokens, ... } when the adapter reports it
@@ -23,16 +23,16 @@ turn.succeeded(); // scored assertion: this turn didn't fail and isn't parked on
 
 `t.reply` is shorthand for the last assistant message in the main session, equivalent to `turn.message` from the most recent `t.send()`. `t.events` is the full accumulated event stream for the main session.
 
-When you need structured output, declare `output` on the send call. The declaration is both a requirement for the app and the type source for `turn.data`:
+When you need structured output, declare `output` on the send call (any Standard Schema, so zod works). The declaration is both a requirement for the app and the type source for `turn.data`:
 
 ```ts
 const turn = await t.send("What is the total on this invoice?", {
   output: z.object({ amount: z.number(), currency: z.string() }),
 });
-t.check(turn.data.amount, equals(3200));
+t.check(turn.data.amount, equals(3200));   // turn.data is { amount: number; currency: string }
 ```
 
-The runner validates `data` against that schema immediately after the adapter returns. If the shape does not match, the turn fails and the diff is reported. If you did not declare `output`, there is no `turn.data`.
+The runner validates `data` against that declaration immediately after the adapter returns: if `data` does not match, the turn goes straight to `failed` and the diff is reported. A turn that did not declare `output` has no `turn.data` — it is not a pocket for "whatever the agent happens to return", but a field that exists only when you declare it, and is strongly typed when it does.
 
 <Tip>
 `turn.succeeded()` scopes to this turn only: it checks this turn's `status` and whether it's parked on an unanswered HITL request. Call it right after a `t.send()` that later turns depend on, so a failure surfaces here instead of a pile of confusing follow-on failures.
@@ -70,7 +70,7 @@ Whether multi-turn calls actually continue the same conversation depends on whet
 ```ts
 await t.send("My name is Alice.");
 await t.send("What is my name?");
-t.check(t.reply, includes("Alice"));
+t.check(t.reply, includes("Alice"));         // the main session remembered
 
 const fresh = t.newSession();
 await fresh.send("What is my name?");
@@ -78,7 +78,7 @@ t.check(fresh.reply, satisfies((r) => !r.includes("Alice"), "no memory leak"));
 ```
 
 <Warning>
-Do not assume `t.newSession()` guarantees isolation by itself. The runner only guarantees a fresh session handle. The adapter still has to open a fresh underlying conversation. If the adapter always resumes the same backend context, `t.newSession()` will quietly share state. Verify isolation with an eval like the one above before trusting it.
+Do not assume `t.newSession()` guarantees isolation by itself. The runner only guarantees that the new session line starts with empty state. Actually opening a fresh conversation against the application is the adapter's job. An adapter that ignores its own session state and always resumes the same underlying context will make `t.newSession()` quietly share state, without ever raising an error. When you write an adapter, verify isolation with an eval like the one above before trusting it.
 </Warning>
 
 ## Human-in-the-loop (HITL)
@@ -87,7 +87,7 @@ Some agents stop in the middle of a turn and wait for approval or missing inform
 
 ```ts
 const draft = await t.send("Draft a follow-up email, but don't send it until I confirm.");
-draft.parked();
+draft.parked();                              // t.parked() asserts status === "waiting"
 
 const request = t.requireInputRequest({
   prompt: /send it/,

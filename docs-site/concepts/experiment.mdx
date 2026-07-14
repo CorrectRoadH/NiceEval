@@ -1,12 +1,14 @@
 ---
 title: "Experiment: who to evaluate and how to run"
 sidebarTitle: "Experiment"
-description: "An experiment is a commit-ready run configuration: which agent to evaluate, which model to use, which flags to enable, and how many times to run the same eval suite."
+description: "An experiment is a commit-ready run configuration: which agent to evaluate, which model to use, which flags to enable, and how many times to run the same eval suite. Why evals and experiments are separate — late binding lets the same eval run against different subjects."
 ---
 
-An **experiment** chooses which agent to evaluate, which model to use, which flags to enable, and how many times to run. Use it for A/B tests, model comparisons, and feature comparisons.
+An **experiment** chooses which agent to evaluate, which model to use, which flags to enable, and how many times to run. Use it for A/B tests, model comparisons, and feature comparisons — `flags` are exactly the feature flags of an A/B test, and one experiment is one set of flag values.
 
 ## What an experiment contains
+
+An experiment is a commit-ready TypeScript file under `experiments/`, and it comes down to a few fields:
 
 ```ts
 // experiments/concise.ts
@@ -15,21 +17,23 @@ export default defineExperiment({
   agent: webAgent({ baseUrl: "https://staging.example.com" }), // configured agent instance
   model: "gpt-5.4",                    // forwarded to the adapter through ctx.model
   flags: { promptVariant: "concise" }, // forwarded through ctx.flags; visible in evals as t.flags
-  runs: 3,                             // how many times to run each eval
+  runs: 3,                             // how many times to run each eval (to counter randomness)
 });
 ```
 
 - `agent`: who to evaluate. Put a configured instance here. The subject under test URL and credentials belong in the adapter factory, not as ad hoc experiment fields.
-- `model` / `flags`: transparent pass-through values. NiceEval does not interpret them. They are forwarded through `ctx`, and the adapter decides how to use them. This is the path that [Tier](/concepts/tier) uses for model comparisons (Tier 1) and feature A/B tests (Tier 3).
-- `runs`, `budget`, concurrency, `sandbox`, and related settings: how to run, and how much to run. See [Write Experiments](/guides/write-experiment) for the full field list.
+- `model` / `flags`: transparent pass-through values. [NiceEval](https://niceeval.com/) does not interpret them. They are forwarded through `ctx` to the Adapter as-is, and the Adapter forwards them with the request so the application can switch behavior. This is exactly the channel that [Tier](/concepts/tier) uses for model comparisons (Tier 1) and feature A/B tests (Tier 3).
+- `runs`, `budget`, concurrency, `sandbox`, and related settings: how to run, and how much to run. See [Write experiments](/guides/write-experiment) for the full field list.
+
+An experiment is pure configuration data. It has no `setup` / `teardown` lifecycle fields. To prepare an environment per experiment (install binaries, warm things up, carry state across attempts), attach it to the spec in the `sandbox` field — the object returned by factories such as `dockerSandbox()` can chain `.setup()` / `.teardown()`. See [Sandbox providers · Environment hooks](/guides/sandbox-providers#environment-hooks).
 
 ## Matrix comparisons
 
-Write one experiment file per variant you want to compare. Two models means two files that differ by one `model` line. Prompt A/B means two files that differ by one flag. The same eval suite runs under each experiment, and `niceeval view` shows pass rate, cost, and latency side by side. See [Experiments](/guides/experiments) for which comparisons fit this pattern and how to read the output.
+Write one experiment file per variant you want to compare. Two models means two files that differ by one `model` line. Prompt A/B means two files that differ by one parameter. The same eval suite runs once under each experiment, which gives you a comparable cross-section of pass rate, cost, and latency — stack them side by side in `niceeval view`. See [Experiment matrix](/guides/experiments) for which comparisons fit this pattern and how to read the results.
 
 ## Related reading
 
-- [Write Experiments](/guides/write-experiment) - The full `defineExperiment` field set: runs, budget, concurrency, and sandbox.
-- [Experiments](/guides/experiments) - How to organize and read cross-agent, cross-model, and cross-flag comparisons.
-- [Evals](/concepts/evals) - The other half: what an eval is, plus its lifecycle and outcomes.
-- [Tier](/concepts/tier) - Where `model` and `flags` become effective.
+- [Write experiments](/guides/write-experiment) - The full `defineExperiment` field set: runs, budget, concurrency, and sandbox.
+- [Experiment matrix](/guides/experiments) - How to organize and read cross-agent, cross-model, and cross-flag comparisons.
+- [Evals](/concepts/evals) - The other half: what an eval is, plus its lifecycle and verdicts.
+- [Tier](/concepts/tier) - Which tier `model` and `flags` each take effect at.

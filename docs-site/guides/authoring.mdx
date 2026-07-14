@@ -4,7 +4,7 @@ sidebarTitle: "Authoring Evals"
 description: "Learn how to write NiceEval evals with defineEval, including single-turn assertions, multi-turn conversations, dataset fan-out, and sandbox workspaces."
 ---
 
-Every NiceEval eval is a TypeScript file that default-exports `defineEval(...)`. The core rules are simple: **path is identity**, **one file is one eval**, and **write linearly with assertions next to the interaction they check**.
+Every [NiceEval](https://niceeval.com/) eval is a TypeScript file that default-exports `defineEval(...)`. The core rules are simple: **path is identity**, **one file is one eval**, and **write linearly with assertions next to the interaction they check**.
 
 ## The `defineEval` shape
 
@@ -18,6 +18,7 @@ export default defineEval({
   reporters?: Reporter[];
   timeoutMs?: number;
   metadata?: Record<string, unknown>;
+  async setup(sandbox, ctx) { /* task fixture + progress/diagnostic */ },
   async test(t) { /* interactions + assertions */ },
 });
 ```
@@ -110,6 +111,38 @@ export default defineEval({
 ```
 
 See [Fixtures](/guides/fixtures) for the full pattern.
+
+## Report long steps and diagnostics from an eval
+
+`setup` prepares the task fixture for this eval. Its second argument is bound to the eval setup phase; feedback sent from inside `test(t)` is bound to the eval run phase:
+
+```ts
+export default defineEval({
+  async setup(sandbox, ctx) {
+    ctx.progress({ message: "Installing fixture dependencies" });
+    await sandbox.runCommand("npm", ["install"]);
+  },
+
+  async test(t) {
+    t.progress({ message: "Uploading hidden tests", current: 1, total: 2 });
+    await t.sandbox.uploadDirectory("../fixtures/project");
+
+    const preflight = await inspectFixture();
+    if (preflight.usedFallback) {
+      t.diagnostic({
+        code: "fixture-check-degraded",
+        level: "warning",
+        message: "Fixture preflight fell back to the backup checker",
+        data: { checker: preflight.checker },
+      });
+    }
+
+    await t.send("Finish the task");
+  },
+});
+```
+
+`progress` only updates short-lived status while the run is in flight; it never enters the result. `diagnostic` is written into the current attempt's `result.json`, but it does not replace an assertion or change the verdict on its own: business conclusions still come from `t.check` / `t.require` / gates, and you throw when the infrastructure cannot continue.
 
 ## Naming conventions
 

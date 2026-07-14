@@ -227,13 +227,28 @@ The experiment's `flags` field, passed through as-is; its content and shape are 
 the framework itself does not interpret or validate its content. The name is deliberately distinct from the CLI-parsed
 `flag` (run-level things like --timeout/--budget) — the two are unrelated concepts.
 
+#### `experimentId`
+
+```ts
+readonly experimentId?: string;
+```
+
+The experiment id derived from the path (same source as the result attribution `runWho` / `AgentRun.experimentId`);
+undefined when the run does not go through an experiment (e.g. outside the CLI, constructing an `AgentRun` directly).
+Typical uses: a `SandboxSpec.setup` hook isolating cross-attempt state per experiment (cache directory names,
+snapshot tags, etc. partitioned by `ctx.experimentId`), or an adapter switching auth / routing per experiment. It is a
+different dimension from `flags` (the concrete values of the experiment's conditions) — this is only the stable identifier
+of "which experiment is running", and carries no condition content.
+
 #### `sandbox`
 
 ```ts
 readonly sandbox: Sandbox;
 ```
 
-Present only on sandbox-type agents (prepared by the runner per --sandbox).
+Present on every agent: for sandbox-type agents it is the real sandbox handle the runner prepared from the
+project/experiment configuration; for remote-type agents it is the stub produced by `createRemoteSandbox()` (only
+metadata like `workdir`/`sandboxId`/`otlpHost`/`stop` — calling any other method throws).
 
 #### `session`
 
@@ -328,7 +343,7 @@ Read a file's text content inside the sandbox (UTF-8). Throws if the file doesn'
 fileExists(path: string): Promise<boolean>;
 ```
 
-Check whether a path exists inside the sandbox. Semantics are not fully consistent across backends: only guaranteed reliable for regular files — behavior for directory paths is not guaranteed consistent across backends.
+Check whether a path exists inside the sandbox. Semantics are not fully consistent across providers: only guaranteed reliable for regular files — behavior for directory paths is not guaranteed consistent across providers.
 
 #### `readSourceFiles`
 
@@ -369,7 +384,7 @@ Upload an entire local directory into the sandbox (reads local files recursively
 stop(): Promise<void>;
 ```
 
-Destroy the compute resource the sandbox occupies (container/microVM). The sandbox is unusable after this; whether it's safe to call repeatedly varies by backend — do not rely on it.
+Destroy the compute resource the sandbox occupies (container/microVM). The sandbox is unusable after this; whether it's safe to call repeatedly varies by provider — do not rely on it.
 
 #### `sandboxId`
 
@@ -377,7 +392,7 @@ Destroy the compute resource the sandbox occupies (container/microVM). The sandb
 readonly sandboxId: string;
 ```
 
-Stable identifier for this sandbox (each backend's native ID, e.g. a Docker container ID prefix); used to correlate session state for the same sandbox across calls, and for log display.
+Stable identifier for this sandbox (each provider's native ID, e.g. a Docker container ID prefix); used to correlate session state for the same sandbox across calls, and for log display.
 
 #### `otlpHost`
 
@@ -397,7 +412,7 @@ appendLog?(line: string): Promise<void>;
 ```
 
 Optional: write a line into the container's "main log" (the one PID1 tails) — so `docker logs` /
-the Docker UI's Logs tab shows the agent's turn-by-turn activity live. Implemented by the docker backend; others can omit it.
+the Docker UI's Logs tab shows the agent's turn-by-turn activity live. Implemented by the docker provider; others can omit it.
 
 #### `downloadFile`
 
@@ -406,7 +421,7 @@ downloadFile(path: string): Promise<Buffer>;
 ```
 
 Read a file from any path inside the sandbox, returned as a binary Buffer.
-Backend mapping: Docker getArchive / Vercel readFileToBuffer / e2b files.read(bytes) / …
+Provider mapping: Docker getArchive / Vercel readFileToBuffer / e2b files.read(bytes) / …
 
 #### `uploadFile`
 
@@ -415,7 +430,7 @@ uploadFile(path: string, content: Buffer): Promise<void>;
 ```
 
 Write a file (binary) to any path inside the sandbox.
-Backend mapping: Docker putArchive / Vercel fs.writeFile(Buffer) / e2b files.write / …
+Provider mapping: Docker putArchive / Vercel fs.writeFile(Buffer) / e2b files.write / …
 
 ### `CommandOptions`
 
@@ -425,7 +440,7 @@ Backend mapping: Docker putArchive / Vercel fs.writeFile(Buffer) / e2b files.wri
 env?: Record<string, string>;
 ```
 
-Append/override environment variables for this command (merged on top of the sandbox's default environment, not clearing defaults; each backend keeps some of its own fixed variables like `PATH`, which are not guaranteed to be overridable here).
+Append/override environment variables for this command (merged on top of the sandbox's default environment, not clearing defaults; each provider keeps some of its own fixed variables like `PATH`, which are not guaranteed to be overridable here).
 
 #### `cwd`
 
@@ -443,8 +458,8 @@ stream?: boolean;
 
 Also send this command's output into the sandbox's "native log stream" (so `docker logs` / the Docker UI's Logs
 tab shows it live). Turn this on for agent commands (codex exec / bub run / claude) and you'll see the agent's raw output
-in the container logs. Each backend implements this its own way (docker: tee to the file PID1 tails;
-unsupported backends ignore it) — how the log surfaces is the backend's concern, the adapter only declares intent.
+in the container logs. Each provider implements this its own way (docker: tee to the file PID1 tails;
+providers that don't support it ignore it) — how the log surfaces is the provider's concern, the adapter only declares intent.
 
 #### `root`
 
@@ -455,10 +470,10 @@ root?: boolean;
 Run this command as root. Defaults to `false` — the command runs as the sandbox's standard **non-root** user (the agent's natural environment).
 Use this for installing system dependencies during setup (`apt-get install …`, `pip install --break-system-packages …`).
 
-Semantics stay consistent across backends: "this command runs as root, otherwise as the standard non-root user." Each backend maps this to its own native mechanism
+Semantics stay consistent across providers: "this command runs as root, otherwise as the standard non-root user." Each provider maps this to its own native mechanism
 (docker: `exec --user root`; E2B: `{ user: "root" }`; Vercel: `{ sudo: true }`; Daytona: `{ user }`).
-Backends that always run as root (e.g. Modal) treat it as a no-op; backends with no privilege escalation at all may not support it (throw) — but **the default value and
-semantics stay consistent** regardless of backend.
+Providers that always run as root (e.g. Modal) treat it as a no-op; providers with no privilege escalation at all may not support it (throw) — but **the default value and
+semantics stay consistent** regardless of provider.
 
 {/* GENERATED:END sandbox-methods */}
 

@@ -12,7 +12,7 @@ You probably already use it every day:
 - **Codex** approval modes such as suggest and auto-edit decide which actions need confirmation first; it is the same gate under a different name.
 - **AI SDK apps** often surface tool calls in the UI when the tool does not have `execute`, let the human confirm, then return the result with `addToolResult` so the model can continue — this is the most common approval-gate pattern in homegrown applications.
 
-That branch needs regression coverage like any other behavior: does the action happen after approval, stay blocked after rejection, and does it pause at the right point and ask the right question? But evals run automatically, without a human. NiceEval compresses the human into three programmable actions: notice that the agent parked (`t.parked()`), inspect what it is waiting for (`t.requireInputRequest()`), and answer in place of the human (`t.respond()`). Approval, rejection, and follow-up information all become paths you can write into an eval.
+That branch needs regression coverage like any other behavior: does the action happen after approval, stay blocked after rejection, and does it pause at the right point and ask the right question? But evals run automatically, without a human. [NiceEval](https://niceeval.com/) compresses the human into three programmable actions: notice that the agent parked (`t.parked()`), inspect what it is waiting for (`t.requireInputRequest()`), and answer in place of the human (`t.respond()`). Approval, rejection, and follow-up information all become paths you can write into an eval.
 
 ## How a pause is represented: `waiting` + `input.requested`
 
@@ -35,17 +35,17 @@ Two easy mistakes to avoid:
 
 ```ts
 const draft = await t.send("Send a weekly status email to my manager.");
-draft.parked();
+draft.parked();                                          // ① assert that this turn paused
 
-const req = t.requireInputRequest({ action: "send_email" });
+const req = t.requireInputRequest({ action: "send_email" });   // ② take out the pending request
 
-await t.respond({ request: req, optionId: "approve" });
+await t.respond({ request: req, optionId: "approve" });  // ③ answer for the human, emit the next turn
 t.calledTool("send_email", { status: "completed" });
 ```
 
-- `t.parked()` asserts that the turn really stopped in `waiting`.
-- `t.requireInputRequest(filter)` selects exactly one pending request, matching fields such as `id`, `prompt`, `action`, or `optionIds`.
-- `t.respond(...)` answers it and emits the next turn. Use `t.respondAll(optionId)` when multiple pending requests of the same kind should get the same answer.
+- `t.parked()` asserts that the turn really stopped in `waiting`. Conversely, `t.succeeded()` fails on a waiting turn — a pause is an explicit state, never mistaken for "it finished".
+- `t.requireInputRequest(filter)` selects exactly one pending request, matching fields such as `id`, `prompt`, `action`, or `optionIds`. It throws when 0 or more than 1 requests match, so it is how you disambiguate when several requests are pending at once.
+- `t.respond(...)` answers it and emits the next turn. Use `t.respondAll(optionId)` when multiple pending requests of the same kind should get the same answer (for example, approving a batch of changes one by one).
 
 Approval and rejection are two branches of the same gate. Write both evals if you want full coverage: one for "it happened after approval" and one for "it stayed blocked after rejection". See [Drive](/concepts/drive#human-in-the-loop-hitl) for the full API-by-API usage.
 
@@ -59,18 +59,18 @@ HITL asks the adapter to do three things. The first two happen on the paused tur
 
 The paused execution state (for example, a partially read SSE stream) lives on the session line in `ctx.session`: call `ctx.session.hold(state)` on the paused turn and `ctx.session.take()` on the response turn to retrieve it — `take()` clears it once read. See [How to write send](/guides/write-send#step-5-hitl) for the full streaming skeleton.
 
-Like the rest of NiceEval capabilities, HITL is not declared with a boolean flag. **If you implement it, it exists.** If `send` returns `"waiting"` and emits `input.requested`, `t.respond` works. If it does not, the eval fails explicitly at `parked()` or `requireInputRequest()`, instead of silently passing. See [Where capabilities come from](/concepts/adapter#where-capabilities-come-from-proof-by-construction-not-a-questionnaire) for how capabilities follow from construction.
+Like the rest of the [NiceEval](https://niceeval.com/) capabilities, HITL is not declared with a boolean flag. **If you implement it, it exists.** If `send` returns `"waiting"` and emits `input.requested`, `t.respond` works. If it does not, the eval fails explicitly at `parked()` or `requireInputRequest()`, instead of silently passing. See [Where capabilities come from](/concepts/adapter#where-capabilities-come-from-proof-by-construction-not-a-questionnaire) for how capabilities follow from construction.
 
 ## Rejection is not a failure
 
-Human denial and tool failure are different things. Use different statuses in the event stream. A human-blocked tool call should produce `action.result` with `status: "rejected"`, not `"failed"`. That way `t.noFailedActions()` still passes for an intentional rejection, and `t.calledTool("deploy", { status: "rejected" })` can assert the rejection branch precisely.
+Human denial and tool failure are different things. Use different statuses in the event stream. A human-blocked tool call should produce `action.result` with `status: "rejected"`, not `"failed"`. That way `t.noFailedActions()` still passes for an intentional rejection, and `t.calledTool("deploy", { status: "rejected" })` can assert precisely that "the call was made and a human blocked it" — which is exactly the assertion the rejection-branch eval needs.
 
 ## Which agents do not need HITL
 
 Not every agent has this branch. Skip the whole feature when it does not exist — the adapter does not need to handle `waiting`, and `t.respond` never shows up in the eval:
 
-- **Single-shot agents** that answer in one pass and never wait for a person.
-- **Approval gates disabled in the runtime mode**. Claude Code and Codex support HITL as products, but the built-in `claude-code`, `codex`, and `bub` sandbox agents usually run fully automated and therefore do not expose HITL.
+- **Agents that finish each turn in one pass**: question answering, retrieval, translation, and other send-and-reply services have no step that waits for a person.
+- **Runtime modes with the approval gate turned off**: Claude Code and Codex are HITL products, but as subjects under test in a sandbox they usually run fully automated (permission confirmation skipped) — that is exactly how the built-in `claude-code`, `codex`, and `bub` sandbox agents run, so none of them do HITL.
 - **Human review outside the execution loop**, such as a ticket system that reviews agent output later. That does not happen inside `send`, so NiceEval cannot and should not model it as HITL.
 
 The rule is simple: use HITL only when your agent's execution loop has a branch that stops for a human and then continues from the same point, and you want to write approval and rejection into the eval.

@@ -143,7 +143,7 @@ pnpm exec niceeval exp yagni-oneliner
 pnpm exec niceeval view
 ```
 
-The first argument after `exp` selects the experiment group or file. Later positionals only filter eval IDs; they are not agent names, plugin names, URLs, or runtime config.
+The first argument after `exp` selects the experiment group or file. Later positionals only filter eval IDs; they are not agent names, plugin names, or URLs.
 
 ## What to inspect
 
@@ -151,7 +151,7 @@ The first argument after `exp` selects the experiment group or file. Later posit
 - Whether average latency, tokens, and estimated cost remain acceptable.
 - Whether failing transcripts show the agent ignored the plugin process.
 - Whether the diff only touches task-relevant files.
-- Whether behavior assertions capture the plugin's value, such as more reuse, less overengineering, or proactive safety checks.
+- Whether behavior assertions capture the plugin's value, such as less rewriting, more reuse, or proactive safety defenses.
 
 ## Copy to your agent
 

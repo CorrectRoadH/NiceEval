@@ -4,7 +4,7 @@ sidebarTitle: "Connect Agent"
 description: "The full picture of integration: write an adapter, configure an experiment, and get the first eval running; how configuration and parameters are declared in the experiment and consumed by the Adapter. Event streams, multi-turn, HITL, and tracing are increments, each with its own page."
 ---
 
-Connecting a subject under test to NiceEval means writing one **adapter** for it: `defineAgent` wrapping a `send` function — it receives one turn of input, drives your agent, and returns that turn's result. The entire integration is this one file.
+Connecting a subject under test to [NiceEval](https://niceeval.com/) means writing one **adapter** for it: `defineAgent` wrapping a `send` function — it receives one turn of input, drives your agent, and returns that turn's result. The entire integration is this one file.
 
 This page answers only two questions: **how this file and its two companions (experiment, eval) get running end to end**, and **how parameters flow from the experiment to the Adapter and on to your app**. Event streams, multi-turn, HITL, and tracing are all optional increments that come later, each with its own page; a map is at the end.
 
@@ -102,12 +102,12 @@ npx niceeval exp my-bot refund # only those whose ID starts with refund
 npx niceeval view              # inspect results in the local viewer
 ```
 
-**What success looks like**: one verdict line per eval in the terminal, ending with a `N passed, N failed` summary; `npx niceeval view` shows each eval's per-turn inputs, events, and scoring detail.
+**What success looks like**: running in a terminal, a person sees a live dashboard where the completed and queued counts update in place; failures, errors, and warnings stay permanently above it. At the end it prints only the summary, the failure locators, and the result path. `npx niceeval view` shows each eval's per-turn inputs, events, and scoring detail.
 
 If it does not run, triage by where the error shows up, in three buckets:
 
 - **`fetch` throws outright** (connection refused, etc.): the app is not up, or the URL in `send` is wrong — first send the same request to that endpoint with `curl` to confirm.
-- **`t.succeeded()` fails and the turn verdict is failed**: the request went out but the app returned non-2xx. Print the response body with `ctx.log()` inside `send`; it shows up in this turn's log in `niceeval view`.
+- **`t.succeeded()` fails and the turn verdict is failed**: the request went out, but the Turn the app returned is `failed`. Map the protocol's failures onto `Turn.status` or a standard `error` event; keep any extra bounded context with `ctx.diagnostic(...)` instead of printing the whole response body.
 - **Only content assertions fail**: the integration itself already works — compare the actual value of `t.reply` in `view`, then adjust the assertion or the app.
 
 At this point the integration is complete: text assertions and judge scoring both work. For more assertions (tools, multi-turn, approval flows), see the increment map at the end.
@@ -174,7 +174,33 @@ The `ctx` fields a turn may use, and how to consume them:
 | `flags` | The experiment's `flags` | Forward as-is (request body or header both work); the app switches variants on flags |
 | `telemetry` | Present when OTel integration is configured | Touch only `headers`: a fresh W3C `traceparent` per turn, spread into the request headers. The receiver endpoint is the same on every run — pin it in `defineConfig` and point the app at it on startup; it is not passed from send — see [OTel integration](/guides/connect-otel) |
 | `session` | The runner (one per session line) | The accessors for session continuation and HITL held state all live on it: `history()`, `id` / `capture()`, `hold()` / `take()` — see [Write Send](/guides/write-send) |
-| `log(msg)` | The runner | Written into this turn's log, visible in `niceeval view` |
+| `progress(update)` | The runner (bound to the current `agent.run`) | Report the short-lived status of a turn or tool; the human dashboard may show it, and it is not saved with the results |
+| `diagnostic(input)` | The runner (bound to the current `agent.run`) | Save warnings/errors such as protocol degradation or an incomplete response; a locator can drill back down into them |
+
+### Progress, diagnostics, and fatal errors in the Adapter
+
+```ts
+async send(input, ctx) {
+  ctx.progress({ message: "Waiting for the upstream model" });
+  const response = await callAgent(input, { signal: ctx.signal });
+
+  if (response.eventsIncomplete) {
+    ctx.diagnostic({
+      code: "incomplete-event-stream",
+      level: "warning",
+      message: "The upstream response is missing tool result events",
+      data: { requestId: response.requestId },
+      dedupeKey: `incomplete-event-stream:${response.requestId}`,
+    });
+  }
+
+  return toTurn(response);
+}
+```
+
+`progress` is short-lived status that later updates overwrite; `diagnostic` is a bounded record you can still review after the run ends. Neither can pick a phase or an output stream, and neither changes `Turn.status` or the Attempt verdict on its own. Infrastructure errors — a failed connection, parsing that cannot continue — should throw; a failure of the agent under test that you received normally is expressed with `Turn.status: "failed"`.
+
+The terminal shows only a one-layer summary of the error plus the locator. The complete code, message, cause, stack, and diagnostics are in `result.json`; read them with `niceeval show @<locator>`. An OTel trace only adds call relationships and timing — it is not a prerequisite for recording errors.
 
 Running the same agent against local and production separately is just two experiment files with two sets of factory options:
 
@@ -222,6 +248,6 @@ Complete runnable references: the five non-intrusive integration examples under 
 - [Official adapters](/guides/official-adapters) — which official Adapters exist, sandboxed and non-sandboxed, and how to configure them, when your subject under test can use one directly.
 - [Write Send](/guides/write-send) — the complete tutorial for hand-writing an Adapter: seven progressive steps, from sending one message to HITL, OTel, and flags.
 - [Adapter](/concepts/adapter) — the `send` contract: `TurnInput` / `AgentContext` / `Turn`, field by field.
-- [OTel integration](/guides/connect-otel) — send the app's spans to NiceEval too, in exchange for the call waterfall in `niceeval view`.
+- [OTel integration](/guides/connect-otel) — send the app's spans to [NiceEval](https://niceeval.com/) too, in exchange for the call waterfall in `niceeval view`.
 - [Tier](/concepts/tier) — what each of the three integration tiers costs and buys.
 - [Write experiments](/guides/write-experiment) — the full `defineExperiment` fields.

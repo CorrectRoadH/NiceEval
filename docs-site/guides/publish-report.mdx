@@ -1,37 +1,47 @@
 ---
 title: "Publish a report through CI"
 sidebarTitle: "Publish Report"
-description: "Wire the report site into CI: commit .niceeval/ into the repo, the build command is one line — view --out — and push publishes. The published site is identical to local niceeval view; a build with zero readable results fails and keeps the previous deploy."
+description: "Commit a results directory that has passed the copySnapshots size precheck, and CI exports the report site with a single view --run. Oversized files produce an actionable error before you ever commit."
 ---
 
-`niceeval view --out <dir>` exports the viewer into a plain static directory: reports, snapshot lists, transcripts, and the trace waterfall, exactly like what local `niceeval view` shows (export behavior is covered in [Viewing Results · Exporting and Static Hosting](/guides/viewing-results#exporting-and-static-hosting)). Publishing through CI only requires getting the result data into the build machine's hands — commit `.niceeval/` into the repo, and the repo itself becomes the data source. Run the eval locally, commit, and push — that is the whole publish step, with no script or local build command needed.
+`niceeval view --out <dir>` exports the viewer into a plain static directory: reports, snapshot lists, transcripts, and the trace waterfall, exactly like what local `niceeval view` shows (export behavior is covered in [Viewing Results · Exporting and Static Hosting](/guides/viewing-results#exporting-and-static-hosting)). Publishing through CI only requires getting the result data into the build machine's hands — but do not commit the local source of truth `.niceeval/` directly: per-string truncation can stop one runaway output from ballooning, but it cannot guarantee a whole file stays under a Git host's limit. First use `copySnapshots` to produce a publish results root that has passed the 50 MiB per-file precheck, then commit that directory.
 
-## `.gitignore` excludes only `diff.json`
+## Producing a committable results directory
 
-```gitignore
-# .niceeval/ is committed into the repo: it is the data source for the live report,
-# and CI builds the entire site straight from it.
-# Only diff.json is excluded — a single run can reach hundreds of MB, and the viewer never reads it.
-.niceeval/**/diff.json
+Create `scripts/publish-results.mjs`:
+
+```javascript
+import { rm } from "node:fs/promises";
+import { copySnapshots, openResults } from "niceeval/results";
+
+const output = "report-data";
+const results = await openResults(".niceeval");
+
+await rm(output, { recursive: true, force: true });
+await copySnapshots(results.latest(), output, {
+  artifacts: ["sources", "events", "trace", "o11y", "agentSetup"],
+});
 ```
+
+Run `node scripts/publish-results.mjs`, then commit `report-data/`. `copySnapshots` checks every file it is about to publish before creating the directory; if any file exceeds 50 MiB, the whole copy fails, lists the path, the size, and what to do about it, and leaves no half-written directory behind. `diff` is not published by default; add it to `artifacts` explicitly when you need it, and it is bound by the same budget. Oversized events / trace left behind by an older version are never silently rewritten — the precheck asks you to exclude that class of evidence or rerun with the current version.
 
 ## The build command is the export command
 
 ```bash
-npx niceeval view --out site
+npx niceeval view --run report-data --out site
 ```
 
-`view` fails outright with a non-zero exit code on zero readable results — it never exports an empty report. If the `.niceeval/` checkout is broken, or every stored snapshot is incompatible with the current niceeval's `schemaVersion` and gets skipped wholesale, the build fails and Vercel / GitHub Pages keeps the previous deployment. The error lists every skipped snapshot directory with its reason, and for the `schemaVersion` case also gives the `npx niceeval@<version>` view command that can view the old data directly.
+`view` fails outright with a non-zero exit code on zero readable results — it never exports an empty report. If the `report-data/` checkout is broken, or every stored snapshot is incompatible with the current niceeval's `schemaVersion` and gets skipped wholesale, the build fails and Vercel / GitHub Pages keeps the previous deployment. The error lists every skipped snapshot directory with its reason, and for the `schemaVersion` case also gives the `npx niceeval@<version> view` command that can view the old data directly.
 
 ## Publishing a custom report
 
 Without `--report`, the published homepage is the default report. To swap the homepage for your own report, pass a [`defineReport` report file](/guides/custom-reports) to `--report` — the attempt evidence pages (transcript, trace, code view) stay in the same site, and every number in the report drills into its corresponding evidence, exactly like local `view --report`:
 
 ```bash
-npx niceeval view --report reports/exam.tsx --out site
+npx niceeval view --run report-data --report reports/exam.tsx --out site
 ```
 
-The report file is committed in the repo just like `.niceeval/` — edit the layout, push, and the live site updates. With the `vercel.json` / workflow below, just swap the build command for this one line; nothing else needs to change.
+The report file is committed in the repo just like `report-data/` — edit the layout, push, and the live site updates. With the `vercel.json` / workflow below, just swap the build command for this one line; nothing else needs to change.
 
 ## Connecting a hosting platform
 
@@ -40,7 +50,7 @@ The report file is committed in the repo just like `.niceeval/` — edit the lay
 ```json
 {
   "installCommand": "pnpm install --frozen-lockfile",
-  "buildCommand": "npx niceeval view --out site",
+  "buildCommand": "npx niceeval view --run report-data --out site",
   "outputDirectory": "site"
 }
 ```
@@ -70,7 +80,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: npx niceeval view --out site
+      - run: npx niceeval view --run report-data --out site
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
@@ -85,8 +95,8 @@ jobs:
         uses: actions/deploy-pages@v4
 ```
 
-From here on, the daily loop is just two steps: run the eval locally, commit `.niceeval/`, and push. The published site carries the full history — a teammate opens the link and sees exactly what you saw in local `niceeval view`; the repo, the local viewer, and the live report share one single source of truth. Repo size grows with stored snapshots (`diff.json` is already excluded; growth mostly comes from transcript and trace artifacts) — delete the directory for any old snapshot you no longer want to keep, and the viewer and report follow the repo.
+The daily loop is: run the eval locally, run `node scripts/publish-results.mjs`, commit the updated `report-data/`, and push. The publish directory keeps only the latest snapshot per experiment; to publish under a different selection policy, swap out `results.latest()` in the script. Your local `.niceeval/` can keep the full history and diffs — there is no need to cut away debugging evidence just to satisfy a Git limit.
 
-## What gets published is the complete evidence
+## What gets published is the selected evidence
 
-The full site export carries complete evidence: transcripts, source snapshots, and traces go into the site as-is, unredacted. Before publishing to the public internet, confirm the results contain no secrets or sensitive data; for redacting free-text on custom report pages, see the `redact` hook in [Results Data API](/guides/results-data).
+The full site export carries the transcripts, source snapshots, and traces selected in the publish results root. Newly written oversized events / trace strings may carry structured truncation markers; `copySnapshots` does not rewrite content — it only selects and runs the whole-file size precheck. Before publishing to the public internet, confirm the results contain no secrets or sensitive data; for redacting free text on custom report pages, see the `redact` hook in [Results Data API](/guides/results-data).

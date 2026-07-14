@@ -50,7 +50,7 @@ The goal of the loop isn't to make a command exit green — it's to form and ver
     npx niceeval show @1k2m9qtr
     ```
 
-    The first command shows each experiment's current pass rate, cost, and duration, plus a compact attempt locator for every eval. `[E]` / `[X]` / `[⏱]` / `[D]` mark whether the eval source at run time, execution steps, OTel timing, and diff are each available. The second command opens the selected attempt directly.
+    The first command shows each experiment's current pass rate, cost, and duration, plus a compact attempt locator for every eval — the locator itself is the entry point to the evidence, so the list does not encode which evidence is available. The second command opens the selected attempt directly; the `available:` block at the end of that page lists only the evidence commands this attempt actually has.
   </Step>
   <Step title="Read evidence for your question">
     ```bash
@@ -60,7 +60,7 @@ The goal of the loop isn't to make a command exit green — it's to form and ver
 
     `--execution` merges the agent's output with the trace: the standard event stream supplies messages, thinking, tool call/result, and skill loads; OTel, when it can be correlated, adds start time, duration, parent/child relationships, and error status onto those same nodes. Without OTel the steps are still complete — they just carry no timing.
 
-    With no evidence flag, `show @<id>` gives a compact overview of the attempt: eval assertions, execution steps, the timing waterfall, and workspace changes. It shows **the eval source saved at run time**, not whatever file with the same name currently sits in your workspace; long content is summarized with a command to expand it.
+    With no evidence flag, `show @<id>` is the failure diagnosis front page. It first lists each failed assertion's group, matcher, expected value, received value, reason, and source location, then a summary of execution and file changes. The agent should read this page first, and only open the matching evidence when it needs to answer "why was this value produced".
 
     ```text
     $ niceeval show @1k2m9qtr
@@ -69,7 +69,7 @@ The goal of the loop isn't to make a command exit green — it's to form and ver
     eval source: evals/weather/brooklyn.eval.ts · sha256:8d47…
 
      8  export default defineEval({
-     9    id: "weather/brooklyn",
+     9    description: "Brooklyn weather query",
     10    async test(t) {
     11      const turn = await t.send("What's the weather in Brooklyn today?");
     12 ✗    turn.calledTool("get_weather");
@@ -82,7 +82,15 @@ The goal of the loop isn't to make a command exit green — it's to form and ver
 
     assertions: 1 passed · 1 gate failed · 1 soft below target
 
-    execution [X,⏱]
+    failures:
+      gate · Issue 15193: selected proposal matches the one maintainers accepted
+        assertion: equals(4)
+        expected: 4
+        received: 1
+        source: evals/memory/swelancer-manager-proposals.eval.ts:40:11
+
+    execution: 3 events · 0 skill loads · 0 tool calls · 1 AI messages
+    timing: OTel spans recorded for this attempt — see --execution for per-step timing.
     agent run                     ▕████████████████████▏ 41.2s
     ├─ inference                  ▕█████░░░░░░░░░░░░░░░▏ 10.1s · "Brooklyn is about 24°C and clear today."
     ├─ inference                  ▕░░░░░█████████░░░░░░▏ 18.3s
@@ -92,26 +100,36 @@ The goal of the loop isn't to make a command exit green — it's to form and ver
     changes · diff unavailable
     reason: this attempt did not produce workspace file changes
 
-    evidence: eval source [E] · execution [X] · OTel timing [⏱]
     full eval source: …/weather/brooklyn/a2/eval-source.ts
-    next: niceeval show @1k2m9qtr [--eval|--execution|--diff]
+    available:
+      niceeval show @1k2m9qtr --eval
+      niceeval show @1k2m9qtr --execution
     ```
 
-    `--execution` lays out AI messages, skill loads, tool calls, and tool results as one execution tree. The attempt below has OTel, so the same tree carries both relative time and duration:
+    `--execution` lays out AI messages, skill loads, tool calls, and tool results as one execution tree. It only shows events an agent can make sense of; SDK / runtime spans that correlate to none of those events are not printed line by line — only their omitted count is reported, and the `trace.json` path is kept. The attempt below has OTel, so the nodes that could be correlated carry both relative time and duration:
 
     ```text
     $ niceeval show @1k2m9qtr --execution
     @1k2m9qtr · weather/brooklyn · compare/codex-gpt-5.4 · failed · OTel timing
 
-      0.0s  user        What's the weather in Brooklyn today?
-      0.2s  assistant   Let me check the weather tool's usage notes first.
-      0.3s  skill load  weather-tools                         0.4s
-      0.8s  tool call   get_weather {"location":"Brooklyn"}  1.8s
-      2.6s  tool result {"temperatureC":18,"condition":"rain"}
-      2.8s  assistant   Brooklyn is currently about 18°C with rain.  1.2s
+    USER
+      What's the weather in Brooklyn today?
+
+    ASSISTANT
+      Let me check the weather tool's usage notes first.
+
+    TOOL · get_weather  0.8s · 1.8s
+      input
+        {"location":"Brooklyn"}
+      result · completed
+        {"temperatureC":18,"condition":"rain"}
+
+    ASSISTANT  2.8s · 1.2s
+      Brooklyn is currently about 18°C with rain.
 
     total 4.0s · 1 skill load · 1 tool call · 2 AI messages
     full events: …/weather/brooklyn/a2/events.json
+    69 unlinked telemetry spans omitted; inspect the OTel trace for framework timing.
     full OTel trace: …/weather/brooklyn/a2/trace.json
     ```
 
@@ -121,18 +139,26 @@ The goal of the loop isn't to make a command exit green — it's to form and ver
     $ niceeval show @1nx4dpwq --execution
     @1nx4dpwq · weather/brooklyn · compare/bub-gpt-5.4 · failed
 
-    user        What's the weather in Brooklyn today?
-    assistant   Let me check the weather tool's usage notes first.
-    skill load  weather-tools
-    tool call   get_weather {"location":"Brooklyn"}
-    tool result {"temperatureC":18,"condition":"rain"}
-    assistant   Brooklyn is currently about 18°C with rain.
+    USER
+      What's the weather in Brooklyn today?
+
+    ASSISTANT
+      Let me check the weather tool's usage notes first.
+
+    TOOL · get_weather
+      input
+        {"location":"Brooklyn"}
+      result · completed
+        {"temperatureC":18,"condition":"rain"}
+
+    ASSISTANT
+      Brooklyn is currently about 18°C with rain.
 
     timing unavailable · OTel trace was not collected
     full events: …/weather/brooklyn/a2/events.json
     ```
 
-    A diff is the file changes the tested agent made in the sandbox workspace, not a diff of the eval source itself — it only ever shows up on locators carrying `[D]`. It defaults to a file-level summary, so a large patch doesn't get dumped straight into the agent's context; `--diff=<file>` expands a single file, and the raw artifact path is always kept alongside it:
+    A diff is the file changes the tested agent made in the sandbox workspace, not a diff of the eval source itself. Only sandbox evals collect a diff — for a non-sandbox eval, or when the agent genuinely touched no files, the attempt page's `available:` list omits `--diff`. It defaults to a file-level summary, so a large patch doesn't get dumped straight into the agent's context; `--diff=<file>` expands a single file, and the raw artifact path is always kept alongside it:
 
     ```text
     $ niceeval show @1c3h6tbn --diff
@@ -203,7 +229,7 @@ next:
   niceeval show @1k2m9qtr --execution
 ```
 
-The agent should pick an attempt locator from `failures`, then run one of the `next` commands (`niceeval show @<id>` or the matching evidence flag) — not parse the low-frequency checkpoint lines on stderr while the run is in flight; those only signal that the process is still alive. When the failure count exceeds the handoff cap (5 by default), only the first few are expanded, with a total count for the rest; the results snapshot has the full list. When something needs to read the results programmatically, the results snapshot is the source of truth:
+The agent should pick an attempt locator from `failures`, then run one of the `next` commands (`niceeval show @<id>` or the matching evidence flag) — not parse the low-frequency checkpoint lines on stderr while the run is in flight; those only signal that the process is still alive. When the failure count exceeds the cap (5 by default), the handoff expands only the first few and reports the total; the results snapshot has the full list. When something needs to read the results programmatically, the results snapshot is the source of truth:
 
 ```text
 .niceeval/<experiment>/<snapshot>/
@@ -216,7 +242,7 @@ The agent should pick an attempt locator from `failures`, then run one of the `n
 ```
 
 - `snapshot.json` records the experiment's identity, run configuration, format version, and timestamp.
-- `result.json` records that attempt's verdict, assertions, errors, and usage.
+- `result.json` records that attempt's verdict, assertions, structured errors, diagnostics, and usage. Transient progress is never persisted.
 - `events.json` holds the conversation and tool-call events, `trace.json` holds the call chain, and `diff.json` holds sandbox file changes.
 - When a kind of evidence doesn't exist, the corresponding file simply isn't generated. Trust what `show` reports as available rather than assuming every directory has every file.
 

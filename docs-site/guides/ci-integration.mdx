@@ -8,7 +8,7 @@ Evals should live in CI the same way tests do. They catch agent regressions on p
 
 ## Exit codes
 
-By default, NiceEval exits non-zero when any gate fails. In CI you usually want `--strict` so failure is explicit:
+By default, [NiceEval](https://niceeval.com/) exits non-zero when any gate fails. In CI you usually want `--strict` so failure is explicit:
 
 ```bash
 NICEEVAL_LANG=en npx niceeval exp ci \
@@ -62,19 +62,6 @@ jobs:
   </Step>
 </Steps>
 
-## JUnit reporter
-
-```ts
-import { defineConfig } from "niceeval";
-import { JUnit } from "niceeval/reporters";
-
-export default defineConfig({
-  reporters: [JUnit(".niceeval/junit.xml")],
-});
-```
-
-CI can upload the JUnit XML so failures appear in the test-report UI; for a one-off run without touching config, use the CLI flag `--junit <path>` instead. To also report results to an experiment platform such as Braintrust, see [Reporters](/guides/reporters).
-
 ## JSON, JUnit, and structured errors
 
 ```text
@@ -87,7 +74,7 @@ niceeval: junit=.niceeval/junit.xml
 
 The exit code is the first-line red/green signal; JSON, JUnit, and the results snapshot are the complete machine interface — log lines are only for searching and annotation. An `errored` line carries a locator, the eval/experiment identity, the formal phase when known, and a one-line `reason` summary. The full cause, stack, and diagnostics live in the attempt's `result.json` — keep the artifacts and run `niceeval show @<locator>` to review them.
 
-The JSON/JUnit files the CLI is explicitly told to write, and the default results artifact, are all required outputs: a write failure must turn the job red, not just log a warning and exit 0.
+The JSON/JUnit files the CLI is explicitly told to write, and the default results artifact, are all required outputs: a write failure must turn the job red, not just log a warning and exit 0. To also report results to an experiment platform such as Braintrust, see [Reporters](/guides/reporters).
 
 ## Discovery only
 

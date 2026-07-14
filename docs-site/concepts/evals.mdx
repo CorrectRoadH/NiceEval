@@ -1,7 +1,7 @@
 ---
-title: "Evals in NiceEval: lifecycle, outcome, and files"
+title: "Evals in NiceEval: lifecycle, verdicts, and files"
 sidebarTitle: "Evals"
-description: "An eval is a test case: description, optional agent reference, and test function. Learn how evals are discovered, scheduled, scored, and reported."
+description: "An eval is a test case: a description and a test function, agent-neutral. Learn how evals are discovered, scheduled, scored, and reported."
 ---
 
 An eval is a runnable test case. It usually lives in a `*.eval.ts` file and is declared with `defineEval`.
@@ -23,14 +23,17 @@ export default defineEval({
 });
 ```
 
+Core fields:
+
 | Field | Meaning |
 |---|---|
 | `description` | Human-readable description shown in reports |
-| `agent` | Which Adapter to use, usually supplied by the experiment |
 | `test(t)` | Interaction and assertion logic |
 
+An eval does not declare which Agent it runs against — it stays agent-neutral by default, so the same eval can run against different Agents under different experiments. Choosing the Agent is a field of the experiment, not something the CLI overrides ad hoc.
+
 <Note>
-  Do not hand-write `id` or `name`. NiceEval derives the eval ID from the file path.
+  Do not hand-write `id` or `name`. [NiceEval](https://niceeval.com/) derives the eval ID from the file path.
 </Note>
 
 ## Path is identity
@@ -42,39 +45,53 @@ npx niceeval exp local weather
 npx niceeval exp local weather/brooklyn
 ```
 
+This keeps IDs stable and readable, and naturally consistent with the directory structure.
+
 ## Lifecycle
 
 <Steps>
-  <Step title="Discovery">Load `*.eval.ts` files and fixture directories.</Step>
-  <Step title="Scheduling">Build the execution plan from concurrency, cache, runs, attempts, and early exit.</Step>
-  <Step title="agent.send">`t.send()` calls the selected adapter and receives a standard `Turn`.</Step>
-  <Step title="Scoring">NiceEval collects value assertions, scoped assertions, judge scores, and test results.</Step>
-  <Step title="Outcome">All assertion results fold into one final outcome.</Step>
-  <Step title="Report">Reporters write console output and `.niceeval/` artifacts.</Step>
+  <Step title="Discovery">
+    The runner loads the `*.eval.ts` files and fixture directories under `evals/`.
+  </Step>
+  <Step title="Scheduling">
+    Build the execution plan from concurrency, cache, runs, attempts, and early exit.
+  </Step>
+  <Step title="agent.send">
+    `t.send()` calls the selected Adapter and receives a standard `Turn`.
+  </Step>
+  <Step title="Scoring">
+    [NiceEval](https://niceeval.com/) collects value assertions, scoped assertions, judge scores, and test results.
+  </Step>
+  <Step title="Verdict">
+    All assertion results fold into one final verdict.
+  </Step>
+  <Step title="Report">
+    The console and reporters emit the results, and `.niceeval/` artifacts are written.
+  </Step>
 </Steps>
 
-## Outcome types
+## Verdict types
 
 <CardGroup cols={2}>
   <Card title="passed" icon="circle-check" color="#22c55e">
-    All gate assertions passed and no hard failure occurred.
+    All gate assertions passed (under `--strict`, soft assertions also met their thresholds), and no execution error occurred.
   </Card>
   <Card title="failed" icon="circle-xmark" color="#ef4444">
-    A gate assertion failed or the run itself failed.
+    At least one gate assertion failed, or under `--strict` a soft assertion came in below its threshold.
   </Card>
-  <Card title="passed" icon="chart-bar" color="#f59e0b">
-    No gate failed, but soft scores are preserved as scores.
+  <Card title="errored" icon="triangle-exclamation" color="#f59e0b">
+    An execution error, timeout, or authoring error — this run cannot produce a trustworthy conclusion.
   </Card>
   <Card title="skipped" icon="forward" color="#6b7280">
-    The eval was skipped, usually through `t.skip(reason)`.
+    The eval skipped itself, usually through `t.skip(reason)`.
   </Card>
 </CardGroup>
 
 ## Gate and soft
 
-`gate` is a hard threshold. Failure makes the eval fail. `soft` contributes a score without necessarily failing the eval. See [Assert](/concepts/assert).
+`gate` is a hard threshold. Failure makes the eval fail. `soft` contributes a score without necessarily failing the eval. See [Assert](/concepts/assert) for the full rules.
 
-## File convention
+## The `*.eval.ts` convention
 
 Only files ending in `.eval.ts` are discovered. Use directories for grouping:
 
@@ -84,7 +101,7 @@ evals/
    └─ refund.eval.ts  # id: billing/refund
 ```
 
-## Dataset fan-out
+## Array exports and data-driven tests (dataset fan-out)
 
 A file can also default-export an array of `defineEval(...)` calls to generate multiple cases from the same logic:
 
@@ -100,9 +117,9 @@ export default rows.map((row) =>
 );
 ```
 
-This generates IDs such as `sql/0000` and `sql/0001`. See [Dataset Fan-out](/guides/dataset-fanout).
+This generates IDs such as `sql/0000` and `sql/0001`. See [Dataset fan-out](/guides/dataset-fanout).
 
 ## Related reading
 
-- [Experiment](/concepts/experiment) - The other half: who to evaluate, how to run it, and why evals are separate from experiments.
-- [Assert](/concepts/assert) - The full outcome rules for gate and soft assertions.
+- [Experiment](/concepts/experiment) - The other half: who to evaluate and how to run it, and why it is kept separate from the eval (late binding).
+- [Assert](/concepts/assert) - The full verdict rules for gate and soft assertions.

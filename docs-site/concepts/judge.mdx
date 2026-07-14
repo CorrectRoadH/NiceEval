@@ -1,10 +1,10 @@
 ---
-title: "LLM-as-judge in niceeval: scoring open-ended output"
+title: "LLM-as-judge in NiceEval: scoring open-ended output"
 sidebarTitle: "Judge"
-description: "How t.judge, session.judge, and turn.judge use a separate evaluator model to score factuality, closed-ended quality, and summarization — plus model resolution and severity."
+description: "How t.judge, session.judge, and turn.judge use a separate judge model to score factuality, closed-ended quality, and summarization faithfulness — plus model resolution and severity."
 ---
 
-Judge assertions are the fifth scoring mechanism, alongside the four covered in [Assert](/concepts/assert). Use them when correctness cannot be expressed as a rule — for open-ended prose, tone, factual consistency, or summarization quality. The evaluator model is **entirely separate** from the agent under test, which prevents self-evaluation bias: the same model grading its own output would be prone to rating itself generously.
+Judge assertions are the fifth scoring mechanism, alongside the four covered in [Assert](/concepts/assert). Use them when correctness cannot be expressed as a rule — for open-ended prose, tone, factual consistency, or summarization quality. The judge model is **entirely separate** from the agent under test, which prevents self-evaluation bias: the same model grading its own output would be prone to rating itself generously.
 
 ```ts
 t.judge.autoevals.factuality(reference).atLeast(0.8);   // factual consistency with a reference text
@@ -36,8 +36,8 @@ turn.judge.autoevals.closedQA("...")     // (from t.send()'s return value) defau
 `t.judge` and `session.judge` are session-level: they're the right choice for judging overall reply quality or cross-turn consistency across a whole conversation. `turn.judge` is turn-level: it only sees the message from that one turn, which is what you want when different turns in a multi-turn eval need different rubrics:
 
 ```ts
-const turn1 = await t.send("What's in this image?");                 // turn 1: image
-const turn2 = await t.send("What color is the background?");         // turns 2–3: text follow-ups
+const turn1 = await t.send("What's in this image?");                  // turn 1: the image
+const turn2 = await t.send("What color is the background?");          // turns 2–3: text-only follow-ups,
 const turn3 = await t.send("What color is the shape in the middle?"); // testing cross-turn memory
 
 t.judge.autoevals
@@ -83,36 +83,37 @@ defineEval({
 t.judge.autoevals.closedQA("rubric", { on: t.reply, model: "openai/gpt-4o" });
 ```
 
-If all three levels are unset, NiceEval falls back to the environment variable `NICEEVAL_JUDGE_MODEL`. If that is also unset, the judge call fails as a configuration error. There is no built-in default judge model.
+If all three levels are unset, NiceEval falls back to the environment variable `NICEEVAL_JUDGE_MODEL`. If that is also unset, the judge call fails at the call site as a configuration error. There is no built-in default judge model.
 
 ## Judge endpoint and key: OpenAI-compatible protocol
 
-Judge calls use an **OpenAI-compatible `/chat/completions`** endpoint. OpenAI, DeepSeek, and any compatible gateway can act as the judge backend:
+Judge calls use an **OpenAI-compatible `/chat/completions`** protocol. OpenAI, DeepSeek, and any gateway compatible with that protocol can serve as the judge endpoint. Point at it in the `judge` config:
 
 ```ts
+// niceeval.config.ts
 defineConfig({
   judge: {
     model: "deepseek-chat",
-    baseUrl: "https://api.deepseek.com/v1",
-    apiKeyEnv: "DEEPSEEK_API_KEY",
+    baseUrl: "https://api.deepseek.com/v1",  // defaults to the official OpenAI endpoint
+    apiKeyEnv: "DEEPSEEK_API_KEY",           // the key is read from this environment variable
   },
 });
 ```
 
-`baseUrl` and the API key are both resolved from most-specific to most-generic:
+`baseUrl` and the API key are both resolved from most-specific to most-generic, with the config field first and environment variables as fallbacks:
 
 | Item | Resolution order |
 |---|---|
-| Endpoint | `judge.baseUrl` -> `NICEEVAL_JUDGE_BASE` -> `CODEX_BASE_URL` -> `OPENAI_BASE_URL` -> `https://api.openai.com/v1` |
-| Key | env var named by `judge.apiKeyEnv` -> `NICEEVAL_JUDGE_KEY` -> `CODEX_API_KEY` -> `OPENAI_API_KEY` |
+| Endpoint | `judge.baseUrl` → `NICEEVAL_JUDGE_BASE` → `CODEX_BASE_URL` → `OPENAI_BASE_URL` → `https://api.openai.com/v1` |
+| Key | env var named by `judge.apiKeyEnv` → `NICEEVAL_JUDGE_KEY` → `CODEX_API_KEY` → `OPENAI_API_KEY` |
 
 <Warning>
-  When no API key resolves, judge assertions are skipped silently: no error, no score, and the eval keeps running. After configuring keys, run one eval with `t.judge` and confirm the score appears in `niceeval view`.
+  When no API key resolves, judge assertions are **skipped silently**: no error, no score, and the eval keeps running. All green does not mean the judge actually scored anything. After configuring keys, run one eval with `t.judge` and confirm the judge score appears in `niceeval view`.
 </Warning>
 
 ## Severity: judge defaults to soft
 
-Judge calls are scoring functions like any other assertion, so they follow the same gate/soft mechanics described in [Assert · Gate vs soft severity](/concepts/assert#gate-vs-soft-severity) — but their **default** is different from most value matchers:
+Judge calls are scoring functions like any other assertion, so they follow the same mechanics described in [Assert · Gate vs soft severity](/concepts/assert#gate-vs-soft-severity) — but their **default** is different from most value matchers:
 
 ```ts
 t.judge.autoevals.closedQA("Is the tone polite?");              // no threshold → soft, pure score, never fails the eval
@@ -120,10 +121,10 @@ t.judge.autoevals.closedQA("Is the tone polite?").atLeast(0.7); // soft with a t
 t.judge.autoevals.closedQA("Is the tone polite?").gate();       // promoted to gate → fails immediately if below threshold
 ```
 
-With no `.atLeast()` and no `.gate()`, a bare judge call is recorded purely as a quality score — it shows up on the eval's score chip but can never fail the run on its own. This is the right default for judge: it's a probabilistic model scoring another probabilistic model's output, and treating every rubric miss as a hard failure would make suites flaky. Reach for `.gate()` only when the judged property is truly load-bearing (for example, "the response must not fabricate account details").
+With no `.atLeast()` and no `.gate()`, a bare judge call is recorded purely as a quality score — it shows up on the eval's score chip but can never fail the run on its own. This is the right default for judge: it's a probabilistic model scoring another probabilistic model's output, and treating every rubric miss as a hard failure would make suites brittle and constantly red. Reach for `.gate()` only when the judged property is truly load-bearing (for example, "the response must not fabricate account details").
 
 ## Related pages
 
-- [Assert](/concepts/assert) — gate vs soft severity in full, plus the outcome rules judge scores feed into.
-- [Drive](/concepts/drive) — `t.send()`, `t.newSession()`, and the `Turn` / session handles that `t.judge`, `session.judge`, and `turn.judge` hang off of.
-- [Evals](/concepts/evals) — how judge scores fold into the eval lifecycle and outcome types.
+- [Assert](/concepts/assert) — gate vs soft severity in full, plus the verdict rules judge scores feed into.
+- [Drive](/concepts/drive) — `t.send()`, `t.newSession()`, and which handle `t.judge`, `session.judge`, and `turn.judge` each hang off of.
+- [Evals](/concepts/evals) — how judge scores fold into the eval lifecycle and verdict types.

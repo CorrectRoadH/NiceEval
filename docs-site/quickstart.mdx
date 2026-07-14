@@ -21,7 +21,8 @@ Connecting your own application takes three files: an **adapter** (how to call y
   </Step>
   <Step title="View results">
     ```bash
-    pnpm exec niceeval view
+    pnpm exec niceeval show         # terminal summary, easy to hand straight to an AI
+    pnpm exec niceeval view         # web viewer, for browsing evidence yourself
     ```
   </Step>
 </Steps>
@@ -94,7 +95,8 @@ export default defineEval({
 
 ```bash
 pnpm exec niceeval exp my-bot   # run it
-pnpm exec niceeval view         # view results in the local viewer
+pnpm exec niceeval show         # read results in the terminal; failures print the command to drill in further
+pnpm exec niceeval view         # open the local viewer when you want to browse interactively
 ```
 
 At this point, the first eval has run successfully.

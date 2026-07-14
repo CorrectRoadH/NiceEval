@@ -8,7 +8,7 @@ First, what this integration does **not** change: assertions. Every verdict — 
 
 What OTel integration buys you is something else: **the call waterfall in `niceeval view`**. Every model call and tool execution inside your app, each with its duration and tokens, laid out as a per-turn timeline — why a failing eval failed, or which step made a slow turn slow, is often obvious at a glance in the waterfall.
 
-If your app already emits OTel traces — AI SDK telemetry, LangGraph's LangSmith export, OpenLLMetry / OpenInference auto-instrumentation, or your own spans following the GenAI semantic conventions — you are already producing the waterfall data: just have the app send a copy of its spans to NiceEval. Application code stays untouched, and the integration remains non-invasive (see [Tier](/concepts/tier)).
+If your app already emits OTel traces — AI SDK telemetry, LangGraph's LangSmith export, OpenLLMetry / OpenInference auto-instrumentation, or your own spans following the GenAI semantic conventions — you are already producing the waterfall data: just have the app send a copy of its spans to NiceEval. Application code stays untouched, and the integration remains non-intrusive (see [Tier](/concepts/tier)).
 
 ## How it works (one paragraph)
 

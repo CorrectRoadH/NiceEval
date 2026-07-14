@@ -25,6 +25,7 @@ Sandbox agents start a coding-agent CLI inside an isolated environment, give it 
 Set `sandbox` in the experiment, or as a project-level fallback in `niceeval.config.ts`, to choose where [NiceEval](https://niceeval.com/) creates the isolated environment:
 
 ```ts
+// experiments/local.ts
 import { defineExperiment } from "niceeval";
 import { claudeCodeAgent } from "niceeval/adapter";
 import { dockerSandbox } from "niceeval/sandbox";
@@ -36,7 +37,7 @@ export default defineExperiment({
 });
 ```
 
-```sh
+```shell
 export ANTHROPIC_API_KEY=sk-ant-...
 npx niceeval exp local fixtures/button
 
@@ -44,10 +45,27 @@ npx niceeval exp local fixtures/button --runs 10 --early-exit
 ```
 
 <Note>
-  There is no CLI flag for choosing the backend. Backend selection lives entirely in code. If neither the experiment nor `niceeval.config.ts` sets `sandbox`, [NiceEval](https://niceeval.com/) fails when it tries to create the sandbox — it does not auto-detect one.
+  There is no CLI flag for this — provider selection lives entirely in code. If neither the experiment nor `niceeval.config.ts` sets `sandbox`, [NiceEval](https://niceeval.com/) fails when it tries to create the sandbox — it does not auto-detect one.
 </Note>
 
-The built-in agents exported from `niceeval/adapter` are factory functions. Put auth, proxy, MCP, or GitHub Skill setup in the factory arguments. Keep the model in the experiment's `model` field, and the sandbox backend in `sandbox`:
+When you run a coding agent in the cloud, you can use the E2B public templates NiceEval already publishes, so no attempt has to install the CLI:
+
+```ts
+import { codexAgent } from "niceeval/adapter";
+import { e2bSandbox } from "niceeval/sandbox";
+
+export default defineExperiment({
+  agent: codexAgent(),
+  model: "gpt-5.4",
+  sandbox: e2bSandbox({
+    template: "correctroads-default-team/niceeval-codex:v0.6.1",
+  }),
+});
+```
+
+Claude Code uses `correctroads-default-team/niceeval-claude-code:v0.6.1`, and Bub uses `correctroads-default-team/niceeval-bub:v0.6.1`. The version tag suits CI; omitting the tag follows the current stable build. To keep adding system packages, binaries, or model caches on top, see [Sandbox providers · Build on the official baselines to speed things up](/guides/sandbox-providers#build-on-the-official-baselines-to-speed-things-up).
+
+The built-in agents exported from `niceeval/adapter` are factory functions. Put auth, proxy, MCP, or GitHub Skill setup in the factory arguments. Keep the model in the experiment's `model` field, and the sandbox provider in `sandbox`:
 
 ```ts
 import { defineExperiment } from "niceeval";
@@ -85,16 +103,22 @@ export default defineExperiment({
 
 ```text
 createSandbox
+  → the sandbox spec's .setup() hook?    # environment setup (installs per experiment); skipped if none
   → git init && git commit
-  → adapter.setup?                 # install the CLI / write agent config
-  → test(t): uploadDirectory(...)   # write this eval's starting files
+  → the eval's setup?                    # this eval's task fixture (if defined)
+  → adapter.setup?                       # install the CLI / write agent config
+  → test(t): uploadDirectory(...)         # write this eval's starting files
   → adapter.send(input, ctx)
-  → test(t): runCommand(...)        # run verification commands by hand
-  → collectGeneratedFiles()         # git diff HEAD
+  → test(t): runCommand(...)              # run verification commands by hand
+  → collectGeneratedFiles()               # git diff HEAD
+  → adapter.teardown?                     # agent cleanup
+  → the sandbox spec's .teardown() hook?  # environment cleanup (such as saving state back), last before destroy
   → sandbox.stop()
 ```
 
 The starting files and verification commands both live in `test(t)`. During agent execution, it can only see the files you already wrote into the sandbox.
+
+The environment hooks (`.setup()` / `.teardown()`) hang off the spec in the experiment's `sandbox` field, and handle environment setup that varies per experiment — installing a binary specific to one experiment, warming something up, loading and saving state across attempts. They run before the git baseline, so the files they write are not counted in the agent's diff. For how to write them and the rules they follow, see [Sandbox providers · Environment hooks](/guides/sandbox-providers#environment-hooks).
 
 ## Custom sandbox agent
 
@@ -103,9 +127,21 @@ import { defineSandboxAgent } from "niceeval/adapter";
 
 export default defineSandboxAgent({
   name: "my-agent",
+  async setup(sandbox, ctx) {
+    ctx.progress({ message: "Checking the my-agent install" });
+    await sandbox.runCommand("npm", ["install", "-g", "my-agent"]);
+  },
   async send(input, ctx) {
+    ctx.progress({ message: "Running the my-agent CLI" });
     await ctx.sandbox.runCommand("my-agent", ["run", input.text, "--json-out", "agent-events.json"]);
     const transcript = await ctx.sandbox.readFile("agent-events.json");
+    if (transcript.trim() === "") {
+      ctx.diagnostic({
+        code: "empty-transcript",
+        level: "warning",
+        message: "my-agent wrote no transcript; tool assertions may lack evidence",
+      });
+    }
     return {
       status: "completed",
       events: parseTranscript(transcript),
@@ -114,9 +150,27 @@ export default defineSandboxAgent({
 });
 ```
 
+`setup`, each `send`, and `teardown` all get feedback methods scoped to themselves:
+
+- `ctx.progress({ message, current?, total? })` updates the current short-lived status. It suits installing a CLI, running a turn, or reading a transcript. Do not call it per token or per JSONL frame.
+- `ctx.diagnostic({ code, level, message, data?, dedupeKey? })` records protocol degradation, missing transcripts, and cleanup problems. It goes into the permanent terminal events and into `result.json`.
+- Throw when you cannot keep running. The runner marks the attempt `errored` and records the phase it happened in, plus the error code, message, cause, and stack.
+
+Do not call `console.log/error` or write to `process.stdout/stderr` directly from an adapter. That tears apart the human dashboard and breaks the ordering of CI logs.
+
+When a sandbox or adapter error shows up during a run, the terminal gives you an attempt locator:
+
+```text
+✗ @2h8m4k1 fixtures/button [local] errored · agent setup
+    agent-install-failed: npm install my-agent exited with code 1
+    Inspect: niceeval show @2h8m4k1
+```
+
+Run `niceeval show @2h8m4k1` to see the structured error, the diagnostics, and the lifecycle phases that completed. If there is an OTel trace, add `--execution` to see the execution tree. Sandbox creation can fail before telemetry is established, so reviewing the error does not depend on a trace.
+
 ## `ctx.model` and `ctx.flags`
 
-The model and custom flags passed by the experiment appear in the adapter context. The adapter decides how to map them to CLI arguments or HTTP payloads.
+The model and flags declared by the experiment appear in the adapter context. The adapter decides how to map them to CLI arguments or HTTP payloads.
 
 ## Use a custom agent in an experiment
 

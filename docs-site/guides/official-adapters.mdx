@@ -14,7 +14,7 @@ All three built-in Sandbox agents are constructed with `defineSandboxAgent`, aut
 
 - **Auth**: `ANTHROPIC_API_KEY` (overridable with the factory option `apiKey`), optional `ANTHROPIC_BASE_URL` (factory option `baseUrl`).
 - **Installing MCP servers**: the `mcpServers` option, written during `setup` into the sandbox's user-level `~/.claude.json` (the top-level `mcpServers` field).
-- **Installing Skills**: `skills: SkillSpec[]` — a local Skill (`{ kind: "local", path }`, a file or directory read from your project root) or a repo Skill (`{ kind: "repo", source, ref, skills }`, which can pin a commit/tag and enable only part of a multi-Skill repository). Skills land in the project-level `.claude/skills/<name>/` inside the sandbox, where the claude CLI discovers them natively (the native `Skill` tool — assert with `t.calledTool("Skill", { input: { skill } })`, not `t.loadedSkill()`, which is sugar for the different `load_skill` protocol convention).
+- **Installing Skills**: `skills: SkillSpec[]` — a local Skill (`{ kind: "local", path }`, a file or directory read from your project root) or a repo Skill (`{ kind: "repo", source, ref, skills }`, which can pin a commit/tag and enable only part of a multi-Skill repository). Skills land in the project-level `.claude/skills/<name>/` inside the sandbox, where the claude CLI discovers them natively (the adapter normalizes the native `Skill` tool call into a `skill.loaded` event, so it is not also counted as a tool call; assert it with `t.loadedSkill()`, not `t.calledTool("Skill", ...)`).
 - **Installing native plugins**: `plugins: ClaudeCodePluginSpec[]`; each entry declares the marketplace connection (`name` / `source` / optional `ref`) and the plugin name inside it. That type belongs to claude-code only — it cannot be passed to codex.
 - **Tracing**: the claude CLI's beta native telemetry (`CLAUDE_CODE_ENHANCED_TELEMETRY_BETA`); spans carry only structure and timing — details in [OTel Integration](/guides/connect-otel).
 
@@ -53,7 +53,7 @@ export default defineExperiment({
     It is plural, `mcp_servers`: the singular `[mcp_server.x]` is silently ignored by the codex CLI — MCP simply never attaches, with no error. Check with `codex mcp list`.
   </Warning>
 
-- **Installing Skills**: `skills: SkillSpec[]`, the same type as claude-code. Skills land in `.agents/skills/<name>/`, and the adapter also writes a discovery instruction into AGENTS.md — codex has no native Skill tool, so merely installing the files does not make it read them. Asserting "was it used" can only look at whether it actually ran the shell command that reads that file — there is no tool call to assert directly.
+- **Installing Skills**: `skills: SkillSpec[]`, the same type as claude-code. Skills land in `.agents/skills/<name>/`, and the adapter also writes a discovery instruction into AGENTS.md — codex has no native Skill tool like claude-code, so merely installing the files does not make it read them. Asserting "was it used" can only look at whether it actually ran the shell command that reads that file — there is no tool call to assert directly.
 - **Installing native plugins**: `plugins: CodexPluginSpec[]`; each entry declares the marketplace connection (`name` / `source` / optional `ref`) and the plugin name inside it. That type belongs to codex only — it cannot be passed to claude-code.
 - **Tracing**: built in, configured through the `[otel.trace_exporter.otlp-http]` section of `config.toml`, protocol `http/json`.
 
@@ -85,6 +85,7 @@ export default defineExperiment({
 - **Auth**: `BUB_API_KEY` + `BUB_API_BASE` (an OpenAI-compatible proxy), overridable with the factory options `apiKey` / `apiBase`.
 - **Installing Skills**: `skills: SkillSpec[]`, the same type as the other two adapters. Skills land in `.agents/skills/<name>/`, with a discovery instruction written into AGENTS.md.
 - **Installing plugins**: `pythonPlugins: PythonPluginSpec[]` (`{ package }`: a PyPI package, a version specifier, or a git URL), added during `setup` to `uv tool install … --with <package>`. That type belongs to bub only; the package set is part of the install checkpoint key, so two variants with different plugins never reuse the same install cache.
+- **Prebuilt Bub**: NiceEval's E2B recipe folds Bub, the OTel plugin, and the set of Python plugins into an install fingerprint. The Adapter only reuses an environment whose fingerprint matches exactly; simply having a `bub` on `PATH` is not proof of compatibility. For where to build one, see [Sandbox providers · Build on the official baselines to speed things up](/guides/sandbox-providers#build-on-the-official-baselines-to-speed-things-up).
 - bub has no `mcpServers` — MCP belongs to the adapters that support it, and the field simply does not exist on this config.
 - **Install method**: via `uv tool install` (a PyPI package, not an npm package); the first install builds a checkpoint cache to speed up later sandboxes.
 - **Tracing**: built in, injected via environment variables, protocol `http/protobuf`.
@@ -115,6 +116,8 @@ export default defineExperiment({
 | Python plugin | ❌ | ❌ | ✅ `pythonPlugins: PythonPluginSpec[]` |
 | Tracing | ✅ (beta, structure and timing only) | ✅ | ✅ |
 | Install method | npm global package | npm global package | `uv tool install` (PyPI) |
+
+What got installed is on the record: at the end of `setup` the Adapter writes the install manifest into the sandbox's `__niceeval__/agent-setup.json`, and the runner stores it as the Attempt Artifact `agent-setup.json` (read it in the library with `attempt.agentSetup()`). The manifest records only sources, refs, Skill/plugin names, and the resolved versions — never API keys or environment variable values.
 
 ## Non-Sandbox adapters
 

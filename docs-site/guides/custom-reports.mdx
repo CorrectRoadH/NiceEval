@@ -1,33 +1,33 @@
 ---
 title: "Build your own scoring with report building blocks"
 sidebarTitle: "Custom Reports"
-description: "A report is a report file: the official host opens the results and injects the data, Row / Col handle layout, and dual-faced components render both web and terminal at once — the default report that niceeval show and niceeval view render by default is itself just the bundled report definition."
+description: "A report is a report file: the official host opens the results and injects the data, and dual-render components let one custom report serve both niceeval show and niceeval view."
 ---
 
 [Viewing Results](/guides/viewing-results) covers *using*: the two official doors, `niceeval show` (terminal) and `niceeval view` (web), and how to look at them. This page covers *writing*: when the official layout is not enough, how to write your own report — an exam scorecard, a lines-of-code leaderboard, a quality × cost frontier.
 
 A report is a report file. You never open a results directory, never write render code, never spin up your own app: `niceeval show` / `niceeval view` themselves are the host — they open the results and inject the data for you; you arrange the layout with official components and `Row` / `Col`, hand the file path to `--report` when done, and both the terminal and the web doors recognize it — the official evidence room deep links, `--run` history switching, and static export all carry over unchanged to a custom report.
 
-## The official default report is also a report file
+## view's default report is also a report definition
 
-The default report that `niceeval view` and `niceeval show` render without `--report` is not a private implementation — it is a value exported from `niceeval/report`:
+The default report `niceeval view` renders without `--report` is not a private implementation — it is a value publicly exported from `niceeval/report`, and you can pass it explicitly to `niceeval show --report` as well:
 
 ```ts
 import { CostPassRateComparison } from "niceeval/report";
 ```
 
-`niceeval view` is exactly `niceeval view --report <CostPassRateComparison>`, and `show` works the same way. It has exactly two blocks, top to bottom: a cost × pass-rate scatter plot (one point per experiment, same-agent tiers connected into a line) and an experiment list (one row per experiment, expandable to that experiment's configuration, KPIs, and per-eval/attempt detail). The table is flat — the built-in default report does not group by directory prefix. The name is drawn from what it shows, not from being "the default": `CostPassRate` names the scatter's two axes, `Comparison` names the second half that lets you compare experiments; the name contains none of `Default` / `Official` / `BuiltIn` / `View`. The parts we use ourselves are exactly the same as the ones you get, with no private data channel — every number on the default report can be recomputed by you, verbatim, with the same few lines of code.
+`niceeval view` picks `CostPassRateComparison` by default: a cost × pass-rate scatter plot plus an experiment detail table, with no private data channel. Bare `niceeval show` uses an attempt index, which suits the terminal better; an explicit custom report (including this definition) is still rendered by both hosts through the same dual-render protocol.
 
 |  | Web (for people) | Terminal (for agents and you) |
 | --- | --- | --- |
-| Official layout | `niceeval view` | `niceeval show` |
+| Official default | Analysis report | Attempt index |
 | Custom layout | `niceeval view --report reports/exam.tsx` | `niceeval show --report reports/exam.tsx` |
 
 The four cells are the same host. Customization has only three levels, each going one layer deeper:
 
 1. **Change the layout**: rearrange with official components and `Row` / `Col` — most "I want my own scoring" needs stop here.
-2. **Change the scoring**: define your own metric with `defineMetric`, and use `flag()` to treat a variable declared by the experiment as a dimension or an axis.
-3. **Change the shape**: for a display no official component can express, write your own component with `defineComponent` — you decide how it renders on the web and how it lays out as terminal characters, on both faces.
+2. **Change the scoring**: define your own metric with `defineMetric`, and define your own grouping with a custom dimension or `flag()`.
+3. **Change the shape**: for a display no official component can express — if it is a table, use `<Table>` with your own columns; if it is not, write your own component with `defineComponent`, and you decide both faces: how it renders on the web and how the terminal characters line up.
 
 ## One report = one report file
 
@@ -39,7 +39,7 @@ The report's foundation is `defineReport`: the host opens the results directory 
 // reports/exam.tsx — one definition, shared by both doors
 import {
   defineReport, Col, Section,
-  MetricScatter, ExperimentList, Scoreboard,
+  MetricScatter, ExperimentList, EvalList, AttemptList, Scoreboard,
   costUSD, passRate,
 } from "niceeval/report";
 
@@ -62,26 +62,27 @@ niceeval show --report reports/exam.tsx    # Terminal: the same tree goes throug
 niceeval view --report reports/exam.tsx    # Web: the same tree goes through the web face, attempt deep links land straight in the evidence room
 ```
 
-The injected context has only two pieces, both primitives from the [Results Data API](/guides/results-data) — the host has no private channel: `results` is exactly the return value of `openResults(".niceeval")` (experiments, historical snapshots, attempt-level `diff()`, `trace()` all live on it); `selection` is exactly the return value of `results.latest()` — the "current level" the host has already picked with "take the latest per experiment", the same policy as the default report, with snapshots at `selection.snapshots` and picking warnings at `selection.warnings`. You never need to wire those warnings up yourself: `niceeval show` and `niceeval view` render `selection.warnings` as a banner above the report body no matter which components your tree contains — a coverage gap or a stale snapshot surfaces even when your report has no `RunOverview` in it, exactly as it does for the built-in default report. When the default pick doesn't match what you want, pick your own from `results`; a hand-picked `Snapshot[]` array can be fed to every `data` function the same way.
+The injected context has only two pieces, both primitives from the [Results Data API](/guides/results-data) — the host has no private channel: `results` is exactly the return value of `openResults(".niceeval")` (experiments, historical snapshots, attempt-level `diff()`, `trace()` all live on it); `selection` is the set of results the host already picked for you. The picking rule is: for every experiment and every eval, take the latest verdict across that experiment's run history — if you reran only part of the evals by prefix, the verdicts of the remaining evals are filled in from earlier runs, so one partial rerun never drops the whole thing back to a single incomplete snapshot. The default report consumes this same `selection`; the snapshots are at `selection.snapshots` and the picking warnings at `selection.warnings`. When the default pick doesn't match what you want, pick your own from `results`; a hand-picked `Snapshot[]` array can be fed to every component the same way.
 
 A report file works with two shapes of data. Entity lists' `.data(selection)` return a plain array — `ExperimentListItem[]`, `EvalListItem[]`, `AttemptListItem[]`. The report author decides which entities to show with an ordinary JavaScript `.filter()` / `.slice()`, then passes the array to the list as `items`; components hide no separate filter DSL of their own. Metric shapes and summary components instead take a precomputed `data`; `MetricScatter` additionally offers a `selection` shorthand that the host computes before rendering. Either way, once a component holds its data it only ever renders what it was handed — it never reaches back into the results directory itself.
 
-Command-line scope acts on the picking step first, so the report only ever gets the level within scope: the positional eval id prefix narrows which evals the selection covers (the denominator of coverage warnings narrows to the range too); `--run` swaps the result root for a specific directory; `--experiment` restricts the selection to that one experiment. `--history` and `--report` are mutually exclusive — trends belong in a report built with `exp.snapshots` yourself; evidence slices (`--eval` / `--execution` / `--diff`) only show evidence, never render a report.
+You never have to place a component in your report just to show the picking warnings (incomplete coverage, stale snapshots, unfinished runs): whichever components your report contains, `niceeval show` and `niceeval view` display `selection.warnings` above the report body — nothing is silently dropped because you left a block out.
 
-There is no anchor component for the official layout — `MetricScatter` and `ExperimentList` are ordinary official components like any other, always reading whatever selection the host injected, following the same command-line scope (positional prefix / `--run` / `--experiment`) as everything else in the tree. To get "official layout + your own scoring", import the very same components the built-in default report is built from and lay them in next to your own, exactly as the example above does — there is no droppable block to reach for, and no private parts hidden behind one.
+Command-line scope acts on the picking step first, so the report only ever gets the selection narrowed to that scope: the positional eval id prefix narrows which evals the selection covers (the denominator of coverage warnings narrows to the range too); `--run` swaps the result root for a specific directory; `--experiment` restricts the selection to that one experiment. `--history` and `--report` are mutually exclusive — trends belong in a report built with `exp.snapshots` yourself; evidence slices (`--eval` / `--execution` / `--diff`) only show evidence, never render a report.
 
-Every component on the page is **dual-faced**: the web face is React rendering, the terminal face is character rendering, and both faces consume the same already-computed data. In the report file you only ever see the component itself, never one face in particular — which door you go through is the host's decision. Official components cover the common layouts — leaderboard `MetricTable`, per-question grid `MetricMatrix`, grouped bars `MetricBars`, scorecard `Scoreboard`, quality × cost frontier `MetricScatter`, trend line `MetricLine`, paired comparison `DeltaTable`, and the three entity lists `ExperimentList` / `EvalList` / `AttemptList` — what question each answers, how to call it, and what its terminal character output looks like are covered one by one in [Report Components](/guides/report-components). They wire automatically into the host's evidence room: the web face's cells deep-link to the attempt popup, and the terminal face prints a `niceeval show <eval id>` drill-down command under each entry.
+Every component on the page is **dual-render**: the web face is React rendering, the terminal face is character rendering, and both faces consume the same already-computed data. The entity lists show facts by experiment → Eval → Attempt; the metric table, metric matrix, grouped bar chart, scoreboard, metric scatter plot, metric line chart, and paired delta table show aggregate values. The full list is in [Report Components](/guides/report-components). On the web face, entities, cells, and points deep-link into the attempt detail; on the terminal face they print the matching `niceeval show <eval id>` drill-down command.
 
-The default report has no special privilege: it is the exported value `CostPassRateComparison`, a sibling of your own report — the same `ReportDefinition` type your own `defineReport(...)` produces, with no private data channel. Reuse its two components as shown above for "official layout + your own scoring"; skip them if you don't want the official layout — composition happens in your tsx, with no tabs, no registry, no config.
+The default report has no special privilege: it is exactly the exported value `CostPassRateComparison` above, and its body is one `MetricScatter` plus one `ExperimentList`. Your report is its sibling; import the same public components when you want the same layout, and leave them out when you don't.
 
 ## Layout: `Row` and `Col` hold on both faces
 
-Layout primitives are dual-faced components too — arrange once, and both faces hold:
+Layout primitives are dual-render components too — arrange once, and both faces hold:
 
 - **`<Col>`**: stacked vertically in sequence — a block stack on the web, block-by-block output on the terminal.
 - **`<Row>`**: side by side — a horizontal layout on the web, character columns on the terminal; when the terminal is too narrow it automatically falls back to vertical, never squeezed.
 - **`<Section title="…">`**: a titled block — a heading level on the web, a heading line with indentation on the terminal.
 - **`<Text>`**: explanatory text — a paragraph on the web, wrapped text on the terminal.
+- **`<Table>`**: a table with columns of your own — a `<table>` on the web, a character table aligned by display width on the terminal, so a CJK column never tears.
 
 ```tsx
 <Row>
@@ -98,11 +99,11 @@ bub    86.5/100   45/50    41.5/50  │  bub    87%   $0.42
 codex  78.0/100   40/50    38/50    │  codex  80%   $0.51
 ```
 
-The page tree only holds dual-faced components and layout primitives, never raw HTML tags — the terminal face has no way to render a `<div>`. For free-form content, use `<Text>`; for anything more free-form, go to custom components below.
+The page tree only holds dual-render components and layout primitives, never raw HTML tags — the terminal face has no way to render a `<div>`. For free-form content, use `<Text>`; for anything more free-form, go to custom components below.
 
 ## By-group summary: `GroupSummary`
 
-To group experiments by directory prefix and put a compact stats block (pass rate, experiment/eval counts, failed/errored, total cost, last run time) atop each group, use the official `GroupSummary` component. Its compute function, `GroupSummary.data`, takes exactly one already-narrowed selection — however you group, feed it that group's selection and you get the same folding convention (eval-level folded voting, a null-safe total cost, the group's latest last-run time), not some separate approximation.
+To group experiments by directory prefix and put a compact stats block (pass rate, experiment/eval counts, failed/errored, total cost, last run time) atop each group, use the official group summary component (`GroupSummary`). Its compute function, `GroupSummary.data`, takes exactly one already-narrowed selection — however you group, feed it that group's selection and you get the same folding convention (eval-level folded voting, a null-safe total cost, the group's latest last-run time), not some separate approximation.
 
 A common grouping is an experiment id's directory prefix (`compare/bub-low` belongs to group `compare`; a top-level experiment belongs to no group). Narrow out each group's selection with `Selection.filter`, and you can lay out one block per group:
 
@@ -146,7 +147,7 @@ After `GroupSummary`, to follow up with a scatter plot or an experiment list for
 
 ## Change the scoring: custom metrics
 
-The scoring behind the default report's per-experiment metric table unpacks to `MetricTable.data(selection, { rows: "experiment", columns: [passRate, costUSD, durationMs] })` — every component's data algorithm hangs off the component itself; a dot after the component name finds it. Changing the scoring is just swapping `columns` for your own metrics:
+The fixed diagnostic fields of an experiment, an Eval, and an Attempt are carried by the three entity lists. The example below is a different need: freely swapping the metric scoring with the general-purpose metric table (`MetricTable`) — every component's data algorithm hangs off the component itself, so changing the scoring only means changing `columns`:
 
 ```tsx
 // reports/golf.tsx — code-golf: whoever writes working code in the fewest lines wins
@@ -251,15 +252,80 @@ On the report side, `flag()` treats a declared value directly as a dimension or 
 })} />
 ```
 
-`flag()` used in a dimension slot (`series` / `rows` / `columns` / `points`) groups by the declared value; used in an axis slot (`x`) requires a numeric value and drives the scale. Any variable not covered by the built-in dimensions (`agent`, `model`, `experiment`, `evalGroup`, …) goes through it. An experiment that never declared that flag is not guessed at: as a group it is faithfully placed in an "unconfigured" bucket, and as an axis that point is simply not drawn, with the footnote reporting the count. Flags are stored with the snapshot, so historical runs can also be rearranged by the variable declared at the time — a report reads facts from configuration, not coincidences of naming.
+`flag()` used in a dimension slot (`series` / `rows` / `columns` / `points`) groups by the declared value; used in an axis slot (`x`) it requires a numeric value and drives the scale. An experiment that never declared that flag is not guessed at: as a group it is faithfully placed in an "unconfigured" bucket, and as an axis that point is simply not drawn, with the footnote reporting the count. Flags are stored with the snapshot, so historical runs can also be rearranged by the variable declared at the time — a report reads facts from configuration, not coincidences of naming.
 
-## Change the shape: custom components, one definition, two faces
+## Change the shape: `Table` for tables, draw the rest yourself
 
-For a display no official component can express — a pass-rate bar chart, a budget burn-down, a project's own badge — use `defineComponent` to declare both rendering faces, in the same family as `defineExperiment` / `defineMetric` / `defineReport`:
+A display no official component can express splits in two, each with its own path: if it is a table, use the `<Table>` layout primitive; if it is not (pass-rate bars, a budget burn-down, a project's own badge), write your own dual-render component with `defineComponent`.
+
+### A table: `<Table>`
+
+You define the columns, you compute the display value of each cell, and `<Table>` lines both the web and the terminal face up:
+
+```tsx
+// reports/cost-board.tsx
+import { defineReport, Col, Table, MetricTable, costUSD, passRate } from "niceeval/report";
+
+export default defineReport(async ({ selection }) => {
+  const board = await MetricTable.data(selection, {
+    rows: "agent",
+    columns: [passRate, costUSD],
+  });
+  return (
+    <Col>
+      <Table
+        columns={[
+          { key: "agent", header: "Agent" },
+          { key: "pass", header: "Pass rate", align: "right" },
+          { key: "cost", header: "Cost", align: "right" },
+        ]}
+        rows={board.rows.map((r) => ({
+          key: r.key,
+          cells: {
+            agent: r.key,
+            pass: r.cells[passRate.name].display,
+            // Hand null for missing data; the component renders —. Never fill in a 0 yourself
+            cost: r.cells[costUSD.name].value === null ? null : r.cells[costUSD.name].display,
+          },
+        }))}
+      />
+    </Col>
+  );
+});
+```
+
+```text
+$ niceeval show --report reports/cost-board.tsx
+Agent   Pass rate   Cost
+bub           87%   $0.42
+codex         80%   $0.51
+克劳德          —       —
+```
+
+Column widths are computed by **terminal display width**: one CJK character takes 2 columns, so a CJK agent name or a CJK task name never tears the table apart. `align: "right"` right-aligns a number column. A cell given `null` renders as `—`, never padded to `0`. A row carrying a `locator` gets one extra attempt column — the web face clicks through into the evidence room, and the terminal face hands the locator to `niceeval show`. The full field list is in the "Table" section of [Report Components](/guides/report-components).
+
+### Not a table: `defineComponent` plus the text layout functions
+
+`defineComponent` declares the two render faces, in the same family as `defineExperiment` / `defineMetric` / `defineReport`. The terminal face lays out its own characters, using this set of functions exported from `niceeval/report` — the same rulers the official components lay out with:
+
+| Function | What it does |
+| --- | --- |
+| `stringWidth(text)` | Display width: CJK and full-width characters count as 2 columns, everything else as 1 |
+| `padEnd(text, width)` | Pad on the right to a display width (left-aligned) |
+| `padStart(text, width)` | Pad on the left to a display width (right-aligned; for number columns) |
+| `wrapText(text, width)` | Wrap to a display width, returning several lines |
+| `indent(block, prefix)` | Indent every line |
+| `bar(ratio, width)` | Character bar: `█` fill, `░` padding out to `width` |
+| `columns(blocks, widths, separator?)` | Lay several blocks side by side |
+
+**Do not use `String.prototype.padEnd` / `padStart` to align terminal output.** They count UTF-16 code units, not display columns: one CJK character takes 2 columns yet counts as a single code unit. Pad with them and the columns break the moment CJK text arrives — and CJK agent names and CJK task names are exactly the common case. Column widths must also be computed from the content and `ctx.width`, never hard-coded to a number.
 
 ```tsx
 // reports/passbars.tsx
-import { defineReport, defineComponent, Col, Style, MetricTable, passRate } from "niceeval/report";
+import {
+  defineReport, defineComponent, Col, Style, MetricTable,
+  bar, padEnd, stringWidth, passRate,
+} from "niceeval/report";
 
 interface BarRow { key: string; ratio: number | null; display: string }
 
@@ -278,9 +344,13 @@ const PassBars = defineComponent<{ rows: BarRow[] }>({
     );
   },
   text({ rows }, { width }) {
-    const bar = (n: number) => "█".repeat(Math.round(n * 10)).padEnd(10, "░");
+    const label = Math.max(...rows.map((r) => stringWidth(r.key)));  // Column width follows the content
+    const barWidth = Math.min(20, width - label - 8);                // And the available column width
     return rows
-      .map((r) => `${r.key.padEnd(8)} ${r.ratio === null ? "—".padEnd(10) : bar(r.ratio)} ${r.display}`)
+      .map((r) => {
+        const chart = r.ratio === null ? padEnd("—", barWidth) : bar(r.ratio, barWidth);
+        return `${padEnd(r.key, label)}  ${chart}  ${r.display}`;
+      })
       .join("\n");
   },
 });
@@ -303,9 +373,9 @@ export default defineReport(async ({ selection }) => {
 
 ```text
 $ niceeval show --report reports/passbars.tsx
-bub      █████████░ 87%
-codex    ████████░░ 80%
-claude   —          —
+bub     █████████████████░░░  87%
+codex   ████████████████░░░░  80%
+克劳德  —                     —
 ```
 
 The component contract:
@@ -326,8 +396,8 @@ niceeval view --report reports/exam.tsx --out site
 
 The output is plain static files: your report page is the homepage, the evidence room (transcript, trace, code view) is in the same site, and every number in the report drills straight into the evidence. Components never hydrate; the page inlines a small official script for table sorting, row filtering, and chart hover, and stays fully readable with JS disabled. It can go to any static host. When `.niceeval/` is not present in CI, first slim the snapshots into the repo with `copySnapshots` before exporting — the flow is in [Viewing Results](/guides/viewing-results#exporting-and-static-hosting).
 
-A dual-faced component's web face is just an ordinary React component, and its `data` function is just an ordinary TS function — to embed a metric table into an existing internal panel, import the component and feed it data. That is reusing the parts, not a second reporting system — a report's home is the official host. When computing data and rendering are deployed separately (CI writes JSON, another app fetches it), pinning both sides to the same niceeval version is a hard requirement — component data carries no version stamp, and compatibility follows the package version.
+A dual-render component's web face is just an ordinary React component, and its `data` function is just an ordinary TS function — to embed a metric table into an existing internal panel, import the component and feed it data. That is reusing the parts, not a second reporting system — a report's home is the official host. When computing data and rendering are deployed separately (CI writes JSON, another app fetches it), pinning both sides to the same niceeval version is a hard requirement — component data carries no version stamp, and compatibility follows the package version.
 
 ## The boundary: built-in commands don't grow configuration
 
-There is exactly one report slot, and `--report` takes an explicit file path — no auto-discovered `reports/` directory, no plugin registry, no config file. Custom metrics and custom components both live inside your report file and are passed in along with it; the host never grows a registration surface for them. The default report is only the report slot's factory default — your own report is a sibling implementation to it, at the same level.
+Only one report renders at a time, and `--report` takes an explicit file path — no auto-discovered `reports/` directory, no plugin registry, no config file. Custom metrics and custom components both live inside your report file and are passed in along with it; the host never grows a registration surface for them. Without `--report`, what renders is the built-in `CostPassRateComparison`, and your report is a sibling implementation at the same level.

@@ -1,7 +1,7 @@
 ---
 title: "Standard event stream reference"
 sidebarTitle: "Events"
-description: "The nine StreamEvent variants: what each one means, when adapters emit it, and which assertions consume it. Producing this stream is the adapter's core job."
+description: "The ten StreamEvent variants: what each one means, when adapters emit it, and which assertions consume it. Producing this stream is the adapter's core job."
 ---
 
 An adapter's `send` returns a `Turn`, and its `events: StreamEvent[]` is the **only data source for assertions**: `t.calledTool()`, `t.reply`, `toolOrder`, `noFailedActions`, and more all read from this stream. Once your adapter translates "what the agent did this turn" into this stream, the whole assertion surface becomes available.
@@ -79,7 +79,7 @@ table (`defineConfig({ pricing })`) — see the fallback order `usage.costUSD ??
 
 ## `StreamEvent` variants at a glance
 
-The nine variants of `StreamEvent`, listed field by field (see the "Event table" and "Event details" sections below for the assertions / usage details that consume them):
+The ten variants of `StreamEvent`, listed field by field (see the "Event table" and "Event details" sections below for the assertions / usage details that consume them):
 
 {/* GENERATED:BEGIN stream-events */}
 
@@ -106,6 +106,12 @@ The nine variants of `StreamEvent`, listed field by field (see the "Event table"
   output?: JsonValue;
   status: "completed" | "failed" | "rejected";
 }
+```
+
+#### `skill.loaded`
+
+```ts
+{ type: "skill.loaded"; skill: string; callId?: string }
 ```
 
 #### `subagent.called`

@@ -90,14 +90,14 @@ Connect directly to your own AI agent:
 | [Eval](/concepts/evals) | A test case: written in `evals/*.eval.ts`, describing what to verify. |
 | [Experiment](/concepts/experiment) | A check-in-able run configuration: decides which adapter, model, and flags to use. |
 | [Adapter](/concepts/adapter) | The connection layer for the subject under test: implements `send` and translates responses into the standard event stream. |
-| [Sandbox](/guides/sandbox-backends) | Needed only for coding agents that require isolated workspaces; direct web agents do not need one. |
+| [Sandbox](/guides/sandbox-providers) | Needed only for coding agents that require isolated workspaces; direct web agents do not need one. |
 | [Tier](/concepts/tier) | Three investment levels for adapter integration: Tier 1 only connects `send`, Tier 2 adds OTel for call waterfalls, and Tier 3 makes invasive changes for feature A/B tests. |
 
 See [Architecture Overview](/concepts/overview) for the full terminology map.
 
 ## Examples
 
-To run one eval you need two files: the eval itself (what to test) and an experiment (which agent to run). The CLI does not accept a bare eval ID. In `niceeval exp <experiment> <eval-prefix>`, the experiment decides which subject gets connected. Here is a real direct web-agent scenario from `examples/zh/ai-sdk/`: verify that the agent calls a tool for a live weather question and answers from the tool result instead of inventing one.
+To run one eval you need two files: the eval itself (what to test) and an experiment (which agent to run). The CLI does not accept a bare eval ID. In `niceeval exp <experiment> <eval-prefix>`, the experiment decides which subject gets connected. Here is a real direct web-agent scenario (the full project lives in `examples/zh/ai-sdk/`): verify that the agent calls a tool for a live weather question and answers from the tool result instead of inventing one.
 
 ```ts
 // evals/weather-tool.eval.ts
@@ -135,7 +135,8 @@ export default defineExperiment({
 
 ```sh
 npx niceeval exp local weather-tool
-npx niceeval view
+npx niceeval show       # read results in the terminal and drill into failures
+npx niceeval view       # browse them interactively in the web viewer
 ```
 
 If the subject under test is a coding agent that needs an isolated workspace, such as Codex or a Claude Code plugin / Skill, use `t.sandbox.uploadDirectory()` to lay down the workspace, `t.sandbox.fileChanged()` / `t.sandbox.file()` to inspect changes, and `t.sandbox.runCommand()` to run tests. See [coding-agent-skill](https://github.com/CorrectRoadH/coding-agent-skill), a standalone example repository.
@@ -166,7 +167,7 @@ READ https://raw.githubusercontent.com/CorrectRoadH/niceeval/refs/heads/main/doc
 
 <AccordionGroup>
   <Accordion title="Do I need to create an account?">
-    No. Running evals and inspecting reports with `niceeval view` happens locally. Docker or E2B-style sandbox backends are only needed when the subject under test is a coding agent that needs an isolated workspace.
+    No. Running evals and inspecting reports with `niceeval view` happens entirely locally. Sandbox providers such as Docker or E2B are only needed when the subject under test is a coding agent that requires an isolated workspace.
   </Accordion>
   <Accordion title="Can I connect an agent that is not written in TypeScript or JavaScript?">
     Yes. An adapter only sends to and receives from the interface your app already exposes, such as HTTP, gRPC, or WebSocket. [NiceEval](https://niceeval.com/) does not care which language your app is written in or where it is deployed. See [Adapter](/concepts/adapter).

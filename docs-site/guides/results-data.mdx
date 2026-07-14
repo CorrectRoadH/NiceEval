@@ -4,7 +4,7 @@ sidebarTitle: "Results Data API"
 description: "The data layer underneath the report building blocks: openResults parses the on-disk artifacts under .niceeval/ into a typed experiment → snapshot → eval → attempt hierarchy, createResultsWriter writes other harnesses' results into NiceEval's format, and copySnapshots handles publish-time slimming."
 ---
 
-Underneath the building blocks in [Custom Reports](/guides/custom-reports) — metrics, compute functions, dual-faced components — sits one more layer: `niceeval/results`, the parser for on-disk artifacts. Both official doors and every report building block read from this layer, with no private data channel; when a scoring need cannot even be expressed as a compute function, drop to this layer and grab the data directly.
+Underneath the building blocks in [Custom Reports](/guides/custom-reports) — metrics, compute functions, dual-render components — sits one more layer: `niceeval/results`, the parser for on-disk artifacts. Both official doors and every report building block read from this layer, with no private data channel; when a scoring need cannot even be expressed as a compute function, drop to this layer and grab the data directly.
 
 When to drop to this layer:
 
@@ -68,7 +68,7 @@ const attempt = snap.evals[0].attempts[0];
 
 attempt.evalId;                // "algebra/quadratic" — which question it belongs to, no detour through result
 attempt.experimentId;          // which experiment it belongs to
-attempt.result;                // EvalResult: verdict, assertions, usage, cost, experiment metadata
+attempt.result;                // EvalResult: verdict, assertions, structured error/diagnostics, usage, cost
 attempt.ref;                   // { snapshot, attempt }: an evidence reference, the same identity as view deep links and report cell refs
 await attempt.events();        // StreamEvent[] | null
 await attempt.trace();         // TraceSpan[] | null
@@ -82,6 +82,35 @@ Three key points:
 - **Lazy loading doubles as an existence check.** A missing artifact returns `null`, never throws — when a remote agent has no `diff.json`, `await attempt.diff()` is simply `null`, and you decide from there whether to skip or report the gap.
 - **Unreadable data on disk is never silent.** A version-incompatible or corrupted snapshot goes into `skipped` with a reason; whether to display it is up to you, but the gap is always computed.
 - **Memoized by handle within the same process.** Reading `diff()` twice from two places never reads the same hundred-plus MB payload twice.
+
+`attempt.result.error` is the single fatal execution error that puts an attempt into `errored`; it carries a stable `code`, a human-readable `message`, the lifecycle operation where the error occurred, and an optional bounded cause/stack. `attempt.result.diagnostics` can coexist with any verdict and holds problems found while the run could still continue, or at wrap-up. Transient `progress` is never stored on disk, and an OTel trace is not a prerequisite for storing errors.
+
+## Oversized output is truncated
+
+An agent runs one command and the output can be absurdly large — a recursive `grep` walks into `node_modules`, hits a minified JS file, and a single line is several MB. That output goes into both `events.json` and `trace.json`; left alone, one attempt can take up hundreds of MB.
+
+So NiceEval trims as it writes to disk: any string in `events.json` or `trace.json` longer than 256 KiB keeps only its first 256 KiB, with one line of explanation at the end:
+
+```text
+[niceeval] truncated 51467156 → 262144 bytes
+```
+
+**This does not affect the verdict.** Assertions read the complete output at runtime; truncation only happens at the moment the file is written — the stored artifact is evidence, not an input to scoring. An assertion that should pass still passes, and one that should fail still fails.
+
+To mark "something is missing here" faithfully in your own report, do not match the line of text above — read the structured field: truncated events and spans carry `truncated`, which holds the truncated position and the original byte count.
+
+```typescript
+const events = await attempt.events();
+for (const e of events ?? []) {
+  for (const t of e.truncated ?? []) {
+    console.log(`${t.path} truncated, ${t.originalBytes} bytes originally`);
+  }
+}
+```
+
+This limit governs a **single string value**, not a whole JSON file. One file can hold many normal values; `diff.json` and source code are never truncated, because they have to keep their full semantics. So `.niceeval/` works well as the local source of truth but is not by default suitable for committing straight into Git. Before publishing, use `copySnapshots` below to pick artifacts and run the whole-file size check.
+
+Truncation happens at the persistence boundary; it cannot stand in for the agent runtime limiting the tool output it sends to the model. If the runtime first stuffs a 50 MB tool result into a model request in full and gets a 413 back, NiceEval still records the attempt as `errored`; all this guarantees is that the post-failure events / trace are not blown up by that same output.
 
 ## Version: who wrote it, and can it be read
 
@@ -155,7 +184,7 @@ for (const exp of results.experiments) {
 }
 ```
 
-Even on this deepest path, the disk layout is never touched: path joining, existence checks, version filtering, and snapshot splitting are all absorbed by the library. To lay this distribution into a report page, wrap it in a dual-faced component with [`defineComponent`](/guides/custom-reports).
+Even on this deepest path, the disk layout is never touched: path joining, existence checks, version filtering, and snapshot splitting are all absorbed by the library. To lay this distribution into a report page, wrap it in a dual-render component with [`defineComponent`](/guides/custom-reports).
 
 One obligation when accumulating across snapshots: `--resume` carries the previous round's passed results (whose fingerprint still matches) into the new snapshot, so the same attempt can end up existing in more than one stored result. A carried-over entry is not a hollow shell: it carries the original snapshot's `startedAt` (its identity anchor) and `artifactBase` (a relative path to the original snapshot's attempt directory), and lazy loading falls back through a candidate order — first this snapshot's own attempt directory, then the directory `artifactBase` points at (faithfully returning `null` if that original snapshot was cleaned up); `ref` points at the snapshot the entry was carried into. All four fields of the identity key `(experimentId, evalId, attempt, startedAt)` are present in the data — the first two are direct fields on the attempt, and the sequence number and `startedAt` are on `attempt.result`. The reader faithfully reflects this duplication; before aggregating across snapshots, deduplicate with `dedupeAttempts` by identity key, keeping the copy in the newest snapshot — the report building blocks' compute functions already do this internally, so remember to do the same pass in your own scripts:
 
@@ -194,7 +223,7 @@ for (const r of convertedResults) {
 await writer.finish();                 // backfills completedAt on every snapshot; there is no closing aggregation of any kind
 ```
 
-`writer.snapshot()` is the mirror of the reading side's "experiment → snapshot" layering: converting multiple experiments means opening multiple snapshot directories, with snapshot-level metadata like experimentId / agent / model / startedAt declared once here rather than stuffed into every attempt; the optional `knownEvalIds` (the union of evals known for this experiment) is also declared here — it is the denominator for coverage detection, so when a conversion only covers part of the question set, declare the full set honestly and the downstream coverage warning can be computed (`copySnapshots` automatically backfills this field when publishing, see below). The converted directory is a standard results directory: `niceeval show` / `niceeval view` can view it directly, the report building blocks can compute on it directly, with no format documentation to consult; `producer` shows up verbatim on the reading side's `snap.producer`. **Every file is written exactly once** is the write side's core promise: `snapshot.json` is written as soon as the run starts and only ever gets `completedAt` backfilled at wrap-up; `result.json` and artifacts land as each attempt completes. An interrupted process only loses attempts that were still in flight — completed verdicts and artifacts are already on disk. The reading side reflects this faithfully: an unfinished-but-otherwise-intact snapshot reads fine and only carries a warning; only the genuinely rare case of "attempts on disk but no `snapshot.json` at all" lands in `skipped("incomplete")`.
+`writer.snapshot()` is the mirror of the reading side's "experiment → snapshot" layering: converting multiple experiments means opening multiple snapshot directories, with snapshot-level metadata like experimentId / agent / model / startedAt declared once here rather than stuffed into every attempt; the optional `knownEvalIds` (the union of evals known for this experiment) is also declared here — it is the denominator for coverage detection, so when a conversion only covers part of the question set, declare the full set honestly and the downstream coverage warning can be computed (`copySnapshots` automatically backfills this field when publishing, see below). The converted directory is a standard results directory: `niceeval show` / `niceeval view` can view it directly, the report building blocks can compute on it directly, with no format documentation to consult; `producer` shows up verbatim on the reading side's `snap.producer`. **Every file is written exactly once** is the write side's core promise: `snapshot.json` is written as soon as the run starts and only ever gets `completedAt` backfilled at wrap-up; `result.json` and artifacts land as each attempt completes. An interrupted process only loses attempts that were still in flight — completed verdicts and artifacts are already on disk. Only the genuinely rare case of "attempts on disk but no `snapshot.json` at all" lands in `skipped("incomplete")`; an unfinished snapshot whose metadata is intact reads fine and only carries a warning.
 
 ## Publishing: `copySnapshots`
 
@@ -205,13 +234,17 @@ import { openResults, copySnapshots } from "niceeval/results";
 
 const results = await openResults(".niceeval");
 await copySnapshots(results.latest(), "site-data/run", {
-  artifacts: ["sources", "events", "trace"],   // diffs can reach hundreds of MB, commonly excluded when publishing
-});
+  artifacts: ["sources", "events", "trace", "o11y"],   // diff is never truncated, and is not included by default;
+});                                                     // every file to be published also goes through a 50 MiB precheck;
+                                                        // o11y is only a few KB — if your report uses metrics that read
+                                                        // o11y (turns, for example), bring it along, or they render as "—"
 ```
 
-The first argument accepts a `Selection` or a hand-picked `Snapshot[]` — the same input convention as the report building blocks. `artifacts` accepts `"events" | "trace" | "o11y" | "diff" | "sources"`, defaulting to all of them. It errors rather than silently overwriting when the target directory already exists and is non-empty — if a publish script needs to be idempotent, clear the target directory first yourself.
+The first argument accepts a `Selection` or a hand-picked `Snapshot[]` — the same input convention as the report building blocks. The legal values for `artifacts` are `"events" | "trace" | "o11y" | "agentSetup" | "diff" | "sources"`; by default it carries the five kinds other than `diff`. It errors rather than silently overwriting when the target directory already exists and is non-empty — if a publish script needs to be idempotent, clear the target directory first yourself.
 
-Copying does not alter or redact artifact content; use the report building block `AttemptList.data`'s `redact` hook to redact free text before publishing. The one thing automatically backfilled along the way is the **coverage fact at pick time**: the denominator of a `partial-coverage` warning is an experiment's historical union, and a publish directory has no history — so every copied snapshot carries `knownEvalIds` (the union of evals known for that experiment at copy time), and the reader folds it into the computation of `exp.evalIds` (taking the union of local history and the value carried by the snapshot). Running `openResults().latest()` again on the publish directory recomputes coverage warnings through the same mechanism, without relying on the publisher's own account. The copied directory is a standard results directory — `niceeval view --run <dir>` views it directly; for wiring up the report site to update automatically on push, see [Publish a Report Through CI](/guides/publish-report).
+Before copying starts, NiceEval plans every target file and checks its serialized size. If any single file exceeds the fixed 50 MiB limit, the whole copy fails before the target directory is created, and the error lists the path, the actual size, and what to do about it. You can exclude that class of evidence from `artifacts`; if the oversized events / trace were left behind by an older version, rerun with the current version and then publish. This check covers both source code / diffs, which have no per-value truncation, and JSON whose individual values are all fine but whose total is too large — so you don't discover a Git host's single-file limit only at `git push` time.
+
+Copying does not alter or redact artifact content; the size precheck only decides whether the whole copy succeeds or fails, and never deletes content out of the middle of an oversized file. To redact free text before publishing, use the `redact` hook on the report building block `AttemptList.data`. The one thing automatically backfilled along the way is the **coverage fact at pick time**: the denominator of a `partial-coverage` warning is an experiment's historical union, and a publish directory has no history — so every copied snapshot carries `knownEvalIds` (the union of evals known for that experiment at copy time), and the reader folds it into the computation of `exp.evalIds` (taking the union of local history and the value carried by the snapshot). Running `openResults().latest()` again on the publish directory recomputes coverage warnings through the same mechanism, without relying on the publisher's own account. The copied directory is a standard results directory — `niceeval view --run <dir>` views it directly; for wiring up the report site to update automatically on push, see [Publish a Report Through CI](/guides/publish-report).
 
 ## Layer overview
 
