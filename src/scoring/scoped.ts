@@ -398,6 +398,12 @@ export function eventsSatisfy(
   label: string,
   predicate: (events: readonly StreamEvent[]) => boolean,
 ): Spec {
+  if (typeof label !== "string" || label.trim().length === 0 || typeof predicate !== "function") {
+    throw new TypeError(
+      "eventsSatisfy(label, predicate) requires a non-empty string label followed by a predicate function; " +
+        `received (${typeof label}, ${typeof predicate}). The former (predicate, label) order is not supported.`,
+    );
+  }
   return {
     name: label,
     severity: "gate",

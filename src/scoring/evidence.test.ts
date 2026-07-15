@@ -111,6 +111,18 @@ describe("作用域断言的三值折叠", () => {
   });
 });
 
+describe("eventsSatisfy 作者参数错误", () => {
+  it("旧的 (predicate, label) 顺序在记录时给出迁移提示,不留到 finalize 才报 predicate is not a function", () => {
+    expect(() =>
+      Reflect.apply(Scoped.eventsSatisfy, undefined, [() => true, "has an event"]),
+    ).toThrow(/former \(predicate, label\) order is not supported/);
+  });
+
+  it("label 必须是非空字符串", () => {
+    expect(() => Scoped.eventsSatisfy("  ", () => true)).toThrow(/non-empty string label/);
+  });
+});
+
 describe("判定折叠:非 optional unavailable → errored", () => {
   const unavailableGate: AssertionResult = {
     name: "notCalledTool(bash)",

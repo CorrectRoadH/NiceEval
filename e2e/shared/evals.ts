@@ -116,14 +116,14 @@ export function hitlApprove(p: AgentProfile) {
       // 事后补问审批"的实现也能骗过下面的正向断言。注意不能用 notCalledTool
       // (status:"completed"):派生事实对"已发起还没结果"的调用乐观默认 completed,
       // 只有对原始事件流查 action.result 才能表达"还没执行"。
-      draft.eventsSatisfy((events) => {
+      draft.eventsSatisfy("no completed calculator result before approval", (events) => {
         const calcIds = new Set(
           events.filter((e) => e.type === "action.called" && e.name === calc).map((e) => e.callId),
         );
         return !events.some(
           (e) => e.type === "action.result" && calcIds.has(e.callId) && e.status === "completed",
         );
-      }, "no completed calculator result before approval");
+      });
 
       t.requireInputRequest({ action: calc });
 
@@ -412,8 +412,8 @@ export function skillAbsent(p: AgentProfile) {
 
       if (p.skillDetection === "tool") {
         t.eventsSatisfy(
-          (events) => !events.some((event) => event.type === "skill.loaded"),
           "no skill.loaded event without an installed skill",
+          (events) => !events.some((event) => event.type === "skill.loaded"),
         );
       } else {
         // 与 skillUsed 的正向断言严格镜像:没有一条**成功完成**的 shell 命令碰过 skill 安装
