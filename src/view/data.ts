@@ -42,6 +42,12 @@ export interface ViewScan {
    * 界面语言对应的那块 HTML 摆进报告槽位置,不解析。
    */
   reportHtml: ReportSlotHtml;
+  /**
+   * --out 的数据等级(见 docs/feature/reports/view.md「静态导出」):全部选中快照带
+   * publish:{redaction:"applied"} 才是 "applied",否则 "sensitive"(含本地事实根与
+   * redaction:"none"——上游声明过原文发布也不豁免导出时的确认)。
+   */
+  publishState: "applied" | "sensitive";
 }
 
 /** view 宿主输入的组合语义(与 show 对齐,docs/feature/reports/architecture.md「Selection 是计算入口」)。 */
@@ -261,7 +267,11 @@ export async function loadViewScan(input?: string, opts: ViewScanOptions = {}): 
     snapshots,
     skippedRuns: results.skipped.map(toSkippedNotice),
   };
-  return { viewData, artifactDirs, attemptsByBase, reportHtml };
+  const publishState =
+    selection.snapshots.length > 0 && selection.snapshots.every((snap) => snap.publish?.redaction === "applied")
+      ? ("applied" as const)
+      : ("sensitive" as const);
+  return { viewData, artifactDirs, attemptsByBase, reportHtml, publishState };
 }
 
 /**

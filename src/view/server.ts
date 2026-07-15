@@ -12,6 +12,8 @@ export interface ViewOptions {
   input?: string;
   out?: string;
   port?: number;
+  /** `--out` 对非发布根(无 publish:applied 标记)导出时的显式确认;静态站原样携带证据文件。 */
+  allowSensitiveArtifacts?: boolean;
   /** 报告槽的组合语义(位置前缀 / --experiment / --report),透传给 loadViewScan。 */
   scan?: ViewScanOptions;
 }

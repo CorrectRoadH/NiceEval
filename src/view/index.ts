@@ -89,6 +89,17 @@ export async function buildView(opts: ViewOptions = {}): Promise<string> {
     );
   }
   const scan = await loadViewScan(opts.input, opts.scan);
+  // --out 按数据等级防呆(见 docs/feature/reports/view.md「静态导出」):目标结果根的全部快照
+  // 带 publish:{redaction:"applied"}(copySnapshots 补记)时直接导出;redaction:"none"、
+  // 无标记结果或本地事实根,都必须显式传 --allow-sensitive-artifacts——静态站原样携带证据文件,
+  // 上游声明过原文发布也不豁免这里的确认。
+  if (!opts.allowSensitiveArtifacts && scan.publishState !== "applied") {
+    throw new ViewInputError(
+      `--out refuses to export unsanitized results: not every selected snapshot carries publish: { redaction: "applied" }. ` +
+        `Produce a publish root first with copySnapshots({ redact }) and export that (niceeval view --run <publish-root> --out <site>), ` +
+        `or pass --allow-sensitive-artifacts to explicitly export raw evidence (prompts, tool args, full outputs, sources).`,
+    );
+  }
   await mkdir(out, { recursive: true });
   await writeFile(join(out, "index.html"), await renderHtml(scan), "utf-8");
   await copyFetchedArtifacts(scan, join(out, "artifact"));

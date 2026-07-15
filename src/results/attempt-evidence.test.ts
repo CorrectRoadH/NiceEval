@@ -73,7 +73,7 @@ describe("loadAttemptEvidence", () => {
     const root = await makeRoot();
     const attempt = await seedAttempt(
       root,
-      { id: "weather/brooklyn", assertions: ASSERTIONS },
+      { id: "weather/brooklyn", assertions: ASSERTIONS, phases: [{ name: "eval.run", durationMs: 900 }] },
       { events: EVENTS, trace: TRACE, diff: NONEMPTY_DIFF, sources: [{ path: SOURCE_PATH, content: SOURCE_CONTENT }] },
     );
 
@@ -104,7 +104,7 @@ describe("loadAttemptEvidence", () => {
     expect(evidence.capabilities).toEqual({ eval: false, execution: false, timing: false, diff: false });
   });
 
-  it("有 events 没有 OTel spans:execution 为真、timing 为假", async () => {
+  it("有 events 没有 phases(旧 runner 产出):execution 为真、timing 为假", async () => {
     const root = await makeRoot();
     const attempt = await seedAttempt(root, { id: "weather/albany" }, { events: EVENTS });
 

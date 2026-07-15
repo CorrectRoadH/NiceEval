@@ -323,7 +323,7 @@ describe("buildView · --out 与 --report", () => {
     await writeFile(join(artifactDir, "events.json"), "[]", "utf-8");
 
     const out = join(root, "site");
-    await buildView({ input: root, out, scan: { report: { path: EXAM_REPORT, cwd: root } } });
+    await buildView({ input: root, out, allowSensitiveArtifacts: true, scan: { report: { path: EXAM_REPORT, cwd: root } } });
 
     const html = await readFile(join(out, "index.html"), "utf-8");
     // 双语两个 <template> 静态块都在,壳按界面语言摆放。
@@ -343,7 +343,7 @@ describe("buildView · --out 与 --report", () => {
   it("默认导出(无 --report):报告槽填充 ExperimentComparison,双语块与增强 runtime 恒内联", async () => {
     const root = await seedRoot();
     const out = join(root, "site");
-    await buildView({ input: root, out });
+    await buildView({ input: root, out, allowSensitiveArtifacts: true });
     const html = await readFile(join(out, "index.html"), "utf-8");
     expect(html).toContain('<template id="niceeval-report-en">');
     expect(html).toContain('<template id="niceeval-report-zh-CN">');

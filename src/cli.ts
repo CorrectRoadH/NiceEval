@@ -101,8 +101,10 @@ interface Flags {
   diff: boolean;
   /** --diff=<路径>(必须 = 连写;空格形式会把路径当 eval id 前缀,按文档如此)。 */
   diffPath?: string;
+  timing: boolean;
   keepSandbox?: "failed" | "all";
   all: boolean;
+  allowSensitiveArtifacts: boolean;
   window?: string;
   sandboxPath?: string;
   leaveRunning: boolean;
@@ -151,6 +153,8 @@ const FLAG_OPTIONS = {
   out: { type: "string" },
   /** `view` 命令专用:指定本地服务器监听端口。 */
   port: { type: "string" },
+  /** `view --out` 专用:对非发布根(快照没有 publish:{redaction:"applied"} 标记)导出时的显式确认——静态站会原样携带未消毒的证据文件。 */
+  "allow-sensitive-artifacts": { type: "boolean" },
   // show 的证据切面 / 时间轴 / 报告装载(docs-site/zh/guides/viewing-results.mdx)。
   // 证据切面只认 `@<locator>`(或收窄到单个 eval 的前缀)选出的那一个 attempt——不再有
   // 数字 `--attempt`,选哪个 attempt 由 locator 精确指名,不是「先选 eval 再挑第几次」。
@@ -158,6 +162,8 @@ const FLAG_OPTIONS = {
   eval: { type: "boolean" },
   /** `show` 命令专用:该 attempt 的标准执行事件流(消息、thinking、Skill load、工具调用/结果);有 OTel 时同一节点补时间(证据切面)。 */
   execution: { type: "boolean" },
+  /** `show` 命令专用:整个 attempt 的统一时间树(runner 阶段 + hook/命令/turn 包络 + 轮内 OTel)。 */
+  timing: { type: "boolean" },
   // --diff 是布尔;--diff=<路径> 在 parseArgs 前预扫成 diffPath(路径必须 = 连写,
   // 空格形式的下一个 token 仍是位置参数 = eval id 前缀,与文档一致)。
   /** `show` 命令专用:sandbox 里的文件改动摘要;`--diff=<文件路径>` 看单个文件的完整改动(路径必须 `=` 连写)。 */
@@ -279,8 +285,10 @@ function parseArgs(argv: string[]): { command: string; positionals: string[]; fl
     execution: values.execution === true,
     diff: values.diff === true && diffPath === undefined,
     diffPath,
+    timing: values.timing === true,
     keepSandbox: values["keep-sandbox"] === true ? (keepSandboxTier ?? "failed") : undefined,
     all: values.all === true,
+    allowSensitiveArtifacts: values["allow-sensitive-artifacts"] === true,
     window: values.window as string | undefined,
     sandboxPath: values.path as string | undefined,
     leaveRunning: values["leave-running"] === true,
@@ -545,7 +553,7 @@ async function main(): Promise<void> {
       ...(flags.report !== undefined ? { report: { path: flags.report, cwd } } : {}),
     };
     if (flags.out) {
-      const out = await buildView({ input: viewInput.input, out: flags.out, scan }).catch(exitOnViewUserError);
+      const out = await buildView({ input: viewInput.input, out: flags.out, allowSensitiveArtifacts: flags.allowSensitiveArtifacts, scan }).catch(exitOnViewUserError);
       process.stdout.write(t("cli.view.exportedDir", { out }));
       process.exit(0);
     }
@@ -580,6 +588,7 @@ async function main(): Promise<void> {
     const code = await runShow(cwd, positionals, {
       eval: flags.eval,
       execution: flags.execution,
+      timing: flags.timing,
       diff: flags.diff,
       diffPath: flags.diffPath,
       history: flags.history,

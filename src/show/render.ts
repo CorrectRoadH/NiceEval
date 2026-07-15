@@ -4,7 +4,7 @@
 // 全部纯函数(时间经 now 显式传入),证据数据由调用方 await 好了递进来。
 
 import { join, relative } from "node:path";
-import type { AssertionResult, DiffData, EvalResult, Verdict } from "../types.ts";
+import type { AssertionResult, DiffData, EvalResult, TimingNode, TraceSpan, Verdict } from "../types.ts";
 import type { AttemptEvidence, AttemptHandle, Snapshot } from "../results/index.ts";
 import type { AnnotatedSourceLine } from "../results/index.ts";
 import { groupIncompatibleVersionSkips } from "../results/index.ts";
@@ -648,10 +648,30 @@ export function executionText(
   const agentNodes = tree.nodes.filter((node) => node.kind !== "telemetry");
   const telemetryCount = tree.nodes.length - agentNodes.length;
   const shown = agentNodes.slice(0, MAX_EVENTS);
-  const lines = shown.flatMap((node, index) => [
-    ...(index === 0 ? [] : [""]),
-    ...executionNodeLines(node, originMs, timingAvailable, width),
-  ]);
+
+  // 按轮分段(见 docs/feature/reports/show.md「--execution」):每轮以 TURN 头行开始——身份
+  // s<session>/t<turn>(与 --timing 的 turn 节点、diff 的 windows 同一套标签,来自
+  // result.json.phases 的 turn 时间树)、该轮墙钟;边界按用户消息切(t.send 恒以用户消息开轮)。
+  const turnNodes = (evidence.result.phases ?? [])
+    .flatMap((p) => p.children ?? [])
+    .filter((n) => n.kind === "turn");
+  const lines: string[] = [];
+  let turnIndex = -1;
+  shown.forEach((node, index) => {
+    const isTurnStart = node.kind === "message" && node.role === "user";
+    if (isTurnStart) {
+      turnIndex += 1;
+      const turn = turnNodes[turnIndex];
+      const label = turn?.label ?? `t${turnIndex + 1}`;
+      const durationPart = turn ? ` · ${formatDurationMs(turn.durationMs)}` : "";
+      const failedPart = turn?.failed ? " · failed" : "";
+      if (index > 0) lines.push("");
+      lines.push(`TURN ${label}${failedPart || " · completed"}${durationPart}`);
+    } else if (index > 0) {
+      lines.push("");
+    }
+    lines.push(...executionNodeLines(node, originMs, timingAvailable, width).map((l) => (turnIndex >= 0 ? `  ${l}` : l)));
+  });
 
   const tail: string[] = [];
   if (timingAvailable) {
@@ -812,9 +832,8 @@ export function attemptOverviewText(
     const toolCalls = nodes.filter((n) => n.kind === "action").length;
     const aiMessages = nodes.filter((n) => n.kind === "message" && n.role === "assistant").length;
     const execLines = [`execution: ${nodes.length} events · ${skillLoads} skill loads · ${toolCalls} tool calls · ${aiMessages} AI messages`];
-    if (evidence.capabilities.timing) {
-      execLines.push("timing: OTel spans recorded for this attempt — see --execution for per-step timing.");
-    }
+    const timingLine = overviewTimingLine(r);
+    if (timingLine) execLines.push(timingLine);
     blocks.push(execLines.join("\n"));
   } else {
     blocks.push("execution: unavailable (no events recorded for this attempt)");
@@ -833,6 +852,7 @@ export function attemptOverviewText(
   const available = [
     evidence.capabilities.eval ? `niceeval show ${evidence.locator} --eval` : undefined,
     evidence.capabilities.execution ? `niceeval show ${evidence.locator} --execution` : undefined,
+    evidence.capabilities.timing ? `niceeval show ${evidence.locator} --timing` : undefined,
     evidence.capabilities.diff ? `niceeval show ${evidence.locator} --diff` : undefined,
   ].filter((command): command is string => command !== undefined);
   if (available.length > 0) tail.push(`available:\n${available.map((command) => `  ${command}`).join("\n")}`);
@@ -932,4 +952,84 @@ function windowHunk(c: { status: string; before?: string; after?: string }): str
   for (const l of shownAdded) lines.push(`+${l}`);
   if (added.length > shownAdded.length) lines.push(`… (${added.length - shownAdded.length} more added lines)`);
   return lines.join("\n");
+}
+
+// ───────────────────────── 证据切面:--timing(统一时间树) ─────────────────────────
+
+const CLOSING_PHASE_NAMES = new Set(["eval.teardown", "agent.teardown", "sandbox.teardown", "sandbox.suspend", "sandbox.stop"]);
+
+/** phases 主链摘要行(首页 `timing:`):各主链阶段耗时点隔,收尾段合计以 `teardown +N` 单列。 */
+export function overviewTimingLine(r: EvalResult): string | undefined {
+  if (!r.phases || r.phases.length === 0) return undefined;
+  const main = r.phases.filter((p) => !CLOSING_PHASE_NAMES.has(p.name));
+  const closing = r.phases.filter((p) => CLOSING_PHASE_NAMES.has(p.name));
+  const parts = main.map((p) => `${p.name} ${formatDurationMs(p.durationMs)}${p.failed ? " ✗" : ""}`);
+  const closingMs = closing.reduce((sum, p) => sum + p.durationMs, 0);
+  if (closingMs > 0) parts.push(`teardown +${formatDurationMs(closingMs)}`);
+  return `timing: ${parts.join(" · ")}`;
+}
+
+function timingNodeLines(node: TimingNode, prefix: string, isLast: boolean, spans: TraceSpan[] | null): string[] {
+  const branch = `${prefix}${isLast ? "└─ " : "├─ "}`;
+  const childPrefix = `${prefix}${isLast ? "   " : "│  "}`;
+  const label =
+    node.kind === "command" && node.command
+      ? `shell · ${node.command.display}`
+      : node.kind === "turn"
+        ? `turn ${node.label}`
+        : node.label;
+  const lines = [`${branch}${label}   ${formatDurationMs(node.durationMs)}${node.failed ? " ✗" : ""}`];
+  const kids = node.children ?? [];
+  // turn 带 traceId 时,从 trace.json 把该轮的 agent/model/tool spans 挂到 turn 下。
+  const attached =
+    node.kind === "turn" && node.traceId && spans
+      ? spans
+          .filter((sp) => sp.traceId === node.traceId && (sp.kind === "agent" || sp.kind === "model" || sp.kind === "tool"))
+          .slice(0, 12)
+      : [];
+  kids.forEach((child, i) => {
+    const last = i === kids.length - 1 && attached.length === 0;
+    lines.push(...timingNodeLines(child, childPrefix, last, spans));
+  });
+  attached.forEach((sp, i) => {
+    const last = i === attached.length - 1;
+    lines.push(
+      `${childPrefix}${last ? "└─ " : "├─ "}${sp.kind} · ${sp.name}   ${formatDurationMs(sp.endMs - sp.startMs)}  OTel`,
+    );
+  });
+  return lines;
+}
+
+/**
+ * `--timing`:整个 attempt 的统一时间树(见 docs/feature/reports/show.md)。先按
+ * `result.json.phases` 输出 runner 生命周期,再展开 hook / 命令 / turn;turn 带 traceId 时
+ * 从 trace.json 挂接 agent/model/tool spans。缩进表达包含关系,子项不能求和后与父项比较。
+ */
+export function timingText(
+  evidence: AttemptEvidence,
+  opts: { header: string; artifactPath?: string; width: number },
+): string {
+  const r = evidence.result;
+  if (!r.phases || r.phases.length === 0) {
+    return `${opts.header}\n\nphase timing unavailable (this result was not produced by a runner with phase timing)`;
+  }
+  const spans = evidence.trace;
+  const main = r.phases.filter((p) => !CLOSING_PHASE_NAMES.has(p.name));
+  const closing = r.phases.filter((p) => CLOSING_PHASE_NAMES.has(p.name));
+
+  const lines: string[] = [`total ${formatDurationMs(r.durationMs)}`, ""];
+  const renderPhase = (p: NonNullable<EvalResult["phases"]>[number]) => {
+    const failedNote = p.failed ? ` ✗ failed here${r.error ? ` (${r.error.code})` : ""}` : "";
+    lines.push(`${p.name.padEnd(22)}${formatDurationMs(p.durationMs)}${failedNote}`);
+    const kids = p.children ?? [];
+    kids.forEach((child, i) => {
+      lines.push(...timingNodeLines(child, "  ", i === kids.length - 1, spans));
+    });
+  };
+  for (const p of main) renderPhase(p);
+  if (closing.length > 0) {
+    lines.push("", "teardown (not counted in total):");
+    for (const p of closing) renderPhase(p);
+  }
+  return `${opts.header}\n\n${lines.join("\n")}`;
 }

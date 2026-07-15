@@ -63,7 +63,7 @@ export interface AttemptEvidenceCapabilities {
   eval: boolean;
   /** events 非空数组——有骨架可看。 */
   execution: boolean;
-  /** execution 成立且这次运行接入过 OTel(ExecutionTree.timingAvailable)。 */
+  /** result.json 带 phases(阶段计时)——`--timing` 时间树可渲染。 */
   timing: boolean;
   /** diff 非空且至少改动/删除了一个文件。 */
   diff: boolean;
@@ -86,6 +86,8 @@ export interface AttemptEvidence {
   execution: ExecutionTree | null;
   /** 被测 Agent 对 Sandbox 工作区的文件变化(`--diff` 切面);原样透传 attempt.diff()。 */
   diff: DiffData | null;
+  /** OTel spans(`--timing` 把 turn 节点下的 agent/model/tool spans 挂回时间树);没有 trace 就是 null。 */
+  trace: import("../types.ts").TraceSpan[] | null;
   artifactPaths: EvidencePaths;
   capabilities: AttemptEvidenceCapabilities;
 }
@@ -134,11 +136,12 @@ export async function loadAttemptEvidence(attempt: AttemptHandle): Promise<Attem
     evalSource,
     execution,
     diff,
+    trace,
     artifactPaths: { dir: attemptArtifactDir(attempt) },
     capabilities: {
       eval: evalCapable,
       execution: execution !== null,
-      timing: execution !== null && execution.timingAvailable,
+      timing: (attempt.result.phases?.length ?? 0) > 0,
       diff: diffCapable,
     },
   };

@@ -50,6 +50,7 @@ import {
   evalSourceText,
   executionText,
   experimentHistoryText,
+  timingText,
   pickDetailAttempt,
   skippedRunsText,
   verdictReasonLine,
@@ -60,6 +61,8 @@ export interface ShowFlags {
   eval?: boolean;
   /** 该 attempt 的标准执行事件流 + OTel enrichment(证据切面)。 */
   execution?: boolean;
+  /** --timing:整个 attempt 的统一时间树(phases + hook/命令/turn + 轮内 OTel)。 */
+  timing?: boolean;
   /** --diff(文件级摘要)。 */
   diff?: boolean;
   /** --diff=<路径>(单个文件的完整改动;路径必须 = 连写,位置参数永远留给 eval id 前缀)。 */
@@ -165,6 +168,7 @@ async function show(
       const blocks: string[] = [];
       if (flags.eval) blocks.push(evalSourceText(attemptEvidence, { header, artifactPath, width: io.width }));
       if (flags.execution) blocks.push(executionText(attemptEvidence, { header, artifactPath, width: io.width }));
+      if (flags.timing) blocks.push(timingText(attemptEvidence, { header, artifactPath, width: io.width }));
       if (flags.diff || flags.diffPath !== undefined) {
         blocks.push(diffText({ header, diff: attemptEvidence.diff, artifactPath, file: flags.diffPath }));
       }
@@ -228,6 +232,7 @@ async function show(
     const blocks: string[] = [];
     if (flags.eval) blocks.push(evalSourceText(attemptEvidence, { header, artifactPath, width: io.width }));
     if (flags.execution) blocks.push(executionText(attemptEvidence, { header, artifactPath, width: io.width }));
+    if (flags.timing) blocks.push(timingText(attemptEvidence, { header, artifactPath, width: io.width }));
     if (flags.diff || flags.diffPath !== undefined) {
       blocks.push(diffText({ header, diff: attemptEvidence.diff, artifactPath, file: flags.diffPath }));
     }

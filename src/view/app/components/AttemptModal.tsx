@@ -62,6 +62,8 @@ export function AttemptModal({ result, onClose, t }: { result: ViewResult; onClo
           {result.diagnostics && result.diagnostics.length > 0 ? (
             <AttemptDiagnostics diagnostics={result.diagnostics} />
           ) : null}
+          {result.phases && result.phases.length > 0 ? <PhaseTimingBlock phases={result.phases} /> : null}
+          <UsageDiffLine result={result} />
           {data.status === "loading" ? <div className="conv-loading">{t("trace.loading")}</div> : null}
           {hasCode ? (
             <CodeView sources={data.sources ?? []} events={data.events || []} assertions={allAssertions} t={t} />
@@ -118,24 +120,116 @@ function ErrorDetailBlock({ error }: { error: NonNullable<ViewResult["error"]> }
   );
 }
 
-/** attempt 级诊断(teardown/cleanup 等,与 verdict 独立;见 docs/feature/reports/view.md)。 */
+/** attempt 级诊断,按 lifecycle 阶段分组(teardown/cleanup 等,与 verdict 独立;
+ *  见 docs/feature/reports/view.md「Attempt 详情」)。 */
 function AttemptDiagnostics({ diagnostics }: { diagnostics: NonNullable<ViewResult["diagnostics"]> }) {
+  const groups = new Map<string, typeof diagnostics>();
+  for (const d of diagnostics) {
+    const list = groups.get(d.phase) ?? [];
+    groups.set(d.phase, [...list, d]);
+  }
   return (
     <div className="mt-3">
       <div className="text-xs font-[640] text-text">diagnostics</div>
-      <ul className="mt-1 space-y-1">
-        {diagnostics.map((d, i) => (
-          <li key={i} className="text-xs">
-            <span className="text-muted">
-              {d.level} · {d.phase} · {d.code}
-            </span>
-            <div className="min-w-0 break-words">
-              {d.message}
-              {d.count && d.count > 1 ? ` (${d.count} occurrences)` : ""}
-            </div>
-          </li>
-        ))}
-      </ul>
+      {[...groups.entries()].map(([phase, list]) => (
+        <div key={phase} className="mt-1">
+          <div className="text-[11px] text-muted">{phase}</div>
+          <ul className="mt-0.5 space-y-1 pl-3">
+            {list.map((d, i) => (
+              <li key={i} className="text-xs">
+                <span className="text-muted">
+                  {d.level} · {d.code}
+                </span>
+                <div className="min-w-0 break-words">
+                  {d.message}
+                  {d.count && d.count > 1 ? ` (${d.count} occurrences)` : ""}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
     </div>
   );
+}
+
+const CLOSING_PHASES = new Set(["eval.teardown", "agent.teardown", "sandbox.teardown", "sandbox.suspend", "sandbox.stop"]);
+
+function fmtMs(ms: number): string {
+  if (ms >= 60_000) return `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`;
+  if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${ms}ms`;
+}
+
+/** 统一时间树(见 docs/feature/reports/view.md「Attempt 详情」):`result.json.phases` 的主链
+ *  分解与收尾段;每个 phase 可展开 runner 直接观察到的 hook / 命令 / turn(嵌套 children)。 */
+function PhaseTimingBlock({ phases }: { phases: NonNullable<ViewResult["phases"]> }) {
+  const main = phases.filter((p) => !CLOSING_PHASES.has(p.name));
+  const closing = phases.filter((p) => CLOSING_PHASES.has(p.name));
+  return (
+    <div className="mt-3">
+      <div className="text-xs font-[640] text-text">timing</div>
+      <ul className="mt-1 space-y-0.5">
+        {main.map((p, i) => (
+          <TimingRow key={i} name={p.name} durationMs={p.durationMs} failed={p.failed} children_={p.children} />
+        ))}
+      </ul>
+      {closing.length > 0 ? (
+        <div className="mt-1">
+          <div className="text-[11px] text-muted">teardown (not counted in total)</div>
+          <ul className="mt-0.5 space-y-0.5">
+            {closing.map((p, i) => (
+              <TimingRow key={i} name={p.name} durationMs={p.durationMs} failed={p.failed} children_={p.children} />
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+type TimingChild = NonNullable<NonNullable<ViewResult["phases"]>[number]["children"]>[number];
+
+function TimingRow({
+  name,
+  durationMs,
+  failed,
+  children_,
+}: {
+  name: string;
+  durationMs: number;
+  failed?: true;
+  children_?: TimingChild[];
+}) {
+  const kids = children_ ?? [];
+  const label = (node: TimingChild): string =>
+    node.kind === "command" && node.command ? `shell · ${node.command.display}` : node.kind === "turn" ? `turn ${node.label}` : node.label;
+  const renderChild = (node: TimingChild, depth: number): React.ReactNode => (
+    <li key={node.id} className="text-[11px]" style={{ paddingLeft: `${depth * 12}px` }}>
+      <span className="text-muted">{label(node)}</span> {fmtMs(node.durationMs)}
+      {node.failed ? <span className="text-bad"> ✗</span> : null}
+      {(node.children ?? []).map((c) => renderChild(c, depth + 1))}
+    </li>
+  );
+  return (
+    <li className="text-xs">
+      <span>{name}</span> <span className="text-muted">{fmtMs(durationMs)}</span>
+      {failed ? <span className="text-bad"> ✗</span> : null}
+      {kids.length > 0 ? <ul className="mt-0.5 space-y-0.5 pl-3">{kids.map((c) => renderChild(c, 0))}</ul> : null}
+    </li>
+  );
+}
+
+/** usage 与 diff 入口行(见 docs/feature/reports/view.md「Attempt 详情」)。 */
+function UsageDiffLine({ result }: { result: ViewResult }) {
+  const parts: string[] = [];
+  if (result.usage) {
+    const tok = result.usage.inputTokens + result.usage.outputTokens;
+    parts.push(`usage: ${tok.toLocaleString()} tok${result.usage.costUSD !== undefined ? ` · $${result.usage.costUSD.toFixed(4)}` : ""}`);
+  }
+  if (result.sandbox) {
+    parts.push(`sandbox: ${result.sandbox.provider} · ${result.sandbox.sandboxId}${result.sandbox.kept ? " · kept" : ""}`);
+  }
+  if (parts.length === 0) return null;
+  return <div className="mt-2 text-xs text-muted">{parts.join("   ")}</div>;
 }
