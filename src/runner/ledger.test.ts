@@ -17,8 +17,9 @@ import type { CommandResult, Sandbox } from "../types.ts";
 const execAsync = promisify(exec);
 
 /** 宿主目录扮演沙箱 workdir;runShell 用真实 shell 跑(ledger 只用 runShell + env)。 */
-function hostSandbox(workdir: string, ledgerDir: string): Sandbox {
+function hostSandbox(workdir: string, ledgerDir: string, onRunShell?: (script: string) => void): Sandbox {
   const runShell = async (script: string, opts?: { env?: Record<string, string> }): Promise<CommandResult> => {
+    onRunShell?.(script);
     // 把 ledger 的固定 /tmp 路径重定向到本测试的私有目录,测试之间互不污染。
     const env = { ...process.env, ...opts?.env };
     if (env.GIT_DIR === "/tmp/.niceeval-ledger") env.GIT_DIR = ledgerDir;
@@ -28,8 +29,7 @@ function hostSandbox(workdir: string, ledgerDir: string): Sandbox {
       return { stdout, stderr, exitCode: 0 };
     } catch (e) {
       const err = e as { stdout?: string; stderr?: string; code?: number };
-      const result = { stdout: err.stdout ?? "", stderr: err.stderr ?? "", exitCode: err.code ?? 1 };
-      throw Object.assign(new Error(`shell failed (${result.exitCode}): ${script}\n${result.stderr}`), { result });
+      return { stdout: err.stdout ?? "", stderr: err.stderr ?? "", exitCode: err.code ?? 1 };
     }
   };
   return {
@@ -85,6 +85,8 @@ describe("createChangeLedger", () => {
     // 窗口 1:agent 改 start.txt、新建 out.txt。
     await writeFile(join(workdir, "start.txt"), "changed by agent\n");
     await writeFile(join(workdir, "out.txt"), "hello\n");
+    await writeFile(join(workdir, "with space.txt"), "space-safe\n");
+    await writeFile(join(workdir, "binary.bin"), Buffer.from([0, 1, 2, 3]));
     await ledger.commitAgentWindow("s1/t1");
 
     // 窗口间 eval 写入(隐藏校验文件):不得计入任何 agent 窗口。
@@ -99,6 +101,8 @@ describe("createChangeLedger", () => {
     expect(windows.map((w) => w.window)).toEqual(["s1/t1", "s1/t2"]);
     expect(windows[0]!.changes["start.txt"]).toMatchObject({ status: "modified", after: "changed by agent\n" });
     expect(windows[0]!.changes["out.txt"]).toMatchObject({ status: "added", after: "hello\n" });
+    expect(windows[0]!.changes["with space.txt"]).toMatchObject({ status: "added", after: "space-safe\n" });
+    expect(windows[0]!.changes["binary.bin"]).toEqual({ status: "added", binary: { afterBytes: 4 } });
     expect(windows[0]!.changes["fixture.json"]).toBeUndefined();
     expect(windows[1]!.changes["out.txt"]).toMatchObject({ status: "deleted", before: "hello\n" });
     expect(windows[1]!.changes["hidden-check.txt"]).toBeUndefined();
@@ -141,6 +145,11 @@ describe("createChangeLedger", () => {
     await writeFile(join(workdir, "node_modules", "keep.js"), "included back\n");
     await mkdir(join(workdir, "secret"), { recursive: true });
     await writeFile(join(workdir, "secret", "token.txt"), "excluded via ignore\n");
+    // Python 工具链目录不依赖项目 .gitignore:任意 *venv*/ 名字都由 runner 私有清单排除。
+    for (const dir of ["venv", ".venv", ".testing-venv", "tools/pypi-venv"]) {
+      await mkdir(join(workdir, dir), { recursive: true });
+      await writeFile(join(workdir, dir, "dependency.py"), "excluded virtualenv dependency\n");
+    }
     await ledger.commitAgentWindow("s1/t1");
 
     const windows = await ledger.exportWindows();
@@ -149,7 +158,41 @@ describe("createChangeLedger", () => {
     expect(paths).toContain("node_modules/keep.js");
     expect(paths).not.toContain("node_modules/dep.js");
     expect(paths).not.toContain("secret/token.txt");
+    expect(paths.some((path) => path.includes("venv"))).toBe(false);
   });
+
+  it("单窗口无论改多少文件都只用一次 provider 导出命令", async () => {
+    const { workdir, ledgerDir } = await makeDirs();
+    const commands: string[] = [];
+    const sandbox = hostSandbox(workdir, ledgerDir, (script) => commands.push(script));
+    const ledger = await createChangeLedger(sandbox);
+    await mkdir(join(workdir, "generated"), { recursive: true });
+    await Promise.all(
+      Array.from({ length: 500 }, (_, i) => writeFile(join(workdir, "generated", `${i}.txt`), `file ${i}\n`)),
+    );
+    await ledger.commitAgentWindow("s1/t1");
+
+    const beforeExport = commands.length;
+    const windows = await ledger.exportWindows();
+
+    // 一次 git log + 每个 agent 窗口一次 sandbox 内批量导出;不随 500 个文件增长。
+    expect(commands.length - beforeExport).toBe(2);
+    expect(Object.keys(windows[0]!.changes)).toHaveLength(500);
+    expect(windows[0]!.changes["generated/499.txt"]).toEqual({ status: "added", after: "file 499\n" });
+  });
+
+  it("单窗口超过路径上限时明确失败,不伪造成空 diff", async () => {
+    const { workdir, ledgerDir } = await makeDirs();
+    const sandbox = hostSandbox(workdir, ledgerDir);
+    const ledger = await createChangeLedger(sandbox);
+    await mkdir(join(workdir, "generated"), { recursive: true });
+    await Promise.all(
+      Array.from({ length: 10_001 }, (_, i) => writeFile(join(workdir, "generated", `${i}.txt`), "")),
+    );
+    await ledger.commitAgentWindow("s1/t1");
+
+    await expect(ledger.exportWindows()).rejects.toThrow("contains 10001 paths; limit is 10000");
+  }, 30_000);
 
   it("窗口内没有变化时仍落一条空窗口(changes 为空对象)", async () => {
     const { workdir, ledgerDir } = await makeDirs();
