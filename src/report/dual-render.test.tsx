@@ -462,8 +462,8 @@ describe("AttemptList 双面", () => {
   const html = renderToStaticMarkup(<AttemptList items={attemptListItems} />);
   const term = text(<AttemptList items={attemptListItems} />);
 
-  it("两面同口径:判定符 + locator + 断言/error 明细 + 下钻命令一致", () => {
-    for (const piece of ["roots-correct", "expected x=2, got x=3", "TypeError", "@1a4a4a4", "@1c1c1c1"]) {
+  it("两面同口径:判定符 + locator + 主失败/error 摘要一致", () => {
+    for (const piece of ["roots-correct", "expected x=2", "received x=3", "TypeError", "@1a4a4a4", "@1c1c1c1"]) {
       expect(html).toContain(piece);
       expect(term).toContain(piece);
     }
@@ -487,7 +487,7 @@ describe("AttemptList 双面", () => {
     expect(termTrunc).toContain("2 more not shown");
   });
 
-  it("text 面截断超长 assertion evidence,并保留 locator 作为完整证据入口", () => {
+  it("比较列表不内联 assertion evidence，并保留 locator 作为完整证据入口", () => {
     const longEvidence = "x".repeat(2_000);
     const item = {
       ...attemptListItems[0],
@@ -495,17 +495,17 @@ describe("AttemptList 双面", () => {
     };
     const out = text(<AttemptList items={[item]} />);
     expect(out).toContain(item.locator);
-    expect(out.replace(/\s+/g, " ")).toContain(`open ${item.locator} for full evidence`);
     expect(out).not.toContain(longEvidence);
     expect(out.length).toBeLessThan(1_000);
   });
 
-  it("text 面是逐条卡片,不是 renderTableText 的产物:空行分隔每个 attempt、断言明细逐级缩进——共享表格渲染器不产生这种嵌套形状", () => {
+  it("text 面每个 attempt 只显示一条有界结果摘要，不展开完整断言列表", () => {
     const blocks = term.split("\n\n");
-    expect(blocks).toHaveLength(attemptListItems.length); // 每个 attempt 独立一块,块间空行分隔;表格行之间不留空行
+    expect(blocks).toHaveLength(attemptListItems.length);
     const lines = term.split("\n");
-    expect(lines.some((l) => /^  \S/.test(l))).toBe(true); // 断言行缩进两格
-    expect(lines.some((l) => /^    \S/.test(l))).toBe(true); // 断言 detail 再缩进两格,是卡片的层级,不是列
+    expect(lines.some((l) => /^  \S/.test(l))).toBe(true);
+    expect(lines.some((l) => /^    \S/.test(l))).toBe(false);
+    expect(term).not.toContain("strong-evidence");
   });
 });
 

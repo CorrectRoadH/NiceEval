@@ -447,7 +447,7 @@ export function deltaText(data: DeltaData, ctx: TextContext): string {
 // 三面共用的紧凑标记:`locator✓`(判定符紧跟 locator,中间不留空格)。
 // ExperimentList / EvalList 逐 attempt 只列这一个标记 + 各自的原因/耗时摘要,不重复整段
 // niceeval show 命令;要看某个 attempt 的完整证据,agent 自己拼 `niceeval show <locator>`——
-// 命令模板只在 AttemptList(叶子层)展示完整断言明细时才值得,不在中间层重复。
+// 比较列表都不内联完整断言或命令模板。
 
 function locatorBadge(item: { locator: string; verdict: AttemptListItem["verdict"] }): string {
   return `${item.locator}${verdictMark(item.verdict)}`;
@@ -559,9 +559,8 @@ export function evalListText(items: EvalListItem[], ctx: TextContext): string {
 
 // ── AttemptList ──
 
-/** 一个 AttemptListItem 的完整 text 卡片:判定符 + locator + 身份 + 耗时/成本,
- * 然后逐条断言(gate 与 soft 都列,与 web 面的 AttemptRow 同一份材料)。 */
-function attemptListItemText(item: AttemptListItem, ctx: TextContext, locale: ReportLocale): string {
+/** Attempt 比较卡片：只显示一条主失败摘要；完整 assertions 走 locator 下钻。 */
+function attemptListItemText(item: AttemptListItem): string {
   const head = [
     `${verdictMark(item.verdict)} ${item.locator}`,
     item.evalId,
@@ -570,40 +569,15 @@ function attemptListItemText(item: AttemptListItem, ctx: TextContext, locale: Re
     ...(item.costUSD !== undefined ? [formatUSD(item.costUSD)] : []),
   ].join(" · ");
   const lines = [head];
-  if (item.error) {
-    // 结构化 error 只显示一层摘要(message);cause/stack/diagnostics 属于 locator 下钻详情
-    lines.push(indentBlock(wrapDisplay(item.error.message, ctx.width - 4).join("\n"), "    "));
-  }
-  for (const assertion of item.assertions) {
-    if (assertion.outcome === "unavailable") {
-      lines.push(`  ${assertion.severity} ${assertion.name} · unavailable`);
-      lines.push(indentBlock(wrapDisplay(assertion.reason, ctx.width - 4).join("\n"), "    "));
-      continue;
-    }
-    const scoreText =
-      assertion.threshold !== undefined
-        ? `${formatPlainNumber(assertion.score)}/${formatPlainNumber(assertion.threshold)}`
-        : formatPlainNumber(assertion.score);
-    lines.push(
-      `  ${assertion.severity} ${assertion.name} · ${localeText(locale, `verdict.${assertion.outcome}`)}${assertion.severity === "soft" ? ` ${scoreText}` : ""}`,
-    );
-    if (assertion.detail) lines.push(indentBlock(wrapDisplay(assertion.detail, ctx.width - 4).join("\n"), "    "));
-    if (assertion.evidence) {
-      const limit = Math.max(240, ctx.width * 5);
-      const evidence =
-        assertion.evidence.length <= limit
-          ? assertion.evidence
-          : `${assertion.evidence.slice(0, limit)}… (${assertion.evidence.length - limit} more chars; open ${item.locator} for full evidence)`;
-      lines.push(indentBlock(wrapDisplay(evidence, ctx.width - 6).join("\n"), "      "));
-    }
-  }
+  const reason = attemptItemReason(item);
+  if (reason) lines.push(`  ${reason}`);
   return lines.join("\n");
 }
 
 export function attemptListText(items: AttemptListItem[], total: number | undefined, ctx: TextContext): string {
   const locale = ctx.locale;
   if (items.length === 0) return localeText(locale, "attemptList.empty");
-  const blocks = items.map((item) => attemptListItemText(item, ctx, locale));
+  const blocks = items.map((item) => attemptListItemText(item));
   const remaining = (total ?? items.length) - items.length;
   if (remaining > 0) blocks.push(localeText(locale, "attemptList.truncatedText", { n: remaining }));
   return blocks.join("\n\n");

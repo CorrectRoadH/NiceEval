@@ -523,7 +523,13 @@ describe("runEvals · failure 永久事件在真实失败/errored attempt 上被
       expect(failedNotice).toMatchObject({
         verdict: "failed",
         identity: { experimentId, evalId: "gate-fail", attempt: 0 },
-        reason: 'gate: equals("expected")',
+        assertion: {
+          severity: "gate",
+          assertion: 'equals("expected")',
+          expected: '"expected"',
+          received: "actual",
+          additionalFailures: 0,
+        },
       });
       // failed 是断言 outcome，不是 lifecycle error；即使 verdict 在 scoring 阶段算出，也不应
       // 把 scoring（更不能把随后可能发生的 telemetry.collect）冒充成「失败发生阶段」。

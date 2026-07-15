@@ -80,6 +80,14 @@ describe("CI 正常事件全部走一个 stdout sink", () => {
       who: "ci/bub",
       verdict: "failed",
       reason: "gate failed",
+      assertion: {
+        severity: "gate",
+        assertion: "Issue 15193: selected proposal matches the accepted proposal",
+        matcher: "equals(4)",
+        expected: "4",
+        received: "3",
+        additionalFailures: 0,
+      },
     });
     coordinator.diagnostic({ key: "warn-1", severity: "warning", message: "cold cache" });
     await coordinator.finish({
@@ -93,6 +101,7 @@ describe("CI 正常事件全部走一个 stdout sink", () => {
     const text = fake.stdout.writes.join("");
     expect(text).toContain("niceeval: start");
     expect(text).toContain("niceeval: failed");
+    expect(text).toContain('severity=gate assertion="Issue 15193: selected proposal matches the accepted proposal" matcher=equals(4) expected=4 received=3');
     expect(text).toContain("niceeval: warning");
     expect(text).toContain("niceeval: result=");
     expect(text).toContain("niceeval: json=");

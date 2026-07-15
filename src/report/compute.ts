@@ -58,6 +58,7 @@ import {
 } from "./aggregate.ts";
 import { attemptCostUSD, costUSD, durationMs, examScore, taskPassRate, tokens } from "./metrics.ts";
 import { formatMetricValue, formatPlainNumber } from "./format.ts";
+import { compactAssertionSummary, primaryAssertionSummary } from "../scoring/display.ts";
 
 // ───────────────────────── MetricTable.data ─────────────────────────
 
@@ -175,27 +176,12 @@ function experimentRowMeta(group: Item[]): TableRowMeta {
   };
 }
 
-/**
- * 一次 attempt 未通过的 gate 断言,原始声明顺序不变;soft 断言不参与判定,不算「失败原因」,
- * 只影响得分,永不出现在这份列表里。`EvalList` / `ExperimentList` 的失败诊断与 `AttemptList`
- * 的断言列表共用这同一份材料,保证同一个 attempt 在各处给出同一个原因。
- */
-export function failingGateAssertions(result: EvalResult): AssertionResult[] {
-  return result.assertions.filter((a) => a.outcome === "failed" && a.severity === "gate");
-}
-
-/**
- * 一次 attempt 的失败原因文案,按优先级取第一个在场的:
- * `error` → `skipReason` → 未通过的 gate 断言(原始声明顺序,`name`,detail 在场则
- * `"name: detail"`,多条用「, 」连接)→ 都缺席则无原因(如某道题恰好没有失败信号)。
- * soft 断言永不进入这份原因文案,soft 得分是独立概念,不与 reason 混用同一个字段。
- */
+/** 一次 attempt 的有界结果摘要：error → skipReason → 一条主失败断言 + 其余失败计数。 */
 export function reasonFor(result: EvalResult): string | undefined {
   if (result.error !== undefined) return result.error.message;
   if (result.skipReason !== undefined) return result.skipReason;
-  const gates = failingGateAssertions(result);
-  if (gates.length === 0) return undefined;
-  return gates.map((a) => (a.detail ? `${a.name}: ${a.detail}` : a.name)).join(", ");
+  const summary = primaryAssertionSummary(result.assertions, result.verdict);
+  return summary === undefined ? undefined : compactAssertionSummary(summary);
 }
 
 export async function tableData<const M extends readonly Metric[]>(

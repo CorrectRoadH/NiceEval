@@ -61,6 +61,7 @@
 .nre-attempt-list .nre-attempt-experiment,
 .nre-attempt-list .nre-attempt-duration,
 .nre-attempt-list .nre-attempt-cost { color:var(--muted); font-size:.9em; font-variant-numeric:tabular-nums; }
+.nre-attempt-list .nre-attempt-result { display:-webkit-box; overflow:hidden; -webkit-box-orient:vertical; -webkit-line-clamp:2; margin:.4rem 0 0; color:color-mix(in oklch,var(--muted),var(--text) 12%); overflow-wrap:anywhere; }
 .nre-attempt-list .nre-attempt-error { margin:.4rem 0 0; padding:6px 10px; border:1px solid color-mix(in oklch,var(--bad),var(--line) 50%); border-radius:7px; background:color-mix(in oklch,var(--bad),var(--panel) 92%); color:var(--bad); font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.85em; white-space:pre-wrap; word-break:break-word; }
 .nre-attempt-list .nre-assertions { list-style:none; margin:.4rem 0 0; padding:0; display:grid; gap:6px; }
 .nre-attempt-list .nre-assertion { padding-left:.25rem; }

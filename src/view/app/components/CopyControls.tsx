@@ -3,7 +3,7 @@ import { Check, Copy } from "lucide-react";
 import type { T } from "../shared.ts";
 import type { ViewResult, ViewSnapshot } from "../types.ts";
 import { snapshotLabel } from "../lib/rows.ts";
-import { failingAssertions, reasonFor } from "../lib/verdict.ts";
+import { reasonFor } from "../lib/verdict.ts";
 
 /** 修复 prompt 的一条失败条目;路径均相对 view 输入根(默认 `.niceeval/`)。 */
 export interface FixPromptEntry {
@@ -20,7 +20,7 @@ export function toFixPromptEntry(r: ViewResult, experimentLabel: string): FixPro
     experiment: r.experimentId ?? experimentLabel,
     evalId: r.id,
     verdict: r.verdict,
-    reason: reasonFor(r, failingAssertions(r)),
+    reason: reasonFor(r),
     artifactBase: r.artifactBase,
     // result.json 与其它 artifact(events.json 等)同目录落盘,resultPath 因此复用同一个
     // artifactBase(不再靠 attemptRef 的 {snapshot, attempt} 两段拼——locator 是不透明的,

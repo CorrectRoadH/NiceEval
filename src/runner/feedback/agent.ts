@@ -4,8 +4,8 @@
 // - 运行中只有一条稳定 ASCII `key=value` envelope,`stderr` 追加,不含 ANSI、不依赖终端宽度、
 //   字段名不随 `NICEEVAL_LANG` 变化(与 human 相对——human 走 i18n,agent 永远是这一份固定英文)。
 // - 结束时 `stdout` 只有一个有界 handoff block:status、verdict summary、快照、最多 5 条失败、
-//   每条失败一层原因(reason,原样透传,不拆分成 code/message 猜测的子字段——见下方「为什么不
-//   拆 code/message」)、以及可执行的 `show` 下钻命令。handoff 不内联 transcript/trace/源码/diff,
+//   每条失败的结构化主断言摘要(执行错误退回 reason)、以及可执行的 `show` 下钻命令。
+//   handoff 不内联 transcript/trace/源码/diff,
 //   agent 要看这些必须自己再发一条 `niceeval show @locator ...`(locator 是唯一的继续调查主键)。
 //
 // 不实现 `clearDynamic`/`redrawDynamic`/`activity`/`onLifecycle`:agent 没有「动态区域」概念,
@@ -27,18 +27,20 @@
 //   同时 elapsed 按整秒取整后仍然显示 "0s",满足「start 立即追加」——不是「精确到毫秒的
 //   plan 事件本身」,而是「第一次有意义的重画机会」。
 //
-// 为什么 failed/error 的 checkpoint 行不像 cli.md 正文另一处例子那样拆 `code=`/`message=`:
-//   `FailureNotice`/"failure" 永久事件只有一个整句 `reason` 字段(如
-//   "sandbox-rate-limit: E2B sandbox allocation failed after 5 attempts"),没有独立的 `code`
+// 为什么 error 的 checkpoint 行不像 cli.md 正文另一处例子那样拆 `code=`/`message=`:
+//   `FailureNotice` 的执行错误仍只有一个整句 `reason` 字段(如
+//   "sandbox-rate-limit: E2B sandbox allocation failed after 5 attempts"),没有独立的 error code
 //   字段。把它按冒号切成 `code=`/`message=` 两段需要解析这句人类文案的格式约定,这正是
 //   plan 顶层「不接受」清单明确禁止的「Agent/CI 解析 human 文案」——即便这句文案*看起来*总是
 //   "code: message" 形状,依赖这个约定本身就是在解析。这里改为只输出类型里已有的结构化字段
-//   (locator/eval/experiment/phase/verdict),`reason` 留给有界的最终 handoff 逐条列出(那里是
+//   (locator/eval/experiment/phase/verdict)。failed assertion 已另带结构化摘要；error 的
+//   `reason` 留给有界的最终 handoff 逐条列出(那里是
 //   独立的一行文本,不是 key=value 字段,不需要被下游再解析出子字段)。见本文件顶部大注释。
 
 import type { FeedbackRenderer } from "./renderer.ts";
 import type { FeedbackIO } from "./io.ts";
 import type { DurableFeedbackEvent, FailureNotice, RunCompletion, RunFeedbackState, RunSummary } from "../types.ts";
+import { assertionSummaryLines } from "../../scoring/display.ts";
 
 /** 失败/errored checkpoint 与最终 handoff 共用同一个展开上限(cli.md「'立即追加'也必须有
  *  上限」表:agent 前 5 条)。 */
@@ -346,9 +348,13 @@ function writeHandoff(
   io.stdout.write(lines.join("\n") + "\n");
 }
 
-function handoffFailureLines(f: FailureNotice): [string, string] {
+function handoffFailureLines(f: FailureNotice): string[] {
   const bracket = f.identity.experimentId ?? f.who;
-  return [`  - ${f.locator} ${f.identity.evalId} [${bracket}]`, `    ${f.reason}`];
+  const summary = f.assertion ? assertionSummaryLines(f.assertion) : [f.reason];
+  return [
+    `  - ${f.locator} ${f.identity.evalId} [${bracket}]`,
+    ...summary.map((line, index) => `${index === 0 ? "    " : "      "}${line}`),
+  ];
 }
 
 // ───────────────────────── `--dry --output agent`:稳定 PLAN envelope ─────────────────────────

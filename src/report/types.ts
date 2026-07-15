@@ -353,8 +353,8 @@ export interface DeltaData<K extends string = string> {
 /**
  * `AttemptList` 一项 = 一个 Attempt:身份、判定、断言、结构化 error、diagnostics、耗时、
  * 成本和 locator。`ExperimentList` / `EvalList` 的下钻数组复用同一个类型,不是各自的精简版。
- * 渲染面只显示 error 的一层摘要(`error.message`);cause / stack 与 diagnostics 属于
- * locator 下钻详情,不塞进比较列表,但随数据携带 —— `AttemptList.data` 的 `redact`
+ * 渲染面只显示一条主失败断言摘要或 error 的一层摘要；完整 assertions、cause / stack 与
+ * diagnostics 属于 locator 下钻详情,不塞进比较列表,但随数据携带 —— `AttemptList.data` 的 `redact`
  * 钩子覆盖它们的自由文本(见 docs/feature/reports/library.md「AttemptList」)。
  */
 export interface AttemptListItem {
@@ -375,7 +375,7 @@ export interface AttemptListItem {
 
 /**
  * `ExperimentList` 一项里,一个 Eval 的展开行:折叠判定(`foldEvalVerdict`)、失败原因摘要
- * (`error` → `skipReason` → 未通过的 gate 断言,`reasonFor` 的口径,soft 断言永不进入)、
+ * (`error` → `skipReason` → 一条主失败断言 + 其余失败计数,`reasonFor` 的口径)、
  * 该 Eval 内 attempt 的平均耗时/成本(两级聚合引擎在单一 eval 上退化成组内均值),以及这道题
  * 的全部 Attempt(升序,供进一步展开到 `AttemptList`)。
  */

@@ -322,10 +322,11 @@ describe("DeltaTable", () => {
 describe("AttemptList", () => {
   const html = renderToStaticMarkup(<AttemptList items={attemptListItems} />);
 
-  it("逐条断言:name、score、detail、evidence", () => {
+  it("只显示一条主失败摘要，不内联完整 evidence", () => {
     expect(html).toContain("roots-correct");
-    expect(html).toContain("expected x=2, got x=3");
-    expect(html).toContain("judge: sign flipped when substituting into the quadratic formula");
+    expect(html).toContain("expected x=2");
+    expect(html).toContain("received x=3");
+    expect(html).not.toContain("judge: sign flipped when substituting into the quadratic formula");
   });
 
   it("errored 的 error 摘要", () => {
@@ -345,9 +346,8 @@ describe("AttemptList", () => {
     expect(html).not.toMatch(/\[[EXD⏱,]+\]/);
   });
 
-  it("长文本(evidence)收进 <details>,零 JS 可展开", () => {
-    expect(html).toContain("<details");
-    expect(html).toContain("<summary>");
+  it("AttemptList 自身不展开断言详情", () => {
+    expect(html).not.toContain("<details");
   });
 });
 

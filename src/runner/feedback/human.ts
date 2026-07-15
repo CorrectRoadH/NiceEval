@@ -19,6 +19,7 @@
 import { t } from "../../i18n/index.ts";
 import { verdictSymbol } from "../reporters/shared.ts";
 import { formatCost } from "../../shared/format.ts";
+import { assertionSummaryLines } from "../../scoring/display.ts";
 import { encodeAttemptKey } from "../types.ts";
 import type {
   ActiveAttempt,
@@ -141,7 +142,9 @@ function buildPlanLines(plan: RunFeedbackPlan): string[] {
 
 function buildFailureLine(event: DurableFeedbackEvent & { type: "failure" }): string {
   const phaseSuffix = event.phase ? ` · ${phaseLabel(event.phase)}` : "";
-  return `${verdictSymbol(event.verdict)} ${event.locator} ${event.identity.evalId} [${event.who}]${phaseSuffix}\n    ${event.reason}`;
+  const summary = event.assertion ? assertionSummaryLines(event.assertion) : [event.reason];
+  const body = summary.map((line, index) => `${index === 0 ? "    " : "        "}${line}`).join("\n");
+  return `${verdictSymbol(event.verdict)} ${event.locator} ${event.identity.evalId} [${event.who}]${phaseSuffix}\n${body}`;
 }
 
 function buildDiagnosticLines(event: DurableFeedbackEvent & { type: "diagnostic" }, state: RunFeedbackState): string[] {

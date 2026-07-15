@@ -1,5 +1,7 @@
-import type { Assertion, Verdict, ViewResult } from "../types.ts";
+import type { Verdict, ViewResult } from "../types.ts";
 import type { T } from "../shared.ts";
+import { compactAssertionSummary, primaryAssertionSummary } from "../../../scoring/display.ts";
+import type { Verdict as CoreVerdict } from "../../../scoring/types.ts";
 
 export function verdictClass(verdict: Verdict): string {
   return verdict === "passed" ? "good" : verdict === "errored" ? "infra-err" : verdict === "failed" ? "bad" : "warn";
@@ -13,13 +15,9 @@ export function verdictLabel(verdict: Verdict, t: T): string {
   return verdict || "—";
 }
 
-// Only gate-severity failures are eval "failure reasons"; soft failures show as scores
-export function failingAssertions(result: ViewResult): Assertion[] {
-  return (result.assertions || []).filter((a: Assertion) => a.outcome === "failed" && a.severity === "gate");
-}
-
-export function reasonFor(result: ViewResult, failedGates: Assertion[]): string {
+export function reasonFor(result: ViewResult): string {
   if (result.error) return result.error.message;
   if (result.skipReason) return result.skipReason;
-  return failedGates.map((a: Assertion) => (a.detail ? `${a.name}: ${a.detail}` : a.name)).join(", ");
+  const summary = primaryAssertionSummary(result.assertions ?? [], result.verdict as CoreVerdict);
+  return summary ? compactAssertionSummary(summary) : "";
 }

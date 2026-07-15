@@ -230,13 +230,13 @@ describe("EvalList.data", () => {
           attempt: 0,
           durationMs: 40_000,
           usage: { inputTokens: 1, outputTokens: 1, costUSD: 0.02 },
-          assertions: [{ name: 'calledTool("get_weather")', severity: "gate", outcome: "failed" as const, score: 0, detail: "tool was never called" }],
+          assertions: [{ name: 'calledTool("get_weather")', severity: "gate", outcome: "failed" as const, score: 0, expected: "at least one matching call", received: "no tool calls" }],
         }),
         res("weather/brooklyn", "failed", {
           attempt: 1,
           durationMs: 42_000,
           usage: { inputTokens: 1, outputTokens: 1, costUSD: 0.06 },
-          assertions: [{ name: 'calledTool("get_weather")', severity: "gate", outcome: "failed" as const, score: 0, detail: "tool was never called" }],
+          assertions: [{ name: 'calledTool("get_weather")', severity: "gate", outcome: "failed" as const, score: 0, expected: "at least one matching call", received: "no tool calls" }],
         }),
       ],
     });
@@ -246,7 +246,7 @@ describe("EvalList.data", () => {
     expect(item.evalId).toBe("weather/brooklyn");
     expect(item.experimentId).toBe("compare/codex");
     expect(item.verdict).toBe("failed");
-    expect(item.reason).toBe('calledTool("get_weather"): tool was never called');
+    expect(item.reason).toBe('calledTool("get_weather") · expected at least one matching call · received no tool calls');
     expect(item.score.value).toBe(0); // examScore: failed → 0
     expect(item.duration.value).toBeCloseTo(41_000); // 平均耗时
     expect(item.cost.value).toBeCloseTo(0.04); // 平均成本
@@ -939,16 +939,16 @@ describe("reasonFor", () => {
     expect(reasonFor(result)).toBe("missing fixture");
   });
 
-  it("多个失败 gate 按原始声明顺序全部保留,拼接成一行;失败 soft 不出现在 reason 里", () => {
+  it("只展示第一条失败 gate，其余 gate 计数；失败 soft 不进入 gate 计数", () => {
     const result = res("A", "failed", {
       assertions: [
         softAssertion("judge-first", 0.1, { outcome: "failed" as const }), // 声明顺序第一,但 soft 不进 reason
-        { name: "includes", severity: "gate", score: 0, outcome: "failed" as const, detail: "missing text" },
+        { name: "includes", groupPath: ["answer contains required text"], severity: "gate", score: 0, outcome: "failed" as const, expected: "contains Brooklyn", received: "Manhattan" },
         { name: "matches", severity: "gate", score: 0, outcome: "failed" as const }, // 无 detail,只有 name
         softAssertion("judge-last", 0.3, { outcome: "failed" as const }), // soft 依旧不进 reason
       ],
     });
-    expect(reasonFor(result)).toBe("includes: missing text, matches");
+    expect(reasonFor(result)).toBe("gate: answer contains required text · includes · expected contains Brooklyn · received Manhattan · +1 more failures");
   });
 
   it("都缺席 → 无原因", () => {

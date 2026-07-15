@@ -78,6 +78,27 @@ export type AssertionResult =
       reason: string;
     });
 
+/**
+ * 摘要面从完整 `AssertionResult[]` 选出的一条主失败断言。它只负责展示，不参与 verdict；
+ * `show @locator` / view Attempt 详情仍读取完整断言数组。字段保持结构化，使 CI 不必解析
+ * Human 的 `gate: …` 文案。
+ */
+export interface PrimaryAssertionSummary {
+  severity: Severity;
+  /** `groupPath.join(" > ")`，无 group 时回退到断言 name。 */
+  assertion: string;
+  /** `detail ?? name`；与 assertion 相同时省略，避免重复。 */
+  matcher?: string;
+  expected?: string;
+  received?: string;
+  score?: number;
+  threshold?: number;
+  /** unavailable 断言的结构化原因。 */
+  reason?: string;
+  /** 同类因果失败中除主失败外的条数。 */
+  additionalFailures: number;
+}
+
 /** eval 作者拿到的可链式句柄(t.judge.autoevals.closedQA(...).atLeast(0.7))。 */
 export interface AssertionHandle {
   atLeast(threshold: number): AssertionHandle;

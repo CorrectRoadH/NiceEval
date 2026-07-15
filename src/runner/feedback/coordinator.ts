@@ -213,7 +213,8 @@ export function createFeedbackCoordinator(options: FeedbackCoordinatorOptions): 
       who: input.who,
       verdict: input.verdict,
       reason: input.reason,
-      phase: input.phase,
+      ...(input.assertion !== undefined ? { assertion: input.assertion } : {}),
+      ...(input.phase !== undefined ? { phase: input.phase } : {}),
     });
   }
 

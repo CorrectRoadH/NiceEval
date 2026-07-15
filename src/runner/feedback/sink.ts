@@ -17,7 +17,7 @@
 import { writeStderrLine } from "../../tty-line.ts";
 import { t } from "../../i18n/index.ts";
 import type { AttemptLifecycleEvent, LifecyclePhase, AttemptRef } from "../types.ts";
-import type { Verdict } from "../../scoring/types.ts";
+import type { PrimaryAssertionSummary, Verdict } from "../../scoring/types.ts";
 import type { JsonValue } from "../../shared/types.ts";
 import type { AttemptLocator } from "../../results/locator.ts";
 
@@ -47,6 +47,8 @@ export interface FailureInput {
   /** 一层可行动摘要(gate 断言名、error 消息……),整句透传,不拆分成 code/message 子字段
    *  (见 agent.ts 顶部注释「为什么不拆 code/message」)。 */
   reason: string;
+  /** failed / assertion-unavailable 的结构化摘要；CI 不解析 reason。 */
+  assertion?: PrimaryAssertionSummary;
   /** 仅 errored 使用：结构化执行错误发生时所在的阶段。failed 是断言 outcome，不带 phase。 */
   phase?: LifecyclePhase;
 }

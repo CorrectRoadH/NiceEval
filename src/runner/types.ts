@@ -5,7 +5,7 @@ import type { Cleanup, JsonValue, LocalizedText, SourceArtifact } from "../share
 import type { O11ySummary, StreamEvent, TraceSpan, Usage } from "../o11y/types.ts";
 import type { Agent, AgentSetupManifest } from "../agents/types.ts";
 import type { Sandbox, SandboxHookContext, SandboxOption } from "../sandbox/types.ts";
-import type { AssertionResult, DiffArtifact, JudgeConfig, Verdict } from "../scoring/types.ts";
+import type { AssertionResult, DiffArtifact, JudgeConfig, PrimaryAssertionSummary, Verdict } from "../scoring/types.ts";
 import type { TestContext } from "../context/types.ts";
 import type { CapturedEvalSource } from "./eval-source.ts";
 import type { AttemptLocator } from "../results/locator.ts";
@@ -617,6 +617,8 @@ export interface FailureNotice {
   verdict: "failed" | "errored";
   /** 一层可行动摘要(gate 断言名、error 消息……),不是完整 stack/transcript;详情走 `niceeval show`。 */
   reason: string;
+  /** failed / assertion-unavailable 时的结构化主断言摘要；机器 renderer 直接读字段。 */
+  assertion?: PrimaryAssertionSummary;
   /** 仅 errored 使用：结构化执行错误发生时所在的阶段。failed 是断言 outcome，不带 phase。 */
   phase?: LifecyclePhase;
 }
@@ -752,6 +754,7 @@ export type DurableFeedbackEvent =
       who: string;
       verdict: "failed" | "errored";
       reason: string;
+      assertion?: PrimaryAssertionSummary;
       phase?: LifecyclePhase;
     }
   | {

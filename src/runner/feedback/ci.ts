@@ -28,9 +28,10 @@
 // 转义、verdict 优先级)——三个 renderer 各自独立成立,不应该因为共享一个私有 helper 而在未来
 // 被迫同步重构(与 agent.ts 顶部注释同一原则)。
 //
-// 为什么 failed/errored 的 checkpoint 行不拆 `code=`/`message=`:
-//   与 agent.ts 面对的是同一个 `FailureNotice`——只有一个整句 `reason` 字段,没有独立的 `code`
-//   字段。cli.md「CI 怎么用」给出的 `errored` 例子(`code=sandbox-rate-limit message="..."`)和
+// 为什么 errored 的 checkpoint 行不拆 `code=`/`message=`:
+//   与 agent.ts 面对的是同一个 `FailureNotice`——执行错误只有一个整句 `reason` 字段,没有独立的
+//   `code` 字段；failed assertion 则携带 assertion/matcher/expected/received 等结构化字段。
+//   cli.md「CI 怎么用」给出的 `errored` 例子(`code=sandbox-rate-limit message="..."`)和
 //   「timeout、budget 与基础设施错误」给出的另一个例子(`kind=timeout timeout_ms=60000`)彼此
 //   字段名都不一致,且都要求解析/猜测 `reason` 文案的隐含格式才能拆出来——这正是顶层「不接受」
 //   清单禁止的「Agent/CI 解析 human 文案」。这里改为只输出类型里已有的结构化字段
@@ -252,7 +253,18 @@ function writeFailureCheckpoint(io: FeedbackIO, event: DurableFeedbackEvent & { 
   const parts = [`niceeval: ${word}`, kv("locator", event.locator), kv("eval", event.identity.evalId)];
   if (event.identity.experimentId) parts.push(kv("experiment", event.identity.experimentId));
   if (event.phase) parts.push(kv("phase", event.phase));
-  parts.push(kv("reason", event.reason));
+  if (event.assertion) {
+    parts.push(kv("severity", event.assertion.severity), kv("assertion", event.assertion.assertion));
+    if (event.assertion.matcher !== undefined) parts.push(kv("matcher", event.assertion.matcher));
+    if (event.assertion.expected !== undefined) parts.push(kv("expected", event.assertion.expected));
+    if (event.assertion.received !== undefined) parts.push(kv("received", event.assertion.received));
+    if (event.assertion.score !== undefined) parts.push(kv("score", event.assertion.score));
+    if (event.assertion.threshold !== undefined) parts.push(kv("threshold", event.assertion.threshold));
+    if (event.assertion.reason !== undefined) parts.push(kv("reason", event.assertion.reason));
+    if (event.assertion.additionalFailures > 0) parts.push(kv("additional_failures", event.assertion.additionalFailures));
+  } else {
+    parts.push(kv("reason", event.reason));
+  }
   io.stdout.write(parts.join(" ") + "\n");
 }
 

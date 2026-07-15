@@ -5,6 +5,7 @@
 import { readFile } from "node:fs/promises";
 import { Effect, Cause, Exit } from "effect";
 import { probeJudge } from "../scoring/judge.ts";
+import { compactAssertionSummary, primaryAssertionSummary } from "../scoring/display.ts";
 import { t } from "../i18n/index.ts";
 import { cacheKey, planCarry } from "./fingerprint.ts";
 import { OtelReceiverPool } from "../o11y/otlp/turn-otel.ts";
@@ -24,15 +25,11 @@ import { firstLine } from "../util.ts";
 import type { Agent, EvalResult, JudgeConfig, Reporter, ReporterRegistration, RunShape, RunSummary } from "../types.ts";
 import type { AgentRun, Attempt, LifecyclePhase, AttemptRef, RunOptions } from "./types.ts";
 
-/** 失败/errored 的一层可行动摘要,与 `computeVerdict`(verdict.ts)判定同一断言为准:
- *  errored 用 error 消息第一行(见上面的 firstLine);failed 用促成判定的那条断言
- *  (gate,或 `--strict` 下的 soft),格式 `${severity}: ${name}` —— 与
- *  docs/feature/experiments/cli.md「AI agent 怎么用」的例子(`gate: cache tool not used`)
- *  一致,整句透传给 `FailureNotice.reason`,不再二次拆分。 */
-function describeFailureReason(result: EvalResult, strict: boolean | undefined): string {
+/** 结构化摘要缺席时的防御性文本；正常 failed 会同时携带 assertion 字段。 */
+function describeFailureReason(result: EvalResult): string {
   if (result.verdict === "errored") return firstLine(result.error?.message ?? result.verdict);
-  const culprit = result.assertions.find((asn) => asn.outcome === "failed" && (asn.severity === "gate" || strict));
-  return culprit ? `${culprit.severity}: ${culprit.name}` : firstLine(result.error?.message ?? result.verdict);
+  const assertion = primaryAssertionSummary(result.assertions, result.verdict);
+  return assertion ? compactAssertionSummary(assertion) : firstLine(result.error?.message ?? result.verdict);
 }
 
 /** 反馈层的 attempt 身份 + 展示 label,两个 sink.ts lifecycle 调用点共用,避免各自手写
@@ -555,12 +552,18 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
               // 普通 failed 是断言 outcome,不属于 lifecycle phase;不能把 verdict 算出后继续经过的
               // telemetry.collect 误报成失败位置(见 docs/feature/experiments/cli.md「Attempt 阶段」)。
               const failurePhase = result.verdict === "errored" ? result.error?.phase : undefined;
+              // error 是结构化执行根因时不附 assertion；其余 failed / assertion-unavailable
+              // 由 scoring 的共享摘要投影选择同一条主断言，三个 profile 与报告列表口径一致。
+              const assertion = result.error === undefined
+                ? primaryAssertionSummary(result.assertions, result.verdict)
+                : undefined;
               reportFailure({
                 locator,
                 identity: feedbackIdentity(a),
                 who: feedbackWho(a),
                 verdict: result.verdict,
-                reason: describeFailureReason(result, a.run.strict),
+                reason: describeFailureReason(result),
+                ...(assertion !== undefined ? { assertion } : {}),
                 ...(failurePhase !== undefined ? { phase: failurePhase } : {}),
               });
             }
