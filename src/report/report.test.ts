@@ -210,7 +210,8 @@ describe("ExperimentList.data", () => {
 
     const evalB = item.evalRows.find((e) => e.evalId === "memory/b")!;
     expect(evalB.verdict).toBe("errored");
-    expect(evalB.reason).toBe("timeout");
+    expect(evalB).not.toHaveProperty("reason");
+    expect(evalB.attempts[0]!.error?.message).toBe("timeout");
   });
 
   it("展开数组按 evalId 升序,顶层数组按 experimentId 升序", async () => {
@@ -242,7 +243,7 @@ describe("ExperimentList.data", () => {
 });
 
 describe("EvalList.data", () => {
-  it("每项一个 experimentId + evalId,判定/分数/成本耗时均值/失败原因与展开到 Attempt 都在", async () => {
+  it("每项一个 experimentId + evalId,父项保留判定与题级聚合并展开到含失败事实的 Attempt", async () => {
     const s = snap({
       experimentId: "compare/codex",
       results: [
@@ -266,11 +267,15 @@ describe("EvalList.data", () => {
     expect(item.evalId).toBe("weather/brooklyn");
     expect(item.experimentId).toBe("compare/codex");
     expect(item.verdict).toBe("failed");
-    expect(item.reason).toBe('calledTool("get_weather") · expected at least one matching call · received no tool calls');
+    expect(item).not.toHaveProperty("reason");
     expect(item.score.value).toBe(0); // examScore: failed → 0
     expect(item.duration.value).toBeCloseTo(41_000); // 平均耗时
     expect(item.cost.value).toBeCloseTo(0.04); // 平均成本
     expect(item.attempts.map((a) => a.attempt)).toEqual([0, 1]);
+    const assertion = item.attempts[0]!.assertions[0]!;
+    expect(assertion.outcome).toBe("failed");
+    if (assertion.outcome !== "failed") throw new Error("expected failed assertion fixture");
+    expect(assertion.received).toBe("no tool calls");
     expect(item.attempts[0]!.locator).not.toBe(item.attempts[1]!.locator);
   });
 

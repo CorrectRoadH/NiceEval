@@ -160,7 +160,6 @@
 .nre-eval-list .nre-eval-attempts-count,
 .nre-eval-list .nre-eval-duration,
 .nre-eval-list .nre-eval-cost { color:var(--muted); font-size:.9em; font-variant-numeric:tabular-nums; }
-.nre-eval-list .nre-eval-reason { color:color-mix(in oklch,var(--muted),var(--text) 6%); }
 .nre-eval-list .nre-attempts { list-style:none; margin:0 0 12px; padding:0 0 0 20px; border-left:2px solid color-mix(in oklch,var(--nre-c0),transparent 55%); }
 .nre-eval-list .nre-eval-list-empty { border:1px dashed var(--line-strong); border-radius:8px; padding:18px; color:var(--muted); text-align:center; background:var(--panel); }
 
@@ -204,7 +203,7 @@
 .nre-experiment-list .nre-experiment-attempt-row { padding:5px 0 5px 20px; color:var(--muted); }
 .nre-experiment-list .nre-eval-id { font-weight:560; overflow-wrap:anywhere; }
 .nre-experiment-list .nre-eval-attempt-count { color:var(--soft); font-size:12px; }
-.nre-experiment-list .nre-eval-summary { color:var(--muted); font-size:.92em; overflow-wrap:anywhere; }
+.nre-experiment-list .nre-eval-rollup { color:var(--muted); font-size:.92em; overflow-wrap:anywhere; }
 .nre-experiment-list .nre-attempt-branch { color:var(--line-strong); font-variant-numeric:tabular-nums; }
 .nre-experiment-list .nre-eval-attempt-badges { display:inline-flex; flex-wrap:wrap; gap:.6em; }
 .nre-experiment-list .nre-eval-attempt-metrics,

@@ -369,7 +369,6 @@ export const evalListItems: EvalListItem[] = [
     evalId: "algebra/quadratic",
     experimentId: "compare/bub",
     verdict: "failed",
-    reason: "roots-correct · expected x=2 · received x=3",
     score: { value: 0, display: "0%", samples: 1, total: 1, refs: [failedAttempt.locator] },
     duration: { value: 32_000, display: "32.0s", samples: 1, total: 1, refs: [failedAttempt.locator] },
     cost: { value: 0.12, display: "$0.12", samples: 1, total: 1, refs: [failedAttempt.locator] },
@@ -379,7 +378,6 @@ export const evalListItems: EvalListItem[] = [
     evalId: "geometry/angles",
     experimentId: "compare/codex",
     verdict: "errored",
-    reason: erroredAttempt.error!.message,
     score: { value: 0, display: "0%", samples: 1, total: 1, refs: [erroredAttempt.locator] },
     duration: { value: 4_500, display: "4.5s", samples: 1, total: 1, refs: [erroredAttempt.locator] },
     cost: { value: null, display: "—", samples: 0, total: 1, refs: [] },
@@ -405,7 +403,6 @@ export const experimentListItems: ExperimentListItem[] = [
       {
         evalId: "algebra/quadratic",
         verdict: "failed",
-        reason: "roots-correct · expected x=2 · received x=3",
         duration: { value: 32_000, display: "32.0s", samples: 1, total: 1, refs: [failedAttempt.locator] },
         cost: { value: 0.12, display: "$0.12", samples: 1, total: 1, refs: [failedAttempt.locator] },
         attempts: [failedAttempt, failedRetryAttempt],
@@ -434,7 +431,6 @@ export const experimentListItems: ExperimentListItem[] = [
       {
         evalId: "geometry/angles",
         verdict: "errored",
-        reason: erroredAttempt.error!.message,
         duration: { value: 4_500, display: "4.5s", samples: 1, total: 1, refs: [erroredAttempt.locator] },
         cost: { value: null, display: "—", samples: 0, total: 1, refs: [] },
         attempts: [erroredAttempt],

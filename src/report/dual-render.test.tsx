@@ -524,6 +524,16 @@ describe("EvalList 双面", () => {
     expect(blocks).toHaveLength(evalListItems.length);
     expect(term.split("\n").some((l) => /^  \S/.test(l))).toBe(true); // 展开到 attempt 的行缩进两格
   });
+
+  // bug: memory/eval-parent-repeats-attempt-failure.md
+  it("Eval 父行不复述 Attempt 失败摘要,失败题仍显示题级平均值", () => {
+    const reason = "roots-correct · expected x=2 · received x=3";
+    for (const face of [html, term]) {
+      expect(face.split(reason)).toHaveLength(2);
+      expect(face).toContain("32.0s avg");
+      expect(face).toContain("$0.12 avg");
+    }
+  });
 });
 
 describe("ExperimentList 双面", () => {
@@ -547,6 +557,14 @@ describe("ExperimentList 双面", () => {
     expect(blocks[0]).toContain("Avg");
     expect(blocks[1]!.match(/algebra\/quadratic/g)).toHaveLength(1);
     expect(blocks[1]).toMatch(/✗ failed\s+algebra\/quadratic[\s\S]*├─ @1a4a4a4[\s\S]*└─ @1b5b5b5/);
+  });
+
+  // bug: memory/eval-parent-repeats-attempt-failure.md
+  it("web 的 Eval 父行使用固定题级汇总,失败摘要只在 Attempt 子行出现", () => {
+    const reason = "roots-correct · expected x=2 · received x=3";
+    expect(html.split(reason)).toHaveLength(3); // 两个 failed Attempt,各显示一次
+    expect(html).toContain('<span class="nre-eval-rollup">32.0s avg · $0.12 avg</span>');
+    expect(term).toMatch(/✗ failed\s+algebra\/quadratic\s+32\.0s avg\s+\$0\.12 avg/);
   });
 
   it("Result 是两行收口的预览:received 携带整份多行源码时既不逐行铺表也不无限折行", () => {

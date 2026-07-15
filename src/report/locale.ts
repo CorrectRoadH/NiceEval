@@ -45,6 +45,7 @@ const en = {
   "experimentList.filterPlaceholder": "Filter experiments…",
   "experimentList.defaultModel": "default",
   "experimentList.flags": "Flags",
+  "entityList.average": "{value} avg",
   /** <Table> 压到下限仍放不下时,从右侧丢列并如实报数。 */
   "table.columnsHidden.one": "({n} more column not shown)",
   "table.columnsHidden.other": "({n} more columns not shown)",
@@ -143,6 +144,7 @@ const zhCN: Record<ReportMessageKey, string> = {
   "experimentList.filterPlaceholder": "筛选实验…",
   "experimentList.defaultModel": "默认",
   "experimentList.flags": "Flags",
+  "entityList.average": "平均 {value}",
   "table.columnsHidden.one": "(还有 {n} 列未列出)",
   "table.columnsHidden.other": "(还有 {n} 列未列出)",
 

@@ -200,10 +200,11 @@ latest.warnings[0];
 //   covered: 1,
 //   total: 50,
 //   message: "snapshot covers 1 of 50 evals seen in history; re-run `niceeval exp midterm/bub-gpt-5.4` for a full snapshot",
+//   command: "niceeval exp midterm/bub-gpt-5.4",
 // }
 ```
 
-结构化是给程序判断的(CI 里「覆盖缩水就 fail」直接比 `covered < total`),`message` 是渲染好的英文句子,要展示就原样打;warnings 不是普通字符串数组——「渲染与否在消费方」的承诺只对可判断的数据成立,只给文本等于逼消费方正则解析。渲染与否在消费方,但缺口永远被算出来,不静默。
+结构化是给程序判断的(CI 里「覆盖缩水就 fail」直接比 `covered < total`),`message` 是渲染好的英文句子,以下一步收尾,要展示就原样打——用户读完不用再查「这条警告怎么办」;能用一条命令直接推进的警告同时带 `command`(已替换真实 id,复制即跑),web 渲染面把它呈现为可复制动作,程序消费方直接取用、不从 message 里正则抠命令。报错必带下一步是全仓库统一契约,见[错误与警告反馈](../../error-feedback.md)。warnings 不是普通字符串数组——「渲染与否在消费方」的承诺只对可判断的数据成立,只给文本等于逼消费方正则解析。渲染与否在消费方,但缺口永远被算出来,不静默。
 
 **Selection 有且只有一个方法:`filter(predicate)`。** 最常见的自定义不是另起口径,而是微调官方口径——「latest 减掉一个已知坏掉的实验」「排除 partial 的快照」。若一 `.filter()` 就降级成裸 `Snapshot[]`,幸存快照本该有的警告全丢。`selection.filter((s) => …)` 返回新 Selection:快照删减,warnings 按规则修剪——**experimentId 不在幸存快照中的警告丢弃,非实验作用域的警告保留**(为将来非 per-experiment 的 kind 留位置)。边界同样明确:`filter` 只做删减;「换成该实验上一个完整快照」这类**替换式**重挑不给方法(那才是 DSL 的开端),回 `exp.snapshots` 自己挑,挑出来的裸数组没有挑选过程、没有 warnings,也如实——这是显式立场,不是漏做。
 
@@ -211,14 +212,14 @@ latest.warnings[0];
 
 ### 警告 kind 全集
 
-每种警告都带 `kind`、可判断的结构化字段和渲染好的英文 `message`;kind 是契约的一部分,新增 kind 要回这张表登记:
+每种警告都带 `kind`、可判断的结构化字段和渲染好的英文 `message`;message 以「下一步」列声明的动作收尾([三段式契约](../../error-feedback.md#消息三段式)),能用一条命令推进的 kind 同时带 `command`。kind 与它的下一步都是契约的一部分,新增 kind 要回这张表登记:
 
-| kind | 归属 | 触发 | 结构化字段 |
-|---|---|---|---|
-| `partial-coverage` | `Selection` | 选中快照的覆盖 < 该实验已知 eval 并集(本地历史 ∪ knownEvalIds,再交命令行范围) | `experimentId`, `covered`, `total` |
-| `stale-snapshot` | `Selection` | 该实验选中的快照早于 Selection 中最新的落盘——无阈值,如实触发,要阈值消费方按字段自比;`message` 带人话时距("predates latest run by 2 days") | `experimentId`, `startedAt`, `latestStartedAt` |
-| `unfinished-snapshot` | `Selection` | 选中快照缺 `completedAt`(进程中断,未收尾);已落盘 attempt 照常读出,警告提示集合可能不完整 | `experimentId`, `startedAt`, `dir` |
-| `missing-startedAt` | `dedupeAttempts` | 身份键缺 `startedAt`,宁可不去重也不误删 | `experimentId`, `evalId` |
+| kind | 归属 | 触发 | 结构化字段 | 下一步 |
+|---|---|---|---|---|
+| `partial-coverage` | `Selection` | 选中快照的覆盖 < 该实验已知 eval 并集(本地历史 ∪ knownEvalIds,再交命令行范围) | `experimentId`, `covered`, `total` | 重跑该实验补全快照;`command` = `niceeval exp <experimentId>` |
+| `stale-snapshot` | `Selection` | 该实验选中的快照早于 Selection 中最新的落盘——无阈值,如实触发,要阈值消费方按字段自比;`message` 带人话时距("predates latest run by 2 days") | `experimentId`, `startedAt`, `latestStartedAt` | 重跑该实验与最新落盘对齐,`command` = `niceeval exp <experimentId>`;并列忽略条件——两次跑之间 eval / agent / 模型都没改时数字仍可比,可以不管 |
+| `unfinished-snapshot` | `Selection` | 选中快照缺 `completedAt`(进程中断,未收尾);已落盘 attempt 照常读出,警告提示集合可能不完整 | `experimentId`, `startedAt`, `dir` | 重跑该实验产出收尾完整的快照;`command` = `niceeval exp <experimentId>` |
+| `missing-startedAt` | `dedupeAttempts` | 身份键缺 `startedAt`,宁可不去重也不误删 | `experimentId`, `evalId` | 定位动作:核对产出该条目的写入方(第三方 harness)是否写 `startedAt`;无单条命令,不带 `command` |
 
 公开面的全集由参考页承载(`pnpm docs:reference` 从 TSDoc 生成),guide 只举例并声明「不止一种」。`missing-startedAt` **不透出到组件数据**:`writer.snapshot()` 的 `startedAt` 必填,官方产出与走写入面的转换永不缺,缺失只可能来自携带条目缺锚的极端情况;计算函数对这类条目不去重、如实保留重复,`dedupeAttempts` 直调时警告随返回值走。
 

@@ -375,7 +375,8 @@ describe("必测场景:resolved data 事实", () => {
     expect(codex.verdicts).toEqual({ passed: 1, failed: 0, errored: 1, skipped: 1 });
     const errored = codex.evalRows.find((e) => e.evalId === "algebra/x")!;
     expect(errored.verdict).toBe("errored");
-    expect(errored.reason).toBe("adapter crashed");
+    expect(errored).not.toHaveProperty("reason");
+    expect(errored.attempts[0]!.error?.message).toBe("adapter crashed");
     expect(codex.evalRows.find((e) => e.evalId === "algebra/y")!.verdict).toBe("skipped");
   });
 

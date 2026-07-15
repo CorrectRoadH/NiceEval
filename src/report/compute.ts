@@ -341,13 +341,11 @@ export async function evalListData(input: SnapshotsInput): Promise<EvalListItem[
   for (const group of groups.values()) {
     const sorted = [...group].sort((a, b) => a.attempt.result.attempt - b.attempt.result.attempt);
     const verdict = foldEvalVerdict(sorted.map((item) => item.attempt.result));
-    const representative = sorted.find((item) => item.attempt.result.verdict === verdict) ?? sorted[0]!;
     const attempts = sorted.map((item) => attemptListItemOf(item, identityRedact));
     out.push({
       evalId: evalIdOf(sorted[0]!),
       experimentId: experimentIdOf(sorted[0]!),
       verdict,
-      reason: reasonFor(representative.attempt.result),
       score: await computeCell(examScore, sorted),
       duration: await computeCell(durationMs, sorted),
       cost: await computeCell(costUSD, sorted),
@@ -372,12 +370,10 @@ export async function experimentListData(input: SnapshotsInput): Promise<Experim
     for (const [evalId, evalItems] of evalGroups) {
       const sorted = [...evalItems].sort((a, b) => a.attempt.result.attempt - b.attempt.result.attempt);
       const verdict = foldEvalVerdict(sorted.map((item) => item.attempt.result));
-      const representative = sorted.find((item) => item.attempt.result.verdict === verdict) ?? sorted[0]!;
       const attempts = sorted.map((item) => attemptListItemOf(item, identityRedact));
       evalRows.push({
         evalId,
         verdict,
-        reason: reasonFor(representative.attempt.result),
         duration: await computeCell(durationMs, sorted),
         cost: await computeCell(costUSD, sorted),
         attempts,

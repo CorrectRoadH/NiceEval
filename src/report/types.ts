@@ -375,16 +375,14 @@ export interface AttemptListItem {
 }
 
 /**
- * `ExperimentList` 一项里,一个 Eval 的展开行:折叠判定(`foldEvalVerdict`)、失败原因摘要
- * (`error` → `skipReason` → 一条主失败断言 + 其余失败计数,`reasonFor` 的口径)、
- * 该 Eval 内 attempt 的平均耗时/成本(两级聚合引擎在单一 eval 上退化成组内均值),以及这道题
- * 的全部 Attempt(升序,供进一步展开到 `AttemptList`)。
+ * `ExperimentList` 一项里,一个 Eval 的展开行:折叠判定(`foldEvalVerdict`)、该 Eval 内
+ * attempt 的平均耗时/成本(两级聚合引擎在单一 eval 上退化成组内均值),以及这道题的全部
+ * Attempt(升序,供进一步展开到 `AttemptList`)。失败原因属于各 Attempt,不在父行挑一轮重复。
  */
 export interface ExperimentListEvalRow {
   evalId: string;
   /** 折叠判定(任一 attempt 通过则通过,否则取最严重的)。 */
   verdict: Verdict;
-  reason?: string;
   /** 这道题内 attempt 的平均耗时(`computeCell(durationMs, …)`,单一 eval 分组下即均值)。 */
   duration: MetricCell;
   /** 这道题内 attempt 的平均成本。 */
@@ -424,14 +422,13 @@ export interface ExperimentListItem {
 /**
  * `EvalList.data(selection)` 的一项 = 一个 `experimentId + evalId`(同一个 Eval 跑在两个
  * experiment 上是两条不同结果,不合并)。判定、分数(examScore 的两级聚合)、这道题内 attempt
- * 的平均耗时/成本,失败原因摘要(与 `ExperimentListEvalRow.reason` 同一口径),外加展开到这道题
- * 全部 Attempt 的 `attempts`(按 attempt 序号升序)。
+ * 的平均耗时/成本,外加展开到这道题全部 Attempt 的 `attempts`(按 attempt 序号升序)。失败
+ * 原因只存在于各 `AttemptListItem` 的 error / assertions,不会在 Eval 父项重复一份。
  */
 export interface EvalListItem {
   evalId: string;
   experimentId: string;
   verdict: Verdict;
-  reason?: string;
   /** examScore 的两级聚合;单一 eval 分组下即这道题的题级分数。 */
   score: MetricCell;
   duration: MetricCell;

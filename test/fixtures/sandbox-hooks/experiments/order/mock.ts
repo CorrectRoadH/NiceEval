@@ -1,6 +1,6 @@
 import { defineExperiment } from "niceeval";
 import { defineSandbox } from "niceeval/sandbox";
-import { defineSandboxAgent } from "niceeval/adapter";
+import { completeCoverage, defineSandboxAgent } from "niceeval/adapter";
 import { createFakeSandbox } from "../../lib/fake-sandbox.ts";
 import { logEvent } from "../../lib/log.ts";
 
@@ -29,6 +29,8 @@ const sandbox = defineSandbox({
 
 const agent = defineSandboxAgent({
   name: "order-agent",
+  // 这份确定性 fixture 的 status/events/usage 都由测试完整构造。
+  coverage: completeCoverage,
   async setup(_sb, ctx) {
     await logEvent("agent:setup", ctx.experimentId);
   },

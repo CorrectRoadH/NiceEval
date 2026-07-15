@@ -73,18 +73,18 @@ function EvalAttempts({
   attemptHref: (locator: AttemptLocator) => string;
   locale: ReportLocale;
 }): ReactElement {
+  const duration = row.duration.value === null ? localeText(locale, "cell.missing") : formatDurationMs(row.duration.value);
+  const cost = row.cost.value === null ? localeText(locale, "cell.missing") : formatUSD(row.cost.value);
   return (
     <li className="nre-experiment-eval">
       <div className={cx("nre-experiment-eval-header", `nre-eval-${row.verdict}`)}>
         <span className={cx("nre-eval-verdict", `nre-verdict-${row.verdict}`)}>{verdictMark(row.verdict)}</span>
         <span className="nre-eval-id">{row.evalId}</span>
         <span className="nre-eval-attempt-count">{localeText(locale, "overview.attemptsCount", { n: row.attempts.length })}</span>
-        <span className="nre-eval-summary">
-          {row.verdict === "passed"
-            ? [formatDurationMs(row.duration.value ?? 0), row.cost.value === null ? undefined : formatUSD(row.cost.value)]
-                .filter((value): value is string => value !== undefined)
-                .join(" · ")
-            : row.reason}
+        <span className="nre-eval-rollup">
+          {localeText(locale, "entityList.average", { value: duration })}
+          {" · "}
+          {localeText(locale, "entityList.average", { value: cost })}
         </span>
       </div>
       <ul className="nre-experiment-attempts">

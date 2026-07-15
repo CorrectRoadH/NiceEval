@@ -416,9 +416,10 @@ describe("宿主接线 · show text 面与 view web 面反映同一批事实", (
     const text = await showText(root, []);
     const html = await viewHtml(root);
     for (const face of [text, html]) {
-      expect(face).toContain("compare/bub");
       expect(face).toContain("q2"); // 周一补齐的失败 eval,若宿主回退 results.latest() 就会消失
     }
+    expect(text).toMatch(/\bbub\s+default\s+bub\s+1s\s+50%/);
+    expect(html).toContain('data-sort-value="compare/bub"');
     expect(text).toContain("1 passed / 1 failed");
     expect(html).toContain("50%");
     // 现刻水位覆盖齐全 → 两面都不出 partial-coverage(text: "verdicts cover"; html: data-kind)。

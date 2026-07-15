@@ -282,9 +282,12 @@ interface AttemptError {
 interface DiagnosticRecord {
   code: string;
   level: "warning" | "error";
+  /** 现象 + 依据 + 下一步,以下一步收尾;三段式契约见 docs/error-feedback.md。 */
   message: string;
   phase: LifecyclePhase;
   data?: Readonly<Record<string, JsonValue>>;
+  /** 有单条能直接推进的命令时给出(已替换真实 id);web 渲染面呈现为可复制动作。 */
+  command?: string;
   /** 相同 dedupeKey 折叠后的出现次数;省略等于 1。 */
   count?: number;
 }

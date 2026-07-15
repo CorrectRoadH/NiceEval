@@ -63,6 +63,7 @@ docs/
     ├── observability.md                 Observability
     ├── runner.md                        执行引擎
     ├── cli.md                           CLI 内部架构
+    ├── error-feedback.md                错误与警告反馈:报错必带下一步
     └── references.md                    外部设计参考
 ```
 

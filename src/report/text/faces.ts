@@ -520,8 +520,8 @@ function experimentDetailTable(item: ExperimentListItem, ctx: TextContext, relat
         status: `${verdictMark(row.verdict)} ${localeText(locale, `verdict.${row.verdict}`)}`,
         entity: row.evalId,
         result: "",
-        duration: "",
-        cost: "",
+        duration: localeText(locale, "entityList.average", { value: cellText(row.duration) }),
+        cost: localeText(locale, "entityList.average", { value: cellText(row.cost) }),
       },
     };
     const attempts: TableRow[] = row.attempts.map((attempt, index) => ({
@@ -568,8 +568,12 @@ export function evalListText(items: EvalListItem[], ctx: TextContext): string {
     const summary = [
       localeText(locale, "attemptList.score", { score: cellText(item.score) }),
       localeText(locale, "overview.attemptsCount", { n: item.attempts.length }),
-      `${formatDurationMs(item.duration.value ?? 0)} avg`,
-      item.cost.value === null ? `${missingText(locale)} avg` : `${formatUSD(item.cost.value)} avg`,
+      localeText(locale, "entityList.average", {
+        value: item.duration.value === null ? missingText(locale) : formatDurationMs(item.duration.value),
+      }),
+      localeText(locale, "entityList.average", {
+        value: item.cost.value === null ? missingText(locale) : formatUSD(item.cost.value),
+      }),
     ].join(" · ");
     const attemptLines = item.attempts.map((attempt) => evalListAttemptLine(attempt, ctx));
     return [identity, `  ${summary}`, ...attemptLines].join("\n");
