@@ -230,7 +230,15 @@ export function codexAgent(config?: CodexConfig): Agent {
         ? `codex exec resume ${ctx.session.id} ${flags} ${prompt}`
         : `codex exec ${flags} ${prompt}`;
 
-      const res = await sb.runShell(cmd, { env: { CODEX_API_KEY: getApiKey() }, stream: true });
+      // `codex exec --json` 持续写出 ThreadEvent JSONL。把它压成短 step 送进 runner
+      // progress，human dashboard 因而能显示真正的 tool / reasoning / assistant 活动；完整
+      // transcript 仍在命令结束后一次解析并落入 events artifact，不能让 live 文案变成第二份结果。
+      const onStdout = codexProgressReporter(ctx);
+      const res = await sb.runShell(cmd, {
+        env: { CODEX_API_KEY: getApiKey() },
+        stream: true,
+        onStdout,
+      });
 
       const raw = shared.extractJsonlFromStdout(res.stdout);
       ctx.session.capture(shared.codexThreadId(res.stdout));
@@ -240,6 +248,64 @@ export function codexAgent(config?: CodexConfig): Agent {
       return { events, usage: parsed.usage, status: res.exitCode === 0 ? "completed" : "failed" };
     },
   });
+}
+
+/** 把 Codex JSONL 的高频原始帧收敛成 dashboard 当前行的一条短 detail。 */
+function codexProgressReporter(ctx: import("../types.ts").AgentContext): (chunk: string) => void {
+  let remainder = "";
+  return (chunk) => {
+    remainder += chunk;
+    const lines = remainder.split("\n");
+    remainder = lines.pop() ?? "";
+    for (const line of lines) {
+      const detail = codexProgressDetail(line);
+      if (detail) ctx.progress({ message: detail });
+    }
+  };
+}
+
+function codexProgressDetail(line: string): string | undefined {
+  let event: Record<string, unknown>;
+  try {
+    const parsed: unknown = JSON.parse(line);
+    if (!parsed || typeof parsed !== "object") return undefined;
+    event = parsed as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
+
+  const item = event.item;
+  if (!item || typeof item !== "object") return undefined;
+  const data = item as Record<string, unknown>;
+  const type = typeof data.type === "string" ? data.type : "";
+  const completed = event.type === "item.completed";
+  const preview = (value: unknown, limit = 96): string | undefined => {
+    if (typeof value !== "string") return undefined;
+    const text = value.replace(/\s+/g, " ").trim();
+    if (!text) return undefined;
+    return text.length > limit ? `${text.slice(0, limit - 1)}…` : text;
+  };
+
+  if (type === "command_execution") {
+    const command = preview(data.command) ?? "shell";
+    return completed ? `tool: ${command} · completed` : `tool: ${command}`;
+  }
+  if (type === "mcp_tool_call") {
+    const tool = typeof data.tool === "string" ? data.tool : "MCP";
+    const server = typeof data.server === "string" ? `${data.server}.` : "";
+    return completed ? `tool: ${server}${tool} · completed` : `tool: ${server}${tool}`;
+  }
+  if (type === "web_search") return completed ? "tool: web search · completed" : "tool: web search";
+  if (type === "file_change") return completed ? "tool: file change · completed" : "tool: file change";
+  if (type === "reasoning") {
+    const text = preview(data.text ?? data.content);
+    return text ? `thinking: ${text}` : "thinking";
+  }
+  if (type === "agent_message") {
+    const text = preview(data.text ?? data.message);
+    return text ? `assistant: ${text}` : "assistant response";
+  }
+  return undefined;
 }
 
 /**

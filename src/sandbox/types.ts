@@ -170,6 +170,14 @@ export interface CommandOptions {
    */
   stream?: boolean;
   /**
+   * 命令 stdout 每到一块就调用一次。回调只用于运行中的短命反馈；完整 stdout 仍会原样
+   * 出现在返回的 `CommandResult` 里。provider 不支持真流时，至少会在命令结束后按完整
+   * stdout 调用一次，不能静默丢掉。
+   */
+  onStdout?: (chunk: string) => void | Promise<void>;
+  /** `onStdout` 的 stderr 对应物；完整 stderr 仍保留在 `CommandResult`。 */
+  onStderr?: (chunk: string) => void | Promise<void>;
+  /**
    * 以 root 跑本命令。默认 `false` —— 命令以沙箱的标准**非 root** 用户跑(agent 的自然环境)。
    * 给 setup 阶段装系统依赖用(`apt-get install …`、`pip install --break-system-packages …`)。
    *

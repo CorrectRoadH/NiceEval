@@ -493,6 +493,24 @@ stream?: boolean;
 日志里看到 agent 的【原始输出】。provider 各自实现(docker:tee 到 PID1 tail 的文件;
 不支持的 provider 忽略)—— 日志怎么浮现是 provider 的事,adapter 只声明意图。
 
+#### `onStdout`
+
+```ts
+onStdout?: (chunk: string) => void | Promise<void>;
+```
+
+命令 stdout 每到一块就调用一次。回调只用于运行中的短命反馈；完整 stdout 仍会原样
+出现在返回的 `CommandResult` 里。provider 不支持真流时，至少会在命令结束后按完整
+stdout 调用一次，不能静默丢掉。
+
+#### `onStderr`
+
+```ts
+onStderr?: (chunk: string) => void | Promise<void>;
+```
+
+`onStdout` 的 stderr 对应物；完整 stderr 仍保留在 `CommandResult`。
+
 #### `root`
 
 ```ts

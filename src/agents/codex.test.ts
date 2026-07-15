@@ -14,7 +14,8 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { codexAgent, installPlugins, type CodexPluginSpec } from "./codex.ts";
-import type { AgentContext, AgentSetupManifest, CommandResult, Sandbox, SandboxFile } from "../types.ts";
+import { createAgentSession } from "../context/session.ts";
+import type { AgentContext, AgentSetupManifest, CommandOptions, CommandResult, Sandbox, SandboxFile } from "../types.ts";
 
 /** 内存沙箱:runShell 记命令(可按命令包含的子串打脚本化输出),uploadFile / writeFiles 记内容。 */
 class FakeSandbox implements Partial<Sandbox> {
@@ -26,10 +27,19 @@ class FakeSandbox implements Partial<Sandbox> {
   readonly written: Record<string, string> = {};
   script: { match: string; result: (cmd: string) => Partial<CommandResult> }[] = [];
 
-  async runShell(script: string): Promise<CommandResult> {
+  async runShell(script: string, opts: CommandOptions = {}): Promise<CommandResult> {
     this.commands.push(script);
     const hit = this.script.find((s) => script.includes(s.match));
-    return { stdout: "", stderr: "", exitCode: 0, ...hit?.result(script) };
+    const result = { stdout: "", stderr: "", exitCode: 0, ...hit?.result(script) };
+    // 故意从 JSONL 中间切开，验证 adapter 自己负责跨 chunk 拼行，不依赖 provider 恰好
+    // 一行一回调的幸运时序。
+    if (result.stdout) {
+      const split = Math.max(1, Math.floor(result.stdout.length / 2));
+      await opts.onStdout?.(result.stdout.slice(0, split));
+      await opts.onStdout?.(result.stdout.slice(split));
+    }
+    if (result.stderr) await opts.onStderr?.(result.stderr);
+    return result;
   }
   async writeFiles(files: Record<string, string>): Promise<void> {
     Object.assign(this.written, files);
@@ -315,5 +325,41 @@ describe("codexAgent configFile · setup", () => {
     expect(write).toContain("[model_providers.s2a]");
     expect(box.uploads).toHaveLength(0);
     expect(box.written["__niceeval__/agent-setup.json"]).toBeUndefined();
+  });
+});
+
+describe("codexAgent · live step feedback", () => {
+  it("逐块消费 codex --json stdout，把 tool 与 assistant step 送进 progress，完整 transcript 仍正常解析", async () => {
+    const stdout = [
+      JSON.stringify({ type: "thread.started", thread_id: "thread-1" }),
+      JSON.stringify({ type: "item.started", item: { type: "command_execution", id: "cmd-1", command: "pnpm test" } }),
+      JSON.stringify({ type: "item.completed", item: { type: "command_execution", id: "cmd-1", command: "pnpm test", exit_code: 0 } }),
+      JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: "All tests passed." } }),
+    ].join("\n") + "\n";
+    const box = sb([{ match: "codex exec", result: () => ({ stdout }) }]);
+    const progress: string[] = [];
+    const ctx: AgentContext = {
+      signal: new AbortController().signal,
+      flags: {},
+      sandbox: asSandbox(box),
+      session: createAgentSession(),
+      progress: (update) => progress.push(update.message),
+      diagnostic() {},
+      log() {},
+    };
+
+    const turn = await codexAgent({ apiKey: "test-key" }).send!({ text: "run the tests" }, ctx);
+
+    expect(progress).toEqual([
+      "tool: pnpm test",
+      "tool: pnpm test · completed",
+      "assistant: All tests passed.",
+    ]);
+    expect(turn.events).toMatchObject([
+      { type: "action.called", name: "command_execution", tool: "shell" },
+      { type: "action.result", callId: "cmd-1", status: "completed" },
+      { type: "message", role: "assistant", text: "All tests passed." },
+    ]);
+    expect(ctx.session.id).toBe("thread-1");
   });
 });

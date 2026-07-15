@@ -105,6 +105,8 @@ export class E2BSandbox implements Sandbox {
         envs: opts.env,
         user: opts.root ? "root" : undefined,
         timeoutMs: this.commandTimeoutMs,
+        onStdout: opts.onStdout,
+        onStderr: opts.onStderr,
       });
       return { stdout: res.stdout, stderr: res.stderr, exitCode: res.exitCode };
     } catch (e) {

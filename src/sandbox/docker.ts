@@ -273,7 +273,14 @@ export class DockerSandbox implements Sandbox {
     // 实现:把 cmd+args 安全拼成 shell 串,经 runShell 走 tee(只 tee stdout,保留 stderr 分离 + 退出码)。
     if (opts.stream) {
       const joined = [cmd, ...args].map(shellQuote).join(" ");
-      return this.runShell(joined, { env: opts.env, cwd: opts.cwd, stream: true, root: opts.root });
+      return this.runShell(joined, {
+        env: opts.env,
+        cwd: opts.cwd,
+        stream: true,
+        root: opts.root,
+        onStdout: opts.onStdout,
+        onStderr: opts.onStderr,
+      });
     }
 
     // 保证 npm 全局 bin 在 PATH 里;固定 HOME/USER,让 codex(~/.codex)、npm 全局、
@@ -294,6 +301,8 @@ export class DockerSandbox implements Sandbox {
       env,
       cwd: resolveSandboxPath(this.workdir, opts.cwd),
       user: isRoot ? ROOT_USER : SANDBOX_USER,
+      onStdout: opts.onStdout,
+      onStderr: opts.onStderr,
     });
   }
 
@@ -319,7 +328,13 @@ export class DockerSandbox implements Sandbox {
   private async execCommand(
     cmd: string,
     args: string[] = [],
-    opts: { env?: Record<string, string>; cwd?: string; user?: string } = {},
+    opts: {
+      env?: Record<string, string>;
+      cwd?: string;
+      user?: string;
+      onStdout?: (chunk: string) => void | Promise<void>;
+      onStderr?: (chunk: string) => void | Promise<void>;
+    } = {},
   ): Promise<CommandResult> {
     if (!this.container) {
       throw new Error(t("docker.containerNotInitialized"));
@@ -345,8 +360,18 @@ export class DockerSandbox implements Sandbox {
       // Docker 把 stdout/stderr 复用在同一条流里(8 字节头 + 载荷),需手动 demux;
       // 跨 chunk 的帧累积逻辑见 docker-stream.ts 的 createExecDemuxer。
       const demuxer = createExecDemuxer();
-
-      stream.on("data", (chunk: Buffer) => demuxer.push(chunk));
+      // Docker 的 demuxer 先保证帧边界完整，再把每帧即时送给调用方。回调串行化，避免
+      // async consumer（如 JSONL 行缓冲）因后一个 chunk 先完成而乱序。
+      let callbackChain = Promise.resolve();
+      stream.on("data", (chunk: Buffer) => {
+        const beforeStdout = demuxer.stdout().length;
+        const beforeStderr = demuxer.stderr().length;
+        demuxer.push(chunk);
+        const stdout = demuxer.stdout().slice(beforeStdout);
+        const stderr = demuxer.stderr().slice(beforeStderr);
+        if (stdout && opts.onStdout) callbackChain = callbackChain.then(() => opts.onStdout!(stdout));
+        if (stderr && opts.onStderr) callbackChain = callbackChain.then(() => opts.onStderr!(stderr));
+      });
 
       // 超时:杀流并 reject。
       const timeoutId = setTimeout(() => {
@@ -360,6 +385,7 @@ export class DockerSandbox implements Sandbox {
         const stderr = demuxer.stderr();
 
         try {
+          await callbackChain;
           const inspection = await exec.inspect();
           resolve({
             stdout,
@@ -383,7 +409,13 @@ export class DockerSandbox implements Sandbox {
     if (opts.stream) {
       // 只 tee stdout 到容器主日志:保留 stderr 分离(解析器要)+ pipefail 保留命令退出码。
       const wrapped = `set -o pipefail; { ${script} ; } | tee -a ${CONTAINER_LOG}`;
-      return this.runCommand("bash", ["-c", wrapped], { env: opts.env, cwd: opts.cwd, root: opts.root });
+      return this.runCommand("bash", ["-c", wrapped], {
+        env: opts.env,
+        cwd: opts.cwd,
+        root: opts.root,
+        onStdout: opts.onStdout,
+        onStderr: opts.onStderr,
+      });
     }
     return this.runCommand("bash", ["-c", script], opts);
   }

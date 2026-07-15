@@ -161,9 +161,15 @@ export class VercelSandbox implements Sandbox {
       // 显式设 per-command timeout 防止长跑命令(npm build/install)被流截断。
       timeoutMs: this.commandTimeoutMs,
     });
+    const stdout = await finished.stdout();
+    const stderr = await finished.stderr();
+    // Vercel SDK 的命令 API 只在结束后给完整输出；仍兑现 CommandOptions 回调的
+    // 「至少一次」语义，让 adapter 不必按 provider 分叉。
+    if (stdout) await opts.onStdout?.(stdout);
+    if (stderr) await opts.onStderr?.(stderr);
     return {
-      stdout: await finished.stdout(),
-      stderr: await finished.stderr(),
+      stdout,
+      stderr,
       exitCode: finished.exitCode,
     };
   }
