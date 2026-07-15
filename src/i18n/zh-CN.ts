@@ -23,7 +23,21 @@ export const zhCN = {
   "skill.repoUnknownSkill": "repo skill {{source}}(ref: {{ref}})里没有名为 \"{{skill}}\" 的 skill。可选:{{available}}。",
   "skill.copyFailed": "skill \"{{name}}\" 装进 {{dest}} 失败:\n{{tail}}",
   "plugin.marketplaceFailed": "{{agent}} marketplace \"{{name}}\" 连接失败(source: {{source}}, ref: {{ref}}):\n{{tail}}",
+  "plugin.marketplaceVerifyFailed": "{{agent}} marketplace \"{{name}}\" add 后回读注册列表失败({{command}}):\n{{tail}}",
+  "plugin.marketplaceNameMismatch":
+    "{{agent}} marketplace 名不匹配:配置的 name \"{{expected}}\"(source: {{source}})不在 add 后回读的注册列表里,本次实际注册为:{{actual}}。" +
+    "marketplace.name 必须等于目标仓库 manifest 声明的 name,改成真实名字再跑。",
   "plugin.installFailed": "{{agent}} plugin \"{{name}}\"(marketplace: {{marketplace}})安装失败:\n{{tail}}",
+  "nativeConfig.pathNotProjectRelative":
+    "{{agent}} {{field}} 只接受项目根内的相对路径,收到 \"{{path}}\"。绝对路径、包含 `..` 的路径和 `~` 路径都不行;项目根外的配置先复制进项目再引用。",
+  "nativeConfig.missing":
+    "{{agent}} {{field}} 指向的文件不存在:\"{{path}}\"(解析到 {{resolved}})。路径相对运行 niceeval 的项目根(含 niceeval.config.ts 的目录)解析,不相对 eval / experiment 源码文件。",
+  "nativeConfig.escapesRoot": "{{agent}} {{field}} \"{{path}}\" 经符号链接解析到项目根之外({{resolved}})。配置文件必须真实位于项目根内。",
+  "nativeConfig.notFile": "{{agent}} {{field}} \"{{path}}\" 不是普通文件。指向一份完整的官方配置文件。",
+  "nativeConfig.invalidSyntax": "{{agent}} {{field}} \"{{path}}\" 不是合法的 {{format}}:{{detail}}",
+  "nativeConfig.reservedKeys":
+    "{{agent}} {{field}} \"{{path}}\" 含保留键:{{keys}}。这些键由 experiment 与 Adapter 拥有(model、鉴权、MCP、OTel 经独立配置层叠加),从文件里删掉再跑。",
+  "nativeConfig.uploadFailed": "原生配置文件 \"{{path}}\" 上传沙箱失败({{dest}}):\n{{tail}}",
   "cli.all": "(全部)",
   "cli.browserOpenFailed": "无法自动打开浏览器,请手动访问:{{url}}\n",
   "cli.clean.done": "已删除 .niceeval/ 历史运行 artifact。\n",

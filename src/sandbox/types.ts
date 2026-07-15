@@ -1,7 +1,7 @@
 // sandbox 域类型:Sandbox 接口、provider spec(可辨识联合)、命令与文件 IO 的形状。
 // 「在哪里跑、如何隔离」的全部契约在这里;provider 实现见本目录各文件,分发见 resolve.ts。
 
-import type { AgentSetup, AgentTeardown } from "../agents/types.ts";
+import type { Cleanup, ScopedFeedback } from "../shared/types.ts";
 
 export interface CommandResult {
   stdout: string;
@@ -82,14 +82,32 @@ export type SandboxRuntime = "node20" | "node24";
  */
 export interface SandboxHooks<Self> {
   /** 已挂载的 setup 钩子,按追加顺序保存(内部读取,一般用不到)。 */
-  readonly setupHooks?: readonly AgentSetup[];
+  readonly setupHooks?: readonly SandboxHook[];
   /** 已挂载的 teardown 钩子,按追加顺序保存,执行时逆序(内部读取,一般用不到)。 */
-  readonly teardownHooks?: readonly AgentTeardown[];
+  readonly teardownHooks?: readonly SandboxHook[];
   /** 追加一个沙箱级 setup 钩子,返回新 spec;详细契约见 {@link SandboxHooks}。 */
-  setup(fn: AgentSetup): Self;
+  setup(fn: SandboxHook): Self;
   /** 追加一个沙箱级 teardown 钩子,返回新 spec;详细契约见 {@link SandboxHooks}。 */
-  teardown(fn: AgentTeardown): Self;
+  teardown(fn: SandboxHook): Self;
 }
+
+/**
+ * Sandbox hook 的窄上下文:只有 `experimentId`、`signal` 与作用域绑定的 `progress/diagnostic`,
+ * 不借用包含 session / model / telemetry 的完整 `AgentContext`
+ * (见 docs/feature/sandbox/library.md「环境层生命周期钩子」)。
+ */
+export interface SandboxHookContext extends ScopedFeedback {
+  /** 路径推导出的实验 id;不经 experiment 跑时是 undefined。跨 attempt 状态按它分区。 */
+  readonly experimentId?: string;
+  /** 本次 attempt 的中止信号。 */
+  readonly signal: AbortSignal;
+}
+
+/** 沙箱级生命周期钩子(`.setup()` / `.teardown()` 链式挂载);`setup` 可返回 cleanup 闭包。 */
+export type SandboxHook = (
+  sandbox: Sandbox,
+  ctx: SandboxHookContext,
+) => void | Cleanup | Promise<void | Cleanup>;
 
 /**
  * Sandbox 的「数据结构」定义 —— 与 agent 一样可带参数(见 docs/feature/sandbox/library.md)。
@@ -125,7 +143,8 @@ export interface CustomSandboxSpec extends SandboxHooks<CustomSandboxSpec> {
   readonly provider: string;
   readonly runtime?: SandboxRuntime;
   readonly recommendedConcurrency?: number;
-  readonly create: (opts: { timeout?: number; runtime?: SandboxRuntime }) => Promise<Sandbox>;
+  /** `feedback` 绑定到 `sandbox.create` 阶段:分配实例 / 拉镜像 / 恢复 snapshot 的进度与诊断走它。 */
+  readonly create: (opts: { timeout?: number; runtime?: SandboxRuntime; feedback: ScopedFeedback }) => Promise<Sandbox>;
 }
 
 export type SandboxSpec = DockerSandboxSpec | VercelSandboxSpec | E2BSandboxSpec | CustomSandboxSpec;

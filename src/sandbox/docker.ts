@@ -84,6 +84,8 @@ export interface DockerSandboxOptions {
   runtime?: "node20" | "node24";
   /** 覆盖默认镜像(默认按 runtime 选 `node:*-slim`)。预制模板:烘焙好 agent CLI 的镜像名。 */
   image?: string;
+  /** runner 绑定到 `sandbox.create` 的反馈句柄(镜像拉取进度走它);省略退回全局 sink。 */
+  feedback?: import("../types.ts").ScopedFeedback;
 }
 
 /**
@@ -99,12 +101,14 @@ export class DockerSandbox implements Sandbox {
   private timeout: number;
   private runtime: string;
   private image?: string;
+  private feedback?: import("../types.ts").ScopedFeedback;
 
   constructor(options: DockerSandboxOptions = {}) {
     this.docker = new Docker();
     this.timeout = options.timeout ?? DEFAULT_TIMEOUT;
     this.runtime = options.runtime ?? "node24";
     this.image = options.image;
+    this.feedback = options.feedback;
   }
 
   /** 创建并启动一个 Docker 沙箱。 */
@@ -177,12 +181,14 @@ export class DockerSandbox implements Sandbox {
       const image = this.docker.getImage(imageName);
       await image.inspect();
     } catch {
-      // 镜像不存在,拉取。「activity」而非「diagnostic」—— 这是正常进度,不是需要去重/永久
-      // 留痕的 warning(见 A2 阶段 ScopedFeedback.progress 落地前的过渡出口,sink.ts 的
-      // reportActivity 说明)。
-      reportActivity(t("docker.imagePullStart", { image: imageName }).trimEnd());
+      // 镜像不存在,拉取。「progress」而非「diagnostic」—— 这是正常进度,不是需要去重/永久
+      // 留痕的 warning。走 create 绑定的 ScopedFeedback(runner 归因到 sandbox.create);
+      // 直调(无 runner)时退回全局 sink。
+      const progress = (message: string) =>
+        this.feedback ? this.feedback.progress({ message }) : reportActivity(message);
+      progress(t("docker.imagePullStart", { image: imageName }).trimEnd());
       await this.pullImage(imageName);
-      reportActivity(t("docker.imagePullDone", { image: imageName }).trimEnd());
+      progress(t("docker.imagePullDone", { image: imageName }).trimEnd());
     }
   }
 

@@ -4,7 +4,7 @@
 import type { Cleanup, JsonValue, LocalizedText, SourceArtifact } from "../shared/types.ts";
 import type { O11ySummary, StreamEvent, TraceSpan, Usage } from "../o11y/types.ts";
 import type { Agent, AgentSetupManifest } from "../agents/types.ts";
-import type { Sandbox, SandboxOption } from "../sandbox/types.ts";
+import type { Sandbox, SandboxHookContext, SandboxOption } from "../sandbox/types.ts";
 import type { AssertionResult, DiffData, JudgeConfig, Verdict } from "../scoring/types.ts";
 import type { TestContext } from "../context/types.ts";
 import type { CapturedEvalSource } from "./eval-source.ts";
@@ -300,8 +300,10 @@ export interface EvalDef {
    * eval 级预置:拿到沙箱(已上传 workspace + git 基线 + 装好依赖前)。
    * 默认命令以非 root 跑(agent 的自然环境);装系统依赖时给 `runCommand` 传 `{ root: true }`
    * (如 `runCommand("apt-get", ["install", …], { root: true })`),跨 provider 语义一致。
+   * 第二个参数是绑定到 `eval.setup` 的窄上下文(`ctx.progress` / `ctx.diagnostic`,
+   * 见 docs/feature/eval/README.md);可返回 cleanup 闭包,归因到 `eval.teardown`。
    */
-  setup?: (sandbox: Sandbox) => Promise<void | Cleanup> | void | Cleanup;
+  setup?: (sandbox: Sandbox, ctx: SandboxHookContext) => Promise<void | Cleanup> | void | Cleanup;
   /** eval 主体:拿到 TestContext,驱动对话 / 沙箱操作并就地断言。 */
   test(t: TestContext): Promise<void> | void;
 }

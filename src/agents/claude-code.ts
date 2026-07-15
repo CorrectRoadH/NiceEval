@@ -4,6 +4,13 @@ import { requireEnv, getEnv } from "../util.ts";
 import { shared } from "./shared.ts";
 import { cloneRepo, installSkills } from "./skills.ts";
 import { writeAgentSetupManifest } from "./manifest.ts";
+import { verifyMarketplaceName } from "./marketplace.ts";
+import {
+  assertJsonNativeConfig,
+  loadNativeConfigFile,
+  uploadNativeConfigFile,
+  type LoadedNativeConfig,
+} from "./native-config.ts";
 import { mapClaudeCodeSpans } from "../o11y/otlp/mappers/claude-code.ts";
 import { t } from "../i18n/index.ts";
 import { DEFAULT_CLAUDE_CODE_CLI_VERSION } from "./coding-cli-versions.ts";
@@ -19,6 +26,15 @@ import type { Agent, AgentSetupManifest, McpServer, Sandbox, SkillSpec } from ".
 
 /** Claude Code 的 skill 目录(project 级):CLI 原生扫描它,不需要额外的发现指引。 */
 const SKILL_DIR = ".claude/skills";
+
+/** 沙箱里用户级 settings 的落点:`settingsFile` 的原始字节原样替换这份原本为空的用户层。 */
+const SETTINGS_PATH = "~/.claude/settings.json";
+
+/**
+ * `settingsFile` 的保留键:`model` 归 experiment(经 `--model` flag),`env` 归 Adapter
+ * (鉴权与 OTel 导出经进程环境变量注入)。清单定稿见 docs/feature/adapters/sdk/claude-code/README.md。
+ */
+const RESERVED_SETTINGS_KEYS = ["model", "env"] as const;
 
 /**
  * Claude Code 的原生 Plugin —— **只属于 Claude Code**,不能传给 Codex(Codex 有自己的
@@ -63,6 +79,15 @@ export interface ClaudeCodeConfig {
   skills?: SkillSpec[];
   /** Claude Code 原生 Plugin(先连 Marketplace,再从中装指定 Plugin)。 */
   plugins?: ClaudeCodePluginSpec[];
+  /**
+   * 一份完整的 Claude Code `settings.json`(官方格式)在本地项目里的路径 —— 相对运行
+   * niceeval 的项目根(含 `niceeval.config.ts` 的目录)解析,不是 Sandbox 内路径;只接受
+   * 项目根内的相对路径,包含 `..` 的路径、绝对路径、`~` 路径和解析后逃出项目根的符号链接
+   * 都在 setup 阶段报错。原始字节原样上传为沙箱里原本为空的用户级 `~/.claude/settings.json`
+   * (不继承宿主机配置、不拼接、不重新序列化);保留键 `model` 与 `env` 出现在文件里
+   * setup 报错。manifest 只记项目相对路径与字节 SHA-256,不落正文。
+   */
+  settingsFile?: string;
 }
 
 export function claudeCodeAgent(config?: ClaudeCodeConfig): Agent {
@@ -96,6 +121,24 @@ export function claudeCodeAgent(config?: ClaudeCodeConfig): Agent {
         `command -v claude >/dev/null 2>&1 || npm install -g @anthropic-ai/claude-code@${DEFAULT_CLAUDE_CODE_CLI_VERSION}`,
       );
 
+      // 原生配置文件最先落(安装顺序契约的第 1 步):本地读原始字节 → 验 JSON 语法与保留键
+      // → 原样替换沙箱里原本为空的用户级 settings.json。字节 SHA-256 进 manifest 与安装
+      // checkpoint key(见 native-config.ts 的 nativeConfigCheckpointItem)。
+      let settings: LoadedNativeConfig | undefined;
+      if (config?.settingsFile !== undefined) {
+        settings = await loadNativeConfigFile({
+          agent: "claude-code",
+          field: "settingsFile",
+          path: config.settingsFile,
+        });
+        assertJsonNativeConfig(settings, {
+          agent: "claude-code",
+          field: "settingsFile",
+          reservedKeys: RESERVED_SETTINGS_KEYS,
+        });
+        await uploadNativeConfigFile(sb, settings, SETTINGS_PATH);
+      }
+
       if (config?.mcpServers?.length) {
         const servers: Record<string, object> = {};
         for (const s of config.mcpServers) {
@@ -125,8 +168,17 @@ export function claudeCodeAgent(config?: ClaudeCodeConfig): Agent {
           ...(s.args?.length ? { args: [...s.args] } : {}),
         }));
       }
+      if (settings) {
+        // 只记来源路径与字节哈希,不落正文(任意官方配置都可能带敏感字符串)。
+        manifest.nativeConfigFile = { agent: "claude-code", path: settings.path, sha256: settings.sha256 };
+      }
       // 什么都没装就不写 manifest:空 artifact 不落文件(同 results 的落盘规则)。
-      if (manifest.skills.length || manifest.nativePlugins?.length || manifest.mcpServers?.length) {
+      if (
+        manifest.skills.length ||
+        manifest.nativePlugins?.length ||
+        manifest.mcpServers?.length ||
+        manifest.nativeConfigFile
+      ) {
         await writeAgentSetupManifest(sb, manifest);
       }
     },
@@ -164,7 +216,8 @@ export function claudeCodeAgent(config?: ClaudeCodeConfig): Agent {
 }
 
 /**
- * 先按 `marketplace.name` 建立 Marketplace 连接(同名只连一次),再从该连接装指定 Plugin。
+ * 先按 `marketplace.name` 建立 Marketplace 连接(同名只连一次,add 后回读注册列表校验
+ * 名字真的注册上了),再从该连接装指定 Plugin。
  * `claude plugin marketplace add` 没有钉 ref 的入口,所以要钉 ref 时先自己按 ref clone 下来,
  * 再以本地路径连接(CLI 支持 path 形态的 marketplace 源)—— 「来源必须可复现」不因 CLI 少个
  * flag 就打折。
@@ -194,6 +247,14 @@ export async function installPlugins(
           }),
         );
       }
+      // add 静默按目标仓库 manifest 的 name 注册,错名会拖到 plugin install 才炸;
+      // 回读注册列表立刻校验(契约与真机复现见 marketplace.ts 顶部说明)。
+      await verifyMarketplaceName(sb, {
+        agent: "claude-code",
+        listCommand: "claude plugin marketplace list --json",
+        marketplace,
+        knownNames: connected,
+      });
       connected.add(marketplace.name);
     }
 

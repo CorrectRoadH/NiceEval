@@ -33,6 +33,37 @@ export interface SourceArtifact {
 /** 通用清理闭包(setup 返回值 / teardown 的形状),异步同步皆可,统一在 finally 里执行。 */
 export type Cleanup = () => Promise<void> | void;
 
+/** `ScopedFeedback.progress` 的入参:此刻正在做什么(短命状态,可被后续更新覆盖)。 */
+export interface ProgressUpdate {
+  message: string;
+  current?: number;
+  total?: number;
+}
+
+/** `ScopedFeedback.diagnostic` 的入参:运行结束后仍应保留的问题(永久事件)。 */
+export interface DiagnosticInput {
+  code: string;
+  level: "warning" | "error";
+  message: string;
+  data?: Readonly<Record<string, JsonValue>>;
+  /** 并发 attempt 产生同一问题时的去重键;相同 key 折叠成一条并累计次数。 */
+  dedupeKey?: string;
+}
+
+/**
+ * 作用域反馈 API(见 docs/feature/experiments/library.md「生命周期代码怎样向这次运行反馈」):
+ * sandbox provider、sandbox hook、eval 与 Agent Adapter 从 runner 注入的上下文获得同一套入口。
+ * - `progress` 是短命状态:Human profile 更新 active 行,Agent/CI 不逐条打印,不进最终结果;
+ * - `diagnostic` 是永久事件:进 Human/Agent/CI 的永久输出流并落进 attempt 的 diagnostics;
+ *   即使 level 为 "error" 也不自动改变 verdict(要 errored 抛异常,要 failed 用断言)。
+ * 两个方法都不接受 phase / scope / 颜色 / 输出流——runner 知道当前回调属于哪个生命周期阶段,
+ * 调用方不能冒充其它阶段。
+ */
+export interface ScopedFeedback {
+  progress(update: ProgressUpdate): void;
+  diagnostic(input: DiagnosticInput): void;
+}
+
 /**
  * 可本地化文案:纯字符串,或按 locale 代码(如 "en"、"zh-CN")映射多语言。
  * view 按当前界面语言挑一条,挑不到回退到 en / 第一条。

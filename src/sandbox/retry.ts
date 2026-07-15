@@ -5,6 +5,7 @@
 import { isRetryableProvisionError, type SandboxProvisionErrorKind } from "./errors.ts";
 import { t } from "../i18n/index.ts";
 import { reportActivity } from "../runner/feedback/sink.ts";
+import type { ScopedFeedback } from "../types.ts";
 
 const MAX_ATTEMPTS = 4;
 const BASE_DELAY_MS = 1000;
@@ -27,6 +28,7 @@ export async function withProvisionRetry<T>(
   create: () => Promise<T>,
   classify: (e: unknown) => SandboxProvisionErrorKind,
   slot?: ProvisionSlot,
+  feedback?: ScopedFeedback,
 ): Promise<T> {
   for (let attempt = 0; ; attempt++) {
     try {
@@ -41,9 +43,9 @@ export async function withProvisionRetry<T>(
       // 见 sink.ts 的 reportActivity 说明)。让 human dashboard 的 active slot 在整个退避
       // 窗口里有可见更新,而不是冻结到重试成功或耗尽为止。
       const delayMs = delayFor(attempt);
-      reportActivity(
-        t("sandbox.provisionRetry", { delayMs: Math.round(delayMs), attempt: attempt + 1, maxAttempts: MAX_ATTEMPTS }).trimEnd(),
-      );
+      const message = t("sandbox.provisionRetry", { delayMs: Math.round(delayMs), attempt: attempt + 1, maxAttempts: MAX_ATTEMPTS }).trimEnd();
+      if (feedback) feedback.progress({ message });
+      else reportActivity(message);
       try {
         await new Promise((resolve) => setTimeout(resolve, delayMs));
       } finally {

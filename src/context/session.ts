@@ -96,6 +96,8 @@ export interface SessionDeps {
   flags: Record<string, unknown>;
   signal: AbortSignal;
   log(msg: string): void;
+  /** runner 绑定的作用域反馈(adapter ctx.progress/diagnostic);省略时 progress 退回 log。 */
+  feedback?: import("../types.ts").ScopedFeedback;
   /** adapter send 在飞时通知 runner(errored 归因到嵌套的 `agent.run` 阶段用)。 */
   onSendActive?: (active: boolean) => void;
   /** 每轮 send 结束后回报墙钟包络(runner 挂成 eval.run 下的 turn 时间树节点)。 */
@@ -174,6 +176,12 @@ export class SessionManager {
       sandbox: this.deps.sandbox,
       session,
       telemetry: this.deps.telemetry,
+      progress: (u) =>
+        this.deps.feedback
+          ? this.deps.feedback.progress(u)
+          : this.deps.log(u.current !== undefined && u.total !== undefined ? `${u.message} (${u.current}/${u.total})` : u.message),
+      diagnostic: (d) => this.deps.feedback?.diagnostic(d),
+      // log 是 progress({ message }) 的别名(见 AgentContext.log)。
       log: this.deps.log,
     };
 

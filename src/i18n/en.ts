@@ -25,7 +25,21 @@ export const en = {
   "skill.repoUnknownSkill": "Repo skill {{source}} (ref: {{ref}}) has no skill named \"{{skill}}\". Available: {{available}}.",
   "skill.copyFailed": "Could not install skill \"{{name}}\" into {{dest}}:\n{{tail}}",
   "plugin.marketplaceFailed": "Could not connect {{agent}} marketplace \"{{name}}\" (source: {{source}}, ref: {{ref}}):\n{{tail}}",
+  "plugin.marketplaceVerifyFailed": "Could not read back the registered marketplace list after adding {{agent}} marketplace \"{{name}}\" ({{command}}):\n{{tail}}",
+  "plugin.marketplaceNameMismatch":
+    "{{agent}} marketplace name mismatch: the configured name \"{{expected}}\" (source: {{source}}) is not in the registered list after add; actually registered: {{actual}}. " +
+    "marketplace.name must equal the name declared in the target repo's manifest — use the real name.",
   "plugin.installFailed": "Could not install {{agent}} plugin \"{{name}}\" (marketplace: {{marketplace}}):\n{{tail}}",
+  "nativeConfig.pathNotProjectRelative":
+    "{{agent}} {{field}} only accepts relative paths inside the project root, got \"{{path}}\". Absolute paths, `..` segments and `~` paths are rejected; copy configs from outside the project into it first.",
+  "nativeConfig.missing":
+    "{{agent}} {{field}} points to a missing file: \"{{path}}\" (resolved to {{resolved}}). Paths resolve from the project root you run niceeval in (the directory containing niceeval.config.ts), not from eval / experiment source files.",
+  "nativeConfig.escapesRoot": "{{agent}} {{field}} \"{{path}}\" resolves through a symlink to outside the project root ({{resolved}}). The config file must physically live inside the project root.",
+  "nativeConfig.notFile": "{{agent}} {{field}} \"{{path}}\" is not a regular file. Point it at a complete official config file.",
+  "nativeConfig.invalidSyntax": "{{agent}} {{field}} \"{{path}}\" is not valid {{format}}: {{detail}}",
+  "nativeConfig.reservedKeys":
+    "{{agent}} {{field}} \"{{path}}\" contains reserved keys: {{keys}}. These keys are owned by the experiment and the Adapter (model, auth, MCP and OTel are layered separately) — remove them from the file.",
+  "nativeConfig.uploadFailed": "Could not upload native config file \"{{path}}\" into the sandbox ({{dest}}):\n{{tail}}",
   "cli.all": "(all)",
   "cli.browserOpenFailed": "Could not open the browser automatically. Open manually: {{url}}\n",
   "cli.clean.done": "Deleted .niceeval/ historical run artifacts.\n",

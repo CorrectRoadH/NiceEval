@@ -12,6 +12,8 @@ function lineCtx(): AgentContext {
     flags: {},
     session: createAgentSession(),
     sandbox: undefined as never,
+    progress() {},
+    diagnostic() {},
     log() {},
   };
 }

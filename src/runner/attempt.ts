@@ -26,14 +26,16 @@ import { createRemoteSandbox, withEvalLocalPaths } from "./remote-sandbox.ts";
 import type { CapturedEvalSource } from "./eval-source.ts";
 import type {
   AgentContext,
-  AgentSetup,
   AgentSetupManifest,
-  AgentTeardown,
   Cleanup,
   Config,
+  DiagnosticInput,
   EvalResult,
   JudgeConfig,
   Sandbox,
+  SandboxHook,
+  SandboxHookContext,
+  ScopedFeedback,
   ScoringContext,
   ScriptResult,
   SourceArtifact,
@@ -41,7 +43,8 @@ import type {
   Telemetry,
   TraceSpan,
 } from "../types.ts";
-import { reportAttemptLifecycle } from "./feedback/sink.ts";
+import { reportAttemptLifecycle, reportDiagnostic } from "./feedback/sink.ts";
+import { encodeAttemptKey } from "./types.ts";
 import { commandDisplay, commandNode, createTimingRecorder, type TimingRecorder } from "./timing.ts";
 import type {
   AgentRun,
@@ -113,6 +116,47 @@ export function runAttemptEffect(
     onPhase?.(phase);
     reportAttemptLifecycle({ type: "attempt:phase", at: Date.now(), identity, phase });
   };
+  // 本 attempt 累计的诊断(与 verdict 独立):ScopedFeedback.diagnostic 与 teardown 失败都落这里,
+  // 收尾时并入结果;dedupeKey 相同的并发诊断折叠成一条并累计 count。
+  const diagnostics: DiagnosticRecord[] = [];
+  const dedupeIndex = new Map<string, DiagnosticRecord>();
+  const recordDiagnostic = (input: DiagnosticInput) => {
+    const phase = (sendActive ? "agent.run" : lastPhase) ?? "eval.run";
+    if (input.dedupeKey !== undefined) {
+      const existing = dedupeIndex.get(input.dedupeKey);
+      if (existing) {
+        existing.count = (existing.count ?? 1) + 1;
+        return;
+      }
+    }
+    const record: DiagnosticRecord = {
+      code: input.code,
+      level: input.level,
+      message: input.message,
+      phase,
+      ...(input.data !== undefined ? { data: input.data } : {}),
+    };
+    if (input.dedupeKey !== undefined) dedupeIndex.set(input.dedupeKey, record);
+    diagnostics.push(record);
+    // 同时进运行级永久事件流(human 撤下 dashboard 后追加、agent/ci 各追加一条,去重按 key)。
+    reportDiagnostic({
+      key: input.dedupeKey ?? `${input.code}:${encodeAttemptKey(identity)}`,
+      severity: input.level,
+      message: input.message,
+      identity,
+      data: input.data,
+    });
+  };
+  // 作用域反馈:progress 走 attempt:progress(短命状态,归因由 runner 的当前阶段决定),
+  // diagnostic 落 attempt diagnostics + 运行级永久事件。绑定见 docs/feature/experiments/library.md。
+  const scopedFeedback: ScopedFeedback = {
+    progress: (u) => {
+      const suffix = u.current !== undefined && u.total !== undefined ? ` (${u.current}/${u.total})` : "";
+      log(`${u.message}${suffix}`);
+    },
+    diagnostic: recordDiagnostic,
+  };
+
   // 同时保留最近 20 条进度消息,timeout 时嵌入 error 字段方便定位卡在哪一步。
   const recentLogs: string[] = [];
   const log = (m: string) => {
@@ -163,6 +207,7 @@ export function runAttemptEffect(
                     provisionSlot,
                     timeout: timeoutMs,
                     runtime: "node24",
+                    feedback: scopedFeedback,
                   });
                 }),
               );
@@ -250,6 +295,8 @@ export function runAttemptEffect(
           },
           recorder,
           attemptEpoch: t0,
+          feedback: scopedFeedback,
+          diagnostics,
         }),
       );
     }),
@@ -317,9 +364,9 @@ function errorFromThrown(e: unknown, phase: LifecyclePhase | undefined): Attempt
 interface AttemptResources {
   sandbox: Sandbox;
   /** SandboxSpec.setup() 链式挂的钩子,按追加顺序;非沙箱 agent 传空数组(usesSandbox 挡住不会跑)。 */
-  sandboxSetupHooks: readonly AgentSetup[];
+  sandboxSetupHooks: readonly SandboxHook[];
   /** SandboxSpec.teardown() 链式挂的钩子,按追加顺序保存,执行时逆序。 */
-  sandboxTeardownHooks: readonly AgentTeardown[];
+  sandboxTeardownHooks: readonly SandboxHook[];
   receiver?: TraceReceiver;
   telemetry?: Telemetry;
   /** 非沙箱 tracing agent 的共享 OTLP 通道(run 级池持有,不随 attempt 关)。 */
@@ -336,6 +383,10 @@ interface AttemptResources {
   recorder: TimingRecorder;
   /** attempt 墙钟起点(turn 节点的 startOffsetMs 基准)。 */
   attemptEpoch: number;
+  /** 作用域反馈句柄(归因随 runner 当前阶段);各生命周期入口共享同一实现。 */
+  feedback: ScopedFeedback;
+  /** attempt 级诊断累计(runAttemptEffect 持有,含 sandbox.create 期间的诊断)。 */
+  diagnostics: DiagnosticRecord[];
 }
 
 // attempt 的固定段(上传→基线→setup→驱动 agent→采 diff→脚本→评分→判定)。
@@ -362,14 +413,13 @@ async function runAttemptBody(
     setSendActive,
     recorder,
     attemptEpoch,
+    feedback,
+    diagnostics,
   } = res;
   const usesSandbox = run.agent.kind === "sandbox";
   // 命令时间树:所有经这个包装 sandbox 发出的 runCommand/runShell 都挂成当前阶段(或当前 hook
   // 节点)下的 command 子节点。包装只在最外层公开调用记录一次——provider 内部转调不经过它。
   const sandbox = usesSandbox ? withCommandTiming(rawSandbox, recorder) : rawSandbox;
-  // 本 attempt 累计的诊断(与 verdict 独立):teardown / cleanup 失败等挂在这里,收尾时并入结果。
-  // 在 finally 里 push、在两个 return 之前把它挂到 `result` 上(见文件末尾 finally 的 result 变异)。
-  const diagnostics: DiagnosticRecord[] = [];
   // 在两个 return 前赋值,好让 finally 把 diagnostics 挂到即将返回的同一个对象上(见 finally 末尾)。
   let result: EvalResult | undefined;
   // 整个 attempt 共用一份 agent ctx(sandbox 钩子 / agent setup / tracing configure / teardown 都用它)。
@@ -382,7 +432,18 @@ async function runAttemptBody(
     sandbox,
     session: createAgentSession(),
     telemetry,
+    progress: feedback.progress,
+    diagnostic: feedback.diagnostic,
+    // log 是 progress({ message }) 的别名,不是第二条通道(见 AgentContext.log 注释)。
     log,
+  };
+  // Sandbox hook / eval.setup 的窄上下文:experimentId + signal + 作用域反馈,不借用完整 AgentContext
+  // (hook 拿不到 session / model / telemetry,见 docs/feature/sandbox/library.md)。
+  const hookCtx: SandboxHookContext = {
+    experimentId: run.experimentId,
+    signal,
+    progress: feedback.progress,
+    diagnostic: feedback.diagnostic,
   };
   let agentCleanup: Cleanup | void = undefined;
   let agentDidSetup = false;
@@ -413,7 +474,7 @@ async function runAttemptBody(
         });
         if (hookNode) recorder.pushParent(hookNode);
         try {
-          const cleanup = await hook(sandbox, attemptCtx);
+          const cleanup = await hook(sandbox, hookCtx);
           if (typeof cleanup === "function") sandboxCleanups.push(cleanup);
         } catch (e) {
           if (hookNode) hookNode.failed = true;
@@ -434,7 +495,7 @@ async function runAttemptBody(
       if (evalDef.setup) {
         enterPhase("eval.setup");
         log(t("runner.evalSetup"));
-        evalCleanup = await evalDef.setup(withEvalLocalPaths(sandbox, evalDef.baseDir));
+        evalCleanup = await evalDef.setup(withEvalLocalPaths(sandbox, evalDef.baseDir), hookCtx);
       }
     }
 
@@ -476,6 +537,7 @@ async function runAttemptBody(
       telemetry,
       otel,
       evalBaseDir: evalDef.baseDir,
+      feedback,
       onSendActive: setSendActive,
       // 每次 send 一个 turn 节点:本地单调时钟测得的端到端包络 + session/turn 身份;
       // OTel 接入时再带 traceId,trace.json 的 spans 由消费方按它临时挂到 turn 下。
@@ -691,7 +753,10 @@ async function runAttemptBody(
             log(t("runner.startSandboxTeardown"));
             for (let i = sandboxTeardownHooks.length - 1; i >= 0; i--) {
               try {
-                await sandboxTeardownHooks[i](sandbox, attemptCtx);
+                const teardownCleanup = await sandboxTeardownHooks[i](sandbox, hookCtx);
+                // SandboxHook 类型允许返回 Cleanup(与 setup 同一签名);teardown 返回的
+                // cleanup 没有更晚的挂点,立即执行。
+                if (typeof teardownCleanup === "function") await teardownCleanup();
               } catch (e) {
                 diagnostics.push(teardownDiagnostic("sandbox.teardown", e));
               }

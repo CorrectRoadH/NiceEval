@@ -70,7 +70,7 @@ export class VercelSandbox implements Sandbox {
   }
 
   static async create(
-    opts: { timeout?: number; runtime?: "node20" | "node24"; snapshotId?: string } = {},
+    opts: { timeout?: number; runtime?: "node20" | "node24"; snapshotId?: string; feedback?: import("../types.ts").ScopedFeedback } = {},
   ): Promise<VercelSandbox> {
     // Vercel 支持 node22/node24/node26/python3.13;node20 回退到 node22。
     const runtime = opts.runtime === "node20" ? "node22" : (opts.runtime ?? "node24");

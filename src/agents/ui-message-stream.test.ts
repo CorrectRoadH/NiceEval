@@ -77,6 +77,8 @@ function ctx(overrides: Partial<{ model: string }> = {}): AgentContext {
     sandbox: undefined as never,
     // 同一个 ctx 重复用 = 同一条会话线(续接,同一个 ctx.session);新造 = 新线。
     session: createAgentSession(),
+    progress: () => {},
+    diagnostic: () => {},
     log: () => {},
   } as AgentContext;
 }

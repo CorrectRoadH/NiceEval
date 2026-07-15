@@ -5,10 +5,11 @@
 // provider 名的行为分支只允许出现在 sandbox/ 内(见 docs/architecture.md)。
 
 import { Effect } from "effect";
-import type { CustomSandboxSpec, Sandbox, SandboxOption, SandboxRuntime } from "../types.ts";
+import type { CustomSandboxSpec, Sandbox, SandboxOption, SandboxRuntime, ScopedFeedback } from "../types.ts";
 import { registerSandbox, stopSandbox } from "./registry.ts";
 import { normalizeSandboxPaths } from "./paths.ts";
 import { t } from "../i18n/index.ts";
+import { reportActivity, reportDiagnostic } from "../runner/feedback/sink.ts";
 import { withProvisionRetry, type ProvisionSlot } from "./retry.ts";
 
 /** 归一化后的沙箱描述:确定的 provider + 各 provider 参数(只有对应 provider 用得上的会有值)。 */
@@ -61,19 +62,32 @@ export function sandboxLabel(opt: SandboxOption | undefined): string {
  * 按解析出的 provider + 参数创建沙箱,并把 stop() 注册为 Scope 回收动作。
  * 在 Effect.scoped / Effect.gen 里 yield* 即可;成功/失败/中断都保证 stop。
  */
+/** 没有 runner 绑定 feedback 时(测试直调等)的兜底:退回全局 sink,行为与旧接线一致。 */
+function fallbackFeedback(): ScopedFeedback {
+  return {
+    progress: (u) =>
+      reportActivity(u.current !== undefined && u.total !== undefined ? `${u.message} (${u.current}/${u.total})` : u.message),
+    diagnostic: (d) =>
+      reportDiagnostic({ key: d.dedupeKey ?? d.code, severity: d.level, message: d.message, data: d.data }),
+  };
+}
+
 export function createSandbox(opts: {
   sandbox?: SandboxOption;
   timeout?: number;
   runtime?: SandboxRuntime;
   /** 调用方并发槽位的临时归还/收回,传给 withProvisionRetry 在退避睡眠期间释放(见 retry.ts)。 */
   provisionSlot?: ProvisionSlot;
+  /** runner 绑定到 `sandbox.create` 阶段的反馈句柄;provider 的进度/诊断都走它。 */
+  feedback?: ScopedFeedback;
 }) {
   const r = resolveSandbox(opts.sandbox, opts.runtime);
+  const feedback = opts.feedback ?? fallbackFeedback();
   return Effect.acquireRelease(
     Effect.promise<Sandbox>(async () => {
       // 起好就登记:让 cli 的兜底强清(二次 Ctrl+C / 看门狗超时)能直接停到它,不只靠下面的
       // release。即便本 fiber 创建后立刻被中断、release 还没来得及跑,登记表也已认得这个沙箱。
-      const sb = normalizeSandboxPaths(await createProvider(r, opts.timeout, opts.provisionSlot));
+      const sb = normalizeSandboxPaths(await createProvider(r, feedback, opts.timeout, opts.provisionSlot));
       registerSandbox(sb);
       return sb;
     }),
@@ -82,18 +96,25 @@ export function createSandbox(opts: {
   );
 }
 
-async function createProvider(r: ResolvedSandbox, timeout?: number, provisionSlot?: ProvisionSlot): Promise<Sandbox> {
-  // 自定义 provider(defineSandbox):不认 provider 名,直接调用用户给的 create()。
-  if (r.create) return r.create({ timeout, runtime: r.runtime });
+async function createProvider(
+  r: ResolvedSandbox,
+  feedback: ScopedFeedback,
+  timeout?: number,
+  provisionSlot?: ProvisionSlot,
+): Promise<Sandbox> {
+  // 自定义 provider(defineSandbox):不认 provider 名,直接调用用户给的 create();
+  // feedback 已绑定到 sandbox.create 阶段(见 docs/feature/sandbox/library.md)。
+  if (r.create) return r.create({ timeout, runtime: r.runtime, feedback });
   switch (r.provider) {
     case "docker": {
       const { DockerSandbox, classifyProvisionError } = await import("./docker.ts").catch(() => {
         throw new Error(t("sandbox.dependencyMissing.docker"));
       });
       return withProvisionRetry(
-        () => DockerSandbox.create({ timeout, runtime: r.runtime, image: r.image }),
+        () => DockerSandbox.create({ timeout, runtime: r.runtime, image: r.image, feedback }),
         classifyProvisionError,
         provisionSlot,
+        feedback,
       );
     }
     case "vercel": {
@@ -101,9 +122,10 @@ async function createProvider(r: ResolvedSandbox, timeout?: number, provisionSlo
         throw new Error(t("sandbox.dependencyMissing.vercel"));
       });
       return withProvisionRetry(
-        () => VercelSandbox.create({ timeout, runtime: r.runtime, snapshotId: r.snapshotId }),
+        () => VercelSandbox.create({ timeout, runtime: r.runtime, snapshotId: r.snapshotId, feedback }),
         classifyProvisionError,
         provisionSlot,
+        feedback,
       );
     }
     case "e2b": {
@@ -114,6 +136,7 @@ async function createProvider(r: ResolvedSandbox, timeout?: number, provisionSlo
         () => E2BSandbox.create({ timeout, runtime: r.runtime, template: r.template }),
         classifyProvisionError,
         provisionSlot,
+        feedback,
       );
     }
     default:

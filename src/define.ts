@@ -3,8 +3,6 @@
 
 import type {
   Agent,
-  AgentSetup,
-  AgentTeardown,
   Config,
   CustomSandboxSpec,
   DockerSandboxSpec,
@@ -13,6 +11,7 @@ import type {
   ExperimentDef,
   RemoteAgentDef,
   SandboxAgentDef,
+  SandboxHook,
   SandboxHooks,
   VercelSandboxSpec,
 } from "./types.ts";
@@ -83,8 +82,8 @@ export function defineConfig(config: Config): Config {
 
 /** 链式追加中累积的钩子(setup 按追加顺序执行,teardown 执行时逆序,见 SandboxHooks)。 */
 interface HookState {
-  readonly setupHooks: readonly AgentSetup[];
-  readonly teardownHooks: readonly AgentTeardown[];
+  readonly setupHooks: readonly SandboxHook[];
+  readonly teardownHooks: readonly SandboxHook[];
 }
 
 /** 四个工厂共用:把当前钩子状态包成 `.setup()` / `.teardown()` 方法,调用即用新状态重新 build。 */

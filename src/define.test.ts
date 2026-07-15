@@ -4,10 +4,10 @@
 // defineSandbox() 这四个工厂产出的 spec 对象本身的构造行为。
 import { describe, expect, it } from "vitest";
 import { dockerSandbox, e2bSandbox, vercelSandbox, defineSandbox } from "./define.ts";
-import type { AgentSetup, AgentTeardown } from "./types.ts";
+import type { SandboxHook } from "./types.ts";
 
-const noopSetup: AgentSetup = () => {};
-const noopTeardown: AgentTeardown = () => {};
+const noopSetup: SandboxHook = () => {};
+const noopTeardown: SandboxHook = () => {};
 
 describe("sandbox factories: .setup()/.teardown() chain", () => {
   it("dockerSandbox() starts with empty hook arrays", () => {
@@ -27,15 +27,15 @@ describe("sandbox factories: .setup()/.teardown() chain", () => {
   });
 
   it("multiple .setup() calls accumulate in append order", () => {
-    const a: AgentSetup = () => {};
-    const b: AgentSetup = () => {};
+    const a: SandboxHook = () => {};
+    const b: SandboxHook = () => {};
     const spec = dockerSandbox().setup(a).setup(b);
     expect(spec.setupHooks).toEqual([a, b]);
   });
 
   it("multiple .teardown() calls accumulate in append order (execution order is the runner's job)", () => {
-    const x: AgentTeardown = () => {};
-    const y: AgentTeardown = () => {};
+    const x: SandboxHook = () => {};
+    const y: SandboxHook = () => {};
     const spec = dockerSandbox().teardown(x).teardown(y);
     expect(spec.teardownHooks).toEqual([x, y]);
   });
@@ -72,7 +72,7 @@ describe("sandbox factories: .setup()/.teardown() chain", () => {
 
   it("each chain call produces an independent object (no shared mutable state)", () => {
     const base = dockerSandbox();
-    const other: AgentSetup = () => {};
+    const other: SandboxHook = () => {};
     const branchA = base.setup(noopSetup);
     const branchB = base.setup(other);
     expect(branchA.setupHooks).toEqual([noopSetup]);

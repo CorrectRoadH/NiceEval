@@ -2,6 +2,7 @@
 // `t` 的形状按 Agent 能力组装(见 docs/architecture.md「能力决定形状」)。
 
 import type { InputRequest, StreamEvent, ToolCall, Usage } from "../o11y/types.ts";
+import type { DiagnosticInput, ProgressUpdate } from "../shared/types.ts";
 import type { AssertionHandle, ValueAssertion } from "../scoring/types.ts";
 import type {
   CommandOptions,
@@ -276,7 +277,17 @@ export interface TestContext {
   readonly reasoningEffort?: string;
   /** 本次 attempt 生效的实验 flags(experiment.flags 的只读视图;实验条件,非命令行开关)。 */
   readonly flags: Readonly<Record<string, unknown>>;
-  /** 打一行调试日志;有 live 进度回调时走该回调,否则落到 stderr,不出现在最终结果里。 */
+  /**
+   * 作用域反馈:报告 eval 自己执行的长步骤(上传 fixture、跑构建……)。短命状态,scope 固定
+   * 为 `eval.run`;只报告不断言(见 docs/feature/eval/library/context.md「向运行反馈长步骤」)。
+   */
+  progress(update: ProgressUpdate): void;
+  /**
+   * 作用域反馈:报告运行结束后仍需保留的问题(永久事件,落 attempt diagnostics)。
+   * 即使 level 为 "error" 也不自动改变 verdict——测试结论仍由断言决定。
+   */
+  diagnostic(input: DiagnosticInput): void;
+  /** `progress({ message: msg })` 的别名(调试日志),不出现在最终结果里。 */
   log(msg: string): void;
   /** 立即中止本 eval 并标记为 skipped(verdict / EvalResult.skipReason),reason 不能为空。 */
   skip(reason: string): never;

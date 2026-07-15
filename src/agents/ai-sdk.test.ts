@@ -457,6 +457,8 @@ function fakeCtx(opts: { id?: string } = {}): AgentContext {
     flags: {},
     sandbox: undefined as unknown as AgentContext["sandbox"],
     session,
+    progress: () => {},
+    diagnostic: () => {},
     log: () => {},
   };
 }

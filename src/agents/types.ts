@@ -2,7 +2,7 @@
 // 「连到哪个被测对象、协议怎么说」的全部契约在这里(见 docs-site/zh/concepts/adapter.mdx)。
 // 能力不再是问卷式声明:t 上解锁什么完全由构造证据决定(见 docs-site 「能力从哪来」一节)。
 
-import type { Cleanup } from "../shared/types.ts";
+import type { Cleanup, DiagnosticInput, ProgressUpdate } from "../shared/types.ts";
 import type { StreamEvent, TraceSpan, Usage } from "../o11y/types.ts";
 import type { Sandbox } from "../sandbox/types.ts";
 
@@ -69,6 +69,12 @@ export interface AgentSetupManifest {
   }>;
   /** 挂上的 MCP server(不含 env:secret 不进 manifest)。 */
   mcpServers?: Array<{ name: string; command: string; args?: string[] }>;
+  /**
+   * 官方原生配置文件(Claude Code `settings.json` / Codex `config.toml`):只记 Agent 名、
+   * 项目相对来源路径与原始字节的 SHA-256,不落正文 —— 任意官方配置都可能携带敏感字符串,
+   * 不能靠字段白名单证明适合原样落盘。
+   */
+  nativeConfigFile?: { agent: "claude-code" | "codex"; path: string; sha256: string };
   /** Bub 的 Python Plugin(规范化后的 package 串)。 */
   pythonPlugins?: Array<{ package: string }>;
 }
@@ -278,11 +284,21 @@ export interface AgentContext {
    */
   readonly telemetry?: Telemetry;
   /**
-   * 报告一句短的运行态进度:只更新 `human` profile dashboard 当前 active 行的次要文本
-   * (见 docs/feature/experiments/cli.md「Attempt 阶段」的 `running.detail`),`agent` / `ci`
-   * profile 不展示。超时失败时,最近若干行会并入结果的 error 信息,方便定位卡在哪一步;
-   * 不写入 results。与 `Sandbox.appendLog` 是两回事:那个是把一行写进容器自己的原生日志
-   * (`docker logs` 能看到),这里只是运行器的观测通道。
+   * 作用域反馈:报告此刻正在做什么(turn / tool / 安装进度)。短命状态——Human profile
+   * 更新 active 行,`agent`/`ci` 不逐条打印,也不进最终结果;不要每个 token/delta 都调用。
+   * runner 按当前回调所处的生命周期阶段(agent.setup / agent.run / agent.teardown)归因,
+   * 调用方不能冒充其它阶段(见 docs/feature/experiments/library.md)。
+   */
+  progress(update: ProgressUpdate): void;
+  /**
+   * 作用域反馈:报告运行结束后仍应保留的问题(协议降级、数据不完整、cleanup 问题)。
+   * 永久事件,落进 attempt 的 diagnostics 并进各 profile 的永久输出;`dedupeKey` 去重。
+   * 即使 level 为 "error" 也不改变 Turn.status / verdict——无法继续时抛异常。
+   */
+  diagnostic(input: DiagnosticInput): void;
+  /**
+   * `progress({ message: msg })` 的别名,不是第二条通道(见 docs/feature/experiments/cli.md
+   * 「Attempt 阶段」)。超时失败时最近若干行会并入结果的 error 信息,方便定位卡在哪一步。
    */
   log(msg: string): void;
 }

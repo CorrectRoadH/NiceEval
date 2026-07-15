@@ -9,6 +9,13 @@ import {
   skillDiscoveryInstruction,
 } from "./skills.ts";
 import { writeAgentSetupManifest } from "./manifest.ts";
+import { verifyMarketplaceName } from "./marketplace.ts";
+import {
+  appendNativeConfigFile,
+  assertTomlNativeConfig,
+  loadNativeConfigFile,
+  type LoadedNativeConfig,
+} from "./native-config.ts";
 import { mapCodexSpans } from "../o11y/otlp/mappers/codex.ts";
 import { t } from "../i18n/index.ts";
 import { DEFAULT_CODEX_CLI_VERSION } from "./coding-cli-versions.ts";
@@ -25,6 +32,19 @@ import type { Agent, AgentSetupManifest, McpServer, Sandbox, SkillSpec } from ".
 
 /** codex 的 skill 目录(`skills` 生态的「通用」目录);codex 不原生扫描它,靠下面的发现指引。 */
 const SKILL_DIR = ".agents/skills";
+
+/**
+ * `configFile` 的保留键:model / provider 路由 / 推理努力归 experiment 与 Adapter 的生成层,
+ * MCP 表与 OTel 导出归 Adapter。清单定稿见 docs/feature/adapters/sdk/codex-cli/README.md。
+ */
+const RESERVED_CONFIG_KEYS = [
+  "model",
+  "model_provider",
+  "model_providers",
+  "model_reasoning_effort",
+  "mcp_servers",
+  "otel",
+] as const;
 
 /**
  * Codex 的原生 Plugin —— **只属于 Codex**,不能传给 Claude Code(它有自己的
@@ -62,6 +82,16 @@ export interface CodexConfig {
   skills?: SkillSpec[];
   /** Codex 原生 Plugin(先连 Marketplace,再从中装指定 Plugin)。 */
   plugins?: CodexPluginSpec[];
+  /**
+   * 一份完整的 Codex `config.toml`(官方 TOML 格式)在本地项目里的路径 —— 相对运行
+   * niceeval 的项目根(含 `niceeval.config.ts` 的目录)解析,不是 Sandbox 内路径;只接受
+   * 项目根内的相对路径,包含 `..` 的路径、绝对路径、`~` 路径和解析后逃出项目根的符号链接
+   * 都在 setup 阶段报错。原始字节原样并入沙箱里原本为空的用户级 `~/.codex/config.toml`
+   * (不继承宿主机配置、不解析后重写);保留键 `model`、`model_provider`、`model_providers`、
+   * `model_reasoning_effort`、`mcp_servers`、`otel` 出现在文件里 setup 报错。manifest 只记
+   * 项目相对路径与字节 SHA-256,不落正文。
+   */
+  configFile?: string;
 }
 
 export function codexAgent(config?: CodexConfig): Agent {
@@ -80,27 +110,48 @@ export function codexAgent(config?: CodexConfig): Agent {
         `command -v codex >/dev/null 2>&1 || npm install -g @openai/codex@${DEFAULT_CODEX_CLI_VERSION}`,
       );
 
+      // 用户的原生配置文件:本地读原始字节 → 验 TOML 语法与保留键。字节 SHA-256 进
+      // manifest 与安装 checkpoint key(见 native-config.ts 的 nativeConfigCheckpointItem)。
+      let nativeConfig: LoadedNativeConfig | undefined;
+      if (config?.configFile !== undefined) {
+        nativeConfig = await loadNativeConfigFile({ agent: "codex", field: "configFile", path: config.configFile });
+        assertTomlNativeConfig(nativeConfig, { agent: "codex", field: "configFile", reservedKeys: RESERVED_CONFIG_KEYS });
+      }
+
       // model 归属:实验决定(ctx.model);省略时不写 model 行,交给 codex CLI 原生默认,
       // 不在 adapter 里硬编码一个会过期的模型名。
       const modelLine = ctx.model ? `model = "${ctx.model}"\n` : "";
       const effort = ctx.reasoningEffort ?? (ctx.flags.effort as string | undefined) ?? "medium";
       const base = getBaseUrl();
 
-      if (base) {
+      const topLevel = base
+        ? modelLine + `model_provider = "s2a"\n` + `model_reasoning_effort = "${effort}"\n`
+        : `${modelLine}model_reasoning_effort = "${effort}"\n`;
+      const providerTable = base
+        ? `[model_providers.s2a]\n` +
+          `name = "s2a"\n` +
+          `base_url = "${base}"\n` +
+          `env_key = "CODEX_API_KEY"\n` +
+          `wire_api = "responses"\n`
+        : "";
+
+      if (!nativeConfig) {
         await shared.writeFile(
           sb,
           "~/.codex/config.toml",
-          modelLine +
-            `model_provider = "s2a"\n` +
-            `model_reasoning_effort = "${effort}"\n\n` +
-            `[model_providers.s2a]\n` +
-            `name = "s2a"\n` +
-            `base_url = "${base}"\n` +
-            `env_key = "CODEX_API_KEY"\n` +
-            `wire_api = "responses"\n`,
+          providerTable ? `${topLevel}\n${providerTable}` : topLevel,
         );
       } else {
-        await shared.writeFile(sb, "~/.codex/config.toml", `${modelLine}model_reasoning_effort = "${effort}"\n`);
+        // codex 只读一份用户级 config.toml(没有 include / 第二配置层),Adapter 生成层与
+        // 用户文件只能同文件分段共存。TOML 没有「回到根表」的语法,顶层键必须先于任何表头,
+        // 所以布局固定为:Adapter 顶层键 → 用户文件原始字节(逐字节保留,自带表随意)→
+        // Adapter 的表([model_providers.*] 以及后续追加的 [mcp_servers.*]、[otel])。
+        // 保留键校验保证两层键不重叠,用户内容不被解析重写。
+        await shared.writeFile(sb, "~/.codex/config.toml", topLevel);
+        await appendNativeConfigFile(sb, nativeConfig, "~/.codex/config.toml");
+        if (providerTable) {
+          await sb.runShell(`cat >> ~/.codex/config.toml <<'NICEEVAL_PROVIDER_EOF'\n\n${providerTable}NICEEVAL_PROVIDER_EOF\n`);
+        }
       }
 
       if (config?.mcpServers?.length) {
@@ -140,7 +191,16 @@ export function codexAgent(config?: CodexConfig): Agent {
           ...(s.args?.length ? { args: [...s.args] } : {}),
         }));
       }
-      if (manifest.skills.length || manifest.nativePlugins?.length || manifest.mcpServers?.length) {
+      if (nativeConfig) {
+        // 只记来源路径与字节哈希,不落正文(任意官方配置都可能带敏感字符串)。
+        manifest.nativeConfigFile = { agent: "codex", path: nativeConfig.path, sha256: nativeConfig.sha256 };
+      }
+      if (
+        manifest.skills.length ||
+        manifest.nativePlugins?.length ||
+        manifest.mcpServers?.length ||
+        manifest.nativeConfigFile
+      ) {
         await writeAgentSetupManifest(sb, manifest);
       }
     },
@@ -183,7 +243,8 @@ export function codexAgent(config?: CodexConfig): Agent {
 }
 
 /**
- * 先按 `marketplace.name` 连 Marketplace(同名只连一次,`--ref` 钉版本),再装指定 Plugin。
+ * 先按 `marketplace.name` 连 Marketplace(同名只连一次,`--ref` 钉版本,add 后回读注册
+ * 列表校验名字真的注册上了),再装指定 Plugin。
  * 只按 codex 自己的 marketplace / plugin 协议走 —— 与 claude-code 的实现不共用命令、不共用类型。
  */
 export async function installPlugins(
@@ -211,6 +272,14 @@ export async function installPlugins(
           }),
         );
       }
+      // add 静默按目标仓库 manifest 的 name 注册,错名会拖到 plugin add 才炸;
+      // 回读注册列表立刻校验(契约与真机复现见 marketplace.ts 顶部说明)。
+      await verifyMarketplaceName(sb, {
+        agent: "codex",
+        listCommand: "codex plugin marketplace list --json",
+        marketplace,
+        knownNames: connected,
+      });
       connected.add(marketplace.name);
     }
 

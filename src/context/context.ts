@@ -74,6 +74,9 @@ export interface ContextDeps {
   otel?: import("../o11y/otlp/turn-otel.ts").AgentOtelChannel;
   /** Eval definition directory; used to resolve host-side relative fixture paths. */
   evalBaseDir?: string;
+  /** runner 绑定的作用域反馈(t.progress / t.diagnostic 与 adapter ctx 共用实现);
+   *  省略时(测试直调)progress 退回 log、diagnostic 静默丢弃。 */
+  feedback?: import("../types.ts").ScopedFeedback;
   /** adapter send 在飞时的通知(errored 归因到嵌套的 `agent.run` 阶段用);透传给 SessionManager。 */
   onSendActive?: (active: boolean) => void;
   /** 每轮 send 的墙钟包络回报(runner 挂 turn 时间树节点);透传给 SessionManager。 */
@@ -105,6 +108,7 @@ export function createEvalContext(deps: ContextDeps): { context: TestContext; st
     log: deps.log,
     telemetry: deps.telemetry,
     otel: deps.otel,
+    feedback: deps.feedback,
     onSendActive: deps.onSendActive,
     onTurn: deps.onTurn,
   });
@@ -299,6 +303,12 @@ export function createEvalContext(deps: ContextDeps): { context: TestContext; st
     model: deps.model,
     reasoningEffort: deps.reasoningEffort,
     flags: deps.flags,
+    // 作用域反馈:scope 固定为 eval.run(runner 按当前阶段归因,eval 不能冒充其它阶段)。
+    progress: (u: import("../types.ts").ProgressUpdate) =>
+      deps.feedback
+        ? deps.feedback.progress(u)
+        : deps.log(u.current !== undefined && u.total !== undefined ? `${u.message} (${u.current}/${u.total})` : u.message),
+    diagnostic: (d: import("../types.ts").DiagnosticInput) => deps.feedback?.diagnostic(d),
     log: deps.log,
     skip: (reason: string) => {
       if (reason.trim().length === 0) throw new Error(t("context.skipEmpty"));
