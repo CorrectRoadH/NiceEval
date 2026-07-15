@@ -7,6 +7,9 @@ import { resolve as resolvePath } from "node:path";
 import { readFile as readSourceFile } from "node:fs/promises";
 import { Effect, Cause, Duration } from "effect";
 import { createSandbox, resolveSandbox, sandboxRunInfo } from "../sandbox/resolve.ts";
+import { stopSandbox, unregisterSandbox } from "../sandbox/registry.ts";
+import { KEEPABLE_PROVIDERS, nativeEnterCommand, suspendSandbox } from "../sandbox/keep.ts";
+import { keptEntryId, updateKeptEntry, writeKeptEntry } from "../sandbox/keep-registry.ts";
 import { createTraceReceiver, type TraceReceiver } from "../o11y/otlp/receiver.ts";
 import { createInSandboxTraceReceiver } from "../o11y/otlp/sandbox-receiver.ts";
 import type { AgentOtelChannel } from "../o11y/otlp/turn-otel.ts";
@@ -44,8 +47,8 @@ import type {
   Telemetry,
   TraceSpan,
 } from "../types.ts";
-import { reportAttemptLifecycle, reportDiagnostic } from "./feedback/sink.ts";
-import { encodeAttemptKey } from "./types.ts";
+import { reportAttemptLifecycle, reportDiagnostic, reportKept } from "./feedback/sink.ts";
+import { encodeAttemptKey, runWho } from "./types.ts";
 import { commandDisplay, commandNode, createTimingRecorder, type TimingRecorder } from "./timing.ts";
 import type {
   AgentRun,
@@ -70,6 +73,7 @@ export function runAttemptEffect(
 ): Effect.Effect<EvalResult> {
   const config = opts.config;
   const { evalDef, run, attempt } = a;
+  const niceevalRoot = opts.niceevalRoot ?? `${process.cwd()}/.niceeval`;
   const t0 = Date.now();
 
   const base: EvalResult = {
@@ -176,6 +180,20 @@ export function runAttemptEffect(
       // run.sandbox ?? config.sandbox 是同一个 SandboxSpec 对象,既用来起沙箱 provider,
       // 也是 sandbox.setup / sandbox.teardown 钩子(SandboxSpec.setup()/.teardown() 链式挂的)的来源。
       const sandboxSpec = run.sandbox ?? config.sandbox;
+      // defineSandbox 自定义 provider 不参与留存(事后命令不执行用户项目代码,新进程无法安全
+      // 找回用户对象上的 stopDetached);组合使用在创建沙箱前报清晰错误。
+      if (
+        run.agent.kind === "sandbox" &&
+        opts.keepSandbox !== undefined &&
+        resolveSandbox(sandboxSpec).create !== undefined
+      ) {
+        throw new Error(
+          `--keep-sandbox is not supported with a defineSandbox custom provider ("${resolveSandbox(sandboxSpec).provider}"): the after-the-fact 'niceeval sandbox' commands never load project code, so a detached stop for user-defined sandboxes cannot be recovered safely. Use a built-in provider (docker / e2b / vercel), or drop --keep-sandbox.`,
+        );
+      }
+      // 留存 disposition:只在本 attempt 内可变,初始 stop;只有留存提交成功才改成 keep
+      // (Ctrl+C 中断外层 Scope 时仍是 stop,照常清理)。
+      let disposition: "stop" | "keep" = "stop";
       // 退避重试(resolve.ts → retry.ts)期间临时归还这个名额:被限流的 provider 只是在
       // setTimeout 里睡觉,不该攥着 sandboxSem 的槽位陪跑,不然一批 429 能把整体并发拖成个位数。
       const provisionSlot = {
@@ -189,7 +207,10 @@ export function runAttemptEffect(
       if (run.agent.kind === "sandbox") {
         yield* Effect.addFinalizer(() =>
           Effect.sync(() => {
-            if (releaseStartedAt > 0) recorder.record("sandbox.stop", Date.now() - releaseStartedAt);
+            // 留存路径的 phases 以 sandbox.suspend 结尾,没有 sandbox.stop 条目(见 release)。
+            if (releaseStartedAt > 0 && disposition !== "keep") {
+              recorder.record("sandbox.stop", Date.now() - releaseStartedAt);
+            }
           }),
         );
       }
@@ -209,6 +230,33 @@ export function runAttemptEffect(
                     timeout: timeoutMs,
                     runtime: "node24",
                     feedback: scopedFeedback,
+                    // Scope release 按 disposition 收尾:stop = 销毁(默认);keep = provider
+                    // suspend(sandbox.suspend 阶段,有界计时),成功把登记项转 dormant,
+                    // 失败保持 alive 并追加 diagnostic——不销毁、不冒充 dormant。
+                    release: async (sb) => {
+                      if (disposition !== "keep") {
+                        await stopSandbox(sb);
+                        return;
+                      }
+                      unregisterSandbox(sb);
+                      const providerName = resolveSandbox(sandboxSpec).provider;
+                      const suspendStart = Date.now();
+                      try {
+                        await suspendSandbox(sb);
+                        recorder.record("sandbox.suspend", Date.now() - suspendStart);
+                        await updateKeptEntry(niceevalRoot, keptEntryId(providerName, sb.sandboxId), {
+                          state: "dormant",
+                        }).catch(() => false);
+                      } catch (e) {
+                        recorder.record("sandbox.suspend", Date.now() - suspendStart, true);
+                        recordDiagnostic({
+                          code: "sandbox-suspend-failed",
+                          level: "warning",
+                          message: `sandbox ${sb.sandboxId} kept but suspend failed; the instance is still running: ${e instanceof Error ? e.message : String(e)}`,
+                          dedupeKey: `sandbox-suspend-failed:${sb.sandboxId}`,
+                        });
+                      }
+                    },
                   });
                 }),
               );
@@ -278,7 +326,7 @@ export function runAttemptEffect(
       // body 是 Promise(adapter 边界)。Effect.promise 给的 AbortSignal 在本 fiber 被中断
       //(用户 Ctrl+C / 下面 timeoutTo 到点)时 abort —— 并进 signal,让真正观察 signal 的
       // adapter / docker 命令随中断一起停,而不只靠 Scope release 兜底。
-      return yield* Effect.promise((interruptSignal) =>
+      const bodyResult = yield* Effect.promise((interruptSignal) =>
         runAttemptBody(a, config, t0, base, {
           sandbox,
           sandboxSetupHooks: sandboxSpec?.setupHooks ?? [],
@@ -300,6 +348,61 @@ export function runAttemptEffect(
           diagnostics,
         }),
       );
+
+      // 留存提交:verdict 定稿、其余收尾(teardown 链、diff 采集)已在 body 内完成后,按档位
+      // 提交——failed 档留 failed/errored,all 档全部;顺序不可调换:先原子写登记项,写入成功
+      // 才把 disposition 改成 keep;写入失败保持 stop、记 diagnostic,`sandbox.kept` 不得为 true。
+      const keepMode = opts.keepSandbox;
+      if (
+        run.agent.kind === "sandbox" &&
+        keepMode !== undefined &&
+        a.locator !== undefined &&
+        (keepMode === "all" || bodyResult.verdict === "failed" || bodyResult.verdict === "errored")
+      ) {
+        const providerName = resolveSandbox(sandboxSpec).provider;
+        if (KEEPABLE_PROVIDERS.has(providerName)) {
+          try {
+            const enter = nativeEnterCommand(providerName, sandbox.sandboxId);
+            yield* Effect.promise(() =>
+              writeKeptEntry(niceevalRoot, {
+                sandboxId: sandbox.sandboxId,
+                provider: providerName,
+                evalId: evalDef.id,
+                attempt,
+                ...(run.experimentId !== undefined ? { experimentId: run.experimentId } : {}),
+                locator: String(a.locator),
+                verdict: bodyResult.verdict,
+                keptAt: new Date().toISOString(),
+                workdir: sandbox.workdir,
+                ...(enter !== undefined ? { enter } : {}),
+                state: "alive",
+              }),
+            );
+            disposition = "keep";
+            reportKept({
+              locator: a.locator,
+              identity,
+              who: runWho({ agentName: run.agent.name, model: run.model, experimentId: run.experimentId }),
+              verdict: bodyResult.verdict,
+              provider: providerName,
+              sandboxId: sandbox.sandboxId,
+              ...(enter !== undefined ? { enter } : {}),
+            });
+            return {
+              ...bodyResult,
+              sandbox: { provider: providerName, sandboxId: sandbox.sandboxId, kept: true as const },
+            };
+          } catch (e) {
+            recordDiagnostic({
+              code: "sandbox-keep-failed",
+              level: "warning",
+              message: `failed to register kept sandbox ${sandbox.sandboxId}; it will be destroyed normally: ${e instanceof Error ? e.message : String(e)}`,
+              dedupeKey: `sandbox-keep-failed:${sandbox.sandboxId}`,
+            });
+          }
+        }
+      }
+      return bodyResult;
     }),
   ).pipe(
     // ── attempt 总超时的硬边界(P1)──

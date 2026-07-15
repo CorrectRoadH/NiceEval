@@ -173,6 +173,24 @@ export class E2BSandbox implements Sandbox {
     await this.sbx.kill();
   }
 
+  /**
+   * 留存休眠(suspend):e2b `pause`——文件系统与内存整体持久化,暂停期间停止计费,
+   * 现场无限期保留、可 resume 找回(没有自然过期时刻,注册表不写 expiresAt)。
+   * SDK 版本差异按能力探测(betaPause 是旧名),都没有则如实抛错(现场保持 alive)。
+   */
+  async suspend(): Promise<void> {
+    const sbx = this.sbx as unknown as { pause?: () => Promise<unknown>; betaPause?: () => Promise<unknown> };
+    if (typeof sbx.pause === "function") {
+      await sbx.pause();
+      return;
+    }
+    if (typeof sbx.betaPause === "function") {
+      await sbx.betaPause();
+      return;
+    }
+    throw new Error("this e2b SDK version has no pause capability; sandbox left running");
+  }
+
   async downloadFile(path: string): Promise<Buffer> {
     const bytes = await this.sbx.files.read(this.abs(path), { format: "bytes" });
     return Buffer.from(bytes);

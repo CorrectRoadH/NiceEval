@@ -161,6 +161,13 @@ export function createCiRenderer(options: CiRendererOptions): FeedbackRenderer {
           pendingSummary = { summary: event.summary, completion: event.completion, reused: state.reused };
           return;
 
+        case "kept":
+          // 人读单行(见 docs/feature/sandbox/cli.md「run 收尾输出」的 ci 形态)。
+          io.stderr.write(
+            `niceeval: kept sandbox ${event.sandboxId} (${event.provider}) — ${event.identity.evalId} #${event.identity.attempt} ${event.verdict} — enter: niceeval sandbox enter ${event.sandboxId.slice(0, 12)}\n`,
+          );
+          return;
+
         case "saved":
           writeResultBlock(io, pendingSummary, event);
           return;

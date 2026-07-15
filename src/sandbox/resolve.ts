@@ -111,6 +111,11 @@ export function createSandbox(opts: {
   provisionSlot?: ProvisionSlot;
   /** runner 绑定到 `sandbox.create` 阶段的反馈句柄;provider 的进度/诊断都走它。 */
   feedback?: ScopedFeedback;
+  /**
+   * release 覆写(留存路径用):Scope 关闭时按调用方的 disposition 决定 stop 还是 suspend。
+   * 省略 = 恒 stopSandbox(默认销毁)。
+   */
+  release?: (sb: Sandbox) => Promise<void>;
 }) {
   const r = resolveSandbox(opts.sandbox, opts.runtime);
   const feedback = opts.feedback ?? fallbackFeedback();
@@ -123,7 +128,7 @@ export function createSandbox(opts: {
       return sb;
     }),
     // release:成功 / 失败 / 中断都跑。带超时 + 失败不静默(stopSandbox 内做),并把它移出登记表。
-    (sb) => Effect.promise(() => stopSandbox(sb)),
+    (sb) => Effect.promise(() => (opts.release ? opts.release(sb) : stopSandbox(sb))),
   );
 }
 

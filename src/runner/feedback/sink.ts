@@ -17,6 +17,7 @@
 import { writeStderrLine } from "../../tty-line.ts";
 import { t } from "../../i18n/index.ts";
 import type { AttemptLifecycleEvent, LifecyclePhase, AttemptRef } from "../types.ts";
+import type { Verdict } from "../../scoring/types.ts";
 import type { JsonValue } from "../../shared/types.ts";
 import type { AttemptLocator } from "../../results/locator.ts";
 
@@ -60,6 +61,17 @@ export interface BudgetExhaustedInput {
   unstarted: number;
 }
 
+/** `sink.kept()` 的输入 —— 与 `DurableFeedbackEvent` 的 "kept" 变体字段一致,省略 type/at。 */
+export interface KeptInput {
+  locator: AttemptLocator;
+  identity: AttemptRef;
+  who: string;
+  verdict: Verdict;
+  provider: string;
+  sandboxId: string;
+  enter?: string;
+}
+
 /** `sink.ts` façade 函数实际转发到的最小接口 —— `FeedbackCoordinator`(coordinator.ts)实现它。
  *  定义在这里(而不是从 coordinator.ts 导入)是为了让 sink.ts 不必在运行时依赖 coordinator.ts,
  *  避免两个模块互相 import 造成的循环依赖 —— coordinator.ts 反过来 `import type` 这个接口。 */
@@ -72,6 +84,8 @@ export interface FeedbackSink {
   failure(input: FailureInput): void;
   /** 一个因预算到顶而未被派发的 attempt(见 `BudgetExhaustedInput`)。 */
   budgetExhausted(input: BudgetExhaustedInput): void;
+  /** 一次留存授予(--keep-sandbox);见 `KeptInput` 与 docs/feature/sandbox/cli.md。 */
+  kept(input: KeptInput): void;
   /** attempt 生命周期事件(queued/start/phase/progress/complete/early-exit),见
    *  `AttemptLifecycleEvent`。只驱动 human dashboard 的 active slot,不落 RunSummary/结果文件,
    *  所以没有活跃 coordinator 时(见 `reportAttemptLifecycle`)静默丢弃是安全的 —— 这类信息
@@ -141,6 +155,16 @@ export function reportFailure(input: FailureInput): void {
 
 /** 一个因预算到顶而未被派发的 attempt(见 `BudgetExhaustedInput`)。没有活跃 coordinator 时的
  *  兜底文案与 coordinator.ts 的 `fallbackTextFor` 对 "budget-exhausted" 事件的格式化保持一致。 */
+/** 一次留存授予的永久通知(--keep-sandbox);没有活跃 coordinator 时退回一行 stderr。 */
+export function reportKept(input: KeptInput): void {
+  const sink = current();
+  if (sink) {
+    sink.kept(input);
+    return;
+  }
+  writeStderrLine(`kept sandbox ${input.sandboxId} (${input.provider}) — ${input.identity.evalId} #${input.identity.attempt} ${input.verdict}\n`);
+}
+
 export function reportBudgetExhausted(input: BudgetExhaustedInput): void {
   const sink = current();
   if (sink) {

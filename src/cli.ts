@@ -8,7 +8,7 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join, relative, resolve as resolvePath } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs as nodeParseArgs } from "node:util";
 import { discoverEvals, discoverExperiments, makeFilter } from "./runner/discover.ts";
@@ -101,6 +101,11 @@ interface Flags {
   diff: boolean;
   /** --diff=<路径>(必须 = 连写;空格形式会把路径当 eval id 前缀,按文档如此)。 */
   diffPath?: string;
+  keepSandbox?: "failed" | "all";
+  all: boolean;
+  window?: string;
+  sandboxPath?: string;
+  leaveRunning: boolean;
   history: boolean;
   experiment?: string;
   run?: string;
@@ -126,6 +131,16 @@ const FLAG_OPTIONS = {
   timeout: { type: "string" },
   /** 整次运行的预算上限(美元)。 */
   budget: { type: "string" },
+  /** `exp` 命令专用:跑完留下 failed/errored attempt 的沙箱现场(= `--keep-sandbox=failed`);`--keep-sandbox=all` 连 passed 也留。事后用 `niceeval sandbox list/enter/stop` 查看与销毁。 */
+  "keep-sandbox": { type: "boolean" },
+  /** `sandbox stop` 专用:销毁全部留存沙箱。 */
+  all: { type: "boolean" },
+  /** `sandbox diff` 专用:只看某个 send 窗口(如 `--window s1/t2`);省略输出全部窗口的串联视图。 */
+  window: { type: "string" },
+  /** `sandbox diff` 专用:只看某个文件的 patch;省略输出该窗口的全部文件。 */
+  path: { type: "string" },
+  /** `sandbox enter` 专用:shell 退出后让现场保持运行,不送回休眠。 */
+  "leave-running": { type: "boolean" },
   /** 只运行带有该 tag 的 eval(见 `defineEval` 的 `tags`)。 */
   tag: { type: "string" },
   /** 额外写一份 JUnit XML 报告到指定路径,供 CI 消费。 */
@@ -200,11 +215,22 @@ function parseArgs(argv: string[]): { command: string; positionals: string[]; fl
 
   // --diff=<路径> 预扫:diff 本体是布尔(裸 --diff = 文件级摘要),路径只接受 = 连写。
   let diffPath: string | undefined;
+  // --keep-sandbox[=failed|all] 预扫:本体是布尔(裸 = failed 档),档位只接受 = 连写。
+  let keepSandboxTier: "failed" | "all" | undefined;
   argv = argv.map((arg) => {
     if (arg.startsWith("--diff=")) {
       const path = arg.slice("--diff=".length);
       if (path) diffPath = path;
       return "--diff";
+    }
+    if (arg.startsWith("--keep-sandbox=")) {
+      const tier = arg.slice("--keep-sandbox=".length);
+      if (tier !== "failed" && tier !== "all") {
+        process.stderr.write(`--keep-sandbox only accepts "failed" (default) or "all", got "${tier}".\n`);
+        process.exit(1);
+      }
+      keepSandboxTier = tier;
+      return "--keep-sandbox";
     }
     return arg;
   });
@@ -221,7 +247,7 @@ function parseArgs(argv: string[]): { command: string; positionals: string[]; fl
   }
 
   // 第一个位置参数若是已知命令,则为命令;其余是 eval id 前缀 / view 输入。
-  const commands = new Set(["exp", "show", "list", "view", "clean", "init", "watch", "run"]);
+  const commands = new Set(["exp", "show", "list", "view", "clean", "init", "watch", "run", "sandbox"]);
   let command = "run";
   let positionals = rawPositionals;
   if (rawPositionals[0] && commands.has(rawPositionals[0])) {
@@ -253,6 +279,11 @@ function parseArgs(argv: string[]): { command: string; positionals: string[]; fl
     execution: values.execution === true,
     diff: values.diff === true && diffPath === undefined,
     diffPath,
+    keepSandbox: values["keep-sandbox"] === true ? (keepSandboxTier ?? "failed") : undefined,
+    all: values.all === true,
+    window: values.window as string | undefined,
+    sandboxPath: values.path as string | undefined,
+    leaveRunning: values["leave-running"] === true,
     history: values.history === true,
     experiment: values.experiment as string | undefined,
     run: values.run as string | undefined,
@@ -530,6 +561,20 @@ async function main(): Promise<void> {
     await new Promise(() => {});
   }
 
+  if (command === "sandbox") {
+    // sandbox 命令组不读 niceeval.config.ts、不发现 eval:只操作留存注册表与 provider 的
+    // detached 能力(见 docs/feature/sandbox/cli.md)。
+    const { runSandboxCommand } = await import("./sandbox/cli-commands.ts");
+    const code = await runSandboxCommand(cwd, positionals, {
+      all: flags.all,
+      window: flags.window,
+      path: flags.sandboxPath,
+      leaveRunning: flags.leaveRunning,
+      run: flags.run,
+    });
+    process.exit(code);
+  }
+
   if (command === "show") {
     // show 不依赖 niceeval.config.ts:读的是 .niceeval/(或 --run 指定的某个快照目录)的落盘结果。
     const code = await runShow(cwd, positionals, {
@@ -596,6 +641,12 @@ async function main(): Promise<void> {
         experiments: experiments.map((e) => e.id).join(", ") || t("cli.none"),
       }));
       process.exit(1);
+    }
+    // 残留提醒:注册表里还有上次留下的沙箱时打一行(不阻塞、不清理)。
+    {
+      const { keptSandboxReminder } = await import("./sandbox/cli-commands.ts");
+      const reminder = await keptSandboxReminder(cwd).catch(() => undefined);
+      if (reminder) process.stderr.write(reminder);
     }
     for (const exp of selected) {
       // 一个实验 = 一个配置(单 model)。跨模型对比写多个实验文件,各钉一个 model。
@@ -820,6 +871,8 @@ async function main(): Promise<void> {
       signal: ctrl.signal,
       priorResults,
       carryPlan,
+      keepSandbox: flags.keepSandbox,
+      niceevalRoot: resolvePath(cwd, ".niceeval"),
     });
   } catch (e) {
     // 真崩溃前先撤下 dashboard,不让半帧 ANSI 状态和下面 main().catch 打印的错误交织。

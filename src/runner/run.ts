@@ -142,6 +142,16 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
           attempt: i,
           key,
           fingerprint: plannedFingerprints.get(cacheKey(run, evalDef.id)) ?? "",
+          // locator 在构造 fresh attempt plan 时即算好并作为身份贯穿执行、留存登记与落盘
+          // (不是完成后写回,见 docs/cli.md);裸 run(无 experimentId)不产出。
+          locator: run.experimentId
+            ? encodeAttemptLocator({
+                experimentId: run.experimentId,
+                snapshotStartedAt,
+                evalId: evalDef.id,
+                attempt: i,
+              })
+            : undefined,
         });
       }
     }
@@ -488,16 +498,10 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
             // 单独存一份本地变量(而不是只写 result.locator 再读回来):下面报 "failure" 永久
             // 事件时需要一个已知是 AttemptLocator 品牌类型的值,result.locator 字段本身是
             // 落盘/reporter 契约用的裸 string(见 EvalResult.locator 的类型注释)。
-            let locator: AttemptLocator | undefined;
-            if (a.run.experimentId) {
-              locator = encodeAttemptLocator({
-                experimentId: a.run.experimentId,
-                snapshotStartedAt,
-                evalId: a.evalDef.id,
-                attempt: a.attempt,
-              });
-              result.locator = locator;
-            }
+            // locator 在 attempt plan 构造时已算好(见 attempts 构建处);这里只把同一个值写进
+            // 结果,早于本 attempt 触发的任何 reporter 回调 / 事件。
+            const locator: AttemptLocator | undefined = a.locator;
+            if (locator) result.locator = locator;
             // attempt:complete 与上面的 attempt:start 严格一一配对(同一个 body Effect,唯一
             // 出口),覆盖每一个真正跑过 runAttemptEffect 的 attempt(包括之后被下面的并发去重
             // 分支丢弃、不计入 results 的那些)——reducer 的 attempt:complete 无条件

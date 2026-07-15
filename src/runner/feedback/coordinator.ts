@@ -27,6 +27,7 @@ import {
   type DiagnosticInput,
   type FailureInput,
   type FeedbackSink,
+  type KeptInput,
 } from "./sink.ts";
 import type { FeedbackIO, FeedbackTimerHandle } from "./io.ts";
 import type { FeedbackRenderer } from "./renderer.ts";
@@ -216,6 +217,20 @@ export function createFeedbackCoordinator(options: FeedbackCoordinatorOptions): 
     });
   }
 
+  function kept(input: KeptInput): void {
+    emit({
+      type: "kept",
+      at: io.clock.now(),
+      locator: input.locator,
+      identity: input.identity,
+      who: input.who,
+      verdict: input.verdict,
+      provider: input.provider,
+      sandboxId: input.sandboxId,
+      ...(input.enter !== undefined ? { enter: input.enter } : {}),
+    });
+  }
+
   function budgetExhausted(input: BudgetExhaustedInput): void {
     emit({
       type: "budget-exhausted",
@@ -263,6 +278,7 @@ export function createFeedbackCoordinator(options: FeedbackCoordinatorOptions): 
       reporterError,
       failure,
       budgetExhausted,
+      kept,
       lifecycle,
     });
     emit({ type: "plan", at: startedAtMs, plan });
@@ -325,6 +341,7 @@ export function createFeedbackCoordinator(options: FeedbackCoordinatorOptions): 
     reporterError,
     failure,
     budgetExhausted,
+    kept,
     lifecycle,
     stopDynamic,
     finish,

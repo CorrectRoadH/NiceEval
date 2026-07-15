@@ -229,6 +229,14 @@ export class VercelSandbox implements Sandbox {
     await this.vsb.stop();
   }
 
+  /**
+   * 留存休眠(suspend):vercel `stop`——sandbox 默认持久,stop 保存文件系统,之后经
+   * `Sandbox.get` 恢复(SDK 原生能力);内存态不保留,唤醒后进程要重新启动。
+   */
+  async suspend(): Promise<void> {
+    await this.vsb.stop();
+  }
+
   async downloadFile(path: string): Promise<Buffer> {
     const absPath = resolveSandboxPath(this.workdir, path);
     const buf = await this.vsb.readFileToBuffer({ path: absPath });

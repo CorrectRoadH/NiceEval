@@ -149,8 +149,24 @@ export function createAgentRenderer(options: AgentRendererOptions): FeedbackRend
           pendingSummary = { summary: event.summary, completion: event.completion, reused: state.reused };
           return;
 
+        case "kept":
+          // 单行 kept 事件(与 run 事件同一 key=value 词法,见 docs/feature/sandbox/cli.md)。
+          io.stderr.write(
+            [
+              "NICEEVAL kept",
+              kv("locator", String(event.locator)),
+              kv("eval", event.identity.evalId),
+              kv("attempt", String(event.identity.attempt)),
+              kv("verdict", event.verdict),
+              kv("provider", event.provider),
+              kv("sandbox", event.sandboxId),
+              kv("enter", `niceeval sandbox enter ${event.sandboxId.slice(0, 12)}`),
+            ].join(" ") + "\n",
+          );
+          return;
+
         case "saved":
-          writeHandoff(io, pendingSummary, event.paths, state.failures);
+          writeHandoff(io, pendingSummary, event.paths, state.failures, state.kept.length > 0);
           return;
 
         default: {
@@ -287,6 +303,7 @@ function writeHandoff(
   pending: { summary: RunSummary; completion: RunCompletion; reused: number } | undefined,
   paths: readonly string[],
   failures: readonly FailureNotice[],
+  hasKept = false,
 ): void {
   if (!pending) return; // 不应发生:coordinator.finish() 恒先 emit "summary" 再 emit "saved"。
   const { summary, completion, reused } = pending;
@@ -320,6 +337,10 @@ function writeHandoff(
     lines.push(`  niceeval show ${first.locator}`);
     lines.push(`  niceeval show ${first.locator} --execution`);
     lines.push(`  niceeval show ${first.locator} --diff`);
+    if (hasKept) lines.push("  niceeval sandbox stop --all");
+  } else if (hasKept) {
+    lines.push("next:");
+    lines.push("  niceeval sandbox stop --all");
   }
 
   io.stdout.write(lines.join("\n") + "\n");

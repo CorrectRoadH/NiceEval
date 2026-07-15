@@ -25,6 +25,7 @@ export function createInitialRunFeedbackState(): RunFeedbackState {
     active: new Map(),
     failures: [],
     diagnostics: [],
+    kept: [],
   };
 }
 
@@ -168,6 +169,25 @@ export function reduceRunFeedback(state: RunFeedbackState, event: RunFeedbackEve
           message: `budget exhausted for ${event.experimentId}`,
           data: { experimentId: event.experimentId, spent: event.spent, unstarted: event.unstarted },
         }),
+      };
+
+    case "kept":
+      // 留存授予的永久通知:run 摘要后各 profile 追加输出(见 docs/feature/sandbox/cli.md)。
+      return {
+        ...state,
+        kept: [
+          ...state.kept,
+          {
+            at: event.at,
+            locator: event.locator,
+            identity: event.identity,
+            who: event.who,
+            verdict: event.verdict,
+            provider: event.provider,
+            sandboxId: event.sandboxId,
+            ...(event.enter !== undefined ? { enter: event.enter } : {}),
+          },
+        ],
       };
 
     case "interrupted":

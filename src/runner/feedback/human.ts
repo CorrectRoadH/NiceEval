@@ -93,6 +93,10 @@ export function renderDurableLines(event: DurableFeedbackEvent, state: RunFeedba
       return [t("runner.interrupted").trimEnd()];
     case "reporter-error":
       return [t("runner.reporterDiagnostic", { stage: event.reporter, message: event.message }).trimEnd()];
+    case "kept":
+      // 留存授予单条不即时打印;run 摘要后由 buildSummaryLines 汇总成 Kept sandboxes 块
+      // (见 docs/feature/sandbox/cli.md「run 收尾输出」)。
+      return [];
     case "summary":
       return buildSummaryLines(event, state);
     case "saved":
@@ -191,6 +195,17 @@ function buildSummaryLines(event: DurableFeedbackEvent & { type: "summary" }, st
       lines.push(t("feedback.human.trace", { locator: first.locator }));
       lines.push(t("feedback.human.diffHint", { locator: first.locator }));
     }
+  }
+
+  // 留存授予块(--keep-sandbox,见 docs/feature/sandbox/cli.md「run 收尾输出」):
+  // 每条给 locator(接 niceeval show)、provider 与实例 id、进入现场的命令。
+  if (state.kept.length > 0) {
+    lines.push("", `Kept sandboxes (${state.kept.length})`);
+    for (const k of state.kept) {
+      lines.push(`  ${k.locator}  ${k.identity.evalId} #${k.identity.attempt}  ${k.verdict}  ${k.provider} · ${k.sandboxId}`);
+      lines.push(`             enter: niceeval sandbox enter ${k.sandboxId.slice(0, 12)}`);
+    }
+    lines.push(`Stop them with: niceeval sandbox stop --all`);
   }
   return lines;
 }

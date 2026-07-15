@@ -500,6 +500,14 @@ export interface RunOptions {
   evals: DiscoveredEval[];
   agentRuns: AgentRun[];
   /**
+   * `--keep-sandbox` 的留存档位:failed 留 failed/errored(含硬超时的 errored),all 全部留;
+   * 省略 = 全部销毁(留存永远是显式选择)。留存决策在 verdict 定稿的收尾点按档位提交,
+   * 见 docs/feature/sandbox/architecture.md「留存(keep)与注册表」。
+   */
+  keepSandbox?: "failed" | "all";
+  /** 结果根目录(.niceeval;留存注册表 `.niceeval/sandboxes/` 挂在它下面)。省略 = cwd/.niceeval。 */
+  niceevalRoot?: string;
+  /**
    * 已注册的 reporter,携带 name/required 元数据(见 `ReporterRegistration`)。这是内部编排
    * 通道——调用方(今天只有 `cli.ts`)按来源(默认 artifacts / 显式 --json·--junit / 用户
    * `Config.reporters`)把裸 `Reporter` 各自包一层元数据后传进来;eval 级 `EvalDef.reporters`
@@ -533,6 +541,12 @@ export interface Attempt {
   /** agent+model+evalId,用于首过即停。 */
   key: string;
   fingerprint: string;
+  /**
+   * 构造 fresh attempt plan 时即算好的 Attempt 定位符(不是完成后写回):由 invocation 的
+   * snapshotStartedAt 与 attempt 身份派生,贯穿执行、留存登记与落盘——登记项、run 收尾反馈与
+   * result.json 从第一次写入起就用同一个值。裸 run(无 experimentId)不产出。
+   */
+  locator?: AttemptLocator;
 }
 
 // ───────────────────────── 反馈 profile / 事件 / reducer 状态 ─────────────────────────
@@ -666,6 +680,20 @@ export interface RunFeedbackState {
   active: ReadonlyMap<AttemptKey, ActiveAttempt>;
   failures: readonly FailureNotice[];
   diagnostics: readonly DiagnosticNotice[];
+  /** 留存授予的沙箱(--keep-sandbox);run 摘要后各 profile 追加输出。 */
+  kept: readonly KeptNotice[];
+}
+
+/** 一条留存授予的永久通知(见 docs/feature/sandbox/cli.md「run 收尾输出」)。 */
+export interface KeptNotice {
+  at: number;
+  locator: AttemptLocator;
+  identity: AttemptRef;
+  who: string;
+  verdict: Verdict;
+  provider: string;
+  sandboxId: string;
+  enter?: string;
 }
 
 /** 一次 run 的初始计划,携带 carry/reuse 明细(按 experiment 分组的已复用 eval id 清单)。 */
@@ -742,6 +770,18 @@ export type DurableFeedbackEvent =
    *(reducer 只按事件触发次数折算,保持纯函数不需要额外记住上一次的值)。
    */
   | { type: "budget-exhausted"; at: number; experimentId: string; spent: number; unstarted: number }
+  /** 一次留存授予(--keep-sandbox):run 摘要后三种 profile 都追加输出(见 docs/feature/sandbox/cli.md)。 */
+  | {
+      type: "kept";
+      at: number;
+      locator: AttemptLocator;
+      identity: AttemptRef;
+      who: string;
+      verdict: Verdict;
+      provider: string;
+      sandboxId: string;
+      enter?: string;
+    }
   | { type: "interrupted"; at: number }
   | { type: "reporter-error"; at: number; reporter: string; required: boolean; message: string }
   | { type: "summary"; at: number; summary: RunSummary; completion: RunCompletion }

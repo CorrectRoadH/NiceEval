@@ -181,7 +181,10 @@ export class DockerSandbox implements Sandbox {
       },
       Tty: true,
       HostConfig: {
-        AutoRemove: true, // 停止即清理
+        // 不带 AutoRemove:留存意图必须在创建期传入(--keep-sandbox 的 suspend = docker stop,
+        // 停驻容器的文件系统落盘持久)。默认路径的销毁由 stop() 显式 stop + remove,行为等价;
+        // 宿主异常硬退留下的孤儿由 TTL dead-man switch 停驻后按 keep-candidate 标签事后核对。
+        AutoRemove: false,
         // 容器经 host.docker.internal 回连宿主上的 OTLP 接收器(tracing agent 用)。
         // Docker Desktop 自带这个名字;Linux 需显式映到 host-gateway,这里统一加上。
         ExtraHosts: ["host.docker.internal:host-gateway"],
@@ -501,7 +504,7 @@ export class DockerSandbox implements Sandbox {
     await (this.container as Docker.Container).putArchive(pack, { path: dirname(absPath) });
   }
 
-  /** 停止并清理容器(AutoRemove 负责销毁)。 */
+  /** 销毁容器:显式 stop + remove(创建时不带 AutoRemove,见 createContainer 的注释)。 */
   async stop(): Promise<void> {
     if (this.container) {
       try {
@@ -509,7 +512,23 @@ export class DockerSandbox implements Sandbox {
       } catch {
         // 容器可能已停止或被移除,忽略。
       }
+      try {
+        await this.container.remove({ force: true });
+      } catch {
+        // 已被移除,忽略。
+      }
       this.container = null;
     }
+  }
+
+  /**
+   * 留存休眠(suspend):`docker stop`——文件系统落盘持久、不占内存、跨 daemon 重启存活。
+   * 不用 `docker pause`(内存驻留,daemon 重启即失)也不用 `docker commit`(引入第二种资源面)。
+   * 不属于中性 Sandbox 接口——「留下」是 runner 的调度决定,不是沙箱的能力;由 sandbox/keep.ts
+   * 在 sandbox/ 域内路由到这里。
+   */
+  async suspend(): Promise<void> {
+    if (!this.container) throw new Error("container already released");
+    await this.container.stop({ t: 5 });
   }
 }
