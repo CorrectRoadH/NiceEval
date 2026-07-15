@@ -162,6 +162,15 @@ it("已完成花费到顶后不再派发新 attempt，在飞的照常完成", as
 | required reporter 写失败 → 非 complete、退出码 1、明细进 `reporterErrors`；非 required 失败不判红但记录 | 正例：required 失败判红；反例：可选 reporter 失败仍 0 |
 | 汇总按 `(agent, model, eval)` 分组给通过率与均值；被 abort 的不进分母 | 正例：4/5 = 80%；边界：early exit 后分母为实跑数 |
 
+## CLI 启动期错误格式
+
+契约来源：[错误与警告反馈](../../../error-feedback.md)。
+
+| 契约 | 场景 |
+|---|---|
+| coordinator 激活前的错误（未知 flag、`exp --model` 用法拒绝、config 不可加载）恒为两行：`error:` 现象行 + 缩进 `fix:` 下一步行；fix 含可执行命令或定位动作，纯 ASCII，三种 output profile 与 bootstrap 出口同形 | 正例：未知 flag 的 fix 指向 `niceeval --help`；正例：`exp --model` 的 fix 指出 model 定义在 experiment 文件；边界：`--output agent` 下同为 ASCII 两行 |
+| 库错误类（`MalformedLocatorError` / `LocatorNotFoundError` 等）的 message 自带下一步，CLI 捕获后 `fix:` 行原样取自错误对象，不在 CLI 层另写文案 | 正例：`show @不合法串` 的 fix 与错误对象 message 的下一步一致；反例：合法但不存在的 locator 给出「不在当前结果里」的不同下一步 |
+
 ## 生命周期与资源
 
 契约来源：[Runner](../../../runner.md)、[Experiments Library](../../../feature/experiments/library.md)、[Experiments CLI](../../../feature/experiments/cli.md)。

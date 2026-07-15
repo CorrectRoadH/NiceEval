@@ -60,7 +60,7 @@ niceeval show --report reports/quality-cost.tsx
 niceeval view --report reports/quality-cost.tsx
 ```
 
-宿主先按位置参数、`--run` 和 `--experiment` 选择数据，再把 `selection` 注入报告。覆盖不完整、快照过旧或未完成等警告由宿主统一显示，报告不必自己补警告组件。
+宿主先按位置参数、`--run` 和 `--experiment` 选择数据，再把 `selection` 注入报告。覆盖不完整、快照过旧或未完成等警告由宿主统一显示，报告不必自己补警告组件。显示时下一步随行：text 面原样打印 `message`（[三段式](../../error-feedback.md#消息三段式)，已含下一步），web 面额外把警告的 `command` 渲染为可复制的命令。
 
 ### 嵌入自己的 React 页面
 

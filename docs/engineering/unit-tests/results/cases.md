@@ -85,6 +85,7 @@ it("writer 把快照元数据与 attempt 事实写到各自唯一位置", async 
 | `selection.filter(predicate)` 返回新 Selection 且只做删减：不在幸存快照中的实验警告丢弃，非实验作用域警告保留；原 Selection 不变 | 正例：滤掉带警告实验后警告消失；边界：无 experimentId 的警告不丢 |
 | `stale-snapshot`：选中快照早于 Selection 中最新落盘即触发（无阈值）；`unfinished-snapshot`：选中快照缺 completedAt 即触发 | 正例：两实验时间差触发 stale；反例：单实验不触发；正例：中断快照被选中时 unfinished 且 attempts 仍可读 |
 | `latest({experiments})` 按 experiment id 前缀过滤（string 或 string[]），与 CLI 位置参数同一套前缀匹配 | 正例：`"compare/"` 只选中该前缀；边界：多前缀取并集；反例：无匹配时 snapshots 为空 |
+| 警告必带下一步：每 kind 的 `message` 以下一步收尾；可单命令推进的 kind（partial-coverage / stale-snapshot / unfinished-snapshot）带 `command` = `niceeval exp <experimentId>`（真实 id 已替换）；missing-startedAt 是定位动作，不带 `command` | 正例：partial-coverage 的 `command` 含真实 experimentId 且 message 内嵌同一命令；正例：stale-snapshot 的 message 同时含对齐命令与「没改东西可忽略」条件；反例：missing-startedAt 无 `command` 且 message 仍给出定位动作 |
 
 区分力场景——局部补跑构造"最新快照只有 a，旧快照有 a+b"，三种候选算法必须产生不同结果（快照粒度只含新 a + 警告；逐 eval 拼接会混入旧 b；平铺 attempts 会混入旧 a），否则测试即使通过也没有区分力：
 
