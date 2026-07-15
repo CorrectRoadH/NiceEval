@@ -245,7 +245,11 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
   // errored = 框架/环境层面的意外(超时、adapter 崩、eval 脚本抛异常……),不是 agent 表现的信号。
   // 同 key 一旦 errored 就会确定性地重复 error,再跑 runs 里剩下的次数纯烧钱;只有 failed(断言
   // 真的没过)才代表 agent 行为的样本,值得跑满 runs 去测通过率。earlyExit 开时两者都提前收尾。
-  const erroredKeys = new Set<string>();
+  // run 级 fail-fast(见 docs/runner.md「首过即停」):同一错误 code 在同一 key 连续复现
+  // 即判定确定性错误,停止派发受同一配置影响的后续 attempt(如实报 errored 的结果保留;
+  // 这是止损,不是「首过即停」,两个机制互不混用)。
+  const lastErrorCode = new Map<string, { code: string; streak: number }>();
+  const failFastKeys = new Map<string, { code: string; skipped: number }>();
   // 携入的 passed 结果预置进 passedKeys:上面按序号回填的差额 attempt(carriedCount < run.runs
   // 那部分)如果不预置这个,会在明明已经拿到过 passed 结果的情况下真的再调度一次 agent——
   // earlyExit 的语义是「已知会通过就不用再跑」,携入的 passed 同样是「已知会通过」,理应同等对待
@@ -347,9 +351,9 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
         // maxConcurrency)例外:它是实验私有资源,preflight 占着不影响别的实验,且和 mempal
         // 那类「必须串行」的语义一致,所以仍然把 preflight 包在 runSem 里面(见下方)。
         const preflight = Effect.gen(function* () {
-            // 首过即停:同 key 已通过,或已 errored(重跑只会重复同一个框架错误)且开了 earlyExit
-            // → 跳过未启动的 attempt。
-            if (a.run.earlyExit && (passedKeys.has(a.key) || erroredKeys.has(a.key))) {
+            // 首过即停:只由 passed 触发(errored 不中止其余样本,见 docs/feature/experiments/
+            // architecture.md「调度接口」)。
+            if (a.run.earlyExit && passedKeys.has(a.key)) {
               yield* reportMutex.withPermits(1)(
                 Effect.promise(() =>
                   emitReporterEvent(reporters, {
@@ -364,6 +368,27 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
                 at: Date.now(),
                 identity: feedbackIdentity(a),
                 who: feedbackWho(a),
+              });
+              return false;
+            }
+
+            // run 级 fail-fast:确定性错误(同一 code 在同一 key 连续复现)已识别 → 停止派发,
+            // 未派发计入 unstarted(结论落 incomplete,不伪装成全绿;与首过即停互不混用)。
+            const failFast = failFastKeys.get(a.key);
+            if (failFast !== undefined) {
+              failFast.skipped += 1;
+              reportAttemptLifecycle({
+                type: "attempt:early-exit",
+                at: Date.now(),
+                identity: feedbackIdentity(a),
+                who: feedbackWho(a),
+              });
+              reportDiagnostic({
+                key: `fail-fast:${a.key}`,
+                severity: "warning",
+                message: t("runner.failFast", { evalId: a.evalDef.id, code: failFast.code }).trimEnd(),
+                identity: feedbackIdentity(a),
+                data: { evalId: a.evalDef.id, code: failFast.code, ...(a.run.experimentId ? { experimentId: a.run.experimentId } : {}) },
               });
               return false;
             }
@@ -508,14 +533,24 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
 
             if (result.verdict === "passed") {
               passedKeys.add(a.key);
+              lastErrorCode.delete(a.key);
               evalAc?.abort(); // 让同 key 并发 attempt 尽早退出
-            } else if (a.run.earlyExit && (passedKeys.has(a.key) || erroredKeys.has(a.key))) {
-              // 并发情况:同 key 另一个 attempt 已通过/已 errored 后本 attempt 才完成
-              // (被 abort 后产出 errored),不计入结果。
+            } else if (a.run.earlyExit && passedKeys.has(a.key)) {
+              // 并发情况:同 key 另一个 attempt 已通过后本 attempt 才完成(被 abort 后产出
+              // errored),不计入结果。
               return;
             } else if (result.verdict === "errored") {
-              erroredKeys.add(a.key);
-              evalAc?.abort(); // 框架层面的错误会确定性重复,让同 key 剩余 attempt 尽早退出
+              // errored 不中止其余样本(基建可能自愈);只有同一错误 code 连续复现才判定为
+              // 确定性错误,进 run 级 fail-fast 停止派发(不 abort 已在飞的 attempt)。
+              const code = result.error?.code ?? "unexpected-error";
+              const prev = lastErrorCode.get(a.key);
+              const streak = prev?.code === code ? prev.streak + 1 : 1;
+              lastErrorCode.set(a.key, { code, streak });
+              if (streak >= 2 && !failFastKeys.has(a.key)) {
+                failFastKeys.set(a.key, { code, skipped: 0 });
+              }
+            } else {
+              lastErrorCode.delete(a.key);
             }
 
             results.push(result);

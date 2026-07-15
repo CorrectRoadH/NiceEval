@@ -237,6 +237,7 @@ export const zhCN = {
   "otel.portInUse": "OTLP 接收端口 {{port}} 已被占用(另一个进程占着这个端口)。在 defineConfig({ telemetry: { port } }) 里换一个空闲端口,或者停掉占用 {{port}} 的进程后重试。",
   "otel.windowAttribution": "otel:span 未带本轮 traceparent,按时间窗口归属(该 agent 的轮次已串行;应用支持 W3C 传播后自动并发)",
   "runner.diffProgress": "采 diff:{{changed}} 改 / {{deleted}} 删",
+  "runner.failFast": "{{evalId}} 的错误 {{code}} 连续复现,判定为确定性错误;停止派发该配置剩余的 attempt(fail-fast)。",
   "runner.driveAgent": "驱动 agent…",
   "runner.evalSetup": "eval setup(装依赖)…",
   "runner.interrupted": "  · 已中断:沙箱容器已清理,输出本次已完成的部分结果。\n",

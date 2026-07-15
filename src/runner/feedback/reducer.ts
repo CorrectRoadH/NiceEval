@@ -20,6 +20,7 @@ export function createInitialRunFeedbackState(): RunFeedbackState {
     running: 0,
     queued: 0,
     completed: 0,
+    earlyExitSkipped: 0,
     elapsedMs: 0,
     active: new Map(),
     failures: [],
@@ -114,11 +115,12 @@ export function reduceRunFeedback(state: RunFeedbackState, event: RunFeedbackEve
     case "attempt:early-exit":
       // 首过即停下已知 verdict 的省略次数:折进 completed(结论已经确定,不再需要派发),
       // 不产生 failures/diagnostics —— 这不是一次失败或异常,只是省下的重复验证
-      // (真正「未完整覆盖」的信号来自 budget-exhausted,不是这里)。
+      // (真正「未完整覆盖」的信号来自 budget-exhausted / fail-fast diagnostic,不是这里)。
       return {
         ...state,
         queued: state.queued - 1,
         completed: state.completed + 1,
+        earlyExitSkipped: state.earlyExitSkipped + 1,
       };
 
     case "failure":

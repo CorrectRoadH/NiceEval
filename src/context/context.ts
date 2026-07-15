@@ -210,8 +210,15 @@ export function createEvalContext(deps: ContextDeps): { context: TestContext; st
   }
 
   function makeSessionHandle(session: RunSession): SessionHandle {
-    const scoped = (spec: Spec) =>
-      recordScoped(spec, () => session.events, () => session.lastStatus, () => session.usage, () => session.coverage);
+    // session 作用域 = 记录断言时快照(见 docs/feature/scoring/architecture/scopes.md):
+    // 之后该 session 再发生的轮次不改变这条断言的评估材料;只看最后一轮用 send() 的 TurnHandle。
+    const scoped = (spec: Spec) => {
+      const events = session.events.slice();
+      const status = session.lastStatus;
+      const usage = { ...session.usage };
+      const coverage = session.coverage;
+      return recordScoped(spec, () => events, () => status, () => usage, () => coverage);
+    };
 
     const handle: SessionHandle = {
       send: async (text) => {
@@ -283,6 +290,12 @@ export function createEvalContext(deps: ContextDeps): { context: TestContext; st
 
   const primary = makeSessionHandle(manager.primary);
 
+  // t 作用域 = 整个 attempt:全部 session(含 t.newSession() 开的)的全部轮次,finalize 时对
+  // 聚合结果求值(见 docs/feature/scoring/architecture/scopes.md)。newSession 的事件进入这里,
+  // 但不进入主 session 的即时 t.reply / t.events 读取视图;t.judge 默认材料仍是主 session 对话。
+  const aggregateScoped = (spec: Spec) =>
+    recordScoped(spec, () => manager.allEvents, () => manager.lastStatus, () => manager.usage, () => manager.coverage);
+
   // 沙箱能力守卫:非沙箱型 agent(kind !== "sandbox")把文件系统类动作替换成「一调用就报清晰错误」。
   // 其余能力(多轮对话、工具断言……)不再问卷式声明——没接 ctx.session 续接存取器的 agent
   // 每轮各是新对话,没吐 action.* 事件的 agent 上正断言自然不命中,负断言按事件完整性证明
@@ -353,6 +366,28 @@ export function createEvalContext(deps: ContextDeps): { context: TestContext; st
     },
 
     sandbox: sandboxHandle,
+
+    // 作用域断言(t 级:聚合全部 session)。这些描述符盖过 primary 的同名方法——
+    // t.send/t.reply/t.events 仍是主 session 的即时视图,断言聚合与读取视图是两回事。
+    succeeded: () => aggregateScoped(Scoped.succeeded()),
+    parked: () => aggregateScoped(Scoped.parked()),
+    messageIncludes: (token: string | RegExp) => aggregateScoped(Scoped.messageIncludes(token)),
+    calledTool: (name: string, match?: import("../types.ts").ToolMatch) => aggregateScoped(Scoped.calledTool(name, match)),
+    notCalledTool: (name: string, match?: import("../types.ts").ToolMatch) => aggregateScoped(Scoped.notCalledTool(name, match)),
+    toolOrder: (names: string[]) => aggregateScoped(Scoped.toolOrder(names)),
+    usedNoTools: () => aggregateScoped(Scoped.usedNoTools()),
+    maxToolCalls: (max: number) => aggregateScoped(Scoped.maxToolCalls(max)),
+    loadedSkill: (skill: string) => aggregateScoped(Scoped.loadedSkill(skill)),
+    noFailedActions: () => aggregateScoped(Scoped.noFailedActions()),
+    event: (type: StreamEvent["type"], opts?: { count?: number }) => aggregateScoped(Scoped.eventOfType(type, opts)),
+    notEvent: (type: StreamEvent["type"]) => aggregateScoped(Scoped.notEventOfType(type)),
+    calledSubagent: (name: string, match?: import("../types.ts").SubagentMatch) =>
+      aggregateScoped(Scoped.calledSubagent(name, match)),
+    eventOrder: (types: StreamEvent["type"][]) => aggregateScoped(Scoped.eventOrder(types)),
+    eventsSatisfy: (label: string, predicate: (events: readonly StreamEvent[]) => boolean) =>
+      aggregateScoped(Scoped.eventsSatisfy(label, predicate)),
+    maxTokens: (max: number) => aggregateScoped(Scoped.maxTokens(max)),
+    maxCost: (usd: number) => aggregateScoped(Scoped.maxCost(usd)),
   };
   const context = Object.defineProperties(
     {},

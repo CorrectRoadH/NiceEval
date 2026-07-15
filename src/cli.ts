@@ -441,11 +441,12 @@ function fingerprintEvalsFilter(evals: DiscoveredExperiment["evals"], patterns: 
  *   `data.required`,直接反映这个 reporter 注册时的真实 required/best-effort 分类(见上面
  *   构造 `reporters: ReporterRegistration[]` 的地方——artifacts / --json / --junit 恒
  *   `required: true`,`config.reporters` 恒 `false`),不是一个统一写死的占位值。
- * - `earlyExitUnstarted` 需要比较「计划要跑多少次」与「实际跑了多少次」,这份比较目前没有任何
- *   已发出事件携带,留空(0)而不是编一个不可靠的近似值。
+ * - `earlyExitUnstarted` 从反馈状态的 attempt:early-exit 计数派生(减去 fail-fast 的那部分——
+ *   那是「未完整覆盖」,进 unstarted,不是「省下的重复验证」)。
  */
 function assembleRunCompletion(state: RunFeedbackState): RunCompletion {
   let unstarted = 0;
+  let failFastSkipped = 0;
   let interrupted = false;
   const reporterErrors: ReporterError[] = [];
   for (const d of state.diagnostics) {
@@ -453,6 +454,11 @@ function assembleRunCompletion(state: RunFeedbackState): RunCompletion {
       interrupted = true;
     } else if (d.key.startsWith("budget-exhausted:")) {
       unstarted += d.count;
+    } else if (d.key.startsWith("fail-fast:")) {
+      // run 级 fail-fast 造成的未派发同样计入 unstarted(结论落 incomplete,见
+      // docs/feature/experiments/architecture.md「Completion 与退出」)。
+      unstarted += d.count;
+      failFastSkipped += d.count;
     } else if (d.key.startsWith("reporter-error:")) {
       reporterErrors.push({
         reporter: typeof d.data?.reporter === "string" ? d.data.reporter : d.key.slice("reporter-error:".length),
@@ -461,8 +467,14 @@ function assembleRunCompletion(state: RunFeedbackState): RunCompletion {
       });
     }
   }
+  // 中断造成的未派发(仍在 queued 的 attempt)同样计入 unstarted(见 docs/feature/experiments/
+  // architecture.md「Completion 与退出」:budget 耗尽、fail-fast 或中断造成的未派发都不伪装成全绿)。
+  if (interrupted) unstarted += state.queued;
+  // attempt:early-exit 计数含 fail-fast 的未派发(反馈层同一事件驱动计数守恒);
+  // 「省下的重复验证」= 总数减去 fail-fast 那部分。
+  const earlyExitUnstarted = Math.max(0, state.earlyExitSkipped - failFastSkipped);
   const status: CompletionStatus = interrupted ? "interrupted" : unstarted > 0 ? "incomplete" : "complete";
-  return { status, unstarted, earlyExitUnstarted: 0, reporterErrors };
+  return { status, unstarted, earlyExitUnstarted, reporterErrors };
 }
 
 /** package.json 的 version 字段;-v/--version 直接回显这个号。 */

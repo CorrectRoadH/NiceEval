@@ -242,6 +242,7 @@ export const en = {
   "otel.portInUse": "OTLP receiver port {{port}} is already in use (another process is bound to it). Pick a free port in defineConfig({ telemetry: { port } }), or stop whatever is using {{port}} and retry.",
   "otel.windowAttribution": "otel: spans missing our traceparent, attributing by time window (turns for this agent serialized; concurrency resumes once W3C propagation is confirmed)",
   "runner.diffProgress": "captured diff: {{changed}} changed / {{deleted}} deleted",
+  "runner.failFast": "error {{code}} recurred consecutively on {{evalId}}; treating it as deterministic and skipping the remaining attempts for this config (fail-fast).",
   "runner.driveAgent": "driving agent...",
   "runner.evalSetup": "eval setup (installing dependencies)...",
   "runner.interrupted": "  · interrupted: sandbox containers cleaned up; printing partial results completed so far.\n",

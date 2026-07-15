@@ -658,6 +658,9 @@ export interface RunFeedbackState {
   running: number;
   queued: number;
   completed: number;
+  /** attempt:early-exit 事件的累计次数(首过即停省略 + fail-fast 未派发;后者由 fail-fast
+   *  diagnostic 的 count 单独区分,见 cli.ts 的 assembleRunCompletion)。 */
+  earlyExitSkipped: number;
   elapsedMs: number;
   estimatedCostUSD?: number;
   active: ReadonlyMap<AttemptKey, ActiveAttempt>;
