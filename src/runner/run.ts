@@ -474,20 +474,7 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
               who: feedbackWho(a),
               phase: initialPhase,
             });
-            // reportFailure()(见下)要求「失败发生时所在的阶段」,但 attempt:complete 一发出
-            // coordinator 就会把 active map 里这个 attempt 的条目删掉(reducer 的 attempt:complete
-            // 分支),事后没有地方能反查。用本地变量跟 attempt.ts 的 enterPhase 同步更新(经
-            // runAttemptEffect 的 onPhase 回调,与它发出 attempt:phase 事件同一调用点)——初值
-            // 与上面 attempt:start 的占位 phase 一致,attempt 全程失败在哪一步就停在哪一步。
-            // 唯独 "teardown" 不计入:它在 attempt.ts 的 finally 里无条件触发(成功/失败都会走
-            // 到),且 teardown 自身的失败只落 diagnostic、从不改变 verdict(见 attempt.ts 对应
-            // 注释),所以一个 failed/errored 结果的真实病灶必然在 teardown 之前 ——
-            // 把它计进来只会让每一条失败通知都显示同一个没有信息量的 "teardown"。
-            let lastPhase: LifecyclePhase = initialPhase;
-            const CLOSING = new Set<LifecyclePhase>(["eval.teardown", "agent.teardown", "sandbox.teardown", "sandbox.suspend", "sandbox.stop"]);
-            const result = yield* runAttemptEffect(a, opts, sandboxSem, attemptSignal, (phase) => {
-              if (!CLOSING.has(phase)) lastPhase = phase;
-            });
+            const result = yield* runAttemptEffect(a, opts, sandboxSem, attemptSignal);
             // locator 在这里确定 —— 早于本 attempt 触发的任何 reporter 回调 / 事件
             // (onEvalComplete、eval:complete),所以每一个观察者看到的都已经是最终值,
             // 和落盘 result.json 完全一致(writer.ts 的 entry.locator ?? 兜底分支因此
@@ -564,13 +551,17 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
             // 的省略规则一致),且只报真正计入 results 的 attempt(上面的并发去重分支已经
             // return 掉、不会走到这里,不会为一条被丢弃的重复 attempt 误报失败)。
             if (locator && (result.verdict === "failed" || result.verdict === "errored")) {
+              // phase 只解释执行错误发生在哪里,直接取 attempt 已绑定的结构化 error.phase。
+              // 普通 failed 是断言 outcome,不属于 lifecycle phase;不能把 verdict 算出后继续经过的
+              // telemetry.collect 误报成失败位置(见 docs/feature/experiments/cli.md「Attempt 阶段」)。
+              const failurePhase = result.verdict === "errored" ? result.error?.phase : undefined;
               reportFailure({
                 locator,
                 identity: feedbackIdentity(a),
                 who: feedbackWho(a),
                 verdict: result.verdict,
                 reason: describeFailureReason(result, a.run.strict),
-                phase: lastPhase,
+                ...(failurePhase !== undefined ? { phase: failurePhase } : {}),
               });
             }
             yield* reportMutex.withPermits(1)(

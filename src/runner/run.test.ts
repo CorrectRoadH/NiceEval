@@ -511,12 +511,9 @@ describe("runEvals · failure 永久事件在真实失败/errored attempt 上被
         verdict: "errored",
         who: experimentId, // runWho():有 experimentId 时用它的最后一段(这里没有 "/",就是整段)
         identity: { experimentId, evalId: "boom", attempt: 0 },
-        // evalDef.test() 抛的是普通 Error(不是 EvalSkipped),attempt.ts 不设 skipReason,
-        // 所以 diff/scoring 仍照常进入(见 attempt.test.ts「test() 抛出的普通执行错误不设置
-        // skipReason」)——"scoring" 才是 teardown 之前最后一个真实阶段,不能因为
-        // attempt:complete 删了 active map 条目就在 reportFailure() 里彻底丢失 phase(见 run.ts
-        // 的 lastPhase 跟踪,以及它为什么排除 teardown 本身)。
-        phase: "scoring.evaluate",
+        // evalDef.test() 抛的是普通 Error；即使 attempt 随后仍进入 diff/scoring，永久错误通知
+        // 也必须使用结构化 error.phase，报告错误真正发生的 eval.run，而不是最后经过的阶段。
+        phase: "eval.run",
       });
       expect(erroredNotice?.reason).toContain("boom");
 
@@ -527,9 +524,10 @@ describe("runEvals · failure 永久事件在真实失败/errored attempt 上被
         verdict: "failed",
         identity: { experimentId, evalId: "gate-fail", attempt: 0 },
         reason: 'gate: equals("expected")',
-        // gate 断言在 scoring 阶段判定,test() 本身顺利完成——phase 同样停在 "scoring"。
-        phase: "scoring.evaluate",
       });
+      // failed 是断言 outcome，不是 lifecycle error；即使 verdict 在 scoring 阶段算出，也不应
+      // 把 scoring（更不能把随后可能发生的 telemetry.collect）冒充成「失败发生阶段」。
+      expect(failedNotice).not.toHaveProperty("phase");
     });
   });
 });

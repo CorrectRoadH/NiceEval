@@ -47,7 +47,7 @@ export interface FailureInput {
   /** 一层可行动摘要(gate 断言名、error 消息……),整句透传,不拆分成 code/message 子字段
    *  (见 agent.ts 顶部注释「为什么不拆 code/message」)。 */
   reason: string;
-  /** 失败发生时所在的阶段;框架层错误(如整体 timeout)可能没有明确阶段,省略即可。 */
+  /** 仅 errored 使用：结构化执行错误发生时所在的阶段。failed 是断言 outcome，不带 phase。 */
   phase?: LifecyclePhase;
 }
 

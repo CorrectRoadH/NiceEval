@@ -134,7 +134,7 @@ export function reduceRunFeedback(state: RunFeedbackState, event: RunFeedbackEve
           who: event.who,
           verdict: event.verdict,
           reason: event.reason,
-          phase: event.phase,
+          ...(event.phase !== undefined ? { phase: event.phase } : {}),
         }),
       };
 

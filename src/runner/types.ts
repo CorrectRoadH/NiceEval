@@ -617,7 +617,7 @@ export interface FailureNotice {
   verdict: "failed" | "errored";
   /** 一层可行动摘要(gate 断言名、error 消息……),不是完整 stack/transcript;详情走 `niceeval show`。 */
   reason: string;
-  /** 失败发生时所在的阶段(如 `sandbox.create`);框架层错误(如 timeout)可能没有明确阶段。 */
+  /** 仅 errored 使用：结构化执行错误发生时所在的阶段。failed 是断言 outcome，不带 phase。 */
   phase?: LifecyclePhase;
 }
 
