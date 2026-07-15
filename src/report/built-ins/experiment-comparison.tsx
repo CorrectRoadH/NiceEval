@@ -2,7 +2,7 @@
 // 官方组合件(docs/feature/reports/library.md「ExperimentComparison」)。
 //
 // 名字描述整份报告回答的问题,不绑定其中某一张图。它是组合件而非新的数据源——两个子块
-// (成本 × 成功率散点、固定列 ExperimentList)消费与单独使用时完全相同的 .data() 计算结果。
+// (成本 × 端到端成功率散点、固定列 ExperimentList)消费与单独使用时完全相同的 .data() 计算结果。
 // 两种用法共享同一份口径:
 //   · 默认报告:宿主把它当普通 ReportDefinition(build 面),没有 renderer 私有通道;
 //   · 报告组件:`<ExperimentComparison data={await ExperimentComparison.data(selection)} />`,
@@ -10,7 +10,7 @@
 
 import { Col } from "../primitives.tsx";
 import { ExperimentList, MetricScatter } from "../components.tsx";
-import { costUSD, taskPassRate } from "../metrics.ts";
+import { costUSD, endToEndPassRate } from "../metrics.ts";
 import { defineReport, type ReportDefinition } from "../report.ts";
 import { defineComponent, type ReportComponent } from "../tree.ts";
 import type { ReportLocale } from "../locale.ts";
@@ -23,7 +23,7 @@ const SCATTER_OPTIONS: ScatterDataOptions = {
   points: "experiment",
   series: "agent",
   x: costUSD,
-  y: taskPassRate,
+  y: endToEndPassRate,
 };
 
 /**
@@ -31,9 +31,9 @@ const SCATTER_OPTIONS: ScatterDataOptions = {
  * 与单独使用 `MetricScatter.data` / `ExperimentList.data` 时完全相同。
  */
 export interface ExperimentComparisonData {
-  /** 成本 × 成功率散点(`MetricScatter.data` 的口径:points=experiment、series=agent)。 */
+  /** 成本 × 端到端成功率散点(`MetricScatter.data` 的口径:points=experiment、series=agent)。 */
   scatter: ScatterData;
-  /** 固定列 experiment 比较表(`ExperimentList.data` 的口径,已按成功率排序)。 */
+  /** 固定列 experiment 比较表(`ExperimentList.data` 的口径,已按端到端成功率排序)。 */
   experiments: ExperimentListItem[];
 }
 

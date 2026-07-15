@@ -2,7 +2,7 @@
 // 只覆盖组件自带的固定文案(verdict 词、缺数据、覆盖率角标、注脚、占位符等);
 // 数据本身(display、维度键、warnings 的 message)不经这里。
 // 刻意不 import src/i18n/(CLI 专用字典,locale 来源与 key 面完全不同);
-// zh-CN 译法与 src/view/app/i18n.ts 现有词保持一致(成功率/平均耗时/预估成本…)。
+// zh-CN 译法与默认 Reports 契约保持一致(端到端成功率/平均耗时/预估成本…)。
 
 /** 报告渲染的 locale;默认 "en"(text 面缺省即 en,`niceeval show` 输出不变)。 */
 export type ReportLocale = "en" | "zh-CN";
@@ -34,7 +34,7 @@ const en = {
   "table.attempt": "attempt",
   "experimentList.experiment": "Experiment",
   "experimentList.avgDuration": "Avg duration",
-  "experimentList.passRate": "Pass rate",
+  "experimentList.passRate": "End-to-end pass rate",
   "experimentList.tokens": "Tokens",
   "experimentList.estimatedCost": "Est. cost",
   "experimentList.result": "Result",
@@ -52,7 +52,7 @@ const en = {
   "overview.snapshots": "Snapshots",
   "overview.evals": "Evals",
   "overview.attempts": "attempts",
-  "overview.passRate": "Pass rate",
+  "overview.passRate": "End-to-end pass rate",
   "overview.totalCost": "Total cost",
   "overview.totalDuration": "Total duration",
   "overview.source": "Source: {n} snapshots",
@@ -124,7 +124,7 @@ const zhCN: Record<ReportMessageKey, string> = {
   "table.attempt": "Attempt",
   "experimentList.experiment": "实验",
   "experimentList.avgDuration": "平均耗时",
-  "experimentList.passRate": "成功率",
+  "experimentList.passRate": "端到端成功率",
   "experimentList.tokens": "Tokens",
   "experimentList.estimatedCost": "预估成本",
   "experimentList.result": "结果",
@@ -141,7 +141,7 @@ const zhCN: Record<ReportMessageKey, string> = {
   "overview.snapshots": "快照",
   "overview.evals": "题目",
   "overview.attempts": "尝试",
-  "overview.passRate": "通过率",
+  "overview.passRate": "端到端成功率",
   "overview.totalCost": "总成本",
   "overview.totalDuration": "总耗时",
   "overview.source": "数据来源:{n} 个快照",

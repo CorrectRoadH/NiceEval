@@ -67,7 +67,7 @@ definition.build(ctx)
 | 层 | `show` | `view` |
 |---|---|---|
 | 报告槽 | text 面 | static HTML web 面 |
-| 默认填充 | `ExperimentComparison`：成本 × 通过率散点 + `ExperimentList` 层级列表 | 同一 `ExperimentComparison`：成本 × 通过率散点 + 可排序、可过滤的 `ExperimentList` 固定列表格 |
+| 默认填充 | `ExperimentComparison`：成本 × 端到端成功率散点 + `ExperimentList` 层级列表 | 同一 `ExperimentComparison`：成本 × 端到端成功率散点 + 可排序、可过滤的 `ExperimentList` 固定列表格 |
 | attempt 下钻 | `niceeval show @<locator>` | `#/attempt/@<locator>` |
 | 证据 | `--eval` / `--execution` / `--timing` / `--diff` | Runs / Traces / Attempt modal |
 | 自定义 | `--report <file>` | `--report <file>` |
@@ -78,6 +78,7 @@ definition.build(ctx)
 
 - `null` 表示测不了，不参与聚合；`0` 表示测得为零，正常参与。
 - 一般指标先把同一 eval 的多个 attempt 折成题级值，再跨 eval 聚合，避免重试次数改变题目权重。
+- 无限定词的“Pass rate / 成功率”和所有默认总览统一指 `endToEndPassRate`：`passed = 1`，`failed / errored = 0`，`skipped = null`。`taskPassRate` 是条件于已形成可信判定的诊断指标，必须带限定名称展示，不能作为默认排名或被简称为成功率。
 - Scoreboard 使用固定题集分母，未跑题按 0 分并计入 `missing`；这是其显式考试语义。
 - 报告消费落盘 verdict，不重新判卷。
 - 跨快照计算先按 Results 的 attempt 身份键去重。

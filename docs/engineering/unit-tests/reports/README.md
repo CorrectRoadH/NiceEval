@@ -15,8 +15,10 @@ const selection = reportSelectionFixture({
       { id: "a", attempts: ["passed", "failed", "passed"] },
       // 题 b：题内 1
       { id: "b", attempts: ["passed"] },
+      // 题 c：执行未形成可信判定；端到端记 0，条件任务通过率不计
+      { id: "c", attempts: ["errored"] },
       // skipped 不进入有效样本，但保留在 total
-      { id: "c", attempts: ["skipped"] },
+      { id: "d", attempts: ["skipped"] },
     ],
   }],
 })
@@ -24,11 +26,12 @@ const selection = reportSelectionFixture({
 
 这个 fixture 中：
 
-- 官方两级聚合是 `(2/3 + 1) / 2 = 5/6`。
-- attempt 平铺是 `3/4`。
-- 先把每题折成"任一轮通过"是 `2/2`。
+- 默认端到端成功率是 `(2/3 + 1 + 0) / 3 = 5/9`。
+- 条件任务通过率排除 errored，得到 `(2/3 + 1) / 2 = 5/6`。
+- 端到端 attempt 平铺是 `3/5`。
+- 先把每题折成"任一轮通过"再计票是 `2/3`。
 
-三个值不同，测试才能发现错误复用了另一种口径。各题 attempt 数必须不同，否则两级聚合与平铺可能恰好相等。
+这些值必须彼此不同，测试才能发现排除 error、平铺 attempt 或先折叠 verdict 等错误算法。各题 attempt 数必须不同，否则两级聚合与平铺可能恰好相等。
 
 ## MetricCell fixture
 

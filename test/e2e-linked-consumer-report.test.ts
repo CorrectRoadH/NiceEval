@@ -20,7 +20,7 @@
 // "linked dependency" 场景(见任务要求里的第 4 种情形,在这里通过全部用例共用的 link 机制满足,
 // 不是第四个独立分支——三种 tsconfig 场景本就都跑在 link 消费之上)。
 //
-// 每个场景:临时目录 + 落一份新布局(schemaVersion 6,docs/feature/results/architecture.md)结果 +
+// 每个场景:临时目录 + 落一份当前布局(docs/feature/results/architecture.md)结果 +
 // symlink node_modules/niceeval → 仓库根,真实子进程跑
 // `node <consumer>/node_modules/niceeval/bin/niceeval.js show --report report.mjs`,断言退出码 0、stdout 渲染出
 // 显式报告(ExperimentComparison 摆的 ExperimentList),stderr 没有 ReferenceError /
@@ -32,6 +32,7 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { RESULTS_SCHEMA_VERSION } from "../src/types.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, "..");
@@ -46,7 +47,7 @@ afterEach(async () => {
   await Promise.all(dirs.splice(0).map((d) => rm(d, { recursive: true, force: true })));
 });
 
-/** 落一份新布局(schemaVersion 6)结果:一个 experiment、一个 snapshot、一次 passed attempt——
+/** 落一份当前布局结果:一个 experiment、一个 snapshot、一次 passed attempt——
  * show 裸跑只读 .niceeval/**,不依赖 niceeval.config.ts(见 src/cli.ts 的注释)。 */
 async function seedResults(consumerDir: string): Promise<void> {
   const snapDir = join(consumerDir, ".niceeval", "demo_bub", "2026-07-12T10-00-00-000Z");
@@ -56,7 +57,7 @@ async function seedResults(consumerDir: string): Promise<void> {
     JSON.stringify(
       {
         format: "niceeval.results",
-        schemaVersion: 6,
+        schemaVersion: RESULTS_SCHEMA_VERSION,
         producer: { name: "niceeval", version: "0.4.6" },
         experimentId: "demo/bub",
         agent: "bub",
@@ -113,7 +114,7 @@ function assertCleanReportRender(result: CliResult): void {
   // 显式报告是 ExperimentComparison:ExperimentList 渲染出这个 agent 行与通过率——
   // 真实 JSX 组件树、真实 react-dom 无关(text 面走 renderNodeToText,不含 react-dom),
   // 但同一批 .tsx 源码在 show 的加载路径上被解析求值,能吐出正确内容就证明没有半路崩溃。
-  expect(result.stdout).toContain("Cost × Pass rate");
+  expect(result.stdout).toContain("Cost × End-to-end pass rate");
   expect(result.stdout).toContain("bub");
   expect(result.stdout).toContain("100%");
   expect(result.stdout).toContain("1 passed");

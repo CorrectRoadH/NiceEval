@@ -281,7 +281,7 @@ export interface GroupSummaryData {
   /**
    * 组的通过率:eval 级折叠计票的 `passed / (passed + failed + errored)`(`skipped` 不进
    * 分母)——这是旧 `GroupSelector` 卡片的口径,不是 `OverviewData.totals.passRate` 那种
-   * `computeCell` 两级聚合(两者服务不同问题:「这组题多少算过」vs「整体质量几分」)。
+   * `computeCell` 两级聚合(两者服务不同问题:「这组题多少算过」vs「每次运行成功多少」)。
    * 分母为 0(组内没有任何已跑的 eval)时 `value` 为 `null`,不编 0%。
    */
   passRate: MetricCell;
@@ -305,11 +305,12 @@ export interface OverviewData {
     errored: number;
     skipped: number;
     /**
-     * 通过率的唯一官方口径:`computeCell(taskPassRate, items)`,与 `MetricTable.data(...,
-     * columns: [taskPassRate])` 同一台两级聚合引擎(题内折叠 perEval、跨题折叠 across,默认都是
+     * 默认成功率的唯一官方口径:`computeCell(endToEndPassRate, items)`,与 `MetricTable.data(...,
+     * columns: [endToEndPassRate])` 同一台两级聚合引擎(题内折叠 perEval、跨题折叠 across,默认都是
      * mean)——一道题内多个 attempt 部分通过,贡献的是小数份额而不是二元票。`samples`/`total`
-     * 是两级聚合口径下的 attempt 计数(`total` 含 skipped 与 errored——taskPassRate 对两者都
-     * 记 null 不进分母,`samples` 不含),不等于上面四个 verdict 计票的任何一个之和。
+     * 是两级聚合口径下的 attempt 计数(`total` 含 skipped 与 errored——endToEndPassRate 对
+     * errored 记 0、只对 skipped 记 null,`samples` 因此只不含 skipped),不等于上面四个
+     * verdict 计票的任何一个之和。
      */
     passRate: MetricCell;
     /** 任一 attempt 报了成本才有;全缺 = null,不编 0。 */
@@ -395,7 +396,7 @@ export interface ExperimentListEvalRow {
 /**
  * `ExperimentList.data(selection)` 的一项 = 一个 experiment:身份(experimentId/agent/model)、
  * 声明的 flags、Eval 判定构成(`foldEvalVerdict` 计票,与 view 榜单同一口径)、官方两级聚合
- * 汇总指标(taskPassRate/cost/duration/tokens,直接来自 `computeCell`,不现场重算),以及展开到
+ * 汇总指标(endToEndPassRate/cost/duration/tokens,直接来自 `computeCell`,不现场重算),以及展开到
  * 这个 experiment 每道 Eval 的 `evalRows`(按 eval id 升序)。
  */
 export interface ExperimentListItem {
@@ -405,7 +406,7 @@ export interface ExperimentListItem {
   flags?: Record<string, unknown>;
   /** eval 级折叠计票(foldEvalVerdict 口径,与 `TableRowMeta.verdicts`、view 榜单同一套)。 */
   verdicts: { passed: number; failed: number; errored: number; skipped: number };
-  /** 官方两级聚合口径(taskPassRate),与 `MetricTable.data(..., columns: [taskPassRate])` 同一台引擎。 */
+  /** 官方两级聚合口径(endToEndPassRate),与 `MetricTable.data(..., columns: [endToEndPassRate])` 同一台引擎。 */
   passRate: MetricCell;
   cost: MetricCell;
   duration: MetricCell;

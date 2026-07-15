@@ -377,7 +377,7 @@ describe("ExperimentList", () => {
 
   it("web 面是带过滤框与八个固定列头的 experiment 比较表", () => {
     expect(html).toContain('data-nre-experiment-filter=""');
-    for (const header of ["Experiment", "Model", "Agent", "Avg duration", "Pass rate", "Tokens", "Est. cost", "Result"]) {
+    for (const header of ["Experiment", "Model", "Agent", "Avg duration", "End-to-end pass rate", "Tokens", "Est. cost", "Result"]) {
       expect(html).toContain(`>${header}</button>`);
     }
     expect(html).toContain('data-nre-experiment-sort="4" class="nre-sort-desc"');

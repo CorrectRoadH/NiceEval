@@ -56,7 +56,7 @@ import {
   type Item,
   type SnapshotsInput,
 } from "./aggregate.ts";
-import { attemptCostUSD, costUSD, durationMs, examScore, taskPassRate, tokens } from "./metrics.ts";
+import { attemptCostUSD, costUSD, durationMs, endToEndPassRate, examScore, tokens } from "./metrics.ts";
 import { formatMetricValue, formatPlainNumber } from "./format.ts";
 import { compactAssertionSummary, primaryAssertionSummary } from "../scoring/display.ts";
 
@@ -393,7 +393,7 @@ export async function experimentListData(input: SnapshotsInput): Promise<Experim
         : {}),
       ...(experiment?.flags ? { flags: experiment.flags } : {}),
       verdicts: stats.verdicts,
-      passRate: await computeCell(taskPassRate, group),
+      passRate: await computeCell(endToEndPassRate, group),
       cost: await computeCell(costUSD, group),
       duration: await computeCell(durationMs, group),
       tokens: await computeCell(tokens, group),
@@ -403,7 +403,7 @@ export async function experimentListData(input: SnapshotsInput): Promise<Experim
       evalRows,
     });
   }
-  // ExperimentList 是默认实验比较表:初始态按成功率(taskPassRate)从高到低,缺数据沉底;
+  // ExperimentList 是默认实验比较表:初始态按端到端成功率(endToEndPassRate)从高到低,缺数据沉底;
   // 同分时按 experiment id 稳定排序。web 增强可临时重排,text 面沿用同一基准顺序。
   out.sort((a, b) => {
     if (a.passRate.value === null && b.passRate.value === null) return a.experimentId.localeCompare(b.experimentId);
@@ -673,10 +673,10 @@ export async function overviewData(input: SnapshotsInput): Promise<OverviewData>
     const cost = attemptCostUSD(result);
     if (cost !== null) costUSD = (costUSD ?? 0) + cost;
   }
-  // 通过率的唯一官方口径:taskPassRate 的两级聚合(computeCell),不是从上面四个 verdict
-  // 计票现场重算——一道题内 attempt 部分通过要算部分 credit,不是二元投票;errored 记 null
-  // 不进分母(基建故障不伪装成答错),errored 的存在经上面的 verdict 计票如实呈现。
-  const passRateCell = await computeCell(taskPassRate, items);
+  // 默认成功率的唯一官方口径:endToEndPassRate 的两级聚合(computeCell),不是从上面四个
+  // verdict 计票现场重算——一道题内 attempt 部分通过要算部分 credit,不是二元投票;
+  // failed / errored 都记 0,只有 skipped 不进聚合。
+  const passRateCell = await computeCell(endToEndPassRate, items);
   return {
     snapshots: snapshots.map((s) => ({
       experimentId: s.experimentId,

@@ -8,7 +8,8 @@
 
 | 契约 | 场景 |
 |---|---|
-| 一般指标先在同一 eval 的多个 attempt 内折叠、再跨 eval 折叠（两级默认均 mean），重试次数不改变题目权重 | 正例：区分力 fixture 得 5/6；反例：区分 attempt 平铺 3/4 与"任一轮通过"2/2 两种错误口径 |
+| 一般指标先在同一 eval 的多个 attempt 内折叠、再跨 eval 折叠（两级默认均 mean），重试次数不改变题目权重 | 正例：区分力 fixture 的 `endToEndPassRate` 得 5/9；反例：区分条件任务通过率 5/6、attempt 平铺 3/5 与"任一轮通过"2/3 三种错误口径 |
+| 无限定词的成功率与默认组件使用 `endToEndPassRate`：errored = 0；`taskPassRate` 排除 errored，只能作为带限定名称的诊断指标 | 正例：2 passed + 5 errored 的默认成功率是 2/7，不是 100%；正例：并排展示三个指标可区分任务质量与执行可靠性 |
 | `skipped` attempt 对全部内置指标返回 `null`，不进有效样本但保留在 total | 正例：samples < total 且 value 不受影响；反例：skipped 未被算成 0 分 |
 | `null` 表示测不了不参与聚合；`0` 正常参与，二者聚合结果必须不同 | 边界：`[null, 0, 1]` 的 mean 是 0.5 而非 1/3 |
 | `Scoreboard` 使用固定题集分母：未跑到的题按 0 分计入分母并计入 missing | 正例：题集 4 只跑 2 分母仍 4；反例：与"只统计有样本"口径区分 |
@@ -24,13 +25,13 @@
 import { expect, it } from "vitest"
 import { RunOverview } from "../../report/index.ts"
 
-it("RunOverview 使用两级聚合并保留覆盖率", async () => {
+it("RunOverview 使用端到端两级聚合并保留覆盖率", async () => {
   const data = await RunOverview.data(selection)
 
-  expect(data.totals.taskPassRate.value).toBeCloseTo(5 / 6)
-  expect(data.totals.taskPassRate.display).toBe("83.3%")
-  expect(data.totals.taskPassRate.samples).toBe(4)
-  expect(data.totals.taskPassRate.total).toBe(5)
+  expect(data.totals.passRate.value).toBeCloseTo(5 / 9)
+  expect(data.totals.passRate.display).toBe("55.6%")
+  expect(data.totals.passRate.samples).toBe(5)
+  expect(data.totals.passRate.total).toBe(6)
 })
 ```
 
@@ -58,7 +59,7 @@ it("RunOverview 使用两级聚合并保留覆盖率", async () => {
 | `MetricMatrix` 是稀疏矩阵：无 attempt 的行列组合不生成格子；`MetricBars` 消费同一份矩阵数据 | 正例：缺组合无格子（而非 value:0）；正例：Bars 与 Matrix data 同源 |
 | `AttemptList` 的 `redact` 只改写 message/cause/stack、diagnostic、断言 detail 和 evidence；身份字段与 code、lifecycle operation 不被改写 | 正例：全替换函数下身份字段原样；反例：evidence 中的 secret 被替换 |
 | 分组维度上未声明的 flag 归 `(unset)` 组，不丢行 | 正例：部分 experiment 无该 flag 时 (unset) 计数正确 |
-| `MetricTable` 的 `sort` 决定初始行序，方向由指标 `better` 决定（好在前） | 正例：sort=taskPassRate 高在前、sort=costUSD 低在前 |
+| `MetricTable` 的 `sort` 决定初始行序，方向由指标 `better` 决定（好在前） | 正例：sort=endToEndPassRate 高在前、sort=costUSD 低在前 |
 
 ## text/web 双面同源
 
@@ -69,7 +70,7 @@ it("RunOverview 使用两级聚合并保留覆盖率", async () => {
 | 双面组件的 text 与 web 显示同一份 `.data()` 终值、覆盖率、判定构成和 warning，渲染不重算不丢值 | 正例：partial cell + warning 两面都含 "50%"、"1/2" 和 warning 文本；不要求逐字相同 |
 | `validateReportTree` 拒绝缺任一渲染面的组件与任意 HTML intrinsic，报错为完整用户反馈 | 反例：树中放 `<div>` 或单面组件时校验失败，错误文案可 snapshot |
 | web 面排序/过滤只改变浏览状态，不改变数据、口径或初始 HTML 中的数值 | 正例：有无 filter prop 时数值与行集合相同 |
-| `ExperimentList` web 面是固定八列比较表，默认按 Pass rate 降序；Model 缺失显示明确空值 | 正例：断言 thead 列名与顺序；边界：model 缺失 |
+| `ExperimentList` web 面是固定八列比较表，默认按 End-to-end pass rate 降序；Model 缺失显示明确空值 | 正例：断言 thead 列名与顺序；边界：model 缺失；反例：taskPassRate 高但 executionReliability 低的实验不能排到端到端成功率更高者之前 |
 | `ExperimentList` text 面保持实体层级：Eval 父行、Attempt `├─`/`└─` 子行，不压平 | 正例：一题两 attempt 只出现一次 Eval 标题 |
 
 ```tsx
@@ -80,7 +81,7 @@ import { createTextContext, renderNodeToText } from "../../report/tree.ts"
 
 it("text 与 web 显示同一个 MetricCell 终值和 warning", () => {
   const data = overviewDataFixture({
-    taskPassRate: cells.partial,
+    passRate: cells.partial,
     warnings: ["snapshot is incomplete"],
   })
 
@@ -120,6 +121,7 @@ it("text 与 web 显示同一个 MetricCell 终值和 warning", () => {
 | 两宿主对 `--run` / `--experiment` / 位置参数用同一套选择规则；局部补跑/过旧/未完成快照形成结构化 warning 随 Selection 携带 | 正例：未完成快照在两宿主产出相同 warning 集 |
 | `view` 位置参数收窄只作用于报告槽，证据室保留完整 attempt 集，深链不因首页过滤失效 | 正例：收窄后被滤掉的 attempt 仍可从证据室取到 |
 | `show` 中漏写 `@` 的 locator 按 eval id 前缀处理并明确报无匹配、列出候选 | 反例：输入 "1qrdcfq8" 报 "No results matched" 附候选 |
+| `--timing` 自身就是 attempt 证据切面，单独使用必须进完整时间树；首页 timing 只列大头，短的 baseline / telemetry bookkeeping 留给完整树 | 正例：locator + 单独 `--timing` 不回落首页；边界：短 telemetry 省略、慢 telemetry 保留 |
 | 扫描结果根时单个不可读快照不阻塞其余：忽略/incompatible/malformed/incomplete 各带原因 | 四种坏快照各一 fixture，好快照照常计入 |
 | 零可读结果时命令失败：show 非零退出（旧格式建议 `npx niceeval@<version>`）；view 不启动 server、`--out` 不生成空站 | 边界：空结果根与仅含旧格式两种 |
 | 明确指定单个 snapshot.json 时该文件不可读令 view 失败（与扫描模式的跳过相反） | 反例：损坏文件作位置参数报错退出；正例：同文件在扫描模式仅被跳过 |

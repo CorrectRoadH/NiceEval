@@ -315,11 +315,11 @@ describe("必测场景:resolved data 事实", () => {
     const scatter = scatterOf(tree)!;
     const experiments = experimentListOf(tree)!;
 
-    // 散点:points=experiment、series=agent、x=cost、y=task-pass-rate
+    // 散点:points=experiment、series=agent、x=cost、y=end-to-end-pass-rate
     expect(scatter.points).toBe("experiment");
     expect(scatter.series).toBe("agent");
     expect(scatter.x.key).toBe("cost");
-    expect(scatter.y.key).toBe("task-pass-rate");
+    expect(scatter.y.key).toBe("end-to-end-pass-rate");
     expect(scatter.rows.map((r) => r.key).sort()).toEqual(["compare/bub-low", "compare/codex-mid", "solo/no-cost"]);
 
     const bub = scatter.rows.find((r) => r.key === "compare/bub-low")!;
@@ -330,8 +330,8 @@ describe("必测场景:resolved data 事实", () => {
     const codex = scatter.rows.find((r) => r.key === "compare/codex-mid")!;
     expect(codex.series).toBe("codex");
     expect(codex.x.value).toBeCloseTo(0.225, 10); // errored 0.3 与 passed 0.15,skipped 不计
-    // taskPassRate:errored / skipped 都是 null 不进分母,只有 algebra/z 真被答过(通过)→ 1
-    expect(codex.y.value).toBeCloseTo(1, 10);
+    // endToEndPassRate:errored → 0,skipped → null,algebra/z passed → 1,跨题均值 0.5
+    expect(codex.y.value).toBeCloseTo(0.5, 10);
 
     // 场景 2:solo/no-cost 缺成本 → x 为 null(点在,不可画),y 仍有值
     const solo = scatter.rows.find((r) => r.key === "solo/no-cost")!;
@@ -493,10 +493,10 @@ describe("场景 7:en / zh-CN 数据 resolve 一次、chrome 分别本地化", (
     );
 
     // chrome 分语言
-    expect(enText).toContain("Pass rate");
-    expect(zhText).toContain("成功率");
-    expect(enHtml).toContain("Pass rate");
-    expect(zhHtml).toContain("成功率");
+    expect(enText).toContain("End-to-end pass rate");
+    expect(zhText).toContain("端到端成功率");
+    expect(enHtml).toContain("End-to-end pass rate");
+    expect(zhHtml).toContain("端到端成功率");
     expect(enText).not.toEqual(zhText);
 
     // 但两语言下的事实(散点键 / x / y、attempt 深链)完全相同 —— 数据没被重算成不同结果。
@@ -508,11 +508,11 @@ describe("场景 7:en / zh-CN 数据 resolve 一次、chrome 分别本地化", (
     expect(bub.x.value).toBeCloseTo(0.1, 10);
     expect(bub.y.value).toBeCloseTo(0.75, 10);
     expect(codex.x.value).toBeCloseTo(0.225, 10);
-    expect(codex.y.value).toBeCloseTo(1, 10); // taskPassRate:errored/skipped → null,只剩通过的 algebra/z
+    expect(codex.y.value).toBeCloseTo(0.5, 10); // endToEndPassRate:errored=0,skipped=null,passed=1
     expect(solo.x.value).toBeNull();
     expect(solo.y.value).toBeCloseTo(0.5, 10);
-    // ExperimentList 按 taskPassRate 从高到低:codex-mid(1)> bub-low(0.75)> solo(0.5)
-    expect(experiments.map((e) => e.experimentId)).toEqual(["compare/codex-mid", "compare/bub-low", "solo/no-cost"]);
+    // ExperimentList 按 endToEndPassRate 从高到低:bub-low(0.75)> codex-mid(0.5)=solo(0.5),同分按 id。
+    expect(experiments.map((e) => e.experimentId)).toEqual(["compare/bub-low", "compare/codex-mid", "solo/no-cost"]);
   });
 
   it("spy 佐证:build() 里各计算函数恰好调用一次,随后两 locale 渲染不再重算", async () => {

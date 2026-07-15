@@ -195,9 +195,9 @@ describe("ExperimentList.data", () => {
       attempts: 3,
       lastRunAt: "2026-07-10T22:44:00.000Z",
     });
-    // 官方两级聚合口径(taskPassRate):memory/a 题内均值 (0+1)/2=0.5;
-    // memory/b errored → null 不进分母(基建故障不伪装成答错)→ 跨题均值 0.5
-    expect(item.passRate.value).toBeCloseTo(0.5);
+    // 官方端到端两级聚合:memory/a 题内均值 (0+1)/2=0.5;
+    // memory/b errored → 0 → 跨题均值 (0.5+0)/2=0.25
+    expect(item.passRate.value).toBeCloseTo(0.25);
     expect(item.cost.samples).toBe(2); // 只有 memory/a 的两次 attempt 报了成本
 
     const evalA = item.evalRows.find((e) => e.evalId === "memory/a")!;
@@ -218,6 +218,25 @@ describe("ExperimentList.data", () => {
     const items = await ExperimentList.data([s1, s2]);
     expect(items.map((i) => i.experimentId)).toEqual(["exp/a", "exp/b"]);
     expect(items.find((i) => i.experimentId === "exp/b")!.evalRows.map((e) => e.evalId)).toEqual(["a", "z"]);
+  });
+
+  it("默认成功率包含 errored 并据此排序:2 passed / 5 errored = 2/7,不能以条件 100% 排第一", async () => {
+    const unstable = snap({
+      experimentId: "exp/unstable",
+      results: [
+        res("pass/a", "passed"),
+        res("pass/b", "passed"),
+        ...Array.from({ length: 5 }, (_, i) => res(`error/${i}`, "errored", { error: erroredWith("boom") })),
+      ],
+    });
+    const stable = snap({
+      experimentId: "exp/stable",
+      results: [res("pass", "passed"), res("fail", "failed")],
+    });
+
+    const items = await ExperimentList.data([unstable, stable]);
+    expect(items.find((item) => item.experimentId === "exp/unstable")!.passRate.value).toBeCloseTo(2 / 7, 10);
+    expect(items.map((item) => item.experimentId)).toEqual(["exp/stable", "exp/unstable"]);
   });
 });
 
@@ -994,6 +1013,22 @@ describe("RunOverview.data", () => {
     };
     const data = await RunOverview.data(selection([s], [warning]));
     expect(data.warnings).toEqual([warning]);
+  });
+
+  it("默认成功率把 errored 记 0:2 passed / 5 errored = 2/7,不是 100% 2/7", async () => {
+    const s = snap({
+      experimentId: "exp/unstable",
+      results: [
+        res("pass/a", "passed"),
+        res("pass/b", "passed"),
+        ...Array.from({ length: 5 }, (_, i) => res(`error/${i}`, "errored", { error: erroredWith("boom") })),
+      ],
+    });
+    const data = await RunOverview.data([s]);
+    expect(data.totals.passRate.value).toBeCloseTo(2 / 7, 10);
+    expect(data.totals.passRate.display).toBe("28.6%");
+    expect(data.totals.passRate.samples).toBe(7);
+    expect(data.totals.passRate.total).toBe(7);
   });
 });
 

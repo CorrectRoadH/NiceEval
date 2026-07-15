@@ -35,6 +35,7 @@ import {
   costUSD,
   defineComponent,
   defineReport,
+  endToEndPassRate,
   isReportDefinition,
   padEnd,
   taskPassRate,
@@ -69,7 +70,7 @@ describe("RunOverview 双面", () => {
 
   it("text 面形态:头行(含通过率)+ 判定行 + 警告行", () => {
     expect(term).toMatchInlineSnapshot(`
-      "2 experiments · 12 evals · 48 attempts · Pass rate 70% 46/48 · composed from 2 runs · latest 2026-07-01T11:30:00Z
+      "2 experiments · 12 evals · 48 attempts · End-to-end pass rate 70% 46/48 · composed from 2 runs · latest 2026-07-01T11:30:00Z
       passed 36 · failed 8 · errored 2 · skipped 2 · no data · 4m 21s
       ! snapshot covers 9 of 12 evals seen in history; re-run \`niceeval exp compare/bub\` for a full snapshot"
     `);
@@ -89,13 +90,14 @@ describe("RunOverview 双面", () => {
 
 // fixtures.overviewData 是手工摆好的终值,只验证渲染面「原样显示 MetricCell,不重算」;
 // 下面这组用真实 Selection 走一遍 RunOverview.data(= compute.ts 的 overviewData()),
-// 专门验证 totals.passRate 本身的计算口径 —— 三种通过率公式在这个 fixture 上各不相同:
-//   两级聚合(唯一官方口径,docs/feature/reports/architecture.md「指标聚合不变量」):eval a 题内 2/3 通过、eval b 题内 1,
-//     跨题均值 (2/3 + 1) / 2 = 5/6 ≈ 83.3%
-//   attempt 原始占比(旧 bug 公式,曾经的 RunOverview 现场重算):3 passed / (3 passed + 1 failed) = 75%
-//   eval 折叠投票(evalLevelStats,GroupSummary/MetricTable meta 的口径):a、b 都折成 passed → 2/2 = 100%
-// 三个数互不相同,任何一处偷懒复用另一个公式都会在这里露馅。
-describe("RunOverview.data · taskPassRate 两级聚合口径", () => {
+// 专门验证 totals.passRate 本身的计算口径 —— 四种通过率公式在这个 fixture 上各不相同:
+//   默认端到端两级聚合:eval a 题内 2/3、eval b 题内 1、eval c errored=0,
+//     跨题均值 (2/3 + 1 + 0) / 3 = 5/9 ≈ 55.6%
+//   条件 taskPassRate 排除 errored:(2/3 + 1) / 2 = 5/6 ≈ 83.3%
+//   端到端 attempt 平铺:3 passed / (3 passed + 1 failed + 1 errored) = 60%
+//   eval 折叠投票:a、b passed,c errored → 2/3 ≈ 66.7%
+// 四个数互不相同,任何一处偷懒复用另一个公式都会在这里露馅。
+describe("RunOverview.data · endToEndPassRate 两级聚合口径", () => {
   function fakeVaryingAttemptsContext(): { selection: Selection; attempts: { evalId: string; result: { verdict: EvalResult["verdict"] } }[] } {
     const dir = "/results/compare_bub/snap-1";
     const base = {
@@ -106,7 +108,7 @@ describe("RunOverview.data · taskPassRate 两级聚合口径", () => {
       schemaVersion: 1,
       dir,
     };
-    const mk = (evalId: string, verdict: "passed" | "failed" | "skipped", attemptIndex: number, minute: number) => ({
+    const mk = (evalId: string, verdict: "passed" | "failed" | "errored" | "skipped", attemptIndex: number, minute: number) => ({
       evalId,
       experimentId: "compare/bub",
       result: {
@@ -133,8 +135,10 @@ describe("RunOverview.data · taskPassRate 两级聚合口径", () => {
       mk("algebra/a", "passed", 2, 2),
       // eval b:1 attempt 通过 → 题内 1
       mk("algebra/b", "passed", 0, 3),
-      // eval c:1 attempt 跳过 —— 两级聚合与 eval 折叠计票都要把它排除在分母外
-      mk("algebra/c", "skipped", 0, 4),
+      // eval c:1 attempt errored —— 默认端到端记 0,条件 taskPassRate 才排除
+      mk("algebra/c", "errored", 0, 4),
+      // eval d:1 attempt 跳过 —— 两级聚合与 eval 折叠计票都要把它排除在分母外
+      mk("algebra/d", "skipped", 0, 5),
     ];
     const evalIds = [...new Set(attempts.map((a) => a.evalId))];
     const snapshot: Snapshot = {
@@ -146,18 +150,18 @@ describe("RunOverview.data · taskPassRate 两级聚合口径", () => {
     return { selection, attempts };
   }
 
-  it("totals.passRate = 两级聚合 83.3%,既不等于 attempt 原始占比 75%,也不等于 eval 折叠投票 100%", async () => {
+  it("totals.passRate = 端到端两级聚合 55.6%,不排除 errored,也不复用平铺或 eval 折叠投票", async () => {
     const { selection, attempts } = fakeVaryingAttemptsContext();
     const data = await RunOverview.data(selection);
 
-    expect(data.totals.passRate.value).toBeCloseTo(5 / 6, 10);
-    expect(data.totals.passRate.display).toBe("83.3%");
-    expect(data.totals.passRate.samples).toBe(4); // 5 attempts - 1 skipped(不进桶)
-    expect(data.totals.passRate.total).toBe(5);
+    expect(data.totals.passRate.value).toBeCloseTo(5 / 9, 10);
+    expect(data.totals.passRate.display).toBe("55.6%");
+    expect(data.totals.passRate.samples).toBe(5); // 6 attempts - 1 skipped(errored 进桶且记 0)
+    expect(data.totals.passRate.total).toBe(6);
 
     // attempt 原始占比(旧 bug 公式):必须与两级聚合不同,证明没有从 passed/failed/errored 现算
     const attemptFraction = data.totals.passed / (data.totals.passed + data.totals.failed + data.totals.errored);
-    expect(attemptFraction).toBeCloseTo(0.75, 10);
+    expect(attemptFraction).toBeCloseTo(0.6, 10);
     expect(attemptFraction).not.toBeCloseTo(data.totals.passRate.value as number, 3);
 
     // eval 折叠投票(evalLevelStats,GroupSummary 的口径):也必须与两级聚合不同
@@ -165,18 +169,18 @@ describe("RunOverview.data · taskPassRate 两级聚合口径", () => {
       attempts.map((a) => ({ verdict: a.result.verdict, key: a.evalId })),
       (r) => r.key,
     );
-    expect(stats.passRate).toBeCloseTo(1, 10);
+    expect(stats.passRate).toBeCloseTo(2 / 3, 10);
     expect(stats.passRate).not.toBeCloseTo(data.totals.passRate.value as number, 3);
   });
 
-  it("web 面与 text 面显示同一个 taskPassRate.display,覆盖率角标(4/5)两面一致", async () => {
+  it("web 面与 text 面显示同一个 endToEndPassRate.display,覆盖率角标(5/6)两面一致", async () => {
     const { selection } = fakeVaryingAttemptsContext();
     const data = await RunOverview.data(selection);
     const html = renderToStaticMarkup(<RunOverview data={data} />);
     const term = text(<RunOverview data={data} />);
     for (const face of [html, term]) {
       expect(face).toContain(data.totals.passRate.display);
-      expect(face).toContain("4/5");
+      expect(face).toContain("5/6");
     }
   });
 });
@@ -189,7 +193,7 @@ describe("GroupSummary 双面", () => {
 
   it("text 面形态:一行头(通过率 + experiment/eval 数 + failed/errored + 总成本)+ 最后运行时间", () => {
     expect(term).toMatchInlineSnapshot(`
-      "Pass rate 60% 5/6 · 2 experiments · 6 evals · failed 1 · errored 1 · $1.50
+      "End-to-end pass rate 60% 5/6 · 2 experiments · 6 evals · failed 1 · errored 1 · $1.50
       latest 2026-07-01T11:30:00Z"
     `);
   });
@@ -237,9 +241,9 @@ describe("GroupSummary 双面", () => {
     expect(term).toContain("errored 1");
   });
 
-  it("zh-CN locale:web 面走中文字典(通过率/失败/错误/总成本/实验数),text 面同理;display 数字不本地化", () => {
+  it("zh-CN locale:web 面走中文字典(端到端成功率/失败/错误/总成本/实验数),text 面同理;display 数字不本地化", () => {
     const zhHtml = renderToStaticMarkup(<GroupSummary data={groupSummaryData} locale="zh-CN" />);
-    expect(zhHtml).toContain("通过率");
+    expect(zhHtml).toContain("端到端成功率");
     expect(zhHtml).toContain("失败");
     expect(zhHtml).toContain("错误");
     expect(zhHtml).toContain("总成本");
@@ -248,7 +252,7 @@ describe("GroupSummary 双面", () => {
 
     const zhCtx = createTextContext({ width: 80, locale: "zh-CN" });
     const zhTerm = renderNodeToText(<GroupSummary data={groupSummaryData} />, zhCtx);
-    expect(zhTerm).toContain("通过率");
+    expect(zhTerm).toContain("端到端成功率");
     expect(zhTerm).toContain("失败 1");
     expect(zhTerm).toContain("错误 1");
     expect(zhTerm).toContain("60%");
@@ -541,7 +545,7 @@ describe("ExperimentList 双面", () => {
       expect(html).toContain(piece);
       expect(term).toContain(piece);
     }
-    // 官方两级聚合 taskPassRate.display 两面同一个数字,不各自重算
+    // 官方两级聚合 endToEndPassRate.display 两面同一个数字,不各自重算
     expect(html).toContain("50%");
     expect(term).toContain("50%");
   });
@@ -997,7 +1001,7 @@ describe("defineReport + 渲染入口", () => {
     expect(out).toContain("1 experiment · 2 evals · 2 attempts");
     // ExperimentList:主行 + eval 级折叠计票 + 逐 Attempt locator 与失败诊断
     expect(out).toMatch(/compare\/bub\s+default\s+bub/);
-    expect(out).toContain("1 passed / 1 failed");
+    expect(out).toMatch(/1 passed[\s\S]*?\/ 1\s+failed/);
     expect(out).toContain("50%");
     expect(out).toMatch(/✗ failed\s+algebra\/y[\s\S]*└─ @[0-9a-z]+/);
     // 自己的口径:成绩单
@@ -1081,7 +1085,7 @@ void metricScatterPropsTypeChecks;
 // ───────────────────────── ExperimentComparison(内置默认报告)─────────────────────────
 
 describe("ExperimentComparison", () => {
-  it("是普通 ReportDefinition;text 面 = 成本×通过率散点 + 实验列表,别无它物", async () => {
+  it("是普通 ReportDefinition;text 面 = 成本×端到端成功率散点 + 实验列表,别无它物", async () => {
     expect(isReportDefinition(ExperimentComparison)).toBe(true);
     const out = await renderReportToText(ExperimentComparison, fakeContext(), { width: 100 });
     // 散点:fakeContext 无成本数据 → 0 可画点,显式说明缺哪两个指标(而不是画一张空图)
@@ -1089,7 +1093,7 @@ describe("ExperimentComparison", () => {
     expect(out).not.toContain("better → upper right");
     // 实验列表主行 + eval 级折叠计票 + 失败诊断(ExperimentList.data 在 build() 里直接 await)
     expect(out).toMatch(/compare\/bub\s+default\s+bub/);
-    expect(out).toContain("1 passed / 1 failed");
+    expect(out).toMatch(/1 passed[\s\S]*?\/ 1\s+failed/);
     expect(out).toContain("50%");
     expect(out).toMatch(/✗ failed\s+algebra\/y[\s\S]*└─ @[0-9a-z]+/);
     // 只有两个直接业务组件:没有 RunOverview / GroupSummary / Section 分组
@@ -1110,9 +1114,9 @@ describe("ExperimentComparison", () => {
 
   it("locale 变体:en / zh-CN 都渲染(chrome 分语言),散点空态两面同一事实", async () => {
     const zhHtml = await renderReportToStaticHtml(ExperimentComparison, fakeContext(), { locale: "zh-CN" });
-    expect(zhHtml).toContain("成功率"); // taskPassRate 的 zh-CN label(ExperimentList 主行)
+    expect(zhHtml).toContain("端到端成功率");
     const enHtml = await renderReportToStaticHtml(ExperimentComparison, fakeContext(), { locale: "en" });
-    expect(enHtml).toContain("Pass rate");
+    expect(enHtml).toContain("End-to-end pass rate");
     const zhText = await renderReportToText(ExperimentComparison, fakeContext(), { locale: "zh-CN" });
     expect(zhText).toContain("没有可绘制的数据"); // 散点空态 zh
     const enText = await renderReportToText(ExperimentComparison, fakeContext(), { locale: "en" });
@@ -1137,7 +1141,7 @@ describe("ExperimentComparison", () => {
     const { selection } = fakeContext();
     const data = await ExperimentComparison.data(selection);
     expect(data.scatter).toEqual(
-      await MetricScatter.data(selection, { points: "experiment", series: "agent", x: costUSD, y: taskPassRate }),
+      await MetricScatter.data(selection, { points: "experiment", series: "agent", x: costUSD, y: endToEndPassRate }),
     );
     expect(data.experiments).toEqual(await ExperimentList.data(selection));
   });

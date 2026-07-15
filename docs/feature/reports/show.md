@@ -20,7 +20,7 @@ niceeval show memory/swelancer --history   # 这个 eval 的真实执行历史
 
 ## 裸 `show`：默认报告的 text 面
 
-裸 `niceeval show` 与显式渲染内置 `ExperimentComparison` 等价。报告先输出成本 × 成功率散点图，再输出 `ExperimentList`。只有一个可画 experiment 时也照常显示一个点，不要求至少两个实验。
+裸 `niceeval show` 与显式渲染内置 `ExperimentComparison` 等价。报告先输出成本 × 端到端成功率散点图，再输出 `ExperimentList`。端到端成功率的分母包含 `failed` 与 `errored`，只有 `skipped` 不进入；因此执行错误会降低默认成功率，但仍在结果构成中单独显示，不与失败混成一种判定。只有一个可画 experiment 时也照常显示一个点，不要求至少两个实验。
 
 `ExperimentList` 的 text 面保持实体层级：一个 experiment 下列 Eval，一个 Eval 下再列它的全部 Attempt。不能把 Eval 与 Attempt 压平成一张“每行一个 Attempt、重复 Eval id”的表。
 
@@ -29,13 +29,13 @@ $ niceeval show
 WARNING  snapshot dev-e2b/codex-e2b @ 2026-07-12T10:08:29.361Z is unfinished;
          8 completed attempts are shown, but the snapshot may be incomplete.
 
-平均每个 eval 成本（越低越好） × 成功率
+平均每个 eval 成本（越低越好） × 端到端成功率
 ... A
 
 越靠右上越好
 A dev-e2b/codex-e2b
 
-实验                    模型            Agent   平均耗时   成功率   结果               Tokens    预估成本
+实验                    模型            Agent   平均耗时   端到端成功率   结果               Tokens    预估成本
 dev-e2b/codex-e2b      gpt-5.4-mini    codex   1m 58s    66.7%   4 通过 / 2 失败    198.9k    $0.17
 6 道题 · 6 次 attempt · 2026-07-12T10:08:29.361Z
 

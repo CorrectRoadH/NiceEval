@@ -43,13 +43,14 @@ export function attemptCostUSD(result: EvalResult): number | null {
 }
 
 /**
- * Agent 答题质量:passed = 1,failed = 0,errored 记 null 不进分母 ——
- * 基础设施故障不伪装成 Agent 答错(docs/feature/reports/library.md「内置指标」)。
+ * 条件答题质量:passed = 1,failed = 0,errored 记 null 不进分母。
+ * 这是「已形成可信判定」条件下的诊断指标,不能简称默认成功率
+ * (docs/feature/reports/library.md「内置指标」)。
  */
 export const taskPassRate = defineMetric({
   name: "task-pass-rate",
-  label: { en: "Pass rate", "zh-CN": "成功率" },
-  description: "Agent answer quality: passed = 1, failed = 0; errored is null (infrastructure faults never masquerade as wrong answers).",
+  label: { en: "Task pass rate", "zh-CN": "可判定任务通过率" },
+  description: "Conditional task quality among attempts that formed a trustworthy verdict: passed = 1, failed = 0; errored is null.",
   better: "higher",
   unit: "%",
   value(a) {
@@ -59,17 +60,17 @@ export const taskPassRate = defineMetric({
       case "failed":
         return 0;
       default:
-        // errored = 基建没跑起来,不是 Agent 答错 → null 不进分母;skipped 同为 null。
+        // errored = 没形成可信判定 → null 不进这个条件指标;skipped 同为 null。
         return null;
     }
   },
 });
 
-/** 基建可靠性:跑到可判定(passed / failed)= 1,errored = 0;skipped → null。 */
+/** 执行可靠性:跑到可判定(passed / failed)= 1,errored = 0;skipped → null。 */
 export const executionReliability = defineMetric({
   name: "execution-reliability",
-  label: { en: "Execution reliability", "zh-CN": "基建可靠性" },
-  description: "Infrastructure reliability: reached a verdict (passed / failed) = 1, errored = 0.",
+  label: { en: "Execution reliability", "zh-CN": "执行可靠性" },
+  description: "Execution reliability: reached a trustworthy verdict (passed / failed) = 1, errored = 0.",
   better: "higher",
   unit: "%",
   value(a) {

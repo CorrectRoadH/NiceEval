@@ -151,12 +151,12 @@ describe("默认报告:跨快照合成的现刻水位(ExperimentComparison text 
     const root = await seedComposedRoot();
     const { out, code } = await show(root, []);
     expect(code).toBe(0);
-    expect(out).toContain("No data to plot Cost × Pass rate");
+    expect(out).toContain("No data to plot Cost × End-to-end pass rate");
     expect(out).toContain("1 point missing data");
     expect(out).not.toContain("needed to compare");
     expect(out).not.toContain("COMPARISON");
     expect(out).toMatch(/compare\/bub\s+default\s+bub\s+1s\s+50%/);
-    expect(out).toContain("1 passed / 1 failed");
+    expect(out).toMatch(/1 passed[\s\S]*?\/ 1\s+failed/);
     expect(out).toMatch(/✗ failed\s+fixtures\/button[\s\S]*└─ @1[0-9a-z]{7}[\s\S]*fileChanged/);
     expect(out).toMatch(/✓ passed\s+weather\/brooklyn[\s\S]*└─ @1[0-9a-z]{7}/);
     expect(out).not.toMatch(/\[[EXD⏱,]+\]/);
@@ -168,7 +168,7 @@ describe("默认报告:跨快照合成的现刻水位(ExperimentComparison text 
     try {
       const { out, code } = await show(root, []);
       expect(code).toBe(0);
-      expect(out).toContain("预估成本 × 成功率 没有可绘制的数据");
+      expect(out).toContain("预估成本 × 端到端成功率 没有可绘制的数据");
       expect(out).toContain("1 通过 / 1 失败");
       expect(out).toContain("compare/bub");
     } finally {

@@ -145,6 +145,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 
 ## 设计决定
 
+- [end-to-end-pass-rate-is-default](end-to-end-pass-rate-is-default.md) — 裁决(2026-07-15):三指标拆分保留,但默认“成功率”从排除 errored 的 `taskPassRate` 改为 `endToEndPassRate`;`taskPassRate` 只作带限定名称的条件诊断指标,不能驱动默认排名;`2 passed / 5 errored` 默认显示 2/7 而非 100%
 - [scoped-match-language-docs-first](scoped-match-language-docs-first.md) — 裁决(2026-07-14):`eventsSatisfy(label, predicate)` label 必填在前、`calledTool` 的 `input` 是深度部分匹配小语言(值位 RegExp/顶层 RegExp/谓词);曾按源码反推把契约改成 `(predicate, label?)`+浅层包含被否决——docs 先行,源码落后应改代码;实现缺口在 src/scoring/scoped.ts
 - [test-budget-inverted-pyramid](test-budget-inverted-pyramid.md) — 裁决(2026-07-13):测试预算按「静默出错的代价」分配,不按代码量或好测程度,行覆盖率不作指标;出处=全套件审计实测「读结果/画结果」测到 0.91 而「判断对错」(scoring/expect/fingerprint/runEvals/computeVerdict)测到 0;套件质量本身是好的,问题是指向了错的代码,落成 docs/engineering/unit-tests/
 - [parity-test-compares-source-to-its-own-copy](parity-test-compares-source-to-its-own-copy.md) — 裁决(2026-07-13):「公开 API 够不够用户重建内置报告」由 fixture 能编译过证明,不由输出比对证明;曾选 643 行 built-in-user-parity 测试(把内置报告逐字拷进 fixture 再比对两者输出)因是纯改名检测器被否决——JSX 主体一字不差,恒成立,只在重构时收改名税
