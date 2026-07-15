@@ -163,6 +163,16 @@ it.each([
 })
 ```
 
+## 标注 Eval 源码（AnnotatedEvalSource）
+
+契约来源：[concepts · 标注 Eval 源码](../../../concepts.md)、[Show · --eval](../../../feature/reports/show.md)。
+
+| 契约 | 场景 |
+|---|---|
+| 断言按 `SourceLoc` 标回源码行；无 loc / 异文件 / 越界行进 unmapped 桶，never silently dropped | 正例：同一行多条断言；反例：三类不可映射断言都出现在 unmapped |
+| send 标注按同一映射规则落到 `t.send(...)` 调用行，一行多轮逐轮保留；定位不到行的轮直接丢（轮次全量面是 `--execution`，不设兜底桶） | 正例：同一行两轮都保留；反例：异文件与越界行的轮不落任何行 |
+| `deriveSendAnnotations`：第 i 条用户消息配 `eval.run` 下第 i 个 turn 节点（与 `--execution` 分轮同一规则），头行事实取 turn 节点的 label / failed / durationMs；用户消息无 loc 的轮不产出且不使后续轮错位 | 正例：三轮中第二轮无 loc 时第三轮仍配对正确；边界：时间树缺 turn 节点回退 `t<i>` 标签、无墙钟；边界：空事件流产出空数组 |
+
 ## copySnapshots 与 resolveLocator
 
 契约来源：[Library](../../../feature/results/library.md)。

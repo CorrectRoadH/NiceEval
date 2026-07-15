@@ -3,7 +3,7 @@
 // metric.display 可整体覆盖;这里只负责默认。
 
 import type { AssertionResult, Verdict } from "../types.ts";
-import { compactAssertionSummary, primaryAssertionSummary } from "../scoring/display.ts";
+import { compactAssertionSummary, fitCompactAssertionSummary, primaryAssertionSummary } from "../scoring/display.ts";
 
 /** 一位小数、去掉无意义的 ".0" 尾巴。 */
 function trimmed(n: number): string {
@@ -94,13 +94,26 @@ export function verdictMark(verdict: Verdict): string {
   }
 }
 
-/** Attempt 比较项的一层结果摘要；完整 assertions 只在 locator 详情里展开。 */
-export function attemptItemReason(item: {
-  verdict: Verdict;
-  error?: { message: string };
-  assertions: AssertionResult[];
-}): string | undefined {
-  if (item.error !== undefined) return item.error.message;
+/**
+ * Attempt 比较项的一层结果摘要；完整 assertions 只在 locator 详情里展开。
+ * maxChars(可选)是渲染面的宽度收口预算(如两行单元格 = 2 × 列宽):断言摘要按
+ * fitCompactAssertionSummary 的优先级让位,error 摘要折单行后尾截。
+ */
+export function attemptItemReason(
+  item: {
+    verdict: Verdict;
+    error?: { message: string };
+    assertions: AssertionResult[];
+  },
+  maxChars?: number,
+): string | undefined {
+  if (item.error !== undefined) {
+    const message = item.error.message.replace(/\s+/g, " ").trim();
+    return maxChars !== undefined && message.length > maxChars
+      ? `${message.slice(0, Math.max(0, maxChars - 1))}…`
+      : message;
+  }
   const summary = primaryAssertionSummary(item.assertions, item.verdict);
-  return summary === undefined ? undefined : compactAssertionSummary(summary);
+  if (summary === undefined) return undefined;
+  return maxChars === undefined ? compactAssertionSummary(summary) : fitCompactAssertionSummary(summary, maxChars);
 }

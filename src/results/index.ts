@@ -29,9 +29,11 @@ export {
 } from "./locator.ts";
 export {
   buildAnnotatedEvalSource,
+  deriveSendAnnotations,
   type AnnotatedEvalSource,
   type AnnotatedEvalSourceSummary,
   type AnnotatedSourceLine,
+  type SendAnnotation,
 } from "./annotated-source.ts";
 export { loadAnnotatedEvalSource } from "./attempt-source.ts";
 export {

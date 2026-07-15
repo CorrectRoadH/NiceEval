@@ -6,11 +6,12 @@
 import { join, relative } from "node:path";
 import type { AssertionResult, DiffData, EvalResult, TimingNode, TraceSpan, Verdict } from "../types.ts";
 import type { AttemptEvidence, AttemptHandle, Snapshot } from "../results/index.ts";
-import type { AnnotatedSourceLine } from "../results/index.ts";
+import type { AnnotatedSourceLine, SendAnnotation } from "../results/index.ts";
 import { groupIncompatibleVersionSkips } from "../results/index.ts";
 import type { SkippedDir } from "../results/index.ts";
 import type { ExecutionNode } from "../o11y/execution-tree.ts";
 import { foldEvalVerdict } from "../shared/verdict.ts";
+import { summaryText } from "../scoring/display.ts";
 import { attemptCostUSD } from "../report/metrics.ts";
 import { formatDurationMs, formatMetricValue, formatPlainNumber, formatUSD } from "../report/format.ts";
 import { indentBlock, padDisplay, renderAlignedRows, wrapDisplay } from "../report/text/layout.ts";
@@ -150,9 +151,16 @@ export function assertionLine(a: AssertionResult): string {
   if (a.outcome === "failed") {
     const reason = a.detail ?? `score ${scoreText(a.score)}`;
     const received = a.received ?? a.evidence;
-    return received !== undefined ? `${head} — ${reason} · received: ${received}` : `${head} — ${reason}`;
+    // 单行面只放摘要收口后的预览;多行值(如 output tail)的完整版在 attempt 首页展开。
+    return received !== undefined ? `${head} — ${reason} · received: ${summaryText(received)}` : `${head} — ${reason}`;
   }
   return head;
+}
+
+/** 字段行:首行 `<label>: <值首行>`,值的其余行(如 CommandResult 的 output tail)缩进原样展开。 */
+function fieldLines(label: string, value: string): string[] {
+  const [first, ...rest] = value.split("\n");
+  return [`    ${label}: ${first ?? ""}`, ...rest.map((line) => `      ${line}`)];
 }
 
 /** 每条的通用行组(见 docs/feature/scoring/library/display.md「通用渲染规则」):
@@ -173,9 +181,9 @@ function assertionRecordLines(a: AssertionResult): string[] {
   if (a.outcome === "unavailable") {
     lines.push(`    reason: ${a.reason}`);
   } else {
-    if (a.expected !== undefined) lines.push(`    expected: ${a.expected}`);
-    if (a.received !== undefined) lines.push(`    received: ${a.received}`);
-    if (a.evidence !== undefined && a.evidence !== a.received) lines.push(`    evidence: ${a.evidence}`);
+    if (a.expected !== undefined) lines.push(...fieldLines("expected", a.expected));
+    if (a.received !== undefined) lines.push(...fieldLines("received", a.received));
+    if (a.evidence !== undefined && a.evidence !== a.received) lines.push(...fieldLines("evidence", a.evidence));
   }
   if (a.loc) lines.push(`    source: ${a.loc.file}:${a.loc.line}${a.loc.column ? `:${a.loc.column}` : ""}`);
   return lines;
@@ -467,23 +475,39 @@ function evalAssertionDetailLine(a: AssertionResult): string | undefined {
     return `soft · ${scoreText(a.score)}${threshold}${detail}`;
   }
   if (a.outcome === "failed") {
+    // 标注行是源码页里的一行事实,不是证据面:expected / received 过摘要收口
+    // (折单行 + 上限),完整值在 attempt 首页与 events.json / diff.json。
     const parts = ["gate"];
     const group = groupTitle(a);
     if (group) parts.push(group);
     parts.push(a.name);
-    if (a.expected !== undefined) parts.push(`expected ${a.expected}`);
+    if (a.expected !== undefined) parts.push(`expected ${summaryText(a.expected)}`);
     const received = a.received ?? a.evidence;
-    if (received !== undefined) parts.push(`received ${received}`);
-    if (a.detail) parts.push(a.detail);
+    if (received !== undefined) parts.push(`received ${summaryText(received)}`);
+    if (a.detail) parts.push(summaryText(a.detail));
     return parts.join(" · ");
   }
   return undefined;
 }
 
+/** send 行标注:轮身份 · status · 墙钟(有记录才出现),契约见 show.md「--eval」。 */
+function sendAnnotationLine(send: SendAnnotation): string {
+  const parts = [send.label, send.status];
+  if (send.durationMs !== undefined) parts.push(formatDurationMs(send.durationMs));
+  return parts.join(" · ");
+}
+
 function evalSourceLineText(line: AnnotatedSourceLine, gutterWidth: number, width: number): string[] {
-  const anyFailed = line.assertions.some((a) => a.outcome === "failed");
+  const anyFailed = line.assertions.some((a) => a.outcome === "failed") ||
+    line.sends.some((send) => send.status === "failed");
   const anyUnavailable = line.assertions.some((a) => a.outcome === "unavailable");
-  const glyph = line.assertions.length === 0 ? " " : anyFailed ? "✗" : anyUnavailable ? "◌" : "✓";
+  const glyph = line.assertions.length === 0 && line.sends.length === 0
+    ? " "
+    : anyFailed
+      ? "✗"
+      : anyUnavailable
+        ? "◌"
+        : "✓";
   const marginWidth = gutterWidth + 2; // 行号列 + glyph + 分隔空格
   const prefix = `${padDisplay(String(line.line), gutterWidth)}${glyph} `;
   // 源码行的空白(尤其是缩进)是语义的一部分:wrapDisplay 按单词重排会把连续空格
@@ -492,6 +516,11 @@ function evalSourceLineText(line: AnnotatedSourceLine, gutterWidth: number, widt
   // 折行只对续行加统一 margin,救不回已经被吃掉的原始缩进,不如老实截断。
   const out = [prefix + clip(line.text, Math.max(20, width - marginWidth))];
   const margin = " ".repeat(marginWidth);
+  for (const send of line.sends) {
+    for (const wrapped2 of wrapDisplay(sendAnnotationLine(send), Math.max(20, width - marginWidth))) {
+      out.push(margin + wrapped2);
+    }
+  }
   for (const a of line.assertions) {
     const detail = evalAssertionDetailLine(a);
     if (detail === undefined) continue;
@@ -532,8 +561,14 @@ export function evalSourceText(
     );
   }
 
-  blocks.push(assertionSummaryLine(evidence.result.assertions));
-  if (artifact) blocks.push(`full eval source: ${artifact}`);
+  const tail = [assertionSummaryLine(evidence.result.assertions)];
+  // 标注行的值是收口预览;有未通过断言时给「更进一步」——attempt 首页展开完整 expected /
+  // received(含 output tail),再往下是 result.json / events.json。
+  if (evidence.result.assertions.some((a) => a.outcome !== "passed")) {
+    tail.push(`full failure detail: niceeval show ${evidence.locator}`);
+  }
+  if (artifact) tail.push(`full eval source: ${artifact}`);
+  blocks.push(tail.join("\n"));
   return blocks.join("\n\n");
 }
 

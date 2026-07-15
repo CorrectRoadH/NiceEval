@@ -128,13 +128,47 @@ export function createEvalContext(deps: ContextDeps): { context: TestContext; st
     return value;
   }
 
-  /** 断言失败时给 view 看的「实际被检查了什么」,而不是重复 matcher 自己的名字。 */
+  /** CommandResult 形状的值(duck-type,不 import sandbox 域):received 按「退出码 + 输出尾部」投影。 */
+  function asCommandResult(value: unknown): { stdout: string; stderr: string; exitCode: number; command?: string } | undefined {
+    if (!value || typeof value !== "object") return undefined;
+    const v = value as { stdout?: unknown; stderr?: unknown; exitCode?: unknown };
+    return typeof v.stdout === "string" && typeof v.stderr === "string" && typeof v.exitCode === "number"
+      ? (value as { stdout: string; stderr: string; exitCode: number; command?: string })
+      : undefined;
+  }
+
+  /** 断言失败时给 view 看的「实际被检查了什么」,而不是重复 matcher 自己的名字。
+   *  按值的形状落成人可读事实(而不是留一坨 JSON 给渲染层解析):CommandResult 的第一行是
+   *  `exit N · "…输出尾部摘要"`(stdout+stderr 合并折单行,信号常收在末尾——pytest / vitest
+   *  的 failed 计数都在最后几行;榜单与 --eval 标注这类单行面只保留这一行),随后附原样保留
+   *  换行的更长尾部——runner 不另存 eval 侧命令的输出,这条记录就是它唯一的家,attempt 首页
+   *  与 result.json 靠它给出「更进一步」;文件引用带 `// path` 头;其余走通用 JSON 预览。 */
   function previewCheckedValue(value: unknown): string {
+    const cmd = asCommandResult(value);
+    if (cmd) {
+      const combined = `${cmd.stdout}\n${cmd.stderr}`.trim();
+      const folded = combined.replace(/\s+/g, " ").trim();
+      const summary = folded.length > 160 ? `…${folded.slice(-159)}` : folded;
+      const headline = summary.length > 0 ? `exit ${cmd.exitCode} · "${summary}"` : `exit ${cmd.exitCode}`;
+      if (combined.length <= 160) return headline;
+      let tail = combined.slice(-3600);
+      if (combined.length > 3600) {
+        const firstBreak = tail.indexOf("\n");
+        if (firstBreak >= 0) tail = tail.slice(firstBreak + 1); // 不从半行开始
+      }
+      return `${headline}\noutput tail:\n${tail}`;
+    }
     if (value && typeof value === "object" && typeof (value as { path?: unknown }).path === "string") {
       const content = (value as { content?: unknown }).content;
       if (typeof content === "string") return brief(`// ${(value as { path: string }).path}\n${content}`, 4000);
     }
     return brief(value, 4000);
+  }
+
+  /** 失败断言的 evidence:被检查值自带命令摘要(CommandResult.command)时就是「命令行本身」。 */
+  function checkedValueEvidence(value: unknown): string | undefined {
+    const command = asCommandResult(value)?.command;
+    return typeof command === "string" && command.length > 0 ? command : undefined;
   }
 
   // agent 归因 diff 的只读视图:get = 最后触及窗口的终态;matches 扫触及路径与各窗口内容。
@@ -345,7 +379,12 @@ export function createEvalContext(deps: ContextDeps): { context: TestContext; st
           const resolved = await resolveValue(value, sc);
           const score = await assertion.score(resolved);
           if (computePassed(spec.severity, spec.threshold, score)) return score;
-          return { score, expected: assertion.expected, received: previewCheckedValue(resolved) };
+          return {
+            score,
+            expected: assertion.expected,
+            received: previewCheckedValue(resolved),
+            ...(checkedValueEvidence(resolved) !== undefined ? { evidence: checkedValueEvidence(resolved) } : {}),
+          };
         },
       };
       return collector.record(spec);
@@ -361,7 +400,14 @@ export function createEvalContext(deps: ContextDeps): { context: TestContext; st
         severity: "gate",
         threshold: assertion.threshold,
         evaluate: () =>
-          passed ? score : { score, expected: assertion.expected, received: previewCheckedValue(v) },
+          passed
+            ? score
+            : {
+                score,
+                expected: assertion.expected,
+                received: previewCheckedValue(v),
+                ...(checkedValueEvidence(v) !== undefined ? { evidence: checkedValueEvidence(v) } : {}),
+              },
       });
       if (!passed) throw new EvalRequirementFailed(assertion.name);
       return value;

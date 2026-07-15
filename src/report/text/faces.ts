@@ -30,7 +30,7 @@ import {
   verdictMark,
 } from "../format.ts";
 import { countText, localeText, resolveMetricLabel, type ReportLocale } from "../locale.ts";
-import { indentBlock, padDisplay, textBar, wrapDisplay } from "./layout.ts";
+import { indentBlock, padDisplay, stringWidth, textBar, wrapDisplay } from "./layout.ts";
 import { renderTableText } from "./table.ts";
 import { renderCharPlot, renderCoordinateTable, type PlotPoint } from "./plot.ts";
 
@@ -495,10 +495,23 @@ function experimentDetailTable(item: ExperimentListItem, ctx: TextContext): stri
   const columns: TableColumn[] = [
     { key: "status", header: localeText(locale, "experimentList.status") },
     { key: "entity", header: localeText(locale, "experimentList.evalAttempt") },
-    { key: "result", header: localeText(locale, "experimentList.result") },
+    // Result 是可扫读的失败预览,不是证据面:两行放不下的以 … 收口,完整值走 locator 下钻。
+    { key: "result", header: localeText(locale, "experimentList.result"), maxLines: 2 },
     { key: "duration", header: localeText(locale, "experimentList.duration"), align: "right" },
     { key: "cost", header: localeText(locale, "experimentList.cost"), align: "right" },
   ];
+  // Result 的字符预算 ≈ 两行 × 它能分到的列宽(总宽减其它列的自然宽与列距)。这里只做
+  // 优先级让位(标题先截、received 最后截)的粗预算;精确的按宽度收口由列的 maxLines 兜底。
+  const statusWidth = Math.max(
+    stringWidth(localeText(locale, "experimentList.status")),
+    ...item.evalRows.map((row) => stringWidth(`${verdictMark(row.verdict)} ${localeText(locale, `verdict.${row.verdict}`)}`)),
+  );
+  const entityWidth = Math.max(
+    stringWidth(localeText(locale, "experimentList.evalAttempt")),
+    ...item.evalRows.flatMap((row) => [stringWidth(row.evalId), ...row.attempts.map((a) => stringWidth(a.locator) + 3)]),
+  );
+  const fixedWidth = statusWidth + entityWidth + 8 /* duration */ + 6 /* cost */ + 3 * 4; /* 4 段列距 */
+  const resultBudget = Math.max(24, (ctx.width - fixedWidth) * 2);
   const rows: TableRow[] = item.evalRows.flatMap((row) => {
     const parent: TableRow = {
       key: row.evalId,
@@ -515,7 +528,7 @@ function experimentDetailTable(item: ExperimentListItem, ctx: TextContext): stri
       cells: {
         status: `  ${verdictMark(attempt.verdict)}`,
         entity: `${index === row.attempts.length - 1 ? "└─" : "├─"} ${attempt.locator}`,
-        result: attemptItemReason(attempt) ?? MISSING_MARK,
+        result: attemptItemReason(attempt, resultBudget) ?? MISSING_MARK,
         duration: attempt.verdict === "skipped" && attempt.durationMs === 0 ? null : formatDurationMs(attempt.durationMs),
         cost: attempt.costUSD === undefined ? null : formatUSD(attempt.costUSD),
       },
@@ -535,8 +548,9 @@ export function experimentListText(items: ExperimentListItem[], ctx: TextContext
 
 // ── EvalList ──
 
-function evalListAttemptLine(item: AttemptListItem): string {
-  const reason = attemptItemReason(item);
+function evalListAttemptLine(item: AttemptListItem, ctx: TextContext): string {
+  // 行式列表同守「Result 最多两行」:预算 = 两行终端宽,超出由 fit 投影按优先级让位。
+  const reason = attemptItemReason(item, Math.max(24, ctx.width * 2 - stringWidth(locatorBadge(item)) - 6));
   return `  ${locatorBadge(item)}${reason ? ` · ${reason}` : ""}`;
 }
 
@@ -551,7 +565,7 @@ export function evalListText(items: EvalListItem[], ctx: TextContext): string {
       `${formatDurationMs(item.duration.value ?? 0)} avg`,
       item.cost.value === null ? `${missingText(locale)} avg` : `${formatUSD(item.cost.value)} avg`,
     ].join(" · ");
-    const attemptLines = item.attempts.map(evalListAttemptLine);
+    const attemptLines = item.attempts.map((attempt) => evalListAttemptLine(attempt, ctx));
     return [identity, `  ${summary}`, ...attemptLines].join("\n");
   });
   return blocks.join("\n\n");
@@ -559,8 +573,8 @@ export function evalListText(items: EvalListItem[], ctx: TextContext): string {
 
 // ── AttemptList ──
 
-/** Attempt 比较卡片：只显示一条主失败摘要；完整 assertions 走 locator 下钻。 */
-function attemptListItemText(item: AttemptListItem): string {
+/** Attempt 比较卡片：只显示一条主失败摘要（至多两行终端宽）；完整 assertions 走 locator 下钻。 */
+function attemptListItemText(item: AttemptListItem, ctx: TextContext): string {
   const head = [
     `${verdictMark(item.verdict)} ${item.locator}`,
     item.evalId,
@@ -569,7 +583,7 @@ function attemptListItemText(item: AttemptListItem): string {
     ...(item.costUSD !== undefined ? [formatUSD(item.costUSD)] : []),
   ].join(" · ");
   const lines = [head];
-  const reason = attemptItemReason(item);
+  const reason = attemptItemReason(item, Math.max(24, ctx.width * 2 - 4));
   if (reason) lines.push(`  ${reason}`);
   return lines.join("\n");
 }
@@ -577,7 +591,7 @@ function attemptListItemText(item: AttemptListItem): string {
 export function attemptListText(items: AttemptListItem[], total: number | undefined, ctx: TextContext): string {
   const locale = ctx.locale;
   if (items.length === 0) return localeText(locale, "attemptList.empty");
-  const blocks = items.map((item) => attemptListItemText(item));
+  const blocks = items.map((item) => attemptListItemText(item, ctx));
   const remaining = (total ?? items.length) - items.length;
   if (remaining > 0) blocks.push(localeText(locale, "attemptList.truncatedText", { n: remaining }));
   return blocks.join("\n\n");

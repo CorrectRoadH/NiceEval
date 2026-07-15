@@ -558,6 +558,39 @@ describe("ExperimentList 双面", () => {
     expect(blocks[1]!.match(/algebra\/quadratic/g)).toHaveLength(1);
     expect(blocks[1]).toMatch(/✗ failed\s+algebra\/quadratic[\s\S]*├─ @1a4a4a4[\s\S]*└─ @1b5b5b5/);
   });
+
+  it("Result 是两行收口的预览:received 携带整份多行源码时既不逐行铺表也不无限折行", () => {
+    const fatAttempt = {
+      ...experimentListItems[0]!.evalRows[0]!.attempts[0]!,
+      assertions: [{
+        name: "includes(/['\"]use cache['\"];?/)",
+        groupPath: ["Catalog reads use use-cache directive and products cache tag"],
+        severity: "gate" as const,
+        score: 0,
+        outcome: "failed" as const,
+        expected: "matches /['\"]use cache['\"];?/",
+        received: `\n// next.config.ts\n${"import type { NextConfig } from 'next';\n\n".repeat(50)}`,
+      }],
+    };
+    const fatItems = [{
+      ...experimentListItems[0]!,
+      evalRows: [{
+        ...experimentListItems[0]!.evalRows[0]!,
+        attempts: [fatAttempt],
+      }],
+    }];
+    const detail = renderNodeToText(<ExperimentList items={fatItems} />, createTextContext({ width: 100 }))
+      .split("\n\n")
+      .at(-1)!;
+    const lines = detail.split("\n");
+    // 表头 1 + eval 父行 1 + attempt 子行 ≤2(Result 列 maxLines: 2),外加 experimentId 头行
+    expect(lines.length).toBeLessThanOrEqual(6);
+    expect(detail).toContain("…");
+    expect(lines.every((l) => l.trim().length > 0)).toBe(true); // 值里的空行不进表
+    // 优先级让位:语义标题先截(全称不再出现),事实字段(expected/received)最后截
+    expect(detail).not.toContain("Catalog reads use use-cache directive and products cache tag");
+    expect(detail).toContain("expected");
+  });
 });
 
 // ───────────────────────── 排版原语 ─────────────────────────

@@ -8,7 +8,7 @@
 // 或参照。
 
 import type { AttemptHandle } from "./types.ts";
-import { buildAnnotatedEvalSource, type AnnotatedEvalSource } from "./annotated-source.ts";
+import { buildAnnotatedEvalSource, type AnnotatedEvalSource, type SendAnnotation } from "./annotated-source.ts";
 
 /**
  * 给定一个 attempt,取回它的 eval 源码(经 sources() 解引用,可能来自本快照或
@@ -22,7 +22,10 @@ import { buildAnnotatedEvalSource, type AnnotatedEvalSource } from "./annotated-
  * 只服务这条打通链路的验证目的,不是最终选择策略(后续阶段如需要为每份引用到的文件
  * 都出一份 AnnotatedEvalSource,在这基础上很容易扩成返回数组)。
  */
-export async function loadAnnotatedEvalSource(attempt: AttemptHandle): Promise<AnnotatedEvalSource | null> {
+export async function loadAnnotatedEvalSource(
+  attempt: AttemptHandle,
+  sends: readonly SendAnnotation[] = [],
+): Promise<AnnotatedEvalSource | null> {
   const sources = await attempt.sources();
   if (!sources || sources.length === 0) return null;
 
@@ -44,5 +47,5 @@ export async function loadAnnotatedEvalSource(attempt: AttemptHandle): Promise<A
     }
   }
 
-  return buildAnnotatedEvalSource(primary, assertions);
+  return buildAnnotatedEvalSource(primary, assertions, sends);
 }

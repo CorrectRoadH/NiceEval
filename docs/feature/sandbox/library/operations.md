@@ -53,7 +53,7 @@ const shell = await t.sandbox.runShell("pnpm lint && pnpm test");
 | `root?: boolean` | 以 root 跑本命令，默认非 root；装系统依赖时用，语义见 [用户与 root](../library.md#用户与-root) |
 | `stream?: boolean` | 把输出送进沙箱原生日志流（`docker logs` 实时可见）；不支持的 provider 忽略 |
 
-返回 `CommandResult = { stdout: string; stderr: string; exitCode: number }`。两者只执行并返回结果，非零退出码不抛错也不自动评分，判定交给 `commandSucceeded()` 等 matcher。
+返回 `CommandResult = { stdout: string; stderr: string; exitCode: number; command?: string }`。`command` 是这次执行的命令摘要（有界、脱敏，与时间树 command 节点同一份文案），由运行器在最外层公开调用处附加——`commandSucceeded()` 失败时的 evidence（「命令行本身」）就取自它；直接从 provider 拿到的裸结果可能没有这个字段。两者只执行并返回结果，非零退出码不抛错也不自动评分，判定交给 `commandSucceeded()` 等 matcher。
 
 `runCommand` 和 `runShell` 不会自动重试。命令可能已经产生部分副作用，NiceEval 无法安全判断能否重复执行；只有调用者确认命令幂等时，才应在 eval 或 hook 里显式写重试策略。
 

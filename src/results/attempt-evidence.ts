@@ -31,7 +31,7 @@ import { join } from "node:path";
 import type { AttemptHandle } from "./types.ts";
 import { type AttemptIdentity, type AttemptLocator, encodeAttemptLocator } from "./locator.ts";
 import { loadAnnotatedEvalSource } from "./attempt-source.ts";
-import type { AnnotatedEvalSource } from "./annotated-source.ts";
+import { deriveSendAnnotations, type AnnotatedEvalSource } from "./annotated-source.ts";
 import { buildExecutionTree, type ExecutionTree } from "../o11y/execution-tree.ts";
 import type { DiffData, EvalResult } from "../types.ts";
 
@@ -112,12 +112,17 @@ export async function loadAttemptEvidence(attempt: AttemptHandle): Promise<Attem
   };
   const locator = attempt.locator ?? encodeAttemptLocator(identity);
 
-  const [evalSource, events, trace, diff] = await Promise.all([
-    loadAnnotatedEvalSource(attempt),
+  const [events, trace, diff] = await Promise.all([
     attempt.events(),
     attempt.trace(),
     attempt.diff(),
   ]);
+  // send 标注要拿事件流里用户消息的 loc 与阶段时间树里的 turn 节点配对,所以在 events
+  // 就绪后再装配 evalSource;派生与分桶都是纯函数(annotated-source.ts),这里只接线。
+  const evalSource = await loadAnnotatedEvalSource(
+    attempt,
+    deriveSendAnnotations(events, attempt.result.phases),
+  );
 
   // execution 的 null 边界:没有非空事件骨架就是 null,即使 trace 里有 span(那些 span 在
   // buildExecutionTree 里只会全部落进 telemetry-only 桶,产出一棵没有骨架、只有遥测的树——

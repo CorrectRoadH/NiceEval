@@ -957,6 +957,11 @@ function withCommandTiming(sandbox: Sandbox, recorder: TimingRecorder): Sandbox 
           ...(typeof exitCode === "number" ? { exitCode, failed: exitCode !== 0 } : {}),
         }),
       );
+      // CommandResult.command:最外层公开调用恰好是「eval 实际跑了什么」的定义点,摘要
+      // 与时间树节点同一份;provider 自己填过就不覆盖。
+      if (result !== null && typeof result === "object" && !("command" in result)) {
+        return { ...result, command: display } as T;
+      }
       return result;
     } catch (e) {
       recorder.child(commandNode({ display, startOffsetMs, durationMs: Date.now() - t0, failed: true }));

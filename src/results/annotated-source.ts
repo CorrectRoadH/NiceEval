@@ -6,16 +6,33 @@
 //
 // 泛化自 src/view/app/lib/transcript-data.tsx 的 indexAsserts()(Map<string, Assertion[]>
 // + noloc 兜底桶的先例)——同一套"按 loc 分桶、没有 loc 进兜底"的思路,换成源码行数组
-// (不是 Map)存放,外加 sourceSha256 / summary 计数。indexTurns() 那部分(events → 轮次)
-// 是 ExecutionTree 的地盘,不在这个模型里。
+// (不是 Map)存放,外加 sourceSha256 / summary 计数。轮次的完整展开(events → ExecutionTree)
+// 仍是 ExecutionTree 的地盘;这个模型只把每轮的头行事实标回 send 调用行(见 SendAnnotation),
+// 作为源码页指向 --execution 的跨面指针。
 //
 // 本模块不 import react/jsx,纯数据 + 纯函数,可以在任何 Node 语境(CLI 的 show、
 // view 的 server 端数据准备)调用。
 
-import type { AssertionResult } from "../types.ts";
+import type { AssertionResult, PhaseTiming, SourceLoc, StreamEvent } from "../types.ts";
 import { hashEvalSource, normalizeEvalSource } from "./source-hash.ts";
 
-/** 一行源码 + 映射到这一行的全部断言(保持原始顺序;可以是空数组)。 */
+/**
+ * 标回 `t.send(...)` 调用行的一轮 turn 头行事实(契约见 docs/feature/reports/show.md
+ * 「--eval:把断言放回源码」)。身份标签与 --execution / --timing / diff windows 同一套;
+ * 回复全文与轮内卡片不进这个模型——源码页只回答「这行代码对应哪一轮、这一轮成了没成」。
+ */
+export interface SendAnnotation {
+  /** `s<session>/t<turn>`。 */
+  label: string;
+  /** 轮的终态;时间树只记 failed 位,waiting 需要事件流佐证时由派生方给。 */
+  status: "completed" | "failed" | "waiting";
+  /** 该轮墙钟;时间树缺这一轮的节点时省略。 */
+  durationMs?: number;
+  /** send 调用位置(用户消息事件的 loc)。 */
+  loc: SourceLoc;
+}
+
+/** 一行源码 + 映射到这一行的全部断言与 send 标注(保持原始顺序;可以是空数组)。 */
 export interface AnnotatedSourceLine {
   /** 1-indexed 行号,与 SourceLoc.line 同一坐标系。 */
   line: number;
@@ -28,6 +45,11 @@ export interface AnnotatedSourceLine {
    * 领域 model 的职责(与 indexAsserts() 的先例一致,它同样只分桶、不折叠)。
    */
   assertions: AssertionResult[];
+  /**
+   * 映射到这一行的 send 标注,按轮次顺序;循环里的 send 一行多轮。与断言的 never-drop
+   * 契约不同,定位不到行的轮不进任何兜底桶——轮次的全量面是 --execution,这里只是指针。
+   */
+  sends: SendAnnotation[];
 }
 
 export interface AnnotatedEvalSourceSummary {
@@ -68,6 +90,34 @@ export interface AnnotatedEvalSource {
 }
 
 /**
+ * 从标准事件流与阶段时间树派生 send 标注:第 i 条用户消息开第 i 轮(与 --execution 的
+ * 分轮边界同一条规则,见 show/render.ts::executionText),头行事实取 `eval.run` 下第 i 个
+ * turn 节点;用户消息没有 loc 的轮不产出标注。纯函数,无 IO。
+ */
+export function deriveSendAnnotations(
+  events: readonly StreamEvent[] | null,
+  phases: readonly PhaseTiming[] | undefined,
+): SendAnnotation[] {
+  if (!events || events.length === 0) return [];
+  const turnNodes = (phases ?? []).flatMap((p) => p.children ?? []).filter((n) => n.kind === "turn");
+  const out: SendAnnotation[] = [];
+  let turnIndex = -1;
+  for (const event of events) {
+    if (event.type !== "message" || event.role !== "user") continue;
+    turnIndex += 1;
+    if (!event.loc) continue;
+    const turn = turnNodes[turnIndex];
+    out.push({
+      label: turn?.label ?? `t${turnIndex + 1}`,
+      status: turn?.failed ? "failed" : "completed",
+      ...(turn !== undefined ? { durationMs: turn.durationMs } : {}),
+      loc: event.loc,
+    });
+  }
+  return out;
+}
+
+/**
  * 纯函数:给定一份源码文本(未归一化也可以,内部会 normalizeEvalSource)与一批断言,
  * 产出标注好的 AnnotatedEvalSource。幂等 / 无 IO —— 可以在渲染路径上安全调用。
  *
@@ -77,13 +127,21 @@ export interface AnnotatedEvalSource {
 export function buildAnnotatedEvalSource(
   source: { path: string; content: string },
   assertions: readonly AssertionResult[],
+  sends: readonly SendAnnotation[] = [],
 ): AnnotatedEvalSource {
   const normalized = normalizeEvalSource(source.content);
   // 末尾的单个换行符不产出幻影空行(源码文件几乎总以换行符收尾);中间的空行原样保留为一行。
   const body = normalized.endsWith("\n") ? normalized.slice(0, -1) : normalized;
   const rawLines = body.length === 0 && normalized.length === 0 ? [""] : body.split("\n");
 
-  const lines: AnnotatedSourceLine[] = rawLines.map((text, i) => ({ line: i + 1, text, assertions: [] }));
+  const lines: AnnotatedSourceLine[] = rawLines.map((text, i) => ({ line: i + 1, text, assertions: [], sends: [] }));
+
+  for (const send of sends) {
+    // 与断言同一条映射规则;不满足的轮直接丢(全量面在 --execution,见 SendAnnotation)。
+    if (send.loc.file === source.path && send.loc.line >= 1 && send.loc.line <= lines.length) {
+      lines[send.loc.line - 1]!.sends.push(send);
+    }
+  }
 
   const unmapped: AssertionResult[] = [];
   let mappedAssertions = 0;

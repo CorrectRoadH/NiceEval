@@ -128,6 +128,12 @@ export interface TableColumn {
   header: string;
   /** 对齐方向,默认 `"left"`;`"right"` 按显示宽度右对齐,数字列用。 */
   align?: ColumnAlign;
+  /**
+   * text 面:单元格折行后的最大物理行数,放不下的部分以 `…` 收口;省略则不限行数。
+   * 摘要类列(如比较列表的 Result)用它保证「格子是可扫读的预览」;完整值在下钻面。
+   * web 面不消费——网页的高度约束是组件自己的 CSS 决定。
+   */
+  maxLines?: number;
 }
 
 /** 一行的数据:身份键、已格式化的格子、可选的 attempt locator。 */

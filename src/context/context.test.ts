@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createEvalContext, type ContextState } from "./context.ts";
-import { includes } from "../expect/index.ts";
+import { commandSucceeded, includes } from "../expect/index.ts";
 import { completeCoverage, resolveAgentCoverage } from "../scoring/coverage.ts";
 import type { Agent, AgentContext, InputRequest, Sandbox, StreamEvent, Turn, TurnInput } from "../types.ts";
 
@@ -111,6 +111,36 @@ describe("createEvalContext / TestContext live state", () => {
     });
     expect(result.outcome).toBe("failed");
     expect(result.outcome === "failed" ? result.received : undefined).toBe("1 + 1 = **2** 哦!😊");
+  });
+
+  it("t.check(CommandResult, …) 失败时 received 塌成退出码+输出尾部,evidence 是命令行", async () => {
+    const { context, state } = makeContext(calculatorAgent());
+    const commandResult = {
+      stdout: `\n> test\n> pytest tests/\n${"collecting …\n".repeat(200)}1 failed, 5 passed in 12.72s\n`,
+      stderr: "",
+      exitCode: 1,
+      command: "npm run test",
+    };
+    context.check(commandResult, commandSucceeded());
+
+    const [result] = await state.collector.finalize({
+      events: [],
+      facts: { toolCalls: [], subagentCalls: [], inputRequests: [], parked: false, messageCount: 0, compactions: 0 },
+      diff: state.late.diff,
+      scripts: state.late.scripts,
+      usage: { inputTokens: 0, outputTokens: 0 },
+      status: "completed",
+      coverage: resolveAgentCoverage(completeCoverage),
+      readFile: async () => undefined,
+    });
+    expect(result.outcome).toBe("failed");
+    if (result.outcome !== "failed") return;
+    const [firstLine] = result.received!.split("\n");
+    expect(firstLine).toMatch(/^exit 1 · "…/);
+    expect(firstLine).toContain("1 failed, 5 passed in 12.72s"); // 摘要面只保留的这一行自含失败计数
+    expect(firstLine!.length).toBeLessThan(200);
+    expect(result.received).toContain("output tail:"); // 更长尾部保留换行,attempt 首页展开
+    expect(result.evidence).toBe("npm run test");
   });
 
   it("t.events reflects the turn's events after send(), not an empty snapshot", async () => {

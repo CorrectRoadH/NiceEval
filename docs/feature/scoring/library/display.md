@@ -102,12 +102,15 @@ soft below threshold:
     received: [8 items] [{"id":1,…}, …]
 ```
 
-`t.check(cmd, commandSucceeded())` 的 `evidence` 是命令行本身，`received` 是退出码加 stderr 尾部：
+`t.check(cmd, commandSucceeded())` 的 `evidence` 是命令行本身，`received` 分两层：首行是退出码加折成单行的输出尾部摘要——stdout 与 stderr 合并后的末尾，因为测试 runner（pytest / vitest）的失败计数都收在最后几行；随后附原样保留换行的更长尾部（`output tail:` 段）。摘要面（比较列表、`--eval` 标注）只保留首行；attempt 首页把尾部按原始换行展开。分层的理由：runner 不另存 eval 侧命令的输出，这条记录就是它唯一的家——只存单行摘要等于把「测试到底怎么挂的」这份证据丢掉：
 
 ```text
   gate · commandSucceeded()
     evidence: pnpm test
     received: exit 1 · "… 2 failed, 14 passed"
+      output tail:
+      FAILED tests/test_api.py::test_rate_limit - AssertionError: assert 429 == 200
+      ========================= 2 failed, 14 passed in 3.41s =========================
 ```
 
 ## 作用域断言
@@ -263,6 +266,13 @@ eval.run              26.3s
   │    │    ├─ model · gpt-5.4 call #1   6.3s
   │    │    └─ tool · shell              1.1s
   └─ turn s1/t2            3.1s
+```
+
+**`show --eval`**——`t.send(...)` 的调用行标注该轮的头行事实（身份、status、墙钟与 usage——有记录才出现），失败轮标 `✗`；不内联回复与工具卡片，语法契约见 [Show · --eval](../../reports/show.md#--eval把断言放回源码)：
+
+```text
+27✓       .send("Implement `run_tasks` in `run.py`. …")
+    s1/t1 · completed · 3m 11s
 ```
 
 **view Attempt 详情**——对话区与 `--execution` 同一分轮卡片语法并挂接 trace；每个 turn 头行可折叠。Turn 的 `coverage` 相对 Agent 默认降级时，该轮头部显示证据徽标，与 `unavailable` 断言的 reason 同源：

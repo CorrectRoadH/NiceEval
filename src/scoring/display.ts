@@ -9,7 +9,8 @@ import type { AssertionResult, PrimaryAssertionSummary, Verdict } from "./types.
  */
 const SUMMARY_TEXT_MAX_CHARS = 240;
 
-function summaryText(value: string): string {
+/** 摘要面的单值收口:折单行 + 240 字符上限。任何把断言事实放进「行」里的面共用这一条。 */
+export function summaryText(value: string): string {
   const singleLine = value.replace(/\s+/g, " ").trim();
   return singleLine.length <= SUMMARY_TEXT_MAX_CHARS
     ? singleLine
@@ -92,4 +93,41 @@ export function compactAssertionSummary(summary: PrimaryAssertionSummary): strin
   const head = hasDistinctTitle ? `${summary.severity}: ${summary.assertion}` : summary.assertion;
   const detail = assertionSummaryDetail(summary);
   return detail === undefined ? head : `${head} · ${detail}`;
+}
+
+/** 收口用的截断:目标长度容不下时截到 target-1 并补 `…`。 */
+function shrinkTo(text: string, target: number): string {
+  return text.length <= target ? text : `${text.slice(0, Math.max(0, target - 1))}…`;
+}
+
+/**
+ * 单元格投影的宽度收口。空间不足时按解释力从低到高让位:先截语义标题、再截 matcher,
+ * `expected / received` 与 `+N more failures` 最后截——它们直接解释为什么红。
+ * maxChars 由渲染面按可用宽度给(如两行单元格 = 2 × 列宽);字符数口径与
+ * SUMMARY_TEXT_MAX_CHARS 一致,显示宽度的精确裁剪仍归渲染面。
+ */
+export function fitCompactAssertionSummary(summary: PrimaryAssertionSummary, maxChars: number): string {
+  const budget = Math.max(24, Math.floor(maxChars));
+  let full = compactAssertionSummary(summary);
+  if (full.length <= budget) return full;
+
+  const TITLE_FLOOR = 24;
+  let fitted: PrimaryAssertionSummary = {
+    ...summary,
+    assertion: shrinkTo(summary.assertion, Math.max(TITLE_FLOOR, summary.assertion.length - (full.length - budget))),
+  };
+  full = compactAssertionSummary(fitted);
+  if (full.length <= budget) return full;
+
+  const MATCHER_FLOOR = 16;
+  if (fitted.matcher !== undefined) {
+    fitted = {
+      ...fitted,
+      matcher: shrinkTo(fitted.matcher, Math.max(MATCHER_FLOOR, fitted.matcher.length - (full.length - budget))),
+    };
+    full = compactAssertionSummary(fitted);
+    if (full.length <= budget) return full;
+  }
+
+  return shrinkTo(full, budget);
 }

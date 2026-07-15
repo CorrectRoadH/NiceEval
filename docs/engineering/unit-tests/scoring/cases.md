@@ -55,6 +55,7 @@ it("similarity 的 score 始终位于 0..1", async () => {
 | `await t.require(value, matcher)` 不通过时按 gate 中止后续代码；通过时返回原 value（引用不变） | 反例：require 失败后后续断言不被记录、Verdict 为 failed；正例：返回值 === 传入值；边界：失败不升级为 errored |
 | `t.group(title, fn)` 只组织报告，不改变组内 score 与 severity，返回 fn 返回值，支持嵌套 | 正例：组内 gate 仍是 gate；边界：嵌套、async 返回值透传 |
 | 值断言只评价显式传入的值，不隐式读取 scope 证据 | 边界：传入与事件流矛盾的值，结果只反映传入值 |
+| `t.check(CommandResult, …)` 失败时 received 首行是 `exit N · "…输出尾部摘要"`（折单行；单行展示面只保留首行），随后附保留换行的更长尾部；evidence 取 `CommandResult.command`（命令行本身） | 正例：长 pytest 输出的首行含末尾失败计数、随后有 `output tail:` 段、evidence 为命令行；边界：合并输出 ≤160 字符时只有首行 |
 
 ## Scope：接收者决定数据范围
 
@@ -181,6 +182,15 @@ it.each([
   expect(computeVerdict(input)).toBe(expected)
 })
 ```
+
+## 结果摘要投影（display）
+
+契约来源：[断言与 Turn 的展示](../../../feature/scoring/library/display.md) 契约一。
+
+| 契约 | 场景 |
+|---|---|
+| 单值收口 `summaryText`：折单行 + 240 字符上限，超出以 `…` 收口 | 正例：多行大值折成单行有界预览且不含换行 |
+| 比较列表单元格的宽度收口按优先级让位：语义标题先截、matcher 次之、expected / received 与 `+N more failures` 最后截 | 正例：预算充足时与 `compactAssertionSummary` 逐字一致；反例：预算不足时长标题全称消失而 expected/received 前缀仍在；边界：极小预算下整串 ≤ 预算且以 `…` 收口 |
 
 ## Judge
 

@@ -3,6 +3,7 @@ import type { AssertionResult } from "./types.ts";
 import {
   assertionSummaryLines,
   compactAssertionSummary,
+  fitCompactAssertionSummary,
   primaryAssertionSummary,
 } from "./display.ts";
 
@@ -78,5 +79,42 @@ describe("primaryAssertionSummary", () => {
     const lines = assertionSummaryLines(summary);
     expect(lines).toHaveLength(2);
     expect(lines.every((line) => !line.includes("\n"))).toBe(true);
+  });
+});
+
+describe("fitCompactAssertionSummary", () => {
+  const summary = primaryAssertionSummary(
+    [{
+      name: "includes(/['\"]use cache['\"];?/)",
+      groupPath: ["Catalog reads use use-cache directive and products cache tag"],
+      severity: "gate",
+      outcome: "failed",
+      score: 0,
+      expected: "matches /['\"]use cache['\"];?/",
+      received: `// next.config.ts\n${"import type { NextConfig } from 'next';\n".repeat(20)}`,
+    }],
+    "failed",
+  )!;
+
+  it("预算充足时与 compactAssertionSummary 完全一致", () => {
+    const full = compactAssertionSummary(summary);
+    expect(fitCompactAssertionSummary(summary, full.length)).toBe(full);
+  });
+
+  it("空间不足先截语义标题,received 保留最大份额", () => {
+    const full = compactAssertionSummary(summary);
+    const fitted = fitCompactAssertionSummary(summary, full.length - 20);
+    expect(fitted.length).toBeLessThanOrEqual(full.length - 20);
+    // 标题被截(带 …),matcher 与 received 前缀仍在
+    expect(fitted).not.toContain("Catalog reads use use-cache directive and products cache tag");
+    expect(fitted).toContain("…");
+    expect(fitted).toContain("includes(");
+    expect(fitted).toContain("received");
+  });
+
+  it("预算再小也收得住:整串不超预算且以 … 收口", () => {
+    const fitted = fitCompactAssertionSummary(summary, 80);
+    expect(fitted.length).toBeLessThanOrEqual(80);
+    expect(fitted).toMatch(/…/);
   });
 });
