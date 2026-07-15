@@ -26,7 +26,7 @@ const agent = claudeCodeAgent({
 });
 ```
 
-字段只接受项目根内的相对路径。`configs/claude-code/no-web.json` 与 `./configs/claude-code/no-web.json` 合法；包含 `..` 的路径、绝对路径、`~` 路径和解析后逃出项目根的符号链接都在 setup 阶段报错。
+项目根是执行 niceeval 时包含 `niceeval.config.ts` 的当前工作目录，不是当前 Eval 或 Experiment 文件的目录。字段只接受项目根内的相对路径。`configs/claude-code/no-web.json` 与 `./configs/claude-code/no-web.json` 合法；包含 `..` 的路径、绝对路径、`~` 路径和解析后逃出项目根的符号链接都在 setup 阶段报错。
 
 文件内容使用 Claude Code 官方 settings 词汇；例如 `{ "permissions": { "deny": ["WebSearch", "WebFetch"] } }` 关闭 WebSearch / WebFetch。Adapter 从本地读取文件后上传到隔离的 Claude 配置目录，原样替换其中原本为空的用户级 `~/.claude/settings.json`；它不继承宿主机配置，也不与它合并。项目自己的 `.claude/settings.json` / `.claude/settings.local.json` 仍按 Claude Code 官方优先级加载。
 

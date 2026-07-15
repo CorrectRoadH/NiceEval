@@ -82,6 +82,18 @@ const codex = codexAgent({
 
 `settingsFile` 和 `configFile` 是运行 niceeval 的机器上的本地文件路径，不是 Sandbox 内路径；它们相对本地 niceeval 项目根解析，分别指向完整的 Claude Code `settings.json` 与 Codex `config.toml`。字段只接受项目根内的相对路径：`configs/codex/no-web.toml` 与 `./configs/codex/no-web.toml` 合法，包含 `..` 的路径、绝对路径、`~` 路径和解析后逃出项目根的符号链接都在 setup 阶段报错。
 
+项目根是执行 niceeval 时的当前工作目录，也就是包含 `niceeval.config.ts` 的目录；路径不相对 Eval、Experiment 或声明 Agent 的源码文件。文件可以分开放置：
+
+```text
+my-evals/
+├── niceeval.config.ts
+├── evals/web/search.eval.ts
+├── experiments/web/no-search.ts
+└── configs/codex/no-web.toml
+```
+
+即使 `codexAgent` 写在 `experiments/web/no-search.ts`，仍使用 `configFile: "configs/codex/no-web.toml"`，不写相对源码文件的 `../../configs/...`。项目根外的配置先复制到项目内再引用。
+
 Adapter 先从本地读取原始字节，再上传到 Sandbox 的隔离 Agent 配置目录。它不继承宿主机的 `~/.claude/settings.json` 或 `~/.codex/config.toml`；传入文件原样替换 Sandbox 中原本为空的用户配置层，不做字符串拼接、deep merge 或重新序列化。仓库自己的项目级配置仍由被测 CLI 按官方优先级读取。
 
 model、鉴权、MCP 和 OTel 导出由 experiment 与 Adapter 通过独立配置层或 CLI 参数叠加，对应的键不允许出现在原生配置文件里，冲突在 setup 阶段报错，不做静默覆盖。配置文件内容的 SHA-256 进入安装 checkpoint key；secret 走环境变量，不写进配置文件。每个 Agent 的保留键清单见页尾链接的各 Agent 页。

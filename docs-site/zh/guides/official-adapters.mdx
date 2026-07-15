@@ -10,6 +10,8 @@ description: "NiceEval 内置的 Sandbox 和非 Sandbox 适配器分别是什么
 
 三个内置 Sandbox agent 都用 `defineSandboxAgent` 构造，鉴权走环境变量（可用工厂参数覆盖），并且都支持在沙箱 `setup` 阶段装扩展。怎么运行内置 Sandbox agent、目录结构和自定义 Sandbox adapter，见 [Sandbox Agent](/zh/guides/sandbox-agent)；这里只讲每个 Adapter 能装什么、配置项怎么写。
 
+本页的 `settingsFile` / `configFile` 都相对 NiceEval 项目根解析。项目根是执行 `niceeval` 时的当前工作目录，也就是包含 `niceeval.config.ts` 的目录，不是 Eval 或 Experiment 文件所在目录。例如 Experiment 在 `experiments/web/no-search.ts`、配置在 `configs/codex/no-web.toml` 时，仍写 `configFile: "configs/codex/no-web.toml"`。
+
 ### claude-code
 
 - **鉴权**：`ANTHROPIC_API_KEY`（工厂参数 `apiKey` 可覆盖），可选 `ANTHROPIC_BASE_URL`（工厂参数 `baseUrl`）。

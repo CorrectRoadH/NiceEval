@@ -12,7 +12,7 @@ Native Plugin 不统一：Claude Code 和 Codex 使用各自的 PluginSpec，Bub
 
 原生配置是 Sandbox coding-agent Adapter 契约的标准组成，但不跨 Agent 统一字段名或数据表示。Claude Code factory 提供 `settingsFile?: string`，指向官方 JSON settings 文件；Codex factory 提供 `configFile?: string`，指向官方 TOML config 文件；没有原生配置文件的 Agent（如 Bub）config 上没有对应字段。core 不定义设置词汇，也不为单个行为需求铸语义字段：新需求先看 CLI 原生配置能不能表达，能表达就直接写进官方配置文件，不能表达的去上游提，不在 niceeval 造中间层。
 
-两个字段都是运行 niceeval 的机器上的本地文件路径，不是 Sandbox 内路径。路径语法是项目根内的相对路径：允许普通相对路径和 `./` 前缀，不允许 `..` 路径段、绝对路径或 `~`；Adapter 解析符号链接后的真实路径也必须位于项目根内。Adapter 从本地读取原始字节，再上传到 Sandbox 的固定用户配置位置。文件是完整用户配置层，不是 patch：Adapter 在隔离的 Agent 配置目录中创建空用户层，再用输入文件的原始字节替换它；不继承宿主机配置，不拼接、deep merge 或重新序列化。Adapter 只解析文件以验证官方语法和检查保留键，验证后仍写入原始字节，因此 JSON Schema 标记、TOML 注释和官方编辑器支持都保留。仓库内的项目级配置仍由被测 CLI 按自己的官方优先级读取。
+两个字段都是运行 niceeval 的机器上的本地文件路径，不是 Sandbox 内路径。项目根固定为启动 niceeval 进程时的 `process.cwd()`，也就是包含 `niceeval.config.ts` 的目录；Eval、Experiment 与 Agent 声明文件的位置不改变解析根。路径语法是项目根内的相对路径：允许普通相对路径和 `./` 前缀，不允许 `..` 路径段、绝对路径或 `~`；Adapter 解析符号链接后的真实路径也必须位于项目根内。Adapter 从本地读取原始字节，再上传到 Sandbox 的固定用户配置位置。文件是完整用户配置层，不是 patch：Adapter 在隔离的 Agent 配置目录中创建空用户层，再用输入文件的原始字节替换它；不继承宿主机配置，不拼接、deep merge 或重新序列化。Adapter 只解析文件以验证官方语法和检查保留键，验证后仍写入原始字节，因此 JSON Schema 标记、TOML 注释和官方编辑器支持都保留。仓库内的项目级配置仍由被测 CLI 按自己的官方优先级读取。
 
 Adapter 拥有的模型、鉴权、OTel 导出与 MCP 配置通过独立生成层、独立原生文件或 CLI 参数叠加，不改写用户文件。保留键规则对所有 Adapter 是同一套：由 experiment 与 Adapter 拥有的键出现在用户配置文件里时，setup 立刻报错并点名冲突键，不做静默覆盖。逐 Agent 的保留键清单在各自的 SDK 页。
 

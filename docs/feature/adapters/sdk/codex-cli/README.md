@@ -24,7 +24,7 @@ const agent = codexAgent({
 });
 ```
 
-字段只接受项目根内的相对路径。`configs/codex/no-web.toml` 与 `./configs/codex/no-web.toml` 合法；包含 `..` 的路径、绝对路径、`~` 路径和解析后逃出项目根的符号链接都在 setup 阶段报错。
+项目根是执行 niceeval 时包含 `niceeval.config.ts` 的当前工作目录，不是当前 Eval 或 Experiment 文件的目录。字段只接受项目根内的相对路径。`configs/codex/no-web.toml` 与 `./configs/codex/no-web.toml` 合法；包含 `..` 的路径、绝对路径、`~` 路径和解析后逃出项目根的符号链接都在 setup 阶段报错。
 
 文件内容直接使用 Codex 官方 TOML；例如 `web_search = "disabled"` 关闭内置联网检索。Adapter 从本地读取文件后上传到隔离的 Codex 配置目录，原样替换其中原本为空的用户级 `~/.codex/config.toml`；它不继承宿主机配置，也不解析后重写。Adapter 的模型、provider 路由、MCP 表和 OTel 导出通过独立生成层或 CLI 参数叠加；项目自己的 `.codex/config.toml` 仍按 Codex 官方优先级加载。
 
