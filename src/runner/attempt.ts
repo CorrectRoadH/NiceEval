@@ -42,14 +42,14 @@ import type {
   TraceSpan,
 } from "../types.ts";
 import { reportAttemptLifecycle } from "./feedback/sink.ts";
+import { commandDisplay, commandNode, createTimingRecorder, type TimingRecorder } from "./timing.ts";
 import type {
   AgentRun,
   Attempt,
   AttemptError,
-  AttemptPhase,
   AttemptRef,
   DiagnosticRecord,
-  LifecycleOperationName,
+  LifecyclePhase,
   RunOptions,
 } from "./types.ts";
 
@@ -58,11 +58,11 @@ export function runAttemptEffect(
   opts: RunOptions,
   sandboxSem: Effect.Semaphore,
   parentSignal?: AbortSignal,
-  /** 每次跨入一个新 `AttemptPhase` 边界时同步回调一次(与下面的 `enterPhase` 同一调用点,见
+  /** 每次跨入一个新 `LifecyclePhase` 边界时同步回调一次(与下面的 `enterPhase` 同一调用点,见
    *  该函数)。run.ts 用它在本地跟踪「这个 attempt 目前所在的阶段」,好在 attempt 失败/errored
    *  时把 phase 塞进 `reportFailure()`(见 sink.ts 的 `FailureInput.phase`)—— 到那时
    *  attempt:complete 已经让 coordinator 把 active map 里的条目删掉,没有别的地方能事后查到。 */
-  onPhase?: (phase: AttemptPhase) => void,
+  onPhase?: (phase: LifecyclePhase) => void,
 ): Effect.Effect<EvalResult> {
   const config = opts.config;
   const { evalDef, run, attempt } = a;
@@ -98,12 +98,18 @@ export function runAttemptEffect(
   // 跳过 agent-setup)。没有活跃 feedback coordinator 时 reportAttemptLifecycle 静默 no-op,
   // 不产生任何终端输出。
   const identity: AttemptRef = { experimentId: run.experimentId, evalId: evalDef.id, attempt };
-  // 最近跨入的正式 phase:errored 结果的 `errorDetail.phase` 从它取(见下方 timeout / scope
+  // 最近跨入的正式 phase:errored 结果的 `error.phase` 从它取(见下方 timeout / scope
   // 兜底与 runAttemptBody 的 body catch)。body 与本函数共用同一个 enterPhase 闭包(经 res 传下去),
   // 所以 body 内部的阶段推进也会更新它,不需要 body 再单独维护一份。
-  let lastPhase: AttemptPhase | undefined;
-  const enterPhase = (phase: AttemptPhase) => {
+  // 阶段计时:live 展示、error.phase、落盘 phases[].name 用同一套 LifecyclePhase 闭集,
+  // 一次 enterPhase 同时推进三者(词表全仓只有一套,见 runner/types.ts 的 LifecyclePhase)。
+  let lastPhase: LifecyclePhase | undefined;
+  const recorder = createTimingRecorder(() => Date.now());
+  // adapter send 在飞时,错误/诊断归因到嵌套的 `agent.run`(eval.run 内打开,不单列计时条目)。
+  let sendActive = false;
+  const enterPhase = (phase: LifecyclePhase) => {
     lastPhase = phase;
+    recorder.enter(phase);
     onPhase?.(phase);
     reportAttemptLifecycle({ type: "attempt:phase", at: Date.now(), identity, phase });
   };
@@ -131,22 +137,36 @@ export function runAttemptEffect(
         release: () => Effect.runPromise(sandboxSem.release(1)).then(() => {}),
         reacquire: () => Effect.runPromise(sandboxSem.take(1)).then(() => {}),
       };
+      // Scope release(receiver close + provider stop)整段计成 sandbox.stop:先加的 finalizer
+      // 后跑(LIFO),所以「先加的」在 release 链末尾打终点戳、「后加的」在 release 开始前打起点戳;
+      // 结果封口(附 phases)发生在 Scope release 完成之后(见下方 Effect.map)。
+      let releaseStartedAt = 0;
+      if (run.agent.kind === "sandbox") {
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => {
+            if (releaseStartedAt > 0) recorder.record("sandbox.stop", Date.now() - releaseStartedAt);
+          }),
+        );
+      }
       const sandbox =
         run.agent.kind === "sandbox"
-          ? yield* sandboxSem.withPermits(1)(
-              Effect.gen(function* () {
-                // ── 沙箱:acquire=起,release=stop(成功 / 失败 / 中断都跑)──
-                // sandboxSem 只覆盖「容器创建」阶段;容器起好后立即释放,后续 npm install / agent 不占位。
-                enterPhase("sandbox-provision");
-                log(t("runner.startSandbox"));
-                return yield* createSandbox({
-                  sandbox: sandboxSpec,
-                  provisionSlot,
-                  timeout: timeoutMs,
-                  runtime: "node24",
-                });
-              }),
-            )
+          ? yield* Effect.gen(function* () {
+              // ── 沙箱:acquire=起,release=stop(成功 / 失败 / 中断都跑)──
+              // sandboxSem 只覆盖「容器创建」阶段;容器起好后立即释放,后续 npm install / agent 不占位。
+              enterPhase("sandbox.queue");
+              return yield* sandboxSem.withPermits(1)(
+                Effect.gen(function* () {
+                  enterPhase("sandbox.create");
+                  log(t("runner.startSandbox"));
+                  return yield* createSandbox({
+                    sandbox: sandboxSpec,
+                    provisionSlot,
+                    timeout: timeoutMs,
+                    runtime: "node24",
+                  });
+                }),
+              );
+            })
           : createRemoteSandbox();
       if (run.agent.kind !== "sandbox") log(t("runner.useRemoteAgent"));
 
@@ -200,6 +220,15 @@ export function runAttemptEffect(
         }
       }
 
+      if (run.agent.kind === "sandbox") {
+        // 后加先跑:release 链开始时打起点戳(与上面的终点戳配对,测出整段 sandbox.stop)。
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => {
+            releaseStartedAt = Date.now();
+          }),
+        );
+      }
+
       // body 是 Promise(adapter 边界)。Effect.promise 给的 AbortSignal 在本 fiber 被中断
       //(用户 Ctrl+C / 下面 timeoutTo 到点)时 abort —— 并进 signal,让真正观察 signal 的
       // adapter / docker 命令随中断一起停,而不只靠 Scope release 兜底。
@@ -214,7 +243,13 @@ export function runAttemptEffect(
           signal: AbortSignal.any([signal, interruptSignal]),
           log,
           enterPhase,
-          getPhase: () => lastPhase,
+          // send 在飞时归因到嵌套的 agent.run(不切换顶层阶段,见 LifecyclePhase 注释)。
+          getPhase: () => (sendActive ? "agent.run" : lastPhase),
+          setSendActive: (active) => {
+            sendActive = active;
+          },
+          recorder,
+          attemptEpoch: t0,
         }),
       );
     }),
@@ -235,9 +270,10 @@ export function runAttemptEffect(
         const error: AttemptError = {
           code: "timeout",
           message,
-          operation: operationForPhase(lastPhase),
+          phase: (sendActive ? "agent.run" : lastPhase) ?? "eval.run",
           ...(rest.trim() !== "" ? { stack: rest } : {}),
         };
+        recorder.failCurrent();
         return { ...base, durationMs: Date.now() - t0, error };
       },
     }),
@@ -250,61 +286,29 @@ export function runAttemptEffect(
         : Effect.succeed({
             ...base,
             durationMs: Date.now() - t0,
-            error: errorFromThrown(Cause.squash(cause), lastPhase),
+            error: errorFromThrown(Cause.squash(cause), sendActive ? "agent.run" : lastPhase),
           }),
     ),
+    // 结果封口在 Scope release 完成之后:sandbox.stop 已由 finalizer 写进 recorder,
+    // 这里把完整的阶段计时挂到即将交还的结果上(timeout / scope 兜底分支同样带上)。
+    Effect.map((r: EvalResult): EvalResult => {
+      const phases = recorder.finalize();
+      return phases ? { ...r, phases } : r;
+    }),
   );
 }
 
-/** AttemptPhase(dashboard UI 投影)→ LifecycleOperationName(落盘归属)。两套词汇的关系见
- *  types.ts 的 `LifecycleOperationName` 注释。`running` 归 `eval.run`(test() 驱动整段);没有
- *  phase(极早期就挂/超时,还没跨进任何阶段)兜底 `eval.run`(主执行操作),不留空——operation
- *  是 `AttemptError` 的必填字段。 */
-function operationForPhase(phase: AttemptPhase | undefined): LifecycleOperationName {
-  switch (phase) {
-    case "sandbox-provision":
-      return "sandbox.provision";
-    case "sandbox-setup":
-      return "sandbox.setup";
-    case "workspace-setup":
-      return "workspace.prepare";
-    case "eval-setup":
-      return "eval.setup";
-    case "agent-setup":
-      return "agent.setup";
-    case "telemetry-setup":
-      return "telemetry.configure";
-    case "running":
-      return "eval.run";
-    case "diff":
-      return "workspace.diff";
-    case "scoring":
-      return "scoring.evaluate";
-    case "trace":
-      return "telemetry.collect";
-    case "teardown":
-      return "agent.teardown";
-    case undefined:
-      return "eval.run";
-    default: {
-      const exhaustive: never = phase;
-      return exhaustive;
-    }
-  }
-}
-
 /** 把 catch 到的 e(body 里 test()/setup 抛错,或 Scope 层 squash 出来的原始错误)折成
- *  `AttemptError`。message/stack/cause 由 `describeError` 拆分;operation 取失败那一刻打开的
- *  lifecycle operation;code 目前只对确定已知的类别赋稳定码,其余走 `"unexpected-error"`
- *  ——provider 专属的限流码分类留在各 provider 的 `classifyProvisionError`,没有中性入口能在这里
- *  复算,不猜一个可能错的码(见 docs/feature/results/architecture.md:`code` 未知异常用
- *  `"unexpected-error"`)。 */
-function errorFromThrown(e: unknown, phase: AttemptPhase | undefined): AttemptError {
+ *  `AttemptError`。message/stack/cause 由 `describeError` 拆分;phase 取失败那一刻打开的
+ *  生命周期阶段(极早期就挂、还没跨进任何阶段时兜底 `eval.run`——phase 是必填字段,不留空);
+ *  code 目前只对确定已知的类别赋稳定码,其余走 `"unexpected-error"`——provider 专属的限流码
+ *  分类留在各 provider 的 `classifyProvisionError`,没有中性入口能在这里复算,不猜一个可能错的码。 */
+function errorFromThrown(e: unknown, phase: LifecyclePhase | undefined): AttemptError {
   const { message, stack, cause } = describeError(e);
   return {
     code: "unexpected-error",
     message,
-    operation: operationForPhase(phase),
+    phase: phase ?? "eval.run",
     ...(stack ? { stack } : {}),
     ...(cause ? { cause } : {}),
   };
@@ -322,10 +326,16 @@ interface AttemptResources {
   otel?: AgentOtelChannel;
   signal: AbortSignal;
   log: (m: string) => void;
-  /** 进入一个正式 AttemptPhase 边界(见 runAttemptEffect 顶部的定义)。 */
-  enterPhase: (phase: AttemptPhase) => void;
-  /** 读当前最近跨入的 phase:body 的 error/diagnostic 落点用它填 `errorDetail.phase`。 */
-  getPhase: () => AttemptPhase | undefined;
+  /** 进入一个正式 LifecyclePhase 边界(见 runAttemptEffect 顶部的定义)。 */
+  enterPhase: (phase: LifecyclePhase) => void;
+  /** 读当前最近跨入的 phase(send 在飞时返回嵌套的 `agent.run`):error/diagnostic 归因用。 */
+  getPhase: () => LifecyclePhase | undefined;
+  /** SessionManager 的 send 在飞通知落点(agent.run 归因)。 */
+  setSendActive: (active: boolean) => void;
+  /** 阶段计时 recorder(turn/command 时间树挂载点)。 */
+  recorder: TimingRecorder;
+  /** attempt 墙钟起点(turn 节点的 startOffsetMs 基准)。 */
+  attemptEpoch: number;
 }
 
 // attempt 的固定段(上传→基线→setup→驱动 agent→采 diff→脚本→评分→判定)。
@@ -338,9 +348,25 @@ async function runAttemptBody(
   res: AttemptResources,
 ): Promise<EvalResult> {
   const { evalDef, run, attempt } = a;
-  const { sandbox, sandboxSetupHooks, sandboxTeardownHooks, receiver, telemetry, otel, signal, log, enterPhase, getPhase } =
-    res;
+  const {
+    sandbox: rawSandbox,
+    sandboxSetupHooks,
+    sandboxTeardownHooks,
+    receiver,
+    telemetry,
+    otel,
+    signal,
+    log,
+    enterPhase,
+    getPhase,
+    setSendActive,
+    recorder,
+    attemptEpoch,
+  } = res;
   const usesSandbox = run.agent.kind === "sandbox";
+  // 命令时间树:所有经这个包装 sandbox 发出的 runCommand/runShell 都挂成当前阶段(或当前 hook
+  // 节点)下的 command 子节点。包装只在最外层公开调用记录一次——provider 内部转调不经过它。
+  const sandbox = usesSandbox ? withCommandTiming(rawSandbox, recorder) : rawSandbox;
   // 本 attempt 累计的诊断(与 verdict 独立):teardown / cleanup 失败等挂在这里,收尾时并入结果。
   // 在 finally 里 push、在两个 return 之前把它挂到 `result` 上(见文件末尾 finally 的 result 变异)。
   const diagnostics: DiagnosticRecord[] = [];
@@ -373,21 +399,40 @@ async function runAttemptBody(
       // 单个抛错走下面的执行错误路径(与 eval.setup / agent.setup 同一条),已跑过的 cleanup /
       // sandbox.teardown 钩子仍在 finally 里跑(见 catch/finally)。
       if (sandboxSetupHooks.length > 0) {
-        enterPhase("sandbox-setup");
+        enterPhase("sandbox.setup");
         log(t("runner.startSandboxSetup"));
       }
-      for (const hook of sandboxSetupHooks) {
-        const cleanup = await hook(sandbox, attemptCtx);
-        if (typeof cleanup === "function") sandboxCleanups.push(cleanup);
+      for (const [i, hook] of sandboxSetupHooks.entries()) {
+        // hook 先建节点,hook 内经 Sandbox.runCommand/runShell 发出的命令挂成它的 command 子节点。
+        const hookStart = Date.now();
+        const hookNode = recorder.child({
+          kind: "hook",
+          label: `setup#${i}`,
+          startOffsetMs: Math.max(0, hookStart - attemptEpoch),
+          durationMs: 0,
+        });
+        if (hookNode) recorder.pushParent(hookNode);
+        try {
+          const cleanup = await hook(sandbox, attemptCtx);
+          if (typeof cleanup === "function") sandboxCleanups.push(cleanup);
+        } catch (e) {
+          if (hookNode) hookNode.failed = true;
+          throw e;
+        } finally {
+          if (hookNode) {
+            hookNode.durationMs = Date.now() - hookStart;
+            recorder.popParent();
+          }
+        }
       }
 
-      enterPhase("workspace-setup");
+      enterPhase("workspace.baseline");
       await initGitAndCommit(sandbox);
 
       // eval 级 setup(starter prep:npm install / 装系统依赖等)。命令默认非 root;
       // setup 里需要 root 的(apt/pip)自己传 { root: true }。
       if (evalDef.setup) {
-        enterPhase("eval-setup");
+        enterPhase("eval.setup");
         log(t("runner.evalSetup"));
         evalCleanup = await evalDef.setup(withEvalLocalPaths(sandbox, evalDef.baseDir));
       }
@@ -395,7 +440,7 @@ async function runAttemptBody(
 
     // agent 自己的 lifecycle:装 CLI、写 config(每个沙箱一次,不在每轮 send 里)。
     if (run.agent.setup) {
-      enterPhase("agent-setup");
+      enterPhase("agent.setup");
       log(t("runner.startAgentSetup"));
       agentDidSetup = true;
       agentCleanup = await run.agent.setup(sandbox, attemptCtx);
@@ -409,13 +454,13 @@ async function runAttemptBody(
     // OTLP 导出配置(file-based,如 codex 的 config.toml [otel] 块):与 setup 分开,
     // 在主配置写完后追加。仅当 tracing 开 + 有 endpoint 时调一次(env-based 的不实现 configure)。
     if (telemetry && run.agent.tracing?.configure) {
-      enterPhase("telemetry-setup");
+      enterPhase("telemetry.configure");
       log(t("runner.startAgentTracing"));
       await run.agent.tracing.configure(sandbox, attemptCtx);
     }
 
     // 构造 t,跑 test
-    enterPhase("running");
+    enterPhase("eval.run");
     log(t("runner.driveAgent"));
     const judge = resolveJudge(evalDef.judge, config.judge);
     const { context, state } = createEvalContext({
@@ -431,6 +476,21 @@ async function runAttemptBody(
       telemetry,
       otel,
       evalBaseDir: evalDef.baseDir,
+      onSendActive: setSendActive,
+      // 每次 send 一个 turn 节点:本地单调时钟测得的端到端包络 + session/turn 身份;
+      // OTel 接入时再带 traceId,trace.json 的 spans 由消费方按它临时挂到 turn 下。
+      onTurn: (info) =>
+        recorder.child({
+          kind: "turn",
+          label: `s${info.sessionIndex}/t${info.turnIndex}`,
+          startOffsetMs: Math.max(0, info.startedAt - attemptEpoch),
+          durationMs: info.durationMs,
+          ...(info.failed ? { failed: true as const } : {}),
+          sessionIndex: info.sessionIndex,
+          turnIndex: info.turnIndex,
+          ...(info.traceId !== undefined ? { traceId: info.traceId } : {}),
+          ...(info.traceAttribution !== undefined ? { traceAttribution: info.traceAttribution } : {}),
+        }),
     });
 
     let error: AttemptError | undefined;
@@ -444,7 +504,7 @@ async function runAttemptBody(
       } else if (e instanceof TurnFailed) {
         // TurnFailed 是 eval 驱动 agent 时的一层可读失败(message 已是一句话);稳定 code
         // `turn-failed`,不带控制流 stack(那指向 control-flow.ts,对定位无益)。
-        error = { code: "turn-failed", message: e.message, operation: operationForPhase(getPhase()) };
+        error = { code: "turn-failed", message: e.message, phase: getPhase() ?? "eval.run" };
       } else {
         // eval 脚本(比如引用了已改名/删掉的 API)抛出的 TypeError:message 是一层原因,完整 stack
         // 单独进 `error.stack`,niceeval show 展开时才看得到 eval 文件的 file:line。
@@ -455,7 +515,7 @@ async function runAttemptBody(
     if (skipReason) log(t("runner.skip", { reason: skipReason }));
 
     // 采 diff(脚本如 next build 在采集后才跑,避免 .next 污染 diff)。remote agent 没有 workspace。
-    if (!skipReason && usesSandbox) enterPhase("diff");
+    if (!skipReason && usesSandbox) enterPhase("workspace.diff");
     const diff =
       skipReason || !usesSandbox
         ? { generatedFiles: {}, deletedFiles: [] }
@@ -494,7 +554,7 @@ async function runAttemptBody(
       },
     };
     if (!skipReason) {
-      enterPhase("scoring");
+      enterPhase("scoring.evaluate");
       log(t("runner.scoreJudge"));
     }
     const assertions = skipReason ? [] : await state.collector.finalize(scoringContext);
@@ -506,7 +566,7 @@ async function runAttemptBody(
     // 再 selectTraceSpans 按 kind 挑出回合/模型/工具,丢掉 "other" 噪声(干净小 trace 整段保留)。
     let trace: TraceSpan[] | undefined;
     if (receiver) {
-      enterPhase("trace");
+      enterPhase("telemetry.collect");
       await receiver.settle(250, 1500);
       const spans = receiver.collect();
       if (spans.length) {
@@ -520,7 +580,7 @@ async function runAttemptBody(
     } else if (otel) {
       // 共享通道:receiver 不归本 attempt 关,trace 只取归属到本 attempt 的 span
       //(逐轮攒的 + 按本 attempt traceId sweep 回的迟到批)。
-      enterPhase("trace");
+      enterPhase("telemetry.collect");
       const late = await otel.sweep(state.manager.otelTraceIds);
       const spans = [...state.manager.otelSpans, ...late];
       if (spans.length) {
@@ -568,6 +628,7 @@ async function runAttemptBody(
     result = value;
     return value;
   } catch (e) {
+    recorder.failCurrent();
     const value: EvalResult = {
       ...base,
       durationMs: Date.now() - t0,
@@ -577,48 +638,68 @@ async function runAttemptBody(
     result = value;
     return value;
   } finally {
-    // teardown / cleanup 一律在 finally 跑(失败也跑),不改判定,各自兜错(diagnostic)。
-    // LIFO:agent 级(setup 最晚 → cleanup / teardown 先跑)在前,sandbox 级(最早就绪)收尾在后
-    //(即 sandbox.setup 返回的 cleanup、sandbox.teardown 钩子最后跑,沙箱销毁前)。
-    // 沙箱 stop / 接收器 close 不在这里 —— 由 runAttemptEffect 的 Scope 在本函数返回后回收。
-    // teardown 覆盖 agent/eval/sandbox cleanup、hook teardown 和最终 sandbox stop(见
-    // docs/feature/experiments/cli.md「Attempt 阶段」);每个 attempt 都会走到这里,无条件报。
-    enterPhase("teardown");
-    try {
-      if (typeof agentCleanup === "function") await agentCleanup();
-      if (agentDidSetup) await run.agent.teardown?.(sandbox, attemptCtx);
-    } catch (e) {
-      // teardown 失败只是 diagnostic,不改判定 —— 挂到 attempt.diagnostics(见 finally 末尾并入)。
-      diagnostics.push(teardownDiagnostic("agent.teardown", e));
-    }
-    try {
-      // eval.setup 返回的 cleanup:排在 agent 级之后、sandbox 级之前(LIFO,与 setup 顺序对称)。
-      if (typeof evalCleanup === "function") await evalCleanup();
-    } catch (e) {
-      // eval 的 cleanup 由 eval.setup 注册,归属它;LifecycleOperationName 没有独立的 eval-teardown
-      // 项(见 memory 的 lifecycle-operation-missing-eval-teardown),按 owner 归到 eval.setup。
-      diagnostics.push(teardownDiagnostic("eval.setup", e));
-    }
-    if (usesSandbox) {
-      // sandbox.setup 返回的 cleanup:LIFO(后 setup 先 cleanup),与 agent 级同构。
-      for (let i = sandboxCleanups.length - 1; i >= 0; i--) {
-        try {
-          await sandboxCleanups[i]();
-        } catch (e) {
-          diagnostics.push(teardownDiagnostic("sandbox.teardown", e));
-        }
-      }
-      // sandbox.teardown 钩子:按追加的逆序执行,沙箱销毁前最后一步。
-      if (sandboxTeardownHooks.length > 0) {
-        log(t("runner.startSandboxTeardown"));
-        for (let i = sandboxTeardownHooks.length - 1; i >= 0; i--) {
+    // 收尾段一律在 finally 跑(主链成败都执行),不改判定,各自兜错(diagnostic)、各自计时
+    // (不计入 durationMs 口径,见 docs/feature/results/architecture.md)。执行序与 LifecyclePhase
+    // 闭集声明一致:eval.teardown → agent.teardown → sandbox.teardown;各段可独立标 failed。
+    // 沙箱 stop / 接收器 close 不在这里 —— 由 runAttemptEffect 的 Scope 在本函数返回后回收,
+    // 并经 finalizer 计成 sandbox.stop。没有对应 cleanup 的段直接跳过,不产生空阶段。
+    const evalCleanupFn = typeof evalCleanup === "function" ? evalCleanup : undefined;
+    if (evalCleanupFn) {
+      enterPhase("eval.teardown");
+      await recorder
+        .measureClosing("eval.teardown", async () => {
           try {
-            await sandboxTeardownHooks[i](sandbox, attemptCtx);
+            await evalCleanupFn();
           } catch (e) {
-            diagnostics.push(teardownDiagnostic("sandbox.teardown", e));
+            // 收尾失败只是 diagnostic,不改判定 —— 挂到 attempt.diagnostics(见 finally 末尾并入)。
+            diagnostics.push(teardownDiagnostic("eval.teardown", e));
+            throw e; // 让 measureClosing 把这段标 failed
           }
-        }
-      }
+        })
+        .catch(() => {});
+    }
+    const agentCleanupFn = typeof agentCleanup === "function" ? agentCleanup : undefined;
+    if (agentCleanupFn !== undefined || (agentDidSetup && run.agent.teardown !== undefined)) {
+      enterPhase("agent.teardown");
+      await recorder
+        .measureClosing("agent.teardown", async () => {
+          try {
+            if (agentCleanupFn) await agentCleanupFn();
+            if (agentDidSetup) await run.agent.teardown?.(sandbox, attemptCtx);
+          } catch (e) {
+            diagnostics.push(teardownDiagnostic("agent.teardown", e));
+            throw e;
+          }
+        })
+        .catch(() => {});
+    }
+    if (usesSandbox && (sandboxCleanups.length > 0 || sandboxTeardownHooks.length > 0)) {
+      enterPhase("sandbox.teardown");
+      await recorder
+        .measureClosing("sandbox.teardown", async () => {
+          const before = diagnostics.length;
+          // sandbox.setup 返回的 cleanup:LIFO(后 setup 先 cleanup)。
+          for (let i = sandboxCleanups.length - 1; i >= 0; i--) {
+            try {
+              await sandboxCleanups[i]();
+            } catch (e) {
+              diagnostics.push(teardownDiagnostic("sandbox.teardown", e));
+            }
+          }
+          // sandbox.teardown 钩子:按追加的逆序执行,沙箱销毁前最后一步。
+          if (sandboxTeardownHooks.length > 0) {
+            log(t("runner.startSandboxTeardown"));
+            for (let i = sandboxTeardownHooks.length - 1; i >= 0; i--) {
+              try {
+                await sandboxTeardownHooks[i](sandbox, attemptCtx);
+              } catch (e) {
+                diagnostics.push(teardownDiagnostic("sandbox.teardown", e));
+              }
+            }
+          }
+          if (diagnostics.length > before) throw new Error("sandbox teardown diagnostics");
+        })
+        .catch(() => {});
     }
     // finally 在两个 return 求值之后、函数真正交还返回值之前运行;`result` 已经是那个即将被返回的
     // 对象引用,这里往它上面挂 diagnostics,调用方拿到的就是带诊断的同一个对象(标准 try/finally
@@ -631,13 +712,55 @@ async function runAttemptBody(
 /** 把一次 teardown / cleanup 失败折成一条 `DiagnosticRecord`(warning,不改判定)。message 取一层
  *  摘要(`firstLine(formatThrown)`),完整 stack 不塞进单 attempt 诊断 —— 诊断是「顺带发生的清理
  *  问题」,不是 attempt 的主因(主因在 verdict / error)。稳定 code `teardown-failed`。 */
-function teardownDiagnostic(operation: LifecycleOperationName, e: unknown): DiagnosticRecord {
+function teardownDiagnostic(phase: LifecyclePhase, e: unknown): DiagnosticRecord {
   return {
     code: "teardown-failed",
     level: "warning",
     message: firstLine(formatThrown(e)),
-    operation,
+    phase,
   };
+}
+
+/**
+ * 命令时间树包装:runCommand / runShell 的最外层公开调用各记一个 command 子节点
+ * (有界脱敏摘要 + exitCode;env 值与 stdout/stderr 不进入时间树)。Proxy 只拦这两个方法,
+ * provider 内部 `this.runCommand(...)` 转调不经过它——不形成重复节点。
+ */
+function withCommandTiming(sandbox: Sandbox, recorder: TimingRecorder): Sandbox {
+  const wrap = async <T>(display: string, fn: () => Promise<T>): Promise<T> => {
+    const startOffsetMs = recorder.offsetNow();
+    const t0 = Date.now();
+    try {
+      const result = await fn();
+      const exitCode = (result as { exitCode?: unknown })?.exitCode;
+      recorder.child(
+        commandNode({
+          display,
+          startOffsetMs,
+          durationMs: Date.now() - t0,
+          ...(typeof exitCode === "number" ? { exitCode, failed: exitCode !== 0 } : {}),
+        }),
+      );
+      return result;
+    } catch (e) {
+      recorder.child(commandNode({ display, startOffsetMs, durationMs: Date.now() - t0, failed: true }));
+      throw e;
+    }
+  };
+  return new Proxy(sandbox, {
+    get(target, prop, receiver) {
+      if (prop === "runCommand") {
+        return (cmd: string, args?: string[], opts?: unknown) =>
+          wrap(commandDisplay(cmd, args), () => (target.runCommand as (...a: unknown[]) => Promise<unknown>)(cmd, args, opts));
+      }
+      if (prop === "runShell") {
+        return (script: string, opts?: unknown) =>
+          wrap(commandDisplay(script), () => (target.runShell as (...a: unknown[]) => Promise<unknown>)(script, opts));
+      }
+      const value = Reflect.get(target, prop, receiver);
+      return typeof value === "function" ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+    },
+  });
 }
 
 /**

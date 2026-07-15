@@ -23,7 +23,7 @@ import { encodeAttemptKey } from "../types.ts";
 import type {
   ActiveAttempt,
   AttemptKey,
-  AttemptPhase,
+  LifecyclePhase,
   DurableFeedbackEvent,
   EvalResult,
   RunFeedbackPlan,
@@ -253,29 +253,38 @@ export function formatTokenCount(n: number): string {
   return String(n);
 }
 
-function phaseLabel(phase: AttemptPhase): string {
+/** LifecyclePhase → Human 展示列的人读投影(见 docs/feature/experiments/cli.md「Attempt 阶段」);
+ *  机器面(agent/ci 的 `phase=` 与落盘)保留精确的点分名,收尾段在 Human 侧合并显示为一档。 */
+function phaseLabel(phase: LifecyclePhase): string {
   switch (phase) {
-    case "sandbox-provision":
-      return t("feedback.phase.sandboxProvision");
-    case "sandbox-setup":
+    case "sandbox.queue":
+      return t("feedback.phase.sandboxQueue");
+    case "sandbox.create":
+      return t("feedback.phase.sandboxCreate");
+    case "sandbox.setup":
       return t("feedback.phase.sandboxSetup");
-    case "workspace-setup":
-      return t("feedback.phase.workspaceSetup");
-    case "eval-setup":
+    case "workspace.baseline":
+      return t("feedback.phase.workspaceBaseline");
+    case "eval.setup":
       return t("feedback.phase.evalSetup");
-    case "agent-setup":
+    case "agent.setup":
       return t("feedback.phase.agentSetup");
-    case "telemetry-setup":
-      return t("feedback.phase.telemetrySetup");
-    case "running":
-      return t("feedback.phase.running");
-    case "diff":
-      return t("feedback.phase.diff");
-    case "scoring":
+    case "telemetry.configure":
+      return t("feedback.phase.telemetryConfigure");
+    case "eval.run":
+    case "agent.run": // 嵌套成员:Human 展示不切换顶层阶段
+      return t("feedback.phase.evalRun");
+    case "workspace.diff":
+      return t("feedback.phase.workspaceDiff");
+    case "scoring.evaluate":
       return t("feedback.phase.scoring");
-    case "trace":
-      return t("feedback.phase.trace");
-    case "teardown":
+    case "telemetry.collect":
+      return t("feedback.phase.telemetryCollect");
+    case "eval.teardown":
+    case "agent.teardown":
+    case "sandbox.teardown":
+    case "sandbox.suspend":
+    case "sandbox.stop":
       return t("feedback.phase.teardown");
     default: {
       const exhaustive: never = phase;

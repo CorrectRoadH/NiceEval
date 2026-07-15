@@ -103,7 +103,7 @@ describe("start 立即追加;仅连续 30 秒无永久事件才 heartbeat;failur
 
     // 调度已经把 4 个非携入 attempt 派发出去(running=4 queued=0)。
     for (let i = 0; i < 4; i++) {
-      coordinator.emit({ type: "attempt:start", at: 0, identity: ref(`memory/eval-${i}`), who: "compare/bub-e2b", phase: "running" });
+      coordinator.emit({ type: "attempt:start", at: 0, identity: ref(`memory/eval-${i}`), who: "compare/bub-e2b", phase: "eval.run" });
     }
     fake.advance(250); // t=250:第一次 tick,无条件打印,不等 30 秒
     await flush();
@@ -170,12 +170,12 @@ describe("start 立即追加;仅连续 30 秒无永久事件才 heartbeat;failur
       who: "compare/claude-e2b",
       verdict: "errored",
       reason: "sandbox-rate-limit: E2B sandbox allocation failed after 5 attempts",
-      phase: "sandbox-provision",
+      phase: "sandbox.create",
     });
     await flush();
     const text = fake.stderr.writes.join("");
     expect(text).toContain(
-      "NICEEVAL error locator=@12h8m4k1 eval=memory/agent-029-use-cache experiment=compare/claude-e2b phase=sandbox-provision verdict=errored",
+      "NICEEVAL error locator=@12h8m4k1 eval=memory/agent-029-use-cache experiment=compare/claude-e2b phase=sandbox.create verdict=errored",
     );
     await coordinator.finish({ summary: summary(), completion: completion(), paths: [] });
   });
@@ -187,8 +187,8 @@ describe("不输出 active phase、waiting 明细、passed result、raw progress
   it("lifecycle 事件(start/phase/progress/complete)不产生任何可见输出", async () => {
     const { fake, coordinator } = setup();
     coordinator.start(plan({ totalRuns: 2 }));
-    coordinator.emit({ type: "attempt:start", at: 0, identity: ref("memory/a"), who: "compare/bub-e2b", phase: "running" });
-    coordinator.emit({ type: "attempt:phase", at: 1, identity: ref("memory/a"), phase: "agent-setup" });
+    coordinator.emit({ type: "attempt:start", at: 0, identity: ref("memory/a"), who: "compare/bub-e2b", phase: "eval.run" });
+    coordinator.emit({ type: "attempt:phase", at: 1, identity: ref("memory/a"), phase: "agent.setup" });
     coordinator.emit({ type: "attempt:progress", at: 2, identity: ref("memory/a"), detail: "tool: shell" });
     coordinator.emit({ type: "attempt:complete", at: 3, identity: ref("memory/a"), who: "compare/bub-e2b", verdict: "passed" });
     fake.advance(250);

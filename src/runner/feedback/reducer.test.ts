@@ -46,10 +46,10 @@ describe("reduceRunFeedback: 守恒公式", () => {
     const c = ref("memory/c");
     const state = replay([
       { type: "plan", at: 0, plan: { shape: { evals: 3, configs: 1, totalRuns: 3, maxConcurrency: 3 }, reused: 0, reusedByExperiment: [] } },
-      { type: "attempt:start", at: 1, identity: a, who: "codex", phase: "sandbox-provision" },
-      { type: "attempt:start", at: 1, identity: b, who: "codex", phase: "sandbox-provision" },
-      { type: "attempt:start", at: 1, identity: c, who: "codex", phase: "sandbox-provision" },
-      { type: "attempt:phase", at: 2, identity: a, phase: "running" },
+      { type: "attempt:start", at: 1, identity: a, who: "codex", phase: "sandbox.create" },
+      { type: "attempt:start", at: 1, identity: b, who: "codex", phase: "sandbox.create" },
+      { type: "attempt:start", at: 1, identity: c, who: "codex", phase: "sandbox.create" },
+      { type: "attempt:phase", at: 2, identity: a, phase: "eval.run" },
       { type: "attempt:progress", at: 3, identity: a, detail: "turn 2" },
       { type: "attempt:complete", at: 4, identity: a, who: "codex", verdict: "passed", estimatedCostUSD: 0.1 },
       { type: "attempt:complete", at: 5, identity: b, who: "codex", verdict: "passed", estimatedCostUSD: 0.2 },
@@ -80,9 +80,9 @@ describe("reduceRunFeedback: 守恒公式", () => {
     const c = ref("memory/c", 0, "compare/bub-e2b");
     const final = replay([
       { type: "plan", at: 0, plan: { shape: { evals: 5, configs: 1, totalRuns: 5, maxConcurrency: 5 }, reused: 2, reusedByExperiment: [] } },
-      { type: "attempt:start", at: 1, identity: a, who: "bub-e2b", phase: "sandbox-provision" },
-      { type: "attempt:start", at: 1, identity: b, who: "bub-e2b", phase: "sandbox-provision" },
-      { type: "attempt:start", at: 1, identity: c, who: "bub-e2b", phase: "sandbox-provision" },
+      { type: "attempt:start", at: 1, identity: a, who: "bub-e2b", phase: "sandbox.create" },
+      { type: "attempt:start", at: 1, identity: b, who: "bub-e2b", phase: "sandbox.create" },
+      { type: "attempt:start", at: 1, identity: c, who: "bub-e2b", phase: "sandbox.create" },
       { type: "attempt:complete", at: 5, identity: a, who: "bub-e2b", verdict: "passed" },
       { type: "attempt:complete", at: 5, identity: b, who: "bub-e2b", verdict: "passed" },
       { type: "attempt:complete", at: 5, identity: c, who: "bub-e2b", verdict: "passed" },
@@ -102,7 +102,7 @@ describe("reduceRunFeedback: 守恒公式", () => {
       plan: { shape: { evals: 4, configs: 1, totalRuns: 4, maxConcurrency: 4 }, reused: 0, reusedByExperiment: [] },
     });
     for (const identity of [a, b, c, d]) {
-      state = reduceRunFeedback(state, { type: "attempt:start", at: 1, identity, who: "codex", phase: "running" });
+      state = reduceRunFeedback(state, { type: "attempt:start", at: 1, identity, who: "codex", phase: "eval.run" });
     }
     expect(state.running).toBe(4);
     expect(state.active.size).toBe(4);
@@ -130,7 +130,7 @@ describe("reduceRunFeedback: 守恒公式", () => {
     const retry2 = ref("memory/retry", 2);
     const state = replay([
       { type: "plan", at: 0, plan: { shape: { evals: 1, configs: 1, totalRuns: 3, maxConcurrency: 3 }, reused: 0, reusedByExperiment: [] } },
-      { type: "attempt:start", at: 1, identity: first, who: "codex", phase: "running" },
+      { type: "attempt:start", at: 1, identity: first, who: "codex", phase: "eval.run" },
       { type: "attempt:complete", at: 2, identity: first, who: "codex", verdict: "passed" },
       { type: "attempt:early-exit", at: 3, identity: retry1, who: "codex" },
       { type: "attempt:early-exit", at: 4, identity: retry2, who: "codex" },
@@ -153,7 +153,7 @@ describe("reduceRunFeedback: 守恒公式", () => {
       at: 1,
       identity: a,
       who: "compare/claude-e2b",
-      phase: "sandbox-provision",
+      phase: "sandbox.create",
     });
     state = reduceRunFeedback(state, {
       type: "attempt:complete",
@@ -170,7 +170,7 @@ describe("reduceRunFeedback: 守恒公式", () => {
       who: "compare/claude-e2b",
       verdict: "errored",
       reason: "sandbox-rate-limit: E2B sandbox allocation failed after 5 attempts",
-      phase: "sandbox-provision",
+      phase: "sandbox.create",
     });
     expect(state.failures).toHaveLength(1);
     expect(state.failures[0]?.reason).toContain("sandbox-rate-limit");
@@ -185,7 +185,7 @@ describe("reduceRunFeedback: 守恒公式", () => {
       who: "compare/claude-e2b",
       verdict: "errored",
       reason: "updated reason",
-      phase: "sandbox-provision",
+      phase: "sandbox.create",
     });
     expect(state.failures).toHaveLength(1);
     expect(state.failures[0]?.reason).toBe("updated reason");
@@ -200,8 +200,8 @@ describe("reduceRunFeedback: 守恒公式", () => {
       at: 0,
       plan: { shape: { evals: 4, configs: 1, totalRuns: 4, maxConcurrency: 4 }, reused: 0, reusedByExperiment: [] },
     });
-    state = reduceRunFeedback(state, { type: "attempt:start", at: 1, identity: a, who: "regression/codex", phase: "running" });
-    state = reduceRunFeedback(state, { type: "attempt:start", at: 1, identity: b, who: "regression/codex", phase: "running" });
+    state = reduceRunFeedback(state, { type: "attempt:start", at: 1, identity: a, who: "regression/codex", phase: "eval.run" });
+    state = reduceRunFeedback(state, { type: "attempt:start", at: 1, identity: b, who: "regression/codex", phase: "eval.run" });
     state = reduceRunFeedback(state, { type: "attempt:complete", at: 2, identity: a, who: "regression/codex", verdict: "passed" });
     expect(state).toMatchObject({ total: 4, running: 1, queued: 2, completed: 1 });
 
@@ -243,7 +243,7 @@ describe("reduceRunFeedback: 守恒公式", () => {
       at: 0,
       plan: { shape: { evals: 3, configs: 1, totalRuns: 3, maxConcurrency: 3 }, reused: 0, reusedByExperiment: [] },
     });
-    state = reduceRunFeedback(state, { type: "attempt:start", at: 1, identity: a, who: "codex", phase: "running" });
+    state = reduceRunFeedback(state, { type: "attempt:start", at: 1, identity: a, who: "codex", phase: "eval.run" });
     const beforeInterrupt = state;
     state = reduceRunFeedback(state, { type: "interrupted", at: 2 });
     expect(state).toMatchObject({ total: 3, running: 1, queued: 2, completed: 0 });
@@ -346,12 +346,12 @@ describe("reduceRunFeedback: 守恒公式", () => {
       at: 0,
       plan: { shape: { evals: 1, configs: 1, totalRuns: 1, maxConcurrency: 1 }, reused: 0, reusedByExperiment: [] },
     });
-    state = reduceRunFeedback(state, { type: "attempt:start", at: 1, identity: a, who: "codex", phase: "running" });
+    state = reduceRunFeedback(state, { type: "attempt:start", at: 1, identity: a, who: "codex", phase: "eval.run" });
     state = reduceRunFeedback(state, { type: "attempt:progress", at: 2, identity: a, detail: "tool: shell" });
     expect([...state.active.values()][0]?.detail).toBe("tool: shell");
-    state = reduceRunFeedback(state, { type: "attempt:phase", at: 3, identity: a, phase: "diff" });
+    state = reduceRunFeedback(state, { type: "attempt:phase", at: 3, identity: a, phase: "workspace.diff" });
     const activeAfterPhase = [...state.active.values()][0];
-    expect(activeAfterPhase?.phase).toBe("diff");
+    expect(activeAfterPhase?.phase).toBe("workspace.diff");
     expect(activeAfterPhase?.detail).toBeUndefined();
   });
 });

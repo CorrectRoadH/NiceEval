@@ -95,7 +95,7 @@ export function AttemptModal({ result, onClose, t }: { result: ViewResult; onClo
  *  `niceeval show` 一样保持英文,不进 view 的 i18n 词典。 */
 function ErrorDetailBlock({ error }: { error: NonNullable<ViewResult["error"]> }) {
   const rows: [string, string][] = [
-    ["operation", error.operation],
+    ["phase", error.phase],
     ["code", error.code],
     ["message", error.message],
   ];
@@ -127,7 +127,7 @@ function AttemptDiagnostics({ diagnostics }: { diagnostics: NonNullable<ViewResu
         {diagnostics.map((d, i) => (
           <li key={i} className="text-xs">
             <span className="text-muted">
-              {d.level} · {d.operation} · {d.code}
+              {d.level} · {d.phase} · {d.code}
             </span>
             <div className="min-w-0 break-words">
               {d.message}

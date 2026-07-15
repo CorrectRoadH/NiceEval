@@ -656,11 +656,11 @@ describe("show @<locator>", () => {
         error: {
           code: "sandbox-rate-limit",
           message: "E2B sandbox allocation failed after 5 attempts",
-          operation: "sandbox.provision",
+          phase: "sandbox.create",
           cause: { name: "RateLimitError", message: "too many concurrent sandboxes" },
         },
         diagnostics: [
-          { code: "teardown-failed", level: "warning", message: "container stop timed out", operation: "sandbox.teardown" },
+          { code: "teardown-failed", level: "warning", message: "container stop timed out", phase: "sandbox.teardown" },
         ],
       }),
     ]);
@@ -670,9 +670,9 @@ describe("show @<locator>", () => {
     const { out, code } = await show(root, [locator]);
     expect(code).toBe(0);
     expect(out).toContain(`${locator} · agent-029 · compare/claude-e2b · errored`);
-    // 结构化 error 块:operation 点换空格作 phase 标签,code/message/cause 各一行(见 docs/feature/reports/show.md)
+    // 结构化 error 块:phase 直接展示闭集点分名,code/message/cause 各一行(见 docs/feature/reports/show.md)
     expect(out).toContain("error:");
-    expect(out).toContain("phase: sandbox provision");
+    expect(out).toContain("phase: sandbox.create");
     expect(out).toContain("code: sandbox-rate-limit");
     expect(out).toContain("message: E2B sandbox allocation failed after 5 attempts");
     expect(out).toContain("cause: RateLimitError · too many concurrent sandboxes");

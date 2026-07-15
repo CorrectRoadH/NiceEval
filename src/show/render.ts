@@ -715,7 +715,7 @@ function operationWords(operation: string): string {
 function renderErrorBlock(r: EvalResult): string | undefined {
   const err = r.error;
   if (err === undefined) return undefined;
-  const lines = ["error:", `  phase: ${operationWords(err.operation)}`, `  code: ${err.code}`, `  message: ${err.message}`];
+  const lines = ["error:", `  phase: ${err.phase}`, `  code: ${err.code}`, `  message: ${err.message}`];
   if (err.cause) {
     const c = err.cause;
     const causeText = c.name ? `${c.name} · ${c.message}` : c.message;
@@ -736,7 +736,7 @@ function renderAttemptDiagnostics(r: EvalResult): string | undefined {
   if (!r.diagnostics || r.diagnostics.length === 0) return undefined;
   const lines = ["diagnostics:"];
   for (const d of r.diagnostics) {
-    lines.push(`  ${d.level} · ${d.operation} · ${d.code}`);
+    lines.push(`  ${d.level} · ${d.phase} · ${d.code}`);
     const occ = d.count && d.count > 1 ? ` (${d.count} occurrences)` : "";
     lines.push(`    ${d.message}${occ}`);
   }

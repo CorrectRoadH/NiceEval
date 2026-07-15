@@ -11,7 +11,7 @@ import { runAttemptEffect } from "./attempt.ts";
 import { defineSandboxAgent, defineSandbox } from "../define.ts";
 import { writeAgentSetupManifest, AGENT_SETUP_MANIFEST_PATH } from "../agents/manifest.ts";
 import type { CapturedEvalSource } from "./eval-source.ts";
-import type { Attempt, AgentRun, AttemptPhase, RunOptions } from "./types.ts";
+import type { Attempt, AgentRun, LifecyclePhase, RunOptions } from "./types.ts";
 import type {
   AgentSetupManifest,
   Agent,
@@ -77,7 +77,7 @@ const source: CapturedEvalSource = { path: "fake.eval.ts", content: "", sha256: 
 async function runOnce(
   agent: Agent,
   box: FakeSandbox,
-  opts: { evalDefOverrides?: Partial<DiscoveredEval>; onPhase?: (phase: AttemptPhase) => void } = {},
+  opts: { evalDefOverrides?: Partial<DiscoveredEval>; onPhase?: (phase: LifecyclePhase) => void } = {},
 ): Promise<import("../types.ts").EvalResult> {
   const evalDef: DiscoveredEval = {
     id: "fake/eval",
@@ -189,7 +189,7 @@ describe("runAttemptEffect · onPhase 回调随 enterPhase 同步触发", () => 
       send: async () => ({ events: [], status: "completed" }),
     });
 
-    const phases: AttemptPhase[] = [];
+    const phases: LifecyclePhase[] = [];
     const box = new FakeSandbox();
     const result = await runOnce(agent, box, {
       evalDefOverrides: { setup: async () => {} },
@@ -200,14 +200,14 @@ describe("runAttemptEffect · onPhase 回调随 enterPhase 同步触发", () => 
     // sandbox-setup(没有 SandboxSpec.setup 钩子)与 telemetry-setup(没有 tracing)都该跳过——
     // 不产生空阶段,序列只含实际执行到的边界,严格按生命周期顺序出现一次。
     expect(phases).toEqual([
-      "sandbox-provision",
-      "workspace-setup",
-      "eval-setup",
-      "agent-setup",
-      "running",
-      "diff",
-      "scoring",
-      "teardown",
+      "sandbox.queue",
+      "sandbox.create",
+      "workspace.baseline",
+      "eval.setup",
+      "agent.setup",
+      "eval.run",
+      "workspace.diff",
+      "scoring.evaluate",
     ]);
   });
 
@@ -217,11 +217,11 @@ describe("runAttemptEffect · onPhase 回调随 enterPhase 同步触发", () => 
       send: async () => ({ events: [], status: "completed" }),
     });
 
-    const phases: AttemptPhase[] = [];
+    const phases: LifecyclePhase[] = [];
     const box = new FakeSandbox();
     await runOnce(agent, box, { onPhase: (phase) => phases.push(phase) });
 
-    expect(phases).toEqual(["sandbox-provision", "workspace-setup", "running", "diff", "scoring", "teardown"]);
+    expect(phases).toEqual(["sandbox.queue", "sandbox.create", "workspace.baseline", "eval.run", "workspace.diff", "scoring.evaluate"]);
   });
 
   it("test() 抛出的普通执行错误不设置 skipReason,diff/scoring 仍照常进入", async () => {
@@ -230,7 +230,7 @@ describe("runAttemptEffect · onPhase 回调随 enterPhase 同步触发", () => 
       send: async () => ({ events: [], status: "completed" }),
     });
 
-    const phases: AttemptPhase[] = [];
+    const phases: LifecyclePhase[] = [];
     const box = new FakeSandbox();
     const result = await runOnce(agent, box, {
       evalDefOverrides: {
@@ -242,11 +242,11 @@ describe("runAttemptEffect · onPhase 回调随 enterPhase 同步触发", () => 
     });
 
     expect(result.error?.message).toContain("boom-from-eval");
-    expect(result.error?.operation).toBe("eval.run");
+    expect(result.error?.phase).toBe("eval.run");
     // test() 里的普通异常被 runAttemptBody 内层 try/catch 收作 result.error,不设置
     // skipReason——所以 diff/scoring 的跳过条件(`!skipReason`)不成立,两个阶段仍会进入,
     // 最后落 teardown。这是「running 阶段失败」的真实序列。
-    expect(phases).toEqual(["sandbox-provision", "workspace-setup", "running", "diff", "scoring", "teardown"]);
+    expect(phases).toEqual(["sandbox.queue", "sandbox.create", "workspace.baseline", "eval.run", "workspace.diff", "scoring.evaluate"]);
   });
 
   it("agent.setup 中途抛错时,phase 序列停在 agent-setup 就跳进 teardown(不会假装跑到了 running)", async () => {
@@ -258,14 +258,14 @@ describe("runAttemptEffect · onPhase 回调随 enterPhase 同步触发", () => 
       send: async () => ({ events: [], status: "completed" }),
     });
 
-    const phases: AttemptPhase[] = [];
+    const phases: LifecyclePhase[] = [];
     const box = new FakeSandbox();
     const result = await runOnce(agent, box, { onPhase: (phase) => phases.push(phase) });
 
     expect(result.error?.message).toContain("boom-from-setup");
-    expect(result.error?.operation).toBe("agent.setup");
+    expect(result.error?.phase).toBe("agent.setup");
     // 失败发生在 agent-setup:之后不再出现 running/diff/scoring —— run.ts 的 reportFailure()
     // 靠的正是这个真实的「最后已知阶段」,不是硬编码成 running(见 run.ts 的 lastPhase 注释)。
-    expect(phases).toEqual(["sandbox-provision", "workspace-setup", "agent-setup", "teardown"]);
+    expect(phases).toEqual(["sandbox.queue", "sandbox.create", "workspace.baseline", "agent.setup"]);
   });
 });

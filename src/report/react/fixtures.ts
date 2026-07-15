@@ -342,12 +342,12 @@ const erroredAttempt: AttemptListItem = {
   error: {
     code: "unexpected-error",
     message: "TypeError: cannot read properties of undefined (reading 'foo')",
-    operation: "eval.run",
+    phase: "eval.run",
     stack: "TypeError: cannot read properties of undefined (reading 'foo')\n    at run (adapter.ts:42:7)",
     cause: { name: "TypeError", message: "cannot read properties of undefined (reading 'foo')" },
   },
   diagnostics: [
-    { code: "sandbox-teardown-failed", level: "warning", message: "sandbox teardown timed out", operation: "sandbox.teardown" },
+    { code: "sandbox-teardown-failed", level: "warning", message: "sandbox teardown timed out", phase: "sandbox.teardown" },
   ],
   assertions: [],
   durationMs: 4_500,

@@ -10,7 +10,7 @@ import type { AssertionResult, AttemptError, EvalResult, O11ySummary, Verdict } 
 
 /** 结构化 `AttemptError` 的最小构造(测试用):只关心一层 message,operation/code 取中性默认值。 */
 function erroredWith(message: string): AttemptError {
-  return { code: "unexpected-error", message, operation: "eval.run" };
+  return { code: "unexpected-error", message, phase: "eval.run" };
 }
 import type { AttemptHandle, Selection, SelectionWarning, Snapshot } from "../results/index.ts";
 import type { Dimension, MetricCell } from "./types.ts";
@@ -294,7 +294,7 @@ describe("AttemptList.data", () => {
           error: {
             code: "sandbox-provision-failed",
             message: "ENOENT /Users/me/repo/tool",
-            operation: "sandbox.provision",
+            phase: "sandbox.create",
             stack: "Error: ENOENT /Users/me/repo/tool\n    at spawn (/Users/me/repo/src/run.ts:3:1)",
             cause: { name: "SystemError", code: "ENOENT", message: "no such file /Users/me/repo/tool" },
           },
@@ -303,7 +303,7 @@ describe("AttemptList.data", () => {
               code: "teardown-failed",
               level: "warning",
               message: "cleanup left /Users/me/repo/tmp behind",
-              operation: "sandbox.teardown",
+              phase: "sandbox.teardown",
               data: { path: "/Users/me/repo/tmp", attempts: 2 },
             },
           ],
@@ -330,7 +330,7 @@ describe("AttemptList.data", () => {
     expect(a.error?.cause?.message).toBe("no such file <repo>/tool");
     // 分类字段(code/operation/cause.name/cause.code)原样保留,不经钩子
     expect(a.error?.code).toBe("sandbox-provision-failed");
-    expect(a.error?.operation).toBe("sandbox.provision");
+    expect(a.error?.phase).toBe("sandbox.create");
     expect(a.error?.cause?.name).toBe("SystemError");
     expect(a.error?.cause?.code).toBe("ENOENT");
     // diagnostics:message 与 data 的字符串值经钩子;code/operation/level 原样
@@ -338,7 +338,7 @@ describe("AttemptList.data", () => {
     expect(a.diagnostics![0]!.message).toBe("cleanup left <repo>/tmp behind");
     expect(a.diagnostics![0]!.data).toEqual({ path: "<repo>/tmp", attempts: 2 });
     expect(a.diagnostics![0]!.code).toBe("teardown-failed");
-    expect(a.diagnostics![0]!.operation).toBe("sandbox.teardown");
+    expect(a.diagnostics![0]!.phase).toBe("sandbox.teardown");
     const b = items.find((i) => i.evalId === "B")!;
     const bAssert = b.assertions[0]!;
     expect(bAssert.detail).toBe("missing text under <repo>/src");

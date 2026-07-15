@@ -140,7 +140,7 @@ function richContext() {
         model: "gpt-codex",
         results: [
           res("algebra/x", "errored", {
-            error: { code: "unexpected-error", message: "adapter crashed", operation: "eval.run" },
+            error: { code: "unexpected-error", message: "adapter crashed", phase: "eval.run" },
             estimatedCostUSD: 0.3,
           }),
           res("algebra/y", "skipped"),

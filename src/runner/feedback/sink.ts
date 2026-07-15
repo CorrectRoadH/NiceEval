@@ -16,7 +16,7 @@
 
 import { writeStderrLine } from "../../tty-line.ts";
 import { t } from "../../i18n/index.ts";
-import type { AttemptLifecycleEvent, AttemptPhase, AttemptRef } from "../types.ts";
+import type { AttemptLifecycleEvent, LifecyclePhase, AttemptRef } from "../types.ts";
 import type { JsonValue } from "../../shared/types.ts";
 import type { AttemptLocator } from "../../results/locator.ts";
 
@@ -47,7 +47,7 @@ export interface FailureInput {
    *  (见 agent.ts 顶部注释「为什么不拆 code/message」)。 */
   reason: string;
   /** 失败发生时所在的阶段;框架层错误(如整体 timeout)可能没有明确阶段,省略即可。 */
-  phase?: AttemptPhase;
+  phase?: LifecyclePhase;
 }
 
 /** `sink.budgetExhausted()` 的输入 —— 与 `DurableFeedbackEvent` 的 "budget-exhausted" 变体字段

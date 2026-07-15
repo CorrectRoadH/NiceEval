@@ -84,6 +84,8 @@ export class RunSession implements AgentSession {
   readonly usage: Usage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, requests: 0 };
   /** 本会话累计的证据覆盖(初值 = Agent 级默认,逐轮按 Turn.coverage 降级折叠)。 */
   coverage!: ResolvedCoverage;
+  /** 本会话内的轮次计数(turn 时间树 / 展示标签 s<session>/t<turn> 用)。 */
+  turnCount = 0;
 }
 
 export interface SessionDeps {
@@ -94,6 +96,18 @@ export interface SessionDeps {
   flags: Record<string, unknown>;
   signal: AbortSignal;
   log(msg: string): void;
+  /** adapter send 在飞时通知 runner(errored 归因到嵌套的 `agent.run` 阶段用)。 */
+  onSendActive?: (active: boolean) => void;
+  /** 每轮 send 结束后回报墙钟包络(runner 挂成 eval.run 下的 turn 时间树节点)。 */
+  onTurn?: (info: {
+    sessionIndex: number;
+    turnIndex: number;
+    startedAt: number;
+    durationMs: number;
+    failed?: boolean;
+    traceId?: string;
+    traceAttribution?: "traceparent" | "window" | "none";
+  }) => void;
   /** 路径推导出的实验 id(经 send ctx 透给 adapter,见 AgentContext.experimentId)。 */
   experimentId?: string;
   /** tracing agent 的 OTLP 端点(经 send ctx 透给 adapter,用于注入导出 env)。 */
@@ -177,9 +191,42 @@ export class SessionManager {
     this.allEvents.push(userEvent);
     session.events.push(userEvent);
     session.pendingInputRequests.length = 0;
-    const turn = this.deps.otel
-      ? await this.sendWithOtel(this.deps.otel, { text, files, responses }, ctx)
-      : await this.deps.agent.send({ text, files, responses }, ctx);
+    const turnIndex = ++session.turnCount;
+    let turn: Turn;
+    let sentTraceId: string | undefined;
+    let sentAttribution: "traceparent" | "window" | "none" | undefined;
+    this.deps.onSendActive?.(true);
+    try {
+      if (this.deps.otel) {
+        const r = await this.sendWithOtel(this.deps.otel, { text, files, responses }, ctx);
+        turn = r.turn;
+        sentTraceId = r.traceId;
+        sentAttribution = r.attribution;
+      } else {
+        turn = await this.deps.agent.send({ text, files, responses }, ctx);
+      }
+    } catch (e) {
+      this.deps.onTurn?.({
+        sessionIndex: session.index,
+        turnIndex,
+        startedAt: t0,
+        durationMs: Date.now() - t0,
+        failed: true,
+        traceAttribution: sentAttribution,
+      });
+      throw e;
+    } finally {
+      this.deps.onSendActive?.(false);
+    }
+    this.deps.onTurn?.({
+      sessionIndex: session.index,
+      turnIndex,
+      startedAt: t0,
+      durationMs: Date.now() - t0,
+      failed: turn.status === "failed" ? true : undefined,
+      traceId: sentTraceId,
+      traceAttribution: sentAttribution,
+    });
 
     this.allEvents.push(...turn.events);
     session.events.push(...turn.events);
@@ -219,7 +266,7 @@ export class SessionManager {
     otel: AgentOtelChannel,
     input: { text: string; files?: readonly InputFile[]; responses?: readonly InputResponse[] },
     ctx: AgentContext,
-  ): Promise<Turn> {
+  ): Promise<{ turn: Turn; traceId: string; attribution: "traceparent" | "window" | "none" }> {
     const r = await otel.runTurn((headers) => {
       const turnCtx: AgentContext = ctx.telemetry
         ? { ...ctx, telemetry: { ...ctx.telemetry, headers } }
@@ -237,7 +284,7 @@ export class SessionManager {
       this.warnedNoSpans = true;
       this.deps.log(t("otel.noSpans"));
     }
-    return r.result;
+    return { turn: r.result, traceId: r.traceId, attribution: r.spans.length === 0 ? "none" : r.attribution };
   }
 }
 

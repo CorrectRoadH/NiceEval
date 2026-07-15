@@ -22,7 +22,7 @@ import { encodeAttemptLocator, type AttemptLocator } from "../results/locator.ts
 import { runWho } from "./types.ts";
 import { firstLine } from "../util.ts";
 import type { Agent, EvalResult, JudgeConfig, Reporter, ReporterRegistration, RunShape, RunSummary } from "../types.ts";
-import type { AgentRun, Attempt, AttemptPhase, AttemptRef, RunOptions } from "./types.ts";
+import type { AgentRun, Attempt, LifecyclePhase, AttemptRef, RunOptions } from "./types.ts";
 
 /** 失败/errored 的一层可行动摘要,与 `computeVerdict`(verdict.ts)判定同一断言为准:
  *  errored 用 error 消息第一行(见上面的 firstLine);failed 用促成判定的那条断言
@@ -424,11 +424,11 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
             // attempt:start 是这个 attempt 从 queued 移进 running 的唯一时刻(见
             // src/runner/feedback/reducer.ts 的 attempt:start 分支),必须与 eval:start 同一
             // 调用点、恰好发生一次 —— 否则 RunFeedbackState 的守恒计数会被破坏。phase 只是粗粒度
-            // 占位(sandbox 型 attempt 恒为 sandbox-provision,一定正确;非 sandbox 型给
-            // running,attempt.ts 内部一旦跑到第一个真实边界会用 attempt:phase 立即纠正,见
+            // 占位(sandbox 型 attempt 恒为 sandbox.queue,一定正确;非 sandbox 型给
+            // eval.run,attempt.ts 内部一旦跑到第一个真实边界会用 attempt:phase 立即纠正,见
             // attempt.ts 的 enterPhase)——attempt.ts 自己不再发 attempt:start,只发
             // attempt:phase,避免两处各发一次导致计数翻倍。
-            const initialPhase: AttemptPhase = a.run.agent.kind === "sandbox" ? "sandbox-provision" : "running";
+            const initialPhase: LifecyclePhase = a.run.agent.kind === "sandbox" ? "sandbox.queue" : "eval.run";
             reportAttemptLifecycle({
               type: "attempt:start",
               at: Date.now(),
@@ -445,9 +445,10 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
             // 到),且 teardown 自身的失败只落 diagnostic、从不改变 verdict(见 attempt.ts 对应
             // 注释),所以一个 failed/errored 结果的真实病灶必然在 teardown 之前 ——
             // 把它计进来只会让每一条失败通知都显示同一个没有信息量的 "teardown"。
-            let lastPhase: AttemptPhase = initialPhase;
+            let lastPhase: LifecyclePhase = initialPhase;
+            const CLOSING = new Set<LifecyclePhase>(["eval.teardown", "agent.teardown", "sandbox.teardown", "sandbox.suspend", "sandbox.stop"]);
             const result = yield* runAttemptEffect(a, opts, sandboxSem, attemptSignal, (phase) => {
-              if (phase !== "teardown") lastPhase = phase;
+              if (!CLOSING.has(phase)) lastPhase = phase;
             });
             // locator 在这里确定 —— 早于本 attempt 触发的任何 reporter 回调 / 事件
             // (onEvalComplete、eval:complete),所以每一个观察者看到的都已经是最终值,

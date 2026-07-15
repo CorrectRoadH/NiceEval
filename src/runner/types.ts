@@ -23,27 +23,77 @@ export interface ExperimentRunInfo {
 }
 
 /**
- * runner 在错误 / 诊断发生时已经打开的 lifecycle operation —— `AttemptError` 与
- * `DiagnosticRecord` 的 `operation` 都从这个封闭集合取,调用方不能自填(见
- * docs/feature/results/architecture.md「result.json」)。这套 operation 名是结果语义的稳定 scope,
- * 与用于 dashboard 展示的 `AttemptPhase` 是两套词汇:phase 是 UI 投影(`sandbox-provision`),
- * operation 是落盘归属(`sandbox.provision`)。
+ * 一次 attempt 的生命周期词表——**全仓唯一一套**(见 docs/feature/results/architecture.md
+ * 「result.json」)。计时(`phases[].name`)、错误归因(`error.phase`)、诊断归属
+ * (`diagnostics[].phase`)、live 展示与 agent/ci envelope 的 `phase=` 都使用这同一个闭集,
+ * 不存在第二套词表。phase 是 runner 对真实 lifecycle 的单方面投影,不是 adapter / sandbox
+ * provider / 用户 hook 能直接设置的公共字段。
  */
-export type LifecycleOperationName =
-  | "sandbox.provision"
-  | "sandbox.setup"
-  | "sandbox.teardown"
-  | "sandbox.stop"
-  | "workspace.prepare"
-  | "workspace.diff"
-  | "eval.setup"
-  | "eval.run"
-  | "agent.setup"
-  | "agent.run"
+export type LifecyclePhase =
+  // 主链:从排队到 trace collect,覆盖到判定与主证据收集完成,按执行序
+  | "sandbox.queue" // 等待并发信号量(调度等待,唯一不属于某个 owner 的成员)
+  | "sandbox.create" // provider 起沙箱
+  | "sandbox.setup" // SandboxSpec.setup() 钩子链
+  | "workspace.baseline" // 变更分类账锚点(runner 私有 git ledger 首笔 commit)
+  | "eval.setup" // EvalDef.setup
+  | "agent.setup" // Agent.setup(装 CLI、写主配置)
+  | "telemetry.configure" // tracing 出口配置
+  | "eval.run" // 整段 test(t),含所有 send 与手工命令
+  | "agent.run" // 嵌套在 eval.run 内:adapter send 期间打开;只用于错误/诊断归因,不单列计时条目
+  | "workspace.diff" // 从分类账折叠 agent 归因增量
+  | "scoring.evaluate" // 断言 finalize + 判定,含 judge 调用
+  | "telemetry.collect" // OTLP receiver settle / collect
+  // 收尾段:无论主链成败都执行,不计入 durationMs 口径,按执行序
+  | "eval.teardown" // EvalDef.setup 返回的 cleanup 函数
   | "agent.teardown"
-  | "telemetry.configure"
-  | "telemetry.collect"
-  | "scoring.evaluate";
+  | "sandbox.teardown" // SandboxSpec.teardown() 钩子链
+  | "sandbox.suspend" // 留存提交后 provider 把现场转入休眠(docker stop / e2b pause)
+  | "sandbox.stop"; // provider 销毁沙箱;与 sandbox.suspend 同一 attempt 互斥
+
+/** TimingNode 的种类(见 docs/feature/results/architecture.md「result.json」)。 */
+export type TimingNodeKind = "hook" | "turn" | "command" | "provider" | "operation";
+
+/**
+ * Runner 直接观察到的阶段内时间树节点;只供单 attempt 诊断,不做跨实验聚合。
+ * `startOffsetMs` 相对 attempt 单调时钟起点——并发 sibling 可据此还原重叠,
+ * 不能只靠数组顺序相加。
+ */
+export interface TimingNode {
+  /** attempt 内唯一,供 children 与展示层稳定引用;不作为跨 attempt 身份。 */
+  id: string;
+  kind: TimingNodeKind;
+  /** 人读标签;hook 匿名时用 setup#<i>/teardown#<i>,turn 用 s<session>/t<turn>。 */
+  label: string;
+  /** 相对 attempt 单调时钟起点的偏移。 */
+  startOffsetMs: number;
+  durationMs: number;
+  failed?: true;
+  children?: TimingNode[];
+
+  /** kind=turn 时存在;把 runner 的 send 墙钟包络与 trace.json 中同一轮的 spans 显式关联。 */
+  sessionIndex?: number;
+  turnIndex?: number;
+  turnId?: string;
+  traceId?: string;
+  traceAttribution?: "traceparent" | "window" | "none";
+
+  /** kind=command 时的有界脱敏摘要;环境变量值与 stdout/stderr 不进入时间树。 */
+  command?: {
+    display: string;
+    exitCode?: number;
+  };
+}
+
+/** Runner 阶段计时,按执行顺序;只记录实际发生的阶段(见 docs/feature/results/architecture.md)。 */
+export interface PhaseTiming {
+  name: LifecyclePhase;
+  /** 阶段耗时;失败阶段计到抛错或超时中断时。 */
+  durationMs: number;
+  /** 该阶段抛错或被超时中断。主链至多一条,其后无主链条目;收尾阶段各自独立标记,不改判定。 */
+  failed?: true;
+  /** Runner 直接观察到的阶段内时间树;只供单 attempt 诊断,不做跨实验聚合。 */
+  children?: TimingNode[];
+}
 
 /**
  * 使 attempt 无法正常完成的唯一致命执行错误(见 docs/feature/results/architecture.md 的
@@ -55,8 +105,8 @@ export interface AttemptError {
   code: string;
   /** 人可读的一层原因,不拼接整份 SDK response。 */
   message: string;
-  /** runner 在错误发生时已经打开的 lifecycle operation。 */
-  operation: LifecycleOperationName;
+  /** runner 在错误发生时已经打开的生命周期阶段。 */
+  phase: LifecyclePhase;
   /** 原异常有 stack 时保留,供 show 展开;终端即时反馈不整段打印。 */
   stack?: string;
   /** 下层 SDK/OS 错误的有限摘要。 */
@@ -73,7 +123,7 @@ export interface DiagnosticRecord {
   code: string;
   level: "warning" | "error";
   message: string;
-  operation: LifecycleOperationName;
+  phase: LifecyclePhase;
   data?: Readonly<Record<string, JsonValue>>;
   /** 相同 dedupeKey 折叠后的出现次数;省略等于 1。 */
   count?: number;
@@ -107,6 +157,8 @@ export interface EvalResult {
   error?: AttemptError;
   /** 本 attempt 的诊断(与 verdict 独立);teardown / cleanup 失败等挂在这里,不改判定。 */
   diagnostics?: readonly DiagnosticRecord[];
+  /** Runner 阶段计时,按执行顺序;只记录实际发生的阶段(见 docs/feature/results/architecture.md)。 */
+  phases?: PhaseTiming[];
   skipReason?: string;
   events?: StreamEvent[];
   /** test 引用到的 eval 源码(按 loc 收集),供 view 渲染 github-diff 式代码视图。 */
@@ -452,28 +504,10 @@ export interface Attempt {
 /** 三种最终反馈 profile。`--output auto` 只是 CLI flag 的输入值,解析后必然落在这三者之一。 */
 export type OutputProfile = "human" | "agent" | "ci";
 
-/**
- * Attempt 的正式生命周期阶段,runner 把自己驱动的固定顺序投影成这个闭集合枚举
- *(见 docs/feature/experiments/cli.md「Attempt 阶段」)。没有对应 hook/配置的步骤直接跳过,
- * 不产生空阶段;不是 adapter / sandbox provider / 用户 hook 可以自行设置的公共字段
- *(那个更大的 per-owner operation scope API 不在本阶段范围内)。
- *
- * `waiting for a slot` 是 attempt 开始前的调度态,不属于这个枚举;
- * `passed` / `failed` / `errored` / `reused` / `early-exit` / `budget-unstarted` 是阶段结束后的
- * outcome,同样不塞进这里。
- */
-export type AttemptPhase =
-  | "sandbox-provision"
-  | "sandbox-setup"
-  | "workspace-setup"
-  | "eval-setup"
-  | "agent-setup"
-  | "telemetry-setup"
-  | "running"
-  | "diff"
-  | "scoring"
-  | "trace"
-  | "teardown";
+// 反馈系统的 attempt 阶段与落盘 / envelope 用同一套 `LifecyclePhase` 闭集(见上),
+// 不再有独立的 dashboard 词表;`waiting for a slot` 是 attempt 开始前的调度态,不属于闭集;
+// `passed` / `failed` / `errored` / `reused` / `early-exit` / `budget-unstarted` 是 outcome,
+// 发生在阶段结束后,也不塞进 phase 闭集。
 
 /**
  * 反馈系统里一次 attempt 的稳定身份:reducer 用它做 active map 的 key、事件的关联字段。
@@ -510,7 +544,7 @@ export interface ActiveAttempt {
   identity: AttemptRef;
   /** 展示 label,等价 `runWho()` 的结果;渲染要用,但绝不作为 identity/key。 */
   who: string;
-  phase: AttemptPhase;
+  phase: LifecyclePhase;
   /** 进入当前 phase 的墙钟时间(epoch ms),用于渲染阶段耗时;每次 phase 变化都会更新。 */
   phaseStartedAt: number;
   detail?: string;
@@ -529,8 +563,8 @@ export interface FailureNotice {
   verdict: "failed" | "errored";
   /** 一层可行动摘要(gate 断言名、error 消息……),不是完整 stack/transcript;详情走 `niceeval show`。 */
   reason: string;
-  /** 失败发生时所在的阶段(如 `sandbox-provision`);框架层错误(如 timeout)可能没有明确阶段。 */
-  phase?: AttemptPhase;
+  /** 失败发生时所在的阶段(如 `sandbox.create`);框架层错误(如 timeout)可能没有明确阶段。 */
+  phase?: LifecyclePhase;
 }
 
 /**
@@ -608,8 +642,8 @@ export interface RunFeedbackPlan {
  */
 export type AttemptLifecycleEvent =
   | { type: "attempt:queued"; at: number; identity: AttemptRef; who: string }
-  | { type: "attempt:start"; at: number; identity: AttemptRef; who: string; phase: AttemptPhase }
-  | { type: "attempt:phase"; at: number; identity: AttemptRef; phase: AttemptPhase }
+  | { type: "attempt:start"; at: number; identity: AttemptRef; who: string; phase: LifecyclePhase }
+  | { type: "attempt:phase"; at: number; identity: AttemptRef; phase: LifecyclePhase }
   | { type: "attempt:progress"; at: number; identity: AttemptRef; detail: string }
   | {
       type: "attempt:complete";
@@ -647,7 +681,7 @@ export type DurableFeedbackEvent =
       who: string;
       verdict: "failed" | "errored";
       reason: string;
-      phase?: AttemptPhase;
+      phase?: LifecyclePhase;
     }
   | {
       type: "diagnostic";

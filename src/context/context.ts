@@ -74,6 +74,10 @@ export interface ContextDeps {
   otel?: import("../o11y/otlp/turn-otel.ts").AgentOtelChannel;
   /** Eval definition directory; used to resolve host-side relative fixture paths. */
   evalBaseDir?: string;
+  /** adapter send 在飞时的通知(errored 归因到嵌套的 `agent.run` 阶段用);透传给 SessionManager。 */
+  onSendActive?: (active: boolean) => void;
+  /** 每轮 send 的墙钟包络回报(runner 挂 turn 时间树节点);透传给 SessionManager。 */
+  onTurn?: import("./session.ts").SessionDeps["onTurn"];
 }
 
 /**
@@ -101,6 +105,8 @@ export function createEvalContext(deps: ContextDeps): { context: TestContext; st
     log: deps.log,
     telemetry: deps.telemetry,
     otel: deps.otel,
+    onSendActive: deps.onSendActive,
+    onTurn: deps.onTurn,
   });
   const collector = new AssertionCollector();
   const state: ContextState = {
