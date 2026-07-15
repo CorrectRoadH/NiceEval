@@ -65,6 +65,15 @@ dev-e2b/codex-e2b
 
 locator 只打印 `@<id>` 与 verdict，不追加证据能力缩写。Result 单元格使用 [Scoring 定义的主失败断言摘要](../scoring/library/display.md#主失败断言怎样选)：passed attempt 固定为 `—`；failed attempt 只显示一条主失败及可选的 `+N more failures`；errored 显示结构化 error 的一层摘要。绝不把该 attempt 的全部 assertion name 拼进表格——即使有几十条 assertions，一条 Attempt 子行也最多占两行。locator 本身就是证据入口；打开 Attempt 后再列完整断言与实际可执行的证据命令。
 
+Result 单元格的值一律按 [display 的两步压缩](../scoring/library/display.md#契约一结果摘要)先折成单行、再按宽度截断，`received` 携带整段命令输出时也不例外：一条 `commandSucceeded()` 失败塌成 `exit 1 · "…尾部"`，而不是把几百行 stdout 逐行铺进表。落盘的 256 KiB 上限保护 artifact 体积，不替代这层单元格截断——单元格要的是能一眼扫读的预览：
+
+```text
+✗ 失败    memory/terminal-pypi-server
+  ✗       └─ @1y0e4yh2                            commandSucceeded() · exit 1 · "…test_api F · 1 failed, 0 passed"   4m 23s   $0.29
+```
+
+被折掉的完整 stdout 不丢：`niceeval show @1y0e4yh2 --execution` 里那条命令的 result 卡片保留原始换行,`events.json` 存全量（超 256 KiB 才带 `truncated` 标记）。表格从不为了「保全输出」而无限换行。
+
 ## 失败诊断首页
 
 无 flag 打开 attempt 时，输出先给判定，再按结果分节列断言：`failures:`（gate 失败）、`soft below threshold:`（soft 未达标）、`scores:`（无阈值 judge 的纯打分）、`unavailable:`（证据评不了，带 reason）——全通过的节省略。每条列分组、matcher、期望值、实际值和源码位置；逐断言家族的渲染示例单点定义在 [Scoring · 断言与 Turn 的展示](../scoring/library/display.md)：

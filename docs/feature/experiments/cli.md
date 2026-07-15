@@ -133,8 +133,8 @@ niceeval exp compare --max-concurrency 19
 TTY 下 `auto` 选择 `human`。开始计划、缓存摘要和已经发生的失败留在 scrollback,其下方才是在 `stderr` 原地维护、不超过终端高度的 dashboard:
 
 ```text
-Plan: 45 attempts · 9 evals × 5 configs · concurrency 19
-Reuse: 6 settled results from the latest matching snapshots
+Plan:  45 attempts · 9 evals × 5 configs · concurrency 19
+Reuse: 6 of 45 carried in from cache · 39 to run
 ✗ @1bwcxxiy memory/swelancer-manager-15193 [dev-e2b/claude-e2b]
     gate: Issue 15193: selected proposal matches the accepted proposal
           equals(4) · expected 4 · received 3
@@ -158,6 +158,8 @@ Dashboard 只展示当前状态,不保存历史帧:
 - 终端变窄时先减少可见项,再截断消息,不能换行撑高 dashboard;
 - 没有真实状态变化时不重画;历史帧不得进入 scrollback;
 - 独立诊断出现时先撤下 dashboard,打印诊断,再在其下方重建。
+
+`Reuse:` 只给数量,不把被复用的 eval id 逐条铺进终端——即使全部命中缓存也不展开成 per-config 清单。live 与结束反馈是「回答成败、指向失败」的地方,不是缓存构成的清单;哪些 eval 复用、哪些重跑属于 `--dry`(计划矩阵)与 `niceeval view`(逐结果),不占 human 的 scrollback。
 
 `exp` 的结果反馈按 verdict 穷尽处理：
 
@@ -188,6 +190,8 @@ Dashboard 只展示当前状态,不保存历史帧:
 `niceeval show @12h8m4k1` 展开结构化错误、cause、stack、发生过的阶段与 diagnostics;有 trace 时再用 `--execution` 看执行树。没有 trace 时直接说明 unavailable,不能因此丢失错误详情。
 
 `total` 是选择出的逻辑 attempt 数;`reused` 是缓存携入;`running`、`queued`、`completed` 描述本次需要派发的 attempt。任何一帧都满足 `total = reused + running + queued + completed`,不能出现没有解释的 `Running 39 ... 8/45 done`。
+
+计数口径与成本口径要一致地区分「本次派发」和「缓存携入」。结束反馈第二行的时长是本次运行的真实 wall-clock,tok 与 $ 只统计**本次新派发**的 attempt;reused 携入结果的历史成本不加进这一行,否则会出现「`0s` 却 `$7.04`」这类时长记本次、成本记累计的自相矛盾行。因此 `6 reused + 39 run` 的运行,`1.2M tok · $1.37` 指那 39 次的开销;全部命中缓存、零派发的运行这一行是 `0s · 0 new tok · $0.00`。复用结果各自的原始成本保留在它们的快照里,要看整套结果集(含 reused)的累计成本用 `niceeval view` / `niceeval show`。
 
 ### 人看的结束反馈
 
@@ -222,6 +226,55 @@ PASSED  45 passed · 0 failed · 0 errored  (0 reused)
 
 Compare: niceeval view compare
 Results: .niceeval/compare/<5 snapshots>
+```
+
+#### 全部命中缓存
+
+选择的 attempt 全部可复用时(`running = queued = completed = 0`),没有 attempt 派发,不出 dashboard,直接打印结束反馈。复用不改变 verdict 折叠:携入的 `failed` 仍然是 `failed`,照常进 `FAILURES` 并给下钻命令——不能因为「这次没重跑」就把失败藏起来只丢一句计数。头两行明确「全部来自缓存、本次没有新开销」,后续与普通结束反馈同构:
+
+```text
+Plan:  50 attempts · 10 evals × 5 configs · concurrency 19
+Reuse: 50 of 50 carried in from cache · 0 to run
+
+FAILED  33 passed · 17 failed · 0 errored   (all 50 reused)
+        0s · 0 new tok · $0.00
+
+FAILURES  (17 total · terminal shows first 10)
+@1bwcxxiy  memory/swelancer-manager-15193  [dev-e2b/claude-e2b]
+          gate: Issue 15193: selected proposal matches the accepted proposal
+                equals(4) · expected 4 · received 1
+… 9 more failures shown, then:
++7 more failures — niceeval view dev-e2b
+
+Inspect: niceeval show @1bwcxxiy
+Eval:    niceeval show @1bwcxxiy --eval
+Trace:   niceeval show @1bwcxxiy --execution
+Diff:    niceeval show @1bwcxxiy --diff
+Compare: niceeval view dev-e2b
+
+Results:
+  .niceeval/dev-e2b/bub-e2b/<snapshot>
+  .niceeval/dev-e2b/claude-e2b/<snapshot>
+  … 3 more
+```
+
+全部命中且全过时同样不列 `FAILURES`,一屏给结论和入口:
+
+```text
+Plan:  50 attempts · 10 evals × 5 configs · concurrency 19
+Reuse: 50 of 50 carried in from cache · 0 to run
+
+PASSED  50 passed · 0 failed · 0 errored   (all 50 reused)
+        0s · 0 new tok · $0.00
+
+Compare: niceeval view dev-e2b
+Results: .niceeval/dev-e2b/<5 snapshots>
+```
+
+选择没有命中任何 eval 时(`total = 0`)不打印空的 `PASSED`,而是明确说无匹配并给可选范围,退出码非零:
+
+```text
+No evals selected: dev-e2b matched 0 evals. Available experiments: compare, dev-e2b, nightly.
 ```
 
 人在调试单条 eval 时仍用相同模型,只是主动收窄选择,而不是要求 dashboard 展开更多日志:

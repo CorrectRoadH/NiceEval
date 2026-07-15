@@ -37,7 +37,12 @@ gate: Issue 15193: selected proposal matches the accepted proposal
 
 这里的领域标题必须由 eval 作者通过 `t.group("Issue 15193: …", fn)`（或断言自身的语义 name）明确提供；renderer 不读取变量名、源码表达式或 prompt 猜标题。没有 group 的原始 `t.check(value, equals(4))` 仍能可靠显示 `equals(4) · expected 4 · received 3`，只是没有足够事实生成 “selected proposal” 这层语义。
 
-比较列表把同一摘要压成有界单元格；无 group 时可以直接写 `equals(4) · expected 4 · received 3`。空间不足时先截断语义标题，再截断 matcher，`expected / received` 与 `+N more failures` 最后截断，因为它们直接解释为什么红。单个 attempt 的 Result 最多占两行，不能靠无限换行保留全部 assertions。
+比较列表把同一摘要压成有界单元格。压缩分两步，缺一不可：
+
+1. **先把每个值折成单行**——`expected` / `received` / 标题里的换行、回车、制表一律折成单空格并压缩连续空白，再放进单元格。值自带的换行绝不能被单元格保留：一条 `commandSucceeded()` 失败的 `received` 携带整段 pytest stdout 时，它必须先塌成一行 `exit 1 · "… 2 failed, 14 passed"`，而不是让几百行输出在表里逐行铺开。落盘的 256 KiB 上限（[Results · 大值截断](../../results/architecture.md#大值截断)）保护的是 artifact 体积，不是终端单元格——单元格要的是「一眼能读的预览」，比落盘上限小得多。
+2. **再按宽度截断**：空间不足时先截断语义标题，再截断 matcher，`expected / received` 与 `+N more failures` 最后截断，因为它们直接解释为什么红；被截断处补 `…`。
+
+两步之后，单个 attempt 的 Result **最多占两行**——第一步保证一个值不会独自撑高单元格，第二步保证两行内放不下的部分被 `…` 收口。完整未折行的值在 attempt 首页与 `events.json` / `diff.json` 等 artifact 里，比较列表只给能扫读的预览。
 
 CI 单行反馈使用独立结构化字段 `severity=` / `assertion=` / `matcher=` / `expected=` / `received=` / `score=` / `threshold=` / `reason=`；存在什么发什么。Agent checkpoint 只报告 locator 与 verdict，最终 handoff 再使用上面的两层文本。机器消费者因此不需要解析 `gate: ...` 这句 Human 文案。
 
