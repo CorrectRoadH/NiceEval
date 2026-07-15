@@ -10,7 +10,7 @@ This page collects real projects and live sites that use [NiceEval](https://nice
 
 Tape, Nowledge Mem, mem9, db9.ai, OpenClaw... memory implementations for coding agents are diverging, but the ecosystem needs a reproducible eval surface to answer whether those mechanisms help in practice. [coding-agent-memory-evals](https://github.com/CorrectRoadH/coding-agent-memory-evals) builds that benchmark with NiceEval: the same coding tasks, the same model (`gpt-5.4`), and only the agent memory mechanism changes. It compares [bub](https://github.com/CorrectRoadH/coding-agent-memory-evals), which includes [Tape](https://tape.systems/), against codex without the corresponding persistent memory.
 
-- Online report: [coding-agent-memory-evals.vercel.app](https://coding-agent-memory-evals.vercel.app/)
+- Online report: [niceeval.com/showcase/memory](https://niceeval.com/showcase/memory)
 - Source repository: [github.com/CorrectRoadH/coding-agent-memory-evals](https://github.com/CorrectRoadH/coding-agent-memory-evals)
 
 The primary score only checks whether the development task itself was completed, such as build, tests, or the upstream verifier. It does not add a separate question like "did the agent remember this fact?" The value of memory shows up in secondary metrics such as duration, tokens, cost, and `pass^k`.
