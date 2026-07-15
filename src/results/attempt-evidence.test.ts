@@ -1,3 +1,4 @@
+// cases: docs/engineering/unit-tests/results/cases.md
 // loadAttemptEvidence 单测(定稿契约见 plan/attempt-evidence-feedback-loop.md「中性数据准备」、
 // src/results/attempt-evidence.ts 的头注)。用真实 createResultsWriter → openResults 的读写链路
 // 落一份最小 fixture(不手写 JSON 文件,理由同 loadAnnotatedEvalSource 的既有端到端测试:

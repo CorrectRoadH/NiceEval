@@ -53,8 +53,8 @@ E2E CI 同时证明以下行为：
   experiments/                # 本仓库拥有的 Experiment
 
   scripts/
-    e2e.mjs                    # 唯一执行入口：准备、启动、运行、验收、清理
-    verify.mjs                 # 可选；只包含本仓库的可观察行为断言
+    e2e.ts                     # 唯一执行入口（tsx 执行）：准备、启动、运行、验收、清理
+    verify.ts                  # 可选；只包含本仓库的可观察行为断言
 ```
 
 例如 `claude-sdk` 仓库直接在自己的天气 Eval 里断言 `mcp__demo-tools__get_weather`，`ai-sdk-v7` 仓库直接断言 UI Message Stream 的裸工具名。两者即使覆盖相似场景，也各自拥有完整 Eval；重复是协议验收的证据，不是需要消除的代码坏味道。
@@ -70,7 +70,8 @@ E2E CI 同时证明以下行为：
   "command": ["pnpm", "e2e"],
   "timeoutMinutes": 20,
   "secrets": ["DEEPSEEK_API_KEY", "NICEEVAL_JUDGE_KEY"],
-  "artifacts": [".niceeval/**", "junit.xml", "logs/**"]
+  "artifacts": [".niceeval/**", "junit.xml", "logs/**"],
+  "requires": { "runtimes": ["node>=22"] }
 }
 ```
 
@@ -84,6 +85,7 @@ E2E CI 同时证明以下行为：
 | `timeoutMinutes` | 仓库级硬超时；Experiment 自己仍声明 attempt timeout 与 budget |
 | `secrets` | 所需环境变量名，用于 fail-fast 检查和最小授权 |
 | `artifacts` | 成功或失败后可收集的仓库相对路径 |
+| `requires` | 可选；执行环境需求：`runtimes`（如 `["node>=22", "python>=3.11"]`）、`docker`（布尔）、`arch`、`memoryGB`。执行器据此选择 GitHub Actions runner 与 crabbox provider/profile；缺省表示只需要 Node 运行时与出网 |
 
 这里不声明 Eval 数、期望 verdict、端口或 `.niceeval` 文件名。前两者属于仓库自己的验收语义；端口属于仓库自己的进程生命周期；结果布局属于 niceeval 的 Results 契约。
 
@@ -107,7 +109,13 @@ pnpm e2e
 6. 校验本仓库的预期退出码与可观察行为。
 7. 无论成功失败都终止服务；保留日志和 `.niceeval/` 供执行器收集。
 
-调用方不需要知道先起哪个端口、运行几个 Experiment、哪一次 CLI 调用预期退出 1。`pnpm e2e` 的退出码就是该仓库的最终验收结论：`0` 表示契约符合预期，非零表示仓库失败或基础设施错误。
+调用方不需要知道先起哪个端口、运行几个 Experiment、哪一次 CLI 调用预期退出 1。`pnpm e2e` 的退出码就是该仓库的最终验收结论，并区分失败类别：
+
+- `0`：契约符合预期。
+- `75`（`EX_TEMPFAIL`）：基础设施故障——依赖安装失败、服务 readiness 超时、provider 返回 429/5xx 或网络错误导致 attempt errored、judge 服务不可达这类**能确证的外部故障**。
+- 其它非零：回归，契约不符。
+
+分类规则只有一条：能确证是外部故障才退 `75`，不能确证一律按回归退出——宁可误报回归，不可把回归漏报成环境问题。回归与基础设施故障都使该仓库判红，区别只在编排器的重试与汇总标注（见根仓库编排）。
 
 这条命令同时就是**本机回路**：开发者注入真实 key 后单仓库直接跑，与 CI、crabbox 行为完全一致，不存在"本机用 mock、CI 用真的"的分叉。
 
@@ -119,7 +127,7 @@ pnpm e2e
 
 - 测试仓库的 `package.json` 声明一个正常发布版本作为独立运行时的默认基线。
 - 编排执行时，候选 tarball 覆盖该依赖，但不永久修改仓库 manifest 或 lockfile。
-- 仓库在运行前打印并校验 `niceeval` 的解析路径与版本/producer 信息，防止误测已发布版本。
+- 仓库在运行开头打印 `niceeval` 的解析路径与版本/producer 信息，供日志诊断；**核验义务在编排器**——注入方在仓库命令结束后核对实际解析到的包与候选 tarball 指纹，不一致的结果作废（见根仓库编排）。这项防线不靠每个仓库手写的脚本各自实现。独立 checkout 不注入候选时没有核验对象，测的就是 lockfile 锁定的发布版。
 - tarball 必须包含与发布相同的入口、构建产物和 package metadata；E2E 不从 `src/` 相对导入来绕过打包边界。
 
 因此，niceeval 根仓可以验证未发布的当前改动；一个独立 checkout 也可以不注入 tarball，直接验证它锁定的已发布版本。
@@ -130,7 +138,7 @@ pnpm e2e
 
 SDK 与沙箱适配仓库使用真实模型和真实协议，不新增只为 E2E 存在的 mock 分支。模型、runs、budget 和 timeout 由仓库自己的 Experiment 决定：PR 门禁使用便宜模型与小样本，nightly 仓库或 Experiment 承担更完整的模型与 provider 矩阵。
 
-被测服务由仓库的 `scripts/e2e.mjs` 启动和清理。中央 workflow 不维护全局端口表，也不并发共享长期服务；仓库可使用动态端口并通过自身环境传给 adapter。
+被测服务由仓库的 `scripts/e2e.ts` 启动和清理。中央 workflow 不维护全局端口表，也不并发共享长期服务；仓库可使用动态端口并通过自身环境传给 adapter。
 
 ## 4. 仓库内验收
 
@@ -185,16 +193,18 @@ e2e/
     results-contract/
     cache-contract/
   scripts/
-    list.mjs                   # 发现并校验 e2e.json
-    run.mjs                    # 构建候选包、选择仓库、隔离 spawn、汇总退出码
+    list.ts                    # 发现并校验 e2e.json（tsx 执行）
+    run.ts                     # 构建候选包、选择仓库、隔离 spawn、汇总退出码（tsx 执行）
 ```
 
-编排器只做四件事：
+编排器只负责：
 
 1. 构建一次候选 niceeval tarball。
-2. 从每个仓库自己的 `e2e.json` 发现 ID、组、命令、超时、secret 名和 artifact 路径。
+2. 从每个仓库自己的 `e2e.json` 发现 ID、组、命令、超时、secret 名、artifact 路径和环境需求。
 3. 为选中的仓库创建隔离工作目录，注入候选包和最小环境，执行其唯一命令。
-4. 原样汇总仓库退出码并收集声明的证据。
+4. **注入核验**：仓库命令结束后、采信退出码之前，核对仓库内实际解析到的 `niceeval` 包指纹与候选 tarball 一致；不一致则作废该仓库结果，按基础设施故障处理——绿灯必须来自候选包，不能来自 lockfile 里的发布基线。
+5. **基础设施重试**：退出码 `75` 的仓库整仓库重跑一次；重跑后仍 `75` 按失败汇总并标注 infra 类别。回归（其它非零）不重试。
+6. 原样汇总仓库退出码与失败类别，收集声明的证据。
 
 编排器不得：
 
@@ -218,17 +228,19 @@ pnpm e2e --group sandbox
 
 ### 6.1 GitHub Actions
 
-GitHub Actions 从仓库描述文件生成 matrix，每个 matrix cell 只运行一个测试仓库。这样超时、日志、secrets、重试和 artifact 都以仓库为边界，某个慢沙箱不会遮住其它 SDK 的结论。
+GitHub Actions 从仓库描述文件生成 matrix，每个 matrix cell 只运行一个测试仓库，runner 规格由该仓库 `e2e.json.requires` 映射（Docker、架构、内存），不在中央 workflow 里内置每仓库知识。这样超时、日志、secrets、重试和 artifact 都以仓库为边界，某个慢沙箱不会遮住其它 SDK 的结论。
 
 触发层级：
 
 | 层级 | 内容 | 触发 |
 |---|---|---|
-| PR | SDK 仓库与确定性 contract 仓库的便宜档 | pull request、main push |
+| PR | SDK 仓库与 contract 仓库的便宜档 | pull request、main push |
 | 路径门禁 | 受影响的真实沙箱仓库 | sandbox / agent / 对应 repo 改动 |
 | Nightly | 完整模型、judge 与 sandbox provider 仓库 | schedule、手动 dispatch |
 
 每个 cell 总是上传该仓库声明的 JUnit、`.niceeval/` 和服务日志。`.niceeval/` 被 ignore 只表示不进入版本控制，不表示失败证据不应上传。
+
+上传前，执行器用本次注入的 secret 值对全部 artifact 做扫描替换（占位符 `<redacted:VAR_NAME>`），命中记入运行汇总——真实 Agent 与服务日志可能回显环境变量，脱敏由收集面兜底，不指望每个仓库的日志纪律。
 
 ### 6.2 crabbox
 
@@ -246,7 +258,7 @@ crabbox run --shell 'pnpm install --frozen-lockfile && pnpm e2e'
 
 两种方式的仓库脚本、Eval 和验收语义相同。crabbox 只负责远端容量、同步、环境转发、日志/JUnit 收集和退出码传播；niceeval 根编排器或测试仓库负责候选包注入与 E2E 语义。
 
-传递 secrets 时使用 crabbox 的环境 allowlist / profile 能力，不把值写进命令行、`e2e.json` 或仓库配置。需要 Docker、特定 CPU 架构或更大内存的仓库，通过 crabbox provider/profile 选择执行环境，不在 Eval 中探测并偷偷降级。
+传递 secrets 时使用 crabbox 的环境 allowlist / profile 能力，不把值写进命令行、`e2e.json` 或仓库配置。仓库的执行环境需求（Docker、CPU 架构、内存）声明在 `e2e.json.requires`，由 crabbox provider/profile 映射满足，不在 Eval 中探测并偷偷降级。
 
 ## 7. 覆盖仓库
 
@@ -266,6 +278,8 @@ crabbox run --shell 'pnpm install --frozen-lockfile && pnpm e2e'
 
 一个功能只有在真实支持它的仓库中才出现。中央矩阵不依据 profile 自动删减 Eval；缺少覆盖应表现为覆盖清单中的空白，由评审决定新增到哪个独立仓库。
 
+contract 仓库（`results-contract`、`cache-contract`）同样使用真实 Agent 与真实模型——真实优先没有例外，E2E 矩阵里不存在脚本化 agent。它们的稳定性来自断言对象：只断言机制事实（attempt 集合、复用显示、落盘格式、退出码折叠），不断言模型输出质量，因此真实模型下结论仍然确定。全部 E2E 仓库都需要真实凭据；无凭据环境的验证边界就是 `pnpm test`。
+
 ### 7.1 仓库 Eval 预算
 
 每个 SDK / 沙箱仓库只保**证明其主要责任所需的最小 Eval 闭环**。语义广度（断言矩阵、边界值、判定组合）属于[单元测试](../unit-tests/README.md)的责任；E2E 仓库证明的是"这条真实协议路径通"，不是"所有断言在这条路径上都对"。因此：
@@ -280,9 +294,13 @@ crabbox run --shell 'pnpm install --frozen-lockfile && pnpm e2e'
 
 niceeval 是 beta 软件，公开 API / CLI 的破坏性重设计是常态。仓库自治意味着一次破坏性变更要逐仓库修复——这是自治换来的预期成本，不因此回退到共享 factory。修复按固定顺序推进，属于该变更的影响面，与变更同批完成：
 
-1. **contract 仓库先行**（`results-contract`、`cache-contract`）：它们最薄、最确定，先绿说明新契约本身自洽。
+1. **contract 仓库先行**（`results-contract`、`cache-contract`）：它们最薄、断言只依赖机制事实，先绿说明新契约本身自洽。
 2. **按 group 逐组修 SDK 仓库**（`--group sdk` → `--group sandbox`）：每组内的修复是同构的机械改动，改完一组跑一组。
 3. 修复期间某仓库暴露出的额外问题按该仓库的所有权处理，不顺手扩大变更范围。
+
+### 7.3 上游 SDK 版本
+
+每个仓库的 SDK 版本由自己的 lockfile 钉死，升级属于该仓库的所有权。升级节奏是响应式的：nightly 变红、对应 [SDK 契约页](../../feature/adapters/sdk/README.md)更新、或需要覆盖新协议行为时升级，不为追新而升。一次 SDK 升级是一个完整变更单元，同批完成：跑该仓库 `pnpm e2e` 验收，并按[单元测试 Adapters 的 fixture 规范](../unit-tests/adapters/README.md)重新采集受影响的 wire fixture、更新其来源版本登记——协议事实的保鲜和 lockfile 升级是同一次变更，不允许「E2E 升了版、单元层还在测旧协议」的脱节。
 
 ## 8. 守护规则
 
@@ -301,7 +319,7 @@ niceeval 是 beta 软件，公开 API / CLI 的破坏性重设计是常态。仓
 
 - 不建立 `e2e/shared`，不共享 Eval / Experiment factory，也不通过 profile 生成各仓库的能力子集。
 - 不把被测应用与 Eval 拆成中央 `apps/` + 薄 `projects/`，避免单独运行时还要恢复隐含拓扑。
-- 不让根 `verify.mjs` 理解所有仓库的领域期望或 Results 私有布局。
+- 不让根编排脚本理解所有仓库的领域期望或 Results 私有布局。
 - 不用 symlink、跨仓库相对 import、根 workspace hoist 或父目录 `file:` 依赖制造“看起来独立”的仓库。
 - 不让某个真实模型仓库承担全部框架 contract；确定性机制放进专门 contract 仓库，SDK 仓库专注协议路径。
 - 不要求不同仓库拥有相同 Eval 文件名、数量、prompt、runs 或 assertion；覆盖矩阵对齐责任，不对齐源码。

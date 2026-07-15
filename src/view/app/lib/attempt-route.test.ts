@@ -1,3 +1,4 @@
+// cases: docs/engineering/unit-tests/reports/cases.md
 // #/attempt/@<locator> 深链的纯函数单测:解析 / 格式化往返、坏输入、按 locator 定位。
 
 import { describe, expect, it } from "vitest";

@@ -82,7 +82,11 @@ it("receiver 决定 scope", async () => {
   t.calledTool("shell")
 
   const results = await finalizeAssertions(t)
-  expect(results.map((result) => result.passed)).toEqual([true, false, true])
+  expect(results.map((result) => result.outcome)).toEqual([
+    "passed",
+    "failed",
+    "passed",
+  ])
 })
 ```
 
@@ -161,15 +165,15 @@ import type { AssertionResult } from "../../types.ts"
 const failedGate: AssertionResult = {
   name: "gate",
   severity: "gate",
+  outcome: "failed",
   score: 0,
-  passed: false,
 }
 const failedSoft: AssertionResult = {
   name: "quality",
   severity: "soft",
+  outcome: "failed",
   threshold: 0.8,
   score: 0.7,
-  passed: false,
 }
 
 it.each([
@@ -201,6 +205,7 @@ it.each([
 | 未解析到模型 / API key 时 judge 断言记录为 `outcome: "unavailable"`（带 reason），绝不静默消失；非 `.optional()` 的使 attempt errored | 正例：缺 key 时 finalize 有一条 unavailable 且 verdict=errored；正例：`.optional()` 后 verdict 不受影响、条目仍在；反例：调用链 `.atLeast()` 不抛 |
 | judge 断言默认 soft 无阈值；`.atLeast(x)` 加 soft 阈值，`.gate(x?)` 变硬要求 | 正例：默认低分不影响 Verdict；反例：gate 后低分 → failed；边界：score 归一到 0..1 |
 | 模型解析优先级：单次 `{ model }` > eval judge config > 项目 judge config > `NICEEVAL_JUDGE_MODEL`，无内置默认 | 决策表：四层逐层覆盖；反例：全缺时不静默选一个 |
+| 端点与凭据解析进入真实请求：baseUrl 按 `judge.baseUrl` > `NICEEVAL_JUDGE_BASE` > `CODEX_BASE_URL` > `OPENAI_BASE_URL` > OpenAI 官方，key 按 `judge.apiKeyEnv` 指定的变量 > `NICEEVAL_JUDGE_KEY` > `CODEX_API_KEY` > `OPENAI_API_KEY`；解析结果落在请求 URL 与 Authorization 头 | 正例：env base/key 进入捕获请求的 URL 与 Bearer 头（fixture judge client 截获 fetch，不出网络、不起 HTTP server） |
 | 默认材料按接收者分层：t 评主 session 对话、session 评该 session、turn 评 turn.message；`{ on }` 覆盖 | 正例：请求材料随接收者不同；边界：on 为 diff 时不含对话 |
 | judge 只有 closedQA / factuality / summarizes 三个固定入口 | 反例：访问不存在入口报错 |
 

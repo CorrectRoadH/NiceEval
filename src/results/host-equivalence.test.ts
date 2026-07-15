@@ -1,3 +1,4 @@
+// cases: docs/engineering/unit-tests/results/cases.md
 // show / view 宿主等价契约(设计契约:plan/show-view-equivalence.md 完成定义;
 // docs/feature/reports/architecture.md「Selection 是计算入口」;docs/feature/results/library.md「选择快照」)。
 //

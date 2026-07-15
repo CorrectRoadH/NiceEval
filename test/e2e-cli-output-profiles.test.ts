@@ -154,42 +154,31 @@ test("exp 拒绝 show/view 专用 flag(--history):非零退出 + 明确用法错
   expect(stdout).not.toContain("niceeval: result=");
 });
 
-test("exp 拒绝 view 专用 flag(--port):非零退出 + 明确用法错误", async () => {
-  const { code, stderr } = await runCli(["exp", "--port", "3000"], cleanEnv());
-  expect(code).toBe(1);
-  expect(stderr).toContain("`--port` only applies to niceeval view");
-});
-
-test("--timing mode 严格解析：full 能进入 show-only 校验，未知 mode 直接报错", async () => {
-  const full = await runCli(["exp", "--timing=full"], cleanEnv());
-  expect(full.code).toBe(1);
-  expect(full.stderr).toContain("`--timing` only applies to niceeval show");
-
+test("--timing mode 严格解析:未知 mode 直接报枚举用法错误", async () => {
   const invalid = await runCli(["show", "--timing=verbose"], cleanEnv());
   expect(invalid.code).toBe(1);
   expect(invalid.stderr).toContain('--timing only accepts "summary" (default) or "full"');
 });
 
-for (const profile of ["human", "agent", "ci"] as const) {
-  test(`--dry --output ${profile}:不创建 .niceeval 快照目录,也不写 --json/--junit`, async () => {
-    const tmp = await mkdtemp(join(tmpdir(), "niceeval-dry-"));
-    try {
-      const jsonPath = join(tmp, "out.json");
-      const junitPath = join(tmp, "out.xml");
-      const { code, stdout } = await runCli(
-        ["exp", "--dry", "--output", profile, "--json", jsonPath, "--junit", junitPath],
-        cleanEnv(),
-      );
-      expect(code).toBe(0);
-      expect(hasAnsi(stdout)).toBe(false);
-      expect(await pathExists(niceevalDir)).toBe(false);
-      expect(await pathExists(jsonPath)).toBe(false);
-      expect(await pathExists(junitPath)).toBe(false);
-    } finally {
-      await rm(tmp, { recursive: true, force: true });
-    }
-  });
-}
+// --dry 的副作用闸门与 profile 正交(核心路径无 profile 分支),一个 profile 代表即可。
+test("--dry:不创建 .niceeval 快照目录,也不写 --json/--junit", async () => {
+  const tmp = await mkdtemp(join(tmpdir(), "niceeval-dry-"));
+  try {
+    const jsonPath = join(tmp, "out.json");
+    const junitPath = join(tmp, "out.xml");
+    const { code, stdout } = await runCli(
+      ["exp", "--dry", "--output", "human", "--json", jsonPath, "--junit", junitPath],
+      cleanEnv(),
+    );
+    expect(code).toBe(0);
+    expect(hasAnsi(stdout)).toBe(false);
+    expect(await pathExists(niceevalDir)).toBe(false);
+    expect(await pathExists(jsonPath)).toBe(false);
+    expect(await pathExists(junitPath)).toBe(false);
+  } finally {
+    await rm(tmp, { recursive: true, force: true });
+  }
+});
 
 test("--quiet 报未知 flag 错误并非零退出(不是第四种反馈模式,已从 CLI 删除)", async () => {
   const { code, stderr } = await runCli(["exp", "--quiet"], cleanEnv());

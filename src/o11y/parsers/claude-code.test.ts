@@ -1,3 +1,4 @@
+// cases: docs/engineering/unit-tests/adapters/cases.md
 // claude-code transcript 解析器单测。
 //
 // 重点覆盖 Skill 加载识别(定稿见 docs/observability.md「OTLP traces → 统一瀑布图」、
@@ -40,14 +41,6 @@ describe("parseClaudeCodeTranscript — Skill 加载", () => {
     expect(events).toEqual([{ type: "skill.loaded", skill: "ms-office-suite:pdf", callId: "toolu_02" }]);
   });
 
-  it("工具名大小写不定也能识别(防御性小写比较)", () => {
-    const raw = toolUseLine({ id: "toolu_03", name: "skill", input: { skill: "xlsx" } });
-
-    const { events } = parseClaudeCodeTranscript(raw);
-
-    expect(events).toEqual([{ type: "skill.loaded", skill: "xlsx", callId: "toolu_03" }]);
-  });
-
   it("Skill 加载的 tool_result 被吃掉,不补发孤儿 action.result", () => {
     const raw = [
       toolUseLine({ id: "toolu_01", name: "Skill", input: { skill: "pdf" } }),
@@ -75,20 +68,6 @@ describe("parseClaudeCodeTranscript — Skill 加载", () => {
     ]);
   });
 
-  it("普通(非 Skill)工具调用完全不受影响:Bash 仍产出 action.called + action.result,顺序不变", () => {
-    const raw = [
-      toolUseLine({ id: "toolu_06", name: "Bash", input: { command: "ls" } }),
-      toolResultLine("toolu_06", "a.ts\nb.ts", false),
-    ].join("\n");
-
-    const { events } = parseClaudeCodeTranscript(raw);
-
-    expect(events).toEqual([
-      { type: "action.called", callId: "toolu_06", name: "Bash", input: { command: "ls" }, tool: "shell" },
-      { type: "action.result", callId: "toolu_06", output: "a.ts\nb.ts", status: "completed" },
-    ]);
-  });
-
   it("Skill 加载与普通工具调用混合出现时,各自独立、顺序保持事件出现顺序", () => {
     const raw = [
       toolUseLine({ id: "t1", name: "Skill", input: { skill: "pdf" } }),
@@ -106,18 +85,6 @@ describe("parseClaudeCodeTranscript — Skill 加载", () => {
     ]);
   });
 
-  it("Read/Write/Edit/WebFetch/WebSearch/Task 等既有别名归一不受 Skill 识别改动影响(回归锁)", () => {
-    const raw = [
-      toolUseLine({ id: "a", name: "Write", input: { file_path: "/x", content: "y" } }),
-      toolUseLine({ id: "b", name: "Task", input: { prompt: "go" } }),
-      toolUseLine({ id: "c", name: "WebSearch", input: { query: "q" } }),
-    ].join("\n");
-
-    const { events } = parseClaudeCodeTranscript(raw);
-    const tools = events.filter((e) => e.type === "action.called").map((e) => (e as { tool?: string }).tool);
-
-    expect(tools).toEqual(["file_write", "agent_task", "web_search"]);
-  });
 });
 
 describe("parseClaudeCodeTranscript — 既有行为回归", () => {

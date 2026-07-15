@@ -1,3 +1,4 @@
+// cases: docs/engineering/unit-tests/adapters/cases.md
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import {

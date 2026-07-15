@@ -1,3 +1,4 @@
+// cases: docs/engineering/unit-tests/adapters/cases.md
 import { describe, it, expect } from "vitest";
 import type { TraceSpan } from "../../types.ts";
 import type { TraceReceiver } from "./receiver.ts";

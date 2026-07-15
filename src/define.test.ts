@@ -1,3 +1,4 @@
+// cases: docs/engineering/unit-tests/sandbox/cases.md
 // SandboxSpec 链式钩子(.setup()/.teardown())的构造期契约:不可变、多次追加按顺序累加。
 // 执行顺序(setup 正序 / teardown 逆序 / LIFO cleanup)是 runner 的事,见
 // test/e2e-sandbox-hooks.test.ts;这里只测 dockerSandbox()/vercelSandbox()/e2bSandbox()/
@@ -9,12 +10,11 @@ import type { SandboxHook, SandboxHookContext } from "./sandbox/index.ts";
 
 const noopSetup: SandboxHook = () => {};
 const noopTeardown: SandboxHook = () => {};
-const acceptsPublicHookContext = (_ctx: SandboxHookContext): void => {};
+// subpath 类型导出的守护由 typecheck 完成:这两个类型标注编译不过即失败,无需运行时断言。
+const _acceptsPublicHookContext = (_ctx: SandboxHookContext): void => {};
+void _acceptsPublicHookContext;
 
 describe("sandbox factories: .setup()/.teardown() chain", () => {
-  it("public sandbox subpath exports hook callback types", () => {
-    expect(typeof acceptsPublicHookContext).toBe("function");
-  });
   it("dockerSandbox() starts with empty hook arrays", () => {
     const spec = dockerSandbox({ image: "custom:latest" });
     expect(spec.provider).toBe("docker");

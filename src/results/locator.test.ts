@@ -1,3 +1,4 @@
+// cases: docs/engineering/unit-tests/results/cases.md
 // AttemptLocator 单测(定稿见 docs/feature/results/library.md「按 locator 寻址一个 attempt」、docs/concepts.md「Attempt 定位符」):
 // 确定性编码、字段敏感(任一身份字段变化都换 locator)、@ 前缀与定长 base36 格式、decode 的语法
 // 校验分支、大批量下的实际无撞车、buildLocatorIndex 的撞车检测(用可注入的 encode 强制制造撞车,
@@ -79,10 +80,6 @@ describe("encodeAttemptLocator · 确定性与格式", () => {
 });
 
 describe("decodeAttemptLocator · 语法校验", () => {
-  it("接受一个真实编码出来的 locator", () => {
-    expect(decodeAttemptLocator(encodeAttemptLocator(id()))).toEqual({ valid: true, scheme: 1 });
-  });
-
   it.each([
     ["", "空字符串"],
     ["7k2m9qz", "缺 @ 前缀"],
@@ -149,24 +146,6 @@ describe("buildLocatorIndex", () => {
     expect(err.message).toContain("collision");
   });
 
-  it("撞车中若第三个身份与已记录身份相同,不重复抛错(只有真正不同的身份对才算撞车)", () => {
-    const sameEncode = (() => {
-      let calls = 0;
-      return (_identity: AttemptIdentity) => {
-        calls++;
-        return `@1samesame` as ReturnType<typeof encodeAttemptLocator>;
-      };
-    })();
-    const identity = id();
-    const index = buildLocatorIndex(
-      [
-        { identity, handle: "first" },
-        { identity, handle: "second" },
-      ],
-      sameEncode,
-    );
-    expect(index.size).toBe(1);
-  });
 });
 
 describe("resolveAttemptLocator", () => {

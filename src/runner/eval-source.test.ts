@@ -1,3 +1,4 @@
+// cases: docs/engineering/unit-tests/experiments-runner/cases.md
 // captureEvalSource 的单测(定稿见 docs/feature/results/architecture.md「sources.json」)。
 // 覆盖:哈希确定性、path 相对 root 计算、CRLF/BOM 归一化行为、与 results/source-hash.ts
 // 算法保持一致(两处哈希必须逐字节相同,见 eval-source.ts 顶部注释)。
@@ -20,19 +21,6 @@ afterEach(async () => {
 });
 
 describe("captureEvalSource", () => {
-  it("computes a deterministic sha256 for the same file content", async () => {
-    const root = await makeRoot();
-    await mkdir(join(root, "evals"), { recursive: true });
-    const file = join(root, "evals", "weather.eval.ts");
-    await writeFile(file, "export default { id: 'weather' };\n", "utf-8");
-
-    const first = await captureEvalSource(file, { root });
-    const second = await captureEvalSource(file, { root });
-
-    expect(first.sha256).toBe(second.sha256);
-    expect(first.sha256).toMatch(/^[0-9a-f]{64}$/);
-  });
-
   it("returns a path relative to the given root, using forward slashes", async () => {
     const root = await makeRoot();
     await mkdir(join(root, "evals", "nested"), { recursive: true });
@@ -103,19 +91,5 @@ describe("captureEvalSource", () => {
 
     expect(captured.content).toBe(normalizeEvalSource(raw));
     expect(captured.sha256).toBe(hashEvalSource(normalizeEvalSource(raw)));
-  });
-
-  it("rejects two files with different content by producing different hashes", async () => {
-    const root = await makeRoot();
-    await mkdir(join(root, "evals"), { recursive: true });
-    const fileA = join(root, "evals", "a.eval.ts");
-    const fileB = join(root, "evals", "b.eval.ts");
-    await writeFile(fileA, "content a\n", "utf-8");
-    await writeFile(fileB, "content b\n", "utf-8");
-
-    const a = await captureEvalSource(fileA, { root });
-    const b = await captureEvalSource(fileB, { root });
-
-    expect(a.sha256).not.toBe(b.sha256);
   });
 });

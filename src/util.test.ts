@@ -1,3 +1,4 @@
+// cases: docs/engineering/unit-tests/scoring/cases.md
 import { describe, expect, it } from "vitest";
 import { brief, formatThrown, upsertManagedBlock } from "./util.ts";
 

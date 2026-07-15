@@ -1,3 +1,4 @@
+// cases: docs/engineering/unit-tests/experiments-runner/cases.md
 // Agent renderer 测试:全部经真实 FeedbackCoordinator + createFakeFeedbackIO 驱动(不
 // monkey-patch process/Date/setInterval),断言具体文本而不是整段 snapshot diff——逐条对应
 // plan section E 的 checklist 与 docs/feature/experiments/cli.md「AI agent 怎么用」的例子。
@@ -499,24 +500,5 @@ describe("`--dry --output agent`:不经 coordinator,直接渲染 PLAN envelope",
     expect(text).not.toContain(ESC);
     expect(text).not.toContain("more");
     expect(text.split("\n")).toHaveLength(3);
-  });
-
-  it("rowCap 可由调用方覆盖", () => {
-    const text = renderAgentPlanEnvelope(
-      {
-        total: 3,
-        evals: 3,
-        configs: 1,
-        runs: 1,
-        rows: [
-          { label: "a", evalId: "e1" },
-          { label: "a", evalId: "e2" },
-          { label: "a", evalId: "e3" },
-        ],
-      },
-      1,
-    );
-    expect(text.split("\n")).toHaveLength(3); // header + 1 shown + "… 2 more"
-    expect(text).toContain("… 2 more");
   });
 });

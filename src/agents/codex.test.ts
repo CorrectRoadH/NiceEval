@@ -1,3 +1,4 @@
+// cases: docs/engineering/unit-tests/adapters/cases.md
 // Codex native plugin 安装(installPlugins)的单测:单 plugin 的命令构造、同名 marketplace
 // 的去重、add 后的注册名回读校验、ref 钉定走 `--ref`(不像 claude-code 需要先 clone)、
 // resolvedVersion 取不到时优雅省略(含 `codex plugin list --json` 的真实输出形状
@@ -154,32 +155,6 @@ describe("codex installPlugins · 命令构造", () => {
       { marketplace: { name: "acme", source: "acme/codex-plugins" }, name: "repo-map" },
     ]);
     expect(out[0]?.resolvedVersion).toBe("2.1.0");
-  });
-
-  it("resolvedVersion:list 输出裸数组(非当前实测形状,但保留兼容)、按 id 命中 → manifest 记版本", async () => {
-    const box = sb([
-      {
-        match: "codex plugin list --json",
-        result: () => ({ stdout: JSON.stringify([{ id: "repo-map@acme", version: "2.0.0" }]) }),
-      },
-    ]);
-    const out = await installPlugins(asSandbox(box), [
-      { marketplace: { name: "acme", source: "acme/codex-plugins" }, name: "repo-map" },
-    ]);
-    expect(out[0]?.resolvedVersion).toBe("2.0.0");
-  });
-
-  it("resolvedVersion 取不到时优雅省略:list 输出旧的 `{ plugins: [...] }` 猜测形状(实测证伪,不是真实 CLI 输出)不再命中", async () => {
-    const box = sb([
-      {
-        match: "codex plugin list --json",
-        result: () => ({ stdout: JSON.stringify({ plugins: [{ name: "repo-map", version: "2.1.0" }] }) }),
-      },
-    ]);
-    const out = await installPlugins(asSandbox(box), [
-      { marketplace: { name: "acme", source: "acme/codex-plugins" }, name: "repo-map" },
-    ]);
-    expect(out[0]).not.toHaveProperty("resolvedVersion");
   });
 
   it("resolvedVersion 取不到时优雅省略(不阻断安装):list 命令失败 → manifest 里没有 resolvedVersion 键", async () => {

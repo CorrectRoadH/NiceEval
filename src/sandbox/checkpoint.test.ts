@@ -1,3 +1,4 @@
+// cases: docs/engineering/unit-tests/sandbox/cases.md
 import { describe, expect, it } from "vitest";
 import { createCheckpoint, restoreCheckpoint } from "./checkpoint.ts";
 import type { Sandbox } from "../types.ts";

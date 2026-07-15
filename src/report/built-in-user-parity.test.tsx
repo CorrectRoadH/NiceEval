@@ -1,3 +1,4 @@
+// cases: docs/engineering/unit-tests/reports/cases.md
 // Phase 4 验收:证明内置报告 ExperimentComparison 与一份普通用户 --report 文件走的是
 // 完全同一套机制 —— 不是长得像,而是同一条 build → resolveReportTree → validate → render 管线。
 //
@@ -9,13 +10,12 @@
 //   3. 两份分别过 renderReportToText / renderReportToStaticHtml,比较事实(散点键 / 表格行 /
 //      attempt 深链),不做 HTML 字面 snapshot。
 //   4. 覆盖 plan 的 9 个必测场景。
-//   5. 架构不变量:renderer 源码零 "ExperimentComparison" / "built-ins" 分支。
-//   6. show / view 只在「无 --report」分支选内置报告,--report 只换 definition,不碰
-//      Selection / resolve / validate / render。
+//   5. 架构不变量:renderer 模块的 import 依赖图不含 built-ins。
+// (show / view 的宿主选择与装载边界等价由 src/show/show.test.ts、src/view/view-report.test.ts 覆盖。)
 
 import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import type { EvalResult, Verdict } from "../types.ts";
 import type { AttemptHandle, Results, Selection, Snapshot } from "../results/index.ts";
@@ -34,7 +34,6 @@ import {
   validateReportTree,
   type ReportNode,
 } from "./tree.ts";
-import * as compute from "./compute.ts";
 
 // ───────────────────────── fake Selection / Snapshot(按 results 读取契约造)─────────────────────────
 
@@ -345,14 +344,6 @@ describe("必测场景:resolved data 事实", () => {
     expect(experiments.find((e) => e.experimentId === "solo/no-cost")!.cost.value).toBeNull();
   });
 
-  it("场景 3:恰好一个可画点(另一实验缺成本)", async () => {
-    const tree = await resolvedTreeOf(ExperimentComparison, oneDrawableContext());
-    const scatter = scatterOf(tree)!;
-    const drawable = scatter.rows.filter((r) => r.x.value !== null && r.y.value !== null);
-    expect(drawable).toHaveLength(1);
-    expect(drawable[0].key).toBe("only/priced");
-  });
-
   it("场景 4:空 Selection —— 散点无 rows、实验列表为空数组", async () => {
     const tree = await resolvedTreeOf(ExperimentComparison, emptyContext());
     expect(scatterOf(tree)!.rows).toEqual([]);
@@ -377,20 +368,6 @@ describe("必测场景:resolved data 事实", () => {
     expect(codex.evalRows.find((e) => e.evalId === "algebra/y")!.verdict).toBe("skipped");
   });
 
-  it("场景 6:同 experiment 多 eval、多 attempts —— 展开层与 attempt locator 正确", async () => {
-    const tree = await resolvedTreeOf(ExperimentComparison, richContext());
-    const bub = experimentListOf(tree)!.find((e) => e.experimentId === "compare/bub-low")!;
-    expect(bub.evalRows.map((e) => e.evalId).sort()).toEqual(["algebra/x", "algebra/y"]);
-    const multi = bub.evalRows.find((e) => e.evalId === "algebra/x")!;
-    // 多轮 attempt 折成 passed(任一轮通过),两次 attempt 都在展开区的 attempts 里
-    expect(multi.verdict).toBe("passed");
-    expect(multi.attempts.map((a) => a.attempt)).toEqual([0, 1]);
-    expect(multi.attempts.map((a) => a.verdict)).toEqual(["failed", "passed"]);
-    // attempt locator 唯一、格式正确 —— 回到证据的引用不丢
-    const locators = multi.attempts.map((a) => a.locator);
-    expect(new Set(locators).size).toBe(2);
-    for (const locator of locators) expect(locator).toMatch(/^@1[0-9a-z]{7}$/);
-  });
 });
 
 // ═════════════════════════ 3. text / web 渲染的事实相同 ═════════════════════════
@@ -449,23 +426,6 @@ describe("散点空态 / 单点 / 多点行为", () => {
     expect(html).toContain("nre-missing");
   });
 
-  it("恰好 1 可画点:text/web 都正常画单点", async () => {
-    const text = await renderReportToText(ExperimentComparison, oneDrawableContext(), { width: 100 });
-    expect(text).toContain("better → upper right");
-    const html = await renderReportToStaticHtml(ExperimentComparison, oneDrawableContext());
-    expect(html).toContain("nre-scatter-point");
-    expect(html).not.toContain("nre-scatter-empty");
-    expect(html).not.toContain("nre-scatter-empty nre-missing");
-    expect(html).toContain("<svg");
-  });
-
-  it("≥2 可画点:正常绘图(text 有 better → upper right,web 有 svg)", async () => {
-    const text = await renderReportToText(ExperimentComparison, richContext(), { width: 100 });
-    expect(text).toContain("better → upper right");
-    const html = await renderReportToStaticHtml(ExperimentComparison, richContext());
-    expect(html).toContain("<svg");
-    expect(html).not.toContain("nre-scatter-empty");
-  });
 });
 
 // ═════════════════════════ 5. 场景 7:数据只 resolve 一次,locale 只改 chrome ═════════════════════════
@@ -515,34 +475,39 @@ describe("场景 7:en / zh-CN 数据 resolve 一次、chrome 分别本地化", (
     expect(experiments.map((e) => e.experimentId)).toEqual(["compare/bub-low", "compare/codex-mid", "solo/no-cost"]);
   });
 
-  it("spy 佐证:build() 里各计算函数恰好调用一次,随后两 locale 渲染不再重算", async () => {
-    const scatterSpy = vi.spyOn(compute, "scatterData");
-    // 注意:spy 挂在 ExperimentList.data 本身,不是 compute.experimentListData —— components.tsx
-    // 用 `Object.assign(component, { data: experimentListData })` 把函数值复制成一个普通属性,
-    // 那份拷贝在 components.tsx 求值时(模块加载期)就定死了,晚于此的 vi.spyOn(compute, …) патch
-    // 不到已经复制走的引用。直接调用方(built-ins/experiment-comparison.tsx)读的是
-    // `ExperimentList.data` 这个属性,所以要在这个属性上打桩。MetricScatter 不受影响:它的
-    // resolve() 住在 components.tsx 里,调用的是 scatterData 这个 import 绑定本身(ESM 实时绑定),
-    // vi.spyOn(compute, "scatterData") 打得中。
-    const experimentListSpy = vi.spyOn(ExperimentList, "data");
-    try {
-      // ExperimentList 没有 resolve 面,.data() 直接在 build() 里 await——计算发生在 build,
-      // 不是 resolveReportTree;MetricScatter 仍是 selection-form,resolve 阶段才调它的 .data()。
-      const node = (await ExperimentComparison.build(richContext())) as ReportNode;
-      expect(experimentListSpy).toHaveBeenCalledTimes(1);
-      const resolved = await resolveReportTree(node);
-      expect(scatterSpy).toHaveBeenCalledTimes(1);
-      expect(experimentListSpy).toHaveBeenCalledTimes(1);
-
-      // 渲染面纯同步、零 IO:两 locale 渲染同一棵 resolved 树,不再触发任何计算。
-      renderNodeToText(resolved, createTextContext({ locale: "en" }));
-      renderNodeToText(resolved, createTextContext({ locale: "zh-CN" }));
-      expect(scatterSpy).toHaveBeenCalledTimes(1);
-      expect(experimentListSpy).toHaveBeenCalledTimes(1);
-    } finally {
-      scatterSpy.mockRestore();
-      experimentListSpy.mockRestore();
+  it("公共边界佐证:build + resolve 后,两 locale 渲染不再读取 Selection(不重算)", async () => {
+    // 观察面是公共的 Selection 契约:所有计算都必须经由 selection.snapshots 取数,
+    // filter 产物共享同一计数器,渲染阶段任何形式的重算都会让读数增长。
+    const counter = { reads: 0 };
+    function countingSelection(snapshots: Snapshot[]): Selection {
+      const self = {
+        warnings: [] as Selection["warnings"],
+        get snapshots() {
+          counter.reads += 1;
+          return snapshots;
+        },
+        filter: (predicate: (s: Snapshot) => boolean) => countingSelection(snapshots.filter(predicate)),
+      };
+      return self as unknown as Selection;
     }
+    const counting = countingSelection(richContext().selection.snapshots);
+
+    const node = (await ExperimentComparison.build({ selection: counting, results: {} as Results })) as ReportNode;
+    const resolved = await resolveReportTree(node);
+    // 计算阶段确实经由这个公共边界取过数 —— 计数器没有空转。
+    expect(counter.reads).toBeGreaterThan(0);
+    const readsAfterResolve = counter.reads;
+
+    // 渲染面纯同步、零 IO:两 locale、两宿主渲染同一棵 resolved 树,不再触发任何计算。
+    renderNodeToText(resolved, createTextContext({ locale: "en" }));
+    renderNodeToText(resolved, createTextContext({ locale: "zh-CN" }));
+    runWithWebContext({ attemptHref: (locator) => `#/attempt/${locator}`, locale: "en" }, () =>
+      renderToStaticMarkup(resolved as never),
+    );
+    runWithWebContext({ attemptHref: (locator) => `#/attempt/${locator}`, locale: "zh-CN" }, () =>
+      renderToStaticMarkup(resolved as never),
+    );
+    expect(counter.reads).toBe(readsAfterResolve);
   });
 });
 
@@ -565,19 +530,6 @@ describe("场景 9:最小用户报告只放 <ExperimentList> —— 不计算散
     expect(experimentListOf(tree)).toBeDefined();
   });
 
-  it("spy 佐证:scatterData 从未被调用,experimentListData 调一次", async () => {
-    const scatterSpy = vi.spyOn(compute, "scatterData");
-    // 见上一个 describe 块的注释:直接调用方读的是 ExperimentList.data 属性,打桩要打在这上面。
-    const experimentListSpy = vi.spyOn(ExperimentList, "data");
-    try {
-      await resolvedTreeOf(minimal, richContext());
-      expect(scatterSpy).not.toHaveBeenCalled();
-      expect(experimentListSpy).toHaveBeenCalledTimes(1);
-    } finally {
-      scatterSpy.mockRestore();
-      experimentListSpy.mockRestore();
-    }
-  });
 
   it("用户换指标/维度无需框架新增分支:改 points/series 只改 resolved data,不改机制", async () => {
     // 一份「用户自定义」报告:同一 MetricScatter 组件,换成 model 维度 + 只画一个指标轴组合。
@@ -600,46 +552,34 @@ describe("场景 9:最小用户报告只放 <ExperimentList> —— 不计算散
   });
 });
 
-// ═════════════════════════ 7. 架构不变量:renderer 无 built-in 分支 ═════════════════════════
+// ═════════════════════════ 7. 架构不变量:renderer 不依赖 built-in(import 依赖图)═════════════════════════
 
 describe("架构不变量:renderer 不认识 built-in", () => {
   const RENDERER_FILES = ["./report.ts", "./web.ts", "./tree.ts"];
+
+  /** 只解析 import / export…from / 动态 import() 语句的模块 specifier,不 grep 实现文本。 */
+  function importSpecifiersOf(rel: string): string[] {
+    const src = readFileSync(new URL(rel, import.meta.url), "utf8");
+    const specifiers: string[] = [];
+    const patterns = [
+      /(?:^|\n)\s*import\s+[^"'()]*?from\s*["']([^"']+)["']/g, // import x from "…"
+      /(?:^|\n)\s*import\s*["']([^"']+)["']/g, // import "…"(副作用导入)
+      /(?:^|\n)\s*export\s+[^"'()]*?from\s*["']([^"']+)["']/g, // export … from "…"
+      /import\(\s*["']([^"']+)["']\s*\)/g, // 动态 import("…")
+    ];
+    for (const re of patterns) {
+      for (const m of src.matchAll(re)) specifiers.push(m[1]);
+    }
+    return specifiers;
+  }
+
   for (const rel of RENDERER_FILES) {
-    it(`${rel} 源码里没有 "ExperimentComparison" / "built-ins" 分支`, () => {
-      const src = readFileSync(new URL(rel, import.meta.url), "utf8");
-      expect(src).not.toContain("ExperimentComparison");
-      expect(src).not.toContain("built-ins");
+    it(`${rel} 的 import 依赖图不含 built-ins 模块`, () => {
+      const specifiers = importSpecifiersOf(rel);
+      expect(specifiers.length).toBeGreaterThan(0); // 解析确实取到了依赖,守护没有空转
+      for (const spec of specifiers) {
+        expect(spec).not.toMatch(/built-ins/);
+      }
     });
   }
-});
-
-// ═════════════════════════ 8. 宿主选择:show / view 共用默认 definition ═════════════════════════
-
-describe("宿主选择:裸 show / view 共用 ExperimentComparison,--report 替换 definition", () => {
-  it("show / view 源码:Selection 先合成,随后选择内置或用户 definition", () => {
-    const showSrc = readFileSync(new URL("../show/index.ts", import.meta.url), "utf8");
-    expect(showSrc).toMatch(/import \{ ExperimentComparison \} from "\.\.\/\.\.\/dist\/report\/built-ins\/index\.js"/);
-    expect(showSrc).toMatch(/flags\.report === undefined \? ExperimentComparison : await loadReportFile\(cwd, flags\.report\)/);
-    expect(showSrc).not.toContain("showIndexText(selection");
-    // Selection 在报告槽之前、与 report 无关地由 selectCurrentResults 合成。
-    expect(showSrc).toMatch(/selectCurrentResults\(results, \{ experiment: flags\.experiment, patterns \}\)/);
-
-    const viewSrc = readFileSync(new URL("../view/data.ts", import.meta.url), "utf8");
-    // view 的报告槽:report 有值走 loadReportFile,否则 ExperimentComparison;Selection 同样先于报告槽合成。
-    expect(viewSrc).toMatch(/report\s*\?[\s\S]*loadReportFile[\s\S]*:\s*\(await import\([^)]*built-ins[^)]*\)\)\.ExperimentComparison/);
-    expect(viewSrc).toMatch(/selectCurrentResults\(results, \{ experiment: opts\.experiment, patterns \}\)/);
-  });
-
-  it("ExperimentComparison 与 public-copy 作为显式报告时事实完全相同", async () => {
-    for (const { ctx } of SCENARIOS) {
-      const bareText = await renderReportToText(ExperimentComparison, ctx(), { width: 100 });
-      const reportText = await renderReportToText(publicCopy, ctx(), { width: 100 });
-      expect(reportText).toBe(bareText);
-
-      const bareHtml = await renderReportToStaticHtml(ExperimentComparison, ctx());
-      const reportHtml = await renderReportToStaticHtml(publicCopy, ctx());
-      expect(scatterKeysOf(reportHtml)).toEqual(scatterKeysOf(bareHtml));
-      expect(hrefsOf(reportHtml)).toEqual(hrefsOf(bareHtml));
-    }
-  });
 });

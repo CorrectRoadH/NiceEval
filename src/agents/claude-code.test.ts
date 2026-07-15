@@ -1,3 +1,4 @@
+// cases: docs/engineering/unit-tests/adapters/cases.md
 // Claude Code native plugin 安装(installPlugins)的单测:单 plugin 的命令构造、同名
 // marketplace 的去重、add 后的注册名回读校验、ref 钉定时改走 clone+checkout+本地路径连接、
 // resolvedVersion 取不到时优雅省略、marketplace/plugin 安装失败的报错;外加 settingsFile

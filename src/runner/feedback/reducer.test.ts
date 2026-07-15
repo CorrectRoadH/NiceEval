@@ -1,3 +1,4 @@
+// cases: docs/engineering/unit-tests/experiments-runner/cases.md
 // 表驱动测试:RunFeedbackEvent 序列 → RunFeedbackState。核心断言是「任何时刻」都满足
 // total = reused + running + queued + completed(见 docs/feature/experiments/cli.md 的守恒公式)——
 // 每处理一个事件就断言一次,不是只在序列末尾断言。辅助不变量 active.size === running 一并核对

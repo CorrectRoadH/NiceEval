@@ -1,3 +1,4 @@
+// cases: docs/engineering/unit-tests/reports/cases.md
 // niceeval view 的报告槽与宿主组合语义(docs/feature/reports/architecture.md「Selection 是计算入口」
 // 与裁决记录 6;公开行为准绳 docs-site/zh/guides/viewing-results.mdx / custom-reports.mdx)。
 // 覆盖:

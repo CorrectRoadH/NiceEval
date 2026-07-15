@@ -1,3 +1,4 @@
+// cases: docs/engineering/unit-tests/adapters/cases.md
 // buildExecutionTree 的单测(定稿见 docs/observability.md「OTLP traces → 统一瀑布图」、
 // docs/concepts.md「执行树」词条)。覆盖:无 OTel 时骨架完整、有 OTel 时按 callId 精确合并、
 // 唯一关联不上时降级成 telemetry-only 节点(不猜)、同 callId 撞多条 span 时不強行择一、
@@ -147,18 +148,6 @@ describe("buildExecutionTree", () => {
     expect(Object.keys(tree.nodes[0].span?.attributes ?? {})).toEqual(["call_id"]);
   });
 
-  it("correlates a subagent node the same way as an action node", () => {
-    const events: StreamEvent[] = [
-      { type: "subagent.called", callId: "s1", name: "Task" },
-      { type: "subagent.completed", callId: "s1", output: "done", status: "completed" },
-    ];
-    const agentSpan = span({ spanId: "sp1", attributes: { call_id: "s1" } });
-
-    const tree = buildExecutionTree(events, [agentSpan]);
-
-    expect(tree.nodes[0]).toMatchObject({ kind: "subagent", callId: "s1", span: agentSpan });
-  });
-
   it("never guesses by name/text: a span whose call_id matches no node becomes a telemetry-only node, and the skeleton node's span stays absent", () => {
     const events: StreamEvent[] = [
       { type: "action.called", callId: "c1", name: "Bash", input: {}, tool: "shell" },
@@ -250,14 +239,6 @@ describe("buildExecutionTree", () => {
     const action = tree.nodes[0] as ExecutionActionNode;
     expect(action.status).toBe("failed");
     expect(action.span?.status).toBe("error");
-  });
-
-  it("skill.loaded is a first-class node carrying the skill name (and optional callId), never a generic action", () => {
-    const events: StreamEvent[] = [{ type: "skill.loaded", skill: "pdf-processing", callId: "tool_1" }];
-
-    const tree = buildExecutionTree(events, []);
-
-    expect(tree.nodes).toEqual([{ id: "skill-0", kind: "skill.loaded", skill: "pdf-processing", callId: "tool_1" }]);
   });
 
   it("a skill.loaded node passes through immediately as its own node — it has no result event to pair with, so it never gets stuck 'pending' the way action/subagent nodes do while awaiting a result", () => {

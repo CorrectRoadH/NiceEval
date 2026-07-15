@@ -1,3 +1,4 @@
+// cases: docs/engineering/unit-tests/experiments-runner/cases.md
 // coordinator.ts 的行为测试:全部使用 testing.ts 的假 FeedbackIO,不 monkey-patch 全局
 // process/Date/setInterval —— coordinator 的关闭路径(onRendererError 的兜底)刻意走真实
 // `src/tty-line.ts`(允许保留裸写的「feedback sink 自己」),这里只验证队列在 renderer 抛错

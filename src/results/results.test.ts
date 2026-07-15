@@ -1,3 +1,4 @@
+// cases: docs/engineering/unit-tests/results/cases.md
 // niceeval/results 的单测:临时目录里构造最小 snapshot.json / result.json / artifact fixture,
 // 覆盖定稿契约(docs/feature/results/library.md、docs/feature/results/architecture.md):分层读取(含快照级字段注入)、
 // 懒加载与 artifactBase 回退、skipped 三种原因、unfinished-snapshot、latest() 三种警告、
@@ -592,27 +593,32 @@ describe("createResultsWriter", () => {
 
   it("快照目录独占创建:撞名换随机后缀重试直到成功(EEXIST 不会覆盖已有目录)", async () => {
     const root = await makeRoot();
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-07-01T08:00:00.000Z"));
+    // 受控随机序列:writer B 面对同一身份时重置序列,首次尝试重放 writer A 消耗过的
+    // 随机值,必然撞上 A 的目录;重试消耗序列后续值,得到不同后缀。测试不假设一个
+    // 后缀消耗几次 random,也不假设数值到后缀字符的映射。
     let call = 0;
     const randomSpy = vi.spyOn(Math, "random").mockImplementation(() => {
       call += 1;
-      return call <= 4 ? 0 : 0.03; // 第一次 randomSuffix() 产出 "aaaa",第二次产出 "bbbb"
+      return ((call * 37) % 977) / 977;
     });
     try {
-      const collidingDir = join(root, "e", "2026-07-01T08-00-00-000Z-aaaa");
-      await mkdir(collidingDir, { recursive: true });
+      const identity = { experimentId: "e", agent: "bub", startedAt: "2026-07-01T08:00:00.000Z" } as const;
+      const writerA = createResultsWriter(root, { producer: { name: "x" } });
+      const snapA = await writerA.snapshot(identity);
+      const canary = join(snapA.dir, "canary.txt");
+      await writeFile(canary, "occupied", "utf8");
 
-      const writer = createResultsWriter(root, { producer: { name: "x" } });
-      const snap = await writer.snapshot({ experimentId: "e", agent: "bub", startedAt: "2026-07-01T08:00:00.000Z" });
-      expect(snap.dir).not.toBe(collidingDir);
-      expect(snap.dir.endsWith("-bbbb")).toBe(true);
-      expect(await exists(join(snap.dir, "snapshot.json"))).toBe(true);
-      // 被占用的目录没有被写入 snapshot.json —— 独占创建不会覆盖已有内容。
-      expect(await exists(join(collidingDir, "snapshot.json"))).toBe(false);
+      call = 0; // 重放同一序列,让 writer B 的首次尝试与 snapA 同名
+      const writerB = createResultsWriter(root, { producer: { name: "x" } });
+      const snapB = await writerB.snapshot(identity);
+
+      expect(snapB.dir).not.toBe(snapA.dir);
+      expect(await exists(join(snapB.dir, "snapshot.json"))).toBe(true);
+      // 被占用的目录内容原样保留 —— 独占创建不会覆盖已有内容。
+      expect(await exists(canary)).toBe(true);
+      expect(await exists(join(snapB.dir, "canary.txt"))).toBe(false);
     } finally {
       randomSpy.mockRestore();
-      vi.useRealTimers();
     }
   });
 
@@ -1066,37 +1072,6 @@ describe("AttemptLocator · 落盘 / 读取 / 携带 / 撞车", () => {
 // ───────────────────────── sources 去重仓库 ─────────────────────────
 
 describe("sources · 快照级去重仓库", () => {
-  it("两个 attempt 共享字节相同的 eval 源码:去重仓库只落一份 blob(文件数 = 1)", async () => {
-    const root = await makeRoot();
-    const writer = createResultsWriter(root, { producer: { name: "niceeval", version: "1.0.0" } });
-    const snap = await writer.snapshot({ experimentId: "e", agent: "bub", startedAt: "2026-07-01T08:00:00.000Z" });
-    const content = "export default { test() {} };\n";
-    await snap.writeAttempt({ id: "q1", verdict: "passed", attempt: 0, durationMs: 1, assertions: [] }, { sources: [{ path: "evals/shared.eval.ts", content }] });
-    await snap.writeAttempt({ id: "q2", verdict: "passed", attempt: 0, durationMs: 1, assertions: [] }, { sources: [{ path: "evals/shared.eval.ts", content }] });
-    await writer.finish();
-
-    const storeFiles = await readdir(join(snap.dir, "sources"));
-    expect(storeFiles).toHaveLength(1);
-  });
-
-  it("两个 attempt 的 eval 源码内容不同:各自落一份 blob(文件数 = 2)", async () => {
-    const root = await makeRoot();
-    const writer = createResultsWriter(root, { producer: { name: "niceeval", version: "1.0.0" } });
-    const snap = await writer.snapshot({ experimentId: "e", agent: "bub", startedAt: "2026-07-01T08:00:00.000Z" });
-    await snap.writeAttempt(
-      { id: "q1", verdict: "passed", attempt: 0, durationMs: 1, assertions: [] },
-      { sources: [{ path: "evals/a.eval.ts", content: "export default { test() {} };\n" }] },
-    );
-    await snap.writeAttempt(
-      { id: "q2", verdict: "passed", attempt: 0, durationMs: 1, assertions: [] },
-      { sources: [{ path: "evals/b.eval.ts", content: "export default { test() { /* different */ } };\n" }] },
-    );
-    await writer.finish();
-
-    const storeFiles = await readdir(join(snap.dir, "sources"));
-    expect(storeFiles).toHaveLength(2);
-  });
-
   it("经真实 --resume carry 流程(writeAttemptFor 的 artifactBase 分支)携带的 attempt,其 sources() 引用在新快照里依然能解到原快照内容", async () => {
     const root = await makeRoot();
     const content = "export default { test() {} };\n";

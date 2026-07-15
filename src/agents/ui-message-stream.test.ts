@@ -1,3 +1,4 @@
+// cases: docs/engineering/unit-tests/adapters/cases.md
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentContext } from "../types.ts";

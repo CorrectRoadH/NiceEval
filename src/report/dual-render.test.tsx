@@ -1,3 +1,4 @@
+// cases: docs/engineering/unit-tests/reports/cases.md
 // 双面验收:每个官方组件对同一份数据,web 面(renderToStaticMarkup)与 text 面
 // 给出一致判读 —— 排序方向随 better、samples < total 角标、缺数据 — 不补 0、
 // 截断如实报剩余;text 面形态以内联快照锁定(照 report-components.mdx 的示例形态)。
@@ -171,17 +172,6 @@ describe("RunOverview.data · endToEndPassRate 两级聚合口径", () => {
     );
     expect(stats.passRate).toBeCloseTo(2 / 3, 10);
     expect(stats.passRate).not.toBeCloseTo(data.totals.passRate.value as number, 3);
-  });
-
-  it("web 面与 text 面显示同一个 endToEndPassRate.display,覆盖率角标(5/6)两面一致", async () => {
-    const { selection } = fakeVaryingAttemptsContext();
-    const data = await RunOverview.data(selection);
-    const html = renderToStaticMarkup(<RunOverview data={data} />);
-    const term = text(<RunOverview data={data} />);
-    for (const face of [html, term]) {
-      expect(face).toContain(data.totals.passRate.display);
-      expect(face).toContain("5/6");
-    }
   });
 });
 

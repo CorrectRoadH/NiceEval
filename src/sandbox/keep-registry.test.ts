@@ -1,3 +1,4 @@
+// cases: docs/engineering/unit-tests/sandbox/cases.md
 // 留存注册表的单测:逐条目文件、原子写、发现规则、更新与删除(见 docs/feature/sandbox/architecture.md)。
 
 import { afterEach, describe, expect, it } from "vitest";

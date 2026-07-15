@@ -1,3 +1,4 @@
+// cases: docs/engineering/unit-tests/adapters/cases.md
 // parseOtlpTraces 两种线编码的回归测试。protobuf 路径此前零覆盖——bub(Python OTLP
 // 出口只有 protobuf)的 trace 全靠它,解析静默失败的表现就是"span 收到了但 trace 是空的"。
 // 这里不引 opentelemetry 依赖,用一个最小 protobuf writer 按 opentelemetry-proto 字段号手工编码。

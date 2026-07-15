@@ -1,3 +1,4 @@
+// cases: docs/engineering/unit-tests/adapters/cases.md
 import { describe, expect, it } from "vitest";
 
 import { parseOpenClawTranscript, parseOpenClaw, parseOpenClawRunJson } from "./openclaw.ts";

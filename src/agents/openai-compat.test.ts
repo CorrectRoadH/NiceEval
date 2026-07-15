@@ -1,3 +1,4 @@
+// cases: docs/engineering/unit-tests/adapters/cases.md
 import { describe, expect, it } from "vitest";
 
 import { fromChatCompletion, fromResponses } from "./openai-compat.ts";

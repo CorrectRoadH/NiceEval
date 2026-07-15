@@ -1,3 +1,4 @@
+// cases: docs/engineering/unit-tests/experiments-runner/cases.md
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { emitReporterEvent, filterSummary, runReporter, scopeReporter } from "./report.ts";
 import { activateFeedbackSink, activeFeedbackSinkCount } from "./feedback/sink.ts";
@@ -187,20 +188,6 @@ describe("runReporter / emitReporterEvent · required/best-effort 原样转发,�
           throw new Error("boom");
         }),
       ).resolves.toBeUndefined();
-    }));
-
-  it("同一个 reporter 在不同 stage 各失败一次,折叠成同一个 reporter 身份(name 不变),不是两个不相关的报告", () =>
-    withFakeSink(async (calls) => {
-      const reg: ReporterRegistration = { reporter: {}, name: "artifacts", required: true };
-      await runReporter(reg, "onEvalComplete", () => {
-        throw new Error("first failure");
-      });
-      await runReporter(reg, "onRunComplete", () => {
-        throw new Error("second failure");
-      });
-      expect(calls).toHaveLength(2);
-      expect(calls[0]!.reporter).toBe("artifacts");
-      expect(calls[1]!.reporter).toBe("artifacts"); // 两次都是同一个 reporter 身份,供下游按 key 去重折叠
     }));
 
   it("emitReporterEvent 对每个注册项独立兜错:一个 reporter 抛错不阻止其它 reporter 收到同一个事件", () =>

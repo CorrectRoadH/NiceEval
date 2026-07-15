@@ -1,3 +1,4 @@
+// cases: docs/engineering/unit-tests/adapters/cases.md
 // mapClaudeCodeSpans:span 形状取自真实运行(claude CLI 2.1.202 beta 遥测,E2B 实测)。
 
 import { describe, expect, it } from "vitest";

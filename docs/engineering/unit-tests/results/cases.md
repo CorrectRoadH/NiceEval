@@ -37,7 +37,7 @@ it("writer 把快照元数据与 attempt 事实写到各自唯一位置", async 
       durationMs: 1200,
       assertions: [],
     })
-    await fx.writer.complete("2026-07-13T00:00:02.000Z")
+    await fx.writer.finish()
 
     const snapshot = await fx.readJson("snapshot.json")
     const result = await fx.readJson("weather/brooklyn/a0/result.json")

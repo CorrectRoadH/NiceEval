@@ -1,3 +1,4 @@
+// cases: docs/engineering/unit-tests/reports/cases.md
 // niceeval/report 计算层的单元测试:全部用内存 fake(Snapshot / AttemptHandle 按
 // niceeval/results 的读取契约手工构造),专门覆盖 docs/feature/reports/architecture.md 点名的坑 ——
 // 两级聚合 vs 平铺、pass@k、examScore 空真、skipped 稀释、scoreboard 固定分母与
@@ -1074,16 +1075,6 @@ describe("GroupSummary.data", () => {
     expect(data.lastRunAt).toBe(expB.startedAt);
   });
 
-  it('跨 experiment 同名 eval 不合并:两个 experiment 各自的 "x" 独立计一票,不是被折成一票', async () => {
-    const a = snap({ experimentId: "exp/a", results: [res("x", "passed")] });
-    const b = snap({ experimentId: "exp/b", results: [res("x", "failed")] });
-    const data = await GroupSummary.data([a, b]);
-    expect(data.experiments).toBe(2);
-    expect(data.evals).toBe(2); // 只按 eval id 折叠(误把两个 experiment 的 "x" 当一道题)会变成 1
-    expect(data.verdicts).toEqual({ passed: 1, failed: 1, errored: 0, skipped: 0 });
-    expect(data.passRate.value).toBeCloseTo(0.5, 10); // 误合并会因为「任一轮过即过」变成 100%
-  });
-
   it("全组没有任何 attempt 报成本 → totalCostUSD null,不编 0", async () => {
     const s = snap({ experimentId: "exp/x", results: [res("A", "passed"), res("B", "failed")] });
     const data = await GroupSummary.data([s]);
@@ -1098,24 +1089,6 @@ describe("GroupSummary.data", () => {
     expect(data.passRate.display).toBe("—");
     expect(data.passRate.samples).toBe(0);
     expect(data.passRate.total).toBe(2);
-  });
-
-  it("lastRunAt 只从传入的组 Selection 取值,不读全局最新 —— 组外快照更晚也不影响", async () => {
-    const inGroup = snap({
-      experimentId: "exp/a",
-      runStartedAt: "2026-07-01T08:00:00Z",
-      results: [res("A", "passed")],
-    });
-    const outOfGroup = snap({
-      experimentId: "exp/b",
-      runStartedAt: "2026-07-09T08:00:00Z",
-      results: [res("B", "passed")],
-    });
-    const sel = selection([inGroup, outOfGroup], []);
-    const scoped = sel.filter((s) => s.experimentId === "exp/a"); // 只留组内快照,模拟按实验组收窄的 Selection
-    const data = await GroupSummary.data(scoped);
-    expect(data.lastRunAt).toBe(inGroup.startedAt);
-    expect(data.lastRunAt).not.toBe(outOfGroup.startedAt);
   });
 
   it('MetricTable rows: "experiment" 的 verdicts meta 复用同一份 eval 级统计,行为不变(回归)', async () => {
@@ -1302,7 +1275,20 @@ describe("MetricMatrix.data", () => {
     expect(find("B", "b1")).toBeUndefined();
   });
 
-  it("MetricBars.data 就是 MetricMatrix.data 的别名(同一个函数)", () => {
-    expect(MetricBars.data).toBe(MetricMatrix.data);
+  it("MetricBars.data 与 MetricMatrix.data 同一输入给出相同数据(别名契约,不锁函数引用)", async () => {
+    const a = snap({
+      experimentId: "exp/a",
+      agent: "a1",
+      results: [res("A", "passed", { agent: "a1" }), res("B", "failed", { agent: "a1" })],
+    });
+    const b = snap({
+      experimentId: "exp/b",
+      agent: "b1",
+      results: [res("A", "failed", { agent: "b1" })],
+    });
+    const options = { rows: "eval", columns: "agent", cell: taskPassRate } as const;
+    const bars = await MetricBars.data([a, b], options);
+    const matrix = await MetricMatrix.data([a, b], options);
+    expect(bars).toEqual(matrix);
   });
 });

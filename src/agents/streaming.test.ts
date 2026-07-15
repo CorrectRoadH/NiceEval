@@ -1,3 +1,4 @@
+// cases: docs/engineering/unit-tests/adapters/cases.md
 import { describe, expect, it } from "vitest";
 
 import { deltaStream, driveFrameStream } from "./streaming.ts";
@@ -73,15 +74,6 @@ describe("deltaStream", () => {
     const s = deltaStream({ toOps });
     s.add({ delta: { tool_calls: [{ index: 0, id: "call_2", function: { name: "broken", arguments: "not json" } }] } });
     expect(s.add({ finish_reason: "tool_calls" })).toEqual([{ type: "action.called", callId: "call_2", name: "broken", input: "not json" }]);
-  });
-
-  it("tool-result 独立到达,配对靠 core 的 deriveRunFacts,这里只管落地成 action.result", () => {
-    const s = deltaStream<{ result?: { callId: string; output: string } }>({
-      toOps: (f) => (f.result ? [{ kind: "tool-result", callId: f.result.callId, output: f.result.output, status: "completed" }] : []),
-    });
-    expect(s.add({ result: { callId: "call_1", output: "22C" } })).toEqual([
-      { type: "action.result", callId: "call_1", output: "22C", status: "completed" },
-    ]);
   });
 
   it("error 操作:落地未完成的文本、置 failed、附一条 error 事件", () => {

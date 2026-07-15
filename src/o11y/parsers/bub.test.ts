@@ -1,3 +1,4 @@
+// cases: docs/engineering/unit-tests/adapters/cases.md
 // bub tape 解析回归锁。
 //
 // 背景(2026-07 实测):模型在同一步里「先说话再调工具」时,bub 的 tape 把伴随文本

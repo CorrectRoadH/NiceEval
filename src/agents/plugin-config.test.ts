@@ -1,3 +1,4 @@
+// cases: docs/engineering/unit-tests/adapters/cases.md
 // 编译期类型测试:证明 Claude Code / Codex / Bub 的 Config 只能收各自合法的扩展组合——
 // 不支持的能力在类型层就不存在,不留到运行期 fail fast(定稿见
 // docs/feature/adapters/architecture/coding-agent-extensions.md「类型边界」)。

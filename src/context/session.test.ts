@@ -1,3 +1,4 @@
+// cases: docs/engineering/unit-tests/eval/cases.md
 import { describe, expect, it } from "vitest";
 
 import { createAgentSession, SessionManager } from "./session.ts";

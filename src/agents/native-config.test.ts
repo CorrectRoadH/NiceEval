@@ -1,3 +1,4 @@
+// cases: docs/engineering/unit-tests/adapters/cases.md
 // 原生配置文件共享实现(native-config.ts)的单测:项目相对路径的接受/拒绝口径、原始字节
 // 与 SHA-256、JSON / TOML 的语法验收与保留键判定、checkpoint key 条目随字节变化。
 // 契约来源:docs/feature/adapters/architecture/coding-agent-extensions.md「类型边界」,

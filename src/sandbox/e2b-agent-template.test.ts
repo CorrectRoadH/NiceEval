@@ -1,5 +1,11 @@
+// cases: docs/engineering/unit-tests/sandbox/cases.md
 import { Template } from "e2b";
 import { describe, expect, it } from "vitest";
+import {
+  BUB_INSTALL_MARKER,
+  DEFAULT_BUB_OTEL_PLUGIN,
+  DEFAULT_BUB_OVERRIDE,
+} from "../agents/bub-install-spec.ts";
 import {
   E2B_OFFICIAL_AGENT_TEMPLATES,
   NICEEVAL_BUB_E2B_TEMPLATE,
@@ -41,9 +47,10 @@ describe("e2bCodingAgentTemplate", () => {
     const json = await Template.toJSON(e2bCodingAgentTemplate("bub", {
       bubPythonPackages: ["bub-plugin-memory==1.3.0"],
     }));
-    expect(json).toContain("86fbd0febc1665353f5131173554e1f513e66b4c");
-    expect(json).toContain("add4a6a133c5658aec8f167ef50804d9ee55d22e");
-    expect(json).toContain("bub-install-hash");
+    // pin 的单源在 bub-install-spec.ts;这里只证明 spec → 模板 recipe 的传播,不复刻 pin 值。
+    expect(json).toContain(DEFAULT_BUB_OVERRIDE.split("@").at(-1)!);
+    expect(json).toContain(DEFAULT_BUB_OTEL_PLUGIN.split("@").at(-1)!.split("#")[0]!);
+    expect(json).toContain(BUB_INSTALL_MARKER.split("/").at(-1)!);
     expect(json).toContain("bub-plugin-memory==1.3.0");
   });
 });

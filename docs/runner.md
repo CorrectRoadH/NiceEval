@@ -39,7 +39,7 @@ fixtures/button   codex         pass@5 = 3/5 (60%)   mean 41s · 72k tok · $0.3
 取通过率本可以跑满 N 次,但若只关心"能不能做到",先过一次即可停其余:
 
 - 每个 eval 配一个 `AbortController`。
-- **只有 `passed` 触发首过即停**:某 attempt 通过且 `earlyExit` 开 → `abort()` 同 eval 其余 attempt;被 abort 的不计入分母。
+- **只有 `passed` 触发首过即停**:某 attempt 通过且 `earlyExit` 开 → `abort()` 同 eval 其余 attempt;被 abort 的不计入分母。`run:earlyExit` 事件只在实际省略了至少一个轮次时发出——最后一轮才通过时没有可省的轮次,不发事件。
 - `errored` 不触发:超时、限流、沙箱挂掉这类瞬态基建错误在下一个 attempt 上完全可能自愈,因一次 errored 停掉其余样本等于放弃重试机会,还会把基建抖动放大成整题无结果。
 - 确定性错误不靠 earlyExit 兜,走独立的 **run 级 fail-fast**:凭据缺失、模板不存在、作者代码必现抛错这类同因必复现的错误,识别出(预检命中,或同一错误 code 在同一 eval 连续复现)即停止派发受同一配置影响的后续 attempt,如实报 errored——这是止损,不是「首过即停」,两个机制互不混用。
 - 默认开;`--no-early-exit` 关(想要完整通过率分布时)。

@@ -1,3 +1,4 @@
+// cases: docs/engineering/unit-tests/adapters/cases.md
 import { describe, expect, it } from "vitest";
 
 import { fromClaudeSdkMessages, fromCodexThreadEvents, fromPiAgentEvents, sseJsonFrames } from "./sdk-streams.ts";

@@ -1,3 +1,4 @@
+// cases: docs/engineering/unit-tests/adapters/cases.md
 // 工具名归一的回归锁:canonical ToolName 是跨 agent 断言(calledTool("file_read"))
 // 的命中基础。这里逐 agent 锁死关键映射,防止基表 / per-agent 差异表重构时悄悄漂移
 // (曾发生:Claude Code 的裸名 Read/Write/Edit 在一次表合并中归一成了 "unknown")。

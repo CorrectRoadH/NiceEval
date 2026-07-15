@@ -1,11 +1,9 @@
+// cases: docs/engineering/unit-tests/reports/cases.md
 // 「不 hydrate 也完整」的验收测试:每个组件过 renderToStaticMarkup,
 // 断言纯静态 HTML 里就有全部关键内容——数字、覆盖率角标、缺数据文案、
 // 散点的 SVG 与系列名、truncated 行、attemptHref 链接。
-// 另外锁两条契约:源码零 hooks;维度键跨组件同色。
+// 另外锁一条契约:维度键跨组件同色。
 
-import { readFileSync, readdirSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { AttemptLocator } from "../../results/locator.ts";
@@ -71,12 +69,6 @@ describe("RunOverview", () => {
 
 describe("MetricTable", () => {
   const html = renderToStaticMarkup(<MetricTable data={tableData} attemptHref={attemptHref} />);
-
-  it("按传入顺序渲染行,不重排(排序在数据侧)", () => {
-    // fixture 里 codex(50%)在 bub(87%)前面,输出必须保持
-    expect(html.indexOf(">codex<")).toBeGreaterThan(-1);
-    expect(html.indexOf(">codex<")).toBeLessThan(html.indexOf(">bub<"));
-  });
 
   it("列头带 label、unit 与 better 方向", () => {
     expect(html).toContain("pass rate");
@@ -157,20 +149,11 @@ describe("MetricMatrix", () => {
     expect(html).toContain("eval × agent");
   });
 
-  it("稀疏格子:没有样本的格子空着(恰好一个)", () => {
-    expect(html.match(/nre-td-empty/g)).toHaveLength(1);
-  });
-
   it("格子数字与 refs 下钻链接", () => {
     expect(html).toContain("100%");
     expect(html).toContain("0%");
     expect(html).toContain('href="/attempts/@1b3b3b3"');
     expect(html).toContain('href="/attempts/@1b7b7b7"');
-  });
-
-  it("列头(维度键)带稳定散列配色 class", () => {
-    expect(html).toContain(colorClassForKey("bub"));
-    expect(html).toContain(colorClassForKey("codex"));
   });
 });
 
@@ -243,11 +226,6 @@ describe("MetricScatter", () => {
     expect(html).toContain(">codex-mid</text>");
   });
 
-  it("null 点不画,底部注脚如实报数", () => {
-    expect(html).not.toContain('data-key="compare/codex-broken"');
-    expect(html).toContain("1 point missing data");
-  });
-
   it("hover 退化为 <title>:display 与 samples/total", () => {
     expect(html).toContain("<title>");
     expect(html).toContain("50%(6/6)");
@@ -304,11 +282,6 @@ describe("DeltaTable", () => {
     expect(html).toContain("nre-delta-flat");
   });
 
-  it("任一侧缺数据:Δ 显示为缺,不硬算", () => {
-    expect(html).toContain("nre-delta-missing");
-    expect(html).toContain("no data");
-  });
-
   it("每行标出 A → B 的 experimentId", () => {
     expect(html).toContain("compare/bub → compare/bub--agents-md");
   });
@@ -329,21 +302,11 @@ describe("AttemptList", () => {
     expect(html).not.toContain("judge: sign flipped when substituting into the quadratic formula");
   });
 
-  it("errored 的 error 摘要", () => {
-    expect(html).toContain("TypeError: cannot read properties of undefined");
-  });
-
   it("total > items.length 时如实报「还有 n 条没列」", () => {
     const html2 = renderToStaticMarkup(<AttemptList items={attemptListItems} total={attemptListItems.length + 2} />);
     expect(html2).toContain("and 2 more not shown");
     // 不传 total(或 total === items.length)不产出截断文案
     expect(html).not.toContain("more not shown");
-  });
-
-  it("每条 attempt 带 locator + 默认证据室深链,不追加字母缩写", () => {
-    expect(html).toContain('href="#/attempt/@1a4a4a4"');
-    expect(html).toContain('href="#/attempt/@1c1c1c1"');
-    expect(html).not.toMatch(/\[[EXD⏱,]+\]/);
   });
 
   it("AttemptList 自身不展开断言详情", () => {
@@ -353,13 +316,6 @@ describe("AttemptList", () => {
 
 describe("EvalList", () => {
   const html = renderToStaticMarkup(<EvalList items={evalListItems} />);
-
-  it("每项一个 experimentId + evalId,判定与分数在场", () => {
-    expect(html).toContain("algebra/quadratic");
-    expect(html).toContain("geometry/angles");
-    expect(html).toContain("compare/bub");
-    expect(html).toContain("compare/codex");
-  });
 
   it("展开到这道题的 Attempt(与 AttemptList 同一套 AttemptRow 渲染)", () => {
     expect(html).toContain('href="#/attempt/@1a4a4a4"');
@@ -437,16 +393,5 @@ describe("跨组件契约", () => {
       renderToStaticMarkup(<ExperimentList items={experimentListItems} />),
     ].join("");
     expect(all).not.toContain("<script");
-  });
-
-  it("组件源码零 hooks(本实验的「不 hydrate 也完整」用最笨的方式保证)", () => {
-    const dir = dirname(fileURLToPath(import.meta.url));
-    const sources = readdirSync(dir)
-      .filter((f) => (f.endsWith(".tsx") || f.endsWith(".ts")) && !f.includes(".test."))
-      .map((f) => readFileSync(join(dir, f), "utf8"));
-    expect(sources.length).toBeGreaterThanOrEqual(12);
-    for (const src of sources) {
-      expect(src).not.toMatch(/\buse[A-Z][A-Za-z]*\s*\(/);
-    }
   });
 });

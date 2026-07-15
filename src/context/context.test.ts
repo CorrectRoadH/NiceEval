@@ -1,3 +1,4 @@
+// cases: docs/engineering/unit-tests/eval/cases.md
 import { describe, expect, it } from "vitest";
 import { createEvalContext, type ContextState } from "./context.ts";
 import { commandSucceeded, includes } from "../expect/index.ts";
@@ -243,6 +244,8 @@ describe("t.respond() / t.respondAll(): structured InputResponse", () => {
     await context.send("apply two edits");
 
     await expect(context.respond("approve")).rejects.toThrow(/字符串回答无法对位|cannot be matched/);
+    // 报错但响应已发出同样违约:agent 只收到最初那一次 send,没有第二次输入。
+    expect(agent.received).toHaveLength(1);
   });
 
   it("object form { request, optionId } disambiguates when multiple requests are pending", async () => {

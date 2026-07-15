@@ -1,3 +1,4 @@
+// cases: docs/engineering/unit-tests/experiments-runner/cases.md
 import { describe, expect, it } from "vitest";
 import { toBraintrustEvent } from "./braintrust.ts";
 import type { EvalResult } from "../../types.ts";

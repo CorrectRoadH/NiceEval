@@ -1,3 +1,4 @@
+// cases: docs/engineering/unit-tests/adapters/cases.md
 // SkillSpec 安装的单测:本地形状(目录 / 单文件 / 不支持)、repo 的 ref 钉定与选择规则、
 // manifest 记录形状、以及「setup 装进 workspace 的东西不算 agent diff」这条护栏。
 // 沙箱是内存 fake(记命令 + 记文件),不起容器:这里要验的是 adapter 侧的翻译规则,
