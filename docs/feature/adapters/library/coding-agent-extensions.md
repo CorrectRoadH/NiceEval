@@ -1,6 +1,6 @@
 # 配置 Coding Agent 扩展
 
-Claude Code、Codex CLI 和 Bub 的 Adapter factory 可以在每个 attempt 开始前安装 Skills、MCP servers 和各自的原生扩展；Claude Code 与 Codex 还可以通过 `settings` 写入各自的原生设置。扩展与设置作为 Agent 构造参数进入 experiment，便于组织可复现的 A/B 对比。
+Claude Code、Codex CLI 和 Bub 的 Adapter factory 可以在每个 attempt 开始前安装 Skills、MCP servers 和各自的原生扩展；Claude Code 与 Codex 还可以安装各自的官方原生配置文件。扩展与配置文件作为 Agent 构造参数进入 experiment，便于组织可复现的 A/B 对比。
 
 ## 安装本地 Skill
 
@@ -48,23 +48,45 @@ const codex = codexAgent({ mcpServers: [browser] });
 
 MCP 只在 factory 构造时传入。需要条件变体时包装 factory 并合并数组，不在 Agent 构造后修改配置文件。
 
-## 写入原生设置
+## 使用官方原生配置文件
+
+原生配置保留官方文件格式，不改写成 TypeScript 对象。先在项目里准备完整配置文件：
+
+`configs/claude-code/no-web.json`：
+
+```json
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": { "deny": ["WebSearch", "WebFetch"] }
+}
+```
+
+`configs/codex/no-web.toml`：
+
+```toml
+#:schema https://developers.openai.com/codex/config-schema.json
+web_search = "disabled"
+```
+
+再把路径交给各自的 factory：
 
 ```ts
 const claude = claudeCodeAgent({
-  settings: { permissions: { deny: ["WebSearch", "WebFetch"] } },
+  settingsFile: "configs/claude-code/no-web.json",
 });
 
 const codex = codexAgent({
-  settings: { web_search: "disabled" },
+  configFile: "configs/codex/no-web.toml",
 });
 ```
 
-`settings` 是 Sandbox coding-agent Adapter 的标准字段：被测 CLI 有原生配置文件就有它（claude-code、codex），没有的（bub）config 上没有这个字段。它用各 Agent 自己的设置词汇——claude-code 是 settings.json 的 JSON 对象，codex 是 config.toml 的 TOML 形状对象——setup 阶段写进沙箱里对应的配置文件。niceeval 不在两者之上发明统一词汇，也不为单个行为需求加专用字段；一个键怎么写、取什么值，查对应 Agent 的官方设置文档。
+`settingsFile` 和 `configFile` 是运行 niceeval 的机器上的本地文件路径，不是 Sandbox 内路径；它们相对本地 niceeval 项目根解析，分别指向完整的 Claude Code `settings.json` 与 Codex `config.toml`。字段只接受项目根内的相对路径：`configs/codex/no-web.toml` 与 `./configs/codex/no-web.toml` 合法，包含 `..` 的路径、绝对路径、`~` 路径和解析后逃出项目根的符号链接都在 setup 阶段报错。
 
-model、鉴权和 OTel 导出由 experiment 与 Adapter 决定，对应的键不允许出现在 `settings` 里，冲突在 setup 阶段报错。settings 影响运行环境，进安装 checkpoint key；secret 走环境变量，不写进 settings。每个 Agent 的保留键清单见页尾链接的各 Agent 页。
+Adapter 先从本地读取原始字节，再上传到 Sandbox 的隔离 Agent 配置目录。它不继承宿主机的 `~/.claude/settings.json` 或 `~/.codex/config.toml`；传入文件原样替换 Sandbox 中原本为空的用户配置层，不做字符串拼接、deep merge 或重新序列化。仓库自己的项目级配置仍由被测 CLI 按官方优先级读取。
 
-上例两边都关掉内置联网检索：评测答案能被搜到时，联网会污染通过率。注意 `settings` 只能关掉 Agent 的检索工具，挡不住它用 shell 命令访问网络；更强的网络隔离属于 Sandbox 层。
+model、鉴权、MCP 和 OTel 导出由 experiment 与 Adapter 通过独立配置层或 CLI 参数叠加，对应的键不允许出现在原生配置文件里，冲突在 setup 阶段报错，不做静默覆盖。配置文件内容的 SHA-256 进入安装 checkpoint key；secret 走环境变量，不写进配置文件。每个 Agent 的保留键清单见页尾链接的各 Agent 页。
+
+上例两边都关掉内置联网检索：评测答案能被搜到时，联网会污染通过率。注意原生配置只能关掉 Agent 的检索工具，挡不住它用 shell 命令访问网络；更强的网络隔离属于 Sandbox 层。
 
 ## 组织 A/B 实验
 
@@ -100,7 +122,7 @@ model、reasoning effort 和业务 flags 仍由 experiment 配置；扩展内容
 
 ## 查看安装结果
 
-Sandbox Agent setup 写出安装 manifest，attempt 结果保存实际安装的 Skill、来源、ref、插件、解析版本和写入的原生 settings。安装失败属于基础设施错误，不记作 Agent 解题失败。
+Sandbox Agent setup 写出安装 manifest，attempt 结果保存实际安装的 Skill、来源、ref、插件、解析版本，以及原生配置文件的项目相对路径与 SHA-256；manifest 不保存配置文件正文。安装失败属于基础设施错误，不记作 Agent 解题失败。
 
 每个 Agent 支持的字段和示例见：
 

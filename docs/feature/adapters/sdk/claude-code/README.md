@@ -18,17 +18,19 @@ const agent = claudeCodeAgent({
 
 `skills`、`mcpServers` 和 Claude Code 原生 `plugins` 均在 setup 阶段安装。Marketplace 连接不代表启用其中所有插件，每项必须显式给出 Plugin 名。
 
-`settings` 用 Claude Code 自己的 settings.json 词汇配置 CLI 行为，setup 阶段写进沙箱用户级 `~/.claude/settings.json`：
+`settingsFile` 是运行 niceeval 的机器上的本地路径，不是 Sandbox 内路径；它相对本地项目根解析，指向一份完整的 Claude Code `settings.json`：
 
 ```ts
 const agent = claudeCodeAgent({
-  settings: {
-    permissions: { deny: ["WebSearch", "WebFetch"] },
-  },
+  settingsFile: "configs/claude-code/no-web.json",
 });
 ```
 
-键名与取值以 Claude Code 官方 settings 文档为准，niceeval 不翻译、不发明中间词汇。保留键是 `model` 与 `env`——模型选择归 experiment，鉴权与 OTel 导出归 Adapter——出现在 `settings` 里 setup 报错并点名冲突键。settings 进安装 checkpoint key 与安装 manifest；secret 走环境变量，不写进 settings。上例关闭 WebSearch / WebFetch：评测答案能被搜到时，联网检索会污染通过率。
+字段只接受项目根内的相对路径。`configs/claude-code/no-web.json` 与 `./configs/claude-code/no-web.json` 合法；包含 `..` 的路径、绝对路径、`~` 路径和解析后逃出项目根的符号链接都在 setup 阶段报错。
+
+文件内容使用 Claude Code 官方 settings 词汇；例如 `{ "permissions": { "deny": ["WebSearch", "WebFetch"] } }` 关闭 WebSearch / WebFetch。Adapter 从本地读取文件后上传到隔离的 Claude 配置目录，原样替换其中原本为空的用户级 `~/.claude/settings.json`；它不继承宿主机配置，也不与它合并。项目自己的 `.claude/settings.json` / `.claude/settings.local.json` 仍按 Claude Code 官方优先级加载。
+
+保留键是 `model` 与 `env`——模型选择归 experiment，鉴权与 OTel 导出归 Adapter——出现在文件里 setup 报错并点名冲突键。文件原始字节的 SHA-256 进入安装 checkpoint key；manifest 只记录项目相对路径和 SHA-256，不保存正文。secret 走环境变量，不写进配置文件。
 
 Adapter 用 Claude Code transcript JSONL 取得消息、thinking、工具、usage 和 session ID，按 `tool_use.id` / `tool_result.tool_use_id` 配对。Skill Tool 调用归一为 `skill.loaded`。会话通过原生 resume ID 续接。
 

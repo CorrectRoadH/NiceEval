@@ -16,17 +16,19 @@ const agent = codexAgent({
 });
 ```
 
-`settings` 用 codex 自己的 config.toml 词汇配置 CLI 行为，setup 阶段按 TOML 语义合并进 `~/.codex/config.toml`：
+`configFile` 是运行 niceeval 的机器上的本地路径，不是 Sandbox 内路径；它相对本地项目根解析，指向一份完整的 Codex `config.toml`：
 
 ```ts
 const agent = codexAgent({
-  settings: {
-    web_search: "disabled",
-  },
+  configFile: "configs/codex/no-web.toml",
 });
 ```
 
-键名与取值以 codex 官方 config 文档为准，niceeval 不翻译、不发明中间词汇。保留键是 `model`、`model_provider`、`model_providers`、`model_reasoning_effort`、`mcp_servers` 与 `otel`——模型与 reasoning effort 归 experiment，provider 路由、MCP 表和 OTel 导出归 Adapter——出现在 `settings` 里 setup 报错并点名冲突键。settings 进安装 checkpoint key 与安装 manifest；secret 走环境变量，不写进 settings。上例关闭内置 web_search：评测答案能被搜到时，联网检索会污染通过率。
+字段只接受项目根内的相对路径。`configs/codex/no-web.toml` 与 `./configs/codex/no-web.toml` 合法；包含 `..` 的路径、绝对路径、`~` 路径和解析后逃出项目根的符号链接都在 setup 阶段报错。
+
+文件内容直接使用 Codex 官方 TOML；例如 `web_search = "disabled"` 关闭内置联网检索。Adapter 从本地读取文件后上传到隔离的 Codex 配置目录，原样替换其中原本为空的用户级 `~/.codex/config.toml`；它不继承宿主机配置，也不解析后重写。Adapter 的模型、provider 路由、MCP 表和 OTel 导出通过独立生成层或 CLI 参数叠加；项目自己的 `.codex/config.toml` 仍按 Codex 官方优先级加载。
+
+保留键是 `model`、`model_provider`、`model_providers`、`model_reasoning_effort`、`mcp_servers` 与 `otel`——出现在文件里 setup 报错并点名冲突键。文件原始字节的 SHA-256 进入安装 checkpoint key；manifest 只记录项目相对路径和 SHA-256，不保存正文。secret 走环境变量，不写进配置文件。
 
 Codex Adapter 把 Skills 写到可发现目录并提供稳定发现指引；不能假设存在与 Claude Code Skill Tool 相同的自动加载事件。验证 Skill 使用时检查读取行为或 Skill 特有结果。
 
