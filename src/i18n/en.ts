@@ -147,6 +147,7 @@ export const en = {
   "define.evalIdRejected": "defineEval does not accept id; ids are derived from file paths.",
   "define.evalTestRequired": "defineEval requires an async test(t) function.",
   "define.experimentAgentRequired": "defineExperiment requires agent.",
+  "define.experimentFlagNotJson": "experiment.flags.{{key}} is not JSON-serializable (functions / undefined / cycles / bigint are not allowed); flags are persisted verbatim into result snapshots and must be plain JSON.",
   "define.experimentIdRejected": "defineExperiment does not accept id; ids are derived from file paths.",
   "define.sandboxAgentNameRequired": "defineSandboxAgent requires name.",
   "define.sandboxCreateRequired": "defineSandbox requires a create() function.",

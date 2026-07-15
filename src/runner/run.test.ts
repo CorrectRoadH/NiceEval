@@ -516,7 +516,7 @@ describe("runEvals · failure 永久事件在真实失败/errored attempt 上被
         // skipReason」)——"scoring" 才是 teardown 之前最后一个真实阶段,不能因为
         // attempt:complete 删了 active map 条目就在 reportFailure() 里彻底丢失 phase(见 run.ts
         // 的 lastPhase 跟踪,以及它为什么排除 teardown 本身)。
-        phase: "scoring",
+        phase: "scoring.evaluate",
       });
       expect(erroredNotice?.reason).toContain("boom");
 
@@ -528,7 +528,7 @@ describe("runEvals · failure 永久事件在真实失败/errored attempt 上被
         identity: { experimentId, evalId: "gate-fail", attempt: 0 },
         reason: 'gate: equals("expected")',
         // gate 断言在 scoring 阶段判定,test() 本身顺利完成——phase 同样停在 "scoring"。
-        phase: "scoring",
+        phase: "scoring.evaluate",
       });
     });
   });

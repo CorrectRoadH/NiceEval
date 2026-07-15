@@ -122,6 +122,9 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
   const attempts: Attempt[] = [];
   for (const run of opts.agentRuns) {
     const evals = opts.evals.filter((e) => run.evalFilter(e.id));
+    // 解析后实际选中的 eval id 全集(evals 过滤器的求值结果)进 ExperimentRunInfo.selectedEvalIds,
+    // 与 evalFilterFingerprint 一起取代过滤器本身落盘(见 docs/feature/results/architecture.md)。
+    run.selectedEvalIds = evals.map((e) => e.id);
     for (let i = 0; i < run.runs; i++) {
       for (const evalDef of evals) {
         const carryKey = `${run.experimentId ?? ""}|${evalDef.id}`;

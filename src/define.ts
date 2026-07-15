@@ -64,7 +64,24 @@ export function defineExperiment(def: ExperimentDef): ExperimentDef {
     throw new Error(t("define.experimentIdRejected"));
   }
   if (!def.agent) throw new Error(t("define.experimentAgentRequired"));
+  // flags 必须可 JSON 序列化(进结果快照的 ExperimentRunInfo.flags):解析时即校验,
+  // 非 JSON 值(函数 / undefined / 循环引用 / bigint)直接报错,不等到落盘才炸。
+  if (def.flags !== undefined) {
+    for (const [key, value] of Object.entries(def.flags)) {
+      if (!isJsonValue(value)) {
+        throw new Error(t("define.experimentFlagNotJson", { key }));
+      }
+    }
+  }
   return def;
+}
+
+function isJsonValue(v: unknown): boolean {
+  if (v === null || typeof v === "string" || typeof v === "boolean") return true;
+  if (typeof v === "number") return Number.isFinite(v);
+  if (Array.isArray(v)) return v.every(isJsonValue);
+  if (typeof v === "object") return Object.values(v as Record<string, unknown>).every(isJsonValue);
+  return false;
 }
 
 /** 项目级配置。 */
@@ -149,6 +166,8 @@ export function defineSandbox(def: {
   name: string;
   create: CustomSandboxSpec["create"];
   recommendedConcurrency?: number;
+  /** 可发布参数的投影(进结果快照);未实现时只落 provider 名。 */
+  publicConfig?: CustomSandboxSpec["publicConfig"];
 }): CustomSandboxSpec {
   if (!def.name) throw new Error(t("define.sandboxNameRequired"));
   if (typeof def.create !== "function") throw new Error(t("define.sandboxCreateRequired"));
@@ -156,6 +175,7 @@ export function defineSandbox(def: {
     provider: def.name,
     create: def.create,
     recommendedConcurrency: def.recommendedConcurrency,
+    publicConfig: def.publicConfig,
     setupHooks: state.setupHooks,
     teardownHooks: state.teardownHooks,
     ...hookMethods(state, build),

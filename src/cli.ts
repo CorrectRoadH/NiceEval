@@ -5,6 +5,7 @@
 //   niceeval clean                   删除 .niceeval/ 历史运行 artifact
 
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -414,6 +415,21 @@ function evalsFilterFromExperiment(
 }
 
 /**
+ * evals 过滤器的指纹(进 ExperimentRunInfo.evalFilterFingerprint,供「配置没变」判断):
+ * 数组按内容、函数按函数体哈希;CLI 追加的位置参数前缀一并计入。不存过滤器本身——
+ * 求值结果在 selectedEvalIds(见 runEvals)。
+ */
+function fingerprintEvalsFilter(evals: DiscoveredExperiment["evals"], patterns: string[]): string {
+  const basis =
+    evals === undefined || evals === "*"
+      ? "*"
+      : Array.isArray(evals)
+        ? JSON.stringify([...evals].sort())
+        : evals.toString();
+  return createHash("sha256").update(JSON.stringify({ basis, patterns })).digest("hex").slice(0, 16);
+}
+
+/**
  * run 结束后把 coordinator 累计的诊断折成 `RunCompletion`(见 docs/feature/experiments/cli.md
  * 「运行完成状态不只看 verdict 计数」)。只读已经真实发生过的诊断,不额外发明信号:
  * - `"interrupted"` 诊断只在 run.ts 判定为真·中断(Effect exit 真实标记中断,不是「signal 被
@@ -583,6 +599,8 @@ async function main(): Promise<void> {
         budget: flags.budget ?? envNumber("NICEEVAL_BUDGET") ?? exp.budget,
         evalFilter: evalsFilterFromExperiment(exp.evals, extraPatterns),
         experimentId: exp.id,
+        description: exp.description,
+        evalFilterFingerprint: fingerprintEvalsFilter(exp.evals, extraPatterns),
         strict: flags.strict,
         // 实验级并发上限:随 AgentRun 进调度器按实验单独限流(runner 两级信号量),
         // 不再取所有选中实验的最小值钳全局——那会让一个串行实验拖慢整批基线。

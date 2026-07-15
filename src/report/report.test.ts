@@ -173,7 +173,14 @@ describe("ExperimentList.data", () => {
         res("memory/b", "errored", { error: erroredWith("timeout"), durationMs: 3_000 }),
       ],
     });
-    s.experiment = { id: s.experimentId, runs: 2, earlyExit: false, sandbox: "e2b:fast", budget: 2, flags: { cache: true } };
+    s.experiment = {
+      runs: 2,
+      earlyExit: false,
+      sandbox: { provider: "e2b", params: { template: "fast" } },
+      budget: 2,
+      flags: { cache: true },
+      selectedEvalIds: [],
+    };
 
     const items = await ExperimentList.data([s]);
     expect(items).toHaveLength(1);
@@ -780,7 +787,7 @@ describe("flag()", () => {
   const withFlags = (id: string, flags: Record<string, unknown> | undefined, verdict: Verdict) =>
     snap({
       experimentId: id,
-      results: [res("A", verdict, { experimentId: id, experiment: { id, flags } })],
+      results: [res("A", verdict, { experimentId: id, experiment: { flags, runs: 1, earlyExit: true, selectedEvalIds: [] } as import("../types.ts").ExperimentRunInfo })],
     });
 
   it("MetricLine.data:x 收 flag、按 experiment 聚合;未声明的作轴 x=null 报数", async () => {
@@ -830,7 +837,7 @@ describe("config()", () => {
   /** 快照声明 ExperimentRunInfo 投影;字段全集以 docs 的接口为准,这里按键名读值。 */
   const withConfig = (id: string, info: Record<string, unknown> | undefined, verdict: Verdict, model?: string) => {
     const s = snap({ experimentId: id, model, results: [res("A", verdict, { experimentId: id })] });
-    if (info) s.experiment = info as (typeof s)["experiment"];
+    if (info) s.experiment = info as unknown as (typeof s)["experiment"];
     return s;
   };
 

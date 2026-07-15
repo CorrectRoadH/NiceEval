@@ -44,6 +44,11 @@ export interface SnapshotMeta {
   completedAt?: string;
   /** 写入时刻该实验已知的 eval 并集 —— 残缺检测的分母随数据走(copySnapshots 自动补记,writer 可声明)。 */
   knownEvalIds?: string[];
+  /**
+   * 发布拷贝的自描述标记:copySnapshots 补记,消毒函数 → "applied"、redact: false → "none";
+   * 本地事实根没有此字段。只声明流程,不证明无秘密;view --out 据此分级防呆。
+   */
+  publish?: { redaction: "applied" | "none" };
   /** 项目名(来自 config.name),透传给 `niceeval view` 顶部 hero 显示。 */
   name?: LocalizedText;
 }
@@ -125,6 +130,8 @@ export interface Snapshot {
   dir: string;
   /** 写入时刻该实验已知的 eval 并集(可选);copySnapshots 自动补记,writer.snapshot() 也可声明。 */
   knownEvalIds?: string[];
+  /** 发布拷贝的自描述标记(见 SnapshotMeta.publish);本地事实根没有此字段。 */
+  publish?: { redaction: "applied" | "none" };
 }
 
 /** 一个实验的全部历史:同一 experiment id 的历次快照归在一起。 */

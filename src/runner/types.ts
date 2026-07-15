@@ -12,14 +12,26 @@ import type { AttemptLocator } from "../results/locator.ts";
 
 // ───────────────────────── 结果 / 报告 ─────────────────────────
 
+/**
+ * 解析后运行配置的**穷尽可序列化投影**——记录这次运行实际生效的值,不是原始 `ExperimentDef`
+ * (函数与 hooks 无法忠实落盘,存「原样」只能存谎)。`model` 与 `agent` 只在快照顶层存在,
+ * 这里不复制(见 docs/feature/results/architecture.md「snapshot.json」)。
+ */
 export interface ExperimentRunInfo {
-  id?: string;
-  flags?: Record<string, unknown>;
-  runs?: number;
-  earlyExit?: boolean;
-  sandbox?: string;
+  description?: string;
+  reasoningEffort?: string;
+  flags?: Record<string, JsonValue>;
+  runs: number;
+  earlyExit: boolean;
   timeoutMs?: number;
   budget?: number;
+  maxConcurrency?: number;
+  /** 本次运行解析后实际选中的 eval id 全集——evals 过滤器(含函数形式)的求值结果,不存过滤器本身。 */
+  selectedEvalIds: string[];
+  /** evals 过滤器的指纹(数组内容 / 函数体哈希),供「配置没变」判断;与 selectedEvalIds 一起取代原过滤器。 */
+  evalFilterFingerprint?: string;
+  /** provider 名、provider 的公开参数投影与配置 fingerprint;参数只经投影落盘,token/凭据永不进来。 */
+  sandbox?: { provider: string; params?: Record<string, JsonValue>; fingerprint?: string };
 }
 
 /**
@@ -173,6 +185,12 @@ export interface EvalResult {
    * 报告据此展示证据覆盖徽标(见 docs/feature/adapters/architecture/evidence.md)。
    */
   coverage?: import("../scoring/coverage.ts").ResolvedCoverage;
+  /**
+   * 沙箱型 attempt 的执行环境标识:provider 名与实例 id,用于关联 provider 侧日志与留存现场;
+   * remote 型 agent 无此字段。`kept` 表示运行收尾时按 --keep-sandbox 留存了沙箱;之后的存活
+   * 状态归 `niceeval sandbox list` 回答,本记录一次写成、不回写。
+   */
+  sandbox?: { provider: string; sandboxId: string; kept?: true };
   diff?: DiffData;
   rawTranscript?: string;
   /** 携带条目(--resume 合入)专用:artifact 目录(相对结果根目录),指向原快照里的落盘。 */
@@ -189,11 +207,16 @@ export const RESULTS_FORMAT = "niceeval.results";
  * `5`(见 memory 的 attempt-locator-and-source-dedup 条目)= result.json 新增 `locator` 字段;
  * `sources.json` 从逐 attempt 内联全量内容改为「attempt 级引用 + 快照级 `sources/<sha256>.json`
  * 去重仓库」,`AttemptHandle.sources()` 的公开返回形状不变(仍是 `SourceArtifact[] | null`)。
- * `6` = `error` 从自由字符串改为结构化 `AttemptError`(lifecycle operation / code / message + 可选
- * stack / cause),并新增有界 `diagnostics`(`DiagnosticRecord[]`)。旧版快照按格式规则整份判为
- * 不兼容并在扫描时列为占位条目,不迁移不降级。
+ * `6` = `error` 从自由字符串改为结构化 `AttemptError`,并新增有界 `diagnostics`。
+ * `8` = 断言记录改 outcome 判别联合(groupPath/optional/expected/received/unavailable+reason);
+ * 生命周期词表统一为 LifecyclePhase,`error.operation`/`diagnostics[].operation` 更名 `phase`;
+ * 新增 `phases`(阶段计时)、`coverage`(证据覆盖聚合)、`sandbox`(执行环境标识)字段;
+ * `ExperimentRunInfo` 改为解析后运行配置的穷尽投影(sandbox 从字符串改结构化投影对象);
+ * `diff.json` 落逐窗口 delta 序列(DiffWindow[]);events/trace 的字符串值统一 256 KiB 截断
+ * (结构化 `truncated` 标记);snapshot.json 新增发布拷贝的 `publish` 标记。
+ * 旧版快照按格式规则整份判为不兼容并在扫描时列为占位条目,不迁移不降级。
  */
-export const RESULTS_SCHEMA_VERSION = 6;
+export const RESULTS_SCHEMA_VERSION = 8;
 
 /** 一次运行的纯运行时内存聚合(reporter 契约用);落盘格式契约在 niceeval/results 的 SnapshotMeta / AttemptRecord,见 docs/feature/results/architecture.md。 */
 export interface RunSummary {
@@ -336,8 +359,10 @@ export interface ExperimentDef {
   model?: string;
   /** 模型推理努力程度(如 "low"/"medium"/"high",取值由具体模型/adapter 决定);省略=用 agent 原生默认。经 ctx.reasoningEffort 透给 adapter 与 eval。 */
   reasoningEffort?: string;
-  /** 实验条件(A/B 里的 feature flag),由实验文件声明;经 ctx.flags 透传给 adapter、t.flags 暴露给 eval。 */
-  flags?: Record<string, unknown>;
+  /** 实验条件(A/B 里的 feature flag),由实验文件声明;必须是可 JSON 序列化的值
+   *  (defineExperiment 解析时校验,非 JSON 直接报错),经 ctx.flags 透传给 adapter、
+   *  t.flags 暴露给 eval,并原样进入结果快照的 ExperimentRunInfo.flags。 */
+  flags?: Record<string, JsonValue>;
   /** 同一 eval 重复跑几次(结果各计一条 attempt);省略/CLI `--runs` 覆盖时默认 1。 */
   runs?: number;
   /** 一次重复(runs > 1)里某次 attempt 失败后是否跳过剩余重复;省略默认 true(提前退出省钱)。 */
@@ -349,9 +374,8 @@ export interface ExperimentDef {
   /** 覆盖项目级 Config.sandbox,只对这个实验生效。 */
   sandbox?: SandboxOption;
   /**
-   * 本实验的花费上限(USD)。调度器按「已花 + 在飞预估」的护栏口径逼近上限时限流,
-   * 累计花费到顶后跳过这个实验剩下未起飞的 attempt 并上报一次 `run:budgetExceeded`
-   * (已在飞的 attempt 仍会跑完)。
+   * 本实验的花费上限(USD)。调度器按「已完成 attempt 的实测花费」累计,到顶后跳过这个实验
+   * 剩下未起飞的 attempt 并上报一次 `run:budgetExceeded`(已在飞的 attempt 仍会跑完)。
    */
   budget?: number;
   /**
@@ -443,7 +467,7 @@ export interface AgentRun {
   agent: Agent;
   model?: string;
   reasoningEffort?: string;
-  flags: Record<string, unknown>;
+  flags: Record<string, JsonValue>;
   runs: number;
   earlyExit: boolean;
   sandbox?: SandboxOption;
@@ -451,6 +475,12 @@ export interface AgentRun {
   budget?: number;
   evalFilter: (id: string) => boolean;
   experimentId?: string;
+  /** 实验的一句话描述(ExperimentDef.description),进结果快照的 ExperimentRunInfo。 */
+  description?: string;
+  /** evals 过滤器的指纹(数组内容 / 函数体哈希),进 ExperimentRunInfo.evalFilterFingerprint。 */
+  evalFilterFingerprint?: string;
+  /** 本次运行解析后实际选中的 eval id 全集;runEvals 在调度前按 evalFilter 求值填入。 */
+  selectedEvalIds?: string[];
   strict?: boolean;
   /** 本配置自己的并发上限(来自 ExperimentDef.maxConcurrency):调度器为它单建信号量,
    *  attempt 先过这道闸再占全局并发位;省略则只受全局并发约束。 */

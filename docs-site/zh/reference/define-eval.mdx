@@ -87,12 +87,14 @@ metadata?: Record<string, unknown>;
 #### `setup`
 
 ```ts
-setup?: (sandbox: Sandbox) => Promise<void | Cleanup> | void | Cleanup;
+setup?: (sandbox: Sandbox, ctx: SandboxHookContext) => Promise<void | Cleanup> | void | Cleanup;
 ```
 
 eval 级预置:拿到沙箱(已上传 workspace + git 基线 + 装好依赖前)。
 默认命令以非 root 跑(agent 的自然环境);装系统依赖时给 `runCommand` 传 `{ root: true }`
 (如 `runCommand("apt-get", ["install", …], { root: true })`),跨 provider 语义一致。
+第二个参数是绑定到 `eval.setup` 的窄上下文(`ctx.progress` / `ctx.diagnostic`,
+见 docs/feature/eval/README.md);可返回 cleanup 闭包,归因到 `eval.teardown`。
 
 #### `test`
 
@@ -219,13 +221,31 @@ readonly flags: Readonly<Record<string, unknown>>;
 
 本次 attempt 生效的实验 flags(experiment.flags 的只读视图;实验条件,非命令行开关)。
 
+#### `progress`
+
+```ts
+progress(update: ProgressUpdate): void;
+```
+
+作用域反馈:报告 eval 自己执行的长步骤(上传 fixture、跑构建……)。短命状态,scope 固定
+为 `eval.run`;只报告不断言(见 docs/feature/eval/library/context.md「向运行反馈长步骤」)。
+
+#### `diagnostic`
+
+```ts
+diagnostic(input: DiagnosticInput): void;
+```
+
+作用域反馈:报告运行结束后仍需保留的问题(永久事件,落 attempt diagnostics)。
+即使 level 为 "error" 也不自动改变 verdict——测试结论仍由断言决定。
+
 #### `log`
 
 ```ts
 log(msg: string): void;
 ```
 
-打一行调试日志;有 live 进度回调时走该回调,否则落到 stderr,不出现在最终结果里。
+`progress({ message: msg })` 的别名(调试日志),不出现在最终结果里。
 
 #### `skip`
 

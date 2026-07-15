@@ -145,6 +145,11 @@ export interface CustomSandboxSpec extends SandboxHooks<CustomSandboxSpec> {
   readonly recommendedConcurrency?: number;
   /** `feedback` 绑定到 `sandbox.create` 阶段:分配实例 / 拉镜像 / 恢复 snapshot 的进度与诊断走它。 */
   readonly create: (opts: { timeout?: number; runtime?: SandboxRuntime; feedback: ScopedFeedback }) => Promise<Sandbox>;
+  /**
+   * 「哪些参数可发布」的投影,进结果快照的 ExperimentRunInfo.sandbox.params;
+   * 未实现时只落 provider 名。token、凭据路径永远不该出现在返回值里。
+   */
+  readonly publicConfig?: () => Record<string, import("../shared/types.ts").JsonValue>;
 }
 
 export type SandboxSpec = DockerSandboxSpec | VercelSandboxSpec | E2BSandboxSpec | CustomSandboxSpec;

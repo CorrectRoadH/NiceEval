@@ -54,10 +54,21 @@ export interface InputRequest {
 }
 
 /**
+ * 落盘截断的结构化标记(见 docs/feature/results/architecture.md「大值截断」):
+ * `path` 是被截断的位置(事件里是字段名,如 "output";span 里是 attribute key,如 "output.value"),
+ * `originalBytes` 是截断前的 UTF-8 字节数。view 显示「输出过大,已截断」靠它,不正则匹配 marker。
+ */
+export interface Truncation {
+  path: string;
+  originalBytes: number;
+}
+
+/**
  * 标准事件流的词汇(对标 docs/feature/adapters/architecture/events.md)。adapter 唯一的硬活就是把
  * 各 agent 五花八门的原始 transcript 映射成 StreamEvent[];映射完,整套断言免费。
+ * `truncated` 只由 results writer 在落盘时刻写入(运行时全量,落盘截断);adapter 不产出它。
  */
-export type StreamEvent =
+export type StreamEvent = { truncated?: Truncation[] } & (
   /** 一条文本消息(assistant 回复或 user 输入);`loc` 是可选的源码位置,用于把消息叠回 eval 源码。 */
   | { type: "message"; role: "assistant" | "user"; text: string; loc?: SourceLoc }
   /** 发起一次工具/动作调用;`tool` 是归一化后的规范工具名,原始名保留在 DerivedFacts.ToolCall.originalName。 */
@@ -85,7 +96,8 @@ export type StreamEvent =
   /** 上下文被压缩/摘要(如超长会话截断历史);`reason` 是可选的压缩原因说明。 */
   | { type: "compaction"; reason?: string }
   /** 运行中出现的错误。 */
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+);
 
 /** core 从事件流折叠出的结构化事实(deriveRunFacts)。 */
 export interface ToolCall {
@@ -145,6 +157,8 @@ export interface TraceSpan {
   kind?: SpanKind;
   /** OTLP span 属性(gen_ai.* / tool 名 / token 等),按 key 摊平。raw 属性始终保留供下钻。 */
   attributes?: Record<string, JsonValue>;
+  /** 落盘截断标记(只由 results writer 在序列化时写入,运行时全量;见 Truncation)。 */
+  truncated?: Truncation[];
 }
 
 /** 给人 / 给 EVAL.ts 看的 o11y 摘要(注入沙箱 __niceeval__/results.json)。 */

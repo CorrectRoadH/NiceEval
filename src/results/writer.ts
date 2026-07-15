@@ -14,6 +14,7 @@ import { RESULTS_FORMAT, RESULTS_SCHEMA_VERSION } from "../types.ts";
 import { RESULT_FILE, SNAPSHOT_FILE, artifactFileOf, attemptDirOf, experimentDirOf } from "./format.ts";
 import { encodeAttemptLocator } from "./locator.ts";
 import { hashEvalSource, normalizeEvalSource } from "./source-hash.ts";
+import { truncateEvents, truncateSpans } from "./truncate.ts";
 import type { Producer, SnapshotMeta } from "./types.ts";
 
 export interface ResultsWriterOptions {
@@ -129,7 +130,7 @@ export function createResultsWriter(root: string, opts: ResultsWriterOptions): R
       producer: opts.producer,
       experimentId: decl.experimentId,
       // 运行配置不带 id:身份的家是顶层 experimentId,重复一份只会引出「以谁为准」。
-      ...(decl.experiment !== undefined ? { experiment: stripInfoId(decl.experiment) } : {}),
+      ...(decl.experiment !== undefined ? { experiment: (decl.experiment) } : {}),
       agent: decl.agent,
       ...(decl.model !== undefined ? { model: decl.model } : {}),
       startedAt: decl.startedAt,
@@ -302,9 +303,14 @@ async function writeAttemptFiles(
   const hasTrace = !!(artifacts?.trace && artifacts.trace.length);
 
   const writes: Promise<unknown>[] = [];
-  if (hasEvents) writes.push(writeFile(join(attemptDir, "events.json"), JSON.stringify(artifacts!.events), "utf-8"));
+  // 大值截断只发生在这里(序列化的那一刻):events 的事件字段与 trace 的 span 属性里的任意
+  // 字符串值按 ARTIFACT_VALUE_MAX_BYTES 截断并留结构化 truncated 标记;运行时(断言 / o11y
+  // 派生)看到的始终是完整值。sources 与 diff 不截断(见 docs/feature/results/architecture.md)。
+  if (hasEvents)
+    writes.push(writeFile(join(attemptDir, "events.json"), JSON.stringify(truncateEvents(artifacts!.events!)), "utf-8"));
   if (hasSources) writes.push(writeSourcesRef(snapDir, attemptDir, artifacts!.sources!, sourceStore));
-  if (hasTrace) writes.push(writeFile(join(attemptDir, "trace.json"), JSON.stringify(artifacts!.trace), "utf-8"));
+  if (hasTrace)
+    writes.push(writeFile(join(attemptDir, "trace.json"), JSON.stringify(truncateSpans(artifacts!.trace!)), "utf-8"));
   if (artifacts?.o11y) writes.push(writeFile(join(attemptDir, "o11y.json"), JSON.stringify(artifacts.o11y), "utf-8"));
   if (artifacts?.agentSetup) {
     writes.push(
@@ -382,12 +388,7 @@ async function createSnapshotDir(root: string, experimentId: string): Promise<st
   throw new Error(`Could not create a unique snapshot directory under "${parent}" after 5 attempts (${String(lastError)}).`);
 }
 
-/** 运行配置落盘前剥掉 id:experimentId 的家在 snapshot.json 顶层。 */
-function stripInfoId(info: ExperimentRunInfo): ExperimentRunInfo {
-  const { id, ...rest } = info;
-  void id;
-  return rest;
-}
+
 
 /** 快照目录名的时间戳段:Date#toISOString 把 : 与 . 换成 -(与 docs/feature/results/architecture.md 一致)。 */
 function safeTimestamp(d: Date): string {

@@ -1,22 +1,29 @@
 // Codex native plugin 安装(installPlugins)的单测:单 plugin 的命令构造、同名 marketplace
-// 的去重、ref 钉定走 `--ref`(不像 claude-code 需要先 clone)、resolvedVersion 取不到时
-// 优雅省略(含 `codex plugin list --json` 的真实输出形状 `{ installed: [...], available: [...] }`,
-// 字段名 `pluginId`——实测 codex-cli 0.144.1,2026-07-13 native plugin e2e 复现过按裸数组 /
-// `{ plugins: [...] }` 猜形状的旧版本恒返回 undefined,见
-// memory/native-plugin-marketplace-name-not-caller-assignable.md)、marketplace/plugin 安装
-// 失败的报错。风格与 src/agents/skills.test.ts、src/agents/claude-code.test.ts 一致,不另起一套。
+// 的去重、add 后的注册名回读校验、ref 钉定走 `--ref`(不像 claude-code 需要先 clone)、
+// resolvedVersion 取不到时优雅省略(含 `codex plugin list --json` 的真实输出形状
+// `{ installed: [...], available: [...] }`,字段名 `pluginId`——实测 codex-cli 0.144.1,
+// 2026-07-13 native plugin e2e 复现过按裸数组 / `{ plugins: [...] }` 猜形状的旧版本恒返回
+// undefined,见 memory/native-plugin-marketplace-name-not-caller-assignable.md)、
+// marketplace/plugin 安装失败的报错;外加 configFile(原生配置文件)的 setup 流。
+// 风格与 src/agents/skills.test.ts、src/agents/claude-code.test.ts 一致,不另起一套。
 // 定稿见 docs/feature/adapters/architecture/coding-agent-extensions.md。
 
-import { describe, expect, it } from "vitest";
-import { installPlugins, type CodexPluginSpec } from "./codex.ts";
-import type { CommandResult, Sandbox, SandboxFile } from "../types.ts";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { codexAgent, installPlugins, type CodexPluginSpec } from "./codex.ts";
+import type { AgentContext, AgentSetupManifest, CommandResult, Sandbox, SandboxFile } from "../types.ts";
 
-/** 内存沙箱:runShell 记命令(可按命令包含的子串打脚本化输出)。 */
+/** 内存沙箱:runShell 记命令(可按命令包含的子串打脚本化输出),uploadFile / writeFiles 记内容。 */
 class FakeSandbox implements Partial<Sandbox> {
   readonly workdir = "/workspace";
   readonly sandboxId = "fake";
   readonly otlpHost = null;
   readonly commands: string[] = [];
+  readonly uploads: { path: string; content: Buffer }[] = [];
+  readonly written: Record<string, string> = {};
   script: { match: string; result: (cmd: string) => Partial<CommandResult> }[] = [];
 
   async runShell(script: string): Promise<CommandResult> {
@@ -24,7 +31,12 @@ class FakeSandbox implements Partial<Sandbox> {
     const hit = this.script.find((s) => script.includes(s.match));
     return { stdout: "", stderr: "", exitCode: 0, ...hit?.result(script) };
   }
-  async writeFiles(): Promise<void> {}
+  async writeFiles(files: Record<string, string>): Promise<void> {
+    Object.assign(this.written, files);
+  }
+  async uploadFile(path: string, content: Buffer): Promise<void> {
+    this.uploads.push({ path, content });
+  }
   async uploadFiles(_files: SandboxFile[]): Promise<void> {}
   async fileExists(): Promise<boolean> {
     return false;
@@ -36,7 +48,14 @@ class FakeSandbox implements Partial<Sandbox> {
 
 const sb = (s?: FakeSandbox["script"]): FakeSandbox => {
   const box = new FakeSandbox();
-  if (s) box.script = s;
+  // add 后的注册名回读默认回到配置名(校验通过);mismatch 用例把自己的脚本放前面覆盖。
+  box.script = [
+    ...(s ?? []),
+    {
+      match: "codex plugin marketplace list --json",
+      result: () => ({ stdout: JSON.stringify({ marketplaces: [{ name: "acme" }] }) }),
+    },
+  ];
   return box;
 };
 const asSandbox = (box: FakeSandbox): Sandbox => box as unknown as Sandbox;
@@ -51,6 +70,7 @@ describe("codex installPlugins · 命令构造", () => {
 
     expect(box.commands).toEqual([
       "codex plugin marketplace add 'acme/codex-plugins'",
+      "codex plugin marketplace list --json",
       "codex plugin add 'repo-map@acme'",
       "codex plugin list --json --marketplace 'acme'",
     ]);
@@ -188,5 +208,112 @@ describe("codex installPlugins · 失败语义", () => {
         { marketplace: { name: "acme", source: "acme/codex-plugins" }, name: "repo-map" },
       ]),
     ).rejects.toThrow(/repo-map/);
+  });
+});
+
+describe("codex installPlugins · marketplace 名回读校验", () => {
+  const plugins: CodexPluginSpec[] = [
+    { marketplace: { name: "acme", source: "acme/codex-plugins" }, name: "repo-map" },
+  ];
+
+  it("add 静默注册成别的名字(仓库 manifest 的真实 name)→ 立刻抛带两个名字的错误,不走到 plugin add", async () => {
+    const box = sb([
+      {
+        match: "codex plugin marketplace list --json",
+        result: () => ({ stdout: JSON.stringify({ marketplaces: [{ name: "duyet-claude-plugins" }] }) }),
+      },
+    ]);
+    const err = await installPlugins(asSandbox(box), plugins).catch((e: Error) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toContain("acme");
+    expect((err as Error).message).toContain("duyet-claude-plugins");
+    expect(box.commands.some((c) => c.startsWith("codex plugin add"))).toBe(false);
+  });
+
+  it("回读命令失败 / 输出解析不出 → 按回读失败抛错,不静默放行", async () => {
+    const failing = sb([
+      { match: "codex plugin marketplace list --json", result: () => ({ exitCode: 1, stderr: "boom" }) },
+    ]);
+    await expect(installPlugins(asSandbox(failing), plugins)).rejects.toThrow(/marketplace/);
+
+    const garbled = sb([{ match: "codex plugin marketplace list --json", result: () => ({ stdout: "not json" }) }]);
+    await expect(installPlugins(asSandbox(garbled), plugins)).rejects.toThrow(/acme/);
+  });
+});
+
+describe("codexAgent configFile · setup", () => {
+  let root: string;
+  let cwdBefore: string;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), "niceeval-codex-config-"));
+    cwdBefore = process.cwd();
+    process.chdir(root); // configFile 相对项目根 = process.cwd()(docs 定稿口径)
+  });
+
+  afterEach(async () => {
+    process.chdir(cwdBefore);
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const ctx = { model: "gpt-5", reasoningEffort: "high", flags: {} } as AgentContext;
+
+  it("用户 config.toml 原始字节夹在 Adapter 顶层键与 Adapter 表之间(TOML 没有回到根表的语法);manifest 记路径 + SHA-256,不落正文", async () => {
+    const body = '#:schema https://developers.openai.com/codex/config-schema.json\nweb_search = "disabled"\n';
+    await mkdir(join(root, "configs"), { recursive: true });
+    await writeFile(join(root, "configs/no-web.toml"), body);
+
+    const box = sb();
+    await codexAgent({ apiKey: "k", baseUrl: "https://s2a.example.com/v1", configFile: "configs/no-web.toml" }).setup!(
+      asSandbox(box),
+      ctx,
+    );
+
+    // 1) Adapter 顶层键先写(不带任何表头)
+    const topLevelIdx = box.commands.findIndex((c) => c.includes("cat > ~/.codex/config.toml"));
+    expect(topLevelIdx).toBeGreaterThan(-1);
+    const topLevel = box.commands[topLevelIdx]!;
+    expect(topLevel).toContain('model = "gpt-5"');
+    expect(topLevel).toContain('model_reasoning_effort = "high"');
+    expect(topLevel).not.toContain("[model_providers");
+
+    // 2) 用户文件原始字节经 uploadFile 追加(不走会改字节的 heredoc / 重新序列化)
+    expect(box.uploads).toHaveLength(1);
+    expect(box.uploads[0]!.content.toString("utf8")).toBe(body);
+    const appendIdx = box.commands.findIndex((c) => c.includes(`cat ${box.uploads[0]!.path} >> ~/.codex/config.toml`));
+    expect(appendIdx).toBeGreaterThan(topLevelIdx);
+
+    // 3) Adapter 的表([model_providers.s2a])最后追加
+    const tableIdx = box.commands.findIndex((c) => c.includes("[model_providers.s2a]"));
+    expect(tableIdx).toBeGreaterThan(appendIdx);
+    expect(box.commands[tableIdx]!).toContain('base_url = "https://s2a.example.com/v1"');
+
+    const manifest = JSON.parse(box.written["__niceeval__/agent-setup.json"]!) as AgentSetupManifest;
+    expect(manifest.nativeConfigFile).toEqual({
+      agent: "codex",
+      path: "configs/no-web.toml",
+      sha256: createHash("sha256").update(body).digest("hex"),
+    });
+    expect(box.written["__niceeval__/agent-setup.json"]).not.toContain("web_search");
+  });
+
+  it("保留键([mcp_servers.x] 表头)出现在文件里 → setup 报错点名冲突键,不写沙箱配置", async () => {
+    await writeFile(join(root, "bad.toml"), '[mcp_servers.browser]\ncommand = "npx"\n');
+    const box = sb();
+    await expect(
+      codexAgent({ apiKey: "k", configFile: "bad.toml" }).setup!(asSandbox(box), ctx),
+    ).rejects.toThrow(/mcp_servers/);
+    expect(box.uploads).toHaveLength(0);
+    expect(box.commands.some((c) => c.includes("config.toml"))).toBe(false);
+  });
+
+  it("没配 configFile 时布局与从前一致:一次 heredoc 写完顶层键 + provider 表,无 uploadFile", async () => {
+    const box = sb();
+    await codexAgent({ apiKey: "k", baseUrl: "https://s2a.example.com/v1" }).setup!(asSandbox(box), ctx);
+    const write = box.commands.find((c) => c.includes("cat > ~/.codex/config.toml"))!;
+    expect(write).toContain('model_reasoning_effort = "high"');
+    expect(write).toContain("[model_providers.s2a]");
+    expect(box.uploads).toHaveLength(0);
+    expect(box.written["__niceeval__/agent-setup.json"]).toBeUndefined();
   });
 });

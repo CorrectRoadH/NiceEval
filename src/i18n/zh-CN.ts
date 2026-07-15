@@ -142,6 +142,7 @@ export const zhCN = {
   "define.evalIdRejected": "defineEval 不接受 id —— id 由文件路径推导。",
   "define.evalTestRequired": "defineEval 需要一个 async test(t) 函数。",
   "define.experimentAgentRequired": "defineExperiment 需要 agent。",
+  "define.experimentFlagNotJson": "experiment.flags.{{key}} 不是可 JSON 序列化的值(函数 / undefined / 循环引用 / bigint 不允许);flags 会原样进入结果快照,必须是纯 JSON。",
   "define.experimentIdRejected": "defineExperiment 不接受 id —— id 由文件路径推导。",
   "define.sandboxAgentNameRequired": "defineSandboxAgent 需要 name。",
   "define.sandboxCreateRequired": "defineSandbox 需要一个 create() 函数。",

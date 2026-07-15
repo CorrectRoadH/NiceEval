@@ -182,10 +182,20 @@ export function extractExportedFunctions(sourceText: string, fileName: string): 
 export function extractUnionVariants(sourceText: string, fileName: string, typeName: string): Member[] {
   const sourceFile = parse(sourceText, fileName);
   const alias = findTypeAlias(sourceFile, typeName);
-  if (!ts.isUnionTypeNode(alias.type)) {
+  // `{ 公共字段 } & ( A | B | … )` 形态(如 StreamEvent 的 truncated 落盘标记):
+  // 从交叉类型里取出括号包着的联合部分,公共字段不进变体表。
+  let unionNode: ts.TypeNode = alias.type;
+  if (ts.isIntersectionTypeNode(unionNode)) {
+    const inner = unionNode.types
+      .map((t) => (ts.isParenthesizedTypeNode(t) ? t.type : t))
+      .find((t) => ts.isUnionTypeNode(t));
+    if (inner) unionNode = inner;
+  }
+  if (ts.isParenthesizedTypeNode(unionNode)) unionNode = unionNode.type;
+  if (!ts.isUnionTypeNode(unionNode)) {
     throw new Error(`type alias ${typeName} in ${fileName} is not a union type`);
   }
-  return alias.type.types.map((variant) => {
+  return unionNode.types.map((variant) => {
     let name = variant.getText(sourceFile);
     if (ts.isTypeLiteralNode(variant)) {
       for (const member of variant.members) {

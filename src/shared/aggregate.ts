@@ -56,11 +56,12 @@ export function evalPrefixPredicate(evals?: string | string[]): (id: string) => 
 
 /** 无 experimentId 时的兜底标签。 */
 export function fallbackExperimentLabel(result: {
+  experimentId?: string;
   experiment?: ExperimentRunInfo;
   agent: string;
   model?: string;
 }): string {
-  if (result.experiment?.id) return displayExperimentName(result.experiment.id) ?? result.experiment.id;
+  if (result.experimentId) return displayExperimentName(result.experimentId) ?? result.experimentId;
   if (result.model) return `${result.agent}/${result.model}`;
   return result.agent || "ad hoc run";
 }

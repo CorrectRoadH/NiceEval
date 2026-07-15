@@ -6,7 +6,7 @@
 import { resolve as resolvePath } from "node:path";
 import { readFile as readSourceFile } from "node:fs/promises";
 import { Effect, Cause, Duration } from "effect";
-import { createSandbox, sandboxLabel } from "../sandbox/resolve.ts";
+import { createSandbox, resolveSandbox, sandboxRunInfo } from "../sandbox/resolve.ts";
 import { createTraceReceiver, type TraceReceiver } from "../o11y/otlp/receiver.ts";
 import { createInSandboxTraceReceiver } from "../o11y/otlp/sandbox-receiver.ts";
 import type { AgentOtelChannel } from "../o11y/otlp/turn-otel.ts";
@@ -686,6 +686,14 @@ async function runAttemptBody(
       agentSetup,
       diff,
       coverage: state.manager.coverage,
+      ...(usesSandbox
+        ? {
+            sandbox: {
+              provider: resolveSandbox(run.sandbox ?? config.sandbox).provider,
+              sandboxId: sandbox.sandboxId,
+            },
+          }
+        : {}),
     };
     result = value;
     return value;
@@ -858,15 +866,21 @@ async function collectSources(
   return out;
 }
 
+/** 解析后运行配置的穷尽投影(ExperimentRunInfo,见 docs/feature/results/architecture.md):
+ *  agent/model 只在快照顶层,这里不复制;sandbox 只经 provider 的公开参数投影落盘。 */
 function experimentRunInfo(run: AgentRun): EvalResult["experiment"] {
   return {
-    id: run.experimentId,
-    flags: run.flags,
+    ...(run.description !== undefined ? { description: run.description } : {}),
+    ...(run.reasoningEffort !== undefined ? { reasoningEffort: run.reasoningEffort } : {}),
+    ...(Object.keys(run.flags).length > 0 ? { flags: run.flags } : {}),
     runs: run.runs,
     earlyExit: run.earlyExit,
-    sandbox: run.sandbox === undefined ? undefined : sandboxLabel(run.sandbox),
-    timeoutMs: run.timeoutMs,
-    budget: run.budget,
+    ...(run.timeoutMs !== undefined ? { timeoutMs: run.timeoutMs } : {}),
+    ...(run.budget !== undefined ? { budget: run.budget } : {}),
+    ...(run.maxConcurrency !== undefined ? { maxConcurrency: run.maxConcurrency } : {}),
+    selectedEvalIds: run.selectedEvalIds ?? [],
+    ...(run.evalFilterFingerprint !== undefined ? { evalFilterFingerprint: run.evalFilterFingerprint } : {}),
+    ...(run.sandbox !== undefined ? { sandbox: sandboxRunInfo(run.sandbox) } : {}),
   };
 }
 

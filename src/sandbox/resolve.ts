@@ -4,8 +4,9 @@
 // 省略时 resolveSandbox() 直接抛错,不猜环境、不兜底。
 // provider 名的行为分支只允许出现在 sandbox/ 内(见 docs/architecture.md)。
 
+import { createHash } from "node:crypto";
 import { Effect } from "effect";
-import type { CustomSandboxSpec, Sandbox, SandboxOption, SandboxRuntime, ScopedFeedback } from "../types.ts";
+import type { CustomSandboxSpec, JsonValue, Sandbox, SandboxOption, SandboxRuntime, ScopedFeedback } from "../types.ts";
 import { registerSandbox, stopSandbox } from "./registry.ts";
 import { normalizeSandboxPaths } from "./paths.ts";
 import { t } from "../i18n/index.ts";
@@ -49,6 +50,36 @@ export function sandboxRecommendedConcurrency(opt: SandboxOption | undefined): n
     case "vercel":  return 1;
     default:        return r.recommendedConcurrency ?? 5;
   }
+}
+
+/**
+ * ExperimentRunInfo.sandbox 的投影:provider 名 + 公开参数(镜像/快照/模板/runtime)+ 配置指纹。
+ * 参数只经这个投影落盘——token、凭据路径永不进来;defineSandbox 自定义 provider 未实现
+ * `publicConfig()` 时只落 provider 名(见 docs/feature/results/architecture.md)。
+ */
+export function sandboxRunInfo(
+  opt: SandboxOption | undefined,
+): { provider: string; params?: Record<string, JsonValue>; fingerprint?: string } | undefined {
+  if (!opt) return undefined;
+  const r = resolveSandbox(opt);
+  let params: Record<string, JsonValue> | undefined;
+  if (r.create) {
+    // 自定义 provider:只有显式实现了 publicConfig() 投影才落参数。
+    params = (opt as CustomSandboxSpec).publicConfig?.();
+  } else {
+    const p: Record<string, JsonValue> = {};
+    if (r.image !== undefined) p.image = r.image;
+    if (r.snapshotId !== undefined) p.snapshotId = r.snapshotId;
+    if (r.template !== undefined) p.template = r.template;
+    if (r.runtime !== undefined) p.runtime = r.runtime;
+    params = Object.keys(p).length > 0 ? p : undefined;
+  }
+  if (params === undefined) return { provider: r.provider };
+  const fingerprint = createHash("sha256")
+    .update(JSON.stringify({ provider: r.provider, params }))
+    .digest("hex")
+    .slice(0, 16);
+  return { provider: r.provider, params, fingerprint };
 }
 
 /** 报告 / 日志用的简短标签:provider 名,带上区分性的参数(镜像 / 快照 / 模板)。 */
