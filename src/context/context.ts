@@ -165,7 +165,7 @@ export function createEvalContext(deps: ContextDeps): { context: TestContext; st
     return brief(value, 4000);
   }
 
-  /** 失败断言的 evidence:被检查值自带命令摘要(CommandResult.command)时就是「命令行本身」。 */
+  /** evidence 不区分 pass/fail(与 judge 同口径):被检查值自带命令摘要(CommandResult.command)时就是「命令行本身」。 */
   function checkedValueEvidence(value: unknown): string | undefined {
     const command = asCommandResult(value)?.command;
     return typeof command === "string" && command.length > 0 ? command : undefined;
@@ -378,12 +378,15 @@ export function createEvalContext(deps: ContextDeps): { context: TestContext; st
         evaluate: async (sc) => {
           const resolved = await resolveValue(value, sc);
           const score = await assertion.score(resolved);
-          if (computePassed(spec.severity, spec.threshold, score)) return score;
+          const evidence = checkedValueEvidence(resolved);
+          if (computePassed(spec.severity, spec.threshold, score)) {
+            return evidence !== undefined ? { score, evidence } : score;
+          }
           return {
             score,
             expected: assertion.expected,
             received: previewCheckedValue(resolved),
-            ...(checkedValueEvidence(resolved) !== undefined ? { evidence: checkedValueEvidence(resolved) } : {}),
+            ...(evidence !== undefined ? { evidence } : {}),
           };
         },
       };
@@ -395,18 +398,21 @@ export function createEvalContext(deps: ContextDeps): { context: TestContext; st
       const score = await assertion.score(v);
       // require 恒为硬门槛(不过即中止 eval),判定口径与 finalize 同一份 computePassed。
       const passed = computePassed("gate", assertion.threshold, score);
+      const evidence = checkedValueEvidence(v);
       collector.record({
         name: assertion.name,
         severity: "gate",
         threshold: assertion.threshold,
         evaluate: () =>
           passed
-            ? score
+            ? evidence !== undefined
+              ? { score, evidence }
+              : score
             : {
                 score,
                 expected: assertion.expected,
                 received: previewCheckedValue(v),
-                ...(checkedValueEvidence(v) !== undefined ? { evidence: checkedValueEvidence(v) } : {}),
+                ...(evidence !== undefined ? { evidence } : {}),
               },
       });
       if (!passed) throw new EvalRequirementFailed(assertion.name);
