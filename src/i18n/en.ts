@@ -151,6 +151,7 @@ export const en = {
   "context.turnFailedDefault": "This send returned failed (turn status = failed)",
   "define.agentNameRequired": "defineAgent requires name.",
   "define.evalIdRejected": "defineEval does not accept id; ids are derived from file paths.",
+  "define.evalEnvironmentEmpty": "defineEval environment must be a non-empty profile id when provided.",
   "define.evalTestRequired": "defineEval requires an async test(t) function.",
   "define.experimentAgentRequired": "defineExperiment requires agent.",
   "define.experimentFlagNotJson": "experiment.flags.{{key}} is not JSON-serializable (functions / undefined / cycles / bigint are not allowed); flags are persisted verbatim into result snapshots and must be plain JSON.",

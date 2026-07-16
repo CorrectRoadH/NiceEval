@@ -6,7 +6,7 @@ import { describe, expect, it, afterEach } from "vitest";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { discoverEvals } from "./discover.ts";
+import { discoverEvals, makeFilter } from "./discover.ts";
 import { captureEvalSource } from "./eval-source.ts";
 
 const roots: string[] = [];
@@ -20,6 +20,14 @@ afterEach(async () => {
 });
 
 describe("discoverEvals · 源码捕获", () => {
+  // bug: memory/exp-eval-prefix-segment-drift.md
+  it("eval 位置参数按裸字面前缀命中 sibling，不要求路径段边界", () => {
+    const filter = makeFilter(["memory/terminal-swe-bench"]);
+    expect(filter("memory/terminal-swe-bench-astropy-1")).toBe(true);
+    expect(filter("memory/terminal-swe-bench-astropy-2")).toBe(true);
+    expect(filter("memory/other")).toBe(false);
+  });
+
   it("单个默认导出:source 与 captureEvalSource() 直接调出来的一致(路径/内容/哈希)", async () => {
     const root = await makeRoot();
     await mkdir(join(root, "evals"), { recursive: true });

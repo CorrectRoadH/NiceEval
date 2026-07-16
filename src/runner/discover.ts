@@ -6,6 +6,7 @@ import { dirname, join, relative, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { pad4 } from "../util.ts";
 import { captureEvalSource } from "./eval-source.ts";
+import { evalPrefixPredicate } from "../shared/aggregate.ts";
 import type { DiscoveredEval, DiscoveredExperiment, EvalDef, ExperimentDef } from "../types.ts";
 
 const SKIP_DIRS = new Set(["node_modules", ".git", ".niceeval", "dist", ".next"]);
@@ -108,8 +109,7 @@ export async function discoverExperiments(root: string): Promise<DiscoveredExper
   return out;
 }
 
-/** id 前缀过滤:精确匹配或目录前缀(weather 命中 weather 与 weather/*)。 */
+/** eval id 的裸字面前缀过滤；exp / show / view 共用 shared helper，避免路径段语义漂移。 */
 export function makeFilter(patterns: string[]): (id: string) => boolean {
-  if (patterns.length === 0) return () => true;
-  return (id) => patterns.some((p) => id === p || id.startsWith(p + "/"));
+  return evalPrefixPredicate(patterns.length > 0 ? patterns : undefined);
 }

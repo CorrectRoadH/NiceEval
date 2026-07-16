@@ -31,7 +31,17 @@ export interface ExperimentRunInfo {
   /** evals 过滤器的指纹(数组内容 / 函数体哈希),供「配置没变」判断;与 selectedEvalIds 一起取代原过滤器。 */
   evalFilterFingerprint?: string;
   /** provider 名、provider 的公开参数投影与配置 fingerprint;参数只经投影落盘,token/凭据永不进来。 */
-  sandbox?: { provider: string; params?: Record<string, JsonValue>; fingerprint?: string };
+  sandbox?: SandboxRunInfo;
+  /** sandbox 为 resolver 时记录函数体指纹；跨部分重跑比较时不依赖当次选中了哪些 eval。 */
+  sandboxResolverFingerprint?: string;
+  /** sandbox resolver 对本次 selectedEvalIds 的完整解析结果，按 eval id 留审计映射。 */
+  sandboxByEval?: Record<string, SandboxRunInfo>;
+}
+
+export interface SandboxRunInfo {
+  provider: string;
+  params?: Record<string, JsonValue>;
+  fingerprint?: string;
 }
 
 /**
@@ -312,6 +322,8 @@ export interface EvalDef {
   description?: string;
   /** 标签,供 CLI `--tag` 过滤和 view 分类;与 id 前缀过滤是两套独立的筛选维度。 */
   tags?: string[];
+  /** provider-neutral 的环境 profile id；由 ExperimentDef.sandbox resolver 映射到具体 SandboxSpec。 */
+  environment?: string;
   /** 覆盖项目级 Config.judge,只对这一个 eval 生效(如换个更贵的评审模型)。 */
   judge?: JudgeConfig;
   /** 覆盖 / 追加项目级 Config.reporters,只对这一个 eval 生效。 */
@@ -379,8 +391,11 @@ export interface ExperimentDef {
   evals?: "*" | string[] | ((id: string) => boolean);
   /** 覆盖项目级 / CLI 的单次 attempt 超时(毫秒),只对这个实验生效。 */
   timeoutMs?: number;
-  /** 覆盖项目级 Config.sandbox,只对这个实验生效。 */
-  sandbox?: SandboxOption;
+  /**
+   * 覆盖项目级 Config.sandbox。既可给固定 SandboxSpec，也可按 eval 的 provider-neutral
+   * environment profile 解析；resolver 在调度规划时对每条选中 eval 恰好调用一次。
+   */
+  sandbox?: ExperimentSandbox;
   /**
    * 本实验的花费上限(USD)。调度器按「已完成 attempt 的实测花费」累计,到顶后跳过这个实验
    * 剩下未起飞的 attempt 并上报一次 `run:budgetExceeded`(已在飞的 attempt 仍会跑完)。
@@ -394,6 +409,16 @@ export interface ExperimentDef {
    */
   maxConcurrency?: number;
 }
+
+export interface SandboxResolverContext {
+  readonly eval: {
+    readonly id: string;
+    readonly environment?: string;
+  };
+}
+
+export type SandboxResolver = (context: SandboxResolverContext) => SandboxOption;
+export type ExperimentSandbox = SandboxOption | SandboxResolver;
 
 export interface DiscoveredExperiment extends ExperimentDef {
   id: string;
@@ -478,7 +503,10 @@ export interface AgentRun {
   flags: Record<string, JsonValue>;
   runs: number;
   earlyExit: boolean;
-  sandbox?: SandboxOption;
+  sandbox?: ExperimentSandbox;
+  /** resolver 的规划期缓存；每个 selected eval 只解析一次。 */
+  resolvedSandboxes?: Map<string, SandboxOption>;
+  sandboxResolverFingerprint?: string;
   timeoutMs?: number;
   budget?: number;
   evalFilter: (id: string) => boolean;
@@ -541,6 +569,8 @@ export interface Attempt {
   /** agent+model+evalId,用于首过即停。 */
   key: string;
   fingerprint: string;
+  /** 规划期按 eval 解析出的具体 spec；attempt 生命周期不再重新调用 resolver。 */
+  sandboxSpec?: SandboxOption;
   /**
    * 构造 fresh attempt plan 时即算好的 Attempt 定位符(不是完成后写回):由 invocation 的
    * snapshotStartedAt 与 attempt 身份派生,贯穿执行、留存登记与落盘——登记项、run 收尾反馈与

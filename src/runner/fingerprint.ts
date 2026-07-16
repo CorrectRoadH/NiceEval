@@ -3,9 +3,10 @@
 
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { sandboxLabel } from "../sandbox/resolve.ts";
-import type { DiscoveredEval, EvalResult } from "../types.ts";
+import { sandboxRunInfo } from "../sandbox/resolve.ts";
+import type { DiscoveredEval, EvalResult, SandboxOption } from "../types.ts";
 import type { AgentRun } from "./types.ts";
+import { prepareRunSandboxes, sandboxForEval } from "./sandbox-selection.ts";
 
 export function cacheKey(run: AgentRun, evalId: string): string {
   return `${run.experimentId ?? ""}|${evalId}`;
@@ -19,6 +20,7 @@ export async function computeFingerprint(
   evalDef: DiscoveredEval,
   run: AgentRun,
   sourceCache?: Map<string, Promise<string>>,
+  configSandbox?: SandboxOption,
 ): Promise<string> {
   let sourcePromise = sourceCache?.get(evalDef.sourcePath);
   if (!sourcePromise) {
@@ -31,6 +33,7 @@ export async function computeFingerprint(
     eval: {
       id: evalDef.id,
       tags: evalDef.tags ?? [],
+      environment: evalDef.environment,
       metadata: evalDef.metadata ?? {},
       timeoutMs: evalDef.timeoutMs,
     },
@@ -39,7 +42,7 @@ export async function computeFingerprint(
       agent: run.agent.name,
       model: run.model,
       flags: run.flags,
-      sandbox: run.sandbox === undefined ? undefined : sandboxLabel(run.sandbox),
+      sandbox: sandboxRunInfo(sandboxForEval(run, evalDef, configSandbox)),
       timeoutMs: run.timeoutMs,
       strict: run.strict,
     },
@@ -66,14 +69,16 @@ export async function planCarry(
   evals: DiscoveredEval[],
   agentRuns: AgentRun[],
   priorResults: EvalResult[] | undefined,
+  configSandbox?: SandboxOption,
 ): Promise<CarryPlan> {
+  prepareRunSandboxes(evals, agentRuns, configSandbox);
   const sourceCache = new Map<string, Promise<string>>();
   const plannedFingerprints = new Map<string, string>();
   const jobs: Promise<void>[] = [];
   for (const run of agentRuns) {
     for (const evalDef of evals.filter((e) => run.evalFilter(e.id))) {
       jobs.push(
-        computeFingerprint(evalDef, run, sourceCache).then((fp) => {
+        computeFingerprint(evalDef, run, sourceCache, configSandbox).then((fp) => {
           plannedFingerprints.set(cacheKey(run, evalDef.id), fp);
         }),
       );

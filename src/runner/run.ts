@@ -21,6 +21,7 @@ import {
 import { failureDetailFromResult } from "./feedback/failure.ts";
 import { encodeAttemptLocator, type AttemptLocator } from "../results/locator.ts";
 import { runWho } from "./types.ts";
+import { prepareRunSandboxes, sandboxForEval } from "./sandbox-selection.ts";
 import type { Agent, EvalResult, JudgeConfig, Reporter, ReporterRegistration, RunShape, RunSummary } from "../types.ts";
 import type { AgentRun, Attempt, LifecyclePhase, AttemptRef, RunOptions } from "./types.ts";
 
@@ -69,6 +70,8 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
   const snapshotStartedAt = startedAt;
   const t0 = Date.now();
 
+  prepareRunSandboxes(opts.evals, opts.agentRuns, opts.config.sandbox);
+
   // 按 sourcePath 缓存文件内容,fingerprint 与 judge 预检共用:
   // 矩阵大时(实验 × eval)规划阶段不做串行重复文件读。
   const sourceCache = new Map<string, Promise<string>>();
@@ -88,7 +91,7 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
   // (cli.ts 在 --force 时不传 priorResults,也不算 carryPlan)。
   // carryPlan 优先用调用方(cli.ts,为了 live 表格)已经算好的那份,不重算一遍。
   const { plannedFingerprints, priorRunKeys, carriedResults } =
-    opts.carryPlan ?? (await planCarry(opts.evals, opts.agentRuns, opts.priorResults));
+    opts.carryPlan ?? (await planCarry(opts.evals, opts.agentRuns, opts.priorResults, opts.config.sandbox));
 
   // 携入覆盖计数:priorRunKeys 只回答「这个 (experimentId, evalId) 组合有没有可携入的终态
   // 结果」,不回答「携入了几条」。runs 被调大(或实验改成更大的 runs)时,上次可能只留下比
@@ -131,6 +134,7 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
           attempt: i,
           key,
           fingerprint: plannedFingerprints.get(cacheKey(run, evalDef.id)) ?? "",
+          sandboxSpec: sandboxForEval(run, evalDef, opts.config.sandbox),
           // locator 在构造 fresh attempt plan 时即算好并作为身份贯穿执行、留存登记与落盘
           // (不是完成后写回,见 docs/cli.md);裸 run(无 experimentId)不产出。
           locator: run.experimentId

@@ -28,6 +28,7 @@ export default defineEval({
 | 字段 | 说明 |
 |---|---|
 | `description` | 给人看的描述，出现在报告里 |
+| `environment` | 可选的 provider-neutral 环境 profile，由 experiment 的 sandbox resolver 映射到具体预制环境 |
 | `test(t)` | 交互和断言逻辑 |
 
 eval 本身不声明用哪个 Agent——它默认保持 agent-neutral，同一个 eval 可以在不同 experiment 下跑不同 Agent。选哪个 Agent 是 experiment 的字段，不由 CLI 临时覆盖。
@@ -45,7 +46,7 @@ npx niceeval exp local weather
 npx niceeval exp local weather/brooklyn
 ```
 
-这种方式让 ID 稳定、可读，并自然跟目录结构保持一致。
+这种方式让 ID 稳定、可读，并自然跟目录结构保持一致。位置参数采用裸字符串前缀：`terminal-swe-bench` 也会命中 `terminal-swe-bench-astropy-1`，不要求后一个字符必须是 `/`。
 
 ## 生命周期
 

@@ -52,6 +52,14 @@ tags?: string[];
 
 标签,供 CLI `--tag` 过滤和 view 分类;与 id 前缀过滤是两套独立的筛选维度。
 
+#### `environment`
+
+```ts
+environment?: string;
+```
+
+provider-neutral 的环境 profile id；由 ExperimentDef.sandbox resolver 映射到具体 SandboxSpec。
+
 #### `judge`
 
 ```ts

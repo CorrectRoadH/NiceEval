@@ -145,6 +145,7 @@ export const zhCN = {
   "context.turnFailedDefault": "本轮 send 返回 failed(turn status = failed)",
   "define.agentNameRequired": "defineAgent 需要 name。",
   "define.evalIdRejected": "defineEval 不接受 id —— id 由文件路径推导。",
+  "define.evalEnvironmentEmpty": "defineEval 的 environment 如有提供，必须是非空的 profile id。",
   "define.evalTestRequired": "defineEval 需要一个 async test(t) 函数。",
   "define.experimentAgentRequired": "defineExperiment 需要 agent。",
   "define.experimentFlagNotJson": "experiment.flags.{{key}} 不是可 JSON 序列化的值(函数 / undefined / 循环引用 / bigint 不允许);flags 会原样进入结果快照,必须是纯 JSON。",

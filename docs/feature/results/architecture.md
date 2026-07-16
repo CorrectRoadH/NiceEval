@@ -133,6 +133,10 @@ interface ExperimentRunInfo {
   evalFilterFingerprint?: string;
   /** provider 名、provider 的 publicConfig() 投影与配置 fingerprint。 */
   sandbox?: { provider: string; params?: Record<string, JsonValue>; fingerprint?: string };
+  /** experiment.sandbox 为 resolver 时：resolver 函数体指纹，防止局部重跑跨配置补齐。 */
+  sandboxResolverFingerprint?: string;
+  /** resolver 对本快照 selectedEvalIds 的实际求值结果；键为 eval id。 */
+  sandboxByEval?: Record<string, { provider: string; params?: Record<string, JsonValue>; fingerprint?: string }>;
 }
 ```
 
@@ -140,6 +144,7 @@ interface ExperimentRunInfo {
 
 - **`model` 与 `agent` 只在快照顶层存在**(`snapshot.model` / `snapshot.agent`),`ExperimentRunInfo` 不复制——同一事实两处落盘不是冗余就是漂移;报告的 `config()` 对 `model` / `agent` 两个键桥接到顶层字段,消费方无感(见 [Reports · 维度与 flags](../reports/library/metrics.md#维度与-flags))。
 - **sandbox 参数只经 provider 的 `publicConfig()` 投影落盘**:每个内置 provider 显式实现「哪些参数可发布」的投影(镜像名、模板名、runtime 可以;token、凭据路径永远不可以),`defineSandbox` 自定义 provider 未实现投影时只落 provider 名。「params 不含 secret」由投影保证,不靠注释承诺。
+- **按 eval 解析 sandbox 时同时保存身份与结果。** `sandboxResolverFingerprint` 是快照级配置身份，供局部重跑的可比性判断；`sandboxByEval` 只记录本快照实际选中 eval 的 resolved spec，供审计与逐 eval fingerprint 对账。未选中的 eval 不调用 resolver，也不伪造映射项。
 - 新增公开运行配置字段时必须同步进这张投影,不允许「快照里有一半配置」。
 
 通过数、失败数、总用量、总成本这类聚合**不落盘**:它们由 `result.json` 逐条推导,聚合永远发生在消费方(`openResults` 分层之上的计算函数或你的脚本)——这与读取面「忠实磁盘,不合并不聚合」是同一条铁律。

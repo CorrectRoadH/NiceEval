@@ -123,6 +123,23 @@ function shellQuote(s: string): string {
   return `'${s.replaceAll("'", `'\\''`)}'`;
 }
 
+/**
+ * 把仓库根语义的 gitignore 风格规则编译成 ledger pathspec。
+ * 无斜杠的名字匹配任意深度；有斜杠的规则相对 workdir 根；目录本身与后代一起处理。
+ */
+function gitignorePathspecs(pattern: string, exclude: boolean): string[] {
+  let normalized = pattern;
+  while (normalized.startsWith("./")) normalized = normalized.slice(2);
+  if (normalized.startsWith("/")) normalized = normalized.slice(1);
+  normalized = normalized.replace(/\/+$/, "");
+  if (!normalized) return [];
+
+  const glob = normalized.includes("/") ? normalized : `**/${normalized}`;
+  const globs = exclude && !glob.endsWith("/**") ? [glob, `${glob}/**`] : [glob];
+  const magic = exclude ? ":(glob,exclude)" : ":(glob)";
+  return [...new Set(globs)].map((value) => `${magic}${value}`);
+}
+
 /** 打分类账锚点(workspace.baseline 阶段,环境层钩子之后):git init + 冻结排除清单 + 首笔 commit。 */
 export async function createChangeLedger(sandbox: Sandbox, opts?: LedgerOptions): Promise<ChangeLedger> {
   const excludes = [...DEFAULT_EXCLUDES, ...(opts?.ignore ?? [])];
@@ -131,11 +148,15 @@ export async function createChangeLedger(sandbox: Sandbox, opts?: LedgerOptions)
 
   // add -A -f:绕过项目自己的 .gitignore(项目 ignore 的文件照常记录);排除靠 pathspec
   // (runner 私有清单,agent / fixture 写 .gitignore 影响不了它);include 用第二次 add 打洞加回。
-  const excludeSpecs = excludes.map((e) => shellQuote(`:(exclude)${e}`)).join(" ");
+  const excludeSpecs = excludes.flatMap((pattern) => gitignorePathspecs(pattern, true)).map(shellQuote).join(" ");
   // include 打洞:路径此刻可能还不存在(如 agent 之后才写),unmatched pathspec 不算错。
+  const includeSpecs = includes.flatMap((pattern) => gitignorePathspecs(pattern, false)).map(shellQuote).join(" ");
   const includeAdd =
-    includes.length > 0 ? ` && { git add -A -f -- ${includes.map(shellQuote).join(" ")} 2>/dev/null || true; }` : "";
-  const addAll = `git add -A -f -- . ${excludeSpecs}${includeAdd}`;
+    includeSpecs.length > 0 ? ` && { git -c advice.addEmbeddedRepo=false add -A -f -- ${includeSpecs} 2>/dev/null || true; }` : "";
+  const rejectGitlinks =
+    " && nested=$(git ls-files --stage | awk '$1 == \"160000\" { sub(/^[^\\t]*\\t/, \"\"); print; exit }')" +
+    ' && if [ -n "$nested" ]; then printf \'%s\\n\' "niceeval ledger cannot track nested Git repository $nested as file-level evidence; move the checkout to sandbox.workdir root, or add the whole path to defineEval({ diff: { ignore: [...] } }) when it is intentionally out of scope" >&2; exit 2; fi';
+  const addAll = `git -c advice.addEmbeddedRepo=false add -A -f -- . ${excludeSpecs}${includeAdd}${rejectGitlinks}`;
 
   const anchor = await sandbox.runShell(`git init -q "${LEDGER_GIT_DIR}" && ${addAll} && git commit -q --allow-empty -m "anchor"`, {
     env,
@@ -170,7 +191,8 @@ async function exportAgentWindows(sandbox: Sandbox, env: Record<string, string>)
 
 function ensureCommandSucceeded(result: { exitCode: number; stderr: string }, operation: string): void {
   if (result.exitCode === 0) return;
-  const detail = result.stderr.trim().split("\n")[0];
+  // git 可能先输出 advisory warning，再输出 niceeval 的可操作诊断；最后一行最接近失败根因。
+  const detail = result.stderr.trim().split("\n").at(-1);
   throw new Error(`${operation} failed (exit ${result.exitCode})${detail ? `: ${detail}` : ""}`);
 }
 

@@ -55,6 +55,9 @@ export function defineEval(def: EvalDef): EvalDef {
   if (typeof def.test !== "function") {
     throw new Error(t("define.evalTestRequired"));
   }
+  if (def.environment !== undefined && def.environment.trim().length === 0) {
+    throw new Error(t("define.evalEnvironmentEmpty"));
+  }
   return def;
 }
 

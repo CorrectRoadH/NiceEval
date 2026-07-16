@@ -39,6 +39,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 - [sandbox-provision-ratelimit-retry](sandbox-provision-ratelimit-retry.md) — 设计裁决:provisioning 瞬时错误退避重试(2026-07-14 两轮 + 2026-07-15 推翻「拒绝类可盲重试」)——防线 = provider create 的 kill-on-failure + 有对账通道时任何重试前按 provision token 对账(对账失败即放弃重试),无检索通道则歧义类第一次抛;vercel 外层封顶收窄防嵌套放大;重试在 resolve.ts 而非 runner
 - 已修 [e2b-provision-429-duplicate-sandbox](e2b-provision-429-duplicate-sandbox.md) — E2B create 成功后的 mkdir 初始化请求撞 429 被归拒绝类盲重试,同 token 开两台、首台泄漏计费(实跑 10 evals 见 14 台);修为 create 内 kill-on-failure(e2b.ts/docker.ts)+ 重试前一律对账且对账失败不重试(retry.ts)
 - [diff-attribution-send-window-ledger](diff-attribution-send-window-ledger.md) — 设计裁决:agent diff 改为 send 窗口归因的私有 git 分类账(2026-07-14),推翻「空基线 + git diff HEAD」;E2B 实跑补齐 `*venv*/` 排除、按窗口批量导出与证据上限(2026-07-15)
+- 已修 [ledger-gitignore-pathspec-and-gitlinks](ledger-gitignore-pathspec-and-gitlinks.md) — ledger 裸 pathspec 只排根级缓存，嵌套 repo 又静默记成 gitlink 吞掉内部 diff；修为 gitignore glob 编译 + mode 160000 fail fast
 - [keep-dormancy-provider-forms](keep-dormancy-provider-forms.md) — 设计裁决:留存现场转入 provider 休眠形态(docker stop 停驻 / e2b pause 可 resume;2026-07-14),推翻「keep = 保持运行」;docker pause 与 commit 转镜像同场否决
 - 已修 [provision-retry-holds-concurrency-slot](provision-retry-holds-concurrency-slot.md) — provisioning 退避重试期间攥着 sandboxSem 并发名额陪跑 setTimeout,一批 429 能把实际并发拖到远低于 --max-concurrency 声明值(个位数);修为 ProvisionSlot 退避前 release、睡醒后 reacquire(`src/sandbox/retry.ts` + `resolve.ts` + `runner/attempt.ts`)
 
@@ -88,6 +89,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 
 ## CLI 与运行
 
+- 已修 [exp-eval-prefix-segment-drift](exp-eval-prefix-segment-drift.md) — `exp` 把「eval ID 前缀」实现成路径段匹配，和文档/show/view 分叉；统一为裸字符串 prefix
 - [report-load-foreign-cwd-jsx-runtime](report-load-foreign-cwd-jsx-runtime.md) — 跨项目 cwd 装载 --report 报 React is not defined:tsx 按进程 cwd 找 tsconfig 拿不到 jsx: react-jsx;未修,workaround 在报告所在项目 cwd 跑
 - 已修 [experiment-maxconcurrency-was-global-clamp](experiment-maxconcurrency-was-global-clamp.md) — 实验级 maxConcurrency 曾按最小值钳全局,一个串行实验拖慢整批;修为 runner 两级信号量按实验限流(src/runner/run.ts + cli.ts)
 - 已修 [cli-exit-code-attempt-level-not-eval-level](cli-exit-code-attempt-level-not-eval-level.md) — 退出码曾按 attempt 计红,earlyExit 重试吸收的失败也 exit 1;修为 foldEvalOutcome 按 eval 折叠(src/cli.ts + e2e verify.mjs)
@@ -156,6 +158,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 
 ## 设计决定
 
+- [eval-environment-profile-sandbox-resolver](eval-environment-profile-sandbox-resolver.md) — 裁决:Eval 只声明 provider-neutral environment profile，Experiment sandbox resolver 按选中 eval 解析具体 spec；否决 Eval 直接绑定 template/provider
 - [publish-redaction-removed](publish-redaction-removed.md) — 设计裁决:发布脱敏管线(redact 必填/publish 标记/--allow-sensitive-artifacts/展示层 redact)整体移除;保密边界在采集侧,真实根实测零秘密;兜底方向是只警告不改写的凭据扫描
 - [view-server-serves-site-plan](view-server-serves-site-plan.md) — 裁决(2026-07-16):view 本地 server 与 --out 统一为单一站点管线(SitePlan 清单,布局/取数知识单点在 site.ts,逐字节奇偶测试守护);否决双链路各自修与「先导出临时目录再服务」;旁路取数删除,宿主语义只剩首页重建/embed/收窄三条
 - [report-head-channel-replaces-asset-attrs](report-head-channel-replaces-asset-attrs.md) — 裁决(2026-07-16):外壳第三方脚本/meta/favicon 走结构化 `head` 通道(白名单 tag+attrs+children),否决 ReportAsset 加 attrs、JSX 直给 `<script>`、raw HTML 字符串三方案;`{src}` 外链装载报错指引 head

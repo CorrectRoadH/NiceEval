@@ -104,7 +104,7 @@ npx niceeval exp prompt-variants/concise
 | `timeoutMs` | 单个 attempt 的超时 |
 | `budget` | 这一格配置的预算上限 |
 | `maxConcurrency` | 这一格配置的并发上限 |
-| `sandbox` | sandbox agent 使用的 provider，如 `dockerSandbox()` / `e2bSandbox()`；spec 上可以链 `.setup()` / `.teardown()` 挂按实验变化的环境钩子 |
+| `sandbox` | sandbox agent 使用的固定 spec，或按 eval 环境 profile 返回 spec 的 resolver；spec 上可以链 `.setup()` / `.teardown()` 挂环境钩子 |
 
 Experiment 本身是纯配置数据，没有 `setup` / `teardown` 这类字段。要在跑 agent 前按实验准备环境（装二进制、预热、跨 attempt 载入和回存状态），挂在 `sandbox` 字段的 spec 上：
 
@@ -121,5 +121,37 @@ export default defineExperiment({
 固定的 Agent CLI、系统包和大模型缓存应先做进 image/template/snapshot；`.setup()` 不应在每个 Attempt 重建同一套环境。如何从官方 Docker 镜像、E2B 模板或 Vercel runtime 继续派生来提速，见 [沙箱 provider · 从官方基线继续构建以提速](/zh/how-to/sandbox-providers#从官方基线继续构建以提速)。
 
 钩子的执行时机、多钩子顺序和失败语义见 [沙箱 provider · 环境钩子](/zh/how-to/sandbox-providers#环境钩子)。
+
+## 让不同 eval 使用不同预制环境
+
+一批真实任务可能需要不同版本的运行时和依赖。eval 用 `environment` 声明一个与 provider 无关的 profile ID；experiment 再把它映射到具体模板或快照：
+
+```ts
+// evals/astropy-2021.eval.ts
+export default defineEval({
+  environment: "python-3.9-astropy-4.2",
+  async test(t) {
+    // 驱动任务并验证结果
+  },
+});
+```
+
+```ts
+// experiments/e2b.ts
+import { defineExperiment } from "niceeval";
+import { e2bSandbox } from "niceeval/sandbox";
+
+export default defineExperiment({
+  agent: codexAgent(),
+  sandbox: ({ eval }) => {
+    if (eval.environment === "python-3.9-astropy-4.2") {
+      return e2bSandbox({ template: "codex-python39" });
+    }
+    return e2bSandbox({ template: "codex-default" });
+  },
+});
+```
+
+`environment` 是非空的稳定字符串，不是包版本约束。resolver 必须为每个分支返回一个具体 Sandbox spec。NiceEval 在启动任何 Sandbox 前解析所有选中的 eval；返回空值或抛错会让本次运行直接报配置错误。remote Agent 不创建 Sandbox，因此不会调用 resolver。
 
 跨配置比较的设计建议见[实验矩阵](/zh/how-to/experiments)。adapter 如何消费 `ctx.model` 和 `ctx.flags` 见[Adapter](/zh/explanation/adapter)。

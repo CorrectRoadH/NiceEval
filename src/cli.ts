@@ -17,7 +17,7 @@ import { planCarry } from "./runner/fingerprint.ts";
 import { failureDetailFromResult } from "./runner/feedback/failure.ts";
 import { stopAllSandboxes, liveSandboxCount } from "./sandbox/registry.ts";
 import { evalLevelStats } from "./shared/verdict.ts";
-import { sandboxRecommendedConcurrency } from "./sandbox/resolve.ts";
+import { prepareRunSandboxes, resolvedSandboxRecommendedConcurrency } from "./runner/sandbox-selection.ts";
 import { Json, JUnit } from "./runner/reporters/json.ts";
 import { Artifacts as ArtifactsReporter } from "./runner/reporters/artifacts.ts";
 import {
@@ -468,7 +468,7 @@ function evalsFilterFromExperiment(
 ): (id: string) => boolean {
   const patternFilter = makeFilter(patterns);
   let expFilter: (id: string) => boolean = () => true;
-  if (Array.isArray(evals)) expFilter = (id) => evals.includes(id) || evals.some((e) => id.startsWith(e + "/"));
+  if (Array.isArray(evals)) expFilter = makeFilter(evals);
   else if (typeof evals === "function") expFilter = evals;
   return (id) => expFilter(id) && patternFilter(id);
 }
@@ -771,6 +771,9 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  // resolver 在 dry-run 与真实运行共用的规划边界解析；无效分支在任何沙箱/agent 花费前失败。
+  prepareRunSandboxes(evals, agentRuns, config.sandbox);
+
   if (flags.dry) {
     // --dry 只按所选 profile 打印计划,不运行、不落盘 —— 三种 profile 各自的展示逻辑
     // 都在 runner/feedback/{human,agent,ci}.ts 里,这里只负责拼数据、选函数、写流、退出。
@@ -826,7 +829,7 @@ async function main(): Promise<void> {
   // envelope 展示的"携入"就会和 run.ts 真实调度的"携入"对不上(见 memory 的
   // live-carry-row-shows-waiting-forever)。
   const priorResults = flags.force ? undefined : await loadLatestResultsPerEval(join(cwd, ".niceeval"));
-  const carryPlan = priorResults?.length ? await planCarry(evals, agentRuns, priorResults) : undefined;
+  const carryPlan = priorResults?.length ? await planCarry(evals, agentRuns, priorResults, config.sandbox) : undefined;
   const reusedFailures = (carryPlan?.carriedResults ?? [])
     .map(failureDetailFromResult)
     .filter((failure) => failure !== undefined);
@@ -834,8 +837,7 @@ async function main(): Promise<void> {
   // 无全局默认:并发上限由 sandbox provider 的推荐值决定(多个 agentRun 各有 sandbox 时取
   // 最小值,最保守的 provider 决定上限)。同一个值既进 RunFeedbackPlan.shape,也传给 runEvals——
   // 两处必须是同一个数字,dashboard 展示的并发上限不能和真实调度的并发上限对不上。
-  const sandboxRecs = agentRuns.map((r) => sandboxRecommendedConcurrency(r.sandbox));
-  const sandboxDefaultConcurrency = sandboxRecs.length > 0 ? Math.min(...sandboxRecs) : 10;
+  const sandboxDefaultConcurrency = resolvedSandboxRecommendedConcurrency(evals, agentRuns, config.sandbox);
   const maxConcurrency =
     flags.maxConcurrency ??
     envNumber("NICEEVAL_MAX_CONCURRENCY") ??

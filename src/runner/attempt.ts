@@ -6,7 +6,7 @@
 import { resolve as resolvePath } from "node:path";
 import { readFile as readSourceFile } from "node:fs/promises";
 import { Effect, Cause, Duration } from "effect";
-import { createSandbox, resolveSandbox, sandboxRunInfo } from "../sandbox/resolve.ts";
+import { createSandbox, resolveSandbox } from "../sandbox/resolve.ts";
 import { stopSandbox, unregisterSandbox } from "../sandbox/registry.ts";
 import { KEEPABLE_PROVIDERS, nativeEnterCommand, suspendSandbox } from "../sandbox/keep.ts";
 import { keptEntryId, updateKeptEntry, writeKeptEntry } from "../sandbox/keep-registry.ts";
@@ -51,6 +51,7 @@ import type {
 import { reportAttemptLifecycle, reportDiagnostic, reportKept } from "./feedback/sink.ts";
 import { encodeAttemptKey, runWho } from "./types.ts";
 import { commandDisplay, commandNode, createTimingRecorder, type TimingRecorder } from "./timing.ts";
+import { sandboxForEval, sandboxProjection } from "./sandbox-selection.ts";
 import type {
   AgentRun,
   Attempt,
@@ -81,7 +82,7 @@ export function runAttemptEffect(
     id: evalDef.id,
     description: evalDef.description,
     experimentId: run.experimentId,
-    experiment: experimentRunInfo(run),
+    experiment: experimentRunInfo(run, config.sandbox),
     agent: run.agent.name,
     model: run.model,
     verdict: "errored",
@@ -178,9 +179,9 @@ export function runAttemptEffect(
 
   return Effect.scoped(
     Effect.gen(function* () {
-      // run.sandbox ?? config.sandbox 是同一个 SandboxSpec 对象,既用来起沙箱 provider,
-      // 也是 sandbox.setup / sandbox.teardown 钩子(SandboxSpec.setup()/.teardown() 链式挂的)的来源。
-      const sandboxSpec = run.sandbox ?? config.sandbox;
+      // 规划期按当前 eval 解析出的同一个 SandboxSpec，既用来起 provider，也作为
+      // sandbox.setup / sandbox.teardown 钩子(SandboxSpec.setup()/.teardown() 链式挂的)来源。
+      const sandboxSpec = a.sandboxSpec ?? sandboxForEval(run, evalDef, config.sandbox);
       // defineSandbox 自定义 provider 不参与留存(事后命令不执行用户项目代码,新进程无法安全
       // 找回用户对象上的 stopDetached);组合使用在创建沙箱前报清晰错误。
       if (
@@ -809,7 +810,7 @@ async function runAttemptBody(
       id: evalDef.id,
       description: evalDef.description,
       experimentId: run.experimentId,
-      experiment: experimentRunInfo(run),
+      experiment: experimentRunInfo(run, config.sandbox),
       agent: run.agent.name,
       model: run.model,
       verdict,
@@ -832,7 +833,7 @@ async function runAttemptBody(
       ...(usesSandbox
         ? {
             sandbox: {
-              provider: resolveSandbox(run.sandbox ?? config.sandbox).provider,
+              provider: resolveSandbox(a.sandboxSpec ?? sandboxForEval(run, evalDef, config.sandbox)).provider,
               sandboxId: sandbox.sandboxId,
             },
           }
@@ -1016,7 +1017,7 @@ async function collectSources(
 
 /** 解析后运行配置的穷尽投影(ExperimentRunInfo,见 docs/feature/results/architecture.md):
  *  agent/model 只在快照顶层,这里不复制;sandbox 只经 provider 的公开参数投影落盘。 */
-function experimentRunInfo(run: AgentRun): EvalResult["experiment"] {
+function experimentRunInfo(run: AgentRun, configSandbox?: Config["sandbox"]): EvalResult["experiment"] {
   return {
     ...(run.description !== undefined ? { description: run.description } : {}),
     ...(run.reasoningEffort !== undefined ? { reasoningEffort: run.reasoningEffort } : {}),
@@ -1028,7 +1029,7 @@ function experimentRunInfo(run: AgentRun): EvalResult["experiment"] {
     ...(run.maxConcurrency !== undefined ? { maxConcurrency: run.maxConcurrency } : {}),
     selectedEvalIds: run.selectedEvalIds ?? [],
     ...(run.evalFilterFingerprint !== undefined ? { evalFilterFingerprint: run.evalFilterFingerprint } : {}),
-    ...(run.sandbox !== undefined ? { sandbox: sandboxRunInfo(run.sandbox) } : {}),
+    ...sandboxProjection(run, configSandbox),
   };
 }
 

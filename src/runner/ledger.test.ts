@@ -1,4 +1,4 @@
-// cases: docs/engineering/unit-tests/experiments-runner/cases.md
+// cases: docs/engineering/unit-tests/sandbox/cases.md
 // 变更分类账的集成测试:用宿主 shell 扮演沙箱(真实 git),验证
 // - .git 不在 workdir 内(agent 看不到分类账;eval 自己 git init 不冲突)
 // - eval 归因(send 前写入)不进 agent diff;send 窗口内写入逐窗口归因
@@ -153,6 +153,10 @@ describe("createChangeLedger", () => {
     await mkdir(join(workdir, "node_modules"), { recursive: true });
     await writeFile(join(workdir, "node_modules", "dep.js"), "excluded\n");
     await writeFile(join(workdir, "node_modules", "keep.js"), "included back\n");
+    await mkdir(join(workdir, "packages/app/node_modules/dep"), { recursive: true });
+    await writeFile(join(workdir, "packages/app/node_modules/dep/index.js"), "nested dependency\n");
+    await mkdir(join(workdir, "packages/app/__pycache__"), { recursive: true });
+    await writeFile(join(workdir, "packages/app/__pycache__/mod.pyc"), "nested cache\n");
     await mkdir(join(workdir, "secret"), { recursive: true });
     await writeFile(join(workdir, "secret", "token.txt"), "excluded via ignore\n");
     // Python 工具链目录不依赖项目 .gitignore:任意 *venv*/ 名字都由 runner 私有清单排除。
@@ -167,8 +171,33 @@ describe("createChangeLedger", () => {
     expect(paths).toContain("output.txt");
     expect(paths).toContain("node_modules/keep.js");
     expect(paths).not.toContain("node_modules/dep.js");
+    expect(paths).not.toContain("packages/app/node_modules/dep/index.js");
+    expect(paths).not.toContain("packages/app/__pycache__/mod.pyc");
     expect(paths).not.toContain("secret/token.txt");
     expect(paths.some((path) => path.includes("venv"))).toBe(false);
+  });
+
+  // bug: memory/ledger-gitignore-pathspec-and-gitlinks.md
+  it("未排除的 nested repo 明确失败；整目录 ignore 后允许作为无关环境存在", async () => {
+    const first = await makeDirs();
+    const checkout = join(first.workdir, "checkout");
+    await mkdir(checkout, { recursive: true });
+    await execAsync("git init -q && git config user.email t@t && git config user.name t", { cwd: checkout });
+    await writeFile(join(checkout, "app.py"), "print('hello')\n");
+    await execAsync("git add app.py && git commit -qm baseline", { cwd: checkout });
+
+    await expect(createChangeLedger(hostSandbox(first.workdir, first.ledgerDir))).rejects.toThrow(
+      /nested Git repository checkout.*sandbox\.workdir root.*diff.*ignore/,
+    );
+
+    const second = await makeDirs();
+    const ignoredCheckout = join(second.workdir, "checkout");
+    await mkdir(ignoredCheckout, { recursive: true });
+    await execAsync("git init -q && git config user.email t@t && git config user.name t", { cwd: ignoredCheckout });
+    await writeFile(join(ignoredCheckout, "app.py"), "print('ignored')\n");
+    await execAsync("git add app.py && git commit -qm baseline", { cwd: ignoredCheckout });
+
+    await expect(createChangeLedger(hostSandbox(second.workdir, second.ledgerDir), { ignore: ["checkout/"] })).resolves.toBeDefined();
   });
 
   it("整相导出只用一条 shell 命令 + 一次文件下载,不随文件数与窗口数增长", async () => {
