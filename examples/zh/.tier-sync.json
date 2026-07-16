@@ -52,31 +52,19 @@
       "from": "examples/zh/tier2/ai-sdk-v7",
       "to": "examples/zh/tier3/ai-sdk-v7",
       "contract": "overlay",
-      "baseTree": "882c8a9fc27607a2754af7dd946e2ccae616af68",
-      "pending": {
-        "upstreamTree": "14924735f65dffdebbb04e1af782c69bf5235230",
-        "needsInstall": false
-      }
+      "baseTree": "14924735f65dffdebbb04e1af782c69bf5235230"
     },
     {
       "from": "examples/zh/tier2/codex-sdk",
       "to": "examples/zh/tier3/codex-sdk",
       "contract": "overlay",
-      "baseTree": "8c409e11f74e391bb22af2821f314993d427bb6b",
-      "pending": {
-        "upstreamTree": "05bfe77468ef7d504823369a2957c619c79bc92a",
-        "needsInstall": false
-      }
+      "baseTree": "05bfe77468ef7d504823369a2957c619c79bc92a"
     },
     {
       "from": "examples/zh/tier2/langgraph",
       "to": "examples/zh/tier3/langgraph",
       "contract": "overlay",
-      "baseTree": "0a8e8376e121cb955f2e66102fc7dc7d7131053b",
-      "pending": {
-        "upstreamTree": "8148620ae54dab0ac2513b2a9e97c9d131f06fa9",
-        "needsInstall": false
-      }
+      "baseTree": "8148620ae54dab0ac2513b2a9e97c9d131f06fa9"
     },
     {
       "from": "examples/zh/tier1/claude-sdk",
