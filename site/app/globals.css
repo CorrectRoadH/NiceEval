@@ -21,6 +21,9 @@
 
 html {
   scroll-behavior: smooth;
+  /* 微信等内嵌 WebView 会按用户字号设置整体放大正文，拼贴卡片和代码块跟不上会互相压盖，锁死缩放。 */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
@@ -1368,6 +1371,8 @@ h1 {
   .nav {
     gap: 12px;
     font-size: 13px;
+    /* 中文导航项都是两字词，禁止折成竖排。 */
+    white-space: nowrap;
   }
 
   .hero {
@@ -1386,19 +1391,39 @@ h1 {
     width: 100%;
   }
 
+  /* 窄屏放弃绝对定位拼贴：卡片回到文档流上下叠放，用负 margin 留一点交叠的拼贴感。
+     卡片高度随内容（含 WebView 字号放大）变化时也只会把下一张往下推，不会互相盖住。 */
   .visual {
-    min-height: 460px;
+    min-height: 0;
+    display: grid;
+  }
+
+  .wire {
+    display: none;
   }
 
   .file-card,
+  .run-card,
+  .score-card {
+    position: relative;
+    inset: auto;
+  }
+
+  .file-card {
+    width: min(330px, 94%);
+    justify-self: end;
+  }
+
   .run-card {
-    right: 0;
-    width: 88%;
+    width: min(330px, 88%);
+    justify-self: start;
+    margin-top: -16px;
   }
 
   .score-card {
-    left: 0;
-    width: 190px;
+    width: 210px;
+    justify-self: end;
+    margin: -14px 4% 0 0;
   }
 
   .strip {
@@ -1426,9 +1451,9 @@ h1 {
     padding: 60px 0 90px;
   }
 
-  /* 窄屏把节点往环内收:左右两个 pill 一半悬在容器外,inset 加大后不再贴视口边。 */
-  .loop-ring {
-    --ring-inset: 42px;
+  /* 环随视口缩小后 SVG 文本同比例变小，命令行字号补大一档保持可读。 */
+  .loop-arc-cmd {
+    font-size: 11px;
   }
 
   .setup h2,
@@ -1504,5 +1529,12 @@ h1 {
   .article-body li,
   .article-body blockquote {
     font-size: 16px;
+  }
+}
+
+/* 极窄屏（老款小屏机）导航放不下品牌字 + 全部导航项，只留 logo 当品牌。 */
+@media (max-width: 359px) {
+  .brand > span:last-child {
+    display: none;
   }
 }
