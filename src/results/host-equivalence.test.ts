@@ -24,7 +24,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openResults } from "./index.ts";
-import type { Selection, SelectionWarning } from "./index.ts";
+import type { Scope, ScopeWarning } from "./index.ts";
 import { selectCurrentResults, type ResultScope } from "./select.ts";
 import { RESULTS_FORMAT, RESULTS_SCHEMA_VERSION, type EvalResult, type Verdict } from "../types.ts";
 import { runShow, type ShowFlags } from "../show/index.ts";
@@ -132,7 +132,7 @@ interface NormSelection {
   experiments: NormExperiment[];
 }
 
-function normalizeWarning(w: SelectionWarning): NormWarning {
+function normalizeWarning(w: ScopeWarning): NormWarning {
   switch (w.kind) {
     case "partial-coverage":
       return { kind: w.kind, experimentId: w.experimentId, covered: w.covered, total: w.total };
@@ -144,7 +144,7 @@ function normalizeWarning(w: SelectionWarning): NormWarning {
   }
 }
 
-function normalizeSelection(selection: Selection): NormSelection {
+function normalizeSelection(selection: Scope): NormSelection {
   return {
     warnings: selection.warnings.map(normalizeWarning),
     experiments: selection.snapshots.map((snapshot) => ({
@@ -167,7 +167,7 @@ function normalizeSelection(selection: Selection): NormSelection {
 async function showText(root: string, patterns: string[], flags: ShowFlags = {}): Promise<string> {
   let out = "";
   let err = "";
-  const code = await runShow(root, patterns, { run: root, ...flags }, {
+  const code = await runShow(root, patterns, { results: root, ...flags }, {
     out: (s) => (out += s),
     err: (s) => (err += s),
     width: 120,
@@ -179,8 +179,8 @@ async function showText(root: string, patterns: string[], flags: ShowFlags = {})
 
 /** view 的 web 面:loadViewScan → 报告槽 HTML(en)。 */
 async function viewHtml(root: string, opts: ViewScanOptions = {}): Promise<string> {
-  const { reportHtml } = await loadViewScan(root, opts);
-  return reportHtml.en;
+  const { reportPages } = await loadViewScan(root, opts);
+  return reportPages.map((page) => page.html.en).join("\n");
 }
 
 /** 两个宿主构造给选择器的 scope 完全同形:验证读源无误,避免"我以为它们一样"。 */
@@ -453,20 +453,32 @@ describe("宿主接线 · show text 面与 view web 面反映同一批事实", (
     await writeFile(
       reportPath,
       [
+        "// 手搭新 defineReport 产物(kind + brand + 规范化页列表);组合组件从 ctx.scope 读注入范围。",
         'const FACES = Symbol.for("niceeval.report.faces");',
-        "const Echo = (props) => Echo[FACES].web(props);",
-        "Echo[FACES] = {",
+        'const COMPOSE = Symbol.for("niceeval.report.compose");',
+        "const Leaf = (props) => Leaf[FACES].web(props);",
+        "Leaf[FACES] = {",
         '  web: (props) => "EVALS[" + props.ids + "]",',
         '  text: (props) => "EVALS[" + props.ids + "]",',
         "};",
+        "const Echo = () => { throw new Error(\"compose only\"); };",
+        "Echo[COMPOSE] = (_props, ctx) => ({",
+        '  $$typeof: Symbol.for("react.transitional.element"),',
+        "  type: Leaf,",
+        '  props: { ids: ctx.scope.snapshots.flatMap((s) => s.evals.map((e) => e.id)).sort().join(",") },',
+        "  key: null,",
+        "});",
         "export default {",
+        '  kind: "report",',
         '  [Symbol.for("niceeval.report.definition")]: true,',
-        "  build: (ctx) => ({",
-        '    $$typeof: Symbol.for("react.transitional.element"),',
-        "    type: Echo,",
-        '    props: { ids: ctx.selection.snapshots.flatMap((s) => s.evals.map((e) => e.id)).sort().join(",") },',
-        "    key: null,",
-        "  }),",
+        "  links: [],",
+        "  scripts: [],",
+        "  styles: [],",
+        "  pages: [{",
+        '    id: "report",',
+        '    title: "Report",',
+        '    content: { $$typeof: Symbol.for("react.transitional.element"), type: Echo, props: {}, key: null },',
+        "  }],",
         "};",
         "",
       ].join("\n"),

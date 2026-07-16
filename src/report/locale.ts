@@ -1,13 +1,50 @@
-// 官方组件 chrome 文案的 locale 字典(en / zh-CN 两份)。
+// 官方组件 chrome 文案的 locale 字典与 LocalizedText 解析。
+// ReportLocale 是开放的 BCP 47 标签(数据协议不封语言上限);官方内置文案与
+// MetricCell.display 生成面当前覆盖 en / zh-CN,其它 locale 走 LocalizedText 回退规则。
 // 只覆盖组件自带的固定文案(verdict 词、缺数据、覆盖率角标、注脚、占位符等);
-// 数据本身(display、维度键、warnings 的 message)不经这里。
-// 刻意不 import src/i18n/(CLI 专用字典,locale 来源与 key 面完全不同);
-// zh-CN 译法与默认 Reports 契约保持一致(端到端成功率/平均耗时/预估成本…)。
+// 维度键、warnings 的 message 不经这里。
+// 刻意不 import src/i18n/(CLI 专用字典,locale 来源与 key 面完全不同)。
 
-/** 报告渲染的 locale;默认 "en"(text 面缺省即 en,`niceeval show` 输出不变)。 */
-export type ReportLocale = "en" | "zh-CN";
+import type { LocalizedText } from "../types.ts";
+
+export type { LocalizedText };
+
+/** 报告渲染的 locale(BCP 47 标签,开放);默认 "en"(`niceeval show` 缺省输出不变)。 */
+export type ReportLocale = string;
 
 export const DEFAULT_REPORT_LOCALE: ReportLocale = "en";
+
+/** MetricCell.display 生成面覆盖的 locale 全集;其它 locale 按 LocalizedText 回退取 en。 */
+export const DISPLAY_LOCALES: readonly ReportLocale[] = ["en", "zh-CN"];
+
+/**
+ * LocalizedText 的确定回退:取当前 locale;缺失时取 en;仍缺失时取按 locale 键字典序的
+ * 第一个非空值。对象没有任何非空值时报错,不渲染空文案
+ * (docs/feature/reports/library/shell.md「行为约束」)。
+ */
+export function resolveLocalizedText(text: LocalizedText, locale: ReportLocale): string {
+  if (typeof text === "string") return text;
+  const direct = text[locale];
+  if (direct !== undefined && direct !== "") return direct;
+  const en = text.en;
+  if (en !== undefined && en !== "") return en;
+  for (const key of Object.keys(text).sort()) {
+    const value = text[key];
+    if (value !== undefined && value !== "") return value;
+  }
+  throw new Error(
+    "LocalizedText object has no non-empty value. Provide at least one locale entry, e.g. { en: \"…\" }.",
+  );
+}
+
+/** LocalizedText 按字段值深相等(键顺序无关;标题回退链的「唯一且相同」判定用)。 */
+export function localizedTextEquals(a: LocalizedText, b: LocalizedText): boolean {
+  if (typeof a === "string" || typeof b === "string") return a === b;
+  const keysA = Object.keys(a).sort();
+  const keysB = Object.keys(b).sort();
+  if (keysA.length !== keysB.length) return false;
+  return keysA.every((key, i) => key === keysB[i] && a[key] === b[key]);
+}
 
 const en = {
   "verdict.passed": "passed",
@@ -20,6 +57,7 @@ const en = {
   "cell.measuredTitle": "{samples}/{total} attempts measured",
   "cell.noneMeasurableTitle": "0/{total} attempts measurable",
   "cell.coverageTitle": "coverage {samples}/{total}: this metric is null for the remaining attempts",
+  "cell.missingValue": "(missing)",
 
   "table.higherBetter": "higher is better",
   "table.lowerBetter": "lower is better",
@@ -36,50 +74,50 @@ const en = {
   "experimentList.avgDuration": "Avg duration",
   "experimentList.passRate": "End-to-end pass rate",
   "experimentList.tokens": "Tokens",
-  "experimentList.estimatedCost": "Est. cost",
+  "experimentList.cost": "Cost",
   "experimentList.result": "Result",
   "experimentList.status": "Status",
   "experimentList.evalAttempt": "Eval / Attempt",
   "experimentList.duration": "Duration",
-  "experimentList.cost": "Cost",
   "experimentList.filterPlaceholder": "Filter experiments…",
   "experimentList.defaultModel": "default",
   "experimentList.flags": "Flags",
   "entityList.average": "{value} avg",
+  "entityList.moreFailures.one": "+{n} more failure",
+  "entityList.moreFailures.other": "+{n} more failures",
   /** <Table> 压到下限仍放不下时,从右侧丢列并如实报数。 */
   "table.columnsHidden.one": "({n} more column not shown)",
   "table.columnsHidden.other": "({n} more columns not shown)",
 
-  "overview.snapshots": "Snapshots",
-  "overview.evals": "Evals",
-  "overview.attempts": "attempts",
-  "overview.passRate": "End-to-end pass rate",
-  "overview.totalCost": "Total cost",
-  "overview.totalDuration": "Total duration",
-  "overview.source": "Source: {n} snapshots",
+  /** ScopeSummary 的 KPI 标签。 */
+  "scopeSummary.experiments": "Experiments",
+  "scopeSummary.evals": "Evals",
+  "scopeSummary.attempts": "attempts",
+  "scopeSummary.passRate": "End-to-end pass rate",
+  "scopeSummary.totalCost": "Total cost",
+  "scopeSummary.range": "{from} – {to}",
+  "scopeSummary.votesEval": "eval verdicts",
+  "scopeSummary.votesAttempt": "attempt verdicts",
   "overview.experiments.one": "{n} experiment",
   "overview.experiments.other": "{n} experiments",
   "overview.evalsCount": "{n} evals",
   "overview.attemptsCount": "{n} attempts",
-
-  /** GroupSummary 的 KPI dt 标签(其余字段复用 verdict.* / overview.* 已有 key)。 */
-  "groupSummary.experiments": "Experiments",
+  "overview.evals": "Evals",
+  "overview.passRate": "End-to-end pass rate",
+  "overview.totalCost": "Cost",
 
   "experimentComparison.groups": "Experiment groups",
   "experimentComparison.group": "Experiment group",
-  "experimentComparison.results": "Results",
+  "experimentComparison.results": "Eval results",
   "experimentComparison.lastRun": "Last run",
   "experimentComparison.selectGroup": "Select experiment group {group}",
-  "experimentComparison.command": "Details: {command}",
+  "experimentComparison.commandsHead": "Group details:",
   "experimentComparison.empty": "No experiment groups",
 
-  "composedFrom.one": "composed from {n} run",
-  "composedFrom.other": "composed from {n} runs",
-  "latestRun": "latest {run}",
-
-  "scatter.betterHint": "better ↗",
   "scatter.betterUpperRight": "better → upper right",
-  "scatter.axisReversed": "(axis reversed: right = better)",
+  "scatter.betterUpperLeft": "better → upper left",
+  "scatter.betterLowerRight": "better → lower right",
+  "scatter.betterLowerLeft": "better → lower left",
   /** 0 个可画点:x/y 指标没有可用数据。 */
   "scatter.noData": "No data to plot {x} × {y}",
   "pointsMissing.one": "{n} point missing data",
@@ -94,18 +132,23 @@ const en = {
 
   "scoreboard.total": "Total",
   "scoreboard.totalText": "total",
-  "scoreboard.missing.one": "{n} eval missing, scored 0",
-  "scoreboard.missing.other": "{n} evals missing, scored 0",
-  "scoreboard.missingText": "({n} missing)",
+  "scoreboard.notRun.one": "{n} eval not run, scored 0",
+  "scoreboard.notRun.other": "{n} evals not run, scored 0",
+  "scoreboard.unscorable.one": "{n} eval unscorable, scored 0",
+  "scoreboard.unscorable.other": "{n} evals unscorable, scored 0",
+  "scoreboard.notRunText": "({n} not run)",
+  "scoreboard.unscorableText": "({n} unscorable)",
+  "scoreboard.ignored.one": "{n} eval outside the question set ignored",
+  "scoreboard.ignored.other": "{n} evals outside the question set ignored",
   "scoreboard.weights": "weights:",
   "scoreboard.allWeights": "all evals ×1",
   "scoreboard.othersWeight": "others ×1",
-  "scoreboard.subjectTitle": "{evals} evals, weighted {earned} of {possible}",
+  "scoreboard.subjectTitle": "{questions} evals, weighted {earned} of {possible}",
 
   "delta.pairHeader": "pair (A → B)",
+  "delta.empty": "{experiments} experiments, 0 comparable pairs",
 
-  "board.currentVerdicts": "Current verdicts",
-  "board.failing": "Failing:",
+  "tabs.tab": "Tab",
 } as const;
 
 export type ReportMessageKey = keyof typeof en;
@@ -120,6 +163,7 @@ const zhCN: Record<ReportMessageKey, string> = {
   "cell.measuredTitle": "{samples}/{total} 次 attempt 测得",
   "cell.noneMeasurableTitle": "0/{total} 次 attempt 可测",
   "cell.coverageTitle": "覆盖率 {samples}/{total}:其余 attempt 测不了这个指标",
+  "cell.missingValue": "(missing)",
 
   "table.higherBetter": "越高越好",
   "table.lowerBetter": "越低越好",
@@ -135,48 +179,48 @@ const zhCN: Record<ReportMessageKey, string> = {
   "experimentList.avgDuration": "平均耗时",
   "experimentList.passRate": "端到端成功率",
   "experimentList.tokens": "Tokens",
-  "experimentList.estimatedCost": "预估成本",
+  "experimentList.cost": "成本",
   "experimentList.result": "结果",
   "experimentList.status": "状态",
   "experimentList.evalAttempt": "题目 / Attempt",
   "experimentList.duration": "耗时",
-  "experimentList.cost": "成本",
   "experimentList.filterPlaceholder": "筛选实验…",
   "experimentList.defaultModel": "默认",
   "experimentList.flags": "Flags",
   "entityList.average": "平均 {value}",
+  "entityList.moreFailures.one": "+{n} 条其它失败",
+  "entityList.moreFailures.other": "+{n} 条其它失败",
   "table.columnsHidden.one": "(还有 {n} 列未列出)",
   "table.columnsHidden.other": "(还有 {n} 列未列出)",
 
-  "overview.snapshots": "快照",
-  "overview.evals": "题目",
-  "overview.attempts": "尝试",
-  "overview.passRate": "端到端成功率",
-  "overview.totalCost": "总成本",
-  "overview.totalDuration": "总耗时",
-  "overview.source": "数据来源:{n} 个快照",
+  "scopeSummary.experiments": "实验数",
+  "scopeSummary.evals": "题目",
+  "scopeSummary.attempts": "次 attempt",
+  "scopeSummary.passRate": "端到端成功率",
+  "scopeSummary.totalCost": "总成本",
+  "scopeSummary.range": "{from} – {to}",
+  "scopeSummary.votesEval": "Eval 计票",
+  "scopeSummary.votesAttempt": "Attempt 计票",
   "overview.experiments.one": "{n} 个实验",
   "overview.experiments.other": "{n} 个实验",
   "overview.evalsCount": "{n} 道题",
   "overview.attemptsCount": "{n} 次 attempt",
-
-  "groupSummary.experiments": "实验数",
+  "overview.evals": "Eval",
+  "overview.passRate": "端到端成功率",
+  "overview.totalCost": "成本",
 
   "experimentComparison.groups": "实验组",
   "experimentComparison.group": "实验组",
-  "experimentComparison.results": "结果",
+  "experimentComparison.results": "Eval 结果",
   "experimentComparison.lastRun": "最后运行",
   "experimentComparison.selectGroup": "选择实验组 {group}",
-  "experimentComparison.command": "查看：{command}",
+  "experimentComparison.commandsHead": "查看组内详情:",
   "experimentComparison.empty": "没有实验组",
 
-  "composedFrom.one": "合成自 {n} 个 run",
-  "composedFrom.other": "合成自 {n} 个 run",
-  "latestRun": "最新 {run}",
-
-  "scatter.betterHint": "更好 ↗",
-  "scatter.betterUpperRight": "更好 → 右上",
-  "scatter.axisReversed": "(轴反向:右 = 更好)",
+  "scatter.betterUpperRight": "越靠右上越好",
+  "scatter.betterUpperLeft": "越靠左上越好",
+  "scatter.betterLowerRight": "越靠右下越好",
+  "scatter.betterLowerLeft": "越靠左下越好",
   "scatter.noData": "{x} × {y} 没有可绘制的数据",
   "pointsMissing.one": "{n} 个点缺数据",
   "pointsMissing.other": "{n} 个点缺数据",
@@ -190,26 +234,31 @@ const zhCN: Record<ReportMessageKey, string> = {
 
   "scoreboard.total": "总分",
   "scoreboard.totalText": "总分",
-  "scoreboard.missing.one": "{n} 道题缺席,按 0 计",
-  "scoreboard.missing.other": "{n} 道题缺席,按 0 计",
-  "scoreboard.missingText": "(缺 {n} 题)",
+  "scoreboard.notRun.one": "{n} 道题没跑,按 0 计",
+  "scoreboard.notRun.other": "{n} 道题没跑,按 0 计",
+  "scoreboard.unscorable.one": "{n} 道题测不了,按 0 计",
+  "scoreboard.unscorable.other": "{n} 道题测不了,按 0 计",
+  "scoreboard.notRunText": "(没跑 {n} 题)",
+  "scoreboard.unscorableText": "(测不了 {n} 题)",
+  "scoreboard.ignored.one": "题集之外的 {n} 道题已忽略",
+  "scoreboard.ignored.other": "题集之外的 {n} 道题已忽略",
   "scoreboard.weights": "权重:",
   "scoreboard.allWeights": "全部题 ×1",
   "scoreboard.othersWeight": "其余 ×1",
-  "scoreboard.subjectTitle": "{evals} 道题,加权得分 {earned}/{possible}",
+  "scoreboard.subjectTitle": "{questions} 道题,加权得分 {earned}/{possible}",
 
   "delta.pairHeader": "对比 (A → B)",
+  "delta.empty": "{experiments} 个实验、0 个可配对",
 
-  "board.currentVerdicts": "现刻判定",
-  "board.failing": "失败清单:",
+  "tabs.tab": "Tab",
 };
 
-const dictionaries: Record<ReportLocale, Record<ReportMessageKey, string>> = {
+const dictionaries: Record<string, Record<ReportMessageKey, string>> = {
   en,
   "zh-CN": zhCN,
 };
 
-/** 查字典 + 简单插值({name} 占位符)。缺 locale 回退 en。 */
+/** 查字典 + 简单插值({name} 占位符)。内置词典未覆盖的 locale 回退 en。 */
 export function localeText(
   locale: ReportLocale,
   key: ReportMessageKey,
@@ -225,25 +274,32 @@ export function localeText(
 /** 带单复数的计数文案:n === 1 用 `<base>.one`,其余 `<base>.other`(zh-CN 两键同值)。 */
 export function countText(
   locale: ReportLocale,
-  base: "overview.experiments" | "composedFrom" | "pointsMissing" | "scoreboard.missing" | "table.columnsHidden",
+  base:
+    | "overview.experiments"
+    | "pointsMissing"
+    | "scoreboard.notRun"
+    | "scoreboard.unscorable"
+    | "scoreboard.ignored"
+    | "entityList.moreFailures"
+    | "table.columnsHidden",
   n: number,
 ): string {
   return localeText(locale, `${base}.${n === 1 ? "one" : "other"}` as ReportMessageKey, { n });
 }
 
-/** 指标 label 的可本地化形态:字符串,或按 locale 给的字典(缺项回退 en,再回退任一非空值)。 */
-export type LocalizedLabel = string | Partial<Record<ReportLocale, string>>;
-
 /**
- * 按 locale 解析指标 label:字符串原样;字典取当前 locale,缺项回退 en,
- * 再回退字典里任一值;全空回退 fallback(= metric.name)。渲染面(web / text)共用。
+ * 按 locale 解析指标 / 列 label:字符串原样;字典按 LocalizedText 回退规则取值;
+ * undefined 回退 fallback(= metric.name)。渲染面(web / text)共用。
  */
 export function resolveMetricLabel(
-  label: LocalizedLabel | undefined,
+  label: LocalizedText | undefined,
   locale: ReportLocale,
   fallback: string,
 ): string {
   if (label === undefined) return fallback;
-  if (typeof label === "string") return label;
-  return label[locale] ?? label.en ?? Object.values(label).find((v) => v !== undefined) ?? fallback;
+  try {
+    return resolveLocalizedText(label, locale);
+  } catch {
+    return fallback;
+  }
 }

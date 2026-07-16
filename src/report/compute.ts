@@ -1,42 +1,49 @@
-// 计算函数:Selection → 一份组件数据。跑在 Node 侧,产物是算好的、可序列化的普通 JSON
-// (终值 + 渲染提示,不含公式);渲染面(web/text)只做展示。
-//
-// 这些函数不做顶层导出,而是挂在对应组件上(MetricTable.data / Scoreboard.data …,
-// 见 components.tsx):配对打点即发现,泛化名不占顶层导出。
+// 计算函数(*Data):ReportInput → 一份组件数据。跑在 Node 侧,产物是算好的、可序列化的
+// 普通 JSON(终值 + 渲染提示,不含公式);渲染面(web/text)只做展示。
+// 它们是双面组件解析面的具名形式(MetricTable / metricTableData),与组件成对导出,
+// 只住在 niceeval/report(docs/feature/reports/library.md「数据计算与缓存边界」)。
 //
 // 共同约定(docs/feature/reports/architecture.md「指标聚合不变量」):
-// - 第一参收 Selection | Snapshot[];收 Selection 时 warnings 随行进 OverviewData;
+// - 第一参收 ReportInput = Scope | readonly Snapshot[];warnings 不进组件数据(宿主统一显示);
 // - 聚合前按身份键去重(dedupeAttempts;missing-startedAt 不去重、如实保留、不透出警告);
 // - null ≠ 0:缺数据不编数,覆盖率经 samples/total 如实暴露;
+// - 显式传入的列表(questions / pairs / metrics)保留声明顺序,从数据发现的维度 domain
+//   按稳定 key 字典序;
 // - core 中立:只认 Metric / Dimension 接口,不出现具体 agent 名的分支。
 
 import type {
   AttemptListItem,
   AttemptLocator,
-  AxisInput,
   DeltaData,
+  DeltaPair,
   DimensionInput,
+  EntityListDataOptions,
   EvalListItem,
+  ExperimentComparisonData,
+  ExperimentComparisonGroupData,
   ExperimentListEvalRow,
   ExperimentListItem,
-  GroupSummaryData,
+  FlagPairs,
   LineData,
   MatrixData,
   Metric,
   MetricCell,
-  OverviewData,
+  NumericAxis,
+  ReportInput,
   ScatterData,
+  ScopeSummaryData,
   ScoreboardData,
   TableData,
-  TableRowMeta,
+  VerdictTally,
 } from "./types.ts";
-import type { AssertionResult, AttemptError, DiagnosticRecord, EvalResult } from "../types.ts";
-import type { AttemptHandle } from "../results/types.ts";
+import type { EvalResult, JsonValue } from "../types.ts";
+import type { Snapshot } from "../results/types.ts";
+import { comparabilityConfigOf, deepEqualJson } from "../results/select.ts";
 import { evalLevelStats, foldEvalVerdict } from "../shared/verdict.ts";
+import { experimentGroupOf } from "../shared/aggregate.ts";
 import {
-  applyAggregator,
   assertUniqueMetricNames,
-  axisValue,
+  axisValueOf,
   collectItems,
   computeCell,
   dimensionKey,
@@ -44,291 +51,190 @@ import {
   displayValue,
   evalGroupOf,
   evalIdOf,
-  evalPrefixPredicate,
   evaluateMetric,
   experimentIdOf,
   filterItems,
+  fullEvalKey,
   groupItems,
   locatorOf,
+  refDisplayKey,
   resolveInput,
   snapshotKeyOf,
   toColumn,
   type Item,
-  type SnapshotsInput,
 } from "./aggregate.ts";
 import { attemptCostUSD, costUSD, durationMs, endToEndPassRate, examScore, tokens } from "./metrics.ts";
-import { formatMetricValue, formatPlainNumber } from "./format.ts";
-import { compactAssertionSummary, primaryAssertionSummary } from "../scoring/display.ts";
+import { formatMetricValue, formatPlainNumber, localizedDisplay } from "./format.ts";
+import { compactAssertionSummary, primaryAssertionSummary, summaryText } from "../scoring/display.ts";
+import { defineMetric } from "./metrics.ts";
+import type { LocalizedText } from "./locale.ts";
 
-// ───────────────────────── MetricTable.data ─────────────────────────
+// ───────────────────────── metricTableData ─────────────────────────
 
-export interface TableDataOptions<M extends readonly Metric[]> {
-  /** 行维度(内置 / 自定义 / flag())。 */
+export interface MetricTableOptions {
+  /** 行维度(内置 / 自定义 / flag() / runConfig())。 */
   rows: DimensionInput;
-  /** 每列一个指标;列键 = metric.name 的字面量,拼错编译不过。 */
-  columns: M;
-  /** 构建时排序,方向随 better(higher 降序,「好」的一头在上);缺数据行沉底。两面同口径,预排即终排。 */
+  /** 每列一个指标;非空元组,元素是静态 import 的 Metric 实例。 */
+  columns: readonly [Metric, ...Metric[]];
+  /**
+   * 初始行序:必须是 columns 中同一个 Metric 实例且声明了 better,方向随 better
+   * (「好」的一头在上),缺数据行沉底;省略时按行 key 字典序。
+   */
   sort?: Metric;
-  /** eval id 前缀过滤,同 CLI 位置参数语义。 */
-  evals?: string | string[];
+  /** eval id 前缀过滤,同 CLI 位置参数语义;在聚合之前收窄题集。 */
+  evals?: string | readonly string[];
 }
 
-// 一组 Item 的 eval 全身份键:experimentId + eval id。单 experiment 场景(如 experimentRowMeta,
-// 一组本就只有一个 experimentId)下退化为只按 eval id 折叠,与旧行为一致;多 experiment 场景
-// (GroupSummary 的组可能跨多个 experiment)下避免两个 experiment 里同名 eval 被误合并成一道题。
-// 分隔符是 NUL(同 aggregate.ts 的 KEY_SEP 手法):不会出现在 eval id / experimentId 里,拼接键不串味。
-const GROUP_KEY_SEP = "\u0000";
-function fullEvalKey(item: Item): string {
-  return `${experimentIdOf(item)}${GROUP_KEY_SEP}${evalIdOf(item)}`;
-}
-
-/**
- * 一批 Item 的组级统计:eval 级折叠计票(evalLevelStats,与 view 榜单 / `TableRowMeta.verdicts`
- * 同一套 foldEvalVerdict 口径,按完整身份键折叠)、experiment/eval/attempt 数量、总成本
- * (null-safe 求和)、最后运行时间(组内快照 startedAt 的最大值)。`experimentRowMeta` 与
- * `groupSummaryData` 共用这一份实现,不各自拼装 evalLevelStats。
- *
- * 内部纯函数,不导出、不进 index.ts:对外只经 `experimentRowMeta`(挑 verdicts)与
- * `groupSummaryData`(挑全部字段,包成 `GroupSummaryData`)暴露,调用方拿不到 `Item[]`
- * 本身,所以这里也不用担心被越权复用。
- */
-function summarizeItems(items: Item[]): {
-  experiments: number;
-  evals: number;
-  attempts: number;
-  verdicts: { passed: number; failed: number; errored: number; skipped: number };
-  /** 折叠后代表每个「已跑」(非 skipped)eval 的一条 attempt 引用,与 ran 同序同数。 */
-  refs: AttemptLocator[];
-  /** 计入通过率分母的 eval 数(passed + failed + errored,不含 skipped)。 */
-  ran: number;
-  totalCostUSD: number | null;
-  lastRunAt: string | undefined;
-} {
-  const experimentIds = new Set<string>();
-  for (const item of items) experimentIds.add(experimentIdOf(item));
-
-  const byEval = new Map<string, Item[]>();
-  for (const item of items) {
-    const key = fullEvalKey(item);
-    const list = byEval.get(key);
-    if (list) list.push(item);
-    else byEval.set(key, [item]);
+export async function metricTableData(input: ReportInput, options: MetricTableOptions): Promise<TableData> {
+  assertUniqueMetricNames(options.columns, "metricTableData columns");
+  if (options.sort !== undefined) {
+    if (!options.columns.includes(options.sort)) {
+      throw new Error(
+        `metricTableData sort must be one of the Metric instances passed in columns (got "${options.sort.name}"). ` +
+          "Pass the same imported instance in both places so the sorted column is visible in the table.",
+      );
+    }
+    if (options.sort.better === undefined) {
+      throw new Error(
+        `metricTableData cannot sort by "${options.sort.name}": the metric declares no "better" direction, so there is no defined order. ` +
+          'Declare better: "higher" | "lower" on the metric, or drop sort to keep the lexicographic row order.',
+      );
+    }
   }
-  const stats = evalLevelStats(
-    items.map((item) => ({ verdict: item.attempt.result.verdict, key: fullEvalKey(item) })),
-    (r) => r.key,
-  );
-  // 折叠代表 attempt:每个已跑的 eval 挑一条与折叠判定一致的 attempt 做证据引用,
-  // skipped 的 eval 不进分母、不出证据。
-  const refs: AttemptLocator[] = [];
-  for (const group of byEval.values()) {
-    const verdict = foldEvalVerdict(group.map((item) => item.attempt.result));
-    if (verdict === "skipped") continue;
-    const rep = group.find((item) => item.attempt.result.verdict === verdict) ?? group[0]!;
-    refs.push(locatorOf(rep));
-  }
-
-  let totalCostUSD: number | null = null;
-  for (const item of items) {
-    const cost = attemptCostUSD(item.attempt.result);
-    if (cost !== null) totalCostUSD = (totalCostUSD ?? 0) + cost;
-  }
-
-  let lastRunAt: string | undefined;
-  for (const item of items) {
-    const startedAt = item.snapshot.startedAt;
-    if (lastRunAt === undefined || startedAt > lastRunAt) lastRunAt = startedAt;
-  }
-
-  return {
-    experiments: experimentIds.size,
-    evals: stats.evals,
-    attempts: items.length,
-    verdicts: { passed: stats.passed, failed: stats.failed, errored: stats.errored, skipped: stats.skipped },
-    refs,
-    ran: stats.passed + stats.failed + stats.errored,
-    totalCostUSD,
-    lastRunAt,
-  };
-}
-
-/**
- * experiment 行的元信息:agent/model 身份(组内去重后拼接)+ eval 级折叠计票 + eval/attempt
- * 数量与最后运行时间(summarizeItems,即 view 榜单 / ExperimentList 的同一套 foldEvalVerdict
- * 口径)。其它行维度(agent/eval/自定义…)没有唯一身份,不携带。
- */
-function experimentRowMeta(group: Item[]): TableRowMeta {
-  const agents = new Set<string>();
-  const models = new Set<string>();
-  for (const item of group) {
-    agents.add(item.attempt.result.agent);
-    const model = item.attempt.result.model ?? item.snapshot.model;
-    if (model !== undefined) models.add(model);
-  }
-  const stats = summarizeItems(group);
-  return {
-    ...(agents.size > 0 ? { agent: [...agents].join(", ") } : {}),
-    ...(models.size > 0 ? { model: [...models].join(", ") } : {}),
-    verdicts: stats.verdicts,
-    evals: stats.evals,
-    attempts: stats.attempts,
-    ...(stats.lastRunAt !== undefined ? { lastRunAt: stats.lastRunAt } : {}),
-  };
-}
-
-/** 一次 attempt 的有界结果摘要：error → skipReason → 一条主失败断言 + 其余失败计数。 */
-export function reasonFor(result: EvalResult): string | undefined {
-  if (result.error !== undefined) return result.error.message;
-  if (result.skipReason !== undefined) return result.skipReason;
-  const summary = primaryAssertionSummary(result.assertions, result.verdict);
-  return summary === undefined ? undefined : compactAssertionSummary(summary);
-}
-
-export async function tableData<const M extends readonly Metric[]>(
-  input: SnapshotsInput,
-  opts: TableDataOptions<M>,
-): Promise<TableData<M[number]["name"]>> {
-  assertUniqueMetricNames(opts.columns, "MetricTable.data columns");
   const { snapshots } = resolveInput(input);
-  const items = filterItems(collectItems(snapshots), opts.evals);
-  const groups = groupItems(items, opts.rows);
+  const items = filterItems(collectItems(snapshots), options.evals);
+  const groups = groupItems(items, options.rows);
   const rows: TableData["rows"] = [];
-  const sortCells = new Map<string, MetricCell>();
   for (const [key, group] of groups) {
     const cells: Record<string, MetricCell> = {};
-    for (const metric of opts.columns) cells[metric.name] = await computeCell(metric, group);
-    if (opts.sort) {
-      // sort 指标不在 columns 里时单独算一遍,只用于排序、不进输出
-      sortCells.set(key, cells[opts.sort.name] ?? (await computeCell(opts.sort, group)));
-    }
-    const meta: TableRowMeta = opts.rows === "experiment" ? experimentRowMeta(group) : {};
-    rows.push({
-      key,
-      cells,
-      ...(Object.keys(meta).length > 0 ? { meta } : {}),
-    });
+    for (const metric of options.columns) cells[metric.name] = await computeCell(metric, group);
+    rows.push({ key, cells });
   }
-  if (opts.sort) {
-    const better = opts.sort.better ?? "higher";
+  if (options.sort) {
+    const better = options.sort.better ?? "higher";
+    const name = options.sort.name;
     rows.sort((a, b) => {
-      const va = sortCells.get(a.key)?.value ?? null;
-      const vb = sortCells.get(b.key)?.value ?? null;
-      if (va === null && vb === null) return 0;
+      const va = a.cells[name]?.value ?? null;
+      const vb = b.cells[name]?.value ?? null;
+      if (va === null && vb === null) return a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
       if (va === null) return 1; // 缺数据沉底
       if (vb === null) return -1;
-      return better === "lower" ? va - vb : vb - va;
+      const diff = better === "lower" ? va - vb : vb - va;
+      if (diff !== 0) return diff;
+      return a.key < b.key ? -1 : a.key > b.key ? 1 : 0; // 稳定排序,同值以 key 收口
     });
   }
   return {
-    dimension: dimensionName(opts.rows),
-    columns: opts.columns.map(toColumn),
+    rowDimension: dimensionName(options.rows),
+    columns: options.columns.map(toColumn),
     rows,
-  } as TableData<M[number]["name"]>;
+  };
 }
 
-// ───────────────────────── ExperimentList.data / EvalList.data / AttemptList.data ─────────────────────────
-//
-// 三个实体列表逐级下钻(experiment → experimentId × eval → attempt),固定展示实体事实,
-// 没有列配置;过滤是报告作者对返回数组调用 .filter()/.slice() 的事,不进这里
-// (docs/feature/reports/library.md「实体列表」)。AttemptListItem 是三者共用的叶子形状——
-// ExperimentList / EvalList 的下钻数组直接复用它,不各自精简一份。
+// ───────────────────────── metricMatrixData(= MetricBars 的数据)─────────────────────────
 
-/** 自由文本(断言 detail / evidence)的展示层遮蔽钩子;身份字段(name/severity/loc)不经它。 */
-function redactAssertions(assertions: AssertionResult[], redact: (text: string) => string): AssertionResult[] {
-  if (assertions.length === 0) return assertions;
-  return assertions.map((a) => ({
-    ...a,
-    ...(a.detail !== undefined ? { detail: redact(a.detail) } : {}),
-    ...(a.outcome !== "unavailable" && a.evidence !== undefined ? { evidence: redact(a.evidence) } : {}),
-    ...(a.outcome !== "unavailable" && a.expected !== undefined ? { expected: redact(a.expected) } : {}),
-    ...(a.outcome !== "unavailable" && a.received !== undefined ? { received: redact(a.received) } : {}),
-  }));
+export interface MetricMatrixOptions {
+  rows: DimensionInput;
+  columns: DimensionInput;
+  cell: Metric;
+  /** eval id 前缀过滤,同 CLI 位置参数语义。 */
+  evals?: string | readonly string[];
 }
+
+export async function metricMatrixData(input: ReportInput, options: MetricMatrixOptions): Promise<MatrixData> {
+  const { snapshots } = resolveInput(input);
+  const items = filterItems(collectItems(snapshots), options.evals);
+  // 稀疏分组:只有真有 attempt 的 (row, column) 组合成格;没有样本的格子不出现
+  const groups = new Map<string, { row: string; column: string; items: Item[] }>();
+  for (const item of items) {
+    const row = dimensionKey(options.rows, item);
+    const column = dimensionKey(options.columns, item);
+    const key = JSON.stringify([row, column]);
+    const group = groups.get(key);
+    if (group) group.items.push(item);
+    else groups.set(key, { row, column, items: [item] });
+  }
+  const ordered = [...groups.values()].sort(
+    (a, b) => (a.row < b.row ? -1 : a.row > b.row ? 1 : a.column < b.column ? -1 : a.column > b.column ? 1 : 0),
+  );
+  const cells: MatrixData["cells"] = [];
+  for (const group of ordered) {
+    cells.push({ row: group.row, column: group.column, cell: await computeCell(options.cell, group.items) });
+  }
+  return {
+    rowDimension: dimensionName(options.rows),
+    columnDimension: dimensionName(options.columns),
+    metric: toColumn(options.cell),
+    cells,
+  };
+}
+
+// ───────────────────────── 实体列表(experimentListData / evalListData / attemptListData)─────────────────────────
 
 /**
- * 结构化 error 的遮蔽:message / stack / cause.message 是自由文本,经钩子;
- * code / operation / cause.name / cause.code 是分类与身份字段,原样保留
- * (与 copySnapshots({ redact }) 的改写范围约定一致)。
+ * 一次 attempt 的单行结果摘要(Scoring display 契约):failed 取主失败断言摘要(不含
+ * "+N more",N 单独进 moreFailures),errored 取结构化 error 的一层摘要
+ * (phase · code · message),passed / skipped 为 null。
  */
-function redactError(error: AttemptError, redact: (text: string) => string): AttemptError {
-  return {
-    ...error,
-    message: redact(error.message),
-    ...(error.stack !== undefined ? { stack: redact(error.stack) } : {}),
-    ...(error.cause !== undefined ? { cause: { ...error.cause, message: redact(error.cause.message) } } : {}),
-  };
-}
-
-/** JsonValue 树里逐个字符串值经钩子;结构与非字符串标量原样。 */
-function redactJsonValue<T>(value: T, redact: (text: string) => string): T {
-  if (typeof value === "string") return redact(value) as unknown as T;
-  if (Array.isArray(value)) return value.map((v) => redactJsonValue(v, redact)) as unknown as T;
-  if (typeof value === "object" && value !== null) {
-    return Object.fromEntries(
-      Object.entries(value).map(([k, v]) => [k, redactJsonValue(v, redact)]),
-    ) as unknown as T;
+function failureSummaryOf(result: EvalResult): { summary: string | null; more: number } {
+  if (result.verdict === "errored" && result.error !== undefined) {
+    const parts = [result.error.phase, result.error.code, result.error.message].filter(
+      (part): part is string => typeof part === "string" && part.length > 0,
+    );
+    return { summary: summaryText(parts.join(" · ")), more: 0 };
   }
-  return value;
-}
-
-/** diagnostics 的遮蔽:message 与 data(自由内容)经钩子;code / operation / level / count 原样。 */
-function redactDiagnostics(
-  diagnostics: readonly DiagnosticRecord[],
-  redact: (text: string) => string,
-): DiagnosticRecord[] {
-  return diagnostics.map((d) => ({
-    ...d,
-    message: redact(d.message),
-    ...(d.data !== undefined ? { data: redactJsonValue(d.data, redact) } : {}),
-  }));
-}
-
-/** AttemptList / ExperimentList / EvalList 共用的叶子构造:一个 Item → 一个 AttemptListItem。 */
-function attemptListItemOf(item: Item, redact: (text: string) => string): AttemptListItem {
-  const result = item.attempt.result;
-  const cost = attemptCostUSD(result);
-  return {
-    evalId: evalIdOf(item),
-    experimentId: experimentIdOf(item),
-    attempt: result.attempt,
-    agent: result.agent,
-    verdict: result.verdict,
-    ...(result.error !== undefined ? { error: redactError(result.error, redact) } : {}),
-    ...(result.diagnostics !== undefined && result.diagnostics.length > 0
-      ? { diagnostics: redactDiagnostics(result.diagnostics, redact) }
-      : {}),
-    assertions: redactAssertions(result.assertions, redact),
-    durationMs: result.durationMs,
-    ...(cost !== null ? { costUSD: cost } : {}),
-    locator: locatorOf(item),
-  };
+  if (result.verdict === "failed" || result.verdict === "errored") {
+    const primary = primaryAssertionSummary(result.assertions, result.verdict);
+    if (primary !== undefined) {
+      return {
+        summary: compactAssertionSummary({ ...primary, additionalFailures: 0 }),
+        more: primary.additionalFailures,
+      };
+    }
+    if (result.verdict === "errored" && result.skipReason !== undefined) {
+      return { summary: summaryText(result.skipReason), more: 0 };
+    }
+    return { summary: null, more: 0 };
+  }
+  return { summary: null, more: 0 };
 }
 
 const identityRedact = (text: string): string => text;
 
-export interface AttemptListDataOptions {
-  /**
-   * 展示层遮蔽:error 的 message/cause/stack、diagnostic 的 message/data、断言 detail 与
-   * evidence 经这个钩子;experimentId、evalId、locator、error/diagnostic code 与 lifecycle
-   * operation 等身份和分类字段不经它。只作用于这次计算产出的组件数据,不改盘上 artifact。
-   */
-  redact?: (text: string) => string;
+/** AttemptList / ExperimentList / EvalList 共用的叶子构造:一个 Item → 一个 AttemptListItem。 */
+async function attemptListItemOf(item: Item, redact: (text: string) => string): Promise<AttemptListItem> {
+  const result = item.attempt.result;
+  const { summary, more } = failureSummaryOf(result);
+  return {
+    experimentId: experimentIdOf(item),
+    evalId: evalIdOf(item),
+    attempt: result.attempt,
+    agent: result.agent,
+    verdict: result.verdict,
+    failureSummary: summary === null ? null : redact(summary),
+    moreFailures: more,
+    examScore: await computeCell(examScore, [item]),
+    durationMs: result.durationMs,
+    costUSD: attemptCostUSD(result),
+    locator: locatorOf(item),
+  };
 }
 
-/** `AttemptList.data(selection)`:每个 Attempt 一项,顺序取自 Selection 展平顺序(不重排)。 */
+/** `attemptListData(input)`:每个 Attempt 一项,顺序取自 Scope 展平顺序(不重排)。 */
 export async function attemptListData(
-  input: SnapshotsInput,
-  opts?: AttemptListDataOptions,
+  input: ReportInput,
+  options?: EntityListDataOptions,
 ): Promise<AttemptListItem[]> {
   const { snapshots } = resolveInput(input);
-  const redact = opts?.redact ?? identityRedact;
+  const redact = options?.redact ?? identityRedact;
   const items = collectItems(snapshots);
-  return items.map((item) => attemptListItemOf(item, redact));
+  return Promise.all(items.map((item) => attemptListItemOf(item, redact)));
 }
 
-/** `EvalList.data(selection)`:每个 `experimentId + evalId` 一项,按 evalId 再按 experimentId 升序。 */
-export async function evalListData(input: SnapshotsInput): Promise<EvalListItem[]> {
+/** `evalListData(input)`:每个 `experimentId + evalId` 一项,按 evalId 再按 experimentId 升序。 */
+export async function evalListData(input: ReportInput, options?: EntityListDataOptions): Promise<EvalListItem[]> {
   const { snapshots } = resolveInput(input);
+  const redact = options?.redact ?? identityRedact;
   const items = collectItems(snapshots);
   const groups = new Map<string, Item[]>();
   for (const item of items) {
@@ -341,14 +247,14 @@ export async function evalListData(input: SnapshotsInput): Promise<EvalListItem[
   for (const group of groups.values()) {
     const sorted = [...group].sort((a, b) => a.attempt.result.attempt - b.attempt.result.attempt);
     const verdict = foldEvalVerdict(sorted.map((item) => item.attempt.result));
-    const attempts = sorted.map((item) => attemptListItemOf(item, identityRedact));
+    const attempts = await Promise.all(sorted.map((item) => attemptListItemOf(item, redact)));
     out.push({
-      evalId: evalIdOf(sorted[0]!),
       experimentId: experimentIdOf(sorted[0]!),
+      evalId: evalIdOf(sorted[0]!),
       verdict,
-      score: await computeCell(examScore, sorted),
-      duration: await computeCell(durationMs, sorted),
-      cost: await computeCell(costUSD, sorted),
+      examScore: await computeCell(examScore, sorted),
+      durationMs: await computeCell(durationMs, sorted),
+      costUSD: await computeCell(costUSD, sorted),
       attempts,
     });
   }
@@ -356,9 +262,37 @@ export async function evalListData(input: SnapshotsInput): Promise<EvalListItem[
   return out;
 }
 
-/** `ExperimentList.data(selection)`:每个 experiment 一项,按 experimentId 升序;展开到每道 Eval。 */
-export async function experimentListData(input: SnapshotsInput): Promise<ExperimentListItem[]> {
+/**
+ * `experimentListData(input)`:每个 experiment 一项,展开到每道 Eval;初始按端到端成功率
+ * 从高到低(缺数据沉底,同分按 id)。一行只有一套 agent / model / flags 是输入约束:
+ * 宿主注入的 current() Scope 保证每个 experiment 只由可比性配置一致的快照拼成;作者自选
+ * Snapshot[] 时若同一 experiment 混入不一致的可比性配置,按完整用户反馈失败并指引——
+ * 看跨配置演化用 snapshot 维度或 MetricLine,不把两套配置拼成一行冒充单一配置。
+ */
+export async function experimentListData(
+  input: ReportInput,
+  options?: EntityListDataOptions,
+): Promise<ExperimentListItem[]> {
   const { snapshots } = resolveInput(input);
+  const redact = options?.redact ?? identityRedact;
+
+  // 可比性配置单义检查:同一 experiment 的输入快照必须共享一套可比性配置。
+  const configByExperiment = new Map<string, { snapshot: Snapshot; config: unknown }>();
+  for (const snapshot of snapshots) {
+    const config = comparabilityConfigOf(snapshot);
+    const existing = configByExperiment.get(snapshot.experimentId);
+    if (existing === undefined) {
+      configByExperiment.set(snapshot.experimentId, { snapshot, config });
+    } else if (!deepEqualJson(existing.config, config)) {
+      throw new Error(
+        `experimentListData got inconsistent comparability configs for experiment "${snapshot.experimentId}" ` +
+          `(snapshots ${existing.snapshot.startedAt} and ${snapshot.startedAt} differ in agent/model/reasoningEffort/flags/budget/timeoutMs/sandbox). ` +
+          "One row shows one configuration — it cannot honestly merge two. To chart evolution across configs, " +
+          'use the "snapshot" dimension or MetricLine; to show the current level, pass results.current() which selects a single config per experiment.',
+      );
+    }
+  }
+
   const items = collectItems(snapshots);
   const groups = groupItems(items, "experiment");
   const out: ExperimentListItem[] = [];
@@ -370,28 +304,26 @@ export async function experimentListData(input: SnapshotsInput): Promise<Experim
     for (const [evalId, evalItems] of evalGroups) {
       const sorted = [...evalItems].sort((a, b) => a.attempt.result.attempt - b.attempt.result.attempt);
       const verdict = foldEvalVerdict(sorted.map((item) => item.attempt.result));
-      const attempts = sorted.map((item) => attemptListItemOf(item, identityRedact));
+      const attempts = await Promise.all(sorted.map((item) => attemptListItemOf(item, redact)));
       evalRows.push({
         evalId,
         verdict,
-        duration: await computeCell(durationMs, sorted),
-        cost: await computeCell(costUSD, sorted),
+        durationMs: await computeCell(durationMs, sorted),
+        costUSD: await computeCell(costUSD, sorted),
         attempts,
       });
     }
-    evalRows.sort((a, b) => a.evalId.localeCompare(b.evalId));
     const experiment = newest.snapshot.experiment ?? newest.attempt.result.experiment;
+    const model = newest.attempt.result.model ?? newest.snapshot.model;
     out.push({
       experimentId,
-      agent: newest.snapshot.agent,
-      ...((newest.attempt.result.model ?? newest.snapshot.model) !== undefined
-        ? { model: newest.attempt.result.model ?? newest.snapshot.model }
-        : {}),
+      agent: newest.snapshot.agent || newest.attempt.result.agent,
+      ...(model !== undefined ? { model } : {}),
       ...(experiment?.flags ? { flags: experiment.flags } : {}),
-      verdicts: stats.verdicts,
-      passRate: await computeCell(endToEndPassRate, group),
-      cost: await computeCell(costUSD, group),
-      duration: await computeCell(durationMs, group),
+      evalVerdicts: stats.verdicts,
+      endToEndPassRate: await computeCell(endToEndPassRate, group),
+      costUSD: await computeCell(costUSD, group),
+      durationMs: await computeCell(durationMs, group),
       tokens: await computeCell(tokens, group),
       evals: stats.evals,
       attempts: stats.attempts,
@@ -399,383 +331,653 @@ export async function experimentListData(input: SnapshotsInput): Promise<Experim
       evalRows,
     });
   }
-  // ExperimentList 是默认实验比较表:初始态按端到端成功率(endToEndPassRate)从高到低,缺数据沉底;
-  // 同分时按 experiment id 稳定排序。web 增强可临时重排,text 面沿用同一基准顺序。
+  // 初始态按端到端成功率(endToEndPassRate)从高到低,缺数据沉底;同分按 experiment id 稳定排序。
   out.sort((a, b) => {
-    if (a.passRate.value === null && b.passRate.value === null) return a.experimentId.localeCompare(b.experimentId);
-    if (a.passRate.value === null) return 1;
-    if (b.passRate.value === null) return -1;
-    return b.passRate.value - a.passRate.value || a.experimentId.localeCompare(b.experimentId);
+    const va = a.endToEndPassRate.value;
+    const vb = b.endToEndPassRate.value;
+    if (va === null && vb === null) return a.experimentId.localeCompare(b.experimentId);
+    if (va === null) return 1;
+    if (vb === null) return -1;
+    return vb - va || a.experimentId.localeCompare(b.experimentId);
   });
   return out;
 }
 
-// ───────────────────────── MetricMatrix.data(= MetricBars.data)─────────────────────────
+// ───────────────────────── scopeSummaryData ─────────────────────────
 
-export interface MatrixDataOptions {
-  rows: DimensionInput;
-  columns: DimensionInput;
-  cell: Metric;
-  /** eval id 前缀过滤,同 CLI 位置参数语义。 */
-  evals?: string | string[];
+/** costUSD 的求和投影:两级都 sum(题内多轮求和 + 跨题求和 = 全量求和),display 走 $。 */
+const totalCostMetric = defineMetric({
+  name: "total-cost",
+  label: costUSD.label,
+  unit: "$",
+  value: costUSD.value,
+  aggregate: { perEval: "sum", acrossEvals: "sum" },
+});
+
+function tallyOf(): VerdictTally {
+  return { passed: 0, failed: 0, errored: 0, skipped: 0 };
 }
 
-export async function matrixData(input: SnapshotsInput, opts: MatrixDataOptions): Promise<MatrixData> {
-  const { snapshots } = resolveInput(input);
-  const items = filterItems(collectItems(snapshots), opts.evals);
-  // 稀疏分组:只有真有 attempt 的 (row, column) 组合成格;没有样本的格子不出现
-  const groups = new Map<string, { row: string; column: string; items: Item[] }>();
+/** 一批 Item 的组级统计(experimentListData / scopeSummaryData 共用)。 */
+function summarizeItems(items: Item[]): {
+  experiments: number;
+  evals: number;
+  attempts: number;
+  verdicts: VerdictTally;
+  lastRunAt: string | undefined;
+} {
+  const experimentIds = new Set<string>();
+  for (const item of items) experimentIds.add(experimentIdOf(item));
+  const stats = evalLevelStats(
+    items.map((item) => ({ verdict: item.attempt.result.verdict, key: fullEvalKey(item) })),
+    (r) => r.key,
+  );
+  let lastRunAt: string | undefined;
   for (const item of items) {
-    const row = dimensionKey(opts.rows, item);
-    const column = dimensionKey(opts.columns, item);
-    const key = JSON.stringify([row, column]);
-    const group = groups.get(key);
-    if (group) group.items.push(item);
-    else groups.set(key, { row, column, items: [item] });
-  }
-  const cells: MatrixData["cells"] = [];
-  for (const group of groups.values()) {
-    cells.push({ row: group.row, column: group.column, cell: await computeCell(opts.cell, group.items) });
+    const startedAt = item.snapshot.startedAt;
+    if (lastRunAt === undefined || startedAt > lastRunAt) lastRunAt = startedAt;
   }
   return {
-    rows: dimensionName(opts.rows),
-    columns: dimensionName(opts.columns),
-    metric: toColumn(opts.cell),
-    cells,
+    experiments: experimentIds.size,
+    evals: stats.evals,
+    attempts: items.length,
+    verdicts: { passed: stats.passed, failed: stats.failed, errored: stats.errored, skipped: stats.skipped },
+    lastRunAt,
   };
-}
-
-// ───────────────────────── Scoreboard.data ─────────────────────────
-
-export interface ScoreboardDataOptions {
-  /** 给谁打分(被打分的维度);维度槽与 MetricTable.data 统一叫 rows。 */
-  rows: DimensionInput;
-  /** 按什么分科;默认 "evalGroup"(考试里的「科目」)。 */
-  subjects?: DimensionInput;
-  /** eval id 前缀 → 每题分值;未列默认 1;前缀重叠时最长的生效。 */
-  weights?: Record<string, number>;
-  /** 折算满分;默认 100。 */
-  fullMarks?: number;
-  /** 每题得分指标;缺省即 examScore,可换自定义(如「答对但超预算扣分」)。 */
-  score?: Metric;
-  /** 选中范围:eval id 前缀过滤;题集(分母)只遍历这个范围。 */
-  evals?: string | string[];
 }
 
 /**
- * 逐题分值制,分母对所有被打分者恒定:
- *   题分值 = 命中的权重(默认 1)   题得分 = score 指标的题级值(perEval 折叠后)
- *   总分   = fullMarks × Σ(题得分 × 题分值) / Σ(题分值)   Σ 遍历选中范围内全部题
- * 没跑到的题挣 0 分但留在分母里,missing 如实报 —— 这是显式的考试契约,不是「null ≠ 0」的例外。
+ * `scopeSummaryData(input)`:范围摘要——快照时间窗、experiment / eval / attempt 数、
+ * 两级判定计票、端到端成功率与总成本(docs/feature/reports/library/summaries.md)。
+ * data 恒携带两级计票;成功率来自官方两级指标引擎,不从任一计票重算。
  */
-export async function scoreboardData(
-  input: SnapshotsInput,
-  opts: ScoreboardDataOptions,
-): Promise<ScoreboardData> {
+export async function scopeSummaryData(input: ReportInput): Promise<ScopeSummaryData> {
   const { snapshots } = resolveInput(input);
-  const fullMarks = opts.fullMarks ?? 100;
-  const scoreMetric = opts.score ?? examScore;
-  const subjectsDim: DimensionInput = opts.subjects ?? "evalGroup";
-  const match = evalPrefixPredicate(opts.evals);
-  const items = filterItems(collectItems(snapshots), opts.evals);
+  const items = collectItems(snapshots);
 
-  // 题集(固定分母):选中范围内、任一快照声明覆盖或实际出现过的全部题
-  const universe = new Set<string>();
+  let earliest: string | null = null;
+  let latest: string | null = null;
   for (const snapshot of snapshots) {
-    for (const e of snapshot.evals) if (match(e.id)) universe.add(e.id);
-    for (const id of snapshot.knownEvalIds ?? []) if (match(id)) universe.add(id);
+    if (earliest === null || snapshot.startedAt < earliest) earliest = snapshot.startedAt;
+    if (latest === null || snapshot.startedAt > latest) latest = snapshot.startedAt;
   }
-  for (const item of items) universe.add(evalIdOf(item));
-  const sortedUniverse = [...universe].sort();
 
-  // 每题的科目:先从任一 attempt 解析(自定义 subjects 维度也能算);
-  // 全程无 attempt 的题按内置规则兜底,自定义维度无从计算时如实标 "(unknown)"
-  const subjectByEval = new Map<string, string>();
-  for (const item of items) {
-    const id = evalIdOf(item);
-    if (!subjectByEval.has(id)) subjectByEval.set(id, dimensionKey(subjectsDim, item));
-  }
-  const subjectOf = (id: string): string => {
-    const known = subjectByEval.get(id);
-    if (known !== undefined) return known;
-    if (subjectsDim === "eval") return id;
-    if (subjectsDim === "evalGroup") return evalGroupOf(id);
-    return "(unknown)";
+  const stats = summarizeItems(items);
+  const attemptVerdicts = tallyOf();
+  for (const item of items) attemptVerdicts[item.attempt.result.verdict] += 1;
+
+  return {
+    range: { earliestStartedAt: earliest, latestStartedAt: latest },
+    experiments: stats.experiments,
+    evals: stats.evals,
+    attempts: stats.attempts,
+    evalVerdicts: stats.verdicts,
+    attemptVerdicts,
+    endToEndPassRate: await computeCell(endToEndPassRate, items),
+    totalCostUSD: await computeCell(totalCostMetric, items),
   };
+}
+
+// ───────────────────────── experimentComparisonData ─────────────────────────
+
+/** 完整父路径是组键;没有父路径的 experiment 不能互相比,自己形成单例组。 */
+export function experimentComparisonGroupKey(experimentId: string): string {
+  return experimentGroupOf(experimentId) ?? experimentId;
+}
+
+/** 每组散点的唯一口径:默认 definition 与公开计算共用,不各写一份。 */
+const COMPARISON_SCATTER_OPTIONS: MetricScatterOptions = {
+  points: "experiment",
+  series: "agent",
+  x: costUSD,
+  y: endToEndPassRate,
+};
+
+/**
+ * `experimentComparisonData(input)`:先把 input 按可比组分区(experiment id 的完整父路径),
+ * 再为每组分别计算 ScopeSummary、成本 × 端到端成功率散点和 ExperimentList——分区发生在任何
+ * 指标计算之前,组外 attempt 不可能污染该组的坐标尺度、series、成功率、成本、排序或缺数据计数。
+ */
+export async function experimentComparisonData(input: ReportInput): Promise<ExperimentComparisonData> {
+  const { snapshots } = resolveInput(input);
+  const snapshotsByGroup = new Map<string, Snapshot[]>();
+  for (const snapshot of snapshots) {
+    const key = experimentComparisonGroupKey(snapshot.experimentId);
+    const group = snapshotsByGroup.get(key);
+    if (group) group.push(snapshot);
+    else snapshotsByGroup.set(key, [snapshot]);
+  }
+  const groups = await Promise.all(
+    [...snapshotsByGroup.entries()]
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(async ([key, groupSnapshots]): Promise<ExperimentComparisonGroupData> => {
+        const [summary, scatter, experiments] = await Promise.all([
+          scopeSummaryData(groupSnapshots),
+          metricScatterData(groupSnapshots, COMPARISON_SCATTER_OPTIONS),
+          experimentListData(groupSnapshots),
+        ]);
+        return { key, summary, scatter, experiments };
+      }),
+  );
+  return { groups };
+}
+
+// ───────────────────────── scoreboardData ─────────────────────────
+
+export interface ScoreboardOptions {
+  rows: DimensionInput;
+  /** 固定题集;eval id 必须唯一。元素引用运行时数据,类型放宽为普通数组,空数组在计算时报错。 */
+  questions: readonly string[];
+  /** 分科函数;默认与 evalGroup 维度同一条规则:取 eval id 的完整父路径,无 `/` 取完整 id。 */
+  subject?: (evalId: string) => string;
+  /** 权重按 eval id 前缀匹配,多个命中时最长前缀生效;默认 1。 */
+  weights?: Readonly<Record<string, number>>;
+  fullMarks?: number;
+  score?: Metric;
+}
+
+/**
+ * 固定题集分母:未跑题按 0 分计入 `notRun`,跑了但指标为 null 的题按 0 分计入 `unscorable`,
+ * 两个计数不合并——成绩单能回答「这 0 分是没去考还是考了判不了」。组件不从已观测 attempt
+ * 的并集猜分母;Scope 中题集之外的 eval 被忽略并计入 `ignoredEvals`。
+ */
+export async function scoreboardData(input: ReportInput, options: ScoreboardOptions): Promise<ScoreboardData> {
+  const questions = options.questions;
+  if (!Array.isArray(questions) || questions.length === 0) {
+    throw new Error(
+      "scoreboardData questions must be a non-empty list of eval ids: the fixed question set is the denominator, and an empty denominator makes no scoreboard. " +
+        "Pass the eval ids to grade, or filter your source list before passing it.",
+    );
+  }
+  const seen = new Set<string>();
+  for (const q of questions) {
+    if (seen.has(q)) {
+      throw new Error(
+        `scoreboardData questions contains "${q}" twice — each question is one denominator slot; remove the duplicate.`,
+      );
+    }
+    seen.add(q);
+  }
+  const fullMarks = options.fullMarks ?? 100;
+  if (!Number.isFinite(fullMarks) || fullMarks <= 0) {
+    throw new Error(`scoreboardData fullMarks must be a positive finite number (got ${String(fullMarks)}).`);
+  }
+  const weightEntries = Object.entries(options.weights ?? {});
+  for (const [prefix, weight] of weightEntries) {
+    if (prefix.length === 0) {
+      throw new Error('scoreboardData weights contains an empty prefix ""; weight prefixes must be non-empty eval id prefixes.');
+    }
+    if (!Number.isFinite(weight) || weight <= 0) {
+      throw new Error(
+        `scoreboardData weight for prefix "${prefix}" must be a positive finite number (got ${String(weight)}).`,
+      );
+    }
+  }
+  const scoreMetric = options.score ?? examScore;
+  const subjectOf = options.subject ?? evalGroupOf;
+
+  const { snapshots } = resolveInput(input);
+  const allItems = collectItems(snapshots);
+  const questionSet = new Set(questions);
+  const items = allItems.filter((item) => questionSet.has(evalIdOf(item)));
+  const ignored = new Set<string>();
+  for (const item of allItems) {
+    const id = evalIdOf(item);
+    if (!questionSet.has(id)) ignored.add(id);
+  }
 
   // 权重:最长前缀生效(排序后线性找第一个命中即最长)
-  const weights = Object.entries(opts.weights ?? {})
+  const weights = weightEntries
     .map(([prefix, weight]) => ({ prefix, weight }))
     .sort((a, b) => b.prefix.length - a.prefix.length);
   const weightOf = (id: string): number => weights.find((w) => id.startsWith(w.prefix))?.weight ?? 1;
 
-  const groups = groupItems(items, opts.rows);
+  const subjectByQuestion = new Map<string, string>();
+  for (const id of questions) {
+    const subject = subjectOf(id);
+    if (typeof subject !== "string" || subject.length === 0) {
+      throw new Error(
+        `scoreboardData subject("${id}") returned an empty value; every question must map to a non-empty subject name.`,
+      );
+    }
+    subjectByQuestion.set(id, subject);
+  }
+
+  const groups = groupItems(items, options.rows);
   const rows: ScoreboardData["rows"] = [];
   for (const [key, group] of groups) {
-    // 题得分:perEval 折叠(同 eval × 快照 内);同题出现在多个快照时取快照级值的均值
-    const perSnapshot = new Map<string, Map<string, number[]>>(); // evalId → 快照键 → 原始值
+    const byQuestion = new Map<string, Item[]>();
     for (const item of group) {
-      const value = await evaluateMetric(scoreMetric, item.attempt);
-      if (value === null) continue; // 测不了的 attempt 不进题得分;整题无样本 → missing
       const id = evalIdOf(item);
-      const snapKey = snapshotKeyOf(item.snapshot);
-      let bySnap = perSnapshot.get(id);
-      if (!bySnap) perSnapshot.set(id, (bySnap = new Map()));
-      const bucket = bySnap.get(snapKey);
-      if (bucket) bucket.push(value);
-      else bySnap.set(snapKey, [value]);
-    }
-    const perEvalAgg = scoreMetric.aggregate?.perEval ?? "mean";
-    const scoreByEval = new Map<string, number>();
-    for (const [id, bySnap] of perSnapshot) {
-      const snapValues = [...bySnap.values()].map((values) => applyAggregator(perEvalAgg, values));
-      scoreByEval.set(id, snapValues.reduce((a, b) => a + b, 0) / snapValues.length);
+      const list = byQuestion.get(id);
+      if (list) list.push(item);
+      else byQuestion.set(id, [item]);
     }
 
-    // 科目累计:固定分母 —— 没跑的题 0 分挣、留在分母、计入 missing
     const subjects = new Map<
       string,
-      { key: string; earned: number; possible: number; evals: number; missing: number }
+      {
+        key: string;
+        earned: number;
+        possible: number;
+        questions: number;
+        notRun: number;
+        unscorable: number;
+        refs: Set<AttemptLocator>;
+      }
     >();
-    for (const id of sortedUniverse) {
-      const subjectKey = subjectOf(id);
+    const totalRefs = new Set<AttemptLocator>();
+    for (const id of questions) {
+      const subjectKey = subjectByQuestion.get(id)!;
       let subject = subjects.get(subjectKey);
       if (!subject) {
-        subjects.set(subjectKey, (subject = { key: subjectKey, earned: 0, possible: 0, evals: 0, missing: 0 }));
+        subjects.set(
+          subjectKey,
+          (subject = { key: subjectKey, earned: 0, possible: 0, questions: 0, notRun: 0, unscorable: 0, refs: new Set() }),
+        );
       }
       const weight = weightOf(id);
-      const got = scoreByEval.get(id);
-      subject.earned += (got ?? 0) * weight;
       subject.possible += weight;
-      subject.evals += 1;
-      if (got === undefined) subject.missing += 1;
+      subject.questions += 1;
+      const questionItems = byQuestion.get(id);
+      if (questionItems === undefined) {
+        subject.notRun += 1;
+        continue;
+      }
+      for (const item of questionItems) {
+        const locator = locatorOf(item);
+        subject.refs.add(locator);
+        totalRefs.add(locator);
+      }
+      const cell = await computeCell(scoreMetric, questionItems);
+      if (cell.value === null) {
+        subject.unscorable += 1;
+        continue;
+      }
+      if (cell.value < 0 || cell.value > 1) {
+        throw new Error(
+          `scoreboardData score metric "${scoreMetric.name}" produced ${cell.value} for eval "${id}" — scores must stay in [0, 1] so weighted totals stay auditable. Normalize the metric, or use a different score metric.`,
+        );
+      }
+      subject.earned += cell.value * weight;
     }
+
     let earned = 0;
     let possible = 0;
+    let notRun = 0;
+    let unscorable = 0;
     for (const subject of subjects.values()) {
       earned += subject.earned;
       possible += subject.possible;
+      notRun += subject.notRun;
+      unscorable += subject.unscorable;
     }
     const value = possible === 0 ? 0 : (fullMarks * earned) / possible;
-    rows.push({ key, total: { value, display: formatPlainNumber(value) }, subjects: [...subjects.values()] });
+    rows.push({
+      key,
+      total: {
+        value,
+        display: formatPlainNumber(value),
+        notRun,
+        unscorable,
+        refs: [...totalRefs].sort(),
+      },
+      subjects: [...subjects.values()].map((subject) => ({
+        key: subject.key,
+        earned: subject.earned,
+        possible: subject.possible,
+        questions: subject.questions,
+        notRun: subject.notRun,
+        unscorable: subject.unscorable,
+        display: subjectDisplay(subject.earned, subject.possible),
+        refs: [...subject.refs].sort(),
+      })),
+    });
   }
 
-  return { dimension: dimensionName(opts.rows), fullMarks, weights, rows };
+  return {
+    rowDimension: dimensionName(options.rows),
+    questions: [...questions],
+    fullMarks,
+    weights,
+    ignoredEvals: ignored.size,
+    rows,
+  };
 }
 
-// ───────────────────────── MetricScatter.data ─────────────────────────
+/** 分科显示:earned / possible 与同尺度百分比。 */
+function subjectDisplay(earned: number, possible: number): LocalizedText {
+  const ratio = possible === 0 ? 0 : earned / possible;
+  return `${formatPlainNumber(earned)}/${formatPlainNumber(possible)} (${formatMetricValue(ratio, "%")})`;
+}
 
-export interface ScatterDataOptions {
+// ───────────────────────── metricScatterData ─────────────────────────
+
+export interface MetricScatterOptions {
   /** 点维度:每个点 = 该组 attempt 的聚合。 */
   points: DimensionInput;
-  /** 可选:同系列的点连成线;省略 = 纯散点。 */
+  /** 可选:只决定颜色和分组,默认不连线。 */
   series?: DimensionInput;
   x: Metric;
   y: Metric;
+  /** eval id 前缀过滤,同 CLI 位置参数语义。 */
+  evals?: string | readonly string[];
 }
 
-export async function scatterData(input: SnapshotsInput, opts: ScatterDataOptions): Promise<ScatterData> {
+export async function metricScatterData(input: ReportInput, options: MetricScatterOptions): Promise<ScatterData> {
   const { snapshots } = resolveInput(input);
-  const items = collectItems(snapshots);
-  const groups = groupItems(items, opts.points);
+  const items = filterItems(collectItems(snapshots), options.evals);
+  const groups = groupItems(items, options.points);
   const rows: ScatterData["rows"] = [];
   for (const [key, group] of groups) {
     rows.push({
       key,
       // 组内取第一条解析系列:点维度细于系列维度时(experiment ⊂ agent)天然一致
-      series: opts.series ? dimensionKey(opts.series, group[0]) : undefined,
-      x: await computeCell(opts.x, group),
-      y: await computeCell(opts.y, group), // 任一轴 null 的点留在 rows 里:组件不画,但注脚要报的数就从这里数
+      ...(options.series ? { series: dimensionKey(options.series, group[0]!) } : {}),
+      x: await computeCell(options.x, group),
+      y: await computeCell(options.y, group), // 任一轴 null 的点留在 rows 里:组件不画,但注脚要报的数就从这里数
     });
   }
   return {
-    points: dimensionName(opts.points),
-    series: opts.series ? dimensionName(opts.series) : undefined,
-    x: toColumn(opts.x),
-    y: toColumn(opts.y),
+    pointDimension: dimensionName(options.points),
+    ...(options.series ? { seriesDimension: dimensionName(options.series) } : {}),
+    x: toColumn(options.x),
+    y: toColumn(options.y),
     rows,
   };
 }
 
-// ───────────────────────── MetricLine.data ─────────────────────────
+// ───────────────────────── metricLineData ─────────────────────────
 
-export interface LineDataOptions {
-  /** x 轴:experiment 声明的 flag 或顶层运行配置 config()(要求数值),不解析 experiment 命名。 */
-  x: AxisInput;
-  y: Metric;
-  /** 可选:每个系列一条线(flag / config 或普通维度);省略 = 单系列。 */
+export interface MetricLineOptions {
+  /** x 轴:NumericAxis(numericFlag() / numericRunConfig() 或自定义 of),不解析 experiment 命名。 */
+  x: NumericAxis;
   series?: DimensionInput;
+  y: Metric;
+  /** eval id 前缀过滤,同 CLI 位置参数语义。 */
+  evals?: string | readonly string[];
 }
-
-/** 每个点 = 一个 experiment 的聚合;同系列的点按 x 排序连线(排序在组件面,数据保持分组序)。 */
-export async function lineData(input: SnapshotsInput, opts: LineDataOptions): Promise<LineData> {
-  const { snapshots } = resolveInput(input);
-  const items = collectItems(snapshots);
-  const groups = groupItems(items, "experiment");
-  const rows: LineData["rows"] = [];
-  for (const [key, group] of groups) {
-    const x = axisValue(opts.x, group[0]); // flag / config 都是 experiment 级声明,组内一致
-    rows.push({
-      key,
-      series: opts.series ? dimensionKey(opts.series, group[0]) : undefined,
-      x,
-      xDisplay: x === null ? "" : formatMetricValue(x, opts.x.unit),
-      y: await computeCell(opts.y, group),
-    });
-  }
-  return {
-    x: {
-      key: opts.x.name,
-      label: typeof opts.x.label === "string" ? opts.x.label : opts.x.name,
-      unit: opts.x.unit,
-    },
-    series: opts.series ? dimensionName(opts.series) : undefined,
-    y: toColumn(opts.y),
-    rows,
-  };
-}
-
-// ───────────────────────── RunOverview.data ─────────────────────────
-
-/** Selection 的 warnings 随行进 OverviewData,RunOverview 直接渲染 —— 诚实不靠使用者记得接线。 */
-export async function overviewData(input: SnapshotsInput): Promise<OverviewData> {
-  const { snapshots, warnings } = resolveInput(input);
-  const items = collectItems(snapshots);
-  const evalIds = new Set<string>();
-  let passed = 0;
-  let failed = 0;
-  let errored = 0;
-  let skipped = 0;
-  let durationMs = 0;
-  let costUSD: number | null = null; // 任一 attempt 报了成本才有;全缺 = null,不编 0
-  for (const item of items) {
-    const result = item.attempt.result;
-    evalIds.add(evalIdOf(item));
-    switch (result.verdict) {
-      case "passed":
-        passed += 1;
-        break;
-      case "failed":
-        failed += 1;
-        break;
-      case "errored":
-        errored += 1;
-        break;
-      case "skipped":
-        skipped += 1;
-        break;
-    }
-    durationMs += result.durationMs;
-    const cost = attemptCostUSD(result);
-    if (cost !== null) costUSD = (costUSD ?? 0) + cost;
-  }
-  // 默认成功率的唯一官方口径:endToEndPassRate 的两级聚合(computeCell),不是从上面四个
-  // verdict 计票现场重算——一道题内 attempt 部分通过要算部分 credit,不是二元投票;
-  // failed / errored 都记 0,只有 skipped 不进聚合。
-  const passRateCell = await computeCell(endToEndPassRate, items);
-  return {
-    snapshots: snapshots.map((s) => ({
-      experimentId: s.experimentId,
-      agent: s.agent,
-      model: s.model,
-      startedAt: s.startedAt,
-    })),
-    totals: {
-      evals: evalIds.size,
-      attempts: items.length,
-      passed,
-      failed,
-      errored,
-      skipped,
-      passRate: passRateCell,
-      costUSD,
-      durationMs,
-    },
-    warnings: [...warnings],
-  };
-}
-
-// ───────────────────────── GroupSummary.data ─────────────────────────
 
 /**
- * 一组 experiment 的摘要:experiment/eval/attempt 数量、eval 级折叠计票、通过率(旧
- * `GroupSelector` 卡片口径,见 summarizeItems)、总成本(null-safe 求和)、最后运行时间
- * (组内快照 startedAt 最大值)。`input` 就是调用方已经收窄好的组 Selection(如自定义报告
- * 按 experiment 组前缀 filter 出来的那份)——本函数不再自己分组。
+ * 点身份 = (series, x):落进同一桶的全部 attempt 先在各自 experiment × eval 内 perEval 聚合,
+ * 再 acrossEvals 跨题折成该点唯一的 y——聚合顺序是 (series, x, experiment, eval),同一桶里有
+ * 多个 experiment 时它们合成一个点,不画垂直来回线。前提是 x 在同一 experiment × eval 内恒定:
+ * 自定义 NumericAxis.of() 对同一 experiment × eval 的不同 attempt 返回不同值时按完整用户反馈失败。
+ * x 为 null 的 attempt 不伪造 x 值,归入该 series 的未绘制行,组件报告未绘制数量。
  */
-export async function groupSummaryData(input: SnapshotsInput): Promise<GroupSummaryData> {
+export async function metricLineData(input: ReportInput, options: MetricLineOptions): Promise<LineData> {
   const { snapshots } = resolveInput(input);
-  const items = collectItems(snapshots);
-  const summary = summarizeItems(items);
-  const ratio = summary.ran > 0 ? summary.verdicts.passed / summary.ran : null; // 分母为 0 → 缺数据,不编 0%
-  const passRateCell: MetricCell = {
-    value: ratio,
-    display: ratio === null ? "—" : formatMetricValue(ratio, "%"),
-    samples: summary.ran,
-    total: summary.evals,
-    refs: summary.refs,
-  };
+  const items = filterItems(collectItems(snapshots), options.evals);
+
+  // x 恒定性检查:同一 experiment × eval 内的全部 attempt 必须得到同一个 x。
+  const xByEvalKey = new Map<string, { x: number | null; item: Item }>();
+  const buckets = new Map<string, { series: string | undefined; x: number | null; items: Item[] }>();
+  for (const item of items) {
+    const x = axisValueOf(options.x, item.attempt);
+    const evalKey = fullEvalKey(item);
+    const existing = xByEvalKey.get(evalKey);
+    if (existing === undefined) {
+      xByEvalKey.set(evalKey, { x, item });
+    } else if (!Object.is(existing.x, x)) {
+      throw new Error(
+        `Numeric axis "${options.x.name}" is not constant within experiment "${experimentIdOf(item)}" × eval "${evalIdOf(item)}" ` +
+          `(got ${String(existing.x)} and ${String(x)} for different attempts). A parameter axis must describe the configuration, ` +
+          "not vary per attempt — a per-attempt quantity is material for the y metric, not an x axis. " +
+          "Fix of() to read experiment-level configuration (numericFlag()/numericRunConfig() do this by construction).",
+      );
+    }
+    const series = options.series ? dimensionKey(options.series, item) : undefined;
+    const bucketKey = `${series ?? ""} ${x === null ? "null" : String(x)}`;
+    const bucket = buckets.get(bucketKey);
+    if (bucket) bucket.items.push(item);
+    else buckets.set(bucketKey, { series, x, items: [item] });
+  }
+
+  const ordered = [...buckets.values()].sort((a, b) => {
+    const sa = a.series ?? "";
+    const sb = b.series ?? "";
+    if (sa !== sb) return sa < sb ? -1 : 1;
+    if (a.x === null) return b.x === null ? 0 : 1;
+    if (b.x === null) return -1;
+    return a.x - b.x;
+  });
+
+  const rows: LineData["rows"] = [];
+  for (const bucket of ordered) {
+    rows.push({
+      key: bucket.x === null ? "null" : String(bucket.x),
+      ...(bucket.series !== undefined ? { series: bucket.series } : {}),
+      x: bucket.x,
+      xDisplay: bucket.x === null ? "—" : formatMetricValue(bucket.x, options.x.unit),
+      y: await computeCell(options.y, bucket.items),
+    });
+  }
+
   return {
-    experiments: summary.experiments,
-    evals: summary.evals,
-    attempts: summary.attempts,
-    verdicts: summary.verdicts,
-    passRate: passRateCell,
-    totalCostUSD: summary.totalCostUSD,
-    ...(summary.lastRunAt !== undefined ? { lastRunAt: summary.lastRunAt } : {}),
+    x: {
+      key: options.x.name,
+      label: options.x.label ?? options.x.name,
+      ...(options.x.unit !== undefined ? { unit: options.x.unit } : {}),
+    },
+    ...(options.series ? { seriesDimension: dimensionName(options.series) } : {}),
+    y: toColumn(options.y),
+    rows,
   };
 }
 
-// ───────────────────────── DeltaTable.data ─────────────────────────
+// ───────────────────────── deltaTableData 与 pairsByFlag ─────────────────────────
 
-export interface DeltaPair {
-  /** 基线侧:experiment id,或快照键 "<experimentId> @ <startedAt>"(时间轴对比用手挑的快照数组)。 */
-  a: string;
-  /** 对比侧,同上。 */
-  b: string;
-  label?: string;
+/**
+ * 按 flag 派生 A/B 对(docs/feature/reports/library/metric-views.md「DeltaTable」):
+ * 配对域 = 同可比组 + 删除该 flag 后可比性配置深相等;a 取 baseline(缺省 = 未声明该 flag),
+ * b 侧该 flag 的每个其它取值各成一对;label 自动 `<a 末段> · <flag>=<显示键>`。
+ */
+export function pairsByFlag(name: string, options?: { baseline?: JsonValue }): FlagPairs {
+  if (typeof name !== "string" || name.length === 0) {
+    throw new Error("pairsByFlag: name must be a non-empty string (the key declared in the experiment's flags).");
+  }
+  return {
+    kind: "flagPairs",
+    flag: name,
+    ...(options?.baseline !== undefined ? { baseline: options.baseline } : {}),
+  };
 }
 
-export interface DeltaDataOptions<M extends readonly Metric[]> {
-  /** 每行一对:B 相对 A。 */
-  pairs: DeltaPair[];
-  metrics: M;
+export interface DeltaTableOptions {
+  /** 显式维度,必填——"baseline" 不会被猜成 experiment、agent、flag 或 snapshot 中的某一种。 */
+  by: DimensionInput;
+  /** 字面 pair 数组(自定义 label),或 pairsByFlag() 的派生声明;空数组在计算时报错。 */
+  pairs: readonly DeltaPair[] | FlagPairs;
+  metrics: readonly [Metric, ...Metric[]];
+  /** eval id 前缀过滤,同 CLI 位置参数语义。 */
+  evals?: string | readonly string[];
 }
 
-export async function deltaData<const M extends readonly Metric[]>(
-  input: SnapshotsInput,
-  opts: DeltaDataOptions<M>,
-): Promise<DeltaData<M[number]["name"]>> {
-  assertUniqueMetricNames(opts.metrics, "DeltaTable.data metrics");
+function isFlagPairs(pairs: DeltaTableOptions["pairs"]): pairs is FlagPairs {
+  return typeof pairs === "object" && pairs !== null && !Array.isArray(pairs) && (pairs as FlagPairs).kind === "flagPairs";
+}
+
+/** experiment id 相对可比组的末段。 */
+function experimentTail(experimentId: string): string {
+  const slash = experimentId.lastIndexOf("/");
+  return slash === -1 ? experimentId : experimentId.slice(slash + 1);
+}
+
+/** 派生配对:同可比组 + 删除该 flag 后可比性配置深相等。返回 pair 列表与配对域实验数。 */
+function derivePairsByFlag(
+  snapshots: readonly Snapshot[],
+  spec: FlagPairs,
+): { pairs: DeltaPair[]; experiments: number } {
+  // 每个 experiment 取最新快照的配置(current() Scope 天然一实验一快照)。
+  const byExperiment = new Map<string, Snapshot>();
+  for (const snapshot of snapshots) {
+    const existing = byExperiment.get(snapshot.experimentId);
+    if (existing === undefined || snapshot.startedAt > existing.startedAt) {
+      byExperiment.set(snapshot.experimentId, snapshot);
+    }
+  }
+  interface Entry {
+    id: string;
+    flagValue: JsonValue | undefined;
+    bucket: string;
+  }
+  const entries: Entry[] = [];
+  for (const [id, snapshot] of byExperiment) {
+    const config = comparabilityConfigOf(snapshot) as { flags?: Record<string, JsonValue> };
+    const flagValue = config.flags?.[spec.flag];
+    const reduced = { ...config, flags: { ...config.flags } };
+    delete reduced.flags[spec.flag];
+    const group = experimentGroupOf(id) ?? id;
+    entries.push({ id, flagValue, bucket: `${group} ${JSON.stringify(sortedJson(reduced))}` });
+  }
+
+  const baseline = spec.baseline; // undefined = 未声明该 flag 的实验作 a
+  const buckets = new Map<string, Entry[]>();
+  for (const entry of entries) {
+    const list = buckets.get(entry.bucket);
+    if (list) list.push(entry);
+    else buckets.set(entry.bucket, [entry]);
+  }
+
+  const pairs: DeltaPair[] = [];
+  for (const bucket of buckets.values()) {
+    const aSide = bucket.filter((e) => deepEqualJson(e.flagValue, baseline));
+    const bSide = bucket.filter((e) => !deepEqualJson(e.flagValue, baseline));
+    for (const a of aSide) {
+      for (const b of bSide) {
+        pairs.push({
+          a: a.id,
+          b: b.id,
+          label: `${experimentTail(a.id)} · ${spec.flag}=${refDisplayKey(b.flagValue)[0]}`,
+        });
+      }
+    }
+  }
+  pairs.sort((p, q) => {
+    const ta = experimentTail(p.a);
+    const tb = experimentTail(q.a);
+    if (ta !== tb) return ta < tb ? -1 : 1;
+    const la = p.label as string;
+    const lb = q.label as string;
+    return la < lb ? -1 : la > lb ? 1 : 0;
+  });
+  return { pairs, experiments: byExperiment.size };
+}
+
+/** 对象键递归排序(派生配对的 bucket 键用;undefined 字段剔除)。 */
+function sortedJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortedJson);
+  if (typeof value === "object" && value !== null) {
+    const out: Record<string, unknown> = {};
+    for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+      const v = (value as Record<string, unknown>)[key];
+      if (v !== undefined) out[key] = sortedJson(v);
+    }
+    return out;
+  }
+  return value;
+}
+
+export async function deltaTableData(input: ReportInput, options: DeltaTableOptions): Promise<DeltaData> {
+  assertUniqueMetricNames(options.metrics, "deltaTableData metrics");
+  if (!Array.isArray(options.metrics) || options.metrics.length === 0) {
+    throw new Error("deltaTableData metrics must be a non-empty tuple of Metric instances.");
+  }
   const { snapshots } = resolveInput(input);
-  const items = collectItems(snapshots);
-  // 一侧的键既匹配 experiment id 也匹配快照键 —— 与 "snapshot" 维度同一格式,不另造对比语义
-  const sideItems = (key: string) =>
-    items.filter((item) => experimentIdOf(item) === key || snapshotKeyOf(item.snapshot) === key);
+
+  let pairs: readonly DeltaPair[];
+  let experiments: number | undefined;
+  if (isFlagPairs(options.pairs)) {
+    if (options.by !== "experiment") {
+      throw new Error(
+        `deltaTableData pairs came from pairsByFlag("${options.pairs.flag}"), which derives experiment A/B pairs — it only works with by: "experiment" (got by: ${JSON.stringify(
+          dimensionName(options.by),
+        )}). Set by: "experiment", or write literal pairs for other dimensions.`,
+      );
+    }
+    const derived = derivePairsByFlag(snapshots, options.pairs);
+    pairs = derived.pairs;
+    experiments = derived.experiments;
+  } else {
+    if (!Array.isArray(options.pairs)) {
+      throw new Error("deltaTableData pairs must be an array of { label, a, b } or a pairsByFlag(...) declaration.");
+    }
+    if (options.pairs.length === 0) {
+      throw new Error(
+        "deltaTableData pairs is empty — a delta table with no pairs has nothing to compare. " +
+          "Declare at least one { label, a, b } pair, or use pairsByFlag(name) to derive pairs from experiment flags.",
+      );
+    }
+    const seenLabels = new Set<string>();
+    for (const pair of options.pairs) {
+      const labelKey = JSON.stringify(sortedJson(pair.label));
+      if (pair.label === undefined || pair.label === "" || labelKey === "{}") {
+        throw new Error(`deltaTableData pair (${pair.a} vs ${pair.b}) has an empty label; every pair needs a display label.`);
+      }
+      if (seenLabels.has(labelKey)) {
+        throw new Error(`deltaTableData pair label ${labelKey} is used twice — labels must be unique within one table.`);
+      }
+      seenLabels.add(labelKey);
+      if (pair.a === pair.b) {
+        throw new Error(`deltaTableData pair "${labelKey}" compares "${pair.a}" with itself; a and b must differ.`);
+      }
+    }
+    pairs = options.pairs;
+  }
+
+  const items = filterItems(collectItems(snapshots), options.evals);
+  const groups = groupItems(items, options.by);
   const rows: DeltaData["rows"] = [];
-  for (const pair of opts.pairs) {
-    const aItems = sideItems(pair.a);
-    const bItems = sideItems(pair.b);
-    const cells: Record<string, DeltaData["rows"][number]["cells"][string]> = {};
-    for (const metric of opts.metrics) {
+  for (const pair of pairs) {
+    // 精确匹配分组后的维度 key,不做前缀或模糊匹配;未命中保留 pair,对应侧格子为缺失。
+    const aItems = groups.get(pair.a) ?? [];
+    const bItems = groups.get(pair.b) ?? [];
+    const cells: DeltaData["rows"][number]["cells"] = {};
+    for (const metric of options.metrics) {
       const a = await computeCell(metric, aItems);
       const b = await computeCell(metric, bItems);
-      const d = a.value === null || b.value === null ? null : b.value - a.value;
-      cells[metric.name] = { a, b, delta: d, display: deltaDisplay(metric, d) };
+      const delta = a.value === null || b.value === null ? null : b.value - a.value;
+      cells[metric.name] = {
+        a,
+        b,
+        delta,
+        display: deltaDisplay(metric, delta),
+        outcome: deltaOutcome(metric, delta),
+      };
     }
     rows.push({
-      key: pair.label ?? `${pair.a} vs ${pair.b}`,
-      a: { experimentId: pair.a },
-      b: { experimentId: pair.b },
+      key: `${pair.a} → ${pair.b}`,
+      label: pair.label,
+      a: { key: pair.a },
+      b: { key: pair.b },
       cells,
     });
   }
-  return { columns: opts.metrics.map(toColumn), rows } as DeltaData<M[number]["name"]>;
+  return {
+    byDimension: dimensionName(options.by),
+    columns: options.metrics.map(toColumn),
+    ...(experiments !== undefined ? { experiments } : {}),
+    rows,
+  };
 }
 
-function deltaDisplay(metric: Metric, delta: number | null): string {
+function deltaDisplay(metric: Metric, delta: number | null): LocalizedText {
   if (delta === null) return "—"; // 任一侧缺数据:Δ 显示为缺,不硬算
   if (delta === 0) return "±0";
-  const text = displayValue(metric, delta); // 负号由格式化自带
-  return delta > 0 ? `+${text}` : text;
+  if (metric.display) {
+    const display = metric.display;
+    return localizedDisplay((locale) => {
+      const text = display(Math.abs(delta), locale);
+      return delta > 0 ? `+${text}` : `-${text}`;
+    });
+  }
+  const text = formatMetricValue(Math.abs(delta), metric.unit);
+  return delta > 0 ? `+${text}` : `-${text}`;
+}
+
+function deltaOutcome(metric: Metric, delta: number | null): "improved" | "regressed" | "unchanged" | "unavailable" {
+  if (delta === null) return "unavailable";
+  if (delta === 0) return "unchanged";
+  const better = metric.better ?? "higher";
+  return (delta > 0) === (better === "higher") ? "improved" : "regressed";
 }

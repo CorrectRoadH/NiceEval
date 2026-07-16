@@ -169,7 +169,7 @@ describe("默认报告:跨快照合成的现刻水位(ExperimentComparison text 
     try {
       const { out, code } = await show(root, []);
       expect(code).toBe(0);
-      expect(out).toContain("预估成本 × 端到端成功率 没有可绘制的数据");
+      expect(out).toContain("成本 × 端到端成功率 没有可绘制的数据");
       expect(out).toContain("1 通过 / 1 失败");
       expect(out).toMatch(/\bbub\s+默认\s+bub\s+1s\s+50%/);
     } finally {
@@ -199,7 +199,7 @@ describe("默认报告:跨快照合成的现刻水位(ExperimentComparison text 
     ]);
     const { out, code } = await show(root, []);
     expect(code).toBe(0);
-    expect(out).toContain("better → upper right");
+    expect(out).toContain("better → upper left");
     expect(out).toContain("A compare/a   B compare/b");
     expect(out).toMatch(/\bb\s+large\s+claude\s+1s\s+100%/);
     expect(out).toMatch(/\ba\s+mini\s+codex\s+1s\s+50%/);
@@ -394,28 +394,42 @@ describe("--history 时间轴", () => {
 // ───────────────────────── --report 装载与组合语义 ─────────────────────────
 
 describe("--report 装载", () => {
-  /** 不经 niceeval 包也能造出合法报告:判别与双面组件都锚在 Symbol.for 上。 */
+  /**
+   * 不经 niceeval 包也能造出合法报告:判别、组合组件与双面组件都锚在 Symbol.for 上
+   * (docs/feature/reports/library/shell.md「defineReport 产物」、layout.md「自定义组件」)。
+   * Custom 是双面组件,读 props 直接渲染;Wrapper 是组合组件,用 ComposeContext 的 scope
+   * 算出 evals / locator 再装配进 Custom —— 对应 defineReport(<Wrapper />) 的展开形态。
+   */
   async function writeReportFile(dir: string): Promise<string> {
     const path = join(dir, "report.mjs");
     await writeFile(
       path,
       [
         'const FACES = Symbol.for("niceeval.report.faces");',
+        'const COMPOSE = Symbol.for("niceeval.report.compose");',
+        'const DEFINITION = Symbol.for("niceeval.report.definition");',
         "const Custom = () => null;",
         "Custom[FACES] = {",
         "  web: () => null,",
         "  text: (props, ctx) => `CUSTOM ${props.evals} · drill ${ctx.attemptCommand(props.locator)}`,",
         "};",
-        "export default {",
-        '  [Symbol.for("niceeval.report.definition")]: true,',
-        "  build: (ctx) => ({",
-        "    type: Custom,",
-        "    props: {",
-        "      evals: ctx.selection.snapshots.flatMap((s) => s.evals.map((e) => e.id)).sort().join(\",\"),",
-        "      locator: ctx.selection.snapshots[0].evals[0].attempts[0].locator,",
-        "    },",
-        "  }),",
+        "const Wrapper = () => null;",
+        "Wrapper[COMPOSE] = (props, ctx) => ({",
+        "  type: Custom,",
+        "  props: {",
+        "    evals: ctx.scope.snapshots.flatMap((s) => s.evals.map((e) => e.id)).sort().join(\",\"),",
+        "    locator: ctx.scope.snapshots[0].evals[0].attempts[0].locator,",
+        "  },",
+        "});",
+        "const definition = {",
+        '  kind: "report",',
+        "  links: [],",
+        "  scripts: [],",
+        "  styles: [],",
+        '  pages: [{ id: "report", title: "Report", content: { type: Wrapper, props: {} } }],',
         "};",
+        "Object.defineProperty(definition, DEFINITION, { value: true });",
+        "export default definition;",
         "",
       ].join("\n"),
       "utf-8",

@@ -6,12 +6,20 @@ import * as React from "react";
 import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AttemptLocator } from "../results/locator.ts";
-import type { SelectionWarning } from "../results/types.ts";
-import { resolveReportTree, runWithWebContext, validateReportTree, type WebContext } from "./tree.ts";
+import type { Scope } from "../results/types.ts";
+import {
+  resolveReportTree,
+  runWithWebContext,
+  validateReportTree,
+  ResolveMemo,
+  type WebContext,
+} from "./tree.ts";
 import { DEFAULT_REPORT_LOCALE, type ReportLocale } from "./locale.ts";
-import type { ReportContext, ReportDefinition } from "./report.ts";
+import { buildReportMeta, pickReportPage, type ReportDefinition, type ReportHostContext } from "./report.ts";
 
 export interface StaticHtmlOptions {
+  /** 渲染哪一页;缺省第一页。未命中抛 ReportPageNotFoundError。 */
+  pageId?: string;
   /** 证据室深链;缺省用 view 的 attempt 路由 `#/attempt/@<locator>`(单段、不透明)。 */
   attemptHref?: (locator: AttemptLocator) => string;
   /** 官方组件 chrome 文案的 locale;默认 "en"。 */
@@ -19,12 +27,12 @@ export interface StaticHtmlOptions {
 }
 
 /**
- * 挑选警告的 HTML 形态:宿主级前置块,与 RunOverview 里的警告用同一套结构和类名
- * (`.nre nre-report-warnings` 外壳内一个 `ul.nre-warnings` + `li.nre-warning[data-kind]`,
- * 复用 styles.css 已有的 `.nre .nre-warnings` 样式)。经 renderToStaticMarkup 走 React,
- * message 文本自动转义,不裸拼 HTML。裸跑 / --report 都在报告顶上如实报残缺,不静默。
+ * 挑选警告的 HTML 形态:宿主级前置块(`.nre nre-report-warnings` 外壳内一个
+ * `ul.nre-warnings` + `li.nre-warning[data-kind]`,复用 styles.css 已有样式)。
+ * 带 `command` 的警告把命令渲染为可复制块(`.nre-warning-command`);无 command 的
+ * 只显示 message,不硬造动作。经 renderToStaticMarkup 走 React,文本自动转义。
  */
-function renderSelectionWarningsHtml(warnings: SelectionWarning[]): string {
+function renderScopeWarningsHtml(scope: Scope): string {
   return renderToStaticMarkup(
     React.createElement(
       "div",
@@ -32,8 +40,15 @@ function renderSelectionWarningsHtml(warnings: SelectionWarning[]): string {
       React.createElement(
         "ul",
         { className: "nre-warnings" },
-        warnings.map((w, i) =>
-          React.createElement("li", { key: i, className: "nre-warning", "data-kind": w.kind }, w.message),
+        scope.warnings.map((w, i) =>
+          React.createElement(
+            "li",
+            { key: i, className: "nre-warning", "data-kind": w.kind },
+            w.message,
+            "command" in w && w.command
+              ? React.createElement("code", { className: "nre-warning-command", "data-nre-copy": w.command }, w.command)
+              : null,
+          ),
         ),
       ),
     ),
@@ -41,27 +56,55 @@ function renderSelectionWarningsHtml(warnings: SelectionWarning[]): string {
 }
 
 /**
- * build → 渲染前解析数据组件(唯一的 await 边界)→ 树校验(与 text 宿主同一遍)→ 静态渲染
- * web 面;Selection 有挑选警告时在报告顶部前置一块警告 HTML；报告树里的 RunOverview
- * 已经渲染同一条时不重复。
+ * web 宿主的装载语义:选页 → resolve(组合展开 + spec 取数,唯一的 await 边界)→
+ * 树校验(与 text 宿主同一遍)→ 静态渲染 web 面;Scope 有挑选警告时在报告顶部前置
+ * 一块警告 HTML(宿主是 warning 的唯一呈现者,组件数据不复制 warning)。
  */
 export async function renderReportToStaticHtml(
   definition: ReportDefinition,
-  ctx: ReportContext,
+  ctx: ReportHostContext,
   options?: StaticHtmlOptions,
 ): Promise<string> {
-  const node = await definition.build(ctx);
-  const resolved = await resolveReportTree(node);
+  const page = pickReportPage(definition, options?.pageId);
+  const meta = buildReportMeta(definition, ctx.scope, page.id);
+  const resolved = await resolveReportTree(page.content, {
+    scope: ctx.scope,
+    results: ctx.results,
+    report: meta,
+    memo: new ResolveMemo(),
+  });
   validateReportTree(resolved);
   const webCtx: WebContext = {
     attemptHref: options?.attemptHref ?? ((locator) => `#/attempt/${locator}`),
     locale: options?.locale ?? DEFAULT_REPORT_LOCALE,
   };
   const body = runWithWebContext(webCtx, () => renderToStaticMarkup(resolved as ReactNode));
-  const missingWarnings = ctx.selection.warnings.filter((warning) => {
-    const escapedMessage = renderToStaticMarkup(React.createElement(React.Fragment, null, warning.message));
-    return !body.includes(escapedMessage);
+  const warnings = ctx.scope.warnings.length > 0 ? renderScopeWarningsHtml(ctx.scope) : "";
+  return warnings + body;
+}
+
+/**
+ * 渲染一页报告树的 web 面(宿主逐页调用;页选择归宿主):resolve → validate → 静态渲染。
+ * Scope 有挑选警告时在页顶前置警告块(带 command 的警告渲染为可复制命令)——宿主是
+ * warning 的唯一呈现者,组件数据不复制 warning。ctx.report 是宿主规范化后的声明。
+ */
+export async function renderReportTreeToStaticHtml(
+  tree: import("./tree.ts").ReportNode,
+  ctx: { scope: Scope; results: import("../results/types.ts").Results; report: import("./report.ts").ReportMeta },
+  options?: { attemptHref?: (locator: AttemptLocator) => string; locale?: ReportLocale },
+): Promise<string> {
+  const resolved = await resolveReportTree(tree, {
+    scope: ctx.scope,
+    results: ctx.results,
+    report: ctx.report,
+    memo: new ResolveMemo(),
   });
-  const warnings = missingWarnings.length > 0 ? renderSelectionWarningsHtml(missingWarnings) : "";
+  validateReportTree(resolved);
+  const webCtx: WebContext = {
+    attemptHref: options?.attemptHref ?? ((locator) => `#/attempt/${locator}`),
+    locale: options?.locale ?? DEFAULT_REPORT_LOCALE,
+  };
+  const body = runWithWebContext(webCtx, () => renderToStaticMarkup(resolved as ReactNode));
+  const warnings = ctx.scope.warnings.length > 0 ? renderScopeWarningsHtml(ctx.scope) : "";
   return warnings + body;
 }

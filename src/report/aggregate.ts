@@ -1,40 +1,39 @@
-// 两级聚合引擎:去重 → 按维度分组 → 组内按 (eval × 快照) 折叠(perEval)→ 跨题折叠(across)→ MetricCell。
+// 两级聚合引擎:去重 → 按维度分组 → 组内按 (experiment × eval) 折叠(perEval)→ 跨题折叠
+// (acrossEvals)→ MetricCell(docs/feature/reports/architecture.md「指标聚合不变量」、
+// docs/feature/reports/library/metrics.md「公开计算模型」)。
 //
 // 为什么是两级:earlyExit 默认开,失败的题天然比通过的题样本多;平铺求均值会把分数
 // 和重试策略纠缠在一起(eval A=[1]、eval B=[0,0,0] 平铺 = 0.25,两级宏平均 = 0.5)。
 // 自定义维度把同一道题的 attempt 分进不同组时,第一级折叠发生在各组内部。
 
 import { dedupeAttempts } from "../results/select.ts";
-import type { AttemptHandle, Selection, SelectionWarning, Snapshot } from "../results/types.ts";
+import type { AttemptHandle, Scope, ScopeWarning, Snapshot } from "../results/types.ts";
 import { encodeAttemptLocator, type AttemptLocator } from "../results/locator.ts";
 import type {
   Aggregator,
-  AxisInput,
-  ConfigRef,
   DimensionInput,
+  DimensionRef,
   Metric,
   MetricCell,
   MetricColumn,
-  FlagRef,
+  NumericAxis,
+  ReportInput,
 } from "./types.ts";
-import { formatMetricValue } from "./format.ts";
+import { flagValueOf, runConfigValueOf } from "./flag.ts";
+import { formatMetricValue, localizedDisplay } from "./format.ts";
+import { localeText, type LocalizedText } from "./locale.ts";
 import { evalPrefixPredicate } from "../shared/aggregate.ts";
 
 // 复合键分隔符:NUL 不会出现在 eval id / experimentId / ISO 时间里,拼接键不会串味
 const KEY_SEP = "\u0000";
 
-/** flag 未声明时的组名:不猜,如实归一组。 */
-export const FLAG_UNSET = "(unset)";
-
-/** 计算函数的第一参:Selection(warnings 随行)或手工挑的快照数组(没有挑选过程,自然无警告)。 */
-export type SnapshotsInput = Selection | Snapshot[];
-
-export function resolveInput(input: SnapshotsInput): {
-  snapshots: Snapshot[];
-  warnings: SelectionWarning[];
+export function resolveInput(input: ReportInput): {
+  snapshots: readonly Snapshot[];
+  warnings: readonly ScopeWarning[];
 } {
-  if (Array.isArray(input)) return { snapshots: input, warnings: [] };
-  return { snapshots: input.snapshots, warnings: input.warnings };
+  if (Array.isArray(input)) return { snapshots: input as readonly Snapshot[], warnings: [] };
+  const scope = input as Scope;
+  return { snapshots: scope.snapshots, warnings: scope.warnings };
 }
 
 /** 展平后的一条样本:attempt + 它所属的快照(维度解析与题级折叠都需要快照身份)。 */
@@ -51,16 +50,19 @@ export function evalIdOf(item: Item): string {
   return item.attempt.evalId || item.attempt.result.id;
 }
 
-/** 快照键:与 view Compare 同口径的 "<experimentId> @ <startedAt>"。 */
+/** 快照键:"<experimentId> @ <startedAt>"("snapshot" 维度与手挑快照数组的对比用)。 */
 export function snapshotKeyOf(snapshot: Snapshot): string {
   return `${snapshot.experimentId} @ ${snapshot.startedAt}`;
 }
 
+/** 一组 Item 的 eval 全身份键:experimentId + eval id(聚合中的题级身份始终是这一对)。 */
+export function fullEvalKey(item: Item): string {
+  return `${experimentIdOf(item)}${KEY_SEP}${evalIdOf(item)}`;
+}
+
 /**
  * 一条 Item 的 AttemptLocator:真实读取路径(openResults() 产出的 handle)恒有
- * `attempt.locator`;手工构造的测试 fixture 若省略它,按当前身份元组兜底算一份
- * (与 `loadAttemptEvidence`、`open.ts` 的回填同一口径)——只服务这类场景,不改变真实
- * 读取路径的行为。
+ * `attempt.locator`;手工构造的测试 fixture 若省略它,按当前身份元组兜底算一份。
  */
 export function locatorOf(item: Item): AttemptLocator {
   return (
@@ -79,7 +81,7 @@ export function locatorOf(item: Item): AttemptLocator {
  * (experimentId, evalId, attempt, startedAt))。missing-startedAt 的警告不透出:
  * 官方产出永不缺 startedAt,缺失只可能来自 legacy 落盘,「不去重、如实保留重复」即终稿。
  */
-export function collectItems(snapshots: Snapshot[]): Item[] {
+export function collectItems(snapshots: readonly Snapshot[]): Item[] {
   const snapshotByAttempt = new Map<AttemptHandle, Snapshot>();
   const flattened: AttemptHandle[] = [];
   for (const snapshot of snapshots) {
@@ -95,9 +97,9 @@ export function collectItems(snapshots: Snapshot[]): Item[] {
 
 export { evalPrefixPredicate };
 
-export function filterItems(items: Item[], evals?: string | string[]): Item[] {
+export function filterItems(items: Item[], evals?: string | readonly string[]): Item[] {
   if (evals === undefined) return items;
-  const match = evalPrefixPredicate(evals);
+  const match = evalPrefixPredicate(Array.isArray(evals) ? [...evals] : (evals as string));
   return items.filter((item) => match(evalIdOf(item)));
 }
 
@@ -107,66 +109,52 @@ export function dimensionName(dimension: DimensionInput): string {
   return typeof dimension === "string" ? dimension : dimension.name;
 }
 
-/** eval id 的第一段:"algebra/quadratic" → "algebra";没有 "/" 时就是 id 本身。 */
+/** eval id 的完整父路径:"a/b/c" → "a/b";没有 "/" 时取完整 id(与可比组同一条派生规则)。 */
 export function evalGroupOf(id: string): string {
-  const slash = id.indexOf("/");
+  const slash = id.lastIndexOf("/");
   return slash === -1 ? id : id.slice(0, slash);
 }
 
-function isFlagRef(dimension: DimensionInput): dimension is FlagRef {
-  return typeof dimension === "object" && "kind" in dimension && dimension.kind === "flag";
+function isDimensionRef(dimension: DimensionInput): dimension is DimensionRef {
+  return (
+    typeof dimension === "object" &&
+    "kind" in dimension &&
+    ((dimension as DimensionRef).kind === "flag" || (dimension as DimensionRef).kind === "runConfig")
+  );
 }
 
-function isConfigRef(dimension: DimensionInput): dimension is ConfigRef {
-  return typeof dimension === "object" && "kind" in dimension && dimension.kind === "config";
-}
+/** flag / runConfig 未声明时的显示键:内置文案,en / zh-CN 同形。 */
+export const MISSING_GROUP_KEY = localeText("en", "cell.missingValue");
 
-/** experiment 声明的 flags(经 runner 原样透传进持久化字段 ExperimentRunInfo.flags)。 */
-function flagsOf(attempt: AttemptHandle): Record<string, unknown> | undefined {
-  return attempt.result.experiment?.flags;
+/** 对象键递归排序后的稳定 JSON(分组显示键与冲突检测共用)。 */
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (typeof value === "object" && value !== null) {
+    const keys = Object.keys(value as Record<string, unknown>).sort();
+    return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJson((value as Record<string, unknown>)[k])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
 }
 
 /**
- * config() 的取值:读快照的 `ExperimentRunInfo` 投影(快照优先;第三方落盘只把投影拼在
- * 条目上时回退 result.experiment),外加桥接到快照顶层权威字段的 `model` / `agent` 两个键
- * (与 "model" / "agent" 内置维度同一读法,不另造第二套口径)。未投影 → undefined。
+ * flag / runConfig 声明值 → 分组显示键(稳定 JSON 规则):字符串直接显示,其它值用对象键
+ * 递归排序后的 JSON,缺失值显示内置文案 `(missing)`。返回 [显示键, 冲突检测用的规范形]。
  */
-function configValueOf(ref: ConfigRef, item: Item): unknown {
-  if (ref.name === "model") return item.attempt.result.model ?? item.snapshot.model;
-  if (ref.name === "agent") return item.attempt.result.agent || item.snapshot.agent;
-  const info = item.snapshot.experiment ?? item.attempt.result.experiment;
-  // ExperimentRunInfo 是穷尽可序列化投影;按字段名取值,新增投影字段无需改这里
-  return (info as Record<string, unknown> | undefined)?.[ref.name];
+export function refDisplayKey(value: unknown): [display: string, canonical: string] {
+  if (value === undefined) return [MISSING_GROUP_KEY, "undefined"];
+  if (typeof value === "string") return [value, `string:${value}`];
+  return [canonicalJson(value), `json:${canonicalJson(value)}`];
 }
 
-/** flag 声明值 → 组标签:label 函数优先,其余 String();未声明 → FLAG_UNSET。 */
-export function flagGroupKey(ref: FlagRef, item: Item): string {
-  return refGroupKey(ref, flagsOf(item.attempt)?.[ref.name]);
-}
-
-/** config 投影值 → 组标签,规则与 flagGroupKey 一致;未投影 → FLAG_UNSET。 */
-export function configGroupKey(ref: ConfigRef, item: Item): string {
-  return refGroupKey(ref, configValueOf(ref, item));
-}
-
-function refGroupKey(ref: FlagRef | ConfigRef, value: unknown): string {
-  if (value === undefined) return FLAG_UNSET;
-  // 声明侧的合法标量就是这三种;非标量投影(sandbox / selectedEvalIds…)如实 JSON 化,不猜
-  if (typeof ref.label === "function") return ref.label(value as string | number | boolean);
-  if (typeof value === "object" && value !== null) return JSON.stringify(value);
-  return String(value);
-}
-
-/** flag / config 作轴:要求数值;未声明、未投影或非数值 → null(点不画,注脚报数)。 */
-export function axisValue(ref: AxisInput, item: Item): number | null {
-  const value = ref.kind === "flag" ? flagsOf(item.attempt)?.[ref.name] : configValueOf(ref, item);
-  return typeof value === "number" ? value : null;
+function refValueOf(ref: DimensionRef, item: Item): unknown {
+  return ref.kind === "flag"
+    ? flagValueOf(item.attempt, ref.name)
+    : runConfigValueOf(item.attempt, ref.name as Parameters<typeof runConfigValueOf>[1]);
 }
 
 export function dimensionKey(dimension: DimensionInput, item: Item): string {
   if (typeof dimension !== "string") {
-    if (isFlagRef(dimension)) return flagGroupKey(dimension, item);
-    if (isConfigRef(dimension)) return configGroupKey(dimension, item);
+    if (isDimensionRef(dimension)) return refDisplayKey(refValueOf(dimension, item))[0];
     return dimension.of(item.attempt);
   }
   const result = item.attempt.result;
@@ -191,21 +179,42 @@ export function dimensionKey(dimension: DimensionInput, item: Item): string {
   }
 }
 
-/** 按维度分组,保持首次出现顺序(无 sort 时表格行序即此序)。 */
+/**
+ * 按维度分组;维度 domain 按稳定 key 字典序(Unicode)排列,不让文件扫描顺序渗进报告。
+ * flag / runConfig 维度做显示键冲突检测:不同原始值生成同一显示键时报错并要求改用
+ * CustomDimension,绝不静默合组。
+ */
 export function groupItems(items: Item[], dimension: DimensionInput): Map<string, Item[]> {
   const groups = new Map<string, Item[]>();
+  const canonicalByDisplay = new Map<string, string>();
+  const checkConflicts = typeof dimension !== "string" && isDimensionRef(dimension);
   for (const item of items) {
-    const key = dimensionKey(dimension, item);
+    let key: string;
+    if (checkConflicts) {
+      const [display, canonical] = refDisplayKey(refValueOf(dimension as DimensionRef, item));
+      const existing = canonicalByDisplay.get(display);
+      if (existing === undefined) canonicalByDisplay.set(display, canonical);
+      else if (existing !== canonical) {
+        throw new Error(
+          `Dimension "${dimensionName(dimension)}" maps two different raw values to the same display key "${display}" ` +
+            `(e.g. the string "5" and the number 5). Grouping them silently would merge distinct configurations; ` +
+            `use a CustomDimension ({ name, of(attempt) }) to define an unambiguous key.`,
+        );
+      }
+      key = display;
+    } else {
+      key = dimensionKey(dimension, item);
+    }
     const list = groups.get(key);
     if (list) list.push(item);
     else groups.set(key, [item]);
   }
-  return groups;
+  return new Map([...groups.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
 }
 
 // ───────────────────────── 聚合 ─────────────────────────
 
-export function applyAggregator(aggregator: Aggregator, values: number[]): number {
+export function applyAggregator(aggregator: Aggregator, values: readonly number[]): number {
   if (typeof aggregator === "function") return aggregator(values);
   switch (aggregator) {
     case "mean":
@@ -219,50 +228,108 @@ export function applyAggregator(aggregator: Aggregator, values: number[]): numbe
   }
 }
 
-/** where 不满足 → null,语义等价于 value 开头 return null。 */
-export async function evaluateMetric(metric: Metric, attempt: AttemptHandle): Promise<number | null> {
-  if (metric.where && !metric.where(attempt)) return null;
-  return metric.value(attempt);
+function metricError(metric: Metric, step: string, cause: unknown, locator?: AttemptLocator): Error {
+  const at = locator === undefined ? "" : ` at attempt ${locator}`;
+  return new Error(
+    `Metric "${metric.name}" ${step} failed${at}: ${cause instanceof Error ? cause.message : String(cause)}. ` +
+      "Computation errors are not disguised as missing data — fix the metric (return null for expected gaps), then re-run.",
+    { cause },
+  );
 }
 
-export function displayValue(metric: Metric, value: number | null): string {
+/** where 不满足 → null,语义等价于 value 开头 return null;抛错与非有限数按完整用户反馈失败。 */
+export async function evaluateMetric(metric: Metric, attempt: AttemptHandle): Promise<number | null> {
+  const locator = attempt.locator;
+  if (metric.where) {
+    let pass: boolean;
+    try {
+      pass = metric.where(attempt);
+    } catch (e) {
+      throw metricError(metric, "where()", e, locator);
+    }
+    if (!pass) return null;
+  }
+  let value: number | null;
+  try {
+    value = await metric.value(attempt);
+  } catch (e) {
+    throw metricError(metric, "value()", e, locator);
+  }
+  if (value !== null && !Number.isFinite(value)) {
+    throw metricError(metric, "value()", `returned a non-finite number (${String(value)}); return null for "not measurable"`, locator);
+  }
+  return value;
+}
+
+/** 单值 → LocalizedText display:metric.display 覆盖内置 unit 格式化;null 的兜底归渲染面。 */
+export function displayValue(metric: Metric, value: number | null): LocalizedText {
   // null 的纯文本兜底;组件把 null 渲染成「缺数据」,绝不画 0
   if (value === null) return "—";
-  return metric.display ? metric.display(value) : formatMetricValue(value, metric.unit);
+  if (metric.display) {
+    const display = metric.display;
+    return localizedDisplay((locale) => {
+      try {
+        return display(value, locale);
+      } catch (e) {
+        throw metricError(metric, "display()", e);
+      }
+    });
+  }
+  return formatMetricValue(value, metric.unit);
+}
+
+function foldAggregator(metric: Metric, step: "perEval" | "acrossEvals", values: readonly number[]): number {
+  const aggregator = metric.aggregate?.[step] ?? "mean";
+  let folded: number;
+  try {
+    folded = applyAggregator(aggregator, values);
+  } catch (e) {
+    throw metricError(metric, `${step} aggregator`, e);
+  }
+  if (!Number.isFinite(folded)) {
+    throw metricError(metric, `${step} aggregator`, `returned a non-finite number (${String(folded)})`);
+  }
+  return folded;
 }
 
 /**
  * 一个格子:组内 attempt → 两级聚合 → 终值。
  * null 值不进聚合但计入 total(覆盖率经 samples/total 如实暴露);全 null → value null。
+ * refs 跟随覆盖范围(含值为 null 的 attempt),去重后按 locator 字典序。
  */
 export async function computeCell(metric: Metric, items: Item[]): Promise<MetricCell> {
-  // 第一级桶:同一 (eval × 快照) 的 attempt 折成一个题级值
+  // 第一级桶:同一 (experiment × eval × 快照) 的 attempt 折成一个题级值
   const buckets = new Map<string, number[]>();
-  const refs: AttemptLocator[] = [];
+  const refs = new Set<AttemptLocator>();
   let samples = 0;
   for (const item of items) {
+    refs.add(locatorOf(item));
     const value = await evaluateMetric(metric, item.attempt);
     if (value === null) continue;
     samples += 1;
-    refs.push(locatorOf(item)); // 证据引用由句柄直供,不反查下标
-    const bucketKey = `${evalIdOf(item)}${KEY_SEP}${snapshotKeyOf(item.snapshot)}`;
+    const bucketKey = `${fullEvalKey(item)}${KEY_SEP}${snapshotKeyOf(item.snapshot)}`;
     const bucket = buckets.get(bucketKey);
     if (bucket) bucket.push(value);
     else buckets.set(bucketKey, [value]);
   }
-  const perEval = metric.aggregate?.perEval ?? "mean";
-  const across = metric.aggregate?.across ?? "mean";
-  const evalValues = [...buckets.values()].map((values) => applyAggregator(perEval, values));
-  const value = evalValues.length === 0 ? null : applyAggregator(across, evalValues);
-  return { value, display: displayValue(metric, value), samples, total: items.length, refs };
+  const evalValues = [...buckets.values()].map((values) => foldAggregator(metric, "perEval", values));
+  const value = evalValues.length === 0 ? null : foldAggregator(metric, "acrossEvals", evalValues);
+  return {
+    value,
+    display: displayValue(metric, value),
+    samples,
+    total: items.length,
+    refs: [...refs].sort(),
+  };
 }
 
 export function toColumn(metric: Metric): MetricColumn {
   return {
     key: metric.name,
     label: metric.label ?? metric.name,
-    unit: metric.unit,
-    better: metric.better,
+    ...(metric.description !== undefined ? { description: metric.description } : {}),
+    ...(metric.unit !== undefined ? { unit: metric.unit } : {}),
+    ...(metric.better !== undefined ? { better: metric.better } : {}),
   };
 }
 
@@ -276,4 +343,25 @@ export function assertUniqueMetricNames(metrics: readonly Metric[], where: strin
     }
     seen.add(metric.name);
   }
+}
+
+/** NumericAxis 的取值,带完整反馈的非法值检查(NaN / Infinity 一律报错,不静默当缺失)。 */
+export function axisValueOf(axis: NumericAxis, attempt: AttemptHandle): number | null {
+  let value: number | null;
+  try {
+    value = axis.of(attempt);
+  } catch (e) {
+    throw new Error(
+      `Numeric axis "${axis.name}" of() failed${attempt.locator ? ` at attempt ${attempt.locator}` : ""}: ${
+        e instanceof Error ? e.message : String(e)
+      }`,
+      { cause: e },
+    );
+  }
+  if (value !== null && !Number.isFinite(value)) {
+    throw new Error(
+      `Numeric axis "${axis.name}" of() returned a non-finite number (${String(value)}); return null for attempts without a plottable x value.`,
+    );
+  }
+  return value;
 }

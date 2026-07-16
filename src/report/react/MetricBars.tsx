@@ -6,7 +6,7 @@
 import type { ReactElement } from "react";
 import type { MatrixData, MetricCell } from "../types.ts";
 import type { AttemptLocator } from "../../results/locator.ts";
-import { DEFAULT_REPORT_LOCALE, resolveMetricLabel, type ReportLocale } from "../locale.ts";
+import { DEFAULT_REPORT_LOCALE, resolveLocalizedText, resolveMetricLabel, type ReportLocale } from "../locale.ts";
 import { colorClassForKey, seriesClassForKey } from "./colors.ts";
 import { cx } from "./format.ts";
 
@@ -52,7 +52,7 @@ export function MetricBars({
         className="nre-bars-svg"
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
         role="img"
-        aria-label={`${metricLabel} by ${data.rows} × ${data.columns}`}
+        aria-label={`${metricLabel} by ${data.rowDimension} × ${data.columnDimension}`}
       >
         {groupKeys.map((group, gi) => {
           const x0 = PLOT.left + gi * groupWidth;
@@ -71,7 +71,8 @@ export function MetricBars({
                 const h = Math.max(1, ratioOf(cell.value as number) * plotHeight);
                 const x = startX + si * barWidth;
                 const y = PLOT.bottom - h;
-                const title = `${group} · ${series}: ${cell.display}(${cell.samples}/${cell.total})`;
+                const display = resolveLocalizedText(cell.display, locale);
+                const title = `${group} · ${series}: ${display}(${cell.samples}/${cell.total})`;
                 const rect = (
                   <rect
                     className={cx("nre-bar", seriesClassForKey(series))}
@@ -89,7 +90,7 @@ export function MetricBars({
                     {attemptHref && locator ? <a href={attemptHref(locator)}>{rect}</a> : rect}
                     {/* 柱顶标数值;覆盖不全时把 samples/total 一并标出,不藏 */}
                     <text className="nre-bar-value" x={x + barWidth / 2} y={y - 4} textAnchor="middle">
-                      {cell.samples < cell.total ? `${cell.display} ${cell.samples}/${cell.total}` : cell.display}
+                      {cell.samples < cell.total ? `${display} ${cell.samples}/${cell.total}` : display}
                     </text>
                   </g>
                 );

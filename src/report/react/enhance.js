@@ -1,14 +1,19 @@
 // niceeval 报告的渐进增强 runtime:纯 vanilla JS、零依赖、IIFE、幂等。
-// 只作用于 .nre DOM 与 data-nre-* 属性;四个行为——实验组切换、表格排序、行过滤、SVG 点 tooltip。
-// 静态 HTML 无 JS 时内容完整可读是硬约束:排序有数据侧预排、tooltip 退化为原生
-// <title>、过滤输入框静默无功能。全部经 document 级事件委托绑定,重复注入本文件
-// 只在首次生效(window.__nreEnhanced 守卫),DOM 被搬动(如 view 把 <template> 内容
-// 摆进报告槽)也无需重新绑定。
+// 只作用于 .nre DOM 与 data-nre-* 属性;六个行为——实验组切换、Tabs 单选切换、表格排序、
+// 行过滤、SVG 点 tooltip、警告命令复制。全部只改浏览状态,不改数据、指标口径或初始 HTML 数值。
+// 静态 HTML 无 JS 时内容完整可读是硬约束:排序有数据侧预排、tooltip 退化为原生 <title>、
+// 过滤输入框静默无功能、Tabs 退化为原生 <details> 手风琴、命令块退化为点击全选。
+// 全部经 document 级事件委托绑定,重复注入本文件只在首次生效(window.__nreEnhanced 守卫),
+// DOM 被搬动(如 view 把 <template> 内容摆进报告槽)也无需重新绑定。
 
 (function () {
   "use strict";
   if (typeof window === "undefined" || window.__nreEnhanced) return;
   window.__nreEnhanced = true;
+
+  // 根类 nre-js:styles.css 用它把仅增强态的布局(单选 tab 条、复制指针)限定在 JS 在场时。
+  // 挂在 documentElement 上与报告块位置无关,块之后被搬进槽位也不需要补标记。
+  document.documentElement.classList.add("nre-js");
 
   function closest(target, selector) {
     return target && target.closest ? target.closest(selector) : null;
@@ -44,6 +49,53 @@
     if (!control || (e.key !== "Enter" && e.key !== " ")) return;
     e.preventDefault();
     selectExperimentGroup(control);
+  });
+
+  // ───────────────────────── Tabs:[data-nre-tabs] 单选切换 ─────────────────────────
+  // 静态 HTML 每 tab 一个 <details> 且仅首个 open;点击 summary 时接管原生 toggle:
+  // 打开所点 tab、收起同组其余,点已开的 tab 保持打开(单选语义,恒有一个面板可见)。
+  // 只切换 open 状态,不触碰 tab 内任何数据;键盘 Enter/Space 走 summary 的原生激活(即 click)。
+
+  document.addEventListener("click", function (e) {
+    var title = closest(e.target, "[data-nre-tabs] > details > summary");
+    if (!title) return;
+    e.preventDefault();
+    var tab = title.parentNode;
+    var group = tab.parentNode;
+    for (var i = 0; i < group.children.length; i++) {
+      var child = group.children[i];
+      if (child.tagName === "DETAILS") child.open = child === tab;
+    }
+  });
+
+  // ───────────────────────── 复制:[data-nre-copy](宿主警告块的命令) ─────────────────────────
+  // 点击把 data-nre-copy 携带的完整命令写进剪贴板,成功后短暂打上 data-nre-copied
+  // (styles.css 显示 ✓);剪贴板不可用时退化为全选该块文本,用户手动复制。
+  // 块内文本与属性值恒不变,复制的是数据侧已写好的命令原文。
+
+  document.addEventListener("click", function (e) {
+    var block = closest(e.target, "[data-nre-copy]");
+    if (!block) return;
+    var command = block.getAttribute("data-nre-copy") || "";
+    function mark() {
+      block.setAttribute("data-nre-copied", "");
+      setTimeout(function () {
+        block.removeAttribute("data-nre-copied");
+      }, 1500);
+    }
+    function selectFallback() {
+      var selection = window.getSelection();
+      if (!selection) return;
+      var range = document.createRange();
+      range.selectNodeContents(block);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(command).then(mark, selectFallback);
+    } else {
+      selectFallback();
+    }
   });
 
   // ───────────────────────── 排序:th[data-nre-sort] ─────────────────────────

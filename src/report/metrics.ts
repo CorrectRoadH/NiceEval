@@ -12,12 +12,14 @@
 //   durationMs(duration)                           null     实测             实测     实测          lower
 //   tokens(tokens)                                 null     实测;无 usage→null 同左   同左          lower
 //   costUSD(cost)                                  null     同上             同左     同左          lower
-//   turns(turns)                                   null     实测;o11y 缺失→null 同左  同左          lower
+//   assistantTurns(assistant-turns)                null     实测;o11y 缺失→null 同左  同左          lower
+//   repeatedFailedCommands(repeated-failed-commands) null   实测;o11y 缺失→null 同左  同左          lower
 //
-// 两档指标(docs/feature/reports/library.md「内置指标」):以上除 turns 外全部只读 attempt.result
-// 的瘦身字段——任何 producer、任何 copySnapshots artifacts 选择都算得出,内置报告
-// ExperimentComparison 只用这一档。turns 读 attempt.o11y()(懒加载 artifact),发布时若
-// o11y 没随行就诚实渲染缺数据「—」,不算 0——报告作者自己摆时心里要有这根弦,内置报告不用它。
+// 两档指标(docs/feature/reports/library/metrics.md「内置指标」):以上除 assistantTurns 与
+// repeatedFailedCommands 外全部只读 attempt.result 的瘦身字段——任何 producer、任何
+// copySnapshots artifacts 选择都算得出,内置报告 ExperimentComparison 只用这一档。
+// 后两个读 attempt.o11y()(懒加载 artifact),发布时若 o11y 没随行就诚实渲染缺数据「—」,
+// 不算 0——报告作者自己摆时心里要有这根弦,内置报告不用它们。
 
 import type { EvalResult } from "../types.ts";
 import type { Metric } from "./types.ts";
@@ -148,7 +150,7 @@ export const tokens = defineMetric({
 
 export const costUSD = defineMetric({
   name: "cost",
-  label: { en: "Cost", "zh-CN": "预估成本" },
+  label: { en: "Cost", "zh-CN": "成本" },
   description: "USD cost per attempt (gateway-measured beats estimated).",
   better: "lower",
   unit: "$",
@@ -156,19 +158,47 @@ export const costUSD = defineMetric({
 });
 
 /**
- * 唯一读 artifact(o11y,懒加载)的内置指标——其余五个只读瘦身字段。
+ * 读 artifact(o11y,懒加载)的内置指标之一——其余只读瘦身字段。
  * 发布时若该 attempt 没带 o11y(如 copySnapshots 的 artifacts 选项漏了它),
- * value 如实返回 null,渲染成「—」,不冒充 0——见 docs/feature/reports/library.md「内置指标」。
+ * value 如实返回 null,渲染成「—」,不冒充 0。名字带限定词:o11y 事件流中的 assistant
+ * turn 数与 `t.send` 的 `s<session>/t<turn>` 轮次是两个计数。
  */
-export const turns = defineMetric({
-  name: "turns",
-  label: { en: "Turns", "zh-CN": "轮次" },
-  description: "Total agent turns (assistant replies) per attempt. Reads o11y — “—” if not published alongside this attempt.",
+export const assistantTurns = defineMetric({
+  name: "assistant-turns",
+  label: { en: "Assistant turns", "zh-CN": "Assistant 轮次" },
+  description: "Assistant turns in the o11y event stream per attempt. Reads o11y — “—” if not published alongside this attempt.",
   better: "lower",
   unit: "turns",
   async value(a) {
     if (a.result.verdict === "skipped") return null;
     const o11y = await a.o11y();
     return o11y?.totalTurns ?? null;
+  },
+});
+
+/**
+ * 同一 attempt 内同一条 shell 命令的重复失败数:每条命令失败 n 次(n > 1)记 n − 1,求和。
+ * 成功执行与只失败一次的命令不计。回答 agent 是否在反复撞同一个已知失败的命令。
+ * 读 o11y.json;skipped 与缺 o11y 返回 null(docs/feature/reports/library/metrics.md「内置指标」)。
+ */
+export const repeatedFailedCommands = defineMetric({
+  name: "repeated-failed-commands",
+  label: { en: "Repeated failed commands", "zh-CN": "重复失败命令" },
+  description: "Per attempt: for each shell command failing n > 1 times, count n − 1, summed. Reads o11y — “—” if not published alongside this attempt.",
+  better: "lower",
+  unit: "cmds",
+  async value(a) {
+    if (a.result.verdict === "skipped") return null;
+    const o11y = await a.o11y();
+    if (!o11y) return null;
+    const failures = new Map<string, number>();
+    for (const entry of o11y.shellCommands) {
+      const failed = entry.success === false || (entry.success === undefined && entry.exitCode !== undefined && entry.exitCode !== 0);
+      if (!failed) continue;
+      failures.set(entry.command, (failures.get(entry.command) ?? 0) + 1);
+    }
+    let repeated = 0;
+    for (const n of failures.values()) if (n > 1) repeated += n - 1;
+    return repeated;
   },
 });

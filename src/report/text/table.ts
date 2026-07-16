@@ -8,7 +8,7 @@
 
 import type { TableProps, TableRow } from "../primitives.tsx";
 import type { TextContext } from "../tree.ts";
-import { countText, localeText } from "../locale.ts";
+import { countText, localeText, resolveLocalizedText } from "../locale.ts";
 import { charDisplayWidth, renderAlignedRows, stringWidth, wrapDisplay, type ColumnAlign } from "./layout.ts";
 
 const MISSING_MARK = "—";
@@ -110,7 +110,7 @@ export function renderTableText(props: TableProps, ctx: TextContext): string {
   const hasLocator = props.rows.some((row) => row.locator !== undefined);
   if (props.columns.length === 0 && !hasLocator) return "";
 
-  const header = props.columns.map((column) => column.header);
+  const header = props.columns.map((column) => resolveLocalizedText(column.header, locale));
   const align: ColumnAlign[] = props.columns.map((column) => column.align ?? "left");
   const body = props.rows.map((row) => props.columns.map((column) => cellText(row, column.key)));
   if (hasLocator) {

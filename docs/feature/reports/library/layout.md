@@ -236,6 +236,8 @@ interface TextContext {
   locale: ReportLocale;
   render(node: ReportNode, width?: number): string;
   attemptCommand(locator: AttemptLocator): string;
+  /** 「按实验收窄」类命令（组索引下一步）；宿主注入以携带完整 --results / --report / --page 上下文。 */
+  experimentCommand(experimentIdPrefix: string): string;
 }
 
 interface WebContext {

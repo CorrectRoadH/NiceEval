@@ -1,8 +1,8 @@
-// 快照 Selection 与 attempt 去重(定稿见 docs/feature/results/library.md「选择快照」「身份键与去重」)。
+// 快照 Scope 与 attempt 去重(定稿见 docs/feature/results/library.md「选择快照」「官方现刻水位」「身份键与去重」)。
 //
-// 选择器只有一个(latest),长在集合上;它不是 DSL,只是最常用的那次筛选。
-// 选择器必须诚实:残缺、落后、未收尾都被算出来,以结构化 warnings 随 Selection 走 ——
-// 渲染与否在消费方(message 是渲染好的英文句子),但缺口不静默。
+// 选择器长在集合上(results.latest() / results.current()),不是 DSL,只是最常用的两种口径。
+// 选择器必须诚实:残缺、落后、未收尾都被算出来,以结构化 warnings 随 Scope 走 ——
+// 渲染与否在消费方(message 是渲染好的英文句子,以下一步收尾),但缺口不静默。
 
 import type {
   AttemptHandle,
@@ -10,22 +10,23 @@ import type {
   Eval,
   Experiment,
   Results,
-  Selection,
-  SelectionWarning,
+  Scope,
+  ScopeWarning,
   Snapshot,
 } from "./types.ts";
+import type { ExperimentRunInfo, JsonValue } from "../types.ts";
 import { evalPrefixPredicate } from "../shared/aggregate.ts";
 
 /** Results.latest() 的实现:每个实验取最新一次快照(= exp.snapshots[0]),生成挑选警告。 */
 export function selectLatest(
   experiments: Experiment[],
   opts?: { experiments?: string | string[] },
-): Selection {
+): Scope {
   const selected = filterExperiments(experiments, opts?.experiments);
   const snapshots = selected.map((exp) => exp.latest);
-  const warnings: SelectionWarning[] = [];
+  const warnings: ScopeWarning[] = [];
 
-  // stale 的基准:Selection 中最新的落盘(无阈值,如实触发;要阈值消费方按字段自比)。
+  // stale 的基准:Scope 中最新的落盘(无阈值,如实触发;要阈值消费方按字段自比)。
   let latestStartedAt = "";
   for (const snapshot of snapshots) {
     if (snapshot.startedAt > latestStartedAt) latestStartedAt = snapshot.startedAt;
@@ -44,6 +45,7 @@ export function selectLatest(
         covered,
         total,
         message: `snapshot covers ${covered} of ${total} evals seen in history; re-run \`niceeval exp ${exp.id}\` for a full snapshot`,
+        command: `niceeval exp ${exp.id}`,
       });
     }
     if (snapshot.startedAt < latestStartedAt) {
@@ -52,7 +54,8 @@ export function selectLatest(
         experimentId: exp.id,
         startedAt: snapshot.startedAt,
         latestStartedAt,
-        message: `snapshot "${exp.id}" (${snapshot.startedAt}) predates the latest run in this selection by ${humanizeGap(snapshot.startedAt, latestStartedAt)}`,
+        message: `snapshot "${exp.id}" (${snapshot.startedAt}) predates the latest run in this scope by ${humanizeGap(snapshot.startedAt, latestStartedAt)}; re-run \`niceeval exp ${exp.id}\` to align, or ignore if evals, agent and model are unchanged between the runs`,
+        command: `niceeval exp ${exp.id}`,
       });
     }
     if (!snapshot.completedAt) {
@@ -61,46 +64,101 @@ export function selectLatest(
         experimentId: exp.id,
         startedAt: snapshot.startedAt,
         dir: snapshot.dir,
-        message: `snapshot "${exp.id}" (${snapshot.startedAt}) has no completedAt — the run was interrupted; results may be incomplete`,
+        message: `snapshot "${exp.id}" (${snapshot.startedAt}) has no completedAt — the run was interrupted; re-run \`niceeval exp ${exp.id}\` for a complete snapshot`,
+        command: `niceeval exp ${exp.id}`,
       });
     }
   }
-  return makeSelection(snapshots, warnings);
+  return makeScope("latest-snapshots", snapshots, warnings);
 }
 
 /** selectCurrentResults 的范围输入:experiment id 前缀与 eval id 前缀,都可缺省。 */
 export interface ResultScope {
   /** experiment id 前缀(--experiment),分段匹配语义同 filterExperiments。 */
-  experiment?: string;
-  /** eval id 前缀(位置参数),收窄 Selection 覆盖的 eval;覆盖警告分母同步收窄到范围内。 */
+  experiment?: string | string[];
+  /** eval id 前缀(位置参数),收窄 Scope 覆盖的 eval;覆盖警告分母同步收窄到范围内。 */
   patterns?: string[];
 }
 
+// ───────────────────────── 可比性配置 ─────────────────────────
+
 /**
- * 两个宿主(show / view)共用的现刻水位选择器:每个 experiment × eval 取时间上最新的那份
- * 判定,跨 run 合成。results.latest() 只挑「每实验最新快照」,带 eval 前缀的局部重跑会产出
- * 残缺快照;现刻水位承诺「不会因为一次局部重跑变残缺」,所以在实验的全部历史快照上逐 eval
- * 向更早的 run 补齐,再把合成好的 Selection 交给宿主注入报告槽——内置默认报告与 --report 吃
- * 同一份。
+ * current() 跨快照拼接的可比性前提所比较的字段集(docs/feature/results/library.md
+ * 「官方现刻水位」):会改变单题被测行为或判定的字段。runs / earlyExit / maxConcurrency /
+ * selectedEvalIds / evalFilterFingerprint / description 是编排与选题字段,不参与比较。
+ */
+export interface ComparabilityConfig {
+  agent: string;
+  model?: string;
+  reasoningEffort?: string;
+  flags?: Record<string, JsonValue>;
+  budget?: number;
+  timeoutMs?: number;
+  sandbox?: ExperimentRunInfo["sandbox"];
+}
+
+/** 一个快照的可比性配置投影;pairsByFlag 与 experimentListData 复用同一字段集。 */
+export function comparabilityConfigOf(snapshot: Snapshot): ComparabilityConfig {
+  const info = snapshot.experiment;
+  return {
+    agent: snapshot.agent,
+    ...(snapshot.model !== undefined ? { model: snapshot.model } : {}),
+    ...(info?.reasoningEffort !== undefined ? { reasoningEffort: info.reasoningEffort } : {}),
+    ...(info?.flags !== undefined ? { flags: info.flags } : {}),
+    ...(info?.budget !== undefined ? { budget: info.budget } : {}),
+    ...(info?.timeoutMs !== undefined ? { timeoutMs: info.timeoutMs } : {}),
+    ...(info?.sandbox !== undefined ? { sandbox: info.sandbox } : {}),
+  };
+}
+
+/** 可序列化值的深相等(对象键序无关;undefined 字段与缺席字段等价)。 */
+export function deepEqualJson(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    return a.every((item, i) => deepEqualJson(item, b[i]));
+  }
+  if (typeof a === "object" && typeof b === "object" && a !== null && b !== null) {
+    const keysA = Object.keys(a).filter((k) => (a as Record<string, unknown>)[k] !== undefined);
+    const keysB = Object.keys(b).filter((k) => (b as Record<string, unknown>)[k] !== undefined);
+    if (keysA.length !== keysB.length) return false;
+    return keysA.every((k) =>
+      deepEqualJson((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]),
+    );
+  }
+  return false;
+}
+
+/**
+ * 两个宿主(show / view)共用的现刻水位选择器:每个 experiment × eval 取「包含该 eval 的
+ * 最新快照」里的全部 attempt,跨 run 合成。results.latest() 只挑「每实验最新快照」,带 eval
+ * 前缀的局部重跑会产出残缺快照;现刻水位承诺「不会因为一次局部重跑变残缺」,所以在实验的
+ * 历史快照上逐 eval 向更早的 run 补齐,再把合成好的 Scope 交给宿主注入报告槽。
+ *
+ * **可比性前提**:每个 experiment 以最新快照的可比性配置(agent / model / reasoningEffort /
+ * flags / budget / timeoutMs / sandbox)为基准,只有配置与基准深相等的历史快照才参与补齐;
+ * 改过配置后只补跑部分 eval 时,旧配置快照覆盖的其余题不冒充新配置的水位,按 partial-coverage
+ * 如实告警。这保证 current() 产出的每个 experiment 只对应一套配置。
  *
  * 同一 eval 的全部 attempts 必须整批取自包含它的最新快照,不把历史快照的 attempts 平铺后
  * 按 eval 聚合——否则会把不同运行的重试混成一次虚构运行。合成快照的 dir/元数据只服务报告
  * 分组与来源展示,证据身份一律来自 attempt 自己的 ref。
- * 警告随 Selection 重算:partial-coverage 的分母 = 已知并集 ∩ 范围(范围收窄时分母同步收窄,
- * 不让范围外的缺口刷屏);stale / unfinished 与 results.latest() 同口径。
  */
-export function selectCurrentResults(results: Results, scope: ResultScope = {}): Selection {
+export function selectCurrentResults(results: Results, scope: ResultScope = {}): Scope {
   const match =
     scope.patterns && scope.patterns.length > 0 ? evalPrefixPredicate(scope.patterns) : () => true;
   const experiments = filterExperiments(results.experiments, scope.experiment);
 
   const snapshots: Snapshot[] = [];
-  const warnings: SelectionWarning[] = [];
+  const warnings: ScopeWarning[] = [];
 
   for (const exp of experiments) {
+    // 可比性基准 = 该实验最新快照的可比性配置;不一致的旧快照整份跳过,不贡献 attempt。
+    const baseline = comparabilityConfigOf(exp.latest);
     // 逐题取最新:快照按最新在前,首个出现即最新判定
     const taken = new Map<string, { ev: Eval; snapshot: Snapshot }>();
     for (const snapshot of exp.snapshots) {
+      if (!deepEqualJson(comparabilityConfigOf(snapshot), baseline)) continue;
       for (const ev of snapshot.evals) {
         if (!match(ev.id) || taken.has(ev.id)) continue;
         taken.set(ev.id, { ev, snapshot });
@@ -124,6 +182,8 @@ export function selectCurrentResults(results: Results, scope: ResultScope = {}):
       startedAt,
       agent: base.agent,
       ...(base.model !== undefined ? { model: base.model } : {}),
+      ...(base.experiment !== undefined ? { experiment: base.experiment } : {}),
+      ...(base.name !== undefined ? { name: base.name } : {}),
       producer: base.producer,
       schemaVersion: base.schemaVersion,
       evals,
@@ -133,8 +193,8 @@ export function selectCurrentResults(results: Results, scope: ResultScope = {}):
       ...(base.knownEvalIds ? { knownEvalIds: [...base.knownEvalIds] } : {}),
     });
 
-    // 残缺检测:跨快照补齐后仍缺,只可能是历史上见过(或 knownEvalIds 声明过)
-    // 却从未在可读落盘里出现的题 —— 分母收窄到范围内,不让范围外的缺口刷屏。
+    // 残缺检测:跨快照补齐后仍缺,来自「历史上见过却从未在可比配置的可读落盘里出现」的题
+    // (含改配置后未补跑的题)—— 分母收窄到范围内,不让范围外的缺口刷屏。
     const total = exp.evalIds.filter(match).length;
     if (evals.length < total) {
       warnings.push({
@@ -143,6 +203,7 @@ export function selectCurrentResults(results: Results, scope: ResultScope = {}):
         covered: evals.length,
         total,
         message: `verdicts cover ${evals.length} of ${total} evals seen in history; re-run \`niceeval exp ${exp.id}\` for a full snapshot`,
+        command: `niceeval exp ${exp.id}`,
       });
     }
   }
@@ -158,7 +219,8 @@ export function selectCurrentResults(results: Results, scope: ResultScope = {}):
         experimentId: snapshot.experimentId,
         startedAt: snapshot.startedAt,
         latestStartedAt,
-        message: `verdicts for "${snapshot.experimentId}" were produced at ${snapshot.startedAt}, before the latest run in this selection (${latestStartedAt})`,
+        message: `verdicts for "${snapshot.experimentId}" were produced at ${snapshot.startedAt}, ${humanizeGap(snapshot.startedAt, latestStartedAt)} before the latest run in this scope; re-run \`niceeval exp ${snapshot.experimentId}\` to align, or ignore if evals, agent and model are unchanged between the runs`,
+        command: `niceeval exp ${snapshot.experimentId}`,
       });
     }
     if (snapshot.completedAt === undefined) {
@@ -167,37 +229,45 @@ export function selectCurrentResults(results: Results, scope: ResultScope = {}):
         experimentId: snapshot.experimentId,
         startedAt: snapshot.startedAt,
         dir: snapshot.dir,
-        message: `snapshot "${snapshot.experimentId}" (${snapshot.startedAt}) is unfinished (the process was interrupted); completed attempts are read as-is, but the set may be incomplete`,
+        message: `snapshot "${snapshot.experimentId}" (${snapshot.startedAt}) is unfinished (the process was interrupted); completed attempts are read as-is, but the set may be incomplete — re-run \`niceeval exp ${snapshot.experimentId}\` for a complete snapshot`,
+        command: `niceeval exp ${snapshot.experimentId}`,
       });
     }
   }
 
-  return makeSelection(snapshots, warnings);
+  return makeScope("current-evals", snapshots, warnings);
 }
 
 /**
- * Selection 构造:filter 只删不换 —— 快照删减,warnings 修剪规则是
- * 「experimentId 不在幸存快照中的丢弃,非实验作用域的保留」(为将来非 per-experiment 的 kind 留位置)。
+ * Scope 构造:attempts 按口径物化(快照 attempts 的平铺);filter 只删不换 —— 快照删减,
+ * attempts 随之同步修剪,warnings 修剪规则是「experimentId 不在幸存快照中的丢弃,
+ * 非实验作用域的保留」(为将来非 per-experiment 的 kind 留位置)。
  */
-export function makeSelection(snapshots: Snapshot[], warnings: SelectionWarning[]): Selection {
+export function makeScope(
+  mode: Scope["mode"],
+  snapshots: Snapshot[],
+  warnings: ScopeWarning[],
+): Scope {
   return {
+    mode,
     snapshots,
+    attempts: snapshots.flatMap((s) => s.attempts),
     warnings,
-    filter(predicate: (snapshot: Snapshot) => boolean): Selection {
+    filter(predicate: (snapshot: Snapshot) => boolean): Scope {
       const kept = snapshots.filter(predicate);
       const survivors = new Set(kept.map((s) => s.experimentId));
       const keptWarnings = warnings.filter((w) => {
         const scope = (w as { experimentId?: unknown }).experimentId;
         return typeof scope !== "string" || survivors.has(scope);
       });
-      return makeSelection(kept, keptWarnings);
+      return makeScope(mode, kept, keptWarnings);
     },
   };
 }
 
 /**
  * 跨快照聚合前的身份键去重:(experimentId, evalId, attempt, startedAt)。
- * --resume 会把上一轮已通过的结果原样合入新快照,同一 attempt 因此存在于多份落盘;
+ * 携带合入会把上一轮已通过的结果原样合入新快照,同一 attempt 因此存在于多份落盘;
  * 重复时保留最新快照里的那份(内容相同,取新快照的副本让 ref 落在最新落盘上;
  * 位置取首次出现处,顺序稳定)。startedAt 缺失时宁可不去重也不误删,记入 warnings。
  */

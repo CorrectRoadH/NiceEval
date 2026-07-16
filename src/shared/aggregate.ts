@@ -45,13 +45,14 @@ export function experimentGroupOf(experimentId: string): string | undefined {
 }
 
 /**
- * eval id 前缀过滤,同 CLI 位置参数的分段语义(src/runner/discover.ts):
- * "algebra" 匹配自身与 "algebra/..." 子级,不误配 "algebra2";允许 "algebra/" 尾斜杠写法,等价。
+ * eval id 前缀过滤,同 CLI 位置参数语义(docs/feature/reports/show.md「打开与收窄」):
+ * eval 位置参数是收窄过滤,按**裸前缀宽松匹配**——"algebra" 命中 "algebra"、"algebra/..."
+ * 也命中 "algebra2",多命中正是它的用途(与 `--experiment` 的按路径段匹配有意不同)。
  */
 export function evalPrefixPredicate(evals?: string | string[]): (id: string) => boolean {
   if (evals === undefined) return () => true;
-  const prefixes = (Array.isArray(evals) ? evals : [evals]).map((p) => p.replace(/\/+$/, ""));
-  return (id) => prefixes.some((prefix) => id === prefix || id.startsWith(prefix + "/"));
+  const prefixes = Array.isArray(evals) ? evals : [evals];
+  return (id) => prefixes.some((prefix) => id.startsWith(prefix));
 }
 
 /** 无 experimentId 时的兜底标签。 */

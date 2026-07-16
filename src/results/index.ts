@@ -1,6 +1,6 @@
 // niceeval/results —— 实验结果数据的读写库(定稿见 docs/feature/results/library.md、docs/feature/results/architecture.md)。
 //
-// 读:openResults(实验 → 快照 → eval → attempt 分层、skipped、latest() Selection);
+// 读:openResults(实验 → 快照 → eval → attempt 分层、skipped、latest() / current() Scope);
 // 写:createResultsWriter(快照声明 + attempt 增量落盘 + finish 补 completedAt);
 // 发布:copySnapshots(格式感知复制 + knownEvalIds 补记);
 // 身份:dedupeAttempts(跨快照聚合前按 (experimentId, evalId, attempt, startedAt) 去重)、isNewerSnapshot。
@@ -44,7 +44,13 @@ export {
 } from "./attempt-evidence.ts";
 export { hashEvalSource, normalizeEvalSource } from "./source-hash.ts";
 export { groupIncompatibleVersionSkips, type SkippedVersionGroup } from "./skipped-notice.ts";
-export { dedupeAttempts, isNewerSnapshot } from "./select.ts";
+export {
+  comparabilityConfigOf,
+  dedupeAttempts,
+  deepEqualJson,
+  isNewerSnapshot,
+  type ComparabilityConfig,
+} from "./select.ts";
 export { copySnapshots, type CopySnapshotsOptions, type CopySnapshotsResult } from "./copy.ts";
 export {
   createResultsWriter,
@@ -73,8 +79,8 @@ export {
   type Eval,
   type Experiment,
   type Results,
-  type Selection,
-  type SelectionWarning,
+  type Scope,
+  type ScopeWarning,
   type SkippedDir,
   type Snapshot,
   type SnapshotMeta,

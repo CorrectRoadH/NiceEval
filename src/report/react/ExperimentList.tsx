@@ -1,16 +1,19 @@
-// ExperimentList:实体列表的第一级。web 面是一行一个 experiment 的固定列比较表；
-// 每行用原生 <details> 展开到 Eval 与 Attempt locator。数据仍完全来自
-// ExperimentList.data(),不恢复旧 ExperimentTable 的混合实体计算层。
+// ExperimentList:实体列表的第一级。web 面是一行一个 experiment 的固定八列比较表
+// (Experiment / Model / Agent / Avg duration / End-to-end pass rate / Tokens / Cost / Result),
+// 每行用原生 <details> 展开到 Eval 与 Attempt locator。数据完全来自 experimentListData(),
+// 组件不重算、不推断组边界。
 
 import type { ReactElement } from "react";
 import type { AttemptLocator } from "../../results/locator.ts";
 import type { AttemptListItem, ExperimentListEvalRow, ExperimentListItem } from "../types.ts";
-import { attemptItemReason, experimentDisplayName } from "../format.ts";
+import { experimentDisplayName } from "../format.ts";
 import { DEFAULT_REPORT_LOCALE, localeText, type ReportLocale } from "../locale.ts";
-import { AttemptLocatorBadge } from "./AttemptList.tsx";
+import { AttemptLocatorBadge, failureSummaryText } from "./AttemptList.tsx";
 import { MetricCellView } from "./cell.tsx";
 import { colorClassForKey } from "./colors.ts";
 import { cx, formatDurationMs, formatUSD, verdictMark } from "./format.ts";
+
+const DEFAULT_ATTEMPT_HREF = (locator: AttemptLocator): string => `#/attempt/${locator}`;
 
 const verdictOrder = ["passed", "failed", "errored", "skipped"] as const;
 
@@ -34,8 +37,8 @@ function formatDate(value: string, locale: ReportLocale): string {
 
 function VerdictSummary({ item, locale }: { item: ExperimentListItem; locale: ReportLocale }): ReactElement {
   const parts = verdictOrder
-    .filter((verdict) => item.verdicts[verdict] > 0)
-    .map((verdict) => `${item.verdicts[verdict]} ${localeText(locale, `verdict.${verdict}`)}`);
+    .filter((verdict) => item.evalVerdicts[verdict] > 0)
+    .map((verdict) => `${item.evalVerdicts[verdict]} ${localeText(locale, `verdict.${verdict}`)}`);
   return <span className="nre-experiment-pill">{parts.join(" / ") || "—"}</span>;
 }
 
@@ -43,12 +46,14 @@ function ExperimentAttemptRow({
   attempt,
   last,
   attemptHref,
+  locale,
 }: {
   attempt: AttemptListItem;
   last: boolean;
   attemptHref: (locator: AttemptLocator) => string;
+  locale: ReportLocale;
 }): ReactElement {
-  const reason = attemptItemReason(attempt);
+  const reason = failureSummaryText(attempt, locale);
   return (
     <li className={cx("nre-experiment-attempt-row", `nre-eval-${attempt.verdict}`)}>
       <span className="nre-attempt-branch" aria-hidden="true">{last ? "└─" : "├─"}</span>
@@ -57,8 +62,9 @@ function ExperimentAttemptRow({
       </span>
       <span className="nre-eval-attempt-metrics">
         {formatDurationMs(attempt.durationMs)}
-        {attempt.costUSD !== undefined && <> · {formatUSD(attempt.costUSD)}</>}
+        {attempt.costUSD !== null && <> · {formatUSD(attempt.costUSD)}</>}
       </span>
+      {/* passed attempt 的 Result 是 —,不罗列通过的 assertions */}
       <span className="nre-eval-reason">{reason ?? "—"}</span>
     </li>
   );
@@ -73,10 +79,11 @@ function EvalAttempts({
   attemptHref: (locator: AttemptLocator) => string;
   locale: ReportLocale;
 }): ReactElement {
-  const duration = row.duration.value === null ? localeText(locale, "cell.missing") : formatDurationMs(row.duration.value);
-  const cost = row.cost.value === null ? localeText(locale, "cell.missing") : formatUSD(row.cost.value);
+  const duration = row.durationMs.value === null ? localeText(locale, "cell.missing") : formatDurationMs(row.durationMs.value);
+  const cost = row.costUSD.value === null ? localeText(locale, "cell.missing") : formatUSD(row.costUSD.value);
   return (
     <li className="nre-experiment-eval">
+      {/* Eval 父行只显示折叠判定、Attempt 数与题级平均;失败原因只在 Attempt 子行 */}
       <div className={cx("nre-experiment-eval-header", `nre-eval-${row.verdict}`)}>
         <span className={cx("nre-eval-verdict", `nre-verdict-${row.verdict}`)}>{verdictMark(row.verdict)}</span>
         <span className="nre-eval-id">{row.evalId}</span>
@@ -94,6 +101,7 @@ function EvalAttempts({
             attempt={attempt}
             last={index === row.attempts.length - 1}
             attemptHref={attemptHref}
+            locale={locale}
           />
         ))}
       </ul>
@@ -107,7 +115,7 @@ function Flags({ flags, locale }: { flags: Record<string, unknown> | undefined; 
     <div className="nre-experiment-flags">
       <span>{localeText(locale, "experimentList.flags")}</span>
       {Object.entries(flags).map(([key, value]) => (
-        <b key={key}>{key}={String(value)}</b>
+        <b key={key}>{key}={typeof value === "string" ? value : JSON.stringify(value)}</b>
       ))}
     </div>
   );
@@ -127,6 +135,7 @@ function ExperimentRow({
   return (
     <details className="nre-experiment-entry">
       <summary className="nre-experiment-summary">
+        {/* relativeTo 只影响显示末段;完整 id 仍是排序 / 着色 / 过滤 / 折叠的键 */}
         <span className="nre-experiment-name" data-sort-value={item.experimentId}>
           <b className={cx("nre-experiment-id", "nre-key", colorClassForKey(item.experimentId))}>
             {experimentDisplayName(item.experimentId, relativeTo)}
@@ -139,19 +148,22 @@ function ExperimentRow({
         </span>
         <span data-sort-value={item.model ?? ""}>{item.model ?? localeText(locale, "experimentList.defaultModel")}</span>
         <span data-sort-value={item.agent}>{item.agent}</span>
-        <span className="nre-num" data-sort-value={item.duration.value ?? ""}>
-          <MetricCellView cell={item.duration} locale={locale} />
+        <span className="nre-num" data-sort-value={item.durationMs.value ?? ""}>
+          <MetricCellView cell={item.durationMs} locale={locale} />
         </span>
-        <span className={cx("nre-num", passRateTone(item.passRate.value))} data-sort-value={item.passRate.value ?? ""}>
-          <MetricCellView cell={item.passRate} locale={locale} />
+        <span
+          className={cx("nre-num", passRateTone(item.endToEndPassRate.value))}
+          data-sort-value={item.endToEndPassRate.value ?? ""}
+        >
+          <MetricCellView cell={item.endToEndPassRate} locale={locale} />
         </span>
         <span className="nre-num" data-sort-value={item.tokens.value ?? ""}>
           <MetricCellView cell={item.tokens} locale={locale} />
         </span>
-        <span className="nre-num" data-sort-value={item.cost.value ?? ""}>
-          <MetricCellView cell={item.cost} locale={locale} />
+        <span className="nre-num" data-sort-value={item.costUSD.value ?? ""}>
+          <MetricCellView cell={item.costUSD} locale={locale} />
         </span>
-        <span data-sort-value={item.verdicts.passed}><VerdictSummary item={item} locale={locale} /></span>
+        <span data-sort-value={item.evalVerdicts.passed}><VerdictSummary item={item} locale={locale} /></span>
       </summary>
       <div className="nre-experiment-detail">
         <Flags flags={item.flags} locale={locale} />
@@ -166,15 +178,15 @@ function ExperimentRow({
 }
 
 export function ExperimentList({
-  items,
-  attemptHref,
+  data,
+  attemptHref = DEFAULT_ATTEMPT_HREF,
   filter = false,
   className,
   locale = DEFAULT_REPORT_LOCALE,
   relativeTo,
 }: {
-  items: ExperimentListItem[];
-  attemptHref: (locator: AttemptLocator) => string;
+  data: readonly ExperimentListItem[];
+  attemptHref?: (locator: AttemptLocator) => string;
   filter?: boolean;
   className?: string;
   locale?: ReportLocale;
@@ -187,7 +199,7 @@ export function ExperimentList({
     localeText(locale, "experimentList.avgDuration"),
     localeText(locale, "experimentList.passRate"),
     localeText(locale, "experimentList.tokens"),
-    localeText(locale, "experimentList.estimatedCost"),
+    localeText(locale, "experimentList.cost"),
     localeText(locale, "experimentList.result"),
   ];
   const board = (
@@ -204,8 +216,8 @@ export function ExperimentList({
           </button>
         ))}
       </div>
-      {items.length === 0 && <p className="nre-experiment-list-empty">{localeText(locale, "attemptList.empty")}</p>}
-      {items.map((item) => (
+      {data.length === 0 && <p className="nre-experiment-list-empty">{localeText(locale, "attemptList.empty")}</p>}
+      {data.map((item) => (
         <ExperimentRow key={item.experimentId} item={item} attemptHref={attemptHref} locale={locale} relativeTo={relativeTo} />
       ))}
     </div>

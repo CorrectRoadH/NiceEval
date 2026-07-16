@@ -10,7 +10,7 @@
 import type { ReactElement } from "react";
 import type { MetricColumn, ScatterData } from "../types.ts";
 import { formatMetricValue } from "../format.ts";
-import { DEFAULT_REPORT_LOCALE, countText, localeText, resolveMetricLabel, type ReportLocale } from "../locale.ts";
+import { DEFAULT_REPORT_LOCALE, countText, localeText, resolveLocalizedText, resolveMetricLabel, type ReportLocale } from "../locale.ts";
 import { niceTicks, placePointLabels } from "./chart-math.ts";
 import { colorClassForKey, seriesClassForKey } from "./colors.ts";
 import { cx } from "./format.ts";
@@ -33,25 +33,68 @@ interface DrawablePoint {
   py: number;
 }
 
-/** 点的直接标签:experiment id 的末段(完整 id 在 <title> 里)。 */
-function pointLabel(key: string): string {
-  return key.split("/").filter(Boolean).at(-1) ?? key;
+/**
+ * 点的直接标签:末段在当前 data 中唯一才缩成末段;重名时逐步加长为能区分它们的最短
+ * 路径后缀(完整 id 与两轴值仍进 <title>)。
+ */
+function pointLabels(keys: readonly string[]): Map<string, string> {
+  const segsOf = (key: string) => key.split("/").filter(Boolean);
+  const depth = new Map<string, number>(keys.map((key) => [key, 1]));
+  for (;;) {
+    const byLabel = new Map<string, string[]>();
+    for (const key of keys) {
+      const segs = segsOf(key);
+      const label = segs.slice(-Math.min(depth.get(key)!, segs.length)).join("/") || key;
+      byLabel.set(label, [...(byLabel.get(label) ?? []), key]);
+    }
+    let grew = false;
+    for (const group of byLabel.values()) {
+      if (group.length < 2) continue;
+      for (const key of group) {
+        const segs = segsOf(key);
+        if (depth.get(key)! < segs.length) {
+          depth.set(key, depth.get(key)! + 1);
+          grew = true;
+        }
+      }
+    }
+    if (!grew) {
+      const out = new Map<string, string>();
+      for (const key of keys) {
+        const segs = segsOf(key);
+        out.set(key, segs.slice(-Math.min(depth.get(key)!, segs.length)).join("/") || key);
+      }
+      return out;
+    }
+  }
 }
 
 /**
- * 一根轴:niceTicks 撑出整齐的值域,值 → 像素做线性映射;
- * better: "lower" 时反向,好的一端固定在右 / 上。
+ * 一根轴:niceTicks 撑出整齐的值域,值 → 像素做线性映射。轴不反向——「好」的方向
+ * 由角落提示文案如实说明(成本 × 成功率下是「越靠左上越好」),不虚构轴向。
  */
-function axisScale(values: number[], better: MetricColumn["better"], pixelLo: number, pixelHi: number) {
+function axisScale(values: number[], pixelLo: number, pixelHi: number) {
   const ticks = niceTicks(Math.min(...values), Math.max(...values), 5);
   const lo = ticks[0];
   const hi = ticks[ticks.length - 1];
   const scale = (v: number) => {
-    let t = (v - lo) / (hi - lo || 1);
-    if (better === "lower") t = 1 - t; // 反向:值越低越靠「好」的一端
+    const t = (v - lo) / (hi - lo || 1);
     return pixelLo + t * (pixelHi - pixelLo);
   };
   return { ticks, scale };
+}
+
+/** 「好」的角落:x/y 的 better 方向共同决定(缺省按 higher)。 */
+export function betterCornerKey(
+  xBetter: MetricColumn["better"],
+  yBetter: MetricColumn["better"],
+): "scatter.betterUpperRight" | "scatter.betterUpperLeft" | "scatter.betterLowerRight" | "scatter.betterLowerLeft" {
+  const right = xBetter !== "lower";
+  const up = yBetter !== "lower";
+  if (up && right) return "scatter.betterUpperRight";
+  if (up && !right) return "scatter.betterUpperLeft";
+  if (!up && right) return "scatter.betterLowerRight";
+  return "scatter.betterLowerLeft";
 }
 
 export function MetricScatter({
@@ -91,9 +134,12 @@ export function MetricScatter({
 
   const axisLabel = (label: string, col: MetricColumn) => `${label}${col.unit ? `(${col.unit})` : ""}`;
 
-  const xScale = axisScale(drawableRows.map((r) => r.x.value as number), data.x.better, MARGIN.left, MARGIN.left + PLOT_W);
-  // y 像素轴向下增长:better:"higher" 高值在上 → 映射到 [bottom, top];"lower" 由 axisScale 反向后同样落到上方
-  const yScale = axisScale(drawableRows.map((r) => r.y.value as number), data.y.better, MARGIN.top + PLOT_H, MARGIN.top);
+  const xScale = axisScale(drawableRows.map((r) => r.x.value as number), MARGIN.left, MARGIN.left + PLOT_W);
+  // y 像素轴向下增长:高值在上 → 映射到 [bottom, top]
+  const yScale = axisScale(drawableRows.map((r) => r.y.value as number), MARGIN.top + PLOT_H, MARGIN.top);
+  const labelByKey = pointLabels(drawableRows.map((r) => r.key));
+  const cornerKey = betterCornerKey(data.x.better, data.y.better);
+  const cornerLeft = cornerKey === "scatter.betterUpperLeft" || cornerKey === "scatter.betterLowerLeft";
 
   const points: DrawablePoint[] = drawableRows.map((r) => {
     const xValue = r.x.value as number;
@@ -101,12 +147,11 @@ export function MetricScatter({
     return {
       key: r.key,
       series: r.series,
-      label: pointLabel(r.key),
+      label: labelByKey.get(r.key) ?? r.key,
       xValue,
       yValue,
-      // hover 内容:experiment(点键)+ 系列(series,ExperimentComparison 传的是 agent 维度,
-      // 有则加一行;无系列的散点没有这行)+ 两轴 display 与 samples/total(docs/feature/reports/library.md「MetricScatter」行为清单)
-      title: `${r.key}${r.series !== undefined ? `\n${r.series}` : ""}\n${xLabel}: ${r.x.display}(${r.x.samples}/${r.x.total})\n${yLabel}: ${r.y.display}(${r.y.samples}/${r.y.total})`,
+      // hover 内容:experiment(点键)+ 系列(有则加一行)+ 两轴 display 与 samples/total
+      title: `${r.key}${r.series !== undefined ? `\n${r.series}` : ""}\n${xLabel}: ${resolveLocalizedText(r.x.display, locale)}(${r.x.samples}/${r.x.total})\n${yLabel}: ${resolveLocalizedText(r.y.display, locale)}(${r.y.samples}/${r.y.total})`,
       px: xScale.scale(xValue),
       py: yScale.scale(yValue),
     };
@@ -149,9 +194,14 @@ export function MetricScatter({
           ))}
         </g>
 
-        {/* 「好」的角落恒在右上:轴向已按 better 反转,这里只是把这句契约写在图上 */}
-        <text className="nre-scatter-better-hint" x={MARGIN.left + PLOT_W - 6} y={MARGIN.top + 14} textAnchor="end">
-          {localeText(locale, "scatter.betterHint")}
+        {/* 「好」的角落随 better 方向如实标注(成本 × 成功率下是「越靠左上越好」) */}
+        <text
+          className="nre-scatter-better-hint"
+          x={cornerLeft ? MARGIN.left + 6 : MARGIN.left + PLOT_W - 6}
+          y={cornerKey.includes("Upper") ? MARGIN.top + 14 : MARGIN.top + PLOT_H - 8}
+          textAnchor={cornerLeft ? "start" : "end"}
+        >
+          {localeText(locale, cornerKey)}
         </text>
 
         {/* 刻度:已格式化的整齐值(formatMetricValue 与计算侧同一套) */}

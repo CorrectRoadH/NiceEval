@@ -16,8 +16,8 @@ import {
   MetricMatrix,
   MetricScatter,
   MetricTable,
-  RunOverview,
   Scoreboard,
+  ScopeSummary,
 } from "./index.tsx";
 import { colorClassForKey, seriesClassForKey } from "./colors.ts";
 import {
@@ -26,56 +26,53 @@ import {
   evalListItems,
   experimentListItems,
   matrixData,
-  overviewData,
-  overviewWithCost,
   scatterData,
+  scopeSummaryData,
   scoreboardData,
   tableData,
-  tableDataWithMeta,
 } from "./fixtures.ts";
 
 const attemptHref = (locator: AttemptLocator) => `/attempts/${locator}`;
 
-describe("RunOverview", () => {
-  const html = renderToStaticMarkup(<RunOverview data={overviewData} />);
+describe("ScopeSummary", () => {
+  const html = renderToStaticMarkup(<ScopeSummary data={scopeSummaryData} />);
 
-  it("KPI 条:快照数、题数、attempts、通过率、耗时", () => {
-    expect(html).toContain("nre-overview");
-    expect(html).toContain("<dd>12</dd>"); // 题目
-    expect(html).toContain("<dd>48</dd>"); // attempts
-    // totals.passRate.display 原样渲染(两级聚合 70%),不是从 passed/failed/errored
-    // 现场重算的 78%(36/(36+8+2))—— 两个数刻意不同,证明组件没有偷懒重算
-    expect(html).toContain("70%");
-    expect(html).not.toContain("78%");
-    expect(html).toContain("46/48"); // samples < total:覆盖率角标(2 个 skipped attempt 不进桶)
-    expect(html).toContain("4m 21s"); // 261000ms
+  it("KPI:experiment/eval/attempt 数、成功率与总成本原样渲染(不从计票重算)", () => {
+    expect(html).toContain("nre-scope-summary");
+    expect(html).toContain("<dd>2</dd>"); // experiments
+    expect(html).toContain("<dd>6</dd>"); // evals
+    expect(html).toContain("<dd>9</dd>"); // attempts
+    // endToEndPassRate.display 原样渲染(两级聚合 60%),不是 eval 计票 3/5 = 60% 巧合之外的重算;
+    // attempt 计票 4/9 ≈ 44% 也不该出现
+    expect(html).toContain("60%");
+    expect(html).not.toContain("44%");
+    expect(html).toContain("$1.50");
   });
 
-  it("costUSD 全缺 = null:显示缺数据,不编 $0", () => {
-    expect(html).toContain("no data");
-    expect(html).not.toContain("$0");
-    const withCost = renderToStaticMarkup(<RunOverview data={overviewWithCost} />);
-    expect(withCost).toContain("$1.23");
+  it("votes 默认 eval 级计票;votes='attempt' 切换显示但 data 不变", () => {
+    expect(html).toContain("3 passed");
+    expect(html).toContain('data-votes="eval"');
+    const attempts = renderToStaticMarkup(<ScopeSummary data={scopeSummaryData} votes="attempt" />);
+    expect(attempts).toContain("4 passed");
+    expect(attempts).toContain('data-votes="attempt"');
   });
 
-  it("数据来源与 warnings 直接渲染在条内", () => {
-    expect(html).toContain("2 snapshots");
-    expect(html).toContain("compare/bub");
+  it("时间窗来自 range,不编造当前时间", () => {
     expect(html).toContain("2026-07-01T10:00:00Z");
-    expect(html).toContain("snapshot covers 9 of 12 evals seen in history");
-    expect(html).toContain("nre-warnings");
+    expect(html).toContain("2026-07-01T11:30:00Z");
   });
 });
 
 describe("MetricTable", () => {
   const html = renderToStaticMarkup(<MetricTable data={tableData} attemptHref={attemptHref} />);
 
-  it("列头带 label、unit 与 better 方向", () => {
+  it("列头带 label、unit 与 better 方向,首列是 rowDimension", () => {
     expect(html).toContain("pass rate");
     expect(html).toContain("(%)");
     expect(html).toContain("code lines");
     expect(html).toContain("↑");
     expect(html).toContain("↓");
+    expect(html).toContain(">agent</th>");
   });
 
   it("数字与覆盖率角标:samples < total 如实标出", () => {
@@ -90,7 +87,7 @@ describe("MetricTable", () => {
   });
 
   it("refs + attemptHref 出普通 <a>", () => {
-    expect(html).toContain('href="/attempts/@1a0a0a0"');
+    expect(html).toContain('href="/attempts/@1a0a0a0a"');
   });
 
   it("渐进增强的 data 属性:所有表头 data-nre-sort、格子 data-sort-value(无 JS 时纯属性,内容完整)", () => {
@@ -100,30 +97,9 @@ describe("MetricTable", () => {
     // 缺数据格子的排序值为空串:enhance.js 排序时恒沉底
     expect(html).toContain('data-sort-value=""');
   });
-});
-
-describe("MetricTable:meta 榜单 parity 与 filter", () => {
-  const html = renderToStaticMarkup(<MetricTable data={tableDataWithMeta} />);
-
-  it("meta 在场补 Model / Agent 列,列序 experiment、model、agent、指标、verdicts", () => {
-    expect(html).toContain(">Model</th>");
-    expect(html).toContain(">Agent</th>");
-    expect(html).toContain(">Verdicts</th>");
-    expect(html.indexOf(">Model</th>")).toBeLessThan(html.indexOf(">Agent</th>"));
-    expect(html.indexOf(">Agent</th>")).toBeLessThan(html.indexOf("pass rate"));
-    expect(html).toContain("gpt-5.4");
-  });
-
-  it("verdict 计票列:eval 级折叠口径的 pill,零计数不出 pill", () => {
-    expect(html).toContain("nre-verdict-pill");
-    expect(html).toContain("1 passed");
-    expect(html).toContain("1 failed");
-    expect(html).toContain("2 passed");
-    expect(html).not.toContain("0 errored");
-  });
 
   it("filter 开:表格前渲染 data-nre-filter 输入框(无 JS 静默无功能),仍无 <script>", () => {
-    const filtered = renderToStaticMarkup(<MetricTable data={tableDataWithMeta} filter />);
+    const filtered = renderToStaticMarkup(<MetricTable data={tableData} filter />);
     expect(filtered).toContain("data-nre-filter");
     expect(filtered).toContain('class="nre-filter"');
     expect(filtered.indexOf("nre-filter")).toBeLessThan(filtered.indexOf("<table"));
@@ -131,11 +107,8 @@ describe("MetricTable:meta 榜单 parity 与 filter", () => {
     expect(filtered).not.toContain("<script");
   });
 
-  it("locale=zh-CN:chrome 文案与 meta 列头走字典;display 不本地化", () => {
-    const zh = renderToStaticMarkup(<MetricTable data={tableDataWithMeta} filter locale="zh-CN" />);
-    expect(zh).toContain(">模型</th>");
-    expect(zh).toContain(">结果</th>");
-    expect(zh).toContain("1 通过");
+  it("locale=zh-CN:chrome 文案走字典;display 不本地化", () => {
+    const zh = renderToStaticMarkup(<MetricTable data={tableData} filter locale="zh-CN" />);
     expect(zh).toContain('placeholder="筛选行…"');
     expect(zh).toContain("50%"); // display 是 format 产物,不本地化
   });
@@ -144,16 +117,17 @@ describe("MetricTable:meta 榜单 parity 与 filter", () => {
 describe("MetricMatrix", () => {
   const html = renderToStaticMarkup(<MetricMatrix data={matrixData} attemptHref={attemptHref} />);
 
-  it("caption 标出指标与行列维度", () => {
+  it("caption 标出指标与行列维度(rowDimension × columnDimension)", () => {
     expect(html).toContain("pass rate");
     expect(html).toContain("eval × agent");
   });
 
-  it("格子数字与 refs 下钻链接", () => {
+  it("格子数字与 refs 下钻链接;稀疏格子空着不补 0", () => {
     expect(html).toContain("100%");
     expect(html).toContain("0%");
-    expect(html).toContain('href="/attempts/@1b3b3b3"');
-    expect(html).toContain('href="/attempts/@1b7b7b7"');
+    expect(html).toContain('href="/attempts/@1b3b3b3b"');
+    expect(html).toContain('href="/attempts/@1b7b7b7b"');
+    expect(html).toContain("nre-td-empty");
   });
 });
 
@@ -166,19 +140,20 @@ describe("Scoreboard", () => {
     expect(html).toContain("/ 100");
   });
 
-  it("分科小计 earned/possible", () => {
-    expect(html).toContain("14/16");
-    expect(html).toContain("3/4");
+  it("分科小计 display(earned/possible 与同尺度百分比)", () => {
+    expect(html).toContain("14/16 (87.5%)");
+    expect(html).toContain("3/4 (75%)");
   });
 
-  it("missing 注脚:没跑按 0 计的题数如实展示", () => {
-    expect(html).toContain("1 eval missing, scored 0");
-    expect(html).toContain("2 evals missing, scored 0");
+  it("notRun 与 unscorable 分开注脚,不合并成一个笼统的缺失数", () => {
+    expect(html).toContain("1 eval not run, scored 0");
+    expect(html).toContain("2 evals unscorable, scored 0");
   });
 
-  it("实际生效的权重表可审计", () => {
+  it("实际生效的权重表可审计;题集外被忽略的 eval 如实报数", () => {
     expect(html).toContain("algebra/ ×2");
     expect(html).toContain("others ×1");
+    expect(html).toContain("1 eval outside the question set ignored");
   });
 });
 
@@ -203,10 +178,11 @@ describe("MetricScatter", () => {
     expect(html).toContain("pass rate(%)");
   });
 
-  it("better:lower 的 x 轴反向:便宜($5)在贵($10)右边,好的角落恒在右上", () => {
-    expect(cxOf("compare/bub-low")).toBeGreaterThan(cxOf("compare/bub-high"));
-    // y 轴 better:higher:通过率高(90%)在低(50%)上方(SVG y 向下增长)
+  it("轴不反向:便宜($5)在贵($10)左边;成本 × 成功率的好角落文案是「越靠左上越好」", () => {
+    expect(cxOf("compare/bub-low")).toBeLessThan(cxOf("compare/bub-high"));
+    // y 轴:通过率高(90%)在低(50%)上方(SVG y 向下增长)
     expect(cyOf("compare/bub-high")).toBeLessThan(cyOf("compare/bub-low"));
+    expect(html).toContain("better → upper left");
   });
 
   it("同系列点连线,系列色走类名(nre-series-cN,CSS 上色跟随深浅主题),图例列系列名", () => {
@@ -214,16 +190,31 @@ describe("MetricScatter", () => {
     expect(html).toContain(`nre-scatter-line ${seriesClassForKey("bub")}`);
     // 渲染面零内联 hex:深色主题下由 CSS 变量切换
     expect(html).not.toMatch(/#[0-9a-f]{6}/i);
-    // 图例:codex 只有 1 个可画点、不出线,但系列名仍在图例里
     expect(html).toContain(">bub</span>");
     expect(html).toContain(">codex</span>");
   });
 
-  it("niceTicks 网格与每点直接标签(id 末段)", () => {
+  it("niceTicks 网格与每点直接标签(末段唯一时缩成末段)", () => {
     expect(html).toContain("nre-scatter-grid");
     expect(html.match(/nre-scatter-tick/g)!.length).toBeGreaterThanOrEqual(6);
     expect(html).toContain(">bub-low</text>");
     expect(html).toContain(">codex-mid</text>");
+  });
+
+  it("末段重名的点使用能区分它们的最短路径后缀", () => {
+    const dupes = renderToStaticMarkup(
+      <MetricScatter
+        data={{
+          ...scatterData,
+          rows: [
+            { ...scatterData.rows[0]!, key: "compare/a/run" },
+            { ...scatterData.rows[1]!, key: "compare/b/run" },
+          ],
+        }}
+      />,
+    );
+    expect(dupes).toContain(">a/run</text>");
+    expect(dupes).toContain(">b/run</text>");
   });
 
   it("hover 退化为 <title>:display 与 samples/total", () => {
@@ -276,37 +267,45 @@ describe("DeltaTable", () => {
     expect(html).toContain(">Δ</span>");
   });
 
-  it("涨跌好坏按 better 配色:通过率涨=好,成本涨=坏,0=平", () => {
+  it("涨跌好坏按数据侧算好的 outcome 配色:improved / regressed / unchanged / unavailable", () => {
     expect(html).toContain("nre-delta-good");
     expect(html).toContain("nre-delta-bad");
     expect(html).toContain("nre-delta-flat");
+    expect(html).toContain('data-outcome="unavailable"');
   });
 
-  it("每行标出 A → B 的 experimentId", () => {
+  it("每行显示作者声明的 pair label 与 A → B 的维度键", () => {
+    expect(html).toContain(">bub</span>");
     expect(html).toContain("compare/bub → compare/bub--agents-md");
+  });
+
+  it("0 对显示明确空态并报告配对域实验数", () => {
+    const empty = renderToStaticMarkup(<DeltaTable data={{ ...deltaData, experiments: 3, rows: [] }} />);
+    expect(empty).not.toContain("<table");
+    expect(empty).toContain("3 experiments, 0 comparable pairs");
   });
 });
 
-// AttemptList / EvalList / ExperimentList 的公开(报告组件)Props 没有 attemptHref 覆盖口子——
-// 证据室深链恒经 ctx.attemptHref,宿主外直接嵌进 React 应用时退化为默认 `#/attempt/<locator>`
-// (tree.ts 的 DEFAULT_WEB_CONTEXT),不是纯展示、也不发明另一套断链(与 MetricTable 等
-// 可选 attemptHref 的组件不同,这三个组件的下钻不是可选行为)。
-
 describe("AttemptList", () => {
-  const html = renderToStaticMarkup(<AttemptList items={attemptListItems} />);
+  const html = renderToStaticMarkup(<AttemptList data={attemptListItems} />);
 
-  it("只显示一条主失败摘要，不内联完整 evidence", () => {
-    expect(html).toContain("roots-correct");
-    expect(html).toContain("expected x=2");
-    expect(html).toContain("received x=3");
-    expect(html).not.toContain("judge: sign flipped when substituting into the quadratic formula");
+  it("显示算好的 failureSummary 与 +N more failures 计数,不重算摘要", () => {
+    expect(html).toContain("gate: roots-correct · expected x=2 · received x=3");
+    expect(html).toContain("+1 more failure");
+    // errored 的一层摘要(phase · code · message)
+    expect(html).toContain("eval.run · unexpected-error · TypeError");
   });
 
-  it("total > items.length 时如实报「还有 n 条没列」", () => {
-    const html2 = renderToStaticMarkup(<AttemptList items={attemptListItems} total={attemptListItems.length + 2} />);
+  it("total > data.length 时如实报「还有 n 条没列」", () => {
+    const html2 = renderToStaticMarkup(<AttemptList data={attemptListItems} total={attemptListItems.length + 2} />);
     expect(html2).toContain("and 2 more not shown");
-    // 不传 total(或 total === items.length)不产出截断文案
+    // 不传 total(或 total === data.length)不产出截断文案
     expect(html).not.toContain("more not shown");
+  });
+
+  it("costUSD 为 null 时不显示成本,也不伪造 $0", () => {
+    expect(html).toContain("$0.12");
+    expect(html.match(/nre-attempt-cost/g)).toHaveLength(1); // errored 那条 costUSD: null
   });
 
   it("AttemptList 自身不展开断言详情", () => {
@@ -315,10 +314,10 @@ describe("AttemptList", () => {
 });
 
 describe("EvalList", () => {
-  const html = renderToStaticMarkup(<EvalList items={evalListItems} />);
+  const html = renderToStaticMarkup(<EvalList data={evalListItems} />);
 
   it("展开到这道题的 Attempt(与 AttemptList 同一套 AttemptRow 渲染)", () => {
-    expect(html).toContain('href="#/attempt/@1a4a4a4"');
+    expect(html).toContain('href="#/attempt/@1a4a4a4a"');
     expect(html).toContain("roots-correct");
   });
 
@@ -329,34 +328,45 @@ describe("EvalList", () => {
 });
 
 describe("ExperimentList", () => {
-  const html = renderToStaticMarkup(<ExperimentList items={experimentListItems} filter />);
+  const html = renderToStaticMarkup(<ExperimentList data={experimentListItems} filter />);
 
-  it("web 面是带过滤框与八个固定列头的 experiment 比较表", () => {
+  it("web 面是带过滤框与八个固定列头的 experiment 比较表(成本列头是 Cost)", () => {
     expect(html).toContain('data-nre-experiment-filter=""');
-    for (const header of ["Experiment", "Model", "Agent", "Avg duration", "End-to-end pass rate", "Tokens", "Est. cost", "Result"]) {
+    for (const header of ["Experiment", "Model", "Agent", "Avg duration", "End-to-end pass rate", "Tokens", "Cost", "Result"]) {
       expect(html).toContain(`>${header}</button>`);
     }
+    expect(html).not.toContain("Est. cost");
     expect(html).toContain('data-nre-experiment-sort="4" class="nre-sort-desc"');
   });
 
-  it("主行:身份、agent/model、官方两级聚合指标与判定构成", () => {
+  it("主行:身份、agent/model、官方两级聚合指标与 eval 级判定构成", () => {
     expect(html).toContain("compare/bub");
     expect(html).toContain("compare/codex");
     expect(html).toContain("gpt-5.4");
-    expect(html).toContain("50%"); // passRate.display
+    expect(html).toContain("50%"); // endToEndPassRate.display
     expect(html).toContain("1 passed / 1 failed");
     expect(html).toContain("memory=true");
   });
 
-  it("展开到 Eval:同一道题的全部 Attempt 逐条显示", () => {
+  it("展开到 Eval:父行只有折叠判定与题级聚合,失败摘要只在 Attempt 子行", () => {
     expect(html).toContain("algebra/quadratic");
-    expect(html).toContain('href="#/attempt/@1a4a4a4"');
-    expect(html).toContain('href="#/attempt/@1b5b5b5"');
+    expect(html).toContain('href="#/attempt/@1a4a4a4a"');
+    expect(html).toContain('href="#/attempt/@1b5b5b5b"');
     expect(html.match(/algebra\/quadratic/g)).toHaveLength(1);
     expect(html).toContain("nre-experiment-eval-header");
-    expect(html.match(/nre-experiment-attempt-row/g)).toHaveLength(3);
+    expect(html.match(/nre-experiment-attempt-row/g)).toHaveLength(4);
     expect(html).toContain("├─");
     expect(html).toContain("└─");
+    // 主失败摘要只出现在 attempt 子行:两次(同一 eval 的两轮 attempt 各自的摘要),不在父行重复
+    expect(html.match(/gate: roots-correct/g)).toHaveLength(2);
+  });
+
+  it("relativeTo 去掉组前缀只显示末段;data-sort-value 仍是完整 id", () => {
+    const relative = renderToStaticMarkup(<ExperimentList data={experimentListItems} relativeTo="compare" />);
+    expect(relative).toContain(">bub</b>");
+    expect(relative).toContain('data-sort-value="compare/bub"');
+    // 不传 relativeTo 显示完整 id
+    expect(html).toContain(">compare/bub</b>");
   });
 
   it("零 JS 靠原生 <details>,无 <script>", () => {
@@ -371,9 +381,8 @@ describe("跨组件契约", () => {
     const table = renderToStaticMarkup(<MetricTable data={tableData} />);
     const matrix = renderToStaticMarkup(<MetricMatrix data={matrixData} />);
     const board = renderToStaticMarkup(<Scoreboard data={scoreboardData} />);
-    const delta = renderToStaticMarkup(<DeltaTable data={deltaData} />);
-    const attempts = renderToStaticMarkup(<AttemptList items={attemptListItems} />);
-    for (const html of [table, matrix, board, delta, attempts]) {
+    const attempts = renderToStaticMarkup(<AttemptList data={attemptListItems} />);
+    for (const html of [table, matrix, board, attempts]) {
       expect(html).toContain(cls);
     }
     const scatter = renderToStaticMarkup(<MetricScatter data={scatterData} />);
@@ -382,15 +391,15 @@ describe("跨组件契约", () => {
 
   it("静态输出不含 <script>:交互只靠 <a>/<details>/CSS", () => {
     const all = [
-      renderToStaticMarkup(<RunOverview data={overviewData} />),
+      renderToStaticMarkup(<ScopeSummary data={scopeSummaryData} />),
       renderToStaticMarkup(<MetricTable data={tableData} attemptHref={attemptHref} />),
       renderToStaticMarkup(<MetricMatrix data={matrixData} attemptHref={attemptHref} />),
       renderToStaticMarkup(<Scoreboard data={scoreboardData} />),
       renderToStaticMarkup(<MetricScatter data={scatterData} />),
       renderToStaticMarkup(<DeltaTable data={deltaData} />),
-      renderToStaticMarkup(<AttemptList items={attemptListItems} />),
-      renderToStaticMarkup(<EvalList items={evalListItems} />),
-      renderToStaticMarkup(<ExperimentList items={experimentListItems} />),
+      renderToStaticMarkup(<AttemptList data={attemptListItems} />),
+      renderToStaticMarkup(<EvalList data={evalListItems} />),
+      renderToStaticMarkup(<ExperimentList data={experimentListItems} />),
     ].join("");
     expect(all).not.toContain("<script");
   });

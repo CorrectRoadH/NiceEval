@@ -12,7 +12,7 @@
 // "有什么可看"这件事产生同一个答案(没有),只是原因不同,原因留给 unavailable 文案区分,
 // 不留给 capability 位区分(capability 位只回答"要不要显示这个证据切面")。
 //
-//   eval      —— evalSource 非空 AND (至少有一行源码 或 至少有一条断言);理论上
+//   source    —— evalSource 非空 AND (至少有一行源码 或 至少有一条断言);理论上
 //                buildAnnotatedEvalSource 对空文件也会产出一行 ""(split("\n") 的自然结果),
 //                所以这条件实践中约等于"evalSource 非空",按文档口径原样写出两个子句,
 //                不依赖这个实现细节。
@@ -59,8 +59,8 @@ export interface EvidencePaths {
  * 对应的证据切面,不自己重新判断"这个 attempt 有没有 X"。
  */
 export interface AttemptEvidenceCapabilities {
-  /** evalSource 非空且有内容(源码行或断言二选一非空)。 */
-  eval: boolean;
+  /** evalSource 非空且有内容(源码行或断言二选一非空);对应 CLI 的 `--source` 证据切面。 */
+  source: boolean;
   /** events 非空数组——有骨架可看。 */
   execution: boolean;
   /** result.json 带 phases(阶段计时)——`--timing` 时间树可渲染。 */
@@ -79,7 +79,7 @@ export interface AttemptEvidence {
    * 的调用方直接读结构化字段(如按 experimentId 分组、按时间排序)。 */
   identity: AttemptIdentity;
   result: EvalResult;
-  /** 运行时保存的 Eval 源码标注(`--eval` 切面);没有 sources() 就是 null,不伪造空文档。 */
+  /** 运行时保存的 Eval 源码标注(`--source` 切面);没有 sources() 就是 null,不伪造空文档。 */
   evalSource: AnnotatedEvalSource | null;
   /** 标准事件流 + OTel enrichment(`--execution` 切面);没有非空 events 就是 null,
    * 不产出一棵只剩 telemetry-only 节点、没有真实骨架的误导性树(见头注 execution 门槛)。 */
@@ -144,7 +144,7 @@ export async function loadAttemptEvidence(attempt: AttemptHandle): Promise<Attem
     trace,
     artifactPaths: { dir: attemptArtifactDir(attempt) },
     capabilities: {
-      eval: evalCapable,
+      source: evalCapable,
       execution: execution !== null,
       timing: (attempt.result.phases?.length ?? 0) > 0,
       diff: diffCapable,

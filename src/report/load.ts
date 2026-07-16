@@ -28,7 +28,7 @@ export async function loadReportFile(
   const abs = resolve(cwd, path);
   if (!existsSync(abs)) {
     throw new ReportLoadError(
-      `Report file not found: ${abs}. Pass --report an explicit path to a module whose default export is defineReport(...).`,
+      `Report file not found: ${abs}. Pass --report an explicit path to a module whose default export is a defineReport(...) product.`,
     );
   }
   const plain = pathToFileURL(abs);
@@ -60,7 +60,8 @@ export async function loadReportFile(
   }
   if (!isReportDefinition(mod.default)) {
     throw new ReportLoadError(
-      `${path} does not default-export a report. Export default defineReport(async ({ selection, results }) => ...) from "niceeval/report".`,
+      `${path} does not default-export a report. Export the product of defineReport(...) from "niceeval/report" as the default export — ` +
+        `a tree (defineReport(<ExperimentComparison />)) or a config object (defineReport({ title, content | pages, … })).`,
     );
   }
   return mod.default;

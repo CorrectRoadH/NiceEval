@@ -70,7 +70,7 @@ async function seedAttempt(
 }
 
 describe("loadAttemptEvidence", () => {
-  it("四个 capability 全部具备:eval / execution / timing / diff", async () => {
+  it("四个 capability 全部具备:source / execution / timing / diff", async () => {
     const root = await makeRoot();
     const attempt = await seedAttempt(
       root,
@@ -90,10 +90,10 @@ describe("loadAttemptEvidence", () => {
     expect((actionNode as { span?: TraceSpan }).span).toBeDefined();
     expect(evidence.diff?.windows).toEqual(NONEMPTY_DIFF);
 
-    expect(evidence.capabilities).toEqual({ eval: true, execution: true, timing: true, diff: true });
+    expect(evidence.capabilities).toEqual({ source: true, execution: true, timing: true, diff: true });
   });
 
-  it("四个 capability 全部缺失:没有 source / events / trace / diff,不崩溃", async () => {
+  it("四个 capability 全部缺失:没有 sources / events / trace / diff,不崩溃", async () => {
     const root = await makeRoot();
     const attempt = await seedAttempt(root, { id: "weather/queens" });
 
@@ -102,7 +102,7 @@ describe("loadAttemptEvidence", () => {
     expect(evidence.evalSource).toBeNull();
     expect(evidence.execution).toBeNull();
     expect(evidence.diff).toBeNull();
-    expect(evidence.capabilities).toEqual({ eval: false, execution: false, timing: false, diff: false });
+    expect(evidence.capabilities).toEqual({ source: false, execution: false, timing: false, diff: false });
   });
 
   it("有 events 没有 phases(旧 runner 产出):execution 为真、timing 为假", async () => {

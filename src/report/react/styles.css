@@ -62,17 +62,6 @@
 .nre-attempt-list .nre-attempt-duration,
 .nre-attempt-list .nre-attempt-cost { color:var(--muted); font-size:.9em; font-variant-numeric:tabular-nums; }
 .nre-attempt-list .nre-attempt-result { display:-webkit-box; overflow:hidden; -webkit-box-orient:vertical; -webkit-line-clamp:2; margin:.4rem 0 0; color:color-mix(in oklch,var(--muted),var(--text) 12%); overflow-wrap:anywhere; }
-.nre-attempt-list .nre-attempt-error { margin:.4rem 0 0; padding:6px 10px; border:1px solid color-mix(in oklch,var(--bad),var(--line) 50%); border-radius:7px; background:color-mix(in oklch,var(--bad),var(--panel) 92%); color:var(--bad); font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.85em; white-space:pre-wrap; word-break:break-word; }
-.nre-attempt-list .nre-assertions { list-style:none; margin:.4rem 0 0; padding:0; display:grid; gap:6px; }
-.nre-attempt-list .nre-assertion { padding-left:.25rem; }
-.nre-attempt-list .nre-assertion-failed { color: var(--bad); }
-.nre-attempt-list .nre-assertion-severity { color:var(--soft); font-size:.8em; text-transform:uppercase; letter-spacing:.04em; margin-right:.5em; }
-.nre-attempt-list .nre-assertion-name { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.92em; }
-.nre-attempt-list .nre-assertion-score { color:var(--muted); margin-left:.75em; font-size:.9em; }
-.nre-attempt-list .nre-assertion-more summary { cursor:pointer; color:var(--muted); font-size:.85em; user-select:none; }
-.nre-attempt-list .nre-assertion-more summary:hover { color:var(--text); }
-.nre-attempt-list .nre-assertion-detail { margin:.25rem 0; white-space:pre-wrap; }
-.nre-attempt-list .nre-assertion-evidence { margin:.25rem 0 .25rem .75rem; padding-left:.5rem; border-left:2px solid var(--line-strong); color:var(--muted); white-space:pre-wrap; }
 .nre-attempt-list .nre-truncated { color:var(--warn); font-size:.9em; }
 .nre-attempt-list .nre-attempt-list-empty { border:1px dashed var(--line-strong); border-radius:8px; padding:18px; color:var(--muted); text-align:center; background:var(--panel); }
 
@@ -111,12 +100,31 @@
   font-size:15px;
   overflow-wrap:anywhere;
 }
-.nre-experiment-comparison .nre-experiment-group-tab .nre-group-kpis {
+/* 组卡里嵌的 ScopeSummary 降为紧凑行:去掉满宽 KPI 条的边框,收小数字 */
+.nre-experiment-comparison .nre-experiment-group-tab .nre-scope-summary { margin:0; }
+.nre-experiment-comparison .nre-experiment-group-tab .nre-scope-kpis {
+  display:flex;
+  flex-wrap:wrap;
   column-gap:16px;
+  row-gap:6px;
+  margin:0 0 6px;
+  border:0;
+  border-radius:0;
+  background:transparent;
+  overflow:visible;
 }
-.nre-experiment-comparison .nre-experiment-group-tab .nre-group-kpi {
+.nre-experiment-comparison .nre-experiment-group-tab .nre-scope-kpi {
   min-width:58px;
+  padding:0;
+  border-right:0;
 }
+.nre-experiment-comparison .nre-experiment-group-tab .nre-scope-kpi dd {
+  margin:3px 0 0;
+  font-size:16px;
+  line-height:1.15;
+  font-weight:650;
+}
+.nre-experiment-comparison .nre-experiment-group-tab .nre-scope-kpi-rate dd { font-size:18px; }
 .nre-experiment-comparison .nre-experiment-group-panel {
   border:1px solid var(--line);
   border-radius:9px;
@@ -211,10 +219,8 @@
 .nre-experiment-list .nre-experiment-list-empty { border:1px dashed var(--line-strong); border-radius:8px; padding:18px; color:var(--muted); text-align:center; background:var(--panel); }
 @media(max-width:1000px){.nre-experiment-table{overflow-x:auto}.nre-experiment-head,.nre-experiment-summary{min-width:1040px}.nre-experiment-detail{min-width:1040px}}
 
-/* ---- verdict 判定色(AttemptList/EvalList/ExperimentList 的 verdict 文字与判定符共用) ---- */
-.nre .nre-verdict-passed { color:var(--good); }
-.nre .nre-eval-verdict.nre-verdict-passed,
-.nre-attempt-list .nre-attempt-verdict.nre-verdict-passed { color:var(--good); }
+/* ---- verdict 判定色(EvalList/ExperimentList 的判定符;errored 在这里按 bad 收敛) ---- */
+.nre .nre-eval-verdict.nre-verdict-passed { color:var(--good); }
 .nre .nre-eval-verdict.nre-verdict-failed,
 .nre .nre-eval-verdict.nre-verdict-errored { color:var(--bad); }
 .nre .nre-eval-verdict.nre-verdict-skipped { color:var(--soft); }
@@ -271,14 +277,6 @@ table.nre,
 }
 .nre tbody th[scope="row"] {
   font-weight: 610;
-}
-/* rows: "experiment" 专属:行键下的紧凑摘要(eval/attempt 数、最后运行时间) */
-.nre .nre-row-meta-sub {
-  margin-top: 2px;
-  color: var(--muted);
-  font-weight: 400;
-  font-size: 0.82em;
-  font-variant-numeric: tabular-nums;
 }
 .nre td {
   font-variant-numeric: tabular-nums;
@@ -363,6 +361,11 @@ table.nre,
 .nre .nre-td-empty {
   background: var(--panel-2);
 }
+/* 数据侧没给的格子:呈现层画软色缺失符,不进 textContent、不参与排序取值 */
+.nre .nre-empty::before {
+  content: "—";
+  color: var(--soft);
+}
 
 /* ---- verdict 语义色与计票 pill ---- */
 .nre .nre-verdict-passed { color: var(--good); }
@@ -389,8 +392,9 @@ table.nre,
 .nre .nre-verdict-pill.nre-verdict-failed { border-color: color-mix(in oklch, var(--bad), var(--line) 55%); }
 .nre .nre-verdict-pill.nre-verdict-errored { border-color: color-mix(in oklch, var(--warn), var(--line) 55%); }
 
-/* ---- RunOverview:KPI 条(对齐 view 的 .summary/.metric 密度) ---- */
-.nre-overview .nre-kpis {
+/* ---- ScopeSummary:范围摘要卡,满宽 KPI 条(对齐 view 的 .summary/.metric 密度);
+        嵌进 ExperimentComparison 组卡时降为紧凑行(规则在上面的比较块里) ---- */
+.nre-scope-summary .nre-scope-kpis {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   border: 1px solid var(--line);
@@ -399,19 +403,19 @@ table.nre,
   margin: 0 0 10px;
   background: var(--panel);
 }
-.nre-overview .nre-kpi {
+.nre-scope-summary .nre-scope-kpi {
   padding: 12px 16px 13px;
   border-right: 1px solid var(--line);
   min-width: 0;
 }
-.nre-overview .nre-kpi:last-child { border-right: 0; }
-.nre-overview .nre-kpi dt {
+.nre-scope-summary .nre-scope-kpi:last-child { border-right: 0; }
+.nre-scope-summary .nre-scope-kpi dt {
   color: var(--soft);
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
-.nre-overview .nre-kpi dd {
+.nre-scope-summary .nre-scope-kpi dd {
   margin: 6px 0 0;
   font-size: 20px;
   line-height: 1;
@@ -419,25 +423,21 @@ table.nre,
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.nre-overview .nre-verdicts {
-  margin: 0.25rem 0;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
+/* 计票格装的是 pill 组:允许换行,行高回到常规 */
+.nre-scope-summary .nre-scope-kpi-verdicts dd {
+  white-space: normal;
+  line-height: 1.4;
 }
-.nre-overview .nre-verdict {
-  margin-right: 1em;
-}
-.nre-overview .nre-source {
+.nre .nre-scope-summary-range {
   color: var(--soft);
   font-size: 0.85em;
-  margin: 0.25rem 0;
+  margin: 0.25rem 0 0;
 }
-.nre-overview .nre-source-snapshot {
-  margin-left: 0.75em;
-}
+
+/* ---- 宿主警告块:.nre-report-warnings 外壳 + ul.nre-warnings + li.nre-warning[data-kind] ---- */
 .nre .nre-warnings {
   list-style: none;
-  margin: 0.5rem 0 0;
+  margin: 0;
   padding: 10px 14px;
   border: 1px solid color-mix(in oklch, var(--warn), var(--line) 45%);
   border-left: 3px solid var(--warn);
@@ -446,37 +446,26 @@ table.nre,
   color: var(--text);
   font-size: 13px;
 }
-
-/* ---- GroupSummary:组摘要块(嵌在 Section 内的紧凑统计,不是 RunOverview 那种满宽页头 KPI 条)---- */
-.nre-group-summary .nre-group-kpis {
-  display: flex;
-  flex-wrap: wrap;
-  column-gap: 22px;
-  row-gap: 6px;
-  margin: 0 0 6px;
+.nre .nre-warning + .nre-warning { margin-top: 8px; }
+/* 警告携带的下一步命令:等宽块,无 JS 时点击即全选;enhance.js 在场时点击复制 */
+.nre .nre-warning-command {
+  display: block;
+  margin-top: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+  user-select: all;
 }
-.nre-group-summary .nre-group-kpi {
-  min-width: 68px;
-}
-.nre-group-summary .nre-group-kpi dt {
-  color: var(--soft);
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-.nre-group-summary .nre-group-kpi dd {
-  margin: 3px 0 0;
-  font-size: 16px;
-  line-height: 1.15;
-  font-weight: 650;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.nre-group-summary .nre-group-kpi-rate dd { font-size: 18px; }
-.nre-group-summary-time {
-  color: var(--soft);
-  font-size: 0.85em;
-  margin: 0 0 0.75rem;
+:root.nre-js .nre .nre-warning-command { cursor: copy; }
+:root.nre-js .nre .nre-warning-command:hover { border-color: var(--line-strong); }
+.nre .nre-warning-command[data-nre-copied]::after {
+  content: "✓";
+  margin-left: 0.6em;
+  color: var(--good);
 }
 
 /* ---- MetricMatrix ---- */
@@ -501,10 +490,23 @@ table.nre,
   font-weight: 400;
   margin-left: 0.25em;
 }
-.nre-scoreboard .nre-subject-missing {
+/* 两种 0 分的注脚分开着色:没去考(notRun)偏警示,考了判不了(unscorable)偏软 */
+.nre-scoreboard .nre-total-not-run,
+.nre-scoreboard .nre-total-unscorable,
+.nre-scoreboard .nre-subject-not-run,
+.nre-scoreboard .nre-subject-unscorable {
   display: block;
-  color: var(--warn);
   font-size: 0.8em;
+  font-weight: 400;
+}
+.nre-scoreboard .nre-total-not-run,
+.nre-scoreboard .nre-subject-not-run { color: var(--warn); }
+.nre-scoreboard .nre-total-unscorable,
+.nre-scoreboard .nre-subject-unscorable { color: var(--soft); }
+.nre-scoreboard .nre-scoreboard-ignored {
+  color: var(--muted);
+  font-size: 0.85em;
+  margin: 0.25rem 0 0;
 }
 .nre-scoreboard .nre-weights {
   color: var(--muted);
@@ -633,11 +635,21 @@ table.nre,
   color: var(--soft);
   font-size: 0.8em;
 }
-.nre .nre-delta-good { color: var(--good); }
-.nre .nre-delta-bad { color: var(--bad); }
-.nre .nre-delta-flat { color: var(--muted); }
-.nre .nre-delta-neutral { color: var(--text); }
-.nre .nre-delta-missing { color: var(--soft); }
+/* Δ 行按数据侧算好的 outcome 着色:涨跌好坏不由正负号决定 */
+.nre .nre-delta-d[data-outcome="improved"] { color: var(--good); }
+.nre .nre-delta-d[data-outcome="regressed"] { color: var(--bad); }
+.nre .nre-delta-d[data-outcome="unchanged"] { color: var(--muted); }
+.nre .nre-delta-d[data-outcome="unavailable"] { color: var(--soft); }
+/* 0 对不是错误:明确空态,与各列表 empty 同一姿势 */
+.nre-delta-table-empty {
+  border: 1px dashed var(--line-strong);
+  border-radius: 8px;
+  padding: 18px;
+  color: var(--muted);
+  text-align: center;
+  background: var(--panel);
+}
+.nre-delta-table-empty .nre-missing { margin: 0; }
 
 /* ---- 排版原语 Row / Col / Section / Text ---- */
 .nre-col {
@@ -667,3 +679,79 @@ table.nre,
   color: var(--muted);
   margin: 0.25rem 0;
 }
+
+/* ---- Tabs:静态 HTML 每 tab 一个 <details> 且仅首个 open(无 JS = 手风琴卡片,内容完整);
+        enhance.js 在 <html> 上打 nre-js 后升级为单选 tab 条:收起的 tab 缩成一枚标题排在首行,
+        唯一展开的 tab 以 100% 宽 + order:1 换行到下方,活动标题带高亮下划线、贴着面板顶部。
+        不能用 display:contents 把 summary/body 直接投影进 flex 容器——Chrome 里 <details> 的
+        UA shadow slot 会成为 flex item,子元素的 order 失效、收起面板还留 0 宽盒 ---- */
+.nre-tabs > .nre-tab {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  margin-bottom: 8px;
+}
+.nre-tabs > .nre-tab > .nre-tab-title {
+  padding: 10px 14px;
+  cursor: pointer;
+  user-select: none;
+  font-weight: 620;
+  list-style: none;
+}
+.nre-tabs > .nre-tab > .nre-tab-title::-webkit-details-marker { display: none; }
+.nre-tabs > .nre-tab > .nre-tab-title::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 10px;
+  border-right: 1.5px solid var(--muted);
+  border-bottom: 1.5px solid var(--muted);
+  transform: rotate(-45deg);
+  transition: transform 0.15s;
+  vertical-align: 1px;
+}
+.nre-tabs > .nre-tab[open] > .nre-tab-title::before { transform: rotate(45deg); }
+.nre-tabs > .nre-tab > .nre-tab-body { padding: 2px 14px 12px; }
+.nre-tabs .nre-tab-body > .nre:first-child { margin-top: 0; }
+.nre-tabs .nre-tab-body > .nre:last-child { margin-bottom: 0; }
+
+:root.nre-js .nre-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  column-gap: 2px;
+}
+:root.nre-js .nre-tabs > .nre-tab {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+:root.nre-js .nre-tabs > .nre-tab[open] {
+  flex: 1 1 100%;
+  order: 1;
+}
+:root.nre-js .nre-tabs > .nre-tab > .nre-tab-title {
+  padding: 8px 14px 9px;
+  border-radius: 7px 7px 0 0;
+  color: var(--muted);
+  font-weight: 560;
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+:root.nre-js .nre-tabs > .nre-tab > .nre-tab-title::before { content: none; }
+:root.nre-js .nre-tabs > .nre-tab > .nre-tab-title:hover {
+  color: var(--text);
+  background: color-mix(in oklch, var(--panel-2), var(--panel) 35%);
+}
+:root.nre-js .nre-tabs > .nre-tab[open] > .nre-tab-title {
+  width: max-content;
+  max-width: 100%;
+  color: var(--text);
+  font-weight: 650;
+  box-shadow: inset 0 -2px 0 var(--nre-c0);
+  cursor: default;
+}
+:root.nre-js .nre-tabs > .nre-tab > .nre-tab-body { padding: 14px 0 0; }

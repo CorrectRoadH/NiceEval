@@ -24,7 +24,7 @@ import {
   redactSpans,
   type Redactor,
 } from "./publish.ts";
-import type { ArtifactKind, AttemptHandle, Selection, Snapshot, SnapshotMeta } from "./types.ts";
+import type { ArtifactKind, AttemptHandle, Scope, Snapshot, SnapshotMeta } from "./types.ts";
 
 /** 缺省携带的 artifact:events / trace / o11y / agentSetup / sources;diff 不截断、可达百 MB,缺省不带。 */
 const DEFAULT_PUBLISH_ARTIFACTS: ArtifactKind[] = ["events", "trace", "o11y", "agentSetup", "sources"];
@@ -50,15 +50,15 @@ export interface CopySnapshotsResult {
 
 /**
  * 把选中快照复制成 `destDir` 下的一个标准结果根目录(`<experiment-dir>/<源快照目录名>/`,
- * 快照目录名原样保留,身份不变)。输入收 Selection 或手工挑的 Snapshot[]
+ * 快照目录名原样保留,身份不变)。输入收 Scope 或手工挑的 Snapshot[]
  * (与 Reports 计算函数同一输入约定)。目标目录非空即报错,不静默覆盖、不合并。
  */
 export async function copySnapshots(
-  selection: Selection | Snapshot[],
+  scope: Scope | readonly Snapshot[],
   destDir: string,
   opts: CopySnapshotsOptions,
 ): Promise<CopySnapshotsResult> {
-  const selected = Array.isArray(selection) ? selection : selection.snapshots;
+  const selected = Array.isArray(scope) ? (scope as readonly Snapshot[]) : (scope as Scope).snapshots;
   if (selected.length === 0) {
     throw new Error(
       "copySnapshots got no snapshots to copy. Check the experiments filter, or pass snapshots from openResults().latest().",
@@ -92,7 +92,7 @@ export async function copySnapshots(
       continue;
     }
     warnings.push(
-      `warning: multiple snapshots selected for experiment "${snapshot.experimentId}"; kept the newest one, dropped the rest. Dedupe with Selection.filter() or pick a single snapshot per experiment before copySnapshots to avoid this.`,
+      `warning: multiple snapshots selected for experiment "${snapshot.experimentId}"; kept the newest one, dropped the rest. Dedupe with Scope.filter() or pick a single snapshot per experiment before copySnapshots to avoid this.`,
     );
     if (isNewerSnapshot(snapshot, existing)) byExperiment.set(snapshot.experimentId, snapshot);
   }
@@ -101,7 +101,7 @@ export async function copySnapshots(
   // 超过 PUBLISH_FILE_MAX_BYTES 就整体失败,不留半成品目标目录。
   const planned: PlannedFile[] = [];
   for (const snapshot of byExperiment.values()) {
-    planned.push(...(await planOneSnapshot(snapshot, selected, dest, kinds, redactor)));
+    planned.push(...(await planOneSnapshot(snapshot, [...selected], dest, kinds, redactor)));
   }
   const oversized = planned.filter((f) => f.bytes.byteLength > PUBLISH_FILE_MAX_BYTES);
   if (oversized.length > 0) {

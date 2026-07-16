@@ -171,33 +171,49 @@ export interface Results {
   experiments: Experiment[];
   skipped: SkippedDir[];
   /**
-   * 每个实验取最新一次快照,返回 Selection(快照与挑选警告绑在一起走)。
+   * 每个实验取最新一次快照,返回 Scope(快照与挑选警告绑在一起走)。
    * `experiments` 是 experiment id 前缀过滤(string | string[]),同 CLI 位置参数语义。
    */
-  latest(opts?: { experiments?: string | string[] }): Selection;
+  latest(opts?: { experiments?: string | string[] }): Scope;
+  /**
+   * 官方现刻水位:每个 experiment × eval 取「包含该 eval 的最新快照」里的全部 attempt,
+   * 跨历史拼出当前判定水位。可比性前提:每个 experiment 以最新快照的可比性配置
+   * (agent / model / reasoningEffort / flags / budget / timeoutMs / sandbox)为基准,
+   * 配置不一致的旧快照不贡献 attempt,缺口走 partial-coverage
+   * (见 docs/feature/results/library.md「官方现刻水位」)。
+   */
+  current(opts?: { experiments?: string | string[] }): Scope;
 }
 
 /**
- * Selection:选出的快照 + 挑选过程算出的警告。渲染与否在消费方,但缺口永远被算出来。
- * 下游(Reports 计算函数、copySnapshots)收 `Selection | Snapshot[]`;
- * 手工挑的裸数组没有挑选过程,自然没有 warnings 可带,也如实。
+ * Scope(范围):选出的快照 + 口径 + 已按口径物化的 attempt 全集 + 挑选警告。
+ * 渲染与否在消费方,但缺口永远被算出来。下游(Reports 计算函数、copySnapshots)收
+ * `Scope | readonly Snapshot[]`;手工挑的裸数组没有挑选过程,自然没有 warnings 可带,也如实。
  */
-export interface Selection {
+export interface Scope {
+  /** 这份 Scope 的口径,字面写在数据上。 */
+  mode: "latest-snapshots" | "current-evals";
   snapshots: Snapshot[];
-  warnings: SelectionWarning[];
   /**
-   * 只删不换:返回新 Selection,快照删减,warnings 按规则修剪 ——
-   * experimentId 不在幸存快照中的丢弃,非实验作用域的保留。
+   * 按口径物化的 attempt 全集:消费 attempts 就自动正确,不需要自己 flatten snapshots,
+   * 也就不可能算错口径。官方计算函数同样只消费它。
+   */
+  attempts: AttemptHandle[];
+  warnings: ScopeWarning[];
+  /**
+   * 只删不换:返回新 Scope,快照删减,attempts 与 warnings 随之同步修剪 ——
+   * experimentId 不在幸存快照中的警告丢弃,非实验作用域的警告保留。
    * 「换成上一个完整快照」这类替换式重挑不给方法,回 exp.snapshots 自己挑。
    */
-  filter(predicate: (snapshot: Snapshot) => boolean): Selection;
+  filter(predicate: (snapshot: Snapshot) => boolean): Scope;
 }
 
 /**
- * 挑选警告:每种带 kind、可判断的结构化字段和渲染好的英文 message;
- * kind 是契约的一部分,全集与触发条件见 docs/feature/results/library.md「警告 kind 全集」。
+ * 挑选警告:每种带 kind、可判断的结构化字段和渲染好的英文 message;能用一条命令直接推进的
+ * kind 同时带 `command`(已替换真实 id,复制即跑)。kind 是契约的一部分,全集与触发条件见
+ * docs/feature/results/library.md「警告 kind 全集」。
  */
-export type SelectionWarning =
+export type ScopeWarning =
   | {
       /** 选中快照的覆盖 < 该实验已知 eval 并集(本地历史 ∪ knownEvalIds)。 */
       kind: "partial-coverage";
@@ -205,14 +221,18 @@ export type SelectionWarning =
       covered: number;
       total: number;
       message: string;
+      /** 一条可复制即跑的推进命令:`niceeval exp <experimentId>`。 */
+      command: string;
     }
   | {
-      /** 该实验选中的快照早于 Selection 中最新的落盘;无阈值,如实触发,要阈值消费方按字段自比。 */
+      /** 该实验选中的快照早于 Scope 中最新的落盘;无阈值,如实触发,要阈值消费方按字段自比。 */
       kind: "stale-snapshot";
       experimentId: string;
       startedAt: string;
       latestStartedAt: string;
       message: string;
+      /** 一条可复制即跑的推进命令:`niceeval exp <experimentId>`。 */
+      command: string;
     }
   | {
       /** 选中快照缺 completedAt(进程中断,未收尾);已落盘 attempt 照常读出,警告提示集合可能不完整。 */
@@ -222,6 +242,8 @@ export type SelectionWarning =
       /** 该快照目录的绝对路径。 */
       dir: string;
       message: string;
+      /** 一条可复制即跑的推进命令:`niceeval exp <experimentId>`。 */
+      command: string;
     };
 
 /** dedupeAttempts 的警告:身份键缺 startedAt,宁可不去重也不误删。 */

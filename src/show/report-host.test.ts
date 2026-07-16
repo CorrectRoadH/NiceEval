@@ -1,5 +1,6 @@
-// cases: docs/engineering/unit-tests/reports/cases.md「外壳、页面与 Tabs」——宿主装载规范化、
-// 页索引命令上下文与标题回退链(契约:docs/feature/reports/library/shell.md)。
+// cases: docs/engineering/unit-tests/reports/cases.md
+// 「外壳、页面与 Tabs」——宿主装载规范化、页索引命令上下文与标题回退链
+// (契约:docs/feature/reports/library/shell.md)。
 // 页内树的 resolve / render 归报告库测试;这里只测宿主侧的规范化与选择逻辑(纯函数)。
 
 import { describe, expect, it } from "vitest";

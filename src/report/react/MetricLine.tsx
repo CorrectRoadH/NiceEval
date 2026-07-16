@@ -7,7 +7,7 @@
 
 import type { ReactElement } from "react";
 import type { LineData } from "../types.ts";
-import { DEFAULT_REPORT_LOCALE, countText, localeText, resolveMetricLabel, type ReportLocale } from "../locale.ts";
+import { DEFAULT_REPORT_LOCALE, countText, localeText, resolveLocalizedText, resolveMetricLabel, type ReportLocale } from "../locale.ts";
 import { seriesClassForKey } from "./colors.ts";
 import { cx } from "./format.ts";
 
@@ -52,6 +52,7 @@ export function MetricLine({
   const missing = data.rows.filter((r) => r.x === null || r.y.value === null);
   const drawableRows = data.rows.filter((r) => r.x !== null && r.y.value !== null);
   const yLabel = resolveMetricLabel(data.y.label, locale, data.y.key);
+  const xLabel = resolveMetricLabel(data.x.label, locale, data.x.key);
 
   const missingNote =
     missing.length > 0 ? (
@@ -83,7 +84,7 @@ export function MetricLine({
     series: r.series,
     xValue: r.x as number,
     yValue: r.y.value as number,
-    title: `${r.key}\n${data.x.label}: ${r.xDisplay}\n${yLabel}: ${r.y.display}(${r.y.samples}/${r.y.total})`,
+    title: `${r.key}\n${xLabel}: ${resolveLocalizedText(r.xDisplay, locale)}\n${yLabel}: ${resolveLocalizedText(r.y.display, locale)}(${r.y.samples}/${r.y.total})`,
     px: xScale.scale(r.x as number),
     py: yScale.scale(r.y.value as number),
   }));
@@ -103,10 +104,14 @@ export function MetricLine({
 
   const xTicks = xScale.lo === xScale.hi ? [xScale.lo] : [xScale.lo, xScale.hi];
   const yTicks = yScale.lo === yScale.hi ? [yScale.lo] : [yScale.lo, yScale.hi];
-  const xDisplayFor = (value: number) =>
-    drawableRows.find((r) => r.x === value)?.xDisplay ?? String(value);
-  const yDisplayFor = (value: number) =>
-    drawableRows.find((r) => r.y.value === value)?.y.display ?? String(value);
+  const xDisplayFor = (value: number) => {
+    const row = drawableRows.find((r) => r.x === value);
+    return row === undefined ? String(value) : resolveLocalizedText(row.xDisplay, locale);
+  };
+  const yDisplayFor = (value: number) => {
+    const row = drawableRows.find((r) => r.y.value === value);
+    return row === undefined ? String(value) : resolveLocalizedText(row.y.display, locale);
+  };
 
   return (
     <figure className={cx("nre", "nre-metric-line", className)}>
@@ -114,7 +119,7 @@ export function MetricLine({
         className="nre-line-svg"
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
         role="img"
-        aria-label={`${yLabel} by ${data.x.label}`}
+        aria-label={`${yLabel} by ${xLabel}`}
       >
         <rect
           className="nre-line-plot"
@@ -125,7 +130,7 @@ export function MetricLine({
           fill="none"
         />
         <text className="nre-line-xlabel" x={(PLOT.left + PLOT.right) / 2} y={HEIGHT - 8} textAnchor="middle">
-          {data.x.label}
+          {xLabel}
           {data.x.unit ? `(${data.x.unit})` : ""}
         </text>
         <text

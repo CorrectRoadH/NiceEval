@@ -60,6 +60,10 @@
       "types": "./dist/report/react/index.d.ts",
       "import": "./dist/report/react/index.js"
     },
+    "./report/built-in": {
+      "types": "./dist/report/built-in/index.d.ts",
+      "import": "./dist/report/built-in/index.js"
+    },
     "./report/react/styles.css": "./src/report/react/styles.css",
     "./report/react/enhance.js": "./src/report/react/enhance.js"
   },

@@ -89,14 +89,16 @@ npx niceeval exp compare-models weather
 | `--out` | string | `view` 命令专用:把结果查看器静态导出到指定目录。 |
 | `--port` | number | `view` 命令专用:指定本地服务器监听端口。 |
 | `--allow-sensitive-artifacts` | boolean | `view --out` 专用:对非发布根(快照没有 publish:&#123;redaction:"applied"&#125; 标记)导出时的显式确认——静态站会原样携带未消毒的证据文件。 |
-| `--eval` | boolean | `show` 命令专用:该 attempt 运行时保存的 Eval 源码,gate/soft 断言标回源码行(证据切面)。 |
+| `--source` | boolean | `show` 命令专用:该 attempt 运行时保存的 Eval 源码,gate/soft 断言标回源码行(证据切面)。 |
 | `--execution` | boolean | `show` 命令专用:该 attempt 的标准执行事件流(消息、thinking、Skill load、工具调用/结果);有 OTel 时同一节点补时间(证据切面)。 |
 | `--timing` | boolean | `show` 命令专用:整个 Attempt 的统一时间树;裸 `--timing` 给有界诊断投影,`--timing=full` 逐节点展开全部 runner/已关联 OTel 节点。 |
 | `--diff` | boolean | `show` 命令专用:sandbox 里的文件改动摘要;`--diff=<文件路径>` 看单个文件的完整改动(路径必须 `=` 连写)。 |
-| `--history` | boolean | `show` 命令专用:跨 run 时间轴,只列真实执行;与 `--report` 互斥。 |
+| `--history` | boolean | `show` 命令专用:执行时间轴——对匹配的每个 experiment × eval 分节,逐 attempt 列时间 / verdict / 摘要 / 耗时 / 成本 / locator;与 `--report` 互斥。 |
 | `--experiment` | string | `show` / `view` 命令专用:按路径段前缀收窄 experiment;组名会选中组内全部配置。 |
-| `--run` | string | `show` / `view` 命令专用:钉死看某一个结果目录(某次快照或 `copySnapshots` 产物)。 |
+| `--results` | string | `show` / `view` / `sandbox enter\|list\|stop` 共用:结果根目录(`.niceeval` 之外的另一个根,如 `copySnapshots` 产出的发布根)。 |
+| `--snapshot` | string | `view` 命令专用:只打开这一份快照文件(`snapshot.json`);文件不可读时命令失败(扫描模式只跳过)。 |
 | `--report` | string | `show` / `view` 命令专用:用文件默认导出的 `defineReport(...)` 替换两者共用的默认报告。 |
+| `--page` | string | `show` / `view` 命令专用:选择多页报告的页(页 id 见 `show --report` 的页索引);`view` 里定初始页。 |
 | `--dry` | boolean | 只打印本次会匹配到的 eval × 运行配置,不实际执行(按下面 `--output` 选中的 profile 给出预览)。 |
 | `--output` | string | 反馈 profile:`auto`(默认)按环境自动选择,`human` / `agent` / `ci` 强制指定;只改变终端展示,不改变选择、调度、判定、artifact 或退出码。`auto` 依次判定:stderr 是 TTY → human;否则 `CI`(或其它常见 CI 平台环境变量)存在 → ci;否则 → agent。 |
 | `--force` | boolean | 忽略上次运行结果,不跳过已通过的 (experiment, eval) 组合,强制全部重跑。 |

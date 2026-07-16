@@ -2,8 +2,8 @@
 //   "%" → 87%    "ms" → 1.2s    "$" → $0.31    其余 → 1.2k 缩写(带 unit 后缀)
 // metric.display 可整体覆盖;这里只负责默认。
 
-import type { AssertionResult, Verdict } from "../types.ts";
-import { compactAssertionSummary, fitCompactAssertionSummary, primaryAssertionSummary } from "../scoring/display.ts";
+import type { Verdict } from "../types.ts";
+import { DISPLAY_LOCALES, type LocalizedText, type ReportLocale } from "./locale.ts";
 
 /**
  * experiment 行的显示名：给了父路径 `relativeTo` 且它确是前缀，就去掉 `relativeTo + "/"`，
@@ -55,6 +55,18 @@ export function formatMetricValue(value: number, unit?: string): string {
   if (unit === "$") return `${sign}$${formatDollars(abs)}`;
   const n = abbreviate(abs);
   return unit ? `${sign}${n} ${unit}` : `${sign}${n}`;
+}
+
+/**
+ * MetricCell.display 的生成:为官方生成面覆盖的每个 locale(DISPLAY_LOCALES)各生成一份;
+ * 全部相同(内置 unit 格式化都是 locale 无关的)时折叠成单个字符串,renderer 按
+ * LocalizedText 回退规则选择。`make` 抛错由调用方(computeCell)带 metric 上下文包装。
+ */
+export function localizedDisplay(make: (locale: ReportLocale) => string): LocalizedText {
+  const entries = DISPLAY_LOCALES.map((locale) => [locale, make(locale)] as const);
+  const first = entries[0]![1];
+  if (entries.every(([, text]) => text === first)) return first;
+  return Object.fromEntries(entries);
 }
 
 /** 无单位纯数字(scoreboard 总分等):一位小数,去尾零。 */
@@ -109,25 +121,9 @@ export function verdictMark(verdict: Verdict): string {
 }
 
 /**
- * Attempt 比较项的一层结果摘要；完整 assertions 只在 locator 详情里展开。
- * maxChars(可选)是渲染面的宽度收口预算(如两行单元格 = 2 × 列宽):断言摘要按
- * fitCompactAssertionSummary 的优先级让位,error 摘要折单行后尾截。
+ * `AttemptListItem.failureSummary` 的宽度收口:摘要已在计算侧按 Scoring display 契约折好,
+ * 渲染面只做尾截,不重算摘要。maxChars 是渲染面的宽度预算(如两行单元格 = 2 × 列宽)。
  */
-export function attemptItemReason(
-  item: {
-    verdict: Verdict;
-    error?: { message: string };
-    assertions: AssertionResult[];
-  },
-  maxChars?: number,
-): string | undefined {
-  if (item.error !== undefined) {
-    const message = item.error.message.replace(/\s+/g, " ").trim();
-    return maxChars !== undefined && message.length > maxChars
-      ? `${message.slice(0, Math.max(0, maxChars - 1))}…`
-      : message;
-  }
-  const summary = primaryAssertionSummary(item.assertions, item.verdict);
-  if (summary === undefined) return undefined;
-  return maxChars === undefined ? compactAssertionSummary(summary) : fitCompactAssertionSummary(summary, maxChars);
+export function fitFailureSummary(summary: string, maxChars: number): string {
+  return summary.length <= maxChars ? summary : `${summary.slice(0, Math.max(0, maxChars - 1))}…`;
 }

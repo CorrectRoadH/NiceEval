@@ -24,8 +24,8 @@ import {
   MetricMatrix,
   MetricScatter,
   MetricTable,
-  RunOverview,
   Scoreboard,
+  ScopeSummary,
 } from "../src/report/react/index.tsx";
 import {
   attemptListItems,
@@ -33,8 +33,8 @@ import {
   experimentListItems,
   lineData,
   matrixData,
-  overviewData,
   scatterData,
+  scopeSummaryData,
   scoreboardData,
   tableData,
 } from "../src/report/react/fixtures.ts";
@@ -45,7 +45,7 @@ const attemptHref = (locator: string) => `view/#/attempt/${locator}`;
 const page = renderToStaticMarkup(
   <main style={{ maxWidth: "960px", margin: "0 auto", padding: "0 1rem" }}>
     <h1>niceeval/report/react 官方组件静态演示</h1>
-    <RunOverview data={overviewData} />
+    <ScopeSummary data={scopeSummaryData} />
     <h2>MetricTable</h2>
     <MetricTable data={tableData} attemptHref={attemptHref} />
     <h2>MetricMatrix</h2>
@@ -60,13 +60,10 @@ const page = renderToStaticMarkup(
     <MetricScatter data={scatterData} pointHref={(row) => `view/#/experiment/${row.key}`} />
     <h2>DeltaTable</h2>
     <DeltaTable data={deltaData} />
-    {/* AttemptList/EvalList/ExperimentList 没有 attemptHref prop(证据室深链恒经宿主 ctx,
-        docs/feature/reports/library.md「嵌入自己的 React 页面」的函数签名没有这个参数);裸嵌进自己的 React 应用时退化为
-        默认 `#/attempt/<locator>`,不在这里自定去处。 */}
     <h2>AttemptList</h2>
-    <AttemptList items={attemptListItems} />
+    <AttemptList data={attemptListItems} attemptHref={attemptHref} />
     <h2>ExperimentList</h2>
-    <ExperimentList items={experimentListItems} filter />
+    <ExperimentList data={experimentListItems} filter attemptHref={attemptHref} />
   </main>,
 );
 

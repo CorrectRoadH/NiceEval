@@ -94,7 +94,7 @@ interface CliResult {
 async function runConsumerShow(consumerDir: string, niceevalBin: string): Promise<CliResult> {
   await writeFile(
     join(consumerDir, "report.mjs"),
-    'export { ExperimentComparison as default } from "niceeval/report";\n',
+    'export { default } from "niceeval/report/built-in";\n',
     "utf-8",
   );
   const child = spawn(process.execPath, [niceevalBin, "show", "--report", "report.mjs"], { cwd: consumerDir, stdio: "pipe" });

@@ -1,44 +1,83 @@
 // niceeval/report —— 报告积木:指标 × 计算函数 × 双面组件 × defineReport。
-// 契约见 docs/feature/reports/README.md;公开叙事的准绳是 docs-site/zh/guides/custom-reports.mdx
-// 与 report-components.mdx。
+// 契约见 docs/feature/reports/README.md 与 docs/feature/reports/library/ 分篇。
 //
-// import 边界即运行时边界:计算函数(挂在组件上的 .data)会经句柄触碰文件系统
-// (懒加载 artifact),只能进服务端 / 脚本;组件的渲染面纯同步零 IO。text 宿主遍历渲染
-// 不需要 react-dom(renderReportToText);web 宿主的 renderReportToStaticHtml 在
-// ./web.ts,只有那一侧 import react-dom。写报告文件的项目要装 react(.tsx 编译产物
-// import react/jsx-runtime)。
+// import 边界即运行时边界:计算函数(*Data)会经句柄触碰文件系统(懒加载 artifact),
+// 只能进服务端 / 脚本;组件的渲染面纯同步零 IO。text 宿主遍历渲染不需要 react-dom
+// (renderReportToText);web 宿主的 renderReportToStaticHtml 在 ./web.ts,只有那一侧
+// import react-dom。写报告文件的项目要装 react(.tsx 编译产物 import react/jsx-runtime)。
 
-// 指标与维度读取器(flag / config)
+// 指标与维度读取器
 export {
+  assistantTurns,
+  costUSD,
   defineMetric,
-  taskPassRate,
-  executionReliability,
+  durationMs,
   endToEndPassRate,
   examScore,
-  durationMs,
+  executionReliability,
+  repeatedFailedCommands,
+  taskPassRate,
   tokens,
-  costUSD,
-  turns,
 } from "./metrics.ts";
-export { flag, config } from "./flag.ts";
+export { flag, numericFlag, numericRunConfig, runConfig } from "./flag.ts";
 
-// 报告基座与双面组件基座
-export { defineReport, isReportDefinition, renderReportToText } from "./report.ts";
-export type { ReportContext, ReportDefinition } from "./report.ts";
-export { defineComponent } from "./tree.ts";
+// 报告定义与组件基座
+export {
+  buildReportMeta,
+  defineReport,
+  isReportDefinition,
+  pickReportPage,
+  renderReportToText,
+  renderReportTreeToText,
+  reportTitleText,
+  resolveReportTitle,
+  ReportPageNotFoundError,
+  DEFAULT_PAGE_ID,
+} from "./report.ts";
+export type {
+  HostCommandContext,
+  NonEmptyArray,
+  RenderReportTextOptions,
+  RenderTreeTextOptions,
+  ReportTreeHostContext,
+  ReportAsset,
+  ReportDef,
+  ReportDefinition,
+  ReportHostContext,
+  ReportLink,
+  ReportMeta,
+  ReportPage,
+  ReportShell,
+} from "./report.ts";
+export { defineComponent, createTextContext, renderNodeToText, resolveReportTree, validateReportTree, ResolveMemo } from "./tree.ts";
 export type {
   ComponentFaces,
+  ComposeContext,
   ReportComponent,
   ReportElement,
   ReportNode,
+  ResolveContext,
+  ResolveEnv,
   TextContext,
   TextRenderOptions,
   WebContext,
 } from "./tree.ts";
 
-// 排版原语(六个内置双面组件)
-export { Row, Col, Section, Text, Style, Table } from "./primitives.tsx";
-export type { LayoutProps, SectionProps, StyleProps, TableColumn, TableProps, TableRow } from "./primitives.tsx";
+// 排版原语(八个内置双面组件)
+export { Col, Row, Section, Style, Tab, Table, Tabs, Text } from "./primitives.tsx";
+export type {
+  ColProps,
+  LayoutProps,
+  RowProps,
+  SectionProps,
+  StyleProps,
+  TabProps,
+  TableColumn,
+  TableProps,
+  TableRow,
+  TabsProps,
+  TextProps,
+} from "./primitives.tsx";
 
 // 文本排版工具箱:自定义组件的 text 面用的就是官方组件那把尺子。
 // 表格有 <Table> 承担,这里只给表以外的形态用 —— 尤其别拿 String.prototype.padEnd 对齐:
@@ -54,92 +93,108 @@ export {
 } from "./text/layout.ts";
 export type { ColumnAlign } from "./text/layout.ts";
 
-// 内置报告兼组合件(show / view 裸跑时报告槽的出厂填充;也可作组件整体引用,
-// `<ExperimentComparison data={await ExperimentComparison.data(selection)} />`),无 renderer 特权
-export { ExperimentComparison } from "./built-ins/index.ts";
-export type {
-  ExperimentComparisonData,
-  ExperimentComparisonGroupData,
-  ExperimentComparisonProps,
-} from "./built-ins/index.ts";
+// locale:官方组件 chrome 文案的语言(内置词典覆盖 en / zh-CN,其它 locale 走回退)
+export { DEFAULT_REPORT_LOCALE, localizedTextEquals, resolveLocalizedText, resolveMetricLabel } from "./locale.ts";
+export type { LocalizedText, ReportLocale } from "./locale.ts";
 
-// locale:官方组件 chrome 文案的语言(en / zh-CN);指标 label 可按 locale 给字典
-export { DEFAULT_REPORT_LOCALE, resolveMetricLabel } from "./locale.ts";
-export type { LocalizedLabel, ReportLocale } from "./locale.ts";
-
-// 官方双面组件(各自带 data 计算函数;MetricBars.data = MetricMatrix.data)
+// 官方双面组件(spec / data 双形态;配套 *Data 计算函数在下面成对导出)
 export {
   AttemptList,
   DeltaTable,
   EvalList,
+  ExperimentComparison,
   ExperimentList,
-  GroupSummary,
+  FailureList,
   MetricBars,
   MetricLine,
   MetricMatrix,
   MetricScatter,
   MetricTable,
-  RunOverview,
   Scoreboard,
+  ScopeSummary,
 } from "./components.tsx";
 export type {
   AttemptListProps,
+  DataProps,
   DeltaTableProps,
   EvalListProps,
+  ExperimentComparisonProps,
   ExperimentListProps,
-  GroupSummaryProps,
+  FailureListProps,
+  MetricBarsProps,
   MetricLineProps,
   MetricMatrixProps,
   MetricScatterProps,
   MetricTableProps,
-  RunOverviewProps,
   ScoreboardProps,
+  ScopeSummaryProps,
 } from "./components.tsx";
 
-// 计算函数的选项类型(函数本体挂在组件上,不做顶层导出)
+// 计算函数(组件解析面的具名形式,与组件成对;spec 形态下由管线代调,data 形态与
+// 嵌入场景下由作者手工调)
+export {
+  attemptListData,
+  deltaTableData,
+  evalListData,
+  experimentComparisonData,
+  experimentListData,
+  metricLineData,
+  metricMatrixData,
+  metricScatterData,
+  metricTableData,
+  pairsByFlag,
+  scopeSummaryData,
+  scoreboardData,
+} from "./compute.ts";
 export type {
-  AttemptListDataOptions,
-  DeltaDataOptions,
-  DeltaPair,
-  LineDataOptions,
-  MatrixDataOptions,
-  ScatterDataOptions,
-  ScoreboardDataOptions,
-  TableDataOptions,
+  DeltaTableOptions,
+  MetricLineOptions,
+  MetricMatrixOptions,
+  MetricScatterOptions,
+  MetricTableOptions,
+  ScoreboardOptions,
 } from "./compute.ts";
 
-// 数据契约(组件的 data props)
+// 数据契约(组件的 data)
 export type {
   Aggregator,
   AttemptListItem,
   AttemptLocator,
-  AxisInput,
-  ConfigRef,
+  BuiltInDimension,
+  CustomDimension,
   DeltaData,
-  Dimension,
+  DeltaPair,
   DimensionInput,
+  DimensionOptions,
+  DimensionRef,
+  EntityListDataOptions,
   EvalListItem,
+  ExperimentComparisonData,
+  ExperimentComparisonGroupData,
   ExperimentListEvalRow,
   ExperimentListItem,
-  GroupSummaryData,
-  LineAxis,
+  FlagPairs,
   LineData,
   MatrixData,
   Metric,
   MetricAggregate,
   MetricCell,
   MetricColumn,
-  OverviewData,
-  FlagRef,
+  NumericAxis,
+  NumericAxisOptions,
+  NumericRunConfigAxisOptions,
+  ReportInput,
+  RunConfigKey,
   ScatterData,
+  ScopeSummaryData,
+  ScopeWarning,
   ScoreboardData,
-  SelectionWarning,
   TableData,
-  TableRowMeta,
+  VerdictTally,
 } from "./types.ts";
 
 // 数据层输入的类型(家在 niceeval/results,这里 re-export 方便写指标 / 报告)
-export type { AttemptHandle, Results, Selection, Snapshot } from "../results/types.ts";
+export type { AttemptHandle, Results, Scope, Snapshot } from "../results/types.ts";
 
 // experiment id 的组键推导(id 的目录前缀,如 `compare/bub-low` 的 `compare`)。
 // 重新导出,让自定义报告能按同一份口径把 experiment 分组,不必自己重写这两行逻辑。

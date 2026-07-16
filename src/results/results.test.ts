@@ -343,7 +343,7 @@ describe("results.latest() · Selection", () => {
     const stale = latest.warnings.filter((w) => w.kind === "stale-snapshot");
     expect(stale).toHaveLength(1);
     expect(stale[0]).toMatchObject({ experimentId: "mid/a", startedAt: "2026-07-01T08:00:00.000Z", latestStartedAt: "2026-07-05T08:00:00.000Z" });
-    expect(stale[0].message).toContain("predates the latest run in this selection by 4 days");
+    expect(stale[0].message).toContain("predates the latest run in this scope by 4 days");
   });
 
   it("unfinished-snapshot:选中快照缺 completedAt", async () => {
@@ -976,8 +976,9 @@ describe("AttemptLocator · 落盘 / 读取 / 携带 / 撞车", () => {
     const handMadeResults: Results = {
       experiments: [{ id: "e", snapshots: [snapshot], latest: snapshot, evalIds: ["q1"] }],
       skipped: [],
-      // filter() 本测试不调用,用不到,给个占位实现即可满足 Selection 接口。
-      latest: () => ({ snapshots: [snapshot], warnings: [], filter: () => { throw new Error("not implemented"); } }),
+      // filter() 本测试不调用,用不到,给个占位实现即可满足 Scope 接口。
+      latest: () => ({ mode: "latest-snapshots" as const, snapshots: [snapshot], attempts: snapshot.attempts, warnings: [], filter: () => { throw new Error("not implemented"); } }),
+      current: () => { throw new Error("not implemented"); },
     };
     // 这份 locator 语法合法、甚至真的对应 handMadeResults 里那个 attempt 的身份,
     // 但 handMadeResults 没经过 openResults(),locatorIndexByResults 里查不到它 —— 空索引,not-found。

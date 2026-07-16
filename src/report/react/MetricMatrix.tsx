@@ -40,13 +40,13 @@ export function MetricMatrix({
         {resolveMetricLabel(data.metric.label, locale, data.metric.key)}
         {data.metric.unit && <span className="nre-unit">({data.metric.unit})</span>}
         <span className="nre-matrix-axes">
-          {data.rows} × {data.columns}
+          {data.rowDimension} × {data.columnDimension}
         </span>
       </caption>
       <thead>
         <tr>
           <th scope="col" className="nre-dimension">
-            {data.rows}
+            {data.rowDimension}
           </th>
           {columnKeys.map((column) => (
             // 列键 = 维度键(如 agent):稳定散列上色,与 scatter 的线、DeltaTable 的行同色

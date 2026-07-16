@@ -1,50 +1,52 @@
 // cases: docs/engineering/unit-tests/reports/cases.md
 // niceeval/report 计算层的单元测试:全部用内存 fake(Snapshot / AttemptHandle 按
-// niceeval/results 的读取契约手工构造),专门覆盖 docs/feature/reports/architecture.md 点名的坑 ——
-// 两级聚合 vs 平铺、pass@k、examScore 空真、skipped 稀释、scoreboard 固定分母与
-// 最长前缀、scatter/delta 的 null 语义、快照键对比、flag 维度与轴、
-// cases 的 redact/truncated、身份键去重、Selection warnings 随行。
+// niceeval/results 的读取契约手工构造)。覆盖登记行:两级聚合 vs 平铺、errored=0 口径、
+// skipped=null、null≠0、Scoreboard 固定分母(notRun/unscorable 分开)、权重最长前缀、
+// 身份键去重、现刻水位、自定义指标 where/aggregate、evalGroup 完整父路径、verdict 权威、
+// MetricCell 诚实、缺 artifact 指标、repeatedFailedCommands、实体列表 failureSummary /
+// redact、scopeSummaryData 两级计票、experimentComparisonData 分区、pairsByFlag、
+// MetricLine 点身份、空数组反馈、metricTableData sort。
 
 import { describe, expect, it } from "vitest";
 
 import type { AssertionResult, AttemptError, EvalResult, O11ySummary, Verdict } from "../types.ts";
-
-/** 结构化 `AttemptError` 的最小构造(测试用):只关心一层 message,operation/code 取中性默认值。 */
-function erroredWith(message: string): AttemptError {
-  return { code: "unexpected-error", message, phase: "eval.run" };
-}
-import type { AttemptHandle, Selection, SelectionWarning, Snapshot } from "../results/index.ts";
-import type { Dimension, MetricCell } from "./types.ts";
+import type { AttemptHandle, Scope, ScopeWarning, Snapshot } from "../results/index.ts";
+import { makeScope, selectCurrentResults } from "../results/select.ts";
+import type { Results } from "../results/types.ts";
 import {
+  assistantTurns,
   costUSD,
   defineMetric,
   durationMs,
   endToEndPassRate,
   examScore,
   executionReliability,
+  repeatedFailedCommands,
   taskPassRate,
-  tokens,
-  turns,
 } from "./metrics.ts";
-import { config, flag } from "./flag.ts";
-import { formatMetricValue } from "./format.ts";
+import { flag, numericFlag } from "./flag.ts";
 import {
-  AttemptList,
-  DeltaTable,
-  EvalList,
-  ExperimentList,
-  GroupSummary,
-  MetricBars,
-  MetricLine,
-  MetricMatrix,
-  MetricScatter,
-  MetricTable,
-  RunOverview,
-  Scoreboard,
-} from "./components.tsx";
-import { reasonFor } from "./compute.ts";
+  attemptListData,
+  deltaTableData,
+  evalListData,
+  experimentComparisonData,
+  experimentListData,
+  metricLineData,
+  metricMatrixData,
+  metricScatterData,
+  metricTableData,
+  pairsByFlag,
+  scopeSummaryData,
+  scoreboardData,
+} from "./compute.ts";
+import { evalGroupOf } from "./aggregate.ts";
 
 // ───────────────────────── fake 数据(按 results 读取契约造)─────────────────────────
+
+/** 结构化 `AttemptError` 的最小构造(测试用)。 */
+function erroredWith(message: string): AttemptError {
+  return { code: "unexpected-error", message, phase: "eval.run" };
+}
 
 let seq = 0;
 
@@ -67,10 +69,10 @@ function softAssertion(name: string, score: number, extra: Partial<AssertionResu
   return { name, severity: "soft", score, outcome: "passed" as const, ...extra } as AssertionResult;
 }
 
-/** 最小合规 O11ySummary,只有 totalTurns 会变;供 turns 指标测试内联挂到 EvalResult.o11y。 */
-function o11ySummary(totalTurns: number): O11ySummary {
+/** 最小合规 O11ySummary;shellCommands / totalTurns 按需变。 */
+function o11ySummary(partial: Partial<O11ySummary> = {}): O11ySummary {
   return {
-    totalTurns,
+    totalTurns: 0,
     toolCalls: {},
     totalToolCalls: 0,
     filesRead: [],
@@ -82,7 +84,8 @@ function o11ySummary(totalTurns: number): O11ySummary {
     compactions: 0,
     durationMs: 0,
     usage: { inputTokens: 0, outputTokens: 0 },
-  };
+    ...partial,
+  } as O11ySummary;
 }
 
 interface SnapSpec {
@@ -92,6 +95,7 @@ interface SnapSpec {
   model?: string;
   runStartedAt?: string;
   knownEvalIds?: string[];
+  experiment?: Snapshot["experiment"];
 }
 
 let runSeq = 0;
@@ -107,6 +111,7 @@ function snap(spec: SnapSpec): Snapshot {
     completedAt: startedAt,
     agent: spec.agent ?? "agent-x",
     model: spec.model,
+    experiment: spec.experiment,
     schemaVersion: 1,
     dir,
     knownEvalIds: spec.knownEvalIds,
@@ -135,1165 +140,890 @@ function snap(spec: SnapSpec): Snapshot {
   return snapshot;
 }
 
-/** 手工造一个 Selection(warnings 随行的形状,filter 语义与 results 一致)。 */
-function selection(snapshots: Snapshot[], warnings: SelectionWarning[]): Selection {
-  return {
-    snapshots,
-    warnings,
-    filter(predicate) {
-      const kept = snapshots.filter(predicate);
-      const survivors = new Set(kept.map((s) => s.experimentId));
-      return selection(
-        kept,
-        warnings.filter((w) => typeof w.experimentId !== "string" || survivors.has(w.experimentId)),
-      );
-    },
-  };
+function scopeOf(snapshots: Snapshot[], warnings: ScopeWarning[] = []): Scope {
+  return makeScope("current-evals", snapshots, warnings);
 }
 
-describe("ExperimentList.data", () => {
-  it("身份、flags、Eval 判定构成、官方两级聚合汇总指标,展开到 Eval 携带全部 Attempt locator", async () => {
-    const s = snap({
-      experimentId: "group/codex-e2b--mempal",
-      agent: "codex",
-      model: "gpt-5.4-mini",
-      runStartedAt: "2026-07-10T22:44:00.000Z",
-      results: [
-        res("memory/a", "failed", {
-          attempt: 0,
-          durationMs: 1_000,
-          assertions: [{ name: "gate", severity: "gate", outcome: "failed" as const, score: 0, detail: "wrong" }],
-          usage: { inputTokens: 10, outputTokens: 5, costUSD: 0.1 },
-          hasEvents: true,
-        }),
-        res("memory/a", "passed", {
-          attempt: 1,
-          durationMs: 2_000,
-          usage: { inputTokens: 20, outputTokens: 10, costUSD: 0.2 },
-        }),
-        res("memory/b", "errored", { error: erroredWith("timeout"), durationMs: 3_000 }),
-      ],
-    });
-    s.experiment = {
-      runs: 2,
-      earlyExit: false,
-      sandbox: { provider: "e2b", params: { template: "fast" } },
-      budget: 2,
-      flags: { cache: true },
-      selectedEvalIds: [],
-    };
+// ───────────────────────── 指标聚合口径 ─────────────────────────
 
-    const items = await ExperimentList.data([s]);
-    expect(items).toHaveLength(1);
-    const item = items[0]!;
-    expect(item).toMatchObject({
-      experimentId: "group/codex-e2b--mempal",
-      agent: "codex",
-      model: "gpt-5.4-mini",
-      flags: { cache: true },
-      verdicts: { passed: 1, failed: 0, errored: 1, skipped: 0 },
-      evals: 2,
-      attempts: 3,
-      lastRunAt: "2026-07-10T22:44:00.000Z",
-    });
-    // 官方端到端两级聚合:memory/a 题内均值 (0+1)/2=0.5;
-    // memory/b errored → 0 → 跨题均值 (0.5+0)/2=0.25
-    expect(item.passRate.value).toBeCloseTo(0.25);
-    expect(item.cost.samples).toBe(2); // 只有 memory/a 的两次 attempt 报了成本
-
-    const evalA = item.evalRows.find((e) => e.evalId === "memory/a")!;
-    expect(evalA.verdict).toBe("passed"); // 任一轮通过 → 该题通过
-    expect(evalA.attempts.map((a) => a.attempt)).toEqual([0, 1]);
-    expect(evalA.attempts[0]!.locator).toMatch(/^@1[0-9a-z]{7}$/);
-    // 每次 attempt 独立编码,即使同一道题也不撞车
-    expect(evalA.attempts[0]!.locator).not.toBe(evalA.attempts[1]!.locator);
-
-    const evalB = item.evalRows.find((e) => e.evalId === "memory/b")!;
-    expect(evalB.verdict).toBe("errored");
-    expect(evalB).not.toHaveProperty("reason");
-    expect(evalB.attempts[0]!.error?.message).toBe("timeout");
+describe("两级聚合口径", () => {
+  // 区分力 fixture:题级值 [1, 2/3, 0] → 两级 5/9;attempt 平铺 3/5;
+  // 条件任务通过率 5/6(errored 不进分母);「任一轮通过」2/3。四种口径互不相等。
+  const discriminating = snap({
+    experimentId: "exp/a",
+    results: [
+      res("e1", "passed"),
+      res("e2", "passed", { attempt: 0 }),
+      res("e2", "passed", { attempt: 1 }),
+      res("e2", "failed", { attempt: 2 }),
+      res("e3", "errored", { error: erroredWith("boom") }),
+    ],
   });
 
-  it("展开数组按 evalId 升序,顶层数组按 experimentId 升序", async () => {
-    const s1 = snap({ experimentId: "exp/b", results: [res("z", "passed"), res("a", "passed")] });
-    const s2 = snap({ experimentId: "exp/a", results: [res("x", "passed")] });
-    const items = await ExperimentList.data([s1, s2]);
-    expect(items.map((i) => i.experimentId)).toEqual(["exp/a", "exp/b"]);
-    expect(items.find((i) => i.experimentId === "exp/b")!.evalRows.map((e) => e.evalId)).toEqual(["a", "z"]);
+  it("endToEndPassRate 先题内折叠再跨题折叠:5/9,不是平铺 3/5、条件 5/6 或任一轮 2/3", async () => {
+    const data = await scopeSummaryData([discriminating]);
+    expect(data.endToEndPassRate.value).toBeCloseTo(5 / 9);
+    expect(data.endToEndPassRate.value).not.toBeCloseTo(3 / 5);
+    expect(data.endToEndPassRate.value).not.toBeCloseTo(5 / 6);
+    expect(data.endToEndPassRate.value).not.toBeCloseTo(2 / 3);
+    expect(data.endToEndPassRate.display).toBe("55.6%");
+    expect(data.endToEndPassRate.samples).toBe(5);
+    expect(data.endToEndPassRate.total).toBe(5);
   });
 
-  it("默认成功率包含 errored 并据此排序:2 passed / 5 errored = 2/7,不能以条件 100% 排第一", async () => {
-    const unstable = snap({
-      experimentId: "exp/unstable",
-      results: [
-        res("pass/a", "passed"),
-        res("pass/b", "passed"),
-        ...Array.from({ length: 5 }, (_, i) => res(`error/${i}`, "errored", { error: erroredWith("boom") })),
-      ],
-    });
-    const stable = snap({
-      experimentId: "exp/stable",
-      results: [res("pass", "passed"), res("fail", "failed")],
-    });
-
-    const items = await ExperimentList.data([unstable, stable]);
-    expect(items.find((item) => item.experimentId === "exp/unstable")!.passRate.value).toBeCloseTo(2 / 7, 10);
-    expect(items.map((item) => item.experimentId)).toEqual(["exp/stable", "exp/unstable"]);
-  });
-});
-
-describe("EvalList.data", () => {
-  it("每项一个 experimentId + evalId,父项保留判定与题级聚合并展开到含失败事实的 Attempt", async () => {
-    const s = snap({
-      experimentId: "compare/codex",
-      results: [
-        res("weather/brooklyn", "failed", {
-          attempt: 0,
-          durationMs: 40_000,
-          usage: { inputTokens: 1, outputTokens: 1, costUSD: 0.02 },
-          assertions: [{ name: 'calledTool("get_weather")', severity: "gate", outcome: "failed" as const, score: 0, expected: "at least one matching call", received: "no tool calls" }],
-        }),
-        res("weather/brooklyn", "failed", {
-          attempt: 1,
-          durationMs: 42_000,
-          usage: { inputTokens: 1, outputTokens: 1, costUSD: 0.06 },
-          assertions: [{ name: 'calledTool("get_weather")', severity: "gate", outcome: "failed" as const, score: 0, expected: "at least one matching call", received: "no tool calls" }],
-        }),
-      ],
-    });
-    const items = await EvalList.data([s]);
-    expect(items).toHaveLength(1);
-    const item = items[0]!;
-    expect(item.evalId).toBe("weather/brooklyn");
-    expect(item.experimentId).toBe("compare/codex");
-    expect(item.verdict).toBe("failed");
-    expect(item).not.toHaveProperty("reason");
-    expect(item.score.value).toBe(0); // examScore: failed → 0
-    expect(item.duration.value).toBeCloseTo(41_000); // 平均耗时
-    expect(item.cost.value).toBeCloseTo(0.04); // 平均成本
-    expect(item.attempts.map((a) => a.attempt)).toEqual([0, 1]);
-    const assertion = item.attempts[0]!.assertions[0]!;
-    expect(assertion.outcome).toBe("failed");
-    if (assertion.outcome !== "failed") throw new Error("expected failed assertion fixture");
-    expect(assertion.received).toBe("no tool calls");
-    expect(item.attempts[0]!.locator).not.toBe(item.attempts[1]!.locator);
-  });
-
-  it("同一个 eval id 出现在两个 experiment 上是两条不同结果,不合并", async () => {
-    const s1 = snap({ experimentId: "exp/a", results: [res("shared", "passed")] });
-    const s2 = snap({ experimentId: "exp/b", results: [res("shared", "failed")] });
-    const items = await EvalList.data([s1, s2]);
-    expect(items).toHaveLength(2);
-    expect(items.map((i) => `${i.experimentId}:${i.verdict}`).sort()).toEqual(["exp/a:passed", "exp/b:failed"]);
-  });
-});
-
-describe("AttemptList.data", () => {
-  it("每项一个 Attempt:身份、判定、assertions、耗时、成本与 locator", async () => {
-    const s = snap({
-      experimentId: "exp/x",
-      results: [
-        res("A", "failed", {
-          durationMs: 5_000,
-          usage: { inputTokens: 1, outputTokens: 1, costUSD: 0.05 },
-          assertions: [{ name: "gate", severity: "gate", outcome: "failed" as const, score: 0, detail: "nope" }],
-          hasEvents: true,
-          hasSources: true,
-        }),
-      ],
-    });
-    const items = await AttemptList.data([s]);
-    expect(items).toHaveLength(1);
-    const item = items[0]!;
-    expect(item).toMatchObject({
-      evalId: "A",
-      experimentId: "exp/x",
-      attempt: 0,
-      agent: "agent-x",
-      verdict: "failed",
-      durationMs: 5_000,
-      costUSD: 0.05,
-    });
-    expect(item.assertions).toHaveLength(1);
-    expect(item.locator).toMatch(/^@1[0-9a-z]{7}$/);
-  });
-
-  it("redact 作用于 error 的 message/cause/stack、diagnostic 的 message/data、断言 detail/evidence,不作用于身份与分类字段", async () => {
-    const s = snap({
-      experimentId: "exp/x",
-      results: [
-        res("A", "errored", {
-          error: {
-            code: "sandbox-provision-failed",
-            message: "ENOENT /Users/me/repo/tool",
-            phase: "sandbox.create",
-            stack: "Error: ENOENT /Users/me/repo/tool\n    at spawn (/Users/me/repo/src/run.ts:3:1)",
-            cause: { name: "SystemError", code: "ENOENT", message: "no such file /Users/me/repo/tool" },
-          },
-          diagnostics: [
-            {
-              code: "teardown-failed",
-              level: "warning",
-              message: "cleanup left /Users/me/repo/tmp behind",
-              phase: "sandbox.teardown",
-              data: { path: "/Users/me/repo/tmp", attempts: 2 },
-            },
-          ],
-        }),
-        res("B", "failed", {
-          assertions: [
-            {
-              name: "includes",
-              severity: "gate",
-              score: 0,
-              outcome: "failed" as const,
-              detail: "missing text under /Users/me/repo/src",
-              evidence: "checked /Users/me/repo/src/app.ts",
-            },
-          ],
-        }),
-      ],
-    });
-    const items = await AttemptList.data([s], { redact: (text) => text.replaceAll("/Users/me/repo", "<repo>") });
-    const a = items.find((i) => i.evalId === "A")!;
-    // error:自由文本(message/stack/cause.message)全部经钩子
-    expect(a.error?.message).toBe("ENOENT <repo>/tool");
-    expect(a.error?.stack).toBe("Error: ENOENT <repo>/tool\n    at spawn (<repo>/src/run.ts:3:1)");
-    expect(a.error?.cause?.message).toBe("no such file <repo>/tool");
-    // 分类字段(code/operation/cause.name/cause.code)原样保留,不经钩子
-    expect(a.error?.code).toBe("sandbox-provision-failed");
-    expect(a.error?.phase).toBe("sandbox.create");
-    expect(a.error?.cause?.name).toBe("SystemError");
-    expect(a.error?.cause?.code).toBe("ENOENT");
-    // diagnostics:message 与 data 的字符串值经钩子;code/operation/level 原样
-    expect(a.diagnostics).toHaveLength(1);
-    expect(a.diagnostics![0]!.message).toBe("cleanup left <repo>/tmp behind");
-    expect(a.diagnostics![0]!.data).toEqual({ path: "<repo>/tmp", attempts: 2 });
-    expect(a.diagnostics![0]!.code).toBe("teardown-failed");
-    expect(a.diagnostics![0]!.phase).toBe("sandbox.teardown");
-    const b = items.find((i) => i.evalId === "B")!;
-    const bAssert = b.assertions[0]!;
-    expect(bAssert.detail).toBe("missing text under <repo>/src");
-    expect(bAssert.outcome !== "unavailable" ? bAssert.evidence : undefined).toBe("checked <repo>/src/app.ts");
-    // 身份字段不经 redact
-    expect(items.every((i) => i.experimentId === "exp/x")).toBe(true);
-  });
-
-  it("不预设只看失败:passed 的 attempt 同样列出,原样携带 assertions", async () => {
-    const s = snap({
-      experimentId: "exp/x",
-      results: [res("A", "passed", { assertions: [{ name: "ok", severity: "gate", outcome: "passed" as const, score: 1 }] })],
-    });
-    const items = await AttemptList.data([s]);
-    expect(items).toHaveLength(1);
-    expect(items[0]).toMatchObject({ verdict: "passed" });
-    expect(items[0]!.assertions).toHaveLength(1);
-  });
-});
-
-// ───────────────────────── 两级聚合 ─────────────────────────
-
-describe("两级聚合引擎", () => {
-  it("题内先折再跨题平均:A=[1]、B=[0,0,0] → 0.5,不是平铺的 0.25", async () => {
-    const s = snap({
-      experimentId: "exp/x",
-      results: [res("A", "passed"), res("B", "failed"), res("B", "failed"), res("B", "failed")],
-    });
-    const data = await MetricTable.data([s], { rows: "agent", columns: [taskPassRate] });
-    expect(data.dimension).toBe("agent");
-    expect(data.rows).toHaveLength(1);
-    const cell = data.rows[0].cells["task-pass-rate"];
-    expect(cell.value).toBe(0.5);
-    expect(cell.display).toBe("50%");
-    expect(cell.samples).toBe(4);
-    expect(cell.total).toBe(4);
-    expect(cell.refs).toHaveLength(4);
-  });
-
-  it("pass@k = perEval:max —— k 次里过一次的题算过", async () => {
-    const passAtK = defineMetric({
-      name: "pass@k",
-      better: "higher",
-      unit: "%",
-      value: (a) => (a.result.verdict === "skipped" ? null : a.result.verdict === "passed" ? 1 : 0),
-      aggregate: { perEval: "max", across: "mean" },
-    });
-    const s = snap({
-      experimentId: "exp/x",
-      results: [res("A", "failed"), res("A", "failed"), res("B", "failed"), res("B", "passed")],
-    });
-    const data = await MetricTable.data([s], { rows: "agent", columns: [passAtK, taskPassRate] });
-    // A: max(0,0)=0;B: max(0,1)=1 → (0+1)/2
-    expect(data.rows[0].cells["pass@k"].value).toBe(0.5);
-    // 对照:默认 mean/mean 的 taskPassRate = (0 + 0.5)/2
-    expect(data.rows[0].cells["task-pass-rate"].value).toBe(0.25);
-  });
-
-  it("skipped 是 null:不稀释均值,但计入 total(覆盖率如实)", async () => {
-    const s = snap({ experimentId: "exp/x", results: [res("A", "passed"), res("B", "skipped")] });
-    const data = await MetricTable.data([s], { rows: "agent", columns: [taskPassRate] });
-    const cell = data.rows[0].cells["task-pass-rate"];
-    expect(cell.value).toBe(1); // B 整桶为 null,不参与 across,不是 0.5
-    expect(cell.samples).toBe(1);
-    expect(cell.total).toBe(2);
-    expect(cell.refs).toHaveLength(1);
-  });
-
-  it("全组 null → value null、display 兜底,不编 0;refs 必填(空数组)", async () => {
-    const s = snap({ experimentId: "exp/x", results: [res("A", "skipped")] });
-    const data = await MetricTable.data([s], { rows: "agent", columns: [taskPassRate] });
-    const cell = data.rows[0].cells["task-pass-rate"];
-    expect(cell.value).toBeNull();
-    expect(cell.display).toBe("—");
-    expect(cell.samples).toBe(0);
-    expect(cell.total).toBe(1);
-    expect(cell.refs).toEqual([]);
-  });
-
-  it("where 不满足 → null,不进聚合", async () => {
-    const onlyPassed = defineMetric({
-      name: "only-passed",
-      where: (a) => a.result.verdict === "passed",
-      value: () => 5,
-    });
-    const s = snap({ experimentId: "exp/x", results: [res("A", "passed"), res("B", "failed")] });
-    const data = await MetricTable.data([s], { rows: "agent", columns: [onlyPassed] });
-    const cell = data.rows[0].cells["only-passed"];
-    expect(cell.value).toBe(5);
-    expect(cell.samples).toBe(1);
-    expect(cell.total).toBe(2);
-  });
-
-  it("自定义维度:第一级折叠发生在各组内部", async () => {
-    const byParity: Dimension = {
-      name: "parity",
-      of: (a) => (a.result.attempt % 2 === 0 ? "even" : "odd"),
-    };
-    const s = snap({
-      experimentId: "exp/x",
-      results: [
-        res("A", "passed", { attempt: 0 }),
-        res("A", "failed", { attempt: 1 }),
-        res("A", "passed", { attempt: 2 }),
-      ],
-    });
-    const data = await MetricTable.data([s], { rows: byParity, columns: [taskPassRate] });
-    expect(data.dimension).toBe("parity");
-    const byKey = Object.fromEntries(data.rows.map((r) => [r.key, r.cells["task-pass-rate"].value]));
-    // 同一道题的 attempt 分进两组:even 组内 [1,1] 折成 1,odd 组内 [0] 折成 0
-    expect(byKey).toEqual({ even: 1, odd: 0 });
-  });
-
-  it("同一次计算里指标重名是错误", async () => {
-    const dup = defineMetric({ name: "task-pass-rate", value: () => 1 });
-    const s = snap({ experimentId: "exp/x", results: [res("A", "passed")] });
-    await expect(MetricTable.data([s], { rows: "agent", columns: [taskPassRate, dup] })).rejects.toThrow(
-      /Duplicate metric name "task-pass-rate"/,
-    );
-  });
-
-  it("sort 方向随 better,缺数据行沉底", async () => {
-    const good = snap({ experimentId: "exp/good", agent: "good", results: [res("A", "passed", { agent: "good" })] });
-    const bad = snap({ experimentId: "exp/bad", agent: "bad", results: [res("A", "failed", { agent: "bad" })] });
-    const none = snap({ experimentId: "exp/none", agent: "none", results: [res("A", "skipped", { agent: "none" })] });
-    const data = await MetricTable.data([none, bad, good], {
+  it("taskPassRate 排除 errored,只能作为带限定名称的诊断指标:同 fixture 得 5/6", async () => {
+    const table = await metricTableData([discriminating], {
       rows: "agent",
-      columns: [taskPassRate],
-      sort: taskPassRate,
+      columns: [endToEndPassRate, taskPassRate, executionReliability],
     });
-    expect(data.rows.map((r) => r.key)).toEqual(["good", "bad", "none"]);
+    const cells = table.rows[0]!.cells;
+    expect(cells[taskPassRate.name]!.value).toBeCloseTo(5 / 6);
+    expect(cells[endToEndPassRate.name]!.value).toBeCloseTo(5 / 9);
+    // executionReliability:e1=1、e2=1、e3=0 → 2/3
+    expect(cells[executionReliability.name]!.value).toBeCloseTo(2 / 3);
   });
 
-  it("列键是字面量联合:拼错列名编译不过", async () => {
-    const s = snap({ experimentId: "exp/x", results: [res("A", "passed")] });
-    const data = await MetricTable.data([s], { rows: "agent", columns: [taskPassRate, costUSD] });
-    const cell: MetricCell = data.rows[0].cells[taskPassRate.name]; // 键锚在指标对象上
-    expect(cell.value).toBe(1);
-    // @ts-expect-error 列里没有这个键 —— 编译期挡住,不是运行时 undefined
-    data.rows[0].cells["pass-rat"];
+  it("2 passed + 5 errored 的默认成功率是 2/7,不是 100%", async () => {
+    const s = snap({
+      experimentId: "exp/err",
+      results: [
+        res("q1", "passed"),
+        res("q2", "passed"),
+        ...[3, 4, 5, 6, 7].map((n) => res(`q${n}`, "errored", { error: erroredWith("x") })),
+      ],
+    });
+    const data = await scopeSummaryData([s]);
+    expect(data.endToEndPassRate.value).toBeCloseTo(2 / 7);
+  });
+
+  it("skipped 对内置指标返回 null:不进有效样本但保留在 total,value 不受影响", async () => {
+    const s = snap({
+      experimentId: "exp/skip",
+      results: [res("a", "passed"), res("b", "skipped"), res("c", "failed")],
+    });
+    const data = await scopeSummaryData([s]);
+    expect(data.endToEndPassRate.value).toBeCloseTo(0.5); // (1+0)/2,skipped 不稀释
+    expect(data.endToEndPassRate.samples).toBe(2);
+    expect(data.endToEndPassRate.total).toBe(3);
+  });
+
+  it("null 表示测不了不参与聚合,0 正常参与:[null, 0, 1] 的 mean 是 0.5 而非 1/3", async () => {
+    const values = new Map([
+      ["a", null],
+      ["b", 0],
+      ["c", 1],
+    ]);
+    const metric = defineMetric({
+      name: "tri",
+      value: (attempt) => values.get(attempt.evalId) ?? null,
+    });
+    const s = snap({ experimentId: "exp/tri", results: [res("a", "passed"), res("b", "passed"), res("c", "passed")] });
+    const table = await metricTableData([s], { rows: "agent", columns: [metric] });
+    expect(table.rows[0]!.cells.tri!.value).toBeCloseTo(0.5);
+  });
+
+  it("跨快照计算先按身份键去重:局部补跑重叠快照下 samples 不虚增", async () => {
+    const carried = res("dup/a", "passed", { startedAt: "2026-07-01T09:00:00.000Z" });
+    const s1 = snap({ experimentId: "exp/dup", results: [carried], runStartedAt: "2026-07-01T09:00:00.000Z" });
+    // 携带合入:同一条结果(同身份键)原样出现在更新的快照里
+    const s2 = snap({ experimentId: "exp/dup", results: [{ ...carried }], runStartedAt: "2026-07-02T09:00:00.000Z" });
+    const data = await scopeSummaryData([s1, s2]);
+    expect(data.attempts).toBe(1);
+    expect(data.endToEndPassRate.samples).toBe(1);
+  });
+
+  it("自定义指标:where 是进入计算前的过滤;perEval + acrossEvals 两级分别生效", async () => {
+    const s = snap({
+      experimentId: "exp/custom",
+      results: [
+        res("a", "passed", { durationMs: 100, attempt: 0 }),
+        res("a", "passed", { durationMs: 300, attempt: 1 }),
+        res("b", "failed", { durationMs: 900 }),
+        res("c", "passed", { durationMs: 500 }),
+      ],
+    });
+    const fastest = defineMetric({
+      name: "fastest-pass",
+      where: (attempt) => attempt.result.verdict === "passed",
+      value: (attempt) => attempt.result.durationMs,
+      aggregate: { perEval: "min", acrossEvals: "mean" },
+    });
+    const table = await metricTableData([s], { rows: "agent", columns: [fastest] });
+    const cell = table.rows[0]!.cells["fastest-pass"]!;
+    // b 被 where 排除;a 题内 min = 100,c = 500 → mean 300(双 mean 会是 (200+500)/2=350,可区分)
+    expect(cell.value).toBe(300);
+    expect(cell.samples).toBe(3);
+    expect(cell.total).toBe(4);
+
+    const allExcluded = defineMetric({
+      name: "none",
+      where: () => false,
+      value: () => 1,
+    });
+    const empty = await metricTableData([s], { rows: "agent", columns: [allExcluded] });
+    expect(empty.rows[0]!.cells.none!.value).toBeNull();
+  });
+
+  it("evalGroup 按完整父路径分组(无 / 取完整 id),与可比组同一条派生规则", async () => {
+    expect(evalGroupOf("a/b/c")).toBe("a/b");
+    expect(evalGroupOf("security/sql-injection")).toBe("security");
+    expect(evalGroupOf("standalone")).toBe("standalone");
+    const s = snap({
+      experimentId: "exp/g",
+      results: [res("a/b/c", "passed"), res("a/b/d", "failed"), res("solo", "passed")],
+    });
+    const matrix = await metricMatrixData([s], { rows: "evalGroup", columns: "agent", cell: endToEndPassRate });
+    const rowKeys = [...new Set(matrix.cells.map((c) => c.row))];
+    expect(rowKeys.sort()).toEqual(["a/b", "solo"]);
+  });
+
+  it("报告消费落盘 verdict,不重新判卷:断言与 verdict 矛盾时以 verdict 为准", async () => {
+    const s = snap({
+      experimentId: "exp/v",
+      results: [
+        res("a", "failed", {
+          // 断言看起来全过,但 verdict 是 failed(如 --strict 翻案):按 verdict 记 0
+          assertions: [softAssertion("s", 1)],
+        }),
+      ],
+    });
+    const data = await scopeSummaryData([s]);
+    expect(data.endToEndPassRate.value).toBe(0);
+  });
+});
+
+describe("宿主现刻水位(selectCurrentResults)", () => {
+  function resultsOf(snapshots: Snapshot[]): Results {
+    const byId = new Map<string, Snapshot[]>();
+    for (const s of snapshots) byId.set(s.experimentId, [...(byId.get(s.experimentId) ?? []), s]);
+    const experiments = [...byId.entries()].map(([id, snaps]) => {
+      const sorted = [...snaps].sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+      const evalIds = [...new Set(sorted.flatMap((s) => s.evals.map((e) => e.id)))].sort();
+      return { id, snapshots: sorted, latest: sorted[0]!, evalIds };
+    });
+    const results = {
+      experiments,
+      skipped: [],
+      latest: () => scopeOf(experiments.map((e) => e.latest)),
+      current: () => selectCurrentResults(results),
+    } as unknown as Results;
+    return results;
+  }
+
+  it("每个 experiment × eval 取跨历史最新判定:先 failed 后 passed 只用最新", async () => {
+    const older = snap({
+      experimentId: "exp/w",
+      results: [res("a", "failed"), res("b", "passed")],
+      runStartedAt: "2026-07-01T00:00:00.000Z",
+    });
+    const newer = snap({
+      experimentId: "exp/w",
+      results: [res("a", "passed")],
+      runStartedAt: "2026-07-02T00:00:00.000Z",
+    });
+    const scope = selectCurrentResults(resultsOf([older, newer]));
+    expect(scope.mode).toBe("current-evals");
+    const data = await scopeSummaryData(scope);
+    expect(data.evals).toBe(2);
+    expect(data.evalVerdicts).toEqual({ passed: 2, failed: 0, errored: 0, skipped: 0 });
+  });
+
+  it("可比性前提:配置不一致的旧快照不贡献 attempt,缺口走 partial-coverage", () => {
+    const oldConfig = snap({
+      experimentId: "exp/cfg",
+      model: "gpt-old",
+      results: [res("a", "passed"), res("b", "passed")],
+      runStartedAt: "2026-07-01T00:00:00.000Z",
+    });
+    const newConfig = snap({
+      experimentId: "exp/cfg",
+      model: "gpt-new",
+      results: [res("a", "failed")],
+      runStartedAt: "2026-07-02T00:00:00.000Z",
+    });
+    const scope = selectCurrentResults(resultsOf([oldConfig, newConfig]));
+    // 旧 model 的 b 不冒充新配置的水位
+    expect(scope.snapshots[0]!.evals.map((e) => e.id)).toEqual(["a"]);
+    const warning = scope.warnings.find((w) => w.kind === "partial-coverage");
+    expect(warning).toMatchObject({ covered: 1, total: 2, command: "niceeval exp exp/cfg" });
+  });
+
+  it("编排字段(runs / maxConcurrency / description…)不参与可比性比较", () => {
+    const older = snap({
+      experimentId: "exp/orch",
+      results: [res("a", "passed"), res("b", "passed")],
+      runStartedAt: "2026-07-01T00:00:00.000Z",
+      experiment: { runs: 3, earlyExit: true, maxConcurrency: 2, selectedEvalIds: ["a", "b"], description: "old" },
+    });
+    const newer = snap({
+      experimentId: "exp/orch",
+      results: [res("a", "failed")],
+      runStartedAt: "2026-07-02T00:00:00.000Z",
+      experiment: { runs: 1, earlyExit: false, selectedEvalIds: ["a"], description: "new" },
+    });
+    const scope = selectCurrentResults(resultsOf([older, newer]));
+    expect(scope.snapshots[0]!.evals.map((e) => e.id)).toEqual(["a", "b"]);
+    expect(scope.warnings.filter((w) => w.kind === "partial-coverage")).toHaveLength(0);
+  });
+});
+
+// ───────────────────────── MetricCell 与缺数据行为 ─────────────────────────
+
+describe("MetricCell 诚实契约", () => {
+  it("measuredZero / partial / missing 三种格子互不混淆;refs 序列化后不丢", async () => {
+    const zero = snap({ experimentId: "exp/zero", results: [res("a", "failed")] });
+    const partial = snap({ experimentId: "exp/partial", results: [res("a", "passed"), res("b", "skipped")] });
+    const missing = snap({ experimentId: "exp/missing", results: [res("a", "skipped")] });
+    const table = await metricTableData([zero, partial, missing], {
+      rows: "experiment",
+      columns: [endToEndPassRate],
+    });
+    const cellOf = (key: string) => table.rows.find((r) => r.key === key)!.cells[endToEndPassRate.name]!;
+    expect(cellOf("exp/zero")).toMatchObject({ value: 0, samples: 1, total: 1 });
+    expect(cellOf("exp/partial")).toMatchObject({ value: 1, samples: 1, total: 2 });
+    expect(cellOf("exp/missing")).toMatchObject({ value: null, samples: 0, total: 1 });
+    // 覆盖率与 refs 不因 JSON 序列化丢失;refs 跟随覆盖范围(含 null 值的 attempt)
+    const roundTrip = JSON.parse(JSON.stringify(table)) as typeof table;
+    expect(roundTrip.rows.find((r) => r.key === "exp/partial")!.cells[endToEndPassRate.name]!.refs).toHaveLength(2);
+    expect(cellOf("exp/missing").refs).toHaveLength(1);
+  });
+
+  it("缺 o11y.json 时 assistantTurns / repeatedFailedCommands 为 missing;result.json 指标不受影响", async () => {
+    const s = snap({ experimentId: "exp/noo11y", results: [res("a", "passed", { durationMs: 1234 })] });
+    const table = await metricTableData([s], {
+      rows: "agent",
+      columns: [assistantTurns, repeatedFailedCommands, durationMs],
+    });
+    const cells = table.rows[0]!.cells;
+    expect(cells[assistantTurns.name]!.value).toBeNull();
+    expect(cells[repeatedFailedCommands.name]!.value).toBeNull();
+    expect(cells[durationMs.name]!.value).toBe(1234);
+  });
+
+  it("repeatedFailedCommands:同命令失败 3 次记 2;两条不同命令各失败 1 次记 0", async () => {
+    const repeat = snap({
+      experimentId: "exp/repeat",
+      results: [
+        res("a", "failed", {
+          o11y: o11ySummary({
+            shellCommands: [
+              { command: "pnpm test", success: false },
+              { command: "pnpm test", success: false },
+              { command: "pnpm test", success: false },
+              { command: "ls", success: true },
+            ],
+          }),
+        }),
+      ],
+    });
+    const distinct = snap({
+      experimentId: "exp/distinct",
+      results: [
+        res("a", "failed", {
+          o11y: o11ySummary({
+            shellCommands: [
+              { command: "pnpm test", success: false },
+              { command: "pnpm build", success: false },
+            ],
+          }),
+        }),
+      ],
+    });
+    const table = await metricTableData([repeat, distinct], {
+      rows: "experiment",
+      columns: [repeatedFailedCommands],
+    });
+    const cellOf = (key: string) => table.rows.find((r) => r.key === key)!.cells[repeatedFailedCommands.name]!;
+    expect(cellOf("exp/repeat").value).toBe(2);
+    expect(cellOf("exp/distinct").value).toBe(0);
+  });
+
+  it("value 与 display 分别可断言;display 由 unit 或自定义 display(value, locale) 驱动", async () => {
+    const s = snap({
+      experimentId: "exp/display",
+      results: [
+        ...[1, 1, 1, 1, 1].map((_, i) => res(`q${i}`, "passed")),
+        res("q5", "failed"),
+      ],
+    });
+    const data = await scopeSummaryData([s]);
+    expect(data.endToEndPassRate.value).toBeCloseTo(5 / 6);
+    expect(data.endToEndPassRate.display).toBe("83.3%");
+
+    const localized = defineMetric({
+      name: "loc",
+      value: () => 1,
+      display: (value, locale) => (locale === "zh-CN" ? `${value} 个` : `${value} item`),
+    });
+    const table = await metricTableData([s], { rows: "agent", columns: [localized] });
+    expect(table.rows[0]!.cells.loc!.display).toEqual({ en: "1 item", "zh-CN": "1 个" });
+  });
+
+  it("value() 抛错时整个计算失败,错误带 metric name 与 attempt locator,不伪装成测不了", async () => {
+    const bad = defineMetric({
+      name: "explode",
+      value: () => {
+        throw new Error("boom");
+      },
+    });
+    const s = snap({ experimentId: "exp/bad", results: [res("a", "passed")] });
+    await expect(metricTableData([s], { rows: "agent", columns: [bad] })).rejects.toThrow(/explode.*boom/s);
+  });
+});
+
+// ───────────────────────── Scoreboard ─────────────────────────
+
+describe("scoreboardData", () => {
+  it("固定题集分母:未跑题按 0 分计入 notRun;跑了但 null 的题计入 unscorable,两个计数不合并", async () => {
+    const nullScore = defineMetric({
+      name: "maybe-score",
+      value: (attempt) => (attempt.evalId === "s/unscorable" ? null : attempt.result.verdict === "passed" ? 1 : 0),
+    });
+    const s = snap({
+      experimentId: "exp/board",
+      results: [res("s/ran", "passed"), res("s/unscorable", "passed")],
+    });
+    const data = await scoreboardData([s], {
+      rows: "agent",
+      questions: ["s/ran", "s/unscorable", "s/never-1", "s/never-2"],
+      score: nullScore,
+    });
+    const row = data.rows[0]!;
+    // 分母恒 4:1 分挣到 1(s/ran),其余 0 → 100 × 1/4 = 25
+    expect(row.total.value).toBe(25);
+    expect(row.total.notRun).toBe(2);
+    expect(row.total.unscorable).toBe(1);
+    expect(row.subjects[0]!.questions).toBe(4);
+  });
+
+  it("权重按最长前缀命中;无命中默认 1;总分 fullMarks × earned / possible", async () => {
+    const s = snap({
+      experimentId: "exp/w",
+      results: [res("security/auth/a", "passed"), res("security/b", "failed"), res("misc", "passed")],
+    });
+    const data = await scoreboardData([s], {
+      rows: "agent",
+      questions: ["security/auth/a", "security/b", "misc"],
+      weights: { "security/": 2, "security/auth/": 4 },
+      fullMarks: 100,
+    });
+    const row = data.rows[0]!;
+    // earned = 4(auth/a) + 0 + 1(misc) = 5;possible = 4 + 2 + 1 = 7
+    expect(row.total.value).toBeCloseTo((100 * 5) / 7);
+    expect(data.weights[0]).toEqual({ prefix: "security/auth/", weight: 4 }); // 最长前缀在前
+  });
+
+  it("subject 缺省与 evalGroup 同一条规则(完整父路径);题集外的 eval 忽略并计入 ignoredEvals", async () => {
+    const s = snap({
+      experimentId: "exp/subject",
+      results: [res("a/b/c", "passed"), res("outside", "passed")],
+    });
+    const data = await scoreboardData([s], { rows: "agent", questions: ["a/b/c"] });
+    expect(data.rows[0]!.subjects[0]!.key).toBe("a/b");
+    expect(data.ignoredEvals).toBe(1);
+  });
+
+  it("questions 空数组 / 重复、非法权重、fullMarks<=0、score 出界、subject 空串都按完整用户反馈失败", async () => {
+    const s = snap({ experimentId: "exp/e", results: [res("a", "passed")] });
+    await expect(scoreboardData([s], { rows: "agent", questions: [] })).rejects.toThrow(/non-empty/);
+    await expect(scoreboardData([s], { rows: "agent", questions: ["a", "a"] })).rejects.toThrow(/twice/);
+    await expect(
+      scoreboardData([s], { rows: "agent", questions: ["a"], weights: { a: 0 } }),
+    ).rejects.toThrow(/positive finite/);
+    await expect(scoreboardData([s], { rows: "agent", questions: ["a"], fullMarks: 0 })).rejects.toThrow(/fullMarks/);
+    await expect(
+      scoreboardData([s], { rows: "agent", questions: ["a"], score: defineMetric({ name: "big", value: () => 2 }) }),
+    ).rejects.toThrow(/\[0, 1\]/);
+    await expect(
+      scoreboardData([s], { rows: "agent", questions: ["a"], subject: () => "" }),
+    ).rejects.toThrow(/empty/);
+  });
+});
+
+// ───────────────────────── 实体列表 ─────────────────────────
+
+describe("实体列表 data", () => {
+  const failed = res("list/failed", "failed", {
+    assertions: [
+      {
+        name: "equals",
+        severity: "gate",
+        outcome: "failed" as const,
+        score: 0,
+        detail: "equals(42)",
+        expected: "42",
+        received: "41",
+      },
+      { name: "second", severity: "gate", outcome: "failed" as const, score: 0, detail: "second-check" },
+    ] as AssertionResult[],
+    usage: { inputTokens: 10, outputTokens: 5, costUSD: 0.1 },
+  });
+  const errored = res("list/errored", "errored", {
+    error: {
+      code: "sandbox-create-failed",
+      message: "docker daemon unreachable",
+      phase: "sandbox.create",
+      stack: "Error: docker daemon unreachable\n    at boot (sandbox.ts:10:3)",
+    },
+  });
+  const passed = res("list/passed", "passed");
+  const skipped = res("list/skipped", "skipped");
+  const listSnap = () => snap({ experimentId: "exp/list", results: [failed, errored, passed, skipped] });
+
+  it("failureSummary 三态:failed 取主失败断言摘要、errored 取 error 一层摘要(phase · code · message)、passed/skipped 为 null", async () => {
+    const items = await attemptListData([listSnap()]);
+    const byEval = new Map(items.map((item) => [item.evalId, item]));
+    expect(byEval.get("list/failed")!.failureSummary).toContain("equals(42)");
+    expect(byEval.get("list/failed")!.failureSummary).toContain("received 41");
+    expect(byEval.get("list/failed")!.moreFailures).toBe(1);
+    expect(byEval.get("list/errored")!.failureSummary).toBe(
+      "sandbox.create · sandbox-create-failed · docker daemon unreachable",
+    );
+    expect(byEval.get("list/passed")!.failureSummary).toBeNull();
+    expect(byEval.get("list/skipped")!.failureSummary).toBeNull();
+  });
+
+  it("序列化 JSON 不含第二条断言文本、stack、evidence 或 diagnostics;costUSD 缺失一律 null", async () => {
+    const items = await attemptListData([listSnap()]);
+    const json = JSON.stringify(items);
+    expect(json).not.toContain("second-check");
+    expect(json).not.toContain("sandbox.ts:10:3");
+    expect(json).not.toContain('"assertions"');
+    expect(json).not.toContain('"diagnostics"');
+    const byEval = new Map(items.map((item) => [item.evalId, item]));
+    expect(byEval.get("list/failed")!.costUSD).toBe(0.1);
+    expect(byEval.get("list/errored")!.costUSD).toBeNull();
+  });
+
+  it("redact 只改写 failureSummary(含嵌套 attempt 条目);身份字段、locator 与数值指标原样", async () => {
+    const redact = (text: string) => text.replaceAll("41", "[redacted]");
+    const attempts = await attemptListData([listSnap()], { redact });
+    const failedItem = attempts.find((item) => item.evalId === "list/failed")!;
+    expect(failedItem.failureSummary).toContain("[redacted]");
+    expect(failedItem.evalId).toBe("list/failed");
+    expect(failedItem.experimentId).toBe("exp/list");
+    expect(failedItem.costUSD).toBe(0.1);
+
+    const evals = await evalListData([listSnap()], { redact });
+    const nested = evals.find((item) => item.evalId === "list/failed")!.attempts[0]!;
+    expect(nested.failureSummary).toContain("[redacted]");
+
+    const experiments = await experimentListData([listSnap()], { redact });
+    const nestedInExp = experiments[0]!.evalRows.find((row) => row.evalId === "list/failed")!.attempts[0]!;
+    expect(nestedInExp.failureSummary).toContain("[redacted]");
+  });
+
+  it("experimentListData:evalVerdicts / endToEndPassRate / costUSD / durationMs / tokens 齐全,默认按端到端成功率降序", async () => {
+    const winner = snap({ experimentId: "exp/win", results: [res("a", "passed"), res("b", "passed")] });
+    const loser = snap({ experimentId: "exp/lose", results: [res("a", "failed"), res("b", "passed")] });
+    const items = await experimentListData([loser, winner]);
+    expect(items.map((item) => item.experimentId)).toEqual(["exp/win", "exp/lose"]);
+    expect(items[0]!.evalVerdicts).toEqual({ passed: 2, failed: 0, errored: 0, skipped: 0 });
+    expect(items[0]!.endToEndPassRate.value).toBe(1);
+    expect(items[1]!.evals).toBe(2);
+  });
+
+  it("同一 experiment 的输入含不一致可比性配置时按完整用户反馈失败,指引 snapshot 维度 / MetricLine", async () => {
+    const a = snap({ experimentId: "exp/mixed", model: "gpt-a", results: [res("x", "passed")] });
+    const b = snap({ experimentId: "exp/mixed", model: "gpt-b", results: [res("y", "passed")] });
+    await expect(experimentListData([a, b])).rejects.toThrow(/snapshot.*MetricLine|MetricLine/s);
+    // current() 口径的 Scope(一实验一配置)照常计算
+    const clean = scopeOf([a]);
+    await expect(experimentListData(clean)).resolves.toHaveLength(1);
+  });
+});
+
+// ───────────────────────── scopeSummaryData ─────────────────────────
+
+describe("scopeSummaryData", () => {
+  it("evals 按 experimentId + evalId 计数(2 实验 × 6 题 = 12),与 evalVerdicts 同分母;两级计票在含重试时不同", async () => {
+    const mk = (experimentId: string) =>
+      snap({
+        experimentId,
+        results: [
+          res("q1", "passed"),
+          res("q2", "failed", { attempt: 0 }),
+          res("q2", "passed", { attempt: 1 }), // 重试后过:eval 级 passed,attempt 级 1 failed + 1 passed
+          res("q3", "passed"),
+          res("q4", "failed"),
+          res("q5", "errored", { error: erroredWith("x") }),
+          res("q6", "skipped"),
+        ],
+      });
+    const data = await scopeSummaryData([mk("cmp/a"), mk("cmp/b")]);
+    expect(data.experiments).toBe(2);
+    expect(data.evals).toBe(12);
+    expect(data.evalVerdicts).toEqual({ passed: 6, failed: 2, errored: 2, skipped: 2 });
+    expect(
+      data.evalVerdicts.passed + data.evalVerdicts.failed + data.evalVerdicts.errored + data.evalVerdicts.skipped,
+    ).toBe(data.evals);
+    expect(data.attemptVerdicts).toEqual({ passed: 6, failed: 4, errored: 2, skipped: 2 });
+    expect(data.attemptVerdicts).not.toEqual(data.evalVerdicts);
+    expect(data.range.earliestStartedAt).not.toBeNull();
+    expect(data.range.latestStartedAt).not.toBeNull();
+  });
+
+  it("totalCostUSD 按 attempt 求和;一次成本都没报时 value 为 null,不伪造 0", async () => {
+    const withCost = snap({
+      experimentId: "exp/cost",
+      results: [
+        res("a", "passed", { usage: { inputTokens: 1, outputTokens: 1, costUSD: 0.25 } }),
+        res("b", "failed", { estimatedCostUSD: 0.05 }),
+        res("c", "passed"),
+      ],
+    });
+    const data = await scopeSummaryData([withCost]);
+    expect(data.totalCostUSD.value).toBeCloseTo(0.3);
+    const none = await scopeSummaryData([snap({ experimentId: "exp/free", results: [res("a", "passed")] })]);
+    expect(none.totalCostUSD.value).toBeNull();
+  });
+
+  it("空范围的 range 为 null,不编造当前时间", async () => {
+    const data = await scopeSummaryData([]);
+    expect(data.range).toEqual({ earliestStartedAt: null, latestStartedAt: null });
+    expect(data.evals).toBe(0);
+  });
+});
+
+// ───────────────────────── experimentComparisonData ─────────────────────────
+
+describe("experimentComparisonData", () => {
+  it("计算前按完整父路径分区,根目录 experiment 单例组;每组与独立调用三个计算函数深等,refs 不跨组", async () => {
+    const g1a = snap({ experimentId: "compare/a", agent: "bub", results: [res("q", "passed")] });
+    const g1b = snap({ experimentId: "compare/b", agent: "codex", results: [res("q", "failed")] });
+    const g2 = snap({ experimentId: "bench/long/x", results: [res("q", "passed")] });
+    const solo = snap({ experimentId: "standalone", results: [res("q", "errored", { error: erroredWith("x") })] });
+
+    const data = await experimentComparisonData([g1a, g1b, g2, solo]);
+    expect(data.groups.map((g) => g.key)).toEqual(["bench/long", "compare", "standalone"]);
+
+    const compare = data.groups.find((g) => g.key === "compare")!;
+    const [summary, scatter, experiments] = await Promise.all([
+      scopeSummaryData([g1a, g1b]),
+      metricScatterData([g1a, g1b], { points: "experiment", series: "agent", x: costUSD, y: endToEndPassRate }),
+      experimentListData([g1a, g1b]),
+    ]);
+    expect(compare.summary).toEqual(summary);
+    expect(compare.scatter).toEqual(scatter);
+    expect(compare.experiments).toEqual(experiments);
+
+    // 组外 attempt 不污染:compare 组的 refs 不含 bench/standalone 的 locator
+    const soloRefs = data.groups.find((g) => g.key === "standalone")!.summary.endToEndPassRate.refs;
+    const compareRefs = compare.summary.endToEndPassRate.refs;
+    expect(compareRefs.some((ref) => soloRefs.includes(ref))).toBe(false);
+  });
+});
+
+// ───────────────────────── metricScatterData / metricMatrixData ─────────────────────────
+
+describe("metricScatterData / metricMatrixData", () => {
+  it("缺 x 或 y 的点留在 rows 里可数(组件不画并报数);矩阵稀疏:无 attempt 的组合不生成格子", async () => {
+    const withCost = snap({
+      experimentId: "cmp/priced",
+      agent: "bub",
+      results: [res("a", "passed", { usage: { inputTokens: 1, outputTokens: 1, costUSD: 0.2 } })],
+    });
+    const noCost = snap({ experimentId: "cmp/free", agent: "codex", results: [res("b", "passed")] });
+    const scatter = await metricScatterData([withCost, noCost], {
+      points: "experiment",
+      series: "agent",
+      x: costUSD,
+      y: endToEndPassRate,
+    });
+    expect(scatter.pointDimension).toBe("experiment");
+    expect(scatter.rows).toHaveLength(2);
+    expect(scatter.rows.find((r) => r.key === "cmp/free")!.x.value).toBeNull();
+
+    const matrix = await metricMatrixData([withCost, noCost], {
+      rows: "eval",
+      columns: "agent",
+      cell: endToEndPassRate,
+    });
+    // a×codex、b×bub 没有样本 → 不出现(不是 value: 0)
+    expect(matrix.cells).toHaveLength(2);
+    expect(matrix.rowDimension).toBe("eval");
+    expect(matrix.columnDimension).toBe("agent");
+  });
+
+  it("分组维度上未声明的 flag 归 (missing) 组,不丢行", async () => {
+    const withFlag = snap({
+      experimentId: "f/on",
+      results: [res("a", "passed")],
+      experiment: { runs: 1, earlyExit: false, selectedEvalIds: [], flags: { memory: "mempal" } },
+    });
+    const withoutFlag = snap({ experimentId: "f/off", results: [res("a", "failed")] });
+    const table = await metricTableData([withFlag, withoutFlag], {
+      rows: flag("memory"),
+      columns: [endToEndPassRate],
+    });
+    expect(table.rows.map((r) => r.key).sort()).toEqual(["(missing)", "mempal"]);
+  });
+
+  it("metricTableData sort:必须是 columns 中同一实例且声明 better;方向随 better,缺数据沉底", async () => {
+    const hi = snap({ experimentId: "s/hi", results: [res("a", "passed")] });
+    const lo = snap({ experimentId: "s/lo", results: [res("a", "failed")] });
+    const na = snap({ experimentId: "s/na", results: [res("a", "skipped")] });
+    const byPass = await metricTableData([lo, hi, na], {
+      rows: "experiment",
+      columns: [endToEndPassRate],
+      sort: endToEndPassRate,
+    });
+    expect(byPass.rows.map((r) => r.key)).toEqual(["s/hi", "s/lo", "s/na"]);
+
+    const fast = snap({ experimentId: "d/fast", results: [res("a", "passed", { durationMs: 10 })] });
+    const slow = snap({ experimentId: "d/slow", results: [res("a", "passed", { durationMs: 99 })] });
+    const byDuration = await metricTableData([slow, fast], {
+      rows: "experiment",
+      columns: [durationMs],
+      sort: durationMs,
+    });
+    expect(byDuration.rows.map((r) => r.key)).toEqual(["d/fast", "d/slow"]); // lower better:低在前
+
+    await expect(
+      metricTableData([hi], { rows: "experiment", columns: [endToEndPassRate], sort: durationMs }),
+    ).rejects.toThrow(/columns/);
+    const noBetter = defineMetric({ name: "plain", value: () => 1 });
+    await expect(
+      metricTableData([hi], { rows: "experiment", columns: [noBetter], sort: noBetter }),
+    ).rejects.toThrow(/better/);
+  });
+
+  it("省略 sort 时按行 key 字典序(维度 domain 稳定序,不随文件扫描顺序)", async () => {
+    const b = snap({ experimentId: "o/bbb", results: [res("a", "passed")] });
+    const a = snap({ experimentId: "o/aaa", results: [res("a", "failed")] });
+    const table = await metricTableData([b, a], { rows: "experiment", columns: [endToEndPassRate] });
+    expect(table.rows.map((r) => r.key)).toEqual(["o/aaa", "o/bbb"]);
+  });
+});
+
+// ───────────────────────── metricLineData ─────────────────────────
+
+describe("metricLineData", () => {
+  const flaggedSnap = (experimentId: string, budget: number | undefined, verdicts: Verdict[]) =>
+    snap({
+      experimentId,
+      results: verdicts.map((v, i) => res(`q${i}`, v)),
+      experiment: {
+        runs: 1,
+        earlyExit: false,
+        selectedEvalIds: [],
+        ...(budget !== undefined ? { flags: { budget } } : {}),
+      },
+    });
+
+  it("未声明数值 flag 的 experiment 不伪造 x 值(不落到 x=0)并可数", async () => {
+    const data = await metricLineData(
+      [flaggedSnap("l/100", 100, ["passed"]), flaggedSnap("l/none", undefined, ["passed"])],
+      { x: numericFlag("budget"), y: endToEndPassRate },
+    );
+    const missing = data.rows.filter((r) => r.x === null);
+    expect(missing).toHaveLength(1);
+    expect(data.rows.some((r) => r.x === 0)).toBe(false);
+  });
+
+  it("点身份 = (series, x):同桶多 experiment 合成一个点,y 按 (series, x, experiment, eval) 顺序聚合", async () => {
+    // 两个 experiment 同 x=100:各 1 题,一个 passed 一个 failed → 合成一点 y = (1+0)/2
+    const data = await metricLineData(
+      [flaggedSnap("m/one", 100, ["passed"]), flaggedSnap("m/two", 100, ["failed"])],
+      { x: numericFlag("budget"), y: endToEndPassRate },
+    );
+    expect(data.rows).toHaveLength(1);
+    expect(data.rows[0]!.key).toBe("100"); // x 的稳定十进制字符串
+    expect(data.rows[0]!.x).toBe(100);
+    expect(data.rows[0]!.y.value).toBeCloseTo(0.5);
+  });
+
+  it("自定义 NumericAxis.of 在同一 experiment × eval 内不恒定时报完整用户反馈,不静默取首值", async () => {
+    const s = snap({
+      experimentId: "l/vary",
+      results: [res("q", "passed", { attempt: 0, durationMs: 10 }), res("q", "passed", { attempt: 1, durationMs: 20 })],
+    });
+    const perAttempt = {
+      name: "per-attempt",
+      of: (attempt: AttemptHandle) => attempt.result.durationMs,
+    };
+    await expect(metricLineData([s], { x: perAttempt, y: endToEndPassRate })).rejects.toThrow(/not constant/);
+  });
+});
+
+// ───────────────────────── deltaTableData 与 pairsByFlag ─────────────────────────
+
+describe("deltaTableData", () => {
+  it("任一侧缺数据时 delta 保持缺失;方向按指标 better 判断改善/退化", async () => {
+    const a = snap({
+      experimentId: "d/base",
+      results: [res("q", "passed", { usage: { inputTokens: 1, outputTokens: 1, costUSD: 0.4 } })],
+    });
+    const b = snap({
+      experimentId: "d/next",
+      results: [res("q", "passed", { usage: { inputTokens: 1, outputTokens: 1, costUSD: 0.2 } })],
+    });
+    const data = await deltaTableData([a, b], {
+      by: "experiment",
+      pairs: [{ label: "next vs base", a: "d/base", b: "d/next" }],
+      metrics: [costUSD, assistantTurns],
+    });
+    expect(data.byDimension).toBe("experiment");
+    const row = data.rows[0]!;
+    expect(row.label).toBe("next vs base");
+    // costUSD 下降且 better: "lower" → improved
+    expect(row.cells[costUSD.name]).toMatchObject({ delta: expect.closeTo(-0.2, 5), outcome: "improved" });
+    // assistantTurns 两侧都缺 o11y → delta null → unavailable
+    expect(row.cells[assistantTurns.name]).toMatchObject({ delta: null, outcome: "unavailable" });
+  });
+
+  it("pairs 空数组在计算时按完整用户反馈报错;运行期构造的非空 pairs 直接可用", async () => {
+    const s = snap({ experimentId: "d/x", results: [res("q", "passed")] });
+    await expect(
+      deltaTableData([s], { by: "experiment", pairs: [] as { label: string; a: string; b: string }[], metrics: [costUSD] }),
+    ).rejects.toThrow(/empty/);
+    const dynamic = [{ label: "run", a: "d/x", b: "d/y" }].filter(() => true);
+    await expect(
+      deltaTableData([s], { by: "experiment", pairs: dynamic, metrics: [costUSD] }),
+    ).resolves.toMatchObject({ rows: [{ label: "run" }] });
+  });
+
+  it("字面 pair 校验:label 空/重复、a === b 报错;a/b 精确匹配维度 key,未命中保留 pair、对应侧缺失", async () => {
+    const s = snap({ experimentId: "d/only", results: [res("q", "passed")] });
+    await expect(
+      deltaTableData([s], {
+        by: "experiment",
+        pairs: [
+          { label: "dup", a: "d/only", b: "d/gone" },
+          { label: "dup", a: "d/gone", b: "d/only" },
+        ],
+        metrics: [endToEndPassRate],
+      }),
+    ).rejects.toThrow(/twice/);
+    await expect(
+      deltaTableData([s], { by: "experiment", pairs: [{ label: "self", a: "d/only", b: "d/only" }], metrics: [endToEndPassRate] }),
+    ).rejects.toThrow(/itself/);
+    const data = await deltaTableData([s], {
+      by: "experiment",
+      pairs: [{ label: "half", a: "d/only", b: "d/gone" }],
+      metrics: [endToEndPassRate],
+    });
+    const cell = data.rows[0]!.cells[endToEndPassRate.name]!;
+    expect(cell.a.value).toBe(1);
+    expect(cell.b.value).toBeNull();
+    expect(cell.delta).toBeNull();
+  });
+
+  describe("pairsByFlag", () => {
+    /** 三 agent × baseline / agents-md / mempal 矩阵;bub 无 mempal,如实少一对。 */
+    const matrixSnaps = () => {
+      const mk = (agent: string, memory?: string) =>
+        snap({
+          experimentId: `mem/${agent}${memory ? `--${memory}` : ""}`,
+          agent,
+          results: [res("q", "passed")],
+          experiment: {
+            runs: 1,
+            earlyExit: false,
+            selectedEvalIds: [],
+            ...(memory !== undefined ? { flags: { memory } } : {}),
+          },
+        });
+      return [
+        mk("bub"),
+        mk("bub", "agents-md"),
+        mk("codex"),
+        mk("codex", "agents-md"),
+        mk("codex", "mempal"),
+        mk("gemini"),
+        mk("gemini", "agents-md"),
+        mk("gemini", "mempal"),
+      ];
+    };
+
+    it("同可比组 + 删除该 flag 后配置深相等才配对;a 取 baseline(缺省=未声明),label 自动生成,按 (a 末段, 显示键) 字典序", async () => {
+      const data = await deltaTableData(matrixSnaps(), {
+        by: "experiment",
+        pairs: pairsByFlag("memory"),
+        metrics: [endToEndPassRate],
+      });
+      expect(data.rows.map((r) => r.label)).toEqual([
+        "bub · memory=agents-md",
+        "codex · memory=agents-md",
+        "codex · memory=mempal",
+        "gemini · memory=agents-md",
+        "gemini · memory=mempal",
+      ]);
+      expect(data.experiments).toBe(8);
+    });
+
+    it("可比性配置不同(model 不同)的两实验不配对", async () => {
+      const base = snap({
+        experimentId: "mm/a",
+        model: "gpt-a",
+        results: [res("q", "passed")],
+        experiment: { runs: 1, earlyExit: false, selectedEvalIds: [] },
+      });
+      const other = snap({
+        experimentId: "mm/b",
+        model: "gpt-b",
+        results: [res("q", "passed")],
+        experiment: { runs: 1, earlyExit: false, selectedEvalIds: [], flags: { memory: "on" } },
+      });
+      const data = await deltaTableData([base, other], {
+        by: "experiment",
+        pairs: pairsByFlag("memory"),
+        metrics: [endToEndPassRate],
+      });
+      expect(data.rows).toHaveLength(0);
+      expect(data.experiments).toBe(2);
+    });
+
+    it("收窄到单实验时 0 对不是错误:空 rows + 配对域实验数;by 非 experiment 报完整用户反馈", async () => {
+      const single = snap({ experimentId: "solo/x", results: [res("q", "passed")] });
+      const data = await deltaTableData([single], {
+        by: "experiment",
+        pairs: pairsByFlag("memory"),
+        metrics: [endToEndPassRate],
+      });
+      expect(data.rows).toHaveLength(0);
+      expect(data.experiments).toBe(1);
+
+      await expect(
+        deltaTableData([single], { by: "agent", pairs: pairsByFlag("memory"), metrics: [endToEndPassRate] }),
+      ).rejects.toThrow(/by: "experiment"/);
+    });
+
+    it("baseline 显式声明时 a 侧取该 flag 值", async () => {
+      const data = await deltaTableData(matrixSnaps(), {
+        by: "experiment",
+        pairs: pairsByFlag("memory", { baseline: "agents-md" }),
+        metrics: [endToEndPassRate],
+      });
+      // a = *--agents-md;b = 未声明(显示键 (missing))与 mempal
+      expect(data.rows.map((r) => r.label)).toEqual([
+        "bub--agents-md · memory=(missing)",
+        "codex--agents-md · memory=(missing)",
+        "codex--agents-md · memory=mempal",
+        "gemini--agents-md · memory=(missing)",
+        "gemini--agents-md · memory=mempal",
+      ]);
+    });
   });
 });
 
 // ───────────────────────── examScore ─────────────────────────
 
 describe("examScore", () => {
-  it("errored(断言空数组)得 0 —— 不因「gate 全过」空真得满分", async () => {
+  it("gate 决定能否得分,soft 给质量分;errored 交白卷是 0 分不是缺数据", async () => {
     const s = snap({
-      experimentId: "exp/x",
-      results: [res("A", "errored", { assertions: [], error: erroredWith("adapter crashed") })],
-    });
-    const data = await MetricTable.data([s], { rows: "agent", columns: [examScore] });
-    const cell = data.rows[0].cells["exam-score"];
-    expect(cell.value).toBe(0); // 交白卷是 0 分,不是缺数据,更不是满分
-    expect(cell.samples).toBe(1);
-  });
-
-  it("failed 得 0,哪怕 soft 分不低(报告不重新判卷)", async () => {
-    const s = snap({
-      experimentId: "exp/x",
-      results: [res("A", "failed", { assertions: [softAssertion("judge", 0.9)] })],
-    });
-    const data = await MetricTable.data([s], { rows: "agent", columns: [examScore] });
-    expect(data.rows[0].cells["exam-score"].value).toBe(0);
-  });
-
-  it("passed:soft 均分;gate 不参与给分;无 soft 则满分 1", async () => {
-    const withSoft = snap({
-      experimentId: "exp/a",
+      experimentId: "exam/x",
       results: [
-        res("A", "passed", {
-          assertions: [
-            softAssertion("judge-1", 0.5),
-            softAssertion("judge-2", 1),
-            { name: "includes", severity: "gate", score: 1, outcome: "passed" as const },
-          ],
-        }),
+        res("soft", "passed", { assertions: [softAssertion("a", 0.5), softAssertion("b", 1)] }),
+        res("allgate", "passed"),
+        res("crashed", "errored", { error: erroredWith("boom") }),
       ],
     });
-    const noSoft = snap({
-      experimentId: "exp/b",
-      results: [
-        res("B", "passed", {
-          assertions: [{ name: "includes", severity: "gate", score: 1, outcome: "passed" as const }],
-        }),
-      ],
-    });
-    const a = await MetricTable.data([withSoft], { rows: "agent", columns: [examScore] });
-    expect(a.rows[0].cells["exam-score"].value).toBe(0.75);
-    const b = await MetricTable.data([noSoft], { rows: "agent", columns: [examScore] });
-    expect(b.rows[0].cells["exam-score"].value).toBe(1);
-  });
-
-  it("skipped → null,不进聚合", async () => {
-    const s = snap({ experimentId: "exp/x", results: [res("A", "skipped")] });
-    const data = await MetricTable.data([s], { rows: "agent", columns: [examScore] });
-    expect(data.rows[0].cells["exam-score"].value).toBeNull();
-  });
-});
-
-// ───────────────────────── 三个通过率指标(docs/feature/reports/library.md「内置指标」)─────────────────────────
-//
-// 同一份 passed / failed / errored / skipped 混合 fixture 上,三个口径必须给出三个不同的数,
-// 任何一处偷懒复用另一个公式都会在这里露馅:
-//   taskPassRate:errored → null 不进分母 → (1 + 0) / 2 = 50%
-//   executionReliability:errored → 0,passed/failed → 1 → (1 + 1 + 0) / 3 ≈ 66.7%
-//   endToEndPassRate:failed/errored → 0 → (1 + 0 + 0) / 3 ≈ 33.3%
-
-describe("taskPassRate / executionReliability / endToEndPassRate", () => {
-  const mixed = () =>
-    snap({
-      experimentId: "exp/mixed",
-      results: [
-        res("A", "passed"),
-        res("B", "failed"),
-        res("C", "errored", { error: erroredWith("adapter crashed") }),
-        res("D", "skipped"),
-      ],
-    });
-
-  it("taskPassRate:errored 记 null 不进分母 —— 基建故障不伪装成 Agent 答错", async () => {
-    const data = await MetricTable.data([mixed()], { rows: "agent", columns: [taskPassRate] });
-    const cell = data.rows[0].cells["task-pass-rate"];
-    expect(cell.value).toBeCloseTo(0.5, 10); // (1 + 0) / 2:errored 与 skipped 都不在分母
-    expect(cell.samples).toBe(2); // errored、skipped 都是 null,不算有效样本
-    expect(cell.total).toBe(4);
-  });
-
-  it("executionReliability:跑到可判定(passed/failed)= 1,errored = 0,skipped → null", async () => {
-    const data = await MetricTable.data([mixed()], { rows: "agent", columns: [executionReliability] });
-    const cell = data.rows[0].cells["execution-reliability"];
-    expect(cell.value).toBeCloseTo(2 / 3, 10);
-    expect(cell.samples).toBe(3); // errored 测得了(= 0),skipped 测不了
-    expect(cell.total).toBe(4);
-  });
-
-  it("endToEndPassRate:failed / errored 都记 0 —— 端到端合成,哪边拖累用前两个拆开看", async () => {
-    const data = await MetricTable.data([mixed()], { rows: "agent", columns: [endToEndPassRate] });
-    const cell = data.rows[0].cells["end-to-end-pass-rate"];
-    expect(cell.value).toBeCloseTo(1 / 3, 10);
-    expect(cell.samples).toBe(3);
-    expect(cell.total).toBe(4);
-  });
-
-  it("全部 errored:taskPassRate 缺数据(null),executionReliability 如实 0 —— 两个指标不互相冒充", async () => {
-    const s = snap({
-      experimentId: "exp/broken",
-      results: [res("A", "errored", { error: erroredWith("boom") })],
-    });
-    const task = await MetricTable.data([s], { rows: "agent", columns: [taskPassRate] });
-    expect(task.rows[0].cells["task-pass-rate"].value).toBeNull(); // 没有一道题真正被答过
-    const reliability = await MetricTable.data([s], { rows: "agent", columns: [executionReliability] });
-    expect(reliability.rows[0].cells["execution-reliability"].value).toBe(0);
-  });
-});
-
-// ───────────────────────── 内置指标口径 ─────────────────────────
-
-describe("内置指标", () => {
-  it("tokens 只加 input+output,缓存读写不计入;无 usage → null", async () => {
-    const s = snap({
-      experimentId: "exp/x",
-      results: [
-        res("A", "passed", {
-          usage: { inputTokens: 1000, outputTokens: 200, cacheReadTokens: 999_999, cacheWriteTokens: 888 },
-        }),
-        res("B", "failed"), // 无 usage → null,不稀释
-      ],
-    });
-    const data = await MetricTable.data([s], { rows: "agent", columns: [tokens] });
-    const cell = data.rows[0].cells["tokens"];
-    expect(cell.value).toBe(1200);
-    expect(cell.display).toBe("1.2k tokens");
-    expect(cell.samples).toBe(1);
-    expect(cell.total).toBe(2);
-  });
-
-  it("costUSD:网关实测优先于估算;durationMs 对 errored 取实测", async () => {
-    const s = snap({
-      experimentId: "exp/x",
-      results: [
-        res("A", "passed", {
-          usage: { inputTokens: 1, outputTokens: 1, costUSD: 0.5 },
-          estimatedCostUSD: 999, // 实测优先,不该被用到
-        }),
-        res("B", "errored", { durationMs: 3000 }),
-      ],
-    });
-    const cost = await MetricTable.data([s], { rows: "agent", columns: [costUSD] });
-    expect(cost.rows[0].cells["cost"].value).toBe(0.5);
-    const dur = await MetricTable.data([s], { rows: "agent", columns: [durationMs] });
-    expect(dur.rows[0].cells["duration"].value).toBe(2000); // (1000 + 3000)/2,errored 实测照算
-  });
-
-  it("turns:读 o11y.totalTurns;o11y 缺失(未随发布带上)→ null,不是 0;skipped 不进聚合", async () => {
-    const s = snap({
-      experimentId: "exp/x",
-      results: [
-        res("A", "passed", { o11y: o11ySummary(12) }),
-        res("B", "failed"), // 没带 o11y(如 copySnapshots 漏选 artifact)→ null,不稀释成 0
-        res("C", "skipped", { o11y: o11ySummary(3) }), // skipped 恒 null,哪怕 o11y 在场
-      ],
-    });
-    const data = await MetricTable.data([s], { rows: "agent", columns: [turns] });
-    const cell = data.rows[0].cells["turns"];
-    expect(cell.value).toBe(12);
-    expect(cell.samples).toBe(1); // 只有 A 测得了(B 缺 o11y、C 是 skipped)
-    expect(cell.total).toBe(3); // total 是组内全部 attempt 数,不是「本该测得」的分母
-  });
-});
-
-// ───────────────────────── Scoreboard.data ─────────────────────────
-
-describe("Scoreboard.data", () => {
-  it("固定分母 + missing 如实 + 权重最长前缀生效", async () => {
-    const alpha = snap({
-      experimentId: "exp/alpha",
-      agent: "alpha",
-      results: [
-        res("algebra/x", "passed", { agent: "alpha" }),
-        res("algebra/hard/y", "passed", { agent: "alpha" }),
-        res("geometry/z", "passed", { agent: "alpha" }),
-      ],
-    });
-    const beta = snap({
-      experimentId: "exp/beta",
-      agent: "beta",
-      results: [res("algebra/x", "passed", { agent: "beta" })],
-    });
-    const board = await Scoreboard.data([alpha, beta], {
-      rows: "agent",
-      subjects: "evalGroup",
-      weights: { "algebra/": 3, "algebra/hard/": 9 },
-      fullMarks: 100,
-    });
-    expect(board.dimension).toBe("agent");
-    // 生效权重表可审计:最长前缀在前(匹配顺序)
-    expect(board.weights).toEqual([
-      { prefix: "algebra/hard/", weight: 9 },
-      { prefix: "algebra/", weight: 3 },
-    ]);
-
-    const alphaRow = board.rows.find((r) => r.key === "alpha")!;
-    const betaRow = board.rows.find((r) => r.key === "beta")!;
-
-    // Σ分值 = 3(algebra/x)+ 9(algebra/hard/y,最长前缀 9 不是 3)+ 1(geometry/z,默认)= 13
-    expect(alphaRow.total.value).toBeCloseTo(100);
-    // beta 只答了 algebra/x:总分 = 100 × 3/13 ≈ 23.1。
-    // 若最长前缀错配成 "algebra/" 的 3,分母变 7,会得 100 × 3/7 ≈ 42.9 —— 钉死歧义。
-    expect(betaRow.total.value).toBeCloseTo((100 * 3) / 13);
-
-    // 固定分母:beta 没跑的题留在分母,missing 如实报在科目行
-    const betaAlgebra = betaRow.subjects.find((s) => s.key === "algebra")!;
-    expect(betaAlgebra.possible).toBe(12); // 3 + 9
-    expect(betaAlgebra.earned).toBe(3);
-    expect(betaAlgebra.evals).toBe(2);
-    expect(betaAlgebra.missing).toBe(1);
-    const betaGeometry = betaRow.subjects.find((s) => s.key === "geometry")!;
-    expect(betaGeometry.possible).toBe(1);
-    expect(betaGeometry.earned).toBe(0);
-    expect(betaGeometry.missing).toBe(1);
-
-    const alphaAlgebra = alphaRow.subjects.find((s) => s.key === "algebra")!;
-    expect(alphaAlgebra.earned).toBe(12);
-    expect(alphaAlgebra.missing).toBe(0);
-  });
-
-  it("默认 score 是 examScore:soft 分进总分;skipped 算 missing 而非 0 分入账", async () => {
-    const solo = snap({
-      experimentId: "exp/solo",
-      agent: "solo",
-      results: [
-        res("algebra/x", "passed", { agent: "solo", assertions: [softAssertion("judge", 0.5)] }),
-        res("algebra/y", "skipped", { agent: "solo" }), // 无有效样本 → missing(按 0 计但如实标注)
-      ],
-    });
-    const board = await Scoreboard.data([solo], { rows: "agent" });
-    const row = board.rows[0];
-    // 两题各 1 分:0.5 + 0(missing)→ 100 × 0.5/2 = 25
-    expect(row.total.value).toBeCloseTo(25);
-    expect(row.subjects[0].missing).toBe(1);
-    expect(row.subjects[0].evals).toBe(2);
-  });
-
-  it("快照携带的 knownEvalIds 进固定分母(发布目录上的残缺不消失)", async () => {
-    const s = snap({
-      experimentId: "exp/x",
-      agent: "solo",
-      results: [res("algebra/x", "passed", { agent: "solo" })],
-      knownEvalIds: ["algebra/x", "algebra/y"],
-    });
-    const board = await Scoreboard.data([s], { rows: "agent" });
-    expect(board.rows[0].subjects[0].evals).toBe(2);
-    expect(board.rows[0].subjects[0].missing).toBe(1);
-    expect(board.rows[0].total.value).toBeCloseTo(50);
-  });
-});
-
-// ───────────────────────── MetricScatter.data ─────────────────────────
-
-describe("MetricScatter.data", () => {
-  it("任一轴 null 的点仍在 rows 里、可数;series 随组解析", async () => {
-    const withCost = snap({
-      experimentId: "exp/a",
-      agent: "a1",
-      results: [res("A", "passed", { agent: "a1", usage: { inputTokens: 10, outputTokens: 5, costUSD: 0.5 } })],
-    });
-    const noCost = snap({
-      experimentId: "exp/b",
-      agent: "b1",
-      results: [res("A", "passed", { agent: "b1" })],
-    });
-    const data = await MetricScatter.data([withCost, noCost], {
-      points: "experiment",
-      series: "agent",
-      x: costUSD,
-      y: taskPassRate,
-    });
-    expect(data.points).toBe("experiment");
-    expect(data.series).toBe("agent");
-    expect(data.rows).toHaveLength(2);
-
-    const a = data.rows.find((r) => r.key === "exp/a")!;
-    expect(a.series).toBe("a1");
-    expect(a.x.value).toBe(0.5);
-    expect(a.y.value).toBe(1);
-
-    const b = data.rows.find((r) => r.key === "exp/b")!;
-    expect(b.x.value).toBeNull(); // 没有成本数据:点在,值缺
-    expect(b.y.value).toBe(1);
-    // 注脚「n 个点缺数据」就从 rows 里数出来,不需要另一份数据
-    expect(data.rows.filter((r) => r.x.value === null || r.y.value === null)).toHaveLength(1);
-  });
-});
-
-// ───────────────────────── flag():维度与轴 ─────────────────────────
-
-describe("flag()", () => {
-  const withFlags = (id: string, flags: Record<string, unknown> | undefined, verdict: Verdict) =>
-    snap({
-      experimentId: id,
-      results: [res("A", verdict, { experimentId: id, experiment: { flags, runs: 1, earlyExit: true, selectedEvalIds: [] } as import("../types.ts").ExperimentRunInfo })],
-    });
-
-  it("MetricLine.data:x 收 flag、按 experiment 聚合;未声明的作轴 x=null 报数", async () => {
-    const s1 = withFlags("ultra/lat-100", { latencyMs: 100, agents: 1 }, "passed");
-    const s2 = withFlags("ultra/lat-300", { latencyMs: 300, agents: 1 }, "failed");
-    const legacy = withFlags("ultra/legacy", undefined, "passed");
-    const data = await MetricLine.data([s1, s2, legacy], {
-      x: flag("latencyMs", { label: "Simulated latency", unit: "ms" }),
-      series: flag("agents", { label: (v) => `${v} agents` }),
-      y: taskPassRate,
-    });
-    expect(data.x).toEqual({ key: "latencyMs", label: "Simulated latency", unit: "ms" });
-    expect(data.series).toBe("agents");
-    expect(data.rows).toHaveLength(3);
-
-    const p100 = data.rows.find((r) => r.key === "ultra/lat-100")!;
-    expect(p100.x).toBe(100);
-    expect(p100.xDisplay).toBe("100ms");
-    expect(p100.series).toBe("1 agents");
-    expect(p100.y.value).toBe(1);
-
-    // 未声明 flag 的 experiment 不猜:作轴 x=null(组件不画、注脚报数),分组归 (unset)
-    const legacyRow = data.rows.find((r) => r.key === "ultra/legacy")!;
-    expect(legacyRow.x).toBeNull();
-    expect(legacyRow.xDisplay).toBe("");
-    expect(legacyRow.series).toBe("(unset)");
-  });
-
-  it("flag 当维度用:按声明值分组,label 函数折组名", async () => {
-    const s1 = withFlags("exp/a", { agents: 1 }, "passed");
-    const s2 = withFlags("exp/b", { agents: 16 }, "failed");
-    const data = await MetricTable.data([s1, s2], {
-      rows: flag("agents", { label: (v) => `${v} agents` }),
-      columns: [taskPassRate],
-    });
-    expect(data.dimension).toBe("agents");
-    expect(data.rows.map((r) => r.key)).toEqual(["1 agents", "16 agents"]);
-  });
-});
-
-// ───────────────────────── config():顶层运行配置当维度与轴 ─────────────────────────
-// flag() 只读 ExperimentDef.flags 的显式声明;model / reasoningEffort / budget / runs 这类
-// 顶层运行配置用 config() 读快照的 ExperimentRunInfo 投影,外加桥接 model / agent 两个键
-// (docs/feature/reports/library.md「维度与 flags」)。
-
-describe("config()", () => {
-  /** 快照声明 ExperimentRunInfo 投影;字段全集以 docs 的接口为准,这里按键名读值。 */
-  const withConfig = (id: string, info: Record<string, unknown> | undefined, verdict: Verdict, model?: string) => {
-    const s = snap({ experimentId: id, model, results: [res("A", verdict, { experimentId: id })] });
-    if (info) s.experiment = info as unknown as (typeof s)["experiment"];
-    return s;
-  };
-
-  it("config 当维度用:按投影值分组;未投影的 experiment 如实归 (unset)", async () => {
-    const high = withConfig("effort/high", { reasoningEffort: "high" }, "passed");
-    const low = withConfig("effort/low", { reasoningEffort: "low" }, "failed");
-    const legacy = withConfig("effort/legacy", undefined, "passed");
-    const data = await MetricTable.data([high, low, legacy], {
-      rows: config("reasoningEffort", { label: "Reasoning effort" }),
-      columns: [taskPassRate],
-    });
-    expect(data.dimension).toBe("reasoningEffort");
-    expect(data.rows.map((r) => r.key)).toEqual(["high", "low", "(unset)"]);
-  });
-
-  it("config 当数值轴用(MetricLine.data 的 x):非数值或未投影 → x=null 不伪造,注脚可数", async () => {
-    const b1 = withConfig("budget/one", { budget: 1 }, "passed");
-    const b2 = withConfig("budget/two", { budget: 2 }, "failed");
-    const none = withConfig("budget/none", { reasoningEffort: "high" }, "passed"); // 没投影 budget
-    const data = await MetricLine.data([b1, b2, none], {
-      x: config("budget", { label: "Budget", unit: "USD" }),
-      y: taskPassRate,
-    });
-    expect(data.x).toEqual({ key: "budget", label: "Budget", unit: "USD" });
-    const one = data.rows.find((r) => r.key === "budget/one")!;
-    expect(one.x).toBe(1);
-    expect(one.y.value).toBe(1);
-    const missing = data.rows.find((r) => r.key === "budget/none")!;
-    expect(missing.x).toBeNull();
-    expect(missing.xDisplay).toBe("");
-    expect(data.rows.filter((r) => r.x === null)).toHaveLength(1);
-  });
-
-  it("model / agent 两个键桥接到快照顶层权威字段,ExperimentRunInfo 不复制这两个事实", async () => {
-    const mini = withConfig("m/mini", { budget: 1 }, "passed", "gpt-mini");
-    const maxi = withConfig("m/maxi", { budget: 1 }, "failed", "gpt-maxi");
-    const data = await MetricTable.data([mini, maxi], {
-      rows: config("model"),
-      columns: [taskPassRate],
-    });
-    expect(data.rows.map((r) => r.key)).toEqual(["gpt-mini", "gpt-maxi"]);
-
-    const byAgent = await MetricTable.data([mini, maxi], { rows: config("agent"), columns: [taskPassRate] });
-    expect(byAgent.rows.map((r) => r.key)).toEqual(["agent-x"]); // res() 默认 agent-x
-  });
-
-  it("label 函数折组名,与 flag() 同一套规则", async () => {
-    const s1 = withConfig("runs/3", { runs: 3 }, "passed");
-    const s2 = withConfig("runs/5", { runs: 5 }, "passed");
-    const data = await MetricTable.data([s1, s2], {
-      rows: config("runs", { label: (v) => `${v} runs` }),
-      columns: [taskPassRate],
-    });
-    expect(data.rows.map((r) => r.key)).toEqual(["3 runs", "5 runs"]);
-  });
-
-  it("空 name 直接报错,与 flag() 同一门槛", () => {
-    expect(() => config("")).toThrow(/non-empty string/);
-  });
-});
-
-// ───────────────────────── MetricTable.data:没有实体下钻 ─────────────────────────
-
-describe("MetricTable.data", () => {
-  it("rows: \"experiment\" 的 meta 不带 subRows —— MetricTable 只表达维度 × 指标,没有 expand", async () => {
-    const s = snap({
-      experimentId: "exp/x",
-      results: [res("A", "passed"), res("B", "failed")],
-    });
-    const data = await MetricTable.data([s], { rows: "experiment", columns: [taskPassRate] });
-    expect(data.rows).toHaveLength(1);
-    expect(data.rows[0]!.meta).not.toHaveProperty("subRows");
-    // 展开到 Eval 是 ExperimentList 的职责,不在这里验证 —— 见 ExperimentList.data 的测试组。
-  });
-});
-
-// ───────────────────────── reasonFor(原因优先级)─────────────────────────
-// docs/feature/reports/show.md 裸 `show` 的 RESULT 列口径:error → skipReason → 未通过的 gate 断言。
-// ExperimentList / EvalList 的 evalRows.reason、AttemptList 的 attemptItemReason 都port这同一份材料,
-// 这里直接测 reasonFor 本身,不必再经 MetricTable 之类的中间组件绕一圈。
-
-describe("reasonFor", () => {
-  it("同一 result 同时含 error、失败 gate、失败 soft → 只显示 error", () => {
-    const result = res("A", "errored", {
-      error: erroredWith("adapter crashed"),
-      assertions: [
-        { name: "includes", severity: "gate", score: 0, outcome: "failed" as const, detail: "missing text" },
-        softAssertion("judge", 0.2, { outcome: "failed" as const }),
-      ],
-    });
-    expect(reasonFor(result)).toBe("adapter crashed");
-  });
-
-  it("skipReason 优先于 gate 断言,但让位给 error", () => {
-    const result = res("A", "skipped", {
-      skipReason: "missing fixture",
-      assertions: [{ name: "includes", severity: "gate", score: 0, outcome: "failed" as const }],
-    });
-    expect(reasonFor(result)).toBe("missing fixture");
-  });
-
-  it("只展示第一条失败 gate，其余 gate 计数；失败 soft 不进入 gate 计数", () => {
-    const result = res("A", "failed", {
-      assertions: [
-        softAssertion("judge-first", 0.1, { outcome: "failed" as const }), // 声明顺序第一,但 soft 不进 reason
-        { name: "includes", groupPath: ["answer contains required text"], severity: "gate", score: 0, outcome: "failed" as const, expected: "contains Brooklyn", received: "Manhattan" },
-        { name: "matches", severity: "gate", score: 0, outcome: "failed" as const }, // 无 detail,只有 name
-        softAssertion("judge-last", 0.3, { outcome: "failed" as const }), // soft 依旧不进 reason
-      ],
-    });
-    expect(reasonFor(result)).toBe("gate: answer contains required text · includes · expected contains Brooklyn · received Manhattan · +1 more failures");
-  });
-
-  it("都缺席 → 无原因", () => {
-    expect(reasonFor(res("A", "passed"))).toBeUndefined();
-  });
-});
-
-// ───────────────────────── RunOverview.data ─────────────────────────
-
-describe("RunOverview.data", () => {
-  it("costUSD 全缺为 null 不编 0;有实测/估算则求和;Snapshot[] 输入无警告", async () => {
-    const bare = snap({ experimentId: "exp/x", results: [res("A", "passed"), res("B", "failed")] });
-    const bareOverview = await RunOverview.data([bare]);
-    expect(bareOverview.totals.costUSD).toBeNull();
-    expect(bareOverview.totals.attempts).toBe(2);
-    expect(bareOverview.totals.passed).toBe(1);
-    expect(bareOverview.totals.failed).toBe(1);
-    expect(bareOverview.warnings).toEqual([]);
-
-    const priced = snap({
-      experimentId: "exp/y",
-      results: [
-        res("A", "passed", { estimatedCostUSD: 0.1 }),
-        res("B", "passed", { usage: { inputTokens: 1, outputTokens: 1, costUSD: 0.2 } }),
-      ],
-    });
-    const data = await RunOverview.data([priced]);
-    expect(data.totals.costUSD).toBeCloseTo(0.3);
-    expect(data.totals.evals).toBe(2);
-    expect(data.snapshots).toEqual([
-      { experimentId: "exp/y", agent: "agent-x", model: undefined, startedAt: priced.startedAt },
-    ]);
-  });
-
-  it("收 Selection 时 warnings 随行进数据 —— 诚实不靠使用者记得透传", async () => {
-    const s = snap({ experimentId: "exp/x", results: [res("A", "passed")] });
-    const warning: SelectionWarning = {
-      kind: "partial-coverage",
-      experimentId: "exp/x",
-      covered: 1,
-      total: 50,
-      message: "snapshot covers 1 of 50 evals seen in history",
-    };
-    const data = await RunOverview.data(selection([s], [warning]));
-    expect(data.warnings).toEqual([warning]);
-  });
-
-  it("默认成功率把 errored 记 0:2 passed / 5 errored = 2/7,不是 100% 2/7", async () => {
-    const s = snap({
-      experimentId: "exp/unstable",
-      results: [
-        res("pass/a", "passed"),
-        res("pass/b", "passed"),
-        ...Array.from({ length: 5 }, (_, i) => res(`error/${i}`, "errored", { error: erroredWith("boom") })),
-      ],
-    });
-    const data = await RunOverview.data([s]);
-    expect(data.totals.passRate.value).toBeCloseTo(2 / 7, 10);
-    expect(data.totals.passRate.display).toBe("28.6%");
-    expect(data.totals.passRate.samples).toBe(7);
-    expect(data.totals.passRate.total).toBe(7);
-  });
-});
-
-// ───────────────────────── GroupSummary.data ─────────────────────────
-
-describe("GroupSummary.data", () => {
-  it("多 experiment、多 attempt、部分成本缺失、不同 startedAt:eval 级折叠计票(完整身份键)、总成本 null-safe 求和、lastRunAt 取组内最大值", async () => {
-    const expA = snap({
-      experimentId: "exp/a",
-      runStartedAt: "2026-07-01T08:00:00Z",
-      results: [
-        // "shared" 两轮:一败一过 → 折叠成 passed(与 exp/b 同名的 "shared" 各算各的,见下方独立测试)
-        res("shared", "failed", { attempt: 0 }),
-        res("shared", "passed", { attempt: 1, usage: { inputTokens: 1, outputTokens: 1, costUSD: 0.5 } }),
-        // "only-a" 只有 exp/a 跑过,失败、没报成本
-        res("only-a", "failed"),
-      ],
-    });
-    const expB = snap({
-      experimentId: "exp/b",
-      runStartedAt: "2026-07-03T08:00:00Z", // 比 exp/a 晚 —— lastRunAt 应取这个
-      results: [
-        // 与 exp/a 同名的 "shared":不同 experiment,必须独立计一票,不能被误合并
-        res("shared", "errored", { estimatedCostUSD: 0.2 }),
-      ],
-    });
-
-    const data = await GroupSummary.data([expA, expB]);
-
-    expect(data.experiments).toBe(2);
-    // 3 道题:exp/a 的 shared、exp/a 的 only-a、exp/b 的 shared —— 完整身份键各算各的
-    expect(data.evals).toBe(3);
-    expect(data.attempts).toBe(4); // 原始 attempt 计数:exp/a 2(shared)+1(only-a)+ exp/b 1(shared)
-    expect(data.verdicts).toEqual({ passed: 1, failed: 1, errored: 1, skipped: 0 });
-    // eval 级折叠通过率:1 / (1 + 1 + 1) = 1/3,不是 attempt 原始占比(1 passed / 4 attempts = 25%)
-    expect(data.passRate.value).toBeCloseTo(1 / 3, 10);
-    expect(data.passRate.display).toBe("33.3%");
-    expect(data.passRate.samples).toBe(3);
-    expect(data.passRate.total).toBe(3);
-    // 总成本 null-safe 求和:0.5(实测)+ 0.2(估算)= 0.7;only-a 的失败 attempt 没报成本,不计 0
-    expect(data.totalCostUSD).toBeCloseTo(0.7, 10);
-    // 最后运行时间:组内两个快照的 startedAt 取最大值(exp/b 更晚)
-    expect(data.lastRunAt).toBe(expB.startedAt);
-  });
-
-  it("全组没有任何 attempt 报成本 → totalCostUSD null,不编 0", async () => {
-    const s = snap({ experimentId: "exp/x", results: [res("A", "passed"), res("B", "failed")] });
-    const data = await GroupSummary.data([s]);
-    expect(data.totalCostUSD).toBeNull();
-  });
-
-  it("分母为 0(组内 eval 全部 skipped)→ passRate.value 为 null,不编 0%", async () => {
-    const s = snap({ experimentId: "exp/x", results: [res("A", "skipped"), res("B", "skipped")] });
-    const data = await GroupSummary.data([s]);
-    expect(data.verdicts).toEqual({ passed: 0, failed: 0, errored: 0, skipped: 2 });
-    expect(data.passRate.value).toBeNull();
-    expect(data.passRate.display).toBe("—");
-    expect(data.passRate.samples).toBe(0);
-    expect(data.passRate.total).toBe(2);
-  });
-
-  it('MetricTable rows: "experiment" 的 verdicts meta 复用同一份 eval 级统计,行为不变(回归)', async () => {
-    const s = snap({
-      experimentId: "exp/x",
-      results: [res("A", "passed", { attempt: 0 }), res("A", "failed", { attempt: 1 }), res("B", "failed")],
-    });
-    const data = await MetricTable.data([s], { rows: "experiment", columns: [taskPassRate] });
-    // A 两轮折成 passed(任一轮过即过),B 失败:1 passed / 1 failed
-    expect(data.rows[0].meta?.verdicts).toEqual({ passed: 1, failed: 1, errored: 0, skipped: 0 });
-  });
-});
-
-// ───────────────────────── DeltaTable.data ─────────────────────────
-
-describe("DeltaTable.data", () => {
-  it("任一侧 null → delta null 不硬算;双侧有值给带符号 display;Δ=0 是 ±0", async () => {
-    const base = snap({
-      experimentId: "exp/base",
-      results: [res("A", "failed"), res("B", "passed", { usage: { inputTokens: 1, outputTokens: 1, costUSD: 0.2 } })],
-    });
-    const plus = snap({
-      experimentId: "exp/plus",
-      results: [res("A", "passed"), res("B", "passed")], // 无任何成本数据
-    });
-    const data = await DeltaTable.data([base, plus], {
-      pairs: [{ a: "exp/base", b: "exp/plus", label: "memory" }],
-      metrics: [taskPassRate, costUSD],
-    });
-    expect(data.rows).toHaveLength(1);
-    const row = data.rows[0];
-    expect(row.key).toBe("memory");
-    expect(row.a).toEqual({ experimentId: "exp/base" });
-    expect(row.b).toEqual({ experimentId: "exp/plus" });
-
-    const pass = row.cells["task-pass-rate"];
-    expect(pass.a.value).toBe(0.5);
-    expect(pass.b.value).toBe(1);
-    expect(pass.delta).toBeCloseTo(0.5);
-    expect(pass.display).toBe("+50%");
-
-    const cost = row.cells["cost"];
-    expect(cost.a.value).toBeCloseTo(0.2);
-    expect(cost.b.value).toBeNull();
-    expect(cost.delta).toBeNull(); // 单侧缺数据:不硬算
-    expect(cost.display).toBe("—");
-
-    const flat = await DeltaTable.data([base, base], {
-      pairs: [{ a: "exp/base", b: "exp/base", label: "same" }],
-      metrics: [taskPassRate],
-    });
-    expect(flat.rows[0].cells["task-pass-rate"].display).toBe("±0");
-  });
-
-  it("时间轴对比:pairs 的 a/b 收快照键 <experimentId> @ <startedAt>", async () => {
-    const older = snap({
-      experimentId: "exp/x",
-      runStartedAt: "2026-07-01T08:00:00Z",
-      results: [res("A", "failed")],
-    });
-    const newer = snap({
-      experimentId: "exp/x",
-      runStartedAt: "2026-07-02T08:00:00Z",
-      results: [res("A", "passed")],
-    });
-    const data = await DeltaTable.data([older, newer], {
-      pairs: [
-        {
-          a: "exp/x @ 2026-07-01T08:00:00Z",
-          b: "exp/x @ 2026-07-02T08:00:00Z",
-          label: "this week vs last",
-        },
-      ],
-      metrics: [taskPassRate],
-    });
-    const cell = data.rows[0].cells["task-pass-rate"];
-    expect(cell.a.value).toBe(0); // 旧快照那份
-    expect(cell.b.value).toBe(1); // 新快照那份
-    expect(cell.display).toBe("+100%");
-  });
-});
-
-// ───────────────────────── 身份键去重 ─────────────────────────
-
-describe("身份键去重", () => {
-  it("同 (experimentId, evalId, attempt, startedAt) 两份 → 保留最新 run 的那份", async () => {
-    const identity = {
-      experimentId: "exp/x",
-      attempt: 0,
-      startedAt: "2026-07-01T08:00:00Z",
-    };
-    // --resume 场景:旧 run 里 failed,新 run 合入同身份键的 passed
-    const older = snap({
-      experimentId: "exp/x",
-      runStartedAt: "2026-07-01T08:00:00Z",
-      results: [res("A", "failed", identity)],
-    });
-    const newer = snap({
-      experimentId: "exp/x",
-      runStartedAt: "2026-07-02T08:00:00Z",
-      results: [res("A", "passed", identity)],
-    });
-
-    for (const order of [
-      [older, newer],
-      [newer, older],
-    ]) {
-      const data = await MetricTable.data(order, { rows: "agent", columns: [taskPassRate] });
-      const cell = data.rows[0].cells["task-pass-rate"];
-      expect(cell.total).toBe(1); // 两份只算一份
-      expect(cell.value).toBe(1); // 留的是最新 run 里的 passed,与快照传入顺序无关
-
-      const ov = await RunOverview.data(order);
-      expect(ov.totals.attempts).toBe(1);
-      expect(ov.totals.passed).toBe(1);
-      expect(ov.totals.failed).toBe(0);
-    }
-  });
-
-  it("startedAt 缺失:不去重、如实保留重复,不透出警告", async () => {
-    const identity = { experimentId: "exp/x", attempt: 0, startedAt: undefined };
-    const one = snap({ experimentId: "exp/x", results: [res("A", "passed", identity)] });
-    const two = snap({ experimentId: "exp/x", results: [res("A", "passed", identity)] });
-    const ov = await RunOverview.data([one, two]);
-    expect(ov.totals.attempts).toBe(2);
-    expect(ov.warnings).toEqual([]); // missing-startedAt 不透出到组件数据(裁决记录 7)
-  });
-});
-
-// ───────────────────────── 格式化 ─────────────────────────
-
-describe("unit 驱动格式化", () => {
-  it('"%" / "ms" / "$" / 其余缩写', () => {
-    expect(formatMetricValue(0.87, "%")).toBe("87%");
-    expect(formatMetricValue(0.875, "%")).toBe("87.5%");
-    expect(formatMetricValue(-0.008, "%")).toBe("-0.8%");
-    expect(formatMetricValue(850, "ms")).toBe("850ms");
-    expect(formatMetricValue(1234, "ms")).toBe("1.2s");
-    expect(formatMetricValue(125_000, "ms")).toBe("2m 5s");
-    expect(formatMetricValue(0.31, "$")).toBe("$0.31");
-    expect(formatMetricValue(0.0042, "$")).toBe("$0.0042");
-    expect(formatMetricValue(-0.8, "$")).toBe("-$0.80");
-    expect(formatMetricValue(1234, "lines")).toBe("1.2k lines");
-    expect(formatMetricValue(3_400_000, "tokens")).toBe("3.4M tokens");
-    expect(formatMetricValue(42)).toBe("42");
-  });
-
-  it("metric.display 覆盖内置格式化", async () => {
-    const raw = defineMetric({
-      name: "raw",
-      unit: "%",
-      display: (v) => `${v} raw`,
-      value: () => 0.5,
-    });
-    const s = snap({ experimentId: "exp/x", results: [res("A", "passed")] });
-    const data = await MetricTable.data([s], { rows: "agent", columns: [raw] });
-    expect(data.rows[0].cells["raw"].display).toBe("0.5 raw");
-  });
-});
-
-// ───────────────────────── MetricMatrix.data(= MetricBars.data)─────────────────────────
-
-describe("MetricMatrix.data", () => {
-  it("稀疏:没有 attempt 的 (row, column) 组合不出格", async () => {
-    const a = snap({
-      experimentId: "exp/a",
-      agent: "a1",
-      results: [res("A", "passed", { agent: "a1" }), res("B", "failed", { agent: "a1" })],
-    });
-    const b = snap({
-      experimentId: "exp/b",
-      agent: "b1",
-      results: [res("A", "failed", { agent: "b1" })], // b1 没跑 B
-    });
-    const data = await MetricMatrix.data([a, b], { rows: "eval", columns: "agent", cell: taskPassRate });
-    expect(data.rows).toBe("eval");
-    expect(data.columns).toBe("agent");
-    expect(data.metric.key).toBe("task-pass-rate");
-    expect(data.cells).toHaveLength(3); // A×a1、B×a1、A×b1;B×b1 不出现
-    const find = (row: string, column: string) => data.cells.find((c) => c.row === row && c.column === column);
-    expect(find("A", "a1")?.cell.value).toBe(1);
-    expect(find("B", "a1")?.cell.value).toBe(0);
-    expect(find("A", "b1")?.cell.value).toBe(0);
-    expect(find("B", "b1")).toBeUndefined();
-  });
-
-  it("MetricBars.data 与 MetricMatrix.data 同一输入给出相同数据(别名契约,不锁函数引用)", async () => {
-    const a = snap({
-      experimentId: "exp/a",
-      agent: "a1",
-      results: [res("A", "passed", { agent: "a1" }), res("B", "failed", { agent: "a1" })],
-    });
-    const b = snap({
-      experimentId: "exp/b",
-      agent: "b1",
-      results: [res("A", "failed", { agent: "b1" })],
-    });
-    const options = { rows: "eval", columns: "agent", cell: taskPassRate } as const;
-    const bars = await MetricBars.data([a, b], options);
-    const matrix = await MetricMatrix.data([a, b], options);
-    expect(bars).toEqual(matrix);
+    const table = await metricTableData([s], { rows: "eval", columns: [examScore] });
+    const cellOf = (key: string) => table.rows.find((r) => r.key === key)!.cells[examScore.name]!;
+    expect(cellOf("soft").value).toBeCloseTo(0.75);
+    expect(cellOf("allgate").value).toBe(1);
+    expect(cellOf("crashed").value).toBe(0);
+    expect(cellOf("crashed").samples).toBe(1); // 0 分是测得的事实,不是缺数据
   });
 });

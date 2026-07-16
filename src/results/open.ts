@@ -13,7 +13,7 @@ import type { O11ySummary, StreamEvent, TraceSpan } from "../types.ts";
 import type { AgentSetupManifest, DiffData, SourceArtifact } from "../types.ts";
 import { deriveDiffData } from "../scoring/diff.ts";
 import { RESULT_FILE, SNAPSHOT_FILE, artifactFileOf, classifySnapshot } from "./format.ts";
-import { isNewerSnapshot, selectLatest } from "./select.ts";
+import { isNewerSnapshot, selectCurrentResults, selectLatest } from "./select.ts";
 import {
   encodeAttemptLocator,
   resolveAttemptLocator,
@@ -27,7 +27,7 @@ import type {
   Eval,
   Experiment,
   Results,
-  Selection,
+  Scope,
   SkippedDir,
   Snapshot,
   SnapshotMeta,
@@ -171,13 +171,17 @@ export async function openResults(dir: string): Promise<Results> {
 }
 
 function makeResults(experiments: Experiment[], skipped: SkippedDir[]): Results {
-  return {
+  const results: Results = {
     experiments,
     skipped,
-    latest(opts?: { experiments?: string | string[] }): Selection {
+    latest(opts?: { experiments?: string | string[] }): Scope {
       return selectLatest(experiments, opts);
     },
+    current(opts?: { experiments?: string | string[] }): Scope {
+      return selectCurrentResults(results, { experiment: opts?.experiments });
+    },
   };
+  return results;
 }
 
 // ───────────────────────── 目录扫描 ─────────────────────────

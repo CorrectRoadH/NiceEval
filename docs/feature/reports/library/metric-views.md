@@ -321,6 +321,8 @@ interface DeltaTableOptions {
 interface DeltaData {
   byDimension: string;
   columns: MetricColumn[];
+  /** pairsByFlag 派生形态下的配对域实验数，0 对空态据此报「N 个实验、0 个可配对」；字面 pairs 不携带。 */
+  experiments?: number;
   rows: Array<{
     key: string;
     /** 作者在 DeltaPair 里声明的 label，原样透传；renderer 据此显示行名。 */

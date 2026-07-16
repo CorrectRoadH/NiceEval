@@ -119,45 +119,45 @@
 | eval 级折叠 / 计票口径(CLI 退出码与 view 共用) | `src/shared/verdict.ts` |
 | 本地结果保存格式(快照目录 `.niceeval/<experiment>/<snapshot>/snapshot.json` + attempt 级 `result.json` / JSON artifact;fresh attempt 调度前即生成最终 `locator`,与 Artifacts writer 共用同一个 `snapshotStartedAt`) | `src/runner/reporters/artifacts.ts`(reporter 薄壳,按 experimentId 路由到快照 writer)、`src/results/writer.ts`(`createResultsWriter`)、`src/results/types.ts`(`SnapshotMeta` / `AttemptRecord`)、`src/runner/run.ts`(locator 生成点) |
 | CLI(exp / show / list / view / clean / init,--help,parseArgs 表驱动,.env 加载,NICEEVAL_* 环境变量层,`--output` profile 解析) | `src/cli.ts` |
-| `niceeval show` 终端宿主(Selection 合成「现刻水位」、--history 复印件不占行、--report 装载 + 组合语义矩阵、证据切面 transcript/trace/diff) | `src/show/{index,compose,render}.ts` |
+| `niceeval show` 终端宿主(Scope 合成「现刻水位」、--history 逐 experimentId+evalId 分节的 attempt 执行时间轴、--report/--page 经 report-host.ts 装载 + 组合语义矩阵、证据切面 --source/--execution/--diff) | `src/show/{index,compose,render,report-host}.ts` |
 | 数据集加载器(loadJson / loadYaml) | `src/loaders/index.ts` |
 
 ## Results Lib 与 Reports
 
-设计文档:[feature/results/](feature/results/README.md) / [feature/reports/](feature/reports/README.md) 合流一节。实现落点(show 与 view 两个宿主共用同一套 `--report` 装载;裸 show / view 都选择 `ExperimentComparison` 的对应渲染面;两个宿主的 Selection 都由中性的 `selectCurrentResults` 无条件产出):
+设计文档:[feature/results/](feature/results/README.md) / [feature/reports/](feature/reports/README.md) 合流一节。实现落点(show 与 view 两个宿主共用同一套 `--report` 装载;裸 show / view 都选择 `ExperimentComparison` 的对应渲染面;两个宿主的 Scope 都由中性的 `selectCurrentResults` 无条件产出):
 
 | 行为 | 文件 |
 |---|---|
 | `openResults`:实验/结果快照/eval 分层、版本分流(skipped 三种原因)、懒加载(attempt 目录→artifactBase 携带条目回退) | `src/results/open.ts` |
 | 布局与版本知识(attempt 目录规则、快照分类、完整 producer) | `src/results/format.ts` |
-| `results.latest()`(= `selectLatest`,每实验取最新一次快照 + 四种挑选警告)/ `selectCurrentResults`(现刻水位合成器:对每个 experiment × eval 跨该实验全部历史快照取最新判定,合成一份报告用 Snapshot,警告随范围重算;show 与 view 共用的报告槽 Selection 就出自这里)/ `Selection.filter` / `dedupeAttempts`(身份键去重)/ `ResultScope`(`{ experiment?, patterns? }` 范围输入) | `src/results/select.ts` |
+| `results.latest()`(= `selectLatest`,每实验取最新一次快照 + 三种 `ScopeWarning`:partial-coverage / stale-snapshot / unfinished-snapshot)/ `results.current()`(= `selectCurrentResults`,现刻水位合成器:对每个 experiment × eval 跨该实验全部历史快照取最新判定,合成一份报告用 Snapshot,警告随范围重算;show 与 view 共用的报告槽 Scope 就出自这里)/ `Scope.filter` / `dedupeAttempts`(身份键去重;缺 `startedAt` 的身份键不去重,记 `missing-startedAt` 警告)/ `ResultScope`(`{ experiment?, patterns? }` 范围输入) | `src/results/select.ts` |
 | `createResultsWriter`(快照目录独占创建、快照级元数据落盘、attempt 记录与 artifact 增量落盘、`finish()` 补 `completedAt`) | `src/results/writer.ts` |
 | `copySnapshots`(发布原语:计划 → 预检 → 复制,`redact` 必选脱敏、publish 标记补记、knownEvalIds 补记) | `src/results/copy.ts` |
 | 发布脱敏(50 MiB 预检、结构键保留、events / spans / result 的值级 redact) | `src/results/publish.ts` |
 | 落盘截断(单值 256 KiB 上限,events / spans 写入前截断并标记) | `src/results/truncate.ts` |
-| 分层契约(Experiment / Snapshot / Eval / AttemptHandle / AttemptRef / Selection / 警告类型) | `src/results/types.ts` |
+| 分层契约(Experiment / Snapshot / Eval / AttemptHandle / AttemptRef / Scope / 警告类型) | `src/results/types.ts` |
 | `defineMetric` 与内置指标(verdict 逐项表态) | `src/report/metrics.ts` |
 | `flag()`(experiment flags 当维度 / 轴) | `src/report/flag.ts` |
 | 两级聚合引擎 / 维度 / MetricCell 计算 / 聚合前去重接线 | `src/report/aggregate.ts` |
-| 十一个计算函数(挂组件上的 `.data`:RunOverview / GroupSummary / ExperimentList / EvalList / AttemptList / MetricTable / MetricMatrix(=MetricBars)/ Scoreboard / MetricScatter / MetricLine / DeltaTable) | `src/report/compute.ts`(装配在 `src/report/components.tsx`) |
-| 数据契约(Metric 字面量键泛型、TableData\<K\> … ExperimentListItem / EvalListItem / AttemptListItem;`MetricCell.refs: AttemptLocator[]` 必填) | `src/report/types.ts` |
+| 十一个计算函数(具名 `*Data` 导出,挂组件解析面上:`scopeSummaryData` / `experimentComparisonData` / `experimentListData` / `evalListData` / `attemptListData` / `metricTableData` / `metricMatrixData`(=MetricMatrix、MetricBars 共用同一份)/ `scoreboardData` / `metricScatterData` / `metricLineData` / `deltaTableData`;另有维度助手 `pairsByFlag`;`FailureList` 组件复用 `attemptListData` 过滤,没有自己的 `*Data`) | `src/report/compute.ts`(装配在 `src/report/components.tsx`) |
+| 数据契约(Metric 字面量键泛型、TableData / MatrixData / ScatterData / LineData / ScoreboardData / DeltaData / ScopeSummaryData / ExperimentComparisonData … ExperimentListItem / EvalListItem / AttemptListItem;`MetricCell.refs: AttemptLocator[]` 必填) | `src/report/types.ts` |
 | 元素树 / `defineComponent`(双面)/ 渲染前树校验 / text 遍历渲染 | `src/report/tree.ts` |
-| 组件数据解析 pass(`resolveReportTree`:report `build()` 之后、render 之前递归遍历树;遇到 selection-form 组件就调它自己的 `.data` 计算并换成 data-form props,同层 sibling 并行、保持节点顺序;两个渲染入口都先跑它,报告作者因此不用手写 `.data()`) | `src/report/tree.ts`(`resolveReportTree`;被 `src/report/report.ts` 与 `src/report/web.ts` 调用) |
-| 排版原语 Row / Col / Section / Text / Style / Table(六个内置双面组件;Table 的 text 面在 `src/report/text/table.ts`,官方表状组件共用) | `src/report/primitives.tsx` |
+| 组件数据解析 pass(`resolveReportTree`:装载规范化产物之后、render 之前递归遍历树;遇到 spec 形态组件就调它自己的解析面(代调配套 `*Data` 计算函数)并换成 data 形态 props,同层 sibling 并行、保持节点顺序;text/web 两面 × 整份报告/单页两种粒度的四个渲染入口都先跑它,报告作者因此不用手写取数) | `src/report/tree.ts`(`resolveReportTree`;被 `src/report/report.ts` 与 `src/report/web.ts` 调用) |
+| 排版原语 Row / Col / Section / Text / Style / Tabs / Tab / Table(八个内置双面组件;Table 的 text 面在 `src/report/text/table.ts`,官方表状组件共用;`Tab` 只能直接放在 `<Tabs>` 下,不参与路由、没有 id) | `src/report/primitives.tsx` |
 | 官方组件 text 面(终端形态、字符坐标图、分栏排版);文本排版工具箱(`stringWidth` / `padEnd` / `padStart` / `wrapText` / `indent` / `bar` / `columns`,从 `niceeval/report` 导出) | `src/report/text/{faces,layout,table,plot}.ts` |
-| `defineReport` / `ReportContext` / text 宿主装载入口 `renderReportToText`(`build` → `resolveReportTree` → 校验 → text 渲染;渲染前按 `ctx.selection.warnings` 预置一段警告横幅,对任何报告都生效——不依赖报告树里有没有 RunOverview) | `src/report/report.ts` |
+| `defineReport` / `ReportHostContext` / text 宿主装载入口 `renderReportToText`(选页 → `resolveReportTree` → 校验 → text 渲染;渲染前按 `ctx.scope.warnings` 预置一段警告横幅,对任何报告都生效——不依赖报告树里有没有 `ScopeSummary`)/ 逐页 text 入口 `renderReportTreeToText`(两宿主共用的联系面调用)/ `ReportPageNotFoundError`(`--page` 未命中) | `src/report/report.ts` |
 | `--report` 装载(两宿主共用:存在性/默认导出判别、dev server 的 mtime cache-busting) | `src/report/load.ts` |
-| show 宿主接线(无条件调 `selectCurrentResults` 产出 Selection、裸跑选择 `ExperimentComparison` 的 text 面、`--report` 装载自定义 text 报告、attempt locator 下钻) | `src/show/index.ts`(现刻水位选择器在中性的 `src/results/select.ts`;单 Eval、Attempt 详情与证据切面渲染在 `src/show/render.ts`;`src/show/compose.ts` 只留 `--history` 时间轴口径;测试 `src/show/show.test.ts`) |
-| web 宿主装载入口 `renderReportToStaticHtml`(唯一 import react-dom 的一侧;同样 `build` → `resolveReportTree` → 校验 → web 渲染,渲染前按 `ctx.selection.warnings` 预置同一段警告横幅) | `src/report/web.ts` |
-| show / view 内置默认报告 `ExperimentComparison`(普通 `ReportDefinition` + 公开组合件；`.data()` 先按 experiment 完整父路径分组，再为每组独立计算 `GroupSummary`、`MetricScatter`、`ExperimentList`；view 持有完整组数据并在 UI 切组，show 多组只列索引、单组才展开；与包外用户报告逐节点同构、无渲染器特权) | `src/report/built-ins/experiment-comparison.tsx`(web 面 `src/report/react/ExperimentComparison.tsx`；目录 barrel `src/report/built-ins/index.ts` 只显式导出值,不建字符串 registry) |
-| 实验组推导(experimentId 的 `/` 前缀 → 组名,`niceeval/report` 公开导出,供用户报告用 `GroupSummary` / `Section` 自行分节;内置默认报告不按目录前缀分节,此 helper 住中性共享层) | `src/shared/aggregate.ts`(`experimentGroupOf`) |
-| 报告 chrome 文案的 locale 字典(`ReportLocale = "en" \| "zh-CN"`,渲染入口 options 收 `locale`,经 `WebContext` / `TextContext` 携带) | `src/report/locale.ts` |
-| 十一个组件与默认组合件的 web 面 + 稳定散列配色 + styles.css(令牌与 view 同源,`.nre` 作用域自带;默认组合件见 `react/ExperimentComparison.tsx`，三个实体列表见 `react/{ExperimentList,EvalList,AttemptList}.tsx`,locator 与判定符的共用渲染在 `AttemptList.tsx` 的 `AttemptLocatorBadge`/`AttemptRow`) | `src/report/react/`(零件复用入口 `index.tsx`;演示 `scripts/report-react-demo.tsx`) |
+| show 宿主接线(无条件调 `selectCurrentResults` 产出 Scope、裸跑装载 `niceeval/report/built-in` 默认导出的 text 面、`--report`/`--page` 经 `report-host.ts` 装载自定义 text 报告、attempt locator 下钻) | `src/show/index.ts`(现刻水位选择器在中性的 `src/results/select.ts`;单 Eval、Attempt 详情与证据切面渲染在 `src/show/render.ts`;`src/show/compose.ts` 只留 `--history` 逐 attempt 执行时间轴口径;两宿主共用的报告装载规范化/标题回退/页索引命令在 `src/show/report-host.ts`;测试 `src/show/show.test.ts`、`src/show/report-host.test.ts`) |
+| web 宿主装载入口 `renderReportToStaticHtml`(唯一 import react-dom 的一侧;同样选页 → `resolveReportTree` → 校验 → web 渲染,渲染前按 `ctx.scope.warnings` 预置同一段警告横幅)/ 逐页 web 入口 `renderReportTreeToStaticHtml` | `src/report/web.ts` |
+| show / view 内置默认报告 `ExperimentComparison`(与其它官方组件同层的普通双面组件,没有渲染器特权;`experimentComparisonData` 先按 experiment 完整父路径分组,再为每组独立计算 `ScopeSummary`、`MetricScatter`、`ExperimentList`;view 持有完整组数据并在 UI 切组,show 多组只列索引、单组才展开;与包外用户报告逐节点同构) | `src/report/components.tsx`(组件定义,与其它官方组件同文件;web 面 `src/report/react/ExperimentComparison.tsx`);内置报告的默认导出是薄封装 `defineReport(<ExperimentComparison />)` in `src/report/built-in/index.tsx`(替代原 `built-ins/` 目录,原 `experiment-comparison.tsx` 与 `built-ins/index.ts` barrel 已删除) |
+| 实验组推导(experimentId 的 `/` 前缀 → 组名,`niceeval/report` 公开导出,供用户报告用 `ScopeSummary` / `Section` 自行分节;内置默认报告不按目录前缀分节,此 helper 住中性共享层) | `src/shared/aggregate.ts`(`experimentGroupOf`) |
+| 报告 chrome 文案的 locale 字典(`ReportLocale` 是开放的 BCP 47 字符串,不再是字面量联合;内置文案与 `MetricCell.display` 生成面当前覆盖 `DISPLAY_LOCALES = ["en", "zh-CN"]`,其它 locale 走 `LocalizedText` 回退规则;渲染入口 options 收 `locale`,经 `WebContext` / `TextContext` 携带) | `src/report/locale.ts` |
+| 十一个官方组件的 web 面文件(`ScopeSummary` / `ExperimentList` / `EvalList` / `AttemptList` / `MetricTable` / `MetricMatrix` / `MetricBars`(与 `MetricMatrix` 共用 `metricMatrixData`)/ `Scoreboard` / `MetricScatter` / `MetricLine` / `DeltaTable`;`ScopeSummary` 取代原 `RunOverview` + `GroupSummary` 两个组件,身兼概览卡与逐组摘要;`FailureList` 复用 `AttemptList` 的 web/text 面,没有独立文件)+ 稳定散列配色 + styles.css(令牌与 view 同源,`.nre` 作用域自带;默认组合件见 `react/ExperimentComparison.tsx`,三个实体列表见 `react/{ExperimentList,EvalList,AttemptList}.tsx`,locator 与判定符的共用渲染在 `AttemptList.tsx` 的 `AttemptLocatorBadge`/`AttemptRow`) | `src/report/react/`(零件复用入口 `index.tsx`;演示 `scripts/report-react-demo.tsx`) |
 | 渐进增强 runtime(实验组切换 / 表头排序 / 行过滤 / hover tooltip,只作用于 `.nre` 与 `data-nre-*`;宿主内联) | `src/report/react/enhance.js` |
 | 双面验收(renderToStaticMarkup + text 快照,两面同口径) | `src/report/dual-render.test.tsx` |
 | view attempt 深链(`#/attempt/@<locator>`,路由参数是不透明的 `AttemptLocator`,与报告槽 `ctx.attemptHref` 同一格式) | `src/view/app/lib/attempt-route.ts`、`src/view/app/App.tsx`、`src/view/data.ts`(`annotateResult` 注入,locator 直接用 `niceeval/results` 的 `attempt.locator`)、`src/view/shared/types.ts`(`ViewEvalResult.locator` 类型来自 `src/results/locator.ts`) |
-| view 数据层(openResults;`__NICEEVAL_VIEW_DATA__` 只携带证据室数据:快照明细 + skipped + 壳元信息,统计住报告槽)。`results.latest()` 结果(命名为 `latestPerExperiment`)只用于给证据室快照打「latest」标记,与报告槽 Selection 是两条独立通道,不参与报告计算 | `src/view/data.ts`(数据契约在 `src/view/shared/types.ts`) |
-| view 报告槽(裸跑填充内置 `ExperimentComparison`、`--report` 整槽替换;报告槽 Selection 由 view 直接调 `selectCurrentResults` 产出——不 import `src/show/*`;`renderReportSlot` 静态渲染、en/zh-CN 两遍烘成两个 `<template>` 静态块、增强 runtime 与官方样式内联、位置参数判定 `resolveViewInput`) | `src/view/data.ts`、`src/view/server.ts`、`src/view/index.ts`、前端摆放 `src/view/app/{main.tsx,App.tsx}`(测试 `src/view/view-report.test.ts`) |
+| view 数据层(openResults;`__NICEEVAL_VIEW_DATA__` 只携带证据室数据:快照明细 + skipped + 壳元信息(含报告外壳/页导航的 `ViewReportMeta`),统计住报告页)。`results.latest()` 结果(命名为 `latestPerExperiment`)只用于给证据室快照打「latest」标记,与报告槽 Scope 是两条独立通道,不参与报告计算;证据室页面文件是 `AttemptsPage.tsx`/`TracesPage.tsx`(`#/attempts`/`#/traces` 路由) | `src/view/data.ts`(数据契约在 `src/view/shared/types.ts`) |
+| view 报告槽(裸跑装载内建报告默认导出、`--report` 整槽替换、`--page` 定初始页;报告槽 Scope 由 view 直接调 `selectCurrentResults` 产出;报告装载/规范化/标题回退经两宿主共用的 `src/show/report-host.ts`;`renderReportSlot` 逐页静态渲染、en/zh-CN 两遍烘成 `<template id="niceeval-report-<pageId>-<locale>">` 静态块、`#/page/<id>` 路由与证据页 `#/attempts`/`#/traces` 路由并存、外壳 styles/scripts 按声明序注入、增强 runtime 与官方样式内联、输入判定 `resolveViewInput`(`--results`/`--snapshot` 互斥,位置参数只表示 eval id 前缀)) | `src/view/data.ts`、`src/view/server.ts`、`src/view/index.ts`、`src/show/report-host.ts`、前端摆放 `src/view/app/{main.tsx,App.tsx}`(测试 `src/view/view-report.test.ts`) |
 | **Roadmap(未定落点)** | memory-evals 静态导出流水线(reports.md 场景三)、view 的 Compare([roadmap/view-enhancements](roadmap/view-enhancements.md)) |
 
 ## 与设计文档的已知差异(实现取舍)

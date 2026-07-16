@@ -5,7 +5,7 @@
 import type { ReactElement } from "react";
 import type { MetricCell } from "../types.ts";
 import type { AttemptLocator } from "../../results/locator.ts";
-import { DEFAULT_REPORT_LOCALE, localeText, type ReportLocale } from "../locale.ts";
+import { DEFAULT_REPORT_LOCALE, localeText, resolveLocalizedText, type ReportLocale } from "../locale.ts";
 
 export function MetricCellView({
   cell,
@@ -32,7 +32,7 @@ export function MetricCellView({
         className="nre-value"
         title={localeText(locale, "cell.measuredTitle", { samples: cell.samples, total: cell.total })}
       >
-        {cell.display}
+        {resolveLocalizedText(cell.display, locale)}
       </span>
       {/* samples < total:有 attempt 测不了这个指标,覆盖率角标如实标出 */}
       {cell.samples < cell.total && (
