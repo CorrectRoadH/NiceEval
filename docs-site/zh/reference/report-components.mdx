@@ -211,7 +211,7 @@ inspect: niceeval show @<id> [--eval|--execution|--diff]
 每项固定代表一个 Attempt，显示 experiment、Eval、Attempt 序号、判定、耗时、成本、失败断言、结构化 error 的一层摘要、Judge 评语和证据链接。diagnostics、cause 和 stack 留给 locator 下钻详情，避免比较列表被基础设施日志撑开。它既能列失败证据，也能列通过样本，不把 verdict 过滤写死在组件名里。
 
 ```tsx
-const attempts = await AttemptList.data(selection, { redact });
+const attempts = await AttemptList.data(selection);
 
 <AttemptList
   items={attempts.filter((item) => item.verdict === "failed" || item.verdict === "errored")}
@@ -234,7 +234,7 @@ inspect: niceeval show @<id> [--eval|--execution|--diff]
 (3 more not shown · showing 20 of 23)
 ```
 
-要在页面显示前遮蔽 error message/cause/stack、diagnostic message/data、断言 detail 或 Judge 评语，把 `redact` 交给 `.data()`；稳定 code、lifecycle operation、experiment、Eval 和 locator 不改。它只影响这份组件数据，管不到发布目录里的 artifact 文件——发布数据集的消毒用 [`copySnapshots` 的 `redact` 选项](/zh/reference/results-data)。要展示哪些 Attempt，过滤返回的 `AttemptListItem[]`。`limit` 也由报告作者在数组上用 `.slice(0, 20)` 表达，截断时把原始数量交给组件的 `total`，组件据此显示“还有 n 项未展示”，不静默截断。
+要展示哪些 Attempt，过滤返回的 `AttemptListItem[]`。`limit` 也由报告作者在数组上用 `.slice(0, 20)` 表达，截断时把原始数量交给组件的 `total`，组件据此显示“还有 n 项未展示”，不静默截断。
 
 ## 指标表（`MetricTable`）
 

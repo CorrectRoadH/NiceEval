@@ -17,7 +17,6 @@ import type {
   DeltaData,
   DeltaPair,
   DimensionInput,
-  EntityListDataOptions,
   EvalListItem,
   ExperimentComparisonData,
   ExperimentComparisonGroupData,
@@ -199,10 +198,8 @@ function failureSummaryOf(result: EvalResult): { summary: string | null; more: n
   return { summary: null, more: 0 };
 }
 
-const identityRedact = (text: string): string => text;
-
 /** AttemptList / ExperimentList / EvalList 共用的叶子构造:一个 Item → 一个 AttemptListItem。 */
-async function attemptListItemOf(item: Item, redact: (text: string) => string): Promise<AttemptListItem> {
+async function attemptListItemOf(item: Item): Promise<AttemptListItem> {
   const result = item.attempt.result;
   const { summary, more } = failureSummaryOf(result);
   return {
@@ -211,7 +208,7 @@ async function attemptListItemOf(item: Item, redact: (text: string) => string): 
     attempt: result.attempt,
     agent: result.agent,
     verdict: result.verdict,
-    failureSummary: summary === null ? null : redact(summary),
+    failureSummary: summary,
     moreFailures: more,
     examScore: await computeCell(examScore, [item]),
     durationMs: result.durationMs,
@@ -221,20 +218,15 @@ async function attemptListItemOf(item: Item, redact: (text: string) => string): 
 }
 
 /** `attemptListData(input)`:每个 Attempt 一项,顺序取自 Scope 展平顺序(不重排)。 */
-export async function attemptListData(
-  input: ReportInput,
-  options?: EntityListDataOptions,
-): Promise<AttemptListItem[]> {
+export async function attemptListData(input: ReportInput): Promise<AttemptListItem[]> {
   const { snapshots } = resolveInput(input);
-  const redact = options?.redact ?? identityRedact;
   const items = collectItems(snapshots);
-  return Promise.all(items.map((item) => attemptListItemOf(item, redact)));
+  return Promise.all(items.map((item) => attemptListItemOf(item)));
 }
 
 /** `evalListData(input)`:每个 `experimentId + evalId` 一项,按 evalId 再按 experimentId 升序。 */
-export async function evalListData(input: ReportInput, options?: EntityListDataOptions): Promise<EvalListItem[]> {
+export async function evalListData(input: ReportInput): Promise<EvalListItem[]> {
   const { snapshots } = resolveInput(input);
-  const redact = options?.redact ?? identityRedact;
   const items = collectItems(snapshots);
   const groups = new Map<string, Item[]>();
   for (const item of items) {
@@ -247,7 +239,7 @@ export async function evalListData(input: ReportInput, options?: EntityListDataO
   for (const group of groups.values()) {
     const sorted = [...group].sort((a, b) => a.attempt.result.attempt - b.attempt.result.attempt);
     const verdict = foldEvalVerdict(sorted.map((item) => item.attempt.result));
-    const attempts = await Promise.all(sorted.map((item) => attemptListItemOf(item, redact)));
+    const attempts = await Promise.all(sorted.map((item) => attemptListItemOf(item)));
     out.push({
       experimentId: experimentIdOf(sorted[0]!),
       evalId: evalIdOf(sorted[0]!),
@@ -269,12 +261,8 @@ export async function evalListData(input: ReportInput, options?: EntityListDataO
  * Snapshot[] 时若同一 experiment 混入不一致的可比性配置,按完整用户反馈失败并指引——
  * 看跨配置演化用 snapshot 维度或 MetricLine,不把两套配置拼成一行冒充单一配置。
  */
-export async function experimentListData(
-  input: ReportInput,
-  options?: EntityListDataOptions,
-): Promise<ExperimentListItem[]> {
+export async function experimentListData(input: ReportInput): Promise<ExperimentListItem[]> {
   const { snapshots } = resolveInput(input);
-  const redact = options?.redact ?? identityRedact;
 
   // 可比性配置单义检查:同一 experiment 的输入快照必须共享一套可比性配置。
   const configByExperiment = new Map<string, { snapshot: Snapshot; config: unknown }>();
@@ -304,7 +292,7 @@ export async function experimentListData(
     for (const [evalId, evalItems] of evalGroups) {
       const sorted = [...evalItems].sort((a, b) => a.attempt.result.attempt - b.attempt.result.attempt);
       const verdict = foldEvalVerdict(sorted.map((item) => item.attempt.result));
-      const attempts = await Promise.all(sorted.map((item) => attemptListItemOf(item, redact)));
+      const attempts = await Promise.all(sorted.map((item) => attemptListItemOf(item)));
       evalRows.push({
         evalId,
         verdict,

@@ -20,11 +20,8 @@ const results = await openResults(".niceeval");
 await rm(output, { recursive: true, force: true });
 await copySnapshots(results.latest(), output, {
   artifacts: ["sources", "events", "trace", "o11y", "agentSetup"],
-  redact: (text) => text.replaceAll(/sk-[A-Za-z0-9]+/g, "[redacted]"),
 });
 ```
-
-`redact` 是必填项：给一个函数改写待发布文件里的自由文本，或者确认这批数据可以原文公开、显式传 `redact: false`。要发布的站点谁都能翻到 prompt 和工具输出，这个选择必须写在脚本里。
 
 运行 `npx tsx scripts/publish-results.ts`，然后提交 `report-data/`。`copySnapshots` 在创建目录前检查所有待发布文件；任何文件超过 50 MiB 时整体失败并列出路径、大小和处理建议，不会留下半份目录。`diff` 缺省不发布；需要 diff 时显式加进 `artifacts`，它也受同一个预算约束。历史版本留下的超大 events / trace 不会被悄悄改写，预检会要求你排除这类证据或用当前版本重跑。
 
@@ -139,4 +136,4 @@ jobs:
 
 ## 发布的是选中的证据
 
-整站导出会带上发布结果根里选中的 transcript、源码快照和 trace。新写入的超大 events / trace 字符串可能带结构化截断标记。`copySnapshots` 只在你给了消毒函数时改写自由文本（`redact` 是必填项，见上），其余只做选择和整文件大小预检；传 `redact: false` 的目录再导出时还要加 `--allow-sensitive-artifacts` 确认一次。发布到公网前确认结果里没有密钥或敏感数据。
+整站导出会带上发布结果根里选中的 transcript、源码快照和 trace。新写入的超大 events / trace 字符串可能带结构化截断标记。`copySnapshots` 只做选择和整文件大小预检，不改写任何内容。发布的站点谁都能翻到 prompt 和工具输出，发布到公网前确认结果内容适合公开——NiceEval 在记录时就不把环境变量值和命令输出写进结果文件，transcript 里是 Agent 自己的输入输出和你的 eval 任务本身。

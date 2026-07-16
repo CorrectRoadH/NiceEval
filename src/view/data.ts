@@ -57,12 +57,6 @@ export interface ViewScan {
   reportPages: ViewReportPageHtml[];
   /** 外壳注入资产(styles / scripts;{src} 已按路径纪律解析成 inline 内容),只进 web 面。 */
   shellAssets: { styles: string[]; scripts: string[]; head: ResolvedHeadTag[] };
-  /**
-   * --out 的数据等级(见 docs/feature/reports/view.md「静态导出」):全部选中快照带
-   * publish:{redaction:"applied"} 才是 "applied",否则 "sensitive"(含本地事实根与
-   * redaction:"none"——上游声明过原文发布也不豁免导出时的确认)。
-   */
-  publishState: "applied" | "sensitive";
 }
 
 /** view 宿主输入的组合语义(与 show 对齐,docs/feature/reports/architecture.md「Scope 是计算入口」)。 */
@@ -292,17 +286,12 @@ export async function loadViewScan(input?: string, opts: ViewScanOptions = {}): 
     skippedRuns: results.skipped.map(toSkippedNotice),
     report: slot.meta,
   };
-  const publishState =
-    selection.snapshots.length > 0 && selection.snapshots.every((snap) => snap.publish?.redaction === "applied")
-      ? ("applied" as const)
-      : ("sensitive" as const);
   return {
     viewData,
     artifactDirs,
     attemptsByBase,
     reportPages: slot.pages,
     shellAssets: slot.shellAssets,
-    publishState,
   };
 }
 

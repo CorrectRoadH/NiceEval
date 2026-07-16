@@ -394,14 +394,3 @@ export interface ExperimentListItem {
   lastRunAt: string;
   evalRows: ExperimentListEvalRow[];
 }
-
-/** 三个实体列表共用的计算选项。 */
-export interface EntityListDataOptions {
-  /**
-   * 展示层遮蔽:只改写这次组件数据中的自由文本——条目本身与任何嵌套 attempt 条目的
-   * `failureSummary`;身份与分类字段(experimentId、evalId、locator、数值指标)不经它。
-   * 只作用于这次计算产出的组件数据,不改盘上或任何导出目录里的 artifact;
-   * 发布 artifact 的脱敏用 copySnapshots({ redact })。
-   */
-  redact?: (text: string) => string;
-}

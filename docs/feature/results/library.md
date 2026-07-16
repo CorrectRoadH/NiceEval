@@ -46,9 +46,7 @@ import { openResults, copySnapshots } from "niceeval/results";
 const results = await openResults(".niceeval");
 await copySnapshots(results.latest(), "site/data/run", {
   artifacts: ["sources", "events", "trace", "o11y", "agentSetup"],   // diff 不截断,缺省也不带
-  redact: (text) => text.replaceAll(/sk-[A-Za-z0-9]+/g, "[redacted]"),
-});   // redact 必填:传函数脱敏,或显式传 false 声明「这批数据可以原文发布」
-      // 所有待发布文件还会经过 50 MiB 单文件预检
+});   // 所有待发布文件还会经过 50 MiB 单文件预检
 ```
 
 `o11y` 在缺省携带之列。「查看器不读所以不带」是循环论证——因为没消费者所以不带,因为不带所以做不了消费它的内置指标;`assistantTurns`(见 [Reports 的内置指标](../reports/library/metrics.md#内置指标))就是它的消费者,且 `o11y.json` 实测几 KB 一个,没有不带的理由。
@@ -57,14 +55,12 @@ await copySnapshots(results.latest(), "site/data/run", {
 
 动机来自真实消费者:coding-agent-memory-evals 把最新快照进仓库供静态托管——没有这个原语,消费方只能手写几十行脚本:按落盘 mtime 挑「最新」(口径还是错的:该挑快照),再按白名单拷贝 artifact 文件(布局知识泄漏)。`copySnapshots` 把这段收敛成上面几行,挑选交给 `results.latest()`(见[静态导出](../reports/view.md#静态导出))。
 
-结果数据分**两类**:`.niceeval/` 是**本地事实根**——未脱敏,prompt、工具参数、完整输出、源码全在里面;任何要离开本机的拷贝是**发布拷贝**,只能经 `copySnapshots` 这一条管线产出(`niceeval view --out` 的 artifact 复制走同一管线)。没有更细的档位:体积取舍由 `artifacts` 字段声明,保密由 `redact` 声明,两个正交开关都住在这里,导出层不再裁剪。发布脱敏因此也在这里做,而且**没有隐式默认**:`redact` 是必填项,取值 `(text: string) => string`(脱敏函数)或字面量 `false`(显式声明原文发布)——省略直接报错。什么算敏感只有作者能判断,但「不脱敏」必须是写在代码里的选择,不是忘了传参数的副作用。Reports 的 [`attemptListData(input, { redact })`](../reports/library/entity-lists.md#attemptlist) 只是展示层遮蔽,不改变盘上或发布目录里的任何 artifact,不能当发布脱敏用。契约细节:
+结果数据分**两类**:`.niceeval/` 是**本地事实根**——prompt、工具参数、完整输出、源码全在里面,不是默认可提交目录;任何要离开本机的拷贝是**发布拷贝**,经 `copySnapshots` 这一条管线产出(`niceeval view --out` 的 artifact 复制走同一管线)。没有更细的档位:体积取舍由 `artifacts` 字段声明,导出层不再裁剪。发布内容的保密边界由格式在**采集侧**划定,不在发布侧设关卡:运行环境注入的秘密不落盘——时间树的命令证据只保存有界脱敏摘要,env 值与命令 stdout/stderr 不进入 `result.json`([Architecture · `result.json`](architecture.md#resultjson));artifact 里剩下的就是 eval 任务与 agent transcript 本身,内容是否适合公开由构建发布根的作者判断。复制忠实于源:artifact 原字节复制,不重新序列化、不改写。契约细节:
 
 - **覆盖事实随数据走(`knownEvalIds`)。** `partial-coverage` 的分母是实验的历史并集,而发布目录没有历史——只复制选中快照,发布目录上重新 `openResults().latest()`,警告会静默消失,「缺口永远被算出来」在官方教的发布路径上断掉。解法不是持久化警告(那违反「reader 派生物删了可重算」),而是让警告的**依据**随数据走:`copySnapshots` 给每个复制出的快照补记 `knownEvalIds`(复制时刻该实验的 `exp.evalIds`);reader 端 `exp.evalIds` 的定义是**并集(本地历史, 各快照携带的 knownEvalIds)**——不是「优先字段」:把快照复制进已有历史的目录时,本地并集可能更大,优先字段会让分母缩水。字段是格式的一部分,`writer.snapshot()` 同样可声明(第三方转换器交代已知覆盖);可选新增字段不破坏兼容,按 [Architecture · 版本与升级设计](architecture.md#版本与升级设计)不递增 schemaVersion。「复制忠实于源」的精确含义:不改 artifact 内容,但随行补记挑选时的覆盖事实(落在复制出的 `snapshot.json` 上)。
 - **目标目录非空即报错**,不静默覆盖、不合并——发布脚本要幂等就自己先清目录;盘上不该出现「我没写的东西被动过」的惊讶。
 - **发布前整文件预检。** `copySnapshots` 在创建目标目录前先规划并序列化全部目标文件;任一文件超过固定的 `PUBLISH_FILE_MAX_BYTES = 50 * 1024 * 1024` 就整体失败,错误列出源路径、实际字节数与处理动作(从 `artifacts` 排除该类证据,或用当前 writer 重新生成历史 events / trace)。不自动删半个 artifact,也不留下半成品目标目录。50 MiB 为 GitHub 的 100 MB 单文件硬限保留余量,同时覆盖其它常见 Git host;它不是可调旋钮,避免发布脚本把保护调没。
 - **`artifacts` 合法值全集** `"events" | "trace" | "o11y" | "agentSetup" | "diff" | "sources"`;缺省带 `events` / `trace` / `o11y` / `agentSetup` / `sources`,不带 `diff`。显式带 `diff` 仍受同一发布预算约束。
-- **`redact` 逐值脱敏,范围由 schema 的自由文本标注决定。** Results 格式为每个字符串字段声明它是**自由文本**(可能承载用户 / Agent 内容)还是**结构字段**(格式、判定、身份、路径、哈希),redactor 只对自由文本字段调用——`format`、verdict / Turn status / severity / outcome、`artifactBase`、源码路径、provider 名、事件 `type`、span `kind`、错误 code、lifecycle 阶段名这类结构字段永不经过它,发布根不会因 redact 变得不可读或引用断裂。自由文本清单由标注单点维护:events 的消息与工具入出参、trace 的属性值与可携带动态内容的 span name、源码内容、diff 内容、error / diagnostic 的 message / cause / stack、snapshot 的 `name` / `description`、flags 与 sandbox params 的字符串值、o11y / agent-setup 的自由文本字段。新增字符串字段必须声明标注,`test/` 的漂移守护拦未标注字段——「新字段默认漏网」由守护解决,不靠排除法(标注与 Reports 展示层的 `redact` 选项共用同一份)。改写发生在序列化后、写盘前,50 MiB 预检按改写后的字节数算;源码内容被改写时,`sources.json` 引用按改写后内容重算 sha256——发布根里引用与内容永远一致。`redact: false` 时不改任何内容。
-- **发布根标记只声明流程,不证明结果。** 复制出的每个 `snapshot.json` 补记 `publish: { redaction: "applied" | "none" }`——`applied` 只说明脱敏函数对全部自由文本字段跑过,函数没改干净的秘密它不担保;`none` 是作者显式的原文发布声明。`view --out` 的发布防呆相应二分(见 [View · 静态导出](../reports/view.md#静态导出)):只有全部快照 `redaction: "applied"` 的发布根直接导出;`"none"` 与无标记(本地事实根)都要求 `--allow-sensitive-artifacts`——上游一句「可以原文发布」不豁免下游操作者的确认。
 
 ## 读:`openResults`
 

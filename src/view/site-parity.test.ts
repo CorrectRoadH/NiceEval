@@ -54,7 +54,7 @@ describe("站点管线奇偶:server 与 --out 是同一份产物", () => {
     await seedSnapshot(root, "exp", "q1");
 
     const out = await makeDir("niceeval-parity-out-");
-    await buildView({ input: root, out, allowSensitiveArtifacts: true });
+    await buildView({ input: root, out });
     server = await startViewServer({ input: root });
 
     // 清单驱动遍历:计划里的每一个路径,写盘字节 ≡ 服务字节。

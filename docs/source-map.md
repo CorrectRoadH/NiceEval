@@ -132,8 +132,8 @@
 | 布局与版本知识(attempt 目录规则、快照分类、完整 producer) | `src/results/format.ts` |
 | `results.latest()`(= `selectLatest`,每实验取最新一次快照 + 三种 `ScopeWarning`:partial-coverage / stale-snapshot / unfinished-snapshot)/ `results.current()`(= `selectCurrentResults`,现刻水位合成器:对每个 experiment × eval 跨该实验全部历史快照取最新判定,合成一份报告用 Snapshot,警告随范围重算;show 与 view 共用的报告槽 Scope 就出自这里)/ `Scope.filter` / `dedupeAttempts`(身份键去重;缺 `startedAt` 的身份键不去重,记 `missing-startedAt` 警告)/ `ResultScope`(`{ experiment?, patterns? }` 范围输入) | `src/results/select.ts` |
 | `createResultsWriter`(快照目录独占创建、快照级元数据落盘、attempt 记录与 artifact 增量落盘、`finish()` 补 `completedAt`) | `src/results/writer.ts` |
-| `copySnapshots`(发布原语:计划 → 预检 → 复制,`redact` 必选脱敏、publish 标记补记、knownEvalIds 补记) | `src/results/copy.ts` |
-| 发布脱敏(50 MiB 预检、结构键保留、events / spans / result 的值级 redact) | `src/results/publish.ts` |
+| `copySnapshots`(发布原语:计划 → 预检 → 复制,knownEvalIds 补记) | `src/results/copy.ts` |
+| 发布预算常量(50 MiB 单文件预检上限) | `src/results/publish.ts` |
 | 落盘截断(单值 256 KiB 上限,events / spans 写入前截断并标记) | `src/results/truncate.ts` |
 | 分层契约(Experiment / Snapshot / Eval / AttemptHandle / AttemptRef / Scope / 警告类型) | `src/results/types.ts` |
 | `defineMetric` 与内置指标(verdict 逐项表态) | `src/report/metrics.ts` |

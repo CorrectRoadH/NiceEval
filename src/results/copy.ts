@@ -1,7 +1,7 @@
 // copySnapshots:把选中快照按格式感知地复制到另一个目录(定稿见 docs/feature/results/library.md「复制与瘦身」)。
 //
 // 发布场景的原语:只带指定 artifact、只带选中快照的全部 attempt,布局知识不外泄。
-// artifact 复制忠实于源(copyFile 原字节,不重新序列化、不消毒);snapshot.json / result.json
+// artifact 复制忠实于源(原字节,不重新序列化、不改写);snapshot.json / result.json
 // 按选中条目重建,版本元数据保留。产物是一个标准结果根目录(同布局),openResults /
 // `niceeval view` 直接能读。唯一随行补记的是挑选时的覆盖事实:每个复制出的快照带上
 // knownEvalIds(复制时刻该实验已知的 eval 并集),发布目录上重新 openResults().latest(),
@@ -9,21 +9,13 @@
 
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
-import type { EvalResult, StreamEvent, TraceSpan } from "../types.ts";
+import type { EvalResult } from "../types.ts";
 import { RESULTS_FORMAT } from "../types.ts";
 import { RESULT_FILE, SNAPSHOT_FILE, artifactFileOf, experimentDirOf } from "./format.ts";
 import { experimentOfSnapshot } from "./open.ts";
 import { isNewerSnapshot } from "./select.ts";
 import { hashEvalSource, normalizeEvalSource } from "./source-hash.ts";
-import {
-  PUBLISH_FILE_MAX_BYTES,
-  redactEvents,
-  redactExperimentInfo,
-  redactJsonValue,
-  redactResultRecord,
-  redactSpans,
-  type Redactor,
-} from "./publish.ts";
+import { PUBLISH_FILE_MAX_BYTES } from "./publish.ts";
 import type { ArtifactKind, AttemptHandle, Scope, Snapshot, SnapshotMeta } from "./types.ts";
 
 /** 缺省携带的 artifact:events / trace / o11y / agentSetup / sources;diff 不截断、可达百 MB,缺省不带。 */
@@ -33,12 +25,6 @@ const VALID_ARTIFACTS: ArtifactKind[] = ["events", "trace", "o11y", "agentSetup"
 export interface CopySnapshotsOptions {
   /** 要带上的 artifact 种类;缺省带 events / trace / o11y / agentSetup / sources,不带 diff。 */
   artifacts?: ArtifactKind[];
-  /**
-   * 发布消毒(必填,没有隐式默认):传函数逐值消毒自由文本字段,或显式传 `false` 声明
-   * 「这批数据可以原文发布」——「不消毒」必须是写在代码里的选择,不是忘了传参数的副作用。
-   * 结构字段(格式、判定、身份、路径、哈希)永不经过 redactor。
-   */
-  redact: Redactor | false;
 }
 
 export interface CopySnapshotsResult {
@@ -56,7 +42,7 @@ export interface CopySnapshotsResult {
 export async function copySnapshots(
   scope: Scope | readonly Snapshot[],
   destDir: string,
-  opts: CopySnapshotsOptions,
+  opts: CopySnapshotsOptions = {},
 ): Promise<CopySnapshotsResult> {
   const selected = Array.isArray(scope) ? (scope as readonly Snapshot[]) : (scope as Scope).snapshots;
   if (selected.length === 0) {
@@ -64,12 +50,6 @@ export async function copySnapshots(
       "copySnapshots got no snapshots to copy. Check the experiments filter, or pass snapshots from openResults().latest().",
     );
   }
-  if (opts?.redact === undefined) {
-    throw new Error(
-      'copySnapshots requires an explicit "redact" option: pass a (text) => string sanitizer, or the literal false to declare this data safe to publish verbatim.',
-    );
-  }
-  const redactor: Redactor | undefined = opts.redact === false ? undefined : opts.redact;
   const kinds = opts.artifacts ?? [...DEFAULT_PUBLISH_ARTIFACTS];
   for (const kind of kinds) {
     if (!VALID_ARTIFACTS.includes(kind)) {
@@ -97,11 +77,11 @@ export async function copySnapshots(
     if (isNewerSnapshot(snapshot, existing)) byExperiment.set(snapshot.experimentId, snapshot);
   }
 
-  // 发布前整文件预检:先规划并序列化全部目标文件(消毒发生在序列化后、写盘前),任一文件
-  // 超过 PUBLISH_FILE_MAX_BYTES 就整体失败,不留半成品目标目录。
+  // 发布前整文件预检:先规划并序列化全部目标文件,任一文件超过 PUBLISH_FILE_MAX_BYTES
+  // 就整体失败,不留半成品目标目录。
   const planned: PlannedFile[] = [];
   for (const snapshot of byExperiment.values()) {
-    planned.push(...(await planOneSnapshot(snapshot, [...selected], dest, kinds, redactor)));
+    planned.push(...(await planOneSnapshot(snapshot, [...selected], dest, kinds)));
   }
   const oversized = planned.filter((f) => f.bytes.byteLength > PUBLISH_FILE_MAX_BYTES);
   if (oversized.length > 0) {
@@ -135,7 +115,6 @@ async function planOneSnapshot(
   selected: Snapshot[],
   destRoot: string,
   kinds: ArtifactKind[],
-  redactor: Redactor | undefined,
 ): Promise<PlannedFile[]> {
   const destSnapDir = join(destRoot, experimentDirOf(snapshot.experimentId), basename(snapshot.dir));
   const planned: PlannedFile[] = [];
@@ -144,31 +123,22 @@ async function planOneSnapshot(
   // 复制到目的地也只应该有一份——这个 Set 记录本快照已经规划过的 hash,整快照的 attempt 共享。
   const plannedSourceHashes = new Set<string>();
   for (const attempt of snapshot.attempts) {
-    planned.push(...(await planOneAttempt(attempt, destSnapDir, kinds, plannedSourceHashes, redactor)));
+    planned.push(...(await planOneAttempt(attempt, destSnapDir, kinds, plannedSourceHashes)));
   }
 
   const knownEvalIds = experimentOfSnapshot(snapshot)?.evalIds ?? fallbackUnion(selected, snapshot.experimentId);
-  const experiment =
-    snapshot.experiment !== undefined && redactor
-      ? (redactExperimentInfo(snapshot.experiment as unknown as Record<string, unknown>, redactor) as unknown as SnapshotMeta["experiment"])
-      : snapshot.experiment;
   const meta: SnapshotMeta = {
     format: RESULTS_FORMAT,
     schemaVersion: snapshot.schemaVersion,
     producer: snapshot.producer,
     experimentId: snapshot.experimentId,
-    ...(experiment !== undefined ? { experiment } : {}),
+    ...(snapshot.experiment !== undefined ? { experiment: snapshot.experiment } : {}),
     agent: snapshot.agent,
     ...(snapshot.model !== undefined ? { model: snapshot.model } : {}),
     startedAt: snapshot.startedAt,
     ...(snapshot.completedAt !== undefined ? { completedAt: snapshot.completedAt } : {}),
     ...(knownEvalIds.length ? { knownEvalIds } : {}),
-    ...(snapshot.name !== undefined
-      ? { name: redactor && typeof snapshot.name === "string" ? redactor(snapshot.name) : snapshot.name }
-      : {}),
-    // 发布根标记只声明流程,不证明结果:applied = 消毒函数对全部自由文本字段跑过;
-    // none = 作者显式的原文发布声明。view --out 的防呆据此分级。
-    publish: { redaction: redactor ? "applied" : "none" },
+    ...(snapshot.name !== undefined ? { name: snapshot.name } : {}),
   };
   planned.push({ path: join(destSnapDir, SNAPSHOT_FILE), bytes: Buffer.from(JSON.stringify(meta, null, 2), "utf-8") });
   return planned;
@@ -179,21 +149,18 @@ async function planOneAttempt(
   destSnapDir: string,
   kinds: ArtifactKind[],
   plannedSourceHashes: Set<string>,
-  redactor: Redactor | undefined,
 ): Promise<PlannedFile[]> {
   const destAttemptDir = join(destSnapDir, attempt.ref.attempt);
   const planned: PlannedFile[] = [];
 
   // sources 是唯一「两层」的 artifact(attempt 级引用 + 快照级去重仓库),不能像其它四类那样
   // 单文件原字节完事——原字节只是引用,不带内容。走读取面已经会解引用+回退的 attempt.sources()
-  // 拿到完整内容,消毒后按(消毒后)内容哈希重新去重落盘——发布根里引用与内容永远一致。
+  // 拿到完整内容,按内容哈希重新去重落盘——发布根里引用与内容永远一致,携带条目也被归拢进本快照。
   const genericKinds = kinds.filter((k) => k !== "sources");
   const files = await findArtifactFiles(attempt, genericKinds);
   const copied = new Set(files.map((f) => f.kind));
   for (const { kind, source } of files) {
-    const raw = await readFile(source);
-    const bytes = redactor ? redactArtifactBytes(kind, raw, redactor) : raw;
-    planned.push({ path: join(destAttemptDir, artifactFileOf(kind)), bytes, source });
+    planned.push({ path: join(destAttemptDir, artifactFileOf(kind)), bytes: await readFile(source), source });
   }
 
   if (kinds.includes("sources")) {
@@ -203,13 +170,12 @@ async function planOneAttempt(
       const destStoreDir = join(destSnapDir, "sources");
       const refs: { path: string; sha256: string }[] = [];
       for (const src of sources) {
-        const content = redactor ? redactor(src.content) : src.content;
-        const sha256 = hashEvalSource(normalizeEvalSource(content));
+        const sha256 = hashEvalSource(normalizeEvalSource(src.content));
         refs.push({ path: src.path, sha256 });
         if (!plannedSourceHashes.has(sha256)) {
           planned.push({
             path: join(destStoreDir, `${sha256}.json`),
-            bytes: Buffer.from(JSON.stringify({ content }), "utf-8"),
+            bytes: Buffer.from(JSON.stringify({ content: src.content }), "utf-8"),
           });
           plannedSourceHashes.add(sha256);
         }
@@ -221,38 +187,9 @@ async function planOneAttempt(
     }
   }
 
-  let record = slimForCopy(attempt.result, copied);
-  if (redactor) record = redactResultRecord(record, redactor);
+  const record = slimForCopy(attempt.result, copied);
   planned.push({ path: join(destAttemptDir, RESULT_FILE), bytes: Buffer.from(JSON.stringify(record, null, 2), "utf-8") });
   return planned;
-}
-
-/** 单个 artifact 文件的消毒:按种类解析 JSON、走各自的自由文本标注,重新序列化。 */
-function redactArtifactBytes(kind: ArtifactKind, raw: Buffer, redactor: Redactor): Buffer {
-  try {
-    const parsed = JSON.parse(raw.toString("utf-8")) as unknown;
-    let next: unknown;
-    switch (kind) {
-      case "events":
-        next = redactEvents(parsed as StreamEvent[], redactor);
-        break;
-      case "trace":
-        next = redactSpans(parsed as TraceSpan[], redactor);
-        break;
-      // diff 的 before/after/内容与 o11y 的命令 / 错误 / URL 都是自由文本;路径键为结构字段。
-      case "diff":
-      case "o11y":
-      case "agentSetup":
-        next = redactJsonValue(parsed, redactor);
-        break;
-      default:
-        next = parsed;
-    }
-    return Buffer.from(JSON.stringify(next), "utf-8");
-  } catch {
-    // 解析不了的按原字节透传(malformed 数据不该在发布路径上被静默改写)。
-    return raw;
-  }
 }
 
 /** 目标目录非空即报错:盘上不该出现「我没写的东西被动过」的惊讶;发布脚本要幂等就自己先清目录。 */

@@ -398,7 +398,7 @@ describe("buildView · --out 与 --report", () => {
     await writeFile(join(artifactDir, "events.json"), "[]", "utf-8");
 
     const out = join(root, "site");
-    await buildView({ input: root, out, allowSensitiveArtifacts: true, scan: { report: { path: EXAM_REPORT, cwd: root } } });
+    await buildView({ input: root, out, scan: { report: { path: EXAM_REPORT, cwd: root } } });
 
     const html = await readFile(join(out, "index.html"), "utf-8");
     // 双语两个 <template> 静态块都在,壳按界面语言摆放。
@@ -424,7 +424,7 @@ describe("buildView · --out 与 --report", () => {
     await writeFile(join(artifactDir, "o11y.json"), "{}", "utf-8");
 
     const out = join(root, "site");
-    await buildView({ input: root, out, allowSensitiveArtifacts: true });
+    await buildView({ input: root, out });
     const exported = join(out, "artifact", "compare_codex/2026-07-09T10-00-00-000Z/weather/brooklyn/a0");
     expect(existsSync(join(exported, "diff.json"))).toBe(true);
     expect(existsSync(join(exported, "events.json"))).toBe(true);
@@ -435,10 +435,10 @@ describe("buildView · --out 与 --report", () => {
     const root = await seedRoot();
     const out = join(root, "site");
     for (const scan of [{ patterns: ["weather"] }, { experiment: "compare/bub" }]) {
-      const attempt = buildView({ input: root, out, allowSensitiveArtifacts: true, scan });
+      const attempt = buildView({ input: root, out, scan });
       await expect(attempt).rejects.toBeInstanceOf(ViewInputError);
       await expect(
-        buildView({ input: root, out, allowSensitiveArtifacts: true, scan }),
+        buildView({ input: root, out, scan }),
       ).rejects.toThrow(/copySnapshots/);
     }
     // 同参数不带 --out 时照常收窄报告槽(不报错)。
@@ -448,7 +448,7 @@ describe("buildView · --out 与 --report", () => {
   it("默认导出(无 --report):报告槽填充 ExperimentComparison,双语块与增强 runtime 恒内联", async () => {
     const root = await seedRoot();
     const out = join(root, "site");
-    await buildView({ input: root, out, allowSensitiveArtifacts: true });
+    await buildView({ input: root, out });
     const html = await readFile(join(out, "index.html"), "utf-8");
     expect(html).toContain('<template id="niceeval-report-report-en">');
     expect(html).toContain('<template id="niceeval-report-report-zh-CN">');

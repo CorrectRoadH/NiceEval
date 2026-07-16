@@ -168,7 +168,6 @@ export type {
   DimensionInput,
   DimensionOptions,
   DimensionRef,
-  EntityListDataOptions,
   EvalListItem,
   ExperimentComparisonData,
   ExperimentComparisonGroupData,

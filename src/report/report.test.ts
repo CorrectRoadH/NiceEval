@@ -3,8 +3,8 @@
 // niceeval/results 的读取契约手工构造)。覆盖登记行:两级聚合 vs 平铺、errored=0 口径、
 // skipped=null、null≠0、Scoreboard 固定分母(notRun/unscorable 分开)、权重最长前缀、
 // 身份键去重、现刻水位、自定义指标 where/aggregate、evalGroup 完整父路径、verdict 权威、
-// MetricCell 诚实、缺 artifact 指标、repeatedFailedCommands、实体列表 failureSummary /
-// redact、scopeSummaryData 两级计票、experimentComparisonData 分区、pairsByFlag、
+// MetricCell 诚实、缺 artifact 指标、repeatedFailedCommands、实体列表 failureSummary、
+// scopeSummaryData 两级计票、experimentComparisonData 分区、pairsByFlag、
 // MetricLine 点身份、空数组反馈、metricTableData sort。
 
 import { describe, expect, it } from "vitest";
@@ -593,24 +593,6 @@ describe("实体列表 data", () => {
     const byEval = new Map(items.map((item) => [item.evalId, item]));
     expect(byEval.get("list/failed")!.costUSD).toBe(0.1);
     expect(byEval.get("list/errored")!.costUSD).toBeNull();
-  });
-
-  it("redact 只改写 failureSummary(含嵌套 attempt 条目);身份字段、locator 与数值指标原样", async () => {
-    const redact = (text: string) => text.replaceAll("41", "[redacted]");
-    const attempts = await attemptListData([listSnap()], { redact });
-    const failedItem = attempts.find((item) => item.evalId === "list/failed")!;
-    expect(failedItem.failureSummary).toContain("[redacted]");
-    expect(failedItem.evalId).toBe("list/failed");
-    expect(failedItem.experimentId).toBe("exp/list");
-    expect(failedItem.costUSD).toBe(0.1);
-
-    const evals = await evalListData([listSnap()], { redact });
-    const nested = evals.find((item) => item.evalId === "list/failed")!.attempts[0]!;
-    expect(nested.failureSummary).toContain("[redacted]");
-
-    const experiments = await experimentListData([listSnap()], { redact });
-    const nestedInExp = experiments[0]!.evalRows.find((row) => row.evalId === "list/failed")!.attempts[0]!;
-    expect(nestedInExp.failureSummary).toContain("[redacted]");
   });
 
   it("experimentListData:evalVerdicts / endToEndPassRate / costUSD / durationMs / tokens 齐全,默认按端到端成功率降序", async () => {

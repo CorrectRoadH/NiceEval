@@ -63,28 +63,14 @@ interface ExperimentListItem {
   evalRows: ExperimentListEvalRow[];
 }
 
-/** 三个实体列表共用的计算选项。 */
-interface EntityListDataOptions {
-  /** 只遮蔽这次组件数据中的自由文本：条目本身与任何嵌套 attempt 的 `failureSummary`。 */
-  redact?: (text: string) => string;
-}
+function experimentListData(input: ReportInput): Promise<ExperimentListItem[]>;
 
-function experimentListData(
-  input: ReportInput,
-  options?: EntityListDataOptions,
-): Promise<ExperimentListItem[]>;
+function evalListData(input: ReportInput): Promise<EvalListItem[]>;
 
-function evalListData(
-  input: ReportInput,
-  options?: EntityListDataOptions,
-): Promise<EvalListItem[]>;
+function attemptListData(input: ReportInput): Promise<AttemptListItem[]>;
 
-function attemptListData(
-  input: ReportInput,
-  options?: EntityListDataOptions,
-): Promise<AttemptListItem[]>;
-
-type ExperimentListProps = DataProps<readonly ExperimentListItem[], EntityListDataOptions, {
+// 实体列表没有计算选项(见开篇:过滤、截断都是取数后的普通 JavaScript),DataProps 的 Options 腿为空。
+type ExperimentListProps = DataProps<readonly ExperimentListItem[], {}, {
   filter?: boolean;
   relativeTo?: string;
   attemptHref?: (locator: AttemptLocator) => string;
@@ -92,13 +78,13 @@ type ExperimentListProps = DataProps<readonly ExperimentListItem[], EntityListDa
   className?: string;
 }>;
 
-type EvalListProps = DataProps<readonly EvalListItem[], EntityListDataOptions, {
+type EvalListProps = DataProps<readonly EvalListItem[], {}, {
   attemptHref?: (locator: AttemptLocator) => string;
   locale?: ReportLocale;
   className?: string;
 }>;
 
-type AttemptListProps = DataProps<readonly AttemptListItem[], EntityListDataOptions, {
+type AttemptListProps = DataProps<readonly AttemptListItem[], {}, {
   /** 过滤 / 截断前的总数；省略时等于 data 长度。 */
   total?: number;
   attemptHref?: (locator: AttemptLocator) => string;
@@ -174,15 +160,11 @@ const items = await evalListData(ctx.scope);
 每项显示一次 attempt 的判定、单行结果摘要（`failureSummary`）、Judge 分数和 locator。完整 assertions、Judge evidence、diagnostics、cause 与 stack 不进 `AttemptListItem`——列表 data 只携带按 [Scoring display 契约](../../scoring/library/display.md#主失败断言怎样选)算好的摘要；需要完整结构时经 locator 回读取面（[`resolveLocator`](../../results/library.md#按-locator-寻址一个-attemptresolvelocator) → `AttemptHandle`），列表 JSON 因此不会携带 stack、evidence 或自由文本证据。最常见的失败清单有成品 [`FailureList`](#failurelist)；`AttemptList` 服务其余自选集合。
 
 ```tsx
-const all = await attemptListData(ctx.scope, {
-  redact: (text) => text.replaceAll(/sk-[A-Za-z0-9]+/g, "[redacted]"),
-});
+const all = await attemptListData(ctx.scope);
 const failed = all.filter((x) => x.verdict === "failed" || x.verdict === "errored");
 
 <AttemptList data={failed.slice(0, 20)} total={failed.length} />
 ```
-
-`redact` 只处理 `failureSummary` 这一处自由文本——它是三个列表 data 里唯一的自由文本字段，`EvalListItem` 与 `ExperimentListEvalRow` 嵌套的 attempt 条目同样被改写，自由文本没有绕过遮蔽的出口；item 里其余字段（experimentId、evalId、locator、数值指标）都是身份与分类字段，不会被改写。它是**展示层遮蔽**——只作用于这次计算产出的组件数据，不改变盘上或任何导出目录里的 artifact；发布 artifact 的脱敏用 [`copySnapshots({ redact })`](../../results/library.md#复制与瘦身copysnapshots)，两者的改写范围约定一致。spec 形态的 `<AttemptList redact={...} />` 与上面手工取数等价，区别只在不加工数组。
 
 ## `FailureList`
 
@@ -198,7 +180,6 @@ type FailureListProps = {
   limit?: number;
   /** 默认宿主注入的 Scope。 */
   input?: ReportInput;
-  redact?: (text: string) => string;
   attemptHref?: (locator: AttemptLocator) => string;
   locale?: ReportLocale;
   className?: string;

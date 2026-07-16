@@ -119,7 +119,7 @@ describe("index.ts · copyFetchedArtifacts(--out 静态导出)对 sources.json �
     await seedDedupedSnapshot(root);
 
     const out = join(root, "site");
-    await buildView({ input: root, out , allowSensitiveArtifacts: true });
+    await buildView({ input: root, out  });
 
     const scan = await loadViewScan(root);
     const byId = new Map(scan.viewData.snapshots.flatMap((s) => s.results.map((r) => [r.id, r])));

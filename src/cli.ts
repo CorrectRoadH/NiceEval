@@ -105,7 +105,6 @@ interface Flags {
   timing?: "summary" | "full";
   keepSandbox?: "failed" | "all";
   all: boolean;
-  allowSensitiveArtifacts: boolean;
   window?: string;
   sandboxPath?: string;
   leaveRunning: boolean;
@@ -156,8 +155,6 @@ const FLAG_OPTIONS = {
   out: { type: "string" },
   /** `view` 命令专用:指定本地服务器监听端口。 */
   port: { type: "string" },
-  /** `view --out` 专用:对非发布根(快照没有 publish:{redaction:"applied"} 标记)导出时的显式确认——静态站会原样携带未消毒的证据文件。 */
-  "allow-sensitive-artifacts": { type: "boolean" },
   // show 的证据切面 / 时间轴 / 报告装载(docs-site/zh/how-to/viewing-results.mdx)。
   // 证据切面只认 `@<locator>`(或收窄到单个 eval 的前缀)选出的那一个 attempt——不再有
   // 数字 `--attempt`,选哪个 attempt 由 locator 精确指名,不是「先选 eval 再挑第几次」。
@@ -307,7 +304,6 @@ function parseArgs(argv: string[]): { command: string; positionals: string[]; fl
     timing: values.timing === true ? (timingMode ?? "summary") : undefined,
     keepSandbox: values["keep-sandbox"] === true ? (keepSandboxTier ?? "failed") : undefined,
     all: values.all === true,
-    allowSensitiveArtifacts: values["allow-sensitive-artifacts"] === true,
     window: values.window as string | undefined,
     sandboxPath: values.path as string | undefined,
     leaveRunning: values["leave-running"] === true,
@@ -591,7 +587,7 @@ async function main(): Promise<void> {
       ...(flags.page !== undefined ? { page: flags.page } : {}),
     };
     if (flags.out) {
-      const out = await buildView({ input: viewInput.input, out: flags.out, allowSensitiveArtifacts: flags.allowSensitiveArtifacts, scan }).catch(exitOnViewUserError);
+      const out = await buildView({ input: viewInput.input, out: flags.out, scan }).catch(exitOnViewUserError);
       process.stdout.write(t("cli.view.exportedDir", { out }));
       process.exit(0);
     }

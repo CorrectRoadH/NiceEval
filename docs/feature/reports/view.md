@@ -38,11 +38,11 @@ niceeval view --report reports/site.tsx --page exam   # 多页报告，指定初
 ## 静态导出
 
 ```sh
-niceeval view --results site-data/run --out site           # 发布根(copySnapshots 产出):直接导出
-niceeval view --out site --allow-sensitive-artifacts       # 本地事实根:必须显式确认
+niceeval view --out site                            # 导出当前结果根
+niceeval view --results site-data/run --out site    # 导出 copySnapshots 产出的发布根
 ```
 
-`--out` 按发布防呆二分：目标结果根的全部快照带 `publish: { redaction: "applied" }` 标记（[`copySnapshots` 补记](../results/library.md#复制与瘦身copysnapshots)）时直接导出；`redaction: "none"`、无标记结果或本地事实根，都必须显式传 `--allow-sensitive-artifacts`，否则报错并指引先走 `copySnapshots({ redact })`——静态站会原样携带证据文件，上游声明过原文发布也不豁免这里的确认。输出恒为目录：
+`--out` 是复印机：把站点产物原样写进一个目录，不设确认关卡——静态站携带的就是结果根里的证据文件，发布给谁、内容是否适合公开，在构建结果根时决定（挑选与瘦身见 [`copySnapshots`](../results/library.md#复制与瘦身copysnapshots)）。输出恒为目录：
 
 ```text
 site/
@@ -72,14 +72,13 @@ const results = await openResults(".niceeval");
 await copySnapshots(
   results.latest().filter((s) => s.experimentId.startsWith("compare/")),
   "site-data/run",
-  { redact: (text) => text.replaceAll(/sk-[A-Za-z0-9]+/g, "[redacted]") },
 );
 // 然后：niceeval view --results site-data/run --out site
 ```
 
 「报告聚焦某实验、证据保持全量」是看法层的事，在报告文件里表达——组件 `input` 传收窄后的 Scope，不需要导出参数。
 
-`artifact/` 由与 [`copySnapshots()`](../results/library.md#复制与瘦身copysnapshots) 同一条复制管线产出（同一 50 MiB 预检、同一布局知识）。带 `--allow-sensitive-artifacts` 对本地事实根导出的产物包含**未脱敏的原始证据**——prompt、工具参数、完整输出、源码——只适合自己看或可信环境；报告组件的展示层 `redact` 不改变 `artifact/` 下的文件，深链一点开就是原文。要发布给别人，先用 `copySnapshots({ redact, artifacts })` 产出发布根，再对它运行 `view --results <发布根> --out <site>`——发布契约见 [Results · 复制与瘦身](../results/library.md#复制与瘦身copysnapshots)。
+`artifact/` 由与 [`copySnapshots()`](../results/library.md#复制与瘦身copysnapshots) 同一条复制管线产出（同一 50 MiB 预检、同一布局知识）。导出的产物包含**完整的原始证据**——prompt、工具参数、完整输出、源码——深链一点开就是原文。要发布收窄或瘦身过的站，先用 `copySnapshots({ artifacts })` 产出发布根，再对它运行 `view --results <发布根> --out <site>`；运行环境注入的秘密由格式在采集侧挡在结果文件之外（[Results · 复制与瘦身](../results/library.md#复制与瘦身copysnapshots)）。
 
 ## 结果版本与错误
 

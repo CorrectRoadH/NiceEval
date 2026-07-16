@@ -88,23 +88,12 @@ export async function buildView(opts: ViewOptions = {}): Promise<string> {
       "--out exports the whole results root and cannot be combined with eval prefixes or --experiment.\n" +
         "To publish a site for one experiment, build a narrower results root and export that:\n" +
         '  const results = await openResults(".niceeval");\n' +
-        '  await copySnapshots(results.latest().filter((s) => s.experimentId.startsWith("<prefix>/")), "<publish-root>", { redact });\n' +
+        '  await copySnapshots(results.latest().filter((s) => s.experimentId.startsWith("<prefix>/")), "<publish-root>");\n' +
         "Then: niceeval view --results <publish-root> --out <site>",
     );
   }
   // 静态导出保持「任一页失败整体失败」(pageFailure 缺省 "throw"),不产出半套站点。
   const plan = await planSite(opts.input, opts.scan);
-  // --out 按发布防呆二分(见 docs/feature/reports/view.md「静态导出」):目标结果根的全部快照
-  // 带 publish:{redaction:"applied"}(copySnapshots 补记)时直接导出;redaction:"none"、
-  // 无标记结果或本地事实根,都必须显式传 --allow-sensitive-artifacts——静态站原样携带证据文件,
-  // 上游声明过原文发布也不豁免这里的确认。
-  if (!opts.allowSensitiveArtifacts && plan.scan.publishState !== "applied") {
-    throw new ViewInputError(
-      `--out refuses to export unredacted results: not every selected snapshot carries publish: { redaction: "applied" }. ` +
-        `Produce a publish root first with copySnapshots({ redact }) and export that (niceeval view --results <publish-root> --out <site>), ` +
-        `or pass --allow-sensitive-artifacts to explicitly export raw evidence (prompts, tool args, full outputs, sources).`,
-    );
-  }
   await writeSite(plan, out);
   return out;
 }

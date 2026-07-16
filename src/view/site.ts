@@ -21,7 +21,7 @@ export interface SiteFile {
 export interface SitePlan {
   /** path → SiteFile;写盘按它遍历,server 按它查表(查不到即 404,不存在旁路取数)。 */
   files: Map<string, SiteFile>;
-  /** 构建这份产物用的扫描结果(publishState 等宿主前置校验用;不进产物)。 */
+  /** 构建这份产物用的扫描结果(宿主前置校验与调试用;不进产物)。 */
   scan: ViewScan;
 }
 

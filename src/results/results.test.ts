@@ -552,7 +552,7 @@ describe("createResultsWriter", () => {
     expect(await q2.agentSetup()).toBeNull();
 
     const dest = join(await makeRoot(), "published");
-    await copySnapshots(results.latest(), dest, { ...{ artifacts: ["agentSetup"] }, redact: false });
+    await copySnapshots(results.latest(), dest, { artifacts: ["agentSetup"] });
     const copied = join(dest, "skill-ab_claude-effect", basename(snap.dir), "q1", "a1", "agent-setup.json");
     expect(JSON.parse(await readFile(copied, "utf-8"))).toEqual(manifest);
   });
@@ -737,7 +737,7 @@ describe("copySnapshots", () => {
 
     const results = await openResults(root);
     const dest = join(await makeRoot(), "site/data/run");
-    const copied = await copySnapshots(results.latest(), dest, { ...{ artifacts: ["events"] }, redact: false });
+    const copied = await copySnapshots(results.latest(), dest, { artifacts: ["events"] });
 
     expect(copied.warnings).toHaveLength(0);
     expect(copied.dir).toBe(dest);
@@ -775,15 +775,15 @@ describe("copySnapshots", () => {
 
     const occupied = await makeRoot();
     await writeFile(join(occupied, "existing.txt"), "x", "utf-8");
-    await expect(copySnapshots(results.latest(), occupied, { redact: false })).rejects.toThrow(/not empty/);
+    await expect(copySnapshots(results.latest(), occupied)).rejects.toThrow(/not empty/);
 
-    await expect(copySnapshots(results.latest(), join(await makeRoot(), "out"), { ...{ artifacts: ["evnets" as never] }, redact: false })).rejects.toThrow(/Unknown artifact kind/);
+    await expect(copySnapshots(results.latest(), join(await makeRoot(), "out"), { artifacts: ["evnets" as never] })).rejects.toThrow(/Unknown artifact kind/);
 
-    await expect(copySnapshots([], join(await makeRoot(), "out"), { redact: false })).rejects.toThrow(/no snapshots/);
+    await expect(copySnapshots([], join(await makeRoot(), "out"))).rejects.toThrow(/no snapshots/);
 
     // 手工传入同一 experiment 的两个快照(未走 latest 去重):只带最新,记 warning。
     const dest2 = join(await makeRoot(), "run2");
-    const collided = await copySnapshots(results.experiments[0].snapshots, dest2, { redact: false });
+    const collided = await copySnapshots(results.experiments[0].snapshots, dest2);
     expect(collided.warnings).toHaveLength(1);
     expect(collided.warnings[0]).toMatch(/multiple snapshots selected/);
     const destDirs = await readdir(join(dest2, "e"));
@@ -1005,7 +1005,7 @@ describe("AttemptLocator · 落盘 / 读取 / 携带 / 撞车", () => {
     const locator1 = a1!.locator!;
 
     const dest = join(await makeRoot(), "published");
-    await copySnapshots(results.latest(), dest, { ...{ artifacts: [] }, redact: false });
+    await copySnapshots(results.latest(), dest, { artifacts: [] });
 
     const destResults = await openResults(dest);
     expect(resolveLocator(destResults, locator0).result.attempt).toBe(0);
@@ -1192,7 +1192,7 @@ describe("sources · 快照级去重仓库", () => {
 
     const results = await openResults(root);
     const dest = join(await makeRoot(), "published");
-    await copySnapshots(results.latest(), dest, { ...{ artifacts: ["sources"] }, redact: false });
+    await copySnapshots(results.latest(), dest, { artifacts: ["sources"] });
 
     const destSnapDir = join(dest, "e", basename(snap.dir));
     const destStoreFiles = await readdir(join(destSnapDir, "sources"));

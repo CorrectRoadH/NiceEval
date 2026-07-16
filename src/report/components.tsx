@@ -26,7 +26,6 @@ import type { AttemptLocator } from "../results/locator.ts";
 import type {
   AttemptListItem,
   DeltaData,
-  EntityListDataOptions,
   EvalListItem,
   ExperimentComparisonData,
   ExperimentListItem,
@@ -400,7 +399,7 @@ interface EntityListChrome extends ChromeProps {
 
 export type ExperimentListProps = DataProps<
   readonly ExperimentListItem[],
-  EntityListDataOptions,
+  Record<never, never>,
   EntityListChrome & {
     /** web 面在比较表前显示实验过滤框;text 面忽略。 */
     filter?: boolean;
@@ -415,14 +414,14 @@ export type ExperimentListProps = DataProps<
 /** 实验列表:每项一个 experiment,固定八列比较表 + 展开到 Eval / Attempt。 */
 export const ExperimentList = makeDataComponent<
   readonly ExperimentListItem[],
-  EntityListDataOptions,
+  Record<never, never>,
   EntityListChrome & { filter?: boolean; relativeTo?: string }
 >({
   name: "ExperimentList",
   dataFnName: "experimentListData",
   shapeName: "ExperimentListItem[]",
-  dataFn: (input, options) => experimentListData(input, options),
-  specKeys: ["redact"],
+  dataFn: (input) => experimentListData(input),
+  specKeys: [],
   validate: validateExperimentListData,
   web: (props, ctx) => (
     <ExperimentListWeb
@@ -437,15 +436,15 @@ export const ExperimentList = makeDataComponent<
   text: (props, ctx) => experimentListText(props.data, ctx, props.relativeTo),
 }) as unknown as ReportComponent<ExperimentListProps>;
 
-export type EvalListProps = DataProps<readonly EvalListItem[], EntityListDataOptions, EntityListChrome>;
+export type EvalListProps = DataProps<readonly EvalListItem[], Record<never, never>, EntityListChrome>;
 
 /** Eval 列表:每项一个 experimentId + evalId,展开到这道题的 Attempt。 */
-export const EvalList = makeDataComponent<readonly EvalListItem[], EntityListDataOptions, EntityListChrome>({
+export const EvalList = makeDataComponent<readonly EvalListItem[], Record<never, never>, EntityListChrome>({
   name: "EvalList",
   dataFnName: "evalListData",
   shapeName: "EvalListItem[]",
-  dataFn: (input, options) => evalListData(input, options),
-  specKeys: ["redact"],
+  dataFn: (input) => evalListData(input),
+  specKeys: [],
   validate: validateEvalListData,
   web: (props, ctx) => (
     <EvalListWeb
@@ -460,7 +459,7 @@ export const EvalList = makeDataComponent<readonly EvalListItem[], EntityListDat
 
 export type AttemptListProps = DataProps<
   readonly AttemptListItem[],
-  EntityListDataOptions,
+  Record<never, never>,
   EntityListChrome & {
     /** 过滤 / 截断前的总数;省略时等于 data 长度。 */
     total?: number;
@@ -470,14 +469,14 @@ export type AttemptListProps = DataProps<
 /** Attempt 列表:实体列表的叶子层,每项一次 attempt 的判定、单行摘要与 locator。 */
 export const AttemptList = makeDataComponent<
   readonly AttemptListItem[],
-  EntityListDataOptions,
+  Record<never, never>,
   EntityListChrome & { total?: number }
 >({
   name: "AttemptList",
   dataFnName: "attemptListData",
   shapeName: "AttemptListItem[]",
-  dataFn: (input, options) => attemptListData(input, options),
-  specKeys: ["redact"],
+  dataFn: (input) => attemptListData(input),
+  specKeys: [],
   validate: validateAttemptListData,
   web: (props, ctx) => (
     <AttemptListWeb
@@ -498,7 +497,6 @@ export interface FailureListProps {
   limit?: number;
   /** 默认宿主注入的 Scope。 */
   input?: ReportInput;
-  redact?: (text: string) => string;
   attemptHref?: (locator: AttemptLocator) => string;
   locale?: ReportLocale;
   className?: string;
@@ -512,7 +510,7 @@ export interface FailureListProps {
  */
 export const FailureList = defineComponent<FailureListProps>(async (props, ctx) => {
   const input = props.input ?? ctx.scope;
-  const all = await attemptListData(input, props.redact !== undefined ? { redact: props.redact } : undefined);
+  const all = await attemptListData(input);
   // attempt 开始时间不在列表条目里(它不是列表展示字段);从同一 input 的读取面按 locator 对回。
   const startedAtByLocator = new Map<string, string>();
   for (const item of collectItems(resolveInput(input).snapshots)) {
