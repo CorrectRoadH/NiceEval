@@ -59,7 +59,7 @@ site/
 
 源码查看因此自包含：前端按 `sources.json` 的引用 fetch 同快照的 `sources/<sha256>.json` 取正文；携带条目（`artifactBase` 指向原快照）的源码正文由复制管线归拢进本快照的 `sources/`，静态站不需要原快照在场。
 
-多页报告仍导出单个 `index.html`：页面是 `#/page/<id>` 路由，托管方不需要配置多路径。`assets/` 只在外壳声明了 `{src}` 资产时出现；资产按 `assets/<sha256><ext>` 写入并改写 HTML 引用，同内容且同扩展名的资产去重，不受源文件同名影响。导出的站点会原样携带并在读者浏览器执行这些脚本，发布防呆不检查脚本内容。网页会按需 fetch 证据文件，因此不提供“单个 HTML”导出。
+多页报告仍导出单个 `index.html`：页面是 `#/page/<id>` 路由，托管方不需要配置多路径。托管路径形态也不设要求：前端 fetch 证据文件时以「页面所在目录」为基底自行解析——pathname 末段带 `.` 视为文件名去掉，否则整个 pathname 就是目录——所以站点根、子目录、直接打开 `index.html`、以及反代 rewrite / cleanUrls 常见的「`<dir>/index.html` 服务在无尾斜杠的 `<dir>` 路径上」都不断链，唯一前提是 `artifact/` 与 `index.html` 保持同级（导出布局本身保证）。`assets/` 只在外壳声明了 `{src}` 资产时出现；资产按 `assets/<sha256><ext>` 写入并改写 HTML 引用，同内容且同扩展名的资产去重，不受源文件同名影响。导出的站点会原样携带并在读者浏览器执行这些脚本，发布防呆不检查脚本内容。网页会按需 fetch 证据文件，因此不提供“单个 HTML”导出。
 
 导出没有档位：`view --out` 是复印机，结果根里存在且前端会读取的证据文件——`sources.json` 及其引用的快照级 `sources/<sha256>.json` 正文、`events.json`、`trace.json`、`diff.json`——全部随站复制，缺的在对应证据位置如实显示缺失，不猜也不冒充。体积取舍不在导出层做：要瘦站点，在构建发布根时用 [`copySnapshots({ artifacts })`](../results/library.md#复制与瘦身copysnapshots) 决定带什么（其缺省不带 diff）。唯一永不复制的是 `o11y.json`——报告数字在导出时已烘进 HTML，浏览器不读它，这是「前端读什么带什么」规则的推论，不是一个档位。
 

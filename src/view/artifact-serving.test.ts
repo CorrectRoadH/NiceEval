@@ -14,7 +14,7 @@
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createResultsWriter } from "../results/index.ts";
 import { loadViewScan } from "./data.ts";
 import { buildView } from "./index.ts";
@@ -133,5 +133,25 @@ describe("index.ts · copyFetchedArtifacts(--out 静态导出)对 sources.json �
     const q3Base = byId.get("q3")!.artifactBase!;
     const exportedEvents = JSON.parse(await readFile(join(out, "artifact", q3Base, "events.json"), "utf-8"));
     expect(exportedEvents).toEqual([{ type: "message", role: "user", text: "hi" }]);
+  });
+});
+
+describe("artifact-url.ts · fetch 基底 = 页面所在目录(无尾斜杠托管不断链)", () => {
+  // bug: memory/showcase-subpath-no-trailing-slash-breaks-artifact-fetch.md
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("页面服务在无尾斜杠子路径(反代 rewrite)时,fetch 拼在该路径目录下", () => {
+    vi.stubGlobal("location", { pathname: "/showcase/memory" });
+    expect(artifactUrl("e/run/a0/sources.json")).toBe("/showcase/memory/artifact/e/run/a0/sources.json");
+  });
+
+  it("直接打开 <dir>/index.html 时末段按文件名去掉,fetch 落在 <dir>/ 下", () => {
+    vi.stubGlobal("location", { pathname: "/foo/index.html" });
+    expect(artifactUrl("e/run/a0/trace.json")).toBe("/foo/artifact/e/run/a0/trace.json");
+  });
+
+  it("站点根路径不产生双斜杠", () => {
+    vi.stubGlobal("location", { pathname: "/" });
+    expect(artifactUrl("e/run/a0/events.json")).toBe("/artifact/e/run/a0/events.json");
   });
 });

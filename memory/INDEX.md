@@ -73,6 +73,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 - [view-tool-io-dropped-not-adapter-bug](view-tool-io-dropped-not-adapter-bug.md) — view 里工具出入参"看不到"是渲染层丢的,不是 adapter / SDK 的问题
 - 已修 [static-site-export-drops-sources](static-site-export-drops-sources.md) — 静态托管导出丢 sources.json,code view 显示"源码未捕获"(0.3.0 已修)
 - 已修 [view-sources-artifact-serving-not-dereferenced](view-sources-artifact-serving-not-dereferenced.md) — sources.json 落盘改两层去重存储后,`server.ts`/`index.ts` 的 artifact 出口仍原样转发/拷贝引用格式(`{path,sha256}[]`),浏览器端 guard 因缺 `content` 字段静默判空;修为两处都改经 `AttemptHandle.sources()` 解引用(`src/view/server.ts` + `src/view/index.ts` + `src/view/data.ts` 的 `loadAttemptIndex`/`attemptsByBase`)
+- 已修 [showcase-subpath-no-trailing-slash-breaks-artifact-fetch](showcase-subpath-no-trailing-slash-breaks-artifact-fetch.md) — 导出站挂在无尾斜杠子路径(反代 rewrite)时前端相对路径 fetch 打到上一级目录全 404,源码/trace 显示"artifact 缺失"但文件其实都在;修为 `artifactUrl` 以页面 pathname 自算目录基底(`src/view/app/lib/artifact-url.ts`)
 - [oversized-tool-output-blows-up-artifacts](oversized-tool-output-blows-up-artifacts.md) — 一条递归 grep 撞进 minified bundle(`head -100` 只限行数不限字节,单行 4.2MB)让 trace.json 撑到 101MB,同一份 51MB 在盘上存三遍;修法=写入面统一截断(运行时全量、落盘 256 KiB,不影响判决),契约已落 docs,代码待实现
 - [model-price-table](model-price-table.md) — Total Cost 显示 $0 的根因与模型价格表(成本估算)的数据来源
 - 已修 [sdk-stream-transformers-missing-canonical-tool](sdk-stream-transformers-missing-canonical-tool.md) — `fromCodexThreadEvents` 曾不发 `tool` 规范名,`calledTool("shell")` 在 SDK 流路径静默失配(修在 `src/agents/sdk-streams.ts`;`fromClaudeSdkMessages` 同类未修)
