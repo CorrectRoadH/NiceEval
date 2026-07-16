@@ -4,7 +4,7 @@ import type { T } from "../shared.ts";
 import type { Assertion, CodeSource, SourceTurn, TranscriptEvent } from "../types.ts";
 import { highlightTs, indexAsserts, indexTurns, locKey } from "../lib/transcript-data.tsx";
 import { formatScore } from "../lib/format.ts";
-import { InputBlock, ToolBlock, Transcript } from "./Transcript.tsx";
+import { InputBlock, RawEventBlock, ToolBlock, Transcript } from "./Transcript.tsx";
 
 /** soft 断言没过阈值不影响 verdict,颜色上跟 gate 失败(红)区分开,用 warn(黄);
  *  unavailable 用独立第三态(非红非绿)。 */
@@ -231,6 +231,7 @@ export function ReplyPanel({ turn, t }: { turn: SourceTurn; t: T }) {
               <span className="reply-role">{t("transcript.skillLoaded")}</span> {r.skill}
             </div>
           );
+        if (r.kind === "raw") return <RawEventBlock key={j} raw={r.raw} t={t} />;
         if (r.kind === "tool")
           // 和 Transcript 同一个组件:摘要行显示工具名(入参)→ 出参预览,展开看完整出入参。
           return <ToolBlock key={j} call={r.ev} result={r.result} t={t} />;

@@ -50,6 +50,8 @@ export function indexTurns(events: TranscriptEvent[]): IndexedTurns {
       if (tool) tool.result = ev;
     } else if (ev.type === "skill.loaded") {
       cur.replies.push({ kind: "skill", skill: ev.skill });
+    } else if (ev.type === "view.raw") {
+      cur.replies.push({ kind: "raw", raw: ev.raw });
     } else if (ev.type === "input.requested") {
       cur.replies.push({ kind: "input", ev });
     } else if (ev.type === "error") {

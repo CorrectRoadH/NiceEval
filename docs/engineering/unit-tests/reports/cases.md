@@ -209,7 +209,7 @@ it("show 与 view 的默认报告槽消费同一 Scope", async () => {
 | 断言区先展开 failed / unavailable 与影响判定的 soft；passed 按 group 收进默认折叠区并显示数量 | 正例：1 gate-failed + 1 unavailable + 两 group 共 3 passed 的 fixture，前两者默认可见、passed 折叠且计数为 3；反例：全 passed 时无默认展开条目，只有折叠区；边界：soft 未达标默认展开，soft 达标进折叠区 |
 | 每条失败直接显示 matcher、expected / received 或 reason，并提供源码锚——不能要求用户从 matcher 名猜实际值 | 正例：失败条目静态渲染即含 expected 与 received 的值，且锚指向该断言的源码行；反例：无 expected / received 的失败（如 unavailable）显示 reason，不渲染空字段 |
 | 时间区默认只显示 phase 主链与收尾段；children（hook / 命令 / turn）收合在可展开结构里，失败最深节点带失败标记 | 正例：默认标记下 children 不可见，展开单个 phase 后逐层可见；边界：errored attempt 只有最深失败节点带 ✗，祖先不重复标记 |
-| 事件流按条目校验、按条目容错：未识别的事件类型逐条忽略，其余事件正常进入对话面与源码视图的回复聚合 | 正例：含 `skill.loaded` 的 events 数组不被判空，带 `loc` 的 send 仍聚出全部回复；正例：混入完全未知的事件类型（如 `future.event`）时其余事件保留；反例：非数组的 events 载荷整体拒绝 |
+| 事件流按条目校验、按条目容错：未识别或形状不合的事件条目包成原始条目（`view.raw`）原样呈现并进入回复聚合，不静默丢弃；已识别事件正常呈现 | 正例：含 `skill.loaded` 的 events 数组不被判空，带 `loc` 的 send 仍聚出全部回复；正例：混入完全未知的事件类型（如 `future.event`）时该条目以原始 JSON 保留、其余事件照常；边界：非对象条目丢弃；反例：非数组的 events 载荷整体拒绝 |
 | `skill.loaded` 是一等回复条目：send 展开面与对话流都显示 Skill 名，不伪装成工具调用 | 正例：`indexTurns` 把 `skill.loaded` 聚成 `kind: "skill"` 回复并保留 Skill 名 |
 | 轮的归属按 `loc` 判定：无 `loc` 的 user 消息不开新轮——同文本回显吃掉、轮内注入作为 `kind: "user"` 回复留在当前轮，后续回复仍聚到带 `loc` 的 send | 正例：send（带 loc）后紧跟同文本无 loc 回显，回复仍全部聚到 send 行；正例：轮中段的 stop-hook 反馈成为 `kind: "user"` 回复且其后的 assistant 回复不脱轮；边界：流首无 loc 的 user 消息（旧工件）仍开 noloc 轮 |
 | 源码视图 send 行真实可交互：带 `loc` 的 send 行点开显示该轮回复（assistant 文本 / thinking），再点收起；轮内没有任何回复事件时展开面如实显示「无回复」空态，不留空白 | 正例：jsdom 点击 send 行后回复面板含 assistant 文本与 thinking；正例：只有 send 事件时展开面是「(无回复)」文案；反例：未点开时回复不可见 |

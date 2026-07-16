@@ -1,5 +1,5 @@
 import type { T, ToolBlockCall } from "../shared.ts";
-import type { ToolResultEvent, TranscriptEvent } from "../types.ts";
+import type { ObjectRecord, ToolResultEvent, TranscriptEvent } from "../types.ts";
 import { TOOL_VERB, resultBody, toolPrimaryArg } from "../lib/transcript-data.tsx";
 import { prettyJson, previewText, truncate } from "../lib/format.ts";
 
@@ -49,6 +49,8 @@ export function Transcript({ events, t }: { events: TranscriptEvent[]; t: T }) {
                 <div className="ts-text">{event.skill}</div>
               </div>
             );
+          case "view.raw":
+            return <RawEventBlock raw={event.raw} t={t} key={index} />;
           case "compaction":
             return (
               <div className="ts-compaction" key={index}>
@@ -66,6 +68,24 @@ export function Transcript({ events, t }: { events: TranscriptEvent[]; t: T }) {
         }
       })}
     </div>
+  );
+}
+
+/** 未识别事件的原样展示:摘要行带原始 type,展开是完整 JSON——不静默丢,方便发现新词汇后续补一等呈现。 */
+export function RawEventBlock({ raw, t }: { raw: ObjectRecord; t: T }) {
+  const type = typeof raw.type === "string" ? raw.type : "?";
+  const body = prettyJson(raw);
+  return (
+    <details className="ts-tool-d ts-raw">
+      <summary className="ts-row">
+        <span className="ts-dot pending" />
+        <span className="ts-tool">{type}</span>
+        <span className="ts-preview">{t("transcript.rawEvent")}</span>
+      </summary>
+      <div className="ts-body">
+        <pre className="attr-pre">{truncate(body, 8000)}</pre>
+      </div>
+    </details>
   );
 }
 

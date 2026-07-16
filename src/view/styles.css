@@ -676,6 +676,7 @@ details.span-d > summary.trace-row:hover { background: color-mix(in oklch, var(-
 .ts-skill {
   font-size: 12px;
 }
+.ts-raw .ts-tool { color: var(--soft); }
 .ts-skill .ts-text {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   color: var(--muted);

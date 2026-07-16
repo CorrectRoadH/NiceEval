@@ -45,6 +45,7 @@ export type Reply =
   | { kind: "thinking"; text: string }
   | { kind: "error"; text: string }
   | { kind: "skill"; skill: string }
+  | { kind: "raw"; raw: ObjectRecord }
   | { kind: "tool"; ev: ActionCalledEvent; result?: ActionResultEvent }
   | { kind: "input"; ev: InputRequestedEvent };
 
@@ -57,7 +58,20 @@ export type ToolResultEvent = ActionResultEvent | SubagentCompletedEvent;
 export type ViewJson = JsonValue;
 export type ViewUsage = Usage;
 
-export type TranscriptEvent = StreamEvent;
+/** 标准事件流里前端认识的词汇。 */
+export type KnownTranscriptEvent = StreamEvent;
+
+/**
+ * 未识别或形状不合的事件条目,由 asEvents 包装:不静默丢弃,渲染面原样展示
+ * (带原始 type 标签),让词汇演进在界面上可被发现、后续补一等呈现。
+ * `view.raw` 是 view 内部标记,不属于标准事件流词汇。
+ */
+export interface RawTranscriptEvent {
+  type: "view.raw";
+  raw: ObjectRecord;
+}
+
+export type TranscriptEvent = KnownTranscriptEvent | RawTranscriptEvent;
 
 export interface Indexed<T> {
   byKey: Map<string, T[]>;

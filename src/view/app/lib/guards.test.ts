@@ -24,13 +24,21 @@ describe("asEvents 按条目容错", () => {
     expect(events).toHaveLength(3);
   });
 
-  it("混入未知事件类型时逐条忽略,其余事件保留", () => {
-    const raw = [send, { type: "future.event", payload: 1 }, { type: "thinking", text: "hm" }];
-    const events = asEvents(raw);
-    expect(events?.map((e) => e.type)).toEqual(["message", "thinking"]);
+  it("未知事件类型包成 view.raw 原样保留,其余事件照常", () => {
+    const unknown = { type: "future.event", payload: 1 };
+    const events = asEvents([send, unknown, { type: "thinking", text: "hm" }]);
+    expect(events?.map((e) => e.type)).toEqual(["message", "view.raw", "thinking"]);
+    expect(events?.[1]).toEqual({ type: "view.raw", raw: unknown });
   });
 
-  it("非数组载荷整体拒绝", () => {
+  it("形状不合的已知类型同样包成 view.raw,不静默丢", () => {
+    const malformed = { type: "message", role: "assistant" }; // 缺 text
+    const events = asEvents([malformed]);
+    expect(events).toEqual([{ type: "view.raw", raw: malformed }]);
+  });
+
+  it("非对象条目丢弃;非数组载荷整体拒绝", () => {
+    expect(asEvents(["junk", 42, send])).toHaveLength(1);
     expect(asEvents({ events: [] })).toBeNull();
     expect(asEvents("nope")).toBeNull();
   });
@@ -48,6 +56,12 @@ describe("skill.loaded 聚合进 send 的回复", () => {
       { kind: "skill", skill: "pdf-export" },
       { kind: "text", text: "done" },
     ]);
+  });
+
+  it("view.raw 条目聚成 kind: raw 回复,原始载荷不丢", () => {
+    const turns = indexTurns([send, { type: "view.raw", raw: { type: "future.event", payload: 1 } }]);
+    const turn = turns.byKey.get(locKey("evals/m.eval.ts", 37));
+    expect(turn?.replies).toEqual([{ kind: "raw", raw: { type: "future.event", payload: 1 } }]);
   });
 });
 
