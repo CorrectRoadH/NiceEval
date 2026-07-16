@@ -148,6 +148,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 - 已修 [vitest-collects-agent-worktree-copies](vitest-collects-agent-worktree-copies.md) — `.claude/worktrees/` 被 git 忽略但不被 vitest 忽略,4 个废弃 agent worktree 里的整份 src 副本被当成正式测试跑(45% 的测试跑的是旧源码,抓不到回归却能凭陈旧原因弄红 CI);修为 vitest.config.ts 的 exclude 补 `.claude/**`(与 `.repos/**` 同类)
 - [e2e-suite-landing-gotchas](e2e-suite-landing-gotchas.md) — 拷 tier1 项目要同步改 package.json `file:` 与 workspace `link:` 两处深度;`budget` 对不报 usage 的 agent 空转不设防;GH runner 上 Codex bwrap 沙箱起不来要 `CODEX_SANDBOX_MODE=danger-full-access`
 - [e2e-verify-results-format-drift](e2e-verify-results-format-drift.md) — `verify.mjs` 手写扫描还认落快照(schemaVersion 4)之前的 `summary.json`,和当前 `snapshot.json`+`result.json` 布局对不上导致每次 push 必红;e2e 重构期间已把 `e2e.yml` 触发器收窄到只剩 `workflow_dispatch`
+- 已修 [ci-dead-legacy-dist-import-typecheck](ci-dead-legacy-dist-import-typecheck.md) — built-ins→built-in 目录改名后残留的 legacy 桥接导入让 CI typecheck 红、本地靠陈旧 dist 假绿;修为删死代码直连新入口(`src/show/report-host.ts`),验证 dist 路径改动要先清 dist 重建
 - 已修 [typescript7-no-api-alias-recipe](typescript7-no-api-alias-recipe.md) — TS7 原生版只有 tsc 没有编程 API,直升会炸 next build;官方 alias 双装配方(`typescript`→typescript6 + `@typescript/native`→ts7),`typescript` 名下是 6.0.x 是有意为之
 - 已修 [site-seo-lcp-and-stale-audit](site-seo-lcp-and-stale-audit.md) — landing 移动端 LCP 慢在渲染阻塞 CSS + 启动 JS(prism 同 chunk),不是字体/图片,`inlineCss`+`next/dynamic` 修(5f1ba01);审计报 `/docs` 死链是 7-03 proxy 修复前的旧数据,先 curl 核实
 

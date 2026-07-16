@@ -14,8 +14,8 @@
 // ⚠ 集成状态:src/report/** 正被并行重写(plan/reports-redesign-implementation.md)。这里把宿主
 // 需要的新报告 runtime API 收敛成唯一联系面,并对「新 dist 尚未产出」提供旧 API 桥接
 // (旧 ReportDefinition 是 build 函数形态,恒为单页)。集成阶段的对接点(搜索 INTEGRATION):
-//   1. `dist/report/built-in/index.js` 默认导出(新内建报告入口;旧桥接读 built-ins 的
-//      ExperimentComparison)。
+//   1. `dist/report/built-in/index.js` 默认导出(内建报告入口;恒为新格式,无桥接——
+//      它随本包源码一起构建,不存在旧产物)。
 //   2. `normalizeReport(definition)`:装载规范化(外壳 + 非空页列表);旧桥接对 build 形态自行包单页。
 //   3. `renderReportTreeToText(tree, ctx, options)` / `renderReportTreeToStaticHtml(tree, ctx, options)`:
 //      逐页渲染入口(ctx = { scope, results, report });旧桥接调 renderReportToText /
@@ -269,16 +269,10 @@ export async function loadHostReport(
   return normalizeHostReport(await loadBuiltInDefinition(), "the built-in report");
 }
 
-/** INTEGRATION(1):新内建入口是 `niceeval/report/built-in` 的默认导出;旧桥接读 built-ins 的具名导出。 */
+/** 内建报告即 `niceeval/report/built-in` 的默认导出(dist 预编译产物,`prepare` 时构建)。 */
 async function loadBuiltInDefinition(): Promise<unknown> {
-  try {
-    const mod = (await import("../../dist/report/built-in/index.js" as string)) as { default?: unknown };
-    if (mod.default !== undefined) return mod.default;
-  } catch {
-    // 新 dist 未产出:落回集成前的内建组件(报告兼组件,build 面在其上)。
-  }
-  const legacy = (await import("../../dist/report/built-ins/index.js")) as { ExperimentComparison?: unknown };
-  return legacy.ExperimentComparison;
+  const mod = await import("../../dist/report/built-in/index.js");
+  return mod.default;
 }
 
 // ───────────────────────── 逐页渲染 ─────────────────────────
