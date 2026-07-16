@@ -28,7 +28,7 @@ niceeval view --report reports/site.tsx --page exam   # 多页报告，指定初
 
 ## 页面构成
 
-- **导航外壳：** 品牌字标、页导航、外部链接、页脚与语言切换。页头左端是恒定的 NiceEval 品牌字标，报告定义不能覆盖；首页 hero 标题与浏览器标题按[外壳契约](library/shell.md#行为约束)取报告定义 `title` → Scope 中唯一且相同（`LocalizedText` 深相等）的非空快照 `name` → 内置文案「Eval 运行结果」；存在多个不同 `name` 时不随机挑一个，回退规则单点定义在外壳契约。导航组成规则固定：报告页按声明顺序在前（路由 `#/page/<id>`，`--page <id>` 定初始页），内置的 Attempts、Traces 证据页恒排在报告页之后——证据页由宿主拥有，报告定义不能移除或重排它们。单页定义的唯一页使用缩写展开出的 id `report` 与内置页名「报告 / Report」，导航第一项就是它。[对象形态的 `defineReport`](library/shell.md) 声明的 `links` 显示在导航右侧（可带内联 SVG 字标 `icon`），`footer`、`scripts`、`styles` 注入每一页；hero 下方恒有指向 niceeval 官网的 `Powered by NiceEval` 一行品牌色小字，不随 `footer` 配置增减，省略 `footer` 时不渲染页脚。自定义脚本属于增强层：初始静态 HTML 无 JS 完整可读，脚本只添加浏览行为，不改变数据或指标口径。
+- **导航外壳：** 品牌字标、页导航、外部链接、页脚与语言切换。页头左端是恒定的 NiceEval 品牌字标，报告定义不能覆盖；首页 hero 标题与浏览器标题按[外壳契约](library/shell.md#行为约束)取报告定义 `title` → Scope 中唯一且相同（`LocalizedText` 深相等）的非空快照 `name` → 内置文案「Eval 运行结果」；存在多个不同 `name` 时不随机挑一个，回退规则单点定义在外壳契约。导航组成规则固定：报告页按声明顺序在前（路由 `#/page/<id>`，`--page <id>` 定初始页），内置的 Attempts、Traces 证据页恒排在报告页之后——证据页由宿主拥有，报告定义不能移除或重排它们。单页定义的唯一页使用缩写展开出的 id `report` 与内置页名「报告 / Report」，导航第一项就是它。[对象形态的 `defineReport`](library/shell.md) 声明的 `links` 显示在导航右侧（可带内联 SVG 字标 `icon`），`footer`、`head`、`scripts`、`styles` 注入每一页；hero 下方恒有指向 niceeval 官网的 `Powered by NiceEval` 一行品牌色小字，不随 `footer` 配置增减，省略 `footer` 时不渲染页脚。自定义脚本属于增强层：初始静态 HTML 无 JS 完整可读，脚本只添加浏览行为，不改变数据或指标口径。
 - **报告槽：** 默认接收完整 Scope 并显示全部可比组的索引；选中一组后，只为这一组显示成本 × 端到端成功率散点和 experiment 比较表。切组是纯 UI 状态：不重新扫描结果、不重新计算指标，也不丢掉其它组或证据室数据。可比组由 experiment id 的父目录确定：`compare/bub` 与 `compare/codex` 属于 `compare`，`dev-e2b/bub` 属于 `dev-e2b`，两组绝不共享图、排序或统计；多层 id 使用完整父路径，根目录下的 experiment 各自形成单例组。组卡复用 `ScopeSummary` 的口径，显示组名、experiment / eval 数、端到端成功率、Eval 最终 verdict 构成、成本和最后运行时间；成功率直接渲染 `ScopeSummaryData.endToEndPassRate`，不从 verdict 计数现场重算。无 JS 时每组仍以独立 `<details>` 完整可读，第一组默认展开；渐进增强把它们变成单选组切换，不改变数据。组内比较表由 `ExperimentList` 的 web 面渲染：一行一个 experiment，固定列出实验、模型、Agent、平均耗时、端到端成功率、Tokens、成本和结果摘要；表头可排序，默认按端到端成功率降序，过滤只搜索当前组的 experiment、agent、model、flag 或 eval 文本。端到端成功率把 `failed` 与 `errored` 都记为 0，只有 `skipped` 不进分母；error 仍在结果摘要中单独列出。每行可展开查看该 experiment 的 eval 与 attempt 证据；attempt 行只显示 [Scoring 定义的主失败断言摘要](../scoring/library/display.md#主失败断言怎样选)，passed 行为 `—`，不能罗列全部 matcher。`--report` 用同一份自定义报告文件替换整个槽。
 - **Attempts：** 把所有 attempt 展成可筛选列表；页名与全库的 attempt 术语一致。
 - **Traces：** 用 canonical OTel 字段显示执行瀑布图。
@@ -47,7 +47,7 @@ niceeval view --out site --allow-sensitive-artifacts       # 本地事实根:必
 ```text
 site/
 ├── index.html
-├── assets/                  # 外壳 scripts / styles 的 {src} 资产，按内容哈希命名
+├── assets/                  # 外壳 scripts / styles 的 {src} 资产与 head 标签的本地 src/href 资产，按内容哈希命名
 └── artifact/
     └── <snapshot-path>/
         ├── sources/
@@ -61,7 +61,7 @@ site/
 
 源码查看因此自包含：前端按 `sources.json` 的引用 fetch 同快照的 `sources/<sha256>.json` 取正文；携带条目（`artifactBase` 指向原快照）的源码正文由复制管线归拢进本快照的 `sources/`，静态站不需要原快照在场。
 
-多页报告仍导出单个 `index.html`：页面是 `#/page/<id>` 路由，托管方不需要配置多路径。托管路径形态也不设要求：前端 fetch 证据文件时以「页面所在目录」为基底自行解析——pathname 末段带 `.` 视为文件名去掉，否则整个 pathname 就是目录——所以站点根、子目录、直接打开 `index.html`、以及反代 rewrite / cleanUrls 常见的「`<dir>/index.html` 服务在无尾斜杠的 `<dir>` 路径上」都不断链，唯一前提是 `artifact/` 与 `index.html` 保持同级（导出布局本身保证）。`assets/` 只在外壳声明了 `{src}` 资产时出现；资产按 `assets/<sha256><ext>` 写入并改写 HTML 引用，同内容且同扩展名的资产去重，不受源文件同名影响。导出的站点会原样携带并在读者浏览器执行这些脚本，发布防呆不检查脚本内容。网页会按需 fetch 证据文件，因此不提供“单个 HTML”导出。
+多页报告仍导出单个 `index.html`：页面是 `#/page/<id>` 路由，托管方不需要配置多路径。托管路径形态也不设要求：前端 fetch 证据文件时以「页面所在目录」为基底自行解析——pathname 末段带 `.` 视为文件名去掉，否则整个 pathname 就是目录——所以站点根、子目录、直接打开 `index.html`、以及反代 rewrite / cleanUrls 常见的「`<dir>/index.html` 服务在无尾斜杠的 `<dir>` 路径上」都不断链，唯一前提是 `artifact/` 与 `index.html` 保持同级（导出布局本身保证）。`assets/` 只在外壳声明了本地资产（`scripts` / `styles` 的 `{src}`，或 `head` 标签 `attrs` 里的本地 `src` / `href`）时出现；资产按 `assets/<sha256><ext>` 写入并改写 HTML 引用，同内容且同扩展名的资产去重，不受源文件同名影响。`head` 里的外链（`http(s)://`）不进 `assets/`，原样落在标签上由读者浏览器加载。导出的站点会原样携带并在读者浏览器执行这些脚本，发布防呆不检查脚本内容。网页会按需 fetch 证据文件，因此不提供“单个 HTML”导出。
 
 导出没有档位：`view --out` 是复印机，结果根里存在且前端会读取的证据文件——`sources.json` 及其引用的快照级 `sources/<sha256>.json` 正文、`events.json`、`trace.json`、`diff.json`——全部随站复制，缺的在对应证据位置如实显示缺失，不猜也不冒充。体积取舍不在导出层做：要瘦站点，在构建发布根时用 [`copySnapshots({ artifacts })`](../results/library.md#复制与瘦身copysnapshots) 决定带什么（其缺省不带 diff）。唯一永不复制的是 `o11y.json`——报告数字在导出时已烘进 HTML，浏览器不读它，这是「前端读什么带什么」规则的推论，不是一个档位。
 

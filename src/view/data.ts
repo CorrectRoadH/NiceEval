@@ -7,7 +7,7 @@
 // 见 docs/feature/reports/view.md「打开与收窄」。
 
 import { readFileSync, statSync } from "node:fs";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import { dedupeAttempts, openResults } from "../results/index.ts";
 import type { AttemptHandle, Results, Scope, Snapshot, SkippedDir } from "../results/index.ts";
 import {
@@ -15,6 +15,7 @@ import {
   renderHostPageHtml,
   reportMetaFor,
   resolveReportTitle,
+  type HostHeadTag,
   type HostReport,
   type HostReportAsset,
 } from "../show/report-host.ts";
@@ -55,7 +56,7 @@ export interface ViewScan {
    */
   reportPages: ViewReportPageHtml[];
   /** 外壳注入资产(styles / scripts;{src} 已按路径纪律解析成 inline 内容),只进 web 面。 */
-  shellAssets: { styles: string[]; scripts: string[] };
+  shellAssets: { styles: string[]; scripts: string[]; head: ResolvedHeadTag[] };
   /**
    * --out 的数据等级(见 docs/feature/reports/view.md「静态导出」):全部选中快照带
    * publish:{redaction:"applied"} 才是 "applied",否则 "sensitive"(含本地事实根与
@@ -331,6 +332,51 @@ function escapeHtml(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+/**
+ * head 标签的解析形态:attrs 里的本地 `src` / `href` 已解析成宿主机绝对路径,
+ * 由站点管线(site.ts)按内容哈希物化为 `assets/<sha256><ext>` 并回填该属性;
+ * 外链与无资产标签原样透传(shell.md「行为约束」)。
+ */
+export interface ResolvedHeadTag {
+  tag: "meta" | "link" | "script" | "style";
+  attrs: Record<string, string | true>;
+  children?: string;
+  localAsset?: { attr: "src" | "href"; abs: string; ext: string };
+}
+
+/** head 标签 attrs 的 src/href 解析:外链透传,本地路径按 `{src}` 同一路径纪律落成绝对路径并验存在。 */
+function resolveShellHead(tags: HostHeadTag[], baseDir: string | undefined): ResolvedHeadTag[] {
+  const out: ResolvedHeadTag[] = [];
+  for (const entry of tags) {
+    const attrs = { ...(entry.attrs ?? {}) };
+    const resolved: ResolvedHeadTag = {
+      tag: entry.tag,
+      attrs,
+      ...(entry.children !== undefined ? { children: entry.children } : {}),
+    };
+    for (const attr of ["src", "href"] as const) {
+      const value = attrs[attr];
+      if (typeof value !== "string" || /^https?:\/\//i.test(value)) continue;
+      // 形状与 scheme 已在 defineReport 装载期校验;这里只剩本地文件的存在性。
+      if (value.startsWith("/") || value.startsWith("~") || value.split("/").includes("..")) {
+        throw new ViewInputError(
+          `Report head <${entry.tag}> ${attr} "${value}" is not a plain relative path. Assets resolve relative to the report file; ".." segments, absolute paths and "~" are not allowed.`,
+        );
+      }
+      const abs = resolve(baseDir ?? process.cwd(), value);
+      try {
+        statSync(abs);
+      } catch {
+        throw new ViewInputError(`Report head <${entry.tag}> ${attr} asset not found: ${abs} (declared as "${value}").`);
+      }
+      resolved.localAsset = { attr, abs, ext: extname(abs) };
+      break;
+    }
+    out.push(resolved);
+  }
+  return out;
+}
+
 /** 外壳 `{src}` 资产的路径纪律(shell.md「行为约束」):相对报告文件解析;拒绝 `..` 路径段、绝对路径与 `~`。 */
 function resolveShellAssets(assets: HostReportAsset[], baseDir: string | undefined, kind: "styles" | "scripts"): string[] {
   const out: string[] = [];
@@ -371,7 +417,11 @@ async function renderReportSlot(
   results: Results,
   selection: Scope,
   pageFailure: "throw" | "embed" = "throw",
-): Promise<{ meta: ViewReportMeta; pages: ViewReportPageHtml[]; shellAssets: { styles: string[]; scripts: string[] } }> {
+): Promise<{
+  meta: ViewReportMeta;
+  pages: ViewReportPageHtml[];
+  shellAssets: { styles: string[]; scripts: string[]; head: ResolvedHeadTag[] };
+}> {
   // 报告 runtime 走预编译产物(dist/report/**,`pnpm run build:report` 产出),不受 view
   // 消费方 cwd/tsconfig 影响;装载与渲染统一经 ../show/report-host.ts(两个宿主共用的联系面)。
   const hostReport: HostReport = await loadHostReport(report?.cwd ?? process.cwd(), report?.path, {
@@ -389,6 +439,7 @@ async function renderReportSlot(
   const shellAssets = {
     styles: resolveShellAssets(hostReport.styles, reportDir, "styles"),
     scripts: resolveShellAssets(hostReport.scripts, reportDir, "scripts"),
+    head: resolveShellHead(hostReport.head, reportDir),
   };
 
   const pages: ViewReportPageHtml[] = [];

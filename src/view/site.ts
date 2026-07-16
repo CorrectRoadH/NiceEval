@@ -5,8 +5,9 @@
 
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
-import { loadViewScan, type ViewScan, type ViewScanOptions } from "./data.ts";
+import { loadViewScan, type ResolvedHeadTag, type ViewScan, type ViewScanOptions } from "./data.ts";
 import { localizeText } from "../show/report-host.ts";
 
 /** 站点产物清单里的一个文件:现算内容,或指向结果根内的原文件。 */
@@ -39,10 +40,13 @@ const RAW_COPY_ARTIFACTS = ["events.json", "trace.json", "diff.json"];
 export async function planSite(input?: string, opts: ViewScanOptions = {}): Promise<SitePlan> {
   const scan = await loadViewScan(input, opts);
   const files = new Map<string, SiteFile>();
+  // head 标签的本地 src/href 资产按内容哈希物化进 assets/(同内容同扩展名去重,
+  // 同名文件不冲突;shell.md「行为约束」),回填后的标签渲染进 <head>。
+  const headHtml = await materializeHeadAssets(scan.shellAssets.head, files);
   files.set("index.html", {
     path: "index.html",
     contentType: HTML_TYPE,
-    source: { kind: "content", body: await renderHtml(scan) },
+    source: { kind: "content", body: await renderHtml(scan, headHtml) },
   });
 
   for (const [base, srcDir] of scan.artifactDirs) {
@@ -76,13 +80,69 @@ export async function writeSite(plan: SitePlan, outDir: string): Promise<void> {
 }
 
 /** 取清单中一个文件的字节(server 响应体与写盘内容同源;file 类缺失时返回 undefined,由宿主 404)。 */
-export async function readSiteFile(file: SiteFile): Promise<string | undefined> {
+export async function readSiteFile(file: SiteFile): Promise<string | Buffer | undefined> {
   if (file.source.kind === "content") return file.source.body;
   try {
-    return await readFile(file.source.abs, "utf-8");
+    // 原字节读取:assets/ 里的 head 资产可以是二进制(favicon、字体),不能按 utf-8 解码。
+    return await readFile(file.source.abs);
   } catch {
     return undefined;
   }
+}
+
+/** head 资产的响应 content-type;命不中的按二进制下发(写盘路径不受影响)。 */
+const ASSET_CONTENT_TYPES: Record<string, string> = {
+  ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".ico": "image/x-icon",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".json": JSON_TYPE,
+};
+
+function escapeAttrValue(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+}
+
+/** 单个 head 标签 → HTML:attrs 值 true 渲染裸布尔属性,字符串转义后渲染 `key="value"`;script/style 的 children 原样落进标签(闭合序列已在装载期拒绝)。 */
+function renderHeadTagHtml(tag: ResolvedHeadTag, attrs: Record<string, string | true>): string {
+  const attrHtml = Object.entries(attrs)
+    .map(([name, value]) => (value === true ? ` ${name}` : ` ${name}="${escapeAttrValue(value)}"`))
+    .join("");
+  if (tag.tag === "meta" || tag.tag === "link") return `<${tag.tag}${attrHtml}>`;
+  return `<${tag.tag}${attrHtml}>${tag.children ?? ""}</${tag.tag}>`;
+}
+
+/**
+ * head 标签落成 HTML,本地 src/href 资产进站点清单:`assets/<sha256><ext>`,
+ * source 指向原文件(写盘 copyFile、server 原字节下发都二进制安全),标签属性回填该相对路径。
+ * 外链(http(s)://)原样透传,不进 assets/。
+ */
+async function materializeHeadAssets(head: ResolvedHeadTag[], files: Map<string, SiteFile>): Promise<string> {
+  const rendered: string[] = [];
+  for (const tag of head) {
+    const attrs = { ...tag.attrs };
+    if (tag.localAsset) {
+      const bytes = await readFile(tag.localAsset.abs);
+      const sha256 = createHash("sha256").update(bytes).digest("hex");
+      const path = `assets/${sha256}${tag.localAsset.ext}`;
+      files.set(path, {
+        path,
+        contentType: ASSET_CONTENT_TYPES[tag.localAsset.ext.toLowerCase()] ?? "application/octet-stream",
+        source: { kind: "file", abs: tag.localAsset.abs },
+      });
+      attrs[tag.localAsset.attr] = path;
+    }
+    rendered.push(renderHeadTagHtml(tag, attrs));
+  }
+  return rendered.join("\n");
 }
 
 const TEMPLATE_PLACEHOLDERS = {
@@ -98,11 +158,12 @@ const TEMPLATE_PLACEHOLDERS = {
  * 烘在 __NICEEVAL_VIEW_DATA__ 旁(不 hydrate,自定义组件的 <Style> 产物已内联其中),
  * 并恒内联官方组件样式(report/react/styles.css)与渐进增强 runtime(report/react/enhance.js,
  * 内联 <script>:排序 / 过滤 / tooltip,document 级事件委托,报告块被前端搬进槽位也无需重绑;
- * 无 JS 时报告内容依旧完整);外壳声明的 styles 注入在官方样式之后、scripts 注入在官方
- * 增强脚本之后 </body> 前,均按声明顺序(docs/feature/reports/library/shell.md)。
+ * 无 JS 时报告内容依旧完整);外壳声明的 styles 注入在官方样式之后、head 标签(headHtml,
+ * 由站点管线物化本地资产后渲染)在外壳 styles 之后、scripts 注入在官方增强脚本之后
+ * </body> 前,均按声明顺序(docs/feature/reports/library/shell.md)。
  * 前端只把当前页 / 当前界面语言对应的块摆进报告槽位置,不解析。
  */
-export async function renderHtml(scan: ViewScan): Promise<string> {
+export async function renderHtml(scan: ViewScan, headHtml = ""): Promise<string> {
   const template = await readViewAsset("template.html");
   const styles = await readViewAsset("client-dist/app.css");
   const app = await readViewAsset("client-dist/app.js");
@@ -134,7 +195,8 @@ export async function renderHtml(scan: ViewScan): Promise<string> {
       TEMPLATE_PLACEHOLDERS.styles,
       () =>
         `<style>\n${styles}\n</style>\n<style>\n${reportStyles}\n</style>\n<script>\n${reportEnhance}\n</script>` +
-        shellStyles,
+        shellStyles +
+        (headHtml ? `\n${headHtml}` : ""),
     )
     .replace(TEMPLATE_PLACEHOLDERS.reportSlot, () => pageTemplates)
     .replace(TEMPLATE_PLACEHOLDERS.viewData, () => JSON.stringify(scan.viewData).replace(/</g, "\\u003c"))

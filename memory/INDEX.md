@@ -157,6 +157,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 ## 设计决定
 
 - [view-server-serves-site-plan](view-server-serves-site-plan.md) — 裁决(2026-07-16):view 本地 server 与 --out 统一为单一站点管线(SitePlan 清单,布局/取数知识单点在 site.ts,逐字节奇偶测试守护);否决双链路各自修与「先导出临时目录再服务」;旁路取数删除,宿主语义只剩首页重建/embed/收窄三条
+- [report-head-channel-replaces-asset-attrs](report-head-channel-replaces-asset-attrs.md) — 裁决(2026-07-16):外壳第三方脚本/meta/favicon 走结构化 `head` 通道(白名单 tag+attrs+children),否决 ReportAsset 加 attrs、JSX 直给 `<script>`、raw HTML 字符串三方案;`{src}` 外链装载报错指引 head
 - [report-shell-brand-title-axis-rulings](report-shell-brand-title-axis-rulings.md) — 裁决(2026-07-16,第六批):页头品牌位恒 NiceEval、title 落点改 hero/浏览器标题(回退终点改内置文案)、ReportLink.icon 只收内联 SVG 不收组件(外壳可序列化)、散点轴向跟随 better 恒右上越好(翻案「左上」文案修正)
 - [reports-component-page-report-redesign](reports-component-page-report-redesign.md) — 裁决(2026-07-16):Reports 三层重设计——组件自带 resolve(spec/data 双形态)、defineReport 单一产物+页字段 content、内建报告塌缩一行、Selection→Scope、ctx.report 只读声明;否决了手工两步式唯一写法、Body/Site 双产物、ReportBuild、definePage、自定义 config 袋
 - [reports-dx-dogfood-rulings](reports-dx-dogfood-rulings.md) — 裁决(2026-07-16):真实 repo 试写回灌——pairsByFlag 派生配对(A/B 由 flags 导出不手抄 id)、FailureList 成品组合件、非空元组按元素来源二分(pairs/questions 放宽)、repeatedFailedCommands 内置;否决隐藏未命中 pair 的旋钮

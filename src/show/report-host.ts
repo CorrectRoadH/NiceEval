@@ -44,11 +44,21 @@ export interface HostReportLink {
 /** `{src}` 与 `{inline}` 两种形态不可同时出现(shell.md「字段穷尽」)。 */
 export type HostReportAsset = { src: string; inline?: never } | { inline: string; src?: never };
 
+/**
+ * 结构化 head 标签(shell.md「字段穷尽」):白名单闭集(meta/link/script/style),
+ * attrs 值 true 渲染裸布尔属性、字符串转义后渲染 `key="value"`;script/style 的
+ * children 原样落进标签。形状与闭合序列在 defineReport 装载期已校验。
+ */
+export type HostHeadTag =
+  | { tag: "meta" | "link"; attrs: Record<string, string | true>; children?: never }
+  | { tag: "script" | "style"; attrs?: Record<string, string | true>; children?: string };
+
 /** 装载规范化产物:外壳 + 非空页列表。show 只消费 title / pages;其余是 web 面属性。 */
 export interface HostReport {
   title?: LocalizedText;
   links: HostReportLink[];
   footer?: LocalizedText;
+  head: HostHeadTag[];
   scripts: HostReportAsset[];
   styles: HostReportAsset[];
   pages: HostReportPage[];
@@ -193,6 +203,7 @@ export function normalizeHostReport(definition: unknown, sourceLabel: string): H
       title?: LocalizedText;
       links?: HostReportLink[];
       footer?: LocalizedText;
+      head?: HostHeadTag[];
       scripts?: HostReportAsset[];
       styles?: HostReportAsset[];
       content?: unknown;
@@ -231,6 +242,7 @@ export function normalizeHostReport(definition: unknown, sourceLabel: string): H
       ...(def.title !== undefined ? { title: def.title } : {}),
       links: def.links ?? [],
       ...(def.footer !== undefined ? { footer: def.footer } : {}),
+      head: def.head ?? [],
       scripts: def.scripts ?? [],
       styles: def.styles ?? [],
       pages,
@@ -241,6 +253,7 @@ export function normalizeHostReport(definition: unknown, sourceLabel: string): H
   if (isLegacyDefinition(definition)) {
     return {
       links: [],
+      head: [],
       scripts: [],
       styles: [],
       pages: [{ id: SINGLE_PAGE_ID, title: BUILT_IN_PAGE_TITLE, content: definition }],

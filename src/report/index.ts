@@ -40,6 +40,7 @@ export type {
   RenderReportTextOptions,
   RenderTreeTextOptions,
   ReportTreeHostContext,
+  HeadTag,
   ReportAsset,
   ReportDef,
   ReportDefinition,

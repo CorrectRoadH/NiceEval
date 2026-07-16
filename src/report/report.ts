@@ -1,4 +1,4 @@
-// defineReport:唯一可被宿主装载的产物 —— 一层外壳(标题、外链、页脚、脚本、样式)加
+// defineReport:唯一可被宿主装载的产物 —— 一层外壳(标题、外链、页脚、head 标签、脚本、样式)加
 // 非空页列表;单页与多页不是两种机制,页数只是列表长度(docs/feature/reports/library/shell.md)。
 // 入参有两级缩写,各有精确展开:树入参 ≡ { content: 树 } ≡ pages: [{ id: "report",
 // title: 内置页名, content: 树 }]。`content` 与 `pages` 恰好声明一个,没有隐式默认。
@@ -40,6 +40,16 @@ export interface ReportLink {
 /** src 是相对顶层报告文件的路径;两种形态不可同时出现。 */
 export type ReportAsset = { src: string; inline?: never } | { inline: string; src?: never };
 
+/**
+ * 结构化 head 标签。tag 是白名单闭集——head 是元数据与第三方脚本的注入口,不是 HTML 后门。
+ * attrs 值为 true 渲染裸布尔属性(async、defer),字符串渲染 `key="value"`(值转义后落 HTML);
+ * 属性语义与脚本内容同一约定——作者义务,宿主不校验。
+ * meta / link 无子内容由类型表达;script / style 的 children 是原样文本,不转义。
+ */
+export type HeadTag =
+  | { tag: "meta" | "link"; attrs: Record<string, string | true>; children?: never }
+  | { tag: "script" | "style"; attrs?: Record<string, string | true>; children?: string };
+
 export interface ReportShell {
   /** 标题:首页 hero 与浏览器标题。页头左端是恒定的 NiceEval 品牌字标,不由 title 覆盖;回退链 def.title → 唯一快照 name → 内置文案「Eval 运行结果 / Eval Results」。 */
   title?: LocalizedText;
@@ -47,6 +57,12 @@ export interface ReportShell {
   links?: ReportLink[];
   /** 每页页脚的一段文字;省略时不渲染页脚(品牌行恒在 hero 下方,不占页脚)。 */
   footer?: LocalizedText;
+  /**
+   * 注入每页 `<head>` 的结构化标签,在官方与外壳样式之后按声明顺序渲染。
+   * 第三方 snippet(分析、埋点、评论)、SEO meta、favicon、字体、JSON-LD 的家:
+   * 声明什么标签就渲染什么标签,宿主只做结构校验,新的第三方接入不需要契约变更。
+   */
+  head?: HeadTag[];
   /** 注入每个页面的脚本,在官方增强脚本之后、按声明顺序于 </body> 前加载。 */
   scripts?: ReportAsset[];
   /** 注入每个页面的样式表,在官方样式之后按声明顺序加载。 */
@@ -76,13 +92,14 @@ const REPORT_DEFINITION: unique symbol = Symbol.for("niceeval.report.definition"
 /**
  * defineReport 的唯一产物:只作 --report 文件的默认导出,交给宿主装载。
  * 它不是 ReportNode——不能放进任何 content 或报告树,外壳因此不可嵌套。
- * 字段是装载规范化后的形态:pages 恒非空,links / scripts / styles 恒为数组。
+ * 字段是装载规范化后的形态:pages 恒非空,links / head / scripts / styles 恒为数组。
  */
 export interface ReportDefinition {
   readonly kind: "report";
   readonly title?: LocalizedText;
   readonly links: readonly ReportLink[];
   readonly footer?: LocalizedText;
+  readonly head: readonly HeadTag[];
   readonly scripts: readonly ReportAsset[];
   readonly styles: readonly ReportAsset[];
   readonly pages: NonEmptyArray<ReportPage>;
@@ -161,6 +178,16 @@ function assertLocalizedText(value: unknown, where: string): asserts value is Lo
 
 const PAGE_ID_PATTERN = /^[a-z0-9-]+$/;
 
+/** 本地资产路径纪律(shell.md「行为约束」):相对报告文件的普通相对路径,拒绝 `..` 段、绝对路径与 `~`。 */
+function assertLocalAssetPath(src: string, where: string): void {
+  const segments = src.split(/[\\/]+/);
+  if (src.startsWith("/") || /^[A-Za-z]:/.test(src) || src.startsWith("~") || segments.includes("..")) {
+    throw new Error(
+      `defineReport ${where} "${src}" is not allowed: only plain relative paths (optionally with a ./ prefix) resolve against the report file — no ".." segments, absolute paths, or "~". Move the asset next to the report file and reference it relatively.`,
+    );
+  }
+}
+
 function assertAssets(assets: unknown, field: "scripts" | "styles"): ReportAsset[] {
   if (assets === undefined) return [];
   if (!Array.isArray(assets)) {
@@ -176,15 +203,109 @@ function assertAssets(assets: unknown, field: "scripts" | "styles"): ReportAsset
     }
     if (hasSrc) {
       const src = asset.src as string;
-      const segments = src.split(/[\\/]+/);
-      if (src.startsWith("/") || /^[A-Za-z]:/.test(src) || src.startsWith("~") || segments.includes("..")) {
+      // 外链不属于增强层资产:第三方外链标签的家是 head 通道。
+      if (/^https?:\/\//i.test(src) || src.startsWith("//")) {
         throw new Error(
-          `defineReport ${field} src "${src}" is not allowed: only plain relative paths (optionally with a ./ prefix) resolve against the report file — no ".." segments, absolute paths, or "~". Move the asset next to the report file and reference it relatively.`,
+          `defineReport ${field} src "${src}" is an external URL — ${field} take local files and inline content (the host pipeline vendors them). Declare third-party external tags in "head" instead, e.g. head: [{ tag: "script", attrs: { async: true, src: "…" } }].`,
         );
       }
+      assertLocalAssetPath(src, `${field} src`);
     }
   }
   return assets as ReportAsset[];
+}
+
+const HEAD_TAG_NAMES = new Set(["meta", "link", "script", "style"]);
+const HEAD_ATTR_NAME_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_.:-]*$/;
+
+function assertHeadTags(tags: unknown): HeadTag[] {
+  if (tags === undefined) return [];
+  if (!Array.isArray(tags)) {
+    throw new Error(
+      'defineReport head must be an array of { tag, attrs?, children? } entries (tag: "meta" | "link" | "script" | "style").',
+    );
+  }
+  for (const entry of tags as Array<Record<string, unknown>>) {
+    const tag = entry?.tag;
+    // 白名单闭集:head 是元数据与第三方脚本的注入口,不是 HTML 后门;标题走 title 字段回退链。
+    if (typeof tag !== "string" || !HEAD_TAG_NAMES.has(tag)) {
+      throw new Error(
+        `defineReport head tag ${JSON.stringify(tag)} is not allowed — head injects metadata and third-party tags, and the allowed tags are "meta", "link", "script", "style". For the document title, use the shell "title" field instead.`,
+      );
+    }
+    const attrs = entry.attrs;
+    if (attrs !== undefined && (typeof attrs !== "object" || attrs === null || Array.isArray(attrs))) {
+      throw new Error(
+        `defineReport head <${tag}> attrs must be a { name: string | true } record (true renders a bare boolean attribute like async).`,
+      );
+    }
+    if ((tag === "meta" || tag === "link") && attrs === undefined) {
+      throw new Error(
+        `defineReport head <${tag}> needs attrs — a bare <${tag}> renders nothing. Declare e.g. { tag: "${tag}", attrs: { ${tag === "meta" ? 'name: "…", content: "…"' : 'rel: "…", href: "…"'} } }.`,
+      );
+    }
+    const attrRecord = (attrs ?? {}) as Record<string, unknown>;
+    for (const [name, value] of Object.entries(attrRecord)) {
+      if (!HEAD_ATTR_NAME_PATTERN.test(name)) {
+        throw new Error(
+          `defineReport head <${tag}> attribute name ${JSON.stringify(name)} is not a valid HTML attribute name. Use letters, digits, "-", "_", ":" or ".".`,
+        );
+      }
+      if (value !== true && typeof value !== "string") {
+        throw new Error(
+          `defineReport head <${tag}> attribute "${name}" must be a string or true (true renders a bare boolean attribute like async); got ${typeof value}.`,
+        );
+      }
+    }
+    // 宿主自有的文档单例:charset / viewport 由宿主外壳拥有,声明它们装载报错。
+    if (tag === "meta" && attrRecord.charset !== undefined) {
+      throw new Error(
+        "defineReport head must not declare <meta charset> — the document charset is owned by the host shell. Remove the entry.",
+      );
+    }
+    if (tag === "meta" && typeof attrRecord.name === "string" && attrRecord.name.toLowerCase() === "viewport") {
+      throw new Error(
+        'defineReport head must not declare <meta name="viewport"> — the viewport is owned by the host shell. Remove the entry.',
+      );
+    }
+    const children = entry.children;
+    if (children !== undefined) {
+      if (tag === "meta" || tag === "link") {
+        throw new Error(
+          `defineReport head <${tag}> does not take children — <${tag}> is a void element; put the content in attrs.`,
+        );
+      }
+      if (typeof children !== "string") {
+        throw new Error(
+          `defineReport head <${tag}> children must be a string of literal ${tag === "script" ? "JavaScript" : "CSS"}; got ${typeof children}.`,
+        );
+      }
+      // children 原样落进标签,闭合序列在该上下文无法转义,会提前截断标签。
+      if (children.toLowerCase().includes(`</${tag}`)) {
+        throw new Error(
+          `defineReport head <${tag}> children contain "</${tag}>" — that sequence cannot be escaped inside a <${tag}> and would close the tag early. Split the content into two entries or move it into a local file asset.`,
+        );
+      }
+    }
+    // src / href 按 scheme 分流:http(s) 外链原样透传;其余按本地路径纪律解析。
+    for (const name of ["src", "href"]) {
+      const value = attrRecord[name];
+      if (typeof value !== "string") continue;
+      if (/^https?:\/\//i.test(value)) continue;
+      if (value.startsWith("//")) {
+        throw new Error(
+          `defineReport head <${tag}> ${name} "${value}" is protocol-relative — declare the scheme explicitly, e.g. "https:${value}".`,
+        );
+      }
+      if (/^[a-z][a-z0-9+.-]*:/i.test(value)) {
+        throw new Error(
+          `defineReport head <${tag}> ${name} "${value}" uses a scheme other than http(s) — external head assets must be http(s) URLs. Anything else, ship as a local file next to the report and reference it relatively.`,
+        );
+      }
+      assertLocalAssetPath(value, `head <${tag}> ${name}`);
+    }
+  }
+  return tags as HeadTag[];
 }
 
 export function defineReport(content: ReportNode): ReportDefinition;
@@ -196,7 +317,7 @@ export function defineReport(input: ReportNode | ReportDef): ReportDefinition {
     : (input as ReportDef);
   if (typeof def !== "object" || def === null) {
     throw new Error(
-      "defineReport expects a report tree or a config object ({ title?, links?, footer?, scripts?, styles?, content | pages }). " +
+      "defineReport expects a report tree or a config object ({ title?, links?, footer?, head?, scripts?, styles?, content | pages }). " +
         CONTENT_NEXT_STEP,
     );
   }
@@ -273,6 +394,7 @@ export function defineReport(input: ReportNode | ReportDef): ReportDefinition {
     ...(def.title !== undefined ? { title: def.title } : {}),
     links: [...links],
     ...(def.footer !== undefined ? { footer: def.footer } : {}),
+    head: assertHeadTags(def.head),
     scripts: assertAssets(def.scripts, "scripts"),
     styles: assertAssets(def.styles, "styles"),
     pages: pages as unknown as NonEmptyArray<ReportPage>,

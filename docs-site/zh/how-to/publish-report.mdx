@@ -46,6 +46,43 @@ npx niceeval view --results report-data --report reports/exam.tsx --out site
 
 报告文件和 `report-data/` 一样提交在仓库里,改完版面 push,线上就跟着更新。用下面的 `vercel.json` / workflow 时,把构建命令换成这一行即可,其余配置不用动。
 
+## 接站点分析与第三方脚本
+
+发布出去的站想挂 Google Analytics、埋点或评论组件,在报告文件的 `head` 字段里声明标签。厂商文档里的 snippet 逐字段照抄成对象就行——以 GA4 为例,官方给的两段 `<script>` 写成两个条目:
+
+```tsx
+import { ExperimentComparison, defineReport } from "niceeval/report";
+
+export default defineReport({
+  title: "Memory Evals",
+  head: [
+    { tag: "script", attrs: { async: true, src: "https://www.googletagmanager.com/gtag/js?id=G-XXXX" } },
+    {
+      tag: "script",
+      children: `
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){dataLayer.push(arguments);}
+        gtag('js', new Date());
+        gtag('config', 'G-XXXX');
+      `,
+    },
+  ],
+  content: <ExperimentComparison />,
+});
+```
+
+规则只有几条:
+
+- `tag` 支持 `meta`、`link`、`script`、`style` 四种,按声明顺序渲染进每一页的 `<head>`。SEO meta、favicon、字体、JSON-LD 都走这里。
+- `attrs` 的值写 `true` 输出裸属性(`async`、`defer`),写字符串输出 `key="value"`。靠 `data-*` 属性配置的第三方脚本(评论、埋点)直接把属性抄进来。
+- `src` / `href` 写 `https://` 外链时原样保留;写 `./favicon.svg` 这类相对路径时,文件会自动复制进导出站的 `assets/` 并改好引用。
+- 脚本会原样发布并在读者浏览器里执行,别在里面嵌密钥。
+
+```tsx
+// 靠 data-* 配置的埋点脚本:属性照抄
+{ tag: "script", attrs: { async: true, src: "https://tracker.example/t.js", "data-project": "memory-evals" } }
+```
+
 ## 接托管平台
 
 **Vercel**:仓库根放一个 `vercel.json`,导入项目后 push 即部署。

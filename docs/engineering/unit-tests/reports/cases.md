@@ -236,6 +236,12 @@ it("show 与 view 的默认报告槽消费同一 Scope", async () => {
 | view 导航组成固定：报告页按声明序在前，内置 Attempts、Traces 证据页恒排其后；报告定义不能移除或重排证据页 | 正例：双页定义导航序为 页A · 页B · Attempts · Traces；边界：树形态定义导航仍含证据页 |
 | `scripts` / `styles` 按声明序注入：styles 在官方样式后，scripts 在官方增强脚本后 `</body>` 前；初始静态 HTML 的数值不因注入改变 | 正例：注入前后初始 HTML 数据节点相同、注入顺序可断言 |
 | `{src}` 资产相对报告文件解析，拒绝 `..` 路径段、绝对路径与 `~`；静态导出复制进 `assets/` 保持相对路径，缺失文件报错并给出解析后路径 | 正例：`./assets/a.js` 被复制；反例：`../x.js` 装载报错；边界：缺失文件在导出时报错 |
+| `head` 标签白名单是 `meta` / `link` / `script` / `style`，白名单外与宿主自有单例（`title` 不在白名单、`meta charset`、`meta name="viewport"`）装载报错并指回对应契约 | 反例：`{ tag: "base" }` 装载报错；反例：`meta charset` / `meta viewport` 装载报错且文案指回 title 契约或宿主职责 |
+| `head` 的 `attrs` 值为 `true` 渲染裸布尔属性，字符串渲染 `key="value"` 且值 HTML 转义；`script` / `style` 的 `children` 原样落进标签，内容含 `</script>` / `</style>` 时装载报错 | 正例：`{ async: true, src: 外链, "data-project": "a\"b" }` 渲染 `async` 裸属性且引号转义；反例：children 含 `</script>` 装载报错 |
+| `head` 标签按声明序注入每页 `<head>`，落在官方与外壳样式之后；初始静态 HTML 的数值不因注入改变 | 正例：两个 head 标签注入顺序可断言且在外壳 styles 之后；正例：注入前后初始 HTML 数据节点相同 |
+| `head` 的 `src` / `href` 按 scheme 分流：`http(s)://` 外链原样落标签、不进 `assets/`；本地相对路径走 `{src}` 同一路径纪律并物化为 `assets/<sha256><ext>`；protocol-relative `//` 与其它 scheme 装载报错 | 正例：GA4 外链 src 原样出现在 HTML 且 `assets/` 不含它；正例：`./favicon.svg` 改写为 `assets/<sha256>.svg` 且站点清单含该文件；反例：`//cdn.example/x.js` 装载报错 |
+| `head` 不进 `ctx.report`（与 `scripts` / `styles` 同为注入资产）；show 不消费 `head` | 正例：声明 head 后组合组件 `ctx.report` 无该字段；反例：show 输出不含 head 标签内容 |
+| `scripts` / `styles` 的 `{src}` 只收本地路径，外链装载报错并指引改写成 `head` 条目 | 反例：`{ src: "https://cdn.example/x.js" }` 装载报错且文案含 `head` 写法 |
 | 重复或非法 page id 在装载时校验失败，报错列出冲突 id | 反例：两页同 id `exam`；反例：id 含大写或斜杠 |
 | `Tabs` 两面都输出全部 tab 完整内容：web 静态 HTML 每 tab 一个 `<details>` 且仅首个 open，text 面按声明序输出带标题分节、不折成索引也不省略；切换不改变数据 | 正例：双 tab 两面各含两块完整内容且仅首个 open；反例：text 面不丢第二个 tab |
 
