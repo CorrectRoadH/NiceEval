@@ -66,7 +66,7 @@ Sandbox 创建、setup 或 teardown 错误不依赖 trace。`result.json` 保存
 
 同一个实验多次跑会留下多份结果，不带 `@<locator>` 的默认视图只回答一个问题——「现在整体怎样」：每个 experiment × eval 取时间上最新的那份判定，同一个 experiment 跨多次运行拼出来。按前缀只重跑了部分 eval 时，其余 eval 的判定从更早的运行补齐，报告永远是全局最新，不会因为一次局部重跑变残缺。合成是有标注的：每份判定都带上它产生的时间，能看出报告是从哪几次运行拼出来的。合成结果可能混着不同版本的被测代码——所以收工判定以 `--force` 全量重跑为准，迭代途中的 `show` 负责快、收尾的全量跑负责真。
 
-单个 eval 视图里，多 experiment、多 Attempt 时的断言明细块默认挑最新一次失败的 Attempt 展开；没有失败就挑最新一次。这只是一个默认展开的启发式，不是精确选择——需要精确看某一次 Attempt，复制那一行的 `@<locator>` 直接 `show` 它即可。`--experiment compare` 按路径段前缀把 Selection 收窄到整个 `compare` 组，`--experiment compare/bub` 只留一个 experiment；`--run <目录>` 钉死看某一次历史 run，`--history` 看跨 run 趋势。`--report <文件>` 同时替换 `show` / `view` 的默认报告。位置前缀、`--run`、`--experiment` 对自定义报告同样生效；`--history` 与 `--report` 互斥。
+单个 eval 视图里，多 experiment、多 Attempt 时的断言明细块默认挑最新一次失败的 Attempt 展开；没有失败就挑最新一次。这只是一个默认展开的启发式，不是精确选择——需要精确看某一次 Attempt，复制那一行的 `@<locator>` 直接 `show` 它即可。`--experiment compare` 按路径段前缀把 Selection 收窄到整个 `compare` 组，`--experiment compare/bub` 只留一个 experiment；`--results <目录>` 换结果根，`--snapshot <snapshot.json>` 只看某一次落盘的快照，`--history` 看跨 run 趋势。`--report <文件>` 同时替换 `show` / `view` 的默认报告。位置前缀、`--results`、`--experiment` 对自定义报告同样生效；`--history` 与 `--report` 互斥。
 
 `niceeval view` 的每个视图都有 CLI 对应物：
 
@@ -79,7 +79,7 @@ Sandbox 创建、setup 或 teardown 错误不依赖 trace。`result.json` 保存
 | AI 对话、thinking、Skill 加载与工具调用（有 OTel 时补时间） | `niceeval show @<locator> --execution` |
 | 单次 Attempt 的阶段耗时分解 | `niceeval show @<locator> --timing`；逐节点审计用 `--timing=full` |
 | 文件改动 | `niceeval show @<locator> --diff` |
-| 历史 run 列表 | `niceeval show <eval id> --history`；钉死某一次用 `--run <目录>` |
+| 历史 run 列表 | `niceeval show <eval id> --history`；钉死某一次用 `view --snapshot <snapshot.json>` 或复制该行 `@<locator>` 直接 `show` |
 
 ### 默认分组比较报告
 
@@ -319,7 +319,7 @@ compare/codex-gpt-5.4 · 5 runs · passed 2/5
   2026-07-07T16-40   ✗ failed   3 attempts   $0.05   gate calledTool("get_weather")
 ```
 
-✓✗ 交替说明这个 eval 在抖，该修的是稳定性（被测程序或断言），反复重跑碰运气只会烧钱；连续绿转红的拐点就是回归引入的位置，用 `--run <目录>` 钉住拐点前后两次细看。时间轴只列真实执行——缓存携带的旧结果是判定的复印件，不占行，否则趋势会被复印件灌满假数据。不带 eval id 的 `niceeval show --history` 给每个 experiment 的 per-run 通过率序列，同一份趋势的榜单视角。
+✓✗ 交替说明这个 eval 在抖，该修的是稳定性（被测程序或断言），反复重跑碰运气只会烧钱；连续绿转红的拐点就是回归引入的位置，用 `view --snapshot <snapshot.json>` 钉住拐点前后两次细看。时间轴只列真实执行——缓存携带的旧结果是判定的复印件，不占行，否则趋势会被复印件灌满假数据。不带 eval id 的 `niceeval show --history` 给每个 experiment 的 per-run 通过率序列，同一份趋势的榜单视角。
 
 两次 run 的精确对比（这次修复具体翻转了哪些 eval）不做成 flag：用 `DeltaTable` 积木写一份报告递给 `--report`，几行就是一份自定义对比报告，终端和网页两扇门都认——内置命令只管固定摆法，自定义口径见[自定义报告](/zh/how-to/custom-reports)。
 
@@ -360,7 +360,7 @@ NiceEval 写入 `<dir>/index.html`，并把查看器要读取的 artifact（`sou
 - `diff.json` 和 `o11y.json` 不会被复制。查看器不读取它们，且 diff 可能达到上百 MB。
 - 用 `file://` 直接打开 `index.html` 时浏览器不允许 fetch artifact，代码视图会提示源码不可用。本地预览用 http 服务打开。
 
-最简单的流程是在跑过 eval 的机器上导出，把产物目录直接部署，不需要额外步骤。要让站点随 push 自动更新，先用 `copySnapshots` 生成经过单文件预算检查的发布结果根，把它提交进仓库，再让 CI 对这个目录运行 `view --run <目录> --out`——workflow 与平台接线见[通过 CI 发布报告](/zh/how-to/publish-report)。
+最简单的流程是在跑过 eval 的机器上导出，把产物目录直接部署，不需要额外步骤。要让站点随 push 自动更新，先用 `copySnapshots` 生成经过单文件预算检查的发布结果根，把它提交进仓库，再让 CI 对这个目录运行 `view --results <目录> --out`——workflow 与平台接线见[通过 CI 发布报告](/zh/how-to/publish-report)。
 
 ## Artifact 说明
 

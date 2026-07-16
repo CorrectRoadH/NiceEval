@@ -180,6 +180,8 @@ it("text 与 web 显示同一个 MetricCell 终值和 warning", () => {
 | `--out` 与位置参数 / `--experiment` 互斥：按实验收窄发布走「换根」，报错文案含 `copySnapshots` + `filter` 下一步 | 反例：`--experiment compare --out site` 按用法错误非零退出且文案含 copySnapshots；正例：同参数不带 `--out` 时照常收窄报告槽 |
 | `--snapshot` 指定单个快照文件时该文件不可读令 view 失败（与扫描模式的跳过相反）；view 位置参数只表示 eval id 前缀，不接受文件或目录 | 反例：损坏文件经 `--snapshot` 报错退出；正例：同文件在扫描模式仅被跳过；反例：文件路径作位置参数按 eval 前缀报无匹配 |
 | 落盘无 phases 时 summary/full timing 都如实输出 unavailable 不猜；有 phases 时主链之和 ≤ total，收尾段 `+N` 不计入 total | 正例：含 teardown 的 fixture；反例：无 phases 的第三方结果；边界：errored 中途时最后主链阶段带 `✗` |
+| 本地 server 与 `--out` 消费同一份站点产物：同一路径在两宿主逐字节一致（index.html 与全部 artifact 文件），两宿主不各自携带取数或布局知识 | 正例：对同一结果根，导出目录的每个文件与 server 对同路径的响应字节相等（含解引用后的 sources）；反例：server 不提供产物清单之外的路径 |
+| server 打开首页触发站点产物整份重建，数据永远是盘上最新；artifact 请求未命中最近产物清单时管线重建一次再查，新落盘证据无需重启 | 正例：server 启动后新写一份快照，下一次 `GET /` 即含新数据；正例：新快照的 events.json 不重启 server 可 fetch；反例：重建后仍未知的路径 404 |
 
 宿主等价在装载边界记录 definition 与 Scope，不比较完整终端输出与完整 HTML——各宿主的导航壳和证据室本就不同：
 
@@ -210,6 +212,8 @@ it("show 与 view 的默认报告槽消费同一 Scope", async () => {
 | 事件流按条目校验、按条目容错：未识别的事件类型逐条忽略，其余事件正常进入对话面与源码视图的回复聚合 | 正例：含 `skill.loaded` 的 events 数组不被判空，带 `loc` 的 send 仍聚出全部回复；正例：混入完全未知的事件类型（如 `future.event`）时其余事件保留；反例：非数组的 events 载荷整体拒绝 |
 | `skill.loaded` 是一等回复条目：send 展开面与对话流都显示 Skill 名，不伪装成工具调用 | 正例：`indexTurns` 把 `skill.loaded` 聚成 `kind: "skill"` 回复并保留 Skill 名 |
 | 轮的归属按 `loc` 判定：无 `loc` 的 user 消息不开新轮——同文本回显吃掉、轮内注入作为 `kind: "user"` 回复留在当前轮，后续回复仍聚到带 `loc` 的 send | 正例：send（带 loc）后紧跟同文本无 loc 回显，回复仍全部聚到 send 行；正例：轮中段的 stop-hook 反馈成为 `kind: "user"` 回复且其后的 assistant 回复不脱轮；边界：流首无 loc 的 user 消息（旧工件）仍开 noloc 轮 |
+| 源码视图 send 行真实可交互：带 `loc` 的 send 行点开显示该轮回复（assistant 文本 / thinking），再点收起；轮内没有任何回复事件时展开面如实显示「无回复」空态，不留空白 | 正例：jsdom 点击 send 行后回复面板含 assistant 文本与 thinking；正例：只有 send 事件时展开面是「(无回复)」文案；反例：未点开时回复不可见 |
+| 源码视图断言行真实可交互：第一条失败断言默认展开（matcher 与 expected / received 的值直接可见），点行可收起；passed 行不默认展开、点开后有明细 | 正例：jsdom 下 gate-failed 行免点击即见 received 值；正例：passed 行初始无明细节点、点击后出现；反例：收起后 received 值不可见 |
 
 ## 外壳、页面与 Tabs
 

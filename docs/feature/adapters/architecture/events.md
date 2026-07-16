@@ -29,6 +29,7 @@ type StreamEvent =
 5. Skill 加载只产 `skill.loaded`，不重复计入工具调用。
 6. 原始协议没有 usage 时省略，不编造数值。
 7. **Adapter 不截断。** 工具输出再大也原样交出来——断言跑在完整值上，落盘时才由写入面统一削到 256 KiB 并打 `truncated` 标记（见 [Results · 大值截断](../../results/architecture.md#大值截断)）。Adapter 自己先削一刀会让断言看到不完整的输出，是 bug，不是保护。
+8. **`loc` 只属于 eval 侧注入的 user message。** `t.send` 由 core 记录、携带 send 语句的源码位置；adapter 从 SDK 事件或 transcript 归一出的任何消息都不携带 `loc`。消费方以「user message 是否带 `loc`」区分 eval 发出的 send 与被测系统内部注入的 user 消息（agent 自身的续跑提示、对输入的重新包装）——内部注入保留在流里如实呈现，但不是新的一轮。
 
 ## InputRequest
 

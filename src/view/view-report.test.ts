@@ -23,7 +23,7 @@ import { afterEach, describe, expect, it } from "vitest";
 // `instanceof`-incompatible class.
 import { ReportLoadError } from "../../dist/report/load.js";
 import { ViewInputError, loadViewScan, type ViewScan } from "./data.ts";
-import { renderHtml } from "./server.ts";
+import { renderHtml } from "./site.ts";
 import { buildView, resolveViewInput } from "./index.ts";
 import { runShow } from "../show/index.ts";
 import { RESULTS_FORMAT, RESULTS_SCHEMA_VERSION, type EvalResult, type Verdict } from "../types.ts";

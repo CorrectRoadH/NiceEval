@@ -1,7 +1,7 @@
 ---
 title: "通过 CI 发布报告"
 sidebarTitle: "CI 发布报告"
-description: "把经过 copySnapshots 大小预检的结果目录提交进仓库,CI 用一行 view --run 导出报告站;超大文件在 commit 前就会得到可执行错误。"
+description: "把经过 copySnapshots 大小预检的结果目录提交进仓库,CI 用一行 view --results 导出报告站;超大文件在 commit 前就会得到可执行错误。"
 ---
 
 `niceeval view --out <目录>` 把查看器导出成一个纯静态目录:报告、结果快照列表、transcript、trace 瀑布,和本地 `niceeval view` 看到的完全一样(导出行为见[查看结果 · 导出与静态托管](/zh/how-to/viewing-results#导出与静态托管))。CI 发布只需要让结果数据到构建机手里，但不要直接提交本地事实根 `.niceeval/`：逐字符串截断能防一条失控输出膨胀，不能保证整个文件小于 Git host 的限制。先用 `copySnapshots` 生成经过 50 MiB 单文件预检的发布结果根，再提交这个目录。
@@ -31,7 +31,7 @@ await copySnapshots(results.latest(), output, {
 ## 构建命令就是导出命令
 
 ```bash
-npx niceeval view --run report-data --out site
+npx niceeval view --results report-data --out site
 ```
 
 `view` 对零可读结果直接报错、非零退出,不会导出一张空报告——`report-data/` checkout 坏掉,或所有落盘与当前 niceeval 的 schemaVersion 不兼容被整批跳过时,构建失败,Vercel / GitHub Pages 保留上一次部署。错误逐条列出被跳过的快照目录与原因,schemaVersion 场景还给出能直接查看旧落盘的 `npx niceeval@<版本> view` 命令。
@@ -41,7 +41,7 @@ npx niceeval view --run report-data --out site
 不传 `--report` 时,发布出来的首页是默认报告。想让首页换成自己的报告,把 [`defineReport` 报告文件](/zh/how-to/custom-reports)传给 `--report` 就行——attempt 证据页(transcript、trace、代码视图)仍在同一个站里,报告里的每个数字点进去就是对应证据,和本地 `view --report` 看到的一模一样:
 
 ```bash
-npx niceeval view --run report-data --report reports/exam.tsx --out site
+npx niceeval view --results report-data --report reports/exam.tsx --out site
 ```
 
 报告文件和 `report-data/` 一样提交在仓库里,改完版面 push,线上就跟着更新。用下面的 `vercel.json` / workflow 时,把构建命令换成这一行即可,其余配置不用动。
@@ -53,7 +53,7 @@ npx niceeval view --run report-data --report reports/exam.tsx --out site
 ```json
 {
   "installCommand": "pnpm install --frozen-lockfile",
-  "buildCommand": "npx niceeval view --run report-data --out site",
+  "buildCommand": "npx niceeval view --results report-data --out site",
   "outputDirectory": "site"
 }
 ```
@@ -83,7 +83,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: npx niceeval view --run report-data --out site
+      - run: npx niceeval view --results report-data --out site
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

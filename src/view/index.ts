@@ -1,14 +1,16 @@
 // 本地结果查看器入口:只做编排与对外导出。
-// 读取(openResults)与统计(官方计算函数)在 data.ts,HTTP 与 HTML 烘焙在 server.ts,
-// server/前端共用的数据契约在 shared/types.ts。
+// 站点管线(planSite/writeSite,server 与 --out 的唯一联系面)在 site.ts,读取(openResults)
+// 与统计(官方计算函数)在 data.ts,HTTP 宿主在 server.ts,server/前端共用的数据契约在
+// shared/types.ts。
 
-import { copyFile, mkdir, writeFile } from "node:fs/promises";
 import { existsSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
-import { ViewInputError, loadViewScan, type ViewScan } from "./data.ts";
-import { renderHtml, type ViewOptions } from "./server.ts";
+import { resolve } from "node:path";
+import { ViewInputError } from "./data.ts";
+import { planSite, writeSite } from "./site.ts";
+import type { ViewOptions } from "./server.ts";
 
 export { startViewServer, type ViewOptions, type ViewServer } from "./server.ts";
+export { planSite, writeSite, renderHtml, type SitePlan, type SiteFile } from "./site.ts";
 export {
   IncompatibleResultsError,
   ViewInputError,
@@ -64,12 +66,12 @@ export function resolveViewInput(
 }
 
 /**
- * 导出静态报告(--out):只有目录式一种形态。写 <dir>/index.html,并把前端会 fetch 的 artifact
- * (sources.json / events.json / trace.json / diff.json)复制到 <dir>/artifact/<base>/——与本地
- * server 的 /artifact/<rel> 路由同一布局,整个目录扔给任何静态托管即是完整体验。
- * 首页即报告槽(裸跑填充内建报告,--report 整槽替换),证据室同站;多页报告仍是单个
- * index.html(页面走 `#/page/<id>` 路由)。单文件(*.html)导出已移除:代码/transcript/trace
- * 视图依赖 artifact 文件,单文件注定残缺(docs/feature/reports/view.md「静态导出」)。
+ * 导出静态报告(--out):只有目录式一种形态。站点管线(site.ts)产出与本地 server 服务的
+ * 同一份产物清单,这里把它写进 <dir>——index.html + `artifact/<base>/` 证据树,整个目录扔给
+ * 任何静态托管即是完整体验。首页即报告槽(裸跑填充内建报告,--report 整槽替换),证据室同站;
+ * 多页报告仍是单个 index.html(页面走 `#/page/<id>` 路由)。单文件(*.html)导出已移除:
+ * 代码/transcript/trace 视图依赖 artifact 文件,单文件注定残缺(docs/feature/reports/view.md
+ * 「静态导出」)。
  */
 export async function buildView(opts: ViewOptions = {}): Promise<string> {
   const out = resolve(opts.out ?? ".niceeval/site");
@@ -90,50 +92,19 @@ export async function buildView(opts: ViewOptions = {}): Promise<string> {
         "Then: niceeval view --results <publish-root> --out <site>",
     );
   }
-  const scan = await loadViewScan(opts.input, opts.scan);
+  // 静态导出保持「任一页失败整体失败」(pageFailure 缺省 "throw"),不产出半套站点。
+  const plan = await planSite(opts.input, opts.scan);
   // --out 按发布防呆二分(见 docs/feature/reports/view.md「静态导出」):目标结果根的全部快照
   // 带 publish:{redaction:"applied"}(copySnapshots 补记)时直接导出;redaction:"none"、
   // 无标记结果或本地事实根,都必须显式传 --allow-sensitive-artifacts——静态站原样携带证据文件,
   // 上游声明过原文发布也不豁免这里的确认。
-  if (!opts.allowSensitiveArtifacts && scan.publishState !== "applied") {
+  if (!opts.allowSensitiveArtifacts && plan.scan.publishState !== "applied") {
     throw new ViewInputError(
       `--out refuses to export unredacted results: not every selected snapshot carries publish: { redaction: "applied" }. ` +
         `Produce a publish root first with copySnapshots({ redact }) and export that (niceeval view --results <publish-root> --out <site>), ` +
         `or pass --allow-sensitive-artifacts to explicitly export raw evidence (prompts, tool args, full outputs, sources).`,
     );
   }
-  await mkdir(out, { recursive: true });
-  await writeFile(join(out, "index.html"), await renderHtml(scan), "utf-8");
-  await copyFetchedArtifacts(scan, join(out, "artifact"));
+  await writeSite(plan, out);
   return out;
-}
-
-// 导出没有档位(docs/feature/reports/view.md「静态导出」):结果根里存在且前端会读取的证据
-// 文件全部复制——events.json / trace.json / diff.json 原字节复制(diff 有就带,缺时前端在
-// 证据位置如实显示缺失;体积取舍在构建发布根时用 copySnapshots({ artifacts }) 做,不在导出层);
-// 唯一永不复制的是 o11y.json——报告数字在导出时已烘进 HTML,浏览器不读它。
-// sources.json 是格式例外——盘上是去重后的引用(`{path, sha256}[]`),必须先经
-// AttemptHandle.sources() 解引用出完整内容(`{path, content}[]`)再写出,否则浏览器端的
-// isCodeSource 守卫因缺 content 字段判空,代码视图会误判「源码未捕获」(即便源码明明捕获了)。
-const RAW_COPY_ARTIFACTS = ["events.json", "trace.json", "diff.json"];
-
-async function copyFetchedArtifacts(scan: ViewScan, artifactRoot: string): Promise<void> {
-  for (const [base, srcDir] of scan.artifactDirs) {
-    const destDir = join(artifactRoot, base);
-    // 输入本身已经是导出布局(比如对着上次导出的目录重新生成 index.html)时不自拷。
-    if (resolve(srcDir) === resolve(destDir)) continue;
-
-    const rawFiles = RAW_COPY_ARTIFACTS.filter((name) => existsSync(join(srcDir, name)));
-    const hasSourcesRef = existsSync(join(srcDir, "sources.json"));
-    if (!rawFiles.length && !hasSourcesRef) continue;
-
-    await mkdir(destDir, { recursive: true });
-    await Promise.all(rawFiles.map((name) => copyFile(join(srcDir, name), join(destDir, name))));
-
-    if (hasSourcesRef) {
-      const attempt = scan.attemptsByBase.get(base);
-      const sources = attempt ? await attempt.sources() : null;
-      await writeFile(join(destDir, "sources.json"), JSON.stringify(sources ?? []), "utf-8");
-    }
-  }
 }
