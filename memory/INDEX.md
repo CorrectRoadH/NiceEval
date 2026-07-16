@@ -152,6 +152,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 
 ## 设计决定
 
+- [report-shell-brand-title-axis-rulings](report-shell-brand-title-axis-rulings.md) — 裁决(2026-07-16,第六批):页头品牌位恒 NiceEval、title 落点改 hero/浏览器标题(回退终点改内置文案)、ReportLink.icon 只收内联 SVG 不收组件(外壳可序列化)、散点轴向跟随 better 恒右上越好(翻案「左上」文案修正)
 - [reports-component-page-report-redesign](reports-component-page-report-redesign.md) — 裁决(2026-07-16):Reports 三层重设计——组件自带 resolve(spec/data 双形态)、defineReport 单一产物+页字段 content、内建报告塌缩一行、Selection→Scope、ctx.report 只读声明;否决了手工两步式唯一写法、Body/Site 双产物、ReportBuild、definePage、自定义 config 袋
 - [reports-dx-dogfood-rulings](reports-dx-dogfood-rulings.md) — 裁决(2026-07-16):真实 repo 试写回灌——pairsByFlag 派生配对(A/B 由 flags 导出不手抄 id)、FailureList 成品组合件、非空元组按元素来源二分(pairs/questions 放宽)、repeatedFailedCommands 内置;否决隐藏未命中 pair 的旋钮
 - [reports-fourth-review-rulings](reports-fourth-review-rulings.md) — 裁决(2026-07-16):Reports 第四轮全量 docs 评审——ScopeOverview 并入 ScopeSummary(votes 选计票级)、--run→--results、Runs 页→Attempts、turns→assistantTurns、across→acrossEvals、数据形状维度名统一 +Dimension 后缀、redact 扩到三列表、evalGroup/--history/--snapshot/Row·Style 补契约、evals 计数示例对账修正;撤回 locales 与 relativeTo 改名(尊重第三轮否决)、poweredBy 开关(用户当场推翻)

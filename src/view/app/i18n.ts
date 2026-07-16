@@ -102,6 +102,7 @@ export type MessageKey =
   | "code.sourceUnavailable"
   | "assert.pass"
   | "assert.fail"
+  | "assert.passedCollapsed"
   | "assert.unavailable"
   | "assert.optional"
   | "assert.soft"
@@ -134,7 +135,9 @@ const dictionaries: Record<Locale, Dictionary> = {
     "nav.experiments": "Experiments",
     "nav.attempts": "Attempts",
     "nav.traces": "Traces",
-    "hero.title": "Eval Run Results",
+    // 标题回退链终点的内置文案(shell.md:「Eval 运行结果 / Eval Results」);
+    // 正常路径 server 侧已走完回退链,这里只兜旧数据 / 缺声明。
+    "hero.title": "Eval Results",
     "hero.lastRun": "Last run:",
     "hero.noRuns": "No runs yet",
     "metric.passRate": "Pass Rate",
@@ -226,6 +229,7 @@ const dictionaries: Record<Locale, Dictionary> = {
     "code.sourceUnavailable": "Source was captured for this run, but its artifact files are missing from this deployment. Re-export with `niceeval view --out <dir>` (directory mode bundles artifacts), or open the results locally with `niceeval view`.",
     "assert.pass": "pass",
     "assert.fail": "fail",
+    "assert.passedCollapsed": "{{count}} passed",
     "assert.unavailable": "unavailable",
     "assert.optional": "optional",
     "assert.soft": "soft",
@@ -347,6 +351,7 @@ const dictionaries: Record<Locale, Dictionary> = {
     "code.sourceUnavailable": "此 run 捕获过源码，但当前部署里缺少它的 artifact 文件。用 `niceeval view --out <目录>` 重新导出（目录模式会带上 artifact），或在本地 `niceeval view` 查看。",
     "assert.pass": "通过",
     "assert.fail": "失败",
+    "assert.passedCollapsed": "{{count}} 条通过",
     "assert.unavailable": "评不了",
     "assert.optional": "可缺席",
     "assert.soft": "soft",

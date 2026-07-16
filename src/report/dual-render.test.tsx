@@ -22,6 +22,7 @@ import {
 import {
   buildReportMeta,
   defineReport,
+  FALLBACK_REPORT_TITLE,
   pickReportPage,
   renderReportToText,
   ReportPageNotFoundError,
@@ -214,6 +215,44 @@ describe("spec 形态与 data 形态", () => {
     const roundTrip = JSON.parse(JSON.stringify(fresh));
     const html = renderToStaticMarkup(<MetricScatter data={roundTrip} />);
     expect(html).toContain("nre-metric-scatter");
+  });
+
+  it("text 面散点轴方向跟随 better:成本轴反向(便宜在右)、提示恒为右上;x 无 better 时整图无提示", async () => {
+    // cmp/a:cost $0.20、通过;cmp/b:cost $0.10、失败。cost better:"lower" → 轴反向,
+    // 便宜的 cmp/b(标记 B)落在贵的 cmp/a(标记 A)右侧;刻度仍显示真实值(右端是更小的 $0.10)。
+    const scope = scatterScope();
+    const text = await renderTreeText(
+      <MetricScatter points="experiment" x={costUSD} y={endToEndPassRate} />,
+      scope,
+    );
+    const markCol = (mark: string): number => {
+      const line = text.split("\n").find((l) => l.includes(mark));
+      expect(line, `plot row with mark ${mark}`).toBeTruthy();
+      return line!.indexOf(mark);
+    };
+    expect(markCol("B")).toBeGreaterThan(markCol("A"));
+    expect(text).toContain("better → upper right");
+    expect(text).toContain("$0.10");
+    expect(text).toContain("$0.20");
+
+    // x 未声明 better:轴正向、整图无方向提示(组件不猜「更好」朝哪边)。
+    const rawCost = defineMetric({
+      name: "rawCost",
+      unit: "$",
+      value: (attempt) => attempt.result.usage?.costUSD ?? null,
+    });
+    const noHint = await renderTreeText(
+      <MetricScatter points="experiment" x={rawCost} y={endToEndPassRate} />,
+      scope,
+    );
+    expect(noHint).not.toContain("better →");
+    // 正向轴:贵的 cmp/a(A)在右。
+    const noHintCol = (mark: string): number => {
+      const line = noHint.split("\n").find((l) => l.includes(mark));
+      expect(line, `plot row with mark ${mark}`).toBeTruthy();
+      return line!.indexOf(mark);
+    };
+    expect(noHintCol("A")).toBeGreaterThan(noHintCol("B"));
   });
 });
 
@@ -729,15 +768,37 @@ describe("defineReport 装载规范化", () => {
     expect(pickReportPage(single, "report").id).toBe("report");
   });
 
-  it("标题回退链:def.title → 唯一且相同的快照 name → NiceEval;en 相同 zh 不同也回退", () => {
+  it("标题回退链:def.title → 唯一且相同的快照 name → 内置文案「Eval 运行结果 / Eval Results」;en 相同 zh 不同也落内置文案", () => {
     const named = snap({ experimentId: "t/a", name: "Memory Evals", results: [res("q", "passed")] });
     const definition = defineReport(<ScopeSummary />);
     expect(resolveReportTitle(defineReport({ title: "Custom", content: null }), scopeOf([named]))).toBe("Custom");
     expect(resolveReportTitle(definition, scopeOf([named]))).toBe("Memory Evals");
-    expect(resolveReportTitle(definition, scopeOf([snap({ experimentId: "t/b", results: [] })]))).toBe("NiceEval");
+    expect(resolveReportTitle(definition, scopeOf([snap({ experimentId: "t/b", results: [] })]))).toEqual(
+      FALLBACK_REPORT_TITLE,
+    );
     const zhA = snap({ experimentId: "t/c", name: { en: "Same", "zh-CN": "一" }, results: [] });
     const zhB = snap({ experimentId: "t/d", name: { en: "Same", "zh-CN": "二" }, results: [] });
-    expect(resolveReportTitle(definition, scopeOf([zhA, zhB]))).toBe("NiceEval");
+    expect(resolveReportTitle(definition, scopeOf([zhA, zhB]))).toEqual(FALLBACK_REPORT_TITLE);
+    expect(FALLBACK_REPORT_TITLE).toEqual({ en: "Eval Results", "zh-CN": "Eval 运行结果" });
+  });
+
+  it("ReportLink.icon 是 { svg: string }:defineReport 接受合法形状;无类型 JS 传其它形状定义时报完整用户反馈", () => {
+    const svg = '<svg viewBox="0 0 16 16"><path d="M0 0h16v16z"/></svg>';
+    const withIcon = defineReport({
+      content: null,
+      links: [{ label: "GitHub", href: "https://example.com", icon: { svg } }],
+    });
+    expect(withIcon.links[0]!.icon).toEqual({ svg });
+
+    const reactNode = { $$typeof: Symbol.for("react.transitional.element"), type: "svg", props: {} };
+    for (const icon of [reactNode, "<svg/>", { svg: 42 }, { svg: "" }]) {
+      expect(() =>
+        defineReport({
+          content: null,
+          links: [{ label: "GitHub", href: "https://example.com", icon: icon as never }],
+        }),
+      ).toThrow(/"icon" must be \{ svg: string \}/);
+    }
   });
 });
 
@@ -779,6 +840,7 @@ describe("内建报告", () => {
       { width: 140 },
     );
     expect(single).toContain("Eval / Attempt"); // 单组直接进入组内详情
-    expect(single).toContain("better → upper left"); // 成本 × 成功率:越靠左上越好
+    // 成本轴(better: lower)反向渲染,「更好」恒指向右上;两轴都声明 better → 提示在场
+    expect(single).toContain("better → upper right");
   });
 });

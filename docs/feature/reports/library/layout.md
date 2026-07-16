@@ -215,7 +215,7 @@ interface ComposeContext {
 }
 
 interface ReportMeta {
-  /** 走完回退链（声明 title → 唯一快照 name → "NiceEval"）后的标题。 */
+  /** 走完回退链（声明 title → 唯一快照 name → 内置文案「Eval 运行结果」）后的标题。 */
   title: LocalizedText;
   /** 页头外链；声明省略时为空数组。 */
   links: readonly ReportLink[];

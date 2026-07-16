@@ -26,7 +26,7 @@ $ niceeval show --experiment dev-e2b
 平均每个 eval 成本（越低越好） × 端到端成功率
 A ...
 
-越靠左上越好
+越靠右上越好
 A dev-e2b/codex-e2b
 
 实验                    模型            Agent   平均耗时   端到端成功率   结果               Tokens    成本

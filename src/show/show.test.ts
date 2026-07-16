@@ -199,7 +199,8 @@ describe("默认报告:跨快照合成的现刻水位(ExperimentComparison text 
     ]);
     const { out, code } = await show(root, []);
     expect(code).toBe(0);
-    expect(out).toContain("better → upper left");
+    // 成本轴(better: lower)反向,「更好」恒指向右上;两轴都声明 better → 提示在场
+    expect(out).toContain("better → upper right");
     expect(out).toContain("A compare/a   B compare/b");
     expect(out).toMatch(/\bb\s+large\s+claude\s+1s\s+100%/);
     expect(out).toMatch(/\ba\s+mini\s+codex\s+1s\s+50%/);

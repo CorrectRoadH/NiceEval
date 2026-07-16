@@ -114,10 +114,8 @@ const en = {
   "experimentComparison.commandsHead": "Group details:",
   "experimentComparison.empty": "No experiment groups",
 
+  /** 方向提示唯一文案:轴向已随 better 反正,「更好」恒指向右上(两轴都声明 better 时才显示)。 */
   "scatter.betterUpperRight": "better → upper right",
-  "scatter.betterUpperLeft": "better → upper left",
-  "scatter.betterLowerRight": "better → lower right",
-  "scatter.betterLowerLeft": "better → lower left",
   /** 0 个可画点:x/y 指标没有可用数据。 */
   "scatter.noData": "No data to plot {x} × {y}",
   "pointsMissing.one": "{n} point missing data",
@@ -218,9 +216,6 @@ const zhCN: Record<ReportMessageKey, string> = {
   "experimentComparison.empty": "没有实验组",
 
   "scatter.betterUpperRight": "越靠右上越好",
-  "scatter.betterUpperLeft": "越靠左上越好",
-  "scatter.betterLowerRight": "越靠右下越好",
-  "scatter.betterLowerLeft": "越靠左下越好",
   "scatter.noData": "{x} × {y} 没有可绘制的数据",
   "pointsMissing.one": "{n} 个点缺数据",
   "pointsMissing.other": "{n} 个点缺数据",

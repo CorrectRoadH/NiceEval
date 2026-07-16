@@ -132,7 +132,7 @@ export const scoreboardData: ScoreboardData = {
 export const scatterData: ScatterData = {
   pointDimension: "experiment",
   seriesDimension: "agent",
-  x: costColumn, // better: "lower" → 方向注脚「越靠左上越好」;轴不反向
+  x: costColumn, // better: "lower" → 轴反向(贵在左、便宜在右);两轴都有 better → 提示「越靠右上越好」
   y: passRateColumn,
   rows: [
     {

@@ -89,8 +89,10 @@ export function App({ data, reportPages }: { data: ViewData; reportPages: Record
     persistLocale(locale);
   }, [locale]);
 
-  // 浏览器标题跟随外壳标题(回退链在 server 侧走完:def.title → 唯一快照 name → NiceEval)。
-  const shellTitle = localizedText(data.report?.title, locale) ?? "NiceEval";
+  // 首页 hero 与浏览器标题跟随外壳标题(回退链在 server 侧走完:def.title → 唯一快照 name →
+  // 内置文案「Eval 运行结果 / Eval Results」);缺声明(旧数据)时按内置文案兜底。
+  // 页头品牌位不归它——那里是恒定的 NiceEval 字标。
+  const shellTitle = localizedText(data.report?.title, locale) ?? t("hero.title");
   useEffect(() => {
     document.title = shellTitle;
   }, [shellTitle]);
@@ -150,9 +152,11 @@ export function App({ data, reportPages }: { data: ViewData; reportPages: Record
   return (
     <Tabs value={tab} onValueChange={(v) => selectTab(v as Tab)}>
       <header className="topbar">
+        {/* 页头左端是恒定的 NiceEval 品牌字标(与 Powered by 行同族的产品品牌位),
+            报告定义不能覆盖或移除;报告 title 的落点是下方 hero 与浏览器标题。 */}
         <a className="brand" href={hashForTab(`page:${initialPageId}`)}>
           <span className="mark" />
-          <span>{shellTitle}</span>
+          <span>NiceEval</span>
         </a>
         <TabsList aria-label={t("nav.label")}>
           {pages.map((page) => (
@@ -170,6 +174,10 @@ export function App({ data, reportPages }: { data: ViewData; reportPages: Record
           <nav className="shell-links" aria-label="Links">
             {data.report.links.map((link, i) => (
               <a key={i} href={link.href} target="_blank" rel="noreferrer">
+                {/* 内联 SVG 字标(可选)渲染在 label 前,原样内联;内容是作者义务,宿主不校验形状之外的东西。 */}
+                {link.icon ? (
+                  <span className="shell-link-icon" aria-hidden="true" dangerouslySetInnerHTML={{ __html: link.icon.svg }} />
+                ) : null}
                 {localizedText(link.label, locale) ?? link.href}
               </a>
             ))}
@@ -191,7 +199,8 @@ export function App({ data, reportPages }: { data: ViewData; reportPages: Record
       </header>
       <main>
         <section className="hero">
-          <h1>{localizedText(data.name, locale) || t("hero.title")}</h1>
+          {/* hero 标题 = 走完回退链的报告标题(与浏览器标题同源)。 */}
+          <h1>{shellTitle}</h1>
           <div className="meta">
             <span>
               {/* viewData 只带原始值(ISO / number),这里按当前界面 locale 格式化。 */}

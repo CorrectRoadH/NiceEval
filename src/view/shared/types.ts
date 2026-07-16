@@ -33,11 +33,13 @@ export interface ViewReportPageMeta {
 /**
  * 规范化后的报告外壳声明(docs/feature/reports/library/shell.md):壳(导航 / 页脚)由前端
  * 渲染,页内容消费 <template> 静态块。title 已走完回退链(def.title → 唯一且相同的快照 name →
- * "NiceEval");scripts / styles 是注入资产,不进 viewData。
+ * 内置文案「Eval 运行结果 / Eval Results」),落点是首页 hero 与浏览器标题——页头品牌位恒为
+ * NiceEval 字标,不归 title;scripts / styles 是注入资产,不进 viewData。
+ * link 的 icon 是内联 SVG 字符串(原样透传、原样内联),不收组件——viewData 就是序列化边界。
  */
 export interface ViewReportMeta {
   title: LocalizedText;
-  links: { label: LocalizedText; href: string }[];
+  links: { label: LocalizedText; href: string; icon?: { svg: string } }[];
   footer?: LocalizedText;
   pages: ViewReportPageMeta[];
   /** 初始页(--page 或声明序第一页);`#/page/<id>` 路由覆盖它。 */
@@ -88,8 +90,6 @@ export interface SkippedRunNotice {
  * 格式化统一由前端按当前界面 locale 做。
  */
 export interface ViewData {
-  /** 项目名(来自 config.name);hero 标题,可按 locale 多语言。 */
-  name?: LocalizedText;
   /** 最近一次 run 的 startedAt(ISO);没有历史 run 时缺省。 */
   lastRunAt?: string;
   /** 报告槽 Selection 合成自几个物理 run;hero「合成来源」标注。 */

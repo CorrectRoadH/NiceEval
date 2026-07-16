@@ -272,7 +272,8 @@ export async function loadViewScan(input?: string, opts: ViewScanOptions = {}): 
     }
   }
 
-  // 全局最新快照(跨全部实验):hero 的项目名 / 最近一次运行时刻从这里取。
+  // 全局最新快照(跨全部实验):hero 的「最近一次运行」时刻从这里取。
+  // hero 标题不从这里取——它走标题回退链(resolveReportTitle,进 viewData.report.title)。
   let latestSnapshot: Snapshot | undefined;
   for (const exp of results.experiments) {
     const candidate = exp.snapshots[0];
@@ -281,7 +282,6 @@ export async function loadViewScan(input?: string, opts: ViewScanOptions = {}): 
   }
 
   const viewData: ViewData = {
-    ...(latestSnapshot?.name !== undefined ? { name: latestSnapshot.name } : {}),
     ...(latestSnapshot ? { lastRunAt: latestSnapshot.startedAt } : {}),
     // 合成 Scope 的快照是跨快照拼出来的,来源物理 run 数从 attempt 自己的 snapshot
     // 反向引用取——每个 attempt 的 .snapshot 恒指向它真实所在的贡献快照(无论 Scope

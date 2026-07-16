@@ -6,7 +6,9 @@
 //   走同一条「装载 → resolve → validate → render」管线。
 // - 装载规范化唯一产物是「外壳 + 非空页列表」:`defineReport(树)` ≡ `{ content: 树 }` ≡
 //   `pages: [{ id: "report", title: 内置页名, content: 树 }]`。
-// - 标题回退单点:def.title → Scope 中唯一且相同(LocalizedText 深相等)的非空快照 name → "NiceEval"。
+// - 标题回退单点:def.title → Scope 中唯一且相同(LocalizedText 深相等)的非空快照 name →
+//   内置文案「Eval 运行结果 / Eval Results」。落点是首页 hero、浏览器标题与 show 页索引标题行;
+//   页头品牌位恒为 NiceEval 字标,不归 title。
 // - LocalizedText 回退:当前 locale → en → 按 locale 键字典序的第一个非空值。
 //
 // ⚠ 集成状态:src/report/** 正被并行重写(plan/reports-redesign-implementation.md)。这里把宿主
@@ -32,6 +34,11 @@ export interface HostReportPage {
 export interface HostReportLink {
   label: LocalizedText;
   href: string;
+  /**
+   * 可选内联 SVG 字标(shell.md「字段穷尽」):web 面渲染在 label 前,静态导出原样内联;
+   * 不收组件(外壳声明经 viewData 序列化边界);show 不消费。
+   */
+  icon?: { svg: string };
 }
 
 /** `{src}` 与 `{inline}` 两种形态不可同时出现(shell.md「字段穷尽」)。 */
@@ -50,6 +57,9 @@ export interface HostReport {
 /** 单页缩写展开出的唯一页使用内置页名(shell.md:「报告 / Report」)。 */
 export const BUILT_IN_PAGE_TITLE: LocalizedText = { en: "Report", "zh-CN": "报告" };
 export const SINGLE_PAGE_ID = "report";
+
+/** 标题回退链的终点:内置文案「Eval 运行结果 / Eval Results」(shell.md「行为约束」)。 */
+export const BUILT_IN_REPORT_TITLE: LocalizedText = { en: "Eval Results", "zh-CN": "Eval 运行结果" };
 
 /** 规范化报告声明的只读注入(组合组件 ctx.report;ReportMeta,见 library/layout.md)。 */
 export interface HostReportMeta {
@@ -98,8 +108,9 @@ function hasText(text: LocalizedText | undefined): text is LocalizedText {
 }
 
 /**
- * 标题回退单点(show 页索引标题与 view 外壳共用):def.title → Scope 中唯一且相同
- * (深相等)的非空快照 name → "NiceEval"。多个不同 name 时不随机挑一个,回退 "NiceEval"。
+ * 标题回退单点(show 页索引标题与 view hero / 浏览器标题共用):def.title → Scope 中唯一且相同
+ * (深相等)的非空快照 name → 内置文案「Eval 运行结果 / Eval Results」。多个不同 name 时
+ * 不随机挑一个,直接落到内置文案。
  */
 export function resolveReportTitle(
   defTitle: LocalizedText | undefined,
@@ -112,10 +123,10 @@ export function resolveReportTitle(
     if (unique === undefined) {
       unique = snapshot.name;
     } else if (!localizedTextEquals(unique, snapshot.name)) {
-      return "NiceEval";
+      return BUILT_IN_REPORT_TITLE;
     }
   }
-  return unique ?? "NiceEval";
+  return unique ?? BUILT_IN_REPORT_TITLE;
 }
 
 /** 组合组件 ctx.report 的形状(走完回退链的 title;scripts / styles 不进)。 */
@@ -149,6 +160,24 @@ function isLegacyDefinition(value: unknown): value is LegacyReportDefinition {
 }
 
 const PAGE_ID_PATTERN = /^[a-z0-9-]+$/;
+
+/**
+ * 装载期校验 `ReportLink.icon`(shell.md「字段穷尽」):唯一合法形状是 `{ svg: string }`。
+ * 无类型 JS 传组件 / ReactNode / 裸字符串都在这里被完整用户反馈拒绝——外壳声明要过
+ * viewData 的序列化边界,ReactNode 过不去,可序列化是外壳契约的一部分。
+ */
+function assertLinkIcon(link: unknown, sourceLabel: string): void {
+  const icon = (link as { icon?: unknown })?.icon;
+  if (icon === undefined) return;
+  const svg = (icon as { svg?: unknown })?.svg;
+  if (typeof icon !== "object" || icon === null || typeof svg !== "string" || svg.length === 0) {
+    throw new HostReportError(
+      `${sourceLabel}: a link "icon" must be { svg: string } — an inline SVG string rendered before the label. ` +
+        "Components and React nodes are not accepted: the shell declaration crosses a serialization boundary. " +
+        'Write e.g. icon: { svg: "<svg …>…</svg>" }.',
+    );
+  }
+}
 
 /**
  * 装载规范化:把 defineReport 产物折成「外壳 + 非空页列表」。三种入参写法
@@ -197,6 +226,7 @@ export function normalizeHostReport(definition: unknown, sourceLabel: string): H
       }
       seen.add(page.id);
     }
+    for (const link of def.links ?? []) assertLinkIcon(link, sourceLabel);
     return {
       ...(def.title !== undefined ? { title: def.title } : {}),
       links: def.links ?? [],

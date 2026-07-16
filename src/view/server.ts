@@ -6,6 +6,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { loadAttemptIndex, loadViewScan, viewRoot, type ViewScan, type ViewScanOptions } from "./data.ts";
 import type { AttemptHandle } from "../results/index.ts";
+import { localizeText } from "../show/report-host.ts";
 import { formatThrown } from "../util.ts";
 
 export interface ViewOptions {
@@ -115,7 +116,15 @@ export async function renderHtml(scan: ViewScan): Promise<string> {
     ])
     .join("\n");
 
+  // 初始 <title> 与 hero 同源:走完回退链的报告标题(viewData.report.title;终点是内置文案
+  // 「Eval 运行结果 / Eval Results」)。模板 lang="en",初始按 en 解析;前端按界面语言更新。
+  const title = localizeText(scan.viewData.report?.title, "en") ?? "Eval Results";
+
   return template
+    .replace(
+      /<title>[^<]*<\/title>/,
+      () => `<title>${title.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</title>`,
+    )
     .replace(
       TEMPLATE_PLACEHOLDERS.styles,
       () =>

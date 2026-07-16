@@ -347,18 +347,14 @@ function axisLabel(col: MetricColumn, locale: ReportLocale): string {
   return resolveMetricLabel(col.label, locale, col.key);
 }
 
-/** 「好」的角落文案键:x/y 的 better 方向共同决定(缺省按 higher);轴不反向。 */
-function betterCornerText(x: MetricColumn, y: MetricColumn, locale: ReportLocale): string {
-  const right = x.better !== "lower";
-  const up = y.better !== "lower";
-  const key = up
-    ? right
-      ? ("scatter.betterUpperRight" as const)
-      : ("scatter.betterUpperLeft" as const)
-    : right
-      ? ("scatter.betterLowerRight" as const)
-      : ("scatter.betterLowerLeft" as const);
-  return localeText(locale, key);
+/**
+ * 方向提示:轴向已随 better 反正(lower 反向),「更好」恒指向右上,文案恒为
+ * 「越靠右上越好」;仅当 x、y 都声明 better 时显示——任一轴未声明,组件不猜
+ * 「更好」朝哪边,整图无提示(返回 undefined)。
+ */
+function betterCornerText(x: MetricColumn, y: MetricColumn, locale: ReportLocale): string | undefined {
+  if (x.better === undefined || y.better === undefined) return undefined;
+  return localeText(locale, "scatter.betterUpperRight");
 }
 
 /** 轴标题行:"<x label>(越低越好) × <y label>"——better 方向如实标注,不虚构轴向。 */
@@ -419,9 +415,13 @@ export function scatterText(data: ScatterData, ctx: TextContext): string {
     yLabel: axes.y,
     formatX: (v) => formatMetricValue(v, data.x.unit),
     formatY: (v) => formatMetricValue(v, data.y.unit),
+    // 轴方向跟随 better(与 web 面同规则):lower 反向,higher 与未声明正向。
+    invertX: data.x.better === "lower",
+    invertY: data.y.better === "lower",
   });
   const legend = drawable.map((r, i) => `${POINT_MARKS[i]} ${r.key}`).join("   ");
-  return [scatterHeading(data, locale), plot, "", betterCornerText(data.x, data.y, locale), legend, ...footnotes].join("\n");
+  const hint = betterCornerText(data.x, data.y, locale);
+  return [scatterHeading(data, locale), plot, "", ...(hint !== undefined ? [hint] : []), legend, ...footnotes].join("\n");
 }
 
 // ───────────────────────── MetricLine ─────────────────────────

@@ -1,5 +1,6 @@
 // MetricScatter:质量 × 成本 frontier 的积木,内联 SVG、零图表库、零 hooks。
-// 轴向随 better:"lower" 的轴反向画,「好」的角落恒在右上(成本轴 $20 → $0 就是这么来的);
+// 轴向随 better:"lower" 的轴反向画(值大在左/下),「更好」恒指向右上;方向提示恒为
+// 「越靠右上越好」且仅当两轴都声明 better 时显示;刻度显示真实值。
 // niceTicks 刻度 + 网格线;每个点直接标注(placePointLabels 候选位择优:避开其它标签、
 // 数据点与画布边界,离开左右紧邻位时补 leader line);
 // 同系列的点按 x 值排序连线,系列图例列在图下。x 或 y 为 null 的点不画,
@@ -70,31 +71,20 @@ function pointLabels(keys: readonly string[]): Map<string, string> {
 }
 
 /**
- * 一根轴:niceTicks 撑出整齐的值域,值 → 像素做线性映射。轴不反向——「好」的方向
- * 由角落提示文案如实说明(成本 × 成功率下是「越靠左上越好」),不虚构轴向。
+ * 一根轴:niceTicks 撑出整齐的值域,值 → 像素做线性映射。轴方向跟随指标的 `better`:
+ * `better: "lower"` 的轴反向渲染(值大的一端在左 / 下),「更好」因此恒指向右与上;
+ * 刻度标签始终显示真实值,反向只改方向不改数字(docs/feature/reports/library/metric-views.md)。
  */
-function axisScale(values: number[], pixelLo: number, pixelHi: number) {
+function axisScale(values: number[], pixelLo: number, pixelHi: number, invert: boolean) {
   const ticks = niceTicks(Math.min(...values), Math.max(...values), 5);
   const lo = ticks[0];
   const hi = ticks[ticks.length - 1];
   const scale = (v: number) => {
-    const t = (v - lo) / (hi - lo || 1);
+    let t = (v - lo) / (hi - lo || 1);
+    if (invert) t = 1 - t;
     return pixelLo + t * (pixelHi - pixelLo);
   };
   return { ticks, scale };
-}
-
-/** 「好」的角落:x/y 的 better 方向共同决定(缺省按 higher)。 */
-export function betterCornerKey(
-  xBetter: MetricColumn["better"],
-  yBetter: MetricColumn["better"],
-): "scatter.betterUpperRight" | "scatter.betterUpperLeft" | "scatter.betterLowerRight" | "scatter.betterLowerLeft" {
-  const right = xBetter !== "lower";
-  const up = yBetter !== "lower";
-  if (up && right) return "scatter.betterUpperRight";
-  if (up && !right) return "scatter.betterUpperLeft";
-  if (!up && right) return "scatter.betterLowerRight";
-  return "scatter.betterLowerLeft";
 }
 
 export function MetricScatter({
@@ -134,12 +124,24 @@ export function MetricScatter({
 
   const axisLabel = (label: string, col: MetricColumn) => `${label}${col.unit ? `(${col.unit})` : ""}`;
 
-  const xScale = axisScale(drawableRows.map((r) => r.x.value as number), MARGIN.left, MARGIN.left + PLOT_W);
-  // y 像素轴向下增长:高值在上 → 映射到 [bottom, top]
-  const yScale = axisScale(drawableRows.map((r) => r.y.value as number), MARGIN.top + PLOT_H, MARGIN.top);
+  // 轴方向跟随 better:lower 反向(值大在左 / 下),higher 与未声明正向。
+  const xScale = axisScale(
+    drawableRows.map((r) => r.x.value as number),
+    MARGIN.left,
+    MARGIN.left + PLOT_W,
+    data.x.better === "lower",
+  );
+  // y 像素轴向下增长:正向 = 高值在上 → 映射到 [bottom, top];lower 反向 = 高值在下。
+  const yScale = axisScale(
+    drawableRows.map((r) => r.y.value as number),
+    MARGIN.top + PLOT_H,
+    MARGIN.top,
+    data.y.better === "lower",
+  );
   const labelByKey = pointLabels(drawableRows.map((r) => r.key));
-  const cornerKey = betterCornerKey(data.x.better, data.y.better);
-  const cornerLeft = cornerKey === "scatter.betterUpperLeft" || cornerKey === "scatter.betterLowerLeft";
+  // 方向提示恒为「越靠右上越好」,仅当两轴都声明 better 时显示——任一轴未声明,
+  // 组件不猜「更好」朝哪边,整图无提示。
+  const showBetterHint = data.x.better !== undefined && data.y.better !== undefined;
 
   const points: DrawablePoint[] = drawableRows.map((r) => {
     const xValue = r.x.value as number;
@@ -194,15 +196,17 @@ export function MetricScatter({
           ))}
         </g>
 
-        {/* 「好」的角落随 better 方向如实标注(成本 × 成功率下是「越靠左上越好」) */}
-        <text
-          className="nre-scatter-better-hint"
-          x={cornerLeft ? MARGIN.left + 6 : MARGIN.left + PLOT_W - 6}
-          y={cornerKey.includes("Upper") ? MARGIN.top + 14 : MARGIN.top + PLOT_H - 8}
-          textAnchor={cornerLeft ? "start" : "end"}
-        >
-          {localeText(locale, cornerKey)}
-        </text>
+        {/* 轴向已随 better 反正,「更好」恒指向右上;提示只在两轴都声明 better 时出现 */}
+        {showBetterHint && (
+          <text
+            className="nre-scatter-better-hint"
+            x={MARGIN.left + PLOT_W - 6}
+            y={MARGIN.top + 14}
+            textAnchor="end"
+          >
+            {localeText(locale, "scatter.betterUpperRight")}
+          </text>
+        )}
 
         {/* 刻度:已格式化的整齐值(formatMetricValue 与计算侧同一套) */}
         <g className="nre-scatter-axis nre-scatter-axis-y">

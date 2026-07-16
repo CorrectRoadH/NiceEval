@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 import {
   BUILT_IN_PAGE_TITLE,
+  BUILT_IN_REPORT_TITLE,
   HostReportError,
   localizeText,
   localizedTextEquals,
@@ -75,6 +76,26 @@ describe("装载规范化:外壳 + 非空页列表", () => {
     );
   });
 
+  it("ReportLink.icon 是 { svg: string }:合法形状原样透传;无类型 JS 传其它形状装载报错", () => {
+    const svg = '<svg viewBox="0 0 16 16"><path d="M0 0h16v16z"/></svg>';
+    const report = normalizeHostReport(
+      { kind: "report", content: tree, links: [{ label: "GitHub", href: "https://example.com", icon: { svg } }] },
+      "reports/site.tsx",
+    );
+    expect(report.links[0]!.icon).toEqual({ svg });
+
+    // ReactNode / 组件 / 裸字符串都不是 { svg: string },装载期以完整用户反馈拒绝。
+    const reactNode = { $$typeof: Symbol.for("react.transitional.element"), type: "svg", props: {} };
+    for (const icon of [reactNode, "<svg/>", { svg: 42 }, { svg: "" }]) {
+      expect(() =>
+        normalizeHostReport(
+          { kind: "report", content: tree, links: [{ label: "GitHub", href: "https://example.com", icon }] },
+          "reports/site.tsx",
+        ),
+      ).toThrow(/icon" must be \{ svg: string \}/);
+    }
+  });
+
   it("旧 build 函数形态(集成前桥接)恒为单页 report", () => {
     const legacy = { build: () => tree };
     const report = normalizeHostReport(legacy, "the built-in report");
@@ -83,7 +104,7 @@ describe("装载规范化:外壳 + 非空页列表", () => {
   });
 });
 
-describe("标题回退链:def.title → 唯一且相同的快照 name → NiceEval", () => {
+describe("标题回退链:def.title → 唯一且相同的快照 name → 内置文案「Eval 运行结果 / Eval Results」", () => {
   it("def.title 优先", () => {
     expect(resolveReportTitle({ en: "T" }, [{ name: "S" }])).toEqual({ en: "T" });
   });
@@ -94,12 +115,14 @@ describe("标题回退链:def.title → 唯一且相同的快照 name → NiceEv
     expect(resolveReportTitle(undefined, [{}, { name: "Only" }])).toBe("Only");
   });
 
-  it("多个不同 name(en 相同、zh-CN 不同也算不同)不随机挑,回退 NiceEval;全无 name 亦然", () => {
+  it("多个不同 name(en 相同、zh-CN 不同也算不同)不随机挑,落内置文案;全无 name 亦然", () => {
     expect(
       resolveReportTitle(undefined, [{ name: { en: "S", "zh-CN": "甲" } }, { name: { en: "S", "zh-CN": "乙" } }]),
-    ).toBe("NiceEval");
-    expect(resolveReportTitle(undefined, [{}, {}])).toBe("NiceEval");
-    expect(resolveReportTitle("", [])).toBe("NiceEval"); // 空串标题不算声明
+    ).toEqual(BUILT_IN_REPORT_TITLE);
+    expect(resolveReportTitle(undefined, [{}, {}])).toEqual(BUILT_IN_REPORT_TITLE);
+    expect(resolveReportTitle("", [])).toEqual(BUILT_IN_REPORT_TITLE); // 空串标题不算声明
+    // 链终点是内置文案(shell.md),不是产品名——品牌位固定 NiceEval,不吃标题。
+    expect(BUILT_IN_REPORT_TITLE).toEqual({ en: "Eval Results", "zh-CN": "Eval 运行结果" });
   });
 
   it("LocalizedText 深相等按字段值,不看键顺序", () => {
@@ -123,6 +146,7 @@ describe("页索引与索引命令上下文", () => {
     {
       kind: "report",
       title: { en: "Memory Evals", "zh-CN": "记忆能力评测" },
+      links: [{ label: "GitHub", href: "https://example.com", icon: { svg: "<svg data-mark></svg>" } }],
       pages: [
         { id: "overview", title: { en: "Overview", "zh-CN": "总览" }, content: tree },
         { id: "exam", title: { en: "Exam", "zh-CN": "成绩单" }, content: tree },
@@ -143,6 +167,17 @@ describe("页索引与索引命令上下文", () => {
     expect(text).toContain("niceeval show --results tmp/published-results --report reports/site.tsx --page exam");
     expect(text).toContain("总览");
     expect(text).toContain("成绩单");
+  });
+
+  it("show 不消费 links:页索引不含 icon svg 与 href(icon 是 web 面属性)", () => {
+    const text = pageIndexText({
+      report,
+      title: "Memory Evals",
+      command: { patterns: [] },
+      locale: "en",
+    });
+    expect(text).not.toContain("<svg");
+    expect(text).not.toContain("https://example.com");
   });
 
   it("showCommand 按序携带位置参数与 --experiment / --results / --report / --page", () => {

@@ -178,11 +178,37 @@ describe("MetricScatter", () => {
     expect(html).toContain("pass rate(%)");
   });
 
-  it("轴不反向:便宜($5)在贵($10)左边;成本 × 成功率的好角落文案是「越靠左上越好」", () => {
-    expect(cxOf("compare/bub-low")).toBeLessThan(cxOf("compare/bub-high"));
-    // y 轴:通过率高(90%)在低(50%)上方(SVG y 向下增长)
+  it("轴方向跟随 better:成本轴(lower)反向,便宜($5)在贵($10)右边;提示恒为「越靠右上越好」", () => {
+    expect(cxOf("compare/bub-low")).toBeGreaterThan(cxOf("compare/bub-high"));
+    // y 轴(higher)正向:通过率高(90%)在低(50%)上方(SVG y 向下增长)
     expect(cyOf("compare/bub-high")).toBeLessThan(cyOf("compare/bub-low"));
-    expect(html).toContain("better → upper left");
+    expect(html).toContain("better → upper right");
+  });
+
+  it("反向轴的刻度显示真实值:x 刻度从左到右数值递减(值大在左),数字不变", () => {
+    // x 轴刻度 <text class="nre-scatter-tick" x="…">$N</text>:抓出 (x, 值) 对,按 x 升序后值应递减。
+    const ticks = [...html.matchAll(/nre-scatter-tick" x="([\d.]+)" y="[\d.]+" text-anchor="middle">\$([\d.]+)/g)].map(
+      (m) => ({ px: Number(m[1]), value: Number(m[2]) }),
+    );
+    expect(ticks.length).toBeGreaterThanOrEqual(2);
+    const byPx = [...ticks].sort((a, b) => a.px - b.px);
+    for (let i = 1; i < byPx.length; i++) {
+      expect(byPx[i]!.value).toBeLessThan(byPx[i - 1]!.value);
+    }
+  });
+
+  it("任一轴未声明 better:该轴正向渲染且整图无方向提示(组件不猜「更好」朝哪边)", () => {
+    const noBetter = renderToStaticMarkup(
+      <MetricScatter data={{ ...scatterData, x: { key: "cost", label: "cost", unit: "$" } }} />,
+    );
+    expect(noBetter).not.toContain("better →");
+    // x 正向:便宜($5)回到贵($10)左边。
+    const cx = (key: string): number => {
+      const m = noBetter.match(new RegExp(`data-key="${key}"[\\s\\S]*?\\bcx="([\\d.]+)"`));
+      expect(m, `circle for ${key}`).toBeTruthy();
+      return Number(m![1]);
+    };
+    expect(cx("compare/bub-low")).toBeLessThan(cx("compare/bub-high"));
   });
 
   it("同系列点连线,系列色走类名(nre-series-cN,CSS 上色跟随深浅主题),图例列系列名", () => {

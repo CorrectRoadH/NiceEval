@@ -168,7 +168,7 @@ export interface MatrixData {
 export interface ScatterData {
   pointDimension: string;
   seriesDimension?: string;
-  /** better: "lower" 时组件在方向注脚里如实标注,不虚构轴向。 */
+  /** 轴方向跟随 better:lower 反向渲染(值大在左/下),「更好」恒指向右上;刻度显示真实值。 */
   x: MetricColumn;
   y: MetricColumn;
   rows: Array<{

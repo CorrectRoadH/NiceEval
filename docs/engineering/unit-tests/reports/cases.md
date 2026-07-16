@@ -58,6 +58,7 @@ it("scopeSummaryData 使用端到端两级聚合并保留覆盖率", async () =>
 | `experimentComparisonData()` 在计算前按 experiment id 的完整父路径分区，根目录 experiment 各自形成单例组；每组子块与对该组独立调用 `scopeSummaryData` / `metricScatterData` / `experimentListData` 完全相同 | 正例：两个多配置目录组 + 一个根目录单例组；逐组 deepEqual 对账并断言 scatter / list refs 不跨组 |
 | `ExperimentComparison` 的 web 面接收全部组并输出组选择器与相互隔离的完整 panel，第一组默认展开且无 JS 仍可读；text 面多组时只给索引和单组查看命令，单组时才输出散点与实验列表 | 正例：双组 web 静态 HTML 含两个 panel 且仅首组 open；text 多组无 experiment 明细、单组有明细 |
 | `MetricScatter` 对缺 x 或 y 的点不绘制并报告缺失数；零点显示明确空态；单点照常绘制 | 边界：0 点 / 1 点 / 部分缺 x；反例：单点不被拒绝 |
+| 散点轴方向跟随指标 `better`：lower 反向（左贵右便宜）、higher 正向，「更好」恒指向右上，提示恒为「越靠右上越好」；刻度显示真实值；未声明 better 的轴正向且整图不出方向提示；两面同规则 | 正例：成本 × 成功率图上低成本点落在右侧且刻度值仍从大到小；边界：x 无 better 时无方向提示；正例：text 面同方向 |
 | `MetricLine` 对未声明数值 flag 的 experiment 不伪造 x 值并报告未绘制数 | 正例：flag 缺失与 flag="high" 两种；反例：不落到 x=0 |
 | `DeltaTable` 任一侧缺数据时 delta 保持缺失；方向按指标 `better` 判断改善/退化 | 正例：better:"lower" 的 costUSD 下降判改善；边界：一侧缺时 delta 为 null |
 | `pairsByFlag` 按「同可比组 + 删除该 flag 后可比性配置深相等」配对：a 取 baseline（缺省=未声明），b 侧每个其它取值各成一对，label 为 `<a 末段> · <flag>=<显示键>`，按 (a 末段, 显示键) 字典序 | 正例：三 agent × baseline/agents-md/mempal 矩阵导出 5 对（bub 无 mempal 如实少一对）；反例：model 不同的两实验不配对；边界：收窄到单实验时 0 对显示空态不报错；反例：`by: "agent"` 配派生形态报完整用户反馈 |
@@ -221,7 +222,8 @@ it("show 与 view 的默认报告槽消费同一 Scope", async () => {
 | `show` 输出的页索引与组索引命令保留当前 `--results` / `--report` / `--page` 与位置参数上下文，复制即可复现下一层视图 | 正例：`--report` 下多组时组索引命令含 `--report` 与 `--page`；正例：`--results` 下页索引命令含 `--results` |
 | 全部页共享宿主注入的同一 Scope，位置参数与 `--experiment` 收窄对全部页生效；页不承担数据过滤 | 正例：两页的解析 refs 来自同一收窄后 Scope |
 | 本地宿主只 resolve 被打开的页；静态导出 resolve 并校验全部页，任一页失败则导出整体失败 | 正例：打开 A 页时 B 页的取数未执行；反例：B 页含 `<div>` 时 `--out` 非零退出、不产出半套站点 |
-| 标题取值链 def.title → Scope 中唯一且相同（LocalizedText 深相等）的快照 name → `NiceEval`；`links` / `footer` 渲染进导航壳，text 面不含这些字段 | 正例：三级 fallback 各一 fixture；边界：两快照 name 的 en 相同、zh-CN 不同时任何 locale 下都回退 `NiceEval`；反例：show 输出不含 links href |
+| 标题取值链 def.title → Scope 中唯一且相同（LocalizedText 深相等）的快照 name → 内置文案「Eval 运行结果 / Eval Results」，落点是 hero、浏览器标题与 show 页索引标题行；页头品牌位恒为 NiceEval 字标，不由 title 覆盖；`links` / `footer` 渲染进导航壳，text 面不含这些字段 | 正例：三级 fallback 各一 fixture 且 hero 与品牌位各自正确；边界：两快照 name 的 en 相同、zh-CN 不同时任何 locale 下都落内置文案；反例：声明 title 后品牌位仍是 NiceEval；反例：show 输出不含 links href |
+| `ReportLink.icon` 是内联 SVG 字符串（`{ svg }`）：web 面渲染在 label 前、静态导出原样内联；不收组件，show 不消费 | 正例：带 svg 的 GitHub 链接导航项含该 SVG；反例：无类型 JS 传 ReactNode 作 icon 装载报错；反例：show 页索引不含 svg |
 | web 面外壳页脚恒含指向 niceeval 官网的 `Powered by niceeval`，位于自定义 `footer` 文案之后，无关闭配置；text 面与 `niceeval/report/react` 嵌入组件不含 | 正例：有 / 无 `footer` 两种 fixture 页脚都含该行且次序正确；反例：show 输出与 react 嵌入渲染不含该行 |
 | view 导航组成固定：报告页按声明序在前，内置 Attempts、Traces 证据页恒排其后；报告定义不能移除或重排证据页 | 正例：双页定义导航序为 页A · 页B · Attempts · Traces；边界：树形态定义导航仍含证据页 |
 | `scripts` / `styles` 按声明序注入：styles 在官方样式后，scripts 在官方增强脚本后 `</body>` 前；初始静态 HTML 的数值不因注入改变 | 正例：注入前后初始 HTML 数据节点相同、注入顺序可断言 |

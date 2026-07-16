@@ -23,6 +23,7 @@ import { afterEach, describe, expect, it } from "vitest";
 // `instanceof`-incompatible class.
 import { ReportLoadError } from "../../dist/report/load.js";
 import { ViewInputError, loadViewScan, type ViewScan } from "./data.ts";
+import { renderHtml } from "./server.ts";
 import { buildView, resolveViewInput } from "./index.ts";
 import { runShow } from "../show/index.ts";
 import { RESULTS_FORMAT, RESULTS_SCHEMA_VERSION, type EvalResult, type Verdict } from "../types.ts";
@@ -288,6 +289,57 @@ describe("loadViewScan · --report 报告槽", () => {
     await expect(loadViewScan(root, { report: { path: bad, cwd: root } })).rejects.toThrow(
       /does not default-export a report/,
     );
+  });
+});
+
+// ───────────────────── 外壳:title 落点(hero / <title>)与 ReportLink.icon ─────────────────────
+
+describe("loadViewScan · 外壳标题与 ReportLink.icon", () => {
+  /** 不经包入口也合法的最小外壳报告(与下方 reportSource 同一姿势):声明 title 与带 icon 的 link。 */
+  function shellReportSource(): string {
+    return [
+      'const FACES = Symbol.for("niceeval.report.faces");',
+      'const DEFINITION = Symbol.for("niceeval.report.definition");',
+      "const Block = (props) => Block[FACES].web(props);",
+      "Block[FACES] = {",
+      '  web: () => "SHELL_BODY",',
+      '  text: () => "SHELL_BODY",',
+      "};",
+      "const definition = {",
+      '  kind: "report",',
+      '  title: { en: "Memory Evals", "zh-CN": "记忆能力评测" },',
+      '  links: [{ label: "GitHub", href: "https://example.com", icon: { svg: "<svg data-mark></svg>" } }],',
+      "  scripts: [],",
+      "  styles: [],",
+      '  pages: [{ id: "report", title: "Report", content: { $$typeof: Symbol.for("react.transitional.element"), type: Block, props: {}, key: null } }],',
+      "};",
+      "Object.defineProperty(definition, DEFINITION, { value: true });",
+      "export default definition;",
+      "",
+    ].join("\n");
+  }
+
+  it("def.title 进 viewData.report.title,初始 <title> 同源烘进 HTML;link 的 icon svg 原样透传", async () => {
+    const root = await seedRoot();
+    const path = join(root, "shell-report.mjs");
+    await writeFile(path, shellReportSource(), "utf-8");
+    const scan = await loadViewScan(root, { report: { path, cwd: root } });
+    // 标题回退链第一级:def.title 原样(hero 与浏览器标题都吃它)。
+    expect(scan.viewData.report?.title).toEqual({ en: "Memory Evals", "zh-CN": "记忆能力评测" });
+    // ReportLink.icon 经 viewData 序列化边界原样透传(web 面在 label 前渲染,静态导出原样内联)。
+    expect(scan.viewData.report?.links).toEqual([
+      { label: "GitHub", href: "https://example.com", icon: { svg: "<svg data-mark></svg>" } },
+    ]);
+    const html = await renderHtml(scan);
+    expect(html).toContain("<title>Memory Evals</title>");
+  });
+
+  it("无 def.title 且快照无 name:标题落内置文案「Eval 运行结果 / Eval Results」,不再是产品名", async () => {
+    const root = await seedRoot(); // seedRoot 的快照都没有 name
+    const scan = await loadViewScan(root);
+    expect(scan.viewData.report?.title).toEqual({ en: "Eval Results", "zh-CN": "Eval 运行结果" });
+    const html = await renderHtml(scan);
+    expect(html).toContain("<title>Eval Results</title>");
   });
 });
 

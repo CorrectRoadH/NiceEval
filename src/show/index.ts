@@ -336,7 +336,8 @@ async function show(
     page = hit;
   } else if (report.pages.length > 1) {
     // 多页未选页:只输出页索引与可复制的单页命令,不倾倒页内容(与可比组索引同一模式)。
-    const title = localizeText(resolveReportTitle(report.title, selection.snapshots), locale) ?? "NiceEval";
+    // 标题行走标题回退链(终点是内置文案「Eval 运行结果 / Eval Results」,恒有值)。
+    const title = localizeText(resolveReportTitle(report.title, selection.snapshots), locale) ?? "Eval Results";
     io.out(pageIndexText({ report, title, command: commandContext, locale }) + "\n");
     return;
   }

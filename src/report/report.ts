@@ -29,13 +29,19 @@ import {
 export interface ReportLink {
   label: LocalizedText;
   href: string;
+  /**
+   * 可选内联 SVG 字标,web 面渲染在 label 前,静态导出原样内联。
+   * 不收组件:外壳声明经序列化边界进前端,ReactNode 过不去,可序列化是外壳契约的一部分。
+   * 内容是作者义务,宿主不校验——与 scripts 同一约定。
+   */
+  icon?: { svg: string };
 }
 
 /** src 是相对顶层报告文件的路径;两种形态不可同时出现。 */
 export type ReportAsset = { src: string; inline?: never } | { inline: string; src?: never };
 
 export interface ReportShell {
-  /** 标题:浏览器标题、页头品牌与首页 hero。回退链 def.title → 唯一快照 name → "NiceEval"。 */
+  /** 标题:首页 hero 与浏览器标题。页头左端是恒定的 NiceEval 品牌字标,不由 title 覆盖;回退链 def.title → 唯一快照 name → 内置文案「Eval 运行结果 / Eval Results」。 */
   title?: LocalizedText;
   /** 页头右侧的外部链接,如 GitHub、文档、CI。 */
   links?: ReportLink[];
@@ -84,7 +90,7 @@ export interface ReportDefinition {
 
 /** 规范化后的报告声明,经组合组件 ctx.report 只读可见(scripts / styles 是注入资产,不进)。 */
 export interface ReportMeta {
-  /** 走完回退链(声明 title → 唯一快照 name → "NiceEval")后的标题。 */
+  /** 走完回退链(声明 title → 唯一快照 name → 内置文案「Eval 运行结果 / Eval Results」)后的标题。 */
   title: LocalizedText;
   /** 页头外链;声明省略时为空数组。 */
   links: readonly ReportLink[];
@@ -247,6 +253,19 @@ export function defineReport(input: ReportNode | ReportDef): ReportDefinition {
     if (typeof (link as ReportLink)?.href !== "string" || (link as ReportLink).href.length === 0) {
       throw new Error("defineReport link href must be a non-empty string URL.");
     }
+    // icon 唯一合法形状是 { svg: string }(无类型 JS 传组件 / ReactNode / 裸字符串都在装载期拒绝):
+    // 外壳声明经序列化边界进前端,ReactNode 过不去,可序列化是外壳契约的一部分。
+    const icon = (link as { icon?: unknown }).icon;
+    if (icon !== undefined) {
+      const svg = (icon as { svg?: unknown })?.svg;
+      if (typeof icon !== "object" || icon === null || typeof svg !== "string" || svg.length === 0) {
+        throw new Error(
+          'defineReport link "icon" must be { svg: string } — an inline SVG string rendered before the label. ' +
+            "Components and React nodes are not accepted: the shell declaration crosses a serialization boundary. " +
+            'Write e.g. icon: { svg: "<svg …>…</svg>" }.',
+        );
+      }
+    }
   }
 
   const definition = {
@@ -274,20 +293,22 @@ export function isReportDefinition(value: unknown): value is ReportDefinition {
 
 // ───────────────────────── ReportMeta(标题回退单点)─────────────────────────
 
-const FALLBACK_TITLE = "NiceEval";
+/** 标题回退链的终点:内置文案「Eval 运行结果 / Eval Results」(shell.md「行为约束」)。 */
+export const FALLBACK_REPORT_TITLE: LocalizedText = { en: "Eval Results", "zh-CN": "Eval 运行结果" };
 
 /**
  * 标题回退链的单点实现:def.title → Scope 中唯一且相同(LocalizedText 深相等)的非空快照
- * name → "NiceEval"。快照中没有 name 或存在多个不同 name 时都使用 NiceEval,不按数组顺序挑。
+ * name → 内置文案「Eval 运行结果 / Eval Results」。快照中没有 name 或存在多个不同 name 时
+ * 都落到内置文案,不按数组顺序挑。
  */
 export function resolveReportTitle(definition: ReportDefinition, scope: Scope): LocalizedText {
   if (definition.title !== undefined) return definition.title;
   const names = scope.snapshots
     .map((s) => s.name)
     .filter((name): name is LocalizedText => name !== undefined && name !== "");
-  if (names.length === 0) return FALLBACK_TITLE;
+  if (names.length === 0) return FALLBACK_REPORT_TITLE;
   const first = names[0]!;
-  return names.every((name) => localizedTextEquals(name, first)) ? first : FALLBACK_TITLE;
+  return names.every((name) => localizedTextEquals(name, first)) ? first : FALLBACK_REPORT_TITLE;
 }
 
 /** 规范化声明 → 组合组件可见的 ReportMeta(scripts / styles 是注入资产,不进)。 */

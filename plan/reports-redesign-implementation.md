@@ -68,6 +68,14 @@
 
 否决：DeltaTable 不加「隐藏未命中 pair」选项（缺失格契约已覆盖，隐藏走组合组件）。参考消费方：`/Users/ctrdh/Code/coding-agent-memory-evals/reports/memory-conditions.tsx` 已按 37–40 写好，可作实现后的真实冒烟对象。
 
+## 2026-07-16 真实站点回看（第六批，docs 已改完）
+
+用户看部署页面后的三条裁决（台账见 `memory/report-shell-brand-title-axis-rulings.md`）：
+
+41. **页头品牌位恒 NiceEval，`title` 落点改 hero 与浏览器标题**：view 页头左端固定 NiceEval 字标（报告定义不可覆盖）；hero（原写死「Eval 运行结果」处）与浏览器标题走标题回退链，链终点从 `"NiceEval"` 改为内置文案「Eval 运行结果 / Eval Results」；show 页索引标题行同链。见 `docs/feature/reports/library/shell.md#行为约束`。
+42. **`ReportLink.icon?: { svg: string }`**：内联 SVG 字符串，web 面渲染在 label 前、静态导出原样内联；不收组件（外壳声明经 viewData 序列化边界）；show 不消费；装载期对无类型 JS 校验形状。
+43. **散点轴方向跟随 `better`**：lower 反向（左贵右便宜）、higher 正向，「更好」恒指向右上；提示恒「越靠右上越好」，仅当两轴都声明 better 时显示；刻度显示真实值；text/web 两面同规则。翻案第三轮第 23 条的「越靠左上越好」文案。
+
 ## 步骤建议
 
 1. 类型层:Scope 改名 + 新 `defineComponent`/`defineReport` 签名(`src/types.ts`、`src/report/report.ts`、`src/define.ts` 如涉及)。

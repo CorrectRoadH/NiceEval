@@ -81,7 +81,7 @@ interface ReportDefinition {
 type NonEmptyArray<T> = readonly [T, ...T[]];
 
 interface ReportShell {
-  /** 标题：浏览器标题、页头品牌与首页 hero。精确回退规则见下文。 */
+  /** 标题：首页 hero 与浏览器标题。页头左端是恒定的 NiceEval 品牌字标，不由 title 覆盖；精确回退规则见下文。 */
   title?: LocalizedText;
   /** 页头右侧的外部链接，如 GitHub、文档、CI。 */
   links?: ReportLink[];
@@ -120,6 +120,12 @@ interface ReportPage {
 interface ReportLink {
   label: LocalizedText;
   href: string;
+  /**
+   * 可选内联 SVG 字标，web 面渲染在 label 前，静态导出原样内联。
+   * 不收组件：外壳声明经序列化边界进前端,ReactNode 过不去,可序列化是外壳契约的一部分。
+   * 内容是作者义务,宿主不校验——与 scripts 同一约定。
+   */
+  icon?: { svg: string };
 }
 
 /** src 是相对顶层报告文件的路径；两种形态不可同时出现。 */
@@ -137,7 +143,7 @@ type ReportAsset =
 - **所有页共享同一份 Scope。** 位置参数与 `--experiment` 收窄对全部页生效；页是对同一批数据的不同看法，不承担数据过滤职责。要看不同数据范围，用命令行收窄或在页内组件上显式传 `input`。
 - **规范化声明经 `ctx.report` 只读可见，外壳渲染仍归宿主。** 组合组件的 ctx 携带 [`report`](layout.md#自定义组件)——规范化后的报告声明：走完回退链的 `title`、`links`、`footer`、页列表与当前页 id。宿主 chrome 消费的每一份声明组件都能读，特权只剩「渲染位置」（导航、证据页、警告仍由宿主渲染），没有数据秘密。它只进组合组件：解析面与渲染面不依赖站点声明——数据不依赖声明才可序列化、跨站复用，渲染面只吃 props 才保证两面同源；`scripts` / `styles` 是注入资产而非展示声明，不进 `ctx.report`。读 `ctx.report` 的组件是在声明「输出跟随站点」；要站点无关的组件就不读它。`defineReport` 不收自定义参数字段：宿主不消费的值不属于声明，自定义值走语言自带的类型通道——同文件用变量、跨文件用模块导入或装配处的 props；报告树只有两三层，不存在需要 context 兜底的深透传。
 - **除 `title` 外的外壳字段是 web 面属性。** `links`、`footer`、`scripts`、`styles` 只被 `view` 与静态导出消费；`show` 读同一文件时消费 `pages`，并把 `title` 用作页索引的标题行。外壳文案是 `LocalizedText`，随外壳的语言切换取值。
-- **标题回退必须确定。** 取值链是 `def.title` → Scope 中唯一且相同的非空 snapshot `name` → `"NiceEval"`。快照中没有 name 或存在多个不同 name 时都使用 `NiceEval`，不按数组顺序随机挑一个。`LocalizedText` 按字段值深相等比较，对象键顺序不影响结果。
+- **`title` 的落点是首页 hero 与浏览器标题，页头品牌位不归它。** 页头左端是恒定的 NiceEval 品牌字标——与 `Powered by niceeval` 行同族的产品品牌位，报告定义不能覆盖或移除。标题回退必须确定：取值链是 `def.title` → Scope 中唯一且相同的非空 snapshot `name` → 内置文案「Eval 运行结果 / Eval Results」。快照中没有 name 或存在多个不同 name 时都落到内置文案，不按数组顺序随机挑一个；`show` 的页索引标题行用同一取值链。`LocalizedText` 按字段值深相等比较，对象键顺序不影响结果。
 - **`LocalizedText` 的回退确定。** 取当前 locale；缺失时取 `en`；仍缺失时取按 locale 键字典序的第一个非空值。对象没有任何非空值时装载报错，不渲染空导航项。这条规则同时适用于外壳、page / tab / section 标题、表头和指标 label。
 - **web 面页脚恒含 `Powered by niceeval`。** 外壳页脚末行是指向 niceeval 官网的一行小字，自定义 `footer` 文案排在它前面。它是外壳自带的品牌行：不占 `footer` 的语义位、没有关闭配置、不改变任何数据。text 面与 `niceeval/report/react` 嵌入组件都不带它——品牌跟着官方 web 外壳走，不跟着组件走。
 - **自定义脚本是增强层，不变量是作者义务。** 与官方增强脚本同一不变量：初始静态 HTML 无 JS 时完整可读，脚本只添加浏览行为，不改变数据、指标口径或初始 HTML 中的数值。宿主不校验也无法校验脚本内容——脚本在读者浏览器里能做任何事，这条约定靠作者履行，违反它的站点其数字可信度由作者自己负责。典型用途是站点分析与埋点——只观察浏览行为的第三方脚本天然满足不变量。要改数据口径，改的是报告树或指标定义，不是脚本。

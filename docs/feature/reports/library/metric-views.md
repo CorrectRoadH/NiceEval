@@ -238,6 +238,8 @@ type MetricScatterProps = DataProps<ScatterData, MetricScatterOptions, {
 <MetricScatter points="experiment" series="agent" x={costUSD} y={endToEndPassRate} />
 ```
 
+**轴方向跟随指标的 `better`，「更好」恒指向右与上**：`better: "lower"` 的轴反向渲染（如成本轴左贵右便宜），`better: "higher"` 正向；角落提示因此恒为「越靠右上越好」。刻度标签始终显示真实值，反向只改方向不改数字；未声明 `better` 的轴正向渲染，且该图不出方向提示——组件不猜「更好」朝哪边。text 与 web 两面同一规则。
+
 x 或 y 缺失的点不绘制，并显示缺失数量。零个可画点时显示明确空态；只有一个可画点时照常画出。
 
 web 面每个点都有直接标签。当点维度是 experiment 时，只有在当前 data 中末段唯一才缩成末段；发生重名时使用能区分它们的最短路径后缀，完整 id 与两轴值仍进 tooltip。标签布局保证不静默丢标签；冲突时使用 leader line 连回原点。
