@@ -302,22 +302,28 @@ describe("ScopeWarnings(按动作聚合)", () => {
     expect(html).toContain("something new happened; check the docs for future-kind");
   });
 
-  it("汇总行只在组数 > 1 时渲染分类计数;单组时组头即汇总,不另起一行", async () => {
+  it("web 面整个警告区默认折叠:外层 <details> 无 open,<summary> 是分类计数汇总行且任何组数下都渲染;text 面单组无汇总行", async () => {
     const two = await treeHtml(<ScopeWarnings data={[partialCoverage("exp/a"), staleSnapshot("exp/b")]} />, plainScope());
-    expect(two).toContain("nre-warnings-summary");
-    expect(two).toContain("2 experiments flagged");
+    expect(two).toContain('<details class="nre-warnings">');
+    expect(two).toContain('<summary class="nre-warnings-summary">2 experiments flagged</summary>');
     const one = await treeHtml(<ScopeWarnings data={[partialCoverage("exp/a")]} />, plainScope());
-    expect(one).not.toContain("nre-warnings-summary");
+    expect(one).toContain('<details class="nre-warnings">');
+    expect(one).toContain('<summary class="nre-warnings-summary">1 experiment flagged</summary>');
+    // text 面汇总行只在多组时输出:单组首行即组头
+    const oneText = await treeText(<ScopeWarnings data={[partialCoverage("exp/a")]} />, plainScope(), 200);
+    expect(oneText.split("\n")[0]).toContain("exp/a");
+    expect(oneText).not.toContain("experiment flagged");
   });
 
-  it("明细折叠:web 面 <details> 在总条数 ≤ 3 时默认展开、4 条时不展开;text 面不折叠,组头一行 + 缩进逐条 message 以下一步收尾", async () => {
+  it("明细折叠:web 面组级 <details> 在总条数 ≤ 3 时默认展开、4 条时不展开,外层恒无 open;text 面不折叠,组头一行 + 缩进逐条 message 以下一步收尾", async () => {
     const three = [partialCoverage("exp/a"), staleSnapshot("exp/a"), partialCoverage("exp/b")];
     const four = [...three, unfinishedSnapshot("exp/b")];
     const htmlThree = await treeHtml(<ScopeWarnings data={three} />, plainScope());
     const htmlFour = await treeHtml(<ScopeWarnings data={four} />, plainScope());
-    expect(htmlThree).toContain("<details");
-    expect(htmlThree).toMatch(/<details[^>]*\sopen/);
-    expect(htmlFour).toContain("<details");
+    // 外层警告区两种条数下都默认折叠
+    expect(htmlThree).toContain('<details class="nre-warnings">');
+    expect(htmlFour).toContain('<details class="nre-warnings">');
+    expect(htmlThree).toMatch(/class="nre-warning-details"[^>]*\sopen/);
     expect(htmlFour).not.toMatch(/<details[^>]*\sopen/);
 
     const text = await treeText(<ScopeWarnings data={[partialCoverage("exp/a"), staleSnapshot("exp/a")]} />, plainScope(), 200);

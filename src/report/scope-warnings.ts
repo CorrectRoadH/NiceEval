@@ -36,10 +36,10 @@ export interface ScopeWarningGroup {
 }
 
 export interface GroupedScopeWarnings {
-  /** 组数 > 1 时的分类计数汇总行;单组为 null(组头即汇总,不另起一行)。 */
-  summary: string | null;
+  /** 分类计数汇总行,任何组数下都产出;web 面用作外层折叠块的 <summary>,text 面只在多组时打印。 */
+  summary: string;
   groups: readonly ScopeWarningGroup[];
-  /** 警告总条数 ≤ 3 时明细默认展开(web 面 <details> 的 open;阈值是行为契约,无开关)。 */
+  /** 警告总条数 ≤ 3 时组级明细默认展开(web 面第二层 <details> 的 open;阈值是行为契约,无开关)。 */
   detailsOpen: boolean;
 }
 
@@ -141,19 +141,15 @@ export function groupScopeWarnings(input: readonly ScopeWarning[], locale: Repor
   const rank = (c: WarningCategory) => (c === "integrity" ? 0 : 1);
   groups.sort((a, b) => rank(a.category) - rank(b.category));
 
-  let summary: string | null = null;
-  if (groups.length > 1) {
-    const parts: string[] = [];
-    if (byExperiment.size > 0) parts.push(pluralText(locale, "warnings.summary.experiments", byExperiment.size));
-    for (const [kind, members] of byKind) {
-      parts.push(
-        kind === "unreadable-snapshot"
-          ? pluralText(locale, "warnings.group.unreadableSnapshot", members.length)
-          : `${kind} ×${members.length}`,
-      );
-    }
-    summary = parts.join(" · ");
+  const parts: string[] = [];
+  if (byExperiment.size > 0) parts.push(pluralText(locale, "warnings.summary.experiments", byExperiment.size));
+  for (const [kind, members] of byKind) {
+    parts.push(
+      kind === "unreadable-snapshot"
+        ? pluralText(locale, "warnings.group.unreadableSnapshot", members.length)
+        : `${kind} ×${members.length}`,
+    );
   }
 
-  return { summary, groups, detailsOpen: warnings.length <= 3 };
+  return { summary: parts.join(" · "), groups, detailsOpen: warnings.length <= 3 };
 }

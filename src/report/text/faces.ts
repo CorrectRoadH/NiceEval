@@ -732,7 +732,8 @@ export function scopeWarningsText(warnings: readonly ScopeWarning[], ctx: TextCo
   if (warnings.length === 0) return "";
   const { summary, groups } = groupScopeWarnings(warnings, ctx.locale);
   const lines: string[] = [];
-  if (summary !== null) lines.push(`! ${summary}`);
+  // 汇总行只在多组时打印;单组时组头即汇总,不另起一行(web 面则恒以汇总行作外层 <summary>)。
+  if (groups.length > 1) lines.push(`! ${summary}`);
   for (const group of groups) {
     const badges = group.badges.length > 0 ? ` — ${group.badges.map((b) => b.text).join(" · ")}` : "";
     const command = group.headCommand !== null ? ` → ${group.headCommand}` : "";

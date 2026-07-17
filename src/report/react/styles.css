@@ -436,31 +436,28 @@ table.nre,
   margin: 0.25rem 0 0;
 }
 
-/* ---- 宿主警告块:.nre-report-warnings 外壳 + .nre-warnings 容器(汇总行 + 按动作聚合的组) ---- */
+/* ---- 宿主警告块:.nre-warnings 是默认折叠的 <details>,<summary> 汇总行恒可见。
+   不占框:无边框、无底色、不缩进,警示色只落在汇总行文字与徽标上。 ---- */
 .nre .nre-warnings {
   margin: 0;
-  padding: 10px 14px;
-  border: 1px solid color-mix(in oklch, var(--warn), var(--line) 45%);
-  border-left: 3px solid var(--warn);
-  border-radius: 8px;
-  background: color-mix(in oklch, var(--warn), var(--panel) 92%);
   color: var(--text);
   font-size: 13px;
 }
-/* 汇总行与组头永不折叠;明细在 <details> 里(无 JS 可展开)。 */
-.nre .nre-warnings-summary {
-  margin: 0 0 8px;
+/* 外层 <details> 的 <summary>:分类计数汇总行,原生无 JS 可展开。 */
+.nre .nre-warnings > .nre-warnings-summary {
   font-weight: 650;
+  color: var(--warn);
+  cursor: pointer;
 }
 .nre .nre-warning-groups {
   list-style: none;
-  margin: 0;
+  margin: 8px 0 0;
   padding: 0;
 }
 .nre .nre-warning-group + .nre-warning-group {
   margin-top: 10px;
   padding-top: 10px;
-  border-top: 1px solid color-mix(in oklch, var(--warn), var(--line) 60%);
+  border-top: 1px solid var(--line);
 }
 .nre .nre-warning-head {
   display: flex;
@@ -494,7 +491,7 @@ table.nre,
   list-style: none;
   margin: 4px 0 0;
   padding: 0 0 0 12px;
-  border-left: 2px solid color-mix(in oklch, var(--warn), var(--line) 60%);
+  border-left: 2px solid var(--line);
 }
 .nre .nre-warning + .nre-warning { margin-top: 8px; }
 /* 警告携带的下一步命令:等宽块,无 JS 时点击即全选;enhance.js 在场时点击复制 */

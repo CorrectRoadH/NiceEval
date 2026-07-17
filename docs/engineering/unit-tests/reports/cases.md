@@ -177,8 +177,8 @@ it("text 与 web 显示同一个 MetricCell 终值和 warning", () => {
 | `--history` 对匹配的每个 experimentId + evalId 分节，按 attempt 身份键跨快照去重、startedAt 升序逐 attempt 列出时间 / verdict / 单行摘要 / 耗时 / 成本 / locator；与 `--report` 互斥 | 正例：跨快照重跑去重后逐轮列出且升序；反例：与 `--report` 同用按用法错误非零退出 |
 | `ScopeWarnings` 按动作聚合：同 `experimentId` 的多 kind 警告聚合为一组，组头含实验 id、每条警告一枚 kind 徽标（模板取 kind 表）与去重后的一条可复制命令；命令去重后多于一条的组组头不放命令、命令随明细走 | 正例：partial-coverage + stale-snapshot 同实验成一组，组头命令恰一条 `niceeval exp <真实 id>` 且两枚徽标齐全；反例：不同实验不进同一组 |
 | 组排序与回退：`integrity` 组排在 `freshness` 组之前，混合组按最重成员归位；kind 表未登记模板的 kind 单独成组、逐条渲染 `message` 原样并按 `integrity` 归位 | 正例：仅 stale 的实验组排在含 partial-coverage 的实验组之后；边界：未知 kind 条目单独成组且 message 完整可见 |
-| 汇总行只在组数 > 1 时渲染分类计数；单组时组头即汇总，不另起一行 | 正例：两组时首行含分类计数；边界：单组无汇总行 |
-| 明细折叠：web 面每组逐条 `message` 收进原生 `<details>`（无 JS 可展开），警告总条数 ≤ 3 时默认展开；text 面不折叠，组头一行（标题、徽标、命令）下缩进逐条原样打印 `message`（已以下一步收尾，不截断掉尾段） | 正例：4 条警告时 `<details>` 无 `open`、3 条时有；正例：text 面组头下缩进输出以忽略条件/命令收尾 |
+| web 面整个警告区是默认折叠的 `<details>`，`<summary>` 是分类计数汇总行、任何组数下都渲染；text 面汇总行只在组数 > 1 时输出，单组时组头即汇总 | 正例：两组与单组的 web 面都以汇总行为 `<summary>` 且外层无 `open`；边界：单组 text 面无汇总行 |
+| 明细折叠：web 面每组逐条 `message` 收进第二层 `<details>`，警告总条数 ≤ 3 时该层默认展开；text 面不折叠，组头一行（标题、徽标、命令）下缩进逐条原样打印 `message`（已以下一步收尾，不截断掉尾段） | 正例：4 条警告时组级 `<details>` 无 `open`、3 条时有（外层恒无 `open`）；正例：text 面组头下缩进输出以忽略条件/命令收尾 |
 | 显示时下一步随行：web 面带 `command` 的条目渲染为可复制命令，无 `command` 的只显示 message 不硬造动作；空警告集两面零输出；裸 `Snapshot[]` 输入渲染为空 | 正例：stale-snapshot 在 web 面出现复制动作且值为 `niceeval exp <真实 id>`；反例：missing-startedAt 形态的无 command 条目在 web 面无复制动作；边界：空 warnings 不渲染容器节点 |
 | `view` 位置参数与 `--experiment` 收窄对全部页生效（含内建 Attempts 页）；attempt 详情路由对完整结果根解析，被滤掉的 attempt 深链仍可打开 | 正例：收窄后 Attempts 页行集缩小，`#/attempt/@<locator>` 对被滤掉的 attempt 仍解析成功 |
 | `show` 中漏写 `@` 的 locator 按 eval id 前缀处理并明确报无匹配、列出候选 | 反例：输入 "1qrdcfq8" 报 "No results matched" 附候选 |

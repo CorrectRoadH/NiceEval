@@ -1,7 +1,8 @@
 // ScopeWarnings:选择警告区的 web 面。按「下一步动作」聚合(../scope-warnings.ts,
-// 与 text 面共用同一聚合层):多组时首行分类计数汇总;每组组头 = 标题 + kind 徽标 +
-// 去重后恰一条的可复制命令;逐条原始 message 收进原生 <details>(无 JS 可展开,
-// 总条数 ≤ 3 默认展开)。空警告集零输出,不渲染空容器
+// 与 text 面共用同一聚合层):整个警告区是默认折叠的原生 <details>,<summary> 是
+// 分类计数汇总行(恒可见);展开后每组组头 = 标题 + kind 徽标 + 去重后恰一条的
+// 可复制命令,逐条原始 message 收进第二层 <details>(总条数 ≤ 3 默认展开)。
+// 空警告集零输出,不渲染空容器
 // (docs/feature/reports/library/site-components.md「ScopeWarnings」)。
 
 import type { ReactElement } from "react";
@@ -36,8 +37,8 @@ export function ScopeWarnings({
   const { summary, groups, detailsOpen } = groupScopeWarnings(data, locale);
   return (
     <div className={cx("nre", "nre-scope-warnings", className)}>
-      <div className="nre-warnings">
-        {summary !== null && <p className="nre-warnings-summary">{summary}</p>}
+      <details className="nre-warnings">
+        <summary className="nre-warnings-summary">{summary}</summary>
         <ul className="nre-warning-groups">
           {groups.map((group, i) => (
             <li key={i} className="nre-warning-group" data-category={group.category}>
@@ -67,7 +68,7 @@ export function ScopeWarnings({
             </li>
           ))}
         </ul>
-      </div>
+      </details>
     </div>
   );
 }
