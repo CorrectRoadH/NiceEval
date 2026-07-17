@@ -187,6 +187,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 - [registermcp-post-hoc-primitive](registermcp-post-hoc-primitive.md) — 翻案裁决:不提供后置追加 MCP 原语,`shared.registerMcp` 当日落地当日撤销;MCP 只走 factory 构造期,条件包装器应接收 factory 而不是已构造 Agent
 - 部分被后续裁决替代 [sandbox-lifecycle-hooks](sandbox-lifecycle-hooks.md) — 环境预置的家是 SandboxSpec 链式 `.setup()/.teardown()`;「ExperimentDef 保持纯数据/实验级钩子不存在」一条已被下一行推翻,其余(沙箱钩子挂 spec、persistentState 不做)仍有效
 - [experiment-level-lifecycle-hooks](experiment-level-lifecycle-hooks.md) — 翻案裁决(2026-07-17):`ExperimentDef.setup` 落地(整场一次、宿主机侧、返回 cleanup 即 teardown);动因是 nowledge 隧道被迫住在 wrapper 脚本里;setup 失败全 attempt 合成 errored 且绕过 fail-fast,词表新增 experiment.* 两员不递增 schemaVersion
+- [experiment-teardown-missed-once-in-batch](experiment-teardown-missed-once-in-batch.md) — 实验级 teardown 在一次 72-attempt 批跑中未触发(间歇,根因未定位,候选已排除清单在正文);兜底修法:run 收尾幂等扫尾 + `experiment-teardown-late` 诊断探针,看到该诊断请回填本条
 - [experiment-flags-naming-reversal](experiment-flags-naming-reversal.md) — 条件键定名 flags(A/B feature flag 语义,2026-07-10 params 同日翻案);字段改名=递增 schemaVersion,不做读取别名
 - [report-zero-js-to-progressive-enhancement](report-zero-js-to-progressive-enhancement.md) — 翻案裁决:报告 web 面「零客户端 JS」改为渐进增强(enhance.js:表头排序/行过滤/tooltip);口径同源由 sort 预排保证,view 默认首页迁到报告槽后榜单没有排序过滤在浏览上不成立
 - [report-locale-rendering](report-locale-rendering.md) — 裁决:report 渲染面引入 locale(en/zh-CN)与内部字典 src/report/locale.ts,不复用 CLI 专用的 src/i18n;label 扩 LocalizedText 而 display 不本地化(display 是口径的一部分)

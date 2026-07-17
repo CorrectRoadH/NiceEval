@@ -62,6 +62,8 @@ export const en = {
     "budget for {{budgetKey}}: several attempts completed without any cost data (agent reports no usage and the model is not in the price table) — the budget cannot be enforced for this agent; continuing without the guard.\n",
   "runner.experimentTeardownFailed":
     "cleanup returned by experiment {{experimentId}}'s setup failed: {{message}}. Results are unaffected, but host-side resources started by this experiment may not have been released; check manually.\n",
+  "runner.experimentTeardownLate":
+    "experiment {{experimentId}}'s teardown was not triggered by the normal countdown path; it has been executed by the end-of-run sweep instead. Results are unaffected; seeing this line means an unlocated intermittent scheduling issue fired — please record this run in the memory ledger.\n",
   "judge.modelMissing":
     "No judge model configured. Set it in defineConfig({ judge: { model: \"...\" } }), the eval's judge config, or the NICEEVAL_JUDGE_MODEL environment variable (there is no built-in default model).\n" +
     "  Docs: node_modules/niceeval/docs-site/zh/tutorials/scoring-guide.mdx",

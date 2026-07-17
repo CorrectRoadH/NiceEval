@@ -738,6 +738,25 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
   }
   if (interrupted) reportInterrupted();
 
+  // 实验级 teardown 兜底扫尾:正常路径由 per-attempt ensuring 的计数归零触发(见上),但一次
+  // 真实批跑观察到过计数路径未触发的间歇现象(根因未定位,排查记录见 memory 的
+  // experiment-teardown-missed-once-in-batch)。走到这里时 forEach 的全部 fiber 连同 finalizer
+  // 都已结算,任何 tornDown 仍为 false 的实验都意味着泄漏;在此强制收尾并报警示诊断——
+  // 扫尾幂等(cleanup 消费一次性),宁可多一道兜底,不把宿主机资源(隧道/容器)留给用户手拆。
+  for (const [run, lc] of expLifecycles) {
+    if (lc.tornDown) continue;
+    lc.tornDown = true;
+    if (!lc.cleanup) continue;
+    const experimentId = run.experimentId ?? run.agent.name;
+    reportDiagnostic({
+      key: `experiment-teardown-late:${experimentId}`,
+      severity: "warning",
+      message: t("runner.experimentTeardownLate", { experimentId }).trimEnd(),
+      data: { experimentId, remaining: lc.remaining },
+    });
+    await runExperimentTeardown(run, lc);
+  }
+
   // 稳定排序:按发现顺序 + attempt;携带结果并入后一起排
   const order = new Map(opts.evals.map((e, i) => [e.id, i]));
   const allResults = [...carriedResults, ...results];
