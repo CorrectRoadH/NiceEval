@@ -251,7 +251,7 @@ it("show 与 view 的默认报告槽消费同一 Scope", async () => {
 | 本地宿主只 resolve 被打开的页；静态导出 resolve 并校验全部页，任一页失败则导出整体失败 | 正例：打开 A 页时 B 页的取数未执行；反例：B 页含 `<div>` 时 `--out` 非零退出、不产出半套站点 |
 | 标题取值链 def.title → Scope 中唯一且相同（LocalizedText 深相等）的快照 name → 内置文案「Eval 运行结果 / Eval Results」，落点是浏览器标题、show 页索引标题行与 `ctx.report.title`；`links` / `footer` 渲染进导航壳，text 面不含这些字段 | 正例：三级 fallback 各一 fixture，浏览器标题与 `ctx.report.title` 同源；边界：两快照 name 的 en 相同、zh-CN 不同时任何 locale 下都落内置文案；反例：show 输出不含 links href |
 | `ReportLink.icon` 是内联 SVG 字符串（`{ svg }`）：web 面渲染在 label 前、静态导出原样内联；不收组件，show 不消费 | 正例：带 svg 的 GitHub 链接导航项含该 SVG；反例：无类型 JS 传 ReactNode 作 icon 装载报错；反例：show 页索引不含 svg |
-| 品牌是组件：宿主页头与外壳不渲染任何品牌位；`PoweredBy` 无 props，web 面渲染指向官网的品牌行（href 含 `utm_source=report&utm_medium=powered-by`、`rel` 仅 `noopener`），text 面零输出；`Hero` / `HeroCard` 恒含品牌行、无拆除 prop；省略 `footer` 时不渲染页脚 | 正例：内建报告每页 web 面含品牌行且 href 正确；反例：宿主导航壳 DOM 无品牌节点、show 输出不含该行；边界：无 `footer` 时无页脚元素但品牌行仍在 |
+| 宿主页头恒渲染报告改不动的 NiceEval 字标（外链官网、`utm_medium=brand`）；报告作者能声明的品牌只有 `PoweredBy`：无 props，web 面渲染指向官网的品牌行（href 含 `utm_source=report&utm_medium=powered-by`、`rel` 仅 `noopener`），text 面零输出；`Hero` / `HeroCard` 恒含品牌行、无拆除 prop；省略 `footer` 时不渲染页脚 | 正例：宿主导航壳 DOM 含 `class="brand"` 的 NiceEval 字标且外链官网；正例：内建报告每页 web 面含 `PoweredBy` 品牌行且 href 正确；反例：宿主壳无 hero 区、show 输出不含品牌行；边界：无 `footer` 时无页脚元素但品牌行仍在 |
 | view 导航只有报告页、按声明序排列，宿主不追加或保留任何导航项；attempt 详情路由不占导航 | 正例：双页自定义定义的导航恰为 页A · 页B；正例：裸 view 导航为 报告 · Attempts · 追踪（来自内建报告三页）；边界：树形态定义导航只有一项 report |
 | `scripts` / `styles` 按声明序注入：styles 在官方样式后，scripts 在官方增强脚本后 `</body>` 前；初始静态 HTML 的数值不因注入改变 | 正例：注入前后初始 HTML 数据节点相同、注入顺序可断言 |
 | `{src}` 资产相对报告文件解析，拒绝 `..` 路径段、绝对路径与 `~`；静态导出复制进 `assets/` 保持相对路径，缺失文件报错并给出解析后路径 | 正例：`./assets/a.js` 被复制；反例：`../x.js` 装载报错；边界：缺失文件在导出时报错 |

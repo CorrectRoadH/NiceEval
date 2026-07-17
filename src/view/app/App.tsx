@@ -8,10 +8,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs.t
 
 // 导航组成只有一条规则(docs/feature/reports/view.md「页面构成」):导航项 = 报告定义声明的页,
 // 按声明顺序排列(路由 `#/page/<id>`,`--page <id>` 定初始页)。宿主不追加、不保留任何导航项——
-// 裸 view 的「报告 / Attempts / 追踪」三个 tab 就是内建报告的三页。页面里的 hero、品牌行、
-// 选择警告都不是宿主渲染的:它们是页内的站点组件(Hero / PoweredBy / ScopeWarnings)。
-// 宿主保留的只有机器:管线与路由、attempt 详情路由、文档单例(<title>)、语言切换
-// (docs/feature/reports/architecture.md「宿主保留的只有机器」)。
+// 裸 view 的「报告 / Attempts / 追踪」三个 tab 就是内建报告的三页。页面里的 hero、Scope 警告
+// 都不是宿主渲染的:它们是页内的站点组件(Hero / ScopeWarnings)。宿主保留的是机器
+// 加一个恒定的品牌位:管线与路由、attempt 详情路由、文档单例(<title>)、语言切换,以及
+// 页头左端的 NiceEval 字标(docs/feature/reports/architecture.md「宿主保留的只有机器」)。
+
+// niceeval 官网。页头品牌字标与 hero 下的 `Powered by NiceEval` 行都外链到它,
+// utm_medium 区分点击来自哪个品牌位(shell.md「行为约束」)。
+const BRAND_HREF = "https://niceeval.com/?utm_source=report&utm_medium=brand";
 
 /**
  * LocalizedText 的确定回退(docs/feature/reports/library/shell.md):当前 locale → en →
@@ -151,6 +155,14 @@ export function App({ data, reportPages }: { data: ViewData; reportPages: Record
   return (
     <Tabs value={tab} onValueChange={(v) => selectTab(v as Tab)}>
       <header className="topbar">
+        {/* 页头左端是恒定的 NiceEval 品牌字标(与 Powered by 行同族的产品品牌位),
+            报告定义不能覆盖或移除,点击外链官网;报告 title 的落点是页内 hero 与浏览器标题。
+            rel 用 noopener 而非 noreferrer:保留 Referer(默认策略只发 origin),官网统计由此
+            得知点击来自哪个报告站点;utm 只负责区分品牌位。 */}
+        <a className="brand" href={BRAND_HREF} target="_blank" rel="noopener">
+          <span className="mark" aria-hidden="true" />
+          <span>NiceEval</span>
+        </a>
         <TabsList aria-label={t("nav.label")}>
           {pages.map((page) => (
             <TabsTrigger key={`page:${page.id}`} value={`page:${page.id}`}>

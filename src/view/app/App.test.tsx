@@ -25,8 +25,8 @@ function dataWithShell(report: ViewData["report"]): ViewData {
   return { composedRuns: 1, snapshots: [], ...(report !== undefined ? { report } : {}) };
 }
 
-describe("外壳:宿主无品牌位与 hero,导航只有报告页", () => {
-  it("宿主导航壳 DOM 无品牌节点、无 hero 区:品牌与 hero 是页内组件,不归宿主", () => {
+describe("外壳:宿主恒有 NiceEval 品牌位、无 hero,导航只有报告页", () => {
+  it("宿主页头有恒定品牌字标、无 hero 区:hero 是页内组件不归宿主,品牌归宿主", () => {
     const html = renderToStaticMarkup(
       <App
         data={dataWithShell({
@@ -38,11 +38,12 @@ describe("外壳:宿主无品牌位与 hero,导航只有报告页", () => {
         reportPages={reportPages}
       />,
     );
-    // 宿主 DOM 无品牌节点:没有字标、没有 Powered by、没有任何官网品牌链接。
-    expect(html).not.toContain('class="brand"');
-    expect(html).not.toContain("NiceEval");
+    // 宿主页头恒有 NiceEval 品牌字标,外链官网;报告定义不能覆盖或移除。
+    expect(html).toContain('class="brand"');
+    expect(html).toContain("NiceEval");
+    expect(html).toContain("niceeval.com");
+    // 品牌位是页头字标,不是 hero 的 Powered by 行——后者是页内组件,不落宿主壳。
     expect(html).not.toContain("Powered by");
-    expect(html).not.toContain("niceeval.com");
     // 宿主无 hero 区:标题只落浏览器 <title>(useEffect,静态渲染不执行),不落任何宿主节点。
     expect(html).not.toContain('class="hero"');
     expect(html).not.toContain("<h1");

@@ -516,20 +516,26 @@ table.nre,
 }
 
 /* ---- Hero / PoweredBy(站点标题区与品牌行) ---- */
-.nre-hero { margin: 0 0 18px; }
+/* 居中大标题:hero 是页首的门面块,整块占满内容列宽、文本水平居中,标题随视口 clamp 放大,
+   meta 与品牌行居中跟随。不设 max-width——窄框居中在宽内容列里会读成左偏,占满列宽才真居中。 */
+.nre-hero {
+  text-align: center;
+  margin: 0 0 clamp(28px, 5vw, 44px);
+}
 .nre-hero .nre-hero-title {
   margin: 0;
-  font-size: 24px;
-  font-weight: 700;
+  font-size: clamp(38px, 5vw, 60px);
+  line-height: 0.98;
+  font-weight: 760;
   letter-spacing: -0.01em;
 }
 .nre-hero .nre-hero-meta {
-  margin: 4px 0 0;
+  margin: 14px 0 0;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 14px;
 }
 .nre-powered-by {
-  margin: 6px 0 0;
+  margin: 10px 0 0;
   font-size: 12px;
 }
 .nre-powered-by a {

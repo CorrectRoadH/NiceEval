@@ -73,7 +73,24 @@ a { color: inherit; }
   z-index: 10;
   backdrop-filter: blur(10px);
 }
-/* 页头无品牌位:品牌是页内组件(PoweredBy / Hero 的品牌行,nre-powered-by),宿主不渲染。 */
+/* 页头左端的恒定品牌位:NiceEval 字标 + 45° 方块 mark,外链官网(App.tsx 的 .brand)。
+   与 hero 下 nre-powered-by 品牌行同族,由宿主渲染、报告定义不能覆盖或移除。 */
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  font-weight: 690;
+  font-size: 20px;
+  flex: 0 0 auto;
+  text-decoration: none;
+}
+.mark {
+  width: 18px;
+  height: 18px;
+  border: 1.25px solid var(--text);
+  transform: rotate(45deg);
+  display: inline-block;
+}
 /* 顶部导航 .nav / .nav-tab → components/ui/tabs.tsx(Radix Tabs + Tailwind utilities)。 */
 .lang-switch {
   display: inline-flex;
