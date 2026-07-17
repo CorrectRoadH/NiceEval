@@ -35,7 +35,7 @@
 22. **标题回退单点**：view 与 shell 统一为「def.title → Scope 中唯一且相同（深相等）的快照 name → NiceEval」。
 23. **默认报告散点方向文案**：成本 × 成功率下是「越靠左上越好」。
 
-明确否决（不要实现）：`ExperimentComparison` 不加 `groupBy`（路径即分组 API，自定义分组走组合组件）；`*Data` 不加 `locales` 选项；`redact` / `Col` / `relativeTo` / `DeltaTable.by` 不改名；`Powered by niceeval` 行、证据页归宿主、`TableRow.locator` 维持原契约。`Reporter` 改名（`RunObserver`）不在本轮范围，未裁决。
+明确否决（不要实现）：`ExperimentComparison` 不加 `groupBy`（路径即分组 API，自定义分组走组合组件）；`*Data` 不加 `locales` 选项；`redact` / `Col` / `relativeTo` / `DeltaTable.by` 不改名；`TableRow.locator` 维持原契约。~~`Powered by niceeval` 行、证据页归宿主维持原契约~~（此两条已被第七批 44 / 46 / 48 翻案，见下）。`Reporter` 改名（`RunObserver`）不在本轮范围，未裁决。
 
 ## 2026-07-16 第四轮评审修订（docs 已全部改完）
 
@@ -55,7 +55,7 @@
 35. **`ExperimentList` 成本列头 `Est. cost` → `Cost`**（中文「预估成本」→「成本」）。
 36. **`Row` / `Col` text 面与 `Style` 作用域**：Col 两面纵向；Row text 面宽度装得下按显示宽度并排、装不下整块纵向堆叠不截断；`Style` 页级全局、树位置只定声明顺序。
 
-第四轮明确否决 / 撤回（不要实现）：`locales` 选项与 `relativeTo` 改名维持第三轮否决；`poweredBy` 关闭配置被用户当场推翻——`Powered by niceeval` 行继续写死、恒带官网链接。
+第四轮明确否决 / 撤回（不要实现）：`locales` 选项与 `relativeTo` 改名维持第三轮否决；~~`poweredBy` 关闭配置被用户当场推翻——`Powered by niceeval` 行继续写死、恒带官网链接~~（已被第七批 46 再翻案：品牌收敛为组件、宿主不再渲染，组件本身仍无关闭配置）。
 
 ## 2026-07-16 DX 试写回灌（第五批，docs 已改完）
 
@@ -72,9 +72,24 @@
 
 用户看部署页面后的三条裁决（台账见 `memory/report-shell-brand-title-axis-rulings.md`）：
 
-41. **页头品牌位恒 NiceEval，`title` 落点改 hero 与浏览器标题**：view 页头左端固定 NiceEval 字标（报告定义不可覆盖）；hero（原写死「Eval 运行结果」处）与浏览器标题走标题回退链，链终点从 `"NiceEval"` 改为内置文案「Eval 运行结果 / Eval Results」；show 页索引标题行同链。见 `docs/feature/reports/library/shell.md#行为约束`。
+41. ~~**页头品牌位恒 NiceEval，`title` 落点改 hero 与浏览器标题**~~（页头字标与 hero 归宿主的部分已被第七批 45 / 46 翻案，标题回退链本身仍有效——落点改为浏览器标题、show 页索引标题行与 `ctx.report.title`）：链终点是内置文案「Eval 运行结果 / Eval Results」。见 `docs/feature/reports/library/shell.md#行为约束`。
 42. **`ReportLink.icon?: { svg: string }`**：内联 SVG 字符串，web 面渲染在 label 前、静态导出原样内联；不收组件（外壳声明经 viewData 序列化边界）；show 不消费；装载期对无类型 JS 校验形状。
 43. **散点轴方向跟随 `better`**：lower 反向（左贵右便宜）、higher 正向，「更好」恒指向右上；提示恒「越靠右上越好」，仅当两轴都声明 better 时显示；刻度显示真实值；text/web 两面同规则。翻案第三轮第 23 条的「越靠左上越好」文案。
+
+## 2026-07-17 无特权 chrome（第七批，docs 已全部改完）
+
+用户裁决「宿主不应有内容特权：证据页、hero、警告区、品牌都应是定义出来的组件/页」后的整批翻案（台账见 `memory/reports-no-privilege-chrome-rulings.md`）。实现时再对照这批：
+
+44. **内建报告改为三页站点**（`niceeval/report/built-in` 默认导出重写）：`report`（`Hero` + `ScopeWarnings` + `CopyFixPrompt` + `ExperimentComparison`）、`attempts`（`Hero` + `ScopeWarnings` + `AttemptList filter`）、`traces`（`Hero` + `ScopeWarnings` + `TraceWaterfall`），全文见 `docs/feature/reports/library/built-in.md`。view 导航只渲染报告页（声明序），`EVIDENCE_TABS` 一类宿主追加项删除；`AttemptsPage.tsx` / `TracesPage.tsx` 的能力迁入组件（`src/report/`），页面壳删除。
+45. **hero 组件化**：新组件 `Hero`（官方组合组件，缺省取 `ctx.report.title`，显式 `title` prop 覆盖）+ `HeroCard`（双面，data 形态唯一：`{ title, data: HeroData }`，`HeroData = { latestStartedAt, snapshots }`，配套 `heroData(input)`）；宿主 hero 区（`App.tsx` 的 `.hero` section）删除；`title` 的宿主落点只剩浏览器 `<title>` 与 show 页索引标题行。见 `docs/feature/reports/library/site-components.md`。
+46. **品牌收敛为组件**：新组件 `PoweredBy`（无 props 双面组件，web 面官网链接品牌行 `utm_source=report&utm_medium=powered-by`、`rel` 仅 `noopener`，text 面零输出，无关闭配置）；`Hero` / `HeroCard` 恒含品牌行、无拆除 prop。宿主页头 NiceEval 字标与 `utm_medium=brand` 链接删除（`App.tsx` `.brand`、`BRAND_HREF`）。不想要品牌 = 不用这些组件，自己写替代组件。
+47. **警告区组件化**：新组件 `ScopeWarnings`（spec 形态取宿主 Scope 的 warnings，data 形态收 `ScopeWarning[]`，配套 `scopeWarningsData`；空集与裸 `Snapshot[]` 输入零输出）。宿主的树外警告通道删除（`src/report/web.ts` `renderScopeWarningsHtml` 前置块、view 的 `SkippedRunsBanner`）；`niceeval/report/react` 导出纯 web 面。警告可见性成为作者义务（与增强脚本同一信任模型）。
+48. **证据能力重划**：`TraceWaterfall` 新双面组件（web 静态瀑布行 + 增强；text 面 = locator / 耗时 / span 计数 + `--timing` 下钻命令索引；`traceWaterfallData(input)`，形状见 site-components.md）；`AttemptList` 增 `filter?: boolean`（web 渐进增强过滤，同 `ExperimentList` 规则）。**attempt 详情保持宿主路由**：`#/attempt/@<locator>` / `show @<locator>` 对完整结果根解析、不随 Scope 收窄、不占导航——深链恒在由它保证，不再由恒在证据页保证；页（含内建 Attempts 页）一律共享收窄后的 Scope（view 数据层「证据室完整 attempt 集」通道只服务详情路由）。
+49. **show 多页行为改**：渲染初始页（`--page` 或第一页）text 面，页数 > 1 时尾部附「其余页」索引（命令携带完整 `--results` / `--report` / 位置参数上下文）；「多页只出索引」废除。见 `docs/feature/reports/show/reports.md` Case 2 与 `show/default-report.md` 示例（裸 show 页首多 Hero 两行、尾部多页索引）。
+50. **`unreadable-snapshot` 新 warning kind**（results 层）：扫描不可读快照（incompatible / malformed / incomplete）形成 Scope warning（`dir`、`reason`；incompatible 带 `npx niceeval@<producer.version>` command），非实验作用域、`filter` 修剪保留；非 niceeval JSON 静默忽略。view 的 skipped-runs 宿主横幅由它 + `ScopeWarnings` 取代。见 `docs/feature/results/library.md#警告-kind-全集`。
+51. **`ctx.report` 条款收口**：「特权只剩渲染位置」表述废除；宿主保留清单 = 管线与路由、attempt 详情路由、文档单例（`<title>`、charset、viewport）、语言切换，见 `docs/feature/reports/architecture.md#宿主保留的只有机器`。
+
+对应 cases.md 新增「站点组件与内建报告」分区并改写外壳分区的品牌 / 导航 / show 多页 / 警告 / 收窄行；`view-attempt-detail-evidence-first.md`、`show-view-equivalence.md` 等旧 PLAN 若与本批冲突，以本批与 docs 为准。
 
 ## 步骤建议
 

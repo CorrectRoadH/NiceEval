@@ -38,10 +38,8 @@ import { attemptHistory } from "./compose.ts";
 import {
   HostReportError,
   loadHostReport,
-  localizeText,
   reportMetaFor,
   renderHostPageText,
-  resolveReportTitle,
   type HostCommandContext,
 } from "./report-host.ts";
 import {
@@ -55,7 +53,7 @@ import {
   evalDetailText,
   evalSourceText,
   executionText,
-  pageIndexText,
+  otherPagesText,
   timingText,
   pickDetailAttempt,
   skippedRunsText,
@@ -324,6 +322,9 @@ async function show(
   };
   const sourceLabel = flags.report ?? "the built-in report";
 
+  // 初始页 = --page 指定的页,缺省第一页(docs/feature/reports/show/reports.md Case 2);
+  // 本地宿主只 resolve 被打开的这一页——其余页只留 id / title,不触发取数(见 shell.md
+  // 「行为约束」「本地宿主只 resolve 被打开的页」)。
   let page = report.pages[0];
   if (flags.page !== undefined) {
     const hit = report.pages.find((p) => p.id === flags.page);
@@ -334,12 +335,6 @@ async function show(
       );
     }
     page = hit;
-  } else if (report.pages.length > 1) {
-    // 多页未选页:只输出页索引与可复制的单页命令,不倾倒页内容(与可比组索引同一模式)。
-    // 标题行走标题回退链(终点是内置文案「Eval 运行结果 / Eval Results」,恒有值)。
-    const title = localizeText(resolveReportTitle(report.title, selection.snapshots), locale) ?? "Eval Results";
-    io.out(pageIndexText({ report, title, command: commandContext, locale }) + "\n");
-    return;
   }
 
   // attemptCommand 留给渲染管线的默认值:AttemptLocator 已经是可直接 `niceeval show @<locator>`
@@ -354,5 +349,17 @@ async function show(
       commandContext: { ...commandContext, ...(flags.page !== undefined ? { page: flags.page } : {}) },
     },
   );
-  io.out(text + "\n");
+
+  // 页数大于一时尾部附「其余页」索引(只列未渲染的页,不倾倒内容);单页定义没有这段。
+  const remaining = report.pages.filter((p) => p.id !== page.id);
+  if (remaining.length === 0) {
+    io.out(text + "\n");
+    return;
+  }
+  const tail = otherPagesText({
+    otherPages: remaining.map((p) => ({ id: p.id, title: p.title })),
+    command: commandContext,
+    locale,
+  });
+  io.out(`${text}\n\n${tail}\n`);
 }

@@ -163,6 +163,57 @@ describe("默认报告:跨快照合成的现刻水位(ExperimentComparison text 
     expect(out).not.toMatch(/\[[EXD⏱,]+\]/);
   });
 
+  it("裸 show 是内建报告首页:页首 Hero 标题行 + 最后运行 meta,尾部附 attempts / traces 页索引(命令带 --results 上下文)", async () => {
+    // docs/feature/reports/show/default-report.md:Hero 两行在页首,「其余页」两行在尾部。
+    const root = await seedComposedRoot();
+    const { out, code } = await show(root, []);
+    expect(code).toBe(0);
+    const lines = out.split("\n");
+    expect(lines[0]).toBe("Eval Results"); // 标题回退链终点(快照无 name、无 --report title)
+    expect(lines[1]).toMatch(/^Last run \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/); // Hero meta 行
+    // 尾部「其余页」索引:只列未渲染的两页,命令携带完整 --results 上下文,复制即可复现。
+    const tailAt = out.indexOf("Other pages:");
+    expect(tailAt).toBeGreaterThan(-1);
+    const tail = out.slice(tailAt);
+    expect(tail).toContain(`niceeval show --results ${root} --page attempts`);
+    expect(tail).toContain(`niceeval show --results ${root} --page traces`);
+    expect(tail).not.toContain("--page report"); // 已渲染的首页不进索引
+  });
+
+  it("裸 show 的 --page attempts / traces 渲染内建证据页(AttemptList / TraceWaterfall 的 text 面)", async () => {
+    const root = await seedComposedRoot();
+    const attempts = await show(root, [], { page: "attempts" }, 160);
+    expect(attempts.code).toBe(0);
+    // AttemptList text 面:范围内每个 attempt 一条,失败行带主失败摘要。
+    expect(attempts.out).toContain("fixtures/button");
+    expect(attempts.out).toContain("weather/brooklyn");
+    expect(attempts.out).toMatch(/@1[0-9a-z]{7}/);
+    const traces = await show(root, [], { page: "traces" }, 160);
+    expect(traces.code).toBe(0);
+    // TraceWaterfall text 面:每 attempt 一行,行尾是可复制的 --timing 下钻命令。
+    expect(traces.out).toMatch(/niceeval show @1[0-9a-z]{7} --timing/);
+    expect(traces.out).toContain("no trace"); // fixture 无 trace artifact:如实显示缺失
+  });
+
+  it("裸 show 的选择警告由页内 ScopeWarnings 组件显示(partial-coverage 按动作聚合成组头行)", async () => {
+    const root = await makeRoot();
+    await writeSnapshot(
+      root,
+      "2026-07-08T10-00-00-000Z",
+      {
+        experimentId: "compare/bub",
+        startedAt: "2026-07-08T10:00:00.000Z",
+        knownEvalIds: ["weather/brooklyn", "weather/queens"], // 少跑一题 → partial-coverage
+      },
+      [res("weather/brooklyn", "passed")],
+    );
+    const { out, code } = await show(root, [], {}, 160);
+    expect(code).toBe(0);
+    // 警告块在 Hero 之后、组内容之前;组头一行含实验 id、徽标与可复制命令。
+    expect(out).toMatch(/^! compare\/bub — coverage 1\/2 → niceeval exp compare\/bub$/m);
+    expect(out.indexOf("Eval Results")).toBeLessThan(out.indexOf("! compare/bub"));
+  });
+
   it("裸 show 的默认报告 chrome 跟随 locale", async () => {
     const root = await seedComposedRoot();
     process.env.NICEEVAL_LANG = "zh-CN";
@@ -172,17 +223,24 @@ describe("默认报告:跨快照合成的现刻水位(ExperimentComparison text 
       expect(out).toContain("成本 × 端到端成功率 没有可绘制的数据");
       expect(out).toContain("1 通过 / 1 失败");
       expect(out).toMatch(/\bbub\s+默认\s+bub\s+1s\s+50%/);
+      // 页首 Hero 与尾部页索引同样跟随 locale(内置文案与页名)。
+      expect(out.split("\n")[0]).toBe("Eval 运行结果");
+      expect(out).toContain("其余页：");
+      expect(out).toContain("追踪");
     } finally {
       process.env.NICEEVAL_LANG = "en";
     }
   });
 
-  it("窄终端截断长 eval 与原因,每一行都不超过终端显示宽度", async () => {
+  it("窄终端截断长 eval 与原因,报告正文每一行都不超过终端显示宽度", async () => {
     const root = await seedComposedRoot();
     const { out, code } = await show(root, [], {}, 60);
     expect(code).toBe(0);
     expect(out).toContain("fixtures/button");
-    for (const line of out.trimEnd().split("\n")) {
+    // 「其余页」索引里的命令是可复制的完整命令(携带 --results 绝对路径),复制即可执行,
+    // 永不为宽度折行——宽度约束只作用于报告正文。
+    const body = out.slice(0, out.indexOf("Other pages:"));
+    for (const line of body.trimEnd().split("\n")) {
       expect(stringWidth(line), line).toBeLessThanOrEqual(60);
     }
   });
@@ -438,6 +496,85 @@ describe("--report 装载", () => {
     return path;
   }
 
+  /**
+   * 两页文件:overview / exam,各自的 text 面输出一个可断言的标记字符串——够验证
+   * 「渲染初始页 + 尾部附其余页索引,不倾倒其余页内容」而不需要引入更多组合语义
+   * (docs/feature/reports/show/reports.md Case 2)。
+   */
+  async function writeMultiPageReportFile(dir: string): Promise<string> {
+    const path = join(dir, "site.mjs");
+    await writeFile(
+      path,
+      [
+        'const FACES = Symbol.for("niceeval.report.faces");',
+        'const DEFINITION = Symbol.for("niceeval.report.definition");',
+        "const Overview = () => null;",
+        "Overview[FACES] = { web: () => null, text: () => \"OVERVIEW PAGE CONTENT\" };",
+        "const Exam = () => null;",
+        "Exam[FACES] = { web: () => null, text: () => \"EXAM PAGE CONTENT\" };",
+        "const definition = {",
+        '  kind: "report",',
+        "  links: [],",
+        "  scripts: [],",
+        "  styles: [],",
+        "  pages: [",
+        '    { id: "overview", title: { en: "Overview", "zh-CN": "总览" }, content: { type: Overview, props: {} } },',
+        '    { id: "exam", title: { en: "Exam", "zh-CN": "成绩单" }, content: { type: Exam, props: {} } },',
+        "  ],",
+        "};",
+        "Object.defineProperty(definition, DEFINITION, { value: true });",
+        "export default definition;",
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+    return path;
+  }
+
+  it("多页文件:渲染初始页(缺省第一页)+ 尾部附其余页索引,不倾倒其余页内容", async () => {
+    // show() 测试助手缺省把 root 当 --results 传下去(见上方 show() 定义),
+    // 因此索引命令恒含 --results;这里的默认 locale 是 en(beforeAll 固定)。
+    const root = await seedComposedRoot();
+    const report = await writeMultiPageReportFile(root);
+    const { out, code } = await show(root, [], { report });
+    expect(code).toBe(0);
+    expect(out).toContain("OVERVIEW PAGE CONTENT");
+    expect(out).not.toContain("EXAM PAGE CONTENT");
+    expect(out).toContain("Other pages:");
+    expect(out).toContain(`niceeval show --results ${root} --report ${report} --page exam`);
+    expect(out).toContain("Exam");
+    expect(out).not.toContain("--page overview"); // 已渲染的页不进「其余页」索引
+  });
+
+  it("多页文件:--page 选中的页渲染,尾部索引只列剩下的页", async () => {
+    const root = await seedComposedRoot();
+    const report = await writeMultiPageReportFile(root);
+    const { out, code } = await show(root, [], { report, page: "exam" });
+    expect(code).toBe(0);
+    expect(out).toContain("EXAM PAGE CONTENT");
+    expect(out).not.toContain("OVERVIEW PAGE CONTENT");
+    expect(out).toContain("Other pages:");
+    expect(out).toContain(`niceeval show --results ${root} --report ${report} --page overview`);
+    expect(out).not.toContain("--page exam");
+  });
+
+  it("单页定义直接渲染,无「其余页」段", async () => {
+    const root = await seedComposedRoot();
+    const report = await writeReportFile(root);
+    const { out, code } = await show(root, [], { report });
+    expect(code).toBe(0);
+    expect(out).not.toContain("其余页");
+    expect(out).not.toContain("Other pages");
+  });
+
+  it("其余页索引命令保留当前 --results / --report 与位置参数上下文,复制即可复现下一层视图", async () => {
+    const root = await seedComposedRoot();
+    const report = await writeMultiPageReportFile(root);
+    const { out, code } = await show(root, ["weather"], { report, results: root });
+    expect(code).toBe(0);
+    expect(out).toContain(`niceeval show weather --results ${root} --report ${report} --page exam`);
+  });
+
   it("装载 + 注入 Selection + attemptCommand 下钻命令", async () => {
     const root = await seedComposedRoot();
     const report = await writeReportFile(root);
@@ -521,7 +658,7 @@ describe("--report 装载", () => {
     const builtin = await show(root, [], { page: "typo" });
     expect(builtin.code).toBe(1);
     expect(builtin.err).toContain('page "typo" not found in the built-in report');
-    expect(builtin.err).toContain("Available pages: report");
+    expect(builtin.err).toContain("Available pages: report, attempts, traces");
   });
 });
 

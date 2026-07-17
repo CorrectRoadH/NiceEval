@@ -5,7 +5,7 @@
 ## 从榜单下钻到 attempt
 
 ```sh
-niceeval show                              # 当前结果的默认 ExperimentComparison
+niceeval show                              # 内建报告首页：默认榜单 + 尾部页索引
 niceeval show memory/swelancer             # 按 eval id 前缀收窄
 niceeval show @1qrdcfq8                    # 打开一个 attempt 的诊断首页
 niceeval show @1qrdcfq8 --source           # 断言标回 eval 源码

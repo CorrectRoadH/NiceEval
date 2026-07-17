@@ -139,33 +139,55 @@ describe("resolveViewInput · 输入语义", () => {
 });
 
 
-/** 单页报告(裸跑 / 树形态 --report)的报告槽 HTML:规范化后唯一页 id 恒为 `report`。 */
+/** 单页报告(树形态 --report)的报告槽 HTML:规范化后唯一页 id 恒为 `report`。 */
 function slotHtml(scan: ViewScan): { en: string; "zh-CN": string } {
   expect(scan.reportPages).toHaveLength(1);
   expect(scan.reportPages[0]!.id).toBe("report");
   return scan.reportPages[0]!.html as { en: string; "zh-CN": string };
 }
 
+/** 多页定义(裸跑装载的内建报告是三页)按页 id 取报告槽 HTML。 */
+function pageHtml(scan: ViewScan, id: string): { en: string; "zh-CN": string } {
+  const page = scan.reportPages.find((p) => p.id === id);
+  expect(page, `page ${id}`).toBeTruthy();
+  return page!.html as { en: string; "zh-CN": string };
+}
+
+/** 裸跑的首页(内建报告的 report 页):先断言内建三页齐全,再取首页 HTML。 */
+function bareReportHtml(scan: ViewScan): { en: string; "zh-CN": string } {
+  expect(scan.reportPages.map((p) => p.id)).toEqual(["report", "attempts", "traces"]);
+  return pageHtml(scan, "report");
+}
+
 // ───────────────────────── 组合语义(与 show 对齐) ─────────────────────────
 
 describe("loadViewScan · 组合语义", () => {
-  it("位置前缀收窄报告槽 Selection;证据室快照不收窄,深链恒可达", async () => {
+  it("位置前缀收窄对全部页生效(含内建 Attempts 页);attempt 详情路由对完整结果根解析,被滤掉的深链仍可达", async () => {
     const root = await seedRoot();
     const scan = await loadViewScan(root, { patterns: ["weather"] });
     const { viewData } = scan;
-    const reportHtml = slotHtml(scan);
-    // 报告槽:两实验都只剩 weather/brooklyn 一题,范围外的失败不再出现。
+    const reportHtml = bareReportHtml(scan);
+    // 报告页:两实验都只剩 weather/brooklyn 一题,范围外的失败不再出现。
     expect(reportHtml.en).toContain("compare/bub");
     expect(reportHtml.en).toContain("compare/codex");
     expect(reportHtml.en).not.toContain("fixtures/button");
-    // 证据室:快照明细仍含 fixtures/button(attempt 深链在收窄下也能解析)。
-    const allIds = viewData.snapshots.flatMap((s) => s.results.map((r) => r.id));
-    expect(allIds).toContain("fixtures/button");
+    // Attempts / Traces 是普通页,共享同一收窄后 Scope:行集同样缩小。
+    expect(pageHtml(scan, "attempts").en).not.toContain("fixtures/button");
+    expect(pageHtml(scan, "traces").en).not.toContain("fixtures/button");
+    const bare = await loadViewScan(root);
+    expect(pageHtml(bare, "attempts").en).toContain("fixtures/button"); // 不收窄时在场,对照
+    // attempt 详情路由不是页:viewData.snapshots 全量通道保留,被滤掉的 attempt 深链仍解析成功。
+    const filteredOut = viewData.snapshots
+      .flatMap((s) => s.results)
+      .find((r) => r.id === "fixtures/button");
+    expect(filteredOut?.locator).toBeTruthy();
+    const { resolveAttemptLocator } = await import("./app/lib/attempt-route.ts");
+    expect(resolveAttemptLocator(viewData.snapshots, filteredOut!.locator!)).toBe(filteredOut);
   });
 
   it("--experiment 过滤:报告槽 Selection 只留该实验", async () => {
     const root = await seedRoot();
-    const reportHtml = slotHtml(await loadViewScan(root, { experiment: "compare/codex" }));
+    const reportHtml = bareReportHtml(await loadViewScan(root, { experiment: "compare/codex" }));
     expect(reportHtml.en).toContain("compare/codex");
     expect(reportHtml.en).not.toContain("compare/bub");
   });
@@ -177,34 +199,43 @@ describe("loadViewScan · 组合语义", () => {
     await expect(loadViewScan(root, { experiment: "nosuch" })).rejects.toBeInstanceOf(ViewInputError);
   });
 
-  it("全部缺省:报告槽使用现刻水位口径(与 show 相同的合成规则)", async () => {
+  it("全部缺省:报告槽使用现刻水位口径(与 show 相同的合成规则);导航页即内建三页", async () => {
     const root = await seedRoot();
-    const reportHtml = slotHtml(await loadViewScan(root));
+    const scan = await loadViewScan(root);
+    const reportHtml = bareReportHtml(scan);
     // 默认报告的榜单含两个实验;官方组件的稳定类名在场。
     expect(reportHtml.en).toContain("compare/bub");
     expect(reportHtml.en).toContain("compare/codex");
     expect(reportHtml.en).toContain("nre-");
+    // 导航 = 报告定义声明的页(声明序),宿主不追加:裸 view 的三个 tab 就是内建三页。
+    expect(scan.viewData.report?.pages.map((p) => p.id)).toEqual(["report", "attempts", "traces"]);
+    expect(scan.viewData.report?.pages.map((p) => p.title)).toEqual([
+      { en: "Report", "zh-CN": "报告" },
+      "Attempts",
+      { en: "Traces", "zh-CN": "追踪" },
+    ]);
   });
 });
 
 // ─────────────────── 报告槽恒在:裸跑 ≡ --report <ExperimentComparison> ───────────────────
 
 describe("loadViewScan · 默认报告槽(裸跑)", () => {
-  it("裸跑产出的报告槽 HTML 与 --report <re-export ExperimentComparison 的文件> 完全一致(双语)", async () => {
+  it("裸跑产出的报告槽 HTML 与 --report <re-export 内建报告的文件> 逐页完全一致(双语)", async () => {
     const root = await seedRoot();
-    const bare = slotHtml(await loadViewScan(root));
-    const viaReport = slotHtml(
-      await loadViewScan(root, {
-        report: { path: DEFAULT_REPORT_REEXPORT, cwd: root },
-      }),
-    );
-    expect(bare.en).toBe(viaReport.en);
-    expect(bare["zh-CN"]).toBe(viaReport["zh-CN"]);
+    const bare = await loadViewScan(root);
+    const viaReport = await loadViewScan(root, {
+      report: { path: DEFAULT_REPORT_REEXPORT, cwd: root },
+    });
+    expect(viaReport.reportPages.map((p) => p.id)).toEqual(bare.reportPages.map((p) => p.id));
+    for (const pageId of ["report", "attempts", "traces"]) {
+      expect(pageHtml(viaReport, pageId).en).toBe(pageHtml(bare, pageId).en);
+      expect(pageHtml(viaReport, pageId)["zh-CN"]).toBe(pageHtml(bare, pageId)["zh-CN"]);
+    }
   });
 
   it("报告槽双语渲染:同一棵树按 locale 渲染两遍,chrome 文案分语言、数据不分语言", async () => {
     const root = await seedRoot();
-    const reportHtml = slotHtml(await loadViewScan(root));
+    const reportHtml = bareReportHtml(await loadViewScan(root));
     expect(reportHtml.en).toContain("End-to-end pass rate"); // ExperimentList 主行(en)
     expect(reportHtml["zh-CN"]).toContain("端到端成功率"); // ExperimentList 主行(zh-CN)
     for (const html of [reportHtml.en, reportHtml["zh-CN"]]) {
@@ -216,11 +247,17 @@ describe("loadViewScan · 默认报告槽(裸跑)", () => {
     }
   });
 
-  it("失败清单与警告住在报告槽里:ExperimentList 列出失败,壳的 viewData 不携带统计产物", async () => {
+  it("失败清单与警告住在报告页里:ExperimentList 列出失败,壳的 viewData 不携带统计产物", async () => {
     const root = await seedRoot();
     const scan = await loadViewScan(root);
     const { viewData } = scan;
-    expect(slotHtml(scan).en).toContain("fixtures/button");
+    expect(bareReportHtml(scan).en).toContain("fixtures/button");
+    // 品牌行是页内组件(Hero 恒含),不是宿主 chrome:每页 web 面都带官网品牌行。
+    for (const pageId of ["report", "attempts", "traces"]) {
+      const html = pageHtml(scan, pageId).en;
+      expect(html).toContain("nre-powered-by");
+      expect(html).toContain("https://niceeval.com/?utm_source=report&amp;utm_medium=powered-by");
+    }
     // viewData 只有证据室数据:快照 + skipped + 壳元信息。
     expect(viewData).not.toHaveProperty("overview");
     expect(viewData).not.toHaveProperty("table");

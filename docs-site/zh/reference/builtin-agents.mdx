@@ -41,7 +41,7 @@ description: "NiceEval 内置的 claude-code、codex、bub 适配器分别做到
 
 ### codex
 
-- 连接方式：沙箱里跑 `codex exec --json`（续接时是 `codex exec resume <id> --json`），stdout JSONL 当 transcript。
+- 连接方式：沙箱里跑 `codex exec --json`（续接时是 `codex exec resume <id> --json`），stdout JSONL 当 transcript。命令带 `--dangerously-bypass-approvals-and-sandbox` 与 `--dangerously-bypass-hook-trust`：沙箱里没人能回答 codex 的交互确认，插件或 `postSetup` 装好的 hook 因此不需要交互授信就能生效。
 - 鉴权：`CODEX_API_KEY`（不是 `OPENAI_API_KEY`），可选 `CODEX_BASE_URL` 接 OpenAI 兼容代理；配置项见下方 `CodexConfig`。
 - `tracing` 通过 `~/.codex/config.toml` 的 `[otel.trace_exporter.otlp-http]` 段配置，协议 `http/json`。
 

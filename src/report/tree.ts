@@ -339,7 +339,14 @@ async function resolveNode(node: ReportNode | string | number, state: ResolveSta
     return node as unknown as ReportNode;
   }
   if (Array.isArray(node)) {
-    return Promise.all(node.map((child) => resolveNode(child as ReportNode, state, path)));
+    const resolved = await Promise.all(node.map((child) => resolveNode(child as ReportNode, state, path)));
+    // resolve 重建的 children 数组对 React 是动态列表(JSX 静态 children 的免 key 待遇随重建
+    // 丢失);声明序即身份,给缺 key 的元素补声明位 key,免得 web 面渲染刷 key 警告。
+    return resolved.map((child, i) =>
+      isReportElement(child) && (child.key === undefined || child.key === null)
+        ? ({ ...child, key: `.nre-${i}` } as ReportElement)
+        : child,
+    );
   }
   if (!isReportElement(node)) return node;
   const { type, props } = node;

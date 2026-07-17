@@ -21,16 +21,25 @@ export { MetricLine } from "./MetricLine.tsx";
 export { DeltaTable } from "./DeltaTable.tsx";
 export { Scoreboard } from "./Scoreboard.tsx";
 
+// 站点组件的纯 web 面(data 形态;Hero 是组合组件,只住 niceeval/report)
+export { HeroCard } from "./HeroCard.tsx";
+export { PoweredBy } from "./PoweredBy.tsx";
+export { ScopeWarnings } from "./ScopeWarnings.tsx";
+export { CopyFixPrompt } from "./CopyFixPrompt.tsx";
+export { TraceWaterfall } from "./TraceWaterfall.tsx";
+
 // 数据契约类型(家在 ../types.ts,「算」与「画」两侧共用同一份)
 export type {
   AttemptListItem,
   AttemptLocator,
+  CopyFixPromptData,
   DeltaData,
   EvalListItem,
   ExperimentComparisonData,
   ExperimentComparisonGroupData,
   ExperimentListEvalRow,
   ExperimentListItem,
+  HeroData,
   LineData,
   MatrixData,
   MetricCell,
@@ -40,6 +49,8 @@ export type {
   ScopeWarning,
   ScoreboardData,
   TableData,
+  TraceSpanSummary,
+  TraceWaterfallRow,
   VerdictTally,
 } from "../types.ts";
 

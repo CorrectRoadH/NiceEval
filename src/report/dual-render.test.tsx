@@ -31,14 +31,18 @@ import {
 import { renderReportToStaticHtml } from "./web.ts";
 import {
   AttemptList,
+  CopyFixPrompt,
   ExperimentComparison,
   ExperimentList,
   FailureList,
+  Hero,
   MetricBars,
   MetricMatrix,
   MetricScatter,
   MetricTable,
   ScopeSummary,
+  ScopeWarnings,
+  TraceWaterfall,
 } from "./components.tsx";
 import { Col, Row, Section, Style, Tab, Table, Tabs, Text } from "./primitives.tsx";
 import { attemptListData, metricScatterData } from "./compute.ts";
@@ -437,7 +441,7 @@ describe("ReportNode 形状与非法节点", () => {
 // ───────────────────────── 双面同源 ─────────────────────────
 
 describe("text/web 双面同源", () => {
-  it("双面显示同一份解析终值、覆盖率与 warning;宿主在报告树外统一显示 warning", async () => {
+  it("双面显示同一份解析终值、覆盖率与 warning;警告的呈现件是页内 ScopeWarnings 组件,宿主无树外通道", async () => {
     const s = snap({ experimentId: "dual/a", results: [res("q1", "passed"), res("q2", "skipped")] });
     const warning: ScopeWarning = {
       kind: "unfinished-snapshot",
@@ -448,7 +452,12 @@ describe("text/web 双面同源", () => {
       command: "niceeval exp dual/a",
     };
     const scope = scopeOf([s], [warning]);
-    const definition = defineReport(<ScopeSummary />);
+    const definition = defineReport(
+      <Col>
+        <ScopeWarnings />
+        <ScopeSummary />
+      </Col>,
+    );
     const ctx = { scope, results: resultsOf([s]) };
     const text = await renderReportToText(definition, ctx);
     const html = await renderReportToStaticHtml(definition, ctx);
@@ -460,6 +469,10 @@ describe("text/web 双面同源", () => {
     // web 面把警告的 command 渲染为可复制命令
     expect(html).toContain("niceeval exp dual/a");
     expect(html).toContain("nre-warning-command");
+    // 宿主不再前置树外警告块:没有 ScopeWarnings 的树两面都不出现警告
+    const bare = defineReport(<ScopeSummary />);
+    expect(await renderReportToText(bare, ctx)).not.toContain("snapshot is incomplete");
+    expect(await renderReportToStaticHtml(bare, ctx)).not.toContain("nre-warning");
   });
 
   it("web 排序/过滤只改变浏览状态:有无 filter prop 数值与行集合相同", async () => {
@@ -505,88 +518,8 @@ describe("text/web 双面同源", () => {
   });
 });
 
-// ───────────────────────── ScopeWarnings 按动作聚合 ─────────────────────────
-
-describe("ScopeWarnings 按动作聚合", () => {
-  const partial = (id: string): ScopeWarning => ({
-    kind: "partial-coverage",
-    experimentId: id,
-    covered: 1,
-    total: 2,
-    message: `verdicts for "${id}" cover 1 of 2 evals; re-run \`niceeval exp ${id}\` to fill the gap`,
-    command: `niceeval exp ${id}`,
-  });
-  const stale = (id: string): ScopeWarning => ({
-    kind: "stale-snapshot",
-    experimentId: id,
-    startedAt: "2026-06-01T00:00:00.000Z",
-    latestStartedAt: "2026-06-05T00:00:00.000Z",
-    message: `snapshot "${id}" predates the latest run in this scope by 4 days; re-run \`niceeval exp ${id}\` to align, or ignore if evals, agent and model are unchanged between the runs`,
-    command: `niceeval exp ${id}`,
-  });
-
-  async function faces(experimentIds: string[], warnings: ScopeWarning[]) {
-    const snapshots = experimentIds.map((id) => snap({ experimentId: id, results: [res("q", "passed")] }));
-    const scope = scopeOf(snapshots, warnings);
-    const definition = defineReport(<ScopeSummary />);
-    const ctx = { scope, results: resultsOf(snapshots) };
-    return {
-      text: await renderReportToText(definition, ctx),
-      html: await renderReportToStaticHtml(definition, ctx),
-    };
-  }
-
-  it("同实验多 kind 聚合一组:组头两枚徽标 + 恰一条去重命令;不同实验不进同一组", async () => {
-    const { html } = await faces(["warn/a", "warn/b"], [partial("warn/a"), stale("warn/a"), stale("warn/b")]);
-    expect(html.match(/nre-warning-group"/g)).toHaveLength(2);
-    // warn/a 组头:coverage + 时距两枚徽标,命令去重后只出现一次
-    expect(html).toContain("coverage 1/2");
-    expect(html).toContain("4 days behind");
-    expect(html.match(/data-nre-copy="niceeval exp warn\/a"/g)).toHaveLength(1);
-    expect(html.match(/data-nre-copy="niceeval exp warn\/b"/g)).toHaveLength(1);
-  });
-
-  it("组排序 integrity 在前;未登记 kind 单独成组且 message 完整可见", async () => {
-    const weird = { kind: "weird-kind", message: "strange thing happened" } as unknown as ScopeWarning;
-    // 输入顺序 freshness 在先,渲染顺序仍 integrity(warn/a 含 partial-coverage)在前
-    const { html } = await faces(["warn/a", "warn/b"], [stale("warn/b"), partial("warn/a"), weird]);
-    expect(html.indexOf('data-category="integrity"')).toBeLessThan(html.indexOf('data-category="freshness"'));
-    expect(html.indexOf("warn/a")).toBeLessThan(html.indexOf("warn/b"));
-    expect(html).toContain("weird-kind");
-    expect(html).toContain("strange thing happened");
-  });
-
-  it("汇总行只在组数 > 1 时出现;单组时组头即汇总", async () => {
-    const multi = await faces(["warn/a", "warn/b"], [partial("warn/a"), stale("warn/b")]);
-    expect(multi.html).toContain("nre-warnings-summary");
-    expect(multi.html).toContain("2 experiments flagged");
-    const single = await faces(["warn/a"], [partial("warn/a"), stale("warn/a")]);
-    expect(single.html).not.toContain("nre-warnings-summary");
-  });
-
-  it("明细折叠:总条数 ≤ 3 时 <details> 默认展开,4 条起收起;text 面组头下缩进逐条原样打印且不截断尾段", async () => {
-    const three = await faces(["warn/a", "warn/b"], [partial("warn/a"), stale("warn/a"), stale("warn/b")]);
-    expect(three.html).toMatch(/<details[^>]*class="nre-warning-details"[^>]*open/);
-    const four = await faces(
-      ["warn/a", "warn/b"],
-      [partial("warn/a"), stale("warn/a"), partial("warn/b"), stale("warn/b")],
-    );
-    expect(four.html).not.toMatch(/<details[^>]*open/);
-    // text 面:组头一行(标题 — 徽标 → 命令),明细缩进,message 以忽略条件收尾不截断
-    expect(three.text).toContain("! warn/a — coverage 1/2 · 4 days behind → niceeval exp warn/a");
-    expect(three.text).toContain('!   snapshot "warn/a" predates');
-    expect(three.text).toContain("unchanged between the runs");
-  });
-
-  it("无 command 的条目不硬造复制动作;空警告集不渲染容器", async () => {
-    const noCommand = { kind: "weird-kind", message: "strange thing happened" } as unknown as ScopeWarning;
-    const { html } = await faces(["warn/a"], [noCommand]);
-    expect(html).not.toContain("nre-warning-command");
-    const empty = await faces(["warn/a"], []);
-    expect(empty.html).not.toContain("nre-report-warnings");
-    expect(empty.text).not.toContain("!");
-  });
-});
+// ScopeWarnings 的聚合、排序、折叠与下一步行为在 site-components.test.tsx(组件版单源);
+// 宿主不再有树外警告前置块,这里不重复宿主版。
 
 // ───────────────────────── FailureList ─────────────────────────
 
@@ -888,20 +821,72 @@ describe("defineReport 装载规范化", () => {
 // ───────────────────────── 内建报告 ─────────────────────────
 
 describe("内建报告", () => {
-  it("niceeval/report/built-in 默认导出是普通 defineReport 产物,与用户写的 defineReport(<ExperimentComparison />) 等价", async () => {
+  it("三页普通 defineReport:页 id、页名与逐页组件构成和 built-in.md 全文一致", () => {
     expect(builtInReport.kind).toBe("report");
-    expect(builtInReport.pages).toHaveLength(1);
+    expect(builtInReport.pages.map((p) => p.id)).toEqual(["report", "attempts", "traces"]);
+    expect(builtInReport.pages.map((p) => p.title)).toEqual([
+      { en: "Report", "zh-CN": "报告" },
+      "Attempts",
+      { en: "Traces", "zh-CN": "追踪" },
+    ]);
+    // 逐页组件构成:每页一个 Col,children 按 built-in.md 全文的声明序,全部是公开组件。
+    const childTypes = (content: unknown) => {
+      const col = content as { type: unknown; props: { children: Array<{ type: unknown; props: Record<string, unknown> }> } };
+      expect(col.type).toBe(Col);
+      return col.props.children;
+    };
+    const [reportPage, attemptsPage, tracesPage] = builtInReport.pages;
+    expect(childTypes(reportPage!.content).map((c) => c.type)).toEqual([
+      Hero,
+      ScopeWarnings,
+      CopyFixPrompt,
+      ExperimentComparison,
+    ]);
+    const attemptsChildren = childTypes(attemptsPage!.content);
+    expect(attemptsChildren.map((c) => c.type)).toEqual([Hero, ScopeWarnings, AttemptList]);
+    expect(attemptsChildren[2]!.props.filter).toBe(true);
+    expect(childTypes(tracesPage!.content).map((c) => c.type)).toEqual([Hero, ScopeWarnings, TraceWaterfall]);
+  });
 
+  it("与 --report 同内容文件完全等价:同一棵页树经同一条管线渲染出逐字节相同的两面", async () => {
     const s1 = snap({ experimentId: "compare/a", agent: "bub", results: [res("q", "passed")] });
     const s2 = snap({ experimentId: "compare/b", agent: "codex", results: [res("q", "failed")] });
     const scope = scopeOf([s1, s2]);
     const ctx = { scope, results: resultsOf([s1, s2]) };
-    const builtin = await renderReportToText(builtInReport, ctx, { width: 120 });
-    const user = await renderReportToText(defineReport(<ExperimentComparison />), ctx, { width: 120 });
-    expect(builtin).toBe(user);
+    // 用户按 built-in.md 全文自己写同内容的 defineReport(不 import 内建入口)。
+    const user = defineReport({
+      pages: [
+        {
+          id: "report",
+          title: { en: "Report", "zh-CN": "报告" },
+          content: (
+            <Col>
+              <Hero />
+              <ScopeWarnings />
+              <CopyFixPrompt />
+              <ExperimentComparison />
+            </Col>
+          ),
+        },
+        { id: "attempts", title: "Attempts", content: <Col><Hero /><ScopeWarnings /><AttemptList filter /></Col> },
+        {
+          id: "traces",
+          title: { en: "Traces", "zh-CN": "追踪" },
+          content: <Col><Hero /><ScopeWarnings /><TraceWaterfall /></Col>,
+        },
+      ],
+    });
+    for (const pageId of ["report", "attempts", "traces"]) {
+      expect(await renderReportToText(builtInReport, ctx, { width: 120, pageId })).toBe(
+        await renderReportToText(user, ctx, { width: 120, pageId }),
+      );
+      expect(await renderReportToStaticHtml(builtInReport, ctx, { pageId })).toBe(
+        await renderReportToStaticHtml(user, ctx, { pageId }),
+      );
+    }
   });
 
-  it("text 面多组时只输出组索引与单组查看命令;单组时输出散点与实验列表", async () => {
+  it("首页 text 面多组时只输出组索引与单组查看命令;单组时输出散点与实验列表;页首是 Hero 的标题与 meta 行", async () => {
     const g1 = snap({ experimentId: "compare/a", results: [res("q", "passed")] });
     const g2 = snap({ experimentId: "dev/b", results: [res("q", "failed")] });
     const multi = await renderReportToText(
@@ -909,6 +894,9 @@ describe("内建报告", () => {
       { scope: scopeOf([g1, g2]), results: resultsOf([g1, g2]) },
       { width: 120 },
     );
+    // Hero text 面:标题行(回退链终点)+ 最后运行 meta 行在页首
+    expect(multi.split("\n")[0]).toBe("Eval Results");
+    expect(multi).toContain("Last run");
     expect(multi).toContain("niceeval show --experiment compare");
     expect(multi).toContain("niceeval show --experiment dev");
     expect(multi).not.toContain("Eval / Attempt"); // 不倾倒组内 experiment 明细

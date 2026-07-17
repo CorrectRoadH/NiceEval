@@ -366,6 +366,33 @@ describe("codexAgent · live step feedback", () => {
   });
 });
 
+describe("codexAgent · exec 信任姿态", () => {
+  // bug: memory/codex-hook-trust-headless-silent-skip.md
+  it("首轮与 resume 的 exec 命令都含 --dangerously-bypass-hook-trust(headless 下未授信 hook 被 codex 静默跳过,零报错)", async () => {
+    const stdout = JSON.stringify({ type: "thread.started", thread_id: "thread-1" }) + "\n";
+    const box = sb([{ match: "codex exec", result: () => ({ stdout }) }]);
+    const ctx: AgentContext = {
+      signal: new AbortController().signal,
+      flags: {},
+      sandbox: asSandbox(box),
+      session: createAgentSession(),
+      progress() {},
+      diagnostic() {},
+      log() {},
+    };
+    const agent = codexAgent({ apiKey: "test-key" });
+
+    await agent.send!({ text: "first" }, ctx);
+    await agent.send!({ text: "second" }, ctx);
+
+    const execs = box.commands.filter((c) => c.startsWith("codex exec"));
+    expect(execs).toHaveLength(2);
+    expect(execs[0]).not.toContain("codex exec resume");
+    expect(execs[1]).toContain("codex exec resume thread-1");
+    for (const cmd of execs) expect(cmd).toContain("--dangerously-bypass-hook-trust");
+  });
+});
+
 describe("codexAgent mcpServers · 形态落位", () => {
   const ctx = { flags: {} } as AgentContext;
 

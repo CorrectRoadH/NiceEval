@@ -99,29 +99,39 @@ export { DEFAULT_REPORT_LOCALE, localizedTextEquals, resolveLocalizedText, resol
 export type { LocalizedText, ReportLocale } from "./locale.ts";
 
 // 官方双面组件(spec / data 双形态;配套 *Data 计算函数在下面成对导出)
+// 与站点组件(Hero / HeroCard / PoweredBy / ScopeWarnings / CopyFixPrompt / TraceWaterfall)
 export {
   AttemptList,
+  CopyFixPrompt,
   DeltaTable,
   EvalList,
   ExperimentComparison,
   ExperimentList,
   FailureList,
+  Hero,
+  HeroCard,
   MetricBars,
   MetricLine,
   MetricMatrix,
   MetricScatter,
   MetricTable,
+  PoweredBy,
   Scoreboard,
   ScopeSummary,
+  ScopeWarnings,
+  TraceWaterfall,
 } from "./components.tsx";
 export type {
   AttemptListProps,
+  CopyFixPromptProps,
   DataProps,
   DeltaTableProps,
   EvalListProps,
   ExperimentComparisonProps,
   ExperimentListProps,
   FailureListProps,
+  HeroCardProps,
+  HeroProps,
   MetricBarsProps,
   MetricLineProps,
   MetricMatrixProps,
@@ -129,23 +139,29 @@ export type {
   MetricTableProps,
   ScoreboardProps,
   ScopeSummaryProps,
+  ScopeWarningsProps,
+  TraceWaterfallProps,
 } from "./components.tsx";
 
 // 计算函数(组件解析面的具名形式,与组件成对;spec 形态下由管线代调,data 形态与
 // 嵌入场景下由作者手工调)
 export {
   attemptListData,
+  copyFixPromptData,
   deltaTableData,
   evalListData,
   experimentComparisonData,
   experimentListData,
+  heroData,
   metricLineData,
   metricMatrixData,
   metricScatterData,
   metricTableData,
   pairsByFlag,
   scopeSummaryData,
+  scopeWarningsData,
   scoreboardData,
+  traceWaterfallData,
 } from "./compute.ts";
 export type {
   DeltaTableOptions,
@@ -162,6 +178,7 @@ export type {
   AttemptListItem,
   AttemptLocator,
   BuiltInDimension,
+  CopyFixPromptData,
   CustomDimension,
   DeltaData,
   DeltaPair,
@@ -174,6 +191,7 @@ export type {
   ExperimentListEvalRow,
   ExperimentListItem,
   FlagPairs,
+  HeroData,
   LineData,
   MatrixData,
   Metric,
@@ -190,6 +208,8 @@ export type {
   ScopeWarning,
   ScoreboardData,
   TableData,
+  TraceSpanSummary,
+  TraceWaterfallRow,
   VerdictTally,
 } from "./types.ts";
 

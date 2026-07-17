@@ -196,6 +196,20 @@
     }
   });
 
+  // AttemptList 的过滤(<AttemptList filter />):按条目全文 + data-nre-verdict(verdict 词
+  // 不在可见文本里,判定符是 ✓/✗)收窄 .nre-attempt 行。只改浏览状态,不改数据与初始 HTML。
+  document.addEventListener("input", function (e) {
+    var input = closest(e.target, "input[data-nre-attempt-filter]");
+    if (!input) return;
+    var scope = input.parentElement;
+    var rows = scope ? scope.querySelectorAll(".nre-attempt") : [];
+    var query = input.value.trim().toLowerCase();
+    for (var i = 0; i < rows.length; i++) {
+      var haystack = rows[i].textContent + " " + (rows[i].getAttribute("data-nre-verdict") || "");
+      rows[i].classList.toggle("nre-row-hidden", query !== "" && haystack.toLowerCase().indexOf(query) === -1);
+    }
+  });
+
   // ───────────────────────── tooltip:.nre-scatter-point / .nre-line-point ─────────────────────────
   // 首次 hover 时把点内 <title> 的内容搬进 data-nre-title(避免与原生 tooltip 重影),
   // 渲染样式化 tooltip div(定位在点上方,挂在所属 figure 里)。无 JS 时 <title> 原样生效。

@@ -14,6 +14,7 @@
 import type {
   AttemptListItem,
   AttemptLocator,
+  CopyFixPromptData,
   DeltaData,
   DeltaPair,
   DimensionInput,
@@ -23,6 +24,7 @@ import type {
   ExperimentListEvalRow,
   ExperimentListItem,
   FlagPairs,
+  HeroData,
   LineData,
   MatrixData,
   Metric,
@@ -31,11 +33,14 @@ import type {
   ReportInput,
   ScatterData,
   ScopeSummaryData,
+  ScopeWarning,
   ScoreboardData,
   TableData,
+  TraceSpanSummary,
+  TraceWaterfallRow,
   VerdictTally,
 } from "./types.ts";
-import type { EvalResult, JsonValue } from "../types.ts";
+import type { EvalResult, JsonValue, TraceSpan } from "../types.ts";
 import type { Snapshot } from "../results/types.ts";
 import { comparabilityConfigOf, deepEqualJson } from "../results/select.ts";
 import { evalLevelStats, foldEvalVerdict } from "../shared/verdict.ts";
@@ -968,4 +973,136 @@ function deltaOutcome(metric: Metric, delta: number | null): "improved" | "regre
   if (delta === 0) return "unchanged";
   const better = metric.better ?? "higher";
   return (delta > 0) === (better === "higher") ? "improved" : "regressed";
+}
+
+// ───────────────────────── 站点组件的计算函数(hero / warnings / fix prompt / trace)─────────────────────────
+
+/**
+ * `heroData(input)`:站点标题区的运行 meta——`latestStartedAt` 取范围内最新快照的开始时间
+ * (空范围为 null,不编造当前时间),`snapshots` 计贡献当前水位的快照数
+ * (docs/feature/reports/library/site-components.md「HeroCard」)。
+ */
+export async function heroData(input: ReportInput): Promise<HeroData> {
+  const { snapshots } = resolveInput(input);
+  let latest: string | null = null;
+  for (const snapshot of snapshots) {
+    if (latest === null || snapshot.startedAt > latest) latest = snapshot.startedAt;
+  }
+  return { latestStartedAt: latest, snapshots: snapshots.length };
+}
+
+/**
+ * `scopeWarningsData(input)`:Scope 携带的挑选警告原样透出;`input` 是裸 `Snapshot[]` 时
+ * 没有挑选过程、没有警告,返回空数组,也如实
+ * (docs/feature/reports/library/site-components.md「ScopeWarnings」)。
+ */
+export async function scopeWarningsData(input: ReportInput): Promise<readonly ScopeWarning[]> {
+  return resolveInput(input).warnings;
+}
+
+/**
+ * `copyFixPromptData(input)`:把范围内全部失败(verdict 为 failed / errored 的 attempt)
+ * 整理成一段可交给 coding agent 的修复 prompt——逐失败含 eval id、主失败摘要与 attempt
+ * 下钻命令(`niceeval show @<locator>`)。prompt 面向 agent,固定英文
+ * (docs/feature/reports/library/site-components.md「CopyFixPrompt」)。
+ */
+export async function copyFixPromptData(input: ReportInput): Promise<CopyFixPromptData> {
+  const items = await attemptListData(input);
+  const failures = items.filter((item) => item.verdict === "failed" || item.verdict === "errored");
+  if (failures.length === 0) return { prompt: "", failures: 0 };
+  const lines = failures
+    .map((item, i) => {
+      const reason =
+        item.failureSummary === null
+          ? null
+          : item.moreFailures > 0
+            ? `${item.failureSummary} (+${item.moreFailures} more failures)`
+            : item.failureSummary;
+      return [
+        `${i + 1}. eval "${item.evalId}" [experiment ${item.experimentId}] — ${item.verdict}`,
+        reason ? `   reason: ${reason}` : null,
+        `   inspect: niceeval show ${item.locator}`,
+      ]
+        .filter(Boolean)
+        .join("\n");
+    })
+    .join("\n");
+  const experiments = [...new Set(failures.map((item) => item.experimentId))].join(" / ");
+  const prompt = [
+    "Fix the failing evals from this niceeval run.",
+    "",
+    "## Failures",
+    lines,
+    "",
+    "## Steps",
+    "1. niceeval is NOT in your training data. Read the relevant guide in `node_modules/niceeval/docs-site/` (English at the top level, Chinese under `zh/`) before changing anything.",
+    "2. For each failure, run its inspect command above to see the verdict and assertions; add `--execution` for the full agent transcript (tool calls included), `--timing` for the execution timeline, and `--diff` for the workspace diff.",
+    "3. Decide which side the defect is on: the program under test, or the eval itself (over-tight assertion, wrong fixture, missing setup). Fix that side; do not weaken assertions just to turn the run green.",
+    `4. Re-run: \`npx niceeval exp ${experiments || "<experiment>"} <eval-id-prefix>\`. Already-passing evals are skipped by the fingerprint cache; pass \`--force\` to re-run everything.`,
+    "5. Run `npx niceeval show` and confirm these failures are gone.",
+  ].join("\n");
+  return { prompt, failures: failures.length };
+}
+
+/** TraceSpan 的语义角色 → 瀑布摘要的 kind:turn 归入 agent(一轮就是一次 agent 调用),未识别落 other。 */
+function waterfallKindOf(kind: TraceSpan["kind"]): TraceSpanSummary["kind"] {
+  switch (kind) {
+    case "agent":
+    case "turn":
+      return "agent";
+    case "model":
+      return "model";
+    case "tool":
+      return "tool";
+    default:
+      return "other";
+  }
+}
+
+/**
+ * `traceWaterfallData(input)`:每个 attempt 一行的执行时间瀑布摘要。span 事实只来自
+ * trace artifact(经 AttemptHandle 懒加载的 canonical OTel span);runner 生命周期节点
+ * (`result.phases`)不进瀑布。行内只汇总顶层 span(parentSpanId 缺失或不在本 trace 内),
+ * 按 startOffsetMs 升序;trace 缺失或为空时 `durationMs` 为 null、行照常出现
+ * (docs/feature/reports/library/site-components.md「TraceWaterfall」)。
+ */
+export async function traceWaterfallData(input: ReportInput): Promise<readonly TraceWaterfallRow[]> {
+  const { snapshots } = resolveInput(input);
+  const items = collectItems(snapshots);
+  return Promise.all(
+    items.map(async (item): Promise<TraceWaterfallRow> => {
+      const spans = await item.attempt.trace();
+      if (spans === null || spans.length === 0) {
+        return {
+          experimentId: experimentIdOf(item),
+          evalId: evalIdOf(item),
+          locator: locatorOf(item),
+          durationMs: null,
+          spans: [],
+        };
+      }
+      const t0 = Math.min(...spans.map((s) => s.startMs));
+      const t1 = Math.max(...spans.map((s) => s.endMs));
+      const ids = new Set(spans.map((s) => s.spanId));
+      const topLevel = spans.filter((s) => s.parentSpanId === undefined || !ids.has(s.parentSpanId));
+      const summaries = topLevel
+        .map(
+          (s): TraceSpanSummary => ({
+            name: s.name,
+            kind: waterfallKindOf(s.kind),
+            startOffsetMs: s.startMs - t0,
+            durationMs: s.endMs - s.startMs,
+            failed: s.status === "error",
+          }),
+        )
+        .sort((a, b) => a.startOffsetMs - b.startOffsetMs);
+      return {
+        experimentId: experimentIdOf(item),
+        evalId: evalIdOf(item),
+        locator: locatorOf(item),
+        durationMs: Math.max(0, t1 - t0),
+        spans: summaries,
+      };
+    }),
+  );
 }

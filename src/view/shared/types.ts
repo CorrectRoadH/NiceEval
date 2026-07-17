@@ -33,8 +33,9 @@ export interface ViewReportPageMeta {
 /**
  * 规范化后的报告外壳声明(docs/feature/reports/library/shell.md):壳(导航 / 页脚)由前端
  * 渲染,页内容消费 <template> 静态块。title 已走完回退链(def.title → 唯一且相同的快照 name →
- * 内置文案「Eval 运行结果 / Eval Results」),落点是首页 hero 与浏览器标题——页头品牌位恒为
- * NiceEval 字标,不归 title;scripts / styles 是注入资产,不进 viewData。
+ * 内置文案「Eval 运行结果 / Eval Results」),宿主落点只有浏览器 <title>(文档单例);
+ * 页内 hero 标题由 Hero 组件消费同一取值链,品牌是组件、宿主页头不渲染任何品牌位。
+ * scripts / styles 是注入资产,不进 viewData。
  * link 的 icon 是内联 SVG 字符串(原样透传、原样内联),不收组件——viewData 就是序列化边界。
  */
 export interface ViewReportMeta {
@@ -70,7 +71,11 @@ export interface ViewSnapshot {
   results: ViewEvalResult[];
 }
 
-/** 目录扫描里被跳过的 run 在页面顶部的提示条目;三种原因与 niceeval/results 的 skipped 一致。 */
+/**
+ * 目录扫描里被跳过的 run 的结构化条目;三种原因与 niceeval/results 的 skipped 一致。
+ * 页面上的呈现不走它:不可读快照已形成 `unreadable-snapshot` Scope warning,由报告页内的
+ * `ScopeWarnings` 组件显示;这里只随 viewData 携带原始事实。
+ */
 export interface SkippedRunNotice {
   /** run 目录,相对 cwd。 */
   dir: string;
@@ -92,11 +97,11 @@ export interface SkippedRunNotice {
 export interface ViewData {
   /** 最近一次 run 的 startedAt(ISO);没有历史 run 时缺省。 */
   lastRunAt?: string;
-  /** 报告槽 Selection 合成自几个物理 run;hero「合成来源」标注。 */
+  /** 报告槽 Selection 合成自几个物理 run。 */
   composedRuns: number;
-  /** 全部历史快照(跨快照按身份键去重后);修复 prompt 吃 latest,Attempts / Traces 吃全部。 */
+  /** 全部历史快照(跨快照按身份键去重后);attempt 详情路由对这份完整集合解析,不随报告 Scope 收窄。 */
   snapshots: ViewSnapshot[];
-  /** 读不了的落盘(三种原因);前端顶部横幅展示,不静默。 */
+  /** 读不了的落盘(三种原因);呈现走报告页内的 ScopeWarnings(unreadable-snapshot warning)。 */
   skippedRuns?: SkippedRunNotice[];
   /** 报告外壳与页导航的声明(规范化后);缺省时前端按单页 `report` 兜底。 */
   report?: ViewReportMeta;

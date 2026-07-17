@@ -87,6 +87,8 @@ type EvalListProps = DataProps<readonly EvalListItem[], {}, {
 type AttemptListProps = DataProps<readonly AttemptListItem[], {}, {
   /** 过滤 / 截断前的总数；省略时等于 data 长度。 */
   total?: number;
+  /** web 面加过滤输入框（按 experiment、eval、agent、verdict 或摘要文本收窄行）；渐进增强，不改变数据与 text 面。 */
+  filter?: boolean;
   attemptHref?: (locator: AttemptLocator) => string;
   locale?: ReportLocale;
   className?: string;
@@ -157,7 +159,7 @@ const items = await evalListData(ctx.scope);
 
 ## `AttemptList`
 
-每项显示一次 attempt 的判定、单行结果摘要（`failureSummary`）、Judge 分数和 locator。完整 assertions、Judge evidence、diagnostics、cause 与 stack 不进 `AttemptListItem`——列表 data 只携带按 [Scoring display 契约](../../scoring/library/display.md#主失败断言怎样选)算好的摘要；需要完整结构时经 locator 回读取面（[`resolveLocator`](../../results/library.md#按-locator-寻址一个-attemptresolvelocator) → `AttemptHandle`），列表 JSON 因此不会携带 stack、evidence 或自由文本证据。最常见的失败清单有成品 [`FailureList`](#failurelist)；`AttemptList` 服务其余自选集合。
+每项显示一次 attempt 的判定、单行结果摘要（`failureSummary`）、Judge 分数和 locator。[内建报告的 Attempts 页](built-in.md)就是 `<AttemptList filter />`——`filter` 与 `ExperimentList` 同规则，是 web 面的渐进增强过滤框。完整 assertions、Judge evidence、diagnostics、cause 与 stack 不进 `AttemptListItem`——列表 data 只携带按 [Scoring display 契约](../../scoring/library/display.md#主失败断言怎样选)算好的摘要；需要完整结构时经 locator 回读取面（[`resolveLocator`](../../results/library.md#按-locator-寻址一个-attemptresolvelocator) → `AttemptHandle`），列表 JSON 因此不会携带 stack、evidence 或自由文本证据。最常见的失败清单有成品 [`FailureList`](#failurelist)；`AttemptList` 服务其余自选集合。
 
 ```tsx
 const all = await attemptListData(ctx.scope);

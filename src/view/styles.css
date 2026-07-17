@@ -63,8 +63,8 @@ a { color: inherit; }
   align-items: center;
   justify-content: space-between;
   /* space-between 只在有富余空间时才撑开相邻项;.shell-links 的 margin-left:auto 会把富余
-     空间全部吸收到它左侧,导致品牌与导航贴脸、shell-links 与语言切换贴脸。显式 gap 保证
-     每一对相邻项(品牌—导航、shell-links—语言切换)恒有最小间距,不依赖富余空间。 */
+     空间全部吸收到它左侧,导致相邻项贴脸。显式 gap 保证每一对相邻项(导航—shell-links、
+     shell-links—语言切换)恒有最小间距,不依赖富余空间。 */
   gap: 28px;
   padding: 0 clamp(20px, 5vw, 80px);
   background: color-mix(in oklch, var(--bg), transparent 4%);
@@ -73,20 +73,7 @@ a { color: inherit; }
   z-index: 10;
   backdrop-filter: blur(10px);
 }
-.brand {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  font-weight: 690;
-  font-size: 20px;
-}
-.mark {
-  width: 18px;
-  height: 18px;
-  border: 1.25px solid var(--text);
-  transform: rotate(45deg);
-  display: inline-block;
-}
+/* 页头无品牌位:品牌是页内组件(PoweredBy / Hero 的品牌行,nre-powered-by),宿主不渲染。 */
 /* 顶部导航 .nav / .nav-tab → components/ui/tabs.tsx(Radix Tabs + Tailwind utilities)。 */
 .lang-switch {
   display: inline-flex;
@@ -121,219 +108,13 @@ main {
   margin: 0 auto;
   padding: clamp(52px, 7vw, 82px) 0 72px;
 }
-.hero {
-  text-align: center;
-  max-width: 740px;
-  margin: 0 auto clamp(38px, 6vw, 58px);
-}
-h1 {
-  margin: 0;
-  font-size: clamp(42px, 5.6vw, 66px);
-  line-height: 0.94;
-  font-weight: 760;
-  letter-spacing: 0;
-}
-.subtitle {
-  margin: 20px auto 0;
-  color: color-mix(in oklch, var(--muted), var(--text) 12%);
-  font-size: clamp(17px, 2vw, 21px);
-  line-height: 1.58;
-  max-width: 660px;
-}
-.meta {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 14px;
-  margin-top: 24px;
-  color: var(--muted);
-  font-size: 14px;
-}
-.meta b { color: var(--text); font-weight: 570; }
-/* --report 报告槽:server 侧渲染好的静态报告 HTML(nre-* 类的样式随包 styles.css 注入),
-   这里只给槽位留呼吸空间,不覆盖报告自己的样式。 */
+/* 报告槽:server 侧渲染好的静态报告 HTML(nre-* 类的样式随包 styles.css 注入),
+   这里只给槽位留呼吸空间,不覆盖报告自己的样式。hero、警告区、批量修复 prompt 都是
+   页内组件(nre-hero / nre-warnings / nre-copy-fix-prompt),宿主不再有对应 chrome。 */
 .report-slot {
   margin: 0 auto 36px;
 }
-/* schemaVersion 不匹配等读不了的 run:报告槽不解析它们,这里占位提示。同一原因(且文案
-   完全相同)的条目按 SkippedRunsBanner 分组折叠,不逐条重复整句原因 + 命令——那是原实现
-   把首屏挤满、警示色又淡到看不出来的根因。 */
-.incompatible-banner {
-  border: 1px solid color-mix(in oklch, var(--warn), var(--line) 35%);
-  border-left: 3px solid var(--warn);
-  border-radius: 8px;
-  background: color-mix(in oklch, var(--warn), var(--panel) 85%);
-  padding: 12px 16px 14px;
-  margin: 0 auto 36px;
-  font-size: 13px;
-}
-.ib-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.ib-head b { font-weight: 640; }
-.ib-icon {
-  width: 16px;
-  height: 16px;
-  flex-shrink: 0;
-  color: var(--warn);
-  stroke-width: 2;
-}
-.ib-groups {
-  display: grid;
-  gap: 10px;
-  margin-top: 10px;
-}
-.ib-group-head {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-.ib-group-count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 6px;
-  flex-shrink: 0;
-  border-radius: 999px;
-  background: color-mix(in oklch, var(--warn), var(--panel) 72%);
-  color: var(--text);
-  font-size: 11px;
-  font-weight: 640;
-  font-variant-numeric: tabular-nums;
-}
-.ib-group-desc { color: var(--soft); }
-.ib-group ul {
-  margin: 5px 0 0;
-  padding: 0;
-  list-style: none;
-  display: grid;
-  gap: 3px;
-}
-.ib-group li {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 22px;
-}
-.ib-dir {
-  font-family: var(--mono, ui-monospace, monospace);
-  font-weight: 560;
-}
-.ib-more {
-  color: var(--soft);
-  font-size: 12px;
-}
-.ib-copy {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  flex-shrink: 0;
-  border: 1px solid var(--line);
-  border-radius: 5px;
-  background: var(--panel);
-  color: var(--muted);
-  cursor: pointer;
-  transition: color 0.12s, border-color 0.12s;
-}
-.ib-copy svg { width: 12px; height: 12px; stroke: currentColor; fill: none; stroke-width: 2; }
-.ib-copy:hover { color: var(--text); border-color: var(--line-strong); }
-.ib-copy.is-copied { color: var(--good); border-color: color-mix(in oklch, var(--good), var(--line) 40%); }
-.ib-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: 10px;
-  border: 0;
-  background: none;
-  color: var(--muted);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  padding: 0;
-}
-.ib-toggle svg { width: 12px; height: 12px; transition: transform 0.12s; }
-.ib-toggle svg.is-open { transform: rotate(90deg); }
-.ib-toggle:hover { color: var(--text); }
-
-.section-head {
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  gap: 18px;
-  margin-bottom: 16px;
-}
-h2 {
-  margin: 0;
-  font-size: clamp(24px, 2.6vw, 31px);
-  line-height: 1.1;
-  font-weight: 720;
-}
-.controls {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-.search {
-  height: 36px;
-  min-width: 320px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  padding: 0 12px;
-  background: var(--panel);
-  color: var(--text);
-  outline: none;
-}
-.search:focus { border-color: var(--focus); }
-.table-wrap {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  overflow: auto;
-  background: var(--panel);
-}
-table {
-  width: 100%;
-  border-collapse: collapse;
-  min-width: 1040px;
-}
-th, td {
-  border-bottom: 1px solid var(--line);
-  padding: 0 16px;
-  height: 52px;
-  text-align: left;
-  vertical-align: middle;
-  font-size: 14px;
-}
-th {
-  color: var(--muted);
-  font-weight: 500;
-  background: var(--panel);
-  position: sticky;
-  top: 0;
-  z-index: 2;
-}
-tbody tr:last-child td { border-bottom: 0; }
-.section-sub-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  margin-bottom: 16px;
-  min-height: 36px;
-}
-.group-detail-label {
-  font-size: 15px;
-  font-weight: 680;
-  color: var(--text);
-}
 .name { font-weight: 610; }
-.sub { color: var(--muted); font-size: 12px; margin-top: 3px; }
 .num {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -343,12 +124,6 @@ tbody tr:last-child td { border-bottom: 0; }
 .bad { color: var(--bad); }
 .warn { color: var(--warn); }
 .infra-err { color: var(--warn); }
-.eval-id {
-  display: flex;
-  align-items: center;
-  overflow-wrap: anywhere;
-  font-weight: 560;
-}
 .copy-all-errors {
   height: 36px;
   display: inline-flex;
@@ -702,41 +477,10 @@ pre {
   font-size: 12px;
   line-height: 1.5;
 }
-.empty {
-  border: 1px dashed var(--line-strong);
-  border-radius: 8px;
-  padding: 40px 24px;
-  color: var(--muted);
-  text-align: center;
-  background: var(--panel);
-}
-a.brand { text-decoration: none; color: inherit; }
-a.brand:hover { opacity: 0.75; }
-.traces-entry {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
-  margin-bottom: 12px;
-  padding: 14px 18px;
-}
-.traces-entry-head {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  margin-bottom: 8px;
-  font-size: 13px;
-}
-.traces-verdict { font-weight: 600; min-width: 52px; }
-.traces-exp { color: var(--muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.traces-dur { color: var(--soft); }
 @media (max-width: 760px) {
   .topbar { padding: 0 20px; }
   .lang-switch button { min-width: 40px; }
   main { width: min(100vw - 28px, 1120px); padding-top: 42px; }
-  .hero { text-align: left; margin-left: 0; }
-  .meta { justify-content: flex-start; }
-  .section-head { align-items: stretch; flex-direction: column; }
-  .search { width: 100%; min-width: 0; }
   .detail { padding: 18px 16px 20px; }
   .config-strip { gap: 6px; }
   .detail-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 10px; }
@@ -1194,8 +938,4 @@ li.tnode-row::before { content: ""; width: 4px; flex-shrink: 0; }
   color: var(--soft);
   font-size: 12px;
 }
-/* 品牌行:hero 之下、品牌蓝,恒带官网链接(shell.md「行为约束」)。 */
-.hero .powered-by { display: block; margin-top: 16px; font-size: 12px; }
-.hero .powered-by a { color: var(--blue); text-decoration: none; }
-.hero .powered-by a:hover { text-decoration: underline; }
 .nre-page-error pre { white-space: pre-wrap; }

@@ -299,6 +299,57 @@ export interface ScopeSummaryData {
   totalCostUSD: MetricCell;
 }
 
+// ───────────────────────── 站点组件(Hero / CopyFixPrompt / TraceWaterfall)─────────────────────────
+
+/**
+ * `HeroCard` 的数据(docs/feature/reports/library/site-components.md):站点标题区的
+ * 运行 meta——最后运行时间与快照合成来源。标题不在 data 里,它是站点声明与 Scope 的合成物,
+ * 经 `HeroCardProps.title` 传入。
+ */
+export interface HeroData {
+  /** Scope 中最新快照的开始时间;空 Scope 为 null,不编造当前时间。 */
+  latestStartedAt: string | null;
+  /** 贡献当前水位的快照数;大于 1 时 web 面标注「由 N 次运行合成」。 */
+  snapshots: number;
+}
+
+/**
+ * `CopyFixPrompt` 的数据:resolve 期算好的修复 prompt 全文与参与的失败数
+ * (docs/feature/reports/library/site-components.md)。
+ */
+export interface CopyFixPromptData {
+  /** 修复 prompt 全文;失败逐条含 eval id、主失败摘要与 attempt 下钻命令。 */
+  prompt: string;
+  /** 参与 prompt 的失败 attempt 数(verdict 为 failed / errored)。 */
+  failures: number;
+}
+
+/** `TraceWaterfall` 一行里的一个顶层 span 摘要(canonical OTel 字段归一后的形态)。 */
+export interface TraceSpanSummary {
+  name: string;
+  /** 归一后的语义角色;turn 归入 agent,未识别落 other。 */
+  kind: "agent" | "model" | "tool" | "other";
+  /** 相对该 attempt trace 起点的偏移(毫秒)。 */
+  startOffsetMs: number;
+  durationMs: number;
+  /** span status 为 error 时 true(web 面失败标记的来源)。 */
+  failed: boolean;
+}
+
+/**
+ * `TraceWaterfall` 一行 = 一次 attempt 的执行时间瀑布摘要。只画被测 agent 的原始 span
+ * (trace.json);runner 生命周期节点(`result.phases`)不进瀑布,组合视图归 attempt 详情。
+ */
+export interface TraceWaterfallRow {
+  experimentId: string;
+  evalId: string;
+  locator: AttemptLocator;
+  /** trace.json 缺失或为空时 null;行照常出现,证据位置如实显示缺失,不猜值。 */
+  durationMs: number | null;
+  /** 顶层 span 摘要,按 startOffsetMs 升序。 */
+  spans: readonly TraceSpanSummary[];
+}
+
 /** 一个可比组的数据;三个子块都只消费本组快照,不能含其它父目录的引用。 */
 export interface ExperimentComparisonGroupData {
   /** experiment id 的完整父路径;根目录 experiment 使用完整 id。 */

@@ -1,11 +1,14 @@
 # 裸 `show`：默认报告的 text 面
 
-裸 `niceeval show` 装载[内建报告](../library/built-in.md)，与显式渲染内置 `ExperimentComparison` 等价。Scope 命中多个可比组时，报告只输出组索引和可直接复制执行的 `niceeval show --experiment <group>` 命令；Scope 已经只剩一个组时，才输出该组的成本 × 端到端成功率散点图与 `ExperimentList`。experiment id 的父目录是组边界：`compare/*` 与 `dev-e2b/*` 不能共享坐标系、连线、排序或汇总数字；根目录 experiment 各自形成单例组。端到端成功率的分母包含 `failed` 与 `errored`，只有 `skipped` 不进入；因此执行错误会降低默认成功率，但仍在结果构成中单独显示，不与失败混成一种判定。单组只有一个可画 experiment 时也照常显示一个点，不要求至少两个实验。
+裸 `niceeval show` 装载[内建报告](../library/built-in.md)并渲染其首页（报告页），尾部附 Attempts、追踪两页的索引（[多页规则](reports.md#case-2多页文件渲染初始页尾部附其余页索引)）。页首依次是 `Hero` 的 text 面（标题行与最后运行 meta）与 `ScopeWarnings` 的逐条警告；随后是 `ExperimentComparison`。Scope 命中多个可比组时，它只输出组索引和可直接复制执行的 `niceeval show --experiment <group>` 命令；Scope 已经只剩一个组时，才输出该组的成本 × 端到端成功率散点图与 `ExperimentList`。experiment id 的父目录是组边界：`compare/*` 与 `dev-e2b/*` 不能共享坐标系、连线、排序或汇总数字；根目录 experiment 各自形成单例组。端到端成功率的分母包含 `failed` 与 `errored`，只有 `skipped` 不进入；因此执行错误会降低默认成功率，但仍在结果构成中单独显示，不与失败混成一种判定。单组只有一个可画 experiment 时也照常显示一个点，不要求至少两个实验。
 
 可比组索引一行一个组，显示 experiment / eval 数、`ScopeSummary` 的端到端成功率、Eval 最终 verdict 构成、成本与最后运行时间；Eval 列按 `experimentId + evalId` 身份计数——两个实验各跑同样 6 道题就是 12——与同行 verdict 构成同分母，两个数字能直接对账；成功率直接取官方 `endToEndPassRate` 格子，不从 verdict 计数重算。多组 Scope 到此结束，不把所有组的详情一次性倾倒到终端。单组 `ExperimentList` 保持实体层级：一个 experiment 下列 Eval，一个 Eval 下再列它的全部 Attempt。不能把组拍平，也不能把 Eval 与 Attempt 压平成一张“每行一个 Attempt、重复 Eval id”的表。Scope 只剩一个组时省略索引，直接进入该组。
 
 ```sh
 $ niceeval show
+Eval 运行结果
+最后运行 2026-07-12 18:09 · 由 5 份快照合成
+
 WARNING  snapshot dev-e2b/codex-e2b @ 2026-07-12T10:08:29.361Z is unfinished;
          8 completed attempts are shown, but the snapshot may be incomplete.
 
@@ -16,10 +19,16 @@ dev-e2b                    3     16          61.1%   11 通过 / 5 失败     $0
 查看组内详情：
   niceeval show --experiment compare
   niceeval show --experiment dev-e2b
+
+其余页：
+  attempts   Attempts   niceeval show --page attempts
+  traces     追踪       niceeval show --page traces
 ```
 
 ```sh
 $ niceeval show --experiment dev-e2b
+Eval 运行结果
+最后运行 2026-07-12 18:09 · 由 3 份快照合成
 
 实验组 dev-e2b
 
@@ -47,6 +56,10 @@ dev-e2b/codex-e2b
   ✗       └─ @13wrnsc4                            command exited 1 · commandSucceeded()      2m 53s    $0.19
 ✓ 通过    memory/tool-call-observability
   ✓       └─ @18etnsw5                            —                                         18.1s     $0.02
+
+其余页：
+  attempts   Attempts   niceeval show --experiment dev-e2b --page attempts
+  traces     追踪       niceeval show --experiment dev-e2b --page traces
 ```
 
 同一个 Eval 有重试时，只出现一个 Eval 标题，下面按 attempt 序号逐条列 locator、该 Attempt 自己的判定，以及耗时 / 成本或失败原因：

@@ -1,29 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { detectLocale, makeTranslator, persistLocale, setDocumentLocale } from "./i18n.ts";
 import type { Locale, LocalizedText, ReportSlotHtml, Tab, ViewData, ViewReportPageMeta, ViewResult } from "./types.ts";
-import { flattenAttempts, resultFromUrl } from "./lib/rows.ts";
+import { resultFromUrl } from "./lib/rows.ts";
 import { parseAttemptHash, resolveAttemptLocator, unresolvedAttemptWarning } from "./lib/attempt-route.ts";
-import { formatDateTime } from "./lib/format.ts";
-import { CopyFixPrompt } from "./components/CopyControls.tsx";
-import { SkippedRunsBanner } from "./components/SkippedRunsBanner.tsx";
 import { AttemptModal } from "./components/AttemptModal.tsx";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs.tsx";
-import { AttemptsView } from "./pages/AttemptsPage.tsx";
-import { TracesView } from "./pages/TracesPage.tsx";
 
-// 导航组成固定(docs/feature/reports/view.md「页面构成」):报告页按声明顺序在前
-// (路由 `#/page/<id>`,`--page <id>` 定初始页),内置的 Attempts、Traces 证据页恒排在
-// 报告页之后——证据页由宿主拥有,报告定义不能移除或重排它们。
-// 报告页的 tab 值带 `page:` 前缀,避免与证据页 id(attempts / traces)撞名。
-const EVIDENCE_TABS: { id: Tab; label: "nav.attempts" | "nav.traces" }[] = [
-  { id: "attempts", label: "nav.attempts" },
-  { id: "traces", label: "nav.traces" },
-];
-
-// niceeval 官网。页头品牌字标与 hero 下的 `Powered by NiceEval` 行都外链到它,
-// utm_medium 区分点击来自哪个品牌位(shell.md「行为约束」)。
-const BRAND_HREF = "https://niceeval.com/?utm_source=report&utm_medium=brand";
-const POWERED_BY_HREF = "https://niceeval.com/?utm_source=report&utm_medium=powered-by";
+// 导航组成只有一条规则(docs/feature/reports/view.md「页面构成」):导航项 = 报告定义声明的页,
+// 按声明顺序排列(路由 `#/page/<id>`,`--page <id>` 定初始页)。宿主不追加、不保留任何导航项——
+// 裸 view 的「报告 / Attempts / 追踪」三个 tab 就是内建报告的三页。页面里的 hero、品牌行、
+// 选择警告都不是宿主渲染的:它们是页内的站点组件(Hero / PoweredBy / ScopeWarnings)。
+// 宿主保留的只有机器:管线与路由、attempt 详情路由、文档单例(<title>)、语言切换
+// (docs/feature/reports/architecture.md「宿主保留的只有机器」)。
 
 /**
  * LocalizedText 的确定回退(docs/feature/reports/library/shell.md):当前 locale → en →
@@ -63,23 +51,20 @@ function ReportSlot({ html }: { html: string }) {
   return <div className="report-slot" dangerouslySetInnerHTML={markup} />;
 }
 
-/** `#/page/<id>` / `#/attempts` / `#/traces` → tab 值;认不出返回 null(交给初始页兜底)。 */
+/** `#/page/<id>` → tab 值;认不出返回 null(交给初始页兜底)。 */
 function tabFromHash(hash: string, pages: ViewReportPageMeta[]): Tab | null {
   const pageMatch = /^#\/page\/([a-z0-9-]+)$/.exec(hash);
   if (pageMatch && pages.some((p) => p.id === pageMatch[1])) return `page:${pageMatch[1]}`;
-  if (hash === "#/attempts") return "attempts";
-  if (hash === "#/traces") return "traces";
   return null;
 }
 
-/** tab 值 → hash 路由(报告页 `#/page/<id>`,证据页 `#/attempts` / `#/traces`)。 */
+/** tab 值 → hash 路由(报告页 `#/page/<id>`)。 */
 function hashForTab(tab: Tab): string {
-  return tab.startsWith("page:") ? `#/page/${tab.slice("page:".length)}` : `#/${tab}`;
+  return `#/page/${tab.slice("page:".length)}`;
 }
 
 export function App({ data, reportPages }: { data: ViewData; reportPages: Record<string, ReportSlotHtml> }) {
   const snapshots = data.snapshots ?? [];
-  const attempts = useMemo(() => flattenAttempts(snapshots), [snapshots]);
   const [locale, setLocale] = useState<Locale>(() => detectLocale());
   const t = useMemo(() => makeTranslator(locale), [locale]);
 
@@ -101,9 +86,9 @@ export function App({ data, reportPages }: { data: ViewData; reportPages: Record
     persistLocale(locale);
   }, [locale]);
 
-  // 首页 hero 与浏览器标题跟随外壳标题(回退链在 server 侧走完:def.title → 唯一快照 name →
-  // 内置文案「Eval 运行结果 / Eval Results」);缺声明(旧数据)时按内置文案兜底。
-  // 页头品牌位不归它——那里是恒定的 NiceEval 字标。
+  // 浏览器标题是宿主文档单例:跟随外壳标题(回退链在 server 侧走完:def.title →
+  // 唯一快照 name → 内置文案「Eval 运行结果 / Eval Results」);缺声明(旧数据)时按内置文案兜底。
+  // 页面里的 hero 标题不归宿主——它是页内 Hero 组件,同一取值链经 ctx.report.title 贯通。
   const shellTitle = localizedText(data.report?.title, locale) ?? t("hero.title");
   useEffect(() => {
     document.title = shellTitle;
@@ -125,7 +110,9 @@ export function App({ data, reportPages }: { data: ViewData; reportPages: Record
   }, []);
 
   // 浏览器前进/后退、手改 hash、页内链接(attempt 深链与 `#/page/<id>` 页路由)统一从
-  // hashchange 分发:attempt hash 开证据室弹窗,页/证据室 hash 切当前 tab。
+  // hashchange 分发:attempt hash 开证据室弹窗,页 hash 切当前 tab。
+  // attempt 详情路由对完整结果根解析(viewData.snapshots 全量通道):被位置参数 / --experiment
+  // 收窄滤掉的 attempt 仍能经深链打开,报告里的证据引用不因页面过滤失效。
   useEffect(() => {
     const onHashChange = () => {
       const locator = parseAttemptHash(location.hash);
@@ -164,24 +151,10 @@ export function App({ data, reportPages }: { data: ViewData; reportPages: Record
   return (
     <Tabs value={tab} onValueChange={(v) => selectTab(v as Tab)}>
       <header className="topbar">
-        {/* 页头左端是恒定的 NiceEval 品牌字标(与 Powered by 行同族的产品品牌位),
-            报告定义不能覆盖或移除,点击外链官网;报告 title 的落点是下方 hero 与浏览器标题,
-            报告内回首页走导航里的首个报告页 tab。 */}
-        {/* rel 用 noopener 而非 noreferrer:保留 Referer(默认策略只发 origin),
-            官网统计由此得知点击来自哪个报告站点;utm 只负责区分品牌位。 */}
-        <a className="brand" href={BRAND_HREF} target="_blank" rel="noopener">
-          <span className="mark" />
-          <span>NiceEval</span>
-        </a>
         <TabsList aria-label={t("nav.label")}>
           {pages.map((page) => (
             <TabsTrigger key={`page:${page.id}`} value={`page:${page.id}`}>
               {localizedText(page.title, locale) ?? page.id}
-            </TabsTrigger>
-          ))}
-          {EVIDENCE_TABS.map((item) => (
-            <TabsTrigger key={item.id} value={item.id}>
-              {t(item.label)}
             </TabsTrigger>
           ))}
         </TabsList>
@@ -213,53 +186,14 @@ export function App({ data, reportPages }: { data: ViewData; reportPages: Record
         </div>
       </header>
       <main>
-        <section className="hero">
-          {/* hero 标题 = 走完回退链的报告标题(与浏览器标题同源)。 */}
-          <h1>{shellTitle}</h1>
-          <div className="meta">
-            <span>
-              {/* viewData 只带原始值(ISO / number),这里按当前界面 locale 格式化。 */}
-              <b>{t("hero.lastRun")}</b> {data.lastRunAt ? formatDateTime(data.lastRunAt, locale) : t("hero.noRuns")}
-            </span>
-            {data.composedRuns > 0 ? (
-              // 报告槽是跨 run 合成的现刻水位,hero 如实标注合成来源(几个 run)。
-              <span>{t("hero.composedFrom", { count: data.composedRuns })}</span>
-            ) : null}
-          </div>
-          {/* 品牌行:恒在 hero 之下、恒带官网链接,不占 footer 的语义位、没有关闭配置
-              (shell.md「行为约束」)。 */}
-          <span className="powered-by">
-            <a href={POWERED_BY_HREF} target="_blank" rel="noopener">
-              Powered by NiceEval
-            </a>
-          </span>
-        </section>
-
-        <SkippedRunsBanner skippedRuns={data.skippedRuns ?? []} t={t} />
-
         {pages.map((page) => (
           <TabsContent key={`page:${page.id}`} value={`page:${page.id}`} id={`tab-page-${page.id}`}>
-            {/* 壳区:报告槽上方靠右的批量修复 prompt 按钮。失败清单从 viewData.snapshots
-                现算(latest 口径),默认报告与 --report 两种填充下都在。 */}
-            <div className="section-sub-head">
-              <span className="group-detail-label" />
-              <div className="controls">
-                <CopyFixPrompt snapshots={snapshots} t={t} />
-              </div>
-            </div>
             {/* 报告槽:server 侧逐页渲染好的静态 HTML(含 <Style> 产物),按当前页与界面语言
-                摆放对应块;Scope 警告由报告页内呈现,壳不设第二条通道。
+                摆放对应块;hero、品牌行、Scope 警告、批量修复 prompt 都是页内组件,壳不再渲染。
                 attempt 深链是普通 <a href="#/attempt/…">,经 hashchange 打开证据室弹窗。 */}
             <ReportSlot html={reportPages[page.id]?.[locale] || reportPages[page.id]?.en || ""} />
           </TabsContent>
         ))}
-
-        <TabsContent value="attempts">
-          <AttemptsView attempts={attempts} t={t} />
-        </TabsContent>
-        <TabsContent value="traces">
-          <TracesView attempts={attempts} t={t} />
-        </TabsContent>
       </main>
       {footerText ? (
         <footer className="site-footer">

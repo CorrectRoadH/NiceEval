@@ -53,7 +53,8 @@ export function AttemptRow({
 }): ReactElement {
   const reason = failureSummaryText(item, locale);
   return (
-    <li className={cx("nre-attempt", `nre-attempt-${item.verdict}`)}>
+    // data-nre-verdict:filter 增强按 verdict 词收窄行的匹配源(✓/✗ 判定符不含词面)
+    <li className={cx("nre-attempt", `nre-attempt-${item.verdict}`)} data-nre-verdict={item.verdict}>
       <div className="nre-attempt-head">
         <AttemptLocatorBadge item={item} attemptHref={attemptHref} />
         <span className="nre-attempt-eval">{item.evalId}</span>
@@ -72,6 +73,7 @@ export function AttemptRow({
 export function AttemptList({
   data,
   total,
+  filter = false,
   attemptHref = DEFAULT_ATTEMPT_HREF,
   className,
   locale = DEFAULT_REPORT_LOCALE,
@@ -79,6 +81,8 @@ export function AttemptList({
   data: readonly AttemptListItem[];
   /** data 被 slice 时的原始数量;如实显示还剩多少条没展示。 */
   total?: number;
+  /** web 面加过滤输入框(按 experiment、eval、agent、verdict 或摘要文本收窄行);渐进增强,不改变数据。 */
+  filter?: boolean;
   attemptHref?: (locator: AttemptLocator) => string;
   className?: string;
   locale?: ReportLocale;
@@ -86,6 +90,14 @@ export function AttemptList({
   const remaining = (total ?? data.length) - data.length;
   return (
     <section className={cx("nre", "nre-attempt-list", className)}>
+      {filter && (
+        <input
+          className="nre-filter"
+          data-nre-attempt-filter=""
+          type="search"
+          placeholder={localeText(locale, "attemptList.filterPlaceholder")}
+        />
+      )}
       {data.length === 0 && <p className="nre-attempt-list-empty">{localeText(locale, "attemptList.empty")}</p>}
       <ul className="nre-attempts">
         {data.map((item) => (

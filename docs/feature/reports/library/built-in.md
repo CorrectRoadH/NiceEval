@@ -1,24 +1,64 @@
 # 内建报告
 
-裸 `niceeval show` 与 `niceeval view` 不带 `--report` 时装载的默认报告，不是私有实现，也不是省略字段时被召唤的隐式默认——它是独立入口 `niceeval/report/built-in` 的**默认导出**，一份普通 `defineReport`，内容只有一行：
+裸 `niceeval show` 与 `niceeval view` 不带 `--report` 时装载的默认报告，不是私有实现，也不是省略字段时被召唤的隐式默认——它是独立入口 `niceeval/report/built-in` 的**默认导出**，一份普通 `defineReport`，全文如下：
 
 ```tsx
 // niceeval/report/built-in —— 包里自带的一个报告文件，没有任何私有钩子
-import { ExperimentComparison, defineReport } from "niceeval/report";
+import {
+  AttemptList, Col, CopyFixPrompt, ExperimentComparison,
+  Hero, ScopeWarnings, TraceWaterfall, defineReport,
+} from "niceeval/report";
 
-export default defineReport(<ExperimentComparison />);
+export default defineReport({
+  pages: [
+    {
+      id: "report",
+      title: { en: "Report", "zh-CN": "报告" },
+      content: (
+        <Col>
+          <Hero />
+          <ScopeWarnings />
+          <CopyFixPrompt />
+          <ExperimentComparison />
+        </Col>
+      ),
+    },
+    {
+      id: "attempts",
+      title: "Attempts",
+      content: (
+        <Col>
+          <Hero />
+          <ScopeWarnings />
+          <AttemptList filter />
+        </Col>
+      ),
+    },
+    {
+      id: "traces",
+      title: { en: "Traces", "zh-CN": "追踪" },
+      content: (
+        <Col>
+          <Hero />
+          <ScopeWarnings />
+          <TraceWaterfall />
+        </Col>
+      ),
+    },
+  ],
+});
 ```
 
-它不住在 `niceeval/report` 里：那是工具箱（`defineReport`、组件、指标、排版原语），内建报告是用这套工具写成的**成品**，与用户的报告文件同层。这是契约，不是实现巧合：裸宿主与 `--report` 一个内容如上的文件完全等价，走同一条 `装载 → resolve → validate → render` 管线；外壳行为——确定的标题回退、hero 下的 `Powered by NiceEval` 品牌行、Attempts 与 Traces 证据页恒随导航——对内建与自定义定义一致生效。「builtin」不是类型系统或装载逻辑里的类别，只是「宿主默认拿哪个值」的事实。
+它不住在 `niceeval/report` 里：那是工具箱（`defineReport`、组件、指标、排版原语），内建报告是用这套工具写成的**成品**，与用户的报告文件同层。这是契约，不是实现巧合：裸宿主与 `--report` 一个内容如上的文件完全等价，走同一条 `装载 → resolve → validate → render` 管线。「builtin」不是类型系统或装载逻辑里的类别，只是「宿主默认拿哪个值」的事实。
 
-任何用户报告都能达到内建报告的全部能力——内建的全部内容就是工具箱里人人可用的 `ExperimentComparison` 组件，要复用它不需要 import 内建入口，直接写 `<ExperimentComparison />`。反过来，报告 API 的验收标准之一就是内建自己必须写得顺——内建写不出来或写着别扭，说明 API 缺了东西；「内容一行」正是这条标准的落点。
+裸 `view` 页面上能看到的一切内容都在这份定义里：三个导航 tab 是三个普通页；hero 标题区、选择警告、批量修复 prompt 是页内组件。宿主自己渲染的只有机器——导航条与路由、attempt 详情路由、浏览器标题等文档单例、语言切换（[边界清单](../architecture.md#宿主保留的只有机器)）。因此**任何用户报告都能达到内建报告的全部能力，也能丢弃它的任何部分**：复用不需要 import 内建入口，直接写同名组件；不想要 Traces 页就不写那一页，不想要品牌行就不用 `Hero`（[品牌契约](site-components.md#poweredby)）。反过来，报告 API 的验收标准之一就是内建自己必须写得顺——内建写不出来或写着别扭，说明 API 缺了东西；「默认站点整站是一份普通报告文件」正是这条标准的落点。
 
 ## 从内建出发的升级路径
 
 三档改造不换 API 形状：
 
 ```tsx
-// reports/mine.tsx —— ① 换树：树入参换成自己的报告树
+// reports/mine.tsx —— ① 换树：只关心自己的图表，不要站点 chrome
 import {
   Col, ExperimentList, MetricScatter,
   costUSD, defineReport, endToEndPassRate,
@@ -32,46 +72,69 @@ export default defineReport(
 );
 ```
 
+树入参渲染的就是那棵树：没有附赠的 hero、警告区或证据页——读文件的人必须能看出会渲染什么，宿主不给任何页面加料。要这些能力，像下面两档一样显式写出来。
+
 ```tsx
-// reports/branded.tsx —— ② 保留内建内容，只加品牌外壳：显式写出组件，不靠省略
-import { ExperimentComparison, defineReport } from "niceeval/report";
+// reports/branded.tsx —— ② 内建首页内容 + 品牌外壳：显式写出组件，不靠省略
+import {
+  Col, ExperimentComparison, Hero, ScopeWarnings, defineReport,
+} from "niceeval/report";
 
 export default defineReport({
   title: "Memory Evals",
   links: [{ label: "GitHub", href: "https://github.com/you/repo" }],
-  content: <ExperimentComparison />,
+  content: (
+    <Col>
+      <Hero />
+      <ScopeWarnings />
+      <ExperimentComparison />
+    </Col>
+  ),
 });
 ```
 
 ```tsx
-// reports/site.tsx —— ③ 拆页：内建内容作首页，再加自己的页
-import { ExperimentComparison, Scoreboard, defineReport, examScore } from "niceeval/report";
+// reports/site.tsx —— ③ 拆页：抄内建的页，再加自己的页
+import {
+  AttemptList, Col, ExperimentComparison, Hero, ScopeWarnings,
+  Scoreboard, defineReport, examScore,
+} from "niceeval/report";
 
 export default defineReport({
   title: "Memory Evals",
   links: [{ label: "GitHub", href: "https://github.com/you/repo" }],
   pages: [
-    { id: "overview", title: { en: "Overview", "zh-CN": "总览" }, content: <ExperimentComparison /> },
+    {
+      id: "overview",
+      title: { en: "Overview", "zh-CN": "总览" },
+      content: <Col><Hero /><ScopeWarnings /><ExperimentComparison /></Col>,
+    },
     {
       id: "exam",
       title: { en: "Exam", "zh-CN": "成绩单" },
-      content: <Scoreboard rows="agent" questions={[
+      content: <Col><ScopeWarnings /><Scoreboard rows="agent" questions={[
         "security/sql-injection",
         "correctness/retry",
-      ]} fullMarks={100} score={examScore} />,
+      ]} fullMarks={100} score={examScore} /></Col>,
+    },
+    {
+      id: "attempts",
+      title: "Attempts",
+      content: <Col><AttemptList filter /></Col>,
     },
   ],
 });
 ```
 
-② 是最小品牌化形态：一个字段加一个组件，得到「内建内容 + 自己的标题与 GitHub 链接」。`content` 与 `pages` 必须恰好声明一个（见[外壳与多页](shell.md)）——「都不写就默认内建」这种隐式取值不存在，读文件的人必须能看出会渲染什么。
+② 是最小品牌化形态：`title` 进浏览器标题与 `ctx.report.title`，页内 `<Hero />` 跟随同一标题并带品牌行。`content` 与 `pages` 必须恰好声明一个（见[外壳与多页](shell.md)）——「都不写就默认内建」这种隐式取值不存在，读文件的人必须能看出会渲染什么。
 
 ## 内建报告显示什么
 
-内置 `ExperimentComparison` 的行为契约——可比组分区、text/web 两面差异、端到端成功率口径——单点定义在[概览组件](summaries.md#experimentcomparison)；宿主注入 Scope 的选择规则见 [Architecture](../architecture.md#scope-是计算入口)。
+首页 `ExperimentComparison` 的行为契约——可比组分区、text/web 两面差异、端到端成功率口径——单点定义在[概览组件](summaries.md#experimentcomparison)；`Hero` / `ScopeWarnings` / `CopyFixPrompt` / `TraceWaterfall` 的契约在[站点组件](site-components.md)；Attempts 页的本体是[带过滤的 `AttemptList`](entity-lists.md#attemptlist)；宿主注入 Scope 的选择规则见 [Architecture](../architecture.md#scope-是计算入口)。
 
 ## 相关阅读
 
 - [外壳与多页](shell.md) —— 配置对象的字段穷尽与行为约束。
+- [站点组件](site-components.md) —— hero、品牌、警告与瀑布的组件契约。
 - [概览组件](summaries.md) —— `ExperimentComparison` 的契约。
 - [Architecture](../architecture.md) —— 装载规范化：内建与 `--report` 的同一条管线。

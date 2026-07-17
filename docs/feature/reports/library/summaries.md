@@ -46,7 +46,7 @@ data 恒携带两级计票，两份序列化 JSON 摆在一起时口径自明；
 - `evalVerdicts`（`votes: "eval"`，默认）：每个 experimentId + evalId 先按「任一轮 passed 即 passed，否则 `failed > errored > skipped`」折成最终 verdict 后计票，回答「多少道题最终过了」。
 - `attemptVerdicts`（`votes: "attempt"`）：attempt 原始计票，不折叠，回答「实际跑的每一轮各是什么结果」。
 
-两级计票与 `endToEndPassRate` 互不反推：成功率来自官方两级指标引擎，渲染面不得从任一计票现场重算。Scope warning 不进组件 data：`show` / `view` 宿主已在报告树外统一显示，自有 React 页面则直接渲染 `scope.warnings`，不用内容匹配做去重。
+两级计票与 `endToEndPassRate` 互不反推：成功率来自官方两级指标引擎，渲染面不得从任一计票现场重算。Scope warning 不进 `ScopeSummaryData`：警告的呈现件是 [`ScopeWarnings`](site-components.md#scopewarnings)，摘要数据不复制它的输入，同一份事实不在页面上出现两次。
 
 ```ts
 interface ScopeSummaryData {

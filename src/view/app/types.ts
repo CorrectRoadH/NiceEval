@@ -23,8 +23,8 @@ export type {
   ViewSnapshot,
 } from "../shared/types.ts";
 
-/** 导航 tab:报告页(`page:<id>`,路由 `#/page/<id>`)在前,内置证据页 Attempts / Traces 恒在其后。 */
-export type Tab = `page:${string}` | "attempts" | "traces";
+/** 导航 tab:只有报告定义声明的页(`page:<id>`,路由 `#/page/<id>`),按声明序;宿主不追加任何项。 */
+export type Tab = `page:${string}`;
 
 /** 前端拿到的单条 attempt 结果就是瘦身后的 EvalResult(locator / artifactBase 由 loader 注入)。 */
 export type ViewResult = ViewEvalResult;

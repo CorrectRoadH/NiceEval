@@ -1,8 +1,7 @@
 import React, { useState } from "react";
 import { Check, Copy } from "lucide-react";
 import type { T } from "../shared.ts";
-import type { ViewResult, ViewSnapshot } from "../types.ts";
-import { snapshotLabel } from "../lib/rows.ts";
+import type { ViewResult } from "../types.ts";
 import { reasonFor } from "../lib/verdict.ts";
 
 /** 修复 prompt 的一条失败条目;路径均相对 view 输入根(默认 `.niceeval/`)。 */
@@ -63,46 +62,9 @@ export function buildFixPrompt(entries: FixPromptEntry[]): string {
   ].join("\n");
 }
 
-/**
- * 报告槽同款口径的失败清单:每个 experiment 最新一次快照(latest 标记;快照明细已在
- * server 侧跨快照去重)里的 failed / errored attempt,从 viewData.snapshots 现算——
- * 默认报告与 --report 两种填充下按钮都在,不依赖任何统计产物。
- */
-export function fixPromptEntries(snapshots: ViewSnapshot[]): FixPromptEntry[] {
-  return snapshots
-    .filter((s) => s.latest)
-    .flatMap((snapshot) =>
-      snapshot.results
-        .filter((r: ViewResult) => r.verdict === "failed" || r.verdict === "errored")
-        .map((r: ViewResult) => toFixPromptEntry(r, snapshotLabel(snapshot))),
-    );
-}
-
-export function CopyFixPrompt({ snapshots, t }: { snapshots: ViewSnapshot[]; t: T }) {
-  const [copied, setCopied] = useState(false);
-
-  const entries = fixPromptEntries(snapshots);
-
-  if (!entries.length) return null;
-
-  const copy = async (event: React.MouseEvent<HTMLButtonElement>) => {
-    event.stopPropagation();
-    try {
-      await copyText(buildFixPrompt(entries));
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      setCopied(false);
-    }
-  };
-
-  return (
-    <button className={`copy-all-errors${copied ? " is-copied" : ""}`} onClick={copy} title={t("action.copyPrompt")}>
-      {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
-      <span>{copied ? t("action.copied") : `${t("action.copyPrompt")} (${entries.length})`}</span>
-    </button>
-  );
-}
+// 批量修复 prompt 不再由壳渲染:它是内建报告首页里的 CopyFixPrompt 组件
+// (niceeval/report 的站点组件,prompt 在 resolve 期烘进静态 HTML)。这里只留
+// attempt 弹窗的单条版。
 
 /** attempt 弹窗里的单条版:只打包当前 attempt 的失败,供逐条转交 agent。 */
 export function CopyAttemptPrompt({ result, t }: { result: ViewResult; t: T }) {

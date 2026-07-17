@@ -35,7 +35,7 @@ npx niceeval view --run report-data --out site
 
 ## Publishing a custom report
 
-Without `--report`, the published homepage is the default report. To swap the homepage for your own report, pass a [`defineReport` report file](/guides/custom-reports) to `--report` — the attempt evidence pages (transcript, trace, code view) stay in the same site, and every number in the report drills into its corresponding evidence, exactly like local `view --report`:
+Without `--report`, the published site is the default report's three pages (Report, Attempts, Traces). To switch to your own pages, pass a [`defineReport` report file](/guides/custom-reports) to `--report` — attempt detail (transcript, trace, code view) stays in the same site, and every number in the report drills into its corresponding evidence, exactly like local `view --report`:
 
 ```bash
 npx niceeval view --run report-data --report reports/exam.tsx --out site

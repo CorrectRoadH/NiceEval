@@ -23,7 +23,6 @@ import {
   type LocalizedText,
   type ReportLocale,
 } from "./locale.ts";
-import { groupScopeWarnings } from "./scope-warnings.ts";
 
 // ───────────────────────── 公开形状 ─────────────────────────
 
@@ -52,11 +51,11 @@ export type HeadTag =
   | { tag: "script" | "style"; attrs?: Record<string, string | true>; children?: string };
 
 export interface ReportShell {
-  /** 标题:首页 hero 与浏览器标题。页头左端是恒定的 NiceEval 品牌字标,不由 title 覆盖;回退链 def.title → 唯一快照 name → 内置文案「Eval 运行结果 / Eval Results」。 */
+  /** 站点标题:浏览器标题、show 页索引标题行与 `ctx.report.title` 的取值源;`Hero` 组件缺省消费它。回退链 def.title → 唯一快照 name → 内置文案「Eval 运行结果 / Eval Results」。 */
   title?: LocalizedText;
   /** 页头右侧的外部链接,如 GitHub、文档、CI。 */
   links?: ReportLink[];
-  /** 每页页脚的一段文字;省略时不渲染页脚(品牌行恒在 hero 下方,不占页脚)。 */
+  /** 每页页脚的一段文字;省略时不渲染页脚(品牌行归 PoweredBy 组件,不占页脚)。 */
   footer?: LocalizedText;
   /**
    * 注入每页 `<head>` 的结构化标签,在官方与外壳样式之后按声明顺序渲染。
@@ -486,28 +485,10 @@ export interface RenderReportTextOptions extends TextRenderOptions {
 }
 
 /**
- * 挑选警告的 text 形态:按「下一步动作」聚合(scope-warnings.ts,web/text 共用),同构但不折叠——
- * 多组时首行 "! <分类计数汇总>";每组一行组头 "! <标题> — <徽标> → <组头命令>",其下缩进
- * 逐条原样打印 message("!   <message>",不截断掉尾段)。宿主级前置块——宿主是 warning 的
- * 唯一呈现者,组件数据不复制 warning;裸跑 / --report 都在报告顶上如实报残缺,不静默
- * (docs/feature/reports/architecture.md「Scope 是计算入口」)。
- */
-function renderScopeWarningsText(scope: Scope, locale: ReportLocale): string {
-  const { summary, groups } = groupScopeWarnings(scope.warnings, locale);
-  const lines: string[] = [];
-  if (summary) lines.push(`! ${summary}`);
-  for (const group of groups) {
-    const badges = group.badges.length > 0 ? ` — ${group.badges.map((b) => b.text).join(" · ")}` : "";
-    const command = group.headCommand ? ` → ${group.headCommand}` : "";
-    lines.push(`! ${group.title}${badges}${command}`);
-    for (const w of group.warnings) lines.push(`!   ${w.message}`);
-  }
-  return lines.join("\n");
-}
-
-/**
  * text 宿主的装载语义:选页 → resolve(组合展开 + spec 取数,唯一的 await 边界)→ 树校验 →
- * 遍历渲染 text 面;Scope 有挑选警告时在报告顶部前置按动作聚合的警告块。不需要 react-dom。
+ * 遍历渲染 text 面。不需要 react-dom。宿主不在报告树外另设警告通道——挑选警告的呈现件是
+ * `ScopeWarnings` 组件,内建报告每页都放它,自定义报告放不放是作者义务
+ * (docs/feature/reports/architecture.md「Scope 是计算入口」)。
  */
 export async function renderReportToText(
   definition: ReportDefinition,
@@ -523,11 +504,7 @@ export async function renderReportToText(
     memo: new ResolveMemo(),
   });
   validateReportTree(resolved);
-  const textCtx = createTextContext(options);
-  const body = renderNodeToText(resolved, textCtx);
-  return ctx.scope.warnings.length > 0
-    ? [renderScopeWarningsText(ctx.scope, textCtx.locale), body].join("\n\n")
-    : body;
+  return renderNodeToText(resolved, createTextContext(options));
 }
 
 /** 页索引标题行(show 多页索引 / view 导航共用的解析结果):按 locale 解析的标题字符串。 */
@@ -575,8 +552,8 @@ export interface RenderTreeTextOptions extends TextRenderOptions {
 
 /**
  * 渲染一页报告树的 text 面(宿主逐页调用;页选择归宿主):
- * resolve(组合展开 + spec 取数)→ validate → render。Scope 有挑选警告时在页顶前置
- * 按动作聚合的警告块——宿主是 warning 的唯一呈现者,组件数据不复制 warning。
+ * resolve(组合展开 + spec 取数)→ validate → render。宿主不在报告树外另设警告通道,
+ * 挑选警告由页内的 `ScopeWarnings` 组件呈现(内建报告每页都放它)。
  */
 export async function renderReportTreeToText(
   tree: ReportNode,
@@ -596,8 +573,5 @@ export async function renderReportTreeToText(
       ? { experimentCommand: experimentCommandFor(options.commandContext) }
       : {}),
   });
-  const body = renderNodeToText(resolved, textCtx);
-  return ctx.scope.warnings.length > 0
-    ? [renderScopeWarningsText(ctx.scope, textCtx.locale), body].join("\n\n")
-    : body;
+  return renderNodeToText(resolved, textCtx);
 }

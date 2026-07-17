@@ -1,8 +1,9 @@
 // cases: docs/engineering/unit-tests/reports/cases.md
 // 「外壳、页面与 Tabs」分区——
-// 品牌位恒为 NiceEval 字标(声明 title 也不覆盖)、hero 走标题回退链(与浏览器标题同源;
-// document.title 由 useEffect 设置,静态渲染不执行,这里断言 hero 即断言同一个 shellTitle)、
-// ReportLink.icon 渲染在 label 前(web 面)。契约:docs/feature/reports/library/shell.md「行为约束」。
+// 宿主页头不渲染任何品牌位、宿主无 hero 区(hero / 品牌行是页内组件,见 site-components 测试);
+// view 导航只有报告定义声明的页(声明序),宿主不追加或保留任何导航项;
+// ReportLink.icon 渲染在 label 前(web 面)。契约:docs/feature/reports/library/shell.md「行为约束」、
+// docs/feature/reports/view.md「页面构成」。
 
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -14,14 +15,18 @@ beforeAll(() => {
   (globalThis as { location?: unknown }).location = { hash: "", search: "", pathname: "/" };
 });
 
-const reportPages = { report: { en: "<p>REPORT_BODY</p>", "zh-CN": "<p>REPORT_BODY</p>" } };
+const reportPages = {
+  report: { en: "<p>REPORT_BODY</p>", "zh-CN": "<p>REPORT_BODY</p>" },
+  attempts: { en: "<p>ATTEMPTS_BODY</p>", "zh-CN": "<p>ATTEMPTS_BODY</p>" },
+  traces: { en: "<p>TRACES_BODY</p>", "zh-CN": "<p>TRACES_BODY</p>" },
+};
 
 function dataWithShell(report: ViewData["report"]): ViewData {
   return { composedRuns: 1, snapshots: [], ...(report !== undefined ? { report } : {}) };
 }
 
-describe("外壳:品牌位、hero 标题与 ReportLink.icon", () => {
-  it("声明 title 后品牌位仍是 NiceEval 字标;hero 显示走完回退链的报告标题", () => {
+describe("外壳:宿主无品牌位与 hero,导航只有报告页", () => {
+  it("宿主导航壳 DOM 无品牌节点、无 hero 区:品牌与 hero 是页内组件,不归宿主", () => {
     const html = renderToStaticMarkup(
       <App
         data={dataWithShell({
@@ -33,23 +38,75 @@ describe("外壳:品牌位、hero 标题与 ReportLink.icon", () => {
         reportPages={reportPages}
       />,
     );
-    // 品牌位:恒定的 NiceEval 字标,不吃报告 title,外链官网并带归因参数。
-    const brand = html.match(/<a[^>]*class="brand"[\s\S]*?<\/a>/)![0];
-    expect(brand).toContain(">NiceEval</span>");
-    expect(brand).not.toContain("Memory Evals");
-    expect(brand).toContain("https://niceeval.com/?utm_source=report&amp;utm_medium=brand");
-    // Powered by 行:同样外链官网,utm_medium 区分品牌位。
-    const poweredBy = html.match(/<span class="powered-by">[\s\S]*?<\/span>/)![0];
-    expect(poweredBy).toContain("https://niceeval.com/?utm_source=report&amp;utm_medium=powered-by");
-    // hero:报告 title(node 环境 locale 回退 en)。
-    const hero = html.match(/<h1>[\s\S]*?<\/h1>/)![0];
-    expect(hero).toContain("Memory Evals");
+    // 宿主 DOM 无品牌节点:没有字标、没有 Powered by、没有任何官网品牌链接。
+    expect(html).not.toContain('class="brand"');
+    expect(html).not.toContain("NiceEval");
+    expect(html).not.toContain("Powered by");
+    expect(html).not.toContain("niceeval.com");
+    // 宿主无 hero 区:标题只落浏览器 <title>(useEffect,静态渲染不执行),不落任何宿主节点。
+    expect(html).not.toContain('class="hero"');
+    expect(html).not.toContain("<h1");
+    expect(html).not.toContain("Memory Evals");
   });
 
-  it("缺外壳声明(旧数据)时 hero 落内置文案 Eval Results,品牌位不变", () => {
-    const html = renderToStaticMarkup(<App data={dataWithShell(undefined)} reportPages={reportPages} />);
-    expect(html.match(/<h1>[\s\S]*?<\/h1>/)![0]).toContain("Eval Results");
-    expect(html.match(/class="brand"[\s\S]*?<\/a>/)![0]).toContain(">NiceEval</span>");
+  it("导航项 = 报告定义声明的页,按声明序;宿主不追加 Attempts / Traces 等任何项", () => {
+    const html = renderToStaticMarkup(
+      <App
+        data={dataWithShell({
+          title: "T",
+          links: [],
+          pages: [
+            { id: "overview", title: { en: "Overview", "zh-CN": "总览" } },
+            { id: "exam", title: { en: "Exam", "zh-CN": "成绩单" } },
+          ],
+          initialPageId: "overview",
+        })}
+        reportPages={{
+          overview: { en: "<p>A</p>", "zh-CN": "<p>A</p>" },
+          exam: { en: "<p>B</p>", "zh-CN": "<p>B</p>" },
+        }}
+      />,
+    );
+    const triggers = html.match(/role="tab"/g) ?? [];
+    expect(triggers).toHaveLength(2); // 恰为声明的两页,无宿主追加项
+    expect(html.indexOf("Overview")).toBeLessThan(html.indexOf("Exam")); // 声明序
+    expect(html).not.toContain("#/attempts");
+    expect(html).not.toContain("#/traces");
+  });
+
+  it("裸 view(内建报告三页声明)导航恰为 报告 · Attempts · 追踪,来自页列表而非宿主", () => {
+    const html = renderToStaticMarkup(
+      <App
+        data={dataWithShell({
+          title: { en: "Eval Results", "zh-CN": "Eval 运行结果" },
+          links: [],
+          pages: [
+            { id: "report", title: { en: "Report", "zh-CN": "报告" } },
+            { id: "attempts", title: "Attempts" },
+            { id: "traces", title: { en: "Traces", "zh-CN": "追踪" } },
+          ],
+          initialPageId: "report",
+        })}
+        reportPages={reportPages}
+      />,
+    );
+    expect(html.match(/role="tab"/g)).toHaveLength(3);
+    for (const label of ["Report", "Attempts", "Traces"]) expect(html).toContain(label);
+  });
+
+  it("树形态定义(单页 report)导航只有一项", () => {
+    const html = renderToStaticMarkup(
+      <App
+        data={dataWithShell({
+          title: "T",
+          links: [],
+          pages: [{ id: "report", title: { en: "Report", "zh-CN": "报告" } }],
+          initialPageId: "report",
+        })}
+        reportPages={{ report: reportPages.report }}
+      />,
+    );
+    expect(html.match(/role="tab"/g)).toHaveLength(1);
   });
 
   it("ReportLink.icon 的内联 SVG 渲染在 label 前,原样内联", () => {

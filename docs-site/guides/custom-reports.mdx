@@ -8,19 +8,19 @@ description: "A report is a report file: the official host opens the results and
 
 A report is a report file. You never open a results directory, never write render code, never spin up your own app: `niceeval show` / `niceeval view` themselves are the host — they open the results and inject the data for you; you arrange the layout with official components and `Row` / `Col`, hand the file path to `--report` when done, and both the terminal and the web doors recognize it — the official evidence room deep links, `--run` history switching, and static export all carry over unchanged to a custom report.
 
-## view's default report is also a report definition
+## The default report `show` and `view` render is also a report file
 
-The default report `niceeval view` renders without `--report` is not a private implementation — it is a value publicly exported from `niceeval/report`, and you can pass it explicitly to `niceeval show --report` as well:
+The default report `niceeval show` / `niceeval view` render without `--report` is not a private implementation — it is an ordinary report file the package ships: three pages (Report, Attempts, Traces), each built from components publicly exported by `niceeval/report` — the page header (`Hero`), the selection warnings (`ScopeWarnings`), the fix-prompt button (`CopyFixPrompt`), and the report page's comparison component `ExperimentComparison`; the Attempts page's `AttemptList`; the Traces page's `TraceWaterfall`. Your own report file can reproduce the same pages verbatim, or keep only the parts you want:
 
 ```ts
-import { CostPassRateComparison } from "niceeval/report";
+import { ExperimentComparison, Hero, ScopeWarnings } from "niceeval/report";
 ```
 
-`niceeval view` picks `CostPassRateComparison` by default: a cost × pass-rate scatter plot plus an experiment detail table, with no private data channel. Bare `niceeval show` uses an attempt index, which suits the terminal better; an explicit custom report (including this definition) is still rendered by both hosts through the same dual-render protocol.
+`ExperimentComparison` first splits experiments into comparable groups by the experiment id's parent directory, then computes a cost × end-to-end pass-rate scatter plot and an experiment table for each group separately. `compare/bub` and `compare/codex` can share a chart; `dev-e2b/bub` has to sit in another group; a top-level experiment forms a group of one on its own. The web face holds every group and focuses on one at a time; the terminal face, when it hits multiple groups, lists only a group index and the single-group view command, and expands the detail only once the selection narrows to one group. Neither face ever produces a cross-group leaderboard.
 
 |  | Web (for people) | Terminal (for agents and you) |
 | --- | --- | --- |
-| Official default | Analysis report | Attempt index |
+| Official default | Grouped comparison report (web face) | The same grouped comparison report (text face) |
 | Custom layout | `niceeval view --report reports/exam.tsx` | `niceeval show --report reports/exam.tsx` |
 
 The four cells are the same host. Customization has only three levels, each going one layer deeper:
@@ -72,7 +72,7 @@ Command-line scope acts on the picking step first, so the report only ever gets 
 
 Every component on the page is **dual-render**: the web face is React rendering, the terminal face is character rendering, and both faces consume the same already-computed data. The entity lists show facts by experiment → Eval → Attempt; the metric table, metric matrix, grouped bar chart, scoreboard, metric scatter plot, metric line chart, and paired delta table show aggregate values. The full list is in [Report Components](/guides/report-components). On the web face, entities, cells, and points deep-link into the attempt detail; on the terminal face they print the matching `niceeval show <eval id>` drill-down command.
 
-The default report has no special privilege: it is exactly the exported value `CostPassRateComparison` above, and its body is one `MetricScatter` plus one `ExperimentList`. Your report is its sibling; import the same public components when you want the same layout, and leave them out when you don't.
+The default report has no special privilege: its three pages are built entirely from public components, and your report is their sibling. Want the same "group by directory, compare within a group" layout — write `<ExperimentComparison />` directly; want an Attempts page — write a filtered `<AttemptList />`; don't want one — don't place it. That includes the page header and the `Powered by NiceEval` brand line: they are the `Hero` and `PoweredBy` components — use them and you get the brand line, skip them and you don't; the components themselves offer no toggle. When you compose `MetricScatter` / `ExperimentList` directly yourself, the general-purpose components only consume the data you hand them and never group automatically — feeding them cross-group data is you explicitly choosing a cross-group analysis.
 
 ## Layout: `Row` and `Col` hold on both faces
 
@@ -400,4 +400,4 @@ A dual-render component's web face is just an ordinary React component, and its 
 
 ## The boundary: built-in commands don't grow configuration
 
-Only one report renders at a time, and `--report` takes an explicit file path — no auto-discovered `reports/` directory, no plugin registry, no config file. Custom metrics and custom components both live inside your report file and are passed in along with it; the host never grows a registration surface for them. Without `--report`, what renders is the built-in `CostPassRateComparison`, and your report is a sibling implementation at the same level.
+Only one report renders at a time, and `--report` takes an explicit file path — no auto-discovered `reports/` directory, no plugin registry, no config file. Custom metrics and custom components both live inside your report file and are passed in along with it; the host never grows a registration surface for them. Without `--report`, what renders is the built-in `ExperimentComparison`, and your report is a sibling implementation at the same level.

@@ -97,7 +97,7 @@ npx niceeval exp compare-models weather
 | `--results` | string | `show` / `view` / `sandbox enter\|list\|stop` 共用:结果根目录(`.niceeval` 之外的另一个根,如 `copySnapshots` 产出的发布根)。 |
 | `--snapshot` | string | `view` 命令专用:只打开这一份快照文件(`snapshot.json`);文件不可读时命令失败(扫描模式只跳过)。 |
 | `--report` | string | `show` / `view` 命令专用:用文件默认导出的 `defineReport(...)` 替换两者共用的默认报告。 |
-| `--page` | string | `show` / `view` 命令专用:选择多页报告的页(页 id 见 `show --report` 的页索引);`view` 里定初始页。 |
+| `--page` | string | `show` / `view` 命令专用:选择报告的初始页;`show` 渲染该页并在尾部附其余页索引,`view` 以它作初始路由。未命中的页 id 按用法错误退出并列出可用页 id。 |
 | `--dry` | boolean | 只打印本次会匹配到的 eval × 运行配置,不实际执行(按下面 `--output` 选中的 profile 给出预览)。 |
 | `--output` | string | 反馈 profile:`auto`(默认)按环境自动选择,`human` / `agent` / `ci` 强制指定;只改变终端展示,不改变选择、调度、判定、artifact 或退出码。`auto` 依次判定:stderr 是 TTY → human;否则 `CI`(或其它常见 CI 平台环境变量)存在 → ci;否则 → agent。 |
 | `--force` | boolean | 忽略上次运行结果,不跳过已通过的 (experiment, eval) 组合,强制全部重跑。 |

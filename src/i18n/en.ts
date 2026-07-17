@@ -85,8 +85,8 @@ export const en = {
     "      --diff[=file] sandbox workspace file-change summary; =file expands one file\n" +
     "      --history   per experiment × eval execution timeline (mutually exclusive with --report)\n" +
     "      --results <dir>   pin a results root    --experiment <id>   one experiment\n" +
-    "      --report <file>   custom report    --page <id>   pick a page (multi-page\n" +
-    "        reports print a page index with copyable commands)\n" +
+    "      --report <file>   custom report    --page <id>   pick the initial page (multi-page\n" +
+    "        reports render it, then list the rest as a page index with copyable commands)\n" +
     "  niceeval list                                       list discovered evals\n" +
     "  niceeval view [eval-id-prefix…] [--out dir] [--port n] [--no-open]\n" +
     "      report pages + evidence rooms; --report <file> swaps in your report\n" +

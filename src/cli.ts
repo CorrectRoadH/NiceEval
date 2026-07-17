@@ -178,7 +178,7 @@ const FLAG_OPTIONS = {
   snapshot: { type: "string" },
   /** `show` / `view` 命令专用:用文件默认导出的 `defineReport(...)` 替换两者共用的默认报告。 */
   report: { type: "string" },
-  /** `show` / `view` 命令专用:选择多页报告的页(页 id 见 `show --report` 的页索引);`view` 里定初始页。 */
+  /** `show` / `view` 命令专用:选择报告的初始页;`show` 渲染该页并在尾部附其余页索引,`view` 以它作初始路由。未命中的页 id 按用法错误退出并列出可用页 id。 */
   page: { type: "string" },
   /** 只打印本次会匹配到的 eval × 运行配置,不实际执行(按下面 `--output` 选中的 profile 给出预览)。 */
   dry: { type: "boolean" },

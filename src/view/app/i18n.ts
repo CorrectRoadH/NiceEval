@@ -1,78 +1,22 @@
 // view 前端 i18n:内核(插值/归一)在 src/i18n/core.ts;这里只注入
 // localStorage + navigator 的 locale 来源与 en 默认值。字典与 CLI 侧分开维护。
+// 词条只覆盖宿主机器(导航标签、attempt 详情弹窗):页面内容(hero、警告、列表、瀑布)
+// 是报告组件,文案在 niceeval/report 的组件词典里(src/report/locale.ts)。
 
 import { interpolate, normalizeLocale, type Locale, type Vars } from "../../i18n/core.ts";
 
 export type MessageKey =
-  | "app.title"
   | "nav.label"
-  | "nav.report"
-  | "nav.experiments"
-  | "nav.attempts"
-  | "nav.traces"
   | "hero.title"
-  | "hero.lastRun"
-  | "hero.noRuns"
-  | "metric.passRate"
-  | "metric.evalResults"
-  | "metric.duration"
-  | "metric.cost"
-  | "section.experiments"
-  | "section.attempts"
-  | "section.traces"
-  | "search.experiments"
-  | "search.attempts"
-  | "empty.summary"
-  | "empty.attempts"
-  | "empty.attemptsFilter"
-  | "empty.traces"
-  | "table.experiment"
-  | "table.model"
-  | "table.agent"
-  | "table.avgDuration"
-  | "table.successRate"
-  | "table.tokens"
-  | "table.estCost"
-  | "table.verdicts"
-  | "table.evalId"
-  | "table.verdict"
-  | "table.ranAt"
-  | "detail.evalResult"
-  | "detail.evalResults"
-  | "detail.attempts"
-  | "detail.evals"
-  | "detail.runs"
-  | "detail.runsUnit"
-  | "detail.passed"
-  | "detail.failed"
-  | "detail.errored"
-  | "detail.totalTime"
-  | "detail.totalCost"
-  | "detail.ran"
-  | "detail.evaluationAttempts"
-  | "detail.status"
-  | "detail.eval"
-  | "detail.reason"
-  | "detail.time"
-  | "detail.run"
-  | "detail.rawSample"
-  | "detail.rawNote"
-  | "config.experiment"
-  | "config.flagsNone"
-  | "config.default"
-  | "config.none"
-  | "config.notApplicable"
   | "status.pass"
   | "status.fail"
   | "status.error"
   | "status.skipped"
   | "action.close"
-  | "action.copyReason"
   | "action.copyPrompt"
   | "action.copied"
   | "trace.loading"
   | "trace.loadFailed"
-  | "trace.transcript"
   | "trace.timing"
   | "trace.noSpans"
   | "trace.total"
@@ -111,100 +55,25 @@ export type MessageKey =
   | "assert.unavailable"
   | "assert.optional"
   | "assert.soft"
-  | "assert.evidence"
-  | "verdict.passed"
-  | "verdict.failed"
-  | "verdict.errored"
-  | "verdict.skipped"
-  | "banner.skippedTitle"
-  | "banner.skipped.incompatible"
-  | "banner.skipped.incompatibleForeign"
-  | "banner.skipped.malformed"
-  | "banner.skipped.incomplete"
-  | "banner.expandRest"
-  | "banner.collapse"
-  | "banner.copyCommand"
-  | "banner.warningsTitle"
-  | "hero.composedFrom"
-  | "chart.costVsScore"
-  | "chart.axisCost"
-  | "chart.axisScore";
+  | "assert.evidence";
 
 type Dictionary = Record<MessageKey, string>;
 
 const dictionaries: Record<Locale, Dictionary> = {
   en: {
-    "app.title": "niceeval experiment view",
     "nav.label": "Report",
-    "nav.report": "Report",
-    "nav.experiments": "Experiments",
-    "nav.attempts": "Attempts",
-    "nav.traces": "Traces",
     // 标题回退链终点的内置文案(shell.md:「Eval 运行结果 / Eval Results」);
     // 正常路径 server 侧已走完回退链,这里只兜旧数据 / 缺声明。
     "hero.title": "Eval Results",
-    "hero.lastRun": "Last run:",
-    "hero.noRuns": "No runs yet",
-    "metric.passRate": "Pass Rate",
-    "metric.evalResults": "Eval Results",
-    "metric.duration": "Duration",
-    "metric.cost": "Estimated Cost",
-    "section.experiments": "Experiments",
-    "section.attempts": "Attempts",
-    "section.traces": "Traces",
-    "search.experiments": "Filter experiment, agent, model, or eval...",
-    "search.attempts": "Filter eval ID or experiment...",
-    "empty.summary": "No snapshots found. Run niceeval or pass niceeval view path/to/snapshot.json.",
-    "empty.attempts": "No attempts found.",
-    "empty.attemptsFilter": "No results match the filter.",
-    "empty.traces": "No traces available. Traces are collected during eval runs when artifacts are saved.",
-    "table.experiment": "Experiment",
-    "table.model": "Model",
-    "table.agent": "Agent",
-    "table.avgDuration": "Avg Duration",
-    "table.successRate": "Success Rate",
-    "table.tokens": "Tokens",
-    "table.estCost": "Est. Cost",
-    "table.verdicts": "Verdicts",
-    "table.evalId": "Eval ID",
-    "table.verdict": "Verdict",
-    "table.ranAt": "Ran At",
-    "detail.evalResult": "eval",
-    "detail.evalResults": "evals",
-    "detail.attempts": "Attempts",
-    "detail.evals": "Evals",
-    "detail.runs": "Runs",
-    "detail.runsUnit": "runs",
-    "detail.passed": "Passed",
-    "detail.failed": "Failed",
-    "detail.errored": "Errored",
-    "detail.totalTime": "Total Time",
-    "detail.totalCost": "Total Cost",
-    "detail.ran": "Ran",
-    "detail.evaluationAttempts": "Evals",
-    "detail.status": "Status",
-    "detail.eval": "Eval",
-    "detail.reason": "Reason",
-    "detail.time": "Time",
-    "detail.run": "Run",
-    "detail.rawSample": "Raw sample result",
-    "detail.rawNote": "debug JSON, defaults to first error/failure when available",
-    "config.experiment": "experiment",
-    "config.flagsNone": "none",
-    "config.default": "default",
-    "config.none": "none",
-    "config.notApplicable": "n/a",
     "status.pass": "pass",
     "status.fail": "fail",
     "status.error": "error",
     "status.skipped": "skipped",
     "action.close": "Close",
-    "action.copyReason": "Copy reason",
     "action.copyPrompt": "Copy fix prompt",
     "action.copied": "Copied",
     "trace.loading": "loading...",
     "trace.loadFailed": "load failed (static report has no server - use niceeval view):",
-    "trace.transcript": "transcript",
     "trace.timing": "timing trace",
     "trace.noSpans": "no spans",
     "trace.total": "total",
@@ -244,94 +113,19 @@ const dictionaries: Record<Locale, Dictionary> = {
     "assert.optional": "optional",
     "assert.soft": "soft",
     "assert.evidence": "What was checked",
-    "verdict.passed": "passed",
-    "verdict.failed": "failed",
-    "verdict.errored": "errors",
-    "verdict.skipped": "skipped",
-    "banner.skippedTitle": "{{count}} run(s) could not be loaded and are not shown here",
-    "banner.skipped.incompatible": "written by niceeval {{producer}} (schemaVersion {{schemaVersion}}) — current version can't read it, expand for the view command",
-    "banner.skipped.incompatibleForeign": "written by {{name}} {{version}} (schemaVersion {{schemaVersion}}) — this viewer cannot read them; open with the tool that produced them",
-    "banner.skipped.malformed": "unreadable report ({{detail}}) — may be corrupted; re-run the eval or delete the run directory",
-    "banner.skipped.incomplete": "snapshot.json was never written (a narrow crash window) — completed attempt artifacts remain on disk for manual inspection; delete the directory if you no longer need them",
-    "banner.expandRest": "Show {{count}} more",
-    "banner.collapse": "Collapse",
-    "banner.copyCommand": "Copy view command",
-    "banner.warningsTitle": "Heads-up about the current leaderboard selection:",
-    "hero.composedFrom": "Composed from {{count}} run(s)",
-    "chart.costVsScore": "Cost vs. Score",
-    "chart.axisCost": "Avg cost per eval",
-    "chart.axisScore": "Pass rate",
   },
   "zh-CN": {
-    "app.title": "niceeval 实验查看器",
     "nav.label": "报告",
-    "nav.report": "报告",
-    "nav.experiments": "实验",
-    "nav.attempts": "Attempts",
-    "nav.traces": "追踪",
     "hero.title": "Eval 运行结果",
-    "hero.lastRun": "最近运行:",
-    "hero.noRuns": "还没有运行",
-    "metric.passRate": "通过率",
-    "metric.evalResults": "Eval 结果",
-    "metric.duration": "耗时",
-    "metric.cost": "预估成本",
-    "section.experiments": "实验",
-    "section.attempts": "Attempts",
-    "section.traces": "追踪",
-    "search.experiments": "筛选实验、agent、model 或 eval...",
-    "search.attempts": "筛选 eval ID 或实验...",
-    "empty.summary": "没有找到快照。请先运行 niceeval，或传入 niceeval view path/to/snapshot.json。",
-    "empty.attempts": "还没有 attempt。",
-    "empty.attemptsFilter": "没有匹配筛选条件的结果。",
-    "empty.traces": "没有可用追踪。保存 artifact 的 eval run 会收集 traces。",
-    "table.experiment": "实验",
-    "table.model": "模型",
-    "table.agent": "Agent",
-    "table.avgDuration": "平均耗时",
-    "table.successRate": "成功率",
-    "table.tokens": "Tokens",
-    "table.estCost": "预估成本",
-    "table.verdicts": "结果",
-    "table.evalId": "Eval ID",
-    "table.verdict": "状态",
-    "table.ranAt": "运行时间",
-    "detail.evalResult": "个 eval",
-    "detail.evalResults": "个 eval",
-    "detail.attempts": "尝试",
-    "detail.evals": "Eval 数",
-    "detail.runs": "总轮次",
-    "detail.runsUnit": "轮",
-    "detail.passed": "通过",
-    "detail.failed": "失败",
-    "detail.errored": "错误",
-    "detail.totalTime": "总耗时",
-    "detail.totalCost": "总成本",
-    "detail.ran": "运行",
-    "detail.evaluationAttempts": "各 Eval",
-    "detail.status": "状态",
-    "detail.eval": "Eval",
-    "detail.reason": "原因",
-    "detail.time": "耗时",
-    "detail.run": "轮次",
-    "detail.rawSample": "原始样例结果",
-    "detail.rawNote": "调试 JSON，默认选择第一条错误/失败",
-    "config.experiment": "实验",
-    "config.flagsNone": "无",
-    "config.default": "默认",
-    "config.none": "无",
-    "config.notApplicable": "不适用",
     "status.pass": "通过",
     "status.fail": "失败",
     "status.error": "错误",
     "status.skipped": "跳过",
     "action.close": "关闭",
-    "action.copyReason": "复制原因",
     "action.copyPrompt": "复制修复 Prompt",
     "action.copied": "已复制",
     "trace.loading": "加载中...",
     "trace.loadFailed": "加载失败(静态报告没有服务端 - 请用 niceeval view):",
-    "trace.transcript": "会话",
     "trace.timing": "耗时追踪",
     "trace.noSpans": "没有 span",
     "trace.total": "总计",
@@ -371,23 +165,6 @@ const dictionaries: Record<Locale, Dictionary> = {
     "assert.optional": "可缺席",
     "assert.soft": "soft",
     "assert.evidence": "实际被检查的内容",
-    "verdict.passed": "通过",
-    "verdict.failed": "失败",
-    "verdict.errored": "错误",
-    "verdict.skipped": "跳过",
-    "banner.skippedTitle": "{{count}} 个 run 读取失败,此处不展示",
-    "banner.skipped.incompatible": "由 niceeval {{producer}} 写入(schemaVersion {{schemaVersion}})—— 当前版本读不了,展开查看命令",
-    "banner.skipped.incompatibleForeign": "由 {{name}} {{version}} 写入(schemaVersion {{schemaVersion}})—— 当前查看器读不了;请用写出它的工具查看",
-    "banner.skipped.malformed": "报告读不了({{detail}})—— 可能已损坏;重跑该 eval 或删除对应 run 目录",
-    "banner.skipped.incomplete": "快照目录已创建但从未写出 snapshot.json(极窄的崩溃窗口)—— 已完成的 attempt artifact 仍在盘上供手工排查;不需要就删除对应目录",
-    "banner.expandRest": "展开其余 {{count}} 个",
-    "banner.collapse": "收起",
-    "banner.copyCommand": "复制查看命令",
-    "banner.warningsTitle": "当前榜单挑选的提醒:",
-    "hero.composedFrom": "合成自 {{count}} 个 run",
-    "chart.costVsScore": "成本 × 通过率",
-    "chart.axisCost": "平均每个 eval 成本",
-    "chart.axisScore": "通过率",
   },
 };
 
@@ -408,9 +185,10 @@ export function persistLocale(locale: Locale): void {
   }
 }
 
+// 浏览器 <title> 是宿主文档单例,唯一归属是 App 的 shellTitle effect(外壳标题回退链);
+// 这里只切文档语言,不碰标题。
 export function setDocumentLocale(locale: Locale): void {
   document.documentElement.lang = locale;
-  document.title = dictionaries[locale]["app.title"];
 }
 
 export function makeTranslator(locale: Locale): (key: MessageKey, vars?: Vars) => string {

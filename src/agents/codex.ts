@@ -250,7 +250,12 @@ export function codexAgent(config?: CodexConfig): Agent {
 
     async send(input, ctx) {
       const sb = ctx.sandbox;
-      const flags = "--json --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check";
+      // hook trust bypass 是 runtime-only(config.toml 设不了):headless 下 codex 对非 managed
+      // 来源 hook 的交互式授信永远无人应答,不带它插件装的 hook 会被静默跳过、零报错
+      // (见 memory/codex-hook-trust-headless-silent-skip.md)。沙箱内 hook 来源全部由实验配置
+      // 声明,与 approvals/sandbox bypass 同一信任层级。
+      const flags =
+        "--json --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check --dangerously-bypass-hook-trust";
       const prompt = shared.shellQuote(input.text);
       const resuming = ctx.session.id;
       const cmd = resuming

@@ -323,7 +323,7 @@ compare/codex-gpt-5.4 · 5 runs · passed 2/5
 
 两次 run 的精确对比（这次修复具体翻转了哪些 eval）不做成 flag：用 `DeltaTable` 积木写一份报告递给 `--report`，几行就是一份自定义对比报告，终端和网页两扇门都认——内置命令只管固定摆法，自定义口径见[自定义报告](/zh/how-to/custom-reports)。
 
-## `niceeval view`：网页证据室
+## `niceeval view`：在网页看证据
 
 ```bash
 npx niceeval view
@@ -335,9 +335,9 @@ npx niceeval view
   失败后立刻运行 `npx niceeval view`，可以直接打开刚刚那次运行的 artifacts。
 </Tip>
 
-`view` 的首页是一份报告：不传 `--report` 时完整加载当前结果并显示全部可比组索引，选中一组后只显示该组的成本 × 端到端成功率散点图与实验表。切组只改变页面状态，不重新读取或计算；不同组不会混进同一张图或榜单。浏览器禁用 JS 时，每组作为独立的 `<details>` 完整可读；启用 JS 后一次聚焦一组。传了 `--report` 就换成你自己的报告（与 `show --report` 吃同一个文件），见[自定义报告](/zh/how-to/custom-reports)。证据部分（Attempt 弹窗、transcript、trace 瀑布、run 列表）始终保留。
+`view` 的首页是一份报告：不传 `--report` 时完整加载当前结果并显示全部可比组索引，选中一组后只显示该组的成本 × 端到端成功率散点图与实验表。切组只改变页面状态，不重新读取或计算；不同组不会混进同一张图或榜单。浏览器禁用 JS 时，每组作为独立的 `<details>` 完整可读；启用 JS 后一次聚焦一组。传了 `--report` 就换成你自己的报告（与 `show --report` 吃同一个文件），页面与导航完全由报告文件决定，见[自定义报告](/zh/how-to/custom-reports)。Attempt 详情（弹窗里的 transcript、时间树、trace、diff）始终可用——它是查看器自身的能力，报告里的每个数字点进去都是对应证据；默认报告另有 Attempts 列表页和追踪瀑布页，自己的报告要同款页面就摆同名组件。
 
-网页版多几样浏览操作：切换可比组、点表头就地排序、在当前组的过滤框里筛行、点开一个 experiment 行看它每道题的判定与原因、悬停散点看数值——这些只影响眼前的视图，不改判定口径，刷新即恢复。Attempt 弹窗里有与 `show --timing` 同源的统一时间树：Sandbox 启动、setup hook 及其 shell、agent 安装命令、每轮 send 与可关联的 OTel model/tool、评分与收尾都能逐层展开。报告上方有 **Copy fix prompt** 按钮，把全部失败打包成可直接粘给 coding agent 的修复 prompt（attempt 弹窗里有单条版）。报告文案有中英两份，随界面语言切换。
+网页版多几样浏览操作：切换可比组、点表头就地排序、在当前组的过滤框里筛行、点开一个 experiment 行看它每道题的判定与原因、悬停散点看数值——这些只影响眼前的视图，不改判定口径，刷新即恢复。Attempt 弹窗里有与 `show --timing` 同源的统一时间树：Sandbox 启动、setup hook 及其 shell、agent 安装命令、每轮 send 与可关联的 OTel model/tool、评分与收尾都能逐层展开。默认报告页里有 **Copy fix prompt** 按钮（`CopyFixPrompt` 组件，自己的报告可以直接摆同款），把全部失败打包成可直接粘给 coding agent 的修复 prompt（attempt 弹窗里有单条版）。报告文案有中英两份，随界面语言切换。
 
 ## 导出与静态托管
 

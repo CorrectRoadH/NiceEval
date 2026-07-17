@@ -182,7 +182,7 @@ interface TableProps {
 - **`null` 渲染成 `—`**，不补 0；`cells` 里缺这个键同样是 `—`。
 - **超宽先折行再丢列。** 总宽超过可用列宽时，先压最宽的左对齐列（按显示宽度折行）；右对齐列不折行——数字折行读不了。左对齐列压到下限仍放不下，就从右侧丢列，并在表下如实标注丢了几列。
 - **两个面各自成立。** text 面列间 3 空格、首行表头；web 面是 `<table>` + `<thead>` / `<tbody>`，右对齐落成 `nre-align-right` 类，不用内联样式。
-- **带 `locator` 的行接证据室。** 有任一行带 `locator` 时多出一列 attempt：web 面是指向证据室的链接，text 面列出 locator（`niceeval show <locator>` 的位置参数）。
+- **带 `locator` 的行接 Attempt 详情。** 有任一行带 `locator` 时多出一列 attempt：web 面是指向 Attempt 详情路由的链接，text 面列出 locator（`niceeval show <locator>` 的位置参数）。
 
 `MetricTable`、`MetricMatrix`、`Scoreboard` 和 `DeltaTable` 的 text 面建在 `Table` 上：自定义表和官方表用同一把尺子。
 

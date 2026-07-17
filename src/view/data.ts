@@ -267,8 +267,8 @@ export async function loadViewScan(input?: string, opts: ViewScanOptions = {}): 
     }
   }
 
-  // 全局最新快照(跨全部实验):hero 的「最近一次运行」时刻从这里取。
-  // hero 标题不从这里取——它走标题回退链(resolveReportTitle,进 viewData.report.title)。
+  // 全局最新快照(跨全部实验):viewData.lastRunAt 从这里取。页内 hero 的「最后运行」
+  // 显示由 Hero 组件按 heroData(scope) 自己算,不吃这份字段。
   let latestSnapshot: Snapshot | undefined;
   for (const exp of results.experiments) {
     const candidate = exp.snapshots[0];

@@ -7,8 +7,8 @@
 // - 装载规范化唯一产物是「外壳 + 非空页列表」:`defineReport(树)` ≡ `{ content: 树 }` ≡
 //   `pages: [{ id: "report", title: 内置页名, content: 树 }]`。
 // - 标题回退单点:def.title → Scope 中唯一且相同(LocalizedText 深相等)的非空快照 name →
-//   内置文案「Eval 运行结果 / Eval Results」。落点是首页 hero、浏览器标题与 show 页索引标题行;
-//   页头品牌位恒为 NiceEval 字标,不归 title。
+//   内置文案「Eval 运行结果 / Eval Results」。宿主落点是浏览器标题与 show 页索引标题行;
+//   页内 hero 标题由 Hero 组件消费同一取值链(ctx.report.title),宿主页头无品牌位。
 // - LocalizedText 回退:当前 locale → en → 按 locale 键字典序的第一个非空值。
 //
 // ⚠ 集成状态:src/report/** 正被并行重写(plan/reports-redesign-implementation.md)。这里把宿主

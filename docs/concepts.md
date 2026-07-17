@@ -81,7 +81,7 @@
 |---|---|---|
 | 结果快照 | Snapshot | 结果读取面的单位:一个 experiment 在一次 run 里的结果(experiment × run,不是 run);与快照测试无关;沙箱侧的 microVM 快照一律写"沙箱快照(`snapshotId`)" |
 | Scope(范围) | Scope | `results.latest()` / `results.current()` 的返回物:挑好的快照 + 结构化挑选警告;唯一方法 `filter`(只删不换) |
-| Attempt 定位符 | AttemptLocator | attempt 的稳定引用,由 `{experimentId, 快照 startedAt, evalId, attempt}` 不可变元组派生的带版本、`@` 前缀短确定性字符串;不是数组下标也不是目录路径。reader 打开结果根时建一份 locator → AttemptHandle 索引,缺失 / 损坏 / 碰撞一律结构化报错,不回退"最新失败";报告页与 `niceeval view` 证据室的 attempt 深链(`#/attempt/@<locator>` 单段格式)共用同一个 locator 身份契约,见 [View](feature/reports/view.md) |
+| Attempt 定位符 | AttemptLocator | attempt 的稳定引用,由 `{experimentId, 快照 startedAt, evalId, attempt}` 不可变元组派生的带版本、`@` 前缀短确定性字符串;不是数组下标也不是目录路径。reader 打开结果根时建一份 locator → AttemptHandle 索引,缺失 / 损坏 / 碰撞一律结构化报错,不回退"最新失败";报告页与 attempt 详情路由(`#/attempt/@<locator>` / `show @<locator>`,单段格式)共用同一个 locator 身份契约,见 [View](feature/reports/view.md) |
 | Attempt 证据 | AttemptEvidence | 每个 Attempt 只装配一次的中性证据聚合:locator、身份、`EvalResult`、`AnnotatedEvalSource`、`ExecutionTree`、diff、artifact 路径与能力位(`source` / `execution` / `timing` / `diff`);`show` / `view` / 静态导出 / 报告列表共用同一份,不各自重读 artifact |
 | 标注 Eval 源码 | AnnotatedEvalSource | 发现时捕获、按快照去重一份、SHA-256 归一化的运行时 Eval 源码;每条断言按 `SourceLoc` 标回源码行(状态 / 严重度 / 分数 / detail / evidence),没有 `SourceLoc` 的断言进"未映射断言"桶,不静默丢弃;`t.send(...)` 的调用行另标该轮 turn 头行事实(身份 / status / 墙钟,定位不到行的轮不进兜底桶——轮次全量面是 `--execution`);网页 CodeView 与 `show --source` 共用同一份 model |
 | 指标 | Metric | 「一个 attempt 算出一个值」的计算单元,经「attempt → 题,题 → 组」两级聚合;缺数据算 `null` 不算 0 |
@@ -91,8 +91,8 @@
 | 双面组件 | Dual-render component | `defineComponent({ resolve?, web, text })` 的产物:可选解析面取数,两个纯函数渲染面消费同一份渲染 props,同一棵树两个宿主共用 |
 | 组合组件 | Composition component | `defineComponent((props, ctx) => 树)` 的产物:只装配已有组件、不自己渲染,在 resolve 阶段展开 |
 | 宿主 | Host | 打开结果、挑 Scope、渲染报告的那一侧:`show` 是终端宿主,`view` 是网页宿主 |
-| 默认报告 | —(角色名,非 API) | 不传 `--report` 时 show / view 都渲染内置 `ExperimentComparison`(成本 × 成功率散点图 + 逐实验明细表)，分别选择 text / web 面。它是一份普通 `ReportDefinition`，没有宿主特权 |
-| 报告槽 / 证据室 | —(内部代号) | 宿主结构的两半:报告槽整个归 `--report`,证据室(transcript / trace / diff 下钻)是宿主本体;这两个词不出现在公开站 |
+| 默认报告 | —(角色名,非 API) | 不传 `--report` 时 show / view 都渲染 `niceeval/report/built-in` 的默认导出——报告 / Attempts / 追踪三页的普通 `defineReport`。首页由 `Hero`、`ScopeWarnings`、`CopyFixPrompt` 与 `ExperimentComparison`(按 experiment 父目录分组的成本 × 成功率散点 + 逐实验明细表)组成,与用户 `--report` 文件同层,没有宿主特权 |
+| 报告槽 | —(内部代号) | 宿主结构里可被 `--report` 整体替换的部分:裸跑渲染内建报告,显式 `--report` 换成用户报告文件;`报告槽`不出现在公开站 |
 
 ### 报告组件
 

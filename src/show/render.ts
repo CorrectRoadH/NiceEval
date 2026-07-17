@@ -418,29 +418,29 @@ export function attemptHistoryText(opts: {
   return `${head}\n\n${indentBlock(table, "  ")}`;
 }
 
-// ───────────────────────── --report 页索引 ─────────────────────────
+// ───────────────────────── --report 其余页索引 ─────────────────────────
 
 /**
- * 多页报告的页索引(docs/feature/reports/show/reports.md Case 2):标题行 + 每页一行
- * (id / 本 locale 页名 / 可复制的 `--page` 命令)。索引命令携带完整上下文
- * (--results / --report / 位置参数),复制即可精确复现下一层视图。
+ * 渲染初始页之后追加的「其余页」索引(docs/feature/reports/show/reports.md Case 2):
+ * 只列未渲染的页 —— 每行 id / 本 locale 页名 / 可复制的 `--page` 命令,索引命令携带完整上下文
+ * (--results / --report / 位置参数),复制即可精确复现下一层视图。调用方只在页数大于一时
+ * 拼接这段(单页定义没有「其余页」段);`otherPages` 不含被渲染的那一页。
  */
-export function pageIndexText(opts: {
-  report: HostReport;
-  title: string;
+export function otherPagesText(opts: {
+  otherPages: { id: string; title: HostReport["pages"][number]["title"] }[];
   command: HostCommandContext;
   locale: string;
 }): string {
-  const { report, title, command, locale } = opts;
-  const head = `${title} · ${locale === "zh-CN" ? `${report.pages.length} 页` : `${report.pages.length} pages`}`;
+  const { otherPages, command, locale } = opts;
+  const head = locale === "zh-CN" ? "其余页：" : "Other pages:";
   const table = renderAlignedRows(
-    report.pages.map((page) => [
+    otherPages.map((page) => [
       page.id,
       localizeText(page.title, locale) ?? page.id,
       showCommand({ ...command, page: page.id }),
     ]),
   );
-  return `${head}\n\n${indentBlock(table, "  ")}`;
+  return `${head}\n${indentBlock(table, "  ")}`;
 }
 
 // ───────────────────────── 截断预算(--eval / --execution / 全景共用) ─────────────────────────

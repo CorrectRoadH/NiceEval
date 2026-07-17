@@ -81,7 +81,8 @@ export const zhCN = {
     "      --diff[=文件] agent 归因的文件改动摘要;=文件 按窗口展开单个文件\n" +
     "      --history   逐 experiment × eval 的执行时间轴(与 --report 互斥)\n" +
     "      --results <目录> 钉死结果根   --experiment <id> 只看该实验\n" +
-    "      --report <文件> 自定义报告   --page <id> 选页(多页报告先输出页索引)\n" +
+    "      --report <文件> 自定义报告   --page <id> 定初始页(多页报告渲染该页,\n" +
+    "        尾部再附其余页索引)\n" +
     "  niceeval list                            列出发现到的 eval\n" +
     "  niceeval view [eval-id 前缀…] [--out 目录] [--port n] [--no-open]\n" +
     "      报告页 + 证据室;--report <文件> 整槽换成自定义报告(与 show 同一文件)\n" +

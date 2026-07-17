@@ -8,15 +8,31 @@ import {
   BUILT_IN_PAGE_TITLE,
   BUILT_IN_REPORT_TITLE,
   HostReportError,
+  loadHostReport,
   localizeText,
   localizedTextEquals,
   normalizeHostReport,
   resolveReportTitle,
   showCommand,
 } from "./report-host.ts";
-import { pageIndexText } from "./render.ts";
+import { otherPagesText } from "./render.ts";
+// dist-sourced:裸宿主装载的就是这份预编译产物的默认导出(show 与 view 同一条路),
+// raw-src import 会是另一份模块实例,引用等同断言必须对着 dist。
+import distBuiltInReport from "../../dist/report/built-in/index.js";
 
 const tree = { kind: "node" }; // 页 content 对宿主是不透明值,规范化不解析树
+
+describe("裸宿主装载内建报告", () => {
+  it("缺省(无 --report)装载 niceeval/report/built-in 的默认导出:三页与其 content 同引用", async () => {
+    const host = await loadHostReport(process.cwd(), undefined);
+    const builtIn = distBuiltInReport as { pages: readonly { id: string; content: unknown }[] };
+    expect(host.pages.map((p) => p.id)).toEqual(["report", "attempts", "traces"]);
+    expect(builtIn.pages.map((p) => p.id)).toEqual(["report", "attempts", "traces"]);
+    for (let i = 0; i < host.pages.length; i++) {
+      expect(host.pages[i]!.content).toBe(builtIn.pages[i]!.content); // 同一份默认导出,不是复制品
+    }
+  });
+});
 
 describe("装载规范化:外壳 + 非空页列表", () => {
   it("content 缩写展开为唯一页 id `report`,页名是内置页名「报告 / Report」", () => {
@@ -141,7 +157,7 @@ describe("LocalizedText 回退:locale → en → 键字典序第一个非空值"
   });
 });
 
-describe("页索引与索引命令上下文", () => {
+describe("其余页索引与索引命令上下文", () => {
   const report = normalizeHostReport(
     {
       kind: "report",
@@ -155,27 +171,28 @@ describe("页索引与索引命令上下文", () => {
     "reports/site.tsx",
   );
 
-  it("索引命令保留当前 --results / --report 与位置参数,复制即可复现下一层视图", () => {
-    const text = pageIndexText({
-      report,
-      title: "记忆能力评测",
+  it("只列未渲染的页,索引命令保留当前 --results / --report 与位置参数,复制即可复现下一层视图", () => {
+    // 渲染的是 overview,其余页索引只含 exam 一行——与「渲染初始页 + 尾部附其余页索引」
+    // 的新行为一致(docs/feature/reports/show/reports.md Case 2)。
+    const text = otherPagesText({
+      otherPages: report.pages.filter((p) => p.id !== "overview").map((p) => ({ id: p.id, title: p.title })),
       command: { patterns: [], results: "tmp/published-results", report: "reports/site.tsx" },
       locale: "zh-CN",
     });
-    expect(text).toContain("记忆能力评测 · 2 页");
-    expect(text).toContain("niceeval show --results tmp/published-results --report reports/site.tsx --page overview");
+    expect(text).toContain("其余页：");
     expect(text).toContain("niceeval show --results tmp/published-results --report reports/site.tsx --page exam");
-    expect(text).toContain("总览");
     expect(text).toContain("成绩单");
+    expect(text).not.toContain("总览");
+    expect(text).not.toContain("--page overview");
   });
 
-  it("show 不消费 links:页索引不含 icon svg 与 href(icon 是 web 面属性)", () => {
-    const text = pageIndexText({
-      report,
-      title: "Memory Evals",
+  it("show 不消费 links:其余页索引不含 icon svg 与 href(icon 是 web 面属性)", () => {
+    const text = otherPagesText({
+      otherPages: report.pages.filter((p) => p.id !== "overview").map((p) => ({ id: p.id, title: p.title })),
       command: { patterns: [] },
       locale: "en",
     });
+    expect(text).toContain("Other pages:");
     expect(text).not.toContain("<svg");
     expect(text).not.toContain("https://example.com");
   });

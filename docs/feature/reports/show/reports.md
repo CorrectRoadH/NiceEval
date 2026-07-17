@@ -6,7 +6,7 @@
 
 ## Case 1：单页文件——直接渲染
 
-树形态与 `content:` 缩写形态都是单页，不输出页索引（索引的价值是下钻命令，只有一页时直接渲染就是答案）：
+树形态与 `content:` 缩写形态都是单页，直接渲染、不附页索引（索引只列未渲染的页，单页没有）：
 
 ```sh
 $ niceeval show --report reports/frontier.tsx            # 直接渲染该页 text 面
@@ -16,22 +16,22 @@ $ niceeval show --report reports/frontier.tsx --page typo
 error: page "typo" not found in reports/frontier.tsx. Available pages: report
 ```
 
-## Case 2：多页文件——先索引，后进页
+## Case 2：多页文件——渲染初始页，尾部附其余页索引
 
-多页且未传 `--page` 时只输出页索引与可复制的单页命令——与可比组索引同一模式，不把全部页倾倒进终端：
+多页时渲染初始页（`--page` 指定的页，缺省第一页），随后附其余页的索引与可复制命令——与 `view` 打开初始页同一语义：一条命令直接给出答案，其余页只列索引、不倾倒内容：
 
 ```sh
-$ niceeval show --report reports/site.tsx
-记忆能力评测 · 2 页
+$ niceeval show --report reports/site.tsx                # 渲染第一页（总览）的 text 面
+…（总览页内容）…
 
-  overview   总览      niceeval show --report reports/site.tsx --page overview
-  exam       成绩单    niceeval show --report reports/site.tsx --page exam
+其余页：
+  exam   成绩单    niceeval show --report reports/site.tsx --page exam
 ```
 
 复制索引里的命令进页：
 
 ```sh
-$ niceeval show --report reports/site.tsx --page exam    # 渲染成绩单页的 text 面
+$ niceeval show --report reports/site.tsx --page exam    # 渲染成绩单页的 text 面，尾部列出 overview
 $ niceeval show --report reports/site.tsx --page typo
 error: page "typo" not found in reports/site.tsx. Available pages: overview, exam
 ```
@@ -80,11 +80,11 @@ $ niceeval show @1qrdcfq8 --diff                         # 证据切面照常可
 
 ## Case 6：内建等价文件
 
-裸 `niceeval show` 与 `--report` 一个内容只有 `export default defineReport(<ExperimentComparison />)` 的文件完全等价（见 [Library · 内建报告](../library/built-in.md)）；因此上面每个 case 对内建报告同样成立——裸 `show` 命中多组时的组索引，就是 Case 3 在默认上下文里的样子。
+裸 `niceeval show` 与 `--report` 一个内容为[内建报告全文](../library/built-in.md)（报告 / Attempts / 追踪三页）的文件完全等价；因此上面每个 case 对内建报告同样成立——裸 `show` 渲染报告页并在尾部列出 Attempts、追踪两页的索引（Case 2），命中多组时报告页内是组索引（Case 3 在默认上下文里的样子）。
 
 ## 外壳字段在终端
 
-配置对象形态的外壳里，`show` 只消费 `title`（页索引的标题行）与 `pages`；`links`、`footer`、`scripts`、`styles` 是 web 面属性，`Powered by NiceEval` 品牌行同样只属于 web 面外壳，`show` 不打印。页内的 `Tabs` 在 text 面按声明序全量输出、不折成索引——tab 没有选择器，索引是死路；内容长到终端读不动，是把 tab 升级成页的信号（见 [Library · Tabs](../library/layout.md#tabs)）。
+配置对象形态的外壳里，`show` 只消费 `title`（页索引的标题行）与 `pages`；`links`、`footer`、`scripts`、`styles` 是 web 面属性，`show` 不打印。页内组件按各自 text 面输出：`Hero` 打印标题与运行 meta，[`PoweredBy` 品牌行与 `CopyFixPrompt` 的 text 面零输出](../library/site-components.md)。页内的 `Tabs` 在 text 面按声明序全量输出、不折成索引——tab 没有选择器，索引是死路；内容长到终端读不动，是把 tab 升级成页的信号（见 [Library · Tabs](../library/layout.md#tabs)）。
 
 ## 相关阅读
 
