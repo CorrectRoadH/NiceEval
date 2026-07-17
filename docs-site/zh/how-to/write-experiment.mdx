@@ -104,7 +104,7 @@ npx niceeval exp prompt-variants/concise
 | `timeoutMs` | 单个 attempt 的超时 |
 | `budget` | 这一格配置的预算上限 |
 | `maxConcurrency` | 这一格配置的并发上限 |
-| `sandbox` | sandbox agent 使用的固定 spec，或按 eval 环境 profile 返回 spec 的 resolver；spec 上可以链 `.setup()` / `.teardown()` 挂环境钩子 |
+| `sandbox` | sandbox agent 使用的固定 spec；spec 可带 `environments` 表按 eval 的环境 profile 换预制产物，也可以链 `.setup()` / `.teardown()` 挂环境钩子 |
 
 Experiment 本身是纯配置数据，没有 `setup` / `teardown` 这类字段。要在跑 agent 前按实验准备环境（装二进制、预热、跨 attempt 载入和回存状态），挂在 `sandbox` 字段的 spec 上：
 
@@ -124,7 +124,7 @@ export default defineExperiment({
 
 ## 让不同 eval 使用不同预制环境
 
-一批真实任务可能需要不同版本的运行时和依赖。eval 用 `environment` 声明一个与 provider 无关的 profile ID；experiment 再把它映射到具体模板或快照：
+一批真实任务可能需要不同版本的运行时和依赖。eval 用 `environment` 声明一个与 provider 无关的 profile ID；sandbox spec 的 `environments` 表再把它映射到具体模板或快照：
 
 ```ts
 // evals/astropy-2021.eval.ts
@@ -137,21 +137,28 @@ export default defineEval({
 ```
 
 ```ts
-// experiments/e2b.ts
-import { defineExperiment } from "niceeval";
+// experiments/shared.ts —— 一个 provider 一张表，所有实验共用
 import { e2bSandbox } from "niceeval/sandbox";
 
-export default defineExperiment({
-  agent: codexAgent(),
-  sandbox: ({ eval }) => {
-    if (eval.environment === "python-3.9-astropy-4.2") {
-      return e2bSandbox({ template: "codex-python39" });
-    }
-    return e2bSandbox({ template: "codex-default" });
+export const e2b = e2bSandbox({
+  template: "codex-default",              // 未声明 environment 的 eval 用它
+  environments: {
+    "python-3.9-astropy-4.2": { template: "codex-python39" },
   },
 });
 ```
 
-`environment` 是非空的稳定字符串，不是包版本约束。resolver 必须为每个分支返回一个具体 Sandbox spec。NiceEval 在启动任何 Sandbox 前解析所有选中的 eval；返回空值或抛错会让本次运行直接报配置错误。remote Agent 不创建 Sandbox，因此不会调用 resolver。
+```ts
+// experiments/e2b.ts —— 实验保持一行 diff，覆盖全部 eval
+import { defineExperiment } from "niceeval";
+import { e2b } from "./shared";
+
+export default defineExperiment({
+  agent: codexAgent(),
+  sandbox: e2b,
+});
+```
+
+`environment` 是非空的稳定字符串，不是包版本约束。`environments` 表的值就是该 provider 预制产物字段的覆盖（Docker 的 `image`、E2B 的 `template`、Vercel 的 `snapshotId`）。NiceEval 在启动任何 Sandbox 前对所有选中的 eval 完成查表；某条 eval 声明的 profile 缺表项会在启动时一次性报出全部缺项。remote Agent 不创建 Sandbox，不参与查表。因为映射是随 spec 复用的数据，同一个实验能覆盖全部 eval——分数和对比表不会因为环境不同被拆成多个实验。
 
 跨配置比较的设计建议见[实验矩阵](/zh/how-to/experiments)。adapter 如何消费 `ctx.model` 和 `ctx.flags` 见[Adapter](/zh/explanation/adapter)。

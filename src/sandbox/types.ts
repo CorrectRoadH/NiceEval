@@ -126,18 +126,24 @@ export interface DockerSandboxSpec extends SandboxHooks<DockerSandboxSpec> {
   readonly provider: "docker";
   /** 覆盖默认镜像;默认按 runtime 选 `node:*-slim`。预制模板:传烘焙好 agent CLI 的镜像名。 */
   readonly image?: string;
+  /** 按 eval 的 `environment` profile 覆盖预制镜像:键为 profile id,值为该 profile 起步的镜像。未声明 environment 的 eval 用 `image`。 */
+  readonly environments?: Readonly<Record<string, { readonly image: string }>>;
   readonly runtime?: SandboxRuntime;
 }
 export interface VercelSandboxSpec extends SandboxHooks<VercelSandboxSpec> {
   readonly provider: "vercel";
   /** 从已有快照起 microVM。预制模板:烘焙好 agent CLI 的 snapshotId。 */
   readonly snapshotId?: string;
+  /** 按 eval 的 `environment` profile 覆盖预制快照:键为 profile id,值为该 profile 起步的 snapshotId。未声明 environment 的 eval 用 `snapshotId`。 */
+  readonly environments?: Readonly<Record<string, { readonly snapshotId: string }>>;
   readonly runtime?: SandboxRuntime;
 }
 export interface E2BSandboxSpec extends SandboxHooks<E2BSandboxSpec> {
   readonly provider: "e2b";
   /** e2b 模板名/ID。预制模板:烘焙好 agent CLI 的模板(如 `"niceeval-agents"`)。省略用 e2b 默认 `"base"`。 */
   readonly template?: string;
+  /** 按 eval 的 `environment` profile 覆盖预制模板:键为 profile id,值为该 profile 起步的模板。未声明 environment 的 eval 用 `template`。 */
+  readonly environments?: Readonly<Record<string, { readonly template: string }>>;
   /** 仅作记录;e2b 的 node 版本由模板决定,不在创建时选。 */
   readonly runtime?: SandboxRuntime;
 }

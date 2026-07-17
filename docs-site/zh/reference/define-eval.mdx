@@ -58,7 +58,7 @@ tags?: string[];
 environment?: string;
 ```
 
-provider-neutral 的环境 profile id；由 ExperimentDef.sandbox resolver 映射到具体 SandboxSpec。
+这条 eval 需要的环境 profile id(provider-neutral,如 `"python-3.9-astropy-4.2"`);由 sandbox spec 的 `environments` 表翻译成该 provider 的预制产物。
 
 #### `judge`
 

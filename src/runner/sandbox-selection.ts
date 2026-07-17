@@ -1,80 +1,94 @@
-// ExperimentDef.sandbox 的规划期解析：固定 spec 原样复用；resolver 按 selected eval 恰好
-// 调用一次并缓存。指纹、并发预算、attempt 创建与结果审计全部消费这同一份解析结果。
+// ExperimentDef.sandbox 的规划期解析:spec 携带 environments 表时,按每条选中 eval 的
+// `environment` profile 查表派生该 eval 的具体 spec;缺表项在创建任何沙箱、计算 carry 或
+// 选择全局并发之前一次性穷举报错。指纹、并发预算、attempt 创建与结果审计全部消费这同一份
+// 解析结果(见 docs/feature/experiments/library.md「不同 eval 起自不同预制环境」)。
 
-import { createHash } from "node:crypto";
 import { sandboxRecommendedConcurrency, sandboxRunInfo } from "../sandbox/resolve.ts";
 import type { DiscoveredEval, SandboxOption, SandboxRunInfo } from "../types.ts";
-import type { AgentRun, ExperimentSandbox } from "./types.ts";
+import type { AgentRun } from "./types.ts";
 
-function selectedSandbox(run: AgentRun, fallback?: SandboxOption): ExperimentSandbox | undefined {
-  return run.sandbox ?? fallback;
+/** environments 表是内置 provider spec 的数据字段;这里只做查表,不认 provider 名。 */
+function specEnvironments(spec: SandboxOption): Readonly<Record<string, Record<string, unknown>>> | undefined {
+  const environments = (spec as { environments?: unknown }).environments;
+  if (typeof environments !== "object" || environments === null) return undefined;
+  return environments as Readonly<Record<string, Record<string, unknown>>>;
 }
 
-export function sandboxResolverFingerprint(resolver: (context: unknown) => SandboxOption): string {
-  return createHash("sha256").update(resolver.toString()).digest("hex").slice(0, 16);
+/** 按 profile 派生该 eval 的具体 spec(浅覆盖预制产物槽位,hooks 与其余参数共享);缺表项返回 undefined。 */
+function deriveSpec(spec: SandboxOption, profile: string): SandboxOption | undefined {
+  const override = specEnvironments(spec)?.[profile];
+  if (override === undefined) return undefined;
+  return { ...spec, ...override } as SandboxOption;
 }
 
+function missingEnvironmentsError(run: AgentRun, missing: ReadonlyArray<readonly [string, string]>): Error {
+  const entries = missing.map(([id, profile]) => `  ${id} → ${JSON.stringify(profile)}`).join("\n");
+  return new Error(
+    `sandbox spec for experiment ${JSON.stringify(run.experimentId ?? run.agent.name)} has no environments entry for:\n${entries}\n` +
+      `add the missing profile(s) to the spec's environments table — dockerSandbox({ environments: { "<profile>": { image } } }), ` +
+      `e2bSandbox({ environments: { "<profile>": { template } } }), vercelSandbox({ environments: { "<profile>": { snapshotId } } }) — ` +
+      `or fix the eval's environment declaration`,
+  );
+}
+
+/** 该 eval 实际起步的 spec:未声明 environment 用基础 spec;声明了则查表派生并缓存。 */
 export function sandboxForEval(run: AgentRun, evalDef: DiscoveredEval, fallback?: SandboxOption): SandboxOption | undefined {
   if (run.agent.kind !== "sandbox") return undefined;
-  const selection = selectedSandbox(run, fallback);
-  if (typeof selection !== "function") return selection;
+  const spec = run.sandbox ?? fallback;
+  if (spec === undefined || evalDef.environment === undefined) return spec;
 
   const cached = run.resolvedSandboxes?.get(evalDef.id);
   if (cached !== undefined) return cached;
 
-  const resolved = selection({
-    eval: {
-      id: evalDef.id,
-      ...(evalDef.environment !== undefined ? { environment: evalDef.environment } : {}),
-    },
-  });
-  if (typeof resolved !== "object" || resolved === null || typeof resolved.provider !== "string") {
-    throw new Error(
-      `sandbox resolver for experiment ${JSON.stringify(run.experimentId ?? run.agent.name)} returned no SandboxSpec for eval ${JSON.stringify(evalDef.id)}${evalDef.environment !== undefined ? ` (environment ${JSON.stringify(evalDef.environment)})` : ""}; return a concrete dockerSandbox(), e2bSandbox(), vercelSandbox(), or defineSandbox() spec from every branch`,
-    );
-  }
+  const derived = deriveSpec(spec, evalDef.environment);
+  if (derived === undefined) throw missingEnvironmentsError(run, [[evalDef.id, evalDef.environment]]);
   const cache = run.resolvedSandboxes ?? new Map<string, SandboxOption>();
-  cache.set(evalDef.id, resolved);
+  cache.set(evalDef.id, derived);
   run.resolvedSandboxes = cache;
-  return resolved;
+  return derived;
 }
 
-/** 在 dry-run / carry / concurrency / attempt 展开之前一次性解析，错误不会等到花费发生后才出现。 */
+/** 在 dry-run / carry / concurrency / attempt 展开之前一次性查表;全部缺项一次穷举,不等到花费发生后才出现。 */
 export function prepareRunSandboxes(evals: DiscoveredEval[], runs: AgentRun[], fallback?: SandboxOption): void {
   for (const run of runs) {
     if (run.agent.kind !== "sandbox") continue;
-    const selection = selectedSandbox(run, fallback);
-    if (typeof selection === "function") {
-      run.sandboxResolverFingerprint = sandboxResolverFingerprint(selection as (context: unknown) => SandboxOption);
-    }
+    const spec = run.sandbox ?? fallback;
+    if (spec === undefined) continue; // 缺 spec 的错误由既有 resolveSandbox 路径按原文案报
+    const missing: Array<readonly [string, string]> = [];
     for (const evalDef of evals) {
-      if (run.evalFilter(evalDef.id)) sandboxForEval(run, evalDef, fallback);
+      if (!run.evalFilter(evalDef.id) || evalDef.environment === undefined) continue;
+      if (run.resolvedSandboxes?.has(evalDef.id)) continue;
+      const derived = deriveSpec(spec, evalDef.environment);
+      if (derived === undefined) {
+        missing.push([evalDef.id, evalDef.environment]);
+        continue;
+      }
+      const cache = run.resolvedSandboxes ?? new Map<string, SandboxOption>();
+      cache.set(evalDef.id, derived);
+      run.resolvedSandboxes = cache;
     }
+    if (missing.length > 0) throw missingEnvironmentsError(run, missing);
   }
 }
 
+/** ExperimentRunInfo 的 sandbox 投影:顶层恒为基础 spec;sandboxByEval 只含声明了 environment 的选中 eval。 */
 export function sandboxProjection(run: AgentRun, fallback?: SandboxOption): {
   sandbox?: SandboxRunInfo;
-  sandboxResolverFingerprint?: string;
   sandboxByEval?: Record<string, SandboxRunInfo>;
 } {
   if (run.agent.kind !== "sandbox") return {};
-  const selection = selectedSandbox(run, fallback);
-  if (typeof selection !== "function") {
-    const sandbox = sandboxRunInfo(selection);
-    return sandbox === undefined ? {} : { sandbox };
-  }
-
+  const sandbox = sandboxRunInfo(run.sandbox ?? fallback);
+  const entries = [...(run.resolvedSandboxes ?? new Map<string, SandboxOption>()).entries()].sort(([a], [b]) =>
+    a.localeCompare(b),
+  );
   const sandboxByEval: Record<string, SandboxRunInfo> = {};
-  for (const [evalId, spec] of [...(run.resolvedSandboxes ?? new Map()).entries()].sort(([a], [b]) => a.localeCompare(b))) {
-    const info = sandboxRunInfo(spec);
+  for (const [evalId, derived] of entries) {
+    const info = sandboxRunInfo(derived);
     if (info !== undefined) sandboxByEval[evalId] = info;
   }
   return {
-    ...(run.sandboxResolverFingerprint !== undefined
-      ? { sandboxResolverFingerprint: run.sandboxResolverFingerprint }
-      : {}),
-    sandboxByEval,
+    ...(sandbox !== undefined ? { sandbox } : {}),
+    ...(entries.length > 0 ? { sandboxByEval } : {}),
   };
 }
 

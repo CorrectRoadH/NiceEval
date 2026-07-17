@@ -7,3 +7,5 @@
 **否决方案**：`EvalDef.sandbox/template` 直接覆盖——eval 绑定 provider，experiment 不再完整描述运行配置，并让并发默认、carry 指纹与快照投影失真；`environment` 直接当包约束求解器——NiceEval 不应发明跨 image/template/snapshot 的依赖解析语言。profile 是不透明 id，映射决策留给拥有 provider 知识的 experiment。
 
 **结果纪律**：resolver 函数体 fingerprint 是快照级配置身份，防止局部重跑从旧 resolver 快照补齐；本次选中 eval 的 resolved spec 另落 `sandboxByEval` 审计。未选中的 eval 不求值，resolver 配置错误在任何 sandbox/Agent 预算发生前失败。
+
+**后续（2026-07-17）**：resolver 解析形态被推翻——`EvalDef.environment` 与「profile 是不透明 id、映射归拥有 provider 知识的一侧」的判据保留，映射载体改为 sandbox spec 工厂的 `environments` 数据表，见 [eval-environments-map-replaces-resolver](eval-environments-map-replaces-resolver.md)。

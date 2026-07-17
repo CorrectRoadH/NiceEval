@@ -159,7 +159,8 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 
 ## 设计决定
 
-- [eval-environment-profile-sandbox-resolver](eval-environment-profile-sandbox-resolver.md) — 裁决:Eval 只声明 provider-neutral environment profile，Experiment sandbox resolver 按选中 eval 解析具体 spec；否决 Eval 直接绑定 template/provider
+- [eval-environment-profile-sandbox-resolver](eval-environment-profile-sandbox-resolver.md) — 裁决:Eval 只声明 provider-neutral environment profile；否决 Eval 直接绑定 template/provider。resolver 解析形态 2026-07-17 被推翻,见下条
+- [eval-environments-map-replaces-resolver](eval-environments-map-replaces-resolver.md) — 裁决:profile→预制产物映射改为 sandbox spec 工厂的 environments 数据表(删 resolver 与函数指纹);否决按环境拆 experiment(分数横截面被切碎)与 config 顶层注册表
 - [publish-redaction-removed](publish-redaction-removed.md) — 设计裁决:发布脱敏管线(redact 必填/publish 标记/--allow-sensitive-artifacts/展示层 redact)整体移除;保密边界在采集侧,真实根实测零秘密;兜底方向是只警告不改写的凭据扫描
 - [view-server-serves-site-plan](view-server-serves-site-plan.md) — 裁决(2026-07-16):view 本地 server 与 --out 统一为单一站点管线(SitePlan 清单,布局/取数知识单点在 site.ts,逐字节奇偶测试守护);否决双链路各自修与「先导出临时目录再服务」;旁路取数删除,宿主语义只剩首页重建/embed/收窄三条
 - [report-head-channel-replaces-asset-attrs](report-head-channel-replaces-asset-attrs.md) — 裁决(2026-07-16):外壳第三方脚本/meta/favicon 走结构化 `head` 通道(白名单 tag+attrs+children),否决 ReportAsset 加 attrs、JSX 直给 `<script>`、raw HTML 字符串三方案;`{src}` 外链装载报错指引 head

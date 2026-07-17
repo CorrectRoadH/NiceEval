@@ -25,36 +25,35 @@ export default defineExperiment({
 
 详见 [Adapter · 配置归属不变量](../adapters/architecture/agent-contract.md#配置归属不变量)。
 
-## 按 eval 解析预制环境
+## 不同 eval 起自不同预制环境
 
-同一 experiment 可以覆盖一批运行时年代不同的真实任务：一条需要 Python 3.9，另一条只需要默认 Node 环境。稳定的大依赖应进 image/template/snapshot，但具体产物属于 experiment 的 provider 配置，不能写死在 eval。两边用一个 provider-neutral environment profile 对接：
+同一 experiment 可以覆盖一批运行时年代不同的真实任务：一条需要 Python 3.9 + astropy 4.2，其余用默认 Node 环境。稳定的大依赖应进 image/template/snapshot（构建工作流见 [Sandbox · 预制环境](../sandbox/library/prebuilt-environments.md)），但具体产物名属于 provider 配置，不能写死在 eval。两边用一个 provider-neutral 的 environment profile 对接：eval 声明需求，sandbox spec 的 `environments` 表把需求翻译成产物：
 
 ```typescript
-// evals/memory/terminal-swe-bench-astropy-1.eval.ts
+// evals/memory/terminal-swe-bench-astropy-1.eval.ts —— 任务声明自己需要什么
 export default defineEval({
   environment: "python-3.9-astropy-4.2",
   async test(t) { /* 上传任务、驱动 agent、跑隐藏测试 */ },
 });
 
-// experiments/dev-e2b/codex.ts
-export default defineExperiment({
-  agent: codexAgent(),
-  sandbox: ({ eval }) => {
-    switch (eval.environment) {
-      case "python-3.9-astropy-4.2":
-        return e2bSandbox({ template: "niceeval-codex-python39" });
-      case undefined:
-        return e2bSandbox({ template: "niceeval-codex" });
-      default:
-        throw new Error(`unsupported eval environment: ${eval.environment}`);
-    }
+// experiments/shared.ts —— 一个 provider 一张翻译表，整组实验复用
+export const e2b = e2bSandbox({
+  template: "niceeval-agents",                 // 未声明 environment 的 eval 从它起步
+  environments: {
+    "python-3.9-astropy-4.2": { template: "niceeval-py39-astropy42" },
   },
 });
+
+// experiments/compare/codex.ts —— experiment 仍是单一配置，覆盖全部 eval
+export default defineExperiment({ agent: codexAgent(), sandbox: e2b });
 ```
 
-`environment` 是非空、不透明的稳定 id，不是一组由 NiceEval 解释的包版本约束。resolver 取得 eval 的路径推导 `id` 与 `environment`，必须在每个分支返回工厂产出的 `SandboxSpec`。NiceEval 在创建任何 sandbox、计算 carry 或选择全局并发前，对每条**选中** eval 求值一次并缓存结果；未选中的 profile 不会让本次运行失败。resolver 抛错或返回空值属于启动期配置错误，不消耗 provider / Agent 预算。
+- `environment` 是非空、不透明的稳定 id，不是一组由 NiceEval 解释的包版本约束。
+- `environments` 是纯数据：键为 profile id，值为该 provider「预制产物槽位」的覆盖参数（docker 的 `image`、e2b 的 `template`、vercel 的 `snapshotId`），字段类型由各内置工厂声明；`defineSandbox` 自定义 spec 没有这张表。详见 [Sandbox · 按 environment 选预制产物](../sandbox/library/prebuilt-environments.md#按-environment-选预制产物)。
+- NiceEval 在创建任何沙箱、计算 carry 或选择全局并发前，对每条**选中** eval 完成查表；选中 eval 声明的 profile 缺表项是启动期配置错误，一次穷举列出全部 (eval id, profile) 缺项，不消耗 provider / Agent 预算。未选中 eval 的 profile 不影响本次运行。
+- 查表只决定这条 attempt 从哪个预制产物起步；spec 上的 `.setup()` / `.teardown()` 钩子链与其余参数对全部 eval 共享，`EvalDef.setup` 继续只负责分类账锚点之后的任务 fixture。remote Agent 不创建 sandbox，不参与查表，`environment` 只作为 eval fingerprint 的一部分保留。
 
-resolver 只决定这条 attempt 从哪个预制环境起步；返回 spec 上的 `.setup()` / `.teardown()` 仍按既有环境层顺序执行。`EvalDef.setup` 继续只负责分类账锚点之后的任务 fixture。remote Agent 不创建 sandbox，因此 resolver 不调用，`environment` 只作为 eval fingerprint 的一部分保留。
+翻译表放在 spec 上而不是 experiment 上，是因为它的真实维度是 **profile × provider**，与具体实验无关：表随 spec 被多个实验共享（模块常量或 `Config.sandbox` 兜底），新增环境只改一处，experiment 保持「一行 diff」的形态，一个实验覆盖全集、对比横截面完整。
 
 ## 生命周期代码怎样向这次运行反馈
 
@@ -187,7 +186,7 @@ export default defineExperiment({
 
 ## 与 config 的关系
 
-- **`niceeval.config.ts`(`defineConfig`)** = 项目级默认:`judge`、`reporters`、并发 / 超时、`pricing`、`sandbox`。`Config.sandbox` 必须是工厂函数产出的固定 `SandboxSpec`；experiment 的 `sandbox` 可以用固定 spec 覆盖，也可以用按 eval 求值的 resolver 覆盖。两处都没配置时，沙箱型 Agent 直接报错，不探测环境或选择内置 Provider 默认值。
+- **`niceeval.config.ts`(`defineConfig`)** = 项目级默认:`judge`、`reporters`、并发 / 超时、`pricing`、`sandbox`。`Config.sandbox` 必须是工厂函数产出的显式 `SandboxSpec`（可携带 `environments` 表）；experiment 的 `sandbox` 可以覆盖它。两处都没配置时，沙箱型 Agent 直接报错，不探测环境或选择内置 Provider 默认值。
 - **`experiments/**/*.ts`(默认导出 `defineExperiment`)** = 一次具体运行的配置,覆盖 config 默认;按文件夹聚成可对比组(`.experiment.ts` 后缀可选,位于 `experiments/` 下即识别)。
 
 调度项覆盖优先级(高 → 低):**CLI flag → 环境变量(`NICEEVAL_RUNS` / `NICEEVAL_TIMEOUT` / `NICEEVAL_BUDGET` / `NICEEVAL_MAX_CONCURRENCY`)→ experiment → config → 内置默认**。CLI 启动时加载项目根的 `.env`。agent、model、flags 属于 experiment,不由 CLI / 环境变量覆盖。

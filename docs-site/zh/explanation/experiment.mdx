@@ -27,7 +27,7 @@ export default defineExperiment({
 
 Experiment 是纯配置数据，没有 `setup` / `teardown` 这类生命周期字段。要按实验准备环境（装二进制、预热、跨 attempt 存取状态），挂在 `sandbox` 字段的 spec 上——`dockerSandbox()` 等工厂返回的对象可以链 `.setup()` / `.teardown()`，见 [沙箱 provider · 环境钩子](/zh/how-to/sandbox-providers#环境钩子)。
 
-同一实验里的 eval 需要不同预制环境时，eval 只声明 provider-neutral 的 `environment` profile；experiment 把 `sandbox` 写成 resolver，再映射到 Docker image、E2B template 或 Vercel sandbox snapshot。这样任务需求留在 eval，provider 选择仍留在实验。写法见[写实验 · 让不同 eval 使用不同预制环境](/zh/how-to/write-experiment#让不同-eval-使用不同预制环境)。
+同一实验里的 eval 需要不同预制环境时，eval 只声明 provider-neutral 的 `environment` profile；sandbox spec 的 `environments` 表再把 profile 映射到 Docker image、E2B template 或 Vercel sandbox snapshot。这样任务需求留在 eval，provider 产物留在 spec，一个实验仍覆盖全部 eval、对比不拆分。写法见[写实验 · 让不同 eval 使用不同预制环境](/zh/how-to/write-experiment#让不同-eval-使用不同预制环境)。
 
 ## 矩阵对比
 

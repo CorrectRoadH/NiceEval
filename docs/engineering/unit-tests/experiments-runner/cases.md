@@ -11,7 +11,7 @@
 | attempt 总数 = 选中实验配置数 × 选中 eval 数 × runs（runs 默认 1）；不写实验不能运行 | 正例：2 配置 × 3 eval × 5 runs = 30；边界：runs 省略 = 1；反例：无 experiment 报错 |
 | eval 文件默认导出数组时扇出，id 加零填充索引；单导出用文件 id | 正例：数组扇出 id 格式；边界：单元素数组仍带索引 |
 | 位置参数按 eval id **裸字符串前缀**过滤，实验 `evals` 字段（`"*"` / 数组 / 谓词）再筛，两层是交集；与 show/view 同口径，不要求 `/` 段边界 | 正例：`memory/terminal-swe-bench` 命中两个 `memory/terminal-swe-bench-astropy-*` sibling；反例：不命中为空；正例：谓词过滤；边界：evals 默认 `"*"` |
-| `EvalDef.environment` 是 provider-neutral profile；experiment 的 sandbox resolver 对每条选中 eval 调度前求值一次，resolved spec 同源驱动创建、逐 eval fingerprint、provider 推荐并发与结果投影；remote Agent 不调用 resolver | 正例：两个 profile 解析到不同 E2B template，快照落 resolver fingerprint + sandboxByEval；反例：resolver 抛错/返回空值在创建 sandbox 前失败；边界：remote Agent 零调用 |
+| `EvalDef.environment` 是 provider-neutral profile；sandbox spec 的 `environments` 表在调度前对每条选中 eval 查表，解析结果同源驱动创建、逐 eval fingerprint、provider 推荐并发与结果投影；remote Agent 不查表 | 正例：两个 profile 查到不同 E2B template，快照落 sandboxByEval；反例：选中 eval 的 profile 缺表项在创建 sandbox 前穷举报错；边界：remote Agent 零查表；边界：未声明 environment 的 eval 用基础产物且不进 sandboxByEval |
 | 实验 id 从路径推导（`experiments/compare/x.ts` → `compare/x`）；`exp <组>` 选目录段下全部实验，`exp <组/配置>` 选一个 | 正例：组选中多实验；正例：精确选中；反例：不存在的组 |
 | `exp show` / `exp view` 在没有同名 experiment 时仍按“不存在的实验”失败，但追加正确顶层命令提示；若真有同名 experiment 则正常选择，不抢占合法 id | 反例：无 `show` / `view` experiment 时分别提示 `niceeval show` / `niceeval view`；边界：存在同名 experiment 时不提示 |
 | 调度项覆盖优先级 CLI flag → experiment → config → 内置默认；agent/model/flags 只属于 experiment，CLI 不可覆盖 | 正例：`--runs` 覆盖实验 runs；正例：实验 timeoutMs 覆盖 config；反例：`exp --model` 报用法错误 |
@@ -26,7 +26,7 @@
 |---|---|
 | 全局在飞 attempt 任意时刻 ≤ 全局 maxConcurrency，释放一个才启动下一个 | 正例：barrier 观察 inFlight 峰值；边界：attempt 数 < 上限 |
 | 实验级 `maxConcurrency` 只让该实验自己排队，同批其它实验仍按全局并发跑 | 正例：实验 A 上限 1 时实验 B 仍并发 |
-| 全局上限解析：`--max-concurrency` → 配置 `maxConcurrency` → 所有实际 resolved sandbox provider 推荐值的最小值（docker 10 / e2b 20 / vercel 1 / 自定义 recommendedConcurrency，省略则 5）；实验级不参与全局解析 | 正例：三层各自生效；边界：resolver 产生 vercel + e2b 时默认 1；反例：实验级不抬高全局上限 |
+| 全局上限解析：`--max-concurrency` → 配置 `maxConcurrency` → 所有实际 resolved sandbox provider 推荐值的最小值（docker 10 / e2b 20 / vercel 1 / 自定义 recommendedConcurrency，省略则 5）；实验级不参与全局解析 | 正例：三层各自生效；边界：两个实验分别用 vercel 与 e2b 时默认 1；反例：实验级不抬高全局上限 |
 | 报告回调经 permit=1 信号量串行化，且不阻塞执行 fiber | 正例：慢 reporter 下 inFlight 仍达上限；正例：并发完成时 onEvent 无重入 |
 
 示例——并发上限用 barrier 观察"在飞"状态，不用 `setTimeout` 猜测调度是否已经发生：

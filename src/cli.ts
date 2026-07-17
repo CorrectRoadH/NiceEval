@@ -771,7 +771,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // resolver 在 dry-run 与真实运行共用的规划边界解析；无效分支在任何沙箱/agent 花费前失败。
+  // environments 查表在 dry-run 与真实运行共用的规划边界完成；缺表项在任何沙箱/agent 花费前穷举失败。
   prepareRunSandboxes(evals, agentRuns, config.sandbox);
 
   if (flags.dry) {

@@ -13,7 +13,7 @@ export default defineEval({
   judge?: JudgeConfig;             // 覆盖默认裁判模型
   reporters?: Reporter[];          // 这个 eval 专用的报告器
   timeoutMs?: number;              // 覆盖默认超时
-  environment?: string;            // provider-neutral 环境 profile id；由 experiment.sandbox resolver 解释
+  environment?: string;            // 这条 eval 需要的环境 profile id；由 sandbox spec 的 environments 表翻译成预制产物
   diff?: { include?: string[]; ignore?: string[] };   // 调整 agent diff 的归因排除清单(仅沙箱型;见下)
   metadata?: Record<string, unknown>;
   async setup(sandbox, ctx) { /* 这条 eval 的沙箱预置;ctx 可报告 progress/diagnostic */ },
@@ -21,7 +21,7 @@ export default defineEval({
 });
 ```
 
-`environment` 声明这条 eval 需要哪种**环境 profile**，例如 `"python-3.9-astropy-4.2"`。它是非空、不透明的稳定 id：eval 不在这里选择 Docker image、E2B template 或 Vercel snapshot，也不因此绑定某个 provider。固定 `SandboxSpec` 可以自行满足所选 eval 的全部 profile；一批 eval 需要不同预制环境时，experiment 把 `sandbox` 写成 resolver，根据 `{ eval: { id, environment } }` 返回每条 eval 的具体 spec，见 [Experiments · 按 eval 解析预制环境](../experiments/library.md#按-eval-解析预制环境)。resolver 未使用时这个字段仍进入 eval fingerprint，profile 改名会让该 eval 重跑。
+`environment` 声明这条 eval 需要哪种**环境 profile**，例如 `"python-3.9-astropy-4.2"`。它是非空、不透明的稳定 id：eval 不在这里选择 Docker image、E2B template 或 Vercel snapshot，也不因此绑定某个 provider。profile 到具体预制产物的翻译是一张纯数据表，写在 sandbox spec 工厂的 `environments` 参数上（一个 provider 一份，多个实验复用），见 [Sandbox · 按 environment 选预制产物](../sandbox/library/prebuilt-environments.md#按-environment-选预制产物)。省略此字段的 eval 从 spec 的基础产物起步；数据集扇出（一个文件默认导出数组或 record）时整组条目共享同一声明。选中 eval 声明的 profile 在所用 spec 里缺表项是启动期配置错误。此字段以解析后的产物参数计入 eval fingerprint——它映射的产物变化会让该 eval 重跑；remote Agent 不创建沙箱，此字段只参与指纹。
 
 `diff` 调整[变更归因](../sandbox/architecture.md#变更归因send-窗口与分类账)的排除清单,两个数组都是 **gitignore 风格 glob**(workdir 相对):默认排除 `.git/`、`node_modules/`、常见构建产物与包管理器缓存目录;`ignore` 在默认清单上追加排除;`include` 优先级最高,把匹配路径从默认清单与 `ignore` 中显式加回(要评分 `node_modules` 里被 agent patch 的文件就 include 它)。合成规则固定为「默认 ∪ ignore,再被 include 打洞」,清单在分类账锚点时冻结,运行中不可变。
 

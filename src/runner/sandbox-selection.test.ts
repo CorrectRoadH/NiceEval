@@ -52,58 +52,80 @@ function run(overrides: Partial<AgentRun> = {}): AgentRun {
 }
 
 describe("eval-level sandbox selection", () => {
-  it("每个 eval 只解析一次；投影、指纹与 provider 并发共用同一 resolved spec", async () => {
-    const py39 = await evalDef("astropy/old", "python-3.9");
-    const py311 = await evalDef("astropy/new", "python-3.11");
-    let calls = 0;
+  it("environments 查表:profile 换预制产物,未声明的 eval 用基础产物且不进 sandboxByEval", async () => {
+    const py39 = await evalDef("astropy/old", "python-3.9-astropy-4.2");
+    const node18 = await evalDef("legacy/node", "node-18-legacy");
+    const plain = await evalDef("weather/basic");
     const selected = run({
-      sandbox: ({ eval: item }) => {
-        calls++;
-        return item.environment === "python-3.9"
-          ? e2bSandbox({ template: "astropy-py39" })
-          : vercelSandbox({ snapshotId: "astropy-py311" });
-      },
+      sandbox: e2bSandbox({
+        template: "niceeval-agents",
+        environments: {
+          "python-3.9-astropy-4.2": { template: "niceeval-py39-astropy42" },
+          "node-18-legacy": { template: "niceeval-node18" },
+        },
+      }),
     });
 
-    prepareRunSandboxes([py39, py311], [selected]);
-    expect(calls).toBe(2);
-    expect(sandboxForEval(selected, py39)?.provider).toBe("e2b");
-    expect(sandboxForEval(selected, py311)?.provider).toBe("vercel");
-    expect(resolvedSandboxRecommendedConcurrency([py39, py311], [selected])).toBe(1);
+    prepareRunSandboxes([py39, node18, plain], [selected]);
+    expect(sandboxForEval(selected, py39)).toMatchObject({ provider: "e2b", template: "niceeval-py39-astropy42" });
+    expect(sandboxForEval(selected, node18)).toMatchObject({ provider: "e2b", template: "niceeval-node18" });
+    expect(sandboxForEval(selected, plain)).toMatchObject({ provider: "e2b", template: "niceeval-agents" });
+
     const projection = sandboxProjection(selected);
-    expect(projection.sandboxResolverFingerprint).toHaveLength(16);
+    expect(projection.sandbox).toMatchObject({ provider: "e2b", params: { template: "niceeval-agents" } });
     expect(projection.sandboxByEval).toMatchObject({
-      "astropy/old": { provider: "e2b", params: { template: "astropy-py39" } },
-      "astropy/new": { provider: "vercel", params: { snapshotId: "astropy-py311" } },
+      "astropy/old": { provider: "e2b", params: { template: "niceeval-py39-astropy42" } },
+      "legacy/node": { provider: "e2b", params: { template: "niceeval-node18" } },
     });
+    expect(projection.sandboxByEval).not.toHaveProperty("weather/basic");
 
-    const [oldFingerprint, newFingerprint] = await Promise.all([
+    const [oldFingerprint, nodeFingerprint, plainFingerprint] = await Promise.all([
       computeFingerprint(py39, selected),
-      computeFingerprint(py311, selected),
+      computeFingerprint(node18, selected),
+      computeFingerprint(plain, selected),
     ]);
-    expect(oldFingerprint).not.toBe(newFingerprint);
-    expect(calls).toBe(2);
+    expect(oldFingerprint).not.toBe(nodeFingerprint);
+    expect(oldFingerprint).not.toBe(plainFingerprint);
   });
 
-  it("resolver 返回空值时规划期报清晰错误；remote agent 完全不调用 resolver", async () => {
+  it("选中 eval 的 profile 缺表项在创建 sandbox 前穷举报错;defineEval 拒绝空 profile", async () => {
     expect(() => defineEval({ environment: "  ", test() {} })).toThrow(/environment.*non-empty profile id/);
-    const item = await evalDef("astropy/invalid", "python-3.9");
-    const invalid = run({ sandbox: (() => undefined) as unknown as AgentRun["sandbox"] });
-    expect(() => prepareRunSandboxes([item], [invalid])).toThrow(
-      /sandbox resolver.*profiles\/run.*astropy\/invalid.*python-3\.9.*concrete/,
-    );
 
-    let remoteCalls = 0;
+    const missingA = await evalDef("astropy/old", "python-3.9-astropy-4.2");
+    const missingB = await evalDef("legacy/node", "node-18-legacy");
+    const bare = run({ sandbox: e2bSandbox({ template: "niceeval-agents" }) });
+    let thrown: Error | undefined;
+    try {
+      prepareRunSandboxes([missingA, missingB], [bare]);
+    } catch (error) {
+      thrown = error as Error;
+    }
+    expect(thrown?.message).toMatch(/profiles\/run/);
+    expect(thrown?.message).toMatch(/astropy\/old → "python-3\.9-astropy-4\.2"/);
+    expect(thrown?.message).toMatch(/legacy\/node → "node-18-legacy"/);
+    expect(thrown?.message).toMatch(/environments/);
+  });
+
+  it("provider 推荐并发取所有解析结果的最小值;remote agent 零查表", async () => {
+    const item = await evalDef("astropy/old", "python-3.9-astropy-4.2");
+    const plain = await evalDef("weather/basic");
+    const e2bRun = run({
+      sandbox: e2bSandbox({
+        template: "niceeval-agents",
+        environments: { "python-3.9-astropy-4.2": { template: "niceeval-py39-astropy42" } },
+      }),
+    });
+    const vercelRun = run({ experimentId: "profiles/vercel", sandbox: vercelSandbox({ snapshotId: "snap_base" }) });
+    expect(resolvedSandboxRecommendedConcurrency([item, plain], [e2bRun])).toBe(20);
+    expect(resolvedSandboxRecommendedConcurrency([plain], [e2bRun, vercelRun])).toBe(1);
+
     const remote = run({
       agent: agent("remote"),
-      sandbox: () => {
-        remoteCalls++;
-        return e2bSandbox();
-      },
+      sandbox: e2bSandbox({ template: "niceeval-agents" }),
     });
     expect(() => prepareRunSandboxes([item], [remote])).not.toThrow();
     expect(resolvedSandboxRecommendedConcurrency([item], [remote])).toBe(10);
     expect(sandboxProjection(remote)).toEqual({});
-    expect(remoteCalls).toBe(0);
+    expect(remote.resolvedSandboxes).toBeUndefined();
   });
 });

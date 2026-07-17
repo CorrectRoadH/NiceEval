@@ -95,7 +95,6 @@ export interface ComparabilityConfig {
   budget?: number;
   timeoutMs?: number;
   sandbox?: ExperimentRunInfo["sandbox"];
-  sandboxResolverFingerprint?: string;
 }
 
 /** 一个快照的可比性配置投影;pairsByFlag 与 experimentListData 复用同一字段集。 */
@@ -109,9 +108,6 @@ export function comparabilityConfigOf(snapshot: Snapshot): ComparabilityConfig {
     ...(info?.budget !== undefined ? { budget: info.budget } : {}),
     ...(info?.timeoutMs !== undefined ? { timeoutMs: info.timeoutMs } : {}),
     ...(info?.sandbox !== undefined ? { sandbox: info.sandbox } : {}),
-    ...(info?.sandboxResolverFingerprint !== undefined
-      ? { sandboxResolverFingerprint: info.sandboxResolverFingerprint }
-      : {}),
   };
 }
 
