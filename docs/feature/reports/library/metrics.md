@@ -65,7 +65,7 @@ interface MetricCell {
 
 | 指标 | 含义 | 越高/低越好 | 数据来源 |
 |---|---|---|---|
-| `endToEndPassRate` | 默认成功率：passed = 1，failed / errored = 0，回答实际交付成功结果的概率 | 高 | `result.json` |
+| `endToEndPassRate` | 默认通过率：passed = 1，failed / errored = 0，回答实际交付通过结果的概率 | 高 | `result.json` |
 | `taskPassRate` | 条件答题通过率：passed = 1，failed = 0，errored 记 `null`；即只在已形成可信判定的样本上回答 Agent 答题质量 | 高 | `result.json` |
 | `executionReliability` | 执行可靠性：跑到可判定（passed / failed）= 1，errored = 0；回答一次运行能否形成可信判定 | 高 | `result.json` |
 | `examScore` | gate 决定能否得分，soft 断言给质量分 | 高 | `result.json` |
@@ -75,7 +75,7 @@ interface MetricCell {
 | `assistantTurns` | o11y 事件流中的 assistant turn 数；与 `t.send` 的 `s<session>/t<turn>` 轮次是两个计数，名字因此带限定词 | 低 | `o11y.json` |
 | `repeatedFailedCommands` | 同一 attempt 内同一条 shell 命令的重复失败数：每条命令失败 n 次（n > 1）记 n − 1，求和。回答 agent 是否在反复撞同一个已知失败的命令 | 低 | `o11y.json` |
 
-`skipped` 对这些指标返回 `null`。`errored` 只在 `taskPassRate` 中返回 `null`，在默认 `endToEndPassRate` 与 `executionReliability` 中都返回 0。三个指标都遵守“先在同一 eval 的 attempts 内聚合，再跨 eval 聚合”的两级规则；每个 eval 只有一个 attempt 时，`endToEndPassRate` 才简化为 `passed / (passed + failed + errored)`。三个指标必须按名字展示：任何默认总览和任何只写“Pass rate / 成功率”的位置都使用 `endToEndPassRate`；`taskPassRate` 必须标成“Task pass rate / 可判定任务通过率”等条件口径，不能把 `2 passed / 5 errored` 显示成无条件的 `100%`。要定位损失来自答题还是执行，可把三列并排：
+`skipped` 对这些指标返回 `null`。`errored` 只在 `taskPassRate` 中返回 `null`，在默认 `endToEndPassRate` 与 `executionReliability` 中都返回 0。三个指标都遵守“先在同一 eval 的 attempts 内聚合，再跨 eval 聚合”的两级规则；每个 eval 只有一个 attempt 时，`endToEndPassRate` 才简化为 `passed / (passed + failed + errored)`。它的完整口径名是“End-to-end pass rate / 端到端通过率”，默认组件的可见短标签统一为“Pass rate / 通过率”；任何默认总览和任何只写这个短标签的位置都使用 `endToEndPassRate`。`taskPassRate` 必须标成“Task pass rate / 可判定任务通过率”等条件口径，不能把 `2 passed / 5 errored` 显示成无条件的 `100%`。要定位损失来自答题还是执行，可把三列并排：
 
 ```tsx
 <MetricTable

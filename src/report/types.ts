@@ -278,7 +278,7 @@ export interface VerdictTally {
 }
 
 /**
- * 一个范围的摘要:快照时间窗、experiment / eval / attempt 数、两级判定计票、端到端成功率
+ * 一个范围的摘要:快照时间窗、experiment / eval / attempt 数、两级判定计票、端到端通过率
  * 和总成本。eval 的身份键是 experimentId + evalId;data 恒携带两级计票,渲染面显示哪一级
  * 由呈现 prop `votes` 决定,不改变 data(docs/feature/reports/library/summaries.md)。
  */

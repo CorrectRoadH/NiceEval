@@ -73,6 +73,7 @@
   margin-bottom:20px;
 }
 .nre-experiment-comparison .nre-experiment-group-tab {
+  container-type:inline-size;
   min-width:0;
   border:1px solid var(--line);
   border-radius:9px;
@@ -96,13 +97,14 @@
   font-size:15px;
   overflow-wrap:anywhere;
 }
-/* 组卡里嵌的 ScopeSummary 降为紧凑行:去掉满宽 KPI 条的边框,收小数字 */
+/* 组卡里嵌的 ScopeSummary 降为紧凑栅格:六项同排,窄屏按完整行成组换行。 */
 .nre-experiment-comparison .nre-experiment-group-tab .nre-scope-summary { margin:0; }
 .nre-experiment-comparison .nre-experiment-group-tab .nre-scope-kpis {
-  display:flex;
-  flex-wrap:wrap;
-  column-gap:16px;
-  row-gap:6px;
+  display:grid;
+  grid-template-columns:repeat(6,max-content);
+  justify-content:space-between;
+  column-gap:14px;
+  row-gap:10px;
   margin:0 0 6px;
   border:0;
   border-radius:0;
@@ -110,9 +112,14 @@
   overflow:visible;
 }
 .nre-experiment-comparison .nre-experiment-group-tab .nre-scope-kpi {
-  min-width:58px;
+  min-width:0;
   padding:0;
   border-right:0;
+}
+.nre-experiment-comparison .nre-experiment-group-tab .nre-scope-kpi dt {
+  font-size:12px;
+  text-transform:none;
+  letter-spacing:0;
 }
 .nre-experiment-comparison .nre-experiment-group-tab .nre-scope-kpi dd {
   margin:3px 0 0;
@@ -121,6 +128,16 @@
   font-weight:650;
 }
 .nre-experiment-comparison .nre-experiment-group-tab .nre-scope-kpi-rate dd { font-size:18px; }
+@container(max-width:680px){
+  .nre-experiment-comparison .nre-experiment-group-tab .nre-scope-kpis {
+    grid-template-columns:repeat(3,minmax(0,1fr));
+  }
+}
+@container(max-width:380px){
+  .nre-experiment-comparison .nre-experiment-group-tab .nre-scope-kpis {
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+}
 .nre-experiment-comparison .nre-experiment-group-panel {
   padding:16px 0;
 }
@@ -176,13 +193,19 @@
 /* ---- ExperimentList:web 面固定八列比较表,一条 <details> 一个 experiment ---- */
 .nre-experiment-table { border:1px solid var(--line); border-radius:9px; overflow:hidden; background:var(--panel); }
 .nre-experiment-head,
-.nre-experiment-summary { display:grid; grid-template-columns:minmax(220px,1.25fr) minmax(120px,.8fr) minmax(90px,.6fr) minmax(100px,.65fr) minmax(90px,.55fr) minmax(110px,.7fr) minmax(90px,.6fr) minmax(160px,.9fr); column-gap:16px; align-items:center; }
-.nre-experiment-head { padding:12px 20px; color:var(--muted); font-size:12px; font-weight:560; text-transform:uppercase; letter-spacing:.05em; border-bottom:1px solid var(--line); }
-.nre-experiment-head button { appearance:none; border:0; padding:0; background:transparent; color:inherit; font:inherit; text-transform:inherit; letter-spacing:inherit; text-align:left; cursor:pointer; }
-.nre-experiment-head button::after { content:"↕"; margin-left:6px; color:var(--soft); font-size:11px; }
-.nre-experiment-head button.nre-sort-asc::after { content:"↑"; color:var(--text); }
-.nre-experiment-head button.nre-sort-desc::after { content:"↓"; color:var(--text); }
-.nre-experiment-table-wrap > .nre-filter { height:34px; min-width:260px; margin-bottom:16px; border:1px solid var(--line); border-radius:7px; padding:0 11px; background:var(--panel); color:var(--text); font:inherit; }
+.nre-experiment-summary { display:grid; grid-template-columns:minmax(240px,1.35fr) minmax(115px,.72fr) minmax(95px,.58fr) minmax(108px,.62fr) minmax(105px,.58fr) minmax(112px,.66fr) minmax(92px,.52fr) minmax(160px,.86fr); column-gap:14px; align-items:center; }
+.nre-experiment-head { padding:13px 20px; color:var(--muted); font-size:12px; line-height:1.2; font-weight:620; border-bottom:1px solid var(--line); }
+.nre-experiment-head button { appearance:none; display:inline-flex; width:max-content; max-width:100%; align-items:center; gap:5px; border:0; padding:0; background:transparent; color:inherit; font:inherit; line-height:inherit; text-align:left; white-space:nowrap; cursor:pointer; }
+.nre-experiment-head button:hover,
+.nre-experiment-head button:focus-visible { color:var(--text); }
+.nre-experiment-head .nre-num-head { justify-self:end; text-align:right; }
+.nre-experiment-head .nre-sort-icon { display:inline-block; flex:0 0 11px; width:11px; color:var(--soft); font-size:11px; text-align:center; }
+.nre-experiment-head .nre-sort-icon::before { content:"↕"; opacity:0; transition:opacity .12s; }
+.nre-experiment-head button:hover .nre-sort-icon::before,
+.nre-experiment-head button:focus-visible .nre-sort-icon::before { opacity:1; }
+.nre-experiment-head button.nre-sort-asc .nre-sort-icon::before { content:"↑"; opacity:1; color:var(--text); }
+.nre-experiment-head button.nre-sort-desc .nre-sort-icon::before { content:"↓"; opacity:1; color:var(--text); }
+.nre-experiment-table-wrap > .nre-filter { display:block; width:min(100%,280px); height:34px; min-width:0; margin:0 0 12px auto; border:1px solid var(--line); border-radius:7px; padding:0 11px; background:var(--panel); color:var(--text); font:inherit; }
 .nre-experiment-list .nre-experiment-entry { border-bottom:1px solid var(--line); }
 .nre-experiment-list .nre-experiment-entry:last-child { border-bottom:0; }
 .nre-experiment-list .nre-experiment-summary { padding:13px 20px; cursor:pointer; list-style:none; transition:background .12s; }
@@ -194,11 +217,11 @@
 .nre-experiment-list .nre-experiment-entry[open] .nre-experiment-name::before { transform:rotate(45deg); }
 .nre-experiment-list .nre-experiment-id { display:block; overflow-wrap:anywhere; font-weight:650; }
 .nre-experiment-list .nre-experiment-name small { display:block; margin-top:3px; color:var(--muted); font-size:12px; font-weight:400; }
-.nre-experiment-list .nre-num { font-variant-numeric:tabular-nums; font-feature-settings:"tnum"; white-space:nowrap; }
+.nre-experiment-list .nre-num { text-align:right; font-variant-numeric:tabular-nums; font-feature-settings:"tnum"; white-space:nowrap; }
 .nre-experiment-list .nre-good { color:var(--good); }
 .nre-experiment-list .nre-warn { color:var(--warn); }
 .nre-experiment-list .nre-bad { color:var(--bad); }
-.nre-experiment-list .nre-experiment-pill { display:inline-flex; min-height:22px; align-items:center; border:1px solid var(--line); border-radius:999px; padding:0 8px; color:var(--muted); font-size:12px; white-space:nowrap; }
+.nre-experiment-list .nre-experiment-pill { display:inline-flex; min-height:22px; align-items:center; color:var(--muted); font-size:12px; white-space:nowrap; }
 .nre-experiment-list .nre-experiment-detail { padding:18px 30px 22px; background:color-mix(in oklch,var(--panel-2),var(--panel) 24%); border-top:1px solid var(--line); }
 .nre-experiment-list .nre-experiment-flags { display:flex; flex-wrap:wrap; gap:8px; margin:0 0 14px; color:var(--soft); font-size:12px; }
 .nre-experiment-list .nre-experiment-flags b { border:1px solid color-mix(in oklch,var(--line),transparent 16%); border-radius:999px; padding:3px 8px; color:var(--text); font-weight:560; }
@@ -219,7 +242,7 @@
 .nre-experiment-list .nre-eval-attempt-metrics,
 .nre-experiment-list .nre-eval-reason { color:var(--muted); font-size:.92em; }
 .nre-experiment-list .nre-experiment-list-empty { border:1px dashed var(--line-strong); border-radius:8px; padding:18px; color:var(--muted); text-align:center; background:var(--panel); }
-@media(max-width:1000px){.nre-experiment-table{overflow-x:auto}.nre-experiment-head,.nre-experiment-summary{min-width:1040px}.nre-experiment-detail{min-width:1040px}}
+@media(max-width:1160px){.nre-experiment-table{overflow-x:auto}.nre-experiment-head,.nre-experiment-summary{min-width:1120px}.nre-experiment-detail{min-width:1120px}}
 
 /* ---- verdict 判定色(EvalList/ExperimentList 的判定符;errored 在这里按 bad 收敛) ---- */
 .nre .nre-eval-verdict.nre-verdict-passed { color:var(--good); }
@@ -424,6 +447,15 @@ table.nre,
   font-weight: 680;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+.nre-scope-summary .nre-scope-kpi-note {
+  display:block;
+  margin-top:5px;
+  color:var(--soft);
+  font-size:11px;
+  font-weight:450;
+  line-height:1.25;
+  white-space:nowrap;
 }
 /* 计票格装的是 pill 组:允许换行,行高回到常规 */
 .nre-scope-summary .nre-scope-kpi-verdicts dd {
@@ -720,9 +752,10 @@ table.nre,
 .nre-metric-scatter .nre-scatter-svg,
 .nre-metric-line .nre-line-svg,
 .nre-metric-bars .nre-bars-svg {
-  max-width: 720px;
+  max-width: 880px;
   width: 100%;
   height: auto;
+  margin-inline: auto;
   display: block;
   overflow: visible;
 }
@@ -765,11 +798,16 @@ table.nre,
 }
 .nre-metric-scatter .nre-scatter-legend,
 .nre-metric-bars .nre-bars-legend {
+  display: flex;
+  max-width: 880px;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.9rem;
   color: var(--muted);
   font-size: 0.85em;
-  margin-top: 0.25rem;
+  margin: 0.5rem auto 0;
 }
-.nre .nre-legend-key { margin-right: 0.75em; }
+.nre .nre-legend-key { display:inline-flex; align-items:center; gap:0.4em; }
+.nre .nre-legend-key::before { content:""; width:0.55em; height:0.55em; border-radius:50%; background:currentColor; }
 .nre-metric-bars .nre-bars-metric {
   margin-right: 1em;
   font-weight: 600;
@@ -777,9 +815,10 @@ table.nre,
 }
 .nre-metric-scatter .nre-scatter-missing,
 .nre-metric-line .nre-line-missing {
+  max-width: 880px;
   color: var(--warn);
   font-size: 0.85em;
-  margin: 0.25rem 0 0;
+  margin: 0.35rem auto 0;
 }
 /* 散点空态(0 可画点)/ 不足以成图(1 可画点):明说缺什么,不画空坐标系 */
 .nre-metric-scatter .nre-scatter-empty {

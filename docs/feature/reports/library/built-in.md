@@ -141,7 +141,7 @@ export default defineReport({
 
 ## 内建报告显示什么
 
-首页 `ExperimentComparison` 的行为契约——可比组分区、text/web 两面差异、端到端成功率口径——单点定义在[概览组件](summaries.md#experimentcomparison)；`Hero` / `ScopeWarnings` / `CopyFixPrompt` / `TraceWaterfall` 的契约在[站点组件](site-components.md)；Attempts 页的本体是[带过滤的 `AttemptList`](entity-lists.md#attemptlist)；宿主注入 Scope 的选择规则见 [Architecture](../architecture.md#scope-是计算入口)。
+首页 `ExperimentComparison` 的行为契约——可比组分区、text/web 两面差异、端到端通过率口径——单点定义在[概览组件](summaries.md#experimentcomparison)；`Hero` / `ScopeWarnings` / `CopyFixPrompt` / `TraceWaterfall` 的契约在[站点组件](site-components.md)；Attempts 页的本体是[带过滤的 `AttemptList`](entity-lists.md#attemptlist)；宿主注入 Scope 的选择规则见 [Architecture](../architecture.md#scope-是计算入口)。
 
 ## 相关阅读
 

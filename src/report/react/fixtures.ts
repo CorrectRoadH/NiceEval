@@ -24,7 +24,7 @@ export const passRateColumn: MetricColumn = { key: "task-pass-rate", label: "pas
 export const codeLinesColumn: MetricColumn = { key: "code-lines", label: "code lines", unit: "lines", better: "lower" };
 export const costColumn: MetricColumn = { key: "cost", label: "cost", unit: "$", better: "lower" };
 
-/** scopeSummaryData 的产物形态:两级计票恒随行,成功率与总成本是官方 MetricCell。 */
+/** scopeSummaryData 的产物形态:两级计票恒随行,通过率与总成本是官方 MetricCell。 */
 export const scopeSummaryData: ScopeSummaryData = {
   range: { earliestStartedAt: "2026-07-01T10:00:00Z", latestStartedAt: "2026-07-01T11:30:00Z" },
   experiments: 2,

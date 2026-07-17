@@ -9,7 +9,7 @@
 | 契约 | 场景 |
 |---|---|
 | 一般指标先在同一 eval 的多个 attempt 内折叠、再跨 eval 折叠（两级默认均 mean），重试次数不改变题目权重 | 正例：区分力 fixture 的 `endToEndPassRate` 得 5/9；反例：区分条件任务通过率 5/6、attempt 平铺 3/5 与"任一轮通过"2/3 三种错误口径 |
-| 无限定词的成功率与默认组件使用 `endToEndPassRate`：errored = 0；`taskPassRate` 排除 errored，只能作为带限定名称的诊断指标 | 正例：2 passed + 5 errored 的默认成功率是 2/7，不是 100%；正例：并排展示三个指标可区分任务质量与执行可靠性 |
+| 无限定词的通过率与默认组件使用 `endToEndPassRate`：errored = 0；可见短标签为“Pass rate / 通过率”；`taskPassRate` 排除 errored，只能作为带限定名称的诊断指标 | 正例：2 passed + 5 errored 的默认通过率是 2/7，不是 100%；正例：并排展示三个指标可区分任务质量与执行可靠性 |
 | `skipped` attempt 对全部内置指标返回 `null`，不进有效样本但保留在 total | 正例：samples < total 且 value 不受影响；反例：skipped 未被算成 0 分 |
 | `null` 表示测不了不参与聚合；`0` 正常参与，二者聚合结果必须不同 | 边界：`[null, 0, 1]` 的 mean 是 0.5 而非 1/3 |
 | `Scoreboard` 使用固定题集分母：未跑到的题按 0 分计入分母并计入 `notRun`；跑了但指标为 null 的题同样按 0 分但计入 `unscorable`，两个计数不合并 | 正例：题集 4 只跑 2 分母仍 4 且 notRun=2；正例：跑了但 null 的题 unscorable+1 而 notRun 不变；反例：与"只统计有样本"口径区分 |
@@ -58,7 +58,7 @@ it("scopeSummaryData 使用端到端两级聚合并保留覆盖率", async () =>
 | `experimentComparisonData()` 在计算前按 experiment id 的完整父路径分区，根目录 experiment 各自形成单例组；每组子块与对该组独立调用 `scopeSummaryData` / `metricScatterData` / `experimentListData` 完全相同 | 正例：两个多配置目录组 + 一个根目录单例组；逐组 deepEqual 对账并断言 scatter / list refs 不跨组 |
 | `ExperimentComparison` 的 web 面接收全部组并输出组选择器与相互隔离的完整 panel，第一组默认展开且无 JS 仍可读；text 面多组时只给索引和单组查看命令，单组时才输出散点与实验列表 | 正例：双组 web 静态 HTML 含两个 panel 且仅首组 open；text 多组无 experiment 明细、单组有明细 |
 | `MetricScatter` 对缺 x 或 y 的点不绘制并报告缺失数；零点显示明确空态；单点照常绘制 | 边界：0 点 / 1 点 / 部分缺 x；反例：单点不被拒绝 |
-| 散点轴方向跟随指标 `better`：lower 反向（左贵右便宜）、higher 正向，「更好」恒指向右上，提示恒为「越靠右上越好」；刻度显示真实值；未声明 better 的轴正向且整图不出方向提示；两面同规则 | 正例：成本 × 成功率图上低成本点落在右侧且刻度值仍从大到小；边界：x 无 better 时无方向提示；正例：text 面同方向 |
+| 散点轴方向跟随指标 `better`：lower 反向（左贵右便宜）、higher 正向，「更好」恒指向右上，提示恒为「越靠右上越好」；刻度显示真实值；未声明 better 的轴正向且整图不出方向提示；两面同规则 | 正例：成本 × 通过率图上低成本点落在右侧且刻度值仍从大到小；边界：x 无 better 时无方向提示；正例：text 面同方向 |
 | `MetricLine` 对未声明数值 flag 的 experiment 不伪造 x 值并报告未绘制数 | 正例：flag 缺失与 flag="high" 两种；反例：不落到 x=0 |
 | `DeltaTable` 任一侧缺数据时 delta 保持缺失；方向按指标 `better` 判断改善/退化 | 正例：better:"lower" 的 costUSD 下降判改善；边界：一侧缺时 delta 为 null |
 | `pairsByFlag` 按「同可比组 + 删除该 flag 后可比性配置深相等」配对：a 取 baseline（缺省=未声明），b 侧每个其它取值各成一对，label 为 `<a 末段> · <flag>=<显示键>`，按 (a 末段, 显示键) 字典序 | 正例：三 agent × baseline/agents-md/mempal 矩阵导出 5 对（bub 无 mempal 如实少一对）；反例：model 不同的两实验不配对；边界：收窄到单实验时 0 对显示空态不报错；反例：`by: "agent"` 配派生形态报完整用户反馈 |
@@ -66,7 +66,7 @@ it("scopeSummaryData 使用端到端两级聚合并保留覆盖率", async () =>
 | `FailureList` 与手写组合等价：verdict ∈ failed/errored、开始时间降序（同刻按 locator 字典序）、`limit` 截断（默认 20）且 total 报告截断前总数 | 正例：与 `attemptListData` 手工过滤排序的渲染结果深等；边界：失败数少于 limit 时 total 等于 data 长度 |
 | `MetricMatrix` 是稀疏矩阵：无 attempt 的行列组合不生成格子；`MetricBars` 消费同一份矩阵数据 | 正例：缺组合无格子（而非 value:0）；正例：Bars 与 Matrix data 同源 |
 | `AttemptListItem` 只携带算好的单行摘要：`failureSummary`（failed 取主失败断言摘要、errored 取 error 一层摘要、passed/skipped 为 null）与 `moreFailures` 计数；序列化 JSON 不含 assertions、stack、evidence 或 diagnostics | 正例：failed/errored/passed 三态的 failureSummary 各自正确；反例：多失败 attempt 的 JSON.stringify 结果不含第二条断言文本与 stack |
-| `ScopeSummaryData` 恒携带 eval 级与 attempt 级两份计票，`evals` 按 `experimentId + evalId` 计数、与 `evalVerdicts` 同分母；呈现 prop `votes` 只选择显示哪一级（默认 eval），不改变 data | 正例：2 实验 × 6 题的 fixture 下 evals=12 且计票总和一致、两级计票在含重试时不同；边界：`votes="attempt"` 切换显示但 data 深等 |
+| `ScopeSummaryData` 恒携带 eval 级与 attempt 级两份计票，`evals` 按 `experimentId + evalId` 计数、与 `evalVerdicts` 同分母；呈现 prop `votes` 只选择显示哪一级（默认 eval），不改变 data；web 面 KPI 使用双语短标签、不暴露原始 ISO 时间，成本覆盖不全时给出带语义的覆盖说明 | 正例：2 实验 × 6 Eval 的 fixture 下 evals=12 且计票总和一致、两级计票在含重试时不同；边界：`votes="attempt"` 切换显示但 data 深等；正例：成本 8/9 有数据时显示 `Cost available for 8/9 attempts / 8/9 次有成本数据`，而不是裸 `8/9` |
 | `experimentListData` 对同一 experiment 的输入含不一致可比性配置时按完整用户反馈失败，指引 snapshot 维度 / MetricLine；宿主注入的 `current()` Scope 天然满足单义 | 反例：手工拼两份 model 不同的快照数组报错且文案含下一步；正例：current() Scope 照常计算 |
 | `DeltaData.rows` 携带作者声明的 pair `label` 原样透传，renderer 据此显示行名 | 正例：LocalizedText label 经 data round-trip 后两面显示一致 |
 | `MetricLine` 点身份为 `(series, x)`：同桶多 experiment 按 (series, x, experiment, eval) 顺序聚合成一个点；自定义 `NumericAxis.of` 在同一 experiment × eval 内返回不同值时计算以完整用户反馈失败 | 正例：两 experiment 同 x 合成一点且 y 为跨题聚合；反例：逐 attempt 变化的 of 报错不静默取首值 |
@@ -122,10 +122,10 @@ it("scopeSummaryData 使用端到端两级聚合并保留覆盖率", async () =>
 | 双面组件的 text 与 web 显示同一份解析终值、覆盖率、判定构成和 warning，渲染不重算不丢值 | 正例：partial cell + warning 两面都含 "50%"、"1/2" 和 warning 文本；不要求逐字相同 |
 | `validateReportTree` 拒绝缺任一渲染面的组件与任意 HTML intrinsic，报错为完整用户反馈 | 反例：树中放 `<div>` 或单面组件时校验失败，错误文案可 snapshot |
 | web 面排序/过滤只改变浏览状态，不改变数据、口径或初始 HTML 中的数值 | 正例：有无 filter prop 时数值与行集合相同 |
-| `ExperimentList` web 面是固定八列比较表，默认按 End-to-end pass rate 降序；Model 缺失显示明确空值 | 正例：断言 thead 列名与顺序；边界：model 缺失；反例：taskPassRate 高但 executionReliability 低的实验不能排到端到端成功率更高者之前 |
+| `ExperimentList` web 面是固定八列比较表，可见列名使用“Pass rate / 通过率”，默认按 `endToEndPassRate` 降序；标签与排序箭头同行；Model 缺失显示明确空值；Eval 数不翻成“题” | 正例：断言双语列名与顺序、默认降序标记、`8 evals` / `8 个 Eval`；边界：model 缺失；反例：taskPassRate 高但 executionReliability 低的实验不能排到端到端通过率更高者之前 |
 | `ExperimentList` text 面保持实体层级：Eval 父行、Attempt `├─`/`└─` 子行，不压平 | 正例：一题两 attempt 只出现一次 Eval 标题 |
 | `ExperimentList` / `EvalList` 的 Eval 父行只承载折叠判定与题级聚合，失败摘要只在 Attempt 子行出现；父行不因 verdict 改变同一位置的字段含义（[bug 台账](../../../../memory/eval-parent-repeats-attempt-failure.md)） | 反例：单个 failed / errored Attempt 的摘要在展开树中出现两次；正例：failed Eval 父行仍显示平均耗时与平均成本 |
-| `ExperimentList` 传 `relativeTo` 时 web 与 text 两面行标签去掉该父路径前缀只显示 id 末段（与散点点标签同源），完整 id 仍用于排序键 / 着色 / 折叠；默认 `ExperimentComparison` 给每组传组键 | 正例：组键 `compare` 下 `compare/bub-gpt-5.4--agents-md` 显示 `bub-gpt-5.4--agents-md` 且 `data-sort-value` 仍是完整 id；边界：根目录单例组 id 无前缀时显示完整 id；反例：不传 `relativeTo` 时显示完整 id |
+| `ExperimentList` 传 `relativeTo` 时 web 与 text 两面行标签去掉该父路径前缀只显示 id 末段（与散点点标签同源），不另造或猜测短标签；完整 id 仍用于排序键 / 过滤 / 折叠，系列色按 Agent 与散点图对齐；默认 `ExperimentComparison` 给每组传组键 | 正例：组键 `compare` 下 `compare/bub-gpt-5.4--agents-md` 显示 `bub-gpt-5.4--agents-md` 且 `data-sort-value` 仍是完整 id；边界：根目录单例组 id 无前缀时显示完整 id；反例：不传 `relativeTo` 时显示完整 id |
 
 ```tsx
 import { renderToStaticMarkup } from "react-dom/server"

@@ -43,7 +43,7 @@ export default defineReport(
 
 ## 口径拆解：损失来自答题还是执行
 
-回答「分数低是模型不会做，还是基础设施在报错」。三个成功率指标并排，各自的口径见[指标与维度](metrics.md#内置指标)：
+回答「分数低是模型不会做，还是基础设施在报错」。三个通过率指标并排，各自的口径见[指标与维度](metrics.md#内置指标)：
 
 ```tsx
 // reports/reliability.tsx

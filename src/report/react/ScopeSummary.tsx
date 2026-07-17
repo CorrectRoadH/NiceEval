@@ -1,11 +1,12 @@
 // ScopeSummary:一个范围的摘要卡——快照时间窗、experiment / eval / attempt 数、判定计票、
-// 端到端成功率与总成本。data 恒携带 eval 级与 attempt 级两份计票;呈现 prop `votes`
-// 只选择显示哪一级(默认 "eval"),不改变 data。成功率与总成本只渲染算好的 MetricCell,
+// 端到端通过率与总成本。data 恒携带 eval 级与 attempt 级两份计票;呈现 prop `votes`
+// 只选择显示哪一级(默认 "eval"),不改变 data。通过率与总成本只渲染算好的 MetricCell,
 // 不现场重算(docs/feature/reports/library/summaries.md「ScopeSummary」)。
 
 import type { ReactElement } from "react";
 import type { ScopeSummaryData, VerdictTally } from "../types.ts";
 import { DEFAULT_REPORT_LOCALE, localeText, type ReportLocale } from "../locale.ts";
+import { formatReportDateTime, formatReportDateTimeRange } from "../format.ts";
 import { MetricCellView } from "./cell.tsx";
 import { cx } from "./format.ts";
 
@@ -36,6 +37,10 @@ export function ScopeSummary({
   locale?: ReportLocale;
 }): ReactElement {
   const tally = votes === "attempt" ? data.attemptVerdicts : data.evalVerdicts;
+  const formattedRange =
+    data.range.earliestStartedAt !== null && data.range.latestStartedAt !== null
+      ? formatReportDateTimeRange(data.range.earliestStartedAt, data.range.latestStartedAt, locale)
+      : null;
   return (
     <div className={cx("nre", "nre-scope-summary", className)} data-votes={votes}>
       <dl className="nre-scope-kpis">
@@ -66,7 +71,15 @@ export function ScopeSummary({
         <div className="nre-scope-kpi">
           <dt>{localeText(locale, "scopeSummary.totalCost")}</dt>
           <dd>
-            <MetricCellView cell={data.totalCostUSD} locale={locale} />
+            <MetricCellView cell={data.totalCostUSD} locale={locale} showCoverage={false} />
+            {data.totalCostUSD.samples < data.totalCostUSD.total && (
+              <small className="nre-scope-kpi-note">
+                {localeText(locale, "scopeSummary.costCoverage", {
+                  samples: data.totalCostUSD.samples,
+                  total: data.totalCostUSD.total,
+                })}
+              </small>
+            )}
           </dd>
         </div>
       </dl>
@@ -74,11 +87,13 @@ export function ScopeSummary({
       {data.range.latestStartedAt !== null && (
         <p className="nre-scope-summary-range">
           {data.range.earliestStartedAt !== null && data.range.earliestStartedAt !== data.range.latestStartedAt
-            ? localeText(locale, "scopeSummary.range", {
-                from: data.range.earliestStartedAt,
-                to: data.range.latestStartedAt,
+            ? localeText(locale, "scopeSummary.runRange", {
+                from: formattedRange!.from,
+                to: formattedRange!.to,
               })
-            : data.range.latestStartedAt}
+            : localeText(locale, "scopeSummary.lastRun", {
+                time: formatReportDateTime(data.range.latestStartedAt, locale),
+              })}
         </p>
       )}
     </div>

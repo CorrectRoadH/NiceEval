@@ -34,6 +34,8 @@ import {
   formatDurationMs,
   formatMetricValue,
   formatPlainNumber,
+  formatReportDateTime,
+  formatReportDateTimeRange,
   formatUSD,
   verdictMark,
 } from "../format.ts";
@@ -62,13 +64,13 @@ export function cellText(cell: MetricCell, locale: ReportLocale): string {
   return cell.samples < cell.total ? `${display} ${cell.samples}/${cell.total}` : display;
 }
 
-/** verdict 计票的紧凑文案("3 passed / 1 failed"):非零判定逐个列,全部为零如实 —。 */
+/** verdict 计票的紧凑文案("3 passed · 1 failed"):非零判定逐个列,全部为零如实 —。 */
 export function verdictTallyText(tally: VerdictTally, locale: ReportLocale): string {
   const parts: string[] = [];
   for (const kind of ["passed", "failed", "errored", "skipped"] as const) {
     if (tally[kind] > 0) parts.push(`${tally[kind]} ${localeText(locale, `verdict.${kind}`)}`);
   }
-  return parts.length > 0 ? parts.join(" / ") : MISSING_MARK;
+  return parts.length > 0 ? parts.join(" · ") : MISSING_MARK;
 }
 
 /** ISO 时间 → "YYYY-MM-DD HH:mm"(本地时区);不可解析原样返回。 */
@@ -82,7 +84,7 @@ function formatDateTimeMinute(iso: string): string {
 // ───────────────────────── ScopeSummary ─────────────────────────
 
 /**
- * 一至两行:头行是端到端成功率(官方 MetricCell,不重算)+ experiment/eval/attempt 数 +
+ * 一至两行:头行是端到端通过率(官方 MetricCell,不重算)+ experiment/eval/attempt 数 +
  * `votes` 选中的那级计票 + 总成本;第二行(有则加)是快照时间窗。
  */
 export function scopeSummaryText(data: ScopeSummaryData, votes: "eval" | "attempt", ctx: TextContext): string {
@@ -94,7 +96,16 @@ export function scopeSummaryText(data: ScopeSummaryData, votes: "eval" | "attemp
     localeText(locale, "overview.evalsCount", { n: data.evals }),
     localeText(locale, "overview.attemptsCount", { n: data.attempts }),
     verdictTallyText(tally, locale),
-    `${localeText(locale, "scopeSummary.totalCost")} ${cellText(data.totalCostUSD, locale)}`,
+    `${localeText(locale, "scopeSummary.totalCost")} ${
+      data.totalCostUSD.value === null ? MISSING_MARK : resolveLocalizedText(data.totalCostUSD.display, locale)
+    }${
+      data.totalCostUSD.samples < data.totalCostUSD.total
+        ? ` (${localeText(locale, "scopeSummary.costCoverage", {
+            samples: data.totalCostUSD.samples,
+            total: data.totalCostUSD.total,
+          })})`
+        : ""
+    }`,
   ].join(" · ");
   const lines = [head];
   if (data.range.latestStartedAt !== null) {
@@ -102,8 +113,8 @@ export function scopeSummaryText(data: ScopeSummaryData, votes: "eval" | "attemp
     const to = data.range.latestStartedAt;
     lines.push(
       from !== null && from !== to
-        ? localeText(locale, "scopeSummary.range", { from: formatDateTimeMinute(from), to: formatDateTimeMinute(to) })
-        : formatDateTimeMinute(to),
+        ? localeText(locale, "scopeSummary.runRange", formatReportDateTimeRange(from, to, locale))
+        : localeText(locale, "scopeSummary.lastRun", { time: formatReportDateTime(to, locale) }),
     );
   }
   return lines.join("\n");

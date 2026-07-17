@@ -415,7 +415,7 @@ export type ScopeSummaryProps = DataProps<
   }
 >;
 
-/** 范围摘要卡:时间窗、数量、两级计票、端到端成功率与总成本。 */
+/** 范围摘要卡:时间窗、数量、两级计票、端到端通过率与总成本。 */
 export const ScopeSummary = makeDataComponent<
   ScopeSummaryData,
   Record<never, never>,
@@ -435,7 +435,7 @@ export type ExperimentComparisonProps = DataProps<ExperimentComparisonData, Reco
 
 /**
  * 内建报告的默认组合件:先把 input 按可比组分区,再为每组分别计算 ScopeSummary、
- * 成本 × 端到端成功率散点和 ExperimentList。web 面持有完整组索引并一次聚焦一组;
+ * 成本 × 端到端通过率散点和 ExperimentList。web 面持有完整组索引并一次聚焦一组;
  * text 面命中多个组时只显示组索引与可执行的单组查看命令,命中单组时才输出完整散点与列表。
  */
 export const ExperimentComparison = makeDataComponent<ExperimentComparisonData, Record<never, never>, ChromeProps>({

@@ -1,5 +1,5 @@
 // ExperimentList:实体列表的第一级。web 面是一行一个 experiment 的固定八列比较表
-// (Experiment / Model / Agent / Avg duration / End-to-end pass rate / Tokens / Cost / Result),
+// (Experiment / Model / Agent / Avg. time / Pass rate / Tokens / Cost / Results),
 // 每行用原生 <details> 展开到 Eval 与 Attempt locator。数据完全来自 experimentListData(),
 // 组件不重算、不推断组边界。
 
@@ -39,7 +39,7 @@ function VerdictSummary({ item, locale }: { item: ExperimentListItem; locale: Re
   const parts = verdictOrder
     .filter((verdict) => item.evalVerdicts[verdict] > 0)
     .map((verdict) => `${item.evalVerdicts[verdict]} ${localeText(locale, `verdict.${verdict}`)}`);
-  return <span className="nre-experiment-pill">{parts.join(" / ") || "—"}</span>;
+  return <span className="nre-experiment-pill">{parts.join(" · ") || "—"}</span>;
 }
 
 function ExperimentAttemptRow({
@@ -135,9 +135,9 @@ function ExperimentRow({
   return (
     <details className="nre-experiment-entry">
       <summary className="nre-experiment-summary">
-        {/* relativeTo 只影响显示末段;完整 id 仍是排序 / 着色 / 过滤 / 折叠的键 */}
+        {/* relativeTo 只影响显示末段;完整 id 仍是排序 / 过滤 / 折叠的键,系列色跟随 agent */}
         <span className="nre-experiment-name" data-sort-value={item.experimentId}>
-          <b className={cx("nre-experiment-id", "nre-key", colorClassForKey(item.experimentId))}>
+          <b className={cx("nre-experiment-id", "nre-key")}>
             {experimentDisplayName(item.experimentId, relativeTo)}
           </b>
           <small>
@@ -147,7 +147,9 @@ function ExperimentRow({
           </small>
         </span>
         <span data-sort-value={item.model ?? ""}>{item.model ?? localeText(locale, "experimentList.defaultModel")}</span>
-        <span data-sort-value={item.agent}>{item.agent}</span>
+        <span data-sort-value={item.agent}>
+          <span className={cx("nre-experiment-agent", "nre-key", colorClassForKey(item.agent))}>{item.agent}</span>
+        </span>
         <span className="nre-num" data-sort-value={item.durationMs.value ?? ""}>
           <MetricCellView cell={item.durationMs} locale={locale} />
         </span>
@@ -209,10 +211,12 @@ export function ExperimentList({
           <button
             type="button"
             data-nre-experiment-sort={index}
-            className={index === 4 ? "nre-sort-desc" : undefined}
+            className={cx(index >= 3 && index <= 6 && "nre-num-head", index === 4 && "nre-sort-desc")}
             key={label}
+            title={index === 4 ? localeText(locale, "experimentList.passRateDescription") : undefined}
           >
-            {label}
+            <span className="nre-sort-label">{label}</span>
+            <span className="nre-sort-icon" aria-hidden="true" />
           </button>
         ))}
       </div>

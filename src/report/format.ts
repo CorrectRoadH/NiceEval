@@ -104,6 +104,61 @@ export function formatPercent(ratio: number): string {
   return `${Math.round(ratio * 100)}%`;
 }
 
+type ReportDateTimeOptions = Intl.DateTimeFormatOptions;
+
+function formatReportDate(date: Date, locale: ReportLocale, options: ReportDateTimeOptions): string {
+  try {
+    return new Intl.DateTimeFormat(locale, options).format(date);
+  } catch {
+    return new Intl.DateTimeFormat("en", options).format(date);
+  }
+}
+
+const FULL_REPORT_DATE_TIME: ReportDateTimeOptions = {
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+};
+
+/** ISO 时间 → 本地化到分钟的短日期时间；不可解析时原样返回。 */
+export function formatReportDateTime(iso: string, locale: ReportLocale): string {
+  const date = new Date(iso);
+  return Number.isNaN(date.valueOf()) ? iso : formatReportDate(date, locale, FULL_REPORT_DATE_TIME);
+}
+
+/** 时间范围的两端；同日省略右侧日期，同年省略右侧年份，减少卡片中的重复噪音。 */
+export function formatReportDateTimeRange(
+  fromIso: string,
+  toIso: string,
+  locale: ReportLocale,
+): { from: string; to: string } {
+  const fromDate = new Date(fromIso);
+  const toDate = new Date(toIso);
+  if (Number.isNaN(fromDate.valueOf()) || Number.isNaN(toDate.valueOf())) {
+    return { from: formatReportDateTime(fromIso, locale), to: formatReportDateTime(toIso, locale) };
+  }
+  const sameYear = fromDate.getFullYear() === toDate.getFullYear();
+  const sameDay =
+    sameYear && fromDate.getMonth() === toDate.getMonth() && fromDate.getDate() === toDate.getDate();
+  const toOptions: ReportDateTimeOptions = sameDay
+    ? { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }
+    : {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        hourCycle: "h23",
+        ...(!sameYear && { year: "numeric" }),
+      };
+  return {
+    from: formatReportDate(fromDate, locale, FULL_REPORT_DATE_TIME),
+    to: formatReportDate(toDate, locale, toOptions),
+  };
+}
+
 // ── 实体列表(ExperimentList / EvalList / AttemptList)共用的判定符 ──
 
 /** passed / failed / errored / skipped 的判定符。 */

@@ -43,9 +43,9 @@ error: page "typo" not found in reports/site.tsx. Available pages: overview, exa
 ```sh
 $ niceeval show --report reports/site.tsx --page overview
 
-实验组                  实验   Eval   端到端成功率   Eval 结果         成本      最后运行
-compare                    2     12          75.0%   9 通过 / 3 失败      $1.42   2026-07-12 18:08
-dev-e2b                    3     16          61.1%   11 通过 / 5 失败     $0.31   2026-07-12 18:09
+实验组                  实验   Eval   通过率   Eval 结果         成本      最后运行
+compare                    2     12          75.0%   9 通过 · 3 失败      $1.42   2026-07-12 18:08
+dev-e2b                    3     16          61.1%   11 通过 · 5 失败     $0.31   2026-07-12 18:09
 
 查看组内详情：
   niceeval show --exp compare --report reports/site.tsx --page overview

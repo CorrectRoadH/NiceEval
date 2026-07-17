@@ -260,7 +260,7 @@ export async function evalListData(input: ReportInput): Promise<EvalListItem[]> 
 }
 
 /**
- * `experimentListData(input)`:每个 experiment 一项,展开到每道 Eval;初始按端到端成功率
+ * `experimentListData(input)`:每个 experiment 一项,展开到每道 Eval;初始按端到端通过率
  * 从高到低(缺数据沉底,同分按 id)。一行只有一套 agent / model / flags 是输入约束:
  * 宿主注入的 current() Scope 保证每个 experiment 只由可比性配置一致的快照拼成;作者自选
  * Snapshot[] 时若同一 experiment 混入不一致的可比性配置,按完整用户反馈失败并指引——
@@ -324,7 +324,7 @@ export async function experimentListData(input: ReportInput): Promise<Experiment
       evalRows,
     });
   }
-  // 初始态按端到端成功率(endToEndPassRate)从高到低,缺数据沉底;同分按 experiment id 稳定排序。
+  // 初始态按端到端通过率(endToEndPassRate)从高到低,缺数据沉底;同分按 experiment id 稳定排序。
   out.sort((a, b) => {
     const va = a.endToEndPassRate.value;
     const vb = b.endToEndPassRate.value;
@@ -381,8 +381,8 @@ function summarizeItems(items: Item[]): {
 
 /**
  * `scopeSummaryData(input)`:范围摘要——快照时间窗、experiment / eval / attempt 数、
- * 两级判定计票、端到端成功率与总成本(docs/feature/reports/library/summaries.md)。
- * data 恒携带两级计票;成功率来自官方两级指标引擎,不从任一计票重算。
+ * 两级判定计票、端到端通过率与总成本(docs/feature/reports/library/summaries.md)。
+ * data 恒携带两级计票;通过率来自官方两级指标引擎,不从任一计票重算。
  */
 export async function scopeSummaryData(input: ReportInput): Promise<ScopeSummaryData> {
   const { snapshots } = resolveInput(input);
@@ -428,8 +428,8 @@ const COMPARISON_SCATTER_OPTIONS: MetricScatterOptions = {
 
 /**
  * `experimentComparisonData(input)`:先把 input 按可比组分区(experiment id 的完整父路径),
- * 再为每组分别计算 ScopeSummary、成本 × 端到端成功率散点和 ExperimentList——分区发生在任何
- * 指标计算之前,组外 attempt 不可能污染该组的坐标尺度、series、成功率、成本、排序或缺数据计数。
+ * 再为每组分别计算 ScopeSummary、成本 × 端到端通过率散点和 ExperimentList——分区发生在任何
+ * 指标计算之前,组外 attempt 不可能污染该组的坐标尺度、series、通过率、成本、排序或缺数据计数。
  */
 export async function experimentComparisonData(input: ReportInput): Promise<ExperimentComparisonData> {
   const { snapshots } = resolveInput(input);

@@ -37,8 +37,13 @@ const attemptHref = (locator: AttemptLocator) => `/attempts/${locator}`;
 describe("ScopeSummary", () => {
   const html = renderToStaticMarkup(<ScopeSummary data={scopeSummaryData} />);
 
-  it("KPI:experiment/eval/attempt 数、成功率与总成本原样渲染(不从计票重算)", () => {
+  it("KPI:experiment/eval/attempt 数、通过率与总成本原样渲染(不从计票重算)", () => {
     expect(html).toContain("nre-scope-summary");
+    expect(html).toContain("Pass rate");
+    expect(html).toContain("Experiments");
+    expect(html).toContain("Evals");
+    expect(html).toContain("Attempts");
+    expect(html).toContain("Eval results");
     expect(html).toContain("<dd>2</dd>"); // experiments
     expect(html).toContain("<dd>6</dd>"); // evals
     expect(html).toContain("<dd>9</dd>"); // attempts
@@ -47,6 +52,7 @@ describe("ScopeSummary", () => {
     expect(html).toContain("60%");
     expect(html).not.toContain("44%");
     expect(html).toContain("$1.50");
+    expect(html).toContain("Cost available for 8/9 attempts");
   });
 
   it("votes 默认 eval 级计票;votes='attempt' 切换显示但 data 不变", () => {
@@ -54,12 +60,22 @@ describe("ScopeSummary", () => {
     expect(html).toContain('data-votes="eval"');
     const attempts = renderToStaticMarkup(<ScopeSummary data={scopeSummaryData} votes="attempt" />);
     expect(attempts).toContain("4 passed");
+    expect(attempts).toContain("Attempt results");
     expect(attempts).toContain('data-votes="attempt"');
   });
 
-  it("时间窗来自 range,不编造当前时间", () => {
-    expect(html).toContain("2026-07-01T10:00:00Z");
-    expect(html).toContain("2026-07-01T11:30:00Z");
+  it("时间窗带语义并按 locale 格式化,不暴露原始 ISO 或编造当前时间", () => {
+    expect(html).toContain("Run range ·");
+    expect(html).toContain("2026");
+    expect(html).not.toContain("2026-07-01T10:00:00Z");
+    expect(html).not.toContain("2026-07-01T11:30:00Z");
+
+    const zh = renderToStaticMarkup(<ScopeSummary data={scopeSummaryData} locale="zh-CN" />);
+    expect(zh).toContain("通过率");
+    expect(zh).toContain("实验");
+    expect(zh).toContain("Eval 结果");
+    expect(zh).toContain("8/9 次有成本数据");
+    expect(zh).toContain("运行范围 ·");
   });
 });
 
@@ -358,11 +374,16 @@ describe("ExperimentList", () => {
 
   it("web 面是带过滤框与八个固定列头的 experiment 比较表(成本列头是 Cost)", () => {
     expect(html).toContain('data-nre-experiment-filter=""');
-    for (const header of ["Experiment", "Model", "Agent", "Avg duration", "End-to-end pass rate", "Tokens", "Cost", "Result"]) {
-      expect(html).toContain(`>${header}</button>`);
+    for (const header of ["Experiment", "Model", "Agent", "Avg. time", "Pass rate", "Tokens", "Cost", "Results"]) {
+      expect(html).toContain(`class="nre-sort-label">${header}</span>`);
     }
     expect(html).not.toContain("Est. cost");
-    expect(html).toContain('data-nre-experiment-sort="4" class="nre-sort-desc"');
+    expect(html).toContain('data-nre-experiment-sort="4" class="nre-num-head nre-sort-desc"');
+
+    const zh = renderToStaticMarkup(<ExperimentList data={experimentListItems} locale="zh-CN" />);
+    expect(zh).toContain('class="nre-sort-label">通过率</span>');
+    expect(zh).toContain("2 个 Eval");
+    expect(html).toContain("2 evals");
   });
 
   it("主行:身份、agent/model、官方两级聚合指标与 eval 级判定构成", () => {
@@ -370,7 +391,7 @@ describe("ExperimentList", () => {
     expect(html).toContain("compare/codex");
     expect(html).toContain("gpt-5.4");
     expect(html).toContain("50%"); // endToEndPassRate.display
-    expect(html).toContain("1 passed / 1 failed");
+    expect(html).toContain("1 passed · 1 failed");
     expect(html).toContain("memory=true");
   });
 
@@ -408,7 +429,8 @@ describe("跨组件契约", () => {
     const matrix = renderToStaticMarkup(<MetricMatrix data={matrixData} />);
     const board = renderToStaticMarkup(<Scoreboard data={scoreboardData} />);
     const attempts = renderToStaticMarkup(<AttemptList data={attemptListItems} />);
-    for (const html of [table, matrix, board, attempts]) {
+    const experiments = renderToStaticMarkup(<ExperimentList data={experimentListItems} />);
+    for (const html of [table, matrix, board, attempts, experiments]) {
       expect(html).toContain(cls);
     }
     const scatter = renderToStaticMarkup(<MetricScatter data={scatterData} />);

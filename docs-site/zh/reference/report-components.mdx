@@ -98,13 +98,15 @@ description: "报告文件里能摆的全部官方双面组件：每个组件回
 
 ## 实验组比较（`ExperimentComparison`）
 
-`niceeval show` / `view` 不传 `--report` 时使用的默认组合件。它先按 experiment id 的完整父目录分组，再为每组分别计算组摘要、成本 × 端到端成功率散点和实验列表：
+`niceeval show` / `view` 不传 `--report` 时使用的默认组合件。它先按 experiment id 的完整父目录分组，再为每组分别计算组摘要、成本 × 端到端通过率散点和实验列表：
 
 ```tsx
 <ExperimentComparison data={await ExperimentComparison.data(selection)} />
 ```
 
 `compare/bub` 与 `compare/codex` 属于 `compare`，可以横向比较；`dev-e2b/bub` 属于另一个组，不会进入同一张图、同一条 series 或同一张表。顶层 experiment 没有父目录时，以自己的完整 id 形成单例组。网页面持有完整组索引并一次聚焦一组，切组不重新读取 Selection；终端面命中多组时只显示组索引与单组查看命令，命中单组时才展开详情。浏览器禁用 JS 时，每组仍以独立 `<details>` 保留完整内容。
+
+组卡使用 `Pass rate / 通过率`、`Experiments / 实验`、`Evals / Eval`、`Attempts / Attempt`、`Eval results / Eval 结果`、`Total cost / 总成本` 这套字段标签，不在标签里重复“数”“次”或“计票”。时间显示为本地化到分钟的 `Last run / 最近运行` 或 `Run range / 运行范围`，不直接暴露 ISO 字符串；成本数据覆盖不全时写明“`63/72 次有成本数据`”，不显示没有上下文的 `63/72`。六项 KPI 在宽卡片保持同一行，空间不足时按三项或两项一组换行，避免总成本单独掉到下一行。
 
 这个分区只属于默认组合件。下面的 `MetricScatter`、`MetricTable` 和 `ExperimentList` 都忠实消费调用方传入的数据；自定义报告把跨组 Selection 传给它们，就表示明确选择跨组分析。
 
@@ -139,15 +141,15 @@ Pass rate 73.3% · 2 experiments · 15 evals · failed 3 · errored 1 · $0.93
 latest 2026-07-09T10:00:00Z
 ```
 
-通过率是 eval 级折叠计票口径：同一 eval 的多轮 attempt 先折成一个判定（任一轮通过则算通过，否则取最严重的），`passed / (passed + failed + errored)`，`skipped` 不进分母。页头 `RunOverview` 使用 `endToEndPassRate` 的两级聚合：先算同一道题各 Attempt 的端到端成功率，再跨题平均。两者的聚合粒度不同，但都会让 errored 降低成功率。`GroupSummary` 回答「这组题最终过了几道」，`RunOverview` 回答「每次实际运行交付成功结果的比例」，不要互相替代。`evals` 按 `experimentId + eval id` 的完整身份键去重——组里两个 experiment 各自的同名 eval 算两道题，不会被误合并成一道。`errored` 为 0 时这一段省略，但 `verdicts.errored` 这个数据字段本身永远在，省略只发生在渲染层。`totalCostUSD` 是组内可测 attempt 成本求和，一个 attempt 都没报成本时是 `null`，两面都渲染缺数据而不是 `$0`。
+通过率是 eval 级折叠计票口径：同一 eval 的多轮 attempt 先折成一个判定（任一轮通过则算通过，否则取最严重的），`passed / (passed + failed + errored)`，`skipped` 不进分母。页头 `RunOverview` 使用 `endToEndPassRate` 的两级聚合：先算同一道题各 Attempt 的端到端通过率，再跨题平均。两者的聚合粒度不同，但都会让 errored 降低通过率。`GroupSummary` 回答「这组题最终过了几道」，`RunOverview` 回答「每次实际运行交付成功结果的比例」，不要互相替代。`evals` 按 `experimentId + eval id` 的完整身份键去重——组里两个 experiment 各自的同名 eval 算两道题，不会被误合并成一道。`errored` 为 0 时这一段省略，但 `verdicts.errored` 这个数据字段本身永远在，省略只发生在渲染层。`totalCostUSD` 是组内可测 attempt 成本求和，一个 attempt 都没报成本时是 `null`，两面都渲染缺数据而不是 `$0`。
 
 组摘要是普通的公开组件，`GroupSummary.data` 是普通的公开计算函数——想在自己的报告里按目录前缀分组、每组摆一块，按上面的写法收窄 Selection 再调它就行。
 
 ## 实验列表（`ExperimentList`）
 
-每项固定代表一个 experiment。主行显示 experiment id、agent、model、flags、Eval 判定构成、通过率、Tokens、成本和耗时；展开后显示这个 experiment 的 Eval 列表。Eval 父行显示折叠判定、Attempt 数、平均耗时和平均成本；下面每个 Attempt 再显示该轮自己的失败摘要。失败内容只出现一次，不会在 Eval 与唯一 Attempt 上重复。它不接受列配置——这是 experiment 的诊断视图，不是通用指标表。默认 `ExperimentComparison` 每次只把一个可比组的 items 交给它；组件本身不猜组边界。
+每项固定代表一个 experiment。主行显示 experiment id、agent、model、flags、Eval 判定构成、通过率、Tokens、成本和耗时；其中“通过率 / Pass rate”是 `endToEndPassRate` 的默认短标签，完整口径名是“端到端通过率 / End-to-end pass rate”。展开后显示这个 experiment 的 Eval 列表。Eval 父行显示折叠判定、Attempt 数、平均耗时和平均成本；下面每个 Attempt 再显示该轮自己的失败摘要。失败内容只出现一次，不会在 Eval 与唯一 Attempt 上重复。它不接受列配置——这是 experiment 的诊断视图，不是通用指标表。默认 `ExperimentComparison` 每次只把一个可比组的 items 交给它；组件本身不猜组边界。
 
-默认比较已经用组名作面板 / 段落标题，所以组内每行的 experiment 标签会去掉这层文件夹前缀，只显示 id 末段（和同组散点的点标签一致），不在每行重复文件夹名；完整 id 仍是排序、着色和身份的依据。独立使用 `ExperimentList`、不告诉它相对哪个组时，显示完整 id。
+默认比较已经用组名作面板 / 段落标题，所以组内每行的 experiment 标签会去掉这层文件夹前缀，只显示 id 末段（和同组散点的点标签一致），不在每行重复文件夹名。这不是独立短标签，也不从 id 猜别名；完整 id 仍是排序、过滤和身份的依据，系列颜色跟随 Agent，与散点图对齐。独立使用 `ExperimentList`、不告诉它相对哪个组时，显示完整 id。中文副行用“`8 个 Eval`”而不是“`8 道题`”。
 
 ```tsx
 const experiments = await ExperimentList.data(selection);
@@ -160,8 +162,8 @@ const experiments = await ExperimentList.data(selection);
 `niceeval show` 先输出 experiment 比较表，再按 experiment 展开 Eval / Attempt 父子表。Eval 父行给题级平均值，Attempt 子行给这一轮的失败摘要和 locator：
 
 ```text
-Experiment      Model     Agent   Avg duration   E2E pass rate   Result                 Tokens   Est. cost
-bub-gpt-5.4     gpt-5.4   bub     41.0s          50%             1 passed / 1 failed     42k      $0.08
+Experiment      Model     Agent   Avg. time   Pass rate   Results                 Tokens   Cost
+bub-gpt-5.4     gpt-5.4   bub     41.0s       50%         1 passed · 1 failed     42k      $0.08
 
 bub-gpt-5.4
 Status      Eval / Attempt       Result                                  Duration    Cost

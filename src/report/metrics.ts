@@ -46,7 +46,7 @@ export function attemptCostUSD(result: EvalResult): number | null {
 
 /**
  * 条件答题质量:passed = 1,failed = 0,errored 记 null 不进分母。
- * 这是「已形成可信判定」条件下的诊断指标,不能简称默认成功率
+ * 这是「已形成可信判定」条件下的诊断指标,不能简称默认通过率
  * (docs/feature/reports/library.md「内置指标」)。
  */
 export const taskPassRate = defineMetric({
@@ -94,7 +94,7 @@ export const executionReliability = defineMetric({
  */
 export const endToEndPassRate = defineMetric({
   name: "end-to-end-pass-rate",
-  label: { en: "End-to-end pass rate", "zh-CN": "端到端成功率" },
+  label: { en: "Pass rate", "zh-CN": "通过率" },
   description: "End-to-end composite: passed = 1, failed / errored = 0. Split blame with taskPassRate and executionReliability.",
   better: "higher",
   unit: "%",

@@ -16,9 +16,9 @@ import { niceTicks, placePointLabels } from "./chart-math.ts";
 import { colorClassForKey, seriesClassForKey } from "./colors.ts";
 import { cx } from "./format.ts";
 
-const WIDTH = 640;
-const HEIGHT = 360;
-const MARGIN = { top: 26, right: 24, bottom: 46, left: 62 };
+const WIDTH = 760;
+const HEIGHT = 400;
+const MARGIN = { top: 28, right: 32, bottom: 48, left: 64 };
 const PLOT_W = WIDTH - MARGIN.left - MARGIN.right;
 const PLOT_H = HEIGHT - MARGIN.top - MARGIN.bottom;
 

@@ -114,7 +114,7 @@ function assertCleanReportRender(result: CliResult): void {
   // 显式报告是 ExperimentComparison:ExperimentList 渲染出这个 agent 行与通过率——
   // 真实 JSX 组件树、真实 react-dom 无关(text 面走 renderNodeToText,不含 react-dom),
   // 但同一批 .tsx 源码在 show 的加载路径上被解析求值,能吐出正确内容就证明没有半路崩溃。
-  expect(result.stdout).toContain("Cost × End-to-end pass rate");
+  expect(result.stdout).toContain("Cost × Pass rate");
   expect(result.stdout).toContain("bub");
   expect(result.stdout).toContain("100%");
   expect(result.stdout).toContain("1 passed");

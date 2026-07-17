@@ -183,7 +183,7 @@ describe("两级聚合口径", () => {
     expect(cells[executionReliability.name]!.value).toBeCloseTo(2 / 3);
   });
 
-  it("2 passed + 5 errored 的默认成功率是 2/7,不是 100%", async () => {
+  it("2 passed + 5 errored 的默认通过率是 2/7,不是 100%", async () => {
     const s = snap({
       experimentId: "exp/err",
       results: [
@@ -595,7 +595,7 @@ describe("实体列表 data", () => {
     expect(byEval.get("list/errored")!.costUSD).toBeNull();
   });
 
-  it("experimentListData:evalVerdicts / endToEndPassRate / costUSD / durationMs / tokens 齐全,默认按端到端成功率降序", async () => {
+  it("experimentListData:evalVerdicts / endToEndPassRate / costUSD / durationMs / tokens 齐全,默认按端到端通过率降序", async () => {
     const winner = snap({ experimentId: "exp/win", results: [res("a", "passed"), res("b", "passed")] });
     const loser = snap({ experimentId: "exp/lose", results: [res("a", "failed"), res("b", "passed")] });
     const items = await experimentListData([loser, winner]);

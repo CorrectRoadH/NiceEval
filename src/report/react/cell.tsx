@@ -11,10 +11,13 @@ export function MetricCellView({
   cell,
   attemptHref,
   locale = DEFAULT_REPORT_LOCALE,
+  showCoverage = true,
 }: {
   cell: MetricCell;
   attemptHref?: (locator: AttemptLocator) => string;
   locale?: ReportLocale;
+  /** 默认用紧凑角标显示覆盖率；已有展开说明的摘要卡可关闭角标。 */
+  showCoverage?: boolean;
 }): ReactElement {
   // 全 null(没有任何有效样本)→ 缺数据文案,绝不画 0;total 仍如实入 title
   if (cell.value === null) {
@@ -35,7 +38,7 @@ export function MetricCellView({
         {resolveLocalizedText(cell.display, locale)}
       </span>
       {/* samples < total:有 attempt 测不了这个指标,覆盖率角标如实标出 */}
-      {cell.samples < cell.total && (
+      {showCoverage && cell.samples < cell.total && (
         <sup
           className="nre-coverage"
           title={localeText(locale, "cell.coverageTitle", { samples: cell.samples, total: cell.total })}

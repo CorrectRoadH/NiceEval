@@ -242,8 +242,8 @@ describe("loadViewScan · 默认报告槽(裸跑)", () => {
   it("报告槽双语渲染:同一棵树按 locale 渲染两遍,chrome 文案分语言、数据不分语言", async () => {
     const root = await seedRoot();
     const reportHtml = bareReportHtml(await loadViewScan(root));
-    expect(reportHtml.en).toContain("End-to-end pass rate"); // ExperimentList 主行(en)
-    expect(reportHtml["zh-CN"]).toContain("端到端成功率"); // ExperimentList 主行(zh-CN)
+    expect(reportHtml.en).toContain("Pass rate"); // ExperimentList 主行(en)
+    expect(reportHtml["zh-CN"]).toContain("通过率"); // ExperimentList 主行(zh-CN)
     for (const html of [reportHtml.en, reportHtml["zh-CN"]]) {
       expect(html).toContain("compare/bub");
       // 失败案例深链进证据室:不透明 AttemptLocator 单段路由 `#/attempt/@<locator>`,
