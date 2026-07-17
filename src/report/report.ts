@@ -23,6 +23,7 @@ import {
   type LocalizedText,
   type ReportLocale,
 } from "./locale.ts";
+import { groupScopeWarnings } from "./scope-warnings.ts";
 
 // ───────────────────────── 公开形状 ─────────────────────────
 
@@ -485,17 +486,28 @@ export interface RenderReportTextOptions extends TextRenderOptions {
 }
 
 /**
- * 挑选警告的 text 形态:每条渲染好的 message 前缀 "! ",一行一条。宿主级前置块——
- * 宿主是 warning 的唯一呈现者,组件数据不复制 warning;裸跑 / --report 都在报告顶上
- * 如实报残缺,不静默(docs/feature/reports/architecture.md「Scope 是计算入口」)。
+ * 挑选警告的 text 形态:按「下一步动作」聚合(scope-warnings.ts,web/text 共用),同构但不折叠——
+ * 多组时首行 "! <分类计数汇总>";每组一行组头 "! <标题> — <徽标> → <组头命令>",其下缩进
+ * 逐条原样打印 message("!   <message>",不截断掉尾段)。宿主级前置块——宿主是 warning 的
+ * 唯一呈现者,组件数据不复制 warning;裸跑 / --report 都在报告顶上如实报残缺,不静默
+ * (docs/feature/reports/architecture.md「Scope 是计算入口」)。
  */
-function renderScopeWarningsText(scope: Scope, _locale: ReportLocale): string {
-  return scope.warnings.map((w) => `! ${w.message}`).join("\n");
+function renderScopeWarningsText(scope: Scope, locale: ReportLocale): string {
+  const { summary, groups } = groupScopeWarnings(scope.warnings, locale);
+  const lines: string[] = [];
+  if (summary) lines.push(`! ${summary}`);
+  for (const group of groups) {
+    const badges = group.badges.length > 0 ? ` — ${group.badges.map((b) => b.text).join(" · ")}` : "";
+    const command = group.headCommand ? ` → ${group.headCommand}` : "";
+    lines.push(`! ${group.title}${badges}${command}`);
+    for (const w of group.warnings) lines.push(`!   ${w.message}`);
+  }
+  return lines.join("\n");
 }
 
 /**
  * text 宿主的装载语义:选页 → resolve(组合展开 + spec 取数,唯一的 await 边界)→ 树校验 →
- * 遍历渲染 text 面;Scope 有挑选警告时在报告顶部前置一块 "! <message>"。不需要 react-dom。
+ * 遍历渲染 text 面;Scope 有挑选警告时在报告顶部前置按动作聚合的警告块。不需要 react-dom。
  */
 export async function renderReportToText(
   definition: ReportDefinition,
@@ -564,7 +576,7 @@ export interface RenderTreeTextOptions extends TextRenderOptions {
 /**
  * 渲染一页报告树的 text 面(宿主逐页调用;页选择归宿主):
  * resolve(组合展开 + spec 取数)→ validate → render。Scope 有挑选警告时在页顶前置
- * "! <message>" 块——宿主是 warning 的唯一呈现者,组件数据不复制 warning。
+ * 按动作聚合的警告块——宿主是 warning 的唯一呈现者,组件数据不复制 warning。
  */
 export async function renderReportTreeToText(
   tree: ReportNode,

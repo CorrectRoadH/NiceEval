@@ -73,6 +73,20 @@ it("scopeSummaryData 使用端到端两级聚合并保留覆盖率", async () =>
 | 分组维度上未声明的 flag 归 `(missing)` 组（metrics.md 的内置文案），不丢行 | 正例：部分 experiment 无该 flag 时 (missing) 计数正确 |
 | `MetricTable` 的 `sort` 决定初始行序，方向由指标 `better` 决定（好在前） | 正例：sort=endToEndPassRate 高在前、sort=costUSD 低在前 |
 
+## 站点组件与内建报告
+
+契约来源：[Library · 站点组件](../../../feature/reports/library/site-components.md)、[Library · 内建报告](../../../feature/reports/library/built-in.md)、[Library · 实体列表](../../../feature/reports/library/entity-lists.md)、[Results Library · 警告 kind 全集](../../../feature/results/library.md#警告-kind-全集)。
+
+| 契约 | 场景 |
+|---|---|
+| 内建报告是三页普通 `defineReport`（`report` / `attempts` / `traces`），页内容全部由公开组件组成，与 `--report` 同内容文件完全等价 | 正例：裸宿主装载的 definition 与内建入口默认导出同引用；正例：内建定义的页 id、页名与逐页组件构成和 built-in.md 全文一致 |
+| `Hero` 组合组件缺省取 `ctx.report.title`（回退链后的站点标题），显式 `title` prop 覆盖；与手写 `<HeroCard title={…} data={await heroData(ctx.scope)} />` 严格等价 | 正例：声明 `title` 后 `<Hero />` 两面输出含该标题且与浏览器标题同源；正例：显式 `title` prop 覆盖声明；正例：与手写组合渲染深等 |
+| `heroData`：`latestStartedAt` 取范围内最新快照开始时间（空范围为 null，不编造当前时间）、`snapshots` 计贡献快照数；`HeroCard` 在 snapshots > 1 时 web 面标注合成来源 | 正例：多快照 fixture 标注「由 N 次运行合成」；边界：空 Scope 显示「暂无运行」且 `latestStartedAt` 为 null |
+| `CopyFixPrompt`：prompt 在 resolve 阶段算好并烘进静态 HTML，无 JS 时折叠块内完整可读，复制是增强层行为；`failures` 为 0 时两面零输出；text 面恒零输出 | 正例：两失败 fixture 的 prompt 含 eval id、主失败摘要与 attempt 下钻命令；边界：全 passed 时无任何节点；反例：show 输出不含 prompt 文本 |
+| `TraceWaterfall`：web 面每 attempt 一行静态渲染顶层 span 分解条（失败 span 带失败标记），行链接 attempt 详情；text 面每 attempt 一行含 locator、总耗时、span 计数与可复制的 `--timing` 下钻命令；trace 缺失的 attempt 行照常出现并如实显示缺失 | 正例：两 attempt（一含失败 span）两面各自正确且 spans 按 startOffsetMs 升序；边界：缺 trace.json 的 attempt 的 `durationMs` 为 null 且行不消失；反例：runner 生命周期节点不进瀑布行 |
+| `AttemptList` 的 `filter` 是 web 面渐进增强过滤框，不改变数据、行集合与 text 面输出 | 正例：有无 `filter` 时初始行集合与 text 输出相同 |
+| `unreadable-snapshot`：扫描结果根遇到 schema 不兼容 / malformed / incomplete 快照时形成 Scope warning（`dir`、`reason`），schema 不兼容带 `npx niceeval@<producer.version>` 的 `command`；非实验作用域，`scope.filter` 修剪时保留；非 niceeval JSON 静默忽略不触发 | 正例：malformed 快照产生 warning 且其余快照照常计入；正例：incompatible 的 warning 带版本化 command；边界：`filter` 收窄后该 warning 仍在；反例：目录里的无关 JSON 不产生 warning |
+
 ## 组件解析（resolve）与组合组件
 
 契约来源：[Architecture](../../../feature/reports/architecture.md)「组件模型」「报告树与两个宿主」、[Library · 排版原语与自定义组件](../../../feature/reports/library/layout.md)、[Library · 指标组件](../../../feature/reports/library/metric-views.md)、[Library · 外壳与多页](../../../feature/reports/library/shell.md)。
@@ -161,8 +175,12 @@ it("text 与 web 显示同一个 MetricCell 终值和 warning", () => {
 | 裸 `show` 与裸 `view` 把同一 Scope 交给同一份内建报告定义（`niceeval/report/built-in` 默认导出）；`--report` 替换同一报告槽 | 正例：装载边界捕获两宿主的 definition 同引用、scope 深等 |
 | 两宿主对 `--results` / `--experiment` / 位置参数用同一套选择规则；局部补跑/过旧/未完成快照形成结构化 warning 随 Scope 携带 | 正例：未完成快照在两宿主产出相同 warning 集 |
 | `--history` 对匹配的每个 experimentId + evalId 分节，按 attempt 身份键跨快照去重、startedAt 升序逐 attempt 列出时间 / verdict / 单行摘要 / 耗时 / 成本 / locator；与 `--report` 互斥 | 正例：跨快照重跑去重后逐轮列出且升序；反例：与 `--report` 同用按用法错误非零退出 |
-| 宿主显示警告时下一步随行：text 面原样打印 `message`（已以下一步收尾，不截断掉尾段）；web 面把警告的 `command` 渲染为可复制命令，无 `command` 的警告只显示 message 不硬造动作 | 正例：stale-snapshot 在 web 面出现复制动作且值为 `niceeval exp <真实 id>`；正例：text 面输出以忽略条件/命令收尾；反例：missing-startedAt 在 web 面无复制动作 |
-| `view` 位置参数收窄只作用于报告槽，证据室保留完整 attempt 集，深链不因首页过滤失效 | 正例：收窄后被滤掉的 attempt 仍可从证据室取到 |
+| `ScopeWarnings` 按动作聚合：同 `experimentId` 的多 kind 警告聚合为一组，组头含实验 id、每条警告一枚 kind 徽标（模板取 kind 表）与去重后的一条可复制命令；命令去重后多于一条的组组头不放命令、命令随明细走 | 正例：partial-coverage + stale-snapshot 同实验成一组，组头命令恰一条 `niceeval exp <真实 id>` 且两枚徽标齐全；反例：不同实验不进同一组 |
+| 组排序与回退：`integrity` 组排在 `freshness` 组之前，混合组按最重成员归位；kind 表未登记模板的 kind 单独成组、逐条渲染 `message` 原样并按 `integrity` 归位 | 正例：仅 stale 的实验组排在含 partial-coverage 的实验组之后；边界：未知 kind 条目单独成组且 message 完整可见 |
+| 汇总行只在组数 > 1 时渲染分类计数；单组时组头即汇总，不另起一行 | 正例：两组时首行含分类计数；边界：单组无汇总行 |
+| 明细折叠：web 面每组逐条 `message` 收进原生 `<details>`（无 JS 可展开），警告总条数 ≤ 3 时默认展开；text 面不折叠，组头一行（标题、徽标、命令）下缩进逐条原样打印 `message`（已以下一步收尾，不截断掉尾段） | 正例：4 条警告时 `<details>` 无 `open`、3 条时有；正例：text 面组头下缩进输出以忽略条件/命令收尾 |
+| 显示时下一步随行：web 面带 `command` 的条目渲染为可复制命令，无 `command` 的只显示 message 不硬造动作；空警告集两面零输出；裸 `Snapshot[]` 输入渲染为空 | 正例：stale-snapshot 在 web 面出现复制动作且值为 `niceeval exp <真实 id>`；反例：missing-startedAt 形态的无 command 条目在 web 面无复制动作；边界：空 warnings 不渲染容器节点 |
+| `view` 位置参数与 `--experiment` 收窄对全部页生效（含内建 Attempts 页）；attempt 详情路由对完整结果根解析，被滤掉的 attempt 深链仍可打开 | 正例：收窄后 Attempts 页行集缩小，`#/attempt/@<locator>` 对被滤掉的 attempt 仍解析成功 |
 | `show` 中漏写 `@` 的 locator 按 eval id 前缀处理并明确报无匹配、列出候选 | 反例：输入 "1qrdcfq8" 报 "No results matched" 附候选 |
 | `--timing` 自身就是 Attempt 证据切面，单独使用必须进入有界诊断时间树；首页 timing 只列大头，短的 baseline / telemetry bookkeeping 留给时间树 | 正例：locator + 单独 `--timing` 不回落首页；边界：短 telemetry 省略、慢 telemetry 保留 |
 | detail node 不超过 80 时，裸 `--timing` 与 `--timing=full` 展开相同节点；phase 行和 omission 行不占预算 | 正例：79/80 节点无 omission；边界：81 节点出现 omission；反例：不能省略 lifecycle phase |
@@ -223,15 +241,15 @@ it("show 与 view 的默认报告槽消费同一 Scope", async () => {
 | `content` 与 `pages` 恰好声明一个：同时声明或都省略装载报错，报错文案给出 `content: <ExperimentComparison />` 下一步 | 反例：同时声明报完整用户反馈；反例：都省略报错且文案含 `<ExperimentComparison />`；正例：`defineReport({ title, links, content: <ExperimentComparison /> })` 渲染内建内容并带自定义外壳 |
 | 页不嵌套外壳：`content` / `page.content` 只接受报告树节点，`defineReport` 产物放进任何 content 或树中装载报错（TS 编译期拒绝，无类型 JS 输入装载期同样校验） | 正例：具名导出的树与组合组件节点都可直接作 `page.content`；反例：页里放 `defineReport` 产物装载报错 |
 | 裸 `show` / 裸 `view` 装载 `niceeval/report/built-in` 的默认导出，与 `--report` 同一条 `装载 → resolve → validate → render` 管线 | 正例：裸宿主装载的 definition 与该默认导出同引用 |
-| show 对多页定义只输出标题、页索引与可复制的 `--page` 命令，不倾倒页内容；单页定义或 `--page` 命中时直接渲染该页 text 面 | 正例：双页定义索引含两条命令且无 experiment 明细；边界：单页定义直接渲染 |
+| show 渲染初始页（`--page` 或第一页）的 text 面，页数大于一时在页输出之后附其余页的索引与可复制 `--page` 命令，不倾倒其余页内容；单页定义无索引段 | 正例：双页定义输出含第一页内容与另一页的索引命令、不含另一页内容；边界：单页定义直接渲染且无「其余页」段 |
 | `--page` 未命中页 id 时按用法错误非零退出并列出可用页 id；单页定义的唯一页 id 是缩写展开出的 `report` | 反例：`--page typo` 报错附 overview / exam；边界：对树形态文件 `--page report` 命中唯一页，`--page typo` 报错列出 `report` |
 | `show` 输出的页索引与组索引命令保留当前 `--results` / `--report` / `--page` 与位置参数上下文，复制即可复现下一层视图 | 正例：`--report` 下多组时组索引命令含 `--report` 与 `--page`；正例：`--results` 下页索引命令含 `--results` |
 | 全部页共享宿主注入的同一 Scope，位置参数与 `--experiment` 收窄对全部页生效；页不承担数据过滤 | 正例：两页的解析 refs 来自同一收窄后 Scope |
 | 本地宿主只 resolve 被打开的页；静态导出 resolve 并校验全部页，任一页失败则导出整体失败 | 正例：打开 A 页时 B 页的取数未执行；反例：B 页含 `<div>` 时 `--out` 非零退出、不产出半套站点 |
-| 标题取值链 def.title → Scope 中唯一且相同（LocalizedText 深相等）的快照 name → 内置文案「Eval 运行结果 / Eval Results」，落点是 hero、浏览器标题与 show 页索引标题行；页头品牌位恒为 NiceEval 字标，不由 title 覆盖，点击新标签页打开官网（href 带 `utm_source=report&utm_medium=brand`）；`links` / `footer` 渲染进导航壳，text 面不含这些字段 | 正例：三级 fallback 各一 fixture 且 hero 与品牌位各自正确；正例：品牌位 href 为官网并含 `utm_medium=brand`；边界：两快照 name 的 en 相同、zh-CN 不同时任何 locale 下都落内置文案；反例：声明 title 后品牌位仍是 NiceEval；反例：show 输出不含 links href |
+| 标题取值链 def.title → Scope 中唯一且相同（LocalizedText 深相等）的快照 name → 内置文案「Eval 运行结果 / Eval Results」，落点是浏览器标题、show 页索引标题行与 `ctx.report.title`；`links` / `footer` 渲染进导航壳，text 面不含这些字段 | 正例：三级 fallback 各一 fixture，浏览器标题与 `ctx.report.title` 同源；边界：两快照 name 的 en 相同、zh-CN 不同时任何 locale 下都落内置文案；反例：show 输出不含 links href |
 | `ReportLink.icon` 是内联 SVG 字符串（`{ svg }`）：web 面渲染在 label 前、静态导出原样内联；不收组件，show 不消费 | 正例：带 svg 的 GitHub 链接导航项含该 SVG；反例：无类型 JS 传 ReactNode 作 icon 装载报错；反例：show 页索引不含 svg |
-| web 面外壳 hero 下方恒含指向 niceeval 官网的 `Powered by NiceEval` 品牌行（href 带 `utm_source=report&utm_medium=powered-by`），不随 `footer` 配置增减，无关闭配置；省略 `footer` 时不渲染页脚；text 面与 `niceeval/report/react` 嵌入组件不含 | 正例：有 / 无 `footer` 两种 fixture hero 下都含该行且 href 含 `utm_medium=powered-by`，无 `footer` 时无页脚元素；反例：show 输出与 react 嵌入渲染不含该行 |
-| view 导航组成固定：报告页按声明序在前，内置 Attempts、Traces 证据页恒排其后；报告定义不能移除或重排证据页 | 正例：双页定义导航序为 页A · 页B · Attempts · Traces；边界：树形态定义导航仍含证据页 |
+| 品牌是组件：宿主页头与外壳不渲染任何品牌位；`PoweredBy` 无 props，web 面渲染指向官网的品牌行（href 含 `utm_source=report&utm_medium=powered-by`、`rel` 仅 `noopener`），text 面零输出；`Hero` / `HeroCard` 恒含品牌行、无拆除 prop；省略 `footer` 时不渲染页脚 | 正例：内建报告每页 web 面含品牌行且 href 正确；反例：宿主导航壳 DOM 无品牌节点、show 输出不含该行；边界：无 `footer` 时无页脚元素但品牌行仍在 |
+| view 导航只有报告页、按声明序排列，宿主不追加或保留任何导航项；attempt 详情路由不占导航 | 正例：双页自定义定义的导航恰为 页A · 页B；正例：裸 view 导航为 报告 · Attempts · 追踪（来自内建报告三页）；边界：树形态定义导航只有一项 report |
 | `scripts` / `styles` 按声明序注入：styles 在官方样式后，scripts 在官方增强脚本后 `</body>` 前；初始静态 HTML 的数值不因注入改变 | 正例：注入前后初始 HTML 数据节点相同、注入顺序可断言 |
 | `{src}` 资产相对报告文件解析，拒绝 `..` 路径段、绝对路径与 `~`；静态导出复制进 `assets/` 保持相对路径，缺失文件报错并给出解析后路径 | 正例：`./assets/a.js` 被复制；反例：`../x.js` 装载报错；边界：缺失文件在导出时报错 |
 | `head` 标签白名单是 `meta` / `link` / `script` / `style`，白名单外与宿主自有单例（`title` 不在白名单、`meta charset`、`meta name="viewport"`）装载报错并指回对应契约 | 反例：`{ tag: "base" }` 装载报错；反例：`meta charset` / `meta viewport` 装载报错且文案指回 title 契约或宿主职责 |

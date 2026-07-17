@@ -12,17 +12,23 @@ import type {
   Results,
   Scope,
   ScopeWarning,
+  SkippedDir,
   Snapshot,
 } from "./types.ts";
 import type { ExperimentRunInfo, JsonValue } from "../types.ts";
 import { evalPrefixPredicate } from "../shared/aggregate.ts";
 
-/** Results.latest() 的实现:每个实验取最新一次快照(= exp.snapshots[0]),生成挑选警告。 */
+/**
+ * Results.latest() 的实现:每个实验取最新一次快照(= exp.snapshots[0]),生成挑选警告。
+ * 收整个 `Results` 而不是裸 `Experiment[]`,是为了同时取 `skipped` / `root` 生成
+ * `unreadable-snapshot` 警告(非实验作用域,不受 `opts.experiments` 过滤 —— 那些落盘
+ * 本来就没能解析出 experimentId,没有前缀可过滤)。
+ */
 export function selectLatest(
-  experiments: Experiment[],
+  results: Pick<Results, "experiments" | "skipped" | "root">,
   opts?: { experiments?: string | string[] },
 ): Scope {
-  const selected = filterExperiments(experiments, opts?.experiments);
+  const selected = filterExperiments(results.experiments, opts?.experiments);
   const snapshots = selected.map((exp) => exp.latest);
   const warnings: ScopeWarning[] = [];
 
@@ -69,6 +75,7 @@ export function selectLatest(
       });
     }
   }
+  warnings.push(...unreadableSnapshotWarnings(results.skipped, results.root));
   return makeScope("latest-snapshots", snapshots, warnings);
 }
 
@@ -235,7 +242,61 @@ export function selectCurrentResults(results: Results, scope: ResultScope = {}):
     }
   }
 
+  warnings.push(...unreadableSnapshotWarnings(results.skipped, results.root));
   return makeScope("current-evals", snapshots, warnings);
+}
+
+/**
+ * `results.skipped` 里每一条不可读落盘 → 一条 `unreadable-snapshot` ScopeWarning。
+ * 非实验作用域(没有 experimentId 字段):`latest()` / `current()` 都原样带上全部
+ * `skipped` 条目,不受 `opts.experiments` 前缀过滤影响(那些落盘本来就没能解析出
+ * experimentId,没有前缀可比);`makeScope().filter()` 按「非实验作用域的警告保留」
+ * 规则自动放行,不需要额外分支。
+ */
+function unreadableSnapshotWarnings(skipped: readonly SkippedDir[], root: string): ScopeWarning[] {
+  return skipped.map((s): ScopeWarning => {
+    switch (s.reason) {
+      case "incompatible-version": {
+        const producer = s.producer;
+        const schemaText = s.schemaVersion !== undefined ? ` (schemaVersion ${s.schemaVersion})` : "";
+        if (producer?.name === "niceeval" && producer.version) {
+          const command = `npx niceeval@${producer.version} show --results ${root}`;
+          return {
+            kind: "unreadable-snapshot",
+            dir: s.dir,
+            reason: s.reason,
+            message: `snapshot at "${s.dir}" was written by niceeval ${producer.version}${schemaText} and cannot be read by this version; run \`${command}\` to open it`,
+            command,
+          };
+        }
+        const writtenBy = producer?.name
+          ? `${producer.name}${producer.version ? ` ${producer.version}` : ""}`
+          : "an incompatible tool version";
+        return {
+          kind: "unreadable-snapshot",
+          dir: s.dir,
+          reason: s.reason,
+          message: `snapshot at "${s.dir}" was written by ${writtenBy}${schemaText} and cannot be read by this version; open it with the tool version that produced it`,
+        };
+      }
+      case "malformed": {
+        const detail = s.detail ? ` (${s.detail})` : "";
+        return {
+          kind: "unreadable-snapshot",
+          dir: s.dir,
+          reason: s.reason,
+          message: `snapshot at "${s.dir}" is malformed${detail} and was skipped; inspect snapshot.json in that directory for corrupted JSON or a missing required field`,
+        };
+      }
+      case "incomplete":
+        return {
+          kind: "unreadable-snapshot",
+          dir: s.dir,
+          reason: s.reason,
+          message: `snapshot at "${s.dir}" has attempt data but no snapshot.json (likely interrupted before metadata was written) and was skipped; inspect ${s.dir} — completed attempts remain on disk for manual review`,
+        };
+    }
+  });
 }
 
 /**
@@ -315,15 +376,22 @@ export function filterExperiments(experiments: Experiment[], filter?: string | s
   return experiments.filter((exp) => prefixes.some((p) => exp.id === p || exp.id.startsWith(p + "/")));
 }
 
-/** stale 警告的人话时距:选粒度最大的单位,四舍五入。 */
-function humanizeGap(fromIso: string, toIso: string): string {
+/**
+ * stale 警告的人话时距:选粒度最大的单位,四舍五入。结构化形态是单源——message 的英文时距
+ * 与 ScopeWarnings 徽标的本地化时距都从这里出,阈值不写两份。
+ */
+export function gapParts(fromIso: string, toIso: string): { n: number; unit: "second" | "minute" | "hour" | "day" } {
   const ms = Math.max(0, Date.parse(toIso) - Date.parse(fromIso));
   const seconds = Math.round(ms / 1000);
-  if (seconds < 90) return `${seconds} second${seconds === 1 ? "" : "s"}`;
+  if (seconds < 90) return { n: seconds, unit: "second" };
   const minutes = Math.round(seconds / 60);
-  if (minutes < 90) return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+  if (minutes < 90) return { n: minutes, unit: "minute" };
   const hours = Math.round(minutes / 60);
-  if (hours < 36) return `${hours} hour${hours === 1 ? "" : "s"}`;
-  const days = Math.round(hours / 24);
-  return `${days} day${days === 1 ? "" : "s"}`;
+  if (hours < 36) return { n: hours, unit: "hour" };
+  return { n: Math.round(hours / 24), unit: "day" };
+}
+
+function humanizeGap(fromIso: string, toIso: string): string {
+  const { n, unit } = gapParts(fromIso, toIso);
+  return `${n} ${unit}${n === 1 ? "" : "s"}`;
 }

@@ -505,6 +505,89 @@ describe("text/web 双面同源", () => {
   });
 });
 
+// ───────────────────────── ScopeWarnings 按动作聚合 ─────────────────────────
+
+describe("ScopeWarnings 按动作聚合", () => {
+  const partial = (id: string): ScopeWarning => ({
+    kind: "partial-coverage",
+    experimentId: id,
+    covered: 1,
+    total: 2,
+    message: `verdicts for "${id}" cover 1 of 2 evals; re-run \`niceeval exp ${id}\` to fill the gap`,
+    command: `niceeval exp ${id}`,
+  });
+  const stale = (id: string): ScopeWarning => ({
+    kind: "stale-snapshot",
+    experimentId: id,
+    startedAt: "2026-06-01T00:00:00.000Z",
+    latestStartedAt: "2026-06-05T00:00:00.000Z",
+    message: `snapshot "${id}" predates the latest run in this scope by 4 days; re-run \`niceeval exp ${id}\` to align, or ignore if evals, agent and model are unchanged between the runs`,
+    command: `niceeval exp ${id}`,
+  });
+
+  async function faces(experimentIds: string[], warnings: ScopeWarning[]) {
+    const snapshots = experimentIds.map((id) => snap({ experimentId: id, results: [res("q", "passed")] }));
+    const scope = scopeOf(snapshots, warnings);
+    const definition = defineReport(<ScopeSummary />);
+    const ctx = { scope, results: resultsOf(snapshots) };
+    return {
+      text: await renderReportToText(definition, ctx),
+      html: await renderReportToStaticHtml(definition, ctx),
+    };
+  }
+
+  it("同实验多 kind 聚合一组:组头两枚徽标 + 恰一条去重命令;不同实验不进同一组", async () => {
+    const { html } = await faces(["warn/a", "warn/b"], [partial("warn/a"), stale("warn/a"), stale("warn/b")]);
+    expect(html.match(/nre-warning-group"/g)).toHaveLength(2);
+    // warn/a 组头:coverage + 时距两枚徽标,命令去重后只出现一次
+    expect(html).toContain("coverage 1/2");
+    expect(html).toContain("4 days behind");
+    expect(html.match(/data-nre-copy="niceeval exp warn\/a"/g)).toHaveLength(1);
+    expect(html.match(/data-nre-copy="niceeval exp warn\/b"/g)).toHaveLength(1);
+  });
+
+  it("组排序 integrity 在前;未登记 kind 单独成组且 message 完整可见", async () => {
+    const weird = { kind: "weird-kind", message: "strange thing happened" } as unknown as ScopeWarning;
+    // 输入顺序 freshness 在先,渲染顺序仍 integrity(warn/a 含 partial-coverage)在前
+    const { html } = await faces(["warn/a", "warn/b"], [stale("warn/b"), partial("warn/a"), weird]);
+    expect(html.indexOf('data-category="integrity"')).toBeLessThan(html.indexOf('data-category="freshness"'));
+    expect(html.indexOf("warn/a")).toBeLessThan(html.indexOf("warn/b"));
+    expect(html).toContain("weird-kind");
+    expect(html).toContain("strange thing happened");
+  });
+
+  it("汇总行只在组数 > 1 时出现;单组时组头即汇总", async () => {
+    const multi = await faces(["warn/a", "warn/b"], [partial("warn/a"), stale("warn/b")]);
+    expect(multi.html).toContain("nre-warnings-summary");
+    expect(multi.html).toContain("2 experiments flagged");
+    const single = await faces(["warn/a"], [partial("warn/a"), stale("warn/a")]);
+    expect(single.html).not.toContain("nre-warnings-summary");
+  });
+
+  it("明细折叠:总条数 ≤ 3 时 <details> 默认展开,4 条起收起;text 面组头下缩进逐条原样打印且不截断尾段", async () => {
+    const three = await faces(["warn/a", "warn/b"], [partial("warn/a"), stale("warn/a"), stale("warn/b")]);
+    expect(three.html).toMatch(/<details[^>]*class="nre-warning-details"[^>]*open/);
+    const four = await faces(
+      ["warn/a", "warn/b"],
+      [partial("warn/a"), stale("warn/a"), partial("warn/b"), stale("warn/b")],
+    );
+    expect(four.html).not.toMatch(/<details[^>]*open/);
+    // text 面:组头一行(标题 — 徽标 → 命令),明细缩进,message 以忽略条件收尾不截断
+    expect(three.text).toContain("! warn/a — coverage 1/2 · 4 days behind → niceeval exp warn/a");
+    expect(three.text).toContain('!   snapshot "warn/a" predates');
+    expect(three.text).toContain("unchanged between the runs");
+  });
+
+  it("无 command 的条目不硬造复制动作;空警告集不渲染容器", async () => {
+    const noCommand = { kind: "weird-kind", message: "strange thing happened" } as unknown as ScopeWarning;
+    const { html } = await faces(["warn/a"], [noCommand]);
+    expect(html).not.toContain("nre-warning-command");
+    const empty = await faces(["warn/a"], []);
+    expect(empty.html).not.toContain("nre-report-warnings");
+    expect(empty.text).not.toContain("!");
+  });
+});
+
 // ───────────────────────── FailureList ─────────────────────────
 
 describe("FailureList", () => {

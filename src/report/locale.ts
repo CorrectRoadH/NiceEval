@@ -146,6 +146,49 @@ const en = {
   "delta.pairHeader": "pair (A → B)",
   "delta.empty": "{experiments} experiments, 0 comparable pairs",
 
+  /** ScopeWarnings 聚合层的 chrome:汇总行、kind 徽标、组头与明细折叠标签;message 本体不经字典。 */
+  "warnings.summary.experiments.one": "{n} experiment flagged",
+  "warnings.summary.experiments.other": "{n} experiments flagged",
+  "warnings.group.unreadableSnapshot.one": "{n} snapshot skipped",
+  "warnings.group.unreadableSnapshot.other": "{n} snapshots skipped",
+  "warnings.details.one": "{n} warning",
+  "warnings.details.other": "{n} warnings",
+  "warnings.badge.partialCoverage": "coverage {covered}/{total}",
+  "warnings.badge.staleSnapshot": "{gap} behind",
+  "warnings.badge.unfinishedSnapshot": "unfinished",
+  "warnings.gap.second.one": "{n} second",
+  "warnings.gap.second.other": "{n} seconds",
+  "warnings.gap.minute.one": "{n} minute",
+  "warnings.gap.minute.other": "{n} minutes",
+  "warnings.gap.hour.one": "{n} hour",
+  "warnings.gap.hour.other": "{n} hours",
+  "warnings.gap.day.one": "{n} day",
+  "warnings.gap.day.other": "{n} days",
+
+  /** Hero / HeroCard 的运行 meta(hero.noRuns 是 latestStartedAt 为 null 时的内置文案)。 */
+  "hero.lastRun": "Last run {time}",
+  "hero.noRuns": "No runs yet",
+  /** web 面的合成来源标注(仅 snapshots > 1 时显示)。 */
+  "hero.composedRuns": "composed from {n} runs",
+  /** text 面的合成来源标注(show 页首 meta 行,仅 snapshots > 1 时显示)。 */
+  "hero.composedSnapshots": "composed from {n} snapshots",
+
+  /** CopyFixPrompt 的 web 面 chrome(prompt 本身面向 agent、固定英文,不经词典)。 */
+  "copyFixPrompt.summary.one": "Fix prompt · {n} failure",
+  "copyFixPrompt.summary.other": "Fix prompt · {n} failures",
+  "copyFixPrompt.copy": "Copy fix prompt",
+
+  /** TraceWaterfall 的 chrome。 */
+  "traceWaterfall.empty": "No attempts",
+  "traceWaterfall.noTrace": "no trace",
+  "traceWaterfall.spans.one": "{n} span",
+  "traceWaterfall.spans.other": "{n} spans",
+  "traceWaterfall.failedSpans.one": "{n} failed",
+  "traceWaterfall.failedSpans.other": "{n} failed",
+
+  /** AttemptList 的 web 面过滤框占位符(filter 渐进增强)。 */
+  "attemptList.filterPlaceholder": "Filter attempts…",
+
   "tabs.tab": "Tab",
 } as const;
 
@@ -245,6 +288,42 @@ const zhCN: Record<ReportMessageKey, string> = {
   "delta.pairHeader": "对比 (A → B)",
   "delta.empty": "{experiments} 个实验、0 个可配对",
 
+  "warnings.summary.experiments.one": "{n} 个实验的数字带警告",
+  "warnings.summary.experiments.other": "{n} 个实验的数字带警告",
+  "warnings.group.unreadableSnapshot.one": "{n} 个快照被跳过",
+  "warnings.group.unreadableSnapshot.other": "{n} 个快照被跳过",
+  "warnings.details.one": "{n} 条原始警告",
+  "warnings.details.other": "{n} 条原始警告",
+  "warnings.badge.partialCoverage": "覆盖 {covered}/{total}",
+  "warnings.badge.staleSnapshot": "落后 {gap}",
+  "warnings.badge.unfinishedSnapshot": "未收尾",
+  "warnings.gap.second.one": "{n} 秒",
+  "warnings.gap.second.other": "{n} 秒",
+  "warnings.gap.minute.one": "{n} 分钟",
+  "warnings.gap.minute.other": "{n} 分钟",
+  "warnings.gap.hour.one": "{n} 小时",
+  "warnings.gap.hour.other": "{n} 小时",
+  "warnings.gap.day.one": "{n} 天",
+  "warnings.gap.day.other": "{n} 天",
+
+  "hero.lastRun": "最后运行 {time}",
+  "hero.noRuns": "暂无运行",
+  "hero.composedRuns": "由 {n} 次运行合成",
+  "hero.composedSnapshots": "由 {n} 份快照合成",
+
+  "copyFixPrompt.summary.one": "修复 prompt · {n} 个失败",
+  "copyFixPrompt.summary.other": "修复 prompt · {n} 个失败",
+  "copyFixPrompt.copy": "复制修复 prompt",
+
+  "traceWaterfall.empty": "没有 attempt",
+  "traceWaterfall.noTrace": "无 trace",
+  "traceWaterfall.spans.one": "{n} 个 span",
+  "traceWaterfall.spans.other": "{n} 个 span",
+  "traceWaterfall.failedSpans.one": "{n} 个失败",
+  "traceWaterfall.failedSpans.other": "{n} 个失败",
+
+  "attemptList.filterPlaceholder": "筛选 attempt…",
+
   "tabs.tab": "Tab",
 };
 
@@ -276,7 +355,10 @@ export function countText(
     | "scoreboard.unscorable"
     | "scoreboard.ignored"
     | "entityList.moreFailures"
-    | "table.columnsHidden",
+    | "table.columnsHidden"
+    | "copyFixPrompt.summary"
+    | "traceWaterfall.spans"
+    | "traceWaterfall.failedSpans",
   n: number,
 ): string {
   return localeText(locale, `${base}.${n === 1 ? "one" : "other"}` as ReportMessageKey, { n });

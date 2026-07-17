@@ -16,6 +16,10 @@
 | 两个指标之间的取舍 | [`MetricScatter`](library/metric-views.md#metricscatter) |
 | 参数变化时指标怎样变化 | [`MetricLine`](library/metric-views.md#metricline) |
 | A 与 B 相差多少 | [`DeltaTable`](library/metric-views.md#deltatable) |
+| 页首放站点标题、最后运行时间与品牌行 | [`Hero`](library/site-components.md#hero) |
+| 这批数据的选择警告（覆盖缺口、过旧、未完成） | [`ScopeWarnings`](library/site-components.md#scopewarnings) |
+| 把全部失败打包成可交给 coding agent 的修复 prompt | [`CopyFixPrompt`](library/site-components.md#copyfixprompt) |
+| 每个 attempt 的执行时间瀑布 | [`TraceWaterfall`](library/site-components.md#tracewaterfall) |
 
 组件之外按任务读分篇：
 
@@ -25,6 +29,7 @@
 | 选内置指标、定义自己的指标或分组维度 | [指标与维度](library/metrics.md) |
 | 组织报告树、写组合组件或双面组件 | [排版原语与自定义组件](library/layout.md) |
 | 加标题、GitHub 链接、页脚，或拆成多页 | [外壳与多页](library/shell.md) |
+| 摆 hero、品牌行、警告区、修复 prompt 或 trace 瀑布 | [站点组件](library/site-components.md) |
 | 看裸 `show` / `view` 装载的默认定义怎么写 | [内建报告](library/built-in.md) |
 
 ## 两种使用方式
@@ -55,7 +60,7 @@ niceeval show --report reports/quality-cost.tsx
 niceeval view --report reports/quality-cost.tsx
 ```
 
-宿主先按位置参数、`--results` 和 `--experiment` 选择数据，再把 Scope 注入报告；管线在 [resolve 阶段](architecture.md#报告树与两个宿主)并行完成所有组件的取数，作者不写任何取数管道。覆盖不完整、快照过旧或未完成等警告由宿主在报告树外统一显示，报告不自己补警告组件，`ScopeSummaryData` 也不携带它们。显示时下一步随行：text 面原样打印 `message`（[三段式](../../error-feedback.md#消息三段式)，已含下一步），web 面额外把 `command` 渲染为可复制的命令。
+宿主先按位置参数、`--results` 和 `--experiment` 选择数据，再把 Scope 注入报告；管线在 [resolve 阶段](architecture.md#报告树与两个宿主)并行完成所有组件的取数，作者不写任何取数管道。覆盖不完整、快照过旧或未完成等警告由 [`ScopeWarnings`](library/site-components.md#scopewarnings) 组件呈现——宿主不在报告树外另设警告通道，[内建报告](library/built-in.md)每页都放它，自定义报告放不放是作者义务；`ScopeSummaryData` 等指标数据不携带警告。显示时下一步随行：组件按「下一步动作」把警告聚合成组，组头带可复制的推进 `command`，逐条 `message`（[三段式](../../error-feedback.md#消息三段式)，已含下一步）作为明细原样保留——聚合、排序与折叠规则见[组件契约](library/site-components.md#scopewarnings)。
 
 取数之后要用普通 JavaScript 加工（filter / slice / 自定义排序）时，写一个[组合组件](library/layout.md#自定义组件)：在里面调 `*Data` 函数、加工数组，再以 **data 形态** 把结果递给组件：
 
@@ -78,7 +83,7 @@ spec 形态与 data 形态的完整契约在 [Architecture · 组件模型](arch
 
 ```tsx
 import { openResults } from "niceeval/results";
-import { MetricTable, ScopeSummary } from "niceeval/report/react";
+import { MetricTable, ScopeSummary, ScopeWarnings } from "niceeval/report/react";
 import {
   costUSD, durationMs, endToEndPassRate,
   metricTableData, scopeSummaryData,
@@ -99,9 +104,7 @@ export default async function EvalsPage() {
 
   return (
     <main>
-      {scope.warnings.map((warning) => (
-        <p key={`${warning.kind}:${warning.message}`}>{warning.message}</p>
-      ))}
+      <ScopeWarnings data={scope.warnings} />
       <ScopeSummary data={summary} />
       <MetricTable
         data={table}
@@ -136,7 +139,7 @@ await writeFile("public/evals.json", JSON.stringify(table));
 ## 相关阅读
 
 - [配方](library/recipes.md) —— 按场景可整份复制的完整报告文件。
-- [概览组件](library/summaries.md) / [实体列表](library/entity-lists.md) / [指标组件](library/metric-views.md) —— 组件契约分篇。
+- [概览组件](library/summaries.md) / [实体列表](library/entity-lists.md) / [指标组件](library/metric-views.md) / [站点组件](library/site-components.md) —— 组件契约分篇。
 - [指标与维度](library/metrics.md) —— 内置指标口径与自定义指标。
 - [排版原语与自定义组件](library/layout.md) —— 报告树的组织件、组合组件与 text 排版工具。
 - [外壳与多页](library/shell.md) —— 标题、外链、页脚、脚本与 `pages`。

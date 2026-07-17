@@ -436,9 +436,8 @@ table.nre,
   margin: 0.25rem 0 0;
 }
 
-/* ---- 宿主警告块:.nre-report-warnings 外壳 + ul.nre-warnings + li.nre-warning[data-kind] ---- */
+/* ---- 宿主警告块:.nre-report-warnings 外壳 + .nre-warnings 容器(汇总行 + 按动作聚合的组) ---- */
 .nre .nre-warnings {
-  list-style: none;
   margin: 0;
   padding: 10px 14px;
   border: 1px solid color-mix(in oklch, var(--warn), var(--line) 45%);
@@ -447,6 +446,55 @@ table.nre,
   background: color-mix(in oklch, var(--warn), var(--panel) 92%);
   color: var(--text);
   font-size: 13px;
+}
+/* 汇总行与组头永不折叠;明细在 <details> 里(无 JS 可展开)。 */
+.nre .nre-warnings-summary {
+  margin: 0 0 8px;
+  font-weight: 650;
+}
+.nre .nre-warning-groups {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.nre .nre-warning-group + .nre-warning-group {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in oklch, var(--warn), var(--line) 60%);
+}
+.nre .nre-warning-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+.nre .nre-warning-title { font-weight: 650; }
+.nre .nre-warning-badge {
+  padding: 1px 8px;
+  border: 1px solid color-mix(in oklch, var(--warn), var(--line) 35%);
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--warn), var(--panel) 84%);
+  font-size: 0.9em;
+  white-space: nowrap;
+}
+/* freshness 组(数字对但可能过期)视觉降一档,integrity 保持警示底色。 */
+.nre .nre-warning-group[data-category="freshness"] .nre-warning-badge {
+  border-color: var(--line);
+  background: var(--panel);
+  color: var(--soft);
+}
+.nre .nre-warning-details { margin: 4px 0 0; }
+/* <details> 原生无 JS 可展开,cursor 不经 .nre-js 门控。 */
+.nre .nre-warning-details > summary {
+  color: var(--soft);
+  font-size: 0.9em;
+  cursor: pointer;
+}
+.nre .nre-warning-details > ul {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0 0 0 12px;
+  border-left: 2px solid color-mix(in oklch, var(--warn), var(--line) 60%);
 }
 .nre .nre-warning + .nre-warning { margin-top: 8px; }
 /* 警告携带的下一步命令:等宽块,无 JS 时点击即全选;enhance.js 在场时点击复制 */
@@ -468,6 +516,141 @@ table.nre,
   content: "✓";
   margin-left: 0.6em;
   color: var(--good);
+}
+
+/* ---- Hero / PoweredBy(站点标题区与品牌行) ---- */
+.nre-hero { margin: 0 0 18px; }
+.nre-hero .nre-hero-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.nre-hero .nre-hero-meta {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.nre-powered-by {
+  margin: 6px 0 0;
+  font-size: 12px;
+}
+.nre-powered-by a {
+  color: var(--soft);
+  text-decoration: none;
+}
+.nre-powered-by a:hover { color: var(--text); text-decoration: underline; }
+
+/* ---- CopyFixPrompt(批量修复 prompt:折叠块 + 增强层复制) ---- */
+.nre-copy-fix-prompt {
+  margin: 0 0 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 8px 12px;
+}
+.nre-copy-fix-prompt > summary {
+  cursor: pointer;
+  font-weight: 620;
+  font-size: 13px;
+}
+.nre-copy-fix-prompt .nre-copy-fix-prompt-copy {
+  margin: 8px 0 0;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+:root.nre-js .nre-copy-fix-prompt .nre-copy-fix-prompt-copy { cursor: copy; }
+.nre-copy-fix-prompt .nre-copy-fix-prompt-copy[data-nre-copied]::after {
+  content: "✓";
+  margin-left: 0.6em;
+  color: var(--good);
+}
+.nre-copy-fix-prompt .nre-copy-fix-prompt-text {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--bg, transparent);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ---- TraceWaterfall(每 attempt 一行的静态时间瀑布) ---- */
+.nre-trace-waterfall .nre-waterfall {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.nre-trace-waterfall .nre-waterfall-row {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 8px;
+  background: var(--panel);
+}
+.nre-trace-waterfall .nre-waterfall-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75em;
+  align-items: baseline;
+}
+.nre-trace-waterfall .nre-waterfall-eval { font-weight: 620; }
+.nre-trace-waterfall .nre-waterfall-experiment,
+.nre-trace-waterfall .nre-waterfall-duration,
+.nre-trace-waterfall .nre-waterfall-count {
+  color: var(--muted);
+  font-size: 0.9em;
+  font-variant-numeric: tabular-nums;
+}
+.nre-trace-waterfall .nre-waterfall-failed { color: var(--bad); font-size: 0.9em; }
+/* 分解条:span 按 startOffsetMs / durationMs 百分比静态定位,失败 span 换警示色 */
+.nre-trace-waterfall .nre-waterfall-track {
+  position: relative;
+  height: 14px;
+  margin-top: 8px;
+  border-radius: 4px;
+  background: color-mix(in oklch, var(--line), var(--panel) 60%);
+  overflow: hidden;
+}
+.nre-trace-waterfall .nre-waterfall-span {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  border-radius: 2px;
+  background: var(--line-strong);
+}
+.nre-trace-waterfall .nre-span-agent { background: color-mix(in oklch, var(--good), var(--line-strong) 40%); }
+.nre-trace-waterfall .nre-span-model { background: color-mix(in oklch, var(--warn), var(--line-strong) 40%); }
+.nre-trace-waterfall .nre-span-tool { background: color-mix(in oklch, var(--line-strong), var(--text) 25%); }
+.nre-trace-waterfall .nre-span-failed { background: var(--bad); }
+.nre-trace-waterfall .nre-waterfall-empty {
+  border: 1px dashed var(--line-strong);
+  border-radius: 8px;
+  padding: 18px;
+  color: var(--muted);
+  text-align: center;
+  background: var(--panel);
+}
+
+/* ---- AttemptList 的过滤框(<AttemptList filter />,渐进增强) ---- */
+.nre-attempt-list > .nre-filter {
+  height: 34px;
+  min-width: 260px;
+  margin-bottom: 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 0 11px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
 }
 
 /* ---- MetricMatrix ---- */

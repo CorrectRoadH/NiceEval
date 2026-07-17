@@ -14,6 +14,7 @@ import {
   ResolveMemo,
   type WebContext,
 } from "./tree.ts";
+import { groupScopeWarnings, warningDetailsLabel } from "./scope-warnings.ts";
 import { DEFAULT_REPORT_LOCALE, type ReportLocale } from "./locale.ts";
 import { buildReportMeta, pickReportPage, type ReportDefinition, type ReportHostContext } from "./report.ts";
 
@@ -27,27 +28,71 @@ export interface StaticHtmlOptions {
 }
 
 /**
- * 挑选警告的 HTML 形态:宿主级前置块(`.nre nre-report-warnings` 外壳内一个
- * `ul.nre-warnings` + `li.nre-warning[data-kind]`,复用 styles.css 已有样式)。
- * 带 `command` 的警告把命令渲染为可复制块(`.nre-warning-command`);无 command 的
- * 只显示 message,不硬造动作。经 renderToStaticMarkup 走 React,文本自动转义。
+ * 挑选警告的 HTML 形态:按「下一步动作」聚合(scope-warnings.ts,web/text 共用):
+ * `.nre nre-report-warnings` 外壳内 `div.nre-warnings` 容器——多组时首行
+ * `p.nre-warnings-summary` 汇总;每组 `li.nre-warning-group[data-category]` 含组头
+ * (标题 + `span.nre-warning-badge[data-kind]` 徽标 + 去重后的组头命令)与原生
+ * `<details>` 明细(逐条 `li.nre-warning[data-kind]` 的 message 原样;总条数 ≤ 3 默认展开)。
+ * 命令渲染为可复制块(`.nre-warning-command`);无 command 不硬造动作。
+ * 经 renderToStaticMarkup 走 React,文本自动转义。
  */
-function renderScopeWarningsHtml(scope: Scope): string {
+function renderScopeWarningsHtml(scope: Scope, locale: ReportLocale): string {
+  const h = React.createElement;
+  const { summary, groups, detailsOpen } = groupScopeWarnings(scope.warnings, locale);
   return renderToStaticMarkup(
-    React.createElement(
+    h(
       "div",
       { className: "nre nre-report-warnings" },
-      React.createElement(
-        "ul",
+      h(
+        "div",
         { className: "nre-warnings" },
-        scope.warnings.map((w, i) =>
-          React.createElement(
-            "li",
-            { key: i, className: "nre-warning", "data-kind": w.kind },
-            w.message,
-            "command" in w && w.command
-              ? React.createElement("code", { className: "nre-warning-command", "data-nre-copy": w.command }, w.command)
-              : null,
+        summary ? h("p", { className: "nre-warnings-summary" }, summary) : null,
+        h(
+          "ul",
+          { className: "nre-warning-groups" },
+          groups.map((group, i) =>
+            h(
+              "li",
+              { key: i, className: "nre-warning-group", "data-category": group.category },
+              h(
+                "div",
+                { className: "nre-warning-head" },
+                h("span", { className: "nre-warning-title" }, group.title),
+                group.badges.map((badge, j) =>
+                  h("span", { key: j, className: "nre-warning-badge", "data-kind": badge.kind }, badge.text),
+                ),
+                group.headCommand
+                  ? h(
+                      "code",
+                      { className: "nre-warning-command", "data-nre-copy": group.headCommand },
+                      group.headCommand,
+                    )
+                  : null,
+              ),
+              h(
+                "details",
+                { className: "nre-warning-details", open: detailsOpen || undefined },
+                h("summary", null, warningDetailsLabel(locale, group.warnings.length)),
+                h(
+                  "ul",
+                  null,
+                  group.warnings.map((w, j) =>
+                    h(
+                      "li",
+                      { key: j, className: "nre-warning", "data-kind": w.kind },
+                      w.message,
+                      !group.headCommand && "command" in w && w.command
+                        ? h(
+                            "code",
+                            { className: "nre-warning-command", "data-nre-copy": w.command },
+                            w.command,
+                          )
+                        : null,
+                    ),
+                  ),
+                ),
+              ),
+            ),
           ),
         ),
       ),
@@ -79,7 +124,7 @@ export async function renderReportToStaticHtml(
     locale: options?.locale ?? DEFAULT_REPORT_LOCALE,
   };
   const body = runWithWebContext(webCtx, () => renderToStaticMarkup(resolved as ReactNode));
-  const warnings = ctx.scope.warnings.length > 0 ? renderScopeWarningsHtml(ctx.scope) : "";
+  const warnings = ctx.scope.warnings.length > 0 ? renderScopeWarningsHtml(ctx.scope, webCtx.locale) : "";
   return warnings + body;
 }
 
@@ -105,6 +150,6 @@ export async function renderReportTreeToStaticHtml(
     locale: options?.locale ?? DEFAULT_REPORT_LOCALE,
   };
   const body = runWithWebContext(webCtx, () => renderToStaticMarkup(resolved as ReactNode));
-  const warnings = ctx.scope.warnings.length > 0 ? renderScopeWarningsHtml(ctx.scope) : "";
+  const warnings = ctx.scope.warnings.length > 0 ? renderScopeWarningsHtml(ctx.scope, webCtx.locale) : "";
   return warnings + body;
 }

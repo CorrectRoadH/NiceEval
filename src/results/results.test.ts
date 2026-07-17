@@ -375,10 +375,86 @@ describe("results.latest() · Selection", () => {
 
     const filtered = latest.filter((s) => s.experimentId !== "mid/b");
     expect(filtered.snapshots.map((s) => s.experimentId)).toEqual(["mid/a"]);
-    expect(filtered.warnings.map((w) => w.experimentId)).toEqual(["mid/a"]);
+    expect(filtered.warnings.map((w) => ("experimentId" in w ? w.experimentId : undefined))).toEqual(["mid/a"]);
     // 原 Selection 不被改动。
     expect(latest.snapshots).toHaveLength(2);
     expect(latest.warnings).toHaveLength(2);
+  });
+});
+
+// ───────────────────────── unreadable-snapshot 警告 ─────────────────────────
+
+describe("results.latest() / results.current() · unreadable-snapshot", () => {
+  it("malformed 快照产生 warning 且其余快照照常计入;无关 JSON 不产生 warning", async () => {
+    const root = await makeRoot();
+    const okDir = await writeSnapshot(root, "ok-exp", "2026-07-04T08-00-00-000Z-oooo", meta({ experimentId: "ok", agent: "bub", startedAt: "2026-07-04T08:00:00.000Z", completedAt: "2026-07-04T08:10:00.000Z" }));
+    await writeResultFile(okDir, "q1/a1", record({ id: "q1", attempt: 1 }));
+
+    const badDir = join(root, "bad-exp", "2026-07-02T08-00-00-000Z-zzzz");
+    await mkdir(badDir, { recursive: true });
+    await writeFile(join(badDir, "snapshot.json"), "not json {", "utf-8");
+
+    const alienDir = join(root, "alien-exp", "2026-07-06T08-00-00-000Z-alien");
+    await mkdir(alienDir, { recursive: true });
+    await writeFile(join(alienDir, "summary.json"), JSON.stringify({ hello: 1 }), "utf-8");
+
+    const results = await openResults(root);
+    const latest = results.latest();
+    // 其余快照照常计入,不被坏落盘拖垮。
+    expect(latest.snapshots.map((s) => s.experimentId)).toEqual(["ok"]);
+
+    const unreadable = latest.warnings.filter((w) => w.kind === "unreadable-snapshot");
+    expect(unreadable).toHaveLength(1); // 无关 JSON(alien)不产生 warning
+    expect(unreadable[0]).toMatchObject({ kind: "unreadable-snapshot", dir: badDir, reason: "malformed" });
+    expect(unreadable[0].message).toContain(badDir);
+    expect(unreadable[0].message).toMatch(/inspect .*snapshot\.json/);
+    expect((unreadable[0] as { command?: string }).command).toBeUndefined();
+
+    // results.current() 同一份事实(show / view 报告槽走的是它)。
+    const current = results.current();
+    expect(current.warnings.filter((w) => w.kind === "unreadable-snapshot")).toHaveLength(1);
+  });
+
+  it("incompatible(schemaVersion 不兼容,niceeval producer)的 warning 带版本化 command", async () => {
+    const root = await makeRoot();
+    const oldDir = join(root, "old-exp", "2026-06-01T08-00-00-000Z");
+    await mkdir(oldDir, { recursive: true });
+    await writeFile(
+      join(oldDir, "snapshot.json"),
+      JSON.stringify({
+        format: RESULTS_FORMAT,
+        schemaVersion: RESULTS_SCHEMA_VERSION - 1,
+        producer: { name: "niceeval", version: "0.4.6" },
+        experimentId: "old",
+        agent: "bub",
+        startedAt: "2026-06-01T08:00:00.000Z",
+      }),
+      "utf-8",
+    );
+
+    const latest = (await openResults(root)).latest();
+    const warn = latest.warnings.find((w) => w.kind === "unreadable-snapshot")!;
+    expect(warn).toMatchObject({ kind: "unreadable-snapshot", dir: oldDir, reason: "incompatible-version" });
+    expect((warn as { command?: string }).command).toBe(`npx niceeval@0.4.6 show --results ${root}`);
+    expect(warn.message).toContain("npx niceeval@0.4.6 show --results");
+  });
+
+  it("非实验作用域:Selection.filter 收窄后 unreadable-snapshot warning 仍在", async () => {
+    const root = await makeRoot();
+    const aDir = await writeSnapshot(root, "mid_a", "s1", meta({ experimentId: "mid/a", agent: "bub", startedAt: "2026-07-01T08:00:00.000Z", completedAt: "2026-07-01T08:10:00.000Z" }));
+    await writeResultFile(aDir, "q1/a1", record({ id: "q1", attempt: 1 }));
+
+    const badDir = join(root, "bad-exp", "2026-07-02T08-00-00-000Z-zzzz");
+    await mkdir(badDir, { recursive: true });
+    await writeFile(join(badDir, "snapshot.json"), "not json {", "utf-8");
+
+    const latest = (await openResults(root)).latest();
+    expect(latest.warnings.filter((w) => w.kind === "unreadable-snapshot")).toHaveLength(1);
+
+    // filter 只删快照,不删非实验作用域的警告 —— 即便过滤条件与该 warning 无关的实验都不复存在。
+    const filtered = latest.filter((s) => s.experimentId === "mid/a");
+    expect(filtered.snapshots).toHaveLength(1);
+    expect(filtered.warnings.filter((w) => w.kind === "unreadable-snapshot")).toHaveLength(1);
   });
 });
 
@@ -974,6 +1050,7 @@ describe("AttemptLocator · 落盘 / 读取 / 携带 / 撞车", () => {
     snapshot.attempts = [attempt];
     snapshot.evals = [{ id: "q1", attempts: [attempt] }];
     const handMadeResults: Results = {
+      root: "/tmp/e",
       experiments: [{ id: "e", snapshots: [snapshot], latest: snapshot, evalIds: ["q1"] }],
       skipped: [],
       // filter() 本测试不调用,用不到,给个占位实现即可满足 Scope 接口。

@@ -160,6 +160,12 @@ export interface SkippedDir {
 
 /** openResults 的返回:experiments 分层;skipped 不静默丢。 */
 export interface Results {
+  /**
+   * 结果根目录的绝对路径(`openResults()` 入参解析后的原样值,不论传入的是结果根、
+   * 实验目录、快照目录还是某个 snapshot.json)。`unreadable-snapshot` 警告拼版本化
+   * `command`(`npx niceeval@<version> show --results <root>`)时取它。
+   */
+  root: string;
   /** 每个实验一项,挂着自己的全部历史(id 字典序)。 */
   experiments: Experiment[];
   skipped: SkippedDir[];
@@ -237,6 +243,27 @@ export type ScopeWarning =
       message: string;
       /** 一条可复制即跑的推进命令:`niceeval exp <experimentId>`。 */
       command: string;
+    }
+  | {
+      /**
+       * 扫描结果根遇到的不可读快照:schema 不兼容、JSON 损坏 / 必需字段错误(malformed)、
+       * attempt 已写入但缺 `snapshot.json`(incomplete)。该快照被跳过,不挡其余结果
+       * (非 niceeval JSON 静默忽略,不产生这个 kind)。非实验作用域(没有 experimentId
+       * 字段) —— `Scope.filter()` 修剪时恒保留。
+       */
+      kind: "unreadable-snapshot";
+      /** 该快照目录的绝对路径。 */
+      dir: string;
+      /** 与 `SkippedDir.reason` 同一取值集,原样透传。 */
+      reason: "incompatible-version" | "malformed" | "incomplete";
+      message: string;
+      /**
+       * 只有 reason 为 `incompatible-version` 且能确定是 niceeval 自己产出(`producer.name
+       * === "niceeval"` 且带 `producer.version`)时给出:`npx niceeval@<version> show --results
+       * <root>`。第三方 producer、版本信息缺失,或 reason 为 malformed / incomplete 时省略——
+       * 这些情况没有单条命令能解决,message 改给定位动作。
+       */
+      command?: string;
     };
 
 /** dedupeAttempts 的警告:身份键缺 startedAt,宁可不去重也不误删。 */

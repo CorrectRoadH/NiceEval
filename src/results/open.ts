@@ -150,7 +150,7 @@ export async function openResults(dir: string): Promise<Results> {
   try {
     targetStat = await stat(target);
   } catch {
-    return makeResults([], []);
+    return makeResults([], [], target);
   }
 
   if (targetStat.isFile()) {
@@ -165,17 +165,18 @@ export async function openResults(dir: string): Promise<Results> {
   // 建 locator 索引:必须在全部快照扫完、Experiment 归组完成之后,返回 Results 之前——
   // 撞车(LocatorCollisionError)在这里抛,不静默吞、不拖到消费方第一次 resolveLocator() 才发现。
   const locatorIndex = buildAttemptLocatorIndex(experiments);
-  const results = makeResults(experiments, state.skipped);
+  const results = makeResults(experiments, state.skipped, target);
   locatorIndexByResults.set(results, locatorIndex);
   return results;
 }
 
-function makeResults(experiments: Experiment[], skipped: SkippedDir[]): Results {
+function makeResults(experiments: Experiment[], skipped: SkippedDir[], root: string): Results {
   const results: Results = {
+    root,
     experiments,
     skipped,
     latest(opts?: { experiments?: string | string[] }): Scope {
-      return selectLatest(experiments, opts);
+      return selectLatest(results, opts);
     },
     current(opts?: { experiments?: string | string[] }): Scope {
       return selectCurrentResults(results, { experiment: opts?.experiments });

@@ -126,7 +126,8 @@ interface NormExperiment {
 type NormWarning =
   | { kind: "partial-coverage"; experimentId: string; covered: number; total: number }
   | { kind: "stale-snapshot"; experimentId: string; startedAt: string; latestStartedAt: string }
-  | { kind: "unfinished-snapshot"; experimentId: string; startedAt: string };
+  | { kind: "unfinished-snapshot"; experimentId: string; startedAt: string }
+  | { kind: "unreadable-snapshot"; reason: string };
 interface NormSelection {
   warnings: NormWarning[];
   experiments: NormExperiment[];
@@ -141,6 +142,9 @@ function normalizeWarning(w: ScopeWarning): NormWarning {
     case "unfinished-snapshot":
       // dir 是宿主机绝对路径,归一化掉;身份靠 experimentId + startedAt。
       return { kind: w.kind, experimentId: w.experimentId, startedAt: w.startedAt };
+    case "unreadable-snapshot":
+      // dir 是宿主机绝对路径,归一化掉;这个 kind 本就非实验作用域,没有 experimentId 可比。
+      return { kind: w.kind, reason: w.reason };
   }
 }
 
