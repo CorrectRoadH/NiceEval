@@ -1,8 +1,8 @@
 // HTTP server:把站点管线(site.ts 的 planSite)产出的同一份产物挂在 127.0.0.1 上按路径服务。
 // 这里不携带任何取数或布局知识——查不到清单条目就是 404,与 `--out` 写盘的文件逐字节一致
-// (docs/feature/reports/view.md 开篇;奇偶由 site-parity 测试守护)。宿主语义只有三条,全部
-// 作用在管线输入端:打开首页整份重建(数据永远是盘上最新)、单页渲染失败折成页内错误块
-// (pageFailure: "embed")、报告槽可被位置参数 / --experiment 收窄。
+// (docs/feature/reports/view.md 开篇;奇偶由 site-parity 测试守护)。宿主语义只有两条,全部
+// 作用在管线之外:打开首页整份重建(数据永远是盘上最新)、单页渲染失败折成页内错误块
+// (pageFailure: "embed")。位置参数 / --exp 收窄是管线输入,不是宿主语义——两宿主同义。
 
 import { createServer, type Server } from "node:http";
 import { type ViewScanOptions } from "./data.ts";
@@ -13,7 +13,7 @@ export interface ViewOptions {
   input?: string;
   out?: string;
   port?: number;
-  /** 报告槽的组合语义(位置前缀 / --experiment / --report),透传给站点管线。 */
+  /** 站点管线的组合语义(位置前缀 / --exp 收窄有效根,--report 换报告槽),透传给管线。 */
   scan?: ViewScanOptions;
 }
 

@@ -576,10 +576,10 @@ function quoteArg(value: string): string {
   return /^[A-Za-z0-9._/@-]+$/.test(value) ? value : `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
-/** 按上下文拼组索引的可复制命令:`niceeval show <patterns> --experiment <id> [--results/--report/--page]`。 */
+/** 按上下文拼组索引的可复制命令:`niceeval show <patterns> --exp <id> [--results/--report/--page]`。 */
 function experimentCommandFor(ctx: HostCommandContext): (experimentIdPrefix: string) => string {
   return (prefix) => {
-    const parts = ["niceeval show", ...ctx.patterns.map(quoteArg), `--experiment ${quoteArg(prefix)}`];
+    const parts = ["niceeval show", ...ctx.patterns.map(quoteArg), `--exp ${quoteArg(prefix)}`];
     if (ctx.results !== undefined) parts.push(`--results ${quoteArg(ctx.results)}`);
     if (ctx.report !== undefined) parts.push(`--report ${quoteArg(ctx.report)}`);
     if (ctx.page !== undefined) parts.push(`--page ${quoteArg(ctx.page)}`);

@@ -173,8 +173,8 @@ niceeval sandbox stop --all
 **按实验回看当前水位。** 不记得定位符时，从实验入手：
 
 ```bash
-niceeval show --experiment compare/bub        # 这个实验每道题现在的判定
-niceeval show memory/swelancer --experiment compare/bub   # 收窄到某道题
+niceeval show --exp compare/bub        # 这个实验每道题现在的判定
+niceeval show memory/swelancer --exp compare/bub   # 收窄到某道题
 ```
 
 列表里每道题、每次 Attempt 都带定位符，接着往深处钻就回到上面的场景一 / 场景二。
@@ -208,5 +208,5 @@ niceeval view --results site-data/run
 | 装依赖失败、CLI 起不来、跑一半超时 | 重跑该 eval 加 `--keep-sandbox` → `niceeval sandbox enter <id>` |
 | 想看文件实际内容（agent 没改的、起始材料、`$HOME`） | 重跑加 `--keep-sandbox`（failed 也留）→ `sandbox enter` 进 workdir 看 |
 | 留了哪些沙箱、清理 | `sandbox list` → `sandbox stop <id>` / `--all` |
-| 复盘上周那次失败 | 翻出旧定位符 → `show @loc`；不记得就 `show --experiment <实验>` |
+| 复盘上周那次失败 | 翻出旧定位符 → `show @loc`；不记得就 `show --exp <实验>` |
 | 一批失败一起看 | `niceeval view` → Attempt 详情 → Copy fix prompt |

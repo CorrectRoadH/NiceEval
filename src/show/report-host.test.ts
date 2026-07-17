@@ -197,9 +197,9 @@ describe("其余页索引与索引命令上下文", () => {
     expect(text).not.toContain("https://example.com");
   });
 
-  it("showCommand 按序携带位置参数与 --experiment / --results / --report / --page", () => {
+  it("showCommand 按序携带位置参数与 --exp / --results / --report / --page", () => {
     expect(
       showCommand({ patterns: ["memory/swelancer"], experiment: "dev-e2b", report: "reports/site.tsx", page: "exam" }),
-    ).toBe("niceeval show memory/swelancer --experiment dev-e2b --report reports/site.tsx --page exam");
+    ).toBe("niceeval show memory/swelancer --exp dev-e2b --report reports/site.tsx --page exam");
   });
 });

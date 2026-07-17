@@ -87,7 +87,7 @@ The table below is generated from the CLI's flag-parsing table; any flag outside
 | `--execution` | boolean | `show` command only: this attempt's standard execution event stream (messages, thinking, Skill loads, tool calls/results); when OTel is present, the same node also gets timing (an evidence facet). |
 | `--diff` | boolean | `show` command only: a summary of file changes in the sandbox; `--diff=<file-path>` shows the full diff for one file (the path must be joined with `=`). |
 | `--history` | boolean | `show` command only: a cross-run timeline that lists only actual executions; mutually exclusive with `--report`. |
-| `--experiment` | string | `show` / `view` command only: narrow the selection to a single experiment. |
+| `--exp` | string | `show` / `view` command only: narrow the selection to a single experiment. |
 | `--run` | string | `show` / `view` command only: pin to a specific result directory (a snapshot or `copySnapshots` output). |
 | `--report` | string | `show` / `view` command only: render your own report file (the file's default export must be `defineReport(...)`); `show` uses it in place of the attempt index, `view` uses it in place of the default analysis report. |
 | `--dry` | boolean | Only print which evals × run configs would match, without actually running them (rendered as a preview in whichever `--output` profile is selected below). |
@@ -141,7 +141,7 @@ See [Runner · Reporter](/guides/runner#reporter) for how the three profiles com
 npx niceeval view
 ```
 
-Open the local result viewer. It shares the same default report and the same default selection as `show`: for each experiment and each eval, it takes the latest verdict across runs; when you rerun only some evals, the rest are filled in from earlier runs. `show` prints terminal text, `view` renders a web page with interactive evidence browsing; eval ID prefixes, `--experiment`, and `--run` narrow both the same way. See [Viewing results](/guides/viewing-results) for the full story.
+Open the local result viewer. It shares the same default report and the same default selection as `show`: for each experiment and each eval, it takes the latest verdict across runs; when you rerun only some evals, the rest are filled in from earlier runs. `show` prints terminal text, `view` renders a web page with interactive evidence browsing; eval ID prefixes, `--exp`, and `--run` narrow both the same way. See [Viewing results](/guides/viewing-results) for the full story.
 
 ## `show [id-prefix...]`
 

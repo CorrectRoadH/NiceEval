@@ -592,7 +592,7 @@ describe("--report 装载", () => {
     expect(out).toContain("CUSTOM weather/brooklyn ·");
   });
 
-  it("--experiment 让 Selection 只留该实验", async () => {
+  it("--exp 让 Selection 只留该实验", async () => {
     const root = await seedComposedRoot();
     await writeSnapshot(
       root,

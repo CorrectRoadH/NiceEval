@@ -60,7 +60,7 @@ niceeval show --report reports/quality-cost.tsx
 niceeval view --report reports/quality-cost.tsx
 ```
 
-宿主先按位置参数、`--results` 和 `--experiment` 选择数据，再把 Scope 注入报告；管线在 [resolve 阶段](architecture.md#报告树与两个宿主)并行完成所有组件的取数，作者不写任何取数管道。覆盖不完整、快照过旧或未完成等警告由 [`ScopeWarnings`](library/site-components.md#scopewarnings) 组件呈现——宿主不在报告树外另设警告通道，[内建报告](library/built-in.md)每页都放它，自定义报告放不放是作者义务；`ScopeSummaryData` 等指标数据不携带警告。显示时下一步随行：组件按「下一步动作」把警告聚合成组，组头带可复制的推进 `command`，逐条 `message`（[三段式](../../error-feedback.md#消息三段式)，已含下一步）作为明细原样保留——聚合、排序与折叠规则见[组件契约](library/site-components.md#scopewarnings)。
+宿主先按位置参数、`--results` 和 `--exp` 选择数据，再把 Scope 注入报告；管线在 [resolve 阶段](architecture.md#报告树与两个宿主)并行完成所有组件的取数，作者不写任何取数管道。覆盖不完整、快照过旧或未完成等警告由 [`ScopeWarnings`](library/site-components.md#scopewarnings) 组件呈现——宿主不在报告树外另设警告通道，[内建报告](library/built-in.md)每页都放它，自定义报告放不放是作者义务；`ScopeSummaryData` 等指标数据不携带警告。显示时下一步随行：组件按「下一步动作」把警告聚合成组，组头带可复制的推进 `command`，逐条 `message`（[三段式](../../error-feedback.md#消息三段式)，已含下一步）作为明细原样保留——聚合、排序与折叠规则见[组件契约](library/site-components.md#scopewarnings)。
 
 取数之后要用普通 JavaScript 加工（filter / slice / 自定义排序）时，写一个[组合组件](library/layout.md#自定义组件)：在里面调 `*Data` 函数、加工数组，再以 **data 形态** 把结果递给组件：
 

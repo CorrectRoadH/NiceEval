@@ -66,7 +66,7 @@ Sandbox 创建、setup 或 teardown 错误不依赖 trace。`result.json` 保存
 
 同一个实验多次跑会留下多份结果，不带 `@<locator>` 的默认视图只回答一个问题——「现在整体怎样」：每个 experiment × eval 取时间上最新的那份判定，同一个 experiment 跨多次运行拼出来。按前缀只重跑了部分 eval 时，其余 eval 的判定从更早的运行补齐，报告永远是全局最新，不会因为一次局部重跑变残缺。合成是有标注的：每份判定都带上它产生的时间，能看出报告是从哪几次运行拼出来的。合成结果可能混着不同版本的被测代码——所以收工判定以 `--force` 全量重跑为准，迭代途中的 `show` 负责快、收尾的全量跑负责真。
 
-单个 eval 视图里，多 experiment、多 Attempt 时的断言明细块默认挑最新一次失败的 Attempt 展开；没有失败就挑最新一次。这只是一个默认展开的启发式，不是精确选择——需要精确看某一次 Attempt，复制那一行的 `@<locator>` 直接 `show` 它即可。`--experiment compare` 按路径段前缀把 Selection 收窄到整个 `compare` 组，`--experiment compare/bub` 只留一个 experiment；`--results <目录>` 换结果根，`--snapshot <snapshot.json>` 只看某一次落盘的快照，`--history` 看跨 run 趋势。`--report <文件>` 同时替换 `show` / `view` 的默认报告。位置前缀、`--results`、`--experiment` 对自定义报告同样生效；`--history` 与 `--report` 互斥。
+单个 eval 视图里，多 experiment、多 Attempt 时的断言明细块默认挑最新一次失败的 Attempt 展开；没有失败就挑最新一次。这只是一个默认展开的启发式，不是精确选择——需要精确看某一次 Attempt，复制那一行的 `@<locator>` 直接 `show` 它即可。`--exp compare` 按路径段前缀把 Selection 收窄到整个 `compare` 组，`--exp compare/bub` 只留一个 experiment；`--results <目录>` 换结果根，`--snapshot <snapshot.json>` 只看某一次落盘的快照，`--history` 看跨 run 趋势。`--report <文件>` 同时替换 `show` / `view` 的默认报告。位置前缀、`--results`、`--exp` 对自定义报告同样生效；`--history` 与 `--report` 互斥。
 
 `niceeval view` 的每个视图都有 CLI 对应物：
 
@@ -83,7 +83,7 @@ Sandbox 创建、setup 或 teardown 错误不依赖 trace。`result.json` 保存
 
 ### 默认分组比较报告
 
-不带 flag 的 `niceeval show` 如果命中多个可比组，只列组索引和可直接执行的 `niceeval show --experiment <group>` 命令；Selection 只剩一个组时才输出该组的成本 × 端到端成功率图和实验列表。组的边界来自 experiment id 的完整父目录：`compare/*` 与 `dev-e2b/*` 不共享坐标系、连线、排序或汇总数字；顶层 experiment 各自形成单例组。
+不带 flag 的 `niceeval show` 如果命中多个可比组，只列组索引和可直接执行的 `niceeval show --exp <group>` 命令；Selection 只剩一个组时才输出该组的成本 × 端到端成功率图和实验列表。组的边界来自 experiment id 的完整父目录：`compare/*` 与 `dev-e2b/*` 不共享坐标系、连线、排序或汇总数字；顶层 experiment 各自形成单例组。
 
 组内实验列表先给固定列汇总，再按 experiment → Eval → Attempt 展开。locator 只保留 `@<id>`，失败原因优先显示期望值/实际值或命令退出码；完整断言和 evidence 留在 `niceeval show @<locator>`。某组只有一个 experiment 时散点仍显示单点，不出现“至少两个实验才能比较”的空态。快照未完成、过旧或覆盖不全的 warning 位于组索引前，同一条 warning 只显示一次。
 
@@ -329,7 +329,7 @@ compare/codex-gpt-5.4 · 5 runs · passed 2/5
 npx niceeval view
 ```
 
-这会打开本地结果查看器。它的首页报告和 `niceeval show` 选结果的规则一模一样：对每个 experiment 的每道 eval，取时间上最新的那份判定，同一个 experiment 跨多次运行拼出来；收窄范围（eval ID 前缀、`--experiment`）时按同一条规则收窄。你可以浏览 eval、查看 agent 的对话与工具调用、读 diff、检查断言结果。数据不会上传到外部服务。
+这会打开本地结果查看器。它的首页报告和 `niceeval show` 选结果的规则一模一样：对每个 experiment 的每道 eval，取时间上最新的那份判定，同一个 experiment 跨多次运行拼出来；收窄范围（eval ID 前缀、`--exp`）时按同一条规则收窄。你可以浏览 eval、查看 agent 的对话与工具调用、读 diff、检查断言结果。数据不会上传到外部服务。
 
 <Tip>
   失败后立刻运行 `npx niceeval view`，可以直接打开刚刚那次运行的 artifacts。
@@ -349,7 +349,16 @@ npx niceeval view
 npx niceeval view --out site
 ```
 
-NiceEval 写入 `<dir>/index.html`，并把查看器要读取的 artifact（`sources.json`、`events.json`、`trace.json`）复制到 `<dir>/artifact/` 下。把整个目录交给任何静态托管（Vercel、GitHub Pages 或 `python3 -m http.server`），代码视图、transcript 和 trace 瀑布图都和本地 `niceeval view` 一致；表格排序、过滤和图表悬停也照常可用——所需脚本已内联进页面，浏览器禁用 JS 时页面仍完整可读，只是少这些浏览操作。
+NiceEval 写入 `<dir>/index.html`，并把查看器要读取的 artifact（`sources.json`、`events.json`、`trace.json`，有 `diff.json` 也带上）复制到 `<dir>/artifact/` 下。把整个目录交给任何静态托管（Vercel、GitHub Pages 或 `python3 -m http.server`），代码视图、transcript 和 trace 瀑布图都和本地 `niceeval view` 一致；表格排序、过滤和图表悬停也照常可用——所需脚本已内联进页面，浏览器禁用 JS 时页面仍完整可读，只是少这些浏览操作。
+
+只想发布一部分结果时，把本地查看用的收窄直接交给导出：
+
+```bash
+npx niceeval view --exp compare --out site   # 只发布 compare 可比组
+npx niceeval view weather --out site                # 只发布 weather 开头的 eval
+```
+
+出站的就是收窄到的：页面和 `artifact/` 证据都只含收窄后的范围，被滤掉实验的 transcript、源码和 trace 不会跟着出站。不收窄就是整站导出完整结果。
 
 `--out` 只接受目录。没有单文件导出：代码视图、transcript 和 trace 依赖 artifact 文件，单个 HTML 装不下完整证据。要把结果发给别人，托管整站发链接即可。
 
@@ -357,7 +366,7 @@ NiceEval 写入 `<dir>/index.html`，并把查看器要读取的 artifact（`sou
 
 两点限制：
 
-- `diff.json` 和 `o11y.json` 不会被复制。查看器不读取它们，且 diff 可能达到上百 MB。
+- `o11y.json` 不会被复制——报告数字已经算进页面，查看器不读取它。
 - 用 `file://` 直接打开 `index.html` 时浏览器不允许 fetch artifact，代码视图会提示源码不可用。本地预览用 http 服务打开。
 
 最简单的流程是在跑过 eval 的机器上导出，把产物目录直接部署，不需要额外步骤。要让站点随 push 自动更新，先用 `copySnapshots` 生成经过单文件预算检查的发布结果根，把它提交进仓库，再让 CI 对这个目录运行 `view --results <目录> --out`——workflow 与平台接线见[通过 CI 发布报告](/zh/how-to/publish-report)。

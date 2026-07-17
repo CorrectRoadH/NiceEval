@@ -20,6 +20,7 @@ import {
   type HostReportAsset,
 } from "../show/report-host.ts";
 import { selectCurrentResults, filterExperiments } from "../results/select.ts";
+import { evalPrefixPredicate } from "../shared/aggregate.ts";
 import type { EvalResult } from "../types.ts";
 import type {
   SkippedRunNotice,
@@ -61,9 +62,9 @@ export interface ViewScan {
 
 /** view 宿主输入的组合语义(与 show 对齐,docs/feature/reports/architecture.md「Scope 是计算入口」)。 */
 export interface ViewScanOptions {
-  /** eval id 前缀(位置参数):收窄报告槽 Scope;证据室(快照明细)不收窄,深链恒可达。 */
+  /** eval id 前缀(位置参数):把根滤成有效根,页面 Scope 与证据(快照明细、artifact 清单)一致收窄。 */
   patterns?: string[];
-  /** experiment id 前缀(--experiment):Scope 只留该实验。 */
+  /** experiment id 前缀(--exp):有效根只留匹配实验。 */
   experiment?: string;
   /** --report 报告文件:相对 cwd 的路径。装载失败抛 ReportLoadError(CLI 打印后退出)。 */
   report?: { path: string; cwd: string };
@@ -175,10 +176,12 @@ export async function loadLatestResultsPerEval(root = ".niceeval"): Promise<Eval
 /**
  * `niceeval view` 的数据装载入口:server 每次请求现读现算,`--out` 导出用同一份。
  * 报告槽 Selection 恒经 selectCurrentResults 合成(现刻水位;与 `niceeval show` 调同一个
- * 函数,裸跑与局部收窄不分叉),位置前缀 / --experiment 只作为 scope 传入,不切换选择口径。
+ * 函数,裸跑与局部收窄不分叉),位置前缀 / --exp 只作为 scope 传入,不切换选择口径。
  * --report 本身不改挑选——它只换报告槽的填充,注入的 Selection 与裸跑同一份,
  * 「裸跑 ≡ --report <ExperimentComparison>」靠这条成立(docs/feature/reports/architecture.md「Selection 是计算入口」)。
- * 证据室数据(快照明细 / skipped)恒为全量,深链在任何收窄下都可达。
+ * 命令行收窄作用在有效根上(docs/feature/reports/view.md 开篇):证据室数据与 artifact 清单
+ * 与页面一致地只含收窄后的范围,本地与导出无分叉——收窄导出的站点(烘进 HTML 的数据、
+ * 证据文件)只含收窄到的内容。收窄之内、不在现刻水位里的历史 attempt 仍在有效根里,深链可达。
  * 零可读结果一律抛 ViewInputError,不渲染/导出空页面(server 起不来,--out 非零退出)。
  */
 export async function loadViewScan(input?: string, opts: ViewScanOptions = {}): Promise<ViewScan> {
@@ -228,6 +231,12 @@ export async function loadViewScan(input?: string, opts: ViewScanOptions = {}): 
   // 静态渲染成 HTML(en / zh-CN 各一遍,切界面语言不重算数据)。
   const slot = await renderReportSlot(opts.report, opts.page, results, selection, opts.pageFailure ?? "throw");
 
+  // 有效根:命令行收窄把根滤成只含匹配实验与 attempt(docs/feature/reports/view.md 开篇)。
+  // 证据室数据与 artifact 清单从这里取数,与页面 Scope 一致收窄——本地与导出无分叉,
+  // 收窄导出的站点(烘进 HTML 的数据、证据文件)只含收窄后的范围。
+  const scopedExperiments = filterExperiments(results.experiments, opts.experiment);
+  const matchEval = patterns.length > 0 ? evalPrefixPredicate(patterns) : () => true;
+
   // 跨快照按身份键去重:--resume 携带的条目在多份落盘里重复,只保留最新快照里的那份
   // (与官方计算函数的聚合口径一致,Runs / Traces 的计数因此不被复印件灌票)。
   const artifactDirs = new Map<string, string>();
@@ -236,13 +245,15 @@ export async function loadViewScan(input?: string, opts: ViewScanOptions = {}): 
   // 与报告槽 Selection(现刻水位,可能合成自更早快照)是两个独立概念,不混用。
   const latestSet = new Set(latestPerExperiment.snapshots);
   const allAttempts: AttemptHandle[] = [];
-  for (const exp of results.experiments) {
-    for (const snap of exp.snapshots) allAttempts.push(...snap.attempts);
+  for (const exp of scopedExperiments) {
+    for (const snap of exp.snapshots) allAttempts.push(...snap.attempts.filter((a) => matchEval(a.evalId)));
   }
   const survivors = new Set(dedupeAttempts(allAttempts).attempts);
 
   const snapshots: ViewSnapshot[] = [];
-  for (const exp of results.experiments) {
+  for (const exp of scopedExperiments) {
+    // 整个实验没有匹配 eval 时不携带:有效根里没有它,连快照元数据也不烘进页面。
+    if (patterns.length > 0 && !exp.evalIds.some((id) => matchEval(id))) continue;
     for (const snap of exp.snapshots) {
       const kept = snap.attempts.filter((a) => survivors.has(a));
       const latest = latestSet.has(snap);
@@ -267,10 +278,10 @@ export async function loadViewScan(input?: string, opts: ViewScanOptions = {}): 
     }
   }
 
-  // 全局最新快照(跨全部实验):viewData.lastRunAt 从这里取。页内 hero 的「最后运行」
+  // 全局最新快照(跨有效根内全部实验):viewData.lastRunAt 从这里取。页内 hero 的「最后运行」
   // 显示由 Hero 组件按 heroData(scope) 自己算,不吃这份字段。
   let latestSnapshot: Snapshot | undefined;
-  for (const exp of results.experiments) {
+  for (const exp of scopedExperiments) {
     const candidate = exp.snapshots[0];
     if (!candidate) continue;
     if (!latestSnapshot || candidate.startedAt > latestSnapshot.startedAt) latestSnapshot = candidate;

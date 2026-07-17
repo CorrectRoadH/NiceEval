@@ -7,9 +7,9 @@
 //   @<locator>        精确 attempt:无证据 flag → 紧凑全景;带 flag → 对应证据切面
 //   --source / --execution / --diff[=路径]   证据切面(宿主本体):出现即走证据室,不渲染报告槽
 //   --history        执行时间轴(逐 experimentId + evalId 分节),与 --report 互斥
-//   --report <文件>  整槽换成用户报告;位置前缀 / --results / --experiment 先收窄 Scope 再注入
+//   --report <文件>  整槽换成用户报告;位置前缀 / --results / --exp 先收窄 Scope 再注入
 //   --page <id>      多页报告选页;未命中列出可用页 id 按用法错误退出
-//   --results <目录>  结果根换成该目录;--experiment 让 Scope 只留该实验
+//   --results <目录>  结果根换成该目录;--exp 让 Scope 只留该实验
 //
 // 数据全部走 niceeval/results 的读取面(openResults + 合成 Scope + loadAttemptEvidence),
 // 不自己爬目录;证据可用性只由 loadAttemptEvidence 在单 Attempt 页面计算。

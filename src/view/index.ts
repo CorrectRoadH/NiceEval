@@ -80,18 +80,8 @@ export async function buildView(opts: ViewOptions = {}): Promise<string> {
       `--out expects a directory, got "${opts.out}". Single-file HTML export was removed: code, transcript and trace views need artifact files next to the page. Export a directory instead (e.g. --out site) and serve it with any static host.`,
     );
   }
-  // --out 与位置参数 / --experiment 互斥(docs/feature/reports/view.md「静态导出」):报告槽收窄
-  // 只影响报告,证据室恒随根完整——允许同用会让发布者误以为站点只含该实验,实际根里全部
-  // attempt 的证据都已出站。按实验收窄发布 = 用 copySnapshots 构建只含它的发布根,再对新根导出。
-  if ((opts.scan?.patterns?.length ?? 0) > 0 || opts.scan?.experiment !== undefined) {
-    throw new ViewInputError(
-      "--out exports the whole results root and cannot be combined with eval prefixes or --experiment.\n" +
-        "To publish a site for one experiment, build a narrower results root and export that:\n" +
-        '  const results = await openResults(".niceeval");\n' +
-        '  await copySnapshots(results.latest().filter((s) => s.experimentId.startsWith("<prefix>/")), "<publish-root>");\n' +
-        "Then: niceeval view --results <publish-root> --out <site>",
-    );
-  }
+  // 位置参数 / --exp 对导出同义于本地:收窄作用在有效根上,出站的页面数据与证据文件
+  // 只含收窄后的范围(docs/feature/reports/view.md「静态导出」:出站的就是收窄到的)。
   // 静态导出保持「任一页失败整体失败」(pageFailure 缺省 "throw"),不产出半套站点。
   const plan = await planSite(opts.input, opts.scan);
   await writeSite(plan, out);

@@ -81,7 +81,7 @@ export function selectLatest(
 
 /** selectCurrentResults 的范围输入:experiment id 前缀与 eval id 前缀,都可缺省。 */
 export interface ResultScope {
-  /** experiment id 前缀(--experiment),分段匹配语义同 filterExperiments。 */
+  /** experiment id 前缀(--exp),分段匹配语义同 filterExperiments。 */
   experiment?: string | string[];
   /** eval id 前缀(位置参数),收窄 Scope 覆盖的 eval;覆盖警告分母同步收窄到范围内。 */
   patterns?: string[];
@@ -368,7 +368,7 @@ export function isNewerSnapshot(a: Snapshot, b: Snapshot): boolean {
   return a.dir.localeCompare(b.dir) > 0;
 }
 
-/** experiment id 分段前缀过滤(--experiment / latest({ experiments }) 同一语义);包内使用,不进公共 barrel。 */
+/** experiment id 分段前缀过滤(--exp / latest({ experiments }) 同一语义);包内使用,不进公共 barrel。 */
 export function filterExperiments(experiments: Experiment[], filter?: string | string[]): Experiment[] {
   if (filter === undefined) return experiments;
   // 允许 "compare/" 这种带尾斜杠的写法,与 "compare" 等价;分段匹配不误配 "compare2"。

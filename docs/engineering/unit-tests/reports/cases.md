@@ -175,14 +175,14 @@ it("text 与 web 显示同一个 MetricCell 终值和 warning", () => {
 | 契约 | 场景 |
 |---|---|
 | 裸 `show` 与裸 `view` 把同一 Scope 交给同一份内建报告定义（`niceeval/report/built-in` 默认导出）；`--report` 替换同一报告槽 | 正例：装载边界捕获两宿主的 definition 同引用、scope 深等 |
-| 两宿主对 `--results` / `--experiment` / 位置参数用同一套选择规则；局部补跑/过旧/未完成快照形成结构化 warning 随 Scope 携带 | 正例：未完成快照在两宿主产出相同 warning 集 |
+| 两宿主对 `--results` / `--exp` / 位置参数用同一套选择规则；局部补跑/过旧/未完成快照形成结构化 warning 随 Scope 携带 | 正例：未完成快照在两宿主产出相同 warning 集 |
 | `--history` 对匹配的每个 experimentId + evalId 分节，按 attempt 身份键跨快照去重、startedAt 升序逐 attempt 列出时间 / verdict / 单行摘要 / 耗时 / 成本 / locator；与 `--report` 互斥 | 正例：跨快照重跑去重后逐轮列出且升序；反例：与 `--report` 同用按用法错误非零退出 |
 | `ScopeWarnings` 按动作聚合：同 `experimentId` 的多 kind 警告聚合为一组，组头含实验 id、每条警告一枚 kind 徽标（模板取 kind 表）与去重后的一条可复制命令；命令去重后多于一条的组组头不放命令、命令随明细走 | 正例：partial-coverage + stale-snapshot 同实验成一组，组头命令恰一条 `niceeval exp <真实 id>` 且两枚徽标齐全；反例：不同实验不进同一组 |
 | 组排序与回退：`integrity` 组排在 `freshness` 组之前，混合组按最重成员归位；kind 表未登记模板的 kind 单独成组、逐条渲染 `message` 原样并按 `integrity` 归位 | 正例：仅 stale 的实验组排在含 partial-coverage 的实验组之后；边界：未知 kind 条目单独成组且 message 完整可见 |
 | web 面整个警告区是默认折叠的 `<details>`，`<summary>` 是分类计数汇总行、任何组数下都渲染；text 面汇总行只在组数 > 1 时输出，单组时组头即汇总 | 正例：两组与单组的 web 面都以汇总行为 `<summary>` 且外层无 `open`；边界：单组 text 面无汇总行 |
 | 明细折叠：web 面每组逐条 `message` 收进第二层 `<details>`，警告总条数 ≤ 3 时该层默认展开；text 面不折叠，组头一行（标题、徽标、命令）下缩进逐条原样打印 `message`（已以下一步收尾，不截断掉尾段） | 正例：4 条警告时组级 `<details>` 无 `open`、3 条时有（外层恒无 `open`）；正例：text 面组头下缩进输出以忽略条件/命令收尾 |
 | 显示时下一步随行：web 面带 `command` 的条目渲染为可复制命令，无 `command` 的只显示 message 不硬造动作；空警告集两面零输出；裸 `Snapshot[]` 输入渲染为空 | 正例：stale-snapshot 在 web 面出现复制动作且值为 `niceeval exp <真实 id>`；反例：missing-startedAt 形态的无 command 条目在 web 面无复制动作；边界：空 warnings 不渲染容器节点 |
-| `view` 位置参数与 `--experiment` 收窄对全部页生效（含内建 Attempts 页）；attempt 详情路由对完整结果根解析，被滤掉的 attempt 深链仍可打开 | 正例：收窄后 Attempts 页行集缩小，`#/attempt/@<locator>` 对被滤掉的 attempt 仍解析成功 |
+| `view` 位置参数与 `--exp` 收窄对全部页生效（含内建 Attempts 页）；attempt 详情路由对完整结果根解析，被滤掉的 attempt 深链仍可打开 | 正例：收窄后 Attempts 页行集缩小，`#/attempt/@<locator>` 对被滤掉的 attempt 仍解析成功 |
 | `show` 中漏写 `@` 的 locator 按 eval id 前缀处理并明确报无匹配、列出候选 | 反例：输入 "1qrdcfq8" 报 "No results matched" 附候选 |
 | `--timing` 自身就是 Attempt 证据切面，单独使用必须进入有界诊断时间树；首页 timing 只列大头，短的 baseline / telemetry bookkeeping 留给时间树 | 正例：locator + 单独 `--timing` 不回落首页；边界：短 telemetry 省略、慢 telemetry 保留 |
 | detail node 不超过 80 时，裸 `--timing` 与 `--timing=full` 展开相同节点；phase 行和 omission 行不占预算 | 正例：79/80 节点无 omission；边界：81 节点出现 omission；反例：不能省略 lifecycle phase |
@@ -193,12 +193,13 @@ it("text 与 web 显示同一个 MetricCell 终值和 warning", () => {
 | TTY、pipe、CI 对同一 timing mode 选择相同节点且不自动启动 pager | 正例：stdout capture 与 TTY fixture 的节点集合相同；反例：非交互命令不读 stdin、不挂起 |
 | 扫描结果根时单个不可读快照不阻塞其余：忽略/incompatible/malformed/incomplete 各带原因 | 四种坏快照各一 fixture，好快照照常计入 |
 | 零可读结果时命令失败：show 非零退出（旧格式建议 `npx niceeval@<version>`）；view 不启动 server、`--out` 不生成空站 | 边界：空结果根与仅含旧格式两种 |
-| `--out` 无档位：根里存在且前端会读取的证据文件（sources 引用及其快照级 `sources/<sha256>.json` 正文 / events / trace / diff）全部复制，缺的在证据位置显示缺失；`o11y.json` 永不复制 | 正例：带 diff.json 的根导出后 diff 可下钻；正例：导出站离线打开源码视图可取到正文；边界：携带条目（artifactBase 指向原快照）的源码正文被归拢进本快照 `sources/`，删除原快照后导出站源码仍可读；边界：无 diff.json 的根导出后 diff 位置显示缺失原因；反例：o11y.json 不进 `artifact/` |
+| `--out` 无档位：收窄范围内存在且前端会读取的证据文件（sources 引用及其快照级 `sources/<sha256>.json` 正文 / events / trace / diff）全部复制，缺的在证据位置显示缺失；`o11y.json` 永不复制 | 正例：带 diff.json 的根导出后 diff 可下钻；正例：导出站离线打开源码视图可取到正文；边界：携带条目（artifactBase 指向原快照）的源码正文被归拢进本快照 `sources/`，删除原快照后导出站源码仍可读；边界：无 diff.json 的根导出后 diff 位置显示缺失原因；反例：o11y.json 不进 `artifact/` |
 | 前端 artifact fetch 以「页面所在目录」为基底：pathname 末段带 `.` 视为文件名去掉，否则整个 pathname 是目录（含无尾斜杠形态），`artifact/<rel>` 拼在该目录下 | 正例：页面服务在 `/showcase/memory`（无尾斜杠 rewrite）时 fetch `/showcase/memory/artifact/<rel>`；边界：直接打开 `/foo/index.html` 时 fetch `/foo/artifact/<rel>`；反例：根路径 `/` 不产生双斜杠 |
-| `--out` 与位置参数 / `--experiment` 互斥：按实验收窄发布走「换根」，报错文案含 `copySnapshots` + `filter` 下一步 | 反例：`--experiment compare --out site` 按用法错误非零退出且文案含 copySnapshots；正例：同参数不带 `--out` 时照常收窄报告槽 |
+| `--out` 接受位置参数 / `--exp` 收窄，出站的就是收窄到的：页面 Scope 与 `artifact/` 证据树跟随同一收窄，被滤掉实验 / eval 的证据文件不出站；不收窄导出完整根 | 正例：`--exp compare --out site` 的 `artifact/` 只含 compare 组快照目录、页面组索引只有 compare；正例：eval id 前缀位置参数导出时不匹配 attempt 的证据不出站；正例：不带收窄时导出完整根（含非最新快照）；反例：被滤掉实验的 events/trace/sources 不出现在 `artifact/` |
+| 本地宿主的 attempt 详情路由越过收窄对完整结果根解析；导出站对范围外 locator 的深链在证据位置如实显示缺失 | 正例：本地 `--exp compare` 下 dev-e2b attempt 的 `#/attempt/@<locator>` 仍解析成功、证据可 fetch；正例：收窄导出站里同一 locator 显示证据缺失而非报错白屏 |
 | `--snapshot` 指定单个快照文件时该文件不可读令 view 失败（与扫描模式的跳过相反）；view 位置参数只表示 eval id 前缀，不接受文件或目录 | 反例：损坏文件经 `--snapshot` 报错退出；正例：同文件在扫描模式仅被跳过；反例：文件路径作位置参数按 eval 前缀报无匹配 |
 | 落盘无 phases 时 summary/full timing 都如实输出 unavailable 不猜；有 phases 时主链之和 ≤ total，收尾段 `+N` 不计入 total | 正例：含 teardown 的 fixture；反例：无 phases 的第三方结果；边界：errored 中途时最后主链阶段带 `✗` |
-| 本地 server 与 `--out` 消费同一份站点产物：同一路径在两宿主逐字节一致（index.html 与全部 artifact 文件），两宿主不各自携带取数或布局知识 | 正例：对同一结果根，导出目录的每个文件与 server 对同路径的响应字节相等（含解引用后的 sources）；反例：server 不提供产物清单之外的路径 |
+| 本地 server 与 `--out` 消费同一份站点产物：同一结果根与同一收窄下，同一路径在两宿主逐字节一致（index.html 与全部 artifact 文件），两宿主不各自携带取数或布局知识 | 正例：对同一结果根（含带收窄的输入），导出目录的每个文件与 server 对同路径的响应字节相等（含解引用后的 sources）；反例：server 除 attempt 详情证据请求外不提供产物清单之外的路径 |
 | server 打开首页触发站点产物整份重建，数据永远是盘上最新；artifact 请求未命中最近产物清单时管线重建一次再查，新落盘证据无需重启 | 正例：server 启动后新写一份快照，下一次 `GET /` 即含新数据；正例：新快照的 events.json 不重启 server 可 fetch；反例：重建后仍未知的路径 404 |
 
 宿主等价在装载边界记录 definition 与 Scope，不比较完整终端输出与完整 HTML——各宿主的导航壳和证据室本就不同：
@@ -247,7 +248,7 @@ it("show 与 view 的默认报告槽消费同一 Scope", async () => {
 | show 渲染初始页（`--page` 或第一页）的 text 面，页数大于一时在页输出之后附其余页的索引与可复制 `--page` 命令，不倾倒其余页内容；单页定义无索引段 | 正例：双页定义输出含第一页内容与另一页的索引命令、不含另一页内容；边界：单页定义直接渲染且无「其余页」段 |
 | `--page` 未命中页 id 时按用法错误非零退出并列出可用页 id；单页定义的唯一页 id 是缩写展开出的 `report` | 反例：`--page typo` 报错附 overview / exam；边界：对树形态文件 `--page report` 命中唯一页，`--page typo` 报错列出 `report` |
 | `show` 输出的页索引与组索引命令保留当前 `--results` / `--report` / `--page` 与位置参数上下文，复制即可复现下一层视图 | 正例：`--report` 下多组时组索引命令含 `--report` 与 `--page`；正例：`--results` 下页索引命令含 `--results` |
-| 全部页共享宿主注入的同一 Scope，位置参数与 `--experiment` 收窄对全部页生效；页不承担数据过滤 | 正例：两页的解析 refs 来自同一收窄后 Scope |
+| 全部页共享宿主注入的同一 Scope，位置参数与 `--exp` 收窄对全部页生效；页不承担数据过滤 | 正例：两页的解析 refs 来自同一收窄后 Scope |
 | 本地宿主只 resolve 被打开的页；静态导出 resolve 并校验全部页，任一页失败则导出整体失败 | 正例：打开 A 页时 B 页的取数未执行；反例：B 页含 `<div>` 时 `--out` 非零退出、不产出半套站点 |
 | 标题取值链 def.title → Scope 中唯一且相同（LocalizedText 深相等）的快照 name → 内置文案「Eval 运行结果 / Eval Results」，落点是浏览器标题、show 页索引标题行与 `ctx.report.title`；`links` / `footer` 渲染进导航壳，text 面不含这些字段 | 正例：三级 fallback 各一 fixture，浏览器标题与 `ctx.report.title` 同源；边界：两快照 name 的 en 相同、zh-CN 不同时任何 locale 下都落内置文案；反例：show 输出不含 links href |
 | `ReportLink.icon` 是内联 SVG 字符串（`{ svg }`）：web 面渲染在 label 前、静态导出原样内联；不收组件，show 不消费 | 正例：带 svg 的 GitHub 链接导航项含该 SVG；反例：无类型 JS 传 ReactNode 作 icon 装载报错；反例：show 页索引不含 svg |

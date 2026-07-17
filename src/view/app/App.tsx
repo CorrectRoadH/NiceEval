@@ -115,8 +115,8 @@ export function App({ data, reportPages }: { data: ViewData; reportPages: Record
 
   // 浏览器前进/后退、手改 hash、页内链接(attempt 深链与 `#/page/<id>` 页路由)统一从
   // hashchange 分发:attempt hash 开证据室弹窗,页 hash 切当前 tab。
-  // attempt 详情路由对完整结果根解析(viewData.snapshots 全量通道):被位置参数 / --experiment
-  // 收窄滤掉的 attempt 仍能经深链打开,报告里的证据引用不因页面过滤失效。
+  // attempt 详情路由对有效根解析(viewData.snapshots 即有效根):收窄之内、不在页面统计
+  // 口径(现刻水位)里的历史 attempt 仍能经深链打开,报告里的证据引用不因统计口径失效。
   useEffect(() => {
     const onHashChange = () => {
       const locator = parseAttemptHash(location.hash);

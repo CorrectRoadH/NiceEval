@@ -84,7 +84,7 @@ export const en = {
     "      --timing      unified timing tree for the attempt (phases + hooks/commands/turns + per-turn OTel)\n" +
     "      --diff[=file] sandbox workspace file-change summary; =file expands one file\n" +
     "      --history   per experiment × eval execution timeline (mutually exclusive with --report)\n" +
-    "      --results <dir>   pin a results root    --experiment <id>   one experiment\n" +
+    "      --results <dir>   pin a results root    --exp <id>   one experiment\n" +
     "      --report <file>   custom report    --page <id>   pick the initial page (multi-page\n" +
     "        reports render it, then list the rest as a page index with copyable commands)\n" +
     "  niceeval list                                       list discovered evals\n" +
@@ -92,7 +92,7 @@ export const en = {
     "      report pages + evidence rooms; --report <file> swaps in your report\n" +
     "      (same file as show); --page <id> picks the initial page;\n" +
     "      --results <dir> pins a results root; --snapshot <file> opens exactly\n" +
-    "      one snapshot; --experiment <id> one experiment\n" +
+    "      one snapshot; --exp <id> one experiment\n" +
     "      --out <dir> exports a static site: index.html plus the viewer\n" +
     "      artifacts, ready for any static host\n" +
     "  niceeval sandbox list|enter|history|diff|stop  inspect & destroy sandboxes kept by --keep-sandbox\n" +
@@ -109,7 +109,7 @@ export const en = {
   "cli.show.noResults": "No results found under {{root}}. Run `niceeval exp` first, then `niceeval show`.\n",
   "cli.show.runDirMissing": "Results directory not found: {{dir}}\n",
   "cli.show.noEvalMatch": "No results matched: {{patterns}}. Evals with results: {{evals}}\n",
-  "cli.show.noExperimentMatch": "No experiment matched --experiment {{arg}}. Experiments with results: {{experiments}}\n",
+  "cli.show.noExperimentMatch": "No experiment matched --exp {{arg}}. Experiments with results: {{experiments}}\n",
   "cli.show.historyReportConflict":
     "`--history` and `--report` are mutually exclusive: both take over the main output. --history is the host's per-attempt execution timeline; for snapshot-level trends, compose exp.snapshots inside your report file instead.\n",
   "cli.show.evidenceNeedsEval":

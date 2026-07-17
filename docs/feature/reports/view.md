@@ -2,15 +2,15 @@
 
 `niceeval view` 把结果根呈现为本地网页：页面内容全部来自装载的报告定义（不带 `--report` 时是[内建报告](library/built-in.md)的三页——报告、Attempts、追踪），attempt 详情经宿主路由随时可开。它不依赖外部服务。
 
-本地模式与静态导出共用**同一条站点管线**：管线把结果根物化成一份站点产物——`index.html` 加 `artifact/` 证据树的文件清单，每个文件要么是构建时现算的内容，要么指向结果根内的原文件。本地模式把这份产物挂在 `127.0.0.1` 上按路径服务；`--out` 把同一份产物写盘。两个宿主都不携带自己的取数或布局知识，同一路径在两边逐字节一致（由奇偶测试守护）。本地服务只多三条宿主语义，全部作用在管线的输入端而不是产物上：打开首页触发整份产物重建（数据永远是盘上最新，`--report` 文件变更同样在下次请求整页重算，装载走 mtime cache-busting）；单页渲染失败折成该页的错误块、其它页照常可读（导出保持任一页失败整体失败，不产出半套站点）；报告槽可被位置参数 / `--experiment` 收窄（导出与收窄互斥，见「静态导出」）。artifact 请求命中最近一次构建的产物清单，未命中时管线重建一次再查——server 运行期间新落盘的证据不需要重启。
+本地模式与静态导出共用**同一条站点管线**：管线的输入是结果根加可选收窄（位置参数 / `--exp`）。收窄把根滤成只含匹配实验与 attempt 的**有效根**——页面 Scope、证据树与 attempt 详情一致地只从有效根取数，不收窄时有效根就是完整结果根。管线把有效根物化成一份站点产物——`index.html` 加 `artifact/` 证据树的文件清单，每个文件要么是构建时现算的内容，要么指向结果根内的原文件。本地模式把这份产物挂在 `127.0.0.1` 上按路径服务；`--out` 把同一份产物写盘。两个宿主都不携带自己的取数或布局知识，同一输入下同一路径在两边逐字节一致（由奇偶测试守护）。本地服务只多两条宿主语义，全部作用在管线之外而不是产物上：打开首页触发整份产物重建（数据永远是盘上最新，`--report` 文件变更同样在下次请求整页重算，装载走 mtime cache-busting）；单页渲染失败折成该页的错误块、其它页照常可读（导出保持任一页失败整体失败，不产出半套站点）。artifact 请求命中最近一次构建的产物清单，未命中时管线重建一次再查——server 运行期间新落盘的证据不需要重启。
 
 ## 打开与收窄
 
 ```sh
 niceeval view
 niceeval view weather                  # eval id 前缀，只收窄报告槽
-niceeval view --experiment compare     # 只看 compare 可比组（按路径段匹配）
-niceeval view --experiment compare/bub # 只看一个 experiment
+niceeval view --exp compare     # 只看 compare 可比组（按路径段匹配）
+niceeval view --exp compare/bub # 只看一个 experiment
 niceeval view --results site-data/run  # 换结果根
 niceeval view --snapshot .niceeval/dev-e2b_codex-e2b/2026-07-12T10-08/snapshot.json
                                        # 只打开这一份快照
@@ -24,7 +24,7 @@ niceeval view --report reports/site.tsx --page exam   # 多页报告，指定初
 
 本地 server 只监听 `127.0.0.1`。默认让操作系统随机分配端口；`--port <n>` 指定首选端口，被占用时从 n 起向上顺延最多 20 个，全被占用才报错。
 
-裸 `niceeval view` 默认把结果根中的完整 Scope 交给报告；用户直接在页面的组选择器里选择当前可比组，不需要先猜 `--experiment`。`--experiment` 与位置参数只是可选的命令行快捷收窄，对全部页生效——页共享同一份 Scope，内建的 Attempts 页也一样跟随收窄。attempt 详情路由（`#/attempt/@<locator>`）不是页：它对完整结果根解析，被收窄滤掉的 attempt 仍能经深链打开，报告里的证据引用不会因页面过滤而失效。
+裸 `niceeval view` 默认把结果根中的完整 Scope 交给报告；用户直接在页面的组选择器里选择当前可比组，不需要先猜 `--exp`。`--exp` 与位置参数只是可选的命令行快捷收窄，对全部页生效——页共享同一份 Scope，内建的 Attempts 页也一样跟随收窄。attempt 详情路由（`#/attempt/@<locator>`）不是页：它对有效根解析——收窄之内、即使不在页面统计口径（现刻水位）里的历史 attempt 也能经深链打开，报告里的证据引用不会因页面统计口径而失效；收窄之外的 attempt 不在有效根里，两宿主一致不可达，要看全部就不带收窄打开。同一份收窄交给 `--out` 时决定出站内容——页面与证据树都只含有效根（见「静态导出」）。
 
 ## 页面构成
 
@@ -38,11 +38,13 @@ niceeval view --report reports/site.tsx --page exam   # 多页报告，指定初
 ## 静态导出
 
 ```sh
-niceeval view --out site                            # 导出当前结果根
-niceeval view --results site-data/run --out site    # 导出 copySnapshots 产出的发布根
+niceeval view --out site                            # 导出完整结果根
+niceeval view --exp compare --out site       # 只发布 compare 可比组
+niceeval view weather --out site                    # 只发布匹配 eval id 前缀的部分
+niceeval view --results site-data/run --out site    # 对 copySnapshots 产出的发布根导出
 ```
 
-`--out` 是复印机：把站点产物原样写进一个目录，不设确认关卡——静态站携带的就是结果根里的证据文件，发布给谁、内容是否适合公开，在构建结果根时决定（挑选与瘦身见 [`copySnapshots`](../results/library.md#复制与瘦身copysnapshots)）。输出恒为目录：
+`--out` 把站点产物原样写进一个目录，不设确认关卡。**出站的就是收窄到的**：位置参数 / `--exp` 是站点管线的输入，对本地与导出同义——页面 Scope 与 `artifact/` 证据树跟随同一份收窄，被滤掉的实验与 attempt 的证据文件不出站，对它们的深链在导出站如实显示证据缺失。等价说法：`view <收窄> --out` 就是先把根滤成只含匹配部分、再对这份根导出；不收窄时导出完整结果根。页面能引用的 attempt 恒在产物内（页共享同一份收窄后的 Scope），站内的证据引用不会因收窄断链。发布给谁、内容是否适合公开，在选择收窄与构建结果根时决定（瘦身与更复杂的挑选见 [`copySnapshots`](../results/library.md#复制与瘦身copysnapshots)）。输出恒为目录：
 
 ```text
 site/
@@ -63,22 +65,21 @@ site/
 
 多页报告仍导出单个 `index.html`：页面是 `#/page/<id>` 路由，托管方不需要配置多路径。托管路径形态也不设要求：前端 fetch 证据文件时以「页面所在目录」为基底自行解析——pathname 末段带 `.` 视为文件名去掉，否则整个 pathname 就是目录——所以站点根、子目录、直接打开 `index.html`、以及反代 rewrite / cleanUrls 常见的「`<dir>/index.html` 服务在无尾斜杠的 `<dir>` 路径上」都不断链，唯一前提是 `artifact/` 与 `index.html` 保持同级（导出布局本身保证）。`assets/` 只在外壳声明了本地资产（`scripts` / `styles` 的 `{src}`，或 `head` 标签 `attrs` 里的本地 `src` / `href`）时出现；资产按 `assets/<sha256><ext>` 写入并改写 HTML 引用，同内容且同扩展名的资产去重，不受源文件同名影响。`head` 里的外链（`http(s)://`）不进 `assets/`，原样落在标签上由读者浏览器加载。导出的站点会原样携带并在读者浏览器执行这些脚本，发布防呆不检查脚本内容。网页会按需 fetch 证据文件，因此不提供“单个 HTML”导出。
 
-导出没有档位：`view --out` 是复印机，结果根里存在且前端会读取的证据文件——`sources.json` 及其引用的快照级 `sources/<sha256>.json` 正文、`events.json`、`trace.json`、`diff.json`——全部随站复制，缺的在对应证据位置如实显示缺失，不猜也不冒充。体积取舍不在导出层做：要瘦站点，在构建发布根时用 [`copySnapshots({ artifacts })`](../results/library.md#复制与瘦身copysnapshots) 决定带什么（其缺省不带 diff）。唯一永不复制的是 `o11y.json`——报告数字在导出时已烘进 HTML，浏览器不读它，这是「前端读什么带什么」规则的推论，不是一个档位。
+导出没有档位：`view --out` 不做体积取舍，收窄范围内存在且前端会读取的证据文件——`sources.json` 及其引用的快照级 `sources/<sha256>.json` 正文、`events.json`、`trace.json`、`diff.json`——全部随站复制，缺的在对应证据位置如实显示缺失，不猜也不冒充。体积取舍不在导出层做：要瘦站点，在构建发布根时用 [`copySnapshots({ artifacts })`](../results/library.md#复制与瘦身copysnapshots) 决定带什么（其缺省不带 diff）。唯一永不复制的是 `o11y.json`——报告数字在导出时已烘进 HTML，浏览器不读它，这是「前端读什么带什么」规则的推论，不是一个档位。
 
-**按实验收窄发布 = 换一个根，不是给导出加过滤。** `--out` 与位置参数 / `--experiment` 互斥，同用按用法错误退出：收窄只影响页面统计的 Scope，`artifact/` 证据树与 attempt 详情路由恒随根完整——若允许同用，发布者会以为站点只含该实验，实际根里全部 attempt 的证据都已出站。要发布只含某个实验的站，构建只含它的发布根（`copySnapshots` 收 Scope，`filter` 即收窄），报错文案给出的下一步就是它：
+**命令行收窄管选择实验与 eval，`copySnapshots` 管导出参数表达不了的构根。** 按实验或 eval id 前缀发布，直接用位置参数 / `--exp` 收窄导出。需要更多控制时先用 [`copySnapshots`](../results/library.md#复制与瘦身copysnapshots) 构建发布根，再对发布根导出——它覆盖三类场景：瘦身（`artifacts` 挑证据种类）、任意谓词挑选快照（收窄只有前缀语义），以及把发布根作为数据签进仓库长期托管：
 
 ```ts
 const results = await openResults(".niceeval");
-await copySnapshots(
-  results.latest().filter((s) => s.experimentId.startsWith("compare/")),
-  "site-data/run",
-);
+await copySnapshots(results.latest(), "site-data/run", {
+  artifacts: ["sources", "events", "trace"],   // 瘦身：不带 diff
+});
 // 然后：niceeval view --results site-data/run --out site
 ```
 
-「报告聚焦某实验、证据保持全量」是看法层的事，在报告文件里表达——组件 `input` 传收窄后的 Scope，不需要导出参数。
+反过来，「报告聚焦某实验、证据保持全量」是看法层的事，在报告文件里表达——组件 `input` 传收窄后的 Scope，导出时不收窄。
 
-`artifact/` 由与 [`copySnapshots()`](../results/library.md#复制与瘦身copysnapshots) 同一条复制管线产出（同一 50 MiB 预检、同一布局知识）。导出的产物包含**完整的原始证据**——prompt、工具参数、完整输出、源码——深链一点开就是原文。要发布收窄或瘦身过的站，先用 `copySnapshots({ artifacts })` 产出发布根，再对它运行 `view --results <发布根> --out <site>`；运行环境注入的秘密由格式在采集侧挡在结果文件之外（[Results · 复制与瘦身](../results/library.md#复制与瘦身copysnapshots)）。
+`artifact/` 由与 [`copySnapshots()`](../results/library.md#复制与瘦身copysnapshots) 同一条复制管线产出（同一 50 MiB 预检、同一布局知识）。导出的产物包含收窄范围内**完整的原始证据**——prompt、工具参数、完整输出、源码——深链一点开就是原文；运行环境注入的秘密由格式在采集侧挡在结果文件之外（[Results · 复制与瘦身](../results/library.md#复制与瘦身copysnapshots)）。
 
 ## 结果版本与错误
 

@@ -170,8 +170,8 @@ const FLAG_OPTIONS = {
   diff: { type: "boolean" },
   /** `show` 命令专用:执行时间轴——对匹配的每个 experiment × eval 分节,逐 attempt 列时间 / verdict / 摘要 / 耗时 / 成本 / locator;与 `--report` 互斥。 */
   history: { type: "boolean" },
-  /** `show` / `view` 命令专用:按路径段前缀收窄 experiment;组名会选中组内全部配置。 */
-  experiment: { type: "string" },
+  /** `show` / `view` 命令专用:按路径段前缀收窄 experiment(与 `niceeval exp` 位置参数同一套匹配);组名会选中组内全部配置。`view --out` 时同一收窄决定出站内容。 */
+  exp: { type: "string" },
   /** `show` / `view` / `sandbox enter|list|stop` 共用:结果根目录(`.niceeval` 之外的另一个根,如 `copySnapshots` 产出的发布根)。 */
   results: { type: "string" },
   /** `view` 命令专用:只打开这一份快照文件(`snapshot.json`);文件不可读时命令失败(扫描模式只跳过)。 */
@@ -308,7 +308,7 @@ function parseArgs(argv: string[]): { command: string; positionals: string[]; fl
     sandboxPath: values.path as string | undefined,
     leaveRunning: values["leave-running"] === true,
     history: values.history === true,
-    experiment: values.experiment as string | undefined,
+    experiment: values.exp as string | undefined,
     results: values.results as string | undefined,
     snapshot: values.snapshot as string | undefined,
     report: values.report as string | undefined,
@@ -320,7 +320,7 @@ function parseArgs(argv: string[]): { command: string; positionals: string[]; fl
 /**
  * exp 只接受两类输入:位置参数选「跑哪些 eval」+ 调度/输出/机器出口 flag 选「对着哪个 agent、
  * 怎么跑」。show / view 专属的证据切面(`--source`/`--execution`/`--diff`)、时间轴(`--history`)、
- * Scope 收窄(`--experiment`/`--results`)、报告装载(`--report`/`--page`)、查看器
+ * Scope 收窄(`--exp`/`--results`)、报告装载(`--report`/`--page`)、查看器
  * (`--snapshot`/`--out`/`--port`/`--open`)不能被 exp 静默忽略(见 docs/feature/experiments/
  * cli.md「用法错误」)。返回第一个被误用的 flag 及其归属命令(用于报错),没有误用返回 undefined。
  */
@@ -333,7 +333,7 @@ function firstViewerOnlyFlag(flags: Flags): { flag: string; command: string } | 
   if (flags.timing !== undefined) return { flag: "--timing", command: SHOW };
   if (flags.diff || flags.diffPath !== undefined) return { flag: "--diff", command: SHOW };
   if (flags.history) return { flag: "--history", command: SHOW };
-  if (flags.experiment !== undefined) return { flag: "--experiment", command: BOTH };
+  if (flags.experiment !== undefined) return { flag: "--exp", command: BOTH };
   if (flags.results !== undefined) return { flag: "--results", command: BOTH };
   if (flags.report !== undefined) return { flag: "--report", command: BOTH };
   if (flags.page !== undefined) return { flag: "--page", command: BOTH };
@@ -566,11 +566,10 @@ async function main(): Promise<void> {
   }
 
   if (command === "view") {
-    // 位置参数只有一种含义:eval id 前缀(收窄报告槽 Scope)。结果根经 --results 递入,
+    // 位置参数只有一种含义:eval id 前缀(收窄有效根)。结果根经 --results 递入,
     // 单开一份快照经 --snapshot 递入;--report 整槽替换报告槽(与 show --report 吃同一个文件),
     // --page 定初始页。文件与目录都不进位置参数(docs/feature/reports/view.md「打开与收窄」)。
-    // --out 与位置参数 / --experiment 的互斥在 buildView 内校验(单点,报错文案含 copySnapshots
-    // + filter 的下一步),经 exitOnViewUserError 按用法错误退出。
+    // --out 接受同一收窄:出站内容即收窄后的有效根(docs/feature/reports/view.md「静态导出」)。
     let viewInput: { input?: string; patterns: string[] };
     try {
       viewInput = resolveViewInput(cwd, positionals, {

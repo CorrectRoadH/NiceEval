@@ -48,10 +48,10 @@ compare                    2     12          75.0%   9 通过 / 3 失败      $1
 dev-e2b                    3     16          61.1%   11 通过 / 5 失败     $0.31   2026-07-12 18:09
 
 查看组内详情：
-  niceeval show --experiment compare --report reports/site.tsx --page overview
-  niceeval show --experiment dev-e2b --report reports/site.tsx --page overview
+  niceeval show --exp compare --report reports/site.tsx --page overview
+  niceeval show --exp dev-e2b --report reports/site.tsx --page overview
 
-$ niceeval show --experiment dev-e2b --report reports/site.tsx --page overview
+$ niceeval show --exp dev-e2b --report reports/site.tsx --page overview
 # 单组：直接输出该组的散点与实验列表
 ```
 
@@ -59,7 +59,7 @@ $ niceeval show --experiment dev-e2b --report reports/site.tsx --page overview
 
 ## Case 4：范围收窄与页选择正交
 
-位置参数（eval id 前缀）与 `--experiment` 先收窄 Scope，`--page` 再选页；[全部页共享同一份收窄后的 Scope](../library/shell.md#行为约束)：
+位置参数（eval id 前缀）与 `--exp` 先收窄 Scope，`--page` 再选页；[全部页共享同一份收窄后的 Scope](../library/shell.md#行为约束)：
 
 ```sh
 $ niceeval show memory/swelancer --report reports/site.tsx --page exam

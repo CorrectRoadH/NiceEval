@@ -31,6 +31,12 @@ await copySnapshots(results.latest(), output, {
 npx niceeval view --results report-data --out site
 ```
 
+只发布一部分实验时,把收窄直接交给导出命令,页面和证据都只含收窄后的范围(见[查看结果 · 导出与静态托管](/zh/how-to/viewing-results#导出与静态托管)):
+
+```bash
+npx niceeval view --results report-data --exp compare --out site
+```
+
 `view` 对零可读结果直接报错、非零退出,不会导出一张空报告——`report-data/` checkout 坏掉,或所有落盘与当前 niceeval 的 schemaVersion 不兼容被整批跳过时,构建失败,Vercel / GitHub Pages 保留上一次部署。错误逐条列出被跳过的快照目录与原因,schemaVersion 场景还给出能直接查看旧落盘的 `npx niceeval@<版本> view` 命令。
 
 ## 发布自定义报告

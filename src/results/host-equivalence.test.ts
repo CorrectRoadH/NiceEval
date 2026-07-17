@@ -329,7 +329,7 @@ describe("selectCurrentResults · 现刻水位结构化身份", () => {
     expect(algebra.warnings).toEqual([]);
   });
 
-  it("场景8 --experiment 分段前缀过滤:只留匹配段,不误配同前缀实验", async () => {
+  it("场景8 --exp 分段前缀过滤:只留匹配段,不误配同前缀实验", async () => {
     const root = await makeRoot();
     await writeSnapshot(root, "2026-07-01T08-00-00-000Z", { experimentId: "compare/bub", startedAt: "2026-07-01T08:00:00.000Z" }, [res("q1", "passed")]);
     await writeSnapshot(root, "2026-07-01T09-00-00-000Z", { experimentId: "compare/codex", agent: "codex", startedAt: "2026-07-01T09:00:00.000Z" }, [res("q1", "passed")]);

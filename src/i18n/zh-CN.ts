@@ -80,14 +80,14 @@ export const zhCN = {
     "      --timing      整个 attempt 的统一时间树(阶段 + hook/命令/turn + 轮内 OTel)\n" +
     "      --diff[=文件] agent 归因的文件改动摘要;=文件 按窗口展开单个文件\n" +
     "      --history   逐 experiment × eval 的执行时间轴(与 --report 互斥)\n" +
-    "      --results <目录> 钉死结果根   --experiment <id> 只看该实验\n" +
+    "      --results <目录> 钉死结果根   --exp <id> 只看该实验\n" +
     "      --report <文件> 自定义报告   --page <id> 定初始页(多页报告渲染该页,\n" +
     "        尾部再附其余页索引)\n" +
     "  niceeval list                            列出发现到的 eval\n" +
     "  niceeval view [eval-id 前缀…] [--out 目录] [--port n] [--no-open]\n" +
     "      报告页 + 证据室;--report <文件> 整槽换成自定义报告(与 show 同一文件)\n" +
     "      --page <id> 定初始页   --results <目录> 钉死结果根\n" +
-    "      --snapshot <文件> 只打开这一份快照   --experiment <id> 只看该实验\n" +
+    "      --snapshot <文件> 只打开这一份快照   --exp <id> 只看该实验\n" +
     "      --out <目录> 静态导出:index.html 连同查看器 artifact,可直接静态托管\n" +
     "  niceeval sandbox list|enter|history|diff|stop  查看与销毁 --keep-sandbox 留下的现场\n" +
     "  niceeval clean                           删除 .niceeval/ 历史 artifact\n" +
@@ -104,7 +104,7 @@ export const zhCN = {
   "cli.show.noResults": "{{root}} 下没有结果。先 `niceeval exp` 跑一轮,再 `niceeval show`。\n",
   "cli.show.runDirMissing": "Results directory not found: {{dir}}\n",
   "cli.show.noEvalMatch": "No results matched: {{patterns}}. Evals with results: {{evals}}\n",
-  "cli.show.noExperimentMatch": "No experiment matched --experiment {{arg}}. Experiments with results: {{experiments}}\n",
+  "cli.show.noExperimentMatch": "No experiment matched --exp {{arg}}. Experiments with results: {{experiments}}\n",
   "cli.show.historyReportConflict":
     "`--history` and `--report` are mutually exclusive: both take over the main output. --history is the host's per-attempt execution timeline; for snapshot-level trends, compose exp.snapshots inside your report file instead.\n",
   "cli.show.evidenceNeedsEval":

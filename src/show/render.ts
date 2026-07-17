@@ -113,7 +113,7 @@ export function attemptsOfEval(snapshots: Snapshot[], evalId: string): AttemptHa
 /**
  * 详情块 / eval-id 前缀证据切面默认挑最新一次失败的 attempt;没有失败挑最新一次。
  * 精确选某一次 attempt 走 `@<locator>`(`resolveLocator`),不再有数字 `--attempt`——
- * --experiment 已在 Selection 合成时收窄。
+ * --exp 已在 Selection 合成时收窄。
  */
 export function pickDetailAttempt(attempts: AttemptHandle[]): AttemptHandle | undefined {
   if (attempts.length === 0) return undefined;

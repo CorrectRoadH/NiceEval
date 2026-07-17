@@ -899,8 +899,8 @@ describe("内建报告", () => {
     // Hero text 面:标题行(回退链终点)+ 最后运行 meta 行在页首
     expect(multi.split("\n")[0]).toBe("Eval Results");
     expect(multi).toContain("Last run");
-    expect(multi).toContain("niceeval show --experiment compare");
-    expect(multi).toContain("niceeval show --experiment dev");
+    expect(multi).toContain("niceeval show --exp compare");
+    expect(multi).toContain("niceeval show --exp dev");
     expect(multi).not.toContain("Eval / Attempt"); // 不倾倒组内 experiment 明细
 
     const priced = snap({

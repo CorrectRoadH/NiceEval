@@ -2,7 +2,7 @@
 // niceeval view 的报告槽与宿主组合语义(docs/feature/reports/architecture.md「Selection 是计算入口」
 // 与裁决记录 6;公开行为准绳 docs-site/zh/how-to/viewing-results.mdx / custom-reports.mdx)。
 // 覆盖:
-// - 组合语义与 show 对齐:位置前缀收窄报告槽 Scope、--experiment 过滤、匹配不到直说;
+// - 组合语义与 show 对齐:位置前缀收窄报告槽 Scope、--exp 过滤、匹配不到直说;
 // - 输入语义:位置参数只表示 eval id 前缀(不随文件系统状态改变),结果根走 --results,
 //   单开一份快照走 --snapshot(文件不可读时失败);
 // - 报告槽恒在:裸跑填充内建报告,--report 整槽替换;en / zh-CN 双语各渲染一遍;
@@ -162,7 +162,7 @@ function bareReportHtml(scan: ViewScan): { en: string; "zh-CN": string } {
 // ───────────────────────── 组合语义(与 show 对齐) ─────────────────────────
 
 describe("loadViewScan · 组合语义", () => {
-  it("位置前缀收窄对全部页生效(含内建 Attempts 页);attempt 详情路由对完整结果根解析,被滤掉的深链仍可达", async () => {
+  it("位置前缀收窄作用在有效根上:全部页与证据室一致缩小,被滤掉的 attempt 不烘进页面数据", async () => {
     const root = await seedRoot();
     const scan = await loadViewScan(root, { patterns: ["weather"] });
     const { viewData } = scan;
@@ -176,16 +176,22 @@ describe("loadViewScan · 组合语义", () => {
     expect(pageHtml(scan, "traces").en).not.toContain("fixtures/button");
     const bare = await loadViewScan(root);
     expect(pageHtml(bare, "attempts").en).toContain("fixtures/button"); // 不收窄时在场,对照
-    // attempt 详情路由不是页:viewData.snapshots 全量通道保留,被滤掉的 attempt 深链仍解析成功。
+    // 有效根即证据室:被滤掉的 attempt 不在 viewData.snapshots 里,深链两宿主一致不可达。
     const filteredOut = viewData.snapshots
       .flatMap((s) => s.results)
       .find((r) => r.id === "fixtures/button");
-    expect(filteredOut?.locator).toBeTruthy();
+    expect(filteredOut).toBeUndefined();
+    expect(scan.artifactDirs.size).toBe(
+      [...scan.artifactDirs.keys()].filter((base) => base.includes("weather/brooklyn")).length,
+    );
+    // 收窄之内、不在现刻水位的口径差异由 --exp 深链测试覆盖;不收窄时深链照常可达,对照:
+    const inBare = bare.viewData.snapshots.flatMap((s) => s.results).find((r) => r.id === "fixtures/button");
+    expect(inBare?.locator).toBeTruthy();
     const { resolveAttemptLocator } = await import("./app/lib/attempt-route.ts");
-    expect(resolveAttemptLocator(viewData.snapshots, filteredOut!.locator!)).toBe(filteredOut);
+    expect(resolveAttemptLocator(bare.viewData.snapshots, inBare!.locator!)).toBe(inBare);
   });
 
-  it("--experiment 过滤:报告槽 Selection 只留该实验", async () => {
+  it("--exp 过滤:报告槽 Selection 只留该实验", async () => {
     const root = await seedRoot();
     const reportHtml = bareReportHtml(await loadViewScan(root, { experiment: "compare/codex" }));
     expect(reportHtml.en).toContain("compare/codex");
@@ -468,18 +474,41 @@ describe("buildView · --out 与 --report", () => {
     expect(existsSync(join(exported, "o11y.json"))).toBe(false);
   });
 
-  it("--out 与位置参数 / --experiment 互斥:报错含 copySnapshots + filter 下一步", async () => {
+  it("--out 接受收窄,出站的就是收窄到的:被滤掉实验的证据文件与页面数据都不出站", async () => {
     const root = await seedRoot();
-    const out = join(root, "site");
-    for (const scan of [{ patterns: ["weather"] }, { experiment: "compare/bub" }]) {
-      const attempt = buildView({ input: root, out, scan });
-      await expect(attempt).rejects.toBeInstanceOf(ViewInputError);
-      await expect(
-        buildView({ input: root, out, scan }),
-      ).rejects.toThrow(/copySnapshots/);
+    // 两个实验各写一份 events.json:导出后只有收窄内的那份在站里。
+    const bubDir = join(root, "compare_bub", "2026-07-08T10-00-00-000Z", "weather", "brooklyn", "a0");
+    const codexDir = join(root, "compare_codex", "2026-07-09T10-00-00-000Z", "weather", "brooklyn", "a0");
+    for (const dir of [bubDir, codexDir]) {
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, "events.json"), "[]", "utf-8");
     }
-    // 同参数不带 --out 时照常收窄报告槽(不报错)。
-    await expect(loadViewScan(root, { patterns: ["weather"] })).resolves.toBeTruthy();
+
+    const out = join(root, "site");
+    await buildView({ input: root, out, scan: { patterns: [], experiment: "compare/codex" } });
+    expect(existsSync(join(out, "artifact", "compare_codex/2026-07-09T10-00-00-000Z/weather/brooklyn/a0", "events.json"))).toBe(true);
+    // 被滤掉的实验:证据树整目录不出站,页面数据(烘进 HTML 的 viewData 与报告块)也不含它。
+    expect(existsSync(join(out, "artifact", "compare_bub"))).toBe(false);
+    const html = await readFile(join(out, "index.html"), "utf-8");
+    expect(html).not.toContain("compare/bub");
+    expect(html).toContain("compare/codex");
+  });
+
+  it("eval 前缀收窄导出:不匹配 attempt 的证据不出站", async () => {
+    const root = await seedRoot();
+    const weatherDir = join(root, "compare_bub", "2026-07-08T10-00-00-000Z", "weather", "brooklyn", "a0");
+    const buttonDir = join(root, "compare_bub", "2026-07-08T10-00-00-000Z", "fixtures", "button", "a0");
+    for (const dir of [weatherDir, buttonDir]) {
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, "events.json"), "[]", "utf-8");
+    }
+
+    const out = join(root, "site");
+    await buildView({ input: root, out, scan: { patterns: ["weather"] } });
+    expect(existsSync(join(out, "artifact", "compare_bub/2026-07-08T10-00-00-000Z/weather/brooklyn/a0", "events.json"))).toBe(true);
+    expect(existsSync(join(out, "artifact", "compare_bub/2026-07-08T10-00-00-000Z/fixtures"))).toBe(false);
+    const html = await readFile(join(out, "index.html"), "utf-8");
+    expect(html).not.toContain("fixtures/button");
   });
 
   it("默认导出(无 --report):报告槽填充 ExperimentComparison,双语块与增强 runtime 恒内联", async () => {

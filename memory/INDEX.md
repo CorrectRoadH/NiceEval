@@ -160,10 +160,12 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 
 ## 设计决定
 
+- [view-out-narrowing-reversal](view-out-narrowing-reversal.md) — 裁决(2026-07-17):view 收窄(位置参数/--exp)改为管线输入,滤出有效根,页面+viewData+证据树一致收窄,`view <收窄> --out` ≡ 对收窄后的根导出;翻案旧「--out 与收窄互斥、发布收窄走 copySnapshots」;中途方案「只滤证据清单、viewData 全量」因数据仍烘进 HTML 出站被收紧;同日 `--experiment` 更名 `--exp`
+- [report-extends-and-builtin-view-collection](report-extends-and-builtin-view-collection.md) — 裁决(2026-07-17):报告级复用走 `defineReport({ extends })`(页归 base、外壳逐字段覆盖、调用时折叠),`niceeval/report/built-in` 改为具名视图集合(当前只有 `standard`,默认导出恒等于它);否决照抄唯一路径(加个 title 要抄 40 行)与页具名导出(复用单位应是整份有名字的报告);改 src 后必须 `pnpm run build:report`,exports 指向 dist
 - [eval-environment-profile-sandbox-resolver](eval-environment-profile-sandbox-resolver.md) — 裁决:Eval 只声明 provider-neutral environment profile；否决 Eval 直接绑定 template/provider。resolver 解析形态 2026-07-17 被推翻,见下条
 - [eval-environments-map-replaces-resolver](eval-environments-map-replaces-resolver.md) — 裁决:profile→预制产物映射改为 sandbox spec 工厂的 environments 数据表(删 resolver 与函数指纹);否决按环境拆 experiment(分数横截面被切碎)与 config 顶层注册表
 - [publish-redaction-removed](publish-redaction-removed.md) — 设计裁决:发布脱敏管线(redact 必填/publish 标记/--allow-sensitive-artifacts/展示层 redact)整体移除;保密边界在采集侧,真实根实测零秘密;兜底方向是只警告不改写的凭据扫描
-- [view-server-serves-site-plan](view-server-serves-site-plan.md) — 裁决(2026-07-16):view 本地 server 与 --out 统一为单一站点管线(SitePlan 清单,布局/取数知识单点在 site.ts,逐字节奇偶测试守护);否决双链路各自修与「先导出临时目录再服务」;旁路取数删除,宿主语义只剩首页重建/embed/收窄三条
+- [view-server-serves-site-plan](view-server-serves-site-plan.md) — 裁决(2026-07-16):view 本地 server 与 --out 统一为单一站点管线(SitePlan 清单,布局/取数知识单点在 site.ts,逐字节奇偶测试守护);否决双链路各自修与「先导出临时目录再服务」;旁路取数删除,宿主语义只剩首页重建/embed 两条(收窄 2026-07-17 改为管线输入,见 view-out-narrowing-reversal)
 - [report-head-channel-replaces-asset-attrs](report-head-channel-replaces-asset-attrs.md) — 裁决(2026-07-16):外壳第三方脚本/meta/favicon 走结构化 `head` 通道(白名单 tag+attrs+children),否决 ReportAsset 加 attrs、JSX 直给 `<script>`、raw HTML 字符串三方案;`{src}` 外链装载报错指引 head
 - [report-shell-brand-title-axis-rulings](report-shell-brand-title-axis-rulings.md) — 裁决(2026-07-16,第六批):页头品牌位恒 NiceEval、title 落点改 hero/浏览器标题(回退终点改内置文案)、ReportLink.icon 只收内联 SVG 不收组件(外壳可序列化)、散点轴向跟随 better 恒右上越好(翻案「左上」文案修正);品牌位与 hero 归宿主部分 2026-07-17 被第七批再翻案,见 reports-no-privilege-chrome-rulings
 - [reports-no-privilege-chrome-rulings](reports-no-privilege-chrome-rulings.md) — 裁决(2026-07-17,第七批):宿主内容特权清零——内建报告改三页(Attempts/Traces 成普通页)、Hero/HeroCard/ScopeWarnings/PoweredBy/CopyFixPrompt/TraceWaterfall 组件化、品牌=组件不给配置、show 多页改渲染初始页+尾部索引、深链改由 attempt 详情路由对全根解析保证、skipped 快照并进 unreadable-snapshot warning;翻案第二轮「证据页归宿主」与第四/六批品牌裁决

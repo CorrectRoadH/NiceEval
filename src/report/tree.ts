@@ -71,7 +71,7 @@ export interface TextContext {
   attemptCommand(locator: AttemptLocator): string;
   /**
    * 组索引一类「按实验收窄」命令的生成;宿主注入以携带完整上下文(--results / --report /
-   * --page 与位置参数),默认 `niceeval show --experiment <id>`。非契约字段,官方组件内部用。
+   * --page 与位置参数),默认 `niceeval show --exp <id>`。非契约字段,官方组件内部用。
    */
   experimentCommand(experimentIdPrefix: string): string;
 }
@@ -532,7 +532,7 @@ export function createTextContext(options?: TextRenderOptions): TextContext {
   // show 已实现的真实 CLI 语法,不需要反查 eval id 再拼一条近似命令。
   const attemptCommand = options?.attemptCommand ?? ((locator: AttemptLocator) => `niceeval show ${locator}`);
   const experimentCommand =
-    options?.experimentCommand ?? ((prefix: string) => `niceeval show --experiment ${shellQuote(prefix)}`);
+    options?.experimentCommand ?? ((prefix: string) => `niceeval show --exp ${shellQuote(prefix)}`);
   const make = (w: number): TextContext => ({
     width: w,
     locale,

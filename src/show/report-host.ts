@@ -320,7 +320,7 @@ export interface HostCommandContext {
 /** 按上下文拼一条可复制的 show 命令(页索引 / 组索引共用的携带规则)。 */
 export function showCommand(ctx: HostCommandContext, extra: string[] = []): string {
   const parts = ["niceeval show", ...ctx.patterns];
-  if (ctx.experiment !== undefined) parts.push(`--experiment ${ctx.experiment}`);
+  if (ctx.experiment !== undefined) parts.push(`--exp ${ctx.experiment}`);
   if (ctx.results !== undefined) parts.push(`--results ${ctx.results}`);
   if (ctx.report !== undefined) parts.push(`--report ${ctx.report}`);
   if (ctx.page !== undefined) parts.push(`--page ${ctx.page}`);
