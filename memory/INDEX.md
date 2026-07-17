@@ -179,6 +179,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 - [parity-test-compares-source-to-its-own-copy](parity-test-compares-source-to-its-own-copy.md) — 裁决(2026-07-13):「公开 API 够不够用户重建内置报告」由 fixture 能编译过证明,不由输出比对证明;曾选 643 行 built-in-user-parity 测试(把内置报告逐字拷进 fixture 再比对两者输出)因是纯改名检测器被否决——JSX 主体一字不差,恒成立,只在重构时收改名税
 - [e2e-repo-autonomy-replaces-shared-suite](e2e-repo-autonomy-replaces-shared-suite.md) — 裁决（2026-07-13）：E2E 从共享 factory/profile + 中央 verifier 翻案为独立 repo；每个 repo 自有 app/adapter/eval/experiment/验收，根仓只注入候选包并编排，crabbox 原样执行 repo 命令
 - [ai-bundled-docs-root-index](ai-bundled-docs-root-index.md) — 裁决：AI 随包文档以 npm 包根 `INDEX.md` 为稳定路由入口，不放进 Mintlify 内容树；INIT 与托管指引只依赖该入口
+- [bundled-index-tree-generated-from-frontmatter](bundled-index-tree-generated-from-frontmatter.md) — 裁决(2026-07-17,两连翻案):包根 INDEX.md 改为构建产物——prepare(build:index)打包时从签入的 INDEX.template.md + 各页 frontmatter 生成,不签入 git(dist/report 同模型);先后否决「手写任务表+覆盖守护」与「生成物签入+漂移守护」,守护改「可生成」(缺 description 红灯)
 - [terminology-overhaul-2026-07](terminology-overhaul-2026-07.md) — 术语大改名裁决(两批):Outcome→Verdict(经 Conclusion 同日翻案,eve/TTCN-3 先例)、Backend→Provider、早停→首过即停(代码名不动)、Judge/Attempt/Turn/artifact/Selection 中文直用、值断言/严重度/dual-render、结果快照限定语;多义词逐语境甄别纪律
 - [sandbox-field-no-bare-string](sandbox-field-no-bare-string.md) — `sandbox` 字段只接受工厂产出的 SandboxSpec:不接受裸字符串、没有默认值、没有自动探测(用户 review 明确定案)
 - [registermcp-post-hoc-primitive](registermcp-post-hoc-primitive.md) — 翻案裁决:不提供后置追加 MCP 原语,`shared.registerMcp` 当日落地当日撤销;MCP 只走 factory 构造期,条件包装器应接收 factory 而不是已构造 Agent

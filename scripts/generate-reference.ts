@@ -11,7 +11,7 @@
 // API 消费者按官方配方留在 6.x;`tsc` 二进制来自 @typescript/native → typescript@7)。
 
 import ts from "typescript";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -393,8 +393,15 @@ function renderCliFlagsTable(rows: CliFlagRow[]): string {
 // ───────────────────────── 区块替换(纯函数) ─────────────────────────
 
 export function replaceRegion(content: string, regionId: string, newBody: string): string {
-  const begin = `{/* GENERATED:BEGIN ${regionId} */}`;
-  const end = `{/* GENERATED:END ${regionId} */}`;
+  return replaceBetween(content, `{/* GENERATED:BEGIN ${regionId} */}`, `{/* GENERATED:END ${regionId} */}`, newBody);
+}
+
+/** 同 replaceRegion,但用 HTML 注释标记——给不走 MDX 解析的纯 Markdown 文件(如包根 INDEX.md)。 */
+export function replaceMdRegion(content: string, regionId: string, newBody: string): string {
+  return replaceBetween(content, `<!-- GENERATED:BEGIN ${regionId} -->`, `<!-- GENERATED:END ${regionId} -->`, newBody);
+}
+
+function replaceBetween(content: string, begin: string, end: string, newBody: string): string {
   const beginIdx = content.indexOf(begin);
   if (beginIdx === -1) {
     throw new Error(`region marker "${begin}" not found`);
@@ -553,6 +560,88 @@ export function regenerateReferenceDoc(file: string, mdxContent: string, sources
   return content;
 }
 
+// ───────────────────────── 随包 AI 索引:INDEX.md(构建产物) ─────────────────────────
+//
+// 包根 INDEX.md 是 coding agent 读随包文档的单点入口(机制见 docs/engineering/agent-docs/)。
+// 它不签入 git:`prepare`(pnpm run build:index)在安装 / 发版打包前,读签入的
+// INDEX.template.md(手写导语 + 空区块),把文档树填进区块后写出 INDEX.md——与 dist/report
+// 同一个构建产物模型。树的文案从 docs-site/zh 各页 frontmatter title/description 来,
+// 文案单源在页面自己身上,与参考页区块同一个模式。
+
+/** 包根 INDEX.md 里生成树的 region id;Markdown 文件用 HTML 注释标记(见 replaceMdRegion)。 */
+export const BUNDLED_INDEX_REGION = "bundled-docs-tree";
+
+/** 一个随包正文页:路径相对仓库根(如 `docs-site/zh/how-to/fixtures.mdx`)+ 文件内容。 */
+export interface ZhPage {
+  path: string;
+  content: string;
+}
+
+/** 树的顶层目录顺序,按 agent 的使用顺序排;清单外的新目录自动排在其后(字典序),不需要改生成器。 */
+const ZH_DIR_ORDER = ["tutorials", "explanation", "how-to", "reference", "troubleshooting", "examples"];
+
+/** 站点导航入口不进树:它们服务网站导航,对包内读者没有路由价值。 */
+function isNavEntryPage(relPath: string): boolean {
+  const base = relPath.split("/").pop()!;
+  return base === "index.mdx" || base === "introduction.mdx";
+}
+
+/** 取 frontmatter 里的单行字段值(去掉包裹引号);缺失即抛错——每页必须能自述给谁解决什么任务。 */
+function frontmatterField(page: ZhPage, field: "title" | "description"): string {
+  const fm = page.content.match(/^---\n([\s\S]*?)\n---/);
+  const line = fm?.[1].match(new RegExp(`^${field}:\\s*(.+)$`, "m"))?.[1].trim();
+  const value = line?.replace(/^(["'])(.*)\1$/, "$2").trim();
+  if (!value) {
+    throw new Error(`${page.path} 缺少 frontmatter ${field};补上一句任务视角的自述后重跑 pnpm docs:reference。`);
+  }
+  return value;
+}
+
+/** 渲染文档树:按顶层目录分组,每页一行「路径 — title:description」,全部文案来自页面 frontmatter。 */
+export function renderBundledIndexTree(pages: ZhPage[]): string {
+  const groups = new Map<string, ZhPage[]>();
+  for (const page of pages) {
+    if (isNavEntryPage(page.path)) continue;
+    const rel = page.path.replace(/^docs-site\/zh\//, "");
+    const dir = rel.includes("/") ? rel.split("/")[0] : ".";
+    if (!groups.has(dir)) groups.set(dir, []);
+    groups.get(dir)!.push(page);
+  }
+  const known = ZH_DIR_ORDER.filter((d) => groups.has(d));
+  const rest = [...groups.keys()].filter((d) => !ZH_DIR_ORDER.includes(d)).sort();
+  return [...known, ...rest]
+    .map((dir) => {
+      const heading = dir === "." ? "## `docs-site/zh/`" : `## \`docs-site/zh/${dir}/\``;
+      const rows = groups
+        .get(dir)!
+        .sort((a, b) => (a.path < b.path ? -1 : 1))
+        .map((p) => `- \`${p.path}\` — ${frontmatterField(p, "title")}:${frontmatterField(p, "description")}`);
+      return [heading, "", ...rows].join("\n");
+    })
+    .join("\n\n");
+}
+
+const BUNDLED_INDEX_PROVENANCE =
+  "<!-- 本文件是构建产物(pnpm run build:index),勿手改:树区文案改对应页面的 frontmatter title/description,导语改 INDEX.template.md(生成逻辑见 scripts/generate-reference.ts) -->";
+
+/** 纯函数:把文档树填进模板(INDEX.template.md 内容)的区块,返回完整 INDEX.md 内容。不接触文件系统。 */
+export function regenerateBundledIndex(templateContent: string, pages: ZhPage[]): string {
+  const body = `${BUNDLED_INDEX_PROVENANCE}\n\n${renderBundledIndexTree(pages)}`;
+  return replaceMdRegion(templateContent, BUNDLED_INDEX_REGION, body);
+}
+
+/** 枚举 docs-site/zh 下全部 .mdx 页面(含导航入口,过滤在渲染层做),CLI 与漂移测试共用。 */
+export function loadZhPages(root: string): ZhPage[] {
+  const dir = join(root, "docs-site/zh");
+  return (readdirSync(dir, { recursive: true }) as string[])
+    .filter((rel) => rel.endsWith(".mdx"))
+    .sort()
+    .map((rel) => {
+      const path = `docs-site/zh/${rel.split("\\").join("/")}`;
+      return { path, content: readFileSync(join(root, path), "utf8") };
+    });
+}
+
 // ───────────────────────── CLI 入口(唯一做文件 IO 的地方) ─────────────────────────
 
 function repoRoot(): string {
@@ -569,18 +658,28 @@ export function loadSources(root: string): SourceMap {
 
 function main(): void {
   const root = repoRoot();
-  const sources = loadSources(root);
-  for (const { file } of REFERENCE_FILES) {
-    const path = join(root, "docs-site/zh/reference", file);
-    const original = readFileSync(path, "utf8");
-    const updated = regenerateReferenceDoc(file, original, sources);
-    if (updated !== original) {
-      writeFileSync(path, updated, "utf8");
-      process.stdout.write(`updated ${file}\n`);
-    } else {
-      process.stdout.write(`unchanged ${file}\n`);
+
+  // `--bundled-index`:只生成包根 INDEX.md,给 `prepare`(build:index)在安装/发版打包前用。
+  // 不带参数是开发命令 `pnpm docs:reference`:重新生成参考页区块,并顺带产出 INDEX.md 供本地预览。
+  const indexOnly = process.argv.includes("--bundled-index");
+  if (!indexOnly) {
+    const sources = loadSources(root);
+    for (const { file } of REFERENCE_FILES) {
+      const path = join(root, "docs-site/zh/reference", file);
+      const original = readFileSync(path, "utf8");
+      const updated = regenerateReferenceDoc(file, original, sources);
+      if (updated !== original) {
+        writeFileSync(path, updated, "utf8");
+        process.stdout.write(`updated ${file}\n`);
+      } else {
+        process.stdout.write(`unchanged ${file}\n`);
+      }
     }
   }
+
+  const template = readFileSync(join(root, "INDEX.template.md"), "utf8");
+  writeFileSync(join(root, "INDEX.md"), regenerateBundledIndex(template, loadZhPages(root)), "utf8");
+  process.stdout.write("generated INDEX.md\n");
 }
 
 const isMain = (() => {

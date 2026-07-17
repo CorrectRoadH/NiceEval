@@ -50,6 +50,7 @@ docs/
 │
 ├── engineering/                         仓库自身的工程机制
 │   ├── _template/                       新工程主题模板
+│   ├── agent-docs/                      随包 AI 文档:打包、发现与索引守护
 │   ├── testing/                         测试体系总览:分层、变更预算、操作卡
 │   ├── unit-tests/                      单元测试:方法论、harness、各 Feature 用例
 │   ├── e2e-ci/                          全链路 E2E:独立测试仓库、真实模型
