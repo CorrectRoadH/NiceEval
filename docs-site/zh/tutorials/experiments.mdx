@@ -43,6 +43,12 @@ npx niceeval exp compare-models   # 把同组各 model 并排出报告
 npx niceeval exp compare-models/gpt-5.4
 ```
 
+组里如果还有 `gpt-5.4-mini.ts` 这类共享前缀的变体，不用把两个 id 都写全，打共享前缀 `gpt` 就能把它们当一族一起跑（`compare-models/gpt-5.4` 这个精确 id 仍然只选中 `gpt-5.4.ts` 自己）：
+
+```bash
+npx niceeval exp compare-models/gpt
+```
+
 `defineExperiment` 的字段配置与 `flags` 传递方式见[写实验](/zh/tutorials/write-experiment)。
 
 ## 可比较的运行维度

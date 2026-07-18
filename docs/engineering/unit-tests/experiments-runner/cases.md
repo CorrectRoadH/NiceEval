@@ -12,7 +12,7 @@
 | eval 文件默认导出数组时扇出，id 加零填充索引；单导出用文件 id | 正例：数组扇出 id 格式；边界：单元素数组仍带索引 |
 | 位置参数按 eval id **裸字符串前缀**过滤，实验 `evals` 字段（`"*"` / 数组 / 谓词）再筛，两层是交集；与 show/view 同口径，不要求 `/` 段边界 | 正例：`memory/terminal-swe-bench` 命中两个 `memory/terminal-swe-bench-astropy-*` sibling；反例：不命中为空；正例：谓词过滤；边界：evals 默认 `"*"` |
 | `EvalDef.environment` 是 provider-neutral profile；sandbox spec 的 `environments` 表在调度前对每条选中 eval 查表，解析结果同源驱动创建、逐 eval fingerprint、provider 推荐并发与结果投影；remote Agent 不查表 | 正例：两个 profile 查到不同 E2B template，快照落 sandboxByEval；反例：选中 eval 的 profile 缺表项在创建 sandbox 前穷举报错；边界：remote Agent 零查表；边界：未声明 environment 的 eval 用基础产物且不进 sandboxByEval |
-| 实验 id 从路径推导（`experiments/compare/x.ts` → `compare/x`）；`exp <组>` 选目录段下全部实验，`exp <组/配置>` 选一个 | 正例：组选中多实验；正例：精确选中；反例：不存在的组 |
+| 实验 id 从路径推导（`experiments/compare/x.ts` → `compare/x`）；选择器按序应用精确 id、目录前缀、目录段精确匹配下的文件名前缀三条规则，零命中报 `No experiment matched` 并列出可用目录 | 正例：`exp <组>` 选目录段下全部实验；正例：`exp <组/配置>` 精确 id 选一个，即使它是同目录内其它文件名的前缀；正例：`exp <组/前缀>` 命中同目录内共享文件名前缀的多个配置（如 `--agents-md` / `--mempal` 变体）；反例：目录段不精确匹配时不跨目录误配（如 `dev` 不命中 `dev-e2b`）；反例：零命中报错且列出全部已发现目录 |
 | `exp show` / `exp view` 在没有同名 experiment 时仍按“不存在的实验”失败，但追加正确顶层命令提示；若真有同名 experiment 则正常选择，不抢占合法 id | 反例：无 `show` / `view` experiment 时分别提示 `niceeval show` / `niceeval view`；边界：存在同名 experiment 时不提示 |
 | 调度项覆盖优先级 CLI flag → experiment → config → 内置默认；agent/model/flags 只属于 experiment，CLI 不可覆盖 | 正例：`--runs` 覆盖实验 runs；正例：实验 timeoutMs 覆盖 config；反例：`exp --model` 报用法错误 |
 | 结果按发现顺序（相对路径排序）排列，与完成顺序无关 | 反例：后发现的先完成，输出顺序仍稳定 |

@@ -128,9 +128,13 @@ export const en = {
   "cli.eval.noMatchKnown": "Discovered {{count}} evals: {{evals}}\n",
   "cli.exp.agentModelFlagUnsupported": "experiment runs do not support --agent / --model. Add or copy an experiment file and change its model instead.\n",
   "cli.exp.viewerFlagUnsupported": "`{{flag}}` only applies to niceeval {{command}}, not niceeval exp.\n",
-  "cli.experiment.noMatch": "No experiment matched: {{arg}}. Discovered: {{experiments}}\n",
+  "cli.experiment.noMatch":
+    "No experiment matched: {{arg}}. Available groups: {{experiments}}.\n" +
+    "Run `niceeval exp <group>` to see its configs, or `niceeval exp <group> --dry` to preview a plan.\n",
   "cli.experiment.viewerCommandHint": "Did you mean: niceeval {{command}}{{args}}\n",
-  "cli.experiment.noEvalsSelected": "No evals selected: {{selection}} matched 0 evals. Available experiments: {{experiments}}.\n",
+  "cli.experiment.noEvalsSelected":
+    "No evals selected: {{selection}} matched 0 evals. Available groups: {{experiments}}.\n" +
+    "Run `niceeval exp {{selection}} --dry` to see what it covers, or drop the eval filter to run everything in the group.\n",
   "cli.experimentGroup": " group",
   "cli.fallbackCleanupTimeout": "\ngraceful cleanup timed out; force-cleaning sandboxes...\n",
   "cli.forceCleanupExit": "\nForce-cleaning sandboxes and exiting...\n",

@@ -55,6 +55,26 @@ export function evalPrefixPredicate(evals?: string | string[]): (id: string) => 
   return (id) => prefixes.some((prefix) => id.startsWith(prefix));
 }
 
+/**
+ * 实验选择器解析:`niceeval exp` 位置参数与 `--exp` 共用同一条规则(docs/feature/experiments/cli.md
+ * 「实验选择器怎样解析」)。按序:①精确 id 优先,即使它同时是同目录内其它文件名的前缀;
+ * ②目录段精确前缀(含更深层目录),选中该目录下全部实验;③以上都不命中且选择器形如
+ * `目录/文件名前缀` 时,目录段精确匹配后按文件名段前缀选中一族配置——目录段永远精确,不跨目录
+ * 误配,文件名段裸前缀,与 `evalPrefixPredicate` 同一条"共享前缀即家族"的逻辑。
+ */
+export function matchExperimentSelector(ids: readonly string[], selector: string): string[] {
+  const exact = ids.find((id) => id === selector);
+  if (exact !== undefined) return [exact];
+  const dirMatches = ids.filter((id) => id.startsWith(selector + "/"));
+  if (dirMatches.length > 0) return dirMatches;
+  const lastSlash = selector.lastIndexOf("/");
+  if (lastSlash === -1) return [];
+  const dir = selector.slice(0, lastSlash);
+  const namePrefix = selector.slice(lastSlash + 1);
+  if (namePrefix === "") return [];
+  return ids.filter((id) => id.startsWith(dir + "/") && id.slice(dir.length + 1).startsWith(namePrefix));
+}
+
 /** 无 experimentId 时的兜底标签。 */
 export function fallbackExperimentLabel(result: {
   experimentId?: string;

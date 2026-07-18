@@ -52,6 +52,9 @@ npx niceeval exp compare-models
 # Run only one configuration in that group (id = group/filename, no extension)
 npx niceeval exp compare-models/gpt-5.4
 
+# Run every configuration in that group whose filename starts with gpt (e.g. gpt-5.4.ts, gpt-5.4-mini.ts)
+npx niceeval exp compare-models/gpt
+
 # Inside that group, only run evals whose ID starts with weather
 npx niceeval exp compare-models weather
 ```
@@ -60,7 +63,7 @@ npx niceeval exp compare-models weather
   Eval-filter arguments only appear after the experiment selector. Bare `npx niceeval weather` does not run; use `npx niceeval exp local weather` or `npx niceeval exp compare weather` instead.
 </Note>
 
-The first positional argument accepts either an experiment group name or a single configuration's full id. An exact match on `group/filename` runs only that one configuration in the group — useful for verifying one configuration at a time or troubleshooting one cell of a comparison, without moving other config files out of the directory.
+The first positional argument accepts an experiment group name, a single configuration's full id, or a `group/filename-prefix`. An exact match on `group/filename` runs only that one configuration in the group — useful for verifying one configuration at a time or troubleshooting one cell of a comparison, without moving other config files out of the directory. When the filename part doesn't exactly match a configuration, it's matched as a prefix instead, running every configuration in the group whose filename starts with it.
 
 ## Common flags
 

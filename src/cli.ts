@@ -12,6 +12,7 @@ import { join, relative, resolve as resolvePath } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs as nodeParseArgs } from "node:util";
 import { discoverEvals, discoverExperiments, makeFilter } from "./runner/discover.ts";
+import { matchExperimentSelector } from "./shared/aggregate.ts";
 import { runEvals, type AgentRun } from "./runner/run.ts";
 import { planCarry } from "./runner/fingerprint.ts";
 import { failureDetailFromResult } from "./runner/feedback/failure.ts";
@@ -684,13 +685,12 @@ async function main(): Promise<void> {
     availableExperimentGroups = [...new Set(experiments.map((experiment) => experiment.group || experiment.id))]
       .sort()
       .join(", ") || t("cli.none");
-    const selected = expArg
-      ? experiments.filter((e) => e.group === expArg || e.id === expArg || e.id.startsWith(expArg + "/"))
-      : experiments;
+    const selectedIds = expArg ? new Set(matchExperimentSelector(experiments.map((e) => e.id), expArg)) : undefined;
+    const selected = selectedIds ? experiments.filter((e) => selectedIds.has(e.id)) : experiments;
     if (selected.length === 0) {
       process.stderr.write(t("cli.experiment.noMatch", {
         arg: expArg ?? t("cli.all"),
-        experiments: experiments.map((e) => e.id).join(", ") || t("cli.none"),
+        experiments: availableExperimentGroups,
       }));
       // show / view 是顶层命令。只有同名 experiment 确实不存在时才纠错，不能抢占合法 id。
       if (expArg === "show" || expArg === "view") {
@@ -734,9 +734,9 @@ async function main(): Promise<void> {
     // 裸 run / `niceeval <eval>` 不再执行。运行配置必须来自 experiments/,
     // 这样 agent/model/flags/runs/budget 与结果聚合都有可签入的身份。
     const experiments = await discoverExperiments(cwd);
-    const asExp = experiments.filter((e) =>
-      positionals.some((p) => e.group === p || e.id === p || e.id.startsWith(p + "/")),
-    );
+    const ids = experiments.map((e) => e.id);
+    const matchedIds = new Set(positionals.flatMap((p) => matchExperimentSelector(ids, p)));
+    const asExp = experiments.filter((e) => matchedIds.has(e.id));
     process.stderr.write(t("cli.run.experimentRequired"));
     if (asExp.length > 0) {
       process.stderr.write(t("cli.run.experimentRequiredHint", {

@@ -52,6 +52,9 @@ npx niceeval exp compare-models
 # 只运行该组里的一个配置(id = 组/文件名,不带扩展名)
 npx niceeval exp compare-models/gpt-5.4
 
+# 只运行该组里文件名以 gpt 开头的配置(比如 gpt-5.4.ts、gpt-5.4-mini.ts 一起跑)
+npx niceeval exp compare-models/gpt
+
 # 在该组里只运行 ID 以 weather 开头的 eval
 npx niceeval exp compare-models weather
 ```
@@ -60,7 +63,7 @@ npx niceeval exp compare-models weather
   eval 过滤参数只出现在 experiment 选择之后。裸 `npx niceeval weather` 不会运行；请使用 `npx niceeval exp local weather` 或 `npx niceeval exp compare weather`。
 </Note>
 
-第一个位置参数既能填实验组名，也能填单个配置的完整 id：精确匹配到 `组/文件名` 时只跑组内那一个配置，适合逐配置验证或对比排查某一格结果，不用把其它配置文件挪出目录。
+第一个位置参数能填实验组名、单个配置的完整 id，也能填“组/文件名前缀”：精确匹配到 `组/文件名` 时只跑组内那一个配置，适合逐配置验证或对比排查某一格结果；文件名前缀不精确命中完整 id 时，按前缀选中组内所有匹配的配置。
 
 ## 常用 flags
 

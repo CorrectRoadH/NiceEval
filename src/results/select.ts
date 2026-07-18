@@ -16,7 +16,7 @@ import type {
   Snapshot,
 } from "./types.ts";
 import type { ExperimentRunInfo, JsonValue } from "../types.ts";
-import { evalPrefixPredicate } from "../shared/aggregate.ts";
+import { evalPrefixPredicate, matchExperimentSelector } from "../shared/aggregate.ts";
 
 /**
  * Results.latest() 的实现:每个实验取最新一次快照(= exp.snapshots[0]),生成挑选警告。
@@ -368,12 +368,18 @@ export function isNewerSnapshot(a: Snapshot, b: Snapshot): boolean {
   return a.dir.localeCompare(b.dir) > 0;
 }
 
-/** experiment id 分段前缀过滤(--exp / latest({ experiments }) 同一语义);包内使用,不进公共 barrel。 */
+/**
+ * experiment 选择器过滤(--exp / latest({ experiments }) 同一语义,与 `niceeval exp` 位置参数
+ * 共用 matchExperimentSelector,见 docs/feature/experiments/cli.md「实验选择器怎样解析」);
+ * 包内使用,不进公共 barrel。
+ */
 export function filterExperiments(experiments: Experiment[], filter?: string | string[]): Experiment[] {
   if (filter === undefined) return experiments;
   // 允许 "compare/" 这种带尾斜杠的写法,与 "compare" 等价;分段匹配不误配 "compare2"。
   const prefixes = (Array.isArray(filter) ? filter : [filter]).map((p) => p.replace(/\/+$/, ""));
-  return experiments.filter((exp) => prefixes.some((p) => exp.id === p || exp.id.startsWith(p + "/")));
+  const ids = experiments.map((exp) => exp.id);
+  const matched = new Set(prefixes.flatMap((p) => matchExperimentSelector(ids, p)));
+  return experiments.filter((exp) => matched.has(exp.id));
 }
 
 /**

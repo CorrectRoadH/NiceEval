@@ -333,6 +333,7 @@ experiments/
 - **文件夹 = 一组可对比的实验**;**同一文件夹下的文件才互相对比**。`niceeval exp compare` 跑整组,默认 `niceeval show` / `view` 按文件夹分区后只把同组配置并列；不同文件夹不共享图、连线、排序或汇总。
 - **文件 = 单一配置**(一个 agent × 一个 model 是最干净的情形),文件名按 `<agent>-<model>[-<feature>]` 命名。同组钉住对比轴之外的一切(如同一 model),差异才干净归因到那一个轴(agent / 记忆机制 / flags)。
 - **路径即 id**:`experiments/compare/bub-gpt-5.4.ts` → `compare/bub-gpt-5.4`;目录段 `compare` 即组名。
+- 同一 agent 的多个功能变体(`codex-gpt-5.6-luna.ts` 与 `codex-gpt-5.6-luna--agents-md.ts`、`codex-gpt-5.6-luna--mempal.ts` 等)共享文件名前缀,`niceeval exp compare/codex` 按这个共享前缀把它们当一族一起选中,不必逐个列出完整 id;选择器的完整解析规则见 [CLI · 实验选择器怎样解析](cli.md#实验选择器怎样解析)。
 
 ### 一文件一配置
 

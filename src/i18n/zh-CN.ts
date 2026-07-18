@@ -123,9 +123,13 @@ export const zhCN = {
   "cli.eval.noMatchKnown": "已发现 {{count}} 个 eval:{{evals}}\n",
   "cli.exp.agentModelFlagUnsupported": "experiment 运行不支持 --agent / --model。请新增或复制一个 experiment 文件并修改 model。\n",
   "cli.exp.viewerFlagUnsupported": "`{{flag}}` 只适用于 niceeval {{command}},不能用于 niceeval exp。\n",
-  "cli.experiment.noMatch": "没有匹配的实验:{{arg}}。已发现:{{experiments}}\n",
+  "cli.experiment.noMatch":
+    "没有匹配的实验:{{arg}}。可用的组:{{experiments}}。\n" +
+    "运行 `niceeval exp <组>` 查看该组配置,或 `niceeval exp <组> --dry` 预览计划。\n",
   "cli.experiment.viewerCommandHint": "你可能想运行:niceeval {{command}}{{args}}\n",
-  "cli.experiment.noEvalsSelected": "未选择任何 eval:{{selection}} 匹配到 0 个 eval。可用实验:{{experiments}}。\n",
+  "cli.experiment.noEvalsSelected":
+    "未选择任何 eval:{{selection}} 匹配到 0 个 eval。可用的组:{{experiments}}。\n" +
+    "运行 `niceeval exp {{selection}} --dry` 查看它覆盖了什么,或去掉 eval 过滤跑组内全部 eval。\n",
   "cli.experimentGroup": "组",
   "cli.fallbackCleanupTimeout": "\ngraceful 清理超时,强制清理沙箱…\n",
   "cli.forceCleanupExit": "\n强制清理沙箱并退出…\n",

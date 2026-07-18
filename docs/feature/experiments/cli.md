@@ -4,10 +4,43 @@
 niceeval exp                            # 跑 experiments/ 下全部实验
 niceeval exp compare                    # 跑一个实验组
 niceeval exp compare/bub-gpt-5.4        # 跑组里一个配置
+niceeval exp compare/codex              # 跑组里前缀匹配的一族配置
 niceeval exp compare memory/retention   # 再按 eval id 前缀收窄
 ```
 
 不写 experiment 不能运行 eval。experiment 决定 agent、model、flags、runs、sandbox 与预算;CLI 只负责选择已签入的运行配置和覆盖通用调度参数。
+
+### 实验选择器怎样解析
+
+一条规则处理"整组""一个配置""一族配置"三种粒度,不分别设计,按顺序应用:
+
+1. **精确 id 优先**:位置参数精确等于某个已发现实验 id 时只选中这一个——即使它同时是同目录下其它文件名的前缀。例如精确输入 `compare/codex-gpt-5.6-luna` 只选中它自己,不牵连 `compare/codex-gpt-5.6-luna--agents-md` 等共享前缀的变体。
+2. **目录前缀次之**:参数精确等于某个目录段(`compare`),或是某个更深层目录的路径前缀,选中该目录下全部实验——这就是"跑一个实验组"。
+3. **文件名前缀兜底**:以上都不精确命中,且参数形如 `目录/文件名前缀` 时,若目录段精确匹配一个已发现目录,选中该目录下文件名以这个前缀开头的全部实验。目录段永远要求精确匹配,不允许跨目录误配(`dev` 不会误中 `dev-e2b`);文件名段允许裸前缀,与下文 eval id 的前缀过滤同一条规则——把同一 agent 的功能变体(`--agents-md` / `--mempal` / `--nowledge` 等后缀)当一族一起选中。
+4. 以上都不命中 → `No experiment matched`(见[用法错误](#用法错误))。
+
+```sh
+niceeval exp compare/codex --dry --output agent
+```
+
+```text
+NICEEVAL PLAN total=4 evals=1 configs=4 runs=1
+compare/codex-gpt-5.6-luna              memory/commit0-cachetool
+compare/codex-gpt-5.6-luna--agents-md   memory/commit0-cachetool
+compare/codex-gpt-5.6-luna--mempal      memory/commit0-cachetool
+compare/codex-gpt-5.6-luna--nowledge    memory/commit0-cachetool
+```
+
+第 4 条零命中时,不摊平打印每一个已发现 id,只给可浏览的目录清单和下一步命令:
+
+```sh
+niceeval exp dev-e3b
+```
+
+```text
+No experiment matched: dev-e3b. Available groups: compare, dev-e2b, dev, stress.
+Run `niceeval exp <group>` to see its configs, or `niceeval exp <group> --dry` to preview a plan.
+```
 
 `exp` 的输出有三类消费者:正在终端前观察的人、调用 niceeval 的 AI agent、无人值守的 CI。三者需要的不是同一份文本换个颜色,而是三种不同的反馈模型。
 
@@ -299,7 +332,8 @@ Results: .niceeval/dev-e2b/<5 snapshots>
 选择没有命中任何 eval 时(`total = 0`)不打印空的 `PASSED`,而是明确说无匹配并给可选范围,退出码非零:
 
 ```text
-No evals selected: dev-e2b matched 0 evals. Available experiments: compare, dev-e2b, nightly.
+No evals selected: dev-e2b matched 0 evals. Available groups: compare, dev-e2b, nightly.
+Run `niceeval exp dev-e2b --dry` to see what it covers, or drop the eval filter to run everything in the group.
 ```
 
 人在调试单条 eval 时仍用相同模型,只是主动收窄选择,而不是要求 dashboard 展开更多日志:
@@ -545,7 +579,7 @@ niceeval exp compare --history
 `show` 与 `view` 是顶层命令，不是 `exp` 的子命令。用户误写 `niceeval exp show` 或 `niceeval exp view`，且仓库里没有同名 experiment 时，CLI 保留“不存在的实验”错误，并追加可直接执行的纠错提示：
 
 ```text
-No experiment matched: show. Discovered: compare/bub, compare/codex
+No experiment matched: show. Available groups: compare, dev-e2b, nightly.
 Did you mean: niceeval show
 ```
 
