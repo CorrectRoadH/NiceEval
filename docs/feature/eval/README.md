@@ -17,6 +17,7 @@ export default defineEval({
   diff?: { include?: string[]; ignore?: string[] };   // 调整 agent diff 的归因排除清单(仅沙箱型;见下)
   metadata?: Record<string, unknown>;
   async setup(sandbox, ctx) { /* 这条 eval 的沙箱预置;ctx 可报告 progress/diagnostic */ },
+  async teardown(sandbox, ctx) { /* 回收 setup 的 fixture;setup 时点走到过才触发 */ },
   async test(t) { /* 交互 + 断言 */ },
 });
 ```
@@ -25,7 +26,7 @@ export default defineEval({
 
 `diff` 调整[变更归因](../sandbox/architecture.md#变更归因send-窗口与分类账)的排除清单,两个数组都是 **gitignore 风格 glob**(workdir 相对):默认排除 `.git/`、`node_modules/`、常见构建产物与包管理器缓存目录;`ignore` 在默认清单上追加排除;`include` 优先级最高,把匹配路径从默认清单与 `ignore` 中显式加回(要评分 `node_modules` 里被 agent patch 的文件就 include 它)。合成规则固定为「默认 ∪ ignore,再被 include 打洞」,清单在分类账锚点时冻结,运行中不可变。
 
-`setup` 是**这条 eval 的任务层预置**:拿到的是完整 `Sandbox`(不是 `test` 里那个受限的 `t.sandbox` 视图),在环境层钩子与变更分类账锚点之后、`agent.setup` 与 `test(t)` 之前跑,用来准备这次任务的素材(例如 `npm install` 起始项目的依赖);它的写入是 eval 归因,不会进 agent diff。第二个参数是绑定到 `eval.setup` 的窄上下文,可用 `ctx.progress(...)` 报告短期 activity、用 `ctx.diagnostic(...)` 报告永久 warning/error。可以返回一个 cleanup 函数,由运行器在 attempt 收尾时调用。它与另外两层 setup 分工不同:环境层的 `sandbox.setup`(不知道跑哪个 eval)、协议层的 `agent.setup`(装 CLI、写鉴权),见 [Sandbox](../sandbox/README.md)。
+`setup` 是**这条 eval 的任务层预置**:拿到的是完整 `Sandbox`(不是 `test` 里那个受限的 `t.sandbox` 视图),在环境层钩子与变更分类账锚点之后、`agent.setup` 与 `test(t)` 之前跑,用来准备这次任务的素材(例如 `npm install` 起始项目的依赖);它的写入是 eval 归因,不会进 agent diff。第二个参数是绑定到 `eval.setup` 的窄上下文,可用 `ctx.progress(...)` 报告短期 activity、用 `ctx.diagnostic(...)` 报告永久 warning/error。`teardown` 是它的成对收尾:attempt 收尾链的第一段(`eval.teardown` → `agent.teardown` → `sandbox.teardown`),当且仅当 `setup` 的时点走到过才执行(`setup` 抛错、`test` 抛错都不豁免);要把 `setup` 的产物传给 `teardown`,写模块级变量、从闭包读——四层生命周期的统一成对语义见 [Runner · 环境预置](../../runner.md#环境预置不进运行器但按顺序调它)。它与另外两层 setup 分工不同:环境层的 `sandbox.setup`(不知道跑哪个 eval)、协议层的 `agent.setup`(装 CLI、写鉴权),见 [Sandbox](../sandbox/README.md)。
 
 **禁止**提供 `id` / `name` —— 它们从文件路径推导:`evals/weather/brooklyn.eval.ts` → id `weather/brooklyn`。改名即改 id,不会腐烂。
 

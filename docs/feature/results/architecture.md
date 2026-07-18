@@ -149,7 +149,7 @@ interface ExperimentRunInfo {
 
 ## `result.json`
 
-单个 attempt 的**权威记录**:判决、断言、结构化执行错误与 diagnostics 只住在这里。attempt 的 cleanup/teardown/stop 完成后一次写成,之后没有任何环节会改写它。
+单个 attempt 的**权威记录**:判决、断言、结构化执行错误与 diagnostics 只住在这里。attempt 的 teardown 链与 sandbox stop 完成后一次写成,之后没有任何环节会改写它。
 
 ```typescript
 interface AttemptRecord {
@@ -209,7 +209,7 @@ interface AttemptRecord {
 type LifecyclePhase =
   // 实验级(整场一次,宿主机侧;仅错误/诊断归因)
   | "experiment.setup"     // ExperimentDef.setup;setup 抛错时本实验所有 attempt 的 error.phase
-  | "experiment.teardown"  // setup 返回的 cleanup;失败只产生运行级 diagnostic
+  | "experiment.teardown"  // ExperimentDef.teardown;失败只产生运行级 diagnostic
   // 主链:从排队到 trace collect,覆盖到判定与主证据收集完成,按执行序
   | "sandbox.queue"        // 等待并发信号量(调度等待,唯一不属于某个 owner 的成员)
   | "sandbox.create"       // provider 起沙箱
@@ -224,7 +224,7 @@ type LifecyclePhase =
   | "scoring.evaluate"     // 断言 finalize + 判定,含 judge 调用
   | "telemetry.collect"    // OTLP receiver settle / collect
   // 收尾段:无论主链成败都执行,不计入 durationMs 口径,按执行序
-  | "eval.teardown"        // EvalDef.setup 返回的 cleanup 函数
+  | "eval.teardown"        // EvalDef.teardown
   | "agent.teardown"
   | "sandbox.teardown"     // SandboxSpec.teardown() 钩子链
   | "sandbox.suspend"      // 留存提交后 provider 把现场转入休眠(docker stop / e2b pause);耗时可观(pause 随内存增长),必须可见
@@ -316,7 +316,7 @@ interface DiagnosticRecord {
 
 `progress` 文本不写入任何 artifact。它是运行时可覆盖状态,保存每一帧既无法还原可靠因果,也会让高频 SDK/工具进度无限放大结果。事后回顾依靠 `phases`、`error`、`diagnostics` 与可选的 `events.json` / `trace.json`。trace 不是必需兜底:沙箱创建发生在 telemetry 之前,teardown 发生在 trace collect 之后,没有 tracing 的 provider 也必须留下同样完整的错误摘要。
 
-attempt 的结果封口发生在 cleanup、teardown 与 sandbox stop 之后;随后 `result.json` 与其它 attempt artifacts 原子写入。这样 teardown diagnostic 不会因为主 test 已经返回而丢失。进程在封口前被强杀时,该 attempt 仍属于未完成,不会留下一个伪装完整的 `result.json`。
+attempt 的结果封口发生在 teardown 链与 sandbox stop 之后;随后 `result.json` 与其它 attempt artifacts 原子写入。这样 teardown diagnostic 不会因为主 test 已经返回而丢失。进程在封口前被强杀时,该 attempt 仍属于未完成,不会留下一个伪装完整的 `result.json`。
 
 快照级字段(`experimentId` / `agent` / `model` / 实验运行配置)不在这里重复——reader 把 `snapshot.json` 的声明拼进每条读回的结果(`attempt.result`),拼合规则是「缺才补」:条目自带的值优先,`startedAt` 只在记录缺失时回退快照的值;`locator` 同理「缺才补」,niceeval 自己的 writer 恒会写这个字段,只有第三方 harness 没实现它时读取面才按当前身份兜底算一份。
 

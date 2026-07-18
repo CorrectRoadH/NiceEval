@@ -54,22 +54,22 @@ it.effect("全局同时在飞的 attempt 不超过 maxConcurrency", () =>
 )
 ```
 
-## 实验级生命周期（`ExperimentDef.setup`）
+## 实验级生命周期（`ExperimentDef.setup` / `.teardown`）
 
-契约来源：[Experiments Architecture · 实验级生命周期](../../../feature/experiments/architecture.md#实验级生命周期setup-与它返回的-teardown)、[Experiments Library](../../../feature/experiments/library.md#实验级共享服务setup-与它返回的-teardown)。
+契约来源：[Experiments Architecture · 实验级生命周期](../../../feature/experiments/architecture.md#实验级生命周期setup-与-teardown)、[Experiments Library](../../../feature/experiments/library.md#实验级共享服务setup-与-teardown)。
 
 | 契约 | 场景 |
 |---|---|
 | `setup` 每实验整场至多一次：第一个通过派发许可的 attempt 触发,并发 attempt 等同一个 memoized 结果 | 正例：runs×evals 多 attempt 并发时 setup 只执行 1 次；正例：两个实验各自的 setup 各执行 1 次 |
 | 全部结果被 carry 携入、无 attempt 派发时 `setup` 不执行 | 边界：priorResults 全命中时 setup 调用数为 0 |
 | `setup` 抛错 → 本实验所有 attempt 记 `errored`(code `experiment-setup-failed`、phase `experiment.setup`),同批其它实验不受影响 | 反例：实验 A setup 抛错,A 的 attempt 全 errored 且 error 字段结构化;正例:实验 B 结果正常 |
-| teardown = setup 返回的 cleanup:本实验全部 attempt 收尾后执行恰好一次;中断(signal abort)也执行 | 正例:全部完成后 cleanup 已执行;正例:中途 abort 后 cleanup 仍执行;边界:setup 未返回函数时无收尾动作 |
-| cleanup 抛错只产生运行级 diagnostic(`experiment-teardown-failed`),不改变任何已产出的 verdict | 反例:cleanup 抛错后 results 的 verdict 不变,diagnostic 事件可见 |
-| cleanup 执行有界:超过 30s 清理超时按 `experiment-teardown-failed` 诊断收束,run 照常返回 | 反例:挂起的可调用体在小超时下抛超时错(机制在 cleanup-timeout 单测);超时错→诊断与上一行 cleanup 抛错同一路径(出处:memory/force-exit-skips-experiment-teardown.md) |
-| 强清兜底注册表:未被运行路径消费的实验级 cleanup 由 `drainExperimentTeardowns` 一次性排空;已消费的不重跑,与正常路径互斥恰好一次 | 正例:登记两条后 drain 全部执行且再次 drain 为 0;反例:正常收尾(或 unregister)后 drain 无动作(出处:memory/force-exit-skips-experiment-teardown.md) |
+| `teardown`:本实验全部 attempt 收尾后执行恰好一次,setup 时点走到过才触发;中断(signal abort)也执行;setup 抛错不豁免 | 正例:全部完成后 teardown 已执行;正例:中途 abort 后仍执行;正例:setup 抛错后仍执行;边界:未声明 teardown 时无收尾动作;边界:无 attempt 派发(setup 未触发)时不执行 |
+| teardown 抛错只产生运行级 diagnostic(`experiment-teardown-failed`),不改变任何已产出的 verdict | 反例:teardown 抛错后 results 的 verdict 不变,diagnostic 事件可见 |
+| teardown 执行有界:超过 30s 清理超时按 `experiment-teardown-failed` 诊断收束,run 照常返回 | 反例:挂起的可调用体在小超时下抛超时错(机制在 cleanup-timeout 单测);超时错→诊断与上一行 teardown 抛错同一路径(出处:memory/force-exit-skips-experiment-teardown.md) |
+| 强清兜底注册表:未被运行路径消费的实验级 teardown 由 `drainExperimentTeardowns` 一次性排空;已消费的不重跑,与正常路径互斥恰好一次 | 正例:登记两条后 drain 全部执行且再次 drain 为 0;反例:正常收尾(或 unregister)后 drain 无动作(出处:memory/force-exit-skips-experiment-teardown.md) |
 | 正常完整跑完后注册表为空:teardown 由运行路径消费,不留待兜底的条目 | 边界:runEvals 返回后 pendingExperimentTeardownCount() 为 0 |
 | `setup` 的 ctx:experimentId / selectedEvalIds / signal / progress / diagnostic 齐备,diagnostic 进运行级永久事件流 | 正例:ctx 字段值与实验一致;正例:diagnostic 以 experiment.setup 归因出现在事件流 |
-| 钩子函数体不进 fingerprint:只改 setup 逻辑不使携带失效 | 边界:改 setup 后 fingerprint 不变 |
+| 钩子函数体不进 fingerprint:只改 setup / teardown 逻辑不使携带失效 | 边界:改 setup 后 fingerprint 不变 |
 | 钩子起止由 runner 发布为运行级反馈事件(`status=started|done|failed`,done/failed 带 duration);reducer 据此维护 `experimentHooks` 状态(started 添加、done/failed 移除、plan 重置),等待 setup 的 attempt 计数保持 `queued` | 正例:setup 成功发 started+done;反例:setup 抛错发 failed 而非 done;正例:reducer 状态随事件增删;边界:plan 事件清空残留 |
 | Human TTY 在 ACTIVE 区为在飞钩子渲染运行级行(排在 attempt 行前),实验级 `ctx.progress` 只更新该行 detail;成功钩子不写 scrollback 永久行 | 正例:钩子在跑的帧含 `experiment setup · <experimentId>` 行;正例:progress 后 detail 更新;反例:done 后 TTY scrollback 无新增行 |
 | agent / ci / 非 TTY human 起止各追加一行(`NICEEVAL experiment_setup …` / `niceeval: experiment_setup …` / human 文案),实验级 progress 不逐条输出 | 正例:agent/ci 各两行含 experiment 与 status 字段;正例:非 TTY human started/done 文案行;反例:progress 在 agent/ci 零输出 |
@@ -205,7 +205,7 @@ it("已完成花费到顶后不再派发新 attempt，在飞的照常完成", as
 | 跨 case 复用默认关闭；开启后收尾重置而非销毁，`stop` 只在最后一次使用后发生，每个 attempt 仍完整走 setup 链与分类账锚点 | 正例：N attempt 复用只 1 次 stop；正例：每 attempt 都调 setup；反例：默认不复用 |
 | 生命周期阶段按固定顺序发出且取自 LifecyclePhase 闭集；无对应钩子的步骤直接跳过；phase 只由 runner 发出 | 正例：无 setup 钩子时 phases 无 sandbox.setup；反例：hook 调 progress 不切 phase |
 | 主链 phase 在 Scope release 前封口，`sandbox.stop` / `sandbox.suspend` 只计入收尾；主链 phase 合计不超过 `durationMs` | 正例：延迟 stop 的 fake 中 stop 有独立耗时且主链不增长；反例：最后一个主链 phase 不能包含 stop |
-| `diagnostic` 同 attempt 内相同 `dedupeKey` 折叠并累计 count；`error` 级与 cleanup 阶段的 diagnostic 都不改变 verdict | 正例：并发同 key 只留一条；反例：error 级后 verdict 仍 passed |
+| `diagnostic` 同 attempt 内相同 `dedupeKey` 折叠并累计 count；`error` 级与 teardown 阶段的 diagnostic 都不改变 verdict | 正例：并发同 key 只留一条；反例：error 级后 verdict 仍 passed |
 | 每轮 `t.send()` 自动产出一条进度行（[Experiments Library · 生命周期代码怎样向这次运行反馈](../../../feature/experiments/library.md#生命周期代码怎样向这次运行反馈)的 `progress` 表达形态）：开始时带输入预览，结束时带状态/工具数/token/耗时；仅 `failed` 时追加从事件流提取的失败原因，`completed` 不提取；原因文本压成单行并截断到 120 字符 | 正例：failed 轮末尾带最后一条 error 事件的 message；反例：completed 轮混入 error 事件不提取原因；反例：failed 轮没有 error 事件时不追加空后缀；边界：长原因压单行、截断到 120 字符并以省略号收尾 |
 | 分类账以一条命令导出全部窗口并经文件通道下载，provider 往返不随文件数与窗口数增长，只依赖 git + POSIX shell；Python venv 默认不进账；窗口证据越界明确 errored | 正例：多窗口 500 文件仍是一条导出命令加一次下载；正例：`venv/` / `.testing-venv/` 排除；反例：超过路径/字节上限不返回空 diff |
 

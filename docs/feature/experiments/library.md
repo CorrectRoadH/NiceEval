@@ -55,17 +55,17 @@ export default defineExperiment({ agent: codexAgent(), sandbox: e2b });
 
 翻译表放在 spec 上而不是 experiment 上，是因为它的真实维度是 **profile × provider**，与具体实验无关：表随 spec 被多个实验共享（模块常量或 `Config.sandbox` 兜底），新增环境只改一处，experiment 保持「一行 diff」的形态，一个实验覆盖全集、对比横截面完整。
 
-## 实验级共享服务:setup 与它返回的 teardown
+## 实验级共享服务:setup 与 teardown
 
-「这个实验的所有 attempt 共享一份、跑在宿主机上」的资源——到内网记忆服务的隧道、每实验专用的 mock server、license 租约——写在 `ExperimentDef.setup` 里。它整场恰好至多一次:本实验第一个真正要派发的 attempt 之前执行,返回的 cleanup 在全部 attempt 收尾后执行(中断也执行);全部结果被 carry 携入时不执行。执行语义与失败语义的完整定义见 [Architecture · 实验级生命周期](architecture.md#实验级生命周期setup-与它返回的-teardown)。
+「这个实验的所有 attempt 共享一份、跑在宿主机上」的资源——到内网记忆服务的隧道、每实验专用的 mock server、license 租约——写在 `ExperimentDef.setup` / `teardown` 这对钩子里。整场恰好至多一次:`setup` 在本实验第一个真正要派发的 attempt 之前执行,`teardown` 在全部 attempt 收尾后执行(中断也执行),当且仅当 `setup` 的时点走到过;全部结果被 carry 携入时两者都不执行。执行语义与失败语义的完整定义见 [Architecture · 实验级生命周期](architecture.md#实验级生命周期setup-与-teardown)。
 
 ```typescript
 // experiments/compare/claude--nowledge.ts
 import { defineExperiment } from "niceeval";
 import { nowledgeAgent, nowledgeTunnel } from "../../agents/nowledge.ts";
 
-// setup 产出的运行时坐标放模块闭包:同文件的 agent / sandbox 钩子每 attempt
-// 执行、晚于 setup,直接读它;runner 不做值的中介,这些值也不进快照。
+// setup 产出的运行时坐标放模块闭包:teardown 和同文件的 agent / sandbox 钩子
+// (后两者每 attempt 执行、晚于 setup)直接读它;runner 不做值的中介,这些值也不进快照。
 let tunnel: { url: string; apiKey: string; stop(): Promise<void> };
 
 export default defineExperiment({
@@ -74,12 +74,17 @@ export default defineExperiment({
   async setup(ctx) {
     ctx.progress({ message: "starting nowledge tunnel" });
     tunnel = await nowledgeTunnel({ signal: ctx.signal });
-    return () => tunnel.stop();   // teardown:全部 attempt 收尾后拆隧道
+  },
+  async teardown(ctx) {
+    ctx.progress({ message: "stopping nowledge tunnel" });
+    await tunnel?.stop();   // setup 抛错也会走到这里:对可能未赋值的闭包变量做防御
   },
 });
 ```
 
 隧道起失败时这个实验的每条 attempt 都记 `errored`(`experiment-setup-failed`)、逐条进报告,同批其它实验照常跑——环境起不来不该伪装成绿,也不该连坐别人。
+
+`teardown` 里资源释放是必达底线,观测类动作(probe、指标上报)是 best-effort:给观测自己的短超时、失败不阻断,且在 `ctx.signal.aborted` 时直接跳过——中断路径上,一次可能挂起的观测不该挡在「拆容器、退租约」前面;无论观测成败,释放必须执行(`try/finally`)。
 
 `setup` 管的是**宿主机侧、每实验一份**的资源;别把其它层的活挪进来:沙箱内的环境预置(装二进制、预热)挂 `sandbox` spec 的链式钩子,任务夹具写 `EvalDef.setup` / `test(t)`,跨实验共享、run 之前就该存在的服务仍用外部编排(分工表见 [环境预置放哪](../sandbox/library.md#环境预置放哪))。运行时值要传给沙箱内的 agent 时,在 agent / sandbox 钩子里把闭包值写成沙箱内的 env 或配置文件——那是每 attempt 的事,发生在 `setup` 之后。
 
@@ -114,11 +119,11 @@ interface ScopedFeedback {
 
 | 代码入口 | 反馈入口 | runner 绑定的 phase | 典型内容 |
 |---|---|---|---|
-| `ExperimentDef.setup` / 返回的 cleanup | setup `ctx.progress/diagnostic` | `experiment.setup` / `experiment.teardown` | 起/拆每实验一份的宿主机共享服务 |
+| `ExperimentDef.setup` / `.teardown` | 各自钩子的 `ctx.progress/diagnostic` | `experiment.setup` / `experiment.teardown` | 起/拆每实验一份的宿主机共享服务 |
 | 自定义 `SandboxSpec.create(options)` | `options.feedback` | `sandbox.create` | 分配实例、拉镜像、恢复 snapshot |
 | `sandbox.setup/teardown` | hook `ctx.progress/diagnostic` | `sandbox.setup` / `sandbox.teardown` | 安装环境依赖、预热、回存状态 |
 | `EvalDef.setup` | setup `ctx.progress/diagnostic` | `eval.setup` | 准备这条 eval 的 fixture |
-| `EvalDef.setup` 返回的 cleanup | cleanup `ctx.progress/diagnostic` | `eval.teardown` | 回收这条 eval 的 fixture |
+| `EvalDef.teardown` | teardown `ctx.progress/diagnostic` | `eval.teardown` | 回收这条 eval 的 fixture |
 | `EvalDef.test` | `t.progress/diagnostic` | `eval.run` | eval 自己执行的长步骤 |
 | `Agent.setup/send/teardown` | `ctx.progress/diagnostic` | 当前 `agent.*` 阶段 | 安装 CLI、turn/tool 进度、协议诊断 |
 
@@ -164,9 +169,9 @@ trace 不能替代 diagnostic/error:沙箱创建可能发生在 telemetry 建立
 
 diagnostic 是有界摘要,不是原始 SDK 日志转储。相同 `dedupeKey` 在同一 attempt 内折叠为一条并累计 `count`;`data` 只放定位所需的结构化小字段,不得放 token、完整 transcript 或无限增长的 stdout/stderr。原始 agent 行为属于 `events.json`,trace 属性属于 `trace.json`。
 
-实验级钩子(`ExperimentDef.setup` 与它返回的 cleanup)不属于任何单个 attempt,它的 `diagnostic(...)` 只进运行级永久事件流(Human/Agent/CI 各追加一条),不落 attempt 的 `result.json`;`setup` 抛错则以每条 attempt 的结构化 `error`(`phase: "experiment.setup"`)落盘,失败照样可回顾。钩子的起止本身由 runner 直接发布为运行级反馈(Human 的运行级 active 行、agent/ci 的起止行,见 [CLI · 实验级钩子的显示](cli.md#实验级钩子的显示)),不写 `progress` 的 setup 在终端上同样可见。
+实验级钩子(`ExperimentDef.setup` / `teardown`)不属于任何单个 attempt,它的 `diagnostic(...)` 只进运行级永久事件流(Human/Agent/CI 各追加一条),不落 attempt 的 `result.json`;`setup` 抛错则以每条 attempt 的结构化 `error`(`phase: "experiment.setup"`)落盘,失败照样可回顾。钩子的起止本身由 runner 直接发布为运行级反馈(Human 的运行级 active 行、agent/ci 的起止行,见 [CLI · 实验级钩子的显示](cli.md#实验级钩子的显示)),不写 `progress` 的 setup 在终端上同样可见。
 
-attempt 在 teardown、cleanup 与 sandbox stop 都结束后才封口并原子写 `result.json`,因此收尾 diagnostic 也能随 attempt 保存。cleanup/teardown diagnostic 默认不反改已经得到的 verdict;如果某个收尾动作是结果正确性的必要条件,它应抛出致命错误并由 runner 明确把 attempt 记为 `errored`,而不是只打一条 diagnostic。
+attempt 在 teardown 链与 sandbox stop 都结束后才封口并原子写 `result.json`,因此收尾 diagnostic 也能随 attempt 保存。teardown diagnostic 默认不反改已经得到的 verdict;如果某个收尾动作是结果正确性的必要条件,它应抛出致命错误并由 runner 明确把 attempt 记为 `errored`,而不是只打一条 diagnostic。
 
 ## 实验怎么组织:文件夹 = 一组可对比的实验
 

@@ -78,9 +78,26 @@ fixtures/button   codex         pass@5 = 3/5 (60%)   mean 41s · 72k tok · $0.3
 
 ## 环境预置不进运行器,但按顺序调它
 
-运行器不承载环境预置的内容,只固定各生命周期钩子的**调用点与顺序**,钩子内部做什么全部交给对应的作者决定。调用点从外到内:
+运行器不承载环境预置的内容,只固定各生命周期钩子的**调用点与顺序**,钩子内部做什么全部交给对应的作者决定。
 
-- **实验级** —— `ExperimentDef.setup`:每实验整场至多一次、宿主机侧,本实验第一个要派发的 attempt 前跑,返回的 cleanup 在全部 attempt 收尾后跑(中断、强清退出也跑,执行带 30s 清理上限);管每实验一份的共享服务(隧道、mock server),语义见 [Experiments · 实验级生命周期](feature/experiments/architecture.md#实验级生命周期setup-与它返回的-teardown)。
+四层钩子共用同一种形态:**成对的 `setup` / `teardown`,`setup` 不返回值**——写过 Vitest / Jest 的人带着 `beforeAll` / `afterAll` 的心智直接就能写:
+
+| 层 | 挂载点 | 签名 | 节奏 |
+|---|---|---|---|
+| 实验级 | `ExperimentDef.setup` / `.teardown` | `(ctx) => void \| Promise<void>` | 每实验整场至多一次,宿主机侧 |
+| 沙箱级 | `SandboxSpec.setup(fn)` / `.teardown(fn)` 链 | `(sandbox, ctx) => void \| Promise<void>` | 每沙箱一次 |
+| agent 级 | `Agent.setup` / `.teardown` | `(sandbox, ctx) => void \| Promise<void>` | 每 attempt 一次 |
+| eval 级 | `EvalDef.setup` / `.teardown` | `(sandbox, ctx) => void \| Promise<void>` | 每 attempt 一次 |
+
+成对语义全局一致,三条规则:
+
+- **状态经闭包流动**:`teardown` 要用 `setup` 的产物时,`setup` 写模块级变量、`teardown` 从闭包读;runner 不在两个钩子之间中介任何值。
+- **`teardown` 当且仅当同层的 setup 时点已走到才执行**:`setup` 抛错不豁免——半初始化的现场同样要扫尾,`teardown` 对可能未赋值的闭包变量做防御(`tunnel?.stop()`);未声明 `setup` 函数不影响触发(时点走到即算);时点没走到(实验一个 attempt 都没派发、attempt 没进行到该层)则 `teardown` 同样跳过。
+- **同层多个钩子按注册序 setup、逆序 teardown(LIFO)**;`setup` 链中途抛错时后续 `setup` 不再执行,`teardown` 链仍完整走完。
+
+调用点从外到内:
+
+- **实验级** —— `ExperimentDef.setup` / `.teardown`:每实验整场至多一次、宿主机侧;`setup` 在本实验第一个要派发的 attempt 前跑,`teardown` 在全部 attempt 收尾后跑(中断、强清退出也跑,执行带 30s 清理上限);管每实验一份的共享服务(隧道、mock server),语义见 [Experiments · 实验级生命周期](feature/experiments/architecture.md#实验级生命周期setup-与-teardown)。
 - **沙箱级** —— 沙箱创建后、变更分类账锚点之前,运行器调用 `experiment.sandbox` 链上挂的环境钩子(`SandboxSpec.setup()` / `.teardown()`,见 [Sandbox · 沙箱生命周期钩子](feature/sandbox/library.md#沙箱生命周期钩子setup--teardown))。
 - **eval 级 / agent 级** —— 沙箱固定段("发现 → 调度 → 沙箱起停 / 分类账锚点 / 折叠 agent diff → 评分 → 报告"这条主轴)之内,还分出这条 eval 的任务夹具(`EvalDef.setup` 或 `test(t)`)和 agent 自己的一次性预置([`SandboxAgent.setup`](feature/adapters/architecture/agent-contract.md#生命周期不变量))。
 

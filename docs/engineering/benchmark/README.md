@@ -53,7 +53,7 @@ interface PhaseTiming {
 | `workspace.diff` | 采 `git diff`(`captureGeneratedFiles`) | remote agent / skipped |
 | `scoring.evaluate` | 断言 finalize + 判定,含 judge 调用 | skipped 时为空集但仍记 |
 | `telemetry.collect` | OTLP receiver settle / collect(有固定的落地等待窗口) | 没起 receiver |
-| `eval.teardown` | `EvalDef.setup` 返回的 cleanup 函数 | setup 没返回 cleanup |
+| `eval.teardown` | `EvalDef.teardown` | 未声明 `teardown` |
 | `agent.teardown` | `Agent.teardown` | 没定义 |
 | `sandbox.teardown` | `SandboxSpec.teardown()` 钩子链,phase 级合计一条,`children` 逐 hook 并继续展开沙箱命令 | remote agent / 没挂钩子 |
 | `sandbox.stop` | provider 销毁沙箱(`sandbox.stop()`) | remote agent |
