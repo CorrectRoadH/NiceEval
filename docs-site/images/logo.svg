@@ -1,6 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 56" role="img" aria-label="niceeval">
-  <rect width="56" height="56" rx="12" fill="#11161e"/>
-  <path d="M15 14h28v7H25v7h15v7H25v13H15z" fill="#f8fafc"/>
-  <path d="M31 35h14v7H31z" fill="#848c8e"/>
-  <text x="72" y="37" fill="#11161e" font-family="Inter, Arial, sans-serif" font-size="28" font-weight="700">niceeval</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 64" role="img" aria-label="NiceEval">
+  <rect x="6" y="9" width="52" height="9" fill="#11161e"/>
+  <rect x="6" y="26" width="30" height="9" fill="#11161e"/>
+  <rect x="6" y="43" width="16" height="9" fill="#11161e"/>
+  <polyline points="33 43, 42 52, 57 29" fill="none" stroke="#b9ff3d" stroke-width="9" stroke-linecap="square" stroke-linejoin="miter"/>
+  <text x="76" y="41" fill="#11161e" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="30" font-weight="700">NiceEval</text>
 </svg>

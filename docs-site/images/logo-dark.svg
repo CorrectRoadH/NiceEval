@@ -1,7 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="14" fill="#11161e"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 64" role="img" aria-label="NiceEval">
   <rect x="6" y="9" width="52" height="9" fill="#f5f5f1"/>
   <rect x="6" y="26" width="30" height="9" fill="#f5f5f1"/>
   <rect x="6" y="43" width="16" height="9" fill="#f5f5f1"/>
   <polyline points="33 43, 42 52, 57 29" fill="none" stroke="#b9ff3d" stroke-width="9" stroke-linecap="square" stroke-linejoin="miter"/>
+  <text x="76" y="41" fill="#f5f5f1" font-family="Avenir Next, Segoe UI, Arial, sans-serif" font-size="30" font-weight="700">NiceEval</text>
 </svg>
