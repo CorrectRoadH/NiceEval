@@ -37,7 +37,7 @@ Can be a plain string, or per-locale text (e.g. `{ en: "...", "zh-CN": "..." }`)
 sandbox?: SandboxOption;
 ```
 
-Project-level default sandbox provider (docker / vercel / e2b / custom); the experiment can override it.
+Project-level default Sandbox provider (docker / vercel / e2b / custom); the experiment can override it.
 
 #### `workspace`
 
@@ -45,7 +45,7 @@ Project-level default sandbox provider (docker / vercel / e2b / custom); the exp
 workspace?: string;
 ```
 
-Root of the workspace directory uploaded into the sandbox; falls back to the project root when omitted. This is where an eval's sandbox view starts from.
+Root of the workspace directory uploaded into the Sandbox; falls back to the project root when omitted. This is where an eval's Sandbox view starts from.
 
 #### `judge`
 
@@ -92,7 +92,7 @@ each run dynamically allocates a temporary port (handed to the adapter via `ctx.
 port, only one niceeval process can run on the same machine at a time, and it errors if that port is already taken by
 another process — pick a free port and write it back here.
 `host` is the receiving-end hostname reported to the adapter (not the listen address, which is always `0.0.0.0`);
-defaults to "127.0.0.1"; override it here when a docker sandbox-type tracing setup needs something like
+defaults to "127.0.0.1"; override it here when a Docker Sandbox tracing setup needs something like
 "host.docker.internal", or for a remote integration configured with a tunnel.
 
 #### `pricing`

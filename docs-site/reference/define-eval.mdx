@@ -1,7 +1,7 @@
 ---
 title: "defineEval: declare, configure, and run NiceEval evals"
 sidebarTitle: "defineEval"
-description: "Reference for defineEval options, the test context t, Turn return values, sandbox helpers, and dataset array exports."
+description: "Reference for defineEval options, the test context t, Turn return values, Sandbox helpers, and array and keyed-record dataset exports."
 ---
 
 `defineEval` is the main entry point for authoring evals. Each eval file calls it once, passing a description and `test(t)`, and default-exports the result.
@@ -52,6 +52,14 @@ tags?: string[];
 
 Tags, for the CLI's `--tag` filter and view categorization; a filtering dimension independent from ID-prefix filtering.
 
+#### `environment`
+
+```ts
+environment?: string;
+```
+
+The environment profile id this eval needs (provider-neutral, e.g. `"python-3.9-astropy-4.2"`); translated into that provider's prebuilt artifact via the Sandbox spec's `environments` table.
+
 #### `judge`
 
 ```ts
@@ -84,15 +92,41 @@ metadata?: Record<string, unknown>;
 
 Arbitrary extra metadata, passed through as-is into `EvalResult`; does not participate in scheduling or scoring, and is meant for custom reporters to consume.
 
+#### `diff`
+
+```ts
+diff?: { include?: string[]; ignore?: string[] };
+```
+
+Adjusts the attribution exclusion list for the agent diff (Sandbox agents only; see docs/feature/eval/README.md): both arrays are
+gitignore-style globs (relative to `workdir`). By default, `.git`, `node_modules`, build artifacts, and package-manager caches are excluded;
+`ignore` adds further exclusions on top of the default list; `include` has the highest priority and explicitly adds matching paths back.
+The composition rule is fixed as "default ∪ ignore, then punched through by include"; the list is frozen at the ledger's anchor point.
+
 #### `setup`
 
 ```ts
-setup?: (sandbox: Sandbox) => Promise<void | Cleanup> | void | Cleanup;
+setup?: (sandbox: Sandbox, ctx: SandboxHookContext) => Promise<void> | void;
 ```
 
-Eval-level preparation: receives the sandbox (after the workspace is uploaded, the git baseline is set, and before dependencies are installed).
+Eval-level preparation: receives the Sandbox (after the workspace is uploaded and the git baseline is set, before dependencies are installed).
 Commands run as non-root by default (the agent's natural environment); when installing system dependencies, pass `{ root: true }`
 to `runCommand` (e.g. `runCommand("apt-get", ["install", …], { root: true })`) — semantics are consistent across providers.
+The second parameter is a narrow context bound to `eval.setup` (`ctx.progress` / `ctx.diagnostic`,
+see docs/feature/eval/README.md). `setup` returns no value; to pass an artifact through to `teardown`,
+key it off the `sandbox` instance (concurrent attempts share the same module, so a plain module-level variable would get overwritten by other attempts).
+
+#### `teardown`
+
+```ts
+teardown?: (sandbox: Sandbox, ctx: SandboxHookContext) => Promise<void> | void;
+```
+
+Eval-level cleanup: the first link in the attempt's teardown chain (`eval.teardown` → `agent.teardown` →
+`sandbox.teardown`), with the Sandbox still alive at this point. Runs if and only if `eval.setup`'s point in time was reached —
+an error thrown by `setup` or `test` does not exempt it, and not declaring `setup` does not affect whether it fires. An error thrown,
+or exceeding the 30s cleanup budget, only records a `teardown-failed` diagnostic and does not change the verdict. Use it for
+temporary Fixtures outside the Sandbox (a temporary repo / bucket); things inside the Sandbox are reclaimed automatically when it's destroyed and don't need this.
 
 #### `test`
 
@@ -100,7 +134,7 @@ to `runCommand` (e.g. `runCommand("apt-get", ["install", …], { root: true })`)
 test(t: TestContext): Promise<void> | void;
 ```
 
-The eval body: receives the `TestContext`, drives the conversation / sandbox operations, and asserts in place.
+The eval body: receives the `TestContext`, drives the conversation / Sandbox operations, and asserts in place.
 
 {/* GENERATED:END defineeval-options */}
 
@@ -115,10 +149,10 @@ The eval body: receives the `TestContext`, drives the conversation / sandbox ope
 #### `send`
 
 ```ts
-send(text: string): Promise<TurnHandle>;
+send(input: SendInput): Promise<TurnHandle>;
 ```
 
-Sends a message on the default session, returning that turn's `TurnHandle`. The events are also accumulated into the default session's cumulative event stream, for the scoped assertions below to use.
+Sends a message on the default session (a string or a structured message), returning that turn's `TurnHandle`. The events are also accumulated into the default session's cumulative event stream, for the scoped assertions below to use.
 
 #### `sendFile`
 
@@ -220,13 +254,31 @@ readonly flags: Readonly<Record<string, unknown>>;
 
 The experiment flags in effect for this attempt (a read-only view of `experiment.flags`; an experimental condition, not a command-line switch).
 
+#### `progress`
+
+```ts
+progress(update: ProgressUpdate): void;
+```
+
+Scoped feedback: reports a long-running step the eval itself is performing (uploading a Fixture, running a build, ...). A short-lived
+status with scope fixed to `eval.run`; it only reports, it does not assert (see docs/feature/eval/library/context.md, "Reporting long steps back to the run").
+
+#### `diagnostic`
+
+```ts
+diagnostic(input: DiagnosticInput): void;
+```
+
+Scoped feedback: reports an issue that should be kept around after the run ends (a permanent event, recorded in the attempt's diagnostics).
+Even when `level` is "error" this does not automatically change the verdict — the test's conclusion is still decided by assertions.
+
 #### `log`
 
 ```ts
 log(msg: string): void;
 ```
 
-Prints a line of debug logging; goes through the live progress callback if one exists, otherwise to stderr — it never appears in the final result.
+An alias for `progress({ message: msg })` (debug logging); does not appear in the final result.
 
 #### `skip`
 
@@ -381,10 +433,10 @@ Asserts the default session's cumulative events appear in the given type order (
 #### `eventsSatisfy`
 
 ```ts
-eventsSatisfy(predicate: (events: readonly StreamEvent[]) => boolean, label?: string): AssertionHandle;
+eventsSatisfy(label: string, predicate: (events: readonly StreamEvent[]) => boolean): AssertionHandle;
 ```
 
-Asserts against the default session's whole cumulative event stream using a custom predicate; use `label` to explain a failure.
+Asserts against the default session's whole cumulative event stream using a custom predicate; `label` is required and becomes the assertion's title.
 
 #### `sandbox`
 
@@ -392,7 +444,7 @@ Asserts against the default session's whole cumulative event stream using a cust
 readonly sandbox: SandboxHandle;
 ```
 
-A restricted sandbox view: can run commands / read and write files / view the final diff, but cannot stop the sandbox itself (see `SandboxHandle`).
+A restricted Sandbox view: can run commands / read and write files / view the final diff, but cannot stop the Sandbox itself (see `SandboxHandle`).
 
 #### `usage`
 
@@ -634,10 +686,10 @@ Asserts this turn's events appear in the given type order (other events may be i
 #### `eventsSatisfy`
 
 ```ts
-eventsSatisfy(predicate: (events: readonly StreamEvent[]) => boolean, label?: string): AssertionHandle;
+eventsSatisfy(label: string, predicate: (events: readonly StreamEvent[]) => boolean): AssertionHandle;
 ```
 
-Asserts against this turn's whole event stream using a custom predicate; use `label` to explain a failure.
+Asserts against this turn's whole event stream using a custom predicate; `label` is required and becomes the assertion's title (the predicate itself is opaque, so the burden of explanation falls on `label`).
 
 #### `maxTokens`
 
@@ -679,3 +731,5 @@ export default rows.map((row) =>
 ```
 
 Array exports generate stable IDs: `file/0000`, `file/0001`, and so on.
+
+When you already have a stable business key, you can instead default-export a `Record<string, EvalDef>`. For example, the key `15193` in `swelancer.eval.ts` generates `swelancer/15193`. A key must be a non-empty single path segment: it cannot be `.` or `..`, and cannot contain `/`, `\`, or control characters; discovery order is fixed by lexicographic order over the keys.

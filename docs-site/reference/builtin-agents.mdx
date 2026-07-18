@@ -34,23 +34,23 @@ None of the three built-in sandbox agents currently support HITL: their `send` o
 
 ### claude-code
 
-- Connection: spawns `claude --print --dangerously-skip-permissions` in the sandbox and reads back the latest transcript from `~/.claude/projects/**/*.jsonl`.
+- Connection: spawns `claude --print --dangerously-skip-permissions` in the Sandbox and reads back the latest transcript from `~/.claude/projects/**/*.jsonl`.
 - Session continuation: appends `--resume <id>` when `ctx.session.id` has a value; the session id parsed from the transcript is written back via `ctx.session.capture()`.
 - Auth: `ANTHROPIC_API_KEY`, optional `ANTHROPIC_BASE_URL`; configuration options are listed under `ClaudeCodeConfig` below.
 - `tracing` is configured via the claude CLI's native OTLP trace spans (beta), protocol `http/protobuf`: setting `CLAUDE_CODE_ENABLE_TELEMETRY` and `CLAUDE_CODE_ENHANCED_TELEMETRY_BETA` (a beta toggle, must be explicitly enabled) in env hands the endpoint to the CLI; `EvalResult.trace` shows a waterfall at the interaction / llm_request / tool level.
 
 ### codex
 
-- Connection: runs `codex exec --json` in the sandbox (`codex exec resume <id> --json` when continuing), using stdout JSONL as the transcript.
+- Connection: runs `codex exec --json` in the Sandbox (`codex exec resume <id> --json` when continuing), using stdout JSONL as the transcript. The command carries `--dangerously-bypass-approvals-and-sandbox` and `--dangerously-bypass-hook-trust`: nobody in the Sandbox can answer codex's interactive approval prompts, so hooks installed by a plugin or `postSetup` take effect without needing interactive trust confirmation.
 - Auth: `CODEX_API_KEY` (not `OPENAI_API_KEY`), optional `CODEX_BASE_URL` for OpenAI-compatible proxies; configuration options are listed under `CodexConfig` below.
 - `tracing` is configured through the `[otel.trace_exporter.otlp-http]` section of `~/.codex/config.toml`, protocol `http/json`.
 
 ### bub
 
-- Connection: runs `bub run` + `--session-id` in the sandbox and reads the tape from `~/.bub/tapes/<hash>.jsonl` as the transcript.
+- Connection: runs `bub run` + `--session-id` in the Sandbox and reads the tape from `~/.bub/tapes/<hash>.jsonl` as the transcript.
 - Auth: `BUB_API_KEY` + `BUB_API_BASE` (OpenAI-compatible proxy); configuration options are listed under `BubConfig` below.
 - `tracing` is injected via environment variables (`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, etc.), protocol `http/protobuf`.
-- Installed via `uv tool install` (not an npm package); the first install builds a checkpoint cache to speed up later sandboxes.
+- Installed via `uv tool install` (not an npm package); the first install builds a checkpoint cache to speed up later Sandboxes.
 
 ## Configuration options for the three built-in sandbox agents
 
@@ -92,8 +92,9 @@ Caps the eval's cost ceiling; if omitted, uses the CLI's native default (unlimit
 mcpServers?: McpServer[];
 ```
 
-Additional MCP servers (written into the user-level `~/.claude.json` on each sandbox setup).
-Example: &#123; name: "browser", command: "npx", args: ["-y", "@anthropic/mcp-browser"] &#125;
+Additional MCP servers (written into the user-level `~/.claude.json` on each Sandbox setup).
+The stdio form writes `command` (optionally with `args` / `env`); the Streamable HTTP form writes `url` (optionally with `headers`,
+carried through verbatim into the request headers), landing as a &#123; "type": "http", "url": …, "headers": … &#125; entry.
 
 #### `skills`
 
@@ -101,7 +102,7 @@ Example: &#123; name: "browser", command: "npx", args: ["-y", "@anthropic/mcp-br
 skills?: SkillSpec[];
 ```
 
-Skills to install into the sandbox (a local directory/file, or a repo with an optional pinned ref and an optional enabled subset).
+Skills to install into the Sandbox (a local directory/file, or a repo with an optional pinned ref and an optional enabled subset).
 They land in the project-level `.claude/skills/<name>/`, where the claude CLI discovers them natively.
 
 #### `plugins`
@@ -111,6 +112,44 @@ plugins?: ClaudeCodePluginSpec[];
 ```
 
 Claude Code native plugins (connect the marketplace first, then install the named plugin from it).
+
+#### `settingsFile`
+
+```ts
+settingsFile?: string;
+```
+
+Path to a complete Claude Code `settings.json` (official format) in the local project — resolved relative to the project
+root running niceeval (the directory containing `niceeval.config.ts`), not a path inside the Sandbox; only relative
+paths within the project root are accepted — paths containing `..`, absolute paths, `~` paths, and symlinks that
+resolve outside the project root all error during setup. The raw bytes are uploaded verbatim as the user-level
+`~/.claude/settings.json`, which is otherwise empty in the Sandbox (no inheriting host config, no merging, no
+re-serializing); the reserved keys `model` and `env` appearing in the file error during setup. The manifest records
+only the project-relative path and the byte SHA-256, never the file body.
+
+#### `postSetup`
+
+```ts
+postSetup?: SandboxHook[];
+```
+
+User hooks that run, in array order, after install (reusing SandboxHook's narrow context): executed once writing
+settings, wiring MCP, installing Skills / plugins, and writing the manifest are all done — suited for process actions
+that can only run once install artifacts are in place, such as a plugin's own setup script. A thrown error counts as
+an infrastructure error (attempt errored).
+See "Running scripts after install" in docs/feature/adapters/library/coding-agent-extensions.md.
+
+#### `preTeardown`
+
+```ts
+preTeardown?: SandboxHook[];
+```
+
+The teardown hook paired with `postSetup`: runs in reverse of `postSetup`'s ordering, before the agent's own teardown
+step (a LIFO mirror — `postSetup` runs after the agent installs, `preTeardown` runs before the agent tears down), and
+fires if and only if `postSetup`'s point in time was reached. A thrown error counts as an infrastructure error, folded
+into a `teardown-failed` diagnostic by the teardown phase.
+See "Running scripts after install" in docs/feature/adapters/library/coding-agent-extensions.md.
 
 ### `CodexConfig`
 
@@ -136,8 +175,10 @@ OpenAI-compatible proxy base URL (e.g. `https://s2a.example.com/v1`). Falls back
 mcpServers?: McpServer[];
 ```
 
-Additional MCP servers (appended into ~/.codex/config.toml on each sandbox setup).
-The shape corresponds to codex config.toml's [mcp_servers.&lt;name&gt;] table.
+Additional MCP servers (appended into `~/.codex/config.toml` on each Sandbox setup).
+The stdio form (`command`/`args`/`env`) writes the `command` line under [mcp_servers.&lt;name&gt;];
+the Streamable HTTP form (`url`/`headers`) writes the `url` line, with `headers` going into the
+[mcp_servers.&lt;name&gt;.http_headers] subtable.
 
 #### `skills`
 
@@ -145,7 +186,7 @@ The shape corresponds to codex config.toml's [mcp_servers.&lt;name&gt;] table.
 skills?: SkillSpec[];
 ```
 
-Skills to install into the sandbox (a local directory/file, or a repo with an optional pinned ref and an optional enabled subset).
+Skills to install into the Sandbox (a local directory/file, or a repo with an optional pinned ref and an optional enabled subset).
 They land in `.agents/skills/<name>/`, together with a discovery instruction written into AGENTS.md — codex has no native Skill tool like Claude Code, so merely installing the files does not make it read them (see memory/codex-no-native-skill-tool.md).
 
 #### `plugins`
@@ -155,6 +196,45 @@ plugins?: CodexPluginSpec[];
 ```
 
 Codex native plugins (connect the marketplace first, then install the named plugin from it).
+
+#### `configFile`
+
+```ts
+configFile?: string;
+```
+
+Path to a complete Codex `config.toml` (official TOML format) in the local project — resolved relative to the project
+root running niceeval (the directory containing `niceeval.config.ts`), not a path inside the Sandbox; only relative
+paths within the project root are accepted — paths containing `..`, absolute paths, `~` paths, and symlinks that
+resolve outside the project root all error during setup. The raw bytes are merged verbatim into the user-level
+`~/.codex/config.toml`, which is otherwise empty in the Sandbox (no inheriting host config, no parse-and-rewrite);
+the reserved keys `model`, `model_provider`, `model_providers`, `model_reasoning_effort`, `mcp_servers`, and `otel`
+appearing in the file error during setup. The manifest records only the project-relative path and the byte SHA-256,
+never the file body.
+
+#### `postSetup`
+
+```ts
+postSetup?: SandboxHook[];
+```
+
+User hooks that run, in array order, after install (reusing SandboxHook's narrow context): executed once writing
+the main config, wiring MCP, installing Skills / plugins, and writing the manifest are all done — suited for process
+actions that can only run once install artifacts are in place, such as a plugin's own setup script. A thrown error
+counts as an infrastructure error (attempt errored).
+See "Running scripts after install" in docs/feature/adapters/library/coding-agent-extensions.md.
+
+#### `preTeardown`
+
+```ts
+preTeardown?: SandboxHook[];
+```
+
+The teardown hook paired with `postSetup`: runs in reverse of `postSetup`'s ordering, before the agent's own teardown
+step (a LIFO mirror — `postSetup` runs after the agent installs, `preTeardown` runs before the agent tears down), and
+fires if and only if `postSetup`'s point in time was reached. A thrown error counts as an infrastructure error, folded
+into a `teardown-failed` diagnostic by the teardown phase.
+See "Running scripts after install" in docs/feature/adapters/library/coding-agent-extensions.md.
 
 ### `BubConfig`
 
@@ -180,7 +260,7 @@ Base URL for the OpenAI-compatible proxy. Falls back to the `BUB_API_BASE` env v
 skills?: SkillSpec[];
 ```
 
-Skills to install into the sandbox (a local directory/file, or a repo with an optional pinned ref and an optional enabled subset).
+Skills to install into the Sandbox (a local directory/file, or a repo with an optional pinned ref and an optional enabled subset).
 They land in `.agents/skills/<name>/`, with a discovery instruction written into AGENTS.md (bub has no native Skill loading mechanism).
 
 #### `pythonPlugins`
@@ -189,9 +269,32 @@ They land in `.agents/skills/<name>/`, with a discovery instruction written into
 pythonPlugins?: PythonPluginSpec[];
 ```
 
-Extra Python packages to install into the bub tool environment; on each sandbox setup they go into `uv tool install … --with <pkg>`.
+Extra Python packages to install into the bub tool environment; on each Sandbox setup they go into `uv tool install … --with <pkg>`.
 The normalized package list is part of the install checkpoint key: two agent variants with different plugin sets never reuse the same
 install checkpoint (otherwise the second variant would silently inherit the first one's environment).
+
+#### `postSetup`
+
+```ts
+postSetup?: SandboxHook[];
+```
+
+User hooks that run, in array order, after install (reusing SandboxHook's narrow context): executed once installing
+bub, installing Skills / Python packages, and writing the manifest are all done. A thrown error counts as an
+infrastructure error (attempt errored).
+See "Running scripts after install" in docs/feature/adapters/library/coding-agent-extensions.md.
+
+#### `preTeardown`
+
+```ts
+preTeardown?: SandboxHook[];
+```
+
+The teardown hook paired with `postSetup`: runs in reverse of `postSetup`'s ordering, before the agent's own teardown
+step (a LIFO mirror — `postSetup` runs after the agent installs, `preTeardown` runs before the agent tears down), and
+fires if and only if `postSetup`'s point in time was reached. A thrown error counts as an infrastructure error, folded
+into a `teardown-failed` diagnostic by the teardown phase.
+See "Running scripts after install" in docs/feature/adapters/library/coding-agent-extensions.md.
 
 {/* GENERATED:END builtin-agent-config */}
 
@@ -214,7 +317,7 @@ Capabilities it handles for you:
 - **Send/receive + event stream**: SSE frames are reduced by the `ai` package's official framework-agnostic reducer `readUIMessageStream` (the same one inside `useChat`); tool calls/results/message text are built directly from message parts — **the app is not required to wire up OTel**.
 - **Session continuation**: the protocol is server-stateless, "client carries the full history" — the factory stores the whole `UIMessage[]` with `ctx.session.history()` and replays it verbatim each turn; a new conversation line (after `t.newSession()`) gets an empty history.
 - **HITL**: AI SDK v7 tool approval (tools with `needsApproval: true`) maps natively — when a part stops at `approval-requested`, the whole turn is `status: "waiting"` + `input.requested`; `t.respond("approve" / "deny")` is translated into `approval-responded`, rewriting that part in place and resending `messages` verbatim to trigger the server to continue (identical protocol behavior to a real frontend's `addToolApprovalResponse()` + `sendMessage()`; there is no separate approve endpoint). Denied calls land in the event stream as `rejected`, and by default carry a "do not retry" reason (`denyReason` can override) — without one, models often resend the very same call.
-- **usage / waterfall**: UI Message Stream protocol frames carry no usage, so usage assertions like `t.maxTokens` have no data by default on this built-in (an app putting usage into message metadata is the app's own protocol extension). The waterfall is a separate matter: when the app has OTel instrumentation (e.g. the official `@ai-sdk/otel`), send spans to [NiceEval](https://niceeval.com/) per [OTel integration](/guides/connect-otel) and `niceeval view` gets a full waterfall — spans only feed the waterfall, never assertions.
+- **usage / waterfall**: UI Message Stream protocol frames carry no usage, so usage assertions like `t.maxTokens` have no data by default on this built-in (an app putting usage into message metadata is the app's own protocol extension). The waterfall is a separate matter: when the app has OTel instrumentation (e.g. the official `@ai-sdk/otel`), send spans to [NiceEval](https://niceeval.com/) per [OTel integration](/tutorials/connect-otel) and `niceeval view` gets a full waterfall — spans only feed the waterfall, never assertions.
 
 You need `ai` installed in the eval project (optional peer dependency; the protocol reducer comes from it). Full runnable example: [`examples/zh/tier1/ai-sdk-v7`](https://github.com/CorrectRoadH/niceeval/tree/main/examples/zh/tier1/ai-sdk-v7).
 
@@ -329,7 +432,7 @@ Runnable references: the claude-sdk / pi-sdk / codex-sdk adapters under [`exampl
 
 ## Generic "assembly" pieces: `driveFrameStream` / `deltaStream` + `ctx.session`
 
-Inside a hand-written send, only three truly independent parts exist: transport (how to send), reduce (raw data → events, handled by the converters above), and orchestration (session continuation + HITL pause/resume). The third part is protocol-agnostic, pure control-flow pattern — the accessors for session continuation (`id`/`capture`, `history`) and the HITL paused-turn scene (`hold`/`take`) hang directly off `ctx.session` (`AgentSession`, see the [Adapter concept](/concepts/adapter#context-agentcontext)); nothing to import separately and nothing to declare. What actually remains reusable across protocols is just two official pieces:
+Inside a hand-written send, only three truly independent parts exist: transport (how to send), reduce (raw data → events, handled by the converters above), and orchestration (session continuation + HITL pause/resume). The third part is protocol-agnostic, pure control-flow pattern — the accessors for session continuation (`id`/`capture`, `history`) and the HITL paused-turn scene (`hold`/`take`) hang directly off `ctx.session` (`AgentSession`, see [Adapter concept](/explanation/adapter)); nothing to import separately and nothing to declare. What actually remains reusable across protocols is just two official pieces:
 
 | Piece | What it solves |
 |---|---|
@@ -386,7 +489,7 @@ The `status` comes from the converter: `"waiting"` when there is a tool approval
 
 ## Related reading
 
-- [Connect your agent](/guides/connect-your-agent) — how to implement each capability in your own adapter and which assertions it maps to.
-- [Sandbox Agent](/guides/sandbox-agent) — how to run the built-in sandbox agents and write your own.
+- [Connect your agent](/tutorials/connect-your-agent) — how to implement each capability in your own adapter and which assertions it maps to.
+- [Sandbox Agent](/tutorials/sandbox-agent) — how to run the built-in sandbox agents and write your own.
 - [defineAgent reference](/reference/define-agent) — full parameters of `defineAgent` / `defineSandboxAgent`.
-- [OTel integration](/guides/connect-otel) — send your app's spans to [NiceEval](https://niceeval.com/) in exchange for the call waterfall in `niceeval view`.
+- [OTel integration](/tutorials/connect-otel) — send your app's spans to [NiceEval](https://niceeval.com/) in exchange for the call waterfall in `niceeval view`.

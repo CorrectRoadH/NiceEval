@@ -92,6 +92,14 @@ name: string;
 
 The agent's display name/identifier, passed as-is into `Agent.name` — not a registry lookup key, only used for display, result attribution, and dedup fingerprinting.
 
+#### `coverage`
+
+```ts
+coverage?: EvidenceCoverage;
+```
+
+This adapter's steady-state evidence coverage declaration (use the `completeCoverage` constant for full collection); omit it for all-channel unknown.
+
 #### `setup`
 
 ```ts
@@ -100,8 +108,8 @@ setup?: AgentSetup;
 
 Runs once per attempt (a remote agent has no real sandbox, so the runner passes in a stub `Sandbox` containing only metadata
 like `workdir`/`sandboxId`/`otlpHost`/`stop` — calling any other method throws. Do not call
-file/command sandbox methods here). Commonly used for one-time setup like establishing a connection or auth.
-Can return a cleanup closure, which runs together with `teardown` in `finally`.
+file/command sandbox methods here). Commonly used for one-time setup like establishing a connection or auth;
+does not return a value.
 
 #### `tracing`
 
@@ -133,7 +141,8 @@ Once per turn: send one turn's prompt to the remote system under test (HTTP/SDK,
 teardown?: AgentTeardown;
 ```
 
-Cleanup before the run ends (runs once in `finally`, together with the cleanup closure returned by setup).
+Cleanup before the run ends, run if and only if this attempt reached the `setup` point in time
+(a `setup` throw does not exempt it); runs once in `finally`.
 
 ### `SandboxAgentDef`
 
@@ -145,6 +154,14 @@ name: string;
 
 The agent's display name/identifier, passed as-is into `Agent.name` — not a registry lookup key, only used for display, result attribution, and dedup fingerprinting.
 
+#### `coverage`
+
+```ts
+coverage?: EvidenceCoverage;
+```
+
+This adapter's steady-state evidence coverage declaration (use the `completeCoverage` constant for full collection); omit it for all-channel unknown.
+
 #### `setup`
 
 ```ts
@@ -153,7 +170,7 @@ setup?: AgentSetup;
 
 Runs once per sandbox (not once per turn): install the CLI, write config.toml / auth config (model/base/auth and other
 things that do not change within a turn). The runner calls it once after the sandbox is ready (after upload/baseline/eval.setup)
-and before the first send. Can return a cleanup closure, which runs together with `teardown` in `finally`.
+and before the first send; does not return a value.
 
 #### `tracing`
 
@@ -185,7 +202,8 @@ Once per turn: run the prompt (fresh / resume) and parse it into events.
 teardown?: AgentTeardown;
 ```
 
-Cleanup before the sandbox is destroyed (runs once in `finally`, together with the cleanup closure returned by setup).
+Cleanup before the sandbox is destroyed, run if and only if this attempt reached the `setup` point in time
+(a `setup` throw does not exempt it); runs once in `finally`.
 
 ### `AgentContext`
 
@@ -269,18 +287,38 @@ into send; file-based agents write config in tracing.configure. For remote HTTP 
 only needs to spread the headers into the request headers (a fresh traceparent per turn); the endpoint is fixed at
 startup-time configuration (defineConfig(&#123; telemetry: &#123; port &#125; &#125;)) and is not passed here.
 
+#### `progress`
+
+```ts
+progress(update: ProgressUpdate): void;
+```
+
+Scoped feedback: report what's happening right now (turn / tool / install progress). Short-lived state — the
+`human` profile updates the active row; `agent`/`ci` do not print it line by line, and it never lands in the
+final result. Do not call it for every token/delta. The runner attributes it to whichever lifecycle phase the
+callback is currently in (agent.setup / agent.run / agent.teardown); the caller cannot pretend to be in a
+different phase (see docs/feature/experiments/library.md).
+
+#### `diagnostic`
+
+```ts
+diagnostic(input: DiagnosticInput): void;
+```
+
+Scoped feedback: report a problem that should still be visible after the run ends (protocol downgrade,
+incomplete data, cleanup issues). A permanent event — it lands in the attempt's diagnostics and each profile's
+permanent output; deduplicated by `dedupeKey`. Even a level of "error" does not change `Turn.status` /
+verdict — throw an exception when you cannot continue.
+
 #### `log`
 
 ```ts
 log(msg: string): void;
 ```
 
-Report a short line of live progress: it only updates the secondary text on the current active row of the
-`human` profile dashboard (see the `running.detail` entry under "Attempt phases" in
-`docs/feature/experiments/cli.md`); the `agent` / `ci` profiles never show it. On a timeout failure, the most
-recent lines are merged into the result's error information, to help locate where it got stuck; it is never
-written to results. This is different from `Sandbox.appendLog`: that one writes a line into the container's
-own native log (visible with `docker logs`); this one is only the runner's observability channel.
+An alias for `progress({ message: msg })`, not a second channel (see "Attempt phases" in
+`docs/feature/experiments/cli.md`). On a timeout failure, the most recent lines are merged into the result's
+error information, to help locate where it got stuck.
 
 {/* GENERATED:END agent-def */}
 
@@ -291,7 +329,7 @@ own native log (visible with `docker logs`); this one is only the runner's obser
 - `hold<T>(state: T): void` / `take<T>(): T | undefined` — storage for the HITL paused-turn scene; `take` clears on read (consume once).
 - `state: Record<string, unknown>` — escape hatch, starts as `{}`, never written by the framework.
 
-Full contract in the [Adapter concept](/concepts/adapter#context-agentcontext).
+Full contract in the [Adapter concept](/explanation/adapter).
 
 ## Sandbox interface
 
@@ -460,6 +498,25 @@ Also send this command's output into the sandbox's "native log stream" (so `dock
 tab shows it live). Turn this on for agent commands (codex exec / bub run / claude) and you'll see the agent's raw output
 in the container logs. Each provider implements this its own way (docker: tee to the file PID1 tails;
 providers that don't support it ignore it) — how the log surfaces is the provider's concern, the adapter only declares intent.
+
+#### `onStdout`
+
+```ts
+onStdout?: (chunk: string) => void | Promise<void>;
+```
+
+Called once for each chunk of the command's stdout as it arrives. The callback is only for short-lived
+feedback during the run; the complete stdout still appears as-is in the returned `CommandResult`. When a
+provider does not support true streaming, it must at least call this once with the complete stdout after the
+command finishes — it cannot silently drop it.
+
+#### `onStderr`
+
+```ts
+onStderr?: (chunk: string) => void | Promise<void>;
+```
+
+The stderr counterpart to `onStdout`; the complete stderr is still retained in `CommandResult`.
 
 #### `root`
 

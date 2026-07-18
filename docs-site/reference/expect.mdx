@@ -136,7 +136,7 @@ unlike `gate()`/`atLeast()`, it does not need a second chained call to set the l
 t.check(t.reply, includes("Paris"));
 t.check(t.reply, includes(/order #\d+/i));
 t.check(turn.data, equals({ intent: "refund" }));
-t.check(t.reply, matches(/#[A-Z0-9]{8}/));
+t.check(turn.data, matches(OrderSchema)); // Standard Schema / Zod structural validation; use includes for regex matching
 t.check(t.reply, similarity("The answer explains the refund window").atLeast(0.8));
 t.check(turn.data, satisfies((value) => Array.isArray(value)));
 ```
@@ -172,6 +172,22 @@ readonly severity: Severity;
 readonly threshold?: number;
 ```
 
+#### `isOptional`
+
+```ts
+readonly isOptional?: boolean;
+```
+
+Marker set by chaining `.optional()`: when this assertion can't be scored, it is only recorded as unavailable, without dragging the attempt into `errored`.
+
+#### `expected`
+
+```ts
+readonly expected?: string;
+```
+
+A bounded text description of the expected condition (e.g. `contains "Brooklyn"`), included in `AssertionResult.expected` on failure.
+
 #### `score`
 
 ```ts
@@ -194,6 +210,15 @@ atLeast(threshold: number): ValueAssertion;
 
 Turns it into a soft-threshold assertion: when `threshold` isn't met, this assertion is recorded as failed, but by default it does not drag down the whole eval's verdict;
 under `--strict`, a soft-threshold failure also makes the whole eval's verdict count as failed. Returns a new instance, does not mutate the original.
+
+#### `optional`
+
+```ts
+optional(): ValueAssertion;
+```
+
+Allows this assertion's evidence to be absent: when it can't be scored, only records `outcome: "unavailable"`, without affecting the verdict.
+Orthogonal to `severity` (severity determines whether it affects the quality verdict; `optional` determines whether evidence is allowed to be absent). Returns a new instance, does not mutate the original.
 
 {/* GENERATED:END value-assertion */}
 

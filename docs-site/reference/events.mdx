@@ -212,7 +212,7 @@ Emit this pair when the system under test delegates a task to a subagent (and wa
 } }
 ```
 
-When the agent pauses for a person, emit one event per pending question, and the whole turn's `status` returns `"waiting"`. The filter in `t.requireInputRequest(filter)` matches this `request` field by field — **fill in as many fields as you can**, or the eval side won't be able to filter it. See the [HITL section of the integration guide](/guides/connect-your-agent).
+When the agent pauses for a person, emit one event per pending question, and the whole turn's `status` returns `"waiting"`. The filter in `t.requireInputRequest(filter)` matches this `request` field by field — **fill in as many fields as you can**, or the eval side won't be able to filter it. See the [HITL section of the connect-your-agent tutorial](/tutorials/connect-your-agent).
 
 ### `thinking` / `compaction` / `error`
 
@@ -257,6 +257,6 @@ function toStreamEvents(body: MyAgentResponse): StreamEvent[] {
 
 ## Related reading
 
-- [Connect your agent](/guides/connect-your-agent) — the from-scratch integration tutorial.
+- [Connect your agent](/tutorials/connect-your-agent) — the from-scratch integration tutorial.
 - [Capabilities](/reference/capabilities) — what it means to say "the event stream is complete."
-- [Authoring evals](/guides/authoring) — the full set of assertions that consume this stream.
+- [Authoring evals](/tutorials/authoring) — the full set of assertions that consume this stream.
