@@ -88,75 +88,6 @@ export default defineExperiment({
 
 `setup` 管的是**宿主机侧、每实验一份**的资源;别把其它层的活挪进来:沙箱内的环境预置(装二进制、预热)挂 `sandbox` spec 的链式钩子,任务夹具写 `EvalDef.setup` / `test(t)`,跨实验共享、run 之前就该存在的服务仍用外部编排(分工表见 [环境预置放哪](../sandbox/library.md#环境预置放哪))。运行时值要传给沙箱内的 agent 时,在 agent / sandbox 钩子里把闭包值写成沙箱内的 env 或配置文件——那是每 attempt 的事,发生在 `setup` 之后。
 
-### 多个实验共享同一段生命周期
-
-对比组里常常是几个实验文件对着同一套基础设施(同一个记忆服务、同一类 mock server)。先分清共享的单位是**代码**还是**实例**,写法不同;两种都是普通用户代码,niceeval 不为共享设框架原语。
-
-**共享代码、每实验一份实例(默认)**——helper 是一个工厂,返回共享闭包的一对钩子;每个实验文件各自实例化,各起各的服务、各拆各的,同组并行跑也互不串扰。共享 helper 固定签名时直接导入 `ExperimentHookContext`(包根导出),不从某个字段反推:
-
-```typescript
-// experiments/shared/nowledge.ts
-import type { ExperimentHookContext } from "niceeval";
-
-export function nowledgeLifecycle() {
-  let tunnel: { url: string; apiKey: string; stop(): Promise<void> } | undefined;
-  return {
-    endpoint: () => ({ url: tunnel!.url, apiKey: tunnel!.apiKey }),
-    async setup(ctx: ExperimentHookContext) {
-      tunnel = await nowledgeTunnel({ signal: ctx.signal });
-    },
-    async teardown() {
-      await tunnel?.stop();
-    },
-  };
-}
-
-// experiments/compare/claude--nowledge.ts —— 对照组的一格
-const nowledge = nowledgeLifecycle();
-export default defineExperiment({
-  agent: nowledgeAgent(nowledge.endpoint),
-  setup: nowledge.setup,
-  teardown: nowledge.teardown,
-});
-
-// experiments/compare/codex--nowledge.ts —— 同组另一格,自己的一份隧道
-const nowledge = nowledgeLifecycle();
-export default defineExperiment({
-  agent: codexNowledgeAgent(nowledge.endpoint),
-  setup: nowledge.setup,
-  teardown: nowledge.teardown,
-});
-```
-
-**同批共享一份实例(贵重资源)**——服务起多份太贵时,helper 导出同一对钩子对象给所有实验引用,内部用「首进启动、末出关停」的计数:并发到达的 setup 等同一个启动 promise,最后一个实验的 teardown 关停。计数能平衡,靠的是成对触发规则本身:teardown 当且仅当同层 setup 时点走到过、`setup` 抛错也配对执行,`refs` 不会泄漏:
-
-```typescript
-// experiments/shared/nowledge-shared.ts
-import type { ExperimentHookContext } from "niceeval";
-
-let refs = 0;
-let starting: Promise<void> | undefined;
-let service: { url: string; stop(): Promise<void> } | undefined;
-
-export const sharedNowledge = {
-  async setup(ctx: ExperimentHookContext) {
-    refs += 1;
-    starting ??= startNowledge().then((s) => { service = s; });
-    await starting;                        // 并发实验等同一个启动;启动失败各自抛错
-  },
-  async teardown() {
-    refs -= 1;
-    if (refs === 0) {
-      await service?.stop();               // 启动失败时 service 未赋值,防御式跳过
-      service = undefined;
-      starting = undefined;
-    }
-  },
-};
-```
-
-边界在生命周期:同批共享的服务活不过这次 run。要**跨 run** 存在的服务(先起好、连续跑多次 `niceeval exp`)仍归外部编排,URL 经 env 传入,见 [环境预置放哪](../sandbox/library.md#环境预置放哪)。
-
 ### 与沙箱钩子在同一个实验文件里协作
 
 实验级钩子起宿主机侧服务,沙箱钩子每沙箱把坐标写进沙箱、收尾回存状态——两层在同一个文件里靠模块闭包衔接,时序由 runner 保证:实验级 `setup` 早于本实验任何沙箱钩子,沙箱钩子读到的闭包值一定已赋好:
@@ -195,6 +126,113 @@ export default defineExperiment({
 ```
 
 一份实验文件从上往下读就是完整的运行说明:整场一次的宿主机资源在实验级钩子对里;每沙箱的写入与回存在 `sandbox` 链式钩子里,经闭包消费实验级产物;agent 怎么连自己、eval 的任务夹具各在 agent 定义与 `EvalDef` 里,不进实验文件。层的分工判据(随什么变化 × 活在哪一侧)见 [环境预置放哪](../sandbox/library.md#环境预置放哪)。
+
+### 多个实验共享同一套生命周期代码
+
+对比组里常常是几个实验对着同一类基础设施——同一个记忆产品,claude 与 codex 各一格对照,启停机制完全一样。先分清共享的单位是**代码**还是**实例**,写法不同;两种都是普通用户代码,niceeval 不为共享设框架原语。
+
+**共享代码、每实验一份实例(默认)**——启停写成一个**工厂**,返回共享同一闭包的整套件:实验级钩子对、给 agent / MCP 工厂读坐标的 getter、把坐标写进沙箱的 sandbox 钩子。每个实验文件各自实例化,同一套代码、各自的实例与坐标。两条纪律:
+
+- **工厂在 import 期只创建闭包,不做 I/O、不读配置**——实验文件在 `niceeval exp` 的发现阶段就会被 import,import 抛错会连累同批无关实验;所有硬失败留给 `setup`。
+- **运行时坐标活在工厂闭包里,不放模块级单例**——同批并行的两个实验各持一份,互不覆写;坐标在 `setup` 之后才存在,不需要「模块态 → 进程 env → 落盘文件」的兜底链。
+
+```typescript
+// experiments/shared/nowledge.ts —— 启停一份代码;实例、坐标每实验一份
+import type { ExperimentHookContext } from "niceeval";
+import type { SandboxHook } from "niceeval/sandbox";
+
+export function nowledgeLifecycle() {
+  let instance: string | undefined;
+  let env: { url: string; apiKey: string } | undefined;
+
+  return {
+    /** agent / MCP 工厂经它读连接信息:闭包值,setup 之后才存在 */
+    endpoint: () => env!,
+
+    async setup(ctx: ExperimentHookContext) {
+      instance = `exp-${ctx.experimentId.replace(/[^A-Za-z0-9]+/g, "-")}`;
+      ctx.progress({ message: `[nowledge] activating ${instance}` });
+      await memctl("up", instance);                  // 容器 + 隧道,全新记忆库
+      env = await readInstanceEnv(instance);
+      ctx.progress({ message: `[nowledge] ready → ${env.url}` });
+    },
+
+    async teardown(ctx: ExperimentHookContext) {
+      if (!instance) return;                         // setup 没走到起实例就抛了:无事可扫
+      try {
+        // probe 是观测:best-effort、短超时、中断时跳过,不拦 down
+        if (!ctx.signal.aborted) {
+          await memctl("probe", instance, { timeoutMs: 10_000 }).catch(() => {});
+        }
+      } finally {
+        await memctl("down", instance);              // 释放是必达底线
+      }
+    },
+
+    /** 每沙箱一次:把闭包坐标写进沙箱 */
+    sandboxSetup(): SandboxHook {
+      return async (sandbox) => {
+        await sandbox.writeFiles({
+          ".nowledge/env": `NMEM_URL=${env!.url}\nNMEM_API_KEY=${env!.apiKey}\n`,
+        });
+      };
+    },
+  };
+}
+```
+
+实验文件里换 agent 只换 agent 那几行,生命周期四行接完:
+
+```typescript
+// experiments/compare/codex-gpt-5.4--nowledge.ts
+const nowledge = nowledgeLifecycle();
+export default defineExperiment({
+  agent: codexAgent(nowledgeCodexConfig(nowledge.endpoint)),
+  sandbox: e2bSandbox({ template: CODEX_TEMPLATE }).setup(nowledge.sandboxSetup()),
+  setup: nowledge.setup,
+  teardown: nowledge.teardown,
+  maxConcurrency: 1,          // 中心化记忆库,attempt 串行累积
+});
+
+// experiments/compare/claude-dp-v4--nowledge.ts —— 同套启停,另一个 agent,自己的实例
+const nowledge = nowledgeLifecycle();
+export default defineExperiment({
+  agent: claudeCodeAgent(nowledgeClaudeConfig(nowledge.endpoint)),
+  sandbox: e2bSandbox({ template: CLAUDE_TEMPLATE }).setup(nowledge.sandboxSetup()),
+  setup: nowledge.setup,
+  teardown: nowledge.teardown,
+  maxConcurrency: 1,
+});
+```
+
+**同批共享一份实例(贵重资源)**——服务起多份太贵时,helper 导出同一对钩子对象给所有实验引用,内部用「首进启动、末出关停」的计数:并发到达的 setup 等同一个启动 promise,最后一个实验的 teardown 关停。计数能平衡,靠的是成对触发规则本身:teardown 当且仅当同层 setup 时点走到过、`setup` 抛错也配对执行,`refs` 不会泄漏:
+
+```typescript
+// experiments/shared/nowledge-shared.ts
+import type { ExperimentHookContext } from "niceeval";
+
+let refs = 0;
+let starting: Promise<void> | undefined;
+let service: { url: string; stop(): Promise<void> } | undefined;
+
+export const sharedNowledge = {
+  async setup(ctx: ExperimentHookContext) {
+    refs += 1;
+    starting ??= startNowledge().then((s) => { service = s; });
+    await starting;                        // 并发实验等同一个启动;启动失败各自抛错
+  },
+  async teardown() {
+    refs -= 1;
+    if (refs === 0) {
+      await service?.stop();               // 启动失败时 service 未赋值,防御式跳过
+      service = undefined;
+      starting = undefined;
+    }
+  },
+};
+```
+
+边界在生命周期:同批共享的服务活不过这次 run。要**跨 run** 存在的服务(先起好、连续跑多次 `niceeval exp`)仍归外部编排,URL 经 env 传入,见 [环境预置放哪](../sandbox/library.md#环境预置放哪)。
 
 ## 生命周期代码怎样向这次运行反馈
 
