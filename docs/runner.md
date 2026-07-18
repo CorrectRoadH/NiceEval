@@ -91,7 +91,7 @@ fixtures/button   codex         pass@5 = 3/5 (60%)   mean 41s · 72k tok · $0.3
 
 成对语义全局一致,三条规则:
 
-- **状态经闭包流动**:`teardown` 要用 `setup` 的产物时,`setup` 写模块级变量、`teardown` 从闭包读;runner 不在两个钩子之间中介任何值。
+- **状态经闭包流动,粒度跟层的节奏走**:`teardown` 要用 `setup` 的产物时不经 runner 中介。实验级整场一次,工厂闭包 / 模块级变量即可;每沙箱、每 attempt 的层(sandbox / agent / eval)里,并发 attempt 共享同一个模块,普通模块变量会互相覆写——以 `sandbox` 实例为键存取(`WeakMap`,sandbox 与 attempt 一一对应),或先用 `maxConcurrency: 1` 串行、再用普通变量。
 - **`teardown` 当且仅当同层的 setup 时点已走到才执行**:`setup` 抛错不豁免——半初始化的现场同样要扫尾,`teardown` 对可能未赋值的闭包变量做防御(`tunnel?.stop()`);未声明 `setup` 函数不影响触发(时点走到即算);时点没走到(实验一个 attempt 都没派发、attempt 没进行到该层)则 `teardown` 同样跳过。
 - **同层多个钩子按注册序 setup、逆序 teardown(LIFO)**;`setup` 链中途抛错时后续 `setup` 不再执行,`teardown` 链仍完整走完。
 

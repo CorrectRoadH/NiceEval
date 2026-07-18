@@ -265,6 +265,38 @@ export default defineEval({
 
 `t.sandbox` 这一个命名空间下按语义分组:`writeFiles` / `uploadFiles` / `runCommand` 是立即 IO / 命令;`fileChanged` / `fileDeleted` / `notInDiff` / `diff` / `file` 是结果视图和延迟断言。`stop()` 这类生命周期动作不暴露给 eval 作者,由 runner 管。要用 judge 评 sandbox 产物,直接 `t.judge.autoevals.closedQA(criteria, { on: t.sandbox.diff.get(path) })`。操作列表见 [Sandbox · 文件与命令](../sandbox/library/operations.md),评分写法见 [Sandbox · 断言结果](../sandbox/library/asserting-results.md)。结果视图读的是 **agent 归因增量**——runner 的变更分类账把每次 `t.send()` 窗口内的 workspace 变化归给 agent:你写入的起始 fixture、`t.send()` 之后手工写入的隐藏校验文件都不会出现在 `t.sandbox.diff` 里,`fileChanged` 断的是「agent 改了它」,不是「它相对空目录变了」;第一次 `t.send()` 之前 diff 恒为空、可读不报错。归因契约见 [Sandbox · 变更归因](../sandbox/architecture.md#变更归因send-窗口与分类账)。
 
+## setup 与 teardown:任务夹具的起与收
+
+`EvalDef.setup(sandbox, ctx)` / `teardown(sandbox, ctx)` 是这条 eval 的任务夹具钩子对,每 attempt 一次。时序:`setup` 在环境层钩子与变更分类账锚点之后、`agent.setup` 与 `test(t)` 之前;`teardown` 是 attempt 收尾链的第一段(`eval.teardown` → `agent.teardown` → `sandbox.teardown`),此刻沙箱还活着,收尾代码可以照常读沙箱。触发规则与四层统一的成对语义(`setup` 时点走到过才触发、`setup` / `test` 抛错都不豁免)见 [Runner · 环境预置](../../runner.md#环境预置不进运行器但按顺序调它)。
+
+大多数夹具不需要 `teardown`:写进沙箱的起始文件、装的依赖随沙箱销毁自动没了。需要 `teardown` 的是**沙箱外**的夹具——在共享外部服务里为本 attempt 建的临时资源(临时 repo、bucket、队列 topic),不收就泄漏。
+
+状态纪律:同一条 eval 的多个 attempt(`runs` 大于 1、或同批多个实验跑同一条 eval)并发执行且共享本模块,`setup` 的句柄不能放普通模块变量(会互相覆写);以 `sandbox` 实例作键——sandbox 与 attempt 一一对应,是天然的 per-attempt 键:
+
+```typescript
+// evals/pr-review/close-stale.eval.ts
+import { defineEval } from "niceeval";
+import type { Sandbox } from "niceeval/sandbox";
+
+// 并发 attempt 共享本模块:句柄按 sandbox 键控,不用普通模块变量
+const fixtures = new WeakMap<Sandbox, { repoUrl: string; destroy(): Promise<void> }>();
+
+export default defineEval({
+  async setup(sandbox, ctx) {
+    ctx.progress({ message: "seeding fixture repo" });
+    const fixture = await createFixtureRepo("pr-review/close-stale");   // 沙箱外的临时资源
+    fixtures.set(sandbox, fixture);
+    await sandbox.runCommand("git", ["clone", fixture.repoUrl, "workspace"]);
+  },
+  async teardown(sandbox) {
+    await fixtures.get(sandbox)?.destroy();   // setup 抛错也会进来:没建成就跳过
+  },
+  async test(t) { /* 驱动 agent 清理 stale PR,断言 */ },
+});
+```
+
+`teardown` 抛错或超过 30s 清理上限只记 `teardown-failed` 诊断、不改这个 attempt 已产出的判定;要让某个收尾动作影响结论,在 `setup` / `test` 里抛,不在 `teardown` 里。
+
 ## 命名与组织约定
 
 - 文件名以 `.eval.ts` 或 `.eval.tsx` 结尾才会被发现(要在 eval 里写 JSX 时用 `.tsx`,两者的发现规则与 id 推导完全相同)。

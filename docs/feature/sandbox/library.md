@@ -150,7 +150,24 @@ type SandboxHook = (
 import type { SandboxHook, SandboxHookContext } from "niceeval/sandbox";
 ```
 
-Sandbox hook 有自己的窄上下文,包含 `experimentId`、`signal` 与作用域绑定的 `progress/diagnostic`;它不借用包含 session、model、telemetry 的完整 `AgentContext`。钩子不返回值;要把 `setup` 里创建的句柄传给 `teardown`,写模块闭包(四层统一的成对语义见 [Runner · 环境预置](../../runner.md#环境预置不进运行器但按顺序调它))。多次 `.setup()` 按追加顺序跑,多次 `.teardown()` 按追加的逆序跑(和「先进后出」的 agent/环境层顺序是同一条纪律,只是发生在环境层内部);`setup` 链中途抛错时后续 `setup` 不再执行,`teardown` 链仍完整走完——半初始化的沙箱同样要扫尾。
+Sandbox hook 有自己的窄上下文,包含 `experimentId`、`signal` 与作用域绑定的 `progress/diagnostic`;它不借用包含 session、model、telemetry 的完整 `AgentContext`。钩子不返回值;要把 `setup` 里创建的句柄传给 `teardown`,以 `sandbox` 实例作键存取——钩子每沙箱一次、并发 attempt 共享同一个模块,普通模块变量会互相覆写,而 sandbox 与 attempt 一一对应,是天然的 per-attempt 键(四层统一的成对语义见 [Runner · 环境预置](../../runner.md#环境预置不进运行器但按顺序调它)):
+
+```typescript
+import type { Sandbox } from "niceeval/sandbox";
+
+// 并发 attempt 各有自己的 sandbox:句柄按 sandbox 键控,不用普通模块变量
+const forwarders = new WeakMap<Sandbox, { stop(): Promise<void> }>();
+
+const spec = e2bSandbox({ template: "niceeval-agents" })
+  .setup(async (sandbox, ctx) => {
+    forwarders.set(sandbox, await startLogForwarder(sandbox, { signal: ctx.signal }));
+  })
+  .teardown(async (sandbox) => {
+    await forwarders.get(sandbox)?.stop();   // setup 抛错也会进来:get 不到就跳过
+  });
+```
+
+「载入 / 回存」这类收尾不需要 setup→teardown 句柄——状态键是 `ctx.experimentId` 的外部 KV,普通代码即可(见下)。多次 `.setup()` 按追加顺序跑,多次 `.teardown()` 按追加的逆序跑(和「先进后出」的 agent/环境层顺序是同一条纪律,只是发生在环境层内部);`setup` 链中途抛错时后续 `setup` 不再执行,`teardown` 链仍完整走完——半初始化的沙箱同样要扫尾。
 
 这一层解决的是一类特定问题:**环境内容必须按实验变化,不能在构建期固定。** 写一份实验专属 hook、恢复状态、写入按 flags 变化的小配置、做环境预检——这些事静态镜像不知道本次 experiment。稳定的大依赖先做进 image/template/snapshot;钩子是运行时的薄层,不应成为每 attempt 重装工具链和下载大模型的默认位置。
 
