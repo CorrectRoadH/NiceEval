@@ -195,6 +195,7 @@ it.each([
 |---|---|
 | 单值收口 `summaryText`：折单行 + 240 字符上限，超出以 `…` 收口 | 正例：多行大值折成单行有界预览且不含换行 |
 | 比较列表单元格的宽度收口按优先级让位：语义标题先截、matcher 次之、expected / received 与 `+N more failures` 最后截 | 正例：预算充足时与 `compactAssertionSummary` 逐字一致；反例：预算不足时长标题全称消失而 expected/received 前缀仍在；边界：极小预算下整串 ≤ 预算且以 `…` 收口 |
+| `assertionSummaryLines`（Human 永久行/handoff）：`received` 与 `matcher · expected` 合并成一行仍在预算内就合并，超预算则 `received` 单独截断一行；`+N more failures` 永远独立成尾行，不参与截断也不拼接在被截断的值末尾 | 正例：短 `received`（如 `received 3`）与 matcher/expected 维持同一行；反例：大段 `received`（源码/命令输出）拆出独立一行且行内不含 `+N more failures`；边界：`+N more failures` 出现时始终是最后一行，且不因 `received` 被截断而消失或粘连 |
 
 ## Judge
 

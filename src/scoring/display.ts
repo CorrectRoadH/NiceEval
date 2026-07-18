@@ -9,6 +9,13 @@ import type { AssertionResult, PrimaryAssertionSummary, Verdict } from "./types.
  */
 const SUMMARY_TEXT_MAX_CHARS = 240;
 
+/**
+ * Human/Agent 永久行的单行事实预算，与 SUMMARY_TEXT_MAX_CHARS（单值上限）分开计:一条
+ * `matcher · expected · received` 拼起来很容易超过一屏宽,这里给的是「一行」的上限，不依赖
+ * 终端 columns——agent profile 的 handoff 不是 TTY，不能按运行时宽度变化。
+ */
+const DETAIL_LINE_MAX_CHARS = 100;
+
 /** 摘要面的单值收口:折单行 + 240 字符上限。任何把断言事实放进「行」里的面共用这一条。 */
 export function summaryText(value: string): string {
   const singleLine = value.replace(/\s+/g, " ").trim();
@@ -80,11 +87,37 @@ export function assertionSummaryDetail(summary: PrimaryAssertionSummary): string
   return parts.length > 0 ? parts.join(" · ") : undefined;
 }
 
-/** Human/Agent 的至多两层文本。 */
-export function assertionSummaryLines(summary: PrimaryAssertionSummary): [string] | [string, string] {
-  const head = `${summary.severity}: ${summary.assertion}`;
-  const detail = assertionSummaryDetail(summary);
-  return detail === undefined ? [head] : [head, detail];
+/**
+ * Human/Agent 永久行的排版：标题独占一行；`matcher · expected`（含 score/threshold/reason）
+ * 独占下一行；`received` 能跟这行拼在一起仍在 DETAIL_LINE_MAX_CHARS 内就合并，放不下就单独
+ * 再起一行并硬截断。`+N more failures` 永远是独立尾行，不参与截断，也不拼进被截断的值——
+ * 截断处的 `…` 后面只会是值本身，不会被人误读成计数的一部分。
+ */
+export function assertionSummaryLines(summary: PrimaryAssertionSummary): string[] {
+  const lines: string[] = [`${summary.severity}: ${summary.assertion}`];
+
+  const factParts: string[] = [];
+  if (summary.matcher !== undefined) factParts.push(summary.matcher);
+  if (summary.expected !== undefined) factParts.push(`expected ${summary.expected}`);
+  if (summary.score !== undefined) factParts.push(`score ${summary.score}`);
+  if (summary.threshold !== undefined) factParts.push(`threshold ${summary.threshold}`);
+  if (summary.reason !== undefined) factParts.push(`reason ${summary.reason}`);
+  const facts = factParts.length > 0 ? factParts.join(" · ") : undefined;
+
+  if (summary.received !== undefined) {
+    const combined = facts !== undefined ? `${facts} · received ${summary.received}` : `received ${summary.received}`;
+    if (combined.length <= DETAIL_LINE_MAX_CHARS) {
+      lines.push(combined);
+    } else {
+      if (facts !== undefined) lines.push(facts);
+      lines.push(shrinkTo(`received: ${summary.received}`, DETAIL_LINE_MAX_CHARS));
+    }
+  } else if (facts !== undefined) {
+    lines.push(facts);
+  }
+
+  if (summary.additionalFailures > 0) lines.push(`+${summary.additionalFailures} more failures`);
+  return lines;
 }
 
 /** 比较列表的单元格投影；无 group 时不重复 `gate:` 前缀。 */

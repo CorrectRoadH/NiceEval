@@ -35,7 +35,8 @@ describe("primaryAssertionSummary", () => {
     });
     expect(assertionSummaryLines(summary!)).toEqual([
       "gate: Issue 15193: selected proposal matches the accepted proposal",
-      "equals(4) · expected 4 · received 3 · +1 more failures",
+      "equals(4) · expected 4 · received 3",
+      "+1 more failures",
     ]);
     expect(compactAssertionSummary(summary!)).toBe(
       "gate: Issue 15193: selected proposal matches the accepted proposal · equals(4) · expected 4 · received 3 · +1 more failures",
@@ -78,8 +79,33 @@ describe("primaryAssertionSummary", () => {
     expect(summary.received!.length).toBeLessThanOrEqual(240);
     expect(summary.received).toMatch(/…$/);
     const lines = assertionSummaryLines(summary);
-    expect(lines).toHaveLength(2);
     expect(lines.every((line) => !line.includes("\n"))).toBe(true);
+    // matcher · expected 放不下大值 received 时各自另起一行
+    expect(lines).toEqual([
+      "gate: includes(/updateTag/)",
+      expect.stringContaining("expected matches /updateTag/"),
+      expect.stringMatching(/^received: .*…$/),
+    ]);
+  });
+
+  it("received 大值单独截断一行时，+N more failures 仍是独立尾行、不与被截断的值粘连", () => {
+    const assertions: AssertionResult[] = [
+      {
+        name: "includes(/updateTag/)",
+        severity: "gate",
+        outcome: "failed",
+        score: 0,
+        expected: "matches /updateTag/",
+        received: `// app/actions/posts.ts\n'use server';\n${"const source = 1;\n".repeat(80)}`,
+      },
+      { name: "matches(schema)", severity: "gate", outcome: "failed", score: 0 },
+    ];
+
+    const summary = primaryAssertionSummary(assertions, "failed")!;
+    const lines = assertionSummaryLines(summary);
+    expect(lines.at(-1)).toBe("+1 more failures");
+    const receivedLine = lines.find((line) => line.startsWith("received:"))!;
+    expect(receivedLine).not.toContain("more failures");
   });
 });
 
