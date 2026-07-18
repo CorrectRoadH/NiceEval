@@ -275,6 +275,53 @@ describe("runAttemptEffect · onPhase 回调随 enterPhase 同步触发", () => 
   });
 });
 
+// eval.teardown 的触发条件是「eval.setup 时点走到过」,不是「setup 声明且成功」(成对触发规则,
+// 见 docs/runner.md「环境预置不进运行器,但按顺序调它」)。时点在 attempt.ts 里于调用
+// evalDef.setup 之前就置位,所以 setup 抛错、乃至压根没声明 setup,都不豁免 teardown。
+describe("runAttemptEffect · eval.teardown 的触发规则", () => {
+  it("eval.setup 抛错时,eval.teardown 仍被调用(半初始化现场同样要扫尾)", async () => {
+    const agent = defineSandboxAgent({
+      name: "fake-agent-eval-setup-throws",
+      send: async () => ({ events: [], status: "completed" }),
+    });
+    let teardownCalls = 0;
+    const box = new FakeSandbox();
+    const result = await runOnce(agent, box, {
+      evalDefOverrides: {
+        setup: async () => {
+          throw new Error("boom-from-eval-setup");
+        },
+        teardown: async () => {
+          teardownCalls += 1;
+        },
+      },
+    });
+
+    expect(result.error?.message).toContain("boom-from-eval-setup");
+    expect(result.error?.phase).toBe("eval.setup");
+    expect(teardownCalls).toBe(1);
+  });
+
+  it("未声明 eval.setup 时,eval.teardown 依然触发(时点走到不依赖 setup 是否声明)", async () => {
+    const agent = defineSandboxAgent({
+      name: "fake-agent-no-eval-setup",
+      send: async () => ({ events: [], status: "completed" }),
+    });
+    let teardownCalls = 0;
+    const box = new FakeSandbox();
+    const result = await runOnce(agent, box, {
+      evalDefOverrides: {
+        teardown: async () => {
+          teardownCalls += 1;
+        },
+      },
+    });
+
+    expect(result.error).toBeUndefined();
+    expect(teardownCalls).toBe(1);
+  });
+});
+
 describe("runAttemptEffect · 主链与 Scope 收尾的计时边界", () => {
   it("sandbox.stop 只计入收尾,主链 phase 合计不超过 durationMs", async () => {
     const agent = defineSandboxAgent({

@@ -61,8 +61,10 @@ export const en = {
   "runner.budgetUnenforceable":
     "budget for {{budgetKey}}: several attempts completed without any cost data (agent reports no usage and the model is not in the price table) — the budget cannot be enforced for this agent; continuing without the guard.\n",
   "runner.experimentTeardownFailed":
-    "cleanup returned by experiment {{experimentId}}'s setup failed: {{message}}. Results are unaffected, but host-side resources started by this experiment may not have been released; check manually.\n",
+    "teardown for experiment {{experimentId}} failed: {{message}}. Results are unaffected, but host-side resources started by this experiment may not have been released; check manually.\n",
   "runner.cleanupTimeout": "cleanup timed out after {{timeoutMs}}ms\n",
+  "runner.setupReturnedCleanup":
+    "{{layer}} returned a function. setup does not carry cleanup and the returned value will not be executed — put the cleanup in the paired teardown of the same layer ({{hint}}); see the experiments tutorial on docs-site or docs/runner.md.\n",
   "runner.experimentTeardownLate":
     "experiment {{experimentId}}'s teardown was not triggered by the normal countdown path; it has been executed by the end-of-run sweep instead. Results are unaffected; seeing this line means an unlocated intermittent scheduling issue fired — please record this run in the memory ledger.\n",
   "judge.modelMissing":
@@ -162,7 +164,7 @@ export const en = {
   "define.evalTestRequired": "defineEval requires an async test(t) function.",
   "define.experimentAgentRequired": "defineExperiment requires agent.",
   "define.experimentFlagNotJson": "experiment.flags.{{key}} is not JSON-serializable (functions / undefined / cycles / bigint are not allowed); flags are persisted verbatim into result snapshots and must be plain JSON.",
-  "define.experimentSetupNotFunction": "experiment.setup must be a function ((ctx) => void | cleanup); to prepare the in-sandbox environment per experiment, chain .setup() hooks on the sandbox spec instead.",
+  "define.experimentSetupNotFunction": "experiment.setup must be a function ((ctx) => void); use experiment.teardown for cleanup; to prepare the in-sandbox environment per experiment, chain .setup() hooks on the sandbox spec instead.",
   "define.experimentIdRejected": "defineExperiment does not accept id; ids are derived from file paths.",
   "define.sandboxAgentNameRequired": "defineSandboxAgent requires name.",
   "define.sandboxCreateRequired": "defineSandbox requires a create() function.",

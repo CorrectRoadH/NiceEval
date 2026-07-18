@@ -4,8 +4,8 @@ import { defineSandboxAgent } from "niceeval/adapter";
 import { createFakeSandbox } from "../../lib/fake-sandbox.ts";
 import { logEvent } from "../../lib/log.ts";
 
-// 失败语义回归:第二个 setup 钩子抛错 → 计执行错误(verdict errored),不阻断已进入的
-// 收尾——第一个 setup 返回的 cleanup、sandbox.teardown 钩子仍要跑;sandbox.setup 排在
+// 失败语义回归:第二个 setup 钩子抛错 → 计执行错误(verdict errored),setup 链中途抛错后
+// 续 setup 不再执行,但 sandbox.teardown 钩子链仍完整跑完;sandbox.setup 排在
 // agent.setup 之前,所以 agent.setup 从未被调用,agent.teardown 也不该跑
 //(与既有的 agentDidSetup 门槛一致)。
 const sandbox = defineSandbox({
@@ -14,9 +14,6 @@ const sandbox = defineSandbox({
 })
   .setup(async (_sb, ctx) => {
     await logEvent("sandbox:setup:ok", ctx.experimentId);
-    return async () => {
-      await logEvent("sandbox:cleanup:ok", ctx.experimentId);
-    };
   })
   .setup(async () => {
     throw new Error("boom: sandbox setup failed");

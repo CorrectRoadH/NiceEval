@@ -479,17 +479,32 @@ describe("codexAgent postSetup · 安装后钩子", () => {
     expect(bIdx).toBeGreaterThan(aIdx);
   });
 
-  it("钩子返回的 cleanup 合成一个闭包交还 runner,按 LIFO 执行", async () => {
+  it("preTeardown 与 postSetup 成对,按逆序(LIFO)在 teardown 时点执行", async () => {
     const box = sb();
     const order: string[] = [];
-    const cleanup = await codexAgent({
+    const agent = codexAgent({
       apiKey: "k",
-      postSetup: [() => () => void order.push("a"), () => () => void order.push("b")],
-    }).setup!(asSandbox(box), mkCtx());
+      postSetup: [async () => void order.push("setup:a"), async () => void order.push("setup:b")],
+      preTeardown: [async () => void order.push("teardown:a"), async () => void order.push("teardown:b")],
+    });
 
-    expect(typeof cleanup).toBe("function");
-    await (cleanup as () => Promise<void> | void)();
-    expect(order).toEqual(["b", "a"]);
+    await agent.setup!(asSandbox(box), mkCtx());
+    await agent.teardown!(asSandbox(box), mkCtx());
+
+    expect(order).toEqual(["setup:a", "setup:b", "teardown:b", "teardown:a"]);
+  });
+
+  it("postSetup 时点未走到(setup 从未调用)时,preTeardown 不执行", async () => {
+    const box = sb();
+    const order: string[] = [];
+    const agent = codexAgent({
+      apiKey: "k",
+      preTeardown: [async () => void order.push("teardown:a")],
+    });
+
+    await agent.teardown!(asSandbox(box), mkCtx());
+
+    expect(order).toEqual([]);
   });
 
   it("反例:钩子抛错从 setup 传播(attempt errored 通道)", async () => {

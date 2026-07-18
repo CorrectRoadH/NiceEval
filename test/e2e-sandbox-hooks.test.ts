@@ -2,10 +2,10 @@
 // docs/feature/sandbox/library.md「沙箱生命周期钩子」)。跑一遍真实 CLI(`niceeval exp`)对着一个内存假
 // Sandbox(defineSandbox() 自定义 provider,不起真容器/microVM),用一份追加日志断言:
 //   1. 全序:sandbox.setup(a,b) → agent.setup → send → agent.teardown →
-//      sandbox.setup 返回的 cleanup(LIFO)→ sandbox.teardown(逆序)。
+//      sandbox.teardown(x,y 按注册序追加、执行时逆序,LIFO)。
 //   2. ctx.experimentId 在同一 attempt 内处处一致、非空,且等于路径推导出的实验 id。
-//   3. sandbox.setup 抛错 → verdict errored,但已进入的收尾(cleanup / teardown)仍执行,
-//      agent.setup 从未被调用(它排在 sandbox.setup 之后)。
+//   3. sandbox.setup 链中途抛错 → verdict errored,setup 链后续钩子不再执行,但
+//      sandbox.teardown 钩子链仍完整跑完;agent.setup 从未被调用(它排在 sandbox.setup 之后)。
 //
 // 全程不联网:两个实验都用 `defineSandboxAgent` 的确定性 mock send,sandbox 是内存假实现。
 
@@ -124,7 +124,6 @@ test("sandbox 钩子:全序 + ctx.experimentId + 失败语义", async () => {
     "agent:setup",
     "agent:send",
     "agent:teardown",
-    "sandbox:cleanup:a",
     "sandbox:teardown:y",
     "sandbox:teardown:x",
   ]);
@@ -134,14 +133,14 @@ test("sandbox 钩子:全序 + ctx.experimentId + 失败语义", async () => {
     expect(line.experimentId).toBe("order/mock");
   }
 
-  // ── 3. 失败语义(error 实验):sandbox.setup 抛错 → errored,已进入的收尾仍执行 ──
+  // ── 3. 失败语义(error 实验):sandbox.setup 链中途抛错 → errored,teardown 链仍完整跑完 ──
   expect(errorResult!.verdict).toBe("errored");
   expect(errorResult!.error?.message ?? "").toContain("boom");
   const errorExperimentId = errorResult!.experimentId;
   expect(errorExperimentId).toBe("error/mock");
 
   const errorEvents = log.filter((l) => l.experimentId === errorExperimentId).map((l) => l.event);
-  expect(errorEvents).toEqual(["sandbox:setup:ok", "sandbox:cleanup:ok", "sandbox:teardown:always"]);
+  expect(errorEvents).toEqual(["sandbox:setup:ok", "sandbox:teardown:always"]);
   // agent.setup 排在 sandbox.setup 之后:sandbox.setup 抛错时 agent.setup/teardown 都不该跑。
   expect(errorEvents).not.toContain("agent:setup");
   expect(errorEvents).not.toContain("agent:teardown");

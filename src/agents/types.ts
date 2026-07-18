@@ -2,7 +2,7 @@
 // 「连到哪个被测对象、协议怎么说」的全部契约在这里(见 docs-site/zh/explanation/adapter.mdx)。
 // 能力不再是问卷式声明:t 上解锁什么完全由构造证据决定(见 docs-site 「能力从哪来」一节)。
 
-import type { Cleanup, DiagnosticInput, ProgressUpdate } from "../shared/types.ts";
+import type { DiagnosticInput, ProgressUpdate } from "../shared/types.ts";
 import type { StreamEvent, TraceSpan, Usage } from "../o11y/types.ts";
 import type { Sandbox } from "../sandbox/types.ts";
 
@@ -328,10 +328,12 @@ export interface AgentContext {
  * agent 自己的沙箱生命周期(每个沙箱一次,与「每轮 send」分开):
  * `setup` 装 CLI、写配置(model/base/auth 等本轮内不变的东西),`send` 只管把一轮 prompt
  * 跑起来(第一次 fresh / 后续 resume)+ 解析 transcript,`teardown` 清理。
- * 运行器在备好沙箱(上传 / 基线 / eval.setup)后、第一次 send 前调一次 `setup`;
- * `setup` 可返回 cleanup 闭包,与 `teardown` 都在 finally 跑。
+ * 运行器在备好沙箱(上传 / 基线 / eval.setup)后、第一次 send 前调一次 `setup`,不返回值;
+ * `teardown` 当且仅当本 attempt 走到过 `setup` 时点才执行(`setup` 抛错不豁免——半初始化
+ * 的现场同样要扫尾),在 finally 里跑。要把 `setup` 里创建的句柄传给 `teardown`,以
+ * `sandbox` 实例为键存取(同一个 Agent 实例服务并发 attempt,不要用实例字段或模块变量)。
  */
-export type AgentSetup = (sandbox: Sandbox, ctx: AgentContext) => Promise<void | Cleanup> | void | Cleanup;
+export type AgentSetup = (sandbox: Sandbox, ctx: AgentContext) => Promise<void> | void;
 export type AgentTeardown = (sandbox: Sandbox, ctx: AgentContext) => Promise<void> | void;
 
 /**
@@ -370,7 +372,7 @@ export interface SandboxAgentDef {
   /**
    * 每个沙箱一次(不是每轮一次):装 CLI、写 config.toml / 鉴权配置(model/base/auth 等
    * 本轮内不变的东西)。运行器在沙箱备好(上传/基线/eval.setup 之后)、第一次 send 前
-   * 调用一次。可返回一个 cleanup 闭包,与 `teardown` 一起在 finally 里跑。
+   * 调用一次,不返回值。
    */
   setup?: AgentSetup;
   /** OTLP 导出配置:沙箱里怎么让 CLI 把 trace 发到 endpoint(env / 配置文件),从 setup 拆出。 */
@@ -379,7 +381,8 @@ export interface SandboxAgentDef {
   spanMapper?: SpanMapper;
   /** 每轮一次:跑 prompt(fresh / resume)+ 解析成 events。 */
   send(input: TurnInput, ctx: AgentContext): Promise<Turn>;
-  /** 沙箱销毁前的清理(与 setup 返回的 cleanup 一起、都在 finally 里跑一次)。 */
+  /** 沙箱销毁前的清理,当且仅当本 attempt 走到过 `setup` 时点才执行(`setup` 抛错不豁免),
+   * 在 finally 里跑一次。 */
   teardown?: AgentTeardown;
 }
 
@@ -392,8 +395,7 @@ export interface RemoteAgentDef {
   /**
    * 每个 attempt 一次(remote agent 没有真实沙箱,运行器会传入一个仅含 `workdir`/`sandboxId`/
    * `otlpHost`/`stop` 等元信息的 stub `Sandbox`,其余方法调用即抛错——不要在这里调用
-   * 文件/命令类沙箱方法)。常用于建立连接、鉴权等一次性准备。可返回一个 cleanup 闭包,
-   * 与 `teardown` 都在 finally 里跑。
+   * 文件/命令类沙箱方法)。常用于建立连接、鉴权等一次性准备,不返回值。
    */
   setup?: AgentSetup;
   /** OTLP 导出配置:远程被测对象怎么把 trace 发到 endpoint(env-based 注入 / file-based 配置)。 */
@@ -402,6 +404,7 @@ export interface RemoteAgentDef {
   spanMapper?: SpanMapper;
   /** 每轮一次:把一轮 prompt 发给远程被测对象(HTTP/SDK 等),解析响应成 events。 */
   send(input: TurnInput, ctx: AgentContext): Promise<Turn>;
-  /** 运行结束前的清理(与 setup 返回的 cleanup 一起、都在 finally 里跑一次)。 */
+  /** 运行结束前的清理,当且仅当本 attempt 走到过 `setup` 时点才执行(`setup` 抛错不豁免),
+   * 在 finally 里跑一次。 */
   teardown?: AgentTeardown;
 }

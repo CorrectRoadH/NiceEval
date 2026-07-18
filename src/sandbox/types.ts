@@ -1,7 +1,7 @@
 // sandbox 域类型:Sandbox 接口、provider spec(可辨识联合)、命令与文件 IO 的形状。
 // 「在哪里跑、如何隔离」的全部契约在这里;provider 实现见本目录各文件,分发见 resolve.ts。
 
-import type { Cleanup, ScopedFeedback } from "../shared/types.ts";
+import type { ScopedFeedback } from "../shared/types.ts";
 
 export interface CommandResult {
   stdout: string;
@@ -76,15 +76,16 @@ export type SandboxRuntime = "node20" | "node24";
  * **执行顺序**:沙箱就绪 → `sandbox.setup` 钩子 → workspace 上传 / git 基线 / `eval.setup` →
  * `agent.setup` → `agent.tracing.configure` → 逐轮 `send`。`sandbox.setup` 特意排在 git
  * 基线之前——它的改动会被提交进基线,不会被误算进 agent 产出的 diff。收尾按 LIFO:
- * agent 级 cleanup / `agent.teardown` 先跑,`sandbox.teardown` 钩子最后跑(沙箱销毁前)。
+ * `agent.teardown` 先跑,`sandbox.teardown` 钩子最后跑(沙箱销毁前)。
  *
  * **多钩子**:`.setup(a).setup(b)` 按追加顺序依次执行(a 先 b 后);`.teardown(x).teardown(y)`
  * 按追加的**逆序**执行(y 先 x 后)。每次调用都返回一个新 spec(不改变原对象),可继续链式。
+ * `setup` 链中途抛错时后续 `setup` 不再执行,`teardown` 链仍完整走完。
  *
  * **失败语义**:`setup` 钩子抛错按执行错误计——与 `eval.setup` / `agent.setup` 抛错走同一条
- * 路径,不新增错误分类;但不阻断该 attempt 已进入的收尾(已跑过的 setup 返回的 cleanup、
- * `teardown` 钩子仍会在 finally 里跑)。`teardown` 钩子报错只作诊断(吞掉 / 记 log),不改变
- * 已产出的结果——与 `agent.teardown` 现状一致。
+ * 路径,不新增错误分类;但不阻断该 attempt 已进入的收尾(已挂载的 `teardown` 钩子仍会在
+ * finally 里跑)。`teardown` 钩子报错只作诊断(吞掉 / 记 log),不改变已产出的结果——与
+ * `agent.teardown` 现状一致。
  */
 export interface SandboxHooks<Self> {
   /** 已挂载的 setup 钩子,按追加顺序保存(内部读取,一般用不到)。 */
@@ -109,11 +110,12 @@ export interface SandboxHookContext extends ScopedFeedback {
   readonly signal: AbortSignal;
 }
 
-/** 沙箱级生命周期钩子(`.setup()` / `.teardown()` 链式挂载);`setup` 可返回 cleanup 闭包。 */
+/** 沙箱级生命周期钩子(`.setup()` / `.teardown()` 链式挂载);`setup` 不返回值——要把 `setup`
+ * 创建的句柄传给 `teardown`,以 `sandbox` 实例为键存取(见 {@link SandboxHooks})。 */
 export type SandboxHook = (
   sandbox: Sandbox,
   ctx: SandboxHookContext,
-) => void | Cleanup | Promise<void | Cleanup>;
+) => void | Promise<void>;
 
 /**
  * Sandbox 的「数据结构」定义 —— 与 agent 一样可带参数(见 docs/feature/sandbox/library.md)。

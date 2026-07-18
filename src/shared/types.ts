@@ -30,7 +30,12 @@ export interface SourceArtifact {
   content: string;
 }
 
-/** 通用清理闭包(setup 返回值 / teardown 的形状),异步同步皆可,统一在 finally 里执行。 */
+/**
+ * 内部收尾闭包类型:供运行器内部的清理注册表使用(如 `postSetup` 钩子内部累积待收尾动作),
+ * 不出现在任何公开的生命周期钩子签名里——`SandboxHook`/`AgentSetup`/`AgentTeardown` 等公开
+ * 钩子一律 `void | Promise<void>`,setup 不返回值,收尾靠成对的 teardown(见
+ * docs/runner.md「环境预置不进运行器,但按顺序调它」)。
+ */
 export type Cleanup = () => Promise<void> | void;
 
 /** `ScopedFeedback.progress` 的入参:此刻正在做什么(短命状态,可被后续更新覆盖)。 */

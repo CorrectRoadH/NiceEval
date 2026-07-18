@@ -32,7 +32,6 @@ import type { CapturedEvalSource } from "./eval-source.ts";
 import type {
   AgentContext,
   AgentSetupManifest,
-  Cleanup,
   Config,
   DiagnosticInput,
   DiffArtifact,
@@ -552,22 +551,21 @@ async function runAttemptBody(
     progress: feedback.progress,
     diagnostic: feedback.diagnostic,
   };
-  let agentCleanup: Cleanup | void = undefined;
   let agentDidSetup = false;
+  /** agent.setup 时点已走到(未声明 setup 也置位)——agent.teardown 的触发条件(成对触发规则)。 */
+  let agentSetupReached = false;
   /** agent.setup 写进沙箱的安装清单(装了 Skill / plugin / MCP 的沙箱型 adapter 才有)。 */
   let agentSetup: AgentSetupManifest | undefined;
-  // EvalDef.setup() 返回的 cleanup 闭包;finally 里按 LIFO 跑(见下)。
-  let evalCleanup: Cleanup | void = undefined;
+  /** eval.setup 时点已走到(分类账锚点之后;未声明 setup 也置位)——eval.teardown 的触发条件。 */
+  let evalSetupReached = false;
   // 变更分类账(仅沙箱型;workspace.baseline 阶段建立)。
   let ledger: ChangeLedger | undefined;
-  // SandboxSpec.setup() 返回的 cleanup 闭包,按调用顺序收集;finally 里 LIFO 跑(见下)。
-  const sandboxCleanups: Cleanup[] = [];
   try {
     if (usesSandbox) {
       // 沙箱级生命周期钩子(SandboxSpec.setup):环境预置层,先于 workspace 上传 / git 基线 /
       // eval.setup 跑——改动进 git 基线,不会被误算进 agent 产出的 diff。按追加顺序依次执行;
-      // 单个抛错走下面的执行错误路径(与 eval.setup / agent.setup 同一条),已跑过的 cleanup /
-      // sandbox.teardown 钩子仍在 finally 里跑(见 catch/finally)。
+      // 单个抛错走下面的执行错误路径(与 eval.setup / agent.setup 同一条),后续 setup 不再执行,
+      // sandbox.teardown 钩子链仍在 finally 里完整跑(见 catch/finally)——半初始化的沙箱同样要扫尾。
       if (sandboxSetupHooks.length > 0) {
         enterPhase("sandbox.setup");
         log(t("runner.startSandboxSetup"));
@@ -583,8 +581,17 @@ async function runAttemptBody(
         });
         if (hookNode) recorder.pushParent(hookNode);
         try {
-          const cleanup = await hook(sandbox, hookCtx);
-          if (typeof cleanup === "function") sandboxCleanups.push(cleanup);
+          // 迁移护栏:tsx 用户没有类型检查,旧式「setup 返回 cleanup」会被静默忽略——命中即报
+          // 清晰错误(attempt errored),指向成对 teardown 写法。下方 eval.setup / agent.setup 同。
+          const returned = (await hook(sandbox, hookCtx)) as unknown;
+          if (typeof returned === "function") {
+            throw new Error(
+              t("runner.setupReturnedCleanup", {
+                layer: `SandboxSpec.setup() hook #${i}`,
+                hint: "SandboxSpec.teardown(fn)",
+              }).trimEnd(),
+            );
+          }
         } catch (e) {
           if (hookNode) hookNode.failed = true;
           throw e;
@@ -601,20 +608,41 @@ async function runAttemptBody(
       ledger = await createChangeLedger(sandbox, evalDef.diff);
 
       // eval 级 setup(starter prep:npm install / 装系统依赖等)。命令默认非 root;
-      // setup 里需要 root 的(apt/pip)自己传 { root: true }。
+      // setup 里需要 root 的(apt/pip)自己传 { root: true }。时点在此走到——
+      // teardown 的触发条件是时点,不是「setup 声明且成功」(成对触发规则,见
+      // docs/runner.md「环境预置不进运行器,但按顺序调它」)。
+      evalSetupReached = true;
       if (evalDef.setup) {
         enterPhase("eval.setup");
         log(t("runner.evalSetup"));
-        evalCleanup = await evalDef.setup(withEvalLocalPaths(sandbox, evalDef.baseDir), hookCtx);
+        const returned = (await evalDef.setup(withEvalLocalPaths(sandbox, evalDef.baseDir), hookCtx)) as unknown;
+        if (typeof returned === "function") {
+          throw new Error(
+            t("runner.setupReturnedCleanup", {
+              layer: `EvalDef.setup (${evalDef.id})`,
+              hint: "EvalDef.teardown",
+            }).trimEnd(),
+          );
+        }
       }
     }
 
     // agent 自己的 lifecycle:装 CLI、写 config(每个沙箱一次,不在每轮 send 里)。
+    // 时点在此走到(未声明 setup 也算)——agent.teardown 据此触发。
+    agentSetupReached = true;
     if (run.agent.setup) {
       enterPhase("agent.setup");
       log(t("runner.startAgentSetup"));
       agentDidSetup = true;
-      agentCleanup = await run.agent.setup(sandbox, attemptCtx);
+      const returned = (await run.agent.setup(sandbox, attemptCtx)) as unknown;
+      if (typeof returned === "function") {
+        throw new Error(
+          t("runner.setupReturnedCleanup", {
+            layer: `Agent.setup (${run.agent.name})`,
+            hint: "Agent.teardown",
+          }).trimEnd(),
+        );
+      }
     }
 
     // 安装 manifest:adapter 在 setup 收尾写进沙箱的固定路径,核心只把它抬成 attempt artifact
@@ -857,16 +885,17 @@ async function runAttemptBody(
     // (不计入 durationMs 口径,见 docs/feature/results/architecture.md)。执行序与 LifecyclePhase
     // 闭集声明一致:eval.teardown → agent.teardown → sandbox.teardown;各段可独立标 failed。
     // 沙箱 stop / 接收器 close 不在这里 —— 由 runAttemptEffect 的 Scope 在本函数返回后回收,
-    // 并经 finalizer 计成 sandbox.stop。没有对应 cleanup 的段直接跳过,不产生空阶段。
-    const evalCleanupFn = typeof evalCleanup === "function" ? evalCleanup : undefined;
-    if (evalCleanupFn) {
+    // 并经 finalizer 计成 sandbox.stop。触发规则统一是「同层 setup 时点走到过」(setup / test
+    // 抛错不豁免,见 docs/runner.md「环境预置不进运行器,但按顺序调它」);没有对应 teardown
+    // 的段直接跳过,不产生空阶段。
+    if (evalSetupReached && evalDef.teardown) {
       enterPhase("eval.teardown");
       await recorder
         .measureClosing("eval.teardown", async () => {
           try {
-            // 收尾可调用体一律有界(docs/cli.md「中断:三级响应」的有界性前提):挂起的 cleanup
+            // 收尾可调用体一律有界(docs/cli.md「中断:三级响应」的有界性前提):挂起的 teardown
             // 到点按本段失败语义收束,后续段照常执行,收尾链不能无限拖住退出。下同。
-            await withCleanupTimeout(evalCleanupFn);
+            await withCleanupTimeout(() => evalDef.teardown!(withEvalLocalPaths(sandbox, evalDef.baseDir), hookCtx));
           } catch (e) {
             // 收尾失败只是 diagnostic,不改判定 —— 挂到 attempt.diagnostics(见 finally 末尾并入)。
             diagnostics.push(teardownDiagnostic("eval.teardown", e));
@@ -875,16 +904,12 @@ async function runAttemptBody(
         })
         .catch(() => {});
     }
-    const agentCleanupFn = typeof agentCleanup === "function" ? agentCleanup : undefined;
-    if (agentCleanupFn !== undefined || (agentDidSetup && run.agent.teardown !== undefined)) {
+    if (agentSetupReached && run.agent.teardown) {
       enterPhase("agent.teardown");
       await recorder
         .measureClosing("agent.teardown", async () => {
           try {
-            if (agentCleanupFn) await withCleanupTimeout(agentCleanupFn);
-            if (agentDidSetup && run.agent.teardown) {
-              await withCleanupTimeout(() => run.agent.teardown!(sandbox, attemptCtx));
-            }
+            await withCleanupTimeout(() => run.agent.teardown!(sandbox, attemptCtx));
           } catch (e) {
             diagnostics.push(teardownDiagnostic("agent.teardown", e));
             throw e;
@@ -892,34 +917,20 @@ async function runAttemptBody(
         })
         .catch(() => {});
     }
-    if (usesSandbox && (sandboxCleanups.length > 0 || sandboxTeardownHooks.length > 0)) {
+    if (usesSandbox && sandboxTeardownHooks.length > 0) {
       enterPhase("sandbox.teardown");
       await recorder
         .measureClosing("sandbox.teardown", async () => {
           const before = diagnostics.length;
-          // sandbox.setup 返回的 cleanup:LIFO(后 setup 先 cleanup)。逐钩子有界:一个挂起的
-          // 钩子不阻塞链上其余钩子拿到执行机会。
-          for (let i = sandboxCleanups.length - 1; i >= 0; i--) {
+          // sandbox.teardown 钩子:按追加的逆序执行(LIFO),沙箱销毁前最后一步。setup 链中途
+          // 抛错不影响本链完整走完——半初始化的沙箱同样要扫尾,钩子自己对未初始化状态防御。
+          // 逐钩子有界:一个挂起的钩子不阻塞链上其余钩子拿到执行机会。
+          log(t("runner.startSandboxTeardown"));
+          for (let i = sandboxTeardownHooks.length - 1; i >= 0; i--) {
             try {
-              await withCleanupTimeout(sandboxCleanups[i]);
+              await withCleanupTimeout(() => sandboxTeardownHooks[i](sandbox, hookCtx));
             } catch (e) {
               diagnostics.push(teardownDiagnostic("sandbox.teardown", e));
-            }
-          }
-          // sandbox.teardown 钩子:按追加的逆序执行,沙箱销毁前最后一步。
-          if (sandboxTeardownHooks.length > 0) {
-            log(t("runner.startSandboxTeardown"));
-            for (let i = sandboxTeardownHooks.length - 1; i >= 0; i--) {
-              try {
-                await withCleanupTimeout(async () => {
-                  const teardownCleanup = await sandboxTeardownHooks[i](sandbox, hookCtx);
-                  // SandboxHook 类型允许返回 Cleanup(与 setup 同一签名);teardown 返回的
-                  // cleanup 没有更晚的挂点,立即执行。
-                  if (typeof teardownCleanup === "function") await teardownCleanup();
-                });
-              } catch (e) {
-                diagnostics.push(teardownDiagnostic("sandbox.teardown", e));
-              }
             }
           }
           if (diagnostics.length > before) throw new Error("sandbox teardown diagnostics");

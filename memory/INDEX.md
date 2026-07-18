@@ -162,6 +162,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 
 ## 设计决定
 
+- [lifecycle-paired-teardown-replaces-cleanup-return](lifecycle-paired-teardown-replaces-cleanup-return.md) — 裁决(2026-07-18):四层生命周期统一成对 setup/teardown、setup 返回 void,否决 setup-returns-cleanup(双写法并存、setup 半途抛错丢收尾、可见性差);触发规则=同层 setup 时点走到过;attempt 层状态通道以 sandbox 实例作键(纠正「一律模块闭包」);postSetup 配对命名 preTeardown;旧写法运行时护栏报错
 - [view-out-narrowing-reversal](view-out-narrowing-reversal.md) — 裁决(2026-07-17):view 收窄(位置参数/--exp)改为管线输入,滤出有效根,页面+viewData+证据树一致收窄,`view <收窄> --out` ≡ 对收窄后的根导出;翻案旧「--out 与收窄互斥、发布收窄走 copySnapshots」;中途方案「只滤证据清单、viewData 全量」因数据仍烘进 HTML 出站被收紧;同日 `--experiment` 更名 `--exp`
 - [report-extends-and-builtin-view-collection](report-extends-and-builtin-view-collection.md) — 裁决(2026-07-17):报告级复用走 `defineReport({ extends })`(页归 base、外壳逐字段覆盖、调用时折叠),`niceeval/report/built-in` 改为具名视图集合(当前只有 `standard`,默认导出恒等于它);否决照抄唯一路径(加个 title 要抄 40 行)与页具名导出(复用单位应是整份有名字的报告);改 src 后必须 `pnpm run build:report`,exports 指向 dist
 - [eval-environment-profile-sandbox-resolver](eval-environment-profile-sandbox-resolver.md) — 裁决:Eval 只声明 provider-neutral environment profile；否决 Eval 直接绑定 template/provider。resolver 解析形态 2026-07-17 被推翻,见下条

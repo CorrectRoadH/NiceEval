@@ -108,8 +108,7 @@ setup?: AgentSetup;
 
 每个 attempt 一次(remote agent 没有真实沙箱,运行器会传入一个仅含 `workdir`/`sandboxId`/
 `otlpHost`/`stop` 等元信息的 stub `Sandbox`,其余方法调用即抛错——不要在这里调用
-文件/命令类沙箱方法)。常用于建立连接、鉴权等一次性准备。可返回一个 cleanup 闭包,
-与 `teardown` 都在 finally 里跑。
+文件/命令类沙箱方法)。常用于建立连接、鉴权等一次性准备,不返回值。
 
 #### `tracing`
 
@@ -141,7 +140,8 @@ send(input: TurnInput, ctx: AgentContext): Promise<Turn>;
 teardown?: AgentTeardown;
 ```
 
-运行结束前的清理(与 setup 返回的 cleanup 一起、都在 finally 里跑一次)。
+运行结束前的清理,当且仅当本 attempt 走到过 `setup` 时点才执行(`setup` 抛错不豁免),
+在 finally 里跑一次。
 
 ### `SandboxAgentDef`
 
@@ -169,7 +169,7 @@ setup?: AgentSetup;
 
 每个沙箱一次(不是每轮一次):装 CLI、写 config.toml / 鉴权配置(model/base/auth 等
 本轮内不变的东西)。运行器在沙箱备好(上传/基线/eval.setup 之后)、第一次 send 前
-调用一次。可返回一个 cleanup 闭包,与 `teardown` 一起在 finally 里跑。
+调用一次,不返回值。
 
 #### `tracing`
 
@@ -201,7 +201,8 @@ send(input: TurnInput, ctx: AgentContext): Promise<Turn>;
 teardown?: AgentTeardown;
 ```
 
-沙箱销毁前的清理(与 setup 返回的 cleanup 一起、都在 finally 里跑一次)。
+沙箱销毁前的清理,当且仅当本 attempt 走到过 `setup` 时点才执行(`setup` 抛错不豁免),
+在 finally 里跑一次。
 
 ### `AgentContext`
 

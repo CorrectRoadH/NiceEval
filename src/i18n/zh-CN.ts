@@ -59,8 +59,10 @@ export const zhCN = {
   "runner.budgetUnenforceable":
     "{{budgetKey}} 的 budget:连续多个 attempt 完成后都拿不到成本数据(agent 不上报用量且模型不在价格表)——该 agent 的 budget 无法执行,取消护栏继续跑。\n",
   "runner.experimentTeardownFailed":
-    "实验 {{experimentId}} 的 setup 返回的 cleanup 执行失败:{{message}}。结果不受影响,但该实验起的宿主机资源可能没有回收,请手动检查。\n",
+    "实验 {{experimentId}} 的 teardown 执行失败:{{message}}。结果不受影响,但该实验起的宿主机资源可能没有回收,请手动检查。\n",
   "runner.cleanupTimeout": "cleanup 执行超过 {{timeoutMs}}ms 清理超时\n",
+  "runner.setupReturnedCleanup":
+    "{{layer}} 返回了一个函数。setup 不承载收尾,返回值不会被执行——收尾写在同层成对的 teardown 里({{hint}});见 docs-site 的实验教程或 docs/runner.md「环境预置」。\n",
   "runner.experimentTeardownLate":
     "实验 {{experimentId}} 的 teardown 未被正常计数路径触发,已在运行收尾兜底执行。结果不受影响;这行出现说明命中了一个未定位的调度间歇问题,请把本次运行信息记入 memory 台账。\n",
   "judge.modelMissing":
@@ -157,7 +159,7 @@ export const zhCN = {
   "define.evalTestRequired": "defineEval 需要一个 async test(t) 函数。",
   "define.experimentAgentRequired": "defineExperiment 需要 agent。",
   "define.experimentFlagNotJson": "experiment.flags.{{key}} 不是可 JSON 序列化的值(函数 / undefined / 循环引用 / bigint 不允许);flags 会原样进入结果快照,必须是纯 JSON。",
-  "define.experimentSetupNotFunction": "experiment.setup 必须是函数((ctx) => void | cleanup);要按实验准备沙箱内环境请挂 sandbox spec 的 .setup() 钩子链。",
+  "define.experimentSetupNotFunction": "experiment.setup 必须是函数((ctx) => void);要清理请挂 experiment.teardown;要按实验准备沙箱内环境请挂 sandbox spec 的 .setup() 钩子链。",
   "define.experimentIdRejected": "defineExperiment 不接受 id —— id 由文件路径推导。",
   "define.sandboxAgentNameRequired": "defineSandboxAgent 需要 name。",
   "define.sandboxCreateRequired": "defineSandbox 需要一个 create() 函数。",

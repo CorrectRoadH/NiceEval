@@ -106,14 +106,27 @@ gitignore 风格 glob(workdir 相对)。默认排除 .git/node_modules/构建产
 #### `setup`
 
 ```ts
-setup?: (sandbox: Sandbox, ctx: SandboxHookContext) => Promise<void | Cleanup> | void | Cleanup;
+setup?: (sandbox: Sandbox, ctx: SandboxHookContext) => Promise<void> | void;
 ```
 
 eval 级预置:拿到沙箱(已上传 workspace + git 基线 + 装好依赖前)。
 默认命令以非 root 跑(agent 的自然环境);装系统依赖时给 `runCommand` 传 `{ root: true }`
 (如 `runCommand("apt-get", ["install", …], { root: true })`),跨 provider 语义一致。
 第二个参数是绑定到 `eval.setup` 的窄上下文(`ctx.progress` / `ctx.diagnostic`,
-见 docs/feature/eval/README.md);可返回 cleanup 闭包,归因到 `eval.teardown`。
+见 docs/feature/eval/README.md)。setup 不返回值;要把产物传给 teardown,
+以 `sandbox` 实例作键存取(并发 attempt 共享同一模块,普通模块变量会互相覆写)。
+
+#### `teardown`
+
+```ts
+teardown?: (sandbox: Sandbox, ctx: SandboxHookContext) => Promise<void> | void;
+```
+
+eval 级收尾:attempt 收尾链的第一段(`eval.teardown` → `agent.teardown` →
+`sandbox.teardown`),沙箱此刻还活着。当且仅当 `eval.setup` 时点走到过才执行——
+`setup` / `test` 抛错都不豁免,未声明 `setup` 不影响触发;抛错或超 30s 清理上限
+只记 `teardown-failed` 诊断,不改判定。管沙箱外的临时夹具(临时 repo / bucket),
+沙箱内的东西随销毁自动回收、不需要它。
 
 #### `test`
 

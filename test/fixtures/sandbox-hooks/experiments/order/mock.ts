@@ -5,7 +5,7 @@ import { createFakeSandbox } from "../../lib/fake-sandbox.ts";
 import { logEvent } from "../../lib/log.ts";
 
 // 全序回归:sandbox.setup(a,b) → eval 主体驱动的 agent.setup → send → agent.teardown →
-// sandbox.setup 返回的 cleanup(LIFO)→ sandbox.teardown(x,y 逆序 = y 先 x 后)。
+// sandbox.teardown(x,y 按注册序追加、执行时逆序 = y 先 x 后,LIFO)。
 // 每个钩子把 ctx.experimentId 一并记下,顺带验证它在同一 attempt 内处处一致、非空。
 const sandbox = defineSandbox({
   name: "fake-order",
@@ -13,9 +13,6 @@ const sandbox = defineSandbox({
 })
   .setup(async (_sb, ctx) => {
     await logEvent("sandbox:setup:a", ctx.experimentId);
-    return async () => {
-      await logEvent("sandbox:cleanup:a", ctx.experimentId);
-    };
   })
   .setup(async (_sb, ctx) => {
     await logEvent("sandbox:setup:b", ctx.experimentId);
