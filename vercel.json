@@ -13,11 +13,11 @@
   "rewrites": [
     {
       "source": "/docs",
-      "destination": "https://fasteval.mintlify.site/docs"
+      "destination": "niceeval.mintlify.site"
     },
     {
       "source": "/docs/:match*",
-      "destination": "https://fasteval.mintlify.site/docs/:match*"
+      "destination": "niceeval.mintlify.site/:match*"
     },
     {
       "source": "/showcase/memory",
