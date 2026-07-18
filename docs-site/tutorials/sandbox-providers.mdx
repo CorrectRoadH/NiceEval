@@ -131,7 +131,7 @@ const sandbox = e2bSandbox({ template: "niceeval-agents" })
 
 Neither `progress` nor `diagnostic` can pick a global phase, a color, or an output stream. The runner knows the current callback belongs to `sandbox.setup` and shows the phase as sandbox setup in the human terminal. A `diagnostic` is written into `result.json` with the attempt and can be reviewed later with `niceeval show @<locator>`; it does not change the verdict by itself. If the environment cannot continue, throw.
 
-How this divides up against the other two setups: the Adapter's `setup` handles "how to connect to the agent under test" (install the CLI, write auth config); the code at the top of `test(t)` in an eval handles "which starting files this task needs"; the Sandbox's `.setup()` handles "what else this experiment's environment needs installed". The three layers are written separately and know nothing about each other's content. MCP servers, skills, and the model — the configuration of the agent under test — still only come in through the Adapter factory arguments. Environment hooks do not do the Adapter's job.
+Each of the three setups has its own job: the Adapter's `setup` handles connecting to the agent under test — for example, installing the CLI and writing auth config; the code at the top of `test(t)` in an eval prepares the task's starting files; the Sandbox's `.setup()` handles the current experiment's extra environment setup. MCP servers, skills, and the model — the configuration of the agent under test — still only come in through the Adapter factory arguments.
 
 ## Prebuilt environments and runtime checkpoints
 

@@ -57,8 +57,8 @@ See [Write Experiments](/tutorials/write-experiment) for the full `defineExperim
 
 - Comparing different Adapters
 - Comparing different models. Tier 1 is enough as long as the application exposes model choice and the value is forwarded through `ctx.model`
-- Comparing prompts or feature flags. This usually needs Tier 3, because the application has to expose the variant as an experiment-selectable config and forward it through `flags` -> `ctx.flags`
-- Comparing different sandbox providers
+- Comparing prompts or feature flags. This requires Tier 3, because the application has to expose the variant as an experiment-selectable config and forward it through `flags` -> `ctx.flags`
+- Comparing different Sandbox providers
 - Comparing different runtime environment conditions (for example, whether a memory tool's binary is installed, or whether some state is pre-seeded). Write the environment difference into the `.setup()` / `.teardown()` hooks of the `sandbox` spec, one experiment file per variant. See [Sandbox providers · Lifecycle](/tutorials/sandbox-providers)
 - Measuring pass@N for the same task
 

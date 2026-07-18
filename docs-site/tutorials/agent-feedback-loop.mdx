@@ -1,14 +1,14 @@
 ---
-title: "Let AI write evals and iterate on its own"
-sidebarTitle: "Agent Feedback Loop"
-description: "Let a coding agent read the bundled docs, run experiments and drill into results with bash, locate failures, and keep iterating — then confirm convergence with one full rerun at the end."
+title: "Write evals and iterate on your program with a coding agent"
+sidebarTitle: "Coding Agent Feedback Loop"
+description: "Let a coding agent read the bundled docs, use bash to run experiments, view results, and locate failures — keep iterating, then confirm with one full rerun at the end."
 ---
 
-A coding agent can independently handle two kinds of work: writing NiceEval configuration and evals from a spec, and improving the system under test based on run results. The whole loop only needs repo files and bash — no browser, and no extra skill to install.
+A coding agent can write NiceEval configuration and evals from a spec, and can also keep improving the system under test based on run results. The whole process only needs repo files and bash — no browser, and no extra skill to install.
 
 ## Point the agent at the installed docs first
 
-NiceEval ships its Chinese docs under the npm package's `docs-site/zh/` directory, and publishes an AI-only `INDEX.md` at the package root. The agent should read `node_modules/niceeval/INDEX.md` first, then follow the index into whichever page the current task needs — not rely on training data or some other version of the examples found online. That keeps the API, CLI, and docs pinned to the installed version; reorganizing the docs only ever requires updating the bundled index.
+NiceEval ships its Chinese docs under the npm package's `docs-site/zh/` directory, and publishes an `INDEX.md` at the package root for a coding agent to use. The agent should read `node_modules/niceeval/INDEX.md` first, then follow the index into whichever page the current task needs — not rely on training data or some other version of the examples found online. That keeps the API and CLI pinned to the installed version.
 
 `npx niceeval init` scaffolds the config and writes a managed block of guidance into the project's `AGENTS.md`. If the project only has a `CLAUDE.md`, it writes there instead; when neither file exists, it creates a new `AGENTS.md`. Running `init` again after upgrading NiceEval refreshes the managed block.
 
@@ -29,12 +29,12 @@ An agent typically picks these entry points by task:
 | Write an eval | `docs-site/zh/explanation/evals.mdx` |
 | Define an experiment | `docs-site/zh/tutorials/write-experiment.mdx` |
 | Connect the agent under test | `docs-site/zh/explanation/adapter.mdx` |
-| Configure a sandbox | `docs-site/zh/tutorials/sandbox-agent.mdx` |
+| Configure a Sandbox | `docs-site/zh/tutorials/sandbox-agent.mdx` |
 | Interpret run results | `docs-site/zh/tutorials/viewing-results.mdx` |
 
 ## Closing one feedback loop with bash
 
-The goal of the loop isn't to make a command exit green — it's to form and verify a hypothesis: does the failure come from the system under test, the eval itself, or the runtime environment? Iterate in the order below.
+The goal of the loop isn't to make a command exit green — it's to form and verify a hypothesis about where the failure comes from: the system under test, the eval itself, or the runtime environment. Iterate in the order below.
 
 <Steps>
   <Step title="Run the experiment">
@@ -60,7 +60,7 @@ The goal of the loop isn't to make a command exit green — it's to form and ver
 
     `--execution` merges the agent's output with the trace: the standard event stream supplies messages, thinking, tool call/result, and skill loads; OTel, when it can be correlated, adds start time, duration, parent/child relationships, and error status onto those same nodes. Without OTel the steps are still complete — they just carry no timing.
 
-    With no evidence flag, `show @<id>` is the failure diagnosis front page. It first lists each failed assertion's group, matcher, expected value, received value, reason, and source location, then a summary of execution and file changes. The agent should read this page first, and only open the matching evidence when it needs to answer "why was this value produced".
+    With no evidence flag, `show @<id>` is the failure diagnosis front page. It first lists each failed assertion's group, matcher, expected value, received value, reason, and source location, then a summary of execution, lifecycle-stage timing, and file changes. The agent should read this page first, and only open the matching evidence when it needs to answer "why was this value produced".
 
     ```text
     $ niceeval show @1k2m9qtr
@@ -90,20 +90,16 @@ The goal of the loop isn't to make a command exit green — it's to form and ver
         source: evals/memory/swelancer-manager-proposals.eval.ts:40:11
 
     execution: 3 events · 0 skill loads · 0 tool calls · 1 AI messages
-    timing: OTel spans recorded for this attempt — see --execution for per-step timing.
-    agent run                     ▕████████████████████▏ 41.2s
-    ├─ inference                  ▕█████░░░░░░░░░░░░░░░▏ 10.1s · "Brooklyn is about 24°C and clear today."
-    ├─ inference                  ▕░░░░░█████████░░░░░░▏ 18.3s
-    └─ inference                  ▕░░░░░░░░░░░░░░██████▏ 12.4s
-    no tool calls
+    timing: eval.run 40.4s · scoring.evaluate 0.5s · teardown +0.2s
 
     changes · diff unavailable
     reason: this attempt did not produce workspace file changes
 
-    full eval source: …/weather/brooklyn/a2/eval-source.ts
+    full eval source: …/weather/brooklyn/a2/sources.json
     available:
       niceeval show @1k2m9qtr --eval
       niceeval show @1k2m9qtr --execution
+      niceeval show @1k2m9qtr --timing
     ```
 
     `--execution` lays out AI messages, skill loads, tool calls, and tool results as one execution tree. It only shows events an agent can make sense of; SDK / runtime spans that correlate to none of those events are not printed line by line — only their omitted count is reported, and the `trace.json` path is kept. The attempt below has OTel, so the nodes that could be correlated carry both relative time and duration:
@@ -158,7 +154,7 @@ The goal of the loop isn't to make a command exit green — it's to form and ver
     full events: …/weather/brooklyn/a2/events.json
     ```
 
-    A diff is the file changes the tested agent made in the sandbox workspace, not a diff of the eval source itself. Only sandbox evals collect a diff — for a non-sandbox eval, or when the agent genuinely touched no files, the attempt page's `available:` list omits `--diff`. It defaults to a file-level summary, so a large patch doesn't get dumped straight into the agent's context; `--diff=<file>` expands a single file, and the raw artifact path is always kept alongside it:
+    A diff is the file changes the tested agent made in the Sandbox workspace, not a diff of the eval source itself. Only Sandbox evals collect a diff — for a non-Sandbox eval, or when the agent genuinely touched no files, the attempt page's `available:` list omits `--diff`. It defaults to a file-level summary, so a large patch doesn't get dumped straight into the agent's context; `--diff=<file>` expands a single file, and the raw artifact path is always kept alongside it:
 
     ```text
     $ niceeval show @1c3h6tbn --diff
@@ -176,10 +172,11 @@ The goal of the loop isn't to make a command exit green — it's to form and ver
 
     | Question you're trying to answer | Entry point | Output must include |
     | --- | --- | --- |
-    | Quickly tell what happened in one attempt | `niceeval show @<id>` | Eval assertions, execution steps, optional OTel timing, a diff summary, and which blocks are available |
+    | Quickly tell what happened in one attempt | `niceeval show @<id>` | Eval assertions, execution steps, a lifecycle-stage timing summary, a diff summary, and which blocks are available |
     | What the eval actually checked, and why a given gate/soft passed or failed | `niceeval show @<id> --eval` | The eval source at run time, its source hash, the line each assertion sits on, severity, score, and reason |
     | What the agent did, what it called, where the time went | `niceeval show @<id> --execution` | Messages, thinking, skill loads, tool calls and results; with OTel, timing, parent/child relationships, and error status on the same nodes |
-    | What the sandbox workspace's files turned into | `niceeval show @<id> --diff` | A file summary, added/removed line counts, the actual patch, and the original diff path; explicitly unavailable when there's no file workspace |
+    | How an attempt's time breaks down phase by phase | `niceeval show @<id> --timing` | A unified time tree from lifecycle → hook/turn → shell → OTel; an errored attempt marks the deepest known failing node |
+    | What the Sandbox workspace's files turned into | `niceeval show @<id> --diff` | A file summary, added/removed line counts, the actual patch, and the original diff path; explicitly unavailable when there's no file workspace |
   </Step>
   <Step title="Form a hypothesis, then fix">
     Based on the evidence, change only the side that's most likely at fault:
@@ -188,8 +185,8 @@ The goal of the loop isn't to make a command exit green — it's to form and ver
     | --- | --- |
     | The reply or tool call doesn't match the spec | The system under test, its prompt, its tool definitions |
     | The `diff` doesn't match what the task asked for | The tested agent's implementation strategy, or its runtime environment |
-    | Correct behavior gets rejected by a gate | The eval's assertions, fixtures, setup |
-    | Timeout, auth, or sandbox errors | Experiment configuration, the adapter, the sandbox |
+    | Correct behavior gets rejected by a gate | The eval's assertions, Fixtures, setup |
+    | Timeout, auth, or Sandbox errors | Experiment configuration, the Adapter, the Sandbox |
     | The same eval passes sometimes and fails other times | `--history`, `runs`, and stability issues |
 
     Don't loosen a correct assertion just to turn it green. Write down which evidence supports which conclusion before touching the code.
@@ -229,7 +226,7 @@ next:
   niceeval show @1k2m9qtr --execution
 ```
 
-The agent should pick an attempt locator from `failures`, then run one of the `next` commands (`niceeval show @<id>` or the matching evidence flag) — not parse the low-frequency checkpoint lines on stderr while the run is in flight; those only signal that the process is still alive. When the failure count exceeds the cap (5 by default), the handoff expands only the first few and reports the total; the results snapshot has the full list. When something needs to read the results programmatically, the results snapshot is the source of truth:
+The agent should pick an attempt locator from `failures`, then run one of the `next` commands (`niceeval show @<id>` or the matching evidence flag) — not parse the low-frequency checkpoint lines on stderr while the run is in flight; those only signal that the process is still alive. When the failure count exceeds the cap (5 by default), the handoff expands only the first few and reports the total; the full list comes from the results snapshot. The results snapshot is the source of truth for programmatic reading:
 
 ```text
 .niceeval/<experiment>/<snapshot>/
@@ -243,14 +240,14 @@ The agent should pick an attempt locator from `failures`, then run one of the `n
 
 - `snapshot.json` records the experiment's identity, run configuration, format version, and timestamp.
 - `result.json` records that attempt's verdict, assertions, structured errors, diagnostics, and usage. Transient progress is never persisted.
-- `events.json` holds the conversation and tool-call events, `trace.json` holds the call chain, and `diff.json` holds sandbox file changes.
+- `events.json` holds the conversation and tool-call events, `trace.json` holds the call chain, and `diff.json` holds Sandbox file changes.
 - When a kind of evidence doesn't exist, the corresponding file simply isn't generated. Trust what `show` reports as available rather than assuming every directory has every file.
 
-`show`'s default view can be composed from multiple runs: it picks the latest verdict per experiment × eval, so after a local rerun you'll still see other evals' older results sitting alongside it. It's the right tool for answering "what's the currently known state" — only a full `--force` run can answer "does this exact version of the code pass as a whole."
+`show`'s default view can be composed from multiple runs: it picks the latest verdict per experiment × eval, so after a local rerun you'll still see other evals' older results sitting alongside it. This view is for checking each eval's latest known verdict; confirming the overall result for one exact version of the code always requires a `--force` full run.
 
 ## When results get reused
 
-Without `--force`, NiceEval compares the current fingerprint against the most recent result. The fingerprint is made of the eval's source and the run configuration — experiment id, agent, model, flags, sandbox, timeout, strict, and similar settings.
+Without `--force`, NiceEval compares the current fingerprint against the most recent result. The fingerprint is made of the eval's source and the run configuration — experiment id, agent, model, flags, Sandbox, timeout, strict, and similar settings.
 
 | Most recent result vs. current input | This run's behavior |
 | --- | --- |
@@ -275,9 +272,12 @@ Read node_modules/niceeval/INDEX.md, then follow the index to read whatever
 docs relate to the task.
 Run npx niceeval exp local --output agent, and decide the next step from the
 exit code and the failure locators. For every failing eval, pick an attempt
-locator from the report; then run niceeval show @<id> and choose the default
-eval-source view, --execution, or --diff depending on the question you're
-asking. Write down a hypothesis for the failure, and decide whether to fix
+locator from the report; then run niceeval show @<id> and choose --eval,
+--execution, --timing, or --diff depending on the question you're asking;
+--timing expands the lifecycle into setup/teardown hooks, shell commands,
+each turn's send, and correlated OTel model/tool spans, to answer where an
+attempt's time went.
+Write down a hypothesis for the failure, and decide whether to fix
 the system under test, the eval, or the experiment environment. After fixing,
 rerun the affected eval with --force and compare the new verdict and evidence.
 If the same problem produces no new evidence or improvement for three rounds
@@ -289,4 +289,4 @@ npx niceeval exp local --output agent --force; only exit code 0 counts as done.
 
 Running a real agent can cost money. During experimentation, add `--budget <dollars>` to cap this round's cumulative spend; a budget only bounds a single command — it's not a substitute for the stop condition above.
 
-A person and an agent can hand off the same round of work to each other at any point. The results an agent reads with `niceeval show`, a person can open in the browser with `npx niceeval view` — both read the same batch of artifacts. The full output formats, history selection, and web UI walkthrough are in [Viewing Results](/guides/viewing-results).
+A person and an agent can hand off the same round of work to each other at any point. The results an agent reads with `niceeval show`, a person can open in the browser with `npx niceeval view` — both read the same batch of artifacts. The full output formats, history selection, and web UI walkthrough are in [Viewing Results](/tutorials/viewing-results).
