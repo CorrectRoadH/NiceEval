@@ -65,15 +65,19 @@ for (const id of EXPECTED_EVALS) {
 const locator = latestAttemptLine("weather/brooklyn").match(/@\S+/)![0];
 ```
 
-## 用例四：`show --execution`——调用都存在，OTel 记录可见
+## 用例四：`show --execution`——调用与入参都存在，OTel 记录可见
 
-执行树是「适配器收到了什么」的用户可见投影：判分断言过的调用应全部以节点出现；OTel 期望以时间注释的展示形态核验：
+执行树是「适配器收到了什么」的用户可见投影：判分断言过的调用应全部以节点出现，TOOL 卡片的 `input` 块含断言过的入参值——名字和参数都要穿到展示面；OTel 期望以时间注释的展示形态核验。（入参的判分断言在 Eval 里连名带参写：`t.calledTool("mcp__demo-tools__get_weather", { input: { city: "Brooklyn" } })`，见[适配器域](adapters/README.md)。）
 
 ```ts
 const execution = sh(`pnpm exec niceeval show ${locator} --execution`);
 assert.ok(
   execution.includes("mcp__demo-tools__get_weather"),
   "执行树缺少 MCP 调用节点——调用没被归一进事件流，或 show 执行树读不回",
+);
+assert.ok(
+  execution.includes("Brooklyn"),
+  "TOOL 卡片的 input 里没有出现入参 Brooklyn——入参在归一或展示链路上被丢弃/改写",
 );
 
 // 声明 tracing 面的仓库：调用记录到了 OTel，展示上就是节点带时间注释
