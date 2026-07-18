@@ -73,12 +73,34 @@ export default defineExperiment({
 
 规则一览：
 
-- **签名**：钩子函数是 `(sandbox, ctx)`；`setup` 可以返回一个清理函数。这里的 `ctx` 是窄的 Sandbox Hook Context，只有 experiment 身份、取消信号和反馈方法，不带 Agent 会话或 telemetry。
+- **签名**：钩子函数是 `(sandbox, ctx)`，不返回值。这里的 `ctx` 是窄的 Sandbox Hook Context，只有 experiment 身份、取消信号和反馈方法，不带 Agent 会话或 telemetry。
 - **不可变**：每次 `.setup()` / `.teardown()` 都返回一个新 spec，原对象不变，可以继续链。
-- **多个钩子**：多个 `.setup()` 按追加顺序执行；多个 `.teardown()` 按追加的逆序执行。
+- **多个钩子**：多个 `.setup()` 按追加顺序执行；多个 `.teardown()` 按追加的逆序执行（LIFO）；`.setup()` 链中途抛错时后续 `.setup()` 不再执行，`.teardown()` 链仍完整走完——半初始化的沙箱同样要扫尾。
 - **执行时机**：`setup` 钩子在 sandbox 创建后、git 基线之前最先跑——它写下的文件会进基线，不会被算进 agent 产出的 diff；`teardown` 钩子在 Adapter 的 `teardown` 之后、sandbox 销毁之前最后跑——把状态回存到外部正好用这个时机。
+- **触发规则**：`teardown` 当且仅当同一沙箱的 `setup` 时点已经走到才执行——`setup` 抛错不豁免，收尾代码要对可能未赋值的句柄做防御；`setup` 没跑到（沙箱没创建成功）则 `teardown` 同样跳过。
 - **失败语义**：`setup` 钩子抛错，这次 Attempt 记为 `errored`（环境问题，不是 Agent 做错题）；`teardown` 钩子可以报告 diagnostic，默认不改变已经得到的判定。某个收尾动作是结果成立的必要条件时应抛错，由 runner 明确记录为致命错误。
 - **不带 sandbox 的 Agent**：`defineAgent` 构造的 Agent 没有 sandbox，`sandbox` 字段对它不生效，钩子自然不会跑。
+
+### 把 setup 的产物传给 teardown
+
+`setup` 不返回值，`teardown` 要用 `setup` 建立的句柄（一个已打开的连接、一个临时文件路径）时不能存进普通模块变量——同一个 spec 被多个并发 Attempt 复用同一个模块，模块变量会被后来的 Attempt 互相覆写。以 `sandbox` 实例作键存取：每个 Attempt 有自己独立的 `sandbox`，是天然的 per-attempt 键：
+
+```ts
+import type { Sandbox } from "niceeval/sandbox";
+
+// 并发 Attempt 各有自己的 sandbox：句柄按 sandbox 键控，不用普通模块变量
+const forwarders = new WeakMap<Sandbox, { stop(): Promise<void> }>();
+
+const spec = e2bSandbox({ template: "niceeval-agents" })
+  .setup(async (sandbox, ctx) => {
+    forwarders.set(sandbox, await startLogForwarder(sandbox, { signal: ctx.signal }));
+  })
+  .teardown(async (sandbox) => {
+    await forwarders.get(sandbox)?.stop(); // setup 抛错也会进来：get 不到就跳过
+  });
+```
+
+「载入 / 回存」这类收尾不需要 setup → teardown 句柄：状态键是 `ctx.experimentId` 的外部 KV，普通代码即可，见下段。
 
 钩子里可以用 `ctx.experimentId`（路径推导的实验 id）当状态隔离的键，比如不同实验各自维护一份跨 attempt 的缓存。跨 attempt 状态的载入和回存是你自己在钩子里写的普通代码——[NiceEval](https://niceeval.com/) 不提供状态存储；要保证同一实验的 attempt 不并发读写同一份状态，在 experiment 上声明 `maxConcurrency: 1`。
 

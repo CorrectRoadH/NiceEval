@@ -1,7 +1,7 @@
 ---
 title: "编写 Eval: 单轮、多轮和数据集模式"
 sidebarTitle: "编写 eval"
-description: "用 defineEval 编写 NiceEval Eval，包括单轮断言、多轮对话、数据驱动测试和 sandbox workspace。"
+description: "用 defineEval 编写 NiceEval Eval，包括单轮断言、多轮对话、数据驱动测试、sandbox workspace 和 setup / teardown 任务夹具。"
 ---
 
 每个 [NiceEval](https://niceeval.com/) eval 都是一个 TypeScript 文件，默认导出 `defineEval(...)`。核心原则是：**路径即身份**、**一个文件一个 eval**、**线性书写并就地断言**。
@@ -139,6 +139,38 @@ export default defineEval({
 ```
 
 `progress` 只更新运行中的短期状态，不进入结果。`diagnostic` 会写进当前 Attempt 的 `result.json`，但不会代替断言或自动改变判定：业务结论仍用 `t.check` / `t.require` / gate；基础设施无法继续时抛出异常。
+
+## setup 与 teardown：任务夹具的起与收
+
+`setup(sandbox, ctx)` 准备 fixture；配一个 `teardown(sandbox, ctx)` 收尾，两者合起来是这条 eval 的任务夹具，每个 Attempt 各执行一次。执行顺序：`setup` 在沙箱环境钩子和 git 基线锚点之后、`test(t)` 之前跑；`teardown` 是 Attempt 收尾链的第一段（先 eval teardown，再 agent teardown，最后 sandbox teardown），这时沙箱还活着，收尾代码可以照常读沙箱。
+
+大多数 fixture 不需要 `teardown`——写进沙箱的起始文件、装的依赖随沙箱销毁自动没了。需要 `teardown` 的是**沙箱外**的夹具：在共享外部服务里为这个 Attempt 建的临时资源（临时 repo、bucket、队列 topic），不收就泄漏。
+
+同一条 eval 的多个 Attempt（`runs` 大于 1、或同批多个实验跑同一条 eval）并发执行且共享同一个模块，`setup` 的句柄不能放进普通模块变量——会被后一个并发 Attempt 覆写。以 `sandbox` 实例作键存取（`WeakMap`）：sandbox 与 Attempt 一一对应，天然是 per-attempt 键：
+
+```ts
+// evals/pr-review/close-stale.eval.ts
+import { defineEval } from "niceeval";
+import type { Sandbox } from "niceeval/sandbox";
+
+// 并发 Attempt 共享本模块：句柄按 sandbox 键控，不用普通模块变量
+const fixtures = new WeakMap<Sandbox, { repoUrl: string; destroy(): Promise<void> }>();
+
+export default defineEval({
+  async setup(sandbox, ctx) {
+    ctx.progress({ message: "seeding fixture repo" });
+    const fixture = await createFixtureRepo("pr-review/close-stale"); // 沙箱外的临时资源
+    fixtures.set(sandbox, fixture);
+    await sandbox.runCommand("git", ["clone", fixture.repoUrl, "workspace"]);
+  },
+  async teardown(sandbox) {
+    await fixtures.get(sandbox)?.destroy(); // setup 抛错也会进来：没建成就跳过
+  },
+  async test(t) { /* 驱动 agent 清理 stale PR，断言 */ },
+});
+```
+
+`teardown` 当且仅当这条 Attempt 走到过 `setup` 的时点才执行——`setup` 抛错不豁免，收尾代码要对可能没建成的资源做防御。`teardown` 抛错或超过 30 秒清理上限只记 `teardown-failed` 诊断，不改变这个 Attempt 已经产出的判定；要让某个收尾动作影响结论，在 `setup` / `test` 里抛错，不要指望 `teardown` 能改判。
 
 ## 命名约定
 
