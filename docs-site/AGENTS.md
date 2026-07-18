@@ -5,11 +5,13 @@
 ## 目录结构
 
 - `docs.json`：Mintlify 导航、主题、logo、navbar、redirects。
-- 顶层 `*.mdx`：英文入口页，例如 introduction、quickstart、installation。
-- `concepts/`：英文核心概念页，解释心智模型。
-- `guides/`：英文任务指南，按工作流组织。
-- `reference/`：英文 API / CLI 参考，列完整字段和选项。
-- `zh/`：中文文档。Tutorial 与 How-to 页面统一放在 `tutorials/`，其余按 Explanation、Reference 和 Troubleshooting 分区，具体边界见 `zh/README.md`。中文定位、概念命名和场景示例是公开叙事的准绳；英文页或 README 与中文冲突时，先按中文和当前代码核对，再同步其它入口。
+- 顶层 `*.mdx`：英文入口页，例如 `index`、`introduction`。
+- `tutorials/`：英文 Tutorial 与 How-to 页，按工作流组织，镜像 `zh/tutorials/`；`troubleshooting/` 在导航里合并进这一标签页。
+- `troubleshooting/`：英文按症状组织的排障页，镜像 `zh/troubleshooting/`。
+- `explanation/`：英文核心概念页，解释心智模型和执行原理，镜像 `zh/explanation/`。
+- `reference/`：英文 API / CLI 参考，列完整字段和选项，镜像 `zh/reference/`。
+- `examples/`：英文可运行示例入口，镜像 `zh/examples/`。
+- `zh/`：中文文档，是英文各目录的翻译源头。Tutorial 与 How-to 页面统一放在 `tutorials/`，其余按 Explanation、Reference 和 Troubleshooting 分区，具体边界见 `zh/README.md`。中文定位、概念命名和场景示例是公开叙事的准绳；英文页只在 `zh/` 对应页更新后同步翻译，英文版本由其它 AI 翻译，不在英文侧单独定稿内容或结构。
 
 ## 术语表
 

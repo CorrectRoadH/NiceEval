@@ -26,7 +26,7 @@
 
 Tutorial 和 How-to 在中文站统一放进 `zh/tutorials/`，并共用 `Tutorials` 标签。目录合并不改变两种页面的写作边界。
 
-英文目录仍使用 `quickstart`、`guides/*` 和 `concepts/*`。中文是公开叙事的准绳，英文后续按中文结构翻译和同步。
+英文目录镜像同一套映射(`tutorials/*`、`explanation/*`、`reference/*`、`troubleshooting/*`、`examples/*`)。中文是公开叙事的准绳，`zh/` 改动后按此结构翻译同步英文。
 
 ## 每种类型的典型越界(写之前自查)
 

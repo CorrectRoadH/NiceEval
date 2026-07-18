@@ -26,7 +26,7 @@
   "redirects": [
     {
       "source": "/guides/sandbox-backends",
-      "destination": "/guides/sandbox-providers"
+      "destination": "/tutorials/sandbox-providers"
     },
     {
       "source": "/zh/guides/sandbox-backends",
@@ -34,19 +34,19 @@
     },
     {
       "source": "/concepts/scoring",
-      "destination": "/concepts/assert"
+      "destination": "/explanation/assert"
     },
     {
       "source": "/concepts/agents-adapters",
-      "destination": "/concepts/adapter"
+      "destination": "/explanation/adapter"
     },
     {
       "source": "/guides/connect-agent",
-      "destination": "/guides/connect-your-agent"
+      "destination": "/tutorials/connect-your-agent"
     },
     {
       "source": "/concepts/write-send",
-      "destination": "/guides/write-send"
+      "destination": "/tutorials/write-send"
     },
     {
       "source": "/zh/concepts/scoring",
@@ -307,6 +307,178 @@
     {
       "source": "/zh/example/tier1-pi-sdk",
       "destination": "/zh/examples/integrations/pi-sdk"
+    },
+    {
+      "source": "/example/eval-multil-turn-for-your-agent",
+      "destination": "/explanation/drive"
+    },
+    {
+      "source": "/quickstart",
+      "destination": "/tutorials/quickstart"
+    },
+    {
+      "source": "/concepts/overview",
+      "destination": "/explanation/overview"
+    },
+    {
+      "source": "/concepts/evals",
+      "destination": "/explanation/evals"
+    },
+    {
+      "source": "/concepts/experiment",
+      "destination": "/explanation/experiment"
+    },
+    {
+      "source": "/concepts/adapter",
+      "destination": "/explanation/adapter"
+    },
+    {
+      "source": "/concepts/tier",
+      "destination": "/explanation/tier"
+    },
+    {
+      "source": "/concepts/drive",
+      "destination": "/explanation/drive"
+    },
+    {
+      "source": "/concepts/hitl",
+      "destination": "/explanation/hitl"
+    },
+    {
+      "source": "/concepts/assert",
+      "destination": "/explanation/assert"
+    },
+    {
+      "source": "/concepts/judge",
+      "destination": "/explanation/judge"
+    },
+    {
+      "source": "/guides/connect-your-agent",
+      "destination": "/tutorials/connect-your-agent"
+    },
+    {
+      "source": "/guides/official-adapters",
+      "destination": "/reference/official-adapters"
+    },
+    {
+      "source": "/guides/write-send",
+      "destination": "/tutorials/write-send"
+    },
+    {
+      "source": "/guides/connect-otel",
+      "destination": "/tutorials/connect-otel"
+    },
+    {
+      "source": "/guides/sandbox-agent",
+      "destination": "/tutorials/sandbox-agent"
+    },
+    {
+      "source": "/guides/sandbox-providers",
+      "destination": "/tutorials/sandbox-providers"
+    },
+    {
+      "source": "/guides/authoring",
+      "destination": "/tutorials/authoring"
+    },
+    {
+      "source": "/guides/write-experiment",
+      "destination": "/tutorials/write-experiment"
+    },
+    {
+      "source": "/guides/experiments",
+      "destination": "/tutorials/experiments"
+    },
+    {
+      "source": "/guides/fixtures",
+      "destination": "/tutorials/fixtures"
+    },
+    {
+      "source": "/guides/dataset-fanout",
+      "destination": "/tutorials/dataset-fanout"
+    },
+    {
+      "source": "/guides/scoring-guide",
+      "destination": "/tutorials/scoring-guide"
+    },
+    {
+      "source": "/guides/runner",
+      "destination": "/explanation/runner"
+    },
+    {
+      "source": "/guides/ci-integration",
+      "destination": "/tutorials/ci-integration"
+    },
+    {
+      "source": "/guides/reporters",
+      "destination": "/tutorials/reporters"
+    },
+    {
+      "source": "/guides/viewing-results",
+      "destination": "/tutorials/viewing-results"
+    },
+    {
+      "source": "/guides/debugging",
+      "destination": "/troubleshooting/debugging"
+    },
+    {
+      "source": "/guides/debug-sandbox",
+      "destination": "/troubleshooting/debug-sandbox"
+    },
+    {
+      "source": "/guides/publish-report",
+      "destination": "/tutorials/publish-report"
+    },
+    {
+      "source": "/guides/custom-reports",
+      "destination": "/tutorials/custom-reports"
+    },
+    {
+      "source": "/guides/report-components",
+      "destination": "/reference/report-components"
+    },
+    {
+      "source": "/guides/results-data",
+      "destination": "/reference/results-data"
+    },
+    {
+      "source": "/guides/agent-feedback-loop",
+      "destination": "/tutorials/agent-feedback-loop"
+    },
+    {
+      "source": "/example/ai-agent-application",
+      "destination": "/examples/ai-agent-application"
+    },
+    {
+      "source": "/example/claude-code-codex-plugin",
+      "destination": "/examples/coding-agent-extensions"
+    },
+    {
+      "source": "/example/claude-code-codex-skill",
+      "destination": "/examples/coding-agent-extensions"
+    },
+    {
+      "source": "/example/showcase",
+      "destination": "/examples"
+    },
+    {
+      "source": "/example/tier1-ai-sdk-v7",
+      "destination": "/examples/integrations/ai-sdk-v7"
+    },
+    {
+      "source": "/example/tier1-claude-sdk",
+      "destination": "/examples/integrations/claude-sdk"
+    },
+    {
+      "source": "/example/tier1-codex-sdk",
+      "destination": "/examples/integrations/codex-sdk"
+    },
+    {
+      "source": "/example/tier1-langgraph",
+      "destination": "/examples/integrations/langgraph"
+    },
+    {
+      "source": "/example/tier1-pi-sdk",
+      "destination": "/examples/integrations/pi-sdk"
     }
   ],
   "navigation": {
@@ -316,72 +488,83 @@
         "default": true,
         "tabs": [
           {
-            "tab": "Documentation",
+            "tab": "Tutorials",
             "groups": [
               {
                 "group": "Get Started",
                 "pages": [
                   "introduction",
-                  "quickstart"
+                  "tutorials/quickstart",
+                  "tutorials/agent-onboarding"
                 ]
               },
               {
-                "group": "Core Concepts",
+                "group": "Connect Your Agent",
                 "pages": [
-                  "concepts/overview",
-                  "concepts/evals",
-                  "concepts/experiment",
-                  "concepts/adapter",
-                  "concepts/tier",
-                  "concepts/drive",
-                  "concepts/hitl",
-                  "concepts/assert",
-                  "concepts/judge"
+                  "tutorials/connect-your-agent",
+                  "tutorials/write-send",
+                  "tutorials/connect-otel",
+                  "tutorials/sandbox-agent",
+                  "tutorials/sandbox-providers"
                 ]
               },
               {
-                "group": "Connecting Agents",
+                "group": "Write Evals",
                 "pages": [
-                  "guides/connect-your-agent",
-                  "guides/official-adapters",
-                  "guides/write-send",
-                  "guides/connect-otel",
-                  "guides/sandbox-agent",
-                  "guides/sandbox-providers"
+                  "tutorials/authoring",
+                  "tutorials/write-experiment",
+                  "tutorials/experiments",
+                  "tutorials/fixtures",
+                  "tutorials/dataset-fanout",
+                  "tutorials/scoring-guide"
                 ]
               },
               {
-                "group": "Evals & Experiments",
+                "group": "Run, Observe & Publish",
                 "pages": [
-                  "guides/authoring",
-                  "guides/write-experiment",
-                  "guides/experiments",
-                  "guides/fixtures",
-                  "guides/dataset-fanout",
-                  "guides/scoring-guide"
+                  "tutorials/ci-integration",
+                  "tutorials/reporters",
+                  "tutorials/viewing-results",
+                  "tutorials/publish-report",
+                  "tutorials/custom-reports",
+                  "tutorials/agent-feedback-loop"
                 ]
               },
               {
-                "group": "Examples",
+                "group": "Troubleshooting",
                 "pages": [
-                  "example/claude-code-codex-plugin",
-                  "example/claude-code-codex-skill",
-                  "example/ai-agent-application",
-                  "example/showcase"
+                  "troubleshooting/debugging",
+                  "troubleshooting/debug-sandbox"
+                ]
+              }
+            ]
+          },
+          {
+            "tab": "Explanation",
+            "groups": [
+              {
+                "group": "Core Model",
+                "pages": [
+                  "explanation/overview",
+                  "explanation/evals",
+                  "explanation/experiment",
+                  "explanation/adapter",
+                  "explanation/tier"
                 ]
               },
               {
-                "group": "Running & Observing",
+                "group": "Interaction & Scoring",
                 "pages": [
-                  "guides/runner",
-                  "guides/ci-integration",
-                  "guides/reporters",
-                  "guides/viewing-results",
-                  "guides/publish-report",
-                  "guides/custom-reports",
-                  "guides/report-components",
-                  "guides/results-data",
-                  "guides/agent-feedback-loop"
+                  "explanation/drive",
+                  "explanation/hitl",
+                  "explanation/assert",
+                  "explanation/judge"
+                ]
+              },
+              {
+                "group": "Execution Model",
+                "pages": [
+                  "explanation/runner"
                 ]
               }
             ]
@@ -396,15 +579,56 @@
                   "reference/define-agent",
                   "reference/events",
                   "reference/capabilities",
-                  "reference/builtin-agents",
                   "reference/define-config",
                   "reference/expect"
+                ]
+              },
+              {
+                "group": "Adapters",
+                "pages": [
+                  "reference/builtin-agents",
+                  "reference/official-adapters"
+                ]
+              },
+              {
+                "group": "Results & Reports",
+                "pages": [
+                  "reference/results-data",
+                  "reference/report-components"
                 ]
               },
               {
                 "group": "CLI",
                 "pages": [
                   "reference/cli"
+                ]
+              }
+            ]
+          },
+          {
+            "tab": "Examples",
+            "groups": [
+              {
+                "group": "Choose an Example",
+                "pages": [
+                  "examples/index"
+                ]
+              },
+              {
+                "group": "Connect an Agent Framework",
+                "pages": [
+                  "examples/integrations/ai-sdk-v7",
+                  "examples/integrations/claude-sdk",
+                  "examples/integrations/codex-sdk",
+                  "examples/integrations/pi-sdk",
+                  "examples/integrations/langgraph"
+                ]
+              },
+              {
+                "group": "Full Eval Projects",
+                "pages": [
+                  "examples/ai-agent-application",
+                  "examples/coding-agent-extensions"
                 ]
               }
             ]
