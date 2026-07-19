@@ -64,9 +64,9 @@ export const compareCard = {
 export const copy = {
   en: {
     // 页面级 <title>:每页独特、带功能描述,避免整站共用 "NiceEval" 被判重复内容。
-    titleHome: "NiceEval — Eval Tool for AI Agents & Coding Agents",
+    titleHome: "NiceEval — Agent-Native Eval Framework and Eval harness for AI Applications",
     titleBlog: "Agent Eval Blog",
-    meta: "NiceEval is an agent-native eval tool for AI agents and coding-agent workflows.",
+    meta: "NiceEval is a framework-agnostic agent eval tool, giving you a complete closed loop for building evals for your agents or coding agents.",
     navStart: "Start",
     blog: "Blog",
     docs: "Docs",
@@ -99,7 +99,7 @@ export const copy = {
     steps: [
       ["Connect", "Connect your agent — or CC/Codex — via an adapter plus o11y."],
       ["Define", "Write evals and experiments the way you'd write unit tests."],
-      ["Evaluate", "Evaluate directly, or in parallel inside a sandbox."],
+      ["Evaluate", "Evaluate in parallel."],
     ],
     setupEyebrow: "Eval examples",
     setupTitle: "eval chats, tool calls, and coding agents",
@@ -132,9 +132,9 @@ export const copy = {
     },
   },
   zh: {
-    titleHome: "NiceEval —— AI Agent 与 Coding Agent 的评测（Eval）工具",
+    titleHome: "NiceEval —— 为你的 AI 应用打造的 Agent-Native 的评估框架与 Harness 配套",
     titleBlog: "Agent 评测博客",
-    meta: "NiceEval 是 Agent-Native、DX 体验好的 agent eval 工具,适合评 AI agents 和 coding-agent workflows。",
+    meta: "NiceEval 是框架无关的 Agent 评估工具，为你的 Agent 或 Coding Agent 构建评估提供完整的闭环。",
     navStart: "开始",
     blog: "博客",
     docs: "文档",
@@ -151,7 +151,7 @@ export const copy = {
         caption: "把这段 prompt 粘贴给你的 CodeX/Claude Code",
       },
     },
-    heroTitle: "更适合 Agent 的 Eval。",
+    heroTitle: "更适合 Agent 的评估。",
     copyCommand: "复制命令",
     copied: "已复制",
     primaryAction: "开始",
@@ -166,11 +166,11 @@ export const copy = {
     workflowLabel: "NiceEval 工作流",
     steps: [
       ["接入", "通过适配器与o11y,接入你的 Agent 或者 CC/Codex"],
-      ["定义", "像写单元测试一样写 eval 与 experiment"],
-      ["评估", "直接或者在 sandbox 并行评估"],
+      ["定义", "像写单元测试一样写评估与实验"],
+      ["评估", "并行评估"],
     ],
     setupEyebrow: "Eval 示例",
-    setupTitle: "Eval 对话、工具调用与 coding agent",
+    setupTitle: "Eval 对话、工具调用与 Coding Agent",
     setupCaption: "每张卡都是一个可直接运行的 defineEval 文件。点击高亮行,展开助手回复和断言说明。",
     timingLabel: "耗时追踪",
     loopEyebrow: "Agent 也是用户",
