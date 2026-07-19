@@ -105,7 +105,7 @@ assert.ok(
 // 未声明 tracing 面的仓库反向断言：--timing 只有 runner 时间树，不挂 OTel 子树
 ```
 
-## 用例六：预期失败——deliberate-fail / deliberate-error（`cli-contract`）
+## 用例六：预期失败——deliberate-fail / deliberate-error（`cli`）
 
 预期非零退出转换为仓库级验收成功；`failed` 与 `errored` 的区分从 `--junit` 出口断言——JUnit 按 verdict 折叠为 `<failure>` 与 `<error>`：
 
@@ -120,7 +120,7 @@ const errorXml = readFileSync("error.xml", "utf8");
 assert.ok(errorXml.includes("<error"), "deliberate-error 的 JUnit 里没有 <error>——执行错误被误折叠成断言失败");
 ```
 
-## 用例七：缓存三步（`cli-contract`）
+## 用例七：缓存三步（`cli`）
 
 复用与新跑的区别从 `show --history` 的 attempt 行数断言——history 跨快照按 attempt 身份去重，复用不产生新行，`--force` 产生新行：
 

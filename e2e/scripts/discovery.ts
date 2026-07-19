@@ -11,7 +11,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const GROUPS = ["sdk", "sandbox", "contract"] as const;
+export const GROUPS = ["sdk", "sandbox", "mechanism"] as const;
 export type Group = (typeof GROUPS)[number];
 
 export interface RepoRequires {
@@ -32,7 +32,7 @@ export interface RepoManifest {
 }
 
 export interface DiscoveredRepo {
-  /** Absolute path to the repo directory (e.g. e2e/repos/claude-agent-sdk). */
+  /** Absolute path to the repo directory (e.g. e2e/repos/claude-agent-sdk or e2e/mechanism/results). */
   dir: string;
   manifest: RepoManifest;
 }
@@ -43,15 +43,29 @@ export interface DiscoveryResult {
   errors: string[];
 }
 
+/**
+ * Directory names directly under e2e/, each holding one flat set of test repos (one
+ * e2e.json per immediate subdirectory) — `repos/` for every adapter (sdk/sandbox) repo,
+ * `mechanism/` for the two contract repos that assert CLI and Results mechanism instead
+ * of a protocol path. A repo's collection is physical grouping only, not part of its
+ * identity: ids must stay unique across both (see `discoverAllRepos`).
+ */
+export const REPO_COLLECTIONS = ["repos", "mechanism"] as const;
+
 /** Absolute path to the niceeval checkout root (two levels up from e2e/scripts/). */
 export function repoRootDir(): string {
   const here = dirname(fileURLToPath(import.meta.url));
   return resolve(here, "..", "..");
 }
 
-/** Absolute path to e2e/repos/, the root under which every test repo lives. */
+/** Absolute path to e2e/, the root under which every repo collection (`repos/`, `mechanism/`) lives. */
+export function e2eRootDir(): string {
+  return join(repoRootDir(), "e2e");
+}
+
+/** Absolute path to e2e/repos/, the collection holding every adapter (sdk/sandbox) test repo. */
 export function reposRootDir(): string {
-  return join(repoRootDir(), "e2e", "repos");
+  return join(e2eRootDir(), "repos");
 }
 
 function describe(reposRoot: string, manifestPath: string): string {
@@ -206,6 +220,37 @@ export function discoverRepos(reposRoot: string): DiscoveryResult {
       errors.push(
         `duplicate id "${id}" declared by: ${dirs.map((d) => describe(reposRoot, d)).join(", ")}`,
       );
+    }
+  }
+
+  return { repos, errors };
+}
+
+/**
+ * Discover every repo across every collection under e2e/ (`REPO_COLLECTIONS`), and check
+ * id uniqueness across the whole set — a repo's collection is a physical grouping, not
+ * part of its identity, so the same id under both `repos/` and `mechanism/` is a
+ * collision even though each collection's own `discoverRepos` call only sees its half.
+ */
+export function discoverAllRepos(e2eRoot: string): DiscoveryResult {
+  const repos: DiscoveredRepo[] = [];
+  const errors: string[] = [];
+
+  for (const collection of REPO_COLLECTIONS) {
+    const result = discoverRepos(join(e2eRoot, collection));
+    repos.push(...result.repos);
+    errors.push(...result.errors);
+  }
+
+  const byId = new Map<string, string[]>();
+  for (const r of repos) {
+    const list = byId.get(r.manifest.id) ?? [];
+    list.push(relative(e2eRoot, r.dir));
+    byId.set(r.manifest.id, list);
+  }
+  for (const [id, dirs] of byId) {
+    if (dirs.length > 1) {
+      errors.push(`duplicate id "${id}" declared by: ${dirs.join(", ")}`);
     }
   }
 

@@ -18,7 +18,6 @@
 | 适配器 | 仓库 ID | group | 入口 | 评估计划 |
 |---|---|---|---|---|
 | AI SDK | `ai-sdk` | `sdk` | `fromAiSdk` / `aiSdkAgent` / `uiMessageStreamAgent` | [ai-sdk.md](ai-sdk.md) |
-| OpenAI 兼容 | `openai-compat` | `sdk` | `fromChatCompletion` / `fromResponses` | [openai-compat.md](openai-compat.md) |
 | Claude Agent SDK | `claude-agent-sdk` | `sdk` | `fromClaudeSdkMessages` | [claude-agent-sdk.md](claude-agent-sdk.md) |
 | Codex SDK | `codex-sdk` | `sdk` | `fromCodexThreadEvents` | [codex-sdk.md](codex-sdk.md) |
 | pi-agent-core | `pi-agent-core` | `sdk` | `fromPiAgentEvents` | [pi-agent-core.md](pi-agent-core.md) |
@@ -36,7 +35,7 @@
 
 - 新增 Eval 必须对应该仓库主要责任内的一种**新的真实协议行为**（新工具形态、新 HITL 形态、新沙箱能力），不做能力巡礼。
 - 一种协议行为一个 Eval；同一行为的第二个 Eval 是维护负担，不是更多覆盖。
-- 确定性机制（缓存、results 格式、退出码折叠）归 [报告域](../report.md)与 [CLI 域](../cli.md)的 contract 仓库，适配器仓库不重复背。
+- 确定性机制（缓存、results 格式、退出码折叠）归 [报告域](../results.md)与 [CLI 域](../cli.md)的 mechanism 仓库，适配器仓库不重复背。
 
 这个预算让矩阵在破坏性变更时的修复成本保持在与仓库数量线性、而不是与 Eval 总数线性的水平。
 

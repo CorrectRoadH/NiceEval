@@ -1,5 +1,5 @@
 // 本仓库唯一的 Experiment:覆盖 evals/ 下全部 Eval(省略 `evals` 字段 = 全选)。
-// deliberate-fail / deliberate-error 这类退出码折叠验证属于 cli-contract 仓库,不在这里重复。
+// deliberate-fail / deliberate-error 这类退出码折叠验证属于 cli 仓库,不在这里重复。
 import { defineExperiment } from "niceeval";
 import agent from "../agents/codex-sdk.ts";
 

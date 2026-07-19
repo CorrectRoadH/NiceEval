@@ -2,10 +2,13 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
+import { REPO_COLLECTIONS } from "../e2e/scripts/discovery.ts";
 
-// e2e/repos/* 是一组独立测试仓库(见 docs/engineering/e2e-ci/README.md §2),由其它 agent
-// 并行搭建,本文件写作时一个都不存在。这里守的是 README §8 列出的结构边界——它是仓库形状
-// 的契约测试,不是某个仓库的验收测试(仓库自己的验收脚本见 verification.md)。
+// e2e/repos/*、e2e/mechanism/* 是独立测试仓库(见 docs/engineering/e2e-ci/README.md §2),
+// 由其它 agent 并行搭建,本文件写作时一个都不存在。这里守的是 README §8 列出的结构边界——
+// 它是仓库形状的契约测试,不是某个仓库的验收测试(仓库自己的验收脚本见 verification.md)。
+// 仓库分布在哪些 collection 目录下,复用 discovery.ts 的 `REPO_COLLECTIONS`——两处各自
+// 硬编码一份会漂移,新增/挪动 collection 时只改一处。
 //
 // 写法:每条规则收集违规到一个数组,`expect(violations).toEqual([])`。目录发现基于
 // `readdirSync`,零仓库时循环体不执行、数组天然为空——不需要为「零仓库」写显式跳过分支,
@@ -16,7 +19,9 @@ import { afterAll, describe, expect, it } from "vitest";
 // 违规样本直接调用这些函数,证明它们在违规样本上真的会返回非空结果——这是本文件的核心
 // 自证机制,不是可选的锦上添花。
 const ROOT = resolve(import.meta.dirname, "..");
-const REPOS_DIR = join(ROOT, "e2e", "repos");
+const E2E_DIR = join(ROOT, "e2e");
+const REPOS_DIR = join(E2E_DIR, "repos");
+const MECHANISM_DIR = join(E2E_DIR, "mechanism");
 
 // ---------------------------------------------------------------------------
 // 纯校验函数——只接受数据/文本/路径参数,不读全局目录,方便独立单测
@@ -43,8 +48,8 @@ function schemaViolations(repoLabel: string, json: unknown): string[] {
   if (typeof j.id !== "string" || j.id.length === 0) {
     fail(`字段 \`id\` 必须是非空字符串,实际是 ${JSON.stringify(j.id)}`);
   }
-  if (j.group !== "sdk" && j.group !== "sandbox" && j.group !== "contract") {
-    fail(`字段 \`group\` 必须是 "sdk" | "sandbox" | "contract" 之一,实际是 ${JSON.stringify(j.group)}`);
+  if (j.group !== "sdk" && j.group !== "sandbox" && j.group !== "mechanism") {
+    fail(`字段 \`group\` 必须是 "sdk" | "sandbox" | "mechanism" 之一,实际是 ${JSON.stringify(j.group)}`);
   }
   if (
     !Array.isArray(j.command) ||
@@ -113,7 +118,7 @@ function findEscapingLockfileSpecifiers(text: string): string[] {
 
 /**
  * README 总则第 5 条 / §2.1:单个 import 说明符是否违规。
- * - "niceeval" / "niceeval/xxx" 是发布包的公开入口,任何仓库都允许——包括 results-contract 的
+ * - "niceeval" / "niceeval/xxx" 是发布包的公开入口,任何仓库都允许——包括 results 的
  *   "niceeval/results";这条豁免不按仓库名单开例外,对所有仓库统一生效。
  * - 相对路径说明符解析后落在仓库根之外,判越界(会覆盖「引用其它测试仓库」「引用根 src/」
  *   「引用 e2e/shared」三种情况,因为它们都必然经过 ".." 走出仓库根)。
@@ -333,25 +338,34 @@ function orchestratorDenylistHits(text: string): string[] {
 // 目录发现
 // ---------------------------------------------------------------------------
 
-function listRepoIds(): string[] {
-  if (!existsSync(REPOS_DIR)) return [];
-  return readdirSync(REPOS_DIR, { withFileTypes: true })
-    .filter((d) => d.isDirectory())
-    .map((d) => d.name)
-    .sort();
+interface RepoRef {
+  id: string;
+  dir: string;
+}
+
+function listRepos(): RepoRef[] {
+  const repos: RepoRef[] = [];
+  for (const collection of REPO_COLLECTIONS) {
+    const collectionDir = join(E2E_DIR, collection);
+    if (!existsSync(collectionDir)) continue;
+    for (const d of readdirSync(collectionDir, { withFileTypes: true })) {
+      if (d.isDirectory()) repos.push({ id: d.name, dir: join(collectionDir, d.name) });
+    }
+  }
+  return repos.sort((a, b) => a.id.localeCompare(b.id));
 }
 
 // ---------------------------------------------------------------------------
-// 对真实 e2e/repos/* 的结构守护——落地前循环体为空,断言天然平凡通过
+// 对真实 e2e/repos/*、e2e/mechanism/* 的结构守护——落地前循环体为空,断言天然平凡通过
 // ---------------------------------------------------------------------------
 
-describe("e2e/repos/* 结构守护(docs/engineering/e2e-ci/README.md §2 / §8)", () => {
-  const repoIds = listRepoIds();
+describe("e2e 测试仓库结构守护(docs/engineering/e2e-ci/README.md §2 / §8)", () => {
+  const repos = listRepos();
 
   it("每个仓库的 e2e.json 是合法 JSON 且匹配 §2.3 schema", () => {
     const violations: string[] = [];
-    for (const id of repoIds) {
-      const jsonPath = join(REPOS_DIR, id, "e2e.json");
+    for (const { id, dir } of repos) {
+      const jsonPath = join(dir, "e2e.json");
       if (!existsSync(jsonPath)) {
         violations.push(`[${id}] 缺少 e2e.json——每个测试仓库必须声明编排器需要的事实(README §2.3)`);
         continue;
@@ -368,41 +382,41 @@ describe("e2e/repos/* 结构守护(docs/engineering/e2e-ci/README.md §2 / §8)"
     expect(violations, `\n${violations.join("\n")}`).toEqual([]);
   });
 
-  it("e2e.json 的 id 在全部仓库范围内唯一", () => {
+  it("e2e.json 的 id 在全部仓库范围内(跨 collection)唯一", () => {
     const idOwners = new Map<string, string[]>();
-    for (const repo of repoIds) {
-      const jsonPath = join(REPOS_DIR, repo, "e2e.json");
+    for (const { id, dir } of repos) {
+      const jsonPath = join(dir, "e2e.json");
       if (!existsSync(jsonPath)) continue;
       try {
         const parsed = JSON.parse(readFileSync(jsonPath, "utf8")) as Record<string, unknown>;
         if (typeof parsed.id === "string" && parsed.id.length > 0) {
-          idOwners.set(parsed.id, [...(idOwners.get(parsed.id) ?? []), repo]);
+          idOwners.set(parsed.id, [...(idOwners.get(parsed.id) ?? []), id]);
         }
       } catch {
         continue; // 非法 JSON 已经被上一条测试断言过,这里不重复报
       }
     }
     const violations = [...idOwners.entries()]
-      .filter(([, repos]) => repos.length > 1)
+      .filter(([, owners]) => owners.length > 1)
       .map(
-        ([id, repos]) =>
-          `id "${id}" 被多个仓库同时使用:${repos.join(", ")}——id 是全局稳定的仓库选择器,必须唯一(README §2.3)`,
+        ([id, owners]) =>
+          `id "${id}" 被多个仓库同时使用:${owners.join(", ")}——id 是全局稳定的仓库选择器,必须唯一(README §2.3)`,
       );
     expect(violations, `\n${violations.join("\n")}`).toEqual([]);
   });
 
   it("每个仓库都有自己的 package.json、lockfile、evals/、experiments/、.env.example,以及忽略 .niceeval/ 的 .gitignore", () => {
-    const violations = repoIds.flatMap((id) => repoStructureViolations(id, join(REPOS_DIR, id)));
+    const violations = repos.flatMap(({ id, dir }) => repoStructureViolations(id, dir));
     expect(violations, `\n${violations.join("\n")}`).toEqual([]);
   });
 
   it("没有仓库通过相对 import 越出仓库根、引用其它测试仓库,或引用 e2e/shared / niceeval 根 src/", () => {
-    const violations = repoIds.flatMap((id) => repoImportViolations(id, join(REPOS_DIR, id)));
+    const violations = repos.flatMap(({ id, dir }) => repoImportViolations(id, dir));
     expect(violations, `\n${violations.join("\n")}`).toEqual([]);
   });
 
   it("没有仓库的 package.json 或 lockfile 使用指向父目录的 file:/link: 依赖", () => {
-    const violations = repoIds.flatMap((id) => repoDependencyEscapeViolations(id, join(REPOS_DIR, id)));
+    const violations = repos.flatMap(({ id, dir }) => repoDependencyEscapeViolations(id, dir));
     expect(violations, `\n${violations.join("\n")}`).toEqual([]);
   });
 });
@@ -520,9 +534,9 @@ describe("守护函数自测(合成样本,证明规则真的会咬人)", () => {
     ).toBeNull();
     expect(
       importSpecifierViolation({
-        repoId: "results-contract",
-        repoRoot: join(REPOS_DIR, "results-contract"),
-        fromFile: join(REPOS_DIR, "results-contract", "verify.ts"),
+        repoId: "results",
+        repoRoot: join(MECHANISM_DIR, "results"),
+        fromFile: join(MECHANISM_DIR, "results", "verify.ts"),
         specifier: "niceeval/results",
       }),
     ).toBeNull();

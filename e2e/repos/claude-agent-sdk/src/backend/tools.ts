@@ -11,7 +11,7 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 
-// city 描述特意写成英文 "e.g. Brooklyn"——与 e2e/repos/cli-contract 的 openai-compat get_weather
+// city 描述特意写成英文 "e.g. Brooklyn"——与 e2e/mechanism/cli 的 openai-compat get_weather
 // 工具定义用同一句措辞,验证过对 DeepSeek 兼容端点能稳定换回字面 "Brooklyn" 作为工具入参,
 // 而不是被翻译或改写成别的字符串。
 const WEATHER_TABLE: Record<string, { condition: string; tempC: number }> = {

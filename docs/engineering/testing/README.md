@@ -42,12 +42,12 @@
 | 改动落点 | 必跑 | 追加验收 |
 |---|---|---|
 | `src/scoring/`、`src/expect/` | `pnpm test` | 判定语义变化时跑任一 SDK E2E 仓库确认真实证据下判定一致 |
-| `src/runner/`、`src/context/` | `pnpm test` | 调度/缓存行为变化 → `pnpm e2e --repo cli-contract` |
+| `src/runner/`、`src/context/` | `pnpm test` | 调度/缓存行为变化 → `pnpm e2e --repo cli` |
 | `src/agents/`、`src/o11y/`（adapter 与归一） | `pnpm test` | `pnpm e2e --repo <对应 SDK 仓库>` |
 | `src/sandbox/` | `pnpm test` | `pnpm e2e --group sandbox` |
 | `src/report/`、show/view | `pnpm test` | — |
-| Results 落盘格式或读取面 | `pnpm test` | `pnpm e2e --repo results-contract` |
-| CLI flag、发现、退出码 | `pnpm test` + `pnpm run niceeval -- <命令>` 冒烟 | `pnpm e2e --repo cli-contract` |
+| Results 落盘格式或读取面 | `pnpm test` | `pnpm e2e --repo results` |
+| CLI flag、发现、退出码 | `pnpm test` + `pnpm run niceeval -- <命令>` 冒烟 | `pnpm e2e --repo cli` |
 | niceeval 公开 API 破坏性变更 | `pnpm test` | 按 [E2E 矩阵修复顺序](../e2e-ci/README.md)逐组修复全部测试仓库 |
 
 `pnpm test` 永远是第一道；E2E 按影响面选仓库，不需要每次全矩阵。
@@ -67,7 +67,7 @@ engineering/
 └── e2e-ci/
     ├── README.md            总则:独立测试仓库、统一执行协议、CI/crabbox、矩阵修复
     ├── adapters/            适配器域:每个官方适配器一篇 E2E 评估计划
-    ├── report.md            报告域:results-contract 仓库的落盘与读取面验收
-    ├── cli.md               CLI 域:cli-contract 仓库的选择、退出码与缓存验收
+    ├── results.md           报告域:results 仓库的落盘与读取面验收
+    ├── cli.md               CLI 域:cli 仓库的选择、退出码与缓存验收
     └── verification.md      验收脚本写法:执行 niceeval 命令与断言用例
 ```

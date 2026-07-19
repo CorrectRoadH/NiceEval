@@ -1,6 +1,6 @@
 # CLI 域
 
-CLI 域回答一个问题：**`niceeval` 命令在真实运行下的可观察行为——选择、退出码、缓存复用——是否符合 CLI 契约。** 它由一个 contract 仓库承担：`cli-contract`（group `contract`）。
+CLI 域回答一个问题：**`niceeval` 命令在真实运行下的可观察行为——选择、退出码、缓存复用——是否符合 CLI 契约。** 它由一个 mechanism 仓库承担：`cli`（group `mechanism`）。
 
 仓库使用真实 Agent 与真实模型——真实优先没有例外。稳定性来自断言对象：只断言机制事实（哪些 Eval 被选中、进程退了几、attempt 是新跑还是复用），不断言模型输出质量。
 

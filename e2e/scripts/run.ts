@@ -2,8 +2,9 @@
 // Root E2E orchestrator (docs/engineering/e2e-ci/README.md §5).
 //
 // Builds the current niceeval checkout into a candidate tarball once, then
-// for each selected e2e/repos/* repo: copies it into an isolated temp
-// working directory, points its niceeval dependency at the candidate
+// for each selected repo (discovered across every collection under e2e/ —
+// `repos/` and `mechanism/`, see discovery.ts): copies it into an isolated
+// temp working directory, points its niceeval dependency at the candidate
 // tarball, installs there, injects only its own declared secrets, runs its
 // single command, and — before trusting the exit code — independently
 // verifies the isolated copy actually resolved the candidate tarball (not a
@@ -12,7 +13,7 @@
 // retried or downgraded.
 //
 // This script must never hardcode SDK names, ports, or expected eval/verdict
-// counts, and must never read e2e/repos/*/.niceeval/.
+// counts, and must never read a repo's .niceeval/.
 
 import { spawn } from "node:child_process";
 import { basename, join } from "node:path";
@@ -21,7 +22,7 @@ import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { parseArgs } from "node:util";
 
-import { discoverRepos, repoRootDir, reposRootDir, GROUPS, type DiscoveredRepo, type Group } from "./discovery.ts";
+import { discoverAllRepos, repoRootDir, e2eRootDir, GROUPS, type DiscoveredRepo, type Group } from "./discovery.ts";
 import { buildCandidateTarball, verifyInjection, type CandidateTarball } from "./injection.ts";
 import { buildChildEnv } from "./secrets.ts";
 
@@ -353,7 +354,7 @@ async function main(): Promise<void> {
 
     // b. Parse CLI args + discover/validate + select.
     const cli = parseCli(process.argv.slice(2));
-    const { repos, errors } = discoverRepos(reposRootDir());
+    const { repos, errors } = discoverAllRepos(e2eRootDir());
     if (errors.length > 0) {
       console.error(`[e2e] repo discovery found ${errors.length} problem(s):\n`);
       for (const e of errors) console.error(`  - ${e}`);
