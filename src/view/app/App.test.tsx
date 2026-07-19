@@ -22,7 +22,7 @@ const reportPages = {
 };
 
 function dataWithShell(report: ViewData["report"]): ViewData {
-  return { composedRuns: 1, snapshots: [], ...(report !== undefined ? { report } : {}) };
+  return { composedRuns: 1, ...(report !== undefined ? { report } : {}) };
 }
 
 describe("外壳:宿主恒有 NiceEval 品牌位、无 hero,导航只有报告页", () => {

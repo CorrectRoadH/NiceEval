@@ -1,9 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { detectLocale, makeTranslator, persistLocale, setDocumentLocale } from "./i18n.ts";
-import type { Locale, LocalizedText, ReportSlotHtml, Tab, ViewData, ViewReportPageMeta, ViewResult } from "./types.ts";
-import { resultFromUrl } from "./lib/rows.ts";
-import { parseAttemptHash, resolveAttemptLocator, unresolvedAttemptWarning } from "./lib/attempt-route.ts";
-import { AttemptModal } from "./components/AttemptModal.tsx";
+import type { Locale, LocalizedText, ReportSlotHtml, Tab, ViewData, ViewReportPageMeta } from "./types.ts";
+import {
+  attemptHrefFor,
+  attemptLocatorFromHref,
+  hashForAttempt,
+  locatorFromHash,
+  parseAttemptDocument,
+  type AttemptDocumentContent,
+} from "./lib/attempt-dialog.ts";
+import { Dialog, DialogClose, DialogContent, DialogTitle } from "./components/ui/dialog.tsx";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs.tsx";
 
 // 导航组成只有一条规则(docs/feature/reports/view.md「页面构成」):导航项 = 报告定义声明的页,
@@ -16,6 +22,20 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs.t
 // niceeval 官网。页头品牌字标与 hero 下的 `Powered by NiceEval` 行都外链到它,
 // utm_medium 区分点击来自哪个品牌位(shell.md「行为约束」)。
 const BRAND_HREF = "https://niceeval.com/?utm_source=report&utm_medium=brand";
+
+/** 屏幕阅读器可用、视觉上不占位:Radix Dialog 需要一个可访问标题,内容本身(身份 / verdict)
+ *  已经在 dialog 里可见,不需要再视觉重复一遍。 */
+const VISUALLY_HIDDEN: CSSProperties = {
+  position: "absolute",
+  width: 1,
+  height: 1,
+  padding: 0,
+  margin: -1,
+  overflow: "hidden",
+  clip: "rect(0, 0, 0, 0)",
+  whiteSpace: "nowrap",
+  border: 0,
+};
 
 /**
  * LocalizedText 的确定回退(docs/feature/reports/library/shell.md):当前 locale → en →
@@ -30,19 +50,6 @@ export function localizedText(text: LocalizedText | undefined, locale: Locale): 
     if (text[key]) return text[key];
   }
   return undefined;
-}
-
-/** 初始 URL → 直接打开的 attempt:先认 #/attempt/@<locator> 深链,回退旧版 ?modal= 参数。 */
-function modalResultFromLocation(snapshots: ViewData["snapshots"]): ViewResult | null {
-  const locator = parseAttemptHash(location.hash);
-  if (locator) {
-    const found = resolveAttemptLocator(snapshots, locator);
-    if (found) return found;
-    // 定位不到(locator 不在、快照未加载、旧格式数据):不开空 modal,页面照常渲染。
-    console.warn(unresolvedAttemptWarning(location.hash));
-    return null;
-  }
-  return resultFromUrl(snapshots);
 }
 
 /**
@@ -68,7 +75,6 @@ function hashForTab(tab: Tab): string {
 }
 
 export function App({ data, reportPages }: { data: ViewData; reportPages: Record<string, ReportSlotHtml> }) {
-  const snapshots = data.snapshots ?? [];
   const [locale, setLocale] = useState<Locale>(() => detectLocale());
   const t = useMemo(() => makeTranslator(locale), [locale]);
 
@@ -79,11 +85,16 @@ export function App({ data, reportPages }: { data: ViewData; reportPages: Record
   const initialPageId = data.report?.initialPageId ?? pages[0]!.id;
 
   const [tab, setTab] = useState<Tab>(() => tabFromHash(location.hash, pages) ?? `page:${initialPageId}`);
-  const [modalResult, setModalResult] = useState<ViewResult | null>(() => modalResultFromLocation(snapshots));
-  // 当前 modal 的 hash 历史条目前面是否还有本页条目(本页 push 的 / 前进键回到的):
+
+  // attempt 详情弹窗:内容是独立文档(attempt/<locator>.html)fetch 回来的同一份 server-rendered
+  // 片段,不维护第二份客户端渲染(docs/feature/reports/view.md「静态导出」)。dialogLocator 为
+  // null 即关闭。
+  const [dialogLocator, setDialogLocator] = useState<string | null>(null);
+  const [dialogContent, setDialogContent] = useState<AttemptDocumentContent | null>(null);
+  // 当前 dialog 的 hash 历史条目前面是否还有本页条目(点击链接 push 的 / 前进键回到的):
   // true → UI 关闭走 history.back(),前进键还能重新打开;false(深链直接落地)→ 原地抹 hash,
   // 免得 back 把用户弹出站外。
-  const modalOwnsHistory = useRef(false);
+  const dialogOwnsHistory = useRef(false);
 
   useEffect(() => {
     setDocumentLocale(locale);
@@ -98,48 +109,88 @@ export function App({ data, reportPages }: { data: ViewData; reportPages: Record
     document.title = shellTitle;
   }, [shellTitle]);
 
-  const closeModal = useCallback(() => {
-    setModalResult(null);
-    if (modalOwnsHistory.current) {
-      modalOwnsHistory.current = false;
+  /** fetch 一个 locator 的独立文档、抠出两种语言内容并打开 dialog;定位不到就直说,不开空 dialog。 */
+  const openAttempt = useCallback(async (locator: string, ownsHistory: boolean) => {
+    try {
+      const res = await fetch(attemptHrefFor(locator));
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const content = parseAttemptDocument(await res.text());
+      if (!content) throw new Error("response is not a recognized attempt document");
+      dialogOwnsHistory.current = ownsHistory;
+      setDialogLocator(locator);
+      setDialogContent(content);
+    } catch (e) {
+      console.warn(
+        `[niceeval view] failed to open attempt "${locator}": ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }, []);
+
+  const closeDialog = useCallback(() => {
+    setDialogLocator(null);
+    setDialogContent(null);
+    if (dialogOwnsHistory.current) {
+      dialogOwnsHistory.current = false;
       history.back();
       return;
     }
     try {
-      // 深链直接落地 / 旧版 ?modal= 链接:没有可回退的本页条目,原地还原成无 modal 的 URL。
-      history.replaceState(null, "", location.pathname);
+      // 深链直接落地:没有可回退的本页条目,原地还原成无 hash 的 URL。
+      history.replaceState(null, "", location.pathname + location.search);
     } catch {
       // 还原 URL 失败不影响关闭。
     }
   }, []);
 
-  // 浏览器前进/后退、手改 hash、页内链接(attempt 深链与 `#/page/<id>` 页路由)统一从
-  // hashchange 分发:attempt hash 开证据室弹窗,页 hash 切当前 tab。
-  // attempt 详情路由对有效根解析(viewData.snapshots 即有效根):收窄之内、不在页面统计
-  // 口径(现刻水位)里的历史 attempt 仍能经深链打开,报告里的证据引用不因统计口径失效。
+  // 初始 URL 已经是 #/attempt/@<locator> 深链:直接打开(不经 hashchange——那只在后续变化时触发)。
+  // 有效根即收窄后的结果(view.md「打开与收窄」):这份路由对完整结果根解析,不受当前统计口径
+  // (现刻水位)限制,深链因此对历史 attempt 同样可达;收窄之外的 locator 由这份文档自身
+  // 的宿主寻址语义处理(本地越过收窄解析,导出站按证据缺失呈现,不是这里的关注点)。
+  // 空依赖数组是有意的:只在挂载时检查一次初始 hash,openAttempt 本身是 useCallback(deps: [])
+  // 的稳定引用,不会随后续渲染变化。
+  useEffect(() => {
+    const locator = locatorFromHash(location.hash);
+    if (locator) void openAttempt(locator, false);
+  }, [openAttempt]);
+
+  // 浏览器前进/后退、手改 hash、页内链接点击(经下面的点击拦截转成 hash 变化)统一从
+  // hashchange 分发:attempt hash 开证据室 dialog,页 hash 切当前 tab。
   useEffect(() => {
     const onHashChange = () => {
-      const locator = parseAttemptHash(location.hash);
+      const locator = locatorFromHash(location.hash);
       if (locator) {
-        const found = resolveAttemptLocator(snapshots, locator);
-        if (!found) {
-          console.warn(unresolvedAttemptWarning(location.hash));
-          setModalResult(null);
-          return;
-        }
-        // 经浏览器导航打开:前一条历史仍是本页,UI 关闭可以安全 back()。
-        modalOwnsHistory.current = true;
-        setModalResult(found);
+        // 经浏览器导航打开:前一条历史仍是本页,dialog 关闭可以安全 back()。
+        void openAttempt(locator, true);
         return;
       }
-      modalOwnsHistory.current = false;
-      setModalResult(null);
+      setDialogLocator(null);
+      setDialogContent(null);
       const routed = tabFromHash(location.hash, pages);
       if (routed) setTab(routed);
     };
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
-  }, [snapshots, pages]);
+  }, [pages, openAttempt]);
+
+  // 拦截 attempt 文档链接(报告页里的 locator 引用,attemptHref 缺省产出的
+  // `attempt/<encodeURIComponent(locator)>.html`):点击时改写成 hash 路由,交给上面的
+  // hashchange 统一打开——无 JavaScript 时这些链接原样导航到独立文档,同样完整可读。
+  // 修饰键 / 非左键点击放行,让「新标签页打开」这类浏览器原生行为不受影响。
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const target = e.target;
+      if (!(target instanceof Element)) return;
+      const anchor = target.closest("a[href]");
+      if (!anchor) return;
+      const locator = attemptLocatorFromHref(anchor.getAttribute("href") ?? "");
+      if (!locator) return;
+      e.preventDefault();
+      location.hash = hashForAttempt(locator);
+    };
+    document.addEventListener("click", onClick);
+    return () => document.removeEventListener("click", onClick);
+  }, []);
 
   const selectTab = useCallback((value: Tab) => {
     setTab(value);
@@ -202,7 +253,7 @@ export function App({ data, reportPages }: { data: ViewData; reportPages: Record
           <TabsContent key={`page:${page.id}`} value={`page:${page.id}`} id={`tab-page-${page.id}`}>
             {/* 报告槽:server 侧逐页渲染好的静态 HTML(含 <Style> 产物),按当前页与界面语言
                 摆放对应块;hero、品牌行、Scope 警告、批量修复 prompt 都是页内组件,壳不再渲染。
-                attempt 深链是普通 <a href="#/attempt/…">,经 hashchange 打开证据室弹窗。 */}
+                attempt 深链是普通 <a href="attempt/…html">,经上面的点击拦截打开 dialog。 */}
             <ReportSlot html={reportPages[page.id]?.[locale] || reportPages[page.id]?.en || ""} />
           </TabsContent>
         ))}
@@ -212,7 +263,28 @@ export function App({ data, reportPages }: { data: ViewData; reportPages: Record
           <span className="site-footer-text">{footerText}</span>
         </footer>
       ) : null}
-      {modalResult && <AttemptModal result={modalResult} onClose={closeModal} t={t} />}
+      {dialogLocator && dialogContent ? (
+        <Dialog open onOpenChange={(o) => { if (!o) closeDialog(); }}>
+          <DialogContent aria-describedby={undefined}>
+            {/* 屏幕阅读器用的可访问标题:视觉上隐藏,身份 / verdict 等实际内容已经在下面
+                fetch 回来的片段里可见,这里不重复渲染。 */}
+            <DialogTitle style={VISUALLY_HIDDEN}>{t("dialog.attemptTitle")}</DialogTitle>
+            <div className="flex min-w-0 shrink-0 items-center justify-end border-b border-line px-7 pb-3 pt-4">
+              <DialogClose
+                aria-label={t("action.close")}
+                className="grid h-7 w-7 shrink-0 place-items-center rounded-md border border-transparent text-sm text-muted transition-colors hover:border-line hover:bg-panel-2 hover:text-text"
+              >
+                x
+              </DialogClose>
+            </div>
+            {/* 与直接打开 attempt/<locator>.html 看到的是同一份 server-rendered 片段
+                (docs/engineering/unit-tests/reports/cases.md 第 207 行),不是客户端重新渲染。 */}
+            <div className="flex-1 overflow-y-auto px-7 pb-7 pt-2">
+              <ReportSlot html={dialogContent[locale] || dialogContent.en} />
+            </div>
+          </DialogContent>
+        </Dialog>
+      ) : null}
     </Tabs>
   );
 }

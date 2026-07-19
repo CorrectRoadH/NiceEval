@@ -7,7 +7,7 @@
 // 见 docs/feature/reports/view.md「打开与收窄」。
 
 import { readFileSync, statSync } from "node:fs";
-import { basename, dirname, extname, join, relative, resolve } from "node:path";
+import { dirname, extname, join, relative, resolve } from "node:path";
 import { dedupeAttempts, loadAttemptEvidence, openResults } from "../results/index.ts";
 import type { AttemptHandle, Results, Scope, Snapshot, SkippedDir } from "../results/index.ts";
 import type { AttemptLocator } from "../results/locator.ts";
@@ -23,14 +23,7 @@ import {
 import { selectCurrentResults, filterExperiments } from "../results/select.ts";
 import { evalPrefixPredicate } from "../shared/aggregate.ts";
 import type { EvalResult } from "../types.ts";
-import type {
-  SkippedRunNotice,
-  ViewData,
-  ViewEvalResult,
-  ViewReportMeta,
-  ViewReportPageHtml,
-  ViewSnapshot,
-} from "./shared/types.ts";
+import type { SkippedRunNotice, ViewData, ViewReportMeta, ViewReportPageHtml } from "./shared/types.ts";
 import { t } from "../i18n/index.ts";
 import { RESULTS_SCHEMA_VERSION } from "../types.ts";
 
@@ -232,9 +225,6 @@ export async function loadViewScan(input?: string, opts: ViewScanOptions = {}): 
 
   // 报告槽 Selection:恒经现刻水位选择器合成,与 show 裸跑同口径(两扇门判定不分叉)。
   const selection = selectCurrentResults(results, { experiment: opts.experiment, patterns });
-  // latestPerExperiment 只服务证据室 UI 的 latest 标记(ViewSnapshot.latest / viewData.snapshots),
-  // 与报告槽 Selection 完全无关,绝不复用为报告 Selection。
-  const latestPerExperiment = results.latest();
 
   if (patterns.length > 0 && selection.snapshots.every((s) => s.evals.length === 0)) {
     const known = [
@@ -257,48 +247,21 @@ export async function loadViewScan(input?: string, opts: ViewScanOptions = {}): 
   const matchEval = patterns.length > 0 ? evalPrefixPredicate(patterns) : () => true;
 
   // 跨快照按身份键去重:--resume 携带的条目在多份落盘里重复,只保留最新快照里的那份
-  // (与官方计算函数的聚合口径一致,Runs / Traces 的计数因此不被复印件灌票)。
+  // (与官方计算函数的聚合口径一致,attempt/<locator>.html 的计数因此不被复印件灌票)。
   const artifactDirs = new Map<string, string>();
   const attemptsByBase = new Map<string, AttemptHandle>();
   // 报告没有 attempt-input page 时不建这份索引:没有 attempt/ 目录,站点管线不需要它
   // (view.md「静态导出」)。
   const attemptsByLocator = slot.attemptPage ? new Map<AttemptLocator, AttemptHandle>() : undefined;
-  // latest 标记恒按 results.latest() 口径打(ViewSnapshot.latest 的声明语义),
-  // 与报告槽 Selection(现刻水位,可能合成自更早快照)是两个独立概念,不混用。
-  const latestSet = new Set(latestPerExperiment.snapshots);
   const allAttempts: AttemptHandle[] = [];
   for (const exp of scopedExperiments) {
     for (const snap of exp.snapshots) allAttempts.push(...snap.attempts.filter((a) => matchEval(a.evalId)));
   }
-  const survivors = new Set(dedupeAttempts(allAttempts).attempts);
-
-  const snapshots: ViewSnapshot[] = [];
-  for (const exp of scopedExperiments) {
-    // 整个实验没有匹配 eval 时不携带:有效根里没有它,连快照元数据也不烘进页面。
-    if (patterns.length > 0 && !exp.evalIds.some((id) => matchEval(id))) continue;
-    for (const snap of exp.snapshots) {
-      const kept = snap.attempts.filter((a) => survivors.has(a));
-      const latest = latestSet.has(snap);
-      // 条目全被去重吸走的历史快照不再携带(它的内容原样活在更新的落盘里)。
-      if (kept.length === 0 && !latest) continue;
-      snapshots.push({
-        experimentId: snap.experimentId,
-        agent: snap.agent,
-        ...(snap.model !== undefined ? { model: snap.model } : {}),
-        startedAt: snap.startedAt,
-        // 与 reader 的 AttemptRef.snapshot 同一公式(祖父目录名/自身目录名),不依赖 root——
-        // 单文件模式的 root 是从目标文件上跳算出的,两条计算各自独立更不容易踩偏差。
-        run: `${basename(dirname(snap.dir))}/${basename(snap.dir)}`,
-        latest,
-        results: kept.map((a) => {
-          const { annotated, base, abs } = annotateResult(a, root);
-          artifactDirs.set(base, abs);
-          attemptsByBase.set(base, a);
-          if (attemptsByLocator && a.locator !== undefined) attemptsByLocator.set(a.locator, a);
-          return annotated;
-        }),
-      });
-    }
+  for (const attempt of dedupeAttempts(allAttempts).attempts) {
+    const { base, abs } = artifactLocation(attempt, root);
+    artifactDirs.set(base, abs);
+    attemptsByBase.set(base, attempt);
+    if (attemptsByLocator && attempt.locator !== undefined) attemptsByLocator.set(attempt.locator, attempt);
   }
 
   // 全局最新快照(跨有效根内全部实验):viewData.lastRunAt 从这里取。页内 hero 的「最后运行」
@@ -316,7 +279,6 @@ export async function loadViewScan(input?: string, opts: ViewScanOptions = {}): 
     // 反向引用取——每个 attempt 的 .snapshot 恒指向它真实所在的贡献快照(无论 Scope
     // 是否合成),所以这条对裸跑与收窄一律成立,不需要分支。
     composedRuns: new Set(selection.snapshots.flatMap((s) => s.attempts.map((a) => a.snapshot.dir))).size,
-    snapshots,
     skippedRuns: results.skipped.map(toSkippedNotice),
     report: slot.meta,
   };
@@ -574,24 +536,14 @@ function assertSingleFileReadable(results: Results, target: string): void {
 }
 
 /**
- * 给单条 attempt 注入 view 侧标注:
- * - locator:不透明的 AttemptLocator(与 Reports 的 MetricCell.refs / `ctx.attemptHref` 同一身份),
- *   `#/attempt/@<locator>` 深链路由的参数——证据室按它在 viewData.snapshots 里定位回同一条 attempt。
- * - artifactBase:相对 view 根的 artifact 目录(前端据此 fetch trace.json 等)。本快照跑出的
- *   条目落盘没有这个字段,按 `${ref.snapshot}/${ref.attempt}` 现算;携带条目(--resume 合入)
- *   落盘自带 artifactBase,指向原快照,原样沿用。
- * 返回新对象,不 mutate 读入的结果;宿主机绝对路径只回给调用方写进 artifactDirs
- * (server 端内存),不挂到 result 上,避免随 viewData 进静态 HTML。
+ * 一条 attempt 的 artifact 目录:相对 view 根的 base(前端据此 fetch trace.json 等)与宿主机
+ * 绝对路径。本快照跑出的条目落盘没有 artifactBase 字段,按 `${ref.snapshot}/${ref.attempt}`
+ * 现算;携带条目(--resume 合入)落盘自带 artifactBase,指向原快照,原样沿用。绝对路径只
+ * 回给调用方写进 artifactDirs(server 端内存),不进 viewData,避免随静态 HTML 泄漏宿主机路径。
  */
-function annotateResult(
-  attempt: AttemptHandle,
-  root: string,
-): { annotated: ViewEvalResult; base: string; abs: string } {
-  const r = attempt.result;
-  const base = r.artifactBase ?? `${attempt.ref.snapshot}/${attempt.ref.attempt}`;
-  const abs = join(root, base);
-  const annotated: ViewEvalResult = { ...r, locator: attempt.locator, artifactBase: base };
-  return { annotated, base, abs };
+function artifactLocation(attempt: AttemptHandle, root: string): { base: string; abs: string } {
+  const base = attempt.result.artifactBase ?? `${attempt.ref.snapshot}/${attempt.ref.attempt}`;
+  return { base, abs: join(root, base) };
 }
 
 /**

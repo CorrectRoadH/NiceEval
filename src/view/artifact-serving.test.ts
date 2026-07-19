@@ -14,12 +14,20 @@
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { createResultsWriter } from "../results/index.ts";
-import { loadViewScan } from "./data.ts";
+import type { AttemptHandle } from "../results/index.ts";
+import { loadViewScan, type ViewScan } from "./data.ts";
 import { buildView } from "./index.ts";
 import { startViewServer, type ViewServer } from "./server.ts";
-import { artifactUrl } from "./app/lib/artifact-url.ts";
+
+/** scan.attemptsByBase 按 base 建索引;测试只关心按 eval id 找回 (handle, base)。 */
+function attemptByEvalId(scan: ViewScan, evalId: string): { handle: AttemptHandle; base: string } {
+  for (const [base, handle] of scan.attemptsByBase) {
+    if (handle.evalId === evalId) return { handle, base };
+  }
+  throw new Error(`no attempt found for eval id "${evalId}"`);
+}
 
 const SHARED_CONTENT = "export default { test() {} };\n";
 const SHARED_PATH = "evals/shared.eval.ts";
@@ -80,17 +88,15 @@ describe("server.ts · serveArtifact 对 sources.json 解引用", () => {
     await seedDedupedSnapshot(root);
 
     const scan = await loadViewScan(root);
-    const byId = new Map(scan.viewData.snapshots.flatMap((s) => s.results.map((r) => [r.id, r])));
-    const q1 = byId.get("q1")!;
-    const q2 = byId.get("q2")!;
-    expect(q1.hasSources).toBe(true);
-    expect(q2.hasSources).toBe(true);
+    const q1 = attemptByEvalId(scan, "q1");
+    const q2 = attemptByEvalId(scan, "q2");
+    expect(q1.handle.result.hasSources).toBe(true);
+    expect(q2.handle.result.hasSources).toBe(true);
 
     server = await startViewServer({ input: root });
 
-    for (const result of [q1, q2]) {
-      const url = new URL(artifactUrl(`${result.artifactBase}/sources.json`), server.url);
-      const res = await fetch(url);
+    for (const { base } of [q1, q2]) {
+      const res = await fetch(new URL(`artifact/${base}/sources.json`, server.url));
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(body).toEqual([{ path: SHARED_PATH, content: SHARED_CONTENT }]);
@@ -102,12 +108,11 @@ describe("server.ts · serveArtifact 对 sources.json 解引用", () => {
     const root = await makeRoot();
     await seedDedupedSnapshot(root);
     const scan = await loadViewScan(root);
-    const q3 = scan.viewData.snapshots.flatMap((s) => s.results).find((r) => r.id === "q3")!;
-    expect(q3.hasEvents).toBe(true);
+    const q3 = attemptByEvalId(scan, "q3");
+    expect(q3.handle.result.hasEvents).toBe(true);
 
     server = await startViewServer({ input: root });
-    const url = new URL(artifactUrl(`${q3.artifactBase}/events.json`), server.url);
-    const res = await fetch(url);
+    const res = await fetch(new URL(`artifact/${q3.base}/events.json`, server.url));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual([{ type: "message", role: "user", text: "hi" }]);
   });
@@ -122,36 +127,15 @@ describe("index.ts · copyFetchedArtifacts(--out 静态导出)对 sources.json �
     await buildView({ input: root, out  });
 
     const scan = await loadViewScan(root);
-    const byId = new Map(scan.viewData.snapshots.flatMap((s) => s.results.map((r) => [r.id, r])));
     for (const id of ["q1", "q2"]) {
-      const base = byId.get(id)!.artifactBase!;
+      const { base } = attemptByEvalId(scan, id);
       const exported = JSON.parse(await readFile(join(out, "artifact", base, "sources.json"), "utf-8"));
       expect(exported).toEqual([{ path: SHARED_PATH, content: SHARED_CONTENT }]);
       expect(exported[0]).not.toHaveProperty("sha256");
     }
 
-    const q3Base = byId.get("q3")!.artifactBase!;
+    const q3Base = attemptByEvalId(scan, "q3").base;
     const exportedEvents = JSON.parse(await readFile(join(out, "artifact", q3Base, "events.json"), "utf-8"));
     expect(exportedEvents).toEqual([{ type: "message", role: "user", text: "hi" }]);
-  });
-});
-
-describe("artifact-url.ts · fetch 基底 = 页面所在目录(无尾斜杠托管不断链)", () => {
-  // bug: memory/showcase-subpath-no-trailing-slash-breaks-artifact-fetch.md
-  afterEach(() => vi.unstubAllGlobals());
-
-  it("页面服务在无尾斜杠子路径(反代 rewrite)时,fetch 拼在该路径目录下", () => {
-    vi.stubGlobal("location", { pathname: "/showcase/memory" });
-    expect(artifactUrl("e/run/a0/sources.json")).toBe("/showcase/memory/artifact/e/run/a0/sources.json");
-  });
-
-  it("直接打开 <dir>/index.html 时末段按文件名去掉,fetch 落在 <dir>/ 下", () => {
-    vi.stubGlobal("location", { pathname: "/foo/index.html" });
-    expect(artifactUrl("e/run/a0/trace.json")).toBe("/foo/artifact/e/run/a0/trace.json");
-  });
-
-  it("站点根路径不产生双斜杠", () => {
-    vi.stubGlobal("location", { pathname: "/" });
-    expect(artifactUrl("e/run/a0/events.json")).toBe("/artifact/e/run/a0/events.json");
   });
 });

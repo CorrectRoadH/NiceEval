@@ -6,7 +6,6 @@ import "../styles.css";
 // 没有烘焙数据(比如直接打开裸产物)时的空页面兜底。
 const emptyViewData: ViewData = {
   composedRuns: 0,
-  snapshots: [],
 };
 
 const initialData: ViewData = window.__NICEEVAL_VIEW_DATA__ ?? emptyViewData;

@@ -166,7 +166,6 @@ describe("loadViewScan · 组合语义", () => {
   it("位置前缀收窄作用在有效根上:全部页与证据室一致缩小,被滤掉的 attempt 不烘进页面数据", async () => {
     const root = await seedRoot();
     const scan = await loadViewScan(root, { patterns: ["weather"] });
-    const { viewData } = scan;
     const reportHtml = bareReportHtml(scan);
     // 报告页:两实验都只剩 weather/brooklyn 一题,范围外的失败不再出现。
     expect(reportHtml.en).toContain("compare/bub");
@@ -177,19 +176,17 @@ describe("loadViewScan · 组合语义", () => {
     expect(pageHtml(scan, "traces").en).not.toContain("fixtures/button");
     const bare = await loadViewScan(root);
     expect(pageHtml(bare, "attempts").en).toContain("fixtures/button"); // 不收窄时在场,对照
-    // 有效根即证据室:被滤掉的 attempt 不在 viewData.snapshots 里,深链两宿主一致不可达。
-    const filteredOut = viewData.snapshots
-      .flatMap((s) => s.results)
-      .find((r) => r.id === "fixtures/button");
+    // 有效根即证据室:被滤掉的 attempt 不在 attemptsByBase / attemptPages.locators 里,
+    // 站点管线(site.ts)不会为它生成 attempt/<locator>.html。
+    const filteredOut = [...scan.attemptsByBase.values()].find((a) => a.evalId === "fixtures/button");
     expect(filteredOut).toBeUndefined();
     expect(scan.artifactDirs.size).toBe(
       [...scan.artifactDirs.keys()].filter((base) => base.includes("weather/brooklyn")).length,
     );
     // 收窄之内、不在现刻水位的口径差异由 --exp 深链测试覆盖;不收窄时深链照常可达,对照:
-    const inBare = bare.viewData.snapshots.flatMap((s) => s.results).find((r) => r.id === "fixtures/button");
+    const inBare = [...bare.attemptsByBase.values()].find((a) => a.evalId === "fixtures/button");
     expect(inBare?.locator).toBeTruthy();
-    const { resolveAttemptLocator } = await import("./app/lib/attempt-route.ts");
-    expect(resolveAttemptLocator(bare.viewData.snapshots, inBare!.locator!)).toBe(inBare);
+    expect(bare.attemptPages!.locators.get(inBare!.locator!)).toBe(inBare);
   });
 
   it("--exp 过滤:报告槽 Selection 只留该实验", async () => {
@@ -289,9 +286,10 @@ describe("loadViewScan · --report 报告槽", () => {
     expect(html).not.toContain("<script"); // 报告槽产物零客户端 JS,不 hydrate
     // 用户报告同样双语渲染两遍(壳按界面语言摆放)。
     expect(slotHtml(scan)["zh-CN"]).toContain("考试成绩单");
-    // 证据室数据契约(__NICEEVAL_VIEW_DATA__)原样保留:快照、locator、skipped 不动。
-    expect(scan.viewData.snapshots.length).toBeGreaterThan(0);
-    expect(scan.viewData.snapshots.flatMap((s) => s.results).every((r) => r.locator)).toBe(true);
+    // 证据室索引(attemptsByBase,供 artifact/ 与 attempt/<locator>.html 两条出口共用)原样保留,
+    // 不受这份没有 attempt-input page 的自定义报告影响;每条都有 locator。
+    expect(scan.attemptsByBase.size).toBeGreaterThan(0);
+    expect([...scan.attemptsByBase.values()].every((a) => a.locator)).toBe(true);
     expect(JSON.stringify(scan.viewData)).not.toContain("考试成绩单"); // 报告块不进 viewData
   });
 
