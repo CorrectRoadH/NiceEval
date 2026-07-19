@@ -109,11 +109,14 @@ niceeval view --report reports/site.tsx --page exam   # 指定初始页
 
 `--report` 文件的默认导出恒为 `defineReport` 产物：树形态展开为单张 scope-input page；[配置对象形态](library/shell.md)声明外壳与 pages。view 只把 `navigation !== false` 的 pages 列进导航；scope-input page 读取 Scope，attempt-input page 按 locator 读取 `AttemptEvidence`。`--page <id>` 未命中或试图在没有 locator 时打开参数化 page，均按完整用户反馈报错。
 
+整站主题也属于这份报告定义。高频定制用外壳 `theme` 声明 accent、状态色与六色图表 palette；完整视觉覆盖继续用 `styles` 或页内 `Style`。主题同时作用于 view 导航 chrome 与页内报告组件，本地模式和 `--out` 使用同一份静态 CSS，`show` 忽略这些 web 面属性。Library API、语义色边界与 CSS 级联见[主题与 CSS 定制](library/theme.md)。
+
 `ExperimentComparison` 的两个渲染面共享同一份实体与指标数据：web 面使用可排序的实验表，text 面使用紧凑列表；两面都直接消费完整 Scope，不设实验组选择器。端到端通过率、成本、耗时、Tokens、判定构成和证据引用来自同一份计算结果。
 
 ## 相关阅读
 
 - [Show](show.md) —— 同一批结果的终端入口。
 - [Reports Library](library.md) —— 自定义报告槽；外壳与多页见[分篇](library/shell.md)。
+- [Theme](library/theme.md) —— 主题色的 Library 写法、语义令牌和 CSS 覆盖。
 - [Results](../results/README.md) —— view 读取与导出的数据。
 - [Architecture](architecture.md) —— 报告宿主与「宿主只剩机器」的边界清单。

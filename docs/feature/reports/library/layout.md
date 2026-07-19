@@ -1,6 +1,6 @@
 # 排版原语与自定义组件
 
-`Row`、`Col`、`Section`、`Text`、`Style`、`Tabs`、`Tab` 和 `Table` 是八个内置双面排版组件，用于组织报告树。
+`Row`、`Col`、`Grid`、`Section`、`Stat`、`Text`、`Style`、`Tabs`、`Tab` 和 `Table` 是十个内置双面排版组件，用于组织报告树。
 
 ## 树的节点：`ReportNode`
 
@@ -21,7 +21,7 @@ type ReportNode =
 
 ## 排版原语
 
-八个原语的公开形状是：
+十个原语的公开形状是：
 
 ```ts
 interface LayoutProps {
@@ -32,8 +32,30 @@ interface LayoutProps {
 type RowProps = LayoutProps;
 type ColProps = LayoutProps;
 
+interface GridProps extends LayoutProps {
+  /** 宽面最多摆几列；必须是正整数。 */
+  columns: number;
+  /** plain 无框；boxed 给每个 cell 完整四边框。默认 plain。 */
+  variant?: "plain" | "boxed";
+  /** 改变格内留白，并调整内置 Stat 的主值字号；不改变内容和分组。默认 regular。 */
+  density?: "regular" | "compact";
+}
+
 interface SectionProps extends LayoutProps {
   title: LocalizedText;
+  /** 标题行右侧的短元信息；text 面与标题同一行，空间不足时换到下一行。 */
+  meta?: LocalizedText;
+}
+
+interface StatProps {
+  label: LocalizedText;
+  /** 已格式化的主值；null 明确渲染为 —，不补成 0。 */
+  value: LocalizedText | number | null;
+  /** 主值下面的短解释；省略时不留空行。 */
+  detail?: LocalizedText;
+  /** 主值的语义色；不从正负号、单位或 Metric.better 猜。默认 neutral。 */
+  tone?: "neutral" | "positive" | "negative" | "warning";
+  className?: string;
 }
 
 interface TextProps {
@@ -55,7 +77,7 @@ interface TabProps extends LayoutProps {
 
 宿主语言切换只选择 `LocalizedText` 字段和官方 chrome 词典；`Text` 的自由正文是内容而不是 chrome，需要多语时由作者生成两份报告或使用自定义双面组件，不在数据层按 locale 重算指标。
 
-`Col` 在两个面都按声明序纵向排列。`Row` 的 web 面横排；text 面在可用宽度装得下全部子块时按显示宽度并排（与下文 `columns` 工具同一把尺），装不下时整块退化为纵向堆叠——不截断、不隐藏任何子块。
+`Col` 在两个面都按声明序纵向排列。`Row` 的 web 面横排；text 面在可用宽度装得下全部子块时按显示宽度并排（与下文 `columns` 工具同一把尺），装不下时整块退化为纵向堆叠——不截断、不隐藏任何子块。`Grid` 与 `Stat` 的布局和降级规则见下一节。
 
 `Style` 注入的 CSS 是页级全局的：树位置只决定声明顺序，不限定作用域；text 面零输出。它服务树形态文件与自带样式的组件——配置对象形态的报告要全站样式优先用外壳 [`styles`](shell.md)，两条通道注入同一增强层、遵守同一不变量。
 
@@ -83,6 +105,176 @@ export default defineReport(
 ```
 
 本页其余示例都是这样一棵报告树中的片段；更多完整文件按场景收在[配方](recipes.md)。
+
+## `Grid` 与 `Stat`
+
+`Grid` 是自由摘要面板的格子容器，`Stat` 是其中最常见的 label / 主值 / 辅助信息内容。二者只负责呈现，不读取 Scope、不聚合 Metric，也不定义领域口径；报告作者从结果或自有数据算出终值后，把已格式化内容放进 `Stat`。需要 niceeval 代算指标、保留 `samples` / `total` / `refs` 时继续使用[指标组件](metric-views.md)，不能为了得到这种外观把 `MetricCell` 降成几段丢失证据的字符串。
+
+`Grid` 的每个直接子节点是一格。数组与 Fragment 先按 `ReportNode` 规则展平，空分支不占格；`columns` 是每行的宽面上限，不要求子节点数量恰好为其倍数。一个格子里要放多个区块时，用已有 `Col` 把它们归成一个直接子节点：
+
+```tsx
+// reports/run-overview.tsx
+import { Col, Grid, Section, Stat, defineReport } from "niceeval/report";
+
+export default defineReport(
+  <Section title="运行总览" meta="6/6 完成 · 31 笔完整交易">
+    <Grid columns={6} variant="boxed">
+      <Col>
+        <Stat
+          label="平均净 R / case"
+          value="+0.479 R"
+          detail="累计 +2.877 R"
+          tone="positive"
+        />
+        <Stat
+          label="单笔期望"
+          value="+0.093 R"
+          detail="已成交交易"
+          tone="positive"
+        />
+      </Col>
+
+      <Col>
+        <Stat label="Episode 胜率" value="66.7%" detail="4 / 6 cases" />
+        <Stat label="MFE / MAE" value="0.87 / 0.71" detail="捕获 4.3%" />
+      </Col>
+
+      <Col>
+        <Stat label="交易胜率" value="41.9%" detail="13 / 31 笔" />
+        <Stat label="持有 / 回撤" value="1.5 / 1.47 R" detail="bars / max DD" />
+      </Col>
+
+      <Col>
+        <Stat label="方向命中" value="66.7%" detail="cutoff → horizon" />
+        <Stat label="完成率" value="100.0%" detail="6 / 6" />
+      </Col>
+
+      <Col>
+        <Stat label="Profit Factor" value="1.29" detail="盈利 R / 亏损 R" />
+        <Stat label="执行成本" value="$1.09" detail="0 bps" />
+      </Col>
+
+      <Col>
+        <Stat label="参与 / 成交" value="100.0% / 100.0%" detail="6 个方向订单" />
+        <Stat label="耗时 / 首次决策" value="207.4 s / B0.8" detail="34.7 tools · 84927 tokens" />
+      </Col>
+    </Grid>
+
+    <Grid columns={9} variant="boxed" density="compact">
+      <Stat label="初始 1H" value="0 bars" />
+      <Stat label="初始日线" value="250 bars" />
+      <Stat label="初始周线" value="104 bars" />
+      <Stat label="回放窗口" value="— sessions" />
+      <Stat label="回放 1H" value="20 bars" />
+      <Stat label="首次决策" value="B0 起自主决定" />
+      <Stat label="待成交窗口" value="— bars" />
+      <Stat label="强平提醒" value="T-5 → T-1" />
+      <Stat label="长桥日 / 周回填" value="0 / 0" />
+    </Grid>
+  </Section>,
+);
+```
+
+行为边界如下：
+
+- `Grid` 的格子可以是任意 `ReportNode`，不限定为 `Stat`；`Stat` 也可以脱离 `Grid` 单独使用。`Grid` 是排版机制，不是新的数据或领域容器。
+- `columns` 必须是有限正整数；TypeScript 的 `number` 不能排除 0、负数、小数、`NaN` 或 `Infinity`，因此组件创建时统一做运行时校验并给完整用户反馈。`variant` 默认 `"plain"`，`density` 默认 `"regular"`。
+- `density` 只控制当前 Grid 的 cell padding、gutter，以及其中内置 `Stat` 的既定字号档；它不向任意自定义组件注入样式或改写子节点 props。
+- `Stat.label`、字符串形态的 `value` 与 `detail` 都按 `LocalizedText` 回退规则选择语言并转义输出；number 形态按当前 locale 格式化。`null` 与数字 `0` 严格区分，前者显示 `—`，后者正常显示为零。
+- `tone` 是作者给主值的语义判断：`positive` / `negative` / `warning` 分别使用官方 success / danger / warning token，`neutral` 使用正文 token；组件不看正负号、单位、verdict 或 `Metric.better` 自动猜 tone。
+- `Stat` 不接受格式串、HTML、`ReportNode` detail 或 locator。长正文、链接和证据下钻属于其它组件；Metric 值应先由指标引擎产生完整 `MetricCell`，不能把这个纯样式件当成另一条聚合捷径。
+
+`Section.meta` 是标题的短补充，不是第二个正文槽：web 面在标题行右对齐，空间不足时落到标题下一行；text 面优先在同一行右对齐，放不下时以一层缩进换行。它不接受 `ReportNode`，长说明仍放进 Section 的 `children`。
+
+### `view` 输出
+
+`view` 的 web 面把 `Grid` 渲染为 CSS Grid。宽面采用声明的最大列数；容器变窄时按每格最小 inline size 自动减少列数，不产生页面级横向滚动，也不截断格子。`variant="boxed"` 给**每个 Grid cell 自己的完整四边框**，cell 之间保留 density 对应的 gap；它不是靠相邻项凑出来的一组半边框，所以换行后不会出现缺左边、缺底边或双线。`Col` 本身无框：嵌套在同一 cell 中的两个 `Stat` 仍是一张卡里的两个纵向区块。
+
+上例的初始 HTML 结构如下；省略号只省略重复的 cell，不代表运行时省略内容：
+
+```html
+<section class="nre nre-section">
+  <header class="nre-section-header">
+    <h2 class="nre-section-title">运行总览</h2>
+    <p class="nre-section-meta">6/6 完成 · 31 笔完整交易</p>
+  </header>
+
+  <div class="nre nre-grid nre-grid--boxed nre-grid--regular"
+       style="--nre-grid-max-columns: 6">
+    <div class="nre-grid-cell">
+      <div class="nre nre-col">
+        <div class="nre nre-stat nre-stat--positive">
+          <div class="nre-stat-label">平均净 R / case</div>
+          <div class="nre-stat-value">+0.479 R</div>
+          <div class="nre-stat-detail">累计 +2.877 R</div>
+        </div>
+        <div class="nre nre-stat nre-stat--positive">…单笔期望…</div>
+      </div>
+    </div>
+    <div class="nre-grid-cell">…Episode 胜率 / MFE / MAE…</div>
+    <div class="nre-grid-cell">…交易胜率 / 持有 / 回撤…</div>
+    <div class="nre-grid-cell">…方向命中 / 完成率…</div>
+    <div class="nre-grid-cell">…Profit Factor / 执行成本…</div>
+    <div class="nre-grid-cell">…参与 / 成交 / 耗时 / 首次决策…</div>
+  </div>
+
+  <div class="nre nre-grid nre-grid--boxed nre-grid--compact"
+       style="--nre-grid-max-columns: 9">…9 个完整 cell…</div>
+</section>
+```
+
+稳定契约是结构、类名、完整文本和最大列数事实，不是上面为说明而出现的省略号或具体空白。label / value / detail 全部按 inline-start 对齐；label 与 detail 使用弱化文本层级，value 使用 tabular numerals。`tone` 只落在 value，`positive` 不会把 label 和 detail 一并染色。`value={null}` 显示 `—`；字符串 `"— sessions"` 是作者明确写下的领域文案，组件不拆解或重格式化。
+
+### `show` 输出
+
+`show` 的 text 面保留同样的 cell 顺序与分组。renderer 从 `min(columns, cell 数)` 开始向一列尝试，选出满足最小可读内容宽度的最大列数；一列是无条件 fallback。规划先扣掉边框、cell 内左右各一格 padding 与格间 gutter，再把剩余显示列均分，不能用字符串码元数或“看起来差不多”的空格。整除余数从左向右各补一列，因此任意一行都不会超出 `ctx.width`。
+
+字段统一按 label → value → detail 输出并左对齐。三者都用 `stringWidth` / `wrapText` 按显示宽度折行，CJK / 全角记 2 列；detail 省略时不留占位行。一个物理 Grid row 中的 cell 顶对齐，较短 cell 在底部补空行到同高；`Col` 内的第二个 Stat 只跟同 cell 的第一个 Stat 相邻，不承诺与其它 cell 内第 N 个任意子组件建立跨格 baseline。需要严格的跨格行基线时，应把那些项声明成另一层 Grid row，而不是依赖 Grid 猜子树结构。
+
+`variant="boxed"` 在 text 面也给每个 cell 独立的 `┌─┐ / │ │ / └─┘` 四边框，同行 box 之间留 gutter，换成下一排时重新起完整 box；不拼只在当前列数成立的半框或交叉线。`plain` 使用相同的列数和宽度计划，只去掉 cell 边框与 padding。任何 cell、label、value 或 detail 都不因宽度被隐藏。
+
+上例在**恰好 100 显示列**、无 ANSI 控制序列的终端中会降成三列。Section 给正文保留左侧两列缩进，所以 Grid 收到 98 列可用宽度；下面每一行连同缩进经 `stringWidth` 计量都不超过 100：
+
+```text
+运行总览                                                                    6/6 完成 · 31 笔完整交易
+
+  ┌──────────────────────────────┐  ┌─────────────────────────────┐  ┌─────────────────────────────┐
+  │ 平均净 R / case              │  │ Episode 胜率                │  │ 交易胜率                    │
+  │ +0.479 R                     │  │ 66.7%                       │  │ 41.9%                       │
+  │ 累计 +2.877 R                │  │ 4 / 6 cases                 │  │ 13 / 31 笔                  │
+  │                              │  │                             │  │                             │
+  │ 单笔期望                     │  │ MFE / MAE                   │  │ 持有 / 回撤                 │
+  │ +0.093 R                     │  │ 0.87 / 0.71                 │  │ 1.5 / 1.47 R                │
+  │ 已成交交易                   │  │ 捕获 4.3%                   │  │ bars / max DD               │
+  └──────────────────────────────┘  └─────────────────────────────┘  └─────────────────────────────┘
+
+  ┌──────────────────────────────┐  ┌─────────────────────────────┐  ┌─────────────────────────────┐
+  │ 方向命中                     │  │ Profit Factor               │  │ 参与 / 成交                 │
+  │ 66.7%                        │  │ 1.29                        │  │ 100.0% / 100.0%             │
+  │ cutoff → horizon             │  │ 盈利 R / 亏损 R             │  │ 6 个方向订单                │
+  │                              │  │                             │  │                             │
+  │ 完成率                       │  │ 执行成本                    │  │ 耗时 / 首次决策             │
+  │ 100.0%                       │  │ $1.09                       │  │ 207.4 s / B0.8              │
+  │ 6 / 6                        │  │ 0 bps                       │  │ 34.7 tools · 84927 tokens   │
+  └──────────────────────────────┘  └─────────────────────────────┘  └─────────────────────────────┘
+
+  ┌──────────────────────────────┐ ┌──────────────────────────────┐ ┌──────────────────────────────┐
+  │ 初始 1H                      │ │ 初始日线                     │ │ 初始周线                     │
+  │ 0 bars                       │ │ 250 bars                     │ │ 104 bars                     │
+  └──────────────────────────────┘ └──────────────────────────────┘ └──────────────────────────────┘
+
+  ┌──────────────────────────────┐ ┌──────────────────────────────┐ ┌──────────────────────────────┐
+  │ 回放窗口                     │ │ 回放 1H                      │ │ 首次决策                     │
+  │ — sessions                   │ │ 20 bars                      │ │ B0 起自主决定                │
+  └──────────────────────────────┘ └──────────────────────────────┘ └──────────────────────────────┘
+
+  ┌──────────────────────────────┐ ┌──────────────────────────────┐ ┌──────────────────────────────┐
+  │ 待成交窗口                   │ │ 强平提醒                     │ │ 长桥日 / 周回填              │
+  │ — bars                       │ │ T-5 → T-1                    │ │ 0 / 0                        │
+  └──────────────────────────────┘ └──────────────────────────────┘ └──────────────────────────────┘
+```
+
+终端不输出颜色词或 `positive` 标签；支持颜色时只把主值着色，不支持颜色时文本仍自足。`regular` 的同行 box gutter 是 2 显示列，`compact` 是 1；两者的最小可读**内容**宽度都是 24 显示列，density 不以挤坏字段换取更多列。`density` 只收紧 cell padding、格间 / 排间留白，不合并 label 和 value，也不改变声明分组。
 
 ## `Tabs`
 

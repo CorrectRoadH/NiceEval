@@ -18,6 +18,7 @@
 - 想浏览或发布完整结果站：看 [`view`](view.md)。
 - 想写自己的报告：看 [Library](library.md)，先按“选择组件”表挑形状，再进对应分篇复制配方。
 - 想把结果发布成带品牌、外链和多页导航的站点：看 [Library · 外壳与多页](library/shell.md)。
+- 想改整站强调色、状态色、图表色板或进一步覆盖 CSS：看 [Library · 主题与 CSS](library/theme.md)。
 - 想知道默认报告本身怎么写、怎么逐步改造：看 [Library · 内建报告](library/built-in.md)。
 - 想知道字段从哪个文件来：看 [Results Architecture](../results/architecture.md)。
 
@@ -26,6 +27,7 @@
 - [Show](show.md) —— 终端中的榜单、attempt 诊断和证据切面。
 - [View](view.md) —— 本地网页、结果收窄和静态导出。
 - [Library](library.md) —— 报告组件目录和常用组合配方。
+- [Theme](library/theme.md) —— view 主题令牌、Library 配置 DX 与完整 CSS 出口。
 - [Architecture](architecture.md) —— 两个宿主、报告树和可序列化边界。
 - [Results Lib](../results/library.md) —— 结果读写库:类型的家、writer、`openResults`、实验/快照层次、选择器、身份键;第二档吃它的读取面。
 - [Results Format](../results/architecture.md) —— 唯一持久化事实来源。
