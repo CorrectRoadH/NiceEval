@@ -7,11 +7,11 @@ import { defineEval } from "niceeval";
 import { equals } from "niceeval/expect";
 
 export default defineEval({
-  description: "in-process aiSdkAgent: bare-name tool call + HITL approval, same vocabulary as the HTTP transport",
+  description: "in-process aiSdkAgent:裸工具名调用 + HITL 审批,与 HTTP 传输层用同一套事件词汇",
   async test(t) {
     const turn = await t.send("北京今天天气怎么样？");
     turn.expectOk();
-    await t.group("bare tool name call + result pairing", () => {
+    await t.group("裸工具名调用 + 结果配对", () => {
       t.calledTool("get_weather", { input: { city: /北京/ } });
       t.messageIncludes(/°C|气温|天气|晴|多云|雨|阴/);
     });

@@ -6,7 +6,7 @@ import { defineEval } from "niceeval";
 import { excludes } from "niceeval/expect";
 
 export default defineEval({
-  description: "full-history replay lets turn two recall turn one's fact; a fresh session shares none of it",
+  description: "全量历史重放让第二轮能记起第一轮的事实;全新会话则完全不共享",
   async test(t) {
     (await t.send("我叫小明，帮我记住这个名字。")).expectOk();
     const recall = await t.send("我刚才说我叫什么名字？");

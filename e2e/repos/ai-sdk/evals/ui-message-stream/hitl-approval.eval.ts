@@ -7,11 +7,11 @@ import { defineEval } from "niceeval";
 import { equals } from "niceeval/expect";
 
 export default defineEval({
-  description: "approval-requested blocks execution until answered; approve resumes to completed, deny to rejected with no tool result",
+  description: "审批请求(approval-requested)会阻塞执行直到给出答复;approve 恢复为 completed,deny 则为 rejected 且从未产生工具结果",
   async test(t) {
     const draft = await t.send("用计算器算一下 (23+19)*3 等于多少");
     t.check(draft.status, equals("waiting"));
-    draft.eventsSatisfy("no completed calculator result before approval", (events) => {
+    draft.eventsSatisfy("审批前不应存在已完成的 calculate 结果", (events) => {
       const calcIds = new Set(
         events.flatMap((e) => (e.type === "action.called" && e.name === "calculate" ? [e.callId] : [])),
       );

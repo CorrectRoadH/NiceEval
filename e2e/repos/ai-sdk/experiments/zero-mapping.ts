@@ -3,7 +3,7 @@ import { DEFAULT_MODEL } from "../src/backend/models.ts";
 import agent from "../agents/zero-mapping.ts";
 
 export default defineExperiment({
-  description: "zero-mapping: fromAiSdk(result) used directly on a generateText() call, no factory in between",
+  description: "zero-mapping:直接在 generateText() 调用结果上使用 fromAiSdk(result),中间不经过 factory",
   agent,
   model: DEFAULT_MODEL,
   runs: 3,

@@ -5,7 +5,7 @@ import { defineEval } from "niceeval";
 import { satisfies } from "niceeval/expect";
 
 export default defineEval({
-  description: "fromAiSdk(result) maps tool-call pairing and aggregated usage straight from a generateText() result",
+  description: "fromAiSdk(result) 直接从 generateText() 结果映射出工具调用配对与聚合后的 usage",
   async test(t) {
     const turn = await t.send("北京今天天气怎么样？");
     turn.expectOk();

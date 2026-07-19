@@ -3,7 +3,7 @@ import { DEFAULT_MODEL } from "../src/backend/models.ts";
 import agent from "../agents/in-process.ts";
 
 export default defineExperiment({
-  description: "in-process: aiSdkAgent generate() loop, tracing: aiSdkOtel() wired (this repo's OTel proof)",
+  description: "in-process:aiSdkAgent generate() 循环,tracing:接入 aiSdkOtel()(本仓库的 OTel 验证点)",
   agent,
   model: DEFAULT_MODEL,
   runs: 3,
