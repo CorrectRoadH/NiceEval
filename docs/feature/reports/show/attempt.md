@@ -1,6 +1,6 @@
 # 失败诊断首页
 
-无 flag 打开 attempt 时，输出先给判定，再按结果分节列断言：`failures:`（gate 失败）、`soft below threshold:`（soft 未达标）、`scores:`（无阈值 judge 的纯打分）、`unavailable:`（证据评不了，带 reason）——全通过的节省略。每条列分组、matcher、期望值、实际值和源码位置；逐断言家族的渲染示例单点定义在 [Scoring · 断言与 Turn 的展示](../../scoring/library/display.md)：
+不带 `--report` 且无证据 flag 打开 attempt 时，选择内建 `standard` 中的 [attempt-input page](../library/attempt-detail.md)，注入 locator 并渲染其 `<AttemptDetail />` text 面；这张普通 page 就是本页所说的“诊断首页”，不是 show 宿主另藏的一套 renderer。`AttemptSummary` 先给身份与判定，`AttemptAssessment` 再用 `AttemptError` + `AttemptSource`（源码不可用时为 `AttemptAssertions`）按结果分节列断言：`failures:`（gate 失败）、`soft below threshold:`（soft 未达标）、`scores:`（无阈值 judge 的纯打分）、`unavailable:`（证据评不了，带 reason）——全通过的节省略。每条列分组、matcher、期望值、实际值和源码位置。带 `--report <file>` 时，选择该定义自己的 attempt-input page，content 与顺序可以不同：
 
 ```text
 $ niceeval show @1qrdcfq8

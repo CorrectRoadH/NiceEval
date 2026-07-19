@@ -1,40 +1,27 @@
 # 概览组件
 
-回答“这批结果有多大、整体是否健康、当前水位在哪”的两个组件：`ExperimentComparison` 是内建报告的默认组合件，`ScopeSummary` 是它复用的汇总卡，也可单独使用。`ScopeSummary` 没有计算选项；`ExperimentComparison` 只有一个：`series`。spec 形态在此之外只有可选的 `input`（默认宿主注入的 Scope），data 形态接收配套 `*Data` 函数的返回值；props 组合规则 `DataProps` 见[指标组件](metric-views.md)。
+回答“这批结果有多大、整体是否健康、当前水位在哪”的两个层次：`ScopeSummary` 是有 `scopeSummaryData` 的叶子数据组件；`ExperimentComparison` 是内建首页使用的 report-only 普通组合组件，只把 `ScopeSummary`、`MetricScatter` 与 `ExperimentList` 摆在一起，不发明自己的 data 形状或渲染面。
 
 ## `ExperimentComparison`
 
-裸 `niceeval show` 与 `niceeval view` 首页经由[内建报告](built-in.md)渲染的默认组合件。它对当前 `input` 直接计算一份 `ScopeSummary`、成本 × 端到端通过率散点和 `ExperimentList`。每个 experiment 实际覆盖哪些 eval 读取快照里的 `selectedEvalIds`；不同 experiment 可以有不同集合，eval 数与指标分母各自如实计算。
+裸 `niceeval show` 与 `niceeval view` 首页经由[内建报告](built-in.md)渲染的默认组合件。它把同一个 `input` 显式传给 `ScopeSummary`、成本 × 端到端通过率的 `MetricScatter` 和 `ExperimentList`。每个叶子组件按自己的公开契约取数；组合件不合并结果、不缓存第二份 `ExperimentComparisonData`，共享计算由报告 resolve 的“同引用 input + 深相等 spec”记忆化保证。
 
 Scope 内任一实验声明了 [`labels`](../../experiments/library.md#labels声明归类坐标不进运行时) 的 `line` 键，散点就按 `label("line")` 归类并连线；否则按 `"agent"` 归类、不连线。显式传 `series` / `connect` 时采用显式值，`connect` 与 [`MetricScatter`](metric-views.md#metricscatter) 同一契约。
 
 端到端通过率对同一 experiment × eval 的多轮 attempt 先求均值，再跨 experiment × eval 求均值；`failed` 与 `errored` 为 0，`skipped` 为 `null`。摘要中的 verdict 构成另按 Eval 最终 verdict 计票：任一轮 passed 则 Eval passed，否则按 `failed > errored > skipped` 折叠。
 
-web 与 text 两面都输出当前 Scope 的摘要、散点和实验列表，不设组索引或组选择器。摘要的六项 KPI 在宽屏保持同一行；空间不足时按完整的三项或两项一组换行。
+web 与 text 两面都输出当前 Scope 的摘要、散点和实验列表，不设组索引或组选择器；这是三个叶子组件各自双面输出后按 `Col` 排列的结果，不是 `ExperimentComparison` 自己实现第三套 renderer。
 
 ```ts
-interface ExperimentComparisonData {
-  summary: ScopeSummaryData;
-  scatter: ScatterData;
-  experiments: ExperimentListItem[];
-}
-
-interface ExperimentComparisonOptions {
+interface ExperimentComparisonProps {
+  input?: ReportInput;
   /** 散点的 series 维度。缺省:有 label `line` 声明 → label("line") 并连线;否则 "agent"、不连线。 */
   series?: SeriesInput;
-}
-
-function experimentComparisonData(
-  input: ReportInput,
-  options?: ExperimentComparisonOptions,
-): Promise<ExperimentComparisonData>;
-
-type ExperimentComparisonProps = DataProps<ExperimentComparisonData, ExperimentComparisonOptions, {
   /** 透传给散点；契约同 MetricScatter 的 connect。 */
   connect?: boolean;
   locale?: ReportLocale;
   className?: string;
-}>;
+}
 ```
 
 ```tsx
@@ -43,6 +30,32 @@ type ExperimentComparisonProps = DataProps<ExperimentComparisonData, ExperimentC
 ```
 
 Experiment 按端到端通过率从高到低预排。要比较某个子集，先用宿主的 `--exp` 收窄，或在自定义报告里对 Scope 调 `filter`。
+
+它等价于下面这类普通组合，具体默认 series 的选择也在 compose 阶段完成：
+
+```tsx
+export const ExperimentComparison = defineComponent((props, ctx) => {
+  const input = props.input ?? ctx.scope;
+  const { series, connect } = resolveComparisonSeries(input, props);
+  return (
+    <Col className={props.className}>
+      <ScopeSummary input={input} locale={props.locale} />
+      <MetricScatter
+        input={input}
+        points="experiment"
+        series={series}
+        connect={connect}
+        x={costUSD}
+        y={endToEndPassRate}
+        locale={props.locale}
+      />
+      <ExperimentList input={input} filter locale={props.locale} />
+    </Col>
+  );
+});
+```
+
+因此 `ExperimentComparison` 只从 `niceeval/report` 导出，不从 `niceeval/report/react` 导出；自有 React 页面分别计算并组合三个叶子组件的 data。
 
 ## `ScopeSummary`
 

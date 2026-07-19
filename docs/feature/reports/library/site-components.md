@@ -1,6 +1,6 @@
 # 站点组件
 
-构成一个「完整报告站」的组件：站点标题区（hero）、品牌行、选择警告区、批量修复 prompt 与 trace 瀑布。它们与指标组件、实体列表在同一工具箱里，没有任何宿主特权——[内建报告](built-in.md)的三页全部由本页组件加 [`ExperimentComparison`](summaries.md#experimentcomparison) / [`AttemptList`](entity-lists.md#attemptlist) 写成，任何用户报告都能逐字复刻或整块丢弃。props 组合规则 `DataProps` 见[指标组件](metric-views.md)。
+构成一个「完整报告站」的组件：站点标题区（hero）、品牌行、选择警告区、批量修复 prompt 与 trace 瀑布。它们与指标组件、实体列表在同一工具箱里，没有任何宿主特权——[内建报告](built-in.md)的导航 pages 由本页组件加 [`ExperimentComparison`](summaries.md#experimentcomparison) / [`AttemptList`](entity-lists.md#attemptlist) 写成，参数化详情页则用 [`AttemptDetail`](attempt-detail.md)，任何用户报告都能逐字复刻或整块丢弃。props 组合规则 `DataProps` 见[指标组件](metric-views.md)。
 
 ## `Hero`
 
@@ -60,7 +60,7 @@ web 面渲染 hero 标题（`<h1>`）、meta 行（最后运行时间按渲染 l
 
 ## `ScopeWarnings`
 
-选择警告区：把 Scope 携带的 [`ScopeWarning[]`](../../results/library.md#警告-kind-全集) 按「下一步动作」聚合渲染。它是警告的唯一呈现组件——宿主不再在报告树外另设警告通道，报告里有没有警告区由报告文件决定；[内建报告](built-in.md)每一页都放它。警告可见性因此是作者义务，与自定义脚本的增强层不变量同一信任模型：省略它的报告，其数字可信度由作者自己负责。
+选择警告区：把 Scope 携带的 [`ScopeWarning[]`](../../results/library.md#警告-kind-全集) 按「下一步动作」聚合渲染。它是警告的唯一呈现组件——宿主不再在报告树外另设警告通道，报告里有没有警告区由报告文件决定；[内建报告](built-in.md)的三张 scope-input page 都放它，attempt-input page 不重复站点范围警告。警告可见性因此是作者义务，与自定义脚本的增强层不变量同一信任模型：省略它的报告，其数字可信度由作者自己负责。
 
 ```ts
 function scopeWarningsData(input: ReportInput): Promise<readonly ScopeWarning[]>;
@@ -130,7 +130,7 @@ type CopyFixPromptProps = DataProps<CopyFixPromptData, {}, {
 
 ## `TraceWaterfall`
 
-每个 attempt 一行的执行时间瀑布，用 canonical OTel 字段显示被测 agent 的原始 span（agent / model / tool）。行内只画顶层 span 摘要；完整瀑布与 runner 时间树的组合视图归 attempt 详情（宿主路由），组件不复制它。
+每个 attempt 一行的执行时间瀑布，用 canonical OTel 字段显示被测 agent 的原始 span（agent / model / tool）。行内只画顶层 span 摘要；完整瀑布与 runner 时间树的组合视图由报告的 [`AttemptTimeline`](attempt-detail.md) 详情组件承担，本组件不复制它。
 
 ```ts
 interface TraceSpanSummary {

@@ -1,6 +1,6 @@
 # `--report`：单页与多页的终端操作
 
-`--report <file>` 用报告文件替换默认榜单，文件的默认导出恒为 `defineReport` 产物（[树或配置对象形态](../library/shell.md)）；`--history` 与 `--report` 互斥。attempt locator 的下钻命令不随 `--report` 改变。本页按 case 列出操作步骤；页与外壳的字段契约见 [Library · 外壳与多页](../library/shell.md)。
+`--report <file>` 用报告文件替换默认 pages，文件的默认导出恒为 `defineReport` 产物（[树或配置对象形态](../library/shell.md)）；`--history` 与 `--report` 互斥。locator 详情同样是一张 page。本页按 case 列出操作步骤；page 与外壳的字段契约见 [Library · 外壳与多页](../library/shell.md)。
 
 **索引命令携带完整上下文。** `show` 输出的每一条页索引命令都保留当前的 `--results`、`--report` 与位置参数。
 
@@ -47,19 +47,21 @@ $ niceeval show --results tmp/published-results --report reports/site.tsx
                                         # 换结果根后输出页索引；索引命令同样带 --results
 ```
 
-## Case 5：attempt 下钻不受 `--report` 影响
+## Case 5：attempt 下钻使用同一份报告定义
 
-榜单换成任何自定义报告后，locator 下钻链保持不变——报告只是换了「怎么看」，证据入口是宿主的：
+报告声明了 attempt-input page 时，页里的 locator 命令保留 `--results` 与 `--report`，因而打开同一张 page 的 text 面；专用证据 flag 仍直接投影同一份 Results evidence，不经 page content：
 
 ```sh
 $ niceeval show --report reports/site.tsx --page exam    # 页里出现 @1qrdcfq8
-$ niceeval show @1qrdcfq8                                # 诊断首页照常打开
+$ niceeval show @1qrdcfq8 --report reports/site.tsx      # 自定义参数化 page 的 text 面
 $ niceeval show @1qrdcfq8 --diff                         # 证据切面照常可用
 ```
 
+报告没声明 attempt-input page 时 locator 只是文本，不生成一条会悄悄落回内建详情的命令。要沿用官方详情，显式 `extends: standard`，或把 `standardAttemptPage` 放进自己的 pages；要自定义就声明同类 page 并重组它的 content。
+
 ## Case 6：内建等价文件
 
-裸 `niceeval show` 与 `--report` 一个内容为[内建报告全文](../library/built-in.md)（报告 / Attempts / 追踪三页）的文件完全等价；因此上面每个 case 对内建报告同样成立——裸 `show` 渲染报告页并在尾部列出 Attempts、追踪两页的索引。
+裸 `niceeval show` 与 `--report` 一个内容为[内建报告全文](../library/built-in.md)（三张导航 page 加一张参数化详情 page）的文件完全等价；裸 `show` 渲染报告页并在尾部只列 Attempts、追踪两张可导航页，`show @locator` 选择隐藏的详情 page。
 
 ## 外壳字段在终端
 

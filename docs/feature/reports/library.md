@@ -1,6 +1,6 @@
 # Reports —— 库用法
 
-`niceeval/report` 导出 `defineReport`、`defineComponent`、可交给 `show` / `view` 的双面组件与配套 `*Data` 计算函数；`niceeval/report/react` 只导出可直接嵌入自有 React 页面的纯 web renderer 和数据类型，不导出任何读盘 / artifact 计算代码。两个入口的同名组件接收同一份 `data`；计算函数、spec 形态与组合组件只住在 `niceeval/report`。`defineReport` 除报告树外还能声明导航外壳与多页，见[外壳与多页](library/shell.md)。
+`niceeval/report` 导出 `defineReport`、`defineComponent`、可交给 `show` / `view` 的双面叶子组件与配套 `*Data` 计算函数，以及 `ExperimentComparison`、`AttemptDetail` 这类只装配叶子的普通组合组件；`niceeval/report/react` 只导出叶子的纯 web renderer 和数据类型，不导出取数代码或 report-only 组合。两个入口的同名叶子组件接收同一份 `data`。`defineReport` 的内容只有 pages：page 可以消费 Scope，也可以声明为按 locator 消费 `AttemptEvidence` 的参数化 page，见[外壳与多页](library/shell.md)和 [Attempt 详情组件](library/attempt-detail.md)。
 
 最快的选择方式：先确定想回答的问题，再选组件。
 
@@ -20,6 +20,7 @@
 | 这批数据的选择警告（覆盖缺口、过旧、未完成） | [`ScopeWarnings`](library/site-components.md#scopewarnings) |
 | 把全部失败打包成可交给 coding agent 的修复 prompt | [`CopyFixPrompt`](library/site-components.md#copyfixprompt) |
 | 每个 attempt 的执行时间瀑布 | [`TraceWaterfall`](library/site-components.md#tracewaterfall) |
+| 自定义 locator 打开的参数化 page | [`AttemptDetail`，或 `AttemptSummary`、`AttemptAssessment`、`AttemptTimeline` 等详情组件](library/attempt-detail.md) |
 
 组件之外按任务读分篇：
 
@@ -30,6 +31,7 @@
 | 组织报告树、写组合组件或双面组件 | [排版原语与自定义组件](library/layout.md) |
 | 加标题、GitHub 链接、页脚，或拆成多页 | [外壳与多页](library/shell.md) |
 | 摆 hero、品牌行、警告区、修复 prompt 或 trace 瀑布 | [站点组件](library/site-components.md) |
+| 声明、删减或重排 attempt-input page | [Attempt 详情组件](library/attempt-detail.md) |
 | 看裸 `show` / `view` 装载的默认定义怎么写 | [内建报告](library/built-in.md) |
 
 ## 两种使用方式
@@ -139,7 +141,7 @@ await writeFile("public/evals.json", JSON.stringify(table));
 ## 相关阅读
 
 - [配方](library/recipes.md) —— 按场景可整份复制的完整报告文件。
-- [概览组件](library/summaries.md) / [实体列表](library/entity-lists.md) / [指标组件](library/metric-views.md) / [站点组件](library/site-components.md) —— 组件契约分篇。
+- [概览组件](library/summaries.md) / [实体列表](library/entity-lists.md) / [指标组件](library/metric-views.md) / [站点组件](library/site-components.md) / [Attempt 详情组件](library/attempt-detail.md) —— 组件契约分篇。
 - [指标与维度](library/metrics.md) —— 内置指标口径与自定义指标。
 - [排版原语与自定义组件](library/layout.md) —— 报告树的组织件、组合组件与 text 排版工具。
 - [外壳与多页](library/shell.md) —— 标题、外链、页脚、脚本与 `pages`。

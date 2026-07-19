@@ -1,6 +1,6 @@
 # 外壳与多页
 
-`defineReport` 接受两种入参：传一棵报告树，填进宿主默认外壳的报告槽；传配置对象则在内容之外声明导航外壳——标题、GitHub 等外部链接、页脚、head 标签注入、自定义脚本与样式——并可把内容拆成多页，或用 `extends` 把另一份报告整站接过来、只声明自己的外壳。给报告加品牌、发布 benchmark 站、把成绩单与趋势分成独立页面，是同一个 API 的递进用法，形状不换轨：
+`defineReport` 接受两种入参：传一棵报告树，填进宿主默认外壳的报告槽；传配置对象则在内容之外声明导航外壳——标题、GitHub 等外部链接、页脚、head 标签注入、自定义脚本与样式——并可把内容拆成多页、加入以 locator 为输入的参数化 page，或用 `extends` 把另一份报告整站接过来。给报告加品牌、发布 benchmark 站、把成绩单与趋势分成独立页面、定制 attempt 详情，始终只操作 pages：
 
 ```tsx
 // reports/frontier.tsx —— ① 一棵树：树入参，等价于 { content: 树 }
@@ -136,7 +136,7 @@ type ReportDef = ReportShell &
         extends?: never;
       }
     | {
-        /** 非空页列表；导航按数组顺序显示。 */
+        /** 非空 page 列表；其中 navigation !== false 的项按数组顺序显示。 */
         pages: NonEmptyArray<ReportPage>;
         content?: never;
         extends?: never;
@@ -154,7 +154,7 @@ type ReportDef = ReportShell &
       }
   );
 
-interface ReportPage {
+interface ReportPageBase {
   /** 页面身份：`--page <id>` 的取值、web 路由 `#/page/<id>` 与导航锚。小写字母、数字与连字符，文件内唯一。 */
   id: string;
   /** 导航中的页名。 */
@@ -162,6 +162,20 @@ interface ReportPage {
   /** 这一页的报告树；ReportDefinition 不是 ReportNode，页装不进外壳。 */
   content: ReportNode;
 }
+
+type ReportPage =
+  | (ReportPageBase & {
+      /** 缺省：消费宿主选择的 Scope。 */
+      input?: "scope";
+      /** 缺省 true；false 可做不进导航的静态辅助页。 */
+      navigation?: boolean;
+    })
+  | (ReportPageBase & {
+      /** 按 locator 消费一份 AttemptEvidence。 */
+      input: "attempt";
+      /** 参数化 page 没有 locator 时不可打开，必须不进导航。 */
+      navigation: false;
+    });
 
 interface ReportLink {
   label: LocalizedText;
@@ -182,13 +196,13 @@ type ReportAsset =
 
 ## 行为约束
 
-- **单页与多页在宿主内都规范化成页列表。** 树入参规范化为 `{ content: 树 }`，`content: 树` 再展开为 `pages: [{ id: "report", title: 内置页名「报告 / Report」, content: 树 }]`。缩写不是隐式默认——展开完全由写下的值决定。因此单页文件同样有页身份：路由 `#/page/report` 与 `--page report` 都成立，导航项显示内置页名。`show` 渲染初始页（`--page` 指定的页，缺省第一页），页数大于一时在页输出之后附其余页的索引与可复制的 `--page` 命令——与 `view` 打开初始页同一语义，索引只列未渲染的页，不倾倒它们的内容。裸 `show` / `view` 装载的[内建报告](built-in.md)走同一条装载管线。
+- **单页与多页在宿主内都规范化成 page 列表。** 树入参规范化为 `{ content: 树 }`，`content: 树` 再展开为 `pages: [{ id: "report", title: 内置页名「报告 / Report」, input: "scope", navigation: true, content: 树 }]`。缩写不是隐式默认。`show` 渲染初始 scope-input page（`--page` 指定，缺省第一张可导航 page），随后只为其它 `navigation !== false` 的 pages 附索引；参数化 page 不进索引，也不能在没有 locator 时用 `--page` 单独打开。裸 `show` / `view` 装载的[内建报告](built-in.md)走同一条装载管线。
 - **`content` / `pages` / `extends` 恰好声明一个，没有隐式默认。** 多选或都省略，装载时以完整用户反馈报错，报错指出下一步：要渲染内建报告，写 `extends: standard`（`import { standard } from "niceeval/report/built-in"`）。省略不是一种有含义的取值——读报告文件的人必须能看出会渲染什么。
-- **`extends` 的合并语义是「页归 base、外壳逐字段覆盖」，且在 `defineReport` 调用时折叠完成。** 页列表取 base 规范化后的页列表；本对象声明的外壳字段（`title` / `links` / `footer` / `head` / `scripts` / `styles`）整字段替换 base 的同名字段，未声明的沿用 base——没有数组拼接、没有深合并，要拼接就在自己字段里用 JS 写出想要的完整值。产物是普通 `ReportDefinition`：base 不被修改，链式 extends 天然成立（上一次折叠的产物就是下一次的 base），宿主装载看到的永远是已折叠的页列表与外壳，没有运行期继承。`extends` 只收 `defineReport` 产物，其它值（普通对象、React 组件、报告树）装载报错。
+- **`extends` 的合并语义是「pages 归 base、外壳逐字段覆盖」，且在 `defineReport` 调用时折叠完成。** 页列表取 base 的完整 pages——包括不进导航的参数化 page；本对象声明的外壳字段（`title` / `links` / `footer` / `head` / `scripts` / `styles`）整字段替换 base 的同名字段，未声明的沿用 base。要改任一 page 的 content，按既有规则从公开组件重新声明 pages；没有 page 之外可单独覆盖的内容槽。产物是普通 `ReportDefinition`：base 不被修改，链式 extends 天然成立，宿主装载看到的永远是已折叠的 page 列表与外壳。`extends` 只收 `defineReport` 产物，其它值（普通对象、React 组件、报告树）装载报错。
 - **`defineReport` 产物只有两个去处：默认导出交宿主装载，或作 `extends` 的 base。** `ReportDefinition` 是普通值——可赋给变量、可直接断言测试、可从别的模块 re-export；「默认导出」只是宿主装载 convention，不是值本身的限制。它不在 `ReportNode` 类型里：把它放进 `content`、`pages[].content` 或任何报告树，TypeScript 在编译期拒绝，无类型 JavaScript 输入在装载期以完整用户反馈拒绝——报告级复用只有 `extends` 这一个位置。要在多个站点间复用一页内容，具名导出那棵树或那个组件；`extends` 产物是新值、base 不被修改，所以给一个报告加外壳永远不会破坏别处对 base 的引用。
 - **页是宿主寻址单位，tab 是页内浏览状态。** 页有 id、路由、导航项和 `--page` 选择器；[`Tabs`](layout.md#tabs) 没有。需要单独打开、深链或在终端独立渲染的内容做成页，同页内的并列视图用 tab。
-- **所有页共享同一份 Scope。** 位置参数与 `--exp` 收窄对全部页生效；页是对同一批数据的不同看法，不承担数据过滤职责。要看不同数据范围，用命令行收窄或在页内组件上显式传 `input`。attempt 详情不是页——它是宿主路由（`#/attempt/@<locator>` / `show @<locator>`），对完整结果根解析，任何页里的深链都不因收窄失效（见 [View · 页面构成](../view.md#页面构成)）。
-- **规范化声明经 `ctx.report` 只读可见，宿主没有保留内容。** 组合组件的 ctx 携带 [`report`](layout.md#自定义组件)——规范化后的报告声明：走完回退链的 `title`、`links`、`footer`、页列表与当前页 id。宿主 chrome 消费的每一份声明组件都能读，没有数据秘密，也没有保留内容——hero、警告区、attempt 列表、trace 瀑布都是工具箱里的普通组件（[站点组件](site-components.md)、[实体列表](entity-lists.md)），宿主保留的是机器加一个报告改不动的固定品牌位：装载与 resolve 管线、路由与导航渲染、attempt 详情路由、文档单例、语言切换，以及页头左端的 NiceEval 字标（[边界清单](../architecture.md#宿主保留的只有机器)）。它只进组合组件：解析面与渲染面不依赖站点声明——数据不依赖声明才可序列化、跨站复用，渲染面只吃 props 才保证两面同源；`head` / `scripts` / `styles` 是注入资产而非展示声明，不进 `ctx.report`。读 `ctx.report` 的组件是在声明「输出跟随站点」；要站点无关的组件就不读它。`defineReport` 不收自定义参数字段：宿主不消费的值不属于声明，自定义值走语言自带的类型通道——同文件用变量、跨文件用模块导入或装配处的 props；报告树只有两三层，不存在需要 context 兜底的深透传。
+- **page 显式声明输入。** scope-input page 消费同一份收窄后的 Scope；`input: "attempt"` 的参数化 page 每次只消费 locator 对应的一份 `AttemptEvidence`。后者仍是 page，只因没有 locator 时不可打开而要求 `navigation: false`。一份报告至多一张 attempt-input page；没有时 locator 只显示为文本，宿主不追加详情（见 [Attempt 详情组件](attempt-detail.md)）。
+- **规范化声明经 `ctx.report` 只读可见，当前输入经 `ctx.page` 可见。** 组合组件的 ctx 携带 [`report`](layout.md#自定义组件)——走完回退链的 `title`、`links`、`footer` 与完整 pages 元数据；`ctx.page` 是 `{ id, input: "scope" } | { id, input: "attempt", locator, evidence }`。宿主 chrome 消费的每一份声明组件都能读，没有数据秘密，也没有保留内容——hero、警告区、attempt 列表、trace 瀑布与 attempt 详情区块都是 page 内的普通组件。宿主保留的是机器加一个固定品牌位：装载与 resolve 管线、page 路由与导航渲染、locator 解析与 dialog 摆放、文档单例、语言切换，以及页头左端的 NiceEval 字标（[边界清单](../architecture.md#宿主保留的只有机器)）。
 - **`head` 是元数据与第三方脚本的注入口。** 标签按声明顺序渲染进每页 `<head>`，落在官方与外壳样式之后。`tag` 白名单是 `meta`、`link`、`script`、`style` 四种，白名单外装载报错；宿主自有的文档单例不接受声明——`<title>` 不在白名单里（标题走 `title` 字段的回退链），`meta charset` 与 `meta name="viewport"` 由宿主拥有，声明它们装载报错并指回对应契约。`script` / `style` 的 `children` 原样落进标签，其中出现 `</script>` / `</style>` 时装载报错（该上下文无法转义，报错给出拆分或转移建议）。GA4、data-* 驱动的 tracker、og:image、favicon、字体、JSON-LD 都是 vendor 文档的逐字段直译，不需要 DOM 自举样板。head 里的脚本与 `scripts` 同受增强层不变量约束。
 - **除 `title` 外的外壳字段是 web 面属性。** `links`、`footer`、`head`、`scripts`、`styles` 只被 `view` 与静态导出消费；`show` 读同一文件时消费 `pages`，并把 `title` 用作页索引的标题行。外壳文案是 `LocalizedText`，随外壳的语言切换取值。
 - **`title` 的落点是浏览器标题、`show` 页索引标题行与 `ctx.report.title`。** 页面里的 hero 标题不是外壳渲染的——它由 [`Hero` 组件](site-components.md#hero)承担，`Hero` 缺省消费 `ctx.report.title`，同一取值链因此贯通浏览器标题与页内 hero。标题回退必须确定：取值链是 `def.title` → Scope 中唯一且相同的非空 snapshot `name` → 内置文案「Eval 运行结果 / Eval Results」。快照中没有 name 或存在多个不同 name 时都落到内置文案，不按数组顺序随机挑一个。`LocalizedText` 按字段值深相等比较，对象键顺序不影响结果。浏览器 `<title>` 与 `meta charset` / `viewport` 同族，是宿主拥有的文档单例——这是「宿主只剩机器」里机器的一部分，不是内容特权。
@@ -199,12 +213,13 @@ type ReportAsset =
 - **校验分两期。** `defineReport({...})` 与宿主装载期校验外壳形状、非空页列表、重复 / 非法 page id、资产路径和 `head` 标签结构（白名单、宿主自有单例、children 上下文）；`content` / `pages` 互斥与外壳嵌套已由类型拒绝，运行期仍对无类型 JS 输入做同样校验。页内树在 [resolve 展开](../architecture.md#报告树与两个宿主)时逐节点校验资格；缺任一渲染面或包含任意 HTML intrinsic 时，按该页的失败规则反馈。
 - **脚本随导出发布。** 静态导出会原样携带并在读者浏览器执行 `scripts` 与 `head` 里的脚本，导出不检查脚本内容，脚本里别嵌密钥。
 
-导航的组成只有一条规则：报告页按声明序排列，宿主不追加任何项。裸宿主导航里的 Attempts、Traces 是[内建报告](built-in.md)声明的普通页，换 `--report` 后要不要它们由报告文件决定；attempt 详情经宿主路由恒在、不占导航。见 [View · 页面构成](../view.md#页面构成) 与 [Architecture](../architecture.md#外壳与页装载规范化)。
+导航的组成只有一条规则：pages 中 `navigation !== false` 的项按声明序排列，宿主不追加任何项。裸宿主导航里的报告、Attempts、Traces 与 locator 详情都是[内建报告](built-in.md)声明的 page；最后一张因为 `navigation: false` 不显示。换 `--report` 后要不要它们全部由报告文件决定。见 [View · 页面构成](../view.md#页面构成) 与 [Architecture](../architecture.md#外壳与页装载规范化)。
 
 ## 相关阅读
 
 - [内建报告](built-in.md) —— 裸宿主装载的定义与升级路径。
 - [站点组件](site-components.md) —— hero、品牌行、警告区、修复 prompt 与 trace 瀑布。
+- [Attempt 详情组件](attempt-detail.md) —— attempt-input page 能用哪些公开区块组装。
 - [排版原语与自定义组件](layout.md) —— 页 content 里的树怎么组织，组合组件怎么写。
 - [Show](../show.md) / [View](../view.md) —— 页索引、`--page` 与静态导出。
 - [Architecture](../architecture.md) —— 装载规范化与宿主机器边界。

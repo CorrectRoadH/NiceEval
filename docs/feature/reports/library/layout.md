@@ -182,7 +182,7 @@ interface TableProps {
 - **`null` 渲染成 `—`**，不补 0；`cells` 里缺这个键同样是 `—`。
 - **超宽先折行再丢列。** 总宽超过可用列宽时，先压最宽的左对齐列（按显示宽度折行）；右对齐列不折行——数字折行读不了。左对齐列压到下限仍放不下，就从右侧丢列，并在表下如实标注丢了几列。
 - **两个面各自成立。** text 面列间 3 空格、首行表头；web 面是 `<table>` + `<thead>` / `<tbody>`，右对齐落成 `nre-align-right` 类，不用内联样式。
-- **带 `locator` 的行接 Attempt 详情。** 有任一行带 `locator` 时多出一列 attempt：web 面是指向 Attempt 详情路由的链接，text 面列出 locator（`niceeval show <locator>` 的位置参数）。
+- **带 `locator` 的行只携带证据引用，不强造详情。** 有任一行带 `locator` 时多出一列 attempt：当前报告声明了 attempt-input page（或自有 React 页面显式传 `attemptHref`）时，web 面渲染链接、text 面渲染带完整报告上下文的命令；没有连接目标时两个面都只显示 locator 文本，宿主不追加隐藏 fallback。
 
 `MetricTable`、`MetricMatrix`、`Scoreboard` 和 `DeltaTable` 的 text 面建在 `Table` 上：自定义表和官方表用同一把尺子。
 
@@ -206,13 +206,19 @@ interface TableProps {
 
 ```ts
 interface ComposeContext {
-  /** 宿主注入的 Scope。 */
+  /** 宿主选择的 Scope；页组件直接消费，attempt 组合也可用来读站点范围。 */
   scope: Scope;
   /** 结果根完整读取面；历史视图从这里自行挑 Snapshot[]。 */
   results: Results;
   /** 规范化后的报告声明，只读；见下方 ReportMeta。 */
   report: ReportMeta;
+  /** 当前 page 及其输入；非法组合由判别联合排除。 */
+  page: PageContext;
 }
+
+type PageContext =
+  | { id: string; input: "scope" }
+  | { id: string; input: "attempt"; locator: AttemptLocator; evidence: AttemptEvidence };
 
 interface ReportMeta {
   /** 走完回退链（声明 title → 唯一快照 name → 内置文案「Eval 运行结果」）后的标题。 */
@@ -220,29 +226,31 @@ interface ReportMeta {
   /** 页头外链；声明省略时为空数组。 */
   links: readonly ReportLink[];
   footer?: LocalizedText;
-  /** 规范化后的页列表（id 与导航页名），恒非空。 */
-  pages: readonly [{ id: string; title: LocalizedText }, ...Array<{ id: string; title: LocalizedText }>];
-  /** 当前渲染中的页 id。 */
-  pageId: string;
+  /** 规范化后的 page 列表，包含不进导航的参数化 page，恒非空。 */
+  pages: readonly [{ id: string; title: LocalizedText; input: "scope" | "attempt"; navigation: boolean }, ...Array<{ id: string; title: LocalizedText; input: "scope" | "attempt"; navigation: boolean }>];
 }
 
 interface ResolveContext {
   /** 宿主注入的 Scope；props 显式给出 input 时以 props 为准。 */
   input: ReportInput;
+  /** Attempt 详情组件从 attempt 分支读取 evidence；scope 组件不猜可选字段。 */
+  page: PageContext;
 }
 
 interface TextContext {
   width: number;
   locale: ReportLocale;
   render(node: ReportNode, width?: number): string;
-  attemptCommand(locator: AttemptLocator): string;
+  /** 当前定义有 attempt-input page 时存在；否则 locator 只渲染成文本。 */
+  attemptCommand?: (locator: AttemptLocator) => string;
   /** 「按实验收窄」类命令；宿主注入以携带完整 --results / --report / --page 上下文。 */
   experimentCommand(experimentIdPrefix: string): string;
 }
 
 interface WebContext {
   locale: ReportLocale;
-  attemptHref(locator: AttemptLocator): string;
+  /** 当前定义有 attempt-input page 或嵌入方显式接外部路由时存在。 */
+  attemptHref?: (locator: AttemptLocator) => string;
 }
 
 interface ComponentFaces<Props, RenderProps = Props> {

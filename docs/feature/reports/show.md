@@ -8,6 +8,8 @@
 niceeval show                              # 内建报告首页：默认榜单 + 尾部页索引
 niceeval show memory/swelancer             # 按 eval id 前缀收窄
 niceeval show @1qrdcfq8                    # 打开一个 attempt 的诊断首页
+niceeval show @1qrdcfq8 --report reports/site.tsx
+                                             # 渲染自定义 attempt-input page 的 text 面
 niceeval show @1qrdcfq8 --source           # 断言标回 eval 源码
 niceeval show @1qrdcfq8 --execution        # 对话与工具调用；可关联时附 OTel 时间
 niceeval show @1qrdcfq8 --timing           # 有界诊断时间树：生命周期、hook、命令、轮次与 OTel
@@ -42,7 +44,7 @@ niceeval show --report reports/exam.tsx
 niceeval show --report reports/site.tsx --page exam
 ```
 
-`--results` 改变结果根；`--exp` 按 experiment id 路径段匹配，eval id 位置参数按裸前缀过滤。收窄后的 Scope 直接交给默认报告。`--report` 用自定义报告替换榜单，但 attempt locator 的下钻命令保持不变。
+`--results` 改变结果根；`--exp` 按 experiment id 路径段匹配，eval id 位置参数按裸前缀过滤。`--report` 替换整份 pages：无证据 flag 的 `show @<locator> --report <file>` 选择其中唯一的 attempt-input page，注入 locator 对应的 evidence 并渲染 text 面；`--source`、`--execution`、`--timing`、`--diff` 仍是直接读取同一份 Results evidence 的专用终端投影。
 
 ## `--history`：一个 eval 的执行时间轴
 
