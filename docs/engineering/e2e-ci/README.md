@@ -2,7 +2,7 @@
 
 E2E 是[测试体系](../testing/README.md)的真实层：真实模型、真实协议、真实沙箱、真实安装与进程，没有离线档、mock 模式或替身分支——模型调用成本不构成设计约束，费用与时长由每个仓库自己的 Experiment 档位（模型、runs、budget、timeout）控制。
 
-niceeval 的 E2E 以**独立测试仓库**为执行与所有权边界。每个测试仓库都包含自己的被测应用、Agent adapter、Eval、Experiment、依赖锁文件、启动脚本和验收脚本；不同仓库之间不共享 Eval factory、profile、应用进程或结果读取代码。
+niceeval 的 E2E 以**独立测试仓库**为执行与所有权边界。每个测试仓库都包含自己的被测应用、直接实例化官方 Agent 工厂的 Experiment、Eval、依赖锁文件、启动脚本和验收脚本；不同仓库之间不共享 Eval factory、profile、应用进程或结果读取代码。
 
 根仓库只编排这些仓库：构建当前 niceeval 候选包、选择测试仓库、逐个隔离运行并汇总结果。它不理解某个仓库应该发现多少条 Eval、工具名是什么，也不递归猜测 `.niceeval/` 的内部布局。
 
@@ -33,16 +33,19 @@ E2E CI 同时证明以下行为：
 一个测试仓库满足以下约束：
 
 - 有自己的 `package.json` 和 lockfile，不加入 niceeval 根 workspace；Python 等其它运行时同样在仓库内声明依赖。
-- 有自己的 `niceeval.config.ts`、`agents/`、`evals/` 和 `experiments/`。
+- 有自己的 `niceeval.config.ts`、`evals/` 和 `experiments/`；Experiment 直接从 `niceeval/adapter` 导入并实例化官方 Agent 工厂。
 - 被测应用及其启动方式属于该仓库，不从中央 `apps/` 目录连接共享进程。
 - 不 import 另一个测试仓库，也不 import niceeval 根仓中的 `e2e/shared`、`src/` 或测试辅助源码。
 - 不使用指向父目录的 `file:` / `link:` 依赖。待测 niceeval 由执行器通过候选包注入。
+- 不包含 `agents/` 或等价的本地 Adapter 实现层，不调用 `defineAgent`、`defineSandboxAgent`、`driveFrameStream` 或 `from*Events` 拼装 Agent。官方工厂不够用就是产品缺口，不在 E2E 中补胶水。
 - `.niceeval/`、服务日志和 JUnit 属于一次运行的临时证据，必须被 ignore，不得成为下一次运行的输入。
 - 从父目录复制到一个临时目录后，仍能在只注入候选包和 secrets 的条件下执行。
 
 “不共享”约束的是运行时代码和测试语义。仓库可以遵循同一份书面执行协议，也可以在创建时从模板复制初始骨架；复制后各仓库独立演进，不存在会同时改变整个矩阵行为的共享 factory。
 
-每个仓库物理挂在 `e2e/` 下的一个 **collection 目录**里：`repos/` 装每个官方适配器仓库（`group` 为 `sdk` / `sandbox`），`mechanism/` 装只断言机制事实、不测协议路径的仓库（`group` 为 `mechanism`：`results`、`cli`）。collection 只表达物理归属，不是仓库身份的一部分——`id` 在全部 collection 范围内全局唯一，编排器与 CI 从每个仓库自己的 `e2e.json` 读 `group`，不从所在 collection 目录名反推分组。
+每个启用仓库物理挂在 `e2e/` 下的一个 **collection 目录**里：`repos/` 装已有完整官方 Agent 工厂的适配器仓库（`group` 为 `sdk` / `sandbox`），`mechanism/` 装只断言机制事实、不测协议路径的仓库（`group` 为 `mechanism`：`results`、`cli`）。collection 只表达物理归属，不是仓库身份的一部分——`id` 在两个 collection 范围内全局唯一，编排器与 CI 从每个仓库自己的 `e2e.json` 读 `group`，不从所在 collection 目录名反推分组。
+
+只有事件转换器、尚无完整官方 Agent 工厂的 fixture 放在 `e2e/undo/`。`undo/` 不是 collection，发现器、CI 和结构守护都不扫描它；对应官方工厂落地后，fixture 删除本地 Adapter 实现、Experiment 改为直接实例化工厂，再整体移回 `repos/`。
 
 ### 2.2 仓库形状
 
@@ -58,16 +61,15 @@ E2E CI 同时证明以下行为：
   niceeval.config.ts
 
   src/                         # 被测应用；不需要服务的仓库可省略
-  agents/                      # 本仓库的 adapter
   evals/                       # 本仓库拥有的 Eval
-  experiments/                # 本仓库拥有的 Experiment
+  experiments/                # 直接实例化 niceeval/adapter 官方工厂
 
   scripts/
     e2e.ts                     # 唯一执行入口（tsx 执行）：准备、启动、运行、验收、清理
     verify.ts                  # 可选；只包含本仓库的可观察行为断言
 ```
 
-例如 `claude-agent-sdk` 仓库直接在自己的天气 Eval 里断言 `mcp__demo-tools__get_weather`，`ai-sdk` 仓库直接断言 UI Message Stream 的裸工具名。两者即使覆盖相似场景，也各自拥有完整 Eval；重复是协议验收的证据，不是需要消除的代码坏味道。
+例如 `claude-code` 仓库直接在自己的 MCP Eval 里断言真实 Claude Code 工具名，`ai-sdk` 仓库直接断言 UI Message Stream 的裸工具名。两者即使覆盖相似场景，也各自拥有完整 Eval；重复是协议验收的证据，不是需要消除的代码坏味道。
 
 ### 2.3 仓库描述文件
 
@@ -197,17 +199,13 @@ e2e/
   README.md
   repos/                       # 每个官方适配器一个仓库（group：sdk / sandbox）
     ai-sdk/
-    claude-agent-sdk/
-    codex-sdk/
-    pi-agent-core/
-    langgraph/
     claude-code/
     codex-cli/
     bub/
-    openclaw/
   mechanism/                   # 只断言机制事实、不测协议路径的仓库（group：mechanism）
     results/
     cli/
+  undo/                        # 缺少完整官方工厂的停用 fixture；不参与发现与 CI
   scripts/
     discovery.ts               # 跨 repos/、mechanism/ 两个 collection 发现并校验 e2e.json
     list.ts                    # discovery.ts 的 CLI 包装（tsx 执行）
@@ -236,7 +234,7 @@ e2e/
 本地选择命令保持稳定：
 
 ```sh
-pnpm e2e --repo claude-agent-sdk
+pnpm e2e --repo ai-sdk
 pnpm e2e --group sdk
 pnpm e2e --group sandbox
 pnpm e2e --group mechanism
@@ -267,7 +265,7 @@ GitHub Actions 从仓库描述文件生成 matrix，每个 matrix cell 只运行
 crabbox 同步仓库 checkout 并在远端执行仓库命令；它不应知道 niceeval E2E 的内部编排。单仓库运行使用同一个入口：
 
 ```sh
-crabbox run --shell 'pnpm e2e --repo claude-agent-sdk'
+crabbox run --shell 'pnpm e2e --repo ai-sdk'
 ```
 
 当某个测试仓库被放在独立 checkout 中时，命令进一步收窄为：
@@ -286,13 +284,15 @@ crabbox run --shell 'pnpm install --frozen-lockfile && pnpm e2e'
 
 | 域 | 文档 | 仓库 | group |
 |---|---|---|---|
-| 适配器 | [adapters/](adapters/README.md) | 每个官方适配器一个仓库：`ai-sdk`、`claude-agent-sdk`、`codex-sdk`、`pi-agent-core`、`langgraph`、`claude-code`、`codex-cli`、`bub`、`openclaw` | `sdk` / `sandbox` |
+| 适配器 | [adapters/](adapters/README.md) | 已有完整官方工厂的仓库：`ai-sdk`、`claude-code`、`codex-cli`、`bub` | `sdk` / `sandbox` |
 | 报告 | [results.md](results.md) | `results` | `mechanism` |
 | CLI | [cli.md](cli.md) | `cli` | `mechanism` |
 
 一个能力只在真实支持它的仓库中出现。中央矩阵不依据 profile 自动删减 Eval；缺少覆盖应表现为域文档覆盖表中的空白，由评审决定补进哪个仓库。
 
 mechanism 仓库（`results`、`cli`）同样使用真实 Agent 与真实模型——真实优先没有例外，E2E 矩阵里不存在脚本化 agent。它们的稳定性来自断言对象：只断言机制事实（attempt 集合、复用显示、落盘格式、退出码折叠），不断言模型输出质量，因此真实模型下结论仍然确定。全部 E2E 仓库都需要真实凭据；无凭据环境的验证边界就是 `pnpm test`。
+
+缺少完整官方工厂的 SDK 不进入矩阵：fixture 留在 `e2e/undo/`，覆盖缺口记录在[适配器域](adapters/README.md)。转换器仍由单元测试验证，E2E 不用本地 `defineAgent` 把转换器包装成貌似完整的官方适配器。
 
 ### 7.1 破坏性变更的矩阵修复
 
@@ -309,6 +309,7 @@ niceeval 是 beta 软件，公开 API / CLI 的破坏性重设计是常态。仓
 - 每个 `e2e/repos/*`、`e2e/mechanism/*` 都有合法且跨 collection ID 唯一的 `e2e.json`；
 - 每个仓库都有自己的 Eval 和 Experiment，且不存在指向其它测试仓库或父级 shared 源码的 import；
 - 每个仓库有 lockfile、`.env.example` 与 `.gitignore`，其中 `.niceeval/` 被忽略；
+- 启用仓库没有 `agents/`，也不导入自定义 Agent 拼装入口；
 - package manifest 不含指向 niceeval 父目录的 `file:` / `link:`；
 - 把仓库复制到临时目录后可以完成依赖解析和 list/discovery 冒烟；
 - 根编排器不含 Eval ID、expected count、artifact 文件名或协议工具名。
@@ -318,6 +319,7 @@ niceeval 是 beta 软件，公开 API / CLI 的破坏性重设计是常态。仓
 ## 9. 不做的事
 
 - 不建立 `e2e/shared`，不共享 Eval / Experiment factory，也不通过 profile 生成各仓库的能力子集。
+- 不在 E2E 中实现或补全 Adapter；没有完整官方工厂的仓库进入 `e2e/undo/`，直到产品侧补齐。
 - 不把被测应用与 Eval 拆成中央 `apps/` + 薄 `projects/`，避免单独运行时还要恢复隐含拓扑。
 - 不让根编排脚本理解所有仓库的领域期望或 Results 私有布局。
 - 不用 symlink、跨仓库相对 import、根 workspace hoist 或父目录 `file:` 依赖制造“看起来独立”的仓库。
