@@ -29,13 +29,13 @@ export default defineReport({
 |---|---|---|
 | `AttemptSummary` | locator、experiment / eval / attempt 身份、verdict、开始时间、总耗时、成本与证据能力位 | 身份与 verdict 恒有，不为空 |
 | `AttemptError` | 结构化 error、cause 与基础设施失败信息；不重复 assertion | 没有 error 时零输出 |
-| `AttemptAssertions` | 全量 assertion，按 failed / soft / unavailable / passed 与 group 组织；不渲染源码 | 没有 assertion 时零输出 |
-| `AttemptSource` | 带 send / assertion 标注的 eval 源码；行内展开 assertion 细节 | 没有 source 时零输出，不自行 fallback |
+| `AttemptAssertions` | 非 passed 条目按原始声明顺序列一份平铺列表(failed / soft / unavailable 混排、不分段);passed 条目按 group 折叠成计数;不渲染源码 | 没有 assertion 时零输出 |
+| `AttemptSource` | 带 send / assertion 标注的 eval 源码；行内展开 assertion 细节 | 没有 source 时零输出,不自行 fallback |
 | `AttemptAssessment` | 先放 `AttemptError`，有 source 时放 `AttemptSource`，否则放 `AttemptAssertions` | 子组件都为空时零输出 |
-| `AttemptFixPrompt` | 把当前失败的身份、error / assertion、相关源码与变更摘要组装成单条修复 prompt | passed 或没有可操作失败时零输出 |
+| `AttemptFixPrompt` | 把当前失败的身份、简要失败原因与排查步骤(含 `--source`/`--execution`/`--timing`/`--diff` 提示命令、复跑与确认步骤)组装成单条修复 prompt;不内嵌源码或 diff 原文,由 agent 自己跑命令查看 | passed 或没有可操作失败时零输出 |
 | `AttemptTimeline` | runner phases、hook / command / session / turn，以及按 `traceId` 关联的 agent / model / tool spans | 没有 phase 时零输出 |
 | `AttemptConversation` | 标准事件流按轮组织的 user / assistant / thinking / tool / Skill / HITL / error 条目 | 没有 events 时零输出 |
-| `AttemptDiagnostics` | lifecycle 分组的 diagnostics 与 coverage reason | 没有 diagnostics 时零输出 |
+| `AttemptDiagnostics` | lifecycle 分组的 diagnostics(warning/error 级别的 code + message + 出现次数) | 没有 diagnostics 时零输出 |
 | `AttemptUsage` | token、cache token、成本及 provider usage 明细 | 没有 usage 时零输出 |
 | `AttemptTrace` | 不混入 runner 节点的原始 OTel span 树 / 瀑布 | 没有 trace 时零输出 |
 | `AttemptDiff` | generated / modified / deleted 文件摘要与 patch | 没有变更时零输出 |
@@ -160,7 +160,7 @@ export const AttemptDetail = defineComponent(() => (
 | 组件 | `show @locator --report ...` 的 text 面 | `view` 的 web 面 |
 |---|---|---|
 | `AttemptSummary` | 紧凑身份与 verdict 摘要 | 详情标题、状态和统计卡 |
-| `AttemptError` / `AttemptAssertions` | 有界错误与未通过项；保留完整 locator / source 命令 | 可展开的完整结构化细节 |
+| `AttemptError` / `AttemptAssertions` | 有界错误与未通过项列表;不带专属命令(完整 locator 已在 `AttemptSummary` 那一行) | 可展开的完整结构化细节 |
 | `AttemptSource` | 未通过 assertion 的源码位置与 expected / received，加 `--source` 命令；不倾倒整份源码 | 完整带标注源码，失败行可展开 |
 | `AttemptFixPrompt` | 零输出；终端已有可直接交给 agent 的 evidence 命令 | 单条失败的复制按钮与完整 prompt |
 | `AttemptTimeline` | phase 摘要与 `--timing` 命令 | 可逐层展开的 runner + correlated spans 时间树 |

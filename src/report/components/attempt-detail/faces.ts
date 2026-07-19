@@ -21,7 +21,7 @@ import type { AssertionResult, TimingNode } from "../../../types.ts";
 import type { AttemptLocator } from "../../../results/locator.ts";
 import type { TextContext } from "../../definition/tree.ts";
 import { localeText } from "../../model/locale.ts";
-import { formatDurationMs, formatMetricValue, formatUSD, verdictMark } from "../../model/format.ts";
+import { formatDurationMs, formatMetricValue, formatReportDateTime, formatUSD, verdictMark } from "../../model/format.ts";
 import { TIMELINE_CLOSING_PHASES } from "./compute.ts";
 import { summaryText } from "../../../scoring/display.ts";
 
@@ -42,9 +42,11 @@ export function attemptSummaryText(data: AttemptSummaryData, ctx: TextContext): 
     data.locator,
     data.identity.evalId,
     data.identity.experimentId,
+    localeText(locale, "attemptSummary.attempt", { n: data.identity.attempt + 1 }),
     `${verdictMark(data.verdict)} ${localeText(locale, `verdict.${data.verdict}`)}`,
-    formatDurationMs(data.durationMs),
   ];
+  if (data.startedAt !== undefined) parts.push(formatReportDateTime(data.startedAt, locale));
+  parts.push(formatDurationMs(data.durationMs));
   if (data.costUSD !== null) parts.push(formatUSD(data.costUSD));
   return parts.join(" · ");
 }

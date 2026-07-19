@@ -1,6 +1,6 @@
 # `--timing`：整个 attempt 的统一时间树
 
-[首页](attempt.md)的 `timing:` 行回答「大头在哪」；`--timing` 是整个 Attempt 的时间分析入口。它先按 `result.json.phases` 输出 runner 生命周期，再投影 runner 直接观察到的时间树：setup/teardown hook、经 `Sandbox.runCommand()` / `runShell()` 发出的命令、runner 拥有的语义 operation，以及 `eval.run` 中每个 session/turn 的 send 墙钟包络。某个 turn 带 `traceId` 时，消费方再从 `trace.json` 把该轮的 agent/model/tool spans 挂到 turn 下；没有 OTel 时 phase、hook、operation、命令和 turn 时间仍完整，只有轮内 OTel 子树缺席。
+[首页](attempt.md)的 `timing:` 行给出逐阶段一行的完整摘要（子节点只是折叠成计数，阶段本身不筛选）；`--timing` 是整个 Attempt 的时间分析入口，展开首页折叠掉的子节点。它先按 `result.json.phases` 输出 runner 生命周期，再投影 runner 直接观察到的时间树：setup/teardown hook、经 `Sandbox.runCommand()` / `runShell()` 发出的命令、runner 拥有的语义 operation，以及 `eval.run` 中每个 session/turn 的 send 墙钟包络。某个 turn 带 `traceId` 时，消费方再从 `trace.json` 把该轮的 agent/model/tool spans 挂到 turn 下；没有 OTel 时 phase、hook、operation、命令和 turn 时间仍完整，只有轮内 OTel 子树缺席。
 
 时间分析入口有两档密度：
 

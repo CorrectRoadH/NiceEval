@@ -55,18 +55,20 @@ niceeval/results ── Scope / AttemptEvidence ──▶ niceeval/report ──
 report/
 ├── definition/                 ReportDefinition、页、外壳、报告树与组件协议
 ├── model/                      跨组件共用的 Metric、Dimension、聚合与格式化原语
-├── components/
+├── components/                 跨组件族共用的数据组件协议（spec/data 校验、构造、hrefOf/ChromeProps）
+│   │                            与文案惯例（缺数据/覆盖率展示、attempt 统计与筛选口径）
 │   ├── summaries/              ScopeSummary / ExperimentComparison
 │   ├── entity-lists/           Experiment / Eval / Attempt / Failure 列表
 │   ├── metric-views/           Table / Matrix / Bars / Scoreboard / Scatter / Line / Delta
-│   ├── attempt-detail/         Summary / Assertions / Source / Timeline / Conversation / Trace / Diff
+│   ├── attempt-detail/         Summary / Error / Assertions / Source / FixPrompt / Timeline /
+│   │                            Conversation / Diagnostics / Usage / Trace / Diff
 │   └── site-components/        Hero / Warnings / CopyFixPrompt / TraceWaterfall
 ├── runtime/                    装载、resolve、validate、text/web 渲染与 host facade
 ├── built-in/                   只用公开组件装配的内建报告
 └── assets/                     官方样式、渐进增强与共享设计令牌入口
 ```
 
-每个组件族在自己的边界内完成“数据契约 → `*Data` 计算 → spec/data 装配 → text 面 → web 面 → 样式”，共用的底层原语才下沉到 `model` / `definition`。`runtime` 可以依赖 definition、model 和 components；组件计算与渲染面不反向依赖宿主或 runtime 的 IO 编排。
+每个组件族在自己的边界内完成“数据契约 → `*Data` 计算 → spec/data 装配 → text 面 → web 面 → 样式”。与数据模型无关、但被两个以上组件族复用的组件层原语（数据组件构造协议、文案惯例、统计口径）留在 `components/` 根目录，不归属某一族；真正与组件形态无关的计算与格式化原语才下沉到 `model` / `definition`。`runtime` 可以依赖 definition、model 和 components；组件计算与渲染面不反向依赖宿主或 runtime 的 IO 编排。
 
 ### Attempt 详情是一张参数化 page
 

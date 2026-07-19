@@ -121,6 +121,31 @@ describe("Attempt 详情组件族:非空/空证据矩阵", () => {
     expect(data.verdict).toBe("passed");
   });
 
+  it("AttemptSummary 的 startedAt 与 identity.attempt 两面都可见,startedAt 缺失时两面都不产生该字段", () => {
+    const withBoth = evidenceOf({
+      identity: identityOf({ attempt: 2 }),
+      result: resultOf({ attempt: 2, startedAt: "2026-01-01T12:34:00.000Z" }),
+    });
+    const dataWithBoth = attemptSummaryData(withBoth);
+    const htmlWithBoth = renderToStaticMarkup(<AttemptSummary data={dataWithBoth} /> as never);
+    const textWithBoth = renderNodeToText(<AttemptSummary data={dataWithBoth} /> as never, createTextContext({ width: 100 }));
+    expect(htmlWithBoth).toContain("2026");
+    expect(textWithBoth).toContain("2026");
+    expect(htmlWithBoth).toContain("3"); // identity.attempt = 2,显示前 +1
+    expect(textWithBoth).toContain("3");
+
+    const withoutStartedAt = evidenceOf({ result: resultOf({ startedAt: undefined }) });
+    const dataWithoutStartedAt = attemptSummaryData(withoutStartedAt);
+    expect(dataWithoutStartedAt.startedAt).toBeUndefined();
+    const htmlWithoutStartedAt = renderToStaticMarkup(<AttemptSummary data={dataWithoutStartedAt} /> as never);
+    const textWithoutStartedAt = renderNodeToText(
+      <AttemptSummary data={dataWithoutStartedAt} /> as never,
+      createTextContext({ width: 100 }),
+    );
+    expect(htmlWithoutStartedAt).not.toContain("Started");
+    expect(textWithoutStartedAt).not.toContain("undefined");
+  });
+
   it("AttemptError:没有 error 时 null,有 error 时结构化字段齐全", () => {
     expect(attemptErrorData(evidenceOf())).toBeNull();
     const withError = evidenceOf({

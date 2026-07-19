@@ -52,6 +52,9 @@ const en = {
   "verdict.errored": "errored",
   "verdict.skipped": "skipped",
 
+  /** AttemptSummary 的重试序号(0 起的 identity.attempt 显示前 +1)。 */
+  "attemptSummary.attempt": "attempt {n}",
+
   /** 全 null / 无样本的统一文案,绝不画 0。 */
   "cell.missing": "no data",
   "cell.measuredTitle": "{samples}/{total} attempts measured",
@@ -196,6 +199,8 @@ const zhCN: Record<ReportMessageKey, string> = {
   "verdict.failed": "失败",
   "verdict.errored": "错误",
   "verdict.skipped": "跳过",
+
+  "attemptSummary.attempt": "第 {n} 次",
 
   "cell.missing": "无数据",
   "cell.measuredTitle": "{samples}/{total} 次 attempt 测得",

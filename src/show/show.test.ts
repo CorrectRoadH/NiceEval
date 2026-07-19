@@ -912,7 +912,9 @@ describe("show @<locator>", () => {
 
     const { out, code } = await show(root, [locator]);
     expect(code).toBe(0);
-    expect(out).toContain(`${locator} · weather/brooklyn · compare/bub · ✓ passed · 1.0s`);
+    // 首行不做整段精确匹配:startedAt 按本机时区格式化,时间部分跨时区不稳定,只断言与时区无关的片段。
+    expect(out).toContain(`${locator} · weather/brooklyn · compare/bub · attempt 1 · ✓ passed`);
+    expect(out).toContain("· 1.0s");
     // 没有 events/diff 的组件零输出(不是"execution: unavailable"这类占位文案)——
     // 与「Attempt 详情组件族:非空/空证据矩阵」的单元测试同一条契约,这里是集成层确认。
     expect(out).not.toContain("execution:");
@@ -941,7 +943,9 @@ describe("show @<locator>", () => {
 
     const { out, code } = await show(root, [locator]);
     expect(code).toBe(0);
-    expect(out).toContain(`${locator} · agent-029 · compare/claude-e2b · ! errored · 1.0s`);
+    // 同上:跳过 startedAt 的时区敏感部分,只断言与时区无关的片段。
+    expect(out).toContain(`${locator} · agent-029 · compare/claude-e2b · attempt 1 · ! errored`);
+    expect(out).toContain("· 1.0s");
     // 结构化 error 块:code 折进 error: 首行,phase/message/cause 各一行(AttemptError)
     expect(out).toContain("error: sandbox-rate-limit");
     expect(out).toContain("phase: sandbox.create");
