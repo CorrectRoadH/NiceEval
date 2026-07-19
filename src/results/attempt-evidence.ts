@@ -33,7 +33,7 @@ import { type AttemptIdentity, type AttemptLocator, encodeAttemptLocator } from 
 import { loadAnnotatedEvalSource } from "./attempt-source.ts";
 import { deriveSendAnnotations, type AnnotatedEvalSource } from "./annotated-source.ts";
 import { buildExecutionTree, type ExecutionTree } from "../o11y/execution-tree.ts";
-import type { DiffData, EvalResult } from "../types.ts";
+import type { DiffData, EvalResult, StreamEvent } from "../types.ts";
 
 /**
  * 一个 Attempt 的 artifact 落盘位置。单一目录足够:一个 attempt 的全部 artifact
@@ -79,6 +79,9 @@ export interface AttemptEvidence {
    * 的调用方直接读结构化字段(如按 experimentId 分组、按时间排序)。 */
   identity: AttemptIdentity;
   result: EvalResult;
+  /** 标准事件流(`--execution` 切面与 AttemptConversation 分轮的唯一事实来源);没有非空
+   * events() 就是 null。装配一次,`show` / `view` / 报告不再各自调用 `attempt.events()`。 */
+  events: readonly StreamEvent[] | null;
   /** 运行时保存的 Eval 源码标注(`--source` 切面);没有 sources() 就是 null,不伪造空文档。 */
   evalSource: AnnotatedEvalSource | null;
   /** 标准事件流 + OTel enrichment(`--execution` 切面);没有非空 events 就是 null,
@@ -138,6 +141,7 @@ export async function loadAttemptEvidence(attempt: AttemptHandle): Promise<Attem
     locator,
     identity,
     result: attempt.result,
+    events: hasEvents ? events : null,
     evalSource,
     execution,
     diff,

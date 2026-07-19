@@ -27,10 +27,38 @@ export { ScopeWarnings } from "./ScopeWarnings.tsx";
 export { CopyFixPrompt } from "./CopyFixPrompt.tsx";
 export { TraceWaterfall } from "./TraceWaterfall.tsx";
 
+// Attempt 详情组件族的纯 web 面(data 形态;AttemptAssessment / AttemptDetail 是组合组件,
+// 不产生新渲染面,只住 niceeval/report)
+export { AttemptSummary } from "./AttemptSummary.tsx";
+export { AttemptError } from "./AttemptError.tsx";
+export { AttemptAssertions } from "./AttemptAssertions.tsx";
+export { AttemptSource } from "./AttemptSource.tsx";
+export { AttemptFixPrompt } from "./AttemptFixPrompt.tsx";
+export { AttemptTimeline } from "./AttemptTimeline.tsx";
+export { AttemptConversation } from "./AttemptConversation.tsx";
+export { AttemptDiagnostics } from "./AttemptDiagnostics.tsx";
+export { AttemptUsage } from "./AttemptUsage.tsx";
+export { AttemptTrace } from "./AttemptTrace.tsx";
+export { AttemptDiff } from "./AttemptDiff.tsx";
+
 // 数据契约类型(家在 ../types.ts,「算」与「画」两侧共用同一份)
 export type {
+  AttemptAssertionsData,
+  AttemptConversationData,
+  AttemptConversationReply,
+  AttemptConversationRound,
+  AttemptDiagnosticsData,
+  AttemptDiffData,
+  AttemptDiffFileEntry,
+  AttemptErrorData,
+  AttemptFixPromptData,
   AttemptListItem,
   AttemptLocator,
+  AttemptSourceData,
+  AttemptSummaryData,
+  AttemptTimelineData,
+  AttemptTraceData,
+  AttemptUsageData,
   CopyFixPromptData,
   DeltaData,
   EvalListItem,
@@ -50,6 +78,7 @@ export type {
   TraceWaterfallRow,
   VerdictTally,
 } from "../types.ts";
+export type { AttemptEvidence, AttemptEvidenceCapabilities } from "../../results/attempt-evidence.ts";
 
 // locale(官方组件 chrome 文案;LocalizedText 的按 locale 解析也用它)
 export { DEFAULT_REPORT_LOCALE, resolveLocalizedText, resolveMetricLabel } from "../locale.ts";

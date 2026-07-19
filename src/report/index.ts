@@ -54,6 +54,7 @@ export type {
   ReportShell,
 } from "./report.ts";
 export { defineComponent, createTextContext, renderNodeToText, resolveReportTree, validateReportTree, ResolveMemo } from "./tree.ts";
+export type { AttemptEvidence, AttemptEvidenceCapabilities } from "../results/attempt-evidence.ts";
 export type {
   AttemptPageContext,
   ComponentFaces,
@@ -149,6 +150,25 @@ export type {
   TraceWaterfallProps,
 } from "./components.tsx";
 
+// Attempt 详情组件族(docs/feature/reports/library/attempt-detail.md):11 个叶子 + 2 个
+// 只装配叶子的组合组件(AttemptAssessment / AttemptDetail),都从 niceeval/report 导出。
+export {
+  AttemptAssertions,
+  AttemptAssessment,
+  AttemptConversation,
+  AttemptDetail,
+  AttemptDiagnostics,
+  AttemptDiff,
+  AttemptError,
+  AttemptFixPrompt,
+  AttemptSource,
+  AttemptSummary,
+  AttemptTimeline,
+  AttemptTrace,
+  AttemptUsage,
+} from "./attempt-components.tsx";
+export type { AttemptSectionProps } from "./attempt-components.tsx";
+
 // 计算函数(组件解析面的具名形式,与组件成对;spec 形态下由管线代调,data 形态与
 // 嵌入场景下由作者手工调)
 export {
@@ -176,6 +196,21 @@ export type {
   MetricTableOptions,
   ScoreboardOptions,
 } from "./compute.ts";
+
+// Attempt 详情组件族的计算函数:输入恒为单个 AttemptEvidence,同步纯派生(不读文件、不 fetch)。
+export {
+  attemptAssertionsData,
+  attemptConversationData,
+  attemptDiagnosticsData,
+  attemptDiffData,
+  attemptErrorData,
+  attemptFixPromptData,
+  attemptSourceData,
+  attemptSummaryData,
+  attemptTimelineData,
+  attemptTraceData,
+  attemptUsageData,
+} from "./attempt-compute.ts";
 
 // 数据契约(组件的 data)
 export type {
@@ -215,6 +250,24 @@ export type {
   TraceSpanSummary,
   TraceWaterfallRow,
   VerdictTally,
+} from "./types.ts";
+
+// Attempt 详情组件族的数据契约
+export type {
+  AttemptAssertionsData,
+  AttemptConversationData,
+  AttemptConversationReply,
+  AttemptConversationRound,
+  AttemptDiagnosticsData,
+  AttemptDiffData,
+  AttemptDiffFileEntry,
+  AttemptErrorData,
+  AttemptFixPromptData,
+  AttemptSourceData,
+  AttemptSummaryData,
+  AttemptTimelineData,
+  AttemptTraceData,
+  AttemptUsageData,
 } from "./types.ts";
 
 // 数据层输入的类型(家在 niceeval/results,这里 re-export 方便写指标 / 报告)

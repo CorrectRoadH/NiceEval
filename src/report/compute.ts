@@ -181,7 +181,7 @@ export async function metricMatrixData(input: ReportInput, options: MetricMatrix
  * "+N more",N 单独进 moreFailures),errored 取结构化 error 的一层摘要
  * (phase · code · message),passed / skipped 为 null。
  */
-function failureSummaryOf(result: EvalResult): { summary: string | null; more: number } {
+export function failureSummaryOf(result: EvalResult): { summary: string | null; more: number } {
   if (result.verdict === "errored" && result.error !== undefined) {
     const parts = [result.error.phase, result.error.code, result.error.message].filter(
       (part): part is string => typeof part === "string" && part.length > 0,

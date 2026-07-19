@@ -4,8 +4,23 @@
 // (组件消费 data 时校验结构,不符按完整用户反馈报错并提示版本漂移)。
 
 import type { AttemptHandle, Scope, ScopeWarning, Snapshot } from "../results/types.ts";
-import type { AttemptLocator } from "../results/locator.ts";
-import type { ExperimentRunInfo, JsonValue, Verdict } from "../types.ts";
+import type { AttemptIdentity, AttemptLocator } from "../results/locator.ts";
+import type { AttemptEvidenceCapabilities } from "../results/attempt-evidence.ts";
+import type { AnnotatedEvalSourceSummary, AnnotatedSourceLine } from "../results/annotated-source.ts";
+import type {
+  AssertionResult,
+  AttemptError,
+  DiagnosticRecord,
+  ExperimentRunInfo,
+  InputRequest,
+  JsonValue,
+  PhaseTiming,
+  SourceLoc,
+  ToolName,
+  TraceSpan,
+  Usage,
+  Verdict,
+} from "../types.ts";
 import type { LocalizedText, ReportLocale } from "./locale.ts";
 
 export type { ScopeWarning };
@@ -438,4 +453,106 @@ export interface ExperimentListItem {
   /** 所含快照中最近的 startedAt。 */
   lastRunAt: string;
   evalRows: ExperimentListEvalRow[];
+}
+
+// ───────────────────────── Attempt 详情组件族 ─────────────────────────
+//
+// 11 个叶子组件的 data 契约(docs/feature/reports/library/attempt-detail.md)。每个都由
+// 同名 `attempt*Data(evidence: AttemptEvidence)` 同步派生,不读文件、不 fetch——
+// loadAttemptEvidence 已经一次性装配好全部证据。`AttemptSummary` 恒非空;其余在对应
+// 能力位为空时函数返回 null,两面渲染为空输出。
+
+/** `AttemptSummary` 的 data:身份、verdict、时间与成本——恒非空。 */
+export interface AttemptSummaryData {
+  locator: AttemptLocator;
+  identity: AttemptIdentity;
+  verdict: Verdict;
+  startedAt?: string;
+  durationMs: number;
+  costUSD: number | null;
+  capabilities: AttemptEvidenceCapabilities;
+}
+
+/** `AttemptError` 的 data:结构化 error 一层原因 + cause + stack;没有 error 时 null。 */
+export type AttemptErrorData = AttemptError;
+
+/** `AttemptAssertions` 的 data:非 passed 条目默认展开,passed 按 group 折叠计数;没有 assertion 时 null。 */
+export interface AttemptAssertionsData {
+  /** failed / unavailable / soft 全部非 passed 条目,按原始声明顺序。 */
+  attention: AssertionResult[];
+  /** passed 条目按 groupPath.join(" > ") 分组(无分组键为 ""),组内保持原始顺序。 */
+  passedGroups: { group: string; items: AssertionResult[] }[];
+}
+
+/** `AttemptSource` 的 data:AnnotatedEvalSource 的展示投影;没有 source 时 null。 */
+export interface AttemptSourceData {
+  sourcePath: string;
+  lines: AnnotatedSourceLine[];
+  unmapped: AssertionResult[];
+  summary: AnnotatedEvalSourceSummary;
+}
+
+/** `AttemptFixPrompt` 的 data:单条 attempt 的复制修复 prompt;passed/skipped 或无可操作失败时 null。 */
+export interface AttemptFixPromptData {
+  prompt: string;
+}
+
+/** `AttemptTimeline` 的 data:runner 阶段主链 + 收尾段,以及可选的 trace(供 turn 节点按 traceId 关联 span);没有 phase 时 null。 */
+export interface AttemptTimelineData {
+  phases: PhaseTiming[];
+  trace: TraceSpan[] | null;
+}
+
+/** `AttemptConversation` 一轮:由带 `loc` 的 user 消息开启;`loc` 缺省表示流首无位置信息的兜底轮(旧 artifact)。 */
+export interface AttemptConversationRound {
+  loc?: SourceLoc;
+  sentText: string;
+  replies: AttemptConversationReply[];
+}
+
+/** 一轮内的回复条目;`raw` 是未识别事件类型的原样兜底,不吞没其余事件。 */
+export type AttemptConversationReply =
+  | { kind: "assistant" | "user" | "thinking" | "error"; text: string }
+  | { kind: "tool"; callId: string; name: string; tool?: ToolName; input: JsonValue; output?: JsonValue; status?: "completed" | "failed" | "rejected" }
+  | { kind: "skill"; skill: string }
+  | { kind: "subagent"; callId: string; name: string; remoteUrl?: string; output?: JsonValue; status?: "completed" | "failed" }
+  | { kind: "input"; request: InputRequest }
+  | { kind: "compaction"; reason?: string }
+  | { kind: "raw"; raw: JsonValue };
+
+/** `AttemptConversation` 的 data:标准事件流按 loc 分轮;没有 events 时 null。 */
+export interface AttemptConversationData {
+  rounds: AttemptConversationRound[];
+}
+
+/** `AttemptDiagnostics` 的 data:按 lifecycle phase 分组;没有 diagnostics 时 null。 */
+export interface AttemptDiagnosticsData {
+  groups: { phase: string; items: DiagnosticRecord[] }[];
+}
+
+/** `AttemptUsage` 的 data:token / cache token / provider usage 明细;没有 usage 时 null。 */
+export interface AttemptUsageData {
+  usage: Usage;
+  costUSD: number | null;
+}
+
+/** `AttemptTrace` 的 data:不与 runner 节点合并的原始 OTel span 列表;没有 trace 时 null。 */
+export interface AttemptTraceData {
+  spans: TraceSpan[];
+}
+
+/** `AttemptDiff` 一个文件的摘要:`net` 恒 !== "none"(净无变化的触碰不进这份列表)。 */
+export interface AttemptDiffFileEntry {
+  path: string;
+  net: "added" | "modified" | "deleted";
+  /** 净行数变化(公共前后缀修剪后的近似上界,与 `niceeval show --diff` 同一算法)。 */
+  lines: { added: number; deleted: number };
+  binary?: true;
+  /** 触碰过该文件的窗口标签,按时序;供 text 面引用 `--diff` 深挖同一批窗口。 */
+  windows: string[];
+}
+
+/** `AttemptDiff` 的 data:generated / modified / deleted 的文件级摘要;没有变更时 null。 */
+export interface AttemptDiffData {
+  files: AttemptDiffFileEntry[];
 }
