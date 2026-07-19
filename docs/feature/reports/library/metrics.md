@@ -115,7 +115,7 @@ export const changedLines = defineMetric({
 
 ## 维度与数值轴
 
-可直接使用的维度有 `agent`、`model`、`experiment`、`eval`、`evalGroup` 和 `snapshot`。`evalGroup` 的分组键是 eval id 的完整父路径，没有 `/` 的 eval id 取完整 id 形成单例组——与 experiment 可比组同一条派生规则：`security/sql-injection` 归 `security`，`a/b/c` 归 `a/b`。完整形状是：
+可直接使用的维度有 `agent`、`model`、`experiment`、`eval`、`evalGroup` 和 `snapshot`。`evalGroup` 取 eval id 的完整父路径，没有 `/` 时取完整 id，例如 `security/sql-injection` 归 `security`，`a/b/c` 归 `a/b`。它只组织 eval，不组织 experiment。完整形状是：
 
 ```ts
 type BuiltInDimension =

@@ -5,7 +5,7 @@
 要回答的三个问题：
 
 1. **装得上吗**——agent 能否自主走完安装链（读 `INIT.zh.md` → 探测项目 → 安装 → `init` → 切换到随包 `INDEX.md`），最终跑通一次 experiment。
-2. **写得好吗**——装完写出的三件套质量如何：adapter 是否守住架构硬规则、eval 是否贴宿主项目的真实功能、experiment 是否按实验组组织。
+2. **写得好吗**——装完写出的三件套质量如何：adapter 是否守住架构硬规则、eval 是否贴宿主项目的真实功能、experiment 是否保持一文件一个配置并明确选择 eval。
 3. **文档起作用了吗**——安装后 agent 是否真的以随包 `INDEX.md` 为路由入口、读对了与项目形态匹配的页面，而不是凭训练记忆现编 API。
 
 ## 仓库形态
@@ -34,7 +34,7 @@
 三层维度对应开头的三个问题，从精确断言到 judge 逐层放宽：
 
 1. **机制层（精确断言）**：安装链的客观事实——依赖装上且解析到候选包、`niceeval.config.ts` 与托管指引区块存在、typecheck 通过、niceeval 能发现 agent 写出的 eval、experiment 跑通且退出码符合预期。
-2. **产出质量层（rubric / judge）**：三件套是否符合公开文档声明的契约——adapter 不做进程内直调、不代管被测进程；eval 输入贴 fixture 的真实功能而不是「你好」式占位；experiment 按 compare-models 实验组组织；judge 模型与被测模型分离。评分依据就是随包文档里写给用户的规则，评的是「文档里的契约有没有被读懂并执行」。
+2. **产出质量层（rubric / judge）**：三件套是否符合公开文档声明的契约——adapter 不做进程内直调、不代管被测进程；eval 输入贴 fixture 的真实功能而不是「你好」式占位；每个 experiment 文件只声明一个配置并用 `evals` 选择任务；judge 模型与被测模型分离。评分依据就是随包文档里写给用户的规则，评的是「文档里的契约有没有被读懂并执行」。
 3. **路由层（transcript 断言）**：安装完成后 agent 的文档读取行为——是否切换到 `node_modules/niceeval/INDEX.md` 并由它路由，读的页面与 fixture 形态是否匹配，有没有退回官网 `main` 或训练记忆里的旧 API。
 
 ## Experiment 维度

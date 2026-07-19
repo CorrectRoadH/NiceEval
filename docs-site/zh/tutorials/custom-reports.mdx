@@ -32,7 +32,7 @@ export default defineReport({
 import { ExperimentComparison, Hero, ScopeWarnings } from "niceeval/report";
 ```
 
-`ExperimentComparison` 先按 experiment id 的父目录切成可比组，再为每组分别计算成本 × 端到端成功率散点图和实验明细表。`compare/bub` 与 `compare/codex` 可以同图，`dev-e2b/bub` 必须在另一个组；顶层 experiment 各自成为单例组。网页持有全部组并一次聚焦一组；终端命中多组时只列索引和单组查看命令，命中单组时才展开详情。两面都不会生成跨组总榜。
+`ExperimentComparison` 直接对当前 Scope 计算范围摘要、成本 × 端到端成功率散点图和实验明细表。每个 experiment 的评估用例集合来自快照 `selectedEvalIds`。
 
 |  | 网页（人看） | 终端（agent 和你看） |
 | --- | --- | --- |
@@ -85,7 +85,7 @@ niceeval view --report reports/exam.tsx    # 网页：渲染网页面，Attempt 
 
 页面里的每个组件都是**双面**的：网页面是 React 渲染，终端面是字符渲染，两面吃同一份算好的数据。实体列表按 experiment → Eval → Attempt 展示事实；指标表、矩阵、条形图、成绩单、散点图、趋势图和差异表展示聚合值。完整清单见[报告组件](/zh/reference/report-components)。网页面的实体、格子和点深链到 Attempt 详情，终端面印出对应的 `niceeval show <eval id>` 下钻命令。
 
-默认报告没有特权：它的三个页面全部由公开组件搭成，你的报告和它同级。需要同样的“按目录分组、组内比较”布局就直接写 `<ExperimentComparison />`，需要 Attempts 页就写带过滤的 `<AttemptList />`，不需要就不添加——包括页首标题区和 `Powered by NiceEval` 品牌行：它们分别是 `Hero` 和 `PoweredBy` 组件，用了就带、不用就没有，组件本身不提供开关。自己直接组合 `MetricScatter` / `ExperimentList` 时，通用组件只消费你传入的数据，不会自动分组；把跨组数据传进去就表示你明确要做跨组分析。
+默认报告没有特权：它的三个页面全部由公开组件搭成。需要同样的当前 Scope 比较就写 `<ExperimentComparison />`；要子集就在报告里先 `filter`，或从 CLI 用 `--exp` 收窄。
 
 ## 排版：Row 与 Col 在两个面都成立
 

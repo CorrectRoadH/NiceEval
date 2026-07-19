@@ -9,11 +9,11 @@ import { defineEval } from "niceeval";
 
 export default defineEval({
   description?: string;            // 人读的描述,出现在报告里
-  tags?: string[];                 // 供 --tag 过滤
+  tags?: string[];                 // 供 --tag 与 ExperimentDef.evals 谓词过滤
   judge?: JudgeConfig;             // 覆盖默认裁判模型
   reporters?: Reporter[];          // 这个 eval 专用的报告器
   timeoutMs?: number;              // 覆盖默认超时
-  environment?: string;            // 这条 eval 需要的环境 profile id；由 sandbox spec 的 environments 表翻译成预制产物
+  environment?: string;            // 这条 eval 需要的环境 profile id；也可由 ExperimentDef.evals 谓词读取
   diff?: { include?: string[]; ignore?: string[] };   // 调整 agent diff 的归因排除清单(仅沙箱型;见下)
   metadata?: Record<string, unknown>;
   async setup(sandbox, ctx) { /* 这条 eval 的沙箱预置;ctx 可报告 progress/diagnostic */ },

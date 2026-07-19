@@ -47,4 +47,4 @@ Results 指一次或多次实验运行后保存在结果根目录中的结构化
 - [Library](library.md) —— `niceeval/results` 的 TS 读写 API。
 - [Architecture](architecture.md) —— 磁盘上的格式规范。
 - [Reports](../reports/README.md) —— 建立在这些事实之上的终端、网页和自定义报告。
-- [Experiments](../experiments/README.md) —— experimentId 与可对比组从哪来。
+- [Experiments](../experiments/README.md) —— experimentId 与 `selectedEvalIds` 从哪来。

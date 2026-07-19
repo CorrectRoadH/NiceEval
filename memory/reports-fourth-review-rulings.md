@@ -6,13 +6,13 @@
 
 - **组索引示例与 `evals` 口径互相矛盾**：`show/default-report.md` 示例里 compare 组 Eval 列 6、verdict 构成 9+3=12，而契约定义 `evals` = `experimentId + evalId` 去重计数。裁决：口径以契约为准（对计数），示例改 12/16，并在 default-report 写明「Eval 列与同行 verdict 构成同分母，两个数字能直接对账」。**曾选方案**：Eval 列显示去重 eval id 数；**否决理由**：同一行两个数字不同分母无法对账，且 data 里根本没有「去重 id 数」这个字段。
 - **redact 有洞**：`attemptListData` 有 `redact`，但 `EvalListItem` / `ExperimentListEvalRow` 嵌套完整 `AttemptListItem[]`，同一段 `failureSummary` 从 `evalListData` / `experimentListData` 原样流出。裁决：三个列表数据函数共用 `EntityListDataOptions { redact }`，改写范围=条目本身与全部嵌套 attempt 的 `failureSummary`，自由文本没有绕过遮蔽的出口。
-- **`evalGroup` 全程未定义**：文档里存在两条竞争规则（可比组=完整父路径 vs Scoreboard subject 默认=第一段）。裁决：`evalGroup` = eval id 完整父路径（无 `/` 取完整 id），与可比组同一条派生规则；Scoreboard `subject` 缺省改为同规则，全库只留一条路径分组规则。
+- **`evalGroup` 全程未定义**：裁决为 eval id 完整父路径（无 `/` 取完整 id）。2026-07-19 默认报告取消实验组后，这条规则只组织 eval，不再与 experiment 比较边界类比。
 - **`--history` 是幽灵功能**：出现两处、互斥关系有声明，但没有输出契约。裁决：在 show.md 补最小契约——逐 `experimentId + evalId` 分节、attempt 身份键跨快照去重、startedAt 升序、每行时间/verdict/单行摘要/耗时/成本/locator；与 `--report` 互斥（都占主输出）；快照级趋势归报告库历史配方。
 - **view 位置参数破坏 CLI 模型**：「存在的文件=打开该 snapshot.json」让位置参数含义随文件系统状态改变，且与 show 不一致。裁决：新增 `--snapshot <file>`，位置参数只表示 eval id 前缀。
 - **「Est. cost / 预估成本」列头与 `costUSD` 定义（实测优先、估算兜底）打架**：实测值被标成估算。裁决：列头改「Cost / 成本」，列头不断言口径。
 - **数据形状维度名字段三分**：`TableData.dimension` / `MatrixData.rows`（string）/ `ScatterData.points`，且 `MatrixData.rows: string` 与 `TableData.rows: Array` 同名异型。裁决：统一为「选项名 + `Dimension` 后缀」（`rowDimension` / `columnDimension` / `pointDimension` / `seriesDimension` / `byDimension`），条目数组一律 `rows`；**选项名不动**（`DeltaTableOptions.by` 等第三轮已否决改名的 props 保持原名）。
 - **`AttemptListItem.costUSD?: number` 用 optional 表达缺失**：与全库「null=测不了」相悖，序列化后 undefined 消失与 null 在场是两种语义。裁决：`costUSD: number | null`，attempt 级缺失一律 null。
-- **两级前缀匹配语义并存无解释**：`--experiment` 路径段匹配 vs eval 位置参数裸前缀。裁决：语义保持不同但把理由写进 show.md——experiment 选身份与可比组须精确，eval 位置参数是收窄过滤、宽松多命中是特性。
+- **两级前缀匹配语义并存无解释**：`--experiment` 路径段匹配 vs eval 位置参数裸前缀。裁决：experiment 选身份路径须精确，eval 位置参数是收窄过滤、宽松多命中是特性。
 - **`Row` / `Col` text 面无契约**：补——Col 两面纵向；Row web 横排，text 面宽度装得下按显示宽度并排（与 `columns` 同尺），装不下整块纵向堆叠不截断。
 - **`Style` 作用域未声明**：补——页级全局，树位置只决定声明顺序；有外壳时优先外壳 `styles`，`Style` 服务树形态与自带样式组件。
 - **文档小修**：`ScopeSummary input={scope.filter(...)}` 示例裸用 `scope` 变量（树顶层不存在），包进组合组件；architecture「Reports 只有三个概念」收敛为「可装载的分层只有三个概念」；shell.md scripts 注释里 GA4 / react-grab 具体产品名中性化为「站点分析与埋点一类第三方脚本」。

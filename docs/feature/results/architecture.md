@@ -140,9 +140,10 @@ interface ExperimentRunInfo {
 }
 ```
 
-三条纪律:
+几条纪律:
 
 - **`model` 与 `agent` 只在快照顶层存在**(`snapshot.model` / `snapshot.agent`),`ExperimentRunInfo` 不复制——同一事实两处落盘不是冗余就是漂移;报告的 `config()` 对 `model` / `agent` 两个键桥接到顶层字段,消费方无感(见 [Reports · 维度与 flags](../reports/library/metrics.md#维度与-flags))。
+- **`labels` 是报告元数据**,不进入 fingerprint 或 `current()` 的可比性配置。`selectedEvalIds` 是这次运行实际选择的 eval 集；报告直接读取它，不从 experiment 路径推断另一层集合。
 - **sandbox 参数只经 provider 的 `publicConfig()` 投影落盘**:每个内置 provider 显式实现「哪些参数可发布」的投影(镜像名、模板名、runtime 可以;token、凭据路径永远不可以),`defineSandbox` 自定义 provider 未实现投影时只落 provider 名。「params 不含 secret」由投影保证,不靠注释承诺。
 - **按 eval 解析预制产物时保存逐 eval 结果。** 顶层 `sandbox` 始终是 spec 基础参数的投影；`sandboxByEval` 只记录本快照选中且声明了 `environment` 的 eval 各自解析到的产物投影，供审计与逐 eval fingerprint 对账。未声明 environment 的 eval 以顶层 `sandbox` 为准，未选中的 eval 不查表、不伪造映射项；spec 的 `environments` 表不整张落盘——落的是每条 eval 的解析结果。
 - 新增公开运行配置字段时必须同步进这张投影,不允许「快照里有一半配置」。

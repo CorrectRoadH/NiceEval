@@ -6,7 +6,7 @@
 
 | 想回答的问题 | 组件 |
 |---|---|
-| 按可比组看当前水位，并只在组内比较 | [`ExperimentComparison`](library/summaries.md#experimentcomparison) |
+| 比较当前 Scope 里的 experiments | [`ExperimentComparison`](library/summaries.md#experimentcomparison) |
 | 一个范围有多大、整体是否健康（eval 级或 attempt 级计票） | [`ScopeSummary`](library/summaries.md#scopesummary) |
 | 每个 experiment / eval / attempt 发生了什么 | [`ExperimentList` / `EvalList` / `AttemptList`](library/entity-lists.md) |
 | 现在有哪些失败要处理、先看哪条 | [`FailureList`](library/entity-lists.md#failurelist) |

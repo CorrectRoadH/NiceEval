@@ -161,7 +161,7 @@ type TraceWaterfallProps = DataProps<readonly TraceWaterfallRow[], {}, {
 ```
 
 - web 面：一行一个 attempt，静态渲染顶层 span 分解条（失败 span 带失败标记），行链接到 attempt 详情；排序、缩放是渐进增强。
-- text 面：一行一个 attempt——locator、总耗时、span 计数与失败标记，行尾给出可复制的 `niceeval show @<locator> --timing` 下钻命令。attempt 有选择器，所以 text 面折成带命令的索引是成立的（同[组索引与页索引的规则](../architecture.md#text-面的省略规则)），不倾倒逐 span 明细。
+- text 面：一行一个 attempt——locator、总耗时、span 计数与失败标记，行尾给出可复制的 `niceeval show @<locator> --timing` 下钻命令。attempt 有选择器，所以 text 面可折成带命令的索引，不倾倒逐 span 明细。
 - 只画被测 agent 的原始 span；runner 生命周期节点不进 trace 事实（[Architecture · 事实与看法](../architecture.md#事实与看法)），组合视图归 attempt 详情。
 
 ```tsx

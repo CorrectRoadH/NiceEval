@@ -102,7 +102,7 @@ export default defineReport(
 - 两个渲染面都输出全部 tab 的完整内容。web 面静态 HTML 把每个 tab 渲染为独立 `<details>`，第一个默认展开；渐进增强把它们变成单选 tab 条。切换是纯浏览状态，不改变数据、指标口径或初始 HTML 中的数值。text 面按声明顺序把每个 tab 输出为带标题的分节。
 - `Tabs` 必须至少含一个直接 `Tab` 子节点，`Tab` 也只能直接放在 `Tabs` 下；空 Tabs、普通组件混作直接子节点或游离 Tab 在树校验期给出完整用户反馈。tab 内容内部仍可放任意 `ReportNode`。
 - `Tab` 除通用 `children` / `className` 外只有 `title: LocalizedText`。tab 不参与路由，没有 id，也没有 CLI 选择器。
-- **text 面不给 tab 做索引，也不隐藏任何 tab。** 可比组和页在 text 面折成索引，是因为它们有可复制的下钻命令；tab 没有选择器，索引只能是死路，所以 `show` 全量输出。多 tab 报告在终端长到读不动，正是把这些 tab 升级成[页](shell.md)的信号——这层阅读压力是设计的一部分，不用隐藏内容来缓解。
+- **text 面不给 tab 做索引，也不隐藏任何 tab。** 页能用命令下钻，tab 没有选择器，索引只能是死路，所以 `show` 全量输出。多 tab 报告在终端长到读不动，是把这些 tab 升级成[页](shell.md)的信号。
 
 ## `Table`
 
@@ -236,7 +236,7 @@ interface TextContext {
   locale: ReportLocale;
   render(node: ReportNode, width?: number): string;
   attemptCommand(locator: AttemptLocator): string;
-  /** 「按实验收窄」类命令（组索引下一步）；宿主注入以携带完整 --results / --report / --page 上下文。 */
+  /** 「按实验收窄」类命令；宿主注入以携带完整 --results / --report / --page 上下文。 */
   experimentCommand(experimentIdPrefix: string): string;
 }
 

@@ -1,40 +1,13 @@
 # 裸 `show`：默认报告的 text 面
 
-裸 `niceeval show` 装载[内建报告](../library/built-in.md)并渲染其首页（报告页），尾部附 Attempts、追踪两页的索引（[多页规则](reports.md#case-2多页文件渲染初始页尾部附其余页索引)）。页首依次是 `Hero` 的 text 面（标题行与最后运行 meta）与 `ScopeWarnings` 的逐条警告；随后是 `ExperimentComparison`。Scope 命中多个可比组时，它只输出组索引和可直接复制执行的 `niceeval show --exp <group>` 命令；Scope 已经只剩一个组时，才输出该组的成本 × 端到端通过率散点图与 `ExperimentList`。experiment id 的父目录是组边界：`compare/*` 与 `dev-e2b/*` 不能共享坐标系、连线、排序或汇总数字；根目录 experiment 各自形成单例组。散点的 series 归类与连线按 [`ExperimentComparison` 的缺省解析](../library/summaries.md#experimentcomparison)：组内有实验声明了 label `line` 就按线归类并连线，否则按 agent 归类、不连线；字符坐标图的标记分配、图例与位移摘要契约见 [`MetricScatter` 的 text 面](../library/metric-views.md#metricscatter)。端到端通过率的分母包含 `failed` 与 `errored`，只有 `skipped` 不进入；因此执行错误会降低默认通过率，但仍在结果构成中单独显示，不与失败混成一种判定。单组只有一个可画 experiment 时也照常显示一个点，不要求至少两个实验。
+裸 `niceeval show` 装载[内建报告](../library/built-in.md)并渲染其首页（报告页），尾部附 Attempts、追踪两页的索引。页首是 `Hero` 与 `ScopeWarnings`，随后 `ExperimentComparison` 直接输出当前 Scope 的摘要、成本 × 端到端通过率散点和 `ExperimentList`。每个 experiment 的 eval 数与指标分母来自快照记录的 `selectedEvalIds`；未选择的 eval 不补成失败。实验列表保持 experiment → Eval → Attempt 层级。
 
-可比组索引一行一个组，显示 experiment / eval 数、`ScopeSummary` 的端到端通过率、Eval 最终 verdict 构成、成本与最后运行时间；Eval 列按 `experimentId + evalId` 身份计数——两个实验各跑同样 6 道题就是 12——与同行 verdict 构成同分母，两个数字能直接对账；通过率直接取官方 `endToEndPassRate` 格子，不从 verdict 计数重算。多组 Scope 到此结束，不把所有组的详情一次性倾倒到终端。单组 `ExperimentList` 保持实体层级：一个 experiment 下列 Eval，一个 Eval 下再列它的全部 Attempt。不能把组拍平，也不能把 Eval 与 Attempt 压平成一张“每行一个 Attempt、重复 Eval id”的表。Scope 只剩一个组时省略索引，直接进入该组。
-
-```sh
-$ niceeval show
-Eval 运行结果
-最后运行 2026-07-12 18:09 · 由 10 份快照合成
-
-WARNING  snapshot dev-e2b/codex-e2b @ 2026-07-12T10:08:29.361Z is unfinished;
-         8 completed attempts are shown, but the snapshot may be incomplete.
-
-实验组                  实验   Eval   通过率   Eval 结果         成本      最后运行
-compare                    2     12          75.0%   9 通过 · 3 失败      $1.42   2026-07-12 18:08
-dev-e2b                    3     16          61.1%   11 通过 · 5 失败     $0.31   2026-07-12 18:09
-memory                     5     40          60.0%   24 通过 · 16 失败   $11.52   2026-07-12 18:08
-
-查看组内详情：
-  niceeval show --exp compare
-  niceeval show --exp dev-e2b
-  niceeval show --exp memory
-
-其余页：
-  attempts   Attempts   niceeval show --page attempts
-  traces     追踪       niceeval show --page traces
-```
-
-单组、组内实验声明了 `labels: { line: … }` 时（下例每个实验声明了 `line` 与变体轴 `memory`，如 `{ line: "codex", memory: "mempal" }`），散点按线归类：同 `line` 值一色一条线，图例按 x 升序用 `→` 串联线上各点，每段相邻点下一行给位移摘要——「codex 加 mempal 后通过率 +37.5pt、成本 +$0.13」在终端里直接可读，坐标图内不画折线：
+Scope 内实验声明了 `labels: { line: … }` 时（下例每个实验声明了 `line` 与变体轴 `memory`），散点按线归类：
 
 ```sh
 $ niceeval show --exp memory
 Eval 运行结果
 最后运行 2026-07-12 18:08 · 由 5 份快照合成
-
-实验组 memory
 
 平均每个 eval 成本（越低越好） × 端到端通过率 · 按 line 归类
  100% ┤
@@ -68,14 +41,12 @@ memory/codex-baseline     gpt-5.4   codex    1m 21s    25.0%   2 通过 · 6 失
 
 表下逐实验的 Eval / Attempt 层级与下面 dev-e2b 例一致，不重复。散点 x 轴是**平均每个 eval 成本**（表中成本列是实验总成本，除以题数得每题均值），`better: "lower"` 反向渲染——越右越省；标记字母按图例顺序分配：series 按显示键字典序（bub < claude < codex），series 内按 x 原始值升序，所以 claude 线是 B（baseline，$0.35/题）→ C（mempal，$0.55/题）。位移摘要的符号是原始差值：`成本 +$0.20` 表示每题贵了 $0.20，方向好坏由指标的 `better` 语义判断，摘要不替读者下结论。
 
-组内没有任何 `line` 声明时按 agent 归类、不连线，图例行首是 agent 名：
+Scope 内没有任何 `line` 声明时按 agent 归类、不连线，图例行首是 agent 名：
 
 ```sh
 $ niceeval show --exp dev-e2b
 Eval 运行结果
 最后运行 2026-07-12 18:09 · 由 3 份快照合成
-
-实验组 dev-e2b
 
 平均每个 eval 成本（越低越好） × 端到端通过率 · 按 agent 归类
  100% ┤

@@ -17,7 +17,7 @@
 | 跨快照计算先按 attempt 身份键去重，同一 attempt 出现在多快照不重复计数 | 正例：局部补跑重叠快照下 samples 不虚增 |
 | 宿主 Scope 为每个 experiment × eval 选择跨历史最新判定 | 正例：先 failed 后 passed 的两快照只用最新判定 |
 | 自定义指标 `where` 是进入计算前的过滤；`aggregate: { perEval, acrossEvals }` 两级分别生效 | 正例：failed attempt 不进聚合；边界：全被 where 排除 → missing；正例：perEval min + acrossEvals mean 与双 mean 可区分 |
-| `evalGroup` 维度按 eval id 完整父路径分组（无 `/` 取完整 id），与可比组同一条派生规则；Scoreboard `subject` 缺省同规则 | 正例：`a/b/c` 归 `a/b`；边界：无斜杠 id 形成单例组 |
+| `evalGroup` 维度按 eval id 完整父路径分组（无 `/` 取完整 id）；只组织 eval；Scoreboard `subject` 缺省同规则 | 正例：`a/b/c` 归 `a/b`；边界：无斜杠 id 形成单例组 |
 | 报告消费落盘 verdict，不重新判卷 | 反例：断言明细与 verdict 故意矛盾时以 verdict 为准 |
 
 示例——先测 `*Data` 计算的事实：
@@ -55,13 +55,13 @@ it("scopeSummaryData 使用端到端两级聚合并保留覆盖率", async () =>
 
 | 契约 | 场景 |
 |---|---|
-| `experimentComparisonData()` 在计算前按 experiment id 的完整父路径分区，根目录 experiment 各自形成单例组；每组子块与对该组独立调用 `scopeSummaryData` / `metricScatterData` / `experimentListData` 完全相同 | 正例：两个多配置目录组 + 一个根目录单例组；逐组 deepEqual 对账并断言 scatter / list refs 不跨组 |
-| `ExperimentComparison` 的 web 面接收全部组并输出组选择器与相互隔离的完整 panel，第一组默认展开且无 JS 仍可读；text 面多组时只给索引和单组查看命令，单组时才输出散点与实验列表 | 正例：双组 web 静态 HTML 含两个 panel 且仅首组 open；text 多组无 experiment 明细、单组有明细 |
+| `experimentComparisonData()` 对完整 input 计算一份 `ScopeSummary` / `MetricScatter` / `ExperimentList`，每个 experiment 的 eval 集以快照 `selectedEvalIds` 为准 | 正例：两个 experiment 选择不同 eval 集，列表 eval 数与各自分母如实且未选择项不补失败 |
+| `ExperimentComparison` 的 web/text 面都直接显示完整 Scope，不输出实验组选择器或组索引 | 正例：多 experiment 的两面都有摘要、散点与实验明细 |
 | `MetricScatter` 对缺 x 或 y 的点不绘制并报告缺失数；零点显示明确空态；单点照常绘制 | 边界：0 点 / 1 点 / 部分缺 x；反例：单点不被拒绝 |
 | 散点轴方向跟随指标 `better`：lower 反向（左贵右便宜）、higher 正向，「更好」恒指向右上，提示恒为「越靠右上越好」；刻度显示真实值；未声明 better 的轴正向且整图不出方向提示；两面同规则 | 正例：成本 × 通过率图上低成本点落在右侧且刻度值仍从大到小；边界：x 无 better 时无方向提示；正例：text 面同方向 |
 | `MetricLine` 对未声明数值 flag 的 experiment 不伪造 x 值并报告未绘制数 | 正例：flag 缺失与 flag="high" 两种；反例：不落到 x=0 |
 | `DeltaTable` 任一侧缺数据时 delta 保持缺失；方向按指标 `better` 判断改善/退化 | 正例：better:"lower" 的 costUSD 下降判改善；边界：一侧缺时 delta 为 null |
-| `pairsByFlag` 按「同可比组 + 删除该 flag 后可比性配置深相等」配对：a 取 baseline（缺省=未声明），b 侧每个其它取值各成一对，label 为 `<a 末段> · <flag>=<显示键>`，按 (a 末段, 显示键) 字典序 | 正例：三 agent × baseline/agents-md/mempal 矩阵导出 5 对（bub 无 mempal 如实少一对）；反例：model 不同的两实验不配对；边界：收窄到单实验时 0 对显示空态不报错；反例：`by: "agent"` 配派生形态报完整用户反馈 |
+| `pairsByFlag` 在 input Scope 内按「删除该 flag 后可比性配置深相等」配对：a 取 baseline，b 侧每个其它取值各成一对 | 正例：三 agent × baseline/agents-md/mempal 矩阵导出 5 对；反例：model 不同的两实验不配对；边界：单实验时 0 对显示空态 |
 | `pairs` 与 `questions` 类型放宽为普通数组，空数组在计算时按完整用户反馈报错；`metrics` / `columns` 保留非空元组 | 反例：`.filter()` 后为空的 pairs 报错且文案完整；正例：运行期构造的非空 pairs 直接可用，无需元组断言 |
 | `FailureList` 与手写组合等价：verdict ∈ failed/errored、开始时间降序（同刻按 locator 字典序）、`limit` 截断（默认 20）且 total 报告截断前总数 | 正例：与 `attemptListData` 手工过滤排序的渲染结果深等；边界：失败数少于 limit 时 total 等于 data 长度 |
 | `MetricMatrix` 是稀疏矩阵：无 attempt 的行列组合不生成格子；`MetricBars` 消费同一份矩阵数据 | 正例：缺组合无格子（而非 value:0）；正例：Bars 与 Matrix data 同源 |
@@ -121,7 +121,7 @@ it("scopeSummaryData 使用端到端两级聚合并保留覆盖率", async () =>
 |---|---|
 | `label()` 读快照 `ExperimentRunInfo.labels` 的声明值作分组维度，报告不从 experiment id 字符串猜；`numericLabel()` 只接受 number 值 | 正例：`label("line")` 按声明值分组；边界：未声明该键的实验归 `(missing)`；反例：`numericLabel` 对字符串值返回 null，不猜序 |
 | series 类选项接受非空数组解析为复合维度：name 依声明顺序以 ` × ` 连接，值以 ` · ` 连接，缺失成员沿用 `(missing)` 参与连接 | 正例：`["agent", label("memory")]` 的 seriesDimension 与行 series 值；边界：单成员数组等价于单维度 |
-| `ExperimentComparison` series 缺省逐组解析：组内任一实验声明 label `line` → `label("line")` 并连线，否则 `"agent"` 不连线；显式 series 对所有组统一生效 | 正例：声明 line 的组 seriesDimension 为 "line"；正例：无 line 的组回落 "agent"；正例：显式 series 同时覆盖两种组 |
+| `ExperimentComparison` series 缺省解析：Scope 内任一实验声明 label `line` → `label("line")` 并连线，否则 `"agent"` 不连线；显式 series 覆盖缺省 | 正例：声明 line 时为 "line"；无 line 时回落 "agent" |
 | `MetricScatter` 默认不连线，`connect` 显式开启：web 面每 series 按 x 升序折线；text 面不在坐标图画折线，图例按 x 升序 `→` 串联并给逐段位移摘要（两轴带符号差），标题行尾标注归类维度 | 正例：connect 关时无 polyline 也无箭头；正例：connect 开时折线点序、图例箭头与位移摘要；边界：单点 series 无箭头无摘要 |
 | text 散点标记按图例顺序分配：series 显示键字典序、series 内 x 原始值升序；无 series 时按点键字典序 | 正例：两 series 各两点的 A–D 分配顺序；边界：无 series 时按 key 字典序 |
 | 同图 series 配色以稳定散列为起点，图内撞色按图例顺序线性探测下一个空色格，超过色板数才复用 | 正例：散列同格的两个 series 在同图不同色；正例：无冲突的键仍取散列格（跨图稳定）；边界：第 7 个 series 开始复用颜色 |
@@ -138,7 +138,7 @@ it("scopeSummaryData 使用端到端两级聚合并保留覆盖率", async () =>
 | `ExperimentList` web 面是固定八列比较表，可见列名使用“Pass rate / 通过率”，默认按 `endToEndPassRate` 降序；标签与排序箭头同行；Model 缺失显示明确空值；Eval 数不翻成“题” | 正例：断言双语列名与顺序、默认降序标记、`8 evals` / `8 个 Eval`；边界：model 缺失；反例：taskPassRate 高但 executionReliability 低的实验不能排到端到端通过率更高者之前 |
 | `ExperimentList` text 面保持实体层级：Eval 父行、Attempt `├─`/`└─` 子行，不压平 | 正例：一题两 attempt 只出现一次 Eval 标题 |
 | `ExperimentList` / `EvalList` 的 Eval 父行只承载折叠判定与题级聚合，失败摘要只在 Attempt 子行出现；父行不因 verdict 改变同一位置的字段含义（[bug 台账](../../../../memory/eval-parent-repeats-attempt-failure.md)） | 反例：单个 failed / errored Attempt 的摘要在展开树中出现两次；正例：failed Eval 父行仍显示平均耗时与平均成本 |
-| `ExperimentList` 传 `relativeTo` 时 web 与 text 两面行标签去掉该父路径前缀只显示 id 末段（与散点点标签同源），不另造或猜测短标签；完整 id 仍用于排序键 / 过滤 / 折叠，系列色按 Agent 与散点图对齐；默认 `ExperimentComparison` 给每组传组键 | 正例：组键 `compare` 下 `compare/bub-gpt-5.4--agents-md` 显示 `bub-gpt-5.4--agents-md` 且 `data-sort-value` 仍是完整 id；边界：根目录单例组 id 无前缀时显示完整 id；反例：不传 `relativeTo` 时显示完整 id |
+| `ExperimentList` 传 `relativeTo` 时 web 与 text 两面行标签去掉该路径前缀，只改变显示名；完整 id 仍用于排序键 / 过滤 / 折叠，默认 `ExperimentComparison` 不从目录猜前缀 | 正例：显式传 `relativeTo: "compare"` 时 `compare/bub-gpt-5.4--agents-md` 显示 `bub-gpt-5.4--agents-md` 且 `data-sort-value` 仍是完整 id；反例：不传时默认报告显示完整 id |
 
 ```tsx
 import { renderToStaticMarkup } from "react-dom/server"
@@ -208,7 +208,7 @@ it("text 与 web 显示同一个 MetricCell 终值和 warning", () => {
 | 零可读结果时命令失败：show 非零退出（旧格式建议 `npx niceeval@<version>`）；view 不启动 server、`--out` 不生成空站 | 边界：空结果根与仅含旧格式两种 |
 | `--out` 无档位：收窄范围内存在且前端会读取的证据文件（sources 引用及其快照级 `sources/<sha256>.json` 正文 / events / trace / diff）全部复制，缺的在证据位置显示缺失；`o11y.json` 永不复制 | 正例：带 diff.json 的根导出后 diff 可下钻；正例：导出站离线打开源码视图可取到正文；边界：携带条目（artifactBase 指向原快照）的源码正文被归拢进本快照 `sources/`，删除原快照后导出站源码仍可读；边界：无 diff.json 的根导出后 diff 位置显示缺失原因；反例：o11y.json 不进 `artifact/` |
 | 前端 artifact fetch 以「页面所在目录」为基底：pathname 末段带 `.` 视为文件名去掉，否则整个 pathname 是目录（含无尾斜杠形态），`artifact/<rel>` 拼在该目录下 | 正例：页面服务在 `/showcase/memory`（无尾斜杠 rewrite）时 fetch `/showcase/memory/artifact/<rel>`；边界：直接打开 `/foo/index.html` 时 fetch `/foo/artifact/<rel>`；反例：根路径 `/` 不产生双斜杠 |
-| `--out` 接受位置参数 / `--exp` 收窄，出站的就是收窄到的：页面 Scope 与 `artifact/` 证据树跟随同一收窄，被滤掉实验 / eval 的证据文件不出站；不收窄导出完整根 | 正例：`--exp compare --out site` 的 `artifact/` 只含 compare 组快照目录、页面组索引只有 compare；正例：eval id 前缀位置参数导出时不匹配 attempt 的证据不出站；正例：不带收窄时导出完整根（含非最新快照）；反例：被滤掉实验的 events/trace/sources 不出现在 `artifact/` |
+| `--out` 接受位置参数 / `--exp` 收窄，页面 Scope 与 `artifact/` 证据树跟随同一收窄；不收窄导出完整根 | 正例：`--exp compare --out site` 只含该路径快照与报告数据；正例：eval id 前缀导出时不匹配 attempt 的证据不出站；反例：被滤掉实验的 artifact 不出站 |
 | 本地宿主的 attempt 详情路由越过收窄对完整结果根解析；导出站对范围外 locator 的深链在证据位置如实显示缺失 | 正例：本地 `--exp compare` 下 dev-e2b attempt 的 `#/attempt/@<locator>` 仍解析成功、证据可 fetch；正例：收窄导出站里同一 locator 显示证据缺失而非报错白屏 |
 | `--snapshot` 指定单个快照文件时该文件不可读令 view 失败（与扫描模式的跳过相反）；view 位置参数只表示 eval id 前缀，不接受文件或目录 | 反例：损坏文件经 `--snapshot` 报错退出；正例：同文件在扫描模式仅被跳过；反例：文件路径作位置参数按 eval 前缀报无匹配 |
 | 落盘无 phases 时 summary/full timing 都如实输出 unavailable 不猜；有 phases 时主链之和 ≤ total，收尾段 `+N` 不计入 total | 正例：含 teardown 的 fixture；反例：无 phases 的第三方结果；边界：errored 中途时最后主链阶段带 `✗` |
@@ -260,7 +260,7 @@ it("show 与 view 的默认报告槽消费同一 Scope", async () => {
 | 裸 `show` / 裸 `view` 装载 `niceeval/report/built-in` 的默认导出，与 `--report` 同一条 `装载 → resolve → validate → render` 管线 | 正例：裸宿主装载的 definition 与该默认导出同引用 |
 | show 渲染初始页（`--page` 或第一页）的 text 面，页数大于一时在页输出之后附其余页的索引与可复制 `--page` 命令，不倾倒其余页内容；单页定义无索引段 | 正例：双页定义输出含第一页内容与另一页的索引命令、不含另一页内容；边界：单页定义直接渲染且无「其余页」段 |
 | `--page` 未命中页 id 时按用法错误非零退出并列出可用页 id；单页定义的唯一页 id 是缩写展开出的 `report` | 反例：`--page typo` 报错附 overview / exam；边界：对树形态文件 `--page report` 命中唯一页，`--page typo` 报错列出 `report` |
-| `show` 输出的页索引与组索引命令保留当前 `--results` / `--report` / `--page` 与位置参数上下文，复制即可复现下一层视图 | 正例：`--report` 下多组时组索引命令含 `--report` 与 `--page`；正例：`--results` 下页索引命令含 `--results` |
+| `show` 输出的页索引命令保留当前 `--results` / `--report` 与位置参数上下文，复制即可复现下一页 | 正例：`--results` 下页索引命令含 `--results`；`--exp` 收窄被保留 |
 | 全部页共享宿主注入的同一 Scope，位置参数与 `--exp` 收窄对全部页生效；页不承担数据过滤 | 正例：两页的解析 refs 来自同一收窄后 Scope |
 | 本地宿主只 resolve 被打开的页；静态导出 resolve 并校验全部页，任一页失败则导出整体失败 | 正例：打开 A 页时 B 页的取数未执行；反例：B 页含 `<div>` 时 `--out` 非零退出、不产出半套站点 |
 | 标题取值链 def.title → Scope 中唯一且相同（LocalizedText 深相等）的快照 name → 内置文案「Eval 运行结果 / Eval Results」，落点是浏览器标题、show 页索引标题行与 `ctx.report.title`；`links` / `footer` 渲染进导航壳，text 面不含这些字段 | 正例：三级 fallback 各一 fixture，浏览器标题与 `ctx.report.title` 同源；边界：两快照 name 的 en 相同、zh-CN 不同时任何 locale 下都落内置文案；反例：show 输出不含 links href |

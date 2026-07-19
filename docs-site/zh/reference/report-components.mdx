@@ -8,11 +8,11 @@ description: "报告文件里能摆的全部官方双面组件：每个组件回
 
 ## 名称与用途
 
-英文术语描述组件形态，API 名是代码里的导出名。组件分四类：默认组合件按可比组组织完整比较；实体列表逐项展示 experiment、评估用例或 Attempt；汇总组件概括整批 Selection；指标图形把指定维度聚合成值。三个实体列表的 `.data(selection)` 都返回普通数组，报告作者先用 JavaScript `.filter()` 收窄，再把 `items` 交给组件。过滤条件不藏在组件里。中文正文首次提到时用“中文名（`API 名`）”，后续可以只写中文名或 `API 名`。
+英文术语描述组件形态，API 名是代码里的导出名。默认组合件比较当前 Scope；实体列表逐项展示 experiment、评估用例或 Attempt；汇总组件概括整批 Selection；指标图形把指定维度聚合成值。
 
 | 分类 | 中文名 | English | API | 主展示单位 |
 | --- | --- | --- | --- | --- |
-| 组合 | 实验组比较 | Experiment comparison | `ExperimentComparison` | 按 experiment 父目录分组；每组独立的摘要、散点与实验列表 |
+| 组合 | 实验比较 | Experiment comparison | `ExperimentComparison` | 当前 Scope 的摘要、散点与实验列表 |
 | 汇总 | 运行总览 | Run overview | `RunOverview` | 一批 Selection；汇总其中的 experiment、评估用例和 Attempt |
 | 汇总 | 组摘要 | Group summary | `GroupSummary` | 收窄后的一批 Selection；汇总一组 experiment 和评估用例 |
 | 实体列表 | 实验列表 | Experiment list | `ExperimentList` | 每项一个 experiment；展开到该 experiment 的评估用例 |
@@ -96,19 +96,19 @@ description: "报告文件里能摆的全部官方双面组件：每个组件回
 
 指标表、指标矩阵、成绩单和成对差异表的终端面就建在 `Table` 上，所以你的表和官方的表用的是同一把尺子。表格之外的形态要自己排字符时，用[自定义报告](/zh/tutorials/custom-reports)「换形态」一节里那套文本排版函数。
 
-## 实验组比较（`ExperimentComparison`）
+## 实验比较（`ExperimentComparison`）
 
-`niceeval show` / `view` 不传 `--report` 时使用的默认组合件。它先按 experiment id 的完整父目录分组，再为每组分别计算组摘要、成本 × 端到端通过率散点和实验列表：
+`niceeval show` / `view` 不传 `--report` 时使用的默认组合件。它直接计算当前 Scope 的摘要、成本 × 端到端通过率散点和实验列表：
 
 ```tsx
 <ExperimentComparison data={await ExperimentComparison.data(selection)} />
 ```
 
-`compare/bub` 与 `compare/codex` 属于 `compare`，可以横向比较；`dev-e2b/bub` 属于另一个组，不会进入同一张图、同一条 series 或同一张表。顶层 experiment 没有父目录时，以自己的完整 id 形成单例组。网页面持有完整组索引并一次聚焦一组，切组不重新读取 Selection；终端面命中多组时只显示组索引与单组查看命令，命中单组时才展开详情。浏览器禁用 JS 时，每组仍以独立 `<details>` 保留完整内容。
+每个 experiment 的评估用例集合来自快照 `selectedEvalIds`。网页面与终端面都显示完整 Scope；需要子集时用 `--exp` 或先对 Selection 调 `filter`。
 
 组卡使用 `Pass rate / 通过率`、`Experiments / 实验`、`Evals / Eval`、`Attempts / Attempt`、`Eval results / Eval 结果`、`Total cost / 总成本` 这套字段标签，不在标签里重复“数”“次”或“计票”。时间显示为本地化到分钟的 `Last run / 最近运行` 或 `Run range / 运行范围`，不直接暴露 ISO 字符串；成本数据覆盖不全时写明“`63/72 次有成本数据`”，不显示没有上下文的 `63/72`。六项 KPI 在宽卡片保持同一行，空间不足时按三项或两项一组换行，避免总成本单独掉到下一行。
 
-这个分区只属于默认组合件。下面的 `MetricScatter`、`MetricTable` 和 `ExperimentList` 都忠实消费调用方传入的数据；自定义报告把跨组 Selection 传给它们，就表示明确选择跨组分析。
+下面的 `MetricScatter`、`MetricTable` 和 `ExperimentList` 同样忠实消费调用方传入的数据，不推导隐藏范围。
 
 ## 运行总览（`RunOverview`）
 
@@ -147,9 +147,9 @@ latest 2026-07-09T10:00:00Z
 
 ## 实验列表（`ExperimentList`）
 
-每项固定代表一个 experiment。主行显示 experiment id、agent、model、flags、评估用例判定构成、通过率、Tokens、成本和耗时；其中”通过率 / Pass rate”是 `endToEndPassRate` 的默认短标签，完整口径名是”端到端通过率 / End-to-end pass rate”。展开后显示这个 experiment 的评估用例列表。评估用例父行显示折叠判定、Attempt 数、平均耗时和平均成本；下面每个 Attempt 再显示该轮自己的失败摘要。失败内容只出现一次，不会在评估用例与唯一 Attempt 上重复。它不接受列配置——这是 experiment 的诊断视图，不是通用指标表。默认 `ExperimentComparison` 每次只把一个可比组的 items 交给它；组件本身不猜组边界。
+每项固定代表一个 experiment。主行显示 experiment id、agent、model、flags、评估用例判定构成、通过率、Tokens、成本和耗时。默认 `ExperimentComparison` 把当前 Scope 的全部 items 交给它；组件本身不猜边界。
 
-默认比较已经用组名作面板 / 段落标题，所以组内每行的 experiment 标签会去掉这层文件夹前缀，只显示 id 末段（和同组散点的点标签一致），不在每行重复文件夹名。这不是独立短标签，也不从 id 猜别名；完整 id 仍是排序、过滤和身份的依据，系列颜色跟随 Agent，与散点图对齐。独立使用 `ExperimentList`、不告诉它相对哪个组时，显示完整 id。中文副行用“`8 个 Eval`”而不是“`8 道题`”。
+默认比较显示完整 experiment id；排序、过滤和身份也使用完整 id。中文副行用“`8 个 Eval`”而不是“`8 道题`”。
 
 ```tsx
 const experiments = await ExperimentList.data(selection);
@@ -335,7 +335,7 @@ codex   71.0/100   40/50          31/50 (1 missing)
 />
 ```
 
-直接把 `selection` 传给它，宿主渲染前替你算好数据。`MetricScatter` 不根据 experiment id 自动分组；默认 `ExperimentComparison` 会先收窄到一个可比组，再逐组调用它。要在自己已经跑起来的 React 应用里嵌这张图、或数据是预先算好的，改传 `data`：`<MetricScatter data={await MetricScatter.data(selection, { points: "experiment", series: "agent", x: costUSD, y: endToEndPassRate })} />`；同时传 `data` 和 `selection`、或两者都不传，类型检查都会报错。
+直接把 `selection` 传给它，宿主渲染前替你算好数据。`MetricScatter` 和默认 `ExperimentComparison` 都直接消费调用方给出的 Scope。要嵌预先算好的数据，改传 `data`。
 
 ```text
 pass ↑                                    （好 → 右上）

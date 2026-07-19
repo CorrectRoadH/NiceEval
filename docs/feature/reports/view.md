@@ -9,8 +9,8 @@
 ```sh
 niceeval view
 niceeval view weather                  # eval id 前缀，只收窄报告槽
-niceeval view --exp compare     # 只看 compare 可比组（按路径段匹配）
-niceeval view --exp compare/bub # 只看一个 experiment
+niceeval view --exp agents/codex       # 按 experiment id 路径收窄
+niceeval view --exp agents/codex/gpt-5.4 # 只看一个 experiment
 niceeval view --results site-data/run  # 换结果根
 niceeval view --snapshot .niceeval/dev-e2b_codex-e2b/2026-07-12T10-08/snapshot.json
                                        # 只打开这一份快照
@@ -24,12 +24,12 @@ niceeval view --report reports/site.tsx --page exam   # 多页报告，指定初
 
 本地 server 只监听 `127.0.0.1`。默认让操作系统随机分配端口；`--port <n>` 指定首选端口，被占用时从 n 起向上顺延最多 20 个，全被占用才报错。
 
-裸 `niceeval view` 默认把结果根中的完整 Scope 交给报告；用户直接在页面的组选择器里选择当前可比组，不需要先猜 `--exp`。`--exp` 与位置参数只是可选的命令行快捷收窄，对全部页生效——页共享同一份 Scope，内建的 Attempts 页也一样跟随收窄。attempt 详情路由（`#/attempt/@<locator>`）不是页：它对有效根解析——收窄之内、即使不在页面统计口径（现刻水位）里的历史 attempt 也能经深链打开，报告里的证据引用不会因页面统计口径而失效；收窄之外的 attempt 不在有效根里，两宿主一致不可达，要看全部就不带收窄打开。同一份收窄交给 `--out` 时决定出站内容——页面与证据树都只含有效根（见「静态导出」）。
+裸 `niceeval view` 默认把结果根中的完整 Scope 交给报告。`--exp` 按 experiment id 路径收窄，位置参数按 eval id 前缀收窄；两者可组合取交集，并对全部页生效。attempt 详情路由（`#/attempt/@<locator>`）不是页：它对有效根解析——收窄之内、即使不在页面统计口径（现刻水位）里的历史 attempt 也能经深链打开；收窄之外的 attempt 不可达。同一份收窄交给 `--out` 时决定出站内容。
 
 ## 页面构成
 
 - **导航机器与品牌位：** 页头左端是报告改不动的恒定 NiceEval 字标（外链官网），右侧是页导航、外部链接、语言切换，加每页页脚。导航项只有报告定义声明的页，按声明顺序排列（路由 `#/page/<id>`，`--page <id>` 定初始页）——裸 `view` 的「报告 / Attempts / 追踪」三个 tab 就是[内建报告](library/built-in.md)的三页，宿主不追加、不保留任何导航项。单页定义的唯一页使用缩写展开出的 id `report` 与内置页名「报告 / Report」。浏览器标题按[外壳契约](library/shell.md#行为约束)的回退链取值（报告定义 `title` → 唯一且相同的快照 `name` → 内置文案），是宿主文档单例；页面里的 hero 标题、品牌行、选择警告都不是宿主渲染的——它们是页内的[站点组件](library/site-components.md)。[对象形态的 `defineReport`](library/shell.md) 声明的 `links` 显示在导航右侧（可带内联 SVG 字标 `icon`），`footer`、`head`、`scripts`、`styles` 注入每一页，省略 `footer` 时不渲染页脚。自定义脚本属于增强层：初始静态 HTML 无 JS 完整可读，脚本只添加浏览行为，不改变数据或指标口径。
-- **默认报告页（内建首页）：** 页首是 `Hero`（站点标题、最后运行时间、品牌行）、`ScopeWarnings` 与 `CopyFixPrompt`（把当前范围全部失败整理成可交给 coding agent 的修复 prompt），随后 `ExperimentComparison` 接收完整 Scope 并显示全部可比组的索引；选中一组后，只为这一组显示成本 × 端到端通过率散点和 experiment 比较表；散点 series 按 [`ExperimentComparison` 的缺省解析](library/summaries.md#experimentcomparison)——组内有实验声明了 label `line` 就按线归类并绘制折线，否则按 agent 归类、不连线。切组是纯 UI 状态：不重新扫描结果、不重新计算指标，也不丢掉其它组的数据。可比组由 experiment id 的父目录确定：`compare/bub` 与 `compare/codex` 属于 `compare`，`dev-e2b/bub` 属于 `dev-e2b`，两组绝不共享图、排序或统计；多层 id 使用完整父路径，根目录下的 experiment 各自形成单例组。组卡复用 `ScopeSummary` 的口径，显示组名、experiment / eval 数、端到端通过率、Eval 最终 verdict 构成、成本和最后运行时间；通过率直接渲染 `ScopeSummaryData.endToEndPassRate`，不从 verdict 计数现场重算。无 JS 时每组仍以独立 `<details>` 完整可读，第一组默认展开；渐进增强把它们变成单选组切换，不改变数据。组内比较表由 `ExperimentList` 的 web 面渲染：一行一个 experiment，固定列出实验、模型、Agent、平均耗时、端到端通过率、Tokens、成本和结果摘要；表头可排序，默认按端到端通过率降序，过滤只搜索当前组的 experiment、agent、model、flag 或 eval 文本。端到端通过率把 `failed` 与 `errored` 都记为 0，只有 `skipped` 不进分母；error 仍在结果摘要中单独列出。每行可展开查看该 experiment 的 eval 与 attempt 证据；attempt 行只显示 [Scoring 定义的主失败断言摘要](../scoring/library/display.md#主失败断言怎样选)，passed 行为 `—`，不能罗列全部 matcher。`--report` 用自定义报告文件替换整份页面声明。
+- **默认报告页（内建首页）：** 页首是 `Hero`、`ScopeWarnings` 与 `CopyFixPrompt`，随后 `ExperimentComparison` 直接展示当前 Scope 的摘要、成本 × 端到端通过率散点和 experiment 比较表。每个 experiment 的 eval 集来自快照记录的 `selectedEvalIds`；未选择的 eval 不进入该 experiment 的分母。散点 series 有 label `line` 时按线归类并绘制折线，否则按 agent 归类、不连线。实验表一行一个 experiment，可展开查看 eval 与 attempt 证据。`--report` 用自定义报告文件替换整份页面声明。
 - **Attempts 页（内建）：** `Hero` + `ScopeWarnings` + 带过滤的 [`AttemptList`](library/entity-lists.md#attemptlist)，把范围内所有 attempt 展成可筛选列表；页名与全库的 attempt 术语一致。
 - **追踪页（内建）：** `Hero` + `ScopeWarnings` + [`TraceWaterfall`](library/site-components.md#tracewaterfall)，用 canonical OTel 字段显示每个 attempt 的执行瀑布行。
 - **Attempt 详情（宿主路由 `#/attempt/@<locator>`，对完整结果根解析）：** 判定、断言、统一时间树、结构化错误、按 lifecycle 分组的 diagnostics、usage、对话、trace 和 diff 的入口。判定与断言单点住在源码视图：eval 源码按行叠加断言结果——gate 失败红、没过阈值的 soft 黄、passed 绿、unavailable 灰——失败行展开即是 matcher、expected / received（或 unavailable 的 reason）与 judge 证据，第一条失败行默认展开，整文件级的长值在有界高度内滚动，同一份事实不在页面上出现两次。独立的断言区只在源码不可用（未捕获或 artifact 缺失）时出现，作为同一份事实的 fallback 呈现面：failed / unavailable 与影响判定的 soft 每条一行（断言名、matcher、分数、源码位置），行内一次展开明细，第一条 failed 默认展开；passed 按 group 收进默认折叠区并只显示数量。时间区整体是一个折叠块：收合时只占一行（标题与总耗时），有失败 phase 的 attempt 默认展开，不挤占断言区与源码；展开后以 `result.json.phases` 画主链分解条与收尾段列表，phase 的 children——runner 直接观察到的 hook、沙箱命令和 session/turn——默认收合,按 phase 逐个展开；turn 带 `traceId` 时再从 `trace.json` 挂接 agent/model/tool spans。因而 `sandbox.setup` 能一路展开到某个 hook 里的 `pnpm install`,`agent.setup` 能看到安装 CLI 与写配置的命令,`eval.run` 能从 `s1/t1` 展开到启动 Agent CLI 的命令和轮内 OTel。失败或被超时中断的最深节点带失败标记；并发或嵌套 children 不相加。独立的 Traces 页仍只画被测 agent 的原始 span,runner 节点不写进 trace；Attempt 时间区只是按显式 correlation 组合两类事实。即使 attempt 在 telemetry 建立前失败、没有 trace,错误、diagnostics 与已发生的 phase/hook/command/turn 时间仍从 `result.json` 正常显示。对话面消费[标准事件流](../adapters/architecture/events.md)的完整词汇：源码视图里带 `loc` 的 send 行可展开查看该轮全部回复（assistant 文本、thinking、工具调用、Skill 加载、HITL 请求、错误），`skill.loaded` 以一等条目显示 Skill 名，不伪装成工具调用。轮的归属按 `loc` 判定：带 `loc` 的 user 消息是 runner 记录的 send，开启新的一轮；无 `loc` 的 user 消息属于当前轮——agent 原生 transcript 对同一条 send 的同文本回显不重复显示，轮内注入的 user 消息（stop-hook 反馈、skill 注入等）作为回复条目显示，不会另起一轮把后续回复挂空。事件词汇按条目校验、按条目容错：`events.json` 里前端不认识或形状不合的事件条目以原始 JSON 条目呈现——摘要行显示原始 `type`，展开是完整 JSON——不静默丢弃，也不让整份对话消失；词汇演进（新增事件类型）因此在界面上直接可被发现，后续再补一等呈现。只有非对象条目（没有可展示的结构）丢弃，非数组的 events 载荷整体拒绝。
@@ -39,7 +39,7 @@ niceeval view --report reports/site.tsx --page exam   # 多页报告，指定初
 
 ```sh
 niceeval view --out site                            # 导出完整结果根
-niceeval view --exp compare --out site       # 只发布 compare 可比组
+niceeval view --exp agents/codex --out site      # 只发布一个 experiment 路径范围
 niceeval view weather --out site                    # 只发布匹配 eval id 前缀的部分
 niceeval view --results site-data/run --out site    # 对 copySnapshots 产出的发布根导出
 ```
@@ -107,7 +107,7 @@ niceeval view --report reports/site.tsx --page exam   # 指定初始页
 
 `--report` 文件的默认导出恒为 `defineReport` 产物：树形态填报告槽；[配置对象形态](library/shell.md)声明外壳与多页，view 渲染完整导航——报告页按声明序列出，所有页共享同一份收窄后的 Scope，外壳字段（标题、外链、页脚、脚本、样式）只作用于 web 面。`--page <id>` 未命中任何页时按用法错误退出并列出可用页 id。字段穷尽与行为约束见 [Library · 外壳与多页](library/shell.md)。
 
-`ExperimentComparison` 的两个渲染面共享同一份组划分、实体与指标数据，但不强求相同排版：web 面持有全部组并一次聚焦一个可比组；text 面遇到多个组时只输出组索引与可执行的单组查看命令，Scope 已经只有一个组时才输出散点与列表。任何一面都不能把多个组拍平成一张榜单。组内的 `ExperimentList` 在 web 面使用适合人工横向比较的固定列表格，text 面使用适合终端读取的紧凑列表。两面中的端到端通过率、成本、耗时、Tokens、判定构成和证据引用必须来自同一份计算结果。
+`ExperimentComparison` 的两个渲染面共享同一份实体与指标数据：web 面使用可排序的实验表，text 面使用紧凑列表；两面都直接消费完整 Scope，不设实验组选择器。端到端通过率、成本、耗时、Tokens、判定构成和证据引用来自同一份计算结果。
 
 ## 相关阅读
 

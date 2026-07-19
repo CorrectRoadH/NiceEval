@@ -62,7 +62,7 @@ export default defineConfig({
 按第 1 步选中的方向读完对应文档后，依次写：
 
 1. **Adapter**（`agents/*.ts` 或用户项目里约定的目录）——只填 `defineAgent` 的 `send`，配置走工厂参数，不写死、不读 `process.env`。契约见 [Adapter](/zh/explanation/adapter)，API 签名见 [defineAgent 参考](/zh/reference/define-agent)，事件映射见[事件参考](/zh/reference/events)。
-2. **Experiment**（`experiments/*.ts`）——引用上面的 Adapter，声明 `model`、`flags`、`runs` 等；被测对象是 Agent 的话还要声明 `sandbox`（第 1 步已跟用户确认过的 Provider，默认 `dockerSandbox()`，从 `niceeval/sandbox` 导入）。**默认建一个实验组文件夹做模型对比**：`experiments/compare-models/` 下放两个文件，同一个 Adapter、钉住一切、只差 `model` 各一个（比如 `compare-models/gpt-5.4.ts` 和 `compare-models/deepseek-v4-pro.ts`；`model` 是单个字符串，不接受数组）。跑一次 `niceeval exp compare-models` 就把组内各 model 并排出报告——这是 NiceEval 最直观的价值演示。用哪两个模型要跟用户确认（应用支持哪些、有哪些 key）；应用接口不收模型参数的话退化成单个 Experiment 文件，如实告诉用户原因。字段见[编写 Experiment](/zh/tutorials/write-experiment)，实验组组织方式见[组织 Experiment](/zh/tutorials/experiments)。
+2. **Experiment**（`experiments/*.ts`）——引用上面的 Adapter，声明 `model`、`flags`、`runs` 等。模型对比写两个实验文件，各自钉一个 `model`；`evals: (eval) => boolean` 决定各自运行哪些评估用例。路径只负责 id 和批量运行，报告读取每份快照的 `selectedEvalIds`。
 3. **评估用例**（`evals/*.eval.ts`）——**先探明这个应用是干嘛的，再写一条贴着它真实功能的评估用例**：读它的 README、路由、工具定义或系统提示，找出它的核心用例（客服机器人就问一条真实的客服问题、SQL agent 就给一个真实的查询任务），拿这个用例做第一条评估用例的输入和断言，不要写「你好」这种和应用无关的占位输入。形式上仍从最小写起：一句输入，`t.succeeded()` + 一个针对预期回答的内容断言，跑通再加断言密度。写法见[编写评估用例](/zh/tutorials/authoring)，断言与评分见[评分指南](/zh/tutorials/scoring-guide)，签名见 [defineEval 参考](/zh/reference/define-eval)。
 
 参数怎么从 Experiment 流到 Adapter、静态配置和每轮动态值怎么分（工厂参数 vs `ctx`），见[接入自己的 Agent](/zh/tutorials/connect-your-agent)。
@@ -75,7 +75,7 @@ export default defineConfig({
 ## 第 4 步：跑通并验证
 
 ```sh
-<包管理器> exec niceeval exp compare-models   # 跑实验组，组内各 model 并排出报告
+<包管理器> exec niceeval exp models   # 按路径运行两个模型配置
 <包管理器> exec niceeval view                 # 查看器里看对比结果
 ```
 

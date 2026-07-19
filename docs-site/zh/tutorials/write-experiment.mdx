@@ -88,26 +88,25 @@ async send(input, ctx) {
 
 ## 编写一组实验
 
-一个实验文件是一格配置。要比较多个模型、agent 或 flag 取值，就把多个文件放进同一个文件夹：
+一个实验文件是一格配置。要比较多个模型、agent 或 flag 取值，就写多个文件；目录只负责 id：
 
 ```text
 experiments/
-  prompt-variants/
-    baseline.ts
-    concise.ts
-    with-retrieval.ts
+  prompts/baseline.ts
+  prompts/concise.ts
+  retrieval/with-retrieval.ts
 ```
 
 ```bash
-npx niceeval exp prompt-variants
+npx niceeval exp prompts
 ```
 
-这样报告会按同一组展示，差异也能在 Git 里 review。
+报告直接比较当前 Scope 中的这些 experiments，不需要额外分组字段。
 
-只想验证组里某一个配置时，把位置参数写成该配置的完整 id（`组/文件名`，不带扩展名），精确匹配到单个文件：
+只想验证某一个配置时，把位置参数写成该配置的完整 id：
 
 ```bash
-npx niceeval exp prompt-variants/concise
+npx niceeval exp prompts/concise
 ```
 
 用于逐配置排查——确认某一格改动是否达标，不用先跑完整组，也不用把其它配置文件挪出目录。
@@ -122,7 +121,7 @@ npx niceeval exp prompt-variants/concise
 | `flags` | 实验条件（A/B 里的 feature flag），任意 JSON 对象，经 `ctx.flags` / `t.flags` 透传 |
 | `runs` | 每个评估用例 × 配置最多跑几次 |
 | `earlyExit` | 多次运行里通过一次就提前停止 |
-| `evals` | 限定这一格配置跑哪些评估用例 |
+| `evals` | `"*"`、id 前缀数组，或遍历只读 eval 描述并返回 boolean 的函数 |
 | `timeoutMs` | 单个 attempt 的超时 |
 | `budget` | 这一格配置的预算上限 |
 | `maxConcurrency` | 这一格配置的并发上限 |

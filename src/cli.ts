@@ -173,7 +173,7 @@ const FLAG_OPTIONS = {
   diff: { type: "boolean" },
   /** `show` 命令专用:执行时间轴——对匹配的每个 experiment × eval 分节,逐 attempt 列时间 / verdict / 摘要 / 耗时 / 成本 / locator;与 `--report` 互斥。 */
   history: { type: "boolean" },
-  /** `show` / `view` 命令专用:按路径段前缀收窄 experiment(与 `niceeval exp` 位置参数同一套匹配);组名会选中组内全部配置。`view --out` 时同一收窄决定出站内容。 */
+  /** `show` / `view` 命令专用:按路径段前缀收窄 experiment(与 `niceeval exp` 位置参数同一套匹配);目录路径会选中其下全部配置。`view --out` 时同一收窄决定出站内容。 */
   exp: { type: "string" },
   /** `show` / `view` / `sandbox enter|list|stop` 共用:结果根目录(`.niceeval` 之外的另一个根,如 `copySnapshots` 产出的发布根)。 */
   results: { type: "string" },

@@ -23,7 +23,7 @@ niceeval show memory/swelancer --history   # 这个 eval 的真实执行历史
 
 | 任务 | 页面 |
 |---|---|
-| 读裸 `show` 的默认榜单：组索引、单组详情、Result 摘要口径 | [默认报告的 text 面](show/default-report.md) |
+| 读裸 `show` 的默认比较、Result 摘要口径 | [默认报告的 text 面](show/default-report.md) |
 | 从 locator 打开失败诊断首页（含 errored 的基础设施错误） | [失败诊断首页](show/attempt.md) |
 | 把断言与轮次标回 eval 源码 | [`--source`](show/eval-source.md) |
 | 看 agent 每轮说了什么、调了什么工具 | [`--execution`](show/execution.md) |
@@ -35,14 +35,14 @@ niceeval show memory/swelancer --history   # 这个 eval 的真实执行历史
 
 ```sh
 niceeval show --results tmp/published-results
-niceeval show --exp dev-e2b           # 整个可比组
+niceeval show --exp dev-e2b           # experiment id 路径前缀
 niceeval show --exp dev-e2b/codex-e2b
 niceeval show memory/swelancer --exp dev-e2b/codex-e2b
 niceeval show --report reports/exam.tsx
 niceeval show --report reports/site.tsx --page exam
 ```
 
-`--results` 改变结果根，`--exp` 和 eval id 位置参数在其中收窄 Scope。两者的匹配语义有意不同：`--exp` 选择的是身份与可比组，按路径段匹配 id 前缀——`--exp dev-e2b` 选中整个可比组但不会误中 `dev-e2b-next`；eval 位置参数是收窄过滤，按裸前缀宽松匹配——多命中正是它的用途。收窄完成后默认报告才按组分区。`--report` 用自定义报告替换榜单，但 attempt locator 的下钻命令保持不变；单页、多页与 `--page` 的逐 case 操作步骤见 [`--report` 分篇](show/reports.md)。
+`--results` 改变结果根；`--exp` 按 experiment id 路径段匹配，eval id 位置参数按裸前缀过滤。收窄后的 Scope 直接交给默认报告。`--report` 用自定义报告替换榜单，但 attempt locator 的下钻命令保持不变。
 
 ## `--history`：一个 eval 的执行时间轴
 

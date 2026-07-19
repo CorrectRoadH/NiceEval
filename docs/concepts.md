@@ -57,7 +57,6 @@
 | 运行器 | Runner | 调度引擎:发现、有界并发、重试、首过即停、缓存,把结果交给报告器 |
 | 生命周期 Hook | Hook | 四层(实验级 / Sandbox 级 / eval 级 / agent 级)共用同一形态的成对 `setup` / `teardown` 回调;`SandboxHook` / `SandboxHookContext` 从 `niceeval/sandbox` 公开导出。中文正文写"生命周期"(泛指机制)或"生命周期 Hook"(指具体回调),不写"钩子" |
 | 实验 | Experiment | 可签入的运行配置:用哪个 agent / model / flags、跑几次、预算多少;不碰评分 |
-| 可对比组 | Comparison group | `experiments/` 下的一个文件夹,装一组要并排比较的单一配置 |
 | 实验 flags | Flags | experiment 的 A/B 条件键(一组 feature flag 取值),经 `ctx.flags` 给 adapter、`t.flags` 给 eval;裸词 flags 专指它 |
 | Run | Run | 一次 `niceeval` 调用对一批 eval 的完整执行,产出一份 summary |
 | Attempt | Attempt | 同一个 eval 的第 i 次重复运行,也是作用域断言的聚合范围 |
@@ -93,7 +92,7 @@
 | 双面组件 | Dual-render component | `defineComponent({ resolve?, web, text })` 的产物:可选解析面取数,两个纯函数渲染面消费同一份渲染 props,同一棵树两个宿主共用 |
 | 组合组件 | Composition component | `defineComponent((props, ctx) => 树)` 的产物:只装配已有组件、不自己渲染,在 resolve 阶段展开 |
 | 宿主 | Host | 打开结果、挑 Scope、渲染报告的那一侧:`show` 是终端宿主,`view` 是网页宿主 |
-| 默认报告 | —(角色名,非 API) | 不传 `--report` 时 show / view 都渲染 `niceeval/report/built-in` 的默认导出——报告 / Attempts / 追踪三页的普通 `defineReport`。首页由 `Hero`、`ScopeWarnings`、`CopyFixPrompt` 与 `ExperimentComparison`(按 experiment 父目录分组的成本 × 成功率散点 + 逐实验明细表)组成,与用户 `--report` 文件同层,没有宿主特权;它以 `standard` 为名从该入口具名导出(入口是内建视图集合,每个视图一个名字),用户报告可 `defineReport({ extends: standard, … })` 在其上叠外壳 |
+| 默认报告 | —(角色名,非 API) | 不传 `--report` 时 show / view 都渲染 `niceeval/report/built-in` 的默认导出——报告 / Attempts / 追踪三页的普通 `defineReport`。首页由 `Hero`、`ScopeWarnings`、`CopyFixPrompt` 与 `ExperimentComparison`(当前 Scope 的成本 × 成功率散点 + 逐实验明细表)组成,与用户 `--report` 文件同层,没有宿主特权 |
 | 报告槽 | —(内部代号) | 宿主结构里可被 `--report` 整体替换的部分:裸跑渲染内建报告,显式 `--report` 换成用户报告文件;`报告槽`不出现在公开站 |
 
 ### 报告组件
@@ -171,9 +170,7 @@
 
 **Hook** / **生命周期 Hook** —— 成对的 `setup` / `teardown` 回调,`setup` 不返回值。四层共用同一种形态(实验级、Sandbox 级、eval 级、agent 级),同层多个 Hook 按注册序 `setup`、逆序 `teardown`(LIFO)。中文写"生命周期"(泛指这套机制)或"生命周期 Hook"(指某一个具体回调),不写"钩子"。详见 [Runner · 生命周期钩子](runner.md#环境预置不进运行器但按顺序调它)。
 
-**Experiment** / **实验** —— 一份可签入的**运行配置**,描述「怎么跑这批 eval」:用哪个 [Agent](#agent)、跑几次、过滤哪些、预算多少。由 `defineExperiment` 定义在 `experiments/` 下,id 从路径推导。**一文件 = 一个单一配置**;**一个文件夹 = 一组要并排对比的实验**(`niceeval exp <组>` 跑整组),可比性由目录表达。它**不碰评分**——「怎么算对」是 eval 的事。详见 [Experiments](feature/experiments/README.md)。
-
-**Comparison group** / **可对比组** —— `experiments/` 下的一个文件夹,装一组"要并排比较"的单一配置(如同模型下 bub vs codex)。同组互为对照、`niceeval view` 并列展示;不同组是不同的对比维度。比文件内数组多表达了"可比性"语义。详见 [实验怎么组织](feature/experiments/library.md#实验怎么组织文件夹--一组可对比的实验)。
+**Experiment** / **实验** —— 一份可签入的**运行配置**,描述「怎么跑这批 eval」:用哪个 [Agent](#agent)、跑几次、过滤哪些、预算多少。由 `defineExperiment` 定义在 `experiments/` 下,id 从路径推导。**一文件 = 一个单一配置**；`evals` 遍历发现到的 eval 并选择这份配置要跑的集合，解析结果以 `selectedEvalIds` 落盘。它**不碰评分**——「怎么算对」是 eval 的事。详见 [Experiments](feature/experiments/README.md)。
 
 **Run** —— 一次 `niceeval` 调用对一批 eval 的完整执行,产出一份 **summary**。
 

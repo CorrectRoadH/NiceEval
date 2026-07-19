@@ -1,6 +1,6 @@
 # Agent Debug Eval：诊断效果评估
 
-[agent-install-eval.md](agent-install-eval.md) 评估 agent 能否把 niceeval 接入项目；接入只是起点，日常高频动作发生在接入之后——**在一个已经跑出结果的项目里替用户查信息**：哪个 experiment 落后了要重跑、某条 eval 为什么失败、失败那次 attempt 里 agent 实际做了什么。这条诊断链路依赖 CLI 的钻取视图（`show` → `show --exp <group>` → `show @<attempt> --execution` / `--page traces`）与随包文档的配合，效果同样需要证据。本篇设计同一评估仓库里的第二组评估：用签入的真实结果数据当考场，量化「coding agent 借助 niceeval CLI 与随包文档，从结果数据里查出一条指定信息」的成功率。
+[agent-install-eval.md](agent-install-eval.md) 评估 agent 能否把 niceeval 接入项目；接入只是起点，日常高频动作发生在接入之后——**在一个已经跑出结果的项目里替用户查信息**：哪个 experiment 落后了要重跑、某条 eval 为什么失败、失败那次 attempt 里 agent 实际做了什么。这条诊断链路依赖 CLI 的钻取视图（`show` → `show --exp <path>` → `show @<attempt> --execution` / `--page traces`）与随包文档的配合，效果同样需要证据。
 
 要回答的三个问题：
 

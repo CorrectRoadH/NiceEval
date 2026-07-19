@@ -225,7 +225,7 @@ latest.warnings[0];
 
 `latest()` 以**快照**为单位,是发布与归档的口径。回答「现在什么水平」还有一个更细的官方口径:**每个 experiment × eval 取「包含该 eval 的最新快照」里的全部 attempt**,跨历史拼出当前判定水位。`niceeval show` / `view` 的默认首页用的就是它(见 [Reports · Scope 是计算入口](../reports/architecture.md#scope-是计算入口)),自定义报告要与官方入口对上数字,也从 `current()` 出发:
 
-**跨快照拼接有可比性前提**:每个 experiment 以其最新快照的**可比性配置**为基准,只有可比性配置与基准一致的历史快照才参与该实验的逐题选择。可比性配置指会改变单题被测行为或判定的字段——`agent`、`model` 与 `ExperimentRunInfo` 里的 `reasoningEffort`、`flags`、`budget`、`timeoutMs`、`sandbox`;`runs`、`earlyExit`、`maxConcurrency`、`selectedEvalIds`、`evalFilterFingerprint`、`description` 是编排与选题字段,`labels` 是报告归类标注,都不参与比较([字段全集](architecture.md#snapshotjson)新增公开配置字段时同批声明归属哪一类)。改过 model、flags 或 sandbox 后只补跑部分 eval 时,旧配置快照覆盖的其余题**不冒充**新配置的水位——它们按既有 `partial-coverage` 如实告警,下一步就是重跑补全。这条前提保证 `current()` 产出的每个 experiment 只对应一套配置,报表把一行标成单一 agent / model / flags 永远不是谎言。
+**跨快照拼接有可比性前提**:每个 experiment 以其最新快照的**可比性配置**为基准,只有可比性配置与基准一致的历史快照才参与该实验的逐题选择。可比性配置指会改变单题被测行为或判定的字段——`agent`、`model` 与 `ExperimentRunInfo` 里的 `reasoningEffort`、`flags`、`budget`、`timeoutMs`、`sandbox`;`runs`、`earlyExit`、`maxConcurrency`、`selectedEvalIds`、`evalFilterFingerprint`、`description` 是编排与选题字段,`labels` 是报告元数据,都不参与比较([字段全集](architecture.md#snapshotjson)新增公开配置字段时同批声明归属哪一类)。改过 model、flags 或 sandbox 后只补跑部分 eval 时,旧配置快照覆盖的其余题**不冒充**新配置的水位——它们按既有 `partial-coverage` 如实告警,下一步就是重跑补全。这条前提保证 `current()` 产出的每个 experiment 只对应一套配置,报表把一行标成单一 agent / model / flags 永远不是谎言。
 
 ```typescript
 const current = results.current({ experiments: "compare/" });   // 前缀过滤与 latest() 同一套
@@ -299,4 +299,4 @@ for (const exp of results.experiments) {
 - [README](README.md) —— 为什么格式与库合一、库的边界、四个消费方。
 - [Architecture](architecture.md) —— 磁盘上的格式规范。
 - [Reports](../reports/README.md) —— 建立在本库读取面之上的积木:指标、计算函数、React 组件。
-- [Experiments](../experiments/README.md) —— experimentId 与可对比组从哪来。
+- [Experiments](../experiments/README.md) —— experimentId 与 `selectedEvalIds` 从哪来。

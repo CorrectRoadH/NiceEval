@@ -164,7 +164,7 @@ export default defineExperiment({
 });
 ```
 
-两个文件位于同一个 `experiments/skills/` 目录，因此组成一组可对比实验。每个文件只默认导出一个 `defineExperiment`；niceeval 不读取 `export const experiments = { ... }` 这种聚合导出。
+两个文件的路径只形成 experiment id；运行或查看时用 `--exp skills` 一起选中即可比较。每个文件只默认导出一个 `defineExperiment`；niceeval 不读取 `export const experiments = { ... }` 这种聚合导出。
 
 model、reasoning effort 和业务 flags 仍由 experiment 配置；扩展内容属于 Agent 变体。评估通过率分布时设置 `earlyExit: false`，避免首次通过后提前停止剩余 runs。
 

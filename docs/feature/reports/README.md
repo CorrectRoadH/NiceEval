@@ -8,7 +8,7 @@
 | 在浏览器浏览历史、图表和完整证据 | [`niceeval view`](view.md) | 人工复盘、分享静态报告 |
 | 定义自己的成绩单、榜单或趋势图 | [`niceeval/report`](library.md) | 产品页面、benchmark 站、定制汇报 |
 
-`show` 和 `view` 读取同一份 Scope，也都接受 `--report <file>` 替换页面声明。`--report` 文件的默认导出恒为 `defineReport` 产物：传一棵报告树就渲染那棵树；传配置对象还能声明导航外壳——标题、GitHub 等外部链接、页脚与自定义脚本——并把内容拆成多页，或用 `extends` 在另一份报告上叠外壳；`view` 渲染完整导航，`show` 渲染初始页并在尾部附其余页索引，写法见 [Library · 外壳与多页](library/shell.md)。不传 `--report` 时，两者装载内建报告——`niceeval/report/built-in` 的默认导出，一份三页的普通 `defineReport`（报告 / Attempts / 追踪，以 `standard` 为名从该入口具名导出，`defineReport({ extends: standard, … })` 可在它上面叠自己的外壳，[全文](library/built-in.md)）：首页由 `Hero`、`ScopeWarnings`、`CopyFixPrompt` 与 `ExperimentComparison` 组成——后者先按 experiment id 的父目录切成可比组，再在每组内部画成本 × 端到端通过率散点并列出配置，不同组的 experiment 永远不进入同一张图或同一张比较表。`view` 默认加载完整 Scope，由用户在组选择器里切换当前图表；`show` 若命中多个组只打印组索引与继续查看的命令，命中单组才展开散点与列表。页面上的 hero、品牌行、警告区都是[站点组件](library/site-components.md)，没有宿主特权；单 Eval、Attempt、history 与证据切面仍由各自宿主的详情路由负责下钻。
+`show` 和 `view` 读取同一份 Scope，也都接受 `--report <file>` 替换页面声明。`--report` 文件的默认导出恒为 `defineReport` 产物：传一棵报告树就渲染那棵树；传配置对象还能声明导航外壳——标题、GitHub 等外部链接、页脚与自定义脚本——并把内容拆成多页，或用 `extends` 在另一份报告上叠外壳；`view` 渲染完整导航，`show` 渲染初始页并在尾部附其余页索引，写法见 [Library · 外壳与多页](library/shell.md)。不传 `--report` 时，两者装载内建报告——`niceeval/report/built-in` 的默认导出，一份三页的普通 `defineReport`（报告 / Attempts / 追踪，以 `standard` 为名从该入口具名导出，[全文](library/built-in.md)）：首页由 `Hero`、`ScopeWarnings`、`CopyFixPrompt` 与 `ExperimentComparison` 组成。后者直接比较当前 Scope 中的 experiments，并按各快照记录的 `selectedEvalIds` 计算 eval 数与指标分母；网页和终端都显示同一份摘要、散点与实验列表。页面上的 hero、品牌行、警告区都是[站点组件](library/site-components.md)，没有宿主特权。
 
 报告只表达“怎么看”。原始判定、断言、事件、trace 和 diff 的事实归 [Results](../results/README.md)；运行过程中把事实写出去的回调叫 [Reporter](../../runner.md),不属于这里。
 

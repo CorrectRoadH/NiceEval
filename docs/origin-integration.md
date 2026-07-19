@@ -155,7 +155,7 @@ adapter 要这样做:
 4. **HITL 批准 + 拒绝**(有审批流的应用):`waiting` → `respond("approve")` → `calledTool(..., {status:"completed"})`;拒绝分支断 `status:"rejected"`。
 5. **用量/成本**(能拿到 usage 的应用):`t.maxTokens` 冒烟。
 
-experiment 至少两个:单配置基线 + 一个 `compare-models/` 实验组(ai-sdk-v7 / claude-sdk / pi-sdk 有多模型可比)。
+experiment 至少两个单配置文件，可放在 `compare-models/` 路径下方便批量选择（ai-sdk-v7 / claude-sdk / pi-sdk 有多模型可比）；路径不声明比较边界。
 
 ## 验收清单(每个应用)
 

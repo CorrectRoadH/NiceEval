@@ -220,28 +220,22 @@ export default defineReport(
 );
 ```
 
-## 分组循环：每个可比组一块摘要
+## 自定义子集：按路径前缀分块
 
-回答「多组配置各自的水位」。组划分是组合组件里的普通代码：用 `scope.filter` 收窄出每组的 Scope，作为 `input` 逐组交给同一个组件：
+需要多个摘要时，在报告里显式声明路径前缀：
 
 ```tsx
 // reports/groups.tsx
 import { Col, ScopeSummary, Section, defineComponent, defineReport } from "niceeval/report";
-import type { Snapshot } from "niceeval/report";
-
-function groupOf(snapshot: Snapshot): string {
-  const parts = snapshot.experimentId.split("/");
-  return parts.length > 1 ? parts.slice(0, -1).join("/") : snapshot.experimentId;
-}
 
 const GroupBlocks = defineComponent((_props: {}, ctx) => {
-  const groups = [...new Set(ctx.scope.snapshots.map(groupOf))].sort();
+  const prefixes = ["agents/codex/", "agents/claude/"];
 
   return (
     <Col>
-      {groups.map((key) => (
-        <Section key={key} title={key}>
-          <ScopeSummary input={ctx.scope.filter((s) => groupOf(s) === key)} />
+      {prefixes.map((prefix) => (
+        <Section key={prefix} title={prefix}>
+          <ScopeSummary input={ctx.scope.filter((s) => s.experimentId.startsWith(prefix))} />
         </Section>
       ))}
     </Col>

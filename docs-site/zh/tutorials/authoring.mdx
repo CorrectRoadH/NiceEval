@@ -15,11 +15,34 @@ export default defineEval({
   judge?: JudgeConfig;
   reporters?: Reporter[];
   timeoutMs?: number;
+  environment?: string;
   metadata?: Record<string, unknown>;
   async setup(sandbox, ctx) { /* task fixture + progress/diagnostic */ },
   async test(t) { /* interactions + assertions */ },
 });
 ```
+
+## `tags` 与 `environment`
+
+```ts
+// evals/coding/fix-button.eval.ts
+export default defineEval({
+  description: "修复 Button 组件",
+  tags: ["coding", "frontend"],
+  environment: "node-22",
+  async test(t) { /* coding task */ },
+});
+
+// evals/research/gpu-literature.eval.ts
+export default defineEval({
+  description: "在 GPU 环境检索论文",
+  tags: ["research"],
+  environment: "gpu",
+  async test(t) { /* research task */ },
+});
+```
+
+`tags` 可供 `--tag` 和 experiment 的 `evals` 谓词读取。`environment` 只声明环境 profile；具体 image / template 由 experiment 使用的 Sandbox 配置映射。
 
 ## 单轮评估
 
@@ -176,7 +199,7 @@ export default defineEval({
   <Card title="文件名" icon="file">
     只有 `.eval.ts` 会被 runner 发现。
   </Card>
-  <Card title="目录分组" icon="folder">
+  <Card title="ID 命名空间" icon="folder">
     `evals/billing/refund.eval.ts` 的 ID 是 `billing/refund`。
   </Card>
   <Card title="数据集" icon="database">

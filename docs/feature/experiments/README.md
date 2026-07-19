@@ -13,13 +13,21 @@ experiments/  # 怎么跑 —— 运行矩阵:agent × model × runs over 选定
 
 - **eval 不该知道被测的是谁。** 同一条 memory eval,既要测 claude-code 也要测 codex/bub。把 agent 写死进 eval 就废了复用。
 - **experiment 是可签入的运行配置。** 比一串临时 CLI flag 可复现:`niceeval exp compare` 永远跑同一组对照。
-- **跨 agent / 跨配置对比是一等公民。** 评 coding agent 最想要的就是"一条命令,几个配置并列出**质量 × 成本**"(见 [Observability](../../observability.md#结果可视化niceeval-view))。niceeval 用**文件夹**表达"这一组该并排比"(见 [Library · 实验怎么组织](library.md#实验怎么组织文件夹--一组可对比的实验));每个实验文件钉一个单一配置。默认 `niceeval show` / `view` 只在同一文件夹内部比较，不把不同组混进同一张图或榜单。
+- **跨 agent / 跨配置对比是一等公民。** 每个实验文件钉一个单一配置；报告直接比较当前 Scope 里的 experiments，并读取各快照记录的 `selectedEvalIds`。目录只组织源码、生成 id 和支持 CLI 前缀选择。
 
 ## `defineExperiment` 的形状
 
 ```typescript
 import { defineExperiment } from "niceeval";
 import type { Agent } from "niceeval/adapter";
+
+interface EvalDescriptor {
+  id: string;
+  description?: string;
+  tags: readonly string[];
+  environment?: string;
+  metadata?: Readonly<Record<string, unknown>>;
+}
 
 export default defineExperiment({
   description?: string;                       // 人读
@@ -29,10 +37,10 @@ export default defineExperiment({
   flags?: Record<string, JsonValue>;        // KV 参数,透传到 ctx.flags / t.flags(见 Library);必须 JSON 可序列化——
                                             // 实验是可签入可复现的配置,函数/类实例装不进快照;解析时校验,非 JSON 值直接报错
   labels?: Record<string, string | number>; // 报告归类标注:实验在各对比轴上的坐标(如 { line: "codex", memory: "mempal" })。
-                                            // 不透传 ctx / t,不参与可比性配置;报告用 label() / numericLabel() 按它归类(见 Library)
+                                            // 不透传 ctx / t;报告用 label() / numericLabel() 按它归类(见 Library)
   runs?: number;                             // 每个 (agent × model × eval) 跑几次(默认 1)
   earlyExit?: boolean;                        // 先过一次即停其余(默认 true)
-  evals?: "*" | string[] | ((id: string) => boolean);  // 跑哪些 eval(默认 "*")
+  evals?: "*" | readonly string[] | ((eval: EvalDescriptor) => boolean); // 跑哪些 eval(默认 "*")
   timeoutMs?: number;                        // 单次运行超时
   sandbox?: SandboxSpec;                     // 沙箱型 Agent 在哪跑；省略时只能由 Config.sandbox 显式兜底
   budget?: number;                           // 整个实验估算成本上限($),超了停止派发
@@ -52,11 +60,11 @@ export default defineExperiment({
 
 `sandbox` 是整个 experiment 的单一固定 spec。一批 eval 需要不同预制环境时，eval 用 `environment` 声明需求 profile，spec 的 `environments` 表把 profile 翻译成该 provider 的具体产物——experiment 仍只有一个 spec、覆盖全部选中 eval，快照与对比横截面不因此拆分。写法见 [Library · 不同 eval 起自不同预制环境](library.md#不同-eval-起自不同预制环境)。
 
-id 从**路径**推导:`experiments/compare/bub-gpt-5.4.ts` → `compare/bub-gpt-5.4`(路径即身份,和 eval 一致,禁止手写 id);其中目录段 `compare/` 就是"可对比组",见 [Library · 实验怎么组织](library.md#实验怎么组织文件夹--一组可对比的实验)。
+id 只从**路径**推导:`experiments/agents/codex/gpt-5.4.ts` → `agents/codex/gpt-5.4`(禁止手写 id)。任意深度目录都只形成 id 前缀，见 [Library · 路径只表达身份](library.md#路径只表达身份与选择)。
 
 ## 相关阅读
 
-- [Library](library.md) —— model/flags 怎么透传、实验怎么按文件夹组织、与 config 的关系。
+- [Library](library.md) —— model/flags 怎么透传、怎样选择 eval、路径怎样形成 id、与 config 的关系。
 - [Architecture](architecture.md) —— 对照 agent-eval 的 `ExperimentConfig`,砍了什么、为什么。
 - [CLI](cli.md) —— `niceeval exp` 命令。
 - [Authoring](../eval/README.md) —— eval 怎么写(experiment 跑的就是它们)。

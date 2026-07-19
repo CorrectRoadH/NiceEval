@@ -259,7 +259,7 @@ x 或 y 缺失的点不绘制，并显示缺失数量。零个可画点时显示
 
 web 面每个点都有直接标签。当点维度是 experiment 时，只有在当前 data 中末段唯一才缩成末段；发生重名时使用能区分它们的最短路径后缀，完整 id 与两轴值仍进 tooltip。标签布局保证不静默丢标签；冲突时使用 leader line 连回原点。
 
-`MetricScatter` 是通用分析组件，不根据 experiment id 隐式分区。默认 `ExperimentComparison` 会先按可比组过滤后逐组计算；自定义报告直接消费跨组 Scope 时，跨组同图是作者的显式选择。
+`MetricScatter` 是通用分析组件，直接消费调用方给出的 Scope，不根据 experiment id 隐式分区。默认 `ExperimentComparison` 也把宿主 Scope 原样交给它。
 
 ## `MetricLine`
 
@@ -391,9 +391,9 @@ type DeltaTableProps = DataProps<DeltaData, DeltaTableOptions, {
 
 `pairsByFlag` 的配对规则是确定的：
 
-- **配对域**：input 中的 experiment。两个 experiment 配对，当且仅当同可比组（id 完整父路径相等）且删除该 flag 后[可比性配置](../../results/library.md#官方现刻水位resultscurrent)深相等——「除这个 flag 外一模一样」由已有的可比性字段集定义，不引入第二套比较规则。
+- **配对域**：input 中的 experiment。两个 experiment 配对，当且仅当删除该 flag 后[可比性配置](../../results/library.md#官方现刻水位resultscurrent)深相等——输入范围就是配对边界，不再引入实验组规则。
 - **a 与 b**：a 侧取 `baseline` 声明的 flag 值，缺省为「未声明该 flag」；b 侧该 flag 的每个其它取值各成一对。同配置不同 id 的实验各自成对，不合并。
-- **label 自动生成**：`<a 相对可比组的 id 末段> · <flag>=<b 值的稳定显示键>`；要自定义 label 就写字面 pairs，派生形态不收 label 覆盖。
+- **label 自动生成**：`<a 的完整 experiment id> · <flag>=<b 值的稳定显示键>`；要自定义 label 就写字面 pairs，派生形态不收 label 覆盖。
 - **排序**：按 (a 末段, flag 显示键) 字典序。
 - **0 对不是错误**：收窄后配不出任何对时显示明确空态并报告「N 个实验、0 个可配对」；`by` 不是 `"experiment"` 时按完整用户反馈报错。
 

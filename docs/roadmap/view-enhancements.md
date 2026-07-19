@@ -4,7 +4,7 @@
 
 ### Compare —— 挑两次运行对比
 
-跟 `experiments/compare/`(文档里"一组可对比实验"的示例文件夹名,见 [Experiments](../feature/experiments/library.md#实验怎么组织文件夹--一组可对比的实验))是两回事,别混——这里指 view 里一个新增的小 tab。
+这里的 Compare 指 view 里一个新增的小 tab，不改变 experiment 配置或默认报告 Scope。
 
 **动机:** 报告槽的默认口径是「现刻水位」(对每个实验、每个 eval,从该实验的历史快照里取最新一次判定,跨快照补齐成一份),选不出"这次 vs 上次"。参考对象是 [References](../references.md#vercel-agent-eval--packagesplayground) 记录的 playground `/compare` 页。
 

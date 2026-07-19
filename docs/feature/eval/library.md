@@ -26,6 +26,28 @@ export default defineEval({
 
 `t.reply` 是最后一条 assistant 消息;`t.sessionId` 是当前主会话 id;`t.events` 是主 session 目前捕获到的强类型事件流。`t.send(input)` 接受字符串或结构化消息,返回一个不可变的 **Turn**(字段全集见 [Context · 读取结果](library/context.md#读取结果))。带本地文件的一轮用 `t.sendFile(path, text?)`,文件读成结构化 `InputFile`(`filename` / `mimeType` / `dataBase64`)随 `input.files` 附加到这一轮输入,MIME 类型按 `path` 扩展名推断;怎么变成模型请求由 adapter 决定。
 
+## tags 与 environment：让 experiment 选择
+
+```typescript
+// evals/coding/fix-button.eval.ts
+export default defineEval({
+  description: "修复 Button 组件",
+  tags: ["coding", "frontend"],
+  environment: "node-22",
+  async test(t) { /* coding task */ },
+});
+
+// evals/research/gpu-literature.eval.ts
+export default defineEval({
+  description: "在 GPU 环境检索论文",
+  tags: ["research"],
+  environment: "gpu",
+  async test(t) { /* research task */ },
+});
+```
+
+`tags` 是可重复使用的分类标签，既供 CLI `--tag` 使用，也会进入 experiment 谓词收到的 `EvalDescriptor`；未声明时是空数组。`environment` 是 provider-neutral 的环境 profile id；experiment 只读取这个 id，具体 image / template 仍由 sandbox spec 的 `environments` 映射。
+
 ## 多轮
 
 把每一轮的返回赋给局部变量,顺着断言:
@@ -300,7 +322,7 @@ export default defineEval({
 ## 命名与组织约定
 
 - 文件名以 `.eval.ts` 或 `.eval.tsx` 结尾才会被发现(要在 eval 里写 JSX 时用 `.tsx`,两者的发现规则与 id 推导完全相同)。
-- 用目录表达分组:`evals/billing/refund.eval.ts` → `billing/refund`。
+- 目录只形成 id 前缀:`evals/billing/refund.eval.ts` → `billing/refund`；运行选择仍由 experiment 的 `evals` 决定。
 - 数据集放 `evals/data/`,沙箱型 eval 要写入的起始文件素材可以放 `evals/fixtures/`(纯目录命名约定,运行器不会扫描或自动加载它——仍要在 `test()` 里手工 `t.sandbox.writeFiles`/`uploadFiles` 读取写入)。
 - `description` 写给人看,id 给机器引用。
 
