@@ -7,7 +7,7 @@
 // --report 的报告自己算),壳与报告之间没有第二条数据通道。
 
 import type { LocalizedText } from "../../types.ts";
-import type { ReportLocale } from "../../report/locale.ts";
+import type { ReportLocale } from "../../report/model/locale.ts";
 import type { AttemptLocator } from "../../results/locator.ts";
 
 export type { AttemptLocator };

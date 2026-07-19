@@ -6,7 +6,7 @@
 // 现刻水位 Scope(两个宿主共用)住在 ../results/select.ts;本文件只留 show 独有的时间轴计算。
 // 数据只消费 niceeval/results 的读取面。
 
-import { attemptCostUSD } from "../report/metrics.ts";
+import { attemptCostUSD } from "../report/model/metrics.ts";
 import { compactAssertionSummary, primaryAssertionSummary, summaryText } from "../scoring/display.ts";
 import type { EvalResult, Verdict } from "../types.ts";
 import type { AttemptHandle, Experiment } from "../results/index.ts";

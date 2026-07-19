@@ -12,14 +12,14 @@
 import type { Results, Scope } from "../results/index.ts";
 import type { LocalizedText } from "../types.ts";
 import type { AttemptLocator } from "../results/locator.ts";
-import type { PageContext } from "../../dist/report/tree.js";
+import type { PageContext } from "../../dist/report/definition/tree.js";
 import type {
   ReportDefinition,
   ReportMeta,
   ReportPage,
-} from "../../dist/report/report.js";
+} from "../../dist/report/definition/report.js";
 
-export type { PageContext } from "../../dist/report/tree.js";
+export type { PageContext } from "../../dist/report/definition/tree.js";
 export type {
   HeadTag,
   ReportAsset,
@@ -27,7 +27,7 @@ export type {
   ReportMeta,
   ReportMetaPage,
   ReportPage,
-} from "../../dist/report/report.js";
+} from "../../dist/report/definition/report.js";
 
 /** 可预期的装载用户错误(与 ReportLoadError 同待遇:打一句直说问题与下一步,不抛堆栈)。 */
 export class HostReportError extends Error {}
@@ -45,7 +45,7 @@ export async function loadHostReport(
   options?: { freshImport?: boolean },
 ): Promise<ReportDefinition> {
   if (reportPath !== undefined) {
-    const { loadReportFile } = await import("../../dist/report/load.js");
+    const { loadReportFile } = await import("../../dist/report/runtime/load.js");
     return loadReportFile(cwd, reportPath, options) as Promise<ReportDefinition>;
   }
   const { standard } = await import("../../dist/report/built-in/index.js");
@@ -54,7 +54,7 @@ export async function loadHostReport(
 
 /** ctx.report 的构建(不携带当前页——那是 HostRenderContext.page 的事)。 */
 export async function buildHostReportMeta(definition: ReportDefinition, scope: Scope): Promise<ReportMeta> {
-  const { buildReportMeta } = await import("../../dist/report/report.js");
+  const { buildReportMeta } = await import("../../dist/report/definition/report.js");
   return buildReportMeta(definition, scope);
 }
 
@@ -121,7 +121,7 @@ export async function renderHostPageText(
   ctx: HostRenderContext,
   options: HostTextRenderOptions,
 ): Promise<string> {
-  const { renderReportTreeToText } = await import("../../dist/report/report.js");
+  const { renderReportTreeToText } = await import("../../dist/report/runtime/text.js");
   return renderReportTreeToText(page.content, ctx, options);
 }
 
@@ -136,6 +136,6 @@ export async function renderHostPageHtml(
   ctx: HostRenderContext,
   options: { locale: string; attemptHref?: (locator: AttemptLocator) => string },
 ): Promise<string> {
-  const { renderReportTreeToStaticHtml } = await import("../../dist/report/web.js");
+  const { renderReportTreeToStaticHtml } = await import("../../dist/report/runtime/web.js");
   return renderReportTreeToStaticHtml(page.content, ctx, options);
 }

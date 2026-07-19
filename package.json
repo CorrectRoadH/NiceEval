@@ -64,8 +64,8 @@
       "types": "./dist/report/built-in/index.d.ts",
       "import": "./dist/report/built-in/index.js"
     },
-    "./report/react/styles.css": "./src/report/react/styles.css",
-    "./report/react/enhance.js": "./src/report/react/enhance.js"
+    "./report/react/styles.css": "./src/report/assets/styles.css",
+    "./report/react/enhance.js": "./src/report/assets/enhance.js"
   },
   "files": [
     "INDEX.md",

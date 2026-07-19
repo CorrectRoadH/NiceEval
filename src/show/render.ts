@@ -12,9 +12,9 @@ import type { SkippedDir } from "../results/index.ts";
 import type { ExecutionNode } from "../o11y/execution-tree.ts";
 import { foldEvalVerdict } from "../shared/verdict.ts";
 import { summaryText } from "../scoring/display.ts";
-import { attemptCostUSD } from "../report/metrics.ts";
-import { formatDurationMs, formatMetricValue, formatPlainNumber, formatUSD } from "../report/format.ts";
-import { indentBlock, padDisplay, renderAlignedRows, wrapDisplay } from "../report/text/layout.ts";
+import { attemptCostUSD } from "../report/model/metrics.ts";
+import { formatDurationMs, formatMetricValue, formatPlainNumber, formatUSD } from "../report/model/format.ts";
+import { indentBlock, padDisplay, renderAlignedRows, wrapDisplay } from "../report/model/text-layout.ts";
 import type { AttemptHistoryRow } from "./compose.ts";
 import { localizeText, showCommand, type HostCommandContext } from "./report-host.ts";
 

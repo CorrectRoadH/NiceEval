@@ -22,7 +22,7 @@ import { RESULTS_FORMAT, RESULTS_SCHEMA_VERSION, type EvalResult, type TimingNod
 import { selectCurrentResults } from "../results/select.ts";
 import { attemptHistory } from "./compose.ts";
 import { runShow, type ShowFlags } from "./index.ts";
-import { stringWidth } from "../report/text/layout.ts";
+import { stringWidth } from "../report/model/text-layout.ts";
 
 // ───────────────────────── fixture 工具 ─────────────────────────
 

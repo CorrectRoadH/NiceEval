@@ -1,0 +1,192 @@
+// text 宿主(show)的渲染入口:装载好的 ReportDefinition/page → resolve(组合展开 + spec 取数)
+// → validate(两面资格)→ render(纯同步字符输出)。web 宿主的对应入口在 ./web.ts(那一侧才
+// import react-dom)。管线以页为单位执行;defineReport 本身与 ReportDefinition 的类型体系在
+// ../definition/report.ts,这里只做渲染编排与宿主联系面(页选择、索引命令拼装)。
+
+import type { Results, Scope } from "../../results/types.ts";
+import type { AttemptLocator } from "../../results/locator.ts";
+import {
+  createTextContext,
+  renderNodeToText,
+  resolveReportTree,
+  validateReportTree,
+  ResolveMemo,
+  type PageContext,
+  type ReportNode,
+  type TextRenderOptions,
+} from "../definition/tree.ts";
+import {
+  buildReportMeta,
+  resolveReportTitle,
+  type ReportDefinition,
+  type ReportMeta,
+  type ReportMetaPage,
+  type ReportPage,
+} from "../definition/report.ts";
+import { resolveLocalizedText, type ReportLocale } from "../model/locale.ts";
+
+/** 默认下钻命令:`niceeval show <locator>` 是 show 已实现的真实 CLI 语法,不需要反查 eval id 再拼近似命令。 */
+const DEFAULT_ATTEMPT_COMMAND = (locator: AttemptLocator): string => `niceeval show ${locator}`;
+
+// ───────────────────────── 页选择与 text 宿主入口 ─────────────────────────
+
+/** `--page` 未命中:宿主据此按用法错误退出并列出可用页 id(只列 navigation !== false 的)。 */
+export class ReportPageNotFoundError extends Error {
+  readonly pageId: string;
+  readonly available: string[];
+  constructor(pageId: string, available: string[]) {
+    super(`page "${pageId}" not found. Available pages: ${available.join(", ")}`);
+    this.pageId = pageId;
+    this.available = available;
+  }
+}
+
+/** 显式请求了 attempt-input page,但当前入口没有 locator 可注入 evidence。 */
+export class ReportPageNeedsLocatorError extends Error {
+  readonly pageId: string;
+  constructor(pageId: string) {
+    super(
+      `Page "${pageId}" is an attempt-input page and needs a locator — it cannot be opened with --page or #/page/<id> directly. ` +
+        "Use the host's locator addressing instead (niceeval show @<locator>, or the view attempt route), which resolves this page with the matching AttemptEvidence.",
+    );
+    this.pageId = pageId;
+  }
+}
+
+/**
+ * 挑选要渲染的 page:省略 pageId 时挑第一张 `navigation !== false` 的页(跳过参数化详情页,
+ * 它没有 locator 就不可打开);显式 pageId 命中 attempt-input page 时报
+ * ReportPageNeedsLocatorError——这个入口没有 locator,不能拿 Scope 强行 resolve。
+ */
+export function pickReportPage(definition: ReportDefinition, pageId?: string): ReportPage {
+  if (pageId === undefined) {
+    return definition.pages.find((p) => p.navigation !== false) ?? definition.pages[0];
+  }
+  const page = definition.pages.find((p) => p.id === pageId);
+  if (!page) {
+    throw new ReportPageNotFoundError(
+      pageId,
+      definition.pages.filter((p) => p.navigation !== false).map((p) => p.id),
+    );
+  }
+  if (page.input === "attempt") throw new ReportPageNeedsLocatorError(page.id);
+  return page;
+}
+
+/** 宿主注入的渲染上下文:官方口径挑好的 Scope 与结果根完整读取面。 */
+export interface ReportHostContext {
+  scope: Scope;
+  /** 组合组件 ctx.results 的来源;历史视图从这里自行挑 Snapshot[]。 */
+  results: Results;
+}
+
+export interface RenderReportTextOptions extends TextRenderOptions {
+  /** 渲染哪一页;缺省第一张可导航页。命中 attempt-input page 抛 ReportPageNeedsLocatorError,未命中抛 ReportPageNotFoundError。 */
+  pageId?: string;
+}
+
+/**
+ * text 宿主的装载语义:选页(只能是 scope-input page,见 pickReportPage)→ resolve(组合展开 +
+ * spec 取数,唯一的 await 边界)→ 树校验 → 遍历渲染 text 面。不需要 react-dom。宿主不在报告树外
+ * 另设警告通道——挑选警告的呈现件是 `ScopeWarnings` 组件,内建报告每页都放它,自定义报告放不放
+ * 是作者义务(docs/feature/reports/architecture.md「Scope 是计算入口」)。
+ */
+export async function renderReportToText(
+  definition: ReportDefinition,
+  ctx: ReportHostContext,
+  options?: RenderReportTextOptions,
+): Promise<string> {
+  const page = pickReportPage(definition, options?.pageId);
+  const meta = buildReportMeta(definition, ctx.scope);
+  const hasAttemptPage = definition.pages.some((p) => p.input === "attempt");
+  const resolved = await resolveReportTree(page.content, {
+    scope: ctx.scope,
+    results: ctx.results,
+    report: meta,
+    page: { id: page.id, input: "scope" },
+    memo: new ResolveMemo(),
+  });
+  validateReportTree(resolved);
+  return renderNodeToText(
+    resolved,
+    createTextContext({
+      ...options,
+      attemptCommand: options?.attemptCommand ?? (hasAttemptPage ? DEFAULT_ATTEMPT_COMMAND : undefined),
+    }),
+  );
+}
+
+/** 页索引标题行(show 多页索引 / view 导航共用的解析结果):按 locale 解析的标题字符串。 */
+export function reportTitleText(definition: ReportDefinition, scope: Scope, locale: ReportLocale): string {
+  return resolveLocalizedText(resolveReportTitle(definition, scope), locale);
+}
+
+// ───────────────────────── 逐页(树)渲染入口:宿主联系面 ─────────────────────────
+
+/** 宿主索引命令的完整上下文(docs/feature/reports/show/reports.md「索引命令携带完整上下文」)。 */
+export interface HostCommandContext {
+  patterns: string[];
+  results?: string;
+  experiment?: string;
+  report?: string;
+  page?: string;
+}
+
+function quoteArg(value: string): string {
+  return /^[A-Za-z0-9._/@-]+$/.test(value) ? value : `'${value.replaceAll("'", `'"'"'`)}'`;
+}
+
+/** 按上下文拼组索引的可复制命令:`niceeval show <patterns> --exp <id> [--results/--report/--page]`。 */
+function experimentCommandFor(ctx: HostCommandContext): (experimentIdPrefix: string) => string {
+  return (prefix) => {
+    const parts = ["niceeval show", ...ctx.patterns.map(quoteArg), `--exp ${quoteArg(prefix)}`];
+    if (ctx.results !== undefined) parts.push(`--results ${quoteArg(ctx.results)}`);
+    if (ctx.report !== undefined) parts.push(`--report ${quoteArg(ctx.report)}`);
+    if (ctx.page !== undefined) parts.push(`--page ${quoteArg(ctx.page)}`);
+    return parts.join(" ");
+  };
+}
+
+/** 逐页渲染的宿主上下文:官方口径的 Scope、结果根读取面、规范化声明(ctx.report)与当前页判别。 */
+export interface ReportTreeHostContext {
+  scope: Scope;
+  results: Results;
+  report: ReportMeta;
+  /** 当前渲染的页:scope 分支只有 id;attempt 分支带 locator + evidence(宿主已完成寻址与装配)。 */
+  page: PageContext;
+}
+
+export interface RenderTreeTextOptions extends TextRenderOptions {
+  /** 组索引命令的完整上下文;给了就按它拼命令,experimentCommand 显式注入时以后者为准。 */
+  commandContext?: HostCommandContext;
+}
+
+/**
+ * 渲染一页报告树的 text 面(宿主逐页调用;页选择归宿主):
+ * resolve(组合展开 + spec 取数)→ validate → render。宿主不在报告树外另设警告通道,
+ * 挑选警告由页内的 `ScopeWarnings` 组件呈现(内建报告每页都放它)。当前 definition 没有
+ * attempt-input page 时不注入默认下钻命令,调用方也没显式给,`ctx.attemptCommand` 就不存在。
+ */
+export async function renderReportTreeToText(
+  tree: ReportNode,
+  ctx: ReportTreeHostContext,
+  options?: RenderTreeTextOptions,
+): Promise<string> {
+  const resolved = await resolveReportTree(tree, {
+    scope: ctx.scope,
+    results: ctx.results,
+    report: ctx.report,
+    page: ctx.page,
+    memo: new ResolveMemo(),
+  });
+  validateReportTree(resolved);
+  const hasAttemptPage = ctx.report.pages.some((p) => p.input === "attempt");
+  const textCtx = createTextContext({
+    ...options,
+    attemptCommand: options?.attemptCommand ?? (hasAttemptPage ? DEFAULT_ATTEMPT_COMMAND : undefined),
+    ...(options?.experimentCommand === undefined && options?.commandContext !== undefined
+      ? { experimentCommand: experimentCommandFor(options.commandContext) }
+      : {}),
+  });
+  return renderNodeToText(resolved, textCtx);
+}

@@ -1,6 +1,6 @@
 // docs/feature/reports/library.md 场景三(零框架静态导出)的最小演示:
 // 读 → 算 → renderToStaticMarkup,一次成型,零前端框架、零 hydration。
-// 用 src/report/react/fixtures.ts 顶替各组件 .data 计算函数的产物,专看渲染面。
+// 用 src/report/components/fixtures.ts 顶替各组件 .data 计算函数的产物,专看渲染面。
 //
 //   pnpm exec tsx scripts/report-react-demo.tsx [输出路径.html]
 //
@@ -37,7 +37,7 @@ import {
   scopeSummaryData,
   scoreboardData,
   tableData,
-} from "../src/report/react/fixtures.ts";
+} from "../src/report/components/fixtures.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const attemptHref = (locator: string) => `view/#/attempt/${locator}`;
@@ -68,7 +68,7 @@ const page = renderToStaticMarkup(
 );
 
 // 样式随包发布:静态页里直接内联那份 CSS,零外部依赖
-const css = readFileSync(join(here, "../src/report/react/styles.css"), "utf8");
+const css = readFileSync(join(here, "../src/report/assets/styles.css"), "utf8");
 const html = `<!doctype html><meta charset="utf-8"><title>niceeval report demo</title><style>${css}</style>${page}`;
 
 const out = process.argv[2]

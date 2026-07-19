@@ -50,7 +50,7 @@ import {
 // --report 用的那份(dist/report/**,见 tsconfig.report-build.json)是同一个模块实例——
 // `unique symbol` 品牌与 class 的 instanceof 都按声明处的模块身份判定,raw src 和编译产物
 // 是两份不同源码位置,即使运行时同名同形,TS 类型与 instanceof 都不认。
-import { ReportLoadError } from "../dist/report/load.js";
+import { ReportLoadError } from "../dist/report/runtime/load.js";
 import { runShow } from "./show/index.ts";
 import { t } from "./i18n/index.ts";
 import { formatThrown, upsertManagedBlock } from "./util.ts";

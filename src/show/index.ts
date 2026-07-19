@@ -30,7 +30,7 @@ import {
 // dist copy of "the same" class are two different types. The package-owned report runtime
 // ships as precompiled ESM (dist/report/**, built by `pnpm run build:report`); all report
 // loading/rendering goes through ./report-host.ts (the single contact surface with it).
-import { ReportLoadError } from "../../dist/report/load.js";
+import { ReportLoadError } from "../../dist/report/runtime/load.js";
 import { detectLocale, t } from "../i18n/index.ts";
 import { foldEvalVerdict } from "../shared/verdict.ts";
 import { selectCurrentResults, filterExperiments } from "../results/select.ts";

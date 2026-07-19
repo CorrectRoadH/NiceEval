@@ -220,8 +220,8 @@ export async function renderHtml(scan: ViewScan, headHtml = ""): Promise<string>
   const styles = await readViewAsset("client-dist/app.css");
   const app = await readViewAsset("client-dist/app.js");
   const [reportStyles, reportEnhance] = await Promise.all([
-    readFile(new URL("../report/react/styles.css", import.meta.url), "utf-8"),
-    readFile(new URL("../report/react/enhance.js", import.meta.url), "utf-8"),
+    readFile(new URL("../report/assets/styles.css", import.meta.url), "utf-8"),
+    readFile(new URL("../report/assets/enhance.js", import.meta.url), "utf-8"),
   ]);
 
   const shellStyles = scan.shellAssets.styles.map((css) => `\n<style>\n${css}\n</style>`).join("");
@@ -283,8 +283,8 @@ async function renderAttemptDocument(
 ): Promise<string> {
   const content = await render(locator, handle);
   const [reportStyles, reportEnhance] = await Promise.all([
-    readFile(new URL("../report/react/styles.css", import.meta.url), "utf-8"),
-    readFile(new URL("../report/react/enhance.js", import.meta.url), "utf-8"),
+    readFile(new URL("../report/assets/styles.css", import.meta.url), "utf-8"),
+    readFile(new URL("../report/assets/enhance.js", import.meta.url), "utf-8"),
   ]);
   const shellStyles = scan.shellAssets.styles.map((css) => `\n<style>\n${css}\n</style>`).join("");
   const shellScripts = scan.shellAssets.scripts.map((js) => `<script>\n${js}\n</script>\n`).join("");

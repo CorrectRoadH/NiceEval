@@ -1,0 +1,1157 @@
+// cases: docs/engineering/unit-tests/reports/cases.md
+// niceeval/report 计算层的单元测试:全部用内存 fake(Snapshot / AttemptHandle 按
+// niceeval/results 的读取契约手工构造)。覆盖登记行:两级聚合 vs 平铺、errored=0 口径、
+// skipped=null、null≠0、Scoreboard 固定分母(notRun/unscorable 分开)、权重最长前缀、
+// 身份键去重、现刻水位、自定义指标 where/aggregate、evalGroup 完整父路径、verdict 权威、
+// MetricCell 诚实、缺 artifact 指标、repeatedFailedCommands、实体列表 failureSummary、
+// scopeSummaryData 两级计票、experimentListData/scopeSummaryData 的 selectedEvalIds 投影、pairsByFlag、
+// MetricLine 点身份、空数组反馈、metricTableData sort。
+
+import { describe, expect, it } from "vitest";
+
+import type { AssertionResult, AttemptError, EvalResult, O11ySummary, Verdict } from "../../types.ts";
+import type { AttemptHandle, Scope, ScopeWarning, Snapshot } from "../../results/index.ts";
+import { makeScope, selectCurrentResults } from "../../results/select.ts";
+import type { Results } from "../../results/types.ts";
+import {
+  assistantTurns,
+  costUSD,
+  defineMetric,
+  durationMs,
+  endToEndPassRate,
+  examScore,
+  executionReliability,
+  repeatedFailedCommands,
+  taskPassRate,
+} from "../model/metrics.ts";
+import { flag, label, numericFlag, numericLabel } from "../model/flag.ts";
+import { scatterText } from "./metric-views/faces.ts";
+import { createTextContext } from "../definition/tree.ts";
+import { colorIndexForKey, colorIndicesForKeys } from "../assets/colors.ts";
+import { attemptListData, evalListData, experimentListData } from "./entity-lists/compute.ts";
+import {
+  deltaTableData,
+  metricLineData,
+  metricMatrixData,
+  metricScatterData,
+  metricTableData,
+  pairsByFlag,
+  scoreboardData,
+} from "./metric-views/compute.ts";
+import { scopeSummaryData } from "./summaries/compute.ts";
+import { evalGroupOf } from "../model/aggregate.ts";
+
+// ───────────────────────── fake 数据(按 results 读取契约造)─────────────────────────
+
+/** 结构化 `AttemptError` 的最小构造(测试用)。 */
+function erroredWith(message: string): AttemptError {
+  return { code: "unexpected-error", message, phase: "eval.run" };
+}
+
+let seq = 0;
+
+/** 造一条结果;默认给每条唯一 startedAt —— 身份键含 startedAt,免得普通样本被去重误伤。 */
+function res(id: string, verdict: Verdict, extra: Partial<EvalResult> = {}): EvalResult {
+  seq += 1;
+  return {
+    id,
+    agent: "agent-x",
+    verdict,
+    attempt: 0,
+    startedAt: `2026-07-01T00:00:00.${String(seq).padStart(6, "0")}Z`,
+    durationMs: 1000,
+    assertions: [],
+    ...extra,
+  };
+}
+
+function softAssertion(name: string, score: number, extra: Partial<AssertionResult> = {}): AssertionResult {
+  return { name, severity: "soft", score, outcome: "passed" as const, ...extra } as AssertionResult;
+}
+
+/** 最小合规 O11ySummary;shellCommands / totalTurns 按需变。 */
+function o11ySummary(partial: Partial<O11ySummary> = {}): O11ySummary {
+  return {
+    totalTurns: 0,
+    toolCalls: {},
+    totalToolCalls: 0,
+    filesRead: [],
+    filesModified: [],
+    shellCommands: [],
+    webFetches: [],
+    errors: [],
+    thinkingBlocks: 0,
+    compactions: 0,
+    durationMs: 0,
+    usage: { inputTokens: 0, outputTokens: 0 },
+    ...partial,
+  } as O11ySummary;
+}
+
+interface SnapSpec {
+  experimentId: string;
+  results: EvalResult[];
+  agent?: string;
+  model?: string;
+  runStartedAt?: string;
+  knownEvalIds?: string[];
+  experiment?: Snapshot["experiment"];
+}
+
+let runSeq = 0;
+
+/** 最小构造:一个快照目录装一个快照。runStartedAt 决定去重时谁是「最新快照」。 */
+function snap(spec: SnapSpec): Snapshot {
+  runSeq += 1;
+  const startedAt = spec.runStartedAt ?? `2026-06-01T00:00:00.${String(runSeq).padStart(3, "0")}Z`;
+  const dir = `/results/exp/snap-${runSeq}`;
+  const snapshot = {
+    experimentId: spec.experimentId,
+    startedAt,
+    completedAt: startedAt,
+    agent: spec.agent ?? "agent-x",
+    model: spec.model,
+    experiment: spec.experiment,
+    schemaVersion: 1,
+    dir,
+    knownEvalIds: spec.knownEvalIds,
+  } as Snapshot;
+  const attempts: AttemptHandle[] = spec.results.map((r) => ({
+    evalId: r.id,
+    experimentId: r.experimentId ?? spec.experimentId,
+    result: r,
+    ref: { snapshot: `exp/snap-${runSeq}`, attempt: `${r.id}/a${r.attempt}` },
+    snapshot,
+    events: async () => null,
+    trace: async () => null,
+    o11y: async () => r.o11y ?? null,
+    agentSetup: async () => null,
+    diff: async () => null,
+    sources: async () => null,
+  }));
+  const evals = new Map<string, AttemptHandle[]>();
+  for (const attempt of attempts) {
+    const list = evals.get(attempt.evalId);
+    if (list) list.push(attempt);
+    else evals.set(attempt.evalId, [attempt]);
+  }
+  snapshot.evals = [...evals.entries()].map(([id, list]) => ({ id, attempts: list }));
+  snapshot.attempts = attempts;
+  return snapshot;
+}
+
+function scopeOf(snapshots: Snapshot[], warnings: ScopeWarning[] = []): Scope {
+  return makeScope("current-evals", snapshots, warnings);
+}
+
+// ───────────────────────── 指标聚合口径 ─────────────────────────
+
+describe("两级聚合口径", () => {
+  // 区分力 fixture:题级值 [1, 2/3, 0] → 两级 5/9;attempt 平铺 3/5;
+  // 条件任务通过率 5/6(errored 不进分母);「任一轮通过」2/3。四种口径互不相等。
+  const discriminating = snap({
+    experimentId: "exp/a",
+    results: [
+      res("e1", "passed"),
+      res("e2", "passed", { attempt: 0 }),
+      res("e2", "passed", { attempt: 1 }),
+      res("e2", "failed", { attempt: 2 }),
+      res("e3", "errored", { error: erroredWith("boom") }),
+    ],
+  });
+
+  it("endToEndPassRate 先题内折叠再跨题折叠:5/9,不是平铺 3/5、条件 5/6 或任一轮 2/3", async () => {
+    const data = await scopeSummaryData([discriminating]);
+    expect(data.endToEndPassRate.value).toBeCloseTo(5 / 9);
+    expect(data.endToEndPassRate.value).not.toBeCloseTo(3 / 5);
+    expect(data.endToEndPassRate.value).not.toBeCloseTo(5 / 6);
+    expect(data.endToEndPassRate.value).not.toBeCloseTo(2 / 3);
+    expect(data.endToEndPassRate.display).toBe("55.6%");
+    expect(data.endToEndPassRate.samples).toBe(5);
+    expect(data.endToEndPassRate.total).toBe(5);
+  });
+
+  it("taskPassRate 排除 errored,只能作为带限定名称的诊断指标:同 fixture 得 5/6", async () => {
+    const table = await metricTableData([discriminating], {
+      rows: "agent",
+      columns: [endToEndPassRate, taskPassRate, executionReliability],
+    });
+    const cells = table.rows[0]!.cells;
+    expect(cells[taskPassRate.name]!.value).toBeCloseTo(5 / 6);
+    expect(cells[endToEndPassRate.name]!.value).toBeCloseTo(5 / 9);
+    // executionReliability:e1=1、e2=1、e3=0 → 2/3
+    expect(cells[executionReliability.name]!.value).toBeCloseTo(2 / 3);
+  });
+
+  it("2 passed + 5 errored 的默认通过率是 2/7,不是 100%", async () => {
+    const s = snap({
+      experimentId: "exp/err",
+      results: [
+        res("q1", "passed"),
+        res("q2", "passed"),
+        ...[3, 4, 5, 6, 7].map((n) => res(`q${n}`, "errored", { error: erroredWith("x") })),
+      ],
+    });
+    const data = await scopeSummaryData([s]);
+    expect(data.endToEndPassRate.value).toBeCloseTo(2 / 7);
+  });
+
+  it("skipped 对内置指标返回 null:不进有效样本但保留在 total,value 不受影响", async () => {
+    const s = snap({
+      experimentId: "exp/skip",
+      results: [res("a", "passed"), res("b", "skipped"), res("c", "failed")],
+    });
+    const data = await scopeSummaryData([s]);
+    expect(data.endToEndPassRate.value).toBeCloseTo(0.5); // (1+0)/2,skipped 不稀释
+    expect(data.endToEndPassRate.samples).toBe(2);
+    expect(data.endToEndPassRate.total).toBe(3);
+  });
+
+  it("null 表示测不了不参与聚合,0 正常参与:[null, 0, 1] 的 mean 是 0.5 而非 1/3", async () => {
+    const values = new Map([
+      ["a", null],
+      ["b", 0],
+      ["c", 1],
+    ]);
+    const metric = defineMetric({
+      name: "tri",
+      value: (attempt) => values.get(attempt.evalId) ?? null,
+    });
+    const s = snap({ experimentId: "exp/tri", results: [res("a", "passed"), res("b", "passed"), res("c", "passed")] });
+    const table = await metricTableData([s], { rows: "agent", columns: [metric] });
+    expect(table.rows[0]!.cells.tri!.value).toBeCloseTo(0.5);
+  });
+
+  it("跨快照计算先按身份键去重:局部补跑重叠快照下 samples 不虚增", async () => {
+    const carried = res("dup/a", "passed", { startedAt: "2026-07-01T09:00:00.000Z" });
+    const s1 = snap({ experimentId: "exp/dup", results: [carried], runStartedAt: "2026-07-01T09:00:00.000Z" });
+    // 携带合入:同一条结果(同身份键)原样出现在更新的快照里
+    const s2 = snap({ experimentId: "exp/dup", results: [{ ...carried }], runStartedAt: "2026-07-02T09:00:00.000Z" });
+    const data = await scopeSummaryData([s1, s2]);
+    expect(data.attempts).toBe(1);
+    expect(data.endToEndPassRate.samples).toBe(1);
+  });
+
+  it("自定义指标:where 是进入计算前的过滤;perEval + acrossEvals 两级分别生效", async () => {
+    const s = snap({
+      experimentId: "exp/custom",
+      results: [
+        res("a", "passed", { durationMs: 100, attempt: 0 }),
+        res("a", "passed", { durationMs: 300, attempt: 1 }),
+        res("b", "failed", { durationMs: 900 }),
+        res("c", "passed", { durationMs: 500 }),
+      ],
+    });
+    const fastest = defineMetric({
+      name: "fastest-pass",
+      where: (attempt) => attempt.result.verdict === "passed",
+      value: (attempt) => attempt.result.durationMs,
+      aggregate: { perEval: "min", acrossEvals: "mean" },
+    });
+    const table = await metricTableData([s], { rows: "agent", columns: [fastest] });
+    const cell = table.rows[0]!.cells["fastest-pass"]!;
+    // b 被 where 排除;a 题内 min = 100,c = 500 → mean 300(双 mean 会是 (200+500)/2=350,可区分)
+    expect(cell.value).toBe(300);
+    expect(cell.samples).toBe(3);
+    expect(cell.total).toBe(4);
+
+    const allExcluded = defineMetric({
+      name: "none",
+      where: () => false,
+      value: () => 1,
+    });
+    const empty = await metricTableData([s], { rows: "agent", columns: [allExcluded] });
+    expect(empty.rows[0]!.cells.none!.value).toBeNull();
+  });
+
+  it("evalGroup 按完整父路径分组(无 / 取完整 id),与可比组同一条派生规则", async () => {
+    expect(evalGroupOf("a/b/c")).toBe("a/b");
+    expect(evalGroupOf("security/sql-injection")).toBe("security");
+    expect(evalGroupOf("standalone")).toBe("standalone");
+    const s = snap({
+      experimentId: "exp/g",
+      results: [res("a/b/c", "passed"), res("a/b/d", "failed"), res("solo", "passed")],
+    });
+    const matrix = await metricMatrixData([s], { rows: "evalGroup", columns: "agent", cell: endToEndPassRate });
+    const rowKeys = [...new Set(matrix.cells.map((c) => c.row))];
+    expect(rowKeys.sort()).toEqual(["a/b", "solo"]);
+  });
+
+  it("报告消费落盘 verdict,不重新判卷:断言与 verdict 矛盾时以 verdict 为准", async () => {
+    const s = snap({
+      experimentId: "exp/v",
+      results: [
+        res("a", "failed", {
+          // 断言看起来全过,但 verdict 是 failed(如 --strict 翻案):按 verdict 记 0
+          assertions: [softAssertion("s", 1)],
+        }),
+      ],
+    });
+    const data = await scopeSummaryData([s]);
+    expect(data.endToEndPassRate.value).toBe(0);
+  });
+});
+
+describe("宿主现刻水位(selectCurrentResults)", () => {
+  function resultsOf(snapshots: Snapshot[]): Results {
+    const byId = new Map<string, Snapshot[]>();
+    for (const s of snapshots) byId.set(s.experimentId, [...(byId.get(s.experimentId) ?? []), s]);
+    const experiments = [...byId.entries()].map(([id, snaps]) => {
+      const sorted = [...snaps].sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+      const evalIds = [...new Set(sorted.flatMap((s) => s.evals.map((e) => e.id)))].sort();
+      return { id, snapshots: sorted, latest: sorted[0]!, evalIds };
+    });
+    const results = {
+      experiments,
+      skipped: [],
+      latest: () => scopeOf(experiments.map((e) => e.latest)),
+      current: () => selectCurrentResults(results),
+    } as unknown as Results;
+    return results;
+  }
+
+  it("每个 experiment × eval 取跨历史最新判定:先 failed 后 passed 只用最新", async () => {
+    const older = snap({
+      experimentId: "exp/w",
+      results: [res("a", "failed"), res("b", "passed")],
+      runStartedAt: "2026-07-01T00:00:00.000Z",
+    });
+    const newer = snap({
+      experimentId: "exp/w",
+      results: [res("a", "passed")],
+      runStartedAt: "2026-07-02T00:00:00.000Z",
+    });
+    const scope = selectCurrentResults(resultsOf([older, newer]));
+    expect(scope.mode).toBe("current-evals");
+    const data = await scopeSummaryData(scope);
+    expect(data.evals).toBe(2);
+    expect(data.evalVerdicts).toEqual({ passed: 2, failed: 0, errored: 0, skipped: 0 });
+  });
+
+  it("可比性前提:配置不一致的旧快照不贡献 attempt,缺口走 partial-coverage", () => {
+    const oldConfig = snap({
+      experimentId: "exp/cfg",
+      model: "gpt-old",
+      results: [res("a", "passed"), res("b", "passed")],
+      runStartedAt: "2026-07-01T00:00:00.000Z",
+    });
+    const newConfig = snap({
+      experimentId: "exp/cfg",
+      model: "gpt-new",
+      results: [res("a", "failed")],
+      runStartedAt: "2026-07-02T00:00:00.000Z",
+    });
+    const scope = selectCurrentResults(resultsOf([oldConfig, newConfig]));
+    // 旧 model 的 b 不冒充新配置的水位
+    expect(scope.snapshots[0]!.evals.map((e) => e.id)).toEqual(["a"]);
+    const warning = scope.warnings.find((w) => w.kind === "partial-coverage");
+    expect(warning).toMatchObject({ covered: 1, total: 2, command: "niceeval exp exp/cfg" });
+  });
+
+  it("编排字段(runs / maxConcurrency / description…)不参与可比性比较", () => {
+    const older = snap({
+      experimentId: "exp/orch",
+      results: [res("a", "passed"), res("b", "passed")],
+      runStartedAt: "2026-07-01T00:00:00.000Z",
+      experiment: { runs: 3, earlyExit: true, maxConcurrency: 2, selectedEvalIds: ["a", "b"], description: "old" },
+    });
+    const newer = snap({
+      experimentId: "exp/orch",
+      results: [res("a", "failed")],
+      runStartedAt: "2026-07-02T00:00:00.000Z",
+      experiment: { runs: 1, earlyExit: false, selectedEvalIds: ["a"], description: "new" },
+    });
+    const scope = selectCurrentResults(resultsOf([older, newer]));
+    expect(scope.snapshots[0]!.evals.map((e) => e.id)).toEqual(["a", "b"]);
+    expect(scope.warnings.filter((w) => w.kind === "partial-coverage")).toHaveLength(0);
+  });
+});
+
+// ───────────────────────── MetricCell 与缺数据行为 ─────────────────────────
+
+describe("MetricCell 诚实契约", () => {
+  it("measuredZero / partial / missing 三种格子互不混淆;refs 序列化后不丢", async () => {
+    const zero = snap({ experimentId: "exp/zero", results: [res("a", "failed")] });
+    const partial = snap({ experimentId: "exp/partial", results: [res("a", "passed"), res("b", "skipped")] });
+    const missing = snap({ experimentId: "exp/missing", results: [res("a", "skipped")] });
+    const table = await metricTableData([zero, partial, missing], {
+      rows: "experiment",
+      columns: [endToEndPassRate],
+    });
+    const cellOf = (key: string) => table.rows.find((r) => r.key === key)!.cells[endToEndPassRate.name]!;
+    expect(cellOf("exp/zero")).toMatchObject({ value: 0, samples: 1, total: 1 });
+    expect(cellOf("exp/partial")).toMatchObject({ value: 1, samples: 1, total: 2 });
+    expect(cellOf("exp/missing")).toMatchObject({ value: null, samples: 0, total: 1 });
+    // 覆盖率与 refs 不因 JSON 序列化丢失;refs 跟随覆盖范围(含 null 值的 attempt)
+    const roundTrip = JSON.parse(JSON.stringify(table)) as typeof table;
+    expect(roundTrip.rows.find((r) => r.key === "exp/partial")!.cells[endToEndPassRate.name]!.refs).toHaveLength(2);
+    expect(cellOf("exp/missing").refs).toHaveLength(1);
+  });
+
+  it("缺 o11y.json 时 assistantTurns / repeatedFailedCommands 为 missing;result.json 指标不受影响", async () => {
+    const s = snap({ experimentId: "exp/noo11y", results: [res("a", "passed", { durationMs: 1234 })] });
+    const table = await metricTableData([s], {
+      rows: "agent",
+      columns: [assistantTurns, repeatedFailedCommands, durationMs],
+    });
+    const cells = table.rows[0]!.cells;
+    expect(cells[assistantTurns.name]!.value).toBeNull();
+    expect(cells[repeatedFailedCommands.name]!.value).toBeNull();
+    expect(cells[durationMs.name]!.value).toBe(1234);
+  });
+
+  it("repeatedFailedCommands:同命令失败 3 次记 2;两条不同命令各失败 1 次记 0", async () => {
+    const repeat = snap({
+      experimentId: "exp/repeat",
+      results: [
+        res("a", "failed", {
+          o11y: o11ySummary({
+            shellCommands: [
+              { command: "pnpm test", success: false },
+              { command: "pnpm test", success: false },
+              { command: "pnpm test", success: false },
+              { command: "ls", success: true },
+            ],
+          }),
+        }),
+      ],
+    });
+    const distinct = snap({
+      experimentId: "exp/distinct",
+      results: [
+        res("a", "failed", {
+          o11y: o11ySummary({
+            shellCommands: [
+              { command: "pnpm test", success: false },
+              { command: "pnpm build", success: false },
+            ],
+          }),
+        }),
+      ],
+    });
+    const table = await metricTableData([repeat, distinct], {
+      rows: "experiment",
+      columns: [repeatedFailedCommands],
+    });
+    const cellOf = (key: string) => table.rows.find((r) => r.key === key)!.cells[repeatedFailedCommands.name]!;
+    expect(cellOf("exp/repeat").value).toBe(2);
+    expect(cellOf("exp/distinct").value).toBe(0);
+  });
+
+  it("value 与 display 分别可断言;display 由 unit 或自定义 display(value, locale) 驱动", async () => {
+    const s = snap({
+      experimentId: "exp/display",
+      results: [
+        ...[1, 1, 1, 1, 1].map((_, i) => res(`q${i}`, "passed")),
+        res("q5", "failed"),
+      ],
+    });
+    const data = await scopeSummaryData([s]);
+    expect(data.endToEndPassRate.value).toBeCloseTo(5 / 6);
+    expect(data.endToEndPassRate.display).toBe("83.3%");
+
+    const localized = defineMetric({
+      name: "loc",
+      value: () => 1,
+      display: (value, locale) => (locale === "zh-CN" ? `${value} 个` : `${value} item`),
+    });
+    const table = await metricTableData([s], { rows: "agent", columns: [localized] });
+    expect(table.rows[0]!.cells.loc!.display).toEqual({ en: "1 item", "zh-CN": "1 个" });
+  });
+
+  it("value() 抛错时整个计算失败,错误带 metric name 与 attempt locator,不伪装成测不了", async () => {
+    const bad = defineMetric({
+      name: "explode",
+      value: () => {
+        throw new Error("boom");
+      },
+    });
+    const s = snap({ experimentId: "exp/bad", results: [res("a", "passed")] });
+    await expect(metricTableData([s], { rows: "agent", columns: [bad] })).rejects.toThrow(/explode.*boom/s);
+  });
+});
+
+// ───────────────────────── Scoreboard ─────────────────────────
+
+describe("scoreboardData", () => {
+  it("固定题集分母:未跑题按 0 分计入 notRun;跑了但 null 的题计入 unscorable,两个计数不合并", async () => {
+    const nullScore = defineMetric({
+      name: "maybe-score",
+      value: (attempt) => (attempt.evalId === "s/unscorable" ? null : attempt.result.verdict === "passed" ? 1 : 0),
+    });
+    const s = snap({
+      experimentId: "exp/board",
+      results: [res("s/ran", "passed"), res("s/unscorable", "passed")],
+    });
+    const data = await scoreboardData([s], {
+      rows: "agent",
+      questions: ["s/ran", "s/unscorable", "s/never-1", "s/never-2"],
+      score: nullScore,
+    });
+    const row = data.rows[0]!;
+    // 分母恒 4:1 分挣到 1(s/ran),其余 0 → 100 × 1/4 = 25
+    expect(row.total.value).toBe(25);
+    expect(row.total.notRun).toBe(2);
+    expect(row.total.unscorable).toBe(1);
+    expect(row.subjects[0]!.questions).toBe(4);
+  });
+
+  it("权重按最长前缀命中;无命中默认 1;总分 fullMarks × earned / possible", async () => {
+    const s = snap({
+      experimentId: "exp/w",
+      results: [res("security/auth/a", "passed"), res("security/b", "failed"), res("misc", "passed")],
+    });
+    const data = await scoreboardData([s], {
+      rows: "agent",
+      questions: ["security/auth/a", "security/b", "misc"],
+      weights: { "security/": 2, "security/auth/": 4 },
+      fullMarks: 100,
+    });
+    const row = data.rows[0]!;
+    // earned = 4(auth/a) + 0 + 1(misc) = 5;possible = 4 + 2 + 1 = 7
+    expect(row.total.value).toBeCloseTo((100 * 5) / 7);
+    expect(data.weights[0]).toEqual({ prefix: "security/auth/", weight: 4 }); // 最长前缀在前
+  });
+
+  it("subject 缺省与 evalGroup 同一条规则(完整父路径);题集外的 eval 忽略并计入 ignoredEvals", async () => {
+    const s = snap({
+      experimentId: "exp/subject",
+      results: [res("a/b/c", "passed"), res("outside", "passed")],
+    });
+    const data = await scoreboardData([s], { rows: "agent", questions: ["a/b/c"] });
+    expect(data.rows[0]!.subjects[0]!.key).toBe("a/b");
+    expect(data.ignoredEvals).toBe(1);
+  });
+
+  it("questions 空数组 / 重复、非法权重、fullMarks<=0、score 出界、subject 空串都按完整用户反馈失败", async () => {
+    const s = snap({ experimentId: "exp/e", results: [res("a", "passed")] });
+    await expect(scoreboardData([s], { rows: "agent", questions: [] })).rejects.toThrow(/non-empty/);
+    await expect(scoreboardData([s], { rows: "agent", questions: ["a", "a"] })).rejects.toThrow(/twice/);
+    await expect(
+      scoreboardData([s], { rows: "agent", questions: ["a"], weights: { a: 0 } }),
+    ).rejects.toThrow(/positive finite/);
+    await expect(scoreboardData([s], { rows: "agent", questions: ["a"], fullMarks: 0 })).rejects.toThrow(/fullMarks/);
+    await expect(
+      scoreboardData([s], { rows: "agent", questions: ["a"], score: defineMetric({ name: "big", value: () => 2 }) }),
+    ).rejects.toThrow(/\[0, 1\]/);
+    await expect(
+      scoreboardData([s], { rows: "agent", questions: ["a"], subject: () => "" }),
+    ).rejects.toThrow(/empty/);
+  });
+});
+
+// ───────────────────────── 实体列表 ─────────────────────────
+
+describe("实体列表 data", () => {
+  const failed = res("list/failed", "failed", {
+    assertions: [
+      {
+        name: "equals",
+        severity: "gate",
+        outcome: "failed" as const,
+        score: 0,
+        detail: "equals(42)",
+        expected: "42",
+        received: "41",
+      },
+      { name: "second", severity: "gate", outcome: "failed" as const, score: 0, detail: "second-check" },
+    ] as AssertionResult[],
+    usage: { inputTokens: 10, outputTokens: 5, costUSD: 0.1 },
+  });
+  const errored = res("list/errored", "errored", {
+    error: {
+      code: "sandbox-create-failed",
+      message: "docker daemon unreachable",
+      phase: "sandbox.create",
+      stack: "Error: docker daemon unreachable\n    at boot (sandbox.ts:10:3)",
+    },
+  });
+  const passed = res("list/passed", "passed");
+  const skipped = res("list/skipped", "skipped");
+  const listSnap = () => snap({ experimentId: "exp/list", results: [failed, errored, passed, skipped] });
+
+  it("failureSummary 三态:failed 取主失败断言摘要、errored 取 error 一层摘要(phase · code · message)、passed/skipped 为 null", async () => {
+    const items = await attemptListData([listSnap()]);
+    const byEval = new Map(items.map((item) => [item.evalId, item]));
+    expect(byEval.get("list/failed")!.failureSummary).toContain("equals(42)");
+    expect(byEval.get("list/failed")!.failureSummary).toContain("received 41");
+    expect(byEval.get("list/failed")!.moreFailures).toBe(1);
+    expect(byEval.get("list/errored")!.failureSummary).toBe(
+      "sandbox.create · sandbox-create-failed · docker daemon unreachable",
+    );
+    expect(byEval.get("list/passed")!.failureSummary).toBeNull();
+    expect(byEval.get("list/skipped")!.failureSummary).toBeNull();
+  });
+
+  it("序列化 JSON 不含第二条断言文本、stack、evidence 或 diagnostics;costUSD 缺失一律 null", async () => {
+    const items = await attemptListData([listSnap()]);
+    const json = JSON.stringify(items);
+    expect(json).not.toContain("second-check");
+    expect(json).not.toContain("sandbox.ts:10:3");
+    expect(json).not.toContain('"assertions"');
+    expect(json).not.toContain('"diagnostics"');
+    const byEval = new Map(items.map((item) => [item.evalId, item]));
+    expect(byEval.get("list/failed")!.costUSD).toBe(0.1);
+    expect(byEval.get("list/errored")!.costUSD).toBeNull();
+  });
+
+  it("experimentListData:evalVerdicts / endToEndPassRate / costUSD / durationMs / tokens 齐全,默认按端到端通过率降序", async () => {
+    const winner = snap({ experimentId: "exp/win", results: [res("a", "passed"), res("b", "passed")] });
+    const loser = snap({ experimentId: "exp/lose", results: [res("a", "failed"), res("b", "passed")] });
+    const items = await experimentListData([loser, winner]);
+    expect(items.map((item) => item.experimentId)).toEqual(["exp/win", "exp/lose"]);
+    expect(items[0]!.evalVerdicts).toEqual({ passed: 2, failed: 0, errored: 0, skipped: 0 });
+    expect(items[0]!.endToEndPassRate.value).toBe(1);
+    expect(items[1]!.evals).toBe(2);
+  });
+
+  it("同一 experiment 的输入含不一致可比性配置时按完整用户反馈失败,指引 snapshot 维度 / MetricLine", async () => {
+    const a = snap({ experimentId: "exp/mixed", model: "gpt-a", results: [res("x", "passed")] });
+    const b = snap({ experimentId: "exp/mixed", model: "gpt-b", results: [res("y", "passed")] });
+    await expect(experimentListData([a, b])).rejects.toThrow(/snapshot.*MetricLine|MetricLine/s);
+    // current() 口径的 Scope(一实验一配置)照常计算
+    const clean = scopeOf([a]);
+    await expect(experimentListData(clean)).resolves.toHaveLength(1);
+  });
+});
+
+// ───────────────────────── scopeSummaryData ─────────────────────────
+
+describe("scopeSummaryData", () => {
+  it("evals 按 experimentId + evalId 计数(2 实验 × 6 题 = 12),与 evalVerdicts 同分母;两级计票在含重试时不同", async () => {
+    const mk = (experimentId: string) =>
+      snap({
+        experimentId,
+        results: [
+          res("q1", "passed"),
+          res("q2", "failed", { attempt: 0 }),
+          res("q2", "passed", { attempt: 1 }), // 重试后过:eval 级 passed,attempt 级 1 failed + 1 passed
+          res("q3", "passed"),
+          res("q4", "failed"),
+          res("q5", "errored", { error: erroredWith("x") }),
+          res("q6", "skipped"),
+        ],
+      });
+    const data = await scopeSummaryData([mk("cmp/a"), mk("cmp/b")]);
+    expect(data.experiments).toBe(2);
+    expect(data.evals).toBe(12);
+    expect(data.evalVerdicts).toEqual({ passed: 6, failed: 2, errored: 2, skipped: 2 });
+    expect(
+      data.evalVerdicts.passed + data.evalVerdicts.failed + data.evalVerdicts.errored + data.evalVerdicts.skipped,
+    ).toBe(data.evals);
+    expect(data.attemptVerdicts).toEqual({ passed: 6, failed: 4, errored: 2, skipped: 2 });
+    expect(data.attemptVerdicts).not.toEqual(data.evalVerdicts);
+    expect(data.range.earliestStartedAt).not.toBeNull();
+    expect(data.range.latestStartedAt).not.toBeNull();
+  });
+
+  it("totalCostUSD 按 attempt 求和;一次成本都没报时 value 为 null,不伪造 0", async () => {
+    const withCost = snap({
+      experimentId: "exp/cost",
+      results: [
+        res("a", "passed", { usage: { inputTokens: 1, outputTokens: 1, costUSD: 0.25 } }),
+        res("b", "failed", { estimatedCostUSD: 0.05 }),
+        res("c", "passed"),
+      ],
+    });
+    const data = await scopeSummaryData([withCost]);
+    expect(data.totalCostUSD.value).toBeCloseTo(0.3);
+    const none = await scopeSummaryData([snap({ experimentId: "exp/free", results: [res("a", "passed")] })]);
+    expect(none.totalCostUSD.value).toBeNull();
+  });
+
+  it("空范围的 range 为 null,不编造当前时间", async () => {
+    const data = await scopeSummaryData([]);
+    expect(data.range).toEqual({ earliestStartedAt: null, latestStartedAt: null });
+    expect(data.evals).toBe(0);
+  });
+});
+
+// ───────────────────────── experimentListData / scopeSummaryData 的 selectedEvalIds 投影 ─────────────────────────
+// ExperimentComparison 已收为普通组合组件(把同一个 input 原样透传给 ScopeSummary /
+// MetricScatter / ExperimentList,不再有自己的 data 形态);经它展开后与直接调用这三个
+// 函数深等的验证挪到 dual-render.test.tsx(需要 resolve 管线)。这里只测三个函数自己的
+// selectedEvalIds 投影契约。
+
+describe("experimentListData / scopeSummaryData 的 selectedEvalIds 投影", () => {
+  it("不同深度目录的 experiments 一律进同一份 data,不按父路径分组比较", async () => {
+    const g1a = snap({ experimentId: "compare/a", agent: "bub", results: [res("q", "passed")] });
+    const g1b = snap({ experimentId: "compare/b", agent: "codex", results: [res("q", "failed")] });
+    const g2 = snap({ experimentId: "bench/long/x", results: [res("q", "passed")] });
+    const solo = snap({ experimentId: "standalone", results: [res("q", "errored", { error: erroredWith("x") })] });
+    const items = await experimentListData([g1a, g1b, g2, solo]);
+    expect(items.map((e) => e.experimentId).sort()).toEqual([
+      "bench/long/x",
+      "compare/a",
+      "compare/b",
+      "standalone",
+    ]);
+  });
+
+  it("每个 experiment 只保留自己选择的 eval:A 声明 selectedEvalIds:[q1] 但夹带 q2 attempt,B 只选 q2;q2 不污染 A", async () => {
+    const a = snap({
+      experimentId: "exp/a",
+      results: [res("q1", "passed"), res("q2", "failed")],
+      experiment: { runs: 1, earlyExit: false, selectedEvalIds: ["q1"] },
+    });
+    const b = snap({
+      experimentId: "exp/b",
+      results: [res("q2", "passed")],
+      experiment: { runs: 1, earlyExit: false, selectedEvalIds: ["q2"] },
+    });
+
+    const items = await experimentListData([a, b]);
+    const rowA = items.find((e) => e.experimentId === "exp/a")!;
+    const rowB = items.find((e) => e.experimentId === "exp/b")!;
+    expect(rowA.evals).toBe(1); // 只统计 q1,夹带的 q2 attempt 不计入
+    expect(rowA.evalRows.map((r) => r.evalId)).toEqual(["q1"]);
+    expect(rowB.evals).toBe(1);
+    expect(rowB.evalRows.map((r) => r.evalId)).toEqual(["q2"]);
+
+    // 汇总口径同样不被污染:全 Scope 只有 2 个 eval(exp/a·q1、exp/b·q2),不是 3 个。
+    const summary = await scopeSummaryData([a, b]);
+    expect(summary.evals).toBe(2);
+  });
+
+  it("第三方快照缺 experiment 信息时仍可见,按其实际 evals 参与(selectedEvalIdsOf 退化)", async () => {
+    const thirdParty = snap({ experimentId: "third-party/exp", results: [res("q", "passed")] });
+    expect(thirdParty.experiment).toBeUndefined();
+
+    const items = await experimentListData([thirdParty]);
+    expect(items.map((e) => e.experimentId)).toEqual(["third-party/exp"]);
+    expect(items[0]!.evals).toBe(1);
+  });
+});
+
+// ───────────────────────── metricScatterData / metricMatrixData ─────────────────────────
+
+describe("metricScatterData / metricMatrixData", () => {
+  it("缺 x 或 y 的点留在 rows 里可数(组件不画并报数);矩阵稀疏:无 attempt 的组合不生成格子", async () => {
+    const withCost = snap({
+      experimentId: "cmp/priced",
+      agent: "bub",
+      results: [res("a", "passed", { usage: { inputTokens: 1, outputTokens: 1, costUSD: 0.2 } })],
+    });
+    const noCost = snap({ experimentId: "cmp/free", agent: "codex", results: [res("b", "passed")] });
+    const scatter = await metricScatterData([withCost, noCost], {
+      points: "experiment",
+      series: "agent",
+      x: costUSD,
+      y: endToEndPassRate,
+    });
+    expect(scatter.pointDimension).toBe("experiment");
+    expect(scatter.rows).toHaveLength(2);
+    expect(scatter.rows.find((r) => r.key === "cmp/free")!.x.value).toBeNull();
+
+    const matrix = await metricMatrixData([withCost, noCost], {
+      rows: "eval",
+      columns: "agent",
+      cell: endToEndPassRate,
+    });
+    // a×codex、b×bub 没有样本 → 不出现(不是 value: 0)
+    expect(matrix.cells).toHaveLength(2);
+    expect(matrix.rowDimension).toBe("eval");
+    expect(matrix.columnDimension).toBe("agent");
+  });
+
+  it("分组维度上未声明的 flag 归 (missing) 组,不丢行", async () => {
+    const withFlag = snap({
+      experimentId: "f/on",
+      results: [res("a", "passed")],
+      experiment: { runs: 1, earlyExit: false, selectedEvalIds: [], flags: { memory: "mempal" } },
+    });
+    const withoutFlag = snap({ experimentId: "f/off", results: [res("a", "failed")] });
+    const table = await metricTableData([withFlag, withoutFlag], {
+      rows: flag("memory"),
+      columns: [endToEndPassRate],
+    });
+    expect(table.rows.map((r) => r.key).sort()).toEqual(["(missing)", "mempal"]);
+  });
+
+  it("metricTableData sort:必须是 columns 中同一实例且声明 better;方向随 better,缺数据沉底", async () => {
+    const hi = snap({ experimentId: "s/hi", results: [res("a", "passed")] });
+    const lo = snap({ experimentId: "s/lo", results: [res("a", "failed")] });
+    const na = snap({ experimentId: "s/na", results: [res("a", "skipped")] });
+    const byPass = await metricTableData([lo, hi, na], {
+      rows: "experiment",
+      columns: [endToEndPassRate],
+      sort: endToEndPassRate,
+    });
+    expect(byPass.rows.map((r) => r.key)).toEqual(["s/hi", "s/lo", "s/na"]);
+
+    const fast = snap({ experimentId: "d/fast", results: [res("a", "passed", { durationMs: 10 })] });
+    const slow = snap({ experimentId: "d/slow", results: [res("a", "passed", { durationMs: 99 })] });
+    const byDuration = await metricTableData([slow, fast], {
+      rows: "experiment",
+      columns: [durationMs],
+      sort: durationMs,
+    });
+    expect(byDuration.rows.map((r) => r.key)).toEqual(["d/fast", "d/slow"]); // lower better:低在前
+
+    await expect(
+      metricTableData([hi], { rows: "experiment", columns: [endToEndPassRate], sort: durationMs }),
+    ).rejects.toThrow(/columns/);
+    const noBetter = defineMetric({ name: "plain", value: () => 1 });
+    await expect(
+      metricTableData([hi], { rows: "experiment", columns: [noBetter], sort: noBetter }),
+    ).rejects.toThrow(/better/);
+  });
+
+  it("省略 sort 时按行 key 字典序(维度 domain 稳定序,不随文件扫描顺序)", async () => {
+    const b = snap({ experimentId: "o/bbb", results: [res("a", "passed")] });
+    const a = snap({ experimentId: "o/aaa", results: [res("a", "failed")] });
+    const table = await metricTableData([b, a], { rows: "experiment", columns: [endToEndPassRate] });
+    expect(table.rows.map((r) => r.key)).toEqual(["o/aaa", "o/bbb"]);
+  });
+});
+
+// ───────────────────────── metricLineData ─────────────────────────
+
+describe("metricLineData", () => {
+  const flaggedSnap = (experimentId: string, budget: number | undefined, verdicts: Verdict[]) =>
+    snap({
+      experimentId,
+      results: verdicts.map((v, i) => res(`q${i}`, v)),
+      experiment: {
+        runs: 1,
+        earlyExit: false,
+        selectedEvalIds: [],
+        ...(budget !== undefined ? { flags: { budget } } : {}),
+      },
+    });
+
+  it("未声明数值 flag 的 experiment 不伪造 x 值(不落到 x=0)并可数", async () => {
+    const data = await metricLineData(
+      [flaggedSnap("l/100", 100, ["passed"]), flaggedSnap("l/none", undefined, ["passed"])],
+      { x: numericFlag("budget"), y: endToEndPassRate },
+    );
+    const missing = data.rows.filter((r) => r.x === null);
+    expect(missing).toHaveLength(1);
+    expect(data.rows.some((r) => r.x === 0)).toBe(false);
+  });
+
+  it("点身份 = (series, x):同桶多 experiment 合成一个点,y 按 (series, x, experiment, eval) 顺序聚合", async () => {
+    // 两个 experiment 同 x=100:各 1 题,一个 passed 一个 failed → 合成一点 y = (1+0)/2
+    const data = await metricLineData(
+      [flaggedSnap("m/one", 100, ["passed"]), flaggedSnap("m/two", 100, ["failed"])],
+      { x: numericFlag("budget"), y: endToEndPassRate },
+    );
+    expect(data.rows).toHaveLength(1);
+    expect(data.rows[0]!.key).toBe("100"); // x 的稳定十进制字符串
+    expect(data.rows[0]!.x).toBe(100);
+    expect(data.rows[0]!.y.value).toBeCloseTo(0.5);
+  });
+
+  it("自定义 NumericAxis.of 在同一 experiment × eval 内不恒定时报完整用户反馈,不静默取首值", async () => {
+    const s = snap({
+      experimentId: "l/vary",
+      results: [res("q", "passed", { attempt: 0, durationMs: 10 }), res("q", "passed", { attempt: 1, durationMs: 20 })],
+    });
+    const perAttempt = {
+      name: "per-attempt",
+      of: (attempt: AttemptHandle) => attempt.result.durationMs,
+    };
+    await expect(metricLineData([s], { x: perAttempt, y: endToEndPassRate })).rejects.toThrow(/not constant/);
+  });
+});
+
+// ───────────────────────── deltaTableData 与 pairsByFlag ─────────────────────────
+
+describe("deltaTableData", () => {
+  it("任一侧缺数据时 delta 保持缺失;方向按指标 better 判断改善/退化", async () => {
+    const a = snap({
+      experimentId: "d/base",
+      results: [res("q", "passed", { usage: { inputTokens: 1, outputTokens: 1, costUSD: 0.4 } })],
+    });
+    const b = snap({
+      experimentId: "d/next",
+      results: [res("q", "passed", { usage: { inputTokens: 1, outputTokens: 1, costUSD: 0.2 } })],
+    });
+    const data = await deltaTableData([a, b], {
+      by: "experiment",
+      pairs: [{ label: "next vs base", a: "d/base", b: "d/next" }],
+      metrics: [costUSD, assistantTurns],
+    });
+    expect(data.byDimension).toBe("experiment");
+    const row = data.rows[0]!;
+    expect(row.label).toBe("next vs base");
+    // costUSD 下降且 better: "lower" → improved
+    expect(row.cells[costUSD.name]).toMatchObject({ delta: expect.closeTo(-0.2, 5), outcome: "improved" });
+    // assistantTurns 两侧都缺 o11y → delta null → unavailable
+    expect(row.cells[assistantTurns.name]).toMatchObject({ delta: null, outcome: "unavailable" });
+  });
+
+  it("pairs 空数组在计算时按完整用户反馈报错;运行期构造的非空 pairs 直接可用", async () => {
+    const s = snap({ experimentId: "d/x", results: [res("q", "passed")] });
+    await expect(
+      deltaTableData([s], { by: "experiment", pairs: [] as { label: string; a: string; b: string }[], metrics: [costUSD] }),
+    ).rejects.toThrow(/empty/);
+    const dynamic = [{ label: "run", a: "d/x", b: "d/y" }].filter(() => true);
+    await expect(
+      deltaTableData([s], { by: "experiment", pairs: dynamic, metrics: [costUSD] }),
+    ).resolves.toMatchObject({ rows: [{ label: "run" }] });
+  });
+
+  it("字面 pair 校验:label 空/重复、a === b 报错;a/b 精确匹配维度 key,未命中保留 pair、对应侧缺失", async () => {
+    const s = snap({ experimentId: "d/only", results: [res("q", "passed")] });
+    await expect(
+      deltaTableData([s], {
+        by: "experiment",
+        pairs: [
+          { label: "dup", a: "d/only", b: "d/gone" },
+          { label: "dup", a: "d/gone", b: "d/only" },
+        ],
+        metrics: [endToEndPassRate],
+      }),
+    ).rejects.toThrow(/twice/);
+    await expect(
+      deltaTableData([s], { by: "experiment", pairs: [{ label: "self", a: "d/only", b: "d/only" }], metrics: [endToEndPassRate] }),
+    ).rejects.toThrow(/itself/);
+    const data = await deltaTableData([s], {
+      by: "experiment",
+      pairs: [{ label: "half", a: "d/only", b: "d/gone" }],
+      metrics: [endToEndPassRate],
+    });
+    const cell = data.rows[0]!.cells[endToEndPassRate.name]!;
+    expect(cell.a.value).toBe(1);
+    expect(cell.b.value).toBeNull();
+    expect(cell.delta).toBeNull();
+  });
+
+  describe("pairsByFlag", () => {
+    /** 三 agent × baseline / agents-md / mempal 矩阵;bub 无 mempal,如实少一对。 */
+    const matrixSnaps = () => {
+      const mk = (agent: string, memory?: string) =>
+        snap({
+          experimentId: `mem/${agent}${memory ? `--${memory}` : ""}`,
+          agent,
+          results: [res("q", "passed")],
+          experiment: {
+            runs: 1,
+            earlyExit: false,
+            selectedEvalIds: [],
+            ...(memory !== undefined ? { flags: { memory } } : {}),
+          },
+        });
+      return [
+        mk("bub"),
+        mk("bub", "agents-md"),
+        mk("codex"),
+        mk("codex", "agents-md"),
+        mk("codex", "mempal"),
+        mk("gemini"),
+        mk("gemini", "agents-md"),
+        mk("gemini", "mempal"),
+      ];
+    };
+
+    it("同可比组 + 删除该 flag 后配置深相等才配对;a 取 baseline(缺省=未声明),label 自动生成,按 (a 末段, 显示键) 字典序", async () => {
+      const data = await deltaTableData(matrixSnaps(), {
+        by: "experiment",
+        pairs: pairsByFlag("memory"),
+        metrics: [endToEndPassRate],
+      });
+      expect(data.rows.map((r) => r.label)).toEqual([
+        "bub · memory=agents-md",
+        "codex · memory=agents-md",
+        "codex · memory=mempal",
+        "gemini · memory=agents-md",
+        "gemini · memory=mempal",
+      ]);
+      expect(data.experiments).toBe(8);
+    });
+
+    it("可比性配置不同(model 不同)的两实验不配对", async () => {
+      const base = snap({
+        experimentId: "mm/a",
+        model: "gpt-a",
+        results: [res("q", "passed")],
+        experiment: { runs: 1, earlyExit: false, selectedEvalIds: [] },
+      });
+      const other = snap({
+        experimentId: "mm/b",
+        model: "gpt-b",
+        results: [res("q", "passed")],
+        experiment: { runs: 1, earlyExit: false, selectedEvalIds: [], flags: { memory: "on" } },
+      });
+      const data = await deltaTableData([base, other], {
+        by: "experiment",
+        pairs: pairsByFlag("memory"),
+        metrics: [endToEndPassRate],
+      });
+      expect(data.rows).toHaveLength(0);
+      expect(data.experiments).toBe(2);
+    });
+
+    it("收窄到单实验时 0 对不是错误:空 rows + 配对域实验数;by 非 experiment 报完整用户反馈", async () => {
+      const single = snap({ experimentId: "solo/x", results: [res("q", "passed")] });
+      const data = await deltaTableData([single], {
+        by: "experiment",
+        pairs: pairsByFlag("memory"),
+        metrics: [endToEndPassRate],
+      });
+      expect(data.rows).toHaveLength(0);
+      expect(data.experiments).toBe(1);
+
+      await expect(
+        deltaTableData([single], { by: "agent", pairs: pairsByFlag("memory"), metrics: [endToEndPassRate] }),
+      ).rejects.toThrow(/by: "experiment"/);
+    });
+
+    it("baseline 显式声明时 a 侧取该 flag 值", async () => {
+      const data = await deltaTableData(matrixSnaps(), {
+        by: "experiment",
+        pairs: pairsByFlag("memory", { baseline: "agents-md" }),
+        metrics: [endToEndPassRate],
+      });
+      // a = *--agents-md;b = 未声明(显示键 (missing))与 mempal
+      expect(data.rows.map((r) => r.label)).toEqual([
+        "bub--agents-md · memory=(missing)",
+        "codex--agents-md · memory=(missing)",
+        "codex--agents-md · memory=mempal",
+        "gemini--agents-md · memory=(missing)",
+        "gemini--agents-md · memory=mempal",
+      ]);
+    });
+  });
+});
+
+// ───────────────────────── examScore ─────────────────────────
+
+describe("examScore", () => {
+  it("gate 决定能否得分,soft 给质量分;errored 交白卷是 0 分不是缺数据", async () => {
+    const s = snap({
+      experimentId: "exam/x",
+      results: [
+        res("soft", "passed", { assertions: [softAssertion("a", 0.5), softAssertion("b", 1)] }),
+        res("allgate", "passed"),
+        res("crashed", "errored", { error: erroredWith("boom") }),
+      ],
+    });
+    const table = await metricTableData([s], { rows: "eval", columns: [examScore] });
+    const cellOf = (key: string) => table.rows.find((r) => r.key === key)!.cells[examScore.name]!;
+    expect(cellOf("soft").value).toBeCloseTo(0.75);
+    expect(cellOf("allgate").value).toBe(1);
+    expect(cellOf("crashed").value).toBe(0);
+    expect(cellOf("crashed").samples).toBe(1); // 0 分是测得的事实,不是缺数据
+  });
+});
+
+// ───────────────────────── labels 维度、series 归类与 connect ─────────────────────────
+
+describe("labels 维度、series 归类与 connect", () => {
+  const labeled = (
+    experimentId: string,
+    labels: Record<string, string | number> | undefined,
+    verdicts: Verdict[],
+    agent = "agent-x",
+  ) =>
+    snap({
+      experimentId,
+      agent,
+      results: verdicts.map((v, i) => res(`q${i}`, v, { agent })),
+      experiment: {
+        runs: 1,
+        earlyExit: false,
+        selectedEvalIds: verdicts.map((_, i) => `q${i}`),
+        ...(labels ? { labels } : {}),
+      },
+    });
+
+  it("label() 按声明值分组、未声明归 (missing);numericLabel 对字符串值返回 null 不猜序", async () => {
+    const table = await metricTableData(
+      [labeled("m/one", { memory: "mempal" }, ["passed"]), labeled("m/two", undefined, ["failed"])],
+      { rows: label("memory"), columns: [endToEndPassRate] },
+    );
+    expect(table.rows.map((r) => r.key).sort()).toEqual(["(missing)", "mempal"]);
+
+    const line = await metricLineData(
+      [labeled("m/num", { contextK: 32 }, ["passed"]), labeled("m/str", { contextK: "big" }, ["passed"])],
+      { x: numericLabel("contextK"), y: endToEndPassRate },
+    );
+    expect(line.rows.filter((r) => r.x === null)).toHaveLength(1);
+    expect(line.rows.some((r) => r.x === 32)).toBe(true);
+    expect(line.rows.some((r) => r.x === 0)).toBe(false);
+  });
+
+  it("series 数组解析为复合维度:name 以 × 连接、值以 · 连接,缺失成员沿用 (missing)", async () => {
+    const a = labeled("c/one", { memory: "mempal" }, ["passed"], "codex");
+    const b = labeled("c/two", undefined, ["failed"], "codex");
+    const data = await metricScatterData([a, b], {
+      points: "experiment",
+      series: ["agent", label("memory")],
+      x: costUSD,
+      y: endToEndPassRate,
+    });
+    expect(data.seriesDimension).toBe("agent × memory");
+    const byKey = new Map(data.rows.map((r) => [r.key, r.series]));
+    expect(byKey.get("c/one")).toBe("codex · mempal");
+    expect(byKey.get("c/two")).toBe("codex · (missing)");
+    // 单成员数组等价于单维度
+    const single = await metricScatterData([a], { points: "experiment", series: ["agent"], x: costUSD, y: endToEndPassRate });
+    expect(single.seriesDimension).toBe("agent");
+    expect(single.rows[0]!.series).toBe("codex");
+  });
+
+  const cell = (value: number, display: string): import("../model/types.ts").MetricCell => ({
+    value,
+    display,
+    samples: 1,
+    total: 1,
+    refs: [],
+  });
+  const lineScatter = (): import("../model/types.ts").ScatterData => ({
+    pointDimension: "experiment",
+    seriesDimension: "line",
+    x: { key: "costUSD", label: "Cost", unit: "$", better: "lower" },
+    y: { key: "endToEndPassRate", label: "Pass rate", unit: "%", better: "higher" },
+    rows: [
+      { key: "mem/claude-mempal", series: "claude", x: cell(0.55, "$0.55"), y: cell(0.75, "75%") },
+      { key: "mem/claude-baseline", series: "claude", x: cell(0.35, "$0.35"), y: cell(0.5, "50%") },
+      { key: "mem/bub", series: "bub", x: cell(0.09, "$0.09"), y: cell(0.875, "87.5%") },
+    ],
+  });
+
+  it("scatterText:标记按图例顺序分配(series 字典序、series 内 x 升序),标题标注归类维度;默认无箭头", () => {
+    const text = scatterText(lineScatter(), createTextContext({ width: 80 }));
+    expect(text).toContain("grouped by line");
+    // bub < claude:A 给 bub;claude 内按成本升序 baseline(B) → mempal(C)
+    expect(text).toContain("bub     A mem/bub");
+    expect(text).toContain("B mem/claude-baseline");
+    expect(text).toContain("C mem/claude-mempal");
+    expect(text).not.toContain("→ C mem/claude-mempal");
+    expect(text).not.toContain("└ Pass rate");
+  });
+
+  it("scatterText connect:图例按 x 升序 → 串联并给逐段位移摘要;单点 series 无箭头无摘要;坐标图内不画折线", () => {
+    const text = scatterText(lineScatter(), createTextContext({ width: 80 }), { connect: true });
+    expect(text).toContain("B mem/claude-baseline → C mem/claude-mempal");
+    expect(text).toContain("└ Pass rate +25pt · Cost +$0.20");
+    expect(text).toContain("A mem/bub");
+    expect(text).not.toContain("A mem/bub →");
+    // 坐标图折线用 · 描画;connect 的 text 投影是图例的位移摘要,网格行(│ 开头)不出现折线点
+    const plotRows = text.split("\n").filter((l) => l.includes("│"));
+    expect(plotRows.length).toBeGreaterThan(0);
+    expect(plotRows.every((l) => !l.includes("·"))).toBe(true);
+  });
+
+  it("同图撞色按图例顺序线性探测空格;无冲突键仍取散列格;超过色板才复用", () => {
+    // 真实回归现场:bub / claude-code / codex 在同一张图里必须三色互异
+    const real = colorIndicesForKeys(["bub", "claude-code", "codex"]);
+    expect(new Set(real.values()).size).toBe(3);
+    // 构造性冲突:找两个散列同格的键,后到者让位,先到者保持散列格(跨图稳定)
+    const pool = Array.from({ length: 40 }, (_, i) => `k${i}`);
+    const byIdx = new Map<number, string[]>();
+    for (const k of pool) {
+      const idx = colorIndexForKey(k);
+      byIdx.set(idx, [...(byIdx.get(idx) ?? []), k]);
+    }
+    const [first, second] = [...byIdx.values()].find((keys) => keys.length >= 2)!;
+    const resolved = colorIndicesForKeys([first, second]);
+    expect(resolved.get(first)).toBe(colorIndexForKey(first));
+    expect(resolved.get(second)).not.toBe(resolved.get(first));
+    // 前 6 个键占满 6 色;第 7 个开始只能复用
+    const seven = colorIndicesForKeys(["s0", "s1", "s2", "s3", "s4", "s5", "s6"]);
+    expect(new Set([...seven.values()].slice(0, 6)).size).toBe(6);
+  });
+});

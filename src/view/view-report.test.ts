@@ -21,7 +21,7 @@ import { afterEach, describe, expect, it } from "vitest";
 // dist-sourced: this must be the exact class loadViewScan()/data.ts's loadReportFile() throws
 // (see src/view/data.ts's comment) — a raw-src import would be a structurally-identical but
 // `instanceof`-incompatible class.
-import { ReportLoadError } from "../../dist/report/load.js";
+import { ReportLoadError } from "../../dist/report/runtime/load.js";
 import { ViewInputError, loadViewScan, type ViewScan } from "./data.ts";
 import { renderHtml } from "./site.ts";
 import { buildView, resolveViewInput } from "./index.ts";
