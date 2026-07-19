@@ -103,8 +103,7 @@ export async function discoverExperiments(root: string): Promise<DiscoveredExper
       .replace(/\.experiment$/, "")
       .split(sep)
       .join("/");
-    const group = id.includes("/") ? id.split("/")[0]! : "";
-    out.push({ ...def, id, group });
+    out.push({ ...def, id });
   }
   return out;
 }

@@ -7,10 +7,9 @@ import { DISPLAY_LOCALES, type LocalizedText, type ReportLocale } from "./locale
 
 /**
  * experiment 行的显示名：给了父路径 `relativeTo` 且它确是前缀，就去掉 `relativeTo + "/"`，
- * 只留 id 末段——用在已经以组为标题的上下文（如默认 `ExperimentComparison` 的每组面板）里，
- * 避免每行重复文件夹名。组键就是 experiment id 的父目录，因此这里的末段与 `MetricScatter`
- * 点标签取的末段同源。不给 `relativeTo`、或它不是前缀（如根目录单例组）时原样返回完整 id。
- * 完整 id 仍是排序 / 着色 / 折叠的键，调用方不要拿这个显示名当身份用。
+ * 只留 id 末段——供自定义报告在已知父路径的上下文里显式调用，避免每行重复文件夹名。默认
+ * `ExperimentComparison` 不传 `relativeTo`，完整 id 始终可见。不给 `relativeTo`、或它不是
+ * 前缀时原样返回完整 id。完整 id 仍是排序 / 着色 / 折叠的键，调用方不要拿这个显示名当身份用。
  */
 export function experimentDisplayName(experimentId: string, relativeTo?: string): string {
   if (relativeTo && experimentId.startsWith(`${relativeTo}/`)) {

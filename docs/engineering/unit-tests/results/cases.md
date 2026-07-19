@@ -131,6 +131,8 @@ it("latest 取实验最新快照，覆盖缺口以 partial-coverage 警告表达
 | 跨快照拼接有可比性前提：以该 experiment 最新快照的可比性配置（agent、model、reasoningEffort、flags、budget、timeoutMs、sandbox）为基准，配置不一致的旧快照不贡献 attempt，其覆盖缺口按 partial-coverage 告警；编排与选题字段（runs、earlyExit、maxConcurrency、selectedEvalIds、evalFilterFingerprint、description）不参与比较 | 正例：改 model 后局部补跑，未补跑的题不从旧 model 快照拼入且触发 partial-coverage；正例：只改 runs / maxConcurrency 的旧快照照常参与拼接；边界：flags 深相等比较，键序不同不算改配置 |
 | 历史已知 eval（跨快照并集 ∪ knownEvalIds）在现刻水位中缺失时产出 `partial-coverage` 警告，覆盖齐全不产出；eval id 前缀过滤与 `--exp` 分段前缀过滤都相应收窄分母 | 正例：knownEvalIds 声明但从未落盘 → partial-coverage；反例：覆盖齐全无警告；边界：位置前缀过滤后分母同步收窄，范围外缺口不触发 |
 | 多 experiment 更新时间不同时较早者触发 `stale-snapshot`；未完成快照（缺 completedAt）触发 `unfinished-snapshot`；`--results` 只看该结果根，不跨根 | 正例：两 experiment 时间差触发 stale；正例：中断快照被选中时触发 unfinished 且 attempts 仍可读；正例：两个独立结果根互不可见 |
+| 合成快照的 `experiment.selectedEvalIds` 重建为最终 picks 的有序 id 列表，不是照抄某一来源快照的局部选择；来源快照里不在其自身 `selectedEvalIds` 内的 attempt 不进入合成结果 | 正例：q1 取自新快照、q2 从旧快照补齐后，合成快照的 `selectedEvalIds` 恰为 `["q1", "q2"]`；反例：某来源快照声明 `selectedEvalIds: ["q1"]` 却夹带 q2 的历史 attempt，合成结果不含该 q2 |
+| 来源快照缺 `experiment.selectedEvalIds`（第三方 harness 未实现该字段）时按其实际 `snapshot.evals` 退化，不把该来源整份排除 | 正例：无该字段的第三方快照仍贡献它实际写出的 eval；边界：与本方快照混合时各自按自己的口径退化/收窄 |
 | resume 携带的复印件不重复计票：同一 eval 若"当前活着"的快照恰好是复印件所在快照，只计一次，证据 ref 仍可读 | 正例：复印件整批只出现一次且 `events()` 非 null |
 | `show` 的 text 面与 `view` 的 web 面对同一结果根、同一 scope 传给 `selectCurrentResults` 同形参数，反映同一批事实（experiment / eval 集合、通过率、`partial-coverage` 警告在/不在）；`--report` 注入的 Scope 与不传 `--report` 时的默认报告一致 | 正例：局部补跑下两面都见补齐的 eval、通过率一致；正例：位置前缀收窄后两面一致排除范围外 eval；正例：`--report` 回显的 eval id 集合与裸默认报告相同；正例：真实 partial-coverage 时两面警告都在场且消息里的分子/分母一致 |
 

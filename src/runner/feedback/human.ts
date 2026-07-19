@@ -229,9 +229,9 @@ function buildSummaryLines(event: DurableFeedbackEvent & { type: "summary" }, st
 
 function buildSavedLines(event: DurableFeedbackEvent & { type: "saved" }): string[] {
   const paths = event.paths;
-  const lines: string[] = [];
-  const group = deriveResultGroup(paths);
-  if (group) lines.push(t("feedback.human.compare", { group }));
+  // 比较命令直接是 `niceeval view`——它读整个结果根,不需要(也不该被)目录路径收窄成
+  // 一个 eval 位置参数(那是选择语义,不是报告分组语义);见 docs/feature/experiments/cli.md。
+  const lines: string[] = [t("feedback.human.compare")];
   if (paths.length === 0) return lines;
   if (paths.length === 1) {
     lines.push(`${t("feedback.human.resultsHeader")} ${paths[0]}`);
@@ -243,18 +243,6 @@ function buildSavedLines(event: DurableFeedbackEvent & { type: "saved" }): strin
     lines.push(`  ${t("feedback.human.resultsMore", { count: paths.length - RESULTS_PATH_CAP })}`);
   }
   return lines;
-}
-
-/** 快照路径的共同「组」段(如 `.niceeval/compare/bub-e2b/<snapshot>` → `compare`)。
- *  多个 experiment 组混在同一次 invocation 里(不带 group 前缀的 `niceeval exp` 全量运行)时
- *  组名不唯一,不猜一个可能就 wrong 的 view 目标,直接省略 Compare 行 —— Results 路径仍然完整。 */
-function deriveResultGroup(paths: readonly string[]): string | undefined {
-  const groups = new Set<string>();
-  for (const p of paths) {
-    const seg = p.split("/")[1];
-    if (seg) groups.add(seg);
-  }
-  return groups.size === 1 ? [...groups][0] : undefined;
 }
 
 function formatSummaryDetail(durationMs: number, state: RunFeedbackState): string {

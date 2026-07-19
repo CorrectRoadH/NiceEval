@@ -75,6 +75,15 @@ export function matchExperimentSelector(ids: readonly string[], selector: string
   return ids.filter((id) => id.startsWith(dir + "/") && id.slice(dir.length + 1).startsWith(namePrefix));
 }
 
+/**
+ * 零命中时展示的可浏览路径清单(docs/feature/experiments/cli.md「零命中」):按 id 的顶层目录段
+ * 去重、排序,带尾斜杠;没有目录段的顶层 experiment id 原样列出(它本身就是一个可选择的目标,
+ * 不是一段路径)。这是运行选择的展示投影,不是报告分组。
+ */
+export function browsableExperimentPaths(ids: readonly string[]): string[] {
+  return [...new Set(ids.map((id) => (id.includes("/") ? `${id.split("/")[0]}/` : id)))].sort();
+}
+
 /** 无 experimentId 时的兜底标签。 */
 export function fallbackExperimentLabel(result: {
   experimentId?: string;

@@ -24,6 +24,7 @@ import { failureDetailFromResult } from "./feedback/failure.ts";
 import { encodeAttemptLocator, type AttemptLocator } from "../results/locator.ts";
 import { runWho } from "./types.ts";
 import { prepareRunSandboxes, sandboxForEval } from "./sandbox-selection.ts";
+import { selectedEvalsForRun } from "./eval-selection.ts";
 import { registerExperimentTeardown, unregisterExperimentTeardown } from "./experiment-cleanup-registry.ts";
 import { withCleanupTimeout } from "./cleanup-timeout.ts";
 import type { Agent, EvalResult, JudgeConfig, Reporter, ReporterRegistration, RunShape, RunSummary } from "../types.ts";
@@ -117,10 +118,10 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
   // 首个通过会 abort 同 key 其余 attempt,且它们的结果被下面的去重检查丢弃,不会重复计入。
   const attempts: Attempt[] = [];
   for (const run of opts.agentRuns) {
-    const evals = opts.evals.filter((e) => run.evalFilter(e.id));
-    // 解析后实际选中的 eval id 全集(evals 过滤器的求值结果)进 ExperimentRunInfo.selectedEvalIds,
-    // 与 evalFilterFingerprint 一起取代过滤器本身落盘(见 docs/feature/results/architecture.md)。
-    run.selectedEvalIds = evals.map((e) => e.id);
+    // selectedEvalIds 已由 CLI 在构造 AgentRun 时对候选 eval 各求值一次算好(见
+    // eval-selection.ts 的 resolveExperimentEvals());这里只按 resolved id 取 eval,
+    // 不重新调用用户谓词(见 docs/feature/results/architecture.md「selectedEvalIds」)。
+    const evals = selectedEvalsForRun(opts.evals, run);
     for (let i = 0; i < run.runs; i++) {
       for (const evalDef of evals) {
         const carryKey = `${run.experimentId ?? ""}|${evalDef.id}`;
@@ -370,7 +371,7 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
     const experimentId = run.experimentId ?? run.agent.name;
     return {
       experimentId: run.experimentId ?? "",
-      selectedEvalIds: run.selectedEvalIds ?? [],
+      selectedEvalIds: run.selectedEvalIds,
       signal: opts.signal,
       // progress 是短命状态:只更新本实验运行级行的 detail,不属于任何 attempt 的 active 条目。
       progress: (u) => {

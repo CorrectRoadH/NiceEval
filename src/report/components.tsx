@@ -235,12 +235,11 @@ const validateScopeSummaryData: Validator = (data) => {
 
 const validateComparisonData: Validator = (data) => {
   if (!isObject(data)) return "expected an object";
-  if (!Array.isArray(data.groups)) return 'missing "groups" (array)';
-  for (const group of data.groups as unknown[]) {
-    if (!isObject(group) || typeof group.key !== "string" || validateScopeSummaryData(group.summary) !== null) {
-      return "each group needs { key, summary, scatter, experiments }";
-    }
+  if (validateScopeSummaryData(data.summary) !== null) return 'missing "summary" (ScopeSummaryData)';
+  if (!isObject(data.scatter) || !Array.isArray((data.scatter as Record<string, unknown>).rows)) {
+    return 'missing "scatter" (ScatterData)';
   }
+  if (!Array.isArray(data.experiments)) return 'missing "experiments" (array)';
   return null;
 };
 
@@ -433,17 +432,17 @@ export const ScopeSummary = makeDataComponent<
 }) as unknown as ReportComponent<ScopeSummaryProps>;
 
 type ComparisonChrome = ChromeProps & {
-  /** 透传给逐组散点;契约同 MetricScatter 的 connect。缺省时 series 维度为 "line" 的组连线。 */
+  /** 透传给散点;契约同 MetricScatter 的 connect。缺省时 series 维度为 "line" 时连线。 */
   connect?: boolean;
 };
 
 export type ExperimentComparisonProps = DataProps<ExperimentComparisonData, ExperimentComparisonOptions, ComparisonChrome>;
 
 /**
- * 内建报告的默认组合件:先把 input 按可比组分区,再为每组分别计算 ScopeSummary、
- * 成本 × 端到端通过率散点和 ExperimentList。web 面持有完整组索引并一次聚焦一组;
- * text 面命中多个组时只显示组索引与可执行的单组查看命令,命中单组时才输出完整散点与列表。
- * series 缺省逐组解析(组内有 label `line` 声明 → 按线归类并连线,否则 agent、不连线)。
+ * 内建报告的默认组合件:对完整 input 计算一份 ScopeSummary、成本 × 端到端通过率散点和
+ * ExperimentList——不同深度目录的 experiments 一律同屏,不分组、不生成 tab 或 panel 索引。
+ * web/text 两面都直接显示完整 Scope。series 缺省解析(Scope 内有 label `line` 声明 →
+ * 按线归类并连线,否则 agent、不连线)。
  */
 export const ExperimentComparison = makeDataComponent<ExperimentComparisonData, ExperimentComparisonOptions, ComparisonChrome>({
   name: "ExperimentComparison",
@@ -477,8 +476,9 @@ export type ExperimentListProps = DataProps<
     /** web 面在比较表前显示实验过滤框;text 面忽略。 */
     filter?: boolean;
     /**
-     * 可选父路径:两面的行标签去掉与它相同的前缀,只显示 experiment id 末段(默认
-     * `ExperimentComparison` 给每组传组键)。完整 id 仍是排序 / 着色 / 过滤 / 折叠的键。
+     * 可选父路径:两面的行标签去掉与它相同的前缀,只显示 experiment id 末段。自定义报告
+     * 显式传入使用;默认 `ExperimentComparison` 不传,完整 id 始终可见。完整 id 仍是
+     * 排序 / 着色 / 过滤 / 折叠的键。
      */
     relativeTo?: string;
   }

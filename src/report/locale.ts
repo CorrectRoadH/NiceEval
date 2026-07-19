@@ -109,13 +109,7 @@ const en = {
   "overview.passRate": "Pass rate",
   "overview.totalCost": "Cost",
 
-  "experimentComparison.groups": "Experiment groups",
-  "experimentComparison.group": "Experiment group",
-  "experimentComparison.results": "Eval results",
-  "experimentComparison.lastRun": "Last run",
-  "experimentComparison.selectGroup": "Select experiment group {group}",
-  "experimentComparison.commandsHead": "Group details:",
-  "experimentComparison.empty": "No experiment groups",
+  "experimentComparison.empty": "No experiments",
 
   /** 方向提示唯一文案:轴向已随 better 反正,「更好」恒指向右上(两轴都声明 better 时才显示)。 */
   "scatter.betterUpperRight": "better → upper right",
@@ -258,13 +252,7 @@ const zhCN: Record<ReportMessageKey, string> = {
   "overview.passRate": "通过率",
   "overview.totalCost": "成本",
 
-  "experimentComparison.groups": "实验组",
-  "experimentComparison.group": "实验组",
-  "experimentComparison.results": "Eval 结果",
-  "experimentComparison.lastRun": "最后运行",
-  "experimentComparison.selectGroup": "选择实验组 {group}",
-  "experimentComparison.commandsHead": "查看组内详情:",
-  "experimentComparison.empty": "没有实验组",
+  "experimentComparison.empty": "暂无实验",
 
   "scatter.betterUpperRight": "越靠右上越好",
   "scatter.noData": "{x} × {y} 没有可绘制的数据",

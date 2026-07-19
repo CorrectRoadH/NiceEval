@@ -5,16 +5,16 @@
 //   niceeval clean                   删除 .niceeval/ 历史运行 artifact
 
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, relative, resolve as resolvePath } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs as nodeParseArgs } from "node:util";
-import { discoverEvals, discoverExperiments, makeFilter } from "./runner/discover.ts";
-import { matchExperimentSelector } from "./shared/aggregate.ts";
+import { discoverEvals, discoverExperiments } from "./runner/discover.ts";
+import { browsableExperimentPaths, matchExperimentSelector } from "./shared/aggregate.ts";
 import { runEvals, type AgentRun } from "./runner/run.ts";
 import { planCarry } from "./runner/fingerprint.ts";
+import { fingerprintEvalsFilter, resolveExperimentEvals, selectedEvalsForRun } from "./runner/eval-selection.ts";
 import { failureDetailFromResult } from "./runner/feedback/failure.ts";
 import { stopAllSandboxes, liveSandboxCount } from "./sandbox/registry.ts";
 import { drainExperimentTeardowns } from "./runner/experiment-cleanup-registry.ts";
@@ -57,7 +57,6 @@ import { formatThrown, upsertManagedBlock } from "./util.ts";
 import type {
   CompletionStatus,
   Config,
-  DiscoveredExperiment,
   ReporterError,
   ReporterRegistration,
   RunCompletion,
@@ -465,32 +464,6 @@ async function openBrowser(url: string): Promise<boolean> {
   });
 }
 
-function evalsFilterFromExperiment(
-  evals: DiscoveredExperiment["evals"],
-  patterns: string[],
-): (id: string) => boolean {
-  const patternFilter = makeFilter(patterns);
-  let expFilter: (id: string) => boolean = () => true;
-  if (Array.isArray(evals)) expFilter = makeFilter(evals);
-  else if (typeof evals === "function") expFilter = evals;
-  return (id) => expFilter(id) && patternFilter(id);
-}
-
-/**
- * evals 过滤器的指纹(进 ExperimentRunInfo.evalFilterFingerprint,供「配置没变」判断):
- * 数组按内容、函数按函数体哈希;CLI 追加的位置参数前缀一并计入。不存过滤器本身——
- * 求值结果在 selectedEvalIds(见 runEvals)。
- */
-function fingerprintEvalsFilter(evals: DiscoveredExperiment["evals"], patterns: string[]): string {
-  const basis =
-    evals === undefined || evals === "*"
-      ? "*"
-      : Array.isArray(evals)
-        ? JSON.stringify([...evals].sort())
-        : evals.toString();
-  return createHash("sha256").update(JSON.stringify({ basis, patterns })).digest("hex").slice(0, 16);
-}
-
 /**
  * run 结束后把 coordinator 累计的诊断折成 `RunCompletion`(见 docs/feature/experiments/cli.md
  * 「运行完成状态不只看 verdict 计数」)。只读已经真实发生过的诊断,不额外发明信号:
@@ -666,7 +639,7 @@ async function main(): Promise<void> {
 
   const agentRuns: AgentRun[] = [];
   let experimentSelection = t("cli.all");
-  let availableExperimentGroups = t("cli.none");
+  let availableExperimentPaths = t("cli.none");
 
   if (command === "exp") {
     if (flags.agent || flags.model) {
@@ -682,15 +655,13 @@ async function main(): Promise<void> {
     const expArg = positionals[0];
     const extraPatterns = positionals.slice(1);
     experimentSelection = positionals.join(" ") || t("cli.all");
-    availableExperimentGroups = [...new Set(experiments.map((experiment) => experiment.group || experiment.id))]
-      .sort()
-      .join(", ") || t("cli.none");
+    availableExperimentPaths = browsableExperimentPaths(experiments.map((e) => e.id)).join(", ") || t("cli.none");
     const selectedIds = expArg ? new Set(matchExperimentSelector(experiments.map((e) => e.id), expArg)) : undefined;
     const selected = selectedIds ? experiments.filter((e) => selectedIds.has(e.id)) : experiments;
     if (selected.length === 0) {
       process.stderr.write(t("cli.experiment.noMatch", {
         arg: expArg ?? t("cli.all"),
-        experiments: availableExperimentGroups,
+        experiments: availableExperimentPaths,
       }));
       // show / view 是顶层命令。只有同名 experiment 确实不存在时才纠错，不能抢占合法 id。
       if (expArg === "show" || expArg === "view") {
@@ -709,6 +680,15 @@ async function main(): Promise<void> {
     }
     for (const exp of selected) {
       // 一个实验 = 一个配置(单 model)。跨模型对比写多个实验文件,各钉一个 model。
+      // evals 谓词在这里对本次 invocation 的候选 eval 各求值一次;下游(dry-run、sandbox 查表、
+      // fingerprint/carry、attempt 展开)只消费 selectedEvalIds,不重新调用谓词
+      // (见 docs/feature/experiments/library.md「evals」)。
+      const { selectedEvalIds } = resolveExperimentEvals({
+        experimentId: exp.id,
+        selector: exp.evals,
+        cliPatterns: extraPatterns,
+        evals,
+      });
       agentRuns.push({
         agent: exp.agent,
         model: exp.model,
@@ -719,7 +699,7 @@ async function main(): Promise<void> {
         sandbox: exp.sandbox ?? config.sandbox,
         timeoutMs: flags.timeout ?? envNumber("NICEEVAL_TIMEOUT") ?? exp.timeoutMs ?? config.timeoutMs,
         budget: flags.budget ?? envNumber("NICEEVAL_BUDGET") ?? exp.budget,
-        evalFilter: evalsFilterFromExperiment(exp.evals, extraPatterns),
+        selectedEvalIds,
         experimentId: exp.id,
         description: exp.description,
         labels: exp.labels,
@@ -762,14 +742,14 @@ async function main(): Promise<void> {
 
   // matchedByRun[i] 对应 agentRuns[i] 匹配到的 eval 集合;--dry 预览与真正开跑时的
   // RunFeedbackPlan(总量、去重 eval 数)共用同一份计算,不重复过滤一遍。
-  const matchedByRun = agentRuns.map((run) => evals.filter((e) => run.evalFilter(e.id)));
+  const matchedByRun = agentRuns.map((run) => selectedEvalsForRun(evals, run));
   const totalRuns = agentRuns.reduce((sum, run, i) => sum + matchedByRun[i]!.length * run.runs, 0);
   const uniqueEvalIds = new Set(matchedByRun.flat().map((e) => e.id));
 
   if (totalRuns === 0) {
     process.stderr.write(t("cli.experiment.noEvalsSelected", {
       selection: experimentSelection,
-      experiments: availableExperimentGroups,
+      experiments: availableExperimentPaths,
     }));
     process.exit(1);
   }

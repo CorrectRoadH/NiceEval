@@ -10,9 +10,12 @@
 |---|---|
 | attempt 总数 = 选中实验配置数 × 选中 eval 数 × runs（runs 默认 1）；不写实验不能运行 | 正例：2 配置 × 3 eval × 5 runs = 30；边界：runs 省略 = 1；反例：无 experiment 报错 |
 | eval 文件默认导出数组时扇出，id 加零填充索引；单导出用文件 id | 正例：数组扇出 id 格式；边界：单元素数组仍带索引 |
-| 位置参数按 eval id **裸字符串前缀**过滤，实验 `evals` 字段（`"*"` / 数组 / 同步谓词）再筛，两层是交集；谓词逐条收到发现并扇出后的只读 `EvalDescriptor`，解析结果作为 `selectedEvalIds` 落进快照 | 正例：谓词按 tags + environment 选择并记录最终 id；边界：`evals` 默认 `"*"`；反例：不命中时 `selectedEvalIds` 为空且不派发 attempt |
+| 位置参数按 eval id **裸字符串前缀**过滤，实验 `evals` 字段（`"*"` / 数组 / 同步谓词）再筛，两层是交集；谓词逐条收到发现并扇出后的只读 `EvalDescriptor`，同时可读 `id` / `tags` / `environment` / `metadata`，解析结果作为 `selectedEvalIds` 落进快照 | 正例：谓词同时按 `id.startsWith(...)`、`tags`、`environment`、`metadata` 选择并记录最终 id；边界：`evals` 默认 `"*"`；反例：不命中时 `selectedEvalIds` 为空且不派发 attempt |
+| `EvalDescriptor` 是显式白名单投影：不暴露 `sourcePath` / `baseDir` / `test` / hooks 等内部字段；未声明 `tags` 得到只读空数组；一个 experiment 的谓词对 descriptor 的 mutation 不影响另一个 experiment 看到的值 | 正例：descriptor 上只有 `id`/`description`/`tags`/`environment`/`metadata` 五个可枚举字段；边界：`tags` 缺省为冻结空数组；反例：谓词尝试 mutate tags/metadata 后下一个谓词读到的仍是原值 |
+| 每个 experiment 的谓词对本次 invocation 的候选 eval **各求值一次**：dry-run、sandbox 查表、fingerprint/carry 规划与真实调度全部消费同一份 `selectedEvalIds`，不重复调用谓词 | 正例：加调用计数的谓词在 dry + real 全链路上恰好被调用 `候选 eval 数` 次；反例：sandbox-selection / fingerprint / run 的消费点各自不再触发额外调用 |
+| 谓词返回非 boolean（含 Promise）或抛错：解析立即以完整用户反馈失败，错误携带 experiment id 与触发求值的 eval id，且保留原 cause | 反例：谓词返回字符串/Promise 时报错且消息含 experiment id + eval id；反例：谓词抛错时错误 cause 是原异常 |
 | `EvalDef.environment` 是 provider-neutral profile；sandbox spec 的 `environments` 表在调度前对每条选中 eval 查表，解析结果同源驱动创建、逐 eval fingerprint、provider 推荐并发与结果投影；remote Agent 不查表 | 正例：两个 profile 查到不同 E2B template，快照落 sandboxByEval；反例：选中 eval 的 profile 缺表项在创建 sandbox 前穷举报错；边界：remote Agent 零查表；边界：未声明 environment 的 eval 用基础产物且不进 sandboxByEval |
-| 实验 id 从路径推导（`experiments/compare/x.ts` → `compare/x`）；选择器按序应用精确 id、目录前缀、目录段精确匹配下的文件名前缀三条规则，零命中报 `No experiment matched` 并列出可用目录 | 正例：`exp <组>` 选目录段下全部实验；正例：`exp <组/配置>` 精确 id 选一个，即使它是同目录内其它文件名的前缀；正例：`exp <组/前缀>` 命中同目录内共享文件名前缀的多个配置（如 `--agents-md` / `--mempal` 变体）；反例：目录段不精确匹配时不跨目录误配（如 `dev` 不命中 `dev-e2b`）；反例：零命中报错且列出全部已发现目录 |
+| 实验 id 从路径推导（`experiments/compare/x.ts` → `compare/x`）；选择器按序应用精确 id、目录路径批量选择、目录段精确匹配下的文件名前缀三条规则，零命中报 `No experiment matched` 并列出可用路径 | 正例：`exp <路径>` 按目录路径批量选中该目录下全部实验；正例：`exp <路径/配置>` 精确 id 选一个，即使它是同目录内其它文件名的前缀；正例：`exp <路径/前缀>` 命中同目录内共享文件名前缀的多个配置（如 `--agents-md` / `--mempal` 变体）；反例：目录段不精确匹配时不跨目录误配（如 `dev` 不命中 `dev-e2b`）；反例：零命中报错且列出全部已发现路径 |
 | `exp show` / `exp view` 在没有同名 experiment 时仍按“不存在的实验”失败，但追加正确顶层命令提示；若真有同名 experiment 则正常选择，不抢占合法 id | 反例：无 `show` / `view` experiment 时分别提示 `niceeval show` / `niceeval view`；边界：存在同名 experiment 时不提示 |
 | 调度项覆盖优先级 CLI flag → experiment → config → 内置默认；agent/model/flags 只属于 experiment，CLI 不可覆盖 | 正例：`--runs` 覆盖实验 runs；正例：实验 timeoutMs 覆盖 config；反例：`exp --model` 报用法错误 |
 | 结果按发现顺序（相对路径排序）排列，与完成顺序无关 | 反例：后发现的先完成，输出顺序仍稳定 |

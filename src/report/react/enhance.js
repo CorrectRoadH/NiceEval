@@ -1,5 +1,5 @@
 // niceeval 报告的渐进增强 runtime:纯 vanilla JS、零依赖、IIFE、幂等。
-// 只作用于 .nre DOM 与 data-nre-* 属性;六个行为——实验组切换、Tabs 单选切换、表格排序、
+// 只作用于 .nre DOM 与 data-nre-* 属性;五个行为——Tabs 单选切换、表格排序、
 // 行过滤、SVG 点 tooltip、警告命令复制。全部只改浏览状态,不改数据、指标口径或初始 HTML 数值。
 // 静态 HTML 无 JS 时内容完整可读是硬约束:排序有数据侧预排、tooltip 退化为原生 <title>、
 // 过滤输入框静默无功能、Tabs 退化为原生 <details> 手风琴、命令块退化为点击全选。
@@ -18,38 +18,6 @@
   function closest(target, selector) {
     return target && target.closest ? target.closest(selector) : null;
   }
-
-  // ───────────────────────── 实验组:[data-nre-experiment-group-select] ─────────────────────────
-  // 数据侧已经把每组的摘要、散点和列表分别算好；这里仅在同一报告节点内切换 <details>，
-  // 不重新请求、不重算，也不触碰 Runs / Traces / Attempt 证据室。
-
-  function selectExperimentGroup(control) {
-    var root = control.closest("[data-nre-experiment-groups]");
-    if (!root) return;
-    var selected = control.getAttribute("data-nre-experiment-group-select");
-    var controls = root.querySelectorAll("[data-nre-experiment-group-select]");
-    var panels = root.querySelectorAll("[data-nre-experiment-group-panel]");
-    for (var i = 0; i < controls.length; i++) {
-      var active = controls[i].getAttribute("data-nre-experiment-group-select") === selected;
-      controls[i].setAttribute("aria-selected", active ? "true" : "false");
-      controls[i].tabIndex = active ? 0 : -1;
-    }
-    for (var j = 0; j < panels.length; j++) {
-      panels[j].open = panels[j].getAttribute("data-nre-experiment-group-panel") === selected;
-    }
-  }
-
-  document.addEventListener("click", function (e) {
-    var control = closest(e.target, "[data-nre-experiment-group-select]");
-    if (control) selectExperimentGroup(control);
-  });
-
-  document.addEventListener("keydown", function (e) {
-    var control = closest(e.target, "[data-nre-experiment-group-select]");
-    if (!control || (e.key !== "Enter" && e.key !== " ")) return;
-    e.preventDefault();
-    selectExperimentGroup(control);
-  });
 
   // ───────────────────────── Tabs:[data-nre-tabs] 单选切换 ─────────────────────────
   // 静态 HTML 每 tab 一个 <details> 且仅首个 open;点击 summary 时接管原生 toggle:

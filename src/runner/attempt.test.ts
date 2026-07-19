@@ -100,7 +100,7 @@ async function runOnce(
     // 自定义 provider:create() 直接返回内存 fake,绕开真实沙箱 provider。
     sandbox: defineSandbox({ name: "fake-provider", create: async () => asSandbox(box) }),
     timeoutMs: 5_000,
-    evalFilter: () => true,
+    selectedEvalIds: [evalDef.id],
   };
   const attempt: Attempt = { evalDef, run, attempt: 0, key: "fake/eval", fingerprint: "" };
   const config: Config = {};

@@ -55,8 +55,8 @@ it("scopeSummaryData 使用端到端两级聚合并保留覆盖率", async () =>
 
 | 契约 | 场景 |
 |---|---|
-| `experimentComparisonData()` 对完整 input 计算一份 `ScopeSummary` / `MetricScatter` / `ExperimentList`，每个 experiment 的 eval 集以快照 `selectedEvalIds` 为准 | 正例：两个 experiment 选择不同 eval 集，列表 eval 数与各自分母如实且未选择项不补失败 |
-| `ExperimentComparison` 的 web/text 面都直接显示完整 Scope，不输出实验组选择器或组索引 | 正例：多 experiment 的两面都有摘要、散点与实验明细 |
+| `experimentComparisonData()` 对完整 input 计算一份 `ScopeSummary` / `MetricScatter` / `ExperimentList`，每个 experiment 的 eval 集以快照 `selectedEvalIds` 为准；不同深度目录（如 `compare/a`、`bench/long/x`、`standalone`）的 experiments 一律进同一份 data，不再按父路径分组比较 | 正例：两个 experiment 选择不同 eval 集，列表 eval 数与各自分母如实且未选择项不补失败；正例：三种深度不同的 experiment id 混在一份 data 里，summary/scatter/experiments 三块与对完整投影 input 单独调用结果深等；正例：来源快照缺 `selectedEvalIds`（第三方）时该 experiment 按其实际 evals 可见 |
+| `ExperimentComparison` 的 web/text 面都直接显示完整 Scope，不输出实验组选择器或组索引 | 正例：多 experiment 的两面都有摘要、散点与实验明细；反例：web 面 DOM 中无 `role=tablist` 与任何 group `<details>`/data 属性；反例：text 面不含分组索引段与 `niceeval exp <group>` 命令提示；正例：`ExperimentList` 行显示完整 experiment id（不按父路径截断） |
 | `MetricScatter` 对缺 x 或 y 的点不绘制并报告缺失数；零点显示明确空态；单点照常绘制 | 边界：0 点 / 1 点 / 部分缺 x；反例：单点不被拒绝 |
 | 散点轴方向跟随指标 `better`：lower 反向（左贵右便宜）、higher 正向，「更好」恒指向右上，提示恒为「越靠右上越好」；刻度显示真实值；未声明 better 的轴正向且整图不出方向提示；两面同规则 | 正例：成本 × 通过率图上低成本点落在右侧且刻度值仍从大到小；边界：x 无 better 时无方向提示；正例：text 面同方向 |
 | `MetricLine` 对未声明数值 flag 的 experiment 不伪造 x 值并报告未绘制数 | 正例：flag 缺失与 flag="high" 两种；反例：不落到 x=0 |

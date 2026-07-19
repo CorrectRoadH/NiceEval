@@ -888,20 +888,36 @@ describe("内建报告", () => {
     }
   });
 
-  it("首页 text 面多组时只输出组索引与单组查看命令;单组时输出散点与实验列表;页首是 Hero 的标题与 meta 行", async () => {
+  it("首页 web/text 两面都展示完整 Scope,不同深度目录的 experiment 同屏且显示完整 id;无组选择器或组索引", async () => {
     const g1 = snap({ experimentId: "compare/a", results: [res("q", "passed")] });
     const g2 = snap({ experimentId: "dev/b", results: [res("q", "failed")] });
-    const multi = await renderReportToText(
-      builtInReport,
-      { scope: scopeOf([g1, g2]), results: resultsOf([g1, g2]) },
-      { width: 120 },
-    );
+    const ctx = { scope: scopeOf([g1, g2]), results: resultsOf([g1, g2]) };
+
+    const text = await renderReportToText(builtInReport, ctx, { width: 120 });
     // Hero text 面:标题行(回退链终点)+ 最后运行 meta 行在页首
-    expect(multi.split("\n")[0]).toBe("Eval Results");
-    expect(multi).toContain("Last run");
-    expect(multi).toContain("niceeval show --exp compare");
-    expect(multi).toContain("niceeval show --exp dev");
-    expect(multi).not.toContain("Eval / Attempt"); // 不倾倒组内 experiment 明细
+    expect(text.split("\n")[0]).toBe("Eval Results");
+    expect(text).toContain("Last run");
+    // 完整 Scope 直接展示:两个不同路径的 experiment 都可见,不是组索引 + 单组查看命令
+    expect(text).toContain("compare/a");
+    expect(text).toContain("dev/b");
+    expect(text).not.toContain("niceeval show --exp compare");
+    expect(text).not.toContain("niceeval show --exp dev");
+    expect(text).not.toContain("niceeval exp compare");
+    expect(text).not.toContain("niceeval exp dev");
+
+    const html = await renderReportToStaticHtml(builtInReport, ctx);
+    expect(html).not.toContain('role="tablist"');
+    expect(html).not.toContain("data-nre-experiment-group");
+    expect(html).toContain("compare/a");
+    expect(html).toContain("dev/b");
+  });
+
+  it("0/1/多 experiment 均可渲染;0 个时两面显示空态", async () => {
+    const empty = { scope: scopeOf([]), results: resultsOf([]) };
+    const emptyText = await renderReportToText(builtInReport, empty, { width: 120 });
+    expect(emptyText).toContain("No experiments");
+    const emptyHtml = await renderReportToStaticHtml(builtInReport, empty);
+    expect(emptyHtml).toContain("No experiments");
 
     const priced = snap({
       experimentId: "compare/priced",
@@ -912,7 +928,7 @@ describe("内建报告", () => {
       { scope: scopeOf([priced]), results: resultsOf([priced]) },
       { width: 140 },
     );
-    expect(single).toContain("Eval / Attempt"); // 单组直接进入组内详情
+    expect(single).toContain("Eval / Attempt"); // 单 experiment 直接展示散点与实验明细
     // 成本轴(better: lower)反向渲染,「更好」恒指向右上;两轴都声明 better → 提示在场
     expect(single).toContain("better → upper right");
   });

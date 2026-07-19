@@ -357,17 +357,15 @@ export interface TraceWaterfallRow {
   spans: readonly TraceSpanSummary[];
 }
 
-/** 一个可比组的数据;三个子块都只消费本组快照,不能含其它父目录的引用。 */
-export interface ExperimentComparisonGroupData {
-  /** experiment id 的完整父路径;根目录 experiment 使用完整 id。 */
-  key: string;
+/**
+ * `experimentComparisonData()` 的产物:对完整 Scope 只算一份 summary / scatter /
+ * experiments——不同深度目录的 experiments 一律进同一份 data,不再按父路径分组比较
+ * (docs/feature/reports/library/summaries.md「ExperimentComparison」)。
+ */
+export interface ExperimentComparisonData {
   summary: ScopeSummaryData;
   scatter: ScatterData;
   experiments: ExperimentListItem[];
-}
-
-export interface ExperimentComparisonData {
-  groups: ExperimentComparisonGroupData[];
 }
 
 // ───────────────────────── 实体列表(ExperimentList / EvalList / AttemptList)─────────────────────────

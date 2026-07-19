@@ -137,6 +137,15 @@ export function deepEqualJson(a: unknown, b: unknown): boolean {
 }
 
 /**
+ * 一个快照实际选中的 eval id 全集:优先读落盘的 `experiment.selectedEvalIds`(niceeval 自己的
+ * 写入面必有此字段);第三方 harness 未实现该字段时退化为该快照实际写出的 `evals`,不把整份
+ * 来源排除在外(见 docs/feature/results/architecture.md「selectedEvalIds」)。
+ */
+function selectedEvalIdsOf(snapshot: Snapshot): readonly string[] {
+  return snapshot.experiment?.selectedEvalIds ?? snapshot.evals.map((ev) => ev.id);
+}
+
+/**
  * 两个宿主(show / view)共用的现刻水位选择器:每个 experiment × eval 取「包含该 eval 的
  * 最新快照」里的全部 attempt,跨 run 合成。results.latest() 只挑「每实验最新快照」,带 eval
  * 前缀的局部重跑会产出残缺快照;现刻水位承诺「不会因为一次局部重跑变残缺」,所以在实验的
@@ -166,8 +175,12 @@ export function selectCurrentResults(results: Results, scope: ResultScope = {}):
     const taken = new Map<string, { ev: Eval; snapshot: Snapshot }>();
     for (const snapshot of exp.snapshots) {
       if (!deepEqualJson(comparabilityConfigOf(snapshot), baseline)) continue;
+      // 一个来源快照只贡献它自己选中的 eval——不在其 selectedEvalIds(或第三方退化后的实际
+      // evals)内的历史 attempt 不进入合成结果,即使它恰好出现在 snapshot.evals 里。第三方
+      // 无该字段时 selectedEvalIdsOf 退化为快照实际 evals,这里的过滤天然是 no-op。
+      const selectedIds = new Set(selectedEvalIdsOf(snapshot));
       for (const ev of snapshot.evals) {
-        if (!match(ev.id) || taken.has(ev.id)) continue;
+        if (!selectedIds.has(ev.id) || !match(ev.id) || taken.has(ev.id)) continue;
         taken.set(ev.id, { ev, snapshot });
       }
     }
@@ -184,12 +197,17 @@ export function selectCurrentResults(results: Results, scope: ResultScope = {}):
     }
     const evals = picks.map((p) => p.ev);
     const base = exp.latest;
+    // 合成快照的 selectedEvalIds 重建为最终 picks 的有序 id 列表——不是照抄某一来源快照
+    // (通常是最新快照)的局部选择。base.experiment 缺失(第三方无 ExperimentRunInfo)时不
+    // 伪造一份不完整投影,继续靠 report 侧 fallback(见 selectedEvalIdsOf)。
+    const experiment =
+      base.experiment !== undefined ? { ...base.experiment, selectedEvalIds: evals.map((ev) => ev.id) } : undefined;
     snapshots.push({
       experimentId: exp.id,
       startedAt,
       agent: base.agent,
       ...(base.model !== undefined ? { model: base.model } : {}),
-      ...(base.experiment !== undefined ? { experiment: base.experiment } : {}),
+      ...(experiment !== undefined ? { experiment } : {}),
       ...(base.name !== undefined ? { name: base.name } : {}),
       producer: base.producer,
       schemaVersion: base.schemaVersion,

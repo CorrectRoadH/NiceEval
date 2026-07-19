@@ -128,6 +128,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 - 已修 [experiment-setup-progress-activity-blackhole](experiment-setup-progress-activity-blackhole.md) — 实验级 setup 全程零输出(状态行全员 queued 像卡死):runner 不为 setup 发布事件且 cli.md 无显示契约,`ctx.progress`→`reportActivity` 因四个渲染器都没实现可选 `activity()` 钩子被静默丢弃;修为 runner 发布 `experiment-hook` 起止事件 + 运行级 active 行 + agent/ci 起止行,human 实现 `activity()`(feedback 各文件 + run.ts)
 - [lifecycle-operation-missing-eval-teardown](lifecycle-operation-missing-eval-teardown.md) — v6 结构化 error/diagnostics 的 `operation` 取自封闭 `LifecycleOperationName`,但集合没有 eval 的 teardown/cleanup 项(agent/sandbox 都有);eval cleanup 失败的诊断按 owner 归到 `eval.setup`,要精确区分需先给 docs 补 `eval.teardown` 项(契约未修,`src/runner/attempt.ts`)
 - 已修 [force-exit-skips-experiment-teardown](force-exit-skips-experiment-teardown.md) — Ctrl-C 强清路径跳过实验级 teardown 留孤儿;一修=加速收尾三件套(注册表兜底+先停沙箱+逐调用体 30s 超时);二修(2026-07-18)=事件驱动收口:15s 窗口 < 30s 预算倒挂且在飞收尾对 drain 不可见,改为 memoized promise 可等待、settle 即退、兜底上限 2×CLEANUP_TIMEOUT_MS 从常量推导
+- 已修 [eval-reserved-word-breaks-predicate-example](eval-reserved-word-breaks-predicate-example.md) — `eval` 是 strict mode 保留绑定标识符,不能当参数名;`ExperimentDef.evals` 类型签名与 docs 示例原写成 `(eval) => eval.id...` 会让用户抄示例直接语法报错,统一改参数名为 `e`(`src/runner/types.ts` + `docs/feature/experiments/{library,README}.md`)
 
 ## examples 与 tier-sync
 

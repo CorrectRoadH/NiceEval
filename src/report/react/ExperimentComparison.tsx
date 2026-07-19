@@ -1,6 +1,5 @@
-// ExperimentComparison 的 web 面:完整持有所有可比组,组选择只切换已经独立计算好的 panel。
-// 静态 HTML 用原生 <details> 保留每组完整内容(第一组默认展开、无 JS 完整可读);
-// enhance.js 再把上方摘要卡变成单选切换。切组是纯浏览状态,不重新计算任何数字。
+// ExperimentComparison 的 web 面:对完整 Scope 渲染一份摘要、一张散点与一份实验列表——
+// 不同深度目录的 experiments 一律同屏,不再有组选择器 / tab / panel。
 
 import type { ReactElement } from "react";
 import type { ExperimentComparisonData } from "../types.ts";
@@ -19,58 +18,25 @@ export function ExperimentComparisonView({
   attemptHref,
 }: {
   data: ExperimentComparisonData;
-  /** 透传给逐组散点;缺省跟随缺省 series 解析——按 line 归类的组连线(声明了线就画线)。 */
+  /** 透传给散点;缺省跟随缺省 series 解析——按 line 归类时连线(声明了线就画线)。 */
   connect?: boolean;
   className?: string;
   locale?: ReportLocale;
   attemptHref?: (locator: AttemptLocator) => string;
 }): ReactElement {
-  if (data.groups.length === 0) {
+  if (data.experiments.length === 0) {
     return (
       <div className={cx("nre", "nre-experiment-comparison", className)}>
-        <p className="nre-experiment-groups-empty">{localeText(locale, "experimentComparison.empty")}</p>
+        <p className="nre-experiment-comparison-empty">{localeText(locale, "experimentComparison.empty")}</p>
       </div>
     );
   }
 
   return (
-    <div className={cx("nre", "nre-experiment-comparison", className)} data-nre-experiment-groups>
-      <div
-        className="nre-experiment-group-tabs"
-        role="tablist"
-        aria-label={localeText(locale, "experimentComparison.groups")}
-      >
-        {data.groups.map((group, index) => (
-          <div
-            key={group.key}
-            className="nre-experiment-group-tab"
-            role="tab"
-            tabIndex={index === 0 ? 0 : -1}
-            aria-selected={index === 0 ? "true" : "false"}
-            aria-label={localeText(locale, "experimentComparison.selectGroup", { group: group.key })}
-            data-nre-experiment-group-select={index}
-          >
-            <strong className="nre-experiment-group-name">{group.key}</strong>
-            <ScopeSummary data={group.summary} locale={locale} />
-          </div>
-        ))}
-      </div>
-
-      <div className="nre-experiment-group-panels">
-        {data.groups.map((group, index) => (
-          <details
-            key={group.key}
-            className="nre-experiment-group-panel"
-            data-nre-experiment-group-panel={index}
-            role="tabpanel"
-            open={index === 0}
-          >
-            <summary>{group.key}</summary>
-            <MetricScatter data={group.scatter} connect={connect ?? group.scatter.seriesDimension === "line"} locale={locale} />
-            <ExperimentList data={group.experiments} filter locale={locale} relativeTo={group.key} attemptHref={attemptHref} />
-          </details>
-        ))}
-      </div>
+    <div className={cx("nre", "nre-experiment-comparison", className)}>
+      <ScopeSummary data={data.summary} locale={locale} />
+      <MetricScatter data={data.scatter} connect={connect ?? data.scatter.seriesDimension === "line"} locale={locale} />
+      <ExperimentList data={data.experiments} filter locale={locale} attemptHref={attemptHref} />
     </div>
   );
 }

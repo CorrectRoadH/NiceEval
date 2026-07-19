@@ -406,7 +406,7 @@ describe("最终 stdout handoff:status/summary/快照/最多 5 个失败/show �
     expect(text).toContain("failures: 12 total, showing 5");
     for (let i = 0; i < 5; i++) expect(text).toContain(`memory/eval-${i}`);
     expect(text).not.toContain("memory/eval-5 ");
-    expect(text).toContain("… 7 more; inspect the JSON result or run `niceeval view compare`");
+    expect(text).toContain("… 7 more; inspect the JSON result or run `niceeval view`");
   });
 
   it("快照路径超过上限时折叠成 '… N more'", async () => {

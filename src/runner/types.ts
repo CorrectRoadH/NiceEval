@@ -424,8 +424,14 @@ export interface ExperimentDef {
   runs?: number;
   /** 一次重复(runs > 1)里某次 attempt 失败后是否跳过剩余重复;省略默认 true(提前退出省钱)。 */
   earlyExit?: boolean;
-  /** 这个实验覆盖哪些 eval:"*" 全部、字符串数组按 id 前缀、或自定义谓词;省略等价于 "*"。 */
-  evals?: "*" | string[] | ((id: string) => boolean);
+  /**
+   * 这个实验覆盖哪些 eval:`"*"` 全部、字符串数组按 id 前缀、或自定义谓词(逐条收到发现并扇出后的
+   * 只读 `EvalDescriptor`,不暴露路径 / 执行字段);省略等价于 `"*"`。谓词对本次 invocation 的
+   * 候选 eval 各求值一次,解析结果作为 `selectedEvalIds` 落进快照——不是运行时反复调用的过滤器
+   * (见 docs/feature/eval/library.md「EvalDescriptor」、docs/feature/experiments/library.md
+   * 「evals:遍历发现结果,自定义选择」)。
+   */
+  evals?: "*" | readonly string[] | ((e: EvalDescriptor) => boolean);
   /** 覆盖项目级 / CLI 的单次 attempt 超时(毫秒),只对这个实验生效。 */
   timeoutMs?: number;
   /**
@@ -467,7 +473,20 @@ export interface ExperimentDef {
 
 export interface DiscoveredExperiment extends ExperimentDef {
   id: string;
-  group: string;
+}
+
+/**
+ * 用户谓词(`ExperimentDef.evals`)能看到的唯一形状——发现并扇出后的显式白名单投影,不透传
+ * `DiscoveredEval` 原对象(不暴露 `sourcePath` / `baseDir` / `test` / hooks 等内部路径与执行字段)。
+ * `tags` 缺省为冻结空数组;`metadata` 原样引用作者声明的对象(至少浅冻结),供 `tags.includes(...)` /
+ * `environment` / `metadata.<key>` 判断(见 docs/feature/eval/library.md「EvalDescriptor」)。
+ */
+export interface EvalDescriptor {
+  readonly id: string;
+  readonly description?: string;
+  readonly tags: readonly string[];
+  readonly environment?: string;
+  readonly metadata?: Readonly<Record<string, unknown>>;
 }
 
 export interface Config {
@@ -553,7 +572,6 @@ export interface AgentRun {
   resolvedSandboxes?: Map<string, SandboxOption>;
   timeoutMs?: number;
   budget?: number;
-  evalFilter: (id: string) => boolean;
   experimentId?: string;
   /** 实验的一句话描述(ExperimentDef.description),进结果快照的 ExperimentRunInfo。 */
   description?: string;
@@ -561,8 +579,13 @@ export interface AgentRun {
   labels?: Record<string, string | number>;
   /** evals 过滤器的指纹(数组内容 / 函数体哈希),进 ExperimentRunInfo.evalFilterFingerprint。 */
   evalFilterFingerprint?: string;
-  /** 本次运行解析后实际选中的 eval id 全集;runEvals 在调度前按 evalFilter 求值填入。 */
-  selectedEvalIds?: string[];
+  /**
+   * 本次 invocation 解析后实际选中的 eval id 全集——CLI 在构造 AgentRun 时对候选 eval 各求值
+   * 一次算好(见 `eval-selection.ts` 的 `resolveExperimentEvals()`),下游(dry-run、sandbox 查表、
+   * fingerprint/carry、attempt 展开、hook ctx、落盘)只消费这份已解析结果,不重新调用用户谓词。
+   * 保持顺序 = discovery 稳定顺序,去重。
+   */
+  selectedEvalIds: readonly string[];
   strict?: boolean;
   /** 本配置自己的并发上限(来自 ExperimentDef.maxConcurrency):调度器为它单建信号量,
    *  attempt 先过这道闸再占全局并发位;省略则只受全局并发约束。 */

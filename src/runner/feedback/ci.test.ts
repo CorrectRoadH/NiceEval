@@ -197,7 +197,7 @@ describe("start 立即追加;仅连续 60 秒无永久事件才 heartbeat;failur
       "niceeval: result=failed passed=23 failed=1 errored=0 reused=18 duration=128s",
       "niceeval: json=.niceeval/ci-summary.json",
       "niceeval: junit=.niceeval/junit.xml",
-      "niceeval: snapshots=.niceeval/ci/<3 snapshots>",
+      "niceeval: snapshots=<3 snapshots>",
     ]);
     expect(fake.stderr.writes.join("")).toBe("");
   });

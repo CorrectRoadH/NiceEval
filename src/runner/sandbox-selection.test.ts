@@ -45,7 +45,7 @@ function run(overrides: Partial<AgentRun> = {}): AgentRun {
     flags: {},
     runs: 1,
     earlyExit: true,
-    evalFilter: () => true,
+    selectedEvalIds: [],
     experimentId: "profiles/run",
     ...overrides,
   };
@@ -64,6 +64,7 @@ describe("eval-level sandbox selection", () => {
           "node-18-legacy": { template: "niceeval-node18" },
         },
       }),
+      selectedEvalIds: ["astropy/old", "legacy/node", "weather/basic"],
     });
 
     prepareRunSandboxes([py39, node18, plain], [selected]);
@@ -93,7 +94,10 @@ describe("eval-level sandbox selection", () => {
 
     const missingA = await evalDef("astropy/old", "python-3.9-astropy-4.2");
     const missingB = await evalDef("legacy/node", "node-18-legacy");
-    const bare = run({ sandbox: e2bSandbox({ template: "niceeval-agents" }) });
+    const bare = run({
+      sandbox: e2bSandbox({ template: "niceeval-agents" }),
+      selectedEvalIds: ["astropy/old", "legacy/node"],
+    });
     let thrown: Error | undefined;
     try {
       prepareRunSandboxes([missingA, missingB], [bare]);
@@ -114,14 +118,20 @@ describe("eval-level sandbox selection", () => {
         template: "niceeval-agents",
         environments: { "python-3.9-astropy-4.2": { template: "niceeval-py39-astropy42" } },
       }),
+      selectedEvalIds: ["astropy/old", "weather/basic"],
     });
-    const vercelRun = run({ experimentId: "profiles/vercel", sandbox: vercelSandbox({ snapshotId: "snap_base" }) });
+    const vercelRun = run({
+      experimentId: "profiles/vercel",
+      sandbox: vercelSandbox({ snapshotId: "snap_base" }),
+      selectedEvalIds: ["weather/basic"],
+    });
     expect(resolvedSandboxRecommendedConcurrency([item, plain], [e2bRun])).toBe(20);
     expect(resolvedSandboxRecommendedConcurrency([plain], [e2bRun, vercelRun])).toBe(1);
 
     const remote = run({
       agent: agent("remote"),
       sandbox: e2bSandbox({ template: "niceeval-agents" }),
+      selectedEvalIds: ["astropy/old"],
     });
     expect(() => prepareRunSandboxes([item], [remote])).not.toThrow();
     expect(resolvedSandboxRecommendedConcurrency([item], [remote])).toBe(10);

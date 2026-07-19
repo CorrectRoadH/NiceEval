@@ -36,7 +36,6 @@ export type {
   DeltaData,
   EvalListItem,
   ExperimentComparisonData,
-  ExperimentComparisonGroupData,
   ExperimentListEvalRow,
   ExperimentListItem,
   HeroData,

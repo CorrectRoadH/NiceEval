@@ -24,6 +24,7 @@ export type {
   Severity,
   Verdict,
   EvalDef,
+  EvalDescriptor,
   ExperimentDef,
   ExperimentHookContext,
   Config,

@@ -75,7 +75,7 @@ export const zhCN = {
   "cli.help":
     "niceeval — agent-native evals\n\n" +
     "用法:\n" +
-    "  niceeval exp [组|实验] [eval-id 前缀…]   跑实验\n" +
+    "  niceeval exp [路径|实验] [eval-id 前缀…]   跑实验\n" +
     "  niceeval show [eval-id 前缀… | @<locator>]   终端读结果\n" +
     "      裸跑:每个 experiment 的现刻判定(跨 run 合成),每行带紧凑 attempt 索引\n" +
     "        (locator + 失败原因)\n" +
@@ -124,13 +124,13 @@ export const zhCN = {
   "cli.exp.agentModelFlagUnsupported": "experiment 运行不支持 --agent / --model。请新增或复制一个 experiment 文件并修改 model。\n",
   "cli.exp.viewerFlagUnsupported": "`{{flag}}` 只适用于 niceeval {{command}},不能用于 niceeval exp。\n",
   "cli.experiment.noMatch":
-    "没有匹配的实验:{{arg}}。可用的组:{{experiments}}。\n" +
-    "运行 `niceeval exp <组>` 查看该组配置,或 `niceeval exp <组> --dry` 预览计划。\n",
+    "没有匹配的实验:{{arg}}。可用路径:{{experiments}}。\n" +
+    "运行 `niceeval exp <路径> --dry` 预览计划。\n",
   "cli.experiment.viewerCommandHint": "你可能想运行:niceeval {{command}}{{args}}\n",
   "cli.experiment.noEvalsSelected":
-    "未选择任何 eval:{{selection}} 匹配到 0 个 eval。可用的组:{{experiments}}。\n" +
-    "运行 `niceeval exp {{selection}} --dry` 查看它覆盖了什么,或去掉 eval 过滤跑组内全部 eval。\n",
-  "cli.experimentGroup": "组",
+    "未选择任何 eval:{{selection}} 匹配到 0 个 eval。可用的 eval 前缀:{{experiments}}。\n" +
+    "运行 `niceeval exp {{selection}} --dry` 查看它覆盖了什么,或去掉 eval 过滤跑这些实验选中的全部 eval。\n",
+  "cli.experimentGroup": "路径",
   "cli.fallbackCleanupTimeout": "\ngraceful 清理超时,强制清理沙箱…\n",
   "cli.forceCleanupExit": "\n强制清理沙箱并退出…\n",
   "cli.init.done": "已就绪:evals/、niceeval.config.ts,以及 AGENTS.md 里的 niceeval agent 指引区块(指向 node_modules/niceeval/docs-site/zh)。\n",
@@ -141,7 +141,7 @@ export const zhCN = {
   "cli.pressCtrlC": "按 Ctrl+C 退出。\n",
   "cli.resultsPath": "结构化结果:{{path}}(snapshot.json + 每 attempt 的 result.json / events.json / trace.json / diff.json)\n",
   "cli.run.experimentRequired":
-    "运行 eval 必须通过 experiment:用 `niceeval exp [实验组|配置] [eval id 前缀]`。\n" +
+    "运行 eval 必须通过 experiment:用 `niceeval exp [路径|配置] [eval id 前缀]`。\n" +
     "  文档:node_modules/niceeval/docs-site/zh/tutorials/write-experiment.mdx\n",
   "cli.run.experimentRequiredHint": "提示:\"{{pattern}}\" 是实验{{kind}},你大概想跑:niceeval exp {{pattern}}\n",
   "cli.run.experimentRequiredKnown": "已发现实验:{{experiments}}\n",
@@ -177,7 +177,7 @@ export const zhCN = {
   "docker.unsupportedRuntime": "Unsupported runtime: {{runtime}}",
   "feedback.human.active": "ACTIVE",
   "feedback.human.budgetExhausted": "{{experimentId}} 预算已耗尽(已花 {{spent}},未跑 {{unstarted}})",
-  "feedback.human.compare": "Compare: niceeval view {{group}}",
+  "feedback.human.compare": "Compare: niceeval view",
   "feedback.human.counts": "共 {{total}} · 复用 {{reused}} · 运行中 {{running}} · 排队 {{queued}} · 已完成 {{completed}}",
   "feedback.human.diffHint": "Diff:    niceeval show {{locator}} --diff",
   "feedback.human.evalHint": "Eval:    niceeval show {{locator}} --source",

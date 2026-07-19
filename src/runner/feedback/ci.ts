@@ -310,26 +310,13 @@ function resultLine(summary: RunSummary, completion: RunCompletion, reused: numb
   return parts.join(" ");
 }
 
-/** 快照路径的共同「组」段(如 `.niceeval/ci/bub/<snapshot>` → `ci`),用于折叠成
- *  `.niceeval/<group>/<N snapshots>`。多个 experiment 组混在一次 invocation 里时组名不唯一,
- *  不猜一个可能错的前缀,退化成不带路径前缀的 `<N snapshots>`——与 human.ts/agent.ts 同名逻辑
- *  刻意分开实现(见文件顶部注释),不是共享同一个函数。 */
-function deriveResultGroup(paths: readonly string[]): string | undefined {
-  const groups = new Set<string>();
-  for (const p of paths) {
-    const seg = p.split("/")[1];
-    if (seg) groups.add(seg);
-  }
-  return groups.size === 1 ? [...groups][0] : undefined;
-}
-
-/** 单条路径直接原样打印;多条折叠成 `<N snapshots>`(见 cli.md「CI 怎么用」的字面例子:
- *  `.niceeval/ci/<3 snapshots>`)——CI「同一种事件一行」的整体约束(checklist/docs 都强调
- *  一行一事件,方便日志搜索)决定了这里不能像 human/agent 那样逐条缩进列出。 */
+/** 单条路径直接原样打印;多条折叠成不带路径前缀的 `<N snapshots>`(见 cli.md「CI 怎么用」的
+ *  字面例子)——不再从路径推导「共同目录段」去拼前缀,那是运行选择的展示,不是报告分组,
+ *  也不该由这里悄悄猜一个可能跨实验误配的前缀。CI「同一种事件一行」的整体约束(checklist/docs
+ *  都强调一行一事件,方便日志搜索)决定了这里不能像 human/agent 那样逐条缩进列出。 */
 function snapshotsValue(paths: readonly string[]): string {
   if (paths.length === 1) return paths[0]!;
-  const group = deriveResultGroup(paths);
-  return group ? `.niceeval/${group}/<${paths.length} snapshots>` : `<${paths.length} snapshots>`;
+  return `<${paths.length} snapshots>`;
 }
 
 function writeResultBlock(

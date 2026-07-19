@@ -73,6 +73,8 @@ interface SnapshotOpts {
   /** 缺省 = 已收尾(completedAt = startedAt);置 true 则不写 completedAt,模拟中断快照。 */
   unfinished?: boolean;
   knownEvalIds?: string[];
+  /** 声明这份快照实际选中的 eval id 全集;省略 = 第三方 harness 未实现该字段。 */
+  selectedEvalIds?: string[];
 }
 
 /** 写一份新布局快照:snapshot.json + 各 attempt 的 result.json。返回快照目录绝对路径。 */
@@ -94,6 +96,9 @@ async function writeSnapshot(
     startedAt: opts.startedAt,
     ...(opts.unfinished ? {} : { completedAt: opts.startedAt }),
     ...(opts.knownEvalIds ? { knownEvalIds: opts.knownEvalIds } : {}),
+    ...(opts.selectedEvalIds !== undefined
+      ? { experiment: { runs: 1, earlyExit: true, selectedEvalIds: opts.selectedEvalIds } }
+      : {}),
   };
   await writeFile(join(dir, "snapshot.json"), JSON.stringify(meta, null, 2), "utf-8");
   for (const r of results) {
@@ -232,6 +237,51 @@ describe("selectCurrentResults · 现刻水位结构化身份", () => {
     } satisfies NormSelection);
     // 对照:results.latest() 只挑周二快照,是残缺的(这正是宿主要合成现刻水位的原因)。
     expect(results.latest().warnings.some((w) => w.kind === "partial-coverage")).toBe(true);
+  });
+
+  it("合成快照的 selectedEvalIds 重建为最终 picks(q1 新快照 + q2 旧快照补齐),不是照抄某一来源的局部选择", async () => {
+    const root = await makeRoot();
+    await writeSnapshot(
+      root,
+      "2026-07-01T08-00-00-000Z",
+      { experimentId: "compare/carry", startedAt: "2026-07-01T08:00:00.000Z", selectedEvalIds: ["q1", "q2"] },
+      [res("q1", "passed"), res("q2", "failed")],
+    );
+    await writeSnapshot(
+      root,
+      "2026-07-02T08-00-00-000Z",
+      { experimentId: "compare/carry", startedAt: "2026-07-02T08:00:00.000Z", selectedEvalIds: ["q1"] },
+      [res("q1", "passed")],
+    );
+    const results = await openResults(root);
+    const scope = selectCurrentResults(results);
+    expect(scope.snapshots[0]!.experiment!.selectedEvalIds).toEqual(["q1", "q2"]);
+  });
+
+  it("来源快照声明 selectedEvalIds:[q1] 却夹带 q2 的历史 attempt,合成结果不含该 q2", async () => {
+    const root = await makeRoot();
+    await writeSnapshot(
+      root,
+      "2026-07-01T08-00-00-000Z",
+      { experimentId: "compare/leaky", startedAt: "2026-07-01T08:00:00.000Z", selectedEvalIds: ["q1"] },
+      [res("q1", "passed"), res("q2", "passed")], // q2 落盘了,但没被这次实验选中
+    );
+    const results = await openResults(root);
+    const scope = selectCurrentResults(results);
+    expect(scope.snapshots[0]!.evals.map((ev) => ev.id)).toEqual(["q1"]);
+  });
+
+  it("第三方快照缺 experiment.selectedEvalIds 时按其实际 evals 退化,不整份排除;与本方快照混合时各自按自己口径收窄", async () => {
+    const root = await makeRoot();
+    await writeSnapshot(
+      root,
+      "2026-07-01T08-00-00-000Z",
+      { experimentId: "third-party/harness", startedAt: "2026-07-01T08:00:00.000Z" }, // 无 selectedEvalIds
+      [res("q1", "passed"), res("q2", "passed")],
+    );
+    const results = await openResults(root);
+    const scope = selectCurrentResults(results);
+    expect(scope.snapshots[0]!.evals.map((ev) => ev.id).sort()).toEqual(["q1", "q2"]);
   });
 
   it("场景3 同一 eval 多 attempts:最新快照整批替换旧 attempts,不跨快照混装", async () => {

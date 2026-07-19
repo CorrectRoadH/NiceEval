@@ -298,19 +298,6 @@ function summaryLine(summary: RunSummary, completion: RunCompletion, reused: num
   return `summary: ${summary.passed} passed, ${summary.failed} failed, ${summary.errored} errored (${paren.join(", ")})`;
 }
 
-/** 快照路径的共同「组」段(如 `.niceeval/compare/bub-e2b/<snapshot>` → `compare`),用于
- *  over-limit 提示里的 `niceeval view <group>`。多个 experiment 组混在一次 invocation 里时
- *  组名不唯一,不猜一个可能错的 view 目标。与 human.ts 里同名逻辑刻意分开实现(见文件顶部
- *  注释),不是共享同一个函数。 */
-function deriveResultGroup(paths: readonly string[]): string | undefined {
-  const groups = new Set<string>();
-  for (const p of paths) {
-    const seg = p.split("/")[1];
-    if (seg) groups.add(seg);
-  }
-  return groups.size === 1 ? [...groups][0] : undefined;
-}
-
 function writeHandoff(
   io: FeedbackIO,
   pending: { summary: RunSummary; completion: RunCompletion; reused: number } | undefined,
@@ -334,11 +321,9 @@ function writeHandoff(
   if (failures.length > 0) {
     const shown = failures.slice(0, AGENT_FAILURE_CAP);
     if (failures.length > AGENT_FAILURE_CAP) {
-      const group = deriveResultGroup(paths);
-      const hint = group ? `run \`niceeval view ${group}\`` : "check the results directory";
       lines.push(`failures: ${failures.length} total, showing ${AGENT_FAILURE_CAP}`);
       for (const f of shown) lines.push(...handoffFailureLines(f));
-      lines.push(`  … ${failures.length - AGENT_FAILURE_CAP} more; inspect the JSON result or ${hint}`);
+      lines.push(`  … ${failures.length - AGENT_FAILURE_CAP} more; inspect the JSON result or run \`niceeval view\``);
     } else {
       lines.push("failures:");
       for (const f of shown) lines.push(...handoffFailureLines(f));

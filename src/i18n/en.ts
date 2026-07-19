@@ -77,7 +77,7 @@ export const en = {
   "cli.help":
     "niceeval — agent-native evals\n\n" +
     "Usage:\n" +
-    "  niceeval exp [group|experiment] [eval-id-prefix…]   run experiments\n" +
+    "  niceeval exp [path|experiment] [eval-id-prefix…]    run experiments\n" +
     "  niceeval show [eval-id-prefix… | @<locator>]        read results in the terminal\n" +
     "      bare: current verdicts per experiment (composed across runs), each row\n" +
     "        with a compact attempt index (locator + failure reason)\n" +
@@ -129,13 +129,13 @@ export const en = {
   "cli.exp.agentModelFlagUnsupported": "experiment runs do not support --agent / --model. Add or copy an experiment file and change its model instead.\n",
   "cli.exp.viewerFlagUnsupported": "`{{flag}}` only applies to niceeval {{command}}, not niceeval exp.\n",
   "cli.experiment.noMatch":
-    "No experiment matched: {{arg}}. Available groups: {{experiments}}.\n" +
-    "Run `niceeval exp <group>` to see its configs, or `niceeval exp <group> --dry` to preview a plan.\n",
+    "No experiment matched: {{arg}}. Available paths: {{experiments}}.\n" +
+    "Run `niceeval exp <path> --dry` to preview a plan.\n",
   "cli.experiment.viewerCommandHint": "Did you mean: niceeval {{command}}{{args}}\n",
   "cli.experiment.noEvalsSelected":
-    "No evals selected: {{selection}} matched 0 evals. Available groups: {{experiments}}.\n" +
-    "Run `niceeval exp {{selection}} --dry` to see what it covers, or drop the eval filter to run everything in the group.\n",
-  "cli.experimentGroup": " group",
+    "No evals selected: {{selection}} matched 0 evals. Available eval prefixes: {{experiments}}.\n" +
+    "Run `niceeval exp {{selection}} --dry` to see what it covers, or drop the eval filter to run every eval selected by those experiments.\n",
+  "cli.experimentGroup": " path",
   "cli.fallbackCleanupTimeout": "\ngraceful cleanup timed out; force-cleaning sandboxes...\n",
   "cli.forceCleanupExit": "\nForce-cleaning sandboxes and exiting...\n",
   "cli.init.done": "Ready: evals/, niceeval.config.ts, and the niceeval agent-rules block in AGENTS.md (points coding agents at node_modules/niceeval/docs-site/zh).\n",
@@ -146,7 +146,7 @@ export const en = {
   "cli.pressCtrlC": "Press Ctrl+C to exit.\n",
   "cli.resultsPath": "Structured results: {{path}} (snapshot.json + per-attempt result.json / events.json / trace.json / diff.json)\n",
   "cli.run.experimentRequired":
-    "Run evals through an experiment: use `niceeval exp [group|config] [eval id prefix]`.\n" +
+    "Run evals through an experiment: use `niceeval exp [path|config] [eval id prefix]`.\n" +
     "  Docs: node_modules/niceeval/docs-site/zh/tutorials/write-experiment.mdx\n",
   "cli.run.experimentRequiredHint": "Hint: \"{{pattern}}\" is an experiment{{kind}}; you probably meant: niceeval exp {{pattern}}\n",
   "cli.run.experimentRequiredKnown": "Discovered experiments: {{experiments}}\n",
@@ -182,7 +182,7 @@ export const en = {
   "docker.unsupportedRuntime": "Unsupported runtime: {{runtime}}",
   "feedback.human.active": "ACTIVE",
   "feedback.human.budgetExhausted": "budget exhausted for {{experimentId}} (spent {{spent}}, unstarted {{unstarted}})",
-  "feedback.human.compare": "Compare: niceeval view {{group}}",
+  "feedback.human.compare": "Compare: niceeval view",
   "feedback.human.counts": "{{total}} total · {{reused}} reused · {{running}} running · {{queued}} queued · {{completed}} completed",
   "feedback.human.diffHint": "Diff:    niceeval show {{locator}} --diff",
   "feedback.human.evalHint": "Eval:    niceeval show {{locator}} --source",

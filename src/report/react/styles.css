@@ -65,107 +65,14 @@
 .nre-attempt-list .nre-truncated { color:var(--warn); font-size:.9em; }
 .nre-attempt-list .nre-attempt-list-empty { border:1px dashed var(--line-strong); border-radius:8px; padding:18px; color:var(--muted); text-align:center; background:var(--panel); }
 
-/* ---- ExperimentComparison:完整组索引 + 当前组独立 panel ---- */
-.nre-experiment-comparison .nre-experiment-group-tabs {
-  display:grid;
-  grid-template-columns:repeat(auto-fit,minmax(320px,1fr));
-  gap:12px;
-  margin-bottom:20px;
+/* ---- ExperimentComparison:完整 Scope 的 summary + scatter + list,无组选择器 ---- */
+.nre-experiment-comparison > .nre {
+  margin:0 0 20px;
 }
-.nre-experiment-comparison .nre-experiment-group-tab {
-  container-type:inline-size;
-  min-width:0;
-  border:1px solid var(--line);
-  border-radius:9px;
-  padding:14px 16px 8px;
-  background:var(--panel);
-  cursor:pointer;
-  transition:border-color .12s,background .12s;
-}
-.nre-experiment-comparison .nre-experiment-group-tab:hover {
-  border-color:var(--line-strong);
-  background:color-mix(in oklch,var(--panel-2),var(--panel) 35%);
-}
-.nre-experiment-comparison .nre-experiment-group-tab:focus-visible {
-  outline:2px solid var(--nre-c0);
-  outline-offset:2px;
-}
-.nre-experiment-comparison .nre-experiment-group-name {
-  display:block;
-  margin-bottom:10px;
-  color:var(--text);
-  font-size:15px;
-  overflow-wrap:anywhere;
-}
-/* 组卡里嵌的 ScopeSummary 降为紧凑栅格:六项同排,窄屏按完整行成组换行。 */
-.nre-experiment-comparison .nre-experiment-group-tab .nre-scope-summary { margin:0; }
-.nre-experiment-comparison .nre-experiment-group-tab .nre-scope-kpis {
-  display:grid;
-  grid-template-columns:repeat(6,max-content);
-  justify-content:space-between;
-  column-gap:14px;
-  row-gap:10px;
-  margin:0 0 6px;
-  border:0;
-  border-radius:0;
-  background:transparent;
-  overflow:visible;
-}
-.nre-experiment-comparison .nre-experiment-group-tab .nre-scope-kpi {
-  min-width:0;
-  padding:0;
-  border-right:0;
-}
-.nre-experiment-comparison .nre-experiment-group-tab .nre-scope-kpi dt {
-  font-size:12px;
-  text-transform:none;
-  letter-spacing:0;
-}
-.nre-experiment-comparison .nre-experiment-group-tab .nre-scope-kpi dd {
-  margin:3px 0 0;
-  font-size:16px;
-  line-height:1.15;
-  font-weight:650;
-}
-.nre-experiment-comparison .nre-experiment-group-tab .nre-scope-kpi-rate dd { font-size:18px; }
-@container(max-width:680px){
-  .nre-experiment-comparison .nre-experiment-group-tab .nre-scope-kpis {
-    grid-template-columns:repeat(3,minmax(0,1fr));
-  }
-}
-@container(max-width:380px){
-  .nre-experiment-comparison .nre-experiment-group-tab .nre-scope-kpis {
-    grid-template-columns:repeat(2,minmax(0,1fr));
-  }
-}
-.nre-experiment-comparison .nre-experiment-group-panel {
-  padding:16px 0;
-}
-.nre-experiment-comparison .nre-experiment-group-panel > summary {
-  cursor:pointer;
-  font-size:16px;
-  font-weight:700;
-  overflow-wrap:anywhere;
-}
-.nre-experiment-comparison .nre-experiment-group-panel[open] > summary {
-  margin-bottom:16px;
-}
-.nre-experiment-comparison .nre-experiment-group-panel > .nre {
-  margin:0 0 18px;
-}
-/* group panel 已经是内容的唯一外框;内嵌图表不再重复套一层卡片边框 */
-.nre-experiment-comparison .nre-experiment-group-panel .nre-metric-scatter,
-.nre-experiment-comparison .nre-experiment-group-panel .nre-metric-line,
-.nre-experiment-comparison .nre-experiment-group-panel .nre-metric-bars {
-  border:0;
-  border-radius:0;
-  background:transparent;
-  padding:14px 0 8px;
-}
-.nre-experiment-comparison .nre-experiment-group-panel > .nre:last-child {
+.nre-experiment-comparison > .nre:last-child {
   margin-bottom:0;
 }
-.nre-experiment-comparison .nre-experiment-groups-empty {
+.nre-experiment-comparison-empty {
   border:1px dashed var(--line-strong);
   border-radius:8px;
   padding:18px;

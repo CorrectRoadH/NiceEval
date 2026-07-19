@@ -257,7 +257,7 @@ describe("runEvals · fresh EvalResult.locator 在 reporter 观察到之前已�
       earlyExit: true,
       sandbox: fakeSandboxSpec(),
       timeoutMs: 5_000,
-      evalFilter: () => true,
+      selectedEvalIds: ["ok", "boom"],
       experimentId,
     };
 
@@ -287,7 +287,7 @@ describe("runEvals · fresh EvalResult.locator 在 reporter 观察到之前已�
       earlyExit: true,
       sandbox: fakeSandboxSpec(),
       timeoutMs: 5_000,
-      evalFilter: () => true,
+      selectedEvalIds: ["algebra/q1"],
       experimentId,
     });
 
@@ -316,7 +316,7 @@ describe("runEvals · fresh EvalResult.locator 在 reporter 观察到之前已�
       earlyExit: false, // 两次都要真的跑,不能被首过即停吞掉其中一次
       sandbox: fakeSandboxSpec(),
       timeoutMs: 5_000,
-      evalFilter: () => true,
+      selectedEvalIds: ["flaky"],
       experimentId,
     };
 
@@ -364,7 +364,7 @@ describe("runEvals · fresh EvalResult.locator 在 reporter 观察到之前已�
       earlyExit: true,
       sandbox: fakeSandboxSpec(),
       timeoutMs: 5_000,
-      evalFilter: () => true,
+      selectedEvalIds: [evalId],
       experimentId,
     };
 
@@ -416,7 +416,7 @@ describe("runEvals · fresh EvalResult.locator 在 reporter 观察到之前已�
       earlyExit: true,
       sandbox: fakeSandboxSpec(),
       timeoutMs: 5_000,
-      evalFilter: () => true,
+      selectedEvalIds: ["c-slow", "c-mid", "c-fast"],
       experimentId,
     };
     const completionOrder: string[] = [];
@@ -493,7 +493,7 @@ describe("runEvals · failure 永久事件在真实失败/errored attempt 上被
       earlyExit: true,
       sandbox: fakeSandboxSpec(),
       timeoutMs: 5_000,
-      evalFilter: () => true,
+      selectedEvalIds: ["ok", "boom", "gate-fail"],
       experimentId,
     };
     const plan: RunFeedbackPlan = {
@@ -561,7 +561,7 @@ describe("runEvals · budget-exhausted 永久事件按每个被跳过的 attempt
       earlyExit: false,
       sandbox: fakeSandboxSpec(),
       timeoutMs: 5_000,
-      evalFilter: () => true,
+      selectedEvalIds: ["a", "b", "c"],
       experimentId,
       budget: 0, // 花费从 0 起算,>= budget 恒成立——每个 attempt 在 preflight 就被跳过。
     };
@@ -610,7 +610,7 @@ describe("runEvals · budget-unenforceable 只统计真正发起过 agent turn �
       earlyExit: false,
       sandbox: missingTemplate,
       timeoutMs: 5_000,
-      evalFilter: () => true,
+      selectedEvalIds: ["a", "b", "c"],
       experimentId,
       budget: 10,
     };
@@ -643,7 +643,7 @@ describe("runEvals · budget-unenforceable 只统计真正发起过 agent turn �
       earlyExit: false,
       sandbox: fakeSandboxSpec(),
       timeoutMs: 5_000,
-      evalFilter: () => true,
+      selectedEvalIds: ["a", "b", "c"],
       experimentId,
       budget: 10,
     };
@@ -709,7 +709,7 @@ describe("runEvals · 携入数量少于本次请求的 runs 时,差额必须真
       earlyExit: true,
       sandbox: fakeSandboxSpec(),
       timeoutMs: 5_000,
-      evalFilter: () => true,
+      selectedEvalIds: [evalId],
       experimentId,
     };
     const plan: RunFeedbackPlan = {
@@ -773,7 +773,7 @@ describe("runEvals · 携入数量少于本次请求的 runs 时,差额必须真
       earlyExit: true, // failed 不触发 earlyExit(只有 passed/errored 会),回填的两次应该真的跑
       sandbox: fakeSandboxSpec(),
       timeoutMs: 5_000,
-      evalFilter: () => true,
+      selectedEvalIds: [evalId],
       experimentId,
     };
     const plan: RunFeedbackPlan = {
@@ -832,7 +832,7 @@ describe("runEvals · 实验级 setup/teardown", () => {
       earlyExit: true,
       sandbox: fakeSandboxSpec(),
       timeoutMs: 5_000,
-      evalFilter: () => true,
+      selectedEvalIds: [],
       experimentId,
       setup,
       teardown,
@@ -861,7 +861,7 @@ describe("runEvals · 实验级 setup/teardown", () => {
         teardownCalls += 1;
         completedAtTeardown = completed;
       },
-      { runs: 2 },
+      { runs: 2, selectedEvalIds: ["a", "b", "c"] },
     );
 
     const { summary } = await run(evals, [agentRun], { maxConcurrency: 4 });
@@ -887,6 +887,7 @@ describe("runEvals · 实验级 setup/teardown", () => {
         () => {
           calls.push(`teardown:${id}`);
         },
+        { selectedEvalIds: ["shared"] },
       );
 
     await run(evals, [mk("exp-a"), mk("exp-b")]);
@@ -910,6 +911,7 @@ describe("runEvals · 实验级 setup/teardown", () => {
       () => {
         teardownCalls += 1;
       },
+      { selectedEvalIds: ["done"] },
     );
     const carried: EvalResult = {
       id: "done",
@@ -943,9 +945,9 @@ describe("runEvals · 实验级 setup/teardown", () => {
         throw new Error("tunnel refused to start");
       },
       undefined,
-      { runs: 2, earlyExit: false },
+      { runs: 2, earlyExit: false, selectedEvalIds: ["m1", "m2"] },
     );
-    const healthy = runWithHooks("healthy-exp", () => {}, undefined);
+    const healthy = runWithHooks("healthy-exp", () => {}, undefined, { selectedEvalIds: ["m1", "m2"] });
 
     const { summary } = await run(evals, [broken, healthy], { maxConcurrency: 4 });
 
@@ -974,7 +976,7 @@ describe("runEvals · 实验级 setup/teardown", () => {
       () => {
         teardownCalls += 1;
       },
-      { runs: 2, earlyExit: false },
+      { runs: 2, earlyExit: false, selectedEvalIds: ["m1", "m2"] },
     );
 
     const { summary } = await run(evals, [broken], { maxConcurrency: 4 });
@@ -997,6 +999,7 @@ describe("runEvals · 实验级 setup/teardown", () => {
       () => {
         teardownCalls += 1;
       },
+      { selectedEvalIds: ["abort-me"] },
     );
 
     await run([evalDef], [agentRun], { signal: controller.signal });
@@ -1020,6 +1023,7 @@ describe("runEvals · 实验级 setup/teardown", () => {
         ctx.progress({ message: "warming" });
       },
       undefined,
+      { selectedEvalIds: ["ctx-a", "ctx-b"] },
     );
     const plan: RunFeedbackPlan = {
       shape: { evals: 2, configs: 1, totalRuns: 2, maxConcurrency: 3 },
@@ -1063,6 +1067,7 @@ describe("runEvals · 实验级 setup/teardown", () => {
           ctx.progress({ message: "starting tunnel", current: 2, total: 5 });
         },
         () => {},
+        { selectedEvalIds: ["ok"] },
       );
       const bad = runWithHooks(
         "bad-exp",
@@ -1070,6 +1075,7 @@ describe("runEvals · 实验级 setup/teardown", () => {
           throw new Error("boom");
         },
         undefined,
+        { selectedEvalIds: ["ok"] },
       );
       await run(evals, [good, bad], { maxConcurrency: 2 });
     } finally {
@@ -1107,7 +1113,7 @@ describe("runEvals · 实验级 teardown 失败只作运行级诊断", () => {
       earlyExit: true,
       sandbox: fakeSandboxSpec(),
       timeoutMs: 5_000,
-      evalFilter: () => true,
+      selectedEvalIds: ["tidy"],
       experimentId: "registry-exp",
       setup: () => {},
       teardown: () => {
@@ -1133,7 +1139,7 @@ describe("runEvals · 实验级 teardown 失败只作运行级诊断", () => {
       earlyExit: true,
       sandbox: fakeSandboxSpec(),
       timeoutMs: 5_000,
-      evalFilter: () => true,
+      selectedEvalIds: ["ok"],
       experimentId,
       setup: () => {},
       teardown: () => {
@@ -1168,7 +1174,7 @@ describe("computeFingerprint · 实验级钩子不进 fingerprint", () => {
       runs: 1,
       earlyExit: true,
       timeoutMs: 5_000,
-      evalFilter: () => true,
+      selectedEvalIds: ["fp"],
       experimentId: "fp-exp",
     };
     const withHook: AgentRun = { ...base, setup: () => {}, teardown: () => {} };

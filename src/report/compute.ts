@@ -20,7 +20,6 @@ import type {
   DimensionInput,
   EvalListItem,
   ExperimentComparisonData,
-  ExperimentComparisonGroupData,
   ExperimentListEvalRow,
   ExperimentListItem,
   FlagPairs,
@@ -416,64 +415,62 @@ export async function scopeSummaryData(input: ReportInput): Promise<ScopeSummary
 
 // ───────────────────────── experimentComparisonData ─────────────────────────
 
-/** 完整父路径是组键;没有父路径的 experiment 不能互相比,自己形成单例组。 */
-export function experimentComparisonGroupKey(experimentId: string): string {
-  return experimentGroupOf(experimentId) ?? experimentId;
-}
-
 export interface ExperimentComparisonOptions {
   /**
-   * 逐组散点的 series 维度。缺省逐组解析:组内任一实验声明了 label `line` → `label("line")`
-   * 并由渲染面连线;否则 `"agent"`、不连线。显式传入时对所有组统一生效。
+   * 散点的 series 维度。缺省解析:Scope 内任一实验声明了 label `line` → `label("line")`
+   * 并由渲染面连线;否则 `"agent"`、不连线。显式传入覆盖缺省值。
    */
   series?: SeriesInput;
 }
 
-/** 默认报告识别的归类键:声明了它的组按线归类并连线(docs/feature/experiments/library.md「labels」)。 */
+/** 默认报告识别的归类键:声明了它的实验按线归类并连线(docs/feature/experiments/library.md「labels」)。 */
 const LINE_LABEL_KEY = "line";
 const LINE_SERIES: DimensionInput = { kind: "label", name: LINE_LABEL_KEY };
 
-/** 每组散点的固定两轴;series 逐组解析,见 comparisonSeriesFor。 */
+/** 散点的固定两轴;series 缺省解析,见 comparisonSeriesFor。 */
 const COMPARISON_SCATTER_AXES = { points: "experiment", x: costUSD, y: endToEndPassRate } as const;
 
-/** 组的缺省 series:组内任一快照声明了 labels.line 用 line 维度,否则 agent。 */
-function comparisonSeriesFor(groupSnapshots: readonly Snapshot[]): SeriesInput {
-  const hasLine = groupSnapshots.some((s) => s.experiment?.labels?.[LINE_LABEL_KEY] !== undefined);
+/** 缺省 series:Scope 内任一快照声明了 labels.line 用 line 维度,否则 agent。 */
+function comparisonSeriesFor(scopeSnapshots: readonly Snapshot[]): SeriesInput {
+  const hasLine = scopeSnapshots.some((s) => s.experiment?.labels?.[LINE_LABEL_KEY] !== undefined);
   return hasLine ? LINE_SERIES : "agent";
 }
 
 /**
- * `experimentComparisonData(input, options?)`:先把 input 按可比组分区(experiment id 的完整
- * 父路径),再为每组分别计算 ScopeSummary、成本 × 端到端通过率散点和 ExperimentList——分区
- * 发生在任何指标计算之前,组外 attempt 不可能污染该组的坐标尺度、series、通过率、成本、
- * 排序或缺数据计数。series 缺省逐组解析(comparisonSeriesFor),显式传入统一生效。
+ * 默认比较契约的选题投影:每个 snapshot 只保留自己 `experiment.selectedEvalIds` 集合内的
+ * evals/attempts——两个 experiment 声明不同 evals 时各自只统计自己选中的那部分,未选择的
+ * eval(即使恰好在同一次运行里跑过)不污染另一个 experiment 的分母。第三方快照无该字段时
+ * 保留其实际全部 evals(退化,与 `selectedEvalIdsOf` 同规则)。只投影容器、复用现有
+ * attempt handle——不修改输入对象、不为空缺 eval 造 attempt,下钻(ref / locator)身份不变。
+ */
+function comparisonSnapshots(snapshots: readonly Snapshot[]): Snapshot[] {
+  return snapshots.map((snapshot) => {
+    const ids = snapshot.experiment?.selectedEvalIds;
+    if (ids === undefined) return snapshot;
+    const selected = new Set(ids);
+    const evals = snapshot.evals.filter((ev) => selected.has(ev.id));
+    return { ...snapshot, evals, attempts: evals.flatMap((ev) => ev.attempts) };
+  });
+}
+
+/**
+ * `experimentComparisonData(input, options?)`:对完整 Scope(按各自 `selectedEvalIds`
+ * 投影后)只计算一份 ScopeSummary、成本 × 端到端通过率散点和 ExperimentList——不同深度目录
+ * 的 experiments(`compare/a`、`bench/long/x`、`standalone`)一律进同一份 data,不再按父路径
+ * 分组比较、不生成 tab 或 panel 索引。series 缺省解析(comparisonSeriesFor),显式传入覆盖。
  */
 export async function experimentComparisonData(
   input: ReportInput,
   options?: ExperimentComparisonOptions,
 ): Promise<ExperimentComparisonData> {
-  const { snapshots } = resolveInput(input);
-  const snapshotsByGroup = new Map<string, Snapshot[]>();
-  for (const snapshot of snapshots) {
-    const key = experimentComparisonGroupKey(snapshot.experimentId);
-    const group = snapshotsByGroup.get(key);
-    if (group) group.push(snapshot);
-    else snapshotsByGroup.set(key, [snapshot]);
-  }
-  const groups = await Promise.all(
-    [...snapshotsByGroup.entries()]
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-      .map(async ([key, groupSnapshots]): Promise<ExperimentComparisonGroupData> => {
-        const series = options?.series ?? comparisonSeriesFor(groupSnapshots);
-        const [summary, scatter, experiments] = await Promise.all([
-          scopeSummaryData(groupSnapshots),
-          metricScatterData(groupSnapshots, { ...COMPARISON_SCATTER_AXES, series }),
-          experimentListData(groupSnapshots),
-        ]);
-        return { key, summary, scatter, experiments };
-      }),
-  );
-  return { groups };
+  const allSnapshots = comparisonSnapshots(resolveInput(input).snapshots);
+  const series = options?.series ?? comparisonSeriesFor(allSnapshots);
+  const [summary, scatter, experiments] = await Promise.all([
+    scopeSummaryData(allSnapshots),
+    metricScatterData(allSnapshots, { ...COMPARISON_SCATTER_AXES, series }),
+    experimentListData(allSnapshots),
+  ]);
+  return { summary, scatter, experiments };
 }
 
 // ───────────────────────── scoreboardData ─────────────────────────

@@ -7,6 +7,7 @@ import { sandboxRunInfo } from "../sandbox/resolve.ts";
 import type { DiscoveredEval, EvalResult, SandboxOption } from "../types.ts";
 import type { AgentRun } from "./types.ts";
 import { prepareRunSandboxes, sandboxForEval } from "./sandbox-selection.ts";
+import { selectedEvalsForRun } from "./eval-selection.ts";
 
 export function cacheKey(run: AgentRun, evalId: string): string {
   return `${run.experimentId ?? ""}|${evalId}`;
@@ -76,7 +77,7 @@ export async function planCarry(
   const plannedFingerprints = new Map<string, string>();
   const jobs: Promise<void>[] = [];
   for (const run of agentRuns) {
-    for (const evalDef of evals.filter((e) => run.evalFilter(e.id))) {
+    for (const evalDef of selectedEvalsForRun(evals, run)) {
       jobs.push(
         computeFingerprint(evalDef, run, sourceCache, configSandbox).then((fp) => {
           plannedFingerprints.set(cacheKey(run, evalDef.id), fp);

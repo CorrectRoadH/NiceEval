@@ -1047,7 +1047,7 @@ export function experimentRunInfo(run: AgentRun, configSandbox?: Config["sandbox
     ...(run.timeoutMs !== undefined ? { timeoutMs: run.timeoutMs } : {}),
     ...(run.budget !== undefined ? { budget: run.budget } : {}),
     ...(run.maxConcurrency !== undefined ? { maxConcurrency: run.maxConcurrency } : {}),
-    selectedEvalIds: run.selectedEvalIds ?? [],
+    selectedEvalIds: [...run.selectedEvalIds],
     ...(run.evalFilterFingerprint !== undefined ? { evalFilterFingerprint: run.evalFilterFingerprint } : {}),
     ...sandboxProjection(run, configSandbox),
   };

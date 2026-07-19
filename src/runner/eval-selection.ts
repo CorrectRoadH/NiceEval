@@ -1,0 +1,109 @@
+// 纯选题边界:发现结果 → EvalDescriptor 投影 → 用户谓词求值 → selectedEvalIds。
+// CLI 在构造每个 AgentRun 前对候选 eval 各调用一次谓词并把结果落进这里;下游(dry-run、
+// sandbox 查表、fingerprint/carry、attempt 展开、hook ctx、快照)只消费返回的
+// selectedEvalIds,不重新调用用户谓词(见 docs/feature/experiments/library.md「evals」)。
+
+import { createHash } from "node:crypto";
+import { evalPrefixPredicate } from "../shared/aggregate.ts";
+import type { AgentRun, DiscoveredEval, EvalDescriptor, ExperimentDef } from "./types.ts";
+
+/** `DiscoveredEval` → 用户谓词可见的显式白名单投影;不透传内部路径/执行字段。 */
+export function evalDescriptorOf(evalDef: DiscoveredEval): EvalDescriptor {
+  return Object.freeze({
+    id: evalDef.id,
+    ...(evalDef.description !== undefined ? { description: evalDef.description } : {}),
+    tags: Object.freeze([...(evalDef.tags ?? [])]),
+    ...(evalDef.environment !== undefined ? { environment: evalDef.environment } : {}),
+    ...(evalDef.metadata !== undefined ? { metadata: Object.freeze({ ...evalDef.metadata }) } : {}),
+  }) as EvalDescriptor;
+}
+
+export interface ResolveExperimentEvalsInput {
+  experimentId: string;
+  selector: ExperimentDef["evals"];
+  cliPatterns: readonly string[];
+  evals: readonly DiscoveredEval[];
+}
+
+export interface ResolveExperimentEvalsResult {
+  selectedEvals: readonly DiscoveredEval[];
+  selectedEvalIds: readonly string[];
+}
+
+/**
+ * 对某个 experiment 的候选 eval 集合各求值谓词一次,与 CLI 追加的位置参数前缀取交集。
+ * 返回顺序 = discovery 稳定顺序,id 去重——这是 dry-run、attempt 派发顺序与落盘
+ * `selectedEvalIds` 的共同来源(见 docs/feature/eval/README.md「路径即身份」)。
+ */
+export function resolveExperimentEvals(input: ResolveExperimentEvalsInput): ResolveExperimentEvalsResult {
+  const { experimentId, selector, cliPatterns, evals } = input;
+  const patternFilter = evalPrefixPredicate(cliPatterns.length > 0 ? [...cliPatterns] : undefined);
+
+  let selectorFilter: (evalDef: DiscoveredEval) => boolean;
+  if (selector === undefined || selector === "*") {
+    selectorFilter = () => true;
+  } else if (typeof selector === "function") {
+    const predicate = selector;
+    selectorFilter = (evalDef) => {
+      let result: unknown;
+      try {
+        result = predicate(evalDescriptorOf(evalDef));
+      } catch (e) {
+        throw new Error(
+          `experiment "${experimentId}" evals predicate threw for eval "${evalDef.id}": ` +
+            `${e instanceof Error ? e.message : String(e)}`,
+          { cause: e },
+        );
+      }
+      if (result instanceof Promise) {
+        throw new Error(
+          `experiment "${experimentId}" evals predicate returned a Promise for eval "${evalDef.id}"; ` +
+            "the predicate must be synchronous — do not await inside evals().",
+        );
+      }
+      if (typeof result !== "boolean") {
+        throw new Error(
+          `experiment "${experimentId}" evals predicate returned ${JSON.stringify(result)} (not a boolean) ` +
+            `for eval "${evalDef.id}".`,
+        );
+      }
+      return result;
+    };
+  } else {
+    const arrayFilter = evalPrefixPredicate([...selector]);
+    selectorFilter = (evalDef) => arrayFilter(evalDef.id);
+  }
+
+  const seen = new Set<string>();
+  const selectedEvals: DiscoveredEval[] = [];
+  for (const evalDef of evals) {
+    if (seen.has(evalDef.id)) continue;
+    if (!selectorFilter(evalDef) || !patternFilter(evalDef.id)) continue;
+    seen.add(evalDef.id);
+    selectedEvals.push(evalDef);
+  }
+  return { selectedEvals, selectedEvalIds: selectedEvals.map((e) => e.id) };
+}
+
+/**
+ * `evals` 选择器的审计指纹(数组内容 / 函数体哈希),进 `ExperimentRunInfo.evalFilterFingerprint`,
+ * 供「配置没变」判断;不存选择器本身、不参与报告选题(选题权威是 `selectedEvalIds`)。
+ */
+export function fingerprintEvalsFilter(evals: ExperimentDef["evals"], patterns: readonly string[]): string {
+  const basis =
+    evals === undefined || evals === "*"
+      ? "*"
+      : Array.isArray(evals)
+        ? JSON.stringify([...evals].sort())
+        : evals.toString();
+  return createHash("sha256").update(JSON.stringify({ basis, patterns })).digest("hex").slice(0, 16);
+}
+
+/** 所有消费者按已解析的 `selectedEvalIds` 取 eval;不持有、不调用用户谓词。 */
+export function selectedEvalsForRun(
+  all: readonly DiscoveredEval[],
+  run: Pick<AgentRun, "selectedEvalIds">,
+): DiscoveredEval[] {
+  const ids = new Set(run.selectedEvalIds);
+  return all.filter((e) => ids.has(e.id));
+}

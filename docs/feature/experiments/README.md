@@ -40,7 +40,7 @@ export default defineExperiment({
                                             // 不透传 ctx / t;报告用 label() / numericLabel() 按它归类(见 Library)
   runs?: number;                             // 每个 (agent × model × eval) 跑几次(默认 1)
   earlyExit?: boolean;                        // 先过一次即停其余(默认 true)
-  evals?: "*" | readonly string[] | ((eval: EvalDescriptor) => boolean); // 跑哪些 eval(默认 "*")
+  evals?: "*" | readonly string[] | ((e: EvalDescriptor) => boolean); // 跑哪些 eval(默认 "*")
   timeoutMs?: number;                        // 单次运行超时
   sandbox?: SandboxSpec;                     // 沙箱型 Agent 在哪跑；省略时只能由 Config.sandbox 显式兜底
   budget?: number;                           // 整个实验估算成本上限($),超了停止派发

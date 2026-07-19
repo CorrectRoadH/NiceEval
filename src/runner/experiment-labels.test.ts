@@ -19,7 +19,7 @@ function runWith(labels?: Record<string, string | number>): AgentRun {
     flags: {},
     runs: 1,
     earlyExit: true,
-    evalFilter: () => true,
+    selectedEvalIds: [],
     ...(labels !== undefined ? { labels } : {}),
   };
 }

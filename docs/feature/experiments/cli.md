@@ -464,7 +464,7 @@ niceeval: progress elapsed=120s reused=18 running=2 queued=0 completed=4
 niceeval: result=failed passed=23 failed=1 errored=0 reused=18 duration=128s
 niceeval: json=.niceeval/ci-summary.json
 niceeval: junit=.niceeval/junit.xml
-niceeval: snapshots=.niceeval/ci/<3 snapshots>
+niceeval: snapshots=<3 snapshots>
 ```
 
 CI profile 固定满足:

@@ -54,9 +54,10 @@ export function prepareRunSandboxes(evals: DiscoveredEval[], runs: AgentRun[], f
     if (run.agent.kind !== "sandbox") continue;
     const spec = run.sandbox ?? fallback;
     if (spec === undefined) continue; // 缺 spec 的错误由既有 resolveSandbox 路径按原文案报
+    const selectedIds = new Set(run.selectedEvalIds);
     const missing: Array<readonly [string, string]> = [];
     for (const evalDef of evals) {
-      if (!run.evalFilter(evalDef.id) || evalDef.environment === undefined) continue;
+      if (!selectedIds.has(evalDef.id) || evalDef.environment === undefined) continue;
       if (run.resolvedSandboxes?.has(evalDef.id)) continue;
       const derived = deriveSpec(spec, evalDef.environment);
       if (derived === undefined) {
@@ -101,8 +102,9 @@ export function resolvedSandboxRecommendedConcurrency(
   const recommendations: number[] = [];
   for (const run of runs) {
     if (run.agent.kind !== "sandbox") continue;
+    const selectedIds = new Set(run.selectedEvalIds);
     for (const evalDef of evals) {
-      if (!run.evalFilter(evalDef.id)) continue;
+      if (!selectedIds.has(evalDef.id)) continue;
       recommendations.push(sandboxRecommendedConcurrency(sandboxForEval(run, evalDef, fallback)));
     }
   }

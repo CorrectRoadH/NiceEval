@@ -188,7 +188,6 @@ export type {
   DimensionRef,
   EvalListItem,
   ExperimentComparisonData,
-  ExperimentComparisonGroupData,
   ExperimentListEvalRow,
   ExperimentListItem,
   FlagPairs,
@@ -217,7 +216,3 @@ export type {
 
 // 数据层输入的类型(家在 niceeval/results,这里 re-export 方便写指标 / 报告)
 export type { AttemptHandle, Results, Scope, Snapshot } from "../results/types.ts";
-
-// experiment id 的组键推导(id 的目录前缀,如 `compare/bub-low` 的 `compare`)。
-// 重新导出,让自定义报告能按同一份口径把 experiment 分组,不必自己重写这两行逻辑。
-export { experimentGroupOf } from "../shared/aggregate.ts";

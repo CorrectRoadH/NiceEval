@@ -9,7 +9,6 @@ import type {
   DeltaData,
   EvalListItem,
   ExperimentComparisonData,
-  ExperimentComparisonGroupData,
   ExperimentListItem,
   HeroData,
   LineData,
@@ -122,30 +121,9 @@ export function scopeSummaryText(data: ScopeSummaryData, votes: "eval" | "attemp
 
 // ───────────────────────── ExperimentComparison ─────────────────────────
 
-/** 单组详情:标题行 + 缩进的散点与实验列表(与 web 面同一份预分区数据)。 */
-function comparisonGroupText(group: ExperimentComparisonGroupData, ctx: TextContext, connect?: boolean): string {
-  const inner = Math.max(20, ctx.width - 2);
-  const innerCtx: TextContext = {
-    width: inner,
-    locale: ctx.locale,
-    attemptCommand: ctx.attemptCommand,
-    experimentCommand: ctx.experimentCommand,
-    render: (node, w) => ctx.render(node, w ?? inner),
-  };
-  // connect 缺省跟随缺省 series 解析:按 line 归类的组连线(声明了线就画线),agent 组不连。
-  const connectOn = connect ?? group.scatter.seriesDimension === "line";
-  const body = [
-    scatterText(group.scatter, innerCtx, { connect: connectOn }),
-    experimentListText(group.experiments, innerCtx, group.key),
-  ]
-    .filter((block) => block.length > 0)
-    .join("\n\n");
-  return `${localeText(ctx.locale, "experimentComparison.group")} ${group.key}\n\n${indentBlock(body, "  ")}`;
-}
-
 /**
- * text 面:命中多个可比组时只输出组索引与可复制的单组查看命令,不倾倒全部组详情;
- * 命中单组时省略索引,直接输出该组的散点与实验列表。
+ * text 面:对完整 Scope 依次输出 summary、散点与实验列表——不同深度目录的 experiments
+ * 一律同屏,不再有组索引或 `niceeval exp <group>` 命令提示。
  */
 export function experimentComparisonText(
   data: ExperimentComparisonData,
@@ -154,39 +132,21 @@ export function experimentComparisonText(
   connect?: boolean,
 ): string {
   const locale = ctx.locale;
-  if (data.groups.length === 0) return localeText(locale, "experimentComparison.empty");
-  if (data.groups.length === 1) return comparisonGroupText(data.groups[0]!, ctx, connect);
-
-  const columns: TableColumn[] = [
-    { key: "group", header: localeText(locale, "experimentComparison.group") },
-    { key: "experiments", header: localeText(locale, "scopeSummary.experiments"), align: "right" },
-    { key: "evals", header: localeText(locale, "scopeSummary.evals"), align: "right" },
-    { key: "passRate", header: localeText(locale, "scopeSummary.passRate"), align: "right" },
-    { key: "results", header: localeText(locale, "experimentComparison.results") },
-    { key: "cost", header: localeText(locale, "scopeSummary.totalCost"), align: "right" },
-    { key: "lastRun", header: localeText(locale, "experimentComparison.lastRun") },
-  ] as unknown as TableColumn[];
-  const rows: TableRow[] = data.groups.map((group) => ({
-    key: group.key,
-    cells: {
-      group: group.key,
-      experiments: String(group.summary.experiments),
-      evals: String(group.summary.evals),
-      passRate: cellText(group.summary.endToEndPassRate, locale),
-      results: verdictTallyText(group.summary.evalVerdicts, locale),
-      cost: group.summary.totalCostUSD.value === null ? null : cellText(group.summary.totalCostUSD, locale),
-      lastRun: group.summary.range.latestStartedAt === null ? null : formatDateTimeMinute(group.summary.range.latestStartedAt),
-    },
-  }));
-  const table = renderTableText(
-    { columns: columns as unknown as [TableColumn, ...TableColumn[]], rows, locale },
-    ctx,
-  );
-  const commands = [
-    localeText(locale, "experimentComparison.commandsHead"),
-    ...data.groups.map((group) => `  ${ctx.experimentCommand(group.key)}`),
-  ].join("\n");
-  return `${table}\n\n${commands}`;
+  if (data.experiments.length === 0) return localeText(locale, "experimentComparison.empty");
+  // connect 缺省跟随缺省 series 解析:series 为 "line" 时连线,agent 不连。
+  const connectOn = connect ?? data.scatter.seriesDimension === "line";
+  // scopeSummaryText 产出不折行的单行头;窄终端下按显示宽度折行,不截断内容。
+  const summary = scopeSummaryText(data.summary, "eval", ctx)
+    .split("\n")
+    .flatMap((line) => wrapDisplay(line, ctx.width))
+    .join("\n");
+  return [
+    summary,
+    scatterText(data.scatter, ctx, { connect: connectOn }),
+    experimentListText(data.experiments, ctx),
+  ]
+    .filter((block) => block.length > 0)
+    .join("\n\n");
 }
 
 // ───────────────────────── MetricTable ─────────────────────────
