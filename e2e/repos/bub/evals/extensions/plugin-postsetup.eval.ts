@@ -13,7 +13,7 @@ const VENV_PYTHON = "$HOME/.local/share/uv/tools/bub/bin/python";
 const PLUGIN_CHECK_CMD = `${VENV_PYTHON} -c "import cowsay; print(cowsay.get_output_string('cow', 'PLUGIN_OK'))"`;
 
 export default defineEval({
-  description: "pythonPlugins package is importable in bub's own tool venv; postSetup hooks ran in declared order",
+  description: "pythonPlugins 声明的包在 bub 自己的 tool venv 里可导入;postSetup 钩子按声明顺序执行",
 
   async test(t) {
     const order = await t.sandbox.readFile(POSTSETUP_ORDER_LOG);
@@ -24,8 +24,8 @@ export default defineEval({
     t.check(hostCheck.stdout, includes("PLUGIN_OK"));
 
     const turn = await t.send(
-      `${SKIP_BUILD_NOTE}${REPLY_DIRECTIVE}Run exactly this shell command and paste back its exact stdout, ` +
-        `nothing else:\n${PLUGIN_CHECK_CMD}`,
+      `${SKIP_BUILD_NOTE}${REPLY_DIRECTIVE}请精确执行以下 shell 命令,把它的 stdout 原样贴回来,` +
+        `不要输出其它内容:\n${PLUGIN_CHECK_CMD}`,
     );
     turn.expectOk();
     t.calledTool("shell");

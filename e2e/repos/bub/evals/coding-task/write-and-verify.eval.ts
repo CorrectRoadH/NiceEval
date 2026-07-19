@@ -6,19 +6,18 @@ import { REPLY_DIRECTIVE, SKIP_BUILD_NOTE } from "../shared.ts";
 // 配对(见 docs/feature/adapters/sdk/bub/README.md),并发工具调用的配对不在本仓库断言范围
 // (docs/engineering/e2e-ci/adapters/bub.md)。
 export default defineEval({
-  description: "agent writes a file, then serially shells out to read it back",
+  description: "agent 先写一个文件,再串行 shell 读回来验证",
 
   async test(t) {
     const turn = await t.send(
-      `${SKIP_BUILD_NOTE}${REPLY_DIRECTIVE}Do this as two separate, distinct tool calls — do not combine them ` +
-        `into one command:\n` +
-        `Step 1: use your file-write tool to create notes.txt in the workspace containing exactly this line: bub e2e ok\n` +
-        `Step 2: as a separate step, use a shell command (for example \`cat notes.txt\`) to read notes.txt back, ` +
-        `and tell me exactly what it printed.`,
+      `${SKIP_BUILD_NOTE}${REPLY_DIRECTIVE}请分两个独立的工具调用完成,不要合并成一条命令:\n` +
+        `第一步:用你的文件写入工具在工作目录下创建 notes.txt,内容为精确的这一行:bub e2e ok\n` +
+        `第二步:作为单独一步,用 shell 命令(例如 \`cat notes.txt\`)把 notes.txt 读回来,` +
+        `并把它打印的内容原样告诉我。`,
     );
     turn.expectOk();
 
-    await t.group("writes notes.txt, then serially shells out to read it back", () => {
+    await t.group("写入 notes.txt,再串行 shell 读回来验证", () => {
       t.calledTool("file_write", { input: { path: /notes\.txt/ } });
       t.calledTool("shell");
       t.toolOrder(["file_write", "shell"]);

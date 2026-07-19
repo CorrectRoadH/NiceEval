@@ -6,18 +6,18 @@ import { REPLY_DIRECTIVE, SKIP_BUILD_NOTE } from "../shared.ts";
 // t.send() 复用同一个 session_id 续接同一个 tape 文件,第二轮能引用首轮事实
 // (docs/engineering/e2e-ci/adapters/bub.md「会话」)。
 export default defineEval({
-  description: "session is adapter-managed: second turn recalls a fact established in the first",
+  description: "会话由 adapter 管理:第二轮能引用首轮建立的事实",
 
   async test(t) {
     const first = await t.send(
-      `${SKIP_BUILD_NOTE}${REPLY_DIRECTIVE}My favorite number is 47. Just acknowledge that you'll remember it — ` +
-        `don't write any files.`,
+      `${SKIP_BUILD_NOTE}${REPLY_DIRECTIVE}我最喜欢的数字是 47。只需确认你会记住它——` +
+        `不要写任何文件。`,
     );
     first.expectOk();
     first.maxTokens(50_000);
 
     const recall = await t.send(
-      `${SKIP_BUILD_NOTE}${REPLY_DIRECTIVE}What is my favorite number? Answer with just the number.`,
+      `${SKIP_BUILD_NOTE}${REPLY_DIRECTIVE}我最喜欢的数字是多少?只回答数字。`,
     );
     recall.expectOk();
     t.check(recall.message, includes("47"));

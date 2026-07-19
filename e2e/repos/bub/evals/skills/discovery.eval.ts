@@ -9,19 +9,19 @@ import { REPLY_DIRECTIVE, SKIP_BUILD_NOTE } from "../shared.ts";
 const MAGIC_WORD = "pineapple-37";
 
 export default defineEval({
-  description: "mounted skill content shows up as real usage evidence in the event stream",
+  description: "挂载的 skill 内容在事件流里体现为真实的使用证据",
 
   async test(t) {
     const turn = await t.send(
-      `${SKIP_BUILD_NOTE}${REPLY_DIRECTIVE}This is not a coding task — do not write or edit any files.\n` +
-        `Check your project skills directory for the review-conventions skill and tell me the exact magic word ` +
-        `documented there.`,
+      `${SKIP_BUILD_NOTE}${REPLY_DIRECTIVE}这不是编码任务——不要写入或编辑任何文件。\n` +
+        `检查你的项目 skills 目录里的 review-conventions skill,把其中记录的确切魔法词` +
+        `告诉我。`,
     );
     turn.expectOk();
 
     t.messageIncludes(MAGIC_WORD);
     t.eventsSatisfy(
-      "some tool call touched the mounted skill file (path/name appears in a call's input)",
+      "某次工具调用的入参中出现了挂载的 skill 文件路径/文件名",
       (events) =>
         events.some(
           (e) => e.type === "action.called" && JSON.stringify(e.input).toLowerCase().includes("skill"),
