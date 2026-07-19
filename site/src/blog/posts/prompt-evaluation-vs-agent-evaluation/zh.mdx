@@ -89,8 +89,6 @@ export default defineEval({
 
 测评逻辑和被测评的 Agent 是分离的，想换模型或切换 prompt 配置，改 experiment 文件的 flag 就行，评估侧不用动。
 
-NiceEval 是 CorrectRoadH 开发的开源项目，瞄准的正是 Prompt 评估工具够不着的那片空白：当你的系统不再是一个黑盒，而是一串工具调用、多轮对话和状态转换的链条时，你需要的不是一个更强的 prompt 打分器，而是一个能追踪完整决策轨迹的评估框架。
-
 ## 开发者怎么选
 
 如果你现在的产品是一个单轮 chatbot、文本分类器或摘要生成器，Prompt 评估工具完全够用。DeepEval 或 RAGAS 加上几组测试用例，足以覆盖你的质量需求。

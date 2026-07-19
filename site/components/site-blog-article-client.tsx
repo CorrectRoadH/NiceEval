@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
+import { Highlight, themes } from "prism-react-renderer";
 import { initAnalytics, track } from "../src/analytics";
 import type { BlogPost } from "../lib/blog";
 import { withLocale, type Dictionary, type Locale } from "../lib/content";
@@ -14,7 +15,13 @@ type MarkdownBlock =
   | { type: "heading"; level: 2 | 3; text: string }
   | { type: "quote"; text: string }
   | { type: "list"; items: string[] }
-  | { type: "code"; text: string };
+  | { type: "code"; text: string; lang: string }
+  | { type: "table"; header: string[]; rows: string[][] };
+
+const codeTheme = {
+  ...themes.vsDark,
+  plain: { ...themes.vsDark.plain, backgroundColor: "transparent" },
+};
 
 function getBlogPost(blogPosts: BlogPost[], slug: string) {
   return blogPosts.find((post) => post.slug === slug);
@@ -115,13 +122,109 @@ function MdxBody({ source }: { source: string }) {
             </ul>
           );
         }
+        if (block.type === "table") {
+          return (
+            <div className="article-table" key={index}>
+              <table>
+                <thead>
+                  <tr>
+                    {block.header.map((cell, cellIndex) => (
+                      <th key={cellIndex}>{formatInline(cell)}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {block.rows.map((row, rowIndex) => (
+                    <tr key={rowIndex}>
+                      {row.map((cell, cellIndex) => (
+                        <td key={cellIndex}>{formatInline(cell)}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        }
         if (block.type === "code") {
-          return <pre key={index}><code>{block.text}</code></pre>;
+          if (block.lang === "mermaid") {
+            return <Mermaid key={index} chart={block.text} />;
+          }
+          return <CodeBlock key={index} code={block.text} lang={block.lang} />;
         }
         return <p key={index}>{formatInline(block.text)}</p>;
       })}
     </div>
   );
+}
+
+function CodeBlock({ code, lang }: { code: string; lang: string }) {
+  const language = prismLanguage(lang);
+  if (!language) {
+    return (
+      <pre>
+        <code>{code}</code>
+      </pre>
+    );
+  }
+  return (
+    <Highlight code={code} language={language} theme={codeTheme}>
+      {({ className, style, tokens, getLineProps, getTokenProps }) => (
+        <pre className={className} style={style}>
+          {tokens.map((line, lineIndex) => (
+            <div key={lineIndex} {...getLineProps({ line })}>
+              {line.map((token, tokenIndex) => (
+                <span key={tokenIndex} {...getTokenProps({ token })} />
+              ))}
+            </div>
+          ))}
+        </pre>
+      )}
+    </Highlight>
+  );
+}
+
+function prismLanguage(lang: string): string | undefined {
+  if (lang === "ts") return "typescript";
+  if (lang === "js") return "javascript";
+  if (["typescript", "javascript", "tsx", "jsx", "bash", "json", "yaml", "css", "html"].includes(lang)) return lang;
+  return undefined;
+}
+
+let mermaidIdCounter = 0;
+
+function Mermaid({ chart }: { chart: string }) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [id] = useState(() => `mermaid-${mermaidIdCounter++}`);
+
+  useEffect(() => {
+    let cancelled = false;
+    import("mermaid").then(async ({ default: mermaid }) => {
+      mermaid.initialize({
+        startOnLoad: false,
+        theme: "dark",
+        fontFamily: '"Avenir Next", "Segoe UI", sans-serif',
+      });
+      const { svg } = await mermaid.render(id, chart);
+      if (!cancelled && containerRef.current) containerRef.current.innerHTML = svg;
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [chart, id]);
+
+  return <div className="article-mermaid" ref={containerRef} />;
+}
+
+const TABLE_ROW = /^\|(.+)\|$/;
+const TABLE_SEPARATOR = /^\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?$/;
+
+function splitTableRow(line: string): string[] {
+  return line
+    .trim()
+    .replace(/^\||\|$/g, "")
+    .split("|")
+    .map((cell) => cell.trim());
 }
 
 function parseMarkdownBlocks(source: string): MarkdownBlock[] {
@@ -130,6 +233,7 @@ function parseMarkdownBlocks(source: string): MarkdownBlock[] {
   let paragraph: string[] = [];
   let list: string[] = [];
   let code: string[] = [];
+  let codeLang = "";
   let inCode = false;
 
   const flushParagraph = () => {
@@ -143,16 +247,19 @@ function parseMarkdownBlocks(source: string): MarkdownBlock[] {
     list = [];
   };
 
-  for (const line of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     if (line.startsWith("```")) {
       if (inCode) {
-        blocks.push({ type: "code", text: code.join("\n") });
+        blocks.push({ type: "code", text: code.join("\n"), lang: codeLang });
         code = [];
+        codeLang = "";
         inCode = false;
       } else {
         flushParagraph();
         flushList();
         inCode = true;
+        codeLang = line.slice(3).trim();
       }
       continue;
     }
@@ -163,6 +270,20 @@ function parseMarkdownBlocks(source: string): MarkdownBlock[] {
     if (!line.trim()) {
       flushParagraph();
       flushList();
+      continue;
+    }
+    if (TABLE_ROW.test(line.trim()) && lines[i + 1] && TABLE_SEPARATOR.test(lines[i + 1].trim())) {
+      flushParagraph();
+      flushList();
+      const header = splitTableRow(line);
+      const rows: string[][] = [];
+      let cursor = i + 2;
+      while (cursor < lines.length && TABLE_ROW.test(lines[cursor].trim())) {
+        rows.push(splitTableRow(lines[cursor]));
+        cursor++;
+      }
+      blocks.push({ type: "table", header, rows });
+      i = cursor - 1;
       continue;
     }
     const heading = line.match(/^(#{2,3})\s+(.+)$/);

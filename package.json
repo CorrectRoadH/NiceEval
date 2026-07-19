@@ -98,6 +98,7 @@
   "dependencies": {
     "autoevals": "0.0.132",
     "effect": "^3.21.4",
+    "mermaid": "^11.16.0",
     "tar-stream": "^3.1.7",
     "tsx": "^4.19.2"
   },

@@ -89,8 +89,6 @@ There's no "what the expected output should be" in this code. No golden dataset,
 
 The evaluation logic is decoupled from the agent under test. Swapping models or switching prompt configurations is just a flag change in the experiment file — the evaluation side doesn't move.
 
-NiceEval is an open-source project built by CorrectRoadH, aimed squarely at the gap prompt evaluation tools can't reach: once your system stops being a black box and becomes a chain of tool calls, multi-turn conversations, and state transitions, what you need isn't a stronger prompt scorer — it's an evaluation framework that can trace the full decision path.
-
 ## How to choose
 
 If your product today is a single-turn chatbot, a text classifier, or a summarizer, prompt evaluation tools are enough. DeepEval or RAGAS, plus a handful of test cases, will cover your quality needs.

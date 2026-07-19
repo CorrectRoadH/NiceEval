@@ -1322,6 +1322,66 @@ h1 {
   background: rgba(255, 255, 255, 0.05);
 }
 
+.article-table {
+  margin: 28px 0;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.article-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 15px;
+}
+
+.article-table th,
+.article-table td {
+  padding: 12px 16px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+  line-height: 1.6;
+}
+
+.article-table th {
+  color: var(--text);
+  font-weight: 650;
+  background: rgba(255, 255, 255, 0.04);
+  white-space: nowrap;
+}
+
+.article-table td {
+  color: var(--muted);
+}
+
+.article-table tr:last-child td {
+  border-bottom: none;
+}
+
+.article-mermaid {
+  margin: 28px 0;
+  padding: 20px;
+  display: flex;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.28);
+  overflow-x: auto;
+}
+
+.article-mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* mermaid 的 foreignObject label 是真实 <p>,会被上面 .article-body p 的 18px/margin 规则
+   覆盖,导致渲染尺寸和 mermaid 自己按 16px 算好的节点框不一致而被裁切。这里还原成继承值。 */
+.article-mermaid p {
+  margin: 0;
+  font-size: inherit;
+  line-height: inherit;
+}
+
 @media (max-width: 980px) {
   .hero,
   .setup,
