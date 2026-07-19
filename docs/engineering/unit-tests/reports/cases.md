@@ -215,7 +215,6 @@ it("text 与 web 显示同一个 MetricCell 终值和 warning", () => {
 | 扫描结果根时单个不可读快照不阻塞其余：忽略/incompatible/malformed/incomplete 各带原因 | 四种坏快照各一 fixture，好快照照常计入 |
 | 零可读结果时命令失败：show 非零退出（旧格式建议 `npx niceeval@<version>`）；view 不启动 server、`--out` 不生成空站 | 边界：空结果根与仅含旧格式两种 |
 | `--out` 无档位：收窄范围内存在且前端会读取的证据文件（sources 引用及其快照级 `sources/<sha256>.json` 正文 / events / trace / diff）全部复制，缺的在证据位置显示缺失；`o11y.json` 永不复制 | 正例：带 diff.json 的根导出后 diff 可下钻；正例：导出站离线打开源码视图可取到正文；边界：携带条目（artifactBase 指向原快照）的源码正文被归拢进本快照 `sources/`，删除原快照后导出站源码仍可读；边界：无 diff.json 的根导出后 diff 位置显示缺失原因；反例：o11y.json 不进 `artifact/` |
-| 前端 artifact fetch 以「页面所在目录」为基底：pathname 末段带 `.` 视为文件名去掉，否则整个 pathname 是目录（含无尾斜杠形态），`artifact/<rel>` 拼在该目录下 | 正例：页面服务在 `/showcase/memory`（无尾斜杠 rewrite）时 fetch `/showcase/memory/artifact/<rel>`；边界：直接打开 `/foo/index.html` 时 fetch `/foo/artifact/<rel>`；反例：根路径 `/` 不产生双斜杠 |
 | `--out` 接受位置参数 / `--exp` 收窄，页面 Scope 与 `artifact/` 证据树跟随同一收窄；不收窄导出完整根 | 正例：`--exp compare --out site` 只含该路径快照与报告数据；正例：eval id 前缀导出时不匹配 attempt 的证据不出站；反例：被滤掉实验的 artifact 不出站 |
 | 本地宿主的 attempt 详情路由越过收窄对完整结果根解析；导出站对范围外 locator 的深链在证据位置如实显示缺失 | 正例：本地 `--exp compare` 下 dev-e2b attempt 的 `#/attempt/@<locator>` 仍解析成功、证据可 fetch；正例：收窄导出站里同一 locator 显示证据缺失而非报错白屏 |
 | `--snapshot` 指定单个快照文件时该文件不可读令 view 失败（与扫描模式的跳过相反）；view 位置参数只表示 eval id 前缀，不接受文件或目录 | 反例：损坏文件经 `--snapshot` 报错退出；正例：同文件在扫描模式仅被跳过；反例：文件路径作位置参数按 eval 前缀报无匹配 |

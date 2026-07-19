@@ -134,7 +134,7 @@ for (const s of results.skipped) {
 
 ## 选快照：`results.latest()`
 
-多数场景先回答「现在什么水位」，选择器替你挑「每个实验最新一次」——这也是默认报告的口径。返回的是一个 **Selection**，快照和警告绑在一起走：
+多数场景先回答「每个实验现在的最新结果是什么」，选择器替你挑「每个实验最新一次」——这也是默认报告的口径。返回的是一个 **Scope**，快照和警告绑在一起走：
 
 ```typescript
 const latest = results.latest({
@@ -158,9 +158,9 @@ latest.warnings[0];
 // }
 ```
 
-字段供程序判断——CI 里「覆盖缩水就 fail」直接判 `covered < total`，不解析文本；`message` 是渲染好的英文句子，要展示就原样打。渲染与否在你，缺口永远被算出来。警告不止这一种：快照落后于 Selection 中最新的落盘进 `stale-snapshot`、选中的快照没收尾（进程中断）进 `unfinished-snapshot`，每种都带 `kind`、可判断的结构化字段和渲染好的 `message`。
+字段供程序判断——CI 里「覆盖缩水就 fail」直接判 `covered < total`，不解析文本；`message` 是渲染好的英文句子，要展示就原样打。渲染与否在你，缺口永远被算出来。警告不止这一种：快照落后于 Scope 中最新的落盘进 `stale-snapshot`、选中的快照没收尾（进程中断）进 `unfinished-snapshot`，每种都带 `kind`、可判断的结构化字段和渲染好的 `message`。
 
-Selection 是[报告积木](/zh/tutorials/custom-reports)和下文 `copySnapshots` 的通用输入：收 `Selection` 时 warnings 随行（`RunOverview` 之类的组件会如实展示），手工挑的 `Snapshot[]` 数组照收。微调官方口径不用降级成裸数组：`latest.filter((s) => s.experimentId !== "compare/broken")` 返回新 Selection——快照被删减，warnings 修剪到幸存的实验，provenance 不丢。`filter` 只做删减；「换成该实验上一个完整快照」这类**替换式**重挑不是它的事，回到 `exp.snapshots` 自己拿——手工挑的数组没有挑选过程，自然没有 warnings 可带，也如实。
+Scope 是[报告积木](/zh/tutorials/custom-reports)和下文 `copySnapshots` 的通用输入：收 `Scope` 时 warnings 随行（`ScopeWarnings` 组件会如实展示），手工挑的 `Snapshot[]` 数组照收。微调官方口径不用降级成裸数组：`latest.filter((s) => s.experimentId !== "compare/broken")` 返回新 Scope——快照被删减，warnings 修剪到幸存的实验，provenance 不丢。`filter` 只做删减；「换成该实验上一个完整快照」这类**替换式**重挑不是它的事，回到 `exp.snapshots` 自己拿——手工挑的数组没有挑选过程，自然没有 warnings 可带，也如实。
 
 ## 一个真实脚本：分布不是折叠
 
@@ -240,7 +240,7 @@ await copySnapshots(results.latest(), "site-data/run", {
                                                         // 读 o11y 的指标就把它带上,不然渲染成「—」
 ```
 
-第一个参数收 `Selection` 或手工挑的 `Snapshot[]`——和报告积木同一个输入约定。`artifacts` 的合法值是 `"events" | "trace" | "o11y" | "agentSetup" | "diff" | "sources"`；缺省带除 `diff` 外的五类。目标目录已存在且非空时报错，不静默覆盖——发布脚本要幂等就自己先清目标目录。
+第一个参数收 `Scope` 或手工挑的 `Snapshot[]`——和报告积木同一个输入约定。`artifacts` 的合法值是 `"events" | "trace" | "o11y" | "agentSetup" | "diff" | "sources"`；缺省带除 `diff` 外的五类。目标目录已存在且非空时报错，不静默覆盖——发布脚本要幂等就自己先清目标目录。
 
 复制开始前，NiceEval 会规划全部目标文件并检查序列化后的大小。任一文件超过固定的 50 MiB，整次复制在创建目标目录前失败，错误会列出路径、实际大小和处理建议。你可以从 `artifacts` 排除那类证据；如果是旧版本留下的超大 events / trace，用当前版本重跑后再发布。这个检查既覆盖没有逐值截断的源码 / diff，也覆盖单值都正常但累计过大的 JSON，避免直到 `git push` 才撞上 Git host 的单文件限制。
 
