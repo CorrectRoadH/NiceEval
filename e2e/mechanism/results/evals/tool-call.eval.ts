@@ -10,7 +10,7 @@ export default defineEval({
 
   async test(t) {
     const turn = await t.send(
-      "ACME 现在的股价是多少?请使用 get_stock_price 工具查询,然后用一句简短的话告诉我价格。",
+      "请调用 get_stock_price 工具查询股票代码 ACME 的当前价格,查到后用一句简短的话告诉我。",
     );
     turn.expectOk();
 
