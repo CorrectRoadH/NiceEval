@@ -204,6 +204,7 @@ export const AttemptAssertions = makeAttemptComponent<AttemptAssertionsData>({
 
 function validateSourceData(data: unknown): string | null {
   if (!isObject(data)) return "expected an object";
+  if (typeof data.locator !== "string") return 'missing "locator" (string)';
   if (typeof data.sourcePath !== "string") return 'missing "sourcePath" (string)';
   if (!Array.isArray(data.lines)) return 'missing "lines" (array)';
   return null;
@@ -241,6 +242,7 @@ export const AttemptFixPrompt = makeAttemptComponent<AttemptFixPromptData>({
 
 function validateTimelineData(data: unknown): string | null {
   if (!isObject(data)) return "expected an object";
+  if (typeof data.locator !== "string") return 'missing "locator" (string)';
   if (!Array.isArray(data.phases)) return 'missing "phases" (array)';
   return null;
 }
@@ -259,6 +261,7 @@ export const AttemptTimeline = makeAttemptComponent<AttemptTimelineData>({
 
 function validateConversationData(data: unknown): string | null {
   if (!isObject(data)) return "expected an object";
+  if (typeof data.locator !== "string") return 'missing "locator" (string)';
   if (!Array.isArray(data.rounds)) return 'missing "rounds" (array)';
   return null;
 }
@@ -313,6 +316,7 @@ export const AttemptUsage = makeAttemptComponent<AttemptUsageData>({
 
 function validateTraceData(data: unknown): string | null {
   if (!isObject(data)) return "expected an object";
+  if (typeof data.locator !== "string") return 'missing "locator" (string)';
   if (!Array.isArray(data.spans)) return 'missing "spans" (array)';
   return null;
 }
@@ -331,6 +335,7 @@ export const AttemptTrace = makeAttemptComponent<AttemptTraceData>({
 
 function validateDiffData(data: unknown): string | null {
   if (!isObject(data)) return "expected an object";
+  if (typeof data.locator !== "string") return 'missing "locator" (string)';
   if (!Array.isArray(data.files)) return 'missing "files" (array)';
   return null;
 }

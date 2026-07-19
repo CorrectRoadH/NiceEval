@@ -71,7 +71,7 @@ export function attemptAssertionsData(evidence: AttemptEvidence): AttemptAsserti
 export function attemptSourceData(evidence: AttemptEvidence): AttemptSourceData | null {
   if (!evidence.capabilities.source || evidence.evalSource === null) return null;
   const { sourcePath, lines, unmapped, summary } = evidence.evalSource;
-  return { sourcePath, lines, unmapped, summary };
+  return { locator: evidence.locator, sourcePath, lines, unmapped, summary };
 }
 
 // ───────────────────────── AttemptFixPrompt ─────────────────────────
@@ -115,7 +115,7 @@ export const TIMELINE_CLOSING_PHASES: ReadonlySet<string> = new Set([
 export function attemptTimelineData(evidence: AttemptEvidence): AttemptTimelineData | null {
   const phases = evidence.result.phases;
   if (!phases || phases.length === 0) return null;
-  return { phases, trace: evidence.trace };
+  return { locator: evidence.locator, phases, trace: evidence.trace };
 }
 
 // ───────────────────────── AttemptConversation ─────────────────────────
@@ -156,7 +156,7 @@ export function attemptConversationData(evidence: AttemptEvidence): AttemptConve
     current.replies.push(...conversationReplyOf(ev, toolByCallId, subagentByCallId));
   }
 
-  return { rounds };
+  return { locator: evidence.locator, rounds };
 }
 
 /** 单条事件 → 0 或 1 条回复条目;action.result/subagent.completed 只更新已有条目,不新增。 */
@@ -252,7 +252,7 @@ export function attemptUsageData(evidence: AttemptEvidence): AttemptUsageData | 
 export function attemptTraceData(evidence: AttemptEvidence): AttemptTraceData | null {
   const spans = evidence.trace;
   if (!spans || spans.length === 0) return null;
-  return { spans };
+  return { locator: evidence.locator, spans };
 }
 
 // ───────────────────────── AttemptDiff ─────────────────────────
@@ -283,5 +283,5 @@ export function attemptDiffData(evidence: AttemptEvidence): AttemptDiffData | nu
     const after = summary.net === "deleted" ? undefined : diff.get(path);
     files.push({ path, net: summary.net, lines: lineDelta(before, after), windows });
   }
-  return files.length > 0 ? { files } : null;
+  return files.length > 0 ? { locator: evidence.locator, files } : null;
 }

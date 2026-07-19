@@ -484,7 +484,11 @@ describe("--report 装载", () => {
         "  },",
         "});",
         "const AttemptPage = () => null;",
-        "AttemptPage[FACES] = { web: () => null, text: () => \"\" };",
+        "AttemptPage[FACES] = {",
+        "  resolve: (props, ctx) => ({ locator: ctx.page.locator, verdict: ctx.page.evidence.result.verdict }),",
+        "  web: () => null,",
+        "  text: (props) => `CUSTOM ATTEMPT PAGE · ${props.locator} · ${props.verdict}`,",
+        "};",
         "const definition = {",
         '  kind: "report",',
         "  links: [],",
@@ -670,6 +674,75 @@ describe("--report 装载", () => {
     expect(builtin.err).toContain('page "typo" not found in the built-in report');
     expect(builtin.err).toContain("Available pages: report, attempts, traces");
   });
+
+  /** 只有一张 scope-input page,没有声明 attempt-input page。 */
+  async function writeReportFileNoAttemptPage(dir: string): Promise<string> {
+    const path = join(dir, "no-attempt-page.mjs");
+    await writeFile(
+      path,
+      [
+        'const FACES = Symbol.for("niceeval.report.faces");',
+        'const DEFINITION = Symbol.for("niceeval.report.definition");',
+        "const Overview = () => null;",
+        "Overview[FACES] = { web: () => null, text: () => \"OVERVIEW\" };",
+        "const definition = {",
+        '  kind: "report",',
+        "  links: [],",
+        "  scripts: [],",
+        "  styles: [],",
+        '  pages: [{ id: "report", title: "Report", input: "scope", navigation: true, content: { type: Overview, props: {} } }],',
+        "};",
+        "Object.defineProperty(definition, DEFINITION, { value: true });",
+        "export default definition;",
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+    return path;
+  }
+
+  it("show @<locator> --report <file>:选中该定义自己声明的 attempt-input page,不是内建固定首页(docs/engineering/unit-tests/reports/cases.md 第 202 行)", async () => {
+    const root = await seedComposedRoot();
+    const report = await writeReportFile(root);
+    const results = await openResults(root);
+    const evals = results.experiments[0]!.snapshots.flatMap((s) => s.evals);
+    const locator = evals.find((e) => e.id === "weather/brooklyn")!.attempts[0]!.locator!;
+
+    const { out, code } = await show(root, [locator], { report });
+    expect(code).toBe(0);
+    expect(out).toBe(`CUSTOM ATTEMPT PAGE · ${locator} · passed\n`);
+    // 不是内建 standard 的固定首页文案(AttemptSummary/AttemptAssessment 等)
+    expect(out).not.toContain("niceeval show");
+  });
+
+  it("自定义报告没有 attempt-input page 时,裸 show @<locator> --report <file> 报完整用户反馈,指引三种解决路径,不回退到内建详情(第 204 行)", async () => {
+    const root = await seedComposedRoot();
+    const report = await writeReportFileNoAttemptPage(root);
+    const results = await openResults(root);
+    const locator = results.experiments[0]!.latest.evals[0]!.attempts[0]!.locator!;
+
+    const { err, code } = await show(root, [locator], { report });
+    expect(code).toBe(1);
+    expect(err).toContain(report);
+    expect(err).toContain("has no attempt-input page");
+    expect(err).toContain("extends: standard");
+    expect(err).toContain("standardAttemptPage");
+    expect(err).toContain('input: "attempt"');
+    // 不静默回退渲染内建 standard 的详情页(那会让用户以为自定义报告本来就有这页)
+    expect(err).not.toContain("Eval Results");
+  });
+
+  it("--source/--execution/--diff 直接读 AttemptEvidence,不经 page content:没有 attempt page 的自定义报告下仍正常工作(第 203 行)", async () => {
+    const root = await seedComposedRoot();
+    const report = await writeReportFileNoAttemptPage(root);
+    const results = await openResults(root);
+    const locator = results.experiments[0]!.latest.evals[0]!.attempts[0]!.locator!;
+
+    const { out, code } = await show(root, [locator], { report, diff: true });
+    expect(code).toBe(0);
+    expect(out).toContain(locator);
+    expect(out).not.toContain("has no attempt-input page");
+  });
 });
 
 // ───────────────────────── 证据切面:--execution ─────────────────────────
@@ -822,7 +895,7 @@ describe("show @<locator>", () => {
     const locator = results.experiments[0]!.latest.evals[0]!.attempts[0]!.locator!;
     const { out } = await show(root, [locator]);
     expect(out).toContain("gate · Issue 15193");
-    expect(out).toContain("assertion: equals(4)");
+    expect(out).toContain("equals(4)");
     expect(out).toContain("expected: 4");
     expect(out).toContain("received: 1");
     expect(out).toContain("source: evals/manager.eval.ts:40:11");
@@ -839,10 +912,11 @@ describe("show @<locator>", () => {
 
     const { out, code } = await show(root, [locator]);
     expect(code).toBe(0);
-    expect(out).toContain(`${locator} · weather/brooklyn · compare/bub · passed`);
-    expect(out).toContain("attempt 1 · ");
-    expect(out).toContain("execution: unavailable (no events recorded for this attempt)");
-    expect(out).toContain("changes: diff unavailable");
+    expect(out).toContain(`${locator} · weather/brooklyn · compare/bub · ✓ passed · 1.0s`);
+    // 没有 events/diff 的组件零输出(不是"execution: unavailable"这类占位文案)——
+    // 与「Attempt 详情组件族:非空/空证据矩阵」的单元测试同一条契约,这里是集成层确认。
+    expect(out).not.toContain("execution:");
+    expect(out).not.toContain("changes:");
     expect(out).not.toContain("evidence:");
     expect(out).not.toContain("available:");
   });
@@ -867,22 +941,20 @@ describe("show @<locator>", () => {
 
     const { out, code } = await show(root, [locator]);
     expect(code).toBe(0);
-    expect(out).toContain(`${locator} · agent-029 · compare/claude-e2b · errored`);
-    // 结构化 error 块:phase 直接展示闭集点分名,code/message/cause 各一行(见 docs/feature/reports/show.md)
-    expect(out).toContain("error:");
+    expect(out).toContain(`${locator} · agent-029 · compare/claude-e2b · ! errored · 1.0s`);
+    // 结构化 error 块:code 折进 error: 首行,phase/message/cause 各一行(AttemptError)
+    expect(out).toContain("error: sandbox-rate-limit");
     expect(out).toContain("phase: sandbox.create");
-    expect(out).toContain("code: sandbox-rate-limit");
     expect(out).toContain("message: E2B sandbox allocation failed after 5 attempts");
     expect(out).toContain("cause: RateLimitError · too many concurrent sandboxes");
-    // attempt 级 diagnostics 块(与 verdict 独立)
-    expect(out).toContain("diagnostics:");
-    expect(out).toContain("warning · sandbox.teardown · teardown-failed");
-    expect(out).toContain("container stop timed out");
-    // errored 且无断言:不打印空的 assertions 汇总行
+    // attempt 级 diagnostics 按 lifecycle phase 分组(AttemptDiagnostics),标题即 phase 名
+    expect(out).toContain("sandbox.teardown:");
+    expect(out).toContain("warning · teardown-failed — container stop timed out");
+    // errored 且无断言:AttemptAssertions 零输出,不打印空的 assertions 汇总行
     expect(out).not.toContain("assertions:");
   });
 
-  it("available 只逐行列出实际存在的证据命令,不打印能力字母或合并式 next", async () => {
+  it("证据下钻命令散落在各自区块行尾(带 locator),不存在的能力不生成假命令,也没有合并式 available/next 尾块", async () => {
     const root = await makeRoot();
     const dir = await writeSnapshot(root, "2026-07-08T10-00-00-000Z", { experimentId: "compare/bub", startedAt: "2026-07-08T10:00:00.000Z" }, [
       res("weather/brooklyn", "failed", { hasEvents: true }),
@@ -899,9 +971,14 @@ describe("show @<locator>", () => {
 
     const { out, code } = await show(root, [locator]);
     expect(code).toBe(0);
-    expect(out).toContain(`available:\n  niceeval show ${locator} --source\n  niceeval show ${locator} --execution`);
+    // AttemptSource / AttemptConversation 各自行尾带命令(不是集中列在一个 available: 块里)
+    expect(out).toContain(`niceeval show ${locator} --source`);
+    expect(out).toContain(`niceeval show ${locator} --execution`);
+    // 没有 diff/timing 能力(fixture 没写 diff.json,也没有 phases)时不生成假命令
     expect(out).not.toContain(`niceeval show ${locator} --diff`);
+    expect(out).not.toContain(`niceeval show ${locator} --timing`);
     expect(out).not.toContain("evidence:");
+    expect(out).not.toContain("available:");
     expect(out).not.toContain("next:");
   });
 
@@ -1064,7 +1141,7 @@ describe("show @<locator>", () => {
     expect(out).not.toContain("git show ×");
   });
 
-  it("attempt 首页 timing 只列大头,但保留变慢的 telemetry 阶段", async () => {
+  it("attempt 首页 timing 逐阶段一行,收尾段单独归拢(AttemptTimeline 不做单行宽度收窄,--timing 才是完整分解)", async () => {
     const root = await makeRoot();
     const dir = await writeSnapshot(root, "2026-07-08T10-00-00-000Z", { experimentId: "compare/bub", startedAt: "2026-07-08T10:00:00.000Z" }, [
       res("weather/brooklyn", "passed", {
@@ -1090,15 +1167,17 @@ describe("show @<locator>", () => {
     const locator = results.experiments[0]!.latest.evals[0]!.attempts[0]!.locator!;
 
     const { out } = await show(root, [locator]);
-    const timingLine = out.split("\n").find((line) => line.startsWith("timing:"));
-    expect(out).toContain("1 AI message");
-    expect(timingLine).toContain("sandbox.queue 0ms");
-    expect(timingLine).toContain("sandbox.create 3.0s");
-    expect(timingLine).toContain("eval.run 45.0s");
-    expect(timingLine).toContain("telemetry.collect 35.3s");
-    expect(timingLine).toContain("teardown +8.5s");
-    expect(timingLine).not.toContain("workspace.baseline");
-    expect(timingLine).not.toContain("telemetry.configure");
+    // 每个主链阶段各占一行(不再是旧格式的单行拼接,那条规则本身是为单行可读服务的,
+    // 多行块没有这个约束了),收尾段(sandbox.stop)单独归拢在 teardown: 之下。
+    expect(out).toContain("timing: 1m 24s");
+    expect(out).toContain("sandbox.queue 0ms");
+    expect(out).toContain("sandbox.create 3.0s");
+    expect(out).toContain("workspace.baseline 310ms");
+    expect(out).toContain("telemetry.configure 358ms");
+    expect(out).toContain("eval.run 45.0s");
+    expect(out).toContain("telemetry.collect 35.3s");
+    expect(out).toContain("teardown:");
+    expect(out).toContain("sandbox.stop 8.5s");
   });
 
   it("语法不对的 locator 报「not a valid attempt locator」,退出码 1,不崩", async () => {

@@ -486,6 +486,8 @@ export interface AttemptAssertionsData {
 
 /** `AttemptSource` 的 data:AnnotatedEvalSource 的展示投影;没有 source 时 null。 */
 export interface AttemptSourceData {
+  /** text 面拼 `niceeval show <locator> --source` 下钻命令用;web 面不需要。 */
+  locator: AttemptLocator;
   sourcePath: string;
   lines: AnnotatedSourceLine[];
   unmapped: AssertionResult[];
@@ -499,6 +501,8 @@ export interface AttemptFixPromptData {
 
 /** `AttemptTimeline` 的 data:runner 阶段主链 + 收尾段,以及可选的 trace(供 turn 节点按 traceId 关联 span);没有 phase 时 null。 */
 export interface AttemptTimelineData {
+  /** text 面拼 `niceeval show <locator> --timing` 下钻命令用;web 面不需要。 */
+  locator: AttemptLocator;
   phases: PhaseTiming[];
   trace: TraceSpan[] | null;
 }
@@ -522,6 +526,8 @@ export type AttemptConversationReply =
 
 /** `AttemptConversation` 的 data:标准事件流按 loc 分轮;没有 events 时 null。 */
 export interface AttemptConversationData {
+  /** text 面拼 `niceeval show <locator> --execution` 下钻命令用;web 面不需要。 */
+  locator: AttemptLocator;
   rounds: AttemptConversationRound[];
 }
 
@@ -538,6 +544,8 @@ export interface AttemptUsageData {
 
 /** `AttemptTrace` 的 data:不与 runner 节点合并的原始 OTel span 列表;没有 trace 时 null。 */
 export interface AttemptTraceData {
+  /** text 面拼 `niceeval show <locator> --timing` 下钻命令用;web 面不需要。 */
+  locator: AttemptLocator;
   spans: TraceSpan[];
 }
 
@@ -554,5 +562,7 @@ export interface AttemptDiffFileEntry {
 
 /** `AttemptDiff` 的 data:generated / modified / deleted 的文件级摘要;没有变更时 null。 */
 export interface AttemptDiffData {
+  /** text 面拼 `niceeval show <locator> --diff` 下钻命令用;web 面不需要。 */
+  locator: AttemptLocator;
   files: AttemptDiffFileEntry[];
 }

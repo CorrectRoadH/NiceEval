@@ -4,7 +4,8 @@
 // 位置参数 = eval id 前缀,或 `@<locator>`(精确指名单个 attempt,见 results/locator.ts):
 //   裸跑 / 多 eval 前缀  内建报告(niceeval/report/built-in 默认导出)的 text 面(单 eval 前缀仍进入详情)
 //   恰好一个 eval     单 eval 详情(attempt / 断言明细,宿主本体)
-//   @<locator>        精确 attempt:无证据 flag → 紧凑全景;带 flag → 对应证据切面
+//   @<locator>        精确 attempt:无证据 flag → 当前 report 的 attempt-input page(内建 standard
+//                     或 --report 自定义);带 flag → 对应证据切面(宿主本体,不经报告管线)
 //   --source / --execution / --diff[=路径]   证据切面(宿主本体):出现即走证据室,不渲染报告槽
 //   --history        执行时间轴(逐 experimentId + evalId 分节),与 --report 互斥
 //   --report <文件>  整槽换成用户报告;位置前缀 / --results / --exp 先收窄 Scope 再注入
@@ -47,7 +48,6 @@ import {
   attemptEvidenceHeader,
   attemptHistoryText,
   attemptIndexLine,
-  attemptOverviewText,
   attemptsOfEval,
   diffText,
   evalDetailText,
@@ -164,8 +164,7 @@ async function show(
   // `@<locator>` 位置参数:身份直达单个 attempt,与 eval id 前缀匹配完全不同的语义
   // (`@` 打头对 eval id 天然无歧义,见 locator.ts),必须在下面的前缀匹配逻辑之前分流掉,
   // 不然 "@1x7f3q" 会被当成一个谁都匹配不到的 eval id 前缀,报「no eval match」这种文不对题的
-  // 错误。这一步只解析并渲染出「当前 show 对单个已解析 attempt 能渲染的东西」(单 eval 详情 /
-  // 三个证据切面)——真正的 `--source`/`--execution`/`--diff` 统一 attempt 全景是后续阶段。
+  // 错误。
   const locatorArg = patterns.find((p) => p.startsWith(ATTEMPT_LOCATOR_PREFIX));
   if (locatorArg !== undefined) {
     if (patterns.length !== 1) {
@@ -200,7 +199,35 @@ async function show(
       io.out(blocks.join("\n\n") + "\n");
       return;
     }
-    io.out(attemptOverviewText(attemptEvidence, { header, artifactPath, width: io.width }) + "\n");
+    // 无证据 flag:选中当前 report definition 里唯一的 attempt-input page,注入这份 evidence,
+    // 走与其它 page 完全相同的 resolve → validate → render 管线(docs/feature/reports/show/attempt.md;
+    // docs/feature/reports/library/attempt-detail.md「在 show 与 view 怎样渲染」)。不带 --report
+    // 时装载内建 standard,其中就带这张 page;--report 指向的自定义报告没有声明 attempt-input page
+    // 时报完整用户反馈,不回退到内建详情(三条解决路径都在错误文案里给出)。
+    const report = await loadHostReport(cwd, flags.report);
+    const attemptPage = report.pages.find((p) => p.input === "attempt");
+    if (attemptPage === undefined) {
+      const sourceLabel = flags.report ?? "the built-in report";
+      throw new ShowError(
+        `error: ${sourceLabel} has no attempt-input page — "${locatorArg}" cannot be opened without one. ` +
+          `Add one: use \`extends: standard\` (inherits its attempt page), import { standardAttemptPage } from ` +
+          `"niceeval/report/built-in" and add it to your pages list, or declare your own \`input: "attempt"\` page.\n`,
+      );
+    }
+    const locale = detectLocale();
+    const selection = selectCurrentResults(results, {});
+    const meta = await buildHostReportMeta(report, selection);
+    const text = await renderHostPageText(
+      attemptPage,
+      {
+        scope: selection,
+        results,
+        report: meta,
+        page: { id: attemptPage.id, input: "attempt", locator: attempt.locator!, evidence: attemptEvidence },
+      },
+      { width: io.width, locale },
+    );
+    io.out(text + "\n");
     return;
   }
 

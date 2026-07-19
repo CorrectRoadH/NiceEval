@@ -158,74 +158,6 @@ export function assertionLine(a: AssertionResult): string {
   return head;
 }
 
-/** 字段行:首行 `<label>: <值首行>`,值的其余行(如 CommandResult 的 output tail)缩进原样展开。 */
-function fieldLines(label: string, value: string): string[] {
-  const [first, ...rest] = value.split("\n");
-  return [`    ${label}: ${first ?? ""}`, ...rest.map((line) => `      ${line}`)];
-}
-
-/** 每条的通用行组(见 docs/feature/scoring/library/display.md「通用渲染规则」):
- *  首行 `severity · <标题>`(有分组时标题是分组路径,随后 assertion: 行给检查方式),
- *  之后按有则显示的顺序列 expected / received / score / reason / source。 */
-function assertionRecordLines(a: AssertionResult): string[] {
-  const group = groupTitle(a);
-  const optional = a.optional ? "optional · " : "";
-  const title = group ?? a.name;
-  const lines: string[] = [];
-  const scoreSuffix =
-    a.outcome !== "unavailable" && (a.severity === "soft" || a.threshold !== undefined)
-      ? `   ${scoreText(a.score)}${a.threshold !== undefined ? ` / ${scoreText(a.threshold)}` : ""}`
-      : "";
-  lines.push(`  ${a.severity} · ${optional}${title}${scoreSuffix}`);
-  const detailLine = a.detail ?? (group ? a.name : undefined);
-  if (detailLine !== undefined && detailLine !== title) lines.push(`    assertion: ${detailLine}`);
-  if (a.outcome === "unavailable") {
-    lines.push(`    reason: ${a.reason}`);
-  } else {
-    if (a.expected !== undefined) lines.push(...fieldLines("expected", a.expected));
-    if (a.received !== undefined) lines.push(...fieldLines("received", a.received));
-    if (a.evidence !== undefined && a.evidence !== a.received) lines.push(...fieldLines("evidence", a.evidence));
-  }
-  if (a.loc) lines.push(`    source: ${a.loc.file}:${a.loc.line}${a.loc.column ? `:${a.loc.column}` : ""}`);
-  return lines;
-}
-
-/**
- * 默认 Attempt 页的首要诊断:按结果分节,只逐条列出需要看的(见 display.md)——
- * `failures:`(gate 失败,含 --strict 下改判的 soft)、`soft below threshold:`、
- * `scores:`(无阈值 judge 的纯打分)、`unavailable:`(证据评不了的,带 reason)。
- * 全部通过时这些节整体省略(返回 undefined),只留计数行。
- */
-export function failureDiagnostics(assertions: AssertionResult[], width: number, strict?: boolean): string | undefined {
-  const failures = assertions.filter(
-    (a) => a.outcome === "failed" && (a.severity === "gate" || strict),
-  );
-  const softBelow = assertions.filter(
-    (a) => a.outcome === "failed" && a.severity === "soft" && !strict,
-  );
-  const scores = assertions.filter(
-    (a) => a.outcome === "passed" && a.severity === "soft" && a.threshold === undefined && a.score < 1,
-  );
-  const unavailableOnes = assertions.filter((a) => a.outcome === "unavailable");
-  const lines: string[] = [];
-  const section = (title: string, items: AssertionResult[]) => {
-    if (items.length === 0) return;
-    if (lines.length > 0) lines.push("");
-    lines.push(title);
-    for (const a of items) lines.push(...assertionRecordLines(a));
-  };
-  section("failures:", failures);
-  section("soft below threshold:", softBelow);
-  section("scores:", scores);
-  section("unavailable:", unavailableOnes);
-  if (lines.length === 0) return undefined;
-  return lines.flatMap((line) => {
-    if (line === "") return [line];
-    const indent = line.length - line.trimStart().length;
-    return wrapDisplay(line.trimStart(), Math.max(20, width - indent)).map((part) => `${" ".repeat(indent)}${part}`);
-  }).join("\n");
-}
-
 /** 详情块头部:`attempt 3 · compare/codex-gpt-5.4 · failed · 41s · 12.3k tokens · $0.04`。 */
 export function attemptHeader(attempt: AttemptHandle): string {
   const r = attempt.result;
@@ -242,12 +174,13 @@ export function attemptHeader(attempt: AttemptHandle): string {
 }
 
 // ───────────────────────── AttemptEvidence 共用 ─────────────────────────
-// evalSourceText / executionText / attemptOverviewText(--eval / --execution / 默认全景)
-// 与 evalDetailText 的紧凑索引列共用的小件:locator 头、失败原因、
-// 断言计票摘要。三个证据 renderer 与全景面都只消费同一份 AttemptEvidence,不各自读
-// artifact 或重新判定 capability(loadAttemptEvidence 已经算好)。
+// evalSourceText / executionText / timingText / diffText(--source / --execution / --timing / --diff
+// 四个证据切面)与 evalDetailText 的紧凑索引列共用的小件:locator 头、失败原因、断言计票摘要。
+// 四个证据 renderer 都只消费同一份 AttemptEvidence,不各自读 artifact 或重新判定 capability
+// (loadAttemptEvidence 已经算好)。无证据 flag 的默认页改由 niceeval/report 的 attempt-input
+// page 管线渲染(docs/feature/reports/show/attempt.md),不在这里。
 
-/** `--eval` / `--execution` / 全景块的头行:`@<locator> · <evalId> · <experimentId> · <verdict>`。 */
+/** 证据切面的头行:`@<locator> · <evalId> · <experimentId> · <verdict>`。 */
 export function attemptEvidenceHeader(evidence: AttemptEvidence): string {
   return [evidence.locator, evidence.identity.evalId, evidence.identity.experimentId, evidence.result.verdict].join(" · ");
 }
@@ -753,10 +686,6 @@ export function executionText(
   return `${header}\n\n${lines.join("\n")}\n\n${tail.join("\n")}`;
 }
 
-// ───────────────────────── 默认全景:AttemptEvidence 紧凑总览 ─────────────────────────
-
-const MAX_OVERVIEW_DIFF_NAMES = 5;
-
 /** net 效果的单字母标记(A/M/D;none = 动过但净无变化,标 ±)。 */
 function netLetter(net: string): string {
   switch (net) {
@@ -771,15 +700,6 @@ function netLetter(net: string): string {
   }
 }
 
-function overviewDiffLine(diff: DiffData): string {
-  const names = Object.entries(diff.files)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([p, f]) => `${netLetter(f.net)} ${p}`);
-  const shown = names.slice(0, MAX_OVERVIEW_DIFF_NAMES);
-  const more = names.length > shown.length ? ` · +${names.length - shown.length} more` : "";
-  return `changes: ${names.length} ${names.length === 1 ? "file" : "files"} changed by agent · ${shown.join(" · ")}${more}`;
-}
-
 /** 有界行 diff(公共前后缀修剪):对单区域编辑精确,复杂编辑给出上界近似。 */
 function lineDelta(before: string | undefined, after: string | undefined): { adds: number; dels: number } {
   const a = before === undefined ? [] : before.split("\n");
@@ -789,131 +709,6 @@ function lineDelta(before: string | undefined, after: string | undefined): { add
   let suffix = 0;
   while (suffix < a.length - prefix && suffix < b.length - prefix && a[a.length - 1 - suffix] === b[b.length - 1 - suffix]) suffix++;
   return { adds: b.length - prefix - suffix, dels: a.length - prefix - suffix };
-}
-
-/**
- * `niceeval show @<locator>` 不带证据 flag 时的默认面:紧凑全景,只给摘要——Eval 断言计票、
- * 执行事件计数、可选 OTel 时间指示、工作区 diff 摘要,不复现 `--eval` 的完整源码、
- * `--execution` 的完整事件流或 `--diff` 的完整文件列表(那些内容各自的证据 flag 才给)。
- */
-/** lifecycle operation → 首页可读标签:点换空格,与 docs/feature/reports/show.md 的
- *  `phase: sandbox provision` 字面一致(不引入第二套本地化标签,show 首页用英文原样呈现)。 */
-function operationWords(operation: string): string {
-  return operation.replace(/\./g, " ");
-}
-
-/**
- * errored attempt 的结构化 `error:` 块(见 docs/feature/reports/show.md「errored attempt 的首页」)。
- * 先展开 phase(= operation 的可读形态)/ code / message / cause,stack 放在块后、保持原始换行。
- * 字段来自结构化 `AttemptError`;非 errored(`r.error === undefined`)返回 undefined。
- */
-function renderErrorBlock(r: EvalResult): string | undefined {
-  const err = r.error;
-  if (err === undefined) return undefined;
-  const lines = ["error:", `  phase: ${err.phase}`, `  code: ${err.code}`, `  message: ${err.message}`];
-  if (err.cause) {
-    const c = err.cause;
-    const causeText = c.name ? `${c.name} · ${c.message}` : c.message;
-    lines.push(`  cause: ${causeText}`);
-  }
-  // stack 放在 error 块之后、保持原始换行(见 docs);没有 stack(如 timeout / turn-failed)就不加空块。
-  if (err.stack && err.stack.trim() !== "") return `${lines.join("\n")}\n\n${err.stack.replace(/\n+$/, "")}`;
-  return lines.join("\n");
-}
-
-/**
- * attempt 级诊断块(见 docs/feature/reports/show.md「diagnostics」)。每条一行标头
- * `<level> · <operation> · <code>`,message 缩进在下一行;`count > 1` 时补 `(N occurrences)`。
- * 诊断的 level 与 verdict 无关 —— passed / failed / errored 都可能带一条 cleanup / teardown
- * warning。没有诊断返回 undefined。
- */
-function renderAttemptDiagnostics(r: EvalResult): string | undefined {
-  if (!r.diagnostics || r.diagnostics.length === 0) return undefined;
-  const lines = ["diagnostics:"];
-  for (const d of r.diagnostics) {
-    lines.push(`  ${d.level} · ${d.phase} · ${d.code}`);
-    const occ = d.count && d.count > 1 ? ` (${d.count} occurrences)` : "";
-    lines.push(`    ${d.message}${occ}`);
-  }
-  return lines.join("\n");
-}
-
-export function attemptOverviewText(
-  evidence: AttemptEvidence,
-  opts: { header: string; artifactPath?: string; width: number },
-): string {
-  const { header, artifactPath } = opts;
-  const r = evidence.result;
-
-  const metaParts = [`snapshot ${evidence.identity.snapshotStartedAt}`, `attempt ${evidence.identity.attempt + 1}`, formatDurationMs(r.durationMs)];
-  if (r.usage) metaParts.push(`${formatMetricValue(r.usage.inputTokens + r.usage.outputTokens)} tokens`);
-  const cost = attemptCostUSD(r);
-  if (cost !== null) metaParts.push(formatUSD(cost));
-
-  const blocks: string[] = [[header, metaParts.join(" · ")].join("\n")];
-
-  // errored attempt 的首页不靠 trace 就要能解释基础设施错误(见 docs/feature/reports/show.md
-  // 「errored attempt 的首页」):先展开结构化 error(phase/operation/code/message/cause + stack),
-  // 断言块对没有断言的 errored attempt 省略(它在评分之前就挂了)。
-  const errorBlock = renderErrorBlock(r);
-  if (errorBlock) blocks.push(errorBlock);
-
-  // errored 且没有任何断言时不打印空的 "assertions: 0 passed" —— 主因已经在 error 块里说清楚了。
-  if (r.assertions.length > 0 || r.error === undefined) {
-    blocks.push(
-      [
-        assertionSummaryLine(r.assertions),
-        evidence.evalSource
-          ? `eval source: ${evidence.evalSource.sourcePath} · sha256:${evidence.evalSource.sourceSha256.slice(0, 8)}…`
-          : "eval source: unavailable (not captured for this attempt)",
-      ].join("\n"),
-    );
-  }
-
-  const diagnostics = failureDiagnostics(r.assertions, opts.width);
-  if (diagnostics) blocks.push(diagnostics);
-
-  // attempt 级诊断(teardown/cleanup 等,与 verdict 独立;passed/failed/errored 都可能有)。
-  const attemptDiag = renderAttemptDiagnostics(r);
-  if (attemptDiag) blocks.push(attemptDiag);
-
-  if (evidence.execution) {
-    const nodes = evidence.execution.nodes.filter((node) => node.kind !== "telemetry");
-    const skillLoads = nodes.filter((n) => n.kind === "skill.loaded").length;
-    const toolCalls = nodes.filter((n) => n.kind === "action").length;
-    const aiMessages = nodes.filter((n) => n.kind === "message" && n.role === "assistant").length;
-    const counted = (count: number, singular: string, plural = `${singular}s`) =>
-      `${count} ${count === 1 ? singular : plural}`;
-    const execLines = [
-      `execution: ${counted(nodes.length, "event")} · ${counted(skillLoads, "skill load")} · ${counted(toolCalls, "tool call")} · ${counted(aiMessages, "AI message")}`,
-    ];
-    const timingLine = overviewTimingLine(r);
-    if (timingLine) execLines.push(timingLine);
-    blocks.push(execLines.join("\n"));
-  } else {
-    blocks.push("execution: unavailable (no events recorded for this attempt)");
-  }
-
-  if (evidence.diff && evidence.capabilities.diff) {
-    blocks.push(overviewDiffLine(evidence.diff));
-  } else if (evidence.diff) {
-    blocks.push("changes: diff unavailable · this attempt did not produce workspace file changes");
-  } else {
-    blocks.push("changes: diff unavailable · no workspace diff was recorded for this attempt");
-  }
-
-  const tail: string[] = [];
-  if (artifactPath) tail.push(`artifacts: ${artifactPath}/`);
-  const available = [
-    evidence.capabilities.source ? `niceeval show ${evidence.locator} --source` : undefined,
-    evidence.capabilities.execution ? `niceeval show ${evidence.locator} --execution` : undefined,
-    evidence.capabilities.timing ? `niceeval show ${evidence.locator} --timing` : undefined,
-    evidence.capabilities.diff ? `niceeval show ${evidence.locator} --diff` : undefined,
-  ].filter((command): command is string => command !== undefined);
-  if (available.length > 0) tail.push(`available:\n${available.map((command) => `  ${command}`).join("\n")}`);
-  if (tail.length > 0) blocks.push(tail.join("\n"));
-
-  return blocks.join("\n\n");
 }
 
 // ───────────────────────── 证据切面:diff ─────────────────────────
@@ -1012,26 +807,6 @@ function windowHunk(c: { status: string; before?: string; after?: string }): str
 // ───────────────────────── 证据切面:--timing(统一时间树) ─────────────────────────
 
 const CLOSING_PHASE_NAMES = new Set(["eval.teardown", "agent.teardown", "sandbox.teardown", "sandbox.suspend", "sandbox.stop"]);
-
-// 首页只保留能回答「大头在哪」的阶段。分类账锚点与 telemetry bookkeeping 在很短时
-// 留给 --timing 完整树；一旦自身变成慢点或失败，仍必须抬到首页，不能被静默藏掉。
-const OVERVIEW_DETAIL_PHASE_NAMES = new Set(["workspace.baseline", "telemetry.configure", "telemetry.collect"]);
-const OVERVIEW_DETAIL_THRESHOLD_MS = 1_000;
-
-/** phases 主链摘要行(首页 `timing:`):各主链阶段耗时点隔,收尾段合计以 `teardown +N` 单列。 */
-export function overviewTimingLine(r: EvalResult): string | undefined {
-  if (!r.phases || r.phases.length === 0) return undefined;
-  const main = r.phases.filter(
-    (p) =>
-      !CLOSING_PHASE_NAMES.has(p.name) &&
-      (p.failed === true || !OVERVIEW_DETAIL_PHASE_NAMES.has(p.name) || p.durationMs >= OVERVIEW_DETAIL_THRESHOLD_MS),
-  );
-  const closing = r.phases.filter((p) => CLOSING_PHASE_NAMES.has(p.name));
-  const parts = main.map((p) => `${p.name} ${formatDurationMs(p.durationMs)}${p.failed ? " ✗" : ""}`);
-  const closingMs = closing.reduce((sum, p) => sum + p.durationMs, 0);
-  if (closingMs > 0) parts.push(`teardown +${formatDurationMs(closingMs)}`);
-  return `timing: ${parts.join(" · ")}`;
-}
 
 const TIMING_DETAIL_NODE_BUDGET = 80;
 
