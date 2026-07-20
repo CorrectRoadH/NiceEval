@@ -19,25 +19,31 @@
 
 ## 调度:有界并发
 
-核心调度用 `Effect.forEach({ concurrency: "unbounded" })` + **两级信号量**实现:每个 attempt 立刻有自己的 fiber,但执行体要先过实验级闸(`ExperimentDef.maxConcurrency`,可选)、再占全局 permit(全局 `maxConcurrency`)才真正开跑。实验级闸只让该实验自己的 attempt 排队,同批其它实验照常并发——串行化有共享状态的实验(如跨 eval 累积记忆,`maxConcurrency: 1`)不再拖慢整批基线。报告回调走 **permit=1 的信号量串行化**,不阻塞执行 fiber。结果最后按**发现顺序**排序(而非完成顺序),让输出稳定可 diff。
+核心调度用 `Effect.forEach({ concurrency: "unbounded" })` + **两级并发闸**实现:每个 attempt 立刻有自己的 fiber,但执行体要先过实验级闸(`ExperimentDef.maxConcurrency`,可选,先来后到)、再拿到全局并发位(全局 `maxConcurrency`,空位按瓶颈优先分配,纪律见[下一节](#派发顺序瓶颈优先追求最小总墙钟时间))才真正开跑。实验级闸只让该实验自己的 attempt 排队,同批其它实验照常并发——串行化有共享状态的实验(如跨 eval 累积记忆,`maxConcurrency: 1`)不再拖慢整批基线。报告回调走 **permit=1 的信号量串行化**,不阻塞执行 fiber。结果最后按**发现顺序**排序(而非完成顺序),让输出稳定可 diff。
 
 全局并发上限来源:`--max-concurrency` → 配置 `maxConcurrency` → **该沙箱 provider 的推荐默认值**。推荐值反映的是 **provider 侧**约束(daemon 容量、API 配额、session 池大小),不是你的 agent API 限速——后者自己用 `--max-concurrency` 压。「云的就能开大」这个直觉是错的:`docker` 10(本地 daemon 建容器有开销)、`e2b` 20(账户配额的保守估计)、**`vercel` 1**(sandbox session 并发限制严,再高就 429),自定义 provider 取它自己声明的 `recommendedConcurrency`(省略则 5)。实验文件里的 `maxConcurrency` 不参与这条全局解析,只在该实验内部限流。
 
 ## 派发顺序:瓶颈优先,追求最小总墙钟时间
 
-attempt 的**派发**顺序(fiber 抢占 permit 的顺序)按**整批跑完的总墙钟时间最短**这个目标排,不是发现顺序。判断一个 run 是不是瓶颈,不能只看它的 `maxConcurrency` 有多紧,还要看它有多少 attempt 要排这条队——`maxConcurrency: 1` 但只有 1 个 attempt 的 run 谈不上瓶颈,`maxConcurrency: 5` 但有 500 个 attempt 的 run 才是。两者合起来才是这个 run 需要多少**轮次**才能跑完:轮次越多,越早开始占用并发位,总时长就越接近"瓶颈自身的串行耗时",而不是"瓶颈耗时 + 排在它前面的其它 run 先跑完的耗时"。轮次少或不设实验级上限的 run 不构成瓶颈,可以随时见缝插针补进空出来的并发位,晚发不拖尾。这一层只重排**派发**顺序,不改变前一节的两级信号量本身,也不影响结果排序——结果仍按发现顺序输出(见上一节)。
+attempt 的**派发**顺序(全局并发位分配给谁的顺序)按**整批跑完的总墙钟时间最短**这个目标排,不是发现顺序,也不是请求先后。判断一个 run 是不是瓶颈,不能只看它的 `maxConcurrency` 有多紧,还要看它有多少 attempt 要排这条队——`maxConcurrency: 1` 但只有 1 个 attempt 的 run 谈不上瓶颈,`maxConcurrency: 5` 但有 500 个 attempt 的 run 才是。两者合起来才是这个 run 需要多少**轮次**才能跑完:轮次越多,越早、越连续地占用并发位,总时长才接近"瓶颈自身的串行耗时",而不是"瓶颈耗时 + 排在它前面的其它 run 先跑完的耗时"。轮次少或不设实验级上限的 run 不构成瓶颈,随时见缝插针补进空出来的并发位,晚发不拖尾。这一层不影响结果排序——结果仍按发现顺序输出(见上一节)。
 
-推荐算法(单次 attempt 耗时未知且假设同批内大致均匀,轮次数就是耗时的代理指标——这是把 identical-machine 调度的 LPT 规则推广到「moldable job」场景的标准做法):
+优先级绑定在**并发位的分配**上,不是 fiber 的创建顺序上:每当有并发位空出(初始的 `maxConcurrency` 个位视为同样多次空出),发给**当前正在等待的 attempt 中优先级最高的那个**——轮次数降序,同轮次的 run 保留发现顺序,同 run 内保留 attempt 顺序;「谁先开始等」不参与裁决。这样定是因为 attempt 在请求并发位之前可能还有别的事要做——最典型是[实验级 `setup`](feature/experiments/architecture.md#实验级生命周期setup-与-teardown) 的宿主机等待——而瓶颈 run 恰恰常是带慢 setup 的实验(隧道、共享记忆服务):若按先来后到分配,它等完 setup 时队伍早被无 setup 的宽并发 run 排满,优先级在最需要生效的场景恰好失效。
+
+与实验级 setup 的组合是工作保全(work-conserving)的:等待 setup 的 attempt 不持有也不预留并发位,期间空位照常发给低优先级 run 见缝插针;setup 完成后该 run 按原优先级参与下一次分配。代价是一次有界的起步延迟——setup 结束时若并发位全满,要等在飞 attempt 中最先完成的那个,上界是一个 attempt 的耗时,且每个实验整场只付一次(第一个 attempt 挤进去之后,该 run 后续 attempt 一直按优先级拿位)。
+
+不为 setup 中的瓶颈 run **预留**并发位,是拿这次一次性延迟换掉一个更差的尾部风险:setup 的耗时事先不可知、也可能失败(隧道冷启动重试、服务拉不起来),预留等于拿一个并发位押注一段长度未知、可能白等的等待——真烧起来的时长没有上界,而且失败时那个位是纯亏。相比之下 backfill 的代价有上界、可预测,也不因 setup 失败而放大。也不**抢占**在飞的 attempt:已花的沙箱与 token 成本不可回收。
+
+推荐算法(单次 attempt 耗时未知且假设同批内大致均匀,轮次数就是耗时的代理指标——这是把 identical-machine 调度的 LPT 规则推广到「moldable job」场景的标准做法;「空位给最高优先级等待者 + 低优先级见缝插针」即批调度器的 backfilling,且每个 attempt 只要一个并发位,不需要多资源预留式 backfill 的复杂度):
 
 ```text
 effectiveWidth(run) = min(run.maxConcurrency ?? globalMaxConcurrency, globalMaxConcurrency)
-rounds(run)          = ceil(attemptsOf(run).count / effectiveWidth(run))
+priority(run)       = rounds(run) = ceil(attemptsOf(run).count / effectiveWidth(run))
 
-dispatchOrder = stableSortDescendingBy(runs, rounds(run))   # 轮次多的 run 排前面
-attempts      = dispatchOrder.flatMap(run => attemptsOf(run))  # run 内部顺序不变(仍是 round i → eval)
+onSlotFree():   # 初始 globalMaxConcurrency 个并发位视为同样多次空出
+  grant(等待集中排序最前者)   # priority 降序 → run 发现顺序 → run 内 attempt 顺序
 ```
 
-`rounds` 只在建 attempt 列表时算一次(用规划阶段已知的「每个 run 有多少 attempt」),不随运行中 earlyExit / fail-fast / budget 实际提前收尾而重算——那是动态优先级调整,复杂度不值得为一个尽力而为的启发式引入;`stableSortDescendingBy` 保证同轮次数的 run 保留原发现顺序,同 run 内部 attempt 的相对顺序也不变。
+`priority` 只在建 attempt 列表时算一次(用规划阶段已知的「每个 run 有多少 attempt」),不随运行中 earlyExit / fail-fast / budget 实际提前收尾而重算——那是动态优先级调整,复杂度不值得为一个尽力而为的启发式引入。实验级闸(`ExperimentDef.maxConcurrency`)不参与这条纪律,先来后到即可:同一 run 的 attempt 优先级相同,它们内部谁先谁后不影响总墙钟。等待中的 attempt 被中止(earlyExit、fail-fast、用户中断)时退出等待集,不占用后续分配。
 
 一次 `exp` 运行把按路径选中的多个单一配置展成 attempt，再 × `eval × runs`；每个配置先用自己的 `evals` 谓词遍历发现结果。比如 2 个实验配置 × `runs: 5` × 3 个 eval = 30 个 attempt。汇总按 `(agent, model, eval)` 分组,不再是单一判定,而是**通过率** + 平均耗时 / token / 成本:
 
@@ -57,8 +63,8 @@ fixtures/button   codex         pass@5 = 3/5 (60%)   mean 41s · 72k tok · $0.3
 - `errored` 不触发:超时、限流、沙箱挂掉这类瞬态基建错误在下一个 attempt 上完全可能自愈,因一次 errored 停掉其余样本等于放弃重试机会,还会把基建抖动放大成整题无结果。
 - 确定性错误不靠 earlyExit 兜,走独立的 **run 级 fail-fast**:凭据缺失、模板不存在、作者代码必现抛错这类同因必复现的错误,识别出(预检命中,或同一错误 code 在同一 eval 连续复现)即停止派发受同一配置影响的后续 attempt,如实报 errored——这是止损,不是「首过即停」,两个机制互不混用。
 - 默认关;`runs` 因此默认跑满 N 次,给出完整通过率分布——这是这个工具的核心指标(衡量 agent 稳不稳,见[矩阵展开](#派发顺序瓶颈优先追求最小总墙钟时间)),默认不该被无声截断。只想知道"能不能做到"、不在乎分布时,显式 `earlyExit: true`(或 `--early-exit`)打开。
-- **earlyExit 不改变派发节奏,只减少已派发的浪费**:同一个 eval 的多个 attempt 该不该并发跑,由 [有界并发](#调度有界并发)的 permit 数(实验级 `maxConcurrency` 或全局 `maxConcurrency`)决定,与 earlyExit 是否开无关——`runs: N` 建的 N 个 fiber 一起去抢 permit,抢到几个就并发跑几个,不会等前一个出结果再决定要不要派发下一个。earlyExit 只在其中某个已经 `passed` 后,abort 掉**还没抢到 permit** 的其余 fiber;已经在跑的不受影响,跑完照样计入(除非 provider/adapter 自己接了 abort signal 提前终止)。
-- 因此,「探到一次能过就停,过不了才继续跑下一次」这种严格串行的重试语义,是 `maxConcurrency: 1` 与显式 `earlyExit: true` 组合出的效果:permit 只有一张时,同 eval 的 attempt 只能一个接一个抢,前一个不释放 permit,后一个进不去;前一个 `passed` 时 abort 还没抢到 permit 的后续,天然就是"过了就停"。不设 `maxConcurrency: 1`(如实验级默认继承全局并发)时,`runs` 的多次 attempt 可能同一时刻就有好几个在跑,earlyExit 能省下的只是**这些已经在飞的之外、原本还要排队的那些**。
+- **earlyExit 不改变派发节奏,只减少已派发的浪费**:同一个 eval 的多个 attempt 该不该并发跑,由 [有界并发](#调度有界并发)的并发位数(实验级 `maxConcurrency` 或全局 `maxConcurrency`)决定,与 earlyExit 是否开无关——`runs: N` 建的 N 个 fiber 一起进等待集,有几个位就并发跑几个,不会等前一个出结果再决定要不要派发下一个(同一个 run 的 attempt 优先级相同,它们之间按 attempt 顺序拿位)。earlyExit 只在其中某个已经 `passed` 后,abort 掉**还在等待集里**的其余 fiber;已经在跑的不受影响,跑完照样计入(除非 provider/adapter 自己接了 abort signal 提前终止)。
+- 因此,「探到一次能过就停,过不了才继续跑下一次」这种严格串行的重试语义,是 `maxConcurrency: 1` 与显式 `earlyExit: true` 组合出的效果:实验级闸只放一个时,同 eval 的 attempt 只能一个接一个过闸,前一个不出闸,后一个进不去;前一个 `passed` 时 abort 掉还没出闸的后续,天然就是"过了就停"。不设 `maxConcurrency: 1`(如实验级默认继承全局并发)时,`runs` 的多次 attempt 可能同一时刻就有好几个在跑,earlyExit 能省下的只是**这些已经在飞的之外、原本还要排队的那些**。
 
 ## 预算护栏(budget)
 

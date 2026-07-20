@@ -39,6 +39,8 @@ npx niceeval exp local --max-concurrency 8
 
 远程 HTTP agent 可以用更高并发；本地 Docker Sandbox 通常需要更低并发，避免 CPU、内存和磁盘竞争。
 
+把跑得慢的实验和跑得快的实验混在一次命令里跑是安全的：并发名额优先给「要跑最多轮才能跑完」的实验（比如 `maxConcurrency: 1` 又有几十个 Attempt 的那个），快的实验见缝插针补空位。慢实验有一段 `setup`（起隧道、起共享服务）时也一样——它等 `setup` 的这段时间不占名额，别的实验照常跑，`setup` 一好它就拿下一个空出来的名额，不用为它单开一次命令。
+
 ## runs 与 early-exit
 
 ```bash

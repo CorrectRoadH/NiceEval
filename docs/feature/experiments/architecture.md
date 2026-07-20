@@ -38,7 +38,7 @@ experiment 影响调度的字段就四个，语义单点在 [Runner](../../runne
 `setup(ctx)` / `teardown(ctx)` 在**宿主机**上、对每个实验**整场恰好至多一次**执行,与 attempt 生命周期(沙箱内 / 每 attempt 一次)分属两个节奏;成对形态与触发规则和其余三层一致(见 [Runner · 环境预置](../../runner.md#环境预置不进运行器但按顺序调它)):
 
 - **触发时机是懒的**:本实验第一个通过派发许可(首过即停 / fail-fast / budget 检查)的 attempt 触发它,后续 attempt 等同一个 memoized 结果。全部结果被 carry 携入、一个 attempt 都不派发时,`setup` 不执行——没有 attempt 要跑就没有资源要起。
-- **不占并发位**:等待 `setup` 的 attempt 不持有全局并发 permit,不会让一个慢启动的隧道饿死同批其它实验;它们在反馈计数里保持 `queued`。
+- **不占并发位,也不折损优先级**:等待 `setup` 的 attempt 不持有、不预留全局并发位,不会让一个慢启动的隧道饿死同批其它实验;它们在反馈计数里保持 `queued`。setup 完成后按[瓶颈优先](../../runner.md#派发顺序瓶颈优先追求最小总墙钟时间)的优先级参与下一次空位分配,不因回来得晚排到队尾。
 - **起止可见性由 runner 发布**:setup / teardown 的开始与结束是运行级反馈事件(Human dashboard 的运行级 active 行、agent/ci 的起止行),不依赖钩子自己调 `progress`——渲染契约见 [CLI · 实验级钩子的显示](cli.md#实验级钩子的显示)。
 - **ctx**:`experimentId`、`selectedEvalIds`、`signal`(用户中断时 abort),以及作用域反馈 `progress` / `diagnostic`(绑定到当前钩子对应的 `experiment.setup` / `experiment.teardown`,见 [Library · 生命周期代码怎样向这次运行反馈](library.md#生命周期代码怎样向这次运行反馈))。
 - **失败语义**:`setup` 抛错 → 本实验**所有** attempt 记 `errored`(`error.code = "experiment-setup-failed"`,`error.phase = "experiment.setup"`),逐条落 `result.json`、进报告——环境起不来是每条 eval 都没跑成的事实,不是一条一次性日志;同批其它实验不受任何影响。同一 eval 连续复现同一错误码走既有 run 级 fail-fast 收敛,不会刷出无限重复行。
