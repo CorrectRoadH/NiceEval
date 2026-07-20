@@ -27,21 +27,46 @@ function pt(deg: number, r: number) {
   return `${x.toFixed(1)} ${y.toFixed(1)}`;
 }
 
-// 每段扇区的弧体对称落在 12/3/6/9 点(-26°..+26°),箭尖再往对角空隙探 16°。
+// 每段扇区的弧体对称落在 12/3/6/9 点(-26°..+26°),箭头接在 +26° 这一端。
 // 标签在 0° 正好是弧体中心,四个方向都不偏。
+const FLARE = 8;
+const HEAD_LEN = 60;
+// 尾切口相对半径线偏 5°。纯半径切口对两条弧的切线各是精确 90°,但两条弧都朝圆心弯:
+// 外角处弧往夹角里弯、看着是锐角(视觉约 85°),内角处弧朝外弯、看着是钝角(约 97°)。
+// 偏 5° 把这个曲率偏置抵掉,两个角看起来才都是直角。
+const TAIL_SHEAR = 5;
+
+// 箭尖沿 to 处的切线直着探出去,而不是继续沿弧走:箭头底边是 to 的半径线,
+// 本就垂直于切线,箭尖再顺着切线走才和底边构成等腰三角形。若把箭尖也放在弧上,
+// 底边到箭尖的弦方向会偏离切线半个张角,箭头会看着是斜的。
+function headTip(deg: number) {
+  const rad = (deg * Math.PI) / 180;
+  const base = ringPoint(deg, R_MID);
+  return `${(base.x + HEAD_LEN * Math.cos(rad)).toFixed(1)} ${(base.y + HEAD_LEN * Math.sin(rad)).toFixed(1)}`;
+}
+
+// 尾部内角:从外角沿偏转后的方向往圆心走,交到 R_IN 圆上的那一点(解 |d - t·u| = R_IN 取近根)。
+function tailInnerCorner(from: number) {
+  const rad = ((from + TAIL_SHEAR) * Math.PI) / 180;
+  const u = { x: Math.sin(rad), y: -Math.cos(rad) };
+  const outer = ringPoint(from, R_OUT);
+  const d = { x: outer.x - RING_SIZE / 2, y: outer.y - RING_SIZE / 2 };
+  const b = d.x * u.x + d.y * u.y;
+  const t = b - Math.sqrt(b * b - (d.x * d.x + d.y * d.y - R_IN * R_IN));
+  return `${(outer.x - t * u.x).toFixed(1)} ${(outer.y - t * u.y).toFixed(1)}`;
+}
+
 function segmentPath(index: number) {
   const from = index * 90 - 26;
   const to = index * 90 + 26;
-  const tip = to + 16;
-  const flare = 13;
   return [
     `M ${pt(from, R_OUT)}`,
     `A ${R_OUT} ${R_OUT} 0 0 1 ${pt(to, R_OUT)}`,
-    `L ${pt(to, R_OUT + flare)}`,
-    `L ${pt(tip, R_MID)}`,
-    `L ${pt(to, R_IN - flare)}`,
+    `L ${pt(to, R_OUT + FLARE)}`,
+    `L ${headTip(to)}`,
+    `L ${pt(to, R_IN - FLARE)}`,
     `L ${pt(to, R_IN)}`,
-    `A ${R_IN} ${R_IN} 0 0 0 ${pt(from, R_IN)}`,
+    `A ${R_IN} ${R_IN} 0 0 0 ${tailInnerCorner(from)}`,
     "Z",
   ].join(" ");
 }
