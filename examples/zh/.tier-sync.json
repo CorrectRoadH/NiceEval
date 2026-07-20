@@ -34,7 +34,7 @@
       "from": "examples/zh/tier1/ai-sdk-v7",
       "to": "examples/zh/tier2/ai-sdk-v7",
       "contract": "overlay",
-      "baseTree": "48f93d79b6df5a499e51ed8a5fe2dfefced16fe0"
+      "baseTree": "106429f3bbaaf1599fdd80b800443edcdbb4b44a"
     },
     {
       "from": "examples/zh/tier1/codex-sdk",
@@ -52,7 +52,7 @@
       "from": "examples/zh/tier2/ai-sdk-v7",
       "to": "examples/zh/tier3/ai-sdk-v7",
       "contract": "overlay",
-      "baseTree": "14924735f65dffdebbb04e1af782c69bf5235230"
+      "baseTree": "e5a98dead70fcca9aedd957b5abe72f062bbfa77"
     },
     {
       "from": "examples/zh/tier2/codex-sdk",
