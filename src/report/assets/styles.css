@@ -943,13 +943,16 @@ table.nre,
   border-left: 2px solid var(--line-strong);
 }
 
-/* Source:GitHub diff 式整块横向滚动；普通行只是 div，只有有证据的行才是可点击 details。
-   send 蓝，pass 绿，gate-fail 红，soft-fail 黄，颜色占整行而不是只染一个小图标。 */
+/* Source:GitHub diff 式整块横向滚动;与产品站示例卡同一套视觉语言(整行 8% 浅染 + 2px 左缘 +
+   行号位图标,规范见 docs/feature/reports/library/attempt-detail.md)。普通行只是 div,
+   只有有证据的行才是可点击 details。 */
 .nre-attempt-source {
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--panel);
+  /* 给 .nre-source-line-detail 提供 cqw:展开区按面板可视宽度换行,不跟代码横滚。 */
+  container-type: inline-size;
 }
 .nre-attempt-source .nre-attempt-source-head,
 .nre-attempt-source .nre-attempt-source-unmapped-head {
@@ -964,13 +967,14 @@ table.nre,
 }
 .nre-attempt-source .nre-attempt-source-lines {
   overflow-x: auto;
+  padding: 6px 0;
   background: color-mix(in oklch, var(--panel-2), var(--panel) 48%);
-  font: 12.5px/1.7 ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font: 12.5px/1.65 ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  /* 横滚时行盒要撑到最长行宽度,底色/左缘才能盖满整行,展开区的 sticky 才有位移空间
+     (与示例卡 .eval-code 的 display:grid 同法)。 */
+  display: grid;
 }
 .nre-attempt-source .nre-source-line {
-  width: max-content;
-  min-width: 100%;
-  border-left: 3px solid transparent;
   color: var(--text);
 }
 .nre-attempt-source .nre-source-line > summary {
@@ -980,42 +984,30 @@ table.nre,
 .nre-attempt-source .nre-source-line > summary::-webkit-details-marker { display: none; }
 .nre-attempt-source .nre-source-line-summary {
   display: grid;
-  grid-template-columns: 46px 22px minmax(0, 1fr) auto;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
   align-items: center;
   min-width: 100%;
   width: max-content;
+  padding: 1px 0;
 }
+/* hover 用 background-image 叠加,不覆盖状态行 summary 上的浅染 background-color。 */
 .nre-attempt-source details.nre-source-line > summary:hover {
-  background: color-mix(in oklch, var(--line), transparent 72%);
-}
-.nre-attempt-source details.nre-source-line[open] > summary {
-  background: color-mix(in oklch, var(--panel), var(--line) 34%);
+  background-image: linear-gradient(
+    color-mix(in oklch, var(--text), transparent 95%),
+    color-mix(in oklch, var(--text), transparent 95%)
+  );
 }
 .nre-attempt-source .nre-source-ln {
   align-self: stretch;
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  padding: 1px 8px 1px 0;
+  padding-right: 12px;
   color: var(--soft);
   font-size: 11px;
-  text-align: right;
   user-select: none;
 }
-.nre-attempt-source .nre-source-status {
-  display: grid;
-  width: 13px;
-  height: 13px;
-  place-items: center;
-  border: 1px solid currentColor;
-  border-radius: 999px;
-  color: var(--soft);
-  font: 700 9px/1 ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-  user-select: none;
-}
-.nre-attempt-source .nre-source-status-empty { border-color: transparent; }
-.nre-attempt-source .nre-source-status-send { border: 0; }
-.nre-attempt-source .nre-source-status-send svg {
+.nre-attempt-source .nre-source-ln-mark svg {
   width: 13px;
   height: 13px;
   fill: none;
@@ -1025,93 +1017,86 @@ table.nre,
   stroke-width: 2;
 }
 .nre-attempt-source .nre-source-text {
-  padding-left: 8px;
   color: var(--text);
   font: inherit;
   white-space: pre;
 }
+/* 钉在滚动视口右缘:行盒跟随最长行,横滚时分数与 chevron 始终可见(与示例卡 .code-line-actions 同法)。 */
 .nre-attempt-source .nre-source-line-meta {
+  position: sticky;
+  right: 0;
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding-right: 12px;
-  font: 11px/1.7 ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  gap: 8px;
+  padding: 0 12px 0 16px;
+  font: 11px/1.65 ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   white-space: nowrap;
 }
-.nre-attempt-source .nre-source-turn-badge,
 .nre-attempt-source .nre-source-score-badge {
-  border: 1px solid color-mix(in oklch, currentColor, transparent 52%);
+  padding: 1px 8px;
   border-radius: 999px;
-  padding: 0 7px;
+  background: color-mix(in oklch, currentColor, transparent 86%);
+  font-weight: 650;
 }
 .nre-attempt-source .nre-source-chevron {
   color: var(--soft);
-  font-size: 18px;
-  transition: transform 0.12s ease;
+  font-size: 16px;
+  line-height: 1;
+  transition: transform 0.14s ease;
 }
-.nre-attempt-source details[open] > summary .nre-source-chevron { transform: rotate(90deg); }
+.nre-attempt-source details[open] > summary .nre-source-chevron {
+  color: var(--text);
+  transform: rotate(90deg);
+}
 
-.nre-attempt-source .nre-source-line-send {
-  border-left-color: var(--nre-c0);
-  background: color-mix(in oklch, var(--nre-c0), var(--panel) 88%);
+/* 状态行 = 8% 浅染 + 2px 左缘(所有状态行都是 details,染在 summary 上,展开区不跟着染)。 */
+.nre-attempt-source .nre-source-line-send > summary {
+  background-color: color-mix(in oklch, var(--nre-c0), transparent 92%);
+  box-shadow: inset 2px 0 0 var(--nre-c0);
 }
-.nre-attempt-source .nre-source-line-send .nre-source-ln {
-  background: color-mix(in oklch, var(--nre-c0), var(--panel) 74%);
+.nre-attempt-source .nre-source-line-send .nre-source-ln { color: var(--nre-c0); }
+.nre-attempt-source .nre-source-line.nre-tone-good > summary {
+  background-color: color-mix(in oklch, var(--good), transparent 92%);
+  box-shadow: inset 2px 0 0 var(--good);
 }
-.nre-attempt-source .nre-source-line-send .nre-source-status,
-.nre-attempt-source .nre-source-line-send .nre-source-turn-badge { color: var(--nre-c0); }
-.nre-attempt-source details.nre-source-line-send[open] > summary,
-.nre-attempt-source details.nre-source-line-send > summary:hover {
-  background: color-mix(in oklch, var(--nre-c0), var(--panel) 82%);
+.nre-attempt-source .nre-source-line.nre-tone-good .nre-source-ln { color: var(--good); }
+.nre-attempt-source .nre-source-line.nre-tone-good .nre-source-score-badge { color: var(--good); }
+.nre-attempt-source .nre-source-line.nre-tone-bad > summary {
+  background-color: color-mix(in oklch, var(--bad), transparent 92%);
+  box-shadow: inset 2px 0 0 var(--bad);
 }
-.nre-attempt-source .nre-source-line.nre-tone-good {
-  border-left-color: var(--good);
-  background: color-mix(in oklch, var(--good), var(--panel) 58%);
-  color: var(--text);
-}
-.nre-attempt-source .nre-source-line.nre-tone-good .nre-source-ln {
-  background: color-mix(in oklch, var(--good), var(--panel) 34%);
-}
-.nre-attempt-source .nre-source-line.nre-tone-good .nre-source-status { color: var(--good); }
-.nre-attempt-source .nre-source-line.nre-tone-bad {
-  border-left-color: var(--bad);
-  background: color-mix(in oklch, var(--bad), var(--panel) 58%);
-  color: var(--text);
-}
-.nre-attempt-source .nre-source-line.nre-tone-bad .nre-source-ln {
-  background: color-mix(in oklch, var(--bad), var(--panel) 34%);
-}
-.nre-attempt-source .nre-source-line.nre-tone-bad .nre-source-status { color: var(--bad); }
-.nre-attempt-source .nre-source-line.nre-tone-warn,
-.nre-attempt-source .nre-source-line.nre-tone-na {
-  border-left-color: var(--warn);
-  background: color-mix(in oklch, var(--warn), var(--panel) 58%);
-  color: var(--text);
+.nre-attempt-source .nre-source-line.nre-tone-bad .nre-source-ln { color: var(--bad); }
+.nre-attempt-source .nre-source-line.nre-tone-bad .nre-source-score-badge { color: var(--bad); }
+.nre-attempt-source .nre-source-line.nre-tone-warn > summary,
+.nre-attempt-source .nre-source-line.nre-tone-na > summary {
+  background-color: color-mix(in oklch, var(--warn), transparent 92%);
+  box-shadow: inset 2px 0 0 var(--warn);
 }
 .nre-attempt-source .nre-source-line.nre-tone-warn .nre-source-ln,
-.nre-attempt-source .nre-source-line.nre-tone-na .nre-source-ln {
-  background: color-mix(in oklch, var(--warn), var(--panel) 34%);
-}
-.nre-attempt-source .nre-source-line.nre-tone-warn .nre-source-status,
-.nre-attempt-source .nre-source-line.nre-tone-na .nre-source-status { color: var(--warn); }
+.nre-attempt-source .nre-source-line.nre-tone-na .nre-source-ln { color: var(--warn); }
+.nre-attempt-source .nre-source-line.nre-tone-warn .nre-source-score-badge,
+.nre-attempt-source .nre-source-line.nre-tone-na .nre-source-score-badge { color: var(--warn); }
 
+/* 展开区直接接在源码行下:按面板可视宽度(cqw)换行并钉在滚动视口左缘,不跟代码横滚。 */
 .nre-attempt-source .nre-source-line-detail {
+  position: sticky;
+  left: 0;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: 9px;
-  min-width: 100%;
-  padding: 10px 16px 12px 60px;
+  width: calc(100cqw - 2px);
+  padding: 8px 14px 12px 44px;
   border-top: 1px dashed var(--line);
-  border-left: 3px solid color-mix(in oklch, var(--blue, var(--nre-c0)), var(--line) 40%);
-  background: color-mix(in oklch, var(--panel), var(--line) 22%);
+  box-shadow: inset 2px 0 0 color-mix(in oklch, var(--nre-c0), var(--line) 40%);
   color: var(--text);
-  font: 12.5px/1.5 ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  font: 12.5px/1.55 ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
   white-space: normal;
 }
-.nre-attempt-source .nre-source-line.nre-tone-good > .nre-source-line-detail { border-left-color: var(--good); }
-.nre-attempt-source .nre-source-line.nre-tone-bad > .nre-source-line-detail { border-left-color: var(--bad); }
+.nre-attempt-source .nre-source-line.nre-tone-good > .nre-source-line-detail { box-shadow: inset 2px 0 0 var(--good); }
+.nre-attempt-source .nre-source-line.nre-tone-bad > .nre-source-line-detail { box-shadow: inset 2px 0 0 var(--bad); }
 .nre-attempt-source .nre-source-line.nre-tone-warn > .nre-source-line-detail,
-.nre-attempt-source .nre-source-line.nre-tone-na > .nre-source-line-detail { border-left-color: var(--warn); }
+.nre-attempt-source .nre-source-line.nre-tone-na > .nre-source-line-detail { box-shadow: inset 2px 0 0 var(--warn); }
 .nre-attempt-source .nre-source-line-detail .nre-assertion-row {
   display: grid;
   font-size: 12px;
@@ -1264,12 +1249,13 @@ table.nre,
 .nre-attempt-source .nre-attempt-source-unlocated > .nre-source-turn-failed { border-left-color: var(--bad); }
 .nre-attempt-source .nre-attempt-source-unlocated > .nre-source-turn-waiting { border-left-color: var(--warn); }
 
-/* 与旧 CodeView 同一套逐行轻量 TypeScript token。 */
-.nre-attempt-source .tok-comment { color: var(--soft); font-style: italic; }
-.nre-attempt-source .tok-str { color: light-dark(#0a7d3c, #7ee787); }
-.nre-attempt-source .tok-kw { color: light-dark(#9333ea, #c792ea); }
-.nre-attempt-source .tok-num { color: light-dark(#b25000, #f0a36b); }
-.nre-attempt-source .tok-fn { color: light-dark(#0b62d6, #82aaff); }
+/* 逐行轻量 TypeScript token;暗色取 VS Code Dark+ 系(与产品站示例卡的 prism vsDark 同源),
+   浅色为等价可读色。 */
+.nre-attempt-source .tok-comment { color: light-dark(#6e7781, #6a9955); font-style: italic; }
+.nre-attempt-source .tok-str { color: light-dark(#953800, #ce9178); }
+.nre-attempt-source .tok-kw { color: light-dark(#0b62d6, #569cd6); }
+.nre-attempt-source .tok-num { color: light-dark(#116329, #b5cea8); }
+.nre-attempt-source .tok-fn { color: light-dark(#755f00, #dcdcaa); }
 
 /* Fix prompt 与时间树:顶层 details 是完整 panel，嵌套 details 只负责层级。 */
 .nre-attempt-fix-prompt,

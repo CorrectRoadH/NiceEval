@@ -1,8 +1,9 @@
 // cases: docs/engineering/unit-tests/reports/cases.md
 // Attempt 详情组件族的单元测试:11 个叶子的非空/空证据矩阵、AttemptAssessment 的
 // source/assertions fallback、AttemptDetail 的内建顺序、spec/data 等价与 scope-input page
-// 报错、AttemptConversation 的 loc 分轮、断言区默认展开规则、AttemptTimeline 的默认折叠。
+// 报错、AttemptConversation 的 loc 分轮、attemptSourceData 的 loc 投影、AttemptTimeline 的默认折叠。
 // 纯渲染,注入数据:直接构造 AttemptEvidence fixture,不 mock fetch(这些组件从不 fetch)。
+// 样式与视觉交互(染色、布局、展开观感)不在本层:归 E2E 报告域(docs/engineering/e2e-ci/results.md)。
 
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -486,54 +487,35 @@ describe("AttemptConversation:标准事件流按 loc 分轮", () => {
 });
 
 // bug: memory/attempt-detail-components-shipped-without-styles.md
-describe("AttemptSource:GitHub diff 式源码证据交互", () => {
-  it("按 loc 把回复挂回 send 行，并输出 token、四种行状态与可展开详情", () => {
+describe("attemptSourceData:标准事件流按 loc 投影回 send 行", () => {
+  it("send 行的 turns 携带 sentText 与按序归并的完整回复", () => {
     const sourcePath = "evals/a.ts";
-    const lines = [
-      { line: 1, text: 'import { defineEval } from "niceeval";', assertions: [], sends: [] },
-      {
-        line: 2,
-        text: 'const reply = await t.send("hello");',
-        assertions: [],
-        sends: [{ label: "s1/t1", status: "completed" as const, durationMs: 120, loc: { file: sourcePath, line: 2 } }],
-      },
-      {
-        line: 3,
-        text: "reply.includes('ok');",
-        assertions: [{ name: "includes ok", severity: "gate" as const, outcome: "passed" as const, score: 1 }],
-        sends: [],
-      },
-      {
-        line: 4,
-        text: "reply.includes('done');",
-        assertions: [{ name: "includes done", severity: "gate" as const, outcome: "failed" as const, score: 0 }],
-        sends: [],
-      },
-      {
-        line: 5,
-        text: "reply.score();",
-        assertions: [{ name: "quality", severity: "soft" as const, outcome: "failed" as const, score: 0.4, threshold: 0.7 }],
-        sends: [],
-      },
-    ];
     const data = attemptSourceData(
       evidenceOf({
         capabilities: { ...NO_CAPS, source: true, execution: true },
         evalSource: {
           sourcePath,
           sourceSha256: "x",
-          lines,
+          lines: [
+            { line: 1, text: 'import { defineEval } from "niceeval";', assertions: [], sends: [] },
+            {
+              line: 2,
+              text: 'const reply = await t.send("hello");',
+              assertions: [],
+              sends: [{ label: "s1/t1", status: "completed" as const, durationMs: 120, loc: { file: sourcePath, line: 2 } }],
+            },
+          ],
           unmapped: [],
           summary: {
-            totalAssertions: 3,
-            mappedAssertions: 3,
+            totalAssertions: 0,
+            mappedAssertions: 0,
             unmappedAssertions: 0,
-            passed: 1,
-            failed: 2,
-            gate: 2,
-            soft: 1,
-            totalLines: 5,
-            annotatedLines: 3,
+            passed: 0,
+            failed: 0,
+            gate: 0,
+            soft: 0,
+            totalLines: 2,
+            annotatedLines: 1,
           },
         },
         events: [
@@ -547,18 +529,7 @@ describe("AttemptSource:GitHub diff 式源码证据交互", () => {
     expect(data.lines[1]!.turns[0]!.replies).toEqual([
       { kind: "assistant", text: "assistant reply attached to the source line" },
     ]);
-    const html = renderToStaticMarkup(<AttemptSource data={data} /> as never);
-    expect(html).toContain('<span class="tok-kw">import</span>');
-    expect(html).toContain('<span class="tok-str">&quot;niceeval&quot;</span>');
-    expect(html).toContain("nre-source-line-send");
-    expect(html).toContain("nre-tone-good");
-    expect(html).toContain("nre-tone-bad");
-    expect(html).toContain("nre-tone-warn");
-    expect(html).toContain("assistant reply attached to the source line");
-    expect(html).not.toContain("s1/t1");
-    expect(html).toContain('<div class="nre-source-line"><span class="nre-source-line-summary">');
-    expect((html.match(/<details class="nre-source-line/g) ?? [])).toHaveLength(4);
-    expect(html).toMatch(/<details class="nre-source-line nre-tone-bad" open="">/);
+    expect(data.lines[0]!.turns).toEqual([]);
   });
 });
 

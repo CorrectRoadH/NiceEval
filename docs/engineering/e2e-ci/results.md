@@ -12,11 +12,12 @@
 2. **公开读取面**：`openResults()` 遍历出的快照、attempt 与推导聚合和盘上文件一致——读取面是落盘事实的忠实投影，不是第二份口径。
 3. **JSON 出口**：CLI `--json` 输出的机器摘要与读取面口径一致。
 4. **JUnit 出口**：显式 `--junit` 文件里 `failed` 折叠为 `<failure>`、`errored` 折叠为 `<error>`，用例集合与实际 attempt 对应。
+5. **视图出口（视觉与交互）**：对同一次运行执行 `niceeval view --out` 导出静态站，用真实浏览器打开 index 与失败 attempt 的 `attempt/<locator>.html` 文档，验收「组件 + 官方 stylesheet」在真实证据上的组合成立：详情各语义块是结构化布局而非 UA 默认排版；源码行按 [`AttemptSource` 视觉规范](../../feature/reports/library/attempt-detail.md#attemptsource-web-面视觉规范)呈现状态染色与行号位标记；点击 send / assertion 行由原生 `<details>` 展开行内回复与断言细节，普通行不可展开；文档零 JS 依赖（禁 JS 后上述内容仍完整可读）。断言停在「规则生效、交互可达」，不锁颜色值、像素或完整 class 列表。
 
 格式变更只需要更新这个仓库，不需要修改任何适配器仓库。
 
 ## 边界
 
-show / view 的终端布局、HTML 结构与报告组件渲染不在 E2E 层验收——报告组件与证据室是确定性渲染语义，场景登记与测试方法在[单元测试 Reports](../unit-tests/reports/README.md)。E2E 验收的是数据契约：落盘文件、读取面与机器出口。
+show / view 的终端布局与 HTML **结构事实**（区块存在与顺序、计数、expected / received 文本、默认展开标记）归[单元测试 Reports](../unit-tests/reports/README.md)——那是确定性渲染语义，静态 render 即可断言。本仓库的视图出口验收（上表第 5 条）只承接单元层断言不到的部分：官方 stylesheet 与组件组合后的实际观感与浏览器交互。落盘文件、读取面与机器出口的逐字段契约仍是本仓库其余四条的责任。
 
 每个仓库验收链尾的 [CLI 读回](README.md#43-cli-读回)会在真实数据上驱动 show 的读取与渲染路径，但断言停在自有事实的出现与口径一致；逐字段的格式与出口契约只在本仓库验收一次。

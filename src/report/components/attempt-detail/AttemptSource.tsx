@@ -62,22 +62,45 @@ function thresholdScores(assertions: AssertionResult[]): string[] {
   return scores;
 }
 
-function StatusMark({ tone, send }: { tone: ReturnType<typeof lineTone>; send: boolean }): ReactElement {
-  const label = tone === "bad" ? "failed" : tone === "warn" ? "soft failed" : tone === "good" ? "passed" : tone === "na" ? "unavailable" : send ? "send" : null;
-  if (label === null) return <span className="nre-source-status nre-source-status-empty" aria-hidden="true" />;
-  if (label === "send") {
-    return (
-      <span className="nre-source-status nre-source-status-send" aria-label={label} title={label}>
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" />
-        </svg>
-      </span>
-    );
-  }
-  const mark = tone === "bad" ? "×" : tone === "warn" ? "!" : tone === "good" ? "✓" : "?";
+/** 行号位标记(与产品站示例卡同语言:图标顶替行号,不加独立状态列);内联 SVG,零图标依赖。 */
+const MARK_ICONS: Record<"send" | "good" | "bad" | "warn" | "na", ReactElement> = {
+  send: <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" />,
+  good: (
+    <>
+      <circle cx="12" cy="12" r="10" />
+      <path d="m9 12 2 2 4-4" />
+    </>
+  ),
+  bad: (
+    <>
+      <circle cx="12" cy="12" r="10" />
+      <path d="m15 9-6 6" />
+      <path d="m9 9 6 6" />
+    </>
+  ),
+  warn: (
+    <>
+      <circle cx="12" cy="12" r="10" />
+      <line x1="12" x2="12" y1="8" y2="12" />
+      <line x1="12" x2="12.01" y1="16" y2="16" />
+    </>
+  ),
+  na: (
+    <>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+      <path d="M12 17h.01" />
+    </>
+  ),
+};
+
+function LineNo({ line, tone, send }: { line: number; tone: ReturnType<typeof lineTone>; send: boolean }): ReactElement {
+  const kind = tone ?? (send ? "send" : null);
+  if (kind === null) return <span className="nre-source-ln">{line}</span>;
+  const label = kind === "bad" ? "failed" : kind === "warn" ? "soft failed" : kind === "good" ? "passed" : kind === "na" ? "unavailable" : "send";
   return (
-    <span className="nre-source-status" aria-label={label} title={label}>
-      {mark}
+    <span className="nre-source-ln nre-source-ln-mark" role="img" aria-label={label} title={label}>
+      <svg viewBox="0 0 24 24" aria-hidden="true">{MARK_ICONS[kind]}</svg>
     </span>
   );
 }
@@ -87,8 +110,7 @@ function LineSummary({ line, tone }: { line: AttemptSourceLineData; tone: Return
   const scores = thresholdScores(line.assertions);
   return (
     <span className="nre-source-line-summary">
-      <span className="nre-source-ln">{line.line}</span>
-      <StatusMark tone={tone} send={line.sends.length > 0 || line.turns.length > 0} />
+      <LineNo line={line.line} tone={tone} send={line.sends.length > 0 || line.turns.length > 0} />
       <code className="nre-source-text">{highlightTs(line.text)}</code>
       <span className="nre-source-line-meta">
         {scores.length > 0 ? <span className="nre-source-score-badge">{scores.join(", ")}</span> : null}

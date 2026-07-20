@@ -43,6 +43,19 @@ export default defineReport({
 
 区块按事实边界拆分，不按某个宿主当前的卡片拆分。`AttemptTimeline` 可以把 span 按显式 correlation 挂回 runner 时间树；`AttemptTrace` 则保留原始 OTel 视角，因此二者可以择一，也可以同时放。`AttemptSource` 与 `AttemptAssertions` 会呈现同一批 assertion 的不同视角，默认组合通过 `AttemptAssessment` 二选一，避免重复。`AttemptSource` 还把标准事件流按 `loc` 投影回 send 行，点击行可在源码上下文中展开回复；因此默认 `AttemptDetail` 有 source 时不再追加独立 `AttemptConversation`，没有 source 时才把它作为完整事件流 fallback。报告作者仍可显式同时放置两者，此时两种视角并存是作者选择。
 
+## `AttemptSource` web 面视觉规范
+
+`AttemptSource` 的 web 面与产品站首页的 eval 示例卡（`site/components/site-home-setup.tsx` + `site/app/globals.css` 的 `.eval-code` 族）是同一套视觉语言的两份实现：示例卡是这套「源码即报告」叙事的公开形象，报告里的真实源码视图与它同语言，用户从官网到报告不切换视觉心智。二者不共享组件——示例卡是需要 hydration 的营销交互（React state 展开、轮播、埋点），`AttemptSource` 按报告契约必须在零 JS 的静态 attempt 文档里完整成立；数据上示例卡是策划数据，`AttemptSource` 是真实证据（一行多条 assertion、四种 tone、unmapped / unlocated 区）。因此对齐的单位是下面这份规范，不是组件：
+
+- **密度**：等宽 12.5px / 1.65 行高；整块源码统一横向滚动，普通行之间不画分隔线；行盒撑到最长行宽度，状态底色与左缘盖满整行，不在横向滚动后断成半截。
+- **行状态**：状态 = 整行浅染 + 2px 左缘 + 行号位图标。send 行蓝、passed 绿、gate-fail 红、soft-fail / unavailable 黄；浅染是 tone 色约 8% 的透明混合，不是饱和色块。有状态的行用内联 SVG 图标顶替行号（send 对话气泡、passed 圈勾、failed 圈叉、soft-fail 圈叹号、unavailable 圈问号；不引第三方图标库），普通行显示行号。
+- **右缘 meta**：行右侧只放阈值分数 pill 与展开 chevron，钉在滚动视口右缘（sticky），横向滚动时始终可见；不显示内部 turn 标签（如 `s1/t1`）。
+- **展开区**：点击行展开的回复 / assertion 细节直接接在源码行下，dashed 上边线 + tone 色左缘；按容器可视宽度排版换行并钉在滚动视口左缘，不跟随代码横向滚动；不套二级卡片，不重复 turn 头与 sent prompt。首个失败或警告行默认展开。
+- **语法高亮**：零依赖逐行 TypeScript token（comment / string / keyword / number / function 五类语义 class）；暗色 token 取 VS Code Dark+ 系（与示例卡的 prism vsDark 主题同源），浅色为等价可读色。
+- **交互载体**：展开一律是原生 `<details>`，静态文档零 JS 成立。
+
+这份规范与官方 stylesheet 组合后的实际观感（染色、布局、滚动、展开交互）由 [E2E 报告域](../../../engineering/e2e-ci/results.md)在真实浏览器里验收，单元层只覆盖数据投影与 DOM 结构事实。
+
 ## page 输入与 spec / data 形态
 
 attempt-input page 的 resolve context 是判别联合的一支：

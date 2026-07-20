@@ -75,10 +75,10 @@ const cells = {
 
 ## Attempt 详情组件族的观察面
 
-Attempt 详情（`AttemptSummary` 等 11 个叶子 + `AttemptAssessment` / `AttemptDetail` 两个组合，物理位置见 [source-map](../../../source-map.md)）与其它报告组件同属确定性渲染语义，归单元层，不进 E2E（分层判据见[测试体系总览](../../testing/README.md)）。观察面是 React 静态 render 出的 DOM 结构事实，不是浏览器截图：
+Attempt 详情（`AttemptSummary` 等 11 个叶子 + `AttemptAssessment` / `AttemptDetail` 两个组合，物理位置见 [source-map](../../../source-map.md)）的计算与 DOM 结构事实归单元层（分层判据见[测试体系总览](../../testing/README.md)）；样式与视觉交互归 [E2E 报告域](../../e2e-ci/results.md)的真实浏览器验收。单元层的观察面是 React 静态 render 出的 DOM 结构事实，不是浏览器截图：
 
 - **纯渲染，注入数据**：`attempt*Data(evidence)` 只做同步/纯派生，不读文件、不 fetch；测试直接构造 `AttemptEvidence` fixture 或调用 `attempt*Data`，再对 `data` 形态组件 render，不需要（也不能）mock fetch——这些组件从不 fetch。
 - **折叠态用原生 `<details>` 表达**：默认展开与否就是标记上的 `open` 属性（报告 web 面 `EvalList` 的既有纪律），静态 `renderToStaticMarkup` 即可断言默认态与展开内容，不需要浏览器事件模拟；需要 JS 交互才能表达的折叠设计，先回到设计层改成 `<details>` 能表达的形态。
 - **断言结构事实**：区块存在与相对顺序、默认展开 / 折叠、计数、expected / received 文本、源码锚的指向。不断言 class 列表、内联样式或像素表现。
 - **text/web 不逐字比较**：两面共享同一份 `data`，断言两面显示同一份 verdict / 计数 / 引用即可，不要求文本长度或视觉结构相同（text 面允许折成摘要 + 证据命令）。
-- **像素级样式回归不属于本层**：遮罩透明、滚动裁剪一类问题 DOM 断言拦不住，踩到记 memory 台账（先例：[codeview-perline-hidden-scrollbar-clips-text](../../../../memory/codeview-perline-hidden-scrollbar-clips-text.md)）。但“组件已输出稳定语义 class、官方 stylesheet 却完全没有对应布局规则”会让零依赖静态页整体退化为 UA 默认排版，属于组件与官方资产的组合契约；在独立 attempt 文档边界用 JSDOM 对少量代表性 semantic block 断言 computed `display` / `overflow`，不锁颜色、尺寸或完整 class 列表。改动这些组件的样式后需要 `pnpm run build:report`，改动 view 壳 / dialog 摆放后需要 `pnpm run view:build`，最终仍用真实浏览器做视觉核对。
+- **样式与视觉回归不属于本层**：官方 stylesheet 与组件组合后的实际观感——行状态染色、展开区布局、滚动行为、遮罩透明、以及“stylesheet 完全缺失对应规则、整页退化成 UA 默认排版”这类组合失效——DOM 断言与 JSDOM computed style 都拦不住或只能拦到近似，一律由 [E2E 报告域](../../e2e-ci/results.md)在真实浏览器里对真实 attempt 文档验收（先例台账：[codeview-perline-hidden-scrollbar-clips-text](../../../../memory/codeview-perline-hidden-scrollbar-clips-text.md)、[attempt-detail-components-shipped-without-styles](../../../../memory/attempt-detail-components-shipped-without-styles.md)）。单元层不断言 class 列表、内联样式、computed style 或像素表现。改动这些组件后需要 `pnpm run build:report`，改动 view 壳 / dialog 摆放后需要 `pnpm run view:build`。

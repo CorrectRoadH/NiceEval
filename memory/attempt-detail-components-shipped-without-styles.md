@@ -56,3 +56,8 @@ src/view/view-report.test.ts src/show/show.test.ts`（3 files / 122 tests）、`
 115 个 keyword token、77 个 string token、1 条 send 行、43 条 passed assertion 行；点击 send
 行后 `<details>` 进入 open，行内显示 7 条 assistant 回复与 53 条 tool 回复。普通源码行没有状态
 标记或展开入口，长代码仍由整个源码块统一横向滚动。
+
+**后续（2026-07-20）**：本条修法只恢复了结构与交互，视觉仍偏离 landing 语言（饱和整行染色、
+独立圆圈状态列、meta 不 sticky、展开区跟随横滚），且其中的 JSDOM computed-style 守护与
+markup 断言在此偏离下全绿。视觉规范定稿、样式守护移交 e2e 真实浏览器、相关单测删除，见
+attempt-source-visual-aligns-landing-e2e-owns-styles.md。
