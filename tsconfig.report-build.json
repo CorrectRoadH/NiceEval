@@ -20,5 +20,10 @@
     "rewriteRelativeImportExtensions": true
   },
   "include": ["src/report"],
-  "exclude": ["src/report/**/*.test.ts", "src/report/**/*.test.tsx"]
+  // host.ts is the thin bridge show/view call INTO the compiled unit (architecture.md
+  // "共享内核与两个宿主的代码边界"); it dynamically imports sibling dist/report/**
+  // artifacts by relative path. It must stay raw source excluded from this build — compiling
+  // it here would make it try to resolve its own dynamic dist/ imports against a dist/ that
+  // doesn't exist yet on a fresh checkout (this build IS what produces dist/report/**).
+  "exclude": ["src/report/**/*.test.ts", "src/report/**/*.test.tsx", "src/report/runtime/host.ts"]
 }

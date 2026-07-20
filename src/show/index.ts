@@ -29,7 +29,7 @@ import {
 // against — `instanceof` is keyed by declaration site, so a raw src copy and the compiled
 // dist copy of "the same" class are two different types. The package-owned report runtime
 // ships as precompiled ESM (dist/report/**, built by `pnpm run build:report`); all report
-// loading/rendering goes through ./report-host.ts (the single contact surface with it).
+// loading/rendering goes through ../report/runtime/host.ts (the shared contact surface).
 import { ReportLoadError } from "../../dist/report/runtime/load.js";
 import { detectLocale, t } from "../i18n/index.ts";
 import { foldEvalVerdict } from "../shared/verdict.ts";
@@ -42,7 +42,7 @@ import {
   loadHostReport,
   renderHostPageText,
   type HostCommandContext,
-} from "./report-host.ts";
+} from "../report/runtime/host.ts";
 import {
   attemptArtifactsPath,
   attemptEvidenceHeader,
@@ -96,9 +96,9 @@ function clampWidth(columns: number | undefined): number {
   return Math.max(40, Math.min(columns as number, 160));
 }
 
-// --report 的装载住在 ./report-host.ts(两个宿主共用的唯一联系面);规范化本身是
+// --report 的装载住在 ../report/runtime/host.ts(两个宿主共用的中性联系面);规范化本身是
 // `defineReport` 自己的职责,不在宿主层重复。
-export { loadHostReport, localizeText } from "./report-host.ts";
+export { loadHostReport, localizeText } from "../report/runtime/host.ts";
 
 export async function runShow(
   cwd: string,

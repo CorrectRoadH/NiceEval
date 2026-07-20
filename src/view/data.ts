@@ -19,7 +19,7 @@ import {
   type ReportDefinition,
   type ReportPage,
   type HeadTag,
-} from "../show/report-host.ts";
+} from "../report/runtime/host.ts";
 import { selectCurrentResults, filterExperiments } from "../results/select.ts";
 import { evalPrefixPredicate } from "../shared/aggregate.ts";
 import type { EvalResult } from "../types.ts";
@@ -413,7 +413,7 @@ async function renderReportSlot(
   renderAttemptPage: (locator: AttemptLocator, handle: AttemptHandle) => Promise<{ en: string; "zh-CN": string }>;
 }> {
   // 报告 runtime 走预编译产物(dist/report/**,`pnpm run build:report` 产出),不受 view
-  // 消费方 cwd/tsconfig 影响;装载与渲染统一经 ../show/report-host.ts(两个宿主共用的联系面)。
+  // 消费方 cwd/tsconfig 影响;装载与渲染统一经 ../report/runtime/host.ts(两个宿主共用的中性联系面)。
   const hostReport: ReportDefinition = await loadHostReport(report?.cwd ?? process.cwd(), report?.path, {
     freshImport: true,
   });

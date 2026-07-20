@@ -1,15 +1,19 @@
-// 排版原语 Row / Col / Section / Text / Style / Tabs / Tab / Table:八个内置双面组件,
-// 没有特殊机制(docs/feature/reports/library/layout.md)。web 面是普通 React 渲染;
+// 排版原语 Row / Col / Grid / Section / Stat / Text / Style / Tabs / Tab / Table:十个内置
+// 双面组件,没有特殊机制(docs/feature/reports/library/layout.md)。web 面是普通 React 渲染;
 // text 面用 ctx.render(child, 子宽) 显式传宽。Style 注入页级全局 CSS(树位置只决定声明
 // 顺序),text 面渲染为空。Table 是自定义表的标准件,官方表状组件的 text 面也建在它上面。
+// Grid / Stat 的语义层(normalizeGrid 展平校验、text 面的 TextGridPlan 排版)在
+// ./grid-layout.ts(docs/feature/reports/architecture.md「排版原语的语义层与面内布局」);
+// 本文件只声明两面适配,不重复那份算术。
 
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import type { AttemptLocator } from "../../results/locator.ts";
 import { COMPONENT_RAW_CHILDREN, COMPONENT_ROLE, defineComponent, type ReportNode } from "./tree.ts";
 import { localeText, resolveLocalizedText, type LocalizedText, type ReportLocale } from "../model/locale.ts";
-import { indentBlock, joinColumns, stringWidth, wrapDisplay } from "../model/text-layout.ts";
+import { indentBlock, joinColumns, padDisplay, stringWidth, wrapDisplay } from "../model/text-layout.ts";
 import type { ColumnAlign } from "../model/text-layout.ts";
 import { renderTableText } from "./table-text.ts";
+import { normalizeGrid, planTextGrid, type GridDensity, type GridVariant } from "./grid-layout.ts";
 
 function childArray(children: ReportNode): ReportNode[] {
   if (children === null || children === undefined || typeof children === "boolean") return [];
@@ -19,6 +23,9 @@ function childArray(children: ReportNode): ReportNode[] {
 function cx(...parts: (string | undefined)[]): string {
   return parts.filter(Boolean).join(" ");
 }
+
+/** `null`/缺数据的统一显示符:Table 与 Stat 共用,不补成 0。 */
+const MISSING_MARK = "—";
 
 export interface LayoutProps {
   children?: ReportNode;
@@ -76,27 +83,168 @@ export const Row = defineComponent<RowProps>({
 });
 Row.displayName = "Row";
 
-export interface SectionProps extends LayoutProps {
-  title: LocalizedText;
+// ───────────────────────── Grid / Stat ─────────────────────────
+
+export interface GridProps extends LayoutProps {
+  /** 宽面最多摆几列;必须是有限正整数,运行时校验(docs/feature/reports/library/layout.md「Grid 与 Stat」)。 */
+  columns: number;
+  /** plain 无框;boxed 给每个 cell 完整四边框。默认 plain。 */
+  variant?: GridVariant;
+  /** 改变格内留白,并调整内置 Stat 的主值字号;不改变内容和分组。默认 regular。 */
+  density?: GridDensity;
 }
 
-/** 带标题的块:网页是标题层级,终端是标题行加缩进。 */
+/** boxed 单个 cell 的完整边框:同一份 TextGridPlan 决定内容宽度,四边不因换行残缺。 */
+function boxCellBlock(content: string, contentWidth: number): string {
+  const lines = content.length > 0 ? content.split("\n") : [""];
+  const top = `┌${"─".repeat(contentWidth + 2)}┐`;
+  const bottom = `└${"─".repeat(contentWidth + 2)}┘`;
+  const body = lines.map((line) => `│ ${padDisplay(line, contentWidth)} │`);
+  return [top, ...body, bottom].join("\n");
+}
+
+/** 一个物理行内的 cell 并排:顶对齐、短 block 补空行到同高(joinColumns 已有语义)。 */
+function renderGridRow(blocks: string[], contentWidths: number[], gutter: number, variant: GridVariant): string {
+  const separator = " ".repeat(gutter);
+  if (variant === "boxed") {
+    const boxed = blocks.map((block, i) => boxCellBlock(block, contentWidths[i]));
+    const boxWidths = contentWidths.map((w) => w + 4);
+    return joinColumns(boxed, boxWidths, separator);
+  }
+  return joinColumns(blocks, contentWidths, separator);
+}
+
+/**
+ * 自由摘要面板的格子容器:只负责呈现,不读取 Scope、不聚合 Metric。每个直接子节点
+ * (数组 / Fragment 先按 ReportNode 规则展平,空分支不占格)是一格;`Col` 把多个区块
+ * 归成一格。展平与 text 面排版的算术在 ./grid-layout.ts,这里只做两面结构适配。
+ */
+export const Grid = defineComponent<GridProps>({
+  web({ children, columns, variant, density, className }) {
+    const normalized = normalizeGrid({ children, columns, variant, density });
+    const style: CSSProperties = { "--nre-grid-max-columns": normalized.columns } as CSSProperties;
+    return (
+      <div
+        className={cx("nre", "nre-grid", `nre-grid--${normalized.variant}`, `nre-grid--${normalized.density}`, className)}
+        style={style}
+      >
+        {normalized.cells.map((cell) => (
+          <div className="nre-grid-cell" key={cell.key}>
+            {cell.node as ReactNode}
+          </div>
+        ))}
+      </div>
+    );
+  },
+  text({ children, columns, variant, density }, ctx) {
+    const normalized = normalizeGrid({ children, columns, variant, density });
+    if (normalized.cells.length === 0) return "";
+    const plan = planTextGrid({
+      availableWidth: ctx.width,
+      cellCount: normalized.cells.length,
+      columns: normalized.columns,
+      density: normalized.density,
+    });
+    // 确定计划后才对每个 cell 调用一次 ctx.render——不为试探列数重复渲染。
+    const blocks = normalized.cells.map((cell, i) => ctx.render(cell.node, plan.contentWidths[i % plan.columns]));
+    const rows: string[] = [];
+    for (let start = 0; start < blocks.length; start += plan.columns) {
+      const rowBlocks = blocks.slice(start, start + plan.columns);
+      const rowWidths = plan.contentWidths.slice(0, rowBlocks.length);
+      rows.push(renderGridRow(rowBlocks, rowWidths, plan.gutter, normalized.variant));
+    }
+    return rows.join("\n\n");
+  },
+});
+Grid.displayName = "Grid";
+
+export type StatTone = "neutral" | "positive" | "negative" | "warning";
+
+export interface StatProps {
+  label: LocalizedText;
+  /** 已格式化的主值;null 明确渲染为 —,不补成 0。 */
+  value: LocalizedText | number | null;
+  /** 主值下面的短解释;省略时不留空行。 */
+  detail?: LocalizedText;
+  /** 主值的语义色;不从正负号、单位或 Metric.better 猜。默认 neutral。 */
+  tone?: StatTone;
+  className?: string;
+}
+
+/**
+ * Grid / Stat 共享的显示值规范化:LocalizedText 走 resolveLocalizedText,number 走当前
+ * locale 的 Intl.NumberFormat,null 变 —;两个面调同一份,不各写一套。
+ */
+function resolveStatDisplay(value: LocalizedText | number | null, locale: ReportLocale): string {
+  if (value === null) return MISSING_MARK;
+  if (typeof value === "number") return new Intl.NumberFormat(locale).format(value);
+  return resolveLocalizedText(value, locale);
+}
+
+/** label / 主值 / 辅助信息的最小内容单元;可以脱离 Grid 单独使用。 */
+export const Stat = defineComponent<StatProps>({
+  web({ label, value, detail, tone = "neutral", className }, ctx) {
+    return (
+      <div className={cx("nre", "nre-stat", `nre-stat--${tone}`, className)}>
+        <div className="nre-stat-label">{resolveLocalizedText(label, ctx.locale)}</div>
+        <div className="nre-stat-value">{resolveStatDisplay(value, ctx.locale)}</div>
+        {detail !== undefined ? <div className="nre-stat-detail">{resolveLocalizedText(detail, ctx.locale)}</div> : null}
+      </div>
+    );
+  },
+  text({ label, value, detail }, ctx) {
+    const lines = [resolveLocalizedText(label, ctx.locale), resolveStatDisplay(value, ctx.locale)];
+    if (detail !== undefined) lines.push(resolveLocalizedText(detail, ctx.locale));
+    return lines.flatMap((line) => wrapDisplay(line, ctx.width)).join("\n");
+  },
+});
+Stat.displayName = "Stat";
+
+// ───────────────────────── Section ─────────────────────────
+
+export interface SectionProps extends LayoutProps {
+  title: LocalizedText;
+  /** 标题行右侧的短元信息;text 面与标题同一行,空间不足时换到下一行。 */
+  meta?: LocalizedText;
+}
+
+/** 标题行右侧同一行放不下 meta 时,退化成标题后两格缩进折行。 */
+function sectionHeadingLine(heading: string, metaText: string | undefined, width: number): string {
+  if (metaText === undefined) return heading;
+  const gap = width - stringWidth(heading) - stringWidth(metaText);
+  if (gap >= 1) return heading + " ".repeat(gap) + metaText;
+  const wrapped = wrapDisplay(metaText, Math.max(1, width - 2)).join("\n");
+  return `${heading}\n${indentBlock(wrapped, "  ")}`;
+}
+
+/** 带标题的块:网页是标题层级(可选 meta 同行右对齐),终端是标题行加缩进。 */
 export const Section = defineComponent<SectionProps>({
-  web({ title, children, className }, ctx) {
+  web({ title, meta, children, className }, ctx) {
+    const titleText = resolveLocalizedText(title, ctx.locale);
+    const metaText = meta !== undefined ? resolveLocalizedText(meta, ctx.locale) : undefined;
     return (
       <section className={cx("nre", "nre-section", className)}>
-        <h2 className="nre-section-title">{resolveLocalizedText(title, ctx.locale)}</h2>
+        {metaText !== undefined ? (
+          <header className="nre-section-header">
+            <h2 className="nre-section-title">{titleText}</h2>
+            <p className="nre-section-meta">{metaText}</p>
+          </header>
+        ) : (
+          <h2 className="nre-section-title">{titleText}</h2>
+        )}
         {children as ReactNode}
       </section>
     );
   },
-  text({ title, children }, ctx) {
+  text({ title, meta, children }, ctx) {
     const heading = resolveLocalizedText(title, ctx.locale);
+    const metaText = meta !== undefined ? resolveLocalizedText(meta, ctx.locale) : undefined;
+    const headingLine = sectionHeadingLine(heading, metaText, ctx.width);
     const body = childArray(children)
       .map((child) => ctx.render(child, ctx.width - 2))
       .filter((block) => block.length > 0)
       .join("\n\n");
-    return body.length > 0 ? `${heading}\n${indentBlock(body, "  ")}` : heading;
+    return body.length > 0 ? `${headingLine}\n${indentBlock(body, "  ")}` : headingLine;
   },
 });
 Section.displayName = "Section";
@@ -268,8 +416,6 @@ export interface TableProps {
   /** web 面挂到 `<table>` 上。 */
   className?: string;
 }
-
-const MISSING_MARK = "—";
 
 /** 列 key 唯一、行 cells 不携带未声明 key、空列拒绝——无类型 JS 输入在渲染前同样校验。 */
 function validateTableProps(props: TableProps): void {

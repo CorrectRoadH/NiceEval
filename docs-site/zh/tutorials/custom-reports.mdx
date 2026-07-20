@@ -109,7 +109,8 @@ const ProdSummary = defineComponent((_props: {}, ctx) => (
 
 - **`<Col>`**:纵向依次排列——网页是块级堆叠,终端是逐块输出。
 - **`<Row>`**:并排——网页是横向排布,终端是字符分栏;终端宽度不够时自动降级为纵向,不硬挤。
-- **`<Section title="…">`**:带标题的块,网页是标题层级,终端是标题行加缩进。
+- **`<Grid columns={N}>` / `<Stat>`**:自由摘要格,一格一个 label-value 卡片;`columns` 是网页宽屏下最多摆几列,窄屏和终端都会自动减列,不丢格。见下文「自由摘要格」。
+- **`<Section title="…">`**:带标题的块,网页是标题层级,终端是标题行加缩进;可选 `meta` 是标题行右侧的短元信息,网页同行右对齐,终端放不下时换行。
 - **`<Text>`**:说明文字,网页是段落,终端是折行文本。
 - **`<Table>`**:自定义列的表——网页是 `<table>`,终端是按显示宽度对齐的字符表,中文列不撕歪。
 - **`<Tabs>` / `<Tab title="…">`**:一页里的并列视图,网页是可切换的 tab 条,终端按顺序全部输出——tab 是浏览状态,不是页面,内容多到终端读不动时是升级成单独页面的信号。
@@ -274,9 +275,9 @@ export default defineReport(
 
 未声明该变量的 Experiment 在分组时归入"未配置",用作坐标轴时不绘制该点并在注脚中计数。Flags 和 labels 随快照落盘,因此历史 run 也能按当时声明的变量重新分组。
 
-## 换形态:表格用 Table,其余自己画
+## 换形态:表格用 Table,摘要卡片用 Grid/Stat,其余自己画
 
-内置组件未覆盖的展示分为两类:表格使用排版原语 `<Table>`;通过率条形图、预算燃尽图和项目徽章等其它展示使用 `defineComponent` 编写双面组件。
+内置组件未覆盖的展示分三类:表格使用排版原语 `<Table>`;label-value 的自由摘要卡片使用 `<Grid>` / `<Stat>`;通过率条形图、预算燃尽图和项目徽章这类真正需要自己画的展示,才用 `defineComponent` 编写双面组件。
 
 ### 一张表:`<Table>`
 
@@ -326,6 +327,30 @@ codex       80%   $0.51
 ```
 
 列宽按**终端显示宽度**计算,一个汉字占 2 列。`align: "right"` 让数字列右对齐。单元格值为 `null` 时渲染 `—`,不补 0。行上包含 `locator` 时会增加 Attempt 列;网页链接进入 Attempt 证据页,终端把 locator 交给 `niceeval show`。完整字段见[报告组件](/zh/reference/report-components)的"表格"一节。
+
+### 自由摘要格:`<Grid>` / `<Stat>`
+
+耗时、成本、参与率这类 label-value 速览数字,不用写 `defineComponent`——`<Grid>` 摆格子,`<Stat>` 摆每格的 label / 主值 / 辅助信息,两个面自动排版:
+
+```tsx
+// reports/run-summary.tsx
+import { Grid, Section, Stat, defineReport } from "niceeval/report";
+
+export default defineReport(
+  <Section title="运行速览" meta="4/4 完成">
+    <Grid columns={2} variant="boxed">
+      <Stat label="总耗时" value="12m 30s" />
+      <Stat label="总成本" value="$1.86" />
+      <Stat label="通过率" value="87%" tone="positive" />
+      <Stat label="失败数" value={2} detail="见下方 Attempt 列表" tone="negative" />
+    </Grid>
+  </Section>,
+);
+```
+
+`columns` 是宽屏下最多摆几列,窄屏和终端都会自动减列,不丢任何一格;加 `variant="boxed"` 给每格描边,省略就是默认的 `plain` 无框。`value` 收 `LocalizedText`、`number` 或 `null`——`null` 显示 `—`,数字 `0` 照常显示成 `0`,不当成缺数据;`tone`(`positive` / `negative` / `warning`,默认 `neutral`)是你自己对这个数字的判断,只给主值上色,组件不会替你从正负号猜。
+
+`Grid` 只管排版,不读 Scope、不聚合指标,`Stat.value` 必须是你已经算好的显示值。需要保留 `12/15` 这样的覆盖率角标和证据引用时,继续用[报告组件](/zh/reference/report-components)里的指标表这类数据组件;只有这种自由摘要卡片才用 `Grid` / `Stat`。
 
 ### 不是表:`defineComponent` 加文本排版函数
 

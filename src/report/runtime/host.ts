@@ -1,25 +1,29 @@
-// 报告装载的宿主联系面:show 与 view 共用。ReportDefinition / ReportPage / ReportMeta 的
-// 类型体系,以及装载规范化、resolve、text/web render 全部住在 niceeval/report 的构建单元
-// (src/report/**,经 `pnpm run build:report` 编译进 dist/report/**);这里只做两个宿主都
-// 需要、但只属于宿主编排的两件事——文件 vs 内建报告的装载分流、页索引命令拼装——不重复声明
-// 任何报告类型或规范化逻辑(docs/feature/reports/architecture.md「单一 report runtime 身份」)。
+// 报告装载与逐页渲染的中性宿主 facade:show 与 view 共用(docs/feature/reports/architecture.md
+// 「共享内核与两个宿主的代码边界」「单一 report runtime 身份」)。ReportDefinition / ReportPage /
+// ReportMeta 的类型体系,以及装载规范化、resolve、text/web render 全部住在 niceeval/report 的
+// 构建单元(src/report/**,经 `pnpm run build:report` 编译进 dist/report/**);这里只做两个
+// 宿主都需要、但只属于宿主编排的一件事——文件 vs 内建报告的装载分流、逐页渲染——不重复声明
+// 任何报告类型或规范化逻辑。终端专属的可复制命令拼装(`showCommand`)不在这里,只有 show 需要,
+// 住在 src/show/command.ts。
 //
-// 值(函数 / 类)一律动态 import dist/report/**:report-host.ts 被 cli.ts 的多数命令间接
-// import,不是所有命令都渲染报告,静态 import 会让不需要报告的命令也背上 react / react-dom
-// 依赖。类型用 `import type` 从同一批 dist 模块拿——编译期擦除,零运行时代价,不产生
-// 第二份模块实例;同一进程不混用 raw src/report/** 与 dist/report/** 的同一状态模块。
+// 本文件物理上住在 src/report/runtime/(host facade 的架构归属),但**不**参与
+// tsconfig.report-build.json 的编译单元(见该文件的 exclude 注释):它是调用方经 tsx 直接执行的
+// raw TypeScript,内部一律动态 import 兄弟 dist/report/** 产物——不是所有 show / view 命令都
+// 渲染报告,静态 import 会让不需要报告的命令也背上 react / react-dom 依赖(web.ts 静态 import
+// react-dom/server);同一进程也不能混用 raw src/report/** 与 dist/report/** 的同一状态模块,
+// 所以值和类型都从同一批 dist 模块拿,不从本文件的兄弟源码拿。
 
-import type { Results, Scope } from "../results/index.ts";
-import type { LocalizedText } from "../types.ts";
-import type { AttemptLocator } from "../results/locator.ts";
-import type { PageContext } from "../../dist/report/definition/tree.js";
+import type { Results, Scope } from "../../results/index.ts";
+import type { LocalizedText } from "../../types.ts";
+import type { AttemptLocator } from "../../results/locator.ts";
+import type { PageContext } from "../../../dist/report/definition/tree.js";
 import type {
   ReportDefinition,
   ReportMeta,
   ReportPage,
-} from "../../dist/report/definition/report.js";
+} from "../../../dist/report/definition/report.js";
 
-export type { PageContext } from "../../dist/report/definition/tree.js";
+export type { PageContext } from "../../../dist/report/definition/tree.js";
 export type {
   HeadTag,
   ReportAsset,
@@ -27,7 +31,7 @@ export type {
   ReportMeta,
   ReportMetaPage,
   ReportPage,
-} from "../../dist/report/definition/report.js";
+} from "../../../dist/report/definition/report.js";
 
 /** 可预期的装载用户错误(与 ReportLoadError 同待遇:打一句直说问题与下一步,不抛堆栈)。 */
 export class HostReportError extends Error {}
@@ -45,16 +49,16 @@ export async function loadHostReport(
   options?: { freshImport?: boolean },
 ): Promise<ReportDefinition> {
   if (reportPath !== undefined) {
-    const { loadReportFile } = await import("../../dist/report/runtime/load.js");
+    const { loadReportFile } = await import("../../../dist/report/runtime/load.js");
     return loadReportFile(cwd, reportPath, options) as Promise<ReportDefinition>;
   }
-  const { standard } = await import("../../dist/report/built-in/index.js");
+  const { standard } = await import("../../../dist/report/built-in/index.js");
   return standard as ReportDefinition;
 }
 
 /** ctx.report 的构建(不携带当前页——那是 HostRenderContext.page 的事)。 */
 export async function buildHostReportMeta(definition: ReportDefinition, scope: Scope): Promise<ReportMeta> {
-  const { buildReportMeta } = await import("../../dist/report/definition/report.js");
+  const { buildReportMeta } = await import("../../../dist/report/definition/report.js");
   return buildReportMeta(definition, scope);
 }
 
@@ -76,26 +80,19 @@ export function localizeText(text: LocalizedText | undefined, locale: string): s
   return undefined;
 }
 
-// ───────────────────────── 页索引命令 ─────────────────────────
+// ───────────────────────── 索引命令上下文 ─────────────────────────
 
-/** 宿主索引命令的完整上下文(docs/feature/reports/show/reports.md「索引命令携带完整上下文」)。 */
+/**
+ * 宿主索引命令的完整上下文(docs/feature/reports/show/reports.md「索引命令携带完整上下文」)。
+ * 只是数据形状;拼出实际可复制的 `niceeval show ...` 命令字符串是 show 自己的事
+ * (`src/show/command.ts` 的 `showCommand`)——view 走网页路由,不生成终端命令。
+ */
 export interface HostCommandContext {
   patterns: string[];
   results?: string;
   experiment?: string;
   report?: string;
   page?: string;
-}
-
-/** 按上下文拼一条可复制的 show 命令(页索引 / 组索引共用的携带规则)。 */
-export function showCommand(ctx: HostCommandContext, extra: string[] = []): string {
-  const parts = ["niceeval show", ...ctx.patterns];
-  if (ctx.experiment !== undefined) parts.push(`--exp ${ctx.experiment}`);
-  if (ctx.results !== undefined) parts.push(`--results ${ctx.results}`);
-  if (ctx.report !== undefined) parts.push(`--report ${ctx.report}`);
-  if (ctx.page !== undefined) parts.push(`--page ${ctx.page}`);
-  parts.push(...extra);
-  return parts.join(" ");
 }
 
 // ───────────────────────── 逐页渲染 ─────────────────────────
@@ -121,7 +118,7 @@ export async function renderHostPageText(
   ctx: HostRenderContext,
   options: HostTextRenderOptions,
 ): Promise<string> {
-  const { renderReportTreeToText } = await import("../../dist/report/runtime/text.js");
+  const { renderReportTreeToText } = await import("../../../dist/report/runtime/text.js");
   return renderReportTreeToText(page.content, ctx, options);
 }
 
@@ -136,6 +133,6 @@ export async function renderHostPageHtml(
   ctx: HostRenderContext,
   options: { locale: string; attemptHref?: (locator: AttemptLocator) => string },
 ): Promise<string> {
-  const { renderReportTreeToStaticHtml } = await import("../../dist/report/runtime/web.js");
+  const { renderReportTreeToStaticHtml } = await import("../../../dist/report/runtime/web.js");
   return renderReportTreeToStaticHtml(page.content, ctx, options);
 }

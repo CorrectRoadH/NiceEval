@@ -13,7 +13,9 @@ import type {
 } from "../../model/types.ts";
 import type { AttemptLocator } from "../../../results/locator.ts";
 import {
-  isCell,
+  arrayProblem,
+  cellProblem,
+  isLocalizedText,
   isObject,
   makeDataComponent,
   hrefOf,
@@ -44,70 +46,134 @@ import { MetricScatter as MetricScatterWeb } from "./MetricScatter.tsx";
 import { MetricLine as MetricLineWeb } from "./MetricLine.tsx";
 import { DeltaTable as DeltaTableWeb } from "./DeltaTable.tsx";
 
-const validateTableData: Validator = (data) => {
+/** columns / metric / x / y 共用的 MetricColumn 形状(src/report/model/types.ts)。 */
+function metricColumnProblem(value: unknown, path: string): string | null {
+  if (!isObject(value)) return `"${path}" must be a MetricColumn { key, label }`;
+  if (typeof value.key !== "string") return `"${path}.key" must be a string`;
+  if (!isLocalizedText(value.label)) return `"${path}.label" must be a LocalizedText`;
+  return null;
+}
+
+export const validateTableData: Validator = (data) => {
   if (!isObject(data)) return "expected an object";
   if (typeof data.rowDimension !== "string") return 'missing "rowDimension" (string)';
-  if (!Array.isArray(data.columns)) return 'missing "columns" (array)';
-  if (!Array.isArray(data.rows)) return 'missing "rows" (array)';
-  for (const row of data.rows as unknown[]) {
-    if (!isObject(row) || typeof row.key !== "string" || !isObject(row.cells)) {
-      return 'each row needs { key, cells }';
+  const columnsProblem = arrayProblem(data.columns, "columns", metricColumnProblem);
+  if (columnsProblem !== null) return columnsProblem;
+  return arrayProblem(data.rows, "rows", (row, path) => {
+    if (!isObject(row)) return `"${path}" must be an object`;
+    if (typeof row.key !== "string") return `"${path}.key" must be a string`;
+    if (!isObject(row.cells)) return `"${path}.cells" must be an object`;
+    for (const [metricKey, cell] of Object.entries(row.cells)) {
+      const problem = cellProblem(cell, `${path}.cells.${metricKey}`);
+      if (problem !== null) return problem;
     }
-  }
-  return null;
+    return null;
+  });
 };
-const validateMatrixData: Validator = (data) => {
+export const validateMatrixData: Validator = (data) => {
   if (!isObject(data)) return "expected an object";
   if (typeof data.rowDimension !== "string" || typeof data.columnDimension !== "string") {
     return 'missing "rowDimension" / "columnDimension" (string)';
   }
-  if (!isObject(data.metric)) return 'missing "metric" (MetricColumn)';
-  if (!Array.isArray(data.cells)) return 'missing "cells" (array)';
-  return null;
+  const metricProblem = metricColumnProblem(data.metric, "metric");
+  if (metricProblem !== null) return metricProblem;
+  return arrayProblem(data.cells, "cells", (item, path) => {
+    if (!isObject(item)) return `"${path}" must be an object`;
+    if (typeof item.row !== "string" || typeof item.column !== "string") {
+      return `"${path}.row" / "${path}.column" must be strings`;
+    }
+    return cellProblem(item.cell, `${path}.cell`);
+  });
 };
-const validateScatterData: Validator = (data) => {
+export const validateScatterData: Validator = (data) => {
   if (!isObject(data)) return "expected an object";
   if (typeof data.pointDimension !== "string") return 'missing "pointDimension" (string)';
-  if (!isObject(data.x) || !isObject(data.y)) return 'missing "x" / "y" (MetricColumn)';
-  if (!Array.isArray(data.rows)) return 'missing "rows" (array)';
-  for (const row of data.rows as unknown[]) {
-    if (!isObject(row) || typeof row.key !== "string" || !isCell(row.x) || !isCell(row.y)) {
-      return "each row needs { key, x: MetricCell, y: MetricCell }";
-    }
-  }
-  return null;
+  const xColumnProblem = metricColumnProblem(data.x, "x");
+  if (xColumnProblem !== null) return xColumnProblem;
+  const yColumnProblem = metricColumnProblem(data.y, "y");
+  if (yColumnProblem !== null) return yColumnProblem;
+  return arrayProblem(data.rows, "rows", (row, path) => {
+    if (!isObject(row) || typeof row.key !== "string") return `"${path}" must be an object with a string "key"`;
+    const xProblem = cellProblem(row.x, `${path}.x`);
+    if (xProblem !== null) return xProblem;
+    return cellProblem(row.y, `${path}.y`);
+  });
 };
-const validateLineData: Validator = (data) => {
+export const validateLineData: Validator = (data) => {
   if (!isObject(data)) return "expected an object";
-  if (!isObject(data.x) || typeof (data.x as Record<string, unknown>).key !== "string") return 'missing "x" axis descriptor';
-  if (!isObject(data.y)) return 'missing "y" (MetricColumn)';
-  if (!Array.isArray(data.rows)) return 'missing "rows" (array)';
-  return null;
+  if (!isObject(data.x) || typeof data.x.key !== "string" || !isLocalizedText(data.x.label)) {
+    return '"x" must be an axis descriptor { key, label }';
+  }
+  const yColumnProblem = metricColumnProblem(data.y, "y");
+  if (yColumnProblem !== null) return yColumnProblem;
+  return arrayProblem(data.rows, "rows", (row, path) => {
+    if (!isObject(row) || typeof row.key !== "string") return `"${path}" must be an object with a string "key"`;
+    if (!(row.x === null || typeof row.x === "number")) return `"${path}.x" must be a number or null`;
+    if (!isLocalizedText(row.xDisplay)) return `"${path}.xDisplay" must be a LocalizedText`;
+    return cellProblem(row.y, `${path}.y`);
+  });
 };
-const validateScoreboardData: Validator = (data) => {
+function scoreTotalProblem(value: unknown, path: string): string | null {
+  if (!isObject(value)) return `"${path}" must be an object { value, display, notRun, unscorable, refs }`;
+  if (typeof value.value !== "number") return `"${path}.value" must be a number`;
+  if (!isLocalizedText(value.display)) return `"${path}.display" must be a LocalizedText`;
+  if (typeof value.notRun !== "number") return `"${path}.notRun" must be a number`;
+  if (typeof value.unscorable !== "number") return `"${path}.unscorable" must be a number`;
+  if (!Array.isArray(value.refs)) return `"${path}.refs" must be an array`;
+  return null;
+}
+export const validateScoreboardData: Validator = (data) => {
   if (!isObject(data)) return "expected an object";
   if (typeof data.rowDimension !== "string") return 'missing "rowDimension" (string)';
   if (!Array.isArray(data.questions)) return 'missing "questions" (array)';
   if (typeof data.fullMarks !== "number") return 'missing "fullMarks" (number)';
   if (typeof data.ignoredEvals !== "number") return 'missing "ignoredEvals" (number)';
-  if (!Array.isArray(data.rows)) return 'missing "rows" (array)';
-  for (const row of data.rows as unknown[]) {
-    if (!isObject(row) || !isObject(row.total) || typeof (row.total as Record<string, unknown>).notRun !== "number") {
-      return 'each row needs { key, total: { value, display, notRun, unscorable, refs }, subjects }';
-    }
-  }
-  return null;
+  return arrayProblem(data.rows, "rows", (row, path) => {
+    if (!isObject(row) || typeof row.key !== "string") return `"${path}" must be an object with a string "key"`;
+    const totalProblem = scoreTotalProblem(row.total, `${path}.total`);
+    if (totalProblem !== null) return totalProblem;
+    return arrayProblem(row.subjects, `${path}.subjects`, (subject, subjectPath) => {
+      if (!isObject(subject) || typeof subject.key !== "string") {
+        return `"${subjectPath}" must be an object with a string "key"`;
+      }
+      if (typeof subject.earned !== "number") return `"${subjectPath}.earned" must be a number`;
+      if (typeof subject.possible !== "number") return `"${subjectPath}.possible" must be a number`;
+      if (typeof subject.questions !== "number") return `"${subjectPath}.questions" must be a number`;
+      if (typeof subject.notRun !== "number") return `"${subjectPath}.notRun" must be a number`;
+      if (typeof subject.unscorable !== "number") return `"${subjectPath}.unscorable" must be a number`;
+      if (!isLocalizedText(subject.display)) return `"${subjectPath}.display" must be a LocalizedText`;
+      if (!Array.isArray(subject.refs)) return `"${subjectPath}.refs" must be an array`;
+      return null;
+    });
+  });
 };
-const validateDeltaData: Validator = (data) => {
+const DELTA_OUTCOMES = ["improved", "regressed", "unchanged", "unavailable"];
+export const validateDeltaData: Validator = (data) => {
   if (!isObject(data)) return "expected an object";
   if (typeof data.byDimension !== "string") return 'missing "byDimension" (string)';
-  if (!Array.isArray(data.columns) || !Array.isArray(data.rows)) return 'missing "columns" / "rows" (array)';
-  for (const row of data.rows as unknown[]) {
-    if (!isObject(row) || row.label === undefined || !isObject(row.a) || !isObject(row.b)) {
-      return "each row needs { key, label, a, b, cells }";
+  const columnsProblem = arrayProblem(data.columns, "columns", metricColumnProblem);
+  if (columnsProblem !== null) return columnsProblem;
+  return arrayProblem(data.rows, "rows", (row, path) => {
+    if (!isObject(row) || typeof row.key !== "string") return `"${path}" must be an object with a string "key"`;
+    if (!isLocalizedText(row.label)) return `"${path}.label" must be a LocalizedText`;
+    if (!isObject(row.a) || typeof row.a.key !== "string") return `"${path}.a" must be an object with a string "key"`;
+    if (!isObject(row.b) || typeof row.b.key !== "string") return `"${path}.b" must be an object with a string "key"`;
+    if (!isObject(row.cells)) return `"${path}.cells" must be an object`;
+    for (const [metricKey, cell] of Object.entries(row.cells)) {
+      const cellPath = `${path}.cells.${metricKey}`;
+      if (!isObject(cell)) return `"${cellPath}" must be an object { a, b, delta, display, outcome }`;
+      const aProblem = cellProblem(cell.a, `${cellPath}.a`);
+      if (aProblem !== null) return aProblem;
+      const bProblem = cellProblem(cell.b, `${cellPath}.b`);
+      if (bProblem !== null) return bProblem;
+      if (!(cell.delta === null || typeof cell.delta === "number")) return `"${cellPath}.delta" must be a number or null`;
+      if (!isLocalizedText(cell.display)) return `"${cellPath}.display" must be a LocalizedText`;
+      if (typeof cell.outcome !== "string" || !DELTA_OUTCOMES.includes(cell.outcome)) {
+        return `"${cellPath}.outcome" must be one of ${JSON.stringify(DELTA_OUTCOMES)}`;
+      }
     }
-  }
-  return null;
+    return null;
+  });
 };
 
 // ───────────────────────── 指标组件 ─────────────────────────

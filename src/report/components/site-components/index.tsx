@@ -7,6 +7,7 @@ import type { CopyFixPromptData, HeroData, ScopeWarning, TraceWaterfallRow } fro
 import type { LocalizedText } from "../../model/locale.ts";
 import type { AttemptLocator } from "../../../results/locator.ts";
 import {
+  arrayProblem,
   dataShapeError,
   isObject,
   makeDataComponent,
@@ -23,51 +24,97 @@ import { ScopeWarnings as ScopeWarningsWeb } from "./ScopeWarnings.tsx";
 import { CopyFixPrompt as CopyFixPromptWeb } from "./CopyFixPrompt.tsx";
 import { TraceWaterfall as TraceWaterfallWeb } from "./TraceWaterfall.tsx";
 
-const validateHeroData: Validator = (data) => {
+export const validateHeroData: Validator = (data) => {
   if (!isObject(data)) return "expected an object";
-  if (!("latestStartedAt" in data) || (data.latestStartedAt !== null && typeof data.latestStartedAt !== "string")) {
-    return 'missing "latestStartedAt" (string | null)';
+  if (!(data.latestStartedAt === null || typeof data.latestStartedAt === "string")) {
+    return '"latestStartedAt" must be a string or null';
   }
-  if (typeof data.snapshots !== "number") return 'missing "snapshots" (number)';
+  if (typeof data.snapshots !== "number") return '"snapshots" must be a number';
   return null;
 };
-const validateScopeWarningsData: Validator = (data) => {
-  if (!Array.isArray(data)) return "expected an array of ScopeWarning";
-  for (const item of data as unknown[]) {
-    if (!isObject(item) || typeof item.kind !== "string" || typeof item.message !== "string") {
-      return "each warning needs { kind, message, … }";
-    }
-  }
-  return null;
-};
-const validateCopyFixPromptData: Validator = (data) => {
-  if (!isObject(data)) return "expected an object";
-  if (typeof data.prompt !== "string") return 'missing "prompt" (string)';
-  if (typeof data.failures !== "number") return 'missing "failures" (number)';
-  return null;
-};
-const validateTraceWaterfallData: Validator = (data) => {
-  if (!Array.isArray(data)) return "expected an array of TraceWaterfallRow";
-  for (const row of data as unknown[]) {
-    if (
-      !isObject(row) ||
-      typeof row.experimentId !== "string" ||
-      typeof row.evalId !== "string" ||
-      typeof row.locator !== "string" ||
-      !("durationMs" in row) ||
-      (row.durationMs !== null && typeof row.durationMs !== "number") ||
-      !Array.isArray(row.spans)
-    ) {
-      return "each row needs { experimentId, evalId, locator, durationMs: number | null, spans }";
-    }
-    for (const span of row.spans as unknown[]) {
-      if (!isObject(span) || typeof span.name !== "string" || typeof span.startOffsetMs !== "number") {
-        return "each span needs { name, kind, startOffsetMs, durationMs, failed }";
+
+const UNREADABLE_SNAPSHOT_REASONS = ["incompatible-version", "malformed", "incomplete"];
+
+/**
+ * ScopeWarning(src/results/types.ts「警告 kind 全集」):按 `kind` 判别的联合,已登记 kind
+ * 各自的必填字段单独校验——`unreadable-snapshot` 没有 experimentId(非实验作用域)、
+ * `command` 恒可选。未登记的 `kind`(如未来版本新增的 warning)只要求 `kind` / `message`
+ * 这份两族共用的最小形状,不拒绝——`ScopeWarnings` 的分组渲染对未识别 kind 有专门的
+ * 单独成组回退(message 原样、按 integrity 归位),这条前向兼容路径本身就是契约的一部分,
+ * 结构校验不能比渲染逻辑更严。
+ */
+function scopeWarningProblem(value: unknown, path: string): string | null {
+  if (!isObject(value)) return `"${path}" must be a ScopeWarning object`;
+  if (typeof value.kind !== "string") return `"${path}.kind" must be a string`;
+  if (typeof value.message !== "string") return `"${path}.message" must be a string`;
+  switch (value.kind) {
+    case "partial-coverage":
+      if (typeof value.experimentId !== "string") return `"${path}.experimentId" must be a string`;
+      if (typeof value.covered !== "number") return `"${path}.covered" must be a number`;
+      if (typeof value.total !== "number") return `"${path}.total" must be a number`;
+      if (typeof value.command !== "string") return `"${path}.command" must be a string`;
+      return null;
+    case "stale-snapshot":
+      if (typeof value.experimentId !== "string") return `"${path}.experimentId" must be a string`;
+      if (typeof value.startedAt !== "string") return `"${path}.startedAt" must be a string`;
+      if (typeof value.latestStartedAt !== "string") return `"${path}.latestStartedAt" must be a string`;
+      if (typeof value.command !== "string") return `"${path}.command" must be a string`;
+      return null;
+    case "unfinished-snapshot":
+      if (typeof value.experimentId !== "string") return `"${path}.experimentId" must be a string`;
+      if (typeof value.startedAt !== "string") return `"${path}.startedAt" must be a string`;
+      if (typeof value.dir !== "string") return `"${path}.dir" must be a string`;
+      if (typeof value.command !== "string") return `"${path}.command" must be a string`;
+      return null;
+    case "unreadable-snapshot":
+      if (typeof value.dir !== "string") return `"${path}.dir" must be a string`;
+      if (typeof value.reason !== "string" || !UNREADABLE_SNAPSHOT_REASONS.includes(value.reason)) {
+        return `"${path}.reason" must be one of ${JSON.stringify(UNREADABLE_SNAPSHOT_REASONS)}`;
       }
-    }
+      if (value.command !== undefined && typeof value.command !== "string") {
+        return `"${path}.command" must be a string when present`;
+      }
+      return null;
+    default:
+      return null;
   }
+}
+
+export const validateScopeWarningsData: Validator = (data) => arrayProblem(data, "data", scopeWarningProblem);
+
+export const validateCopyFixPromptData: Validator = (data) => {
+  if (!isObject(data)) return "expected an object";
+  if (typeof data.prompt !== "string") return '"prompt" must be a string';
+  if (typeof data.failures !== "number") return '"failures" must be a number';
   return null;
 };
+
+const TRACE_SPAN_KINDS = ["agent", "model", "tool", "other"];
+
+/** TraceSpanSummary(src/report/model/types.ts):瀑布行里的一个顶层 span 摘要。 */
+function traceSpanSummaryProblem(value: unknown, path: string): string | null {
+  if (!isObject(value)) return `"${path}" must be a TraceSpanSummary { name, kind, startOffsetMs, durationMs, failed }`;
+  if (typeof value.name !== "string") return `"${path}.name" must be a string`;
+  if (typeof value.kind !== "string" || !TRACE_SPAN_KINDS.includes(value.kind)) {
+    return `"${path}.kind" must be one of ${JSON.stringify(TRACE_SPAN_KINDS)}`;
+  }
+  if (typeof value.startOffsetMs !== "number") return `"${path}.startOffsetMs" must be a number`;
+  if (typeof value.durationMs !== "number") return `"${path}.durationMs" must be a number`;
+  if (typeof value.failed !== "boolean") return `"${path}.failed" must be a boolean`;
+  return null;
+}
+
+export const validateTraceWaterfallData: Validator = (data) =>
+  arrayProblem(data, "data", (row, path) => {
+    if (!isObject(row)) return `"${path}" must be an object`;
+    if (typeof row.experimentId !== "string") return `"${path}.experimentId" must be a string`;
+    if (typeof row.evalId !== "string") return `"${path}.evalId" must be a string`;
+    if (typeof row.locator !== "string") return `"${path}.locator" must be a string`;
+    if (!(row.durationMs === null || typeof row.durationMs === "number")) {
+      return `"${path}.durationMs" must be a number or null`;
+    }
+    return arrayProblem(row.spans, `${path}.spans`, traceSpanSummaryProblem);
+  });
 
 // ───────────────────────── 站点组件(Hero / PoweredBy / ScopeWarnings / CopyFixPrompt / TraceWaterfall)─────────────────────────
 

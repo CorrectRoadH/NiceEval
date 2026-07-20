@@ -8,7 +8,7 @@ import { existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { loadViewScan, type ResolvedHeadTag, type ViewScan, type ViewScanOptions } from "./data.ts";
-import { localizeText } from "../show/report-host.ts";
+import { localizeText } from "../report/runtime/host.ts";
 import type { AttemptHandle } from "../results/index.ts";
 import type { AttemptLocator } from "../results/locator.ts";
 

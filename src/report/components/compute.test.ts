@@ -29,6 +29,7 @@ import { scatterText } from "./metric-views/faces.ts";
 import { createTextContext } from "../definition/tree.ts";
 import { colorIndexForKey, colorIndicesForKeys } from "../assets/colors.ts";
 import { attemptListData, evalListData, experimentListData } from "./entity-lists/compute.ts";
+import { validateAttemptListData, validateEvalListData, validateExperimentListData } from "./entity-lists/index.tsx";
 import {
   deltaTableData,
   metricLineData,
@@ -38,7 +39,16 @@ import {
   pairsByFlag,
   scoreboardData,
 } from "./metric-views/compute.ts";
+import {
+  validateDeltaData,
+  validateLineData,
+  validateMatrixData,
+  validateScatterData,
+  validateScoreboardData,
+  validateTableData,
+} from "./metric-views/index.tsx";
 import { scopeSummaryData } from "./summaries/compute.ts";
+import { validateScopeSummaryData } from "./summaries/index.tsx";
 import { evalGroupOf } from "../model/aggregate.ts";
 
 // ───────────────────────── fake 数据(按 results 读取契约造)─────────────────────────
@@ -945,20 +955,77 @@ describe("deltaTableData", () => {
       ];
     };
 
-    it("同可比组 + 删除该 flag 后配置深相等才配对;a 取 baseline(缺省=未声明),label 自动生成,按 (a 末段, 显示键) 字典序", async () => {
+    it("input Scope 内删除该 flag 后配置深相等才配对;a 取 baseline(缺省=未声明),label 用完整 a experiment id,按 (a 末段, 显示键) 字典序", async () => {
       const data = await deltaTableData(matrixSnaps(), {
         by: "experiment",
         pairs: pairsByFlag("memory"),
         metrics: [endToEndPassRate],
       });
       expect(data.rows.map((r) => r.label)).toEqual([
-        "bub · memory=agents-md",
-        "codex · memory=agents-md",
-        "codex · memory=mempal",
-        "gemini · memory=agents-md",
-        "gemini · memory=mempal",
+        "mem/bub · memory=agents-md",
+        "mem/codex · memory=agents-md",
+        "mem/codex · memory=mempal",
+        "mem/gemini · memory=agents-md",
+        "mem/gemini · memory=mempal",
       ]);
       expect(data.experiments).toBe(8);
+    });
+
+    it("配对边界只是 input Scope,不额外按 experiment id 的目录前缀分组:不同前缀但可比性配置相同就配对", async () => {
+      const mk = (id: string, memory?: string) =>
+        snap({
+          experimentId: id,
+          agent: "bub",
+          results: [res("q", "passed")],
+          experiment: {
+            runs: 1,
+            earlyExit: false,
+            selectedEvalIds: [],
+            ...(memory !== undefined ? { flags: { memory } } : {}),
+          },
+        });
+      const data = await deltaTableData([mk("compare/codex"), mk("bench/codex", "agents-md")], {
+        by: "experiment",
+        pairs: pairsByFlag("memory"),
+        metrics: [endToEndPassRate],
+      });
+      expect(data.rows.map((r) => r.label)).toEqual(["compare/codex · memory=agents-md"]);
+      expect(data.rows[0]!.a.key).toBe("compare/codex");
+      expect(data.rows[0]!.b.key).toBe("bench/codex");
+    });
+
+    it("排序只看 a 末段与 flag 显示键,不看完整 label 字符串:a 末段相同、完整 id 不同的两个 bucket 不因目录前缀打乱顺序", async () => {
+      const mk = (id: string, model: string, memory?: string) =>
+        snap({
+          experimentId: id,
+          model,
+          agent: "bub",
+          results: [res("q", "passed")],
+          experiment: {
+            runs: 1,
+            earlyExit: false,
+            selectedEvalIds: [],
+            ...(memory !== undefined ? { flags: { memory } } : {}),
+          },
+        });
+      // 两个 bucket 因 model 不同而彼此不可比(不会互相配对),但都各自派生一对;
+      // 两对的 a 末段都是 "codex",flagKey 分别是 "z-value" 与 "a-value"。
+      const data = await deltaTableData(
+        [
+          mk("alpha/codex", "m1"), // bucket 1 baseline
+          mk("alpha/codex-variant", "m1", "z-value"), // bucket 1 b 侧
+          mk("zeta/codex", "m2"), // bucket 2 baseline
+          mk("zeta/codex-variant", "m2", "a-value"), // bucket 2 b 侧
+        ],
+        { by: "experiment", pairs: pairsByFlag("memory"), metrics: [endToEndPassRate] },
+      );
+      // 只看 a 末段("codex",两对相同)与 flag 显示键("a-value" < "z-value")排序:
+      // zeta 那对(flagKey "a-value")排在 alpha 那对(flagKey "z-value")之前——若误按完整
+      // label 字符串排序,"alpha/codex..." 会先于 "zeta/codex...",顺序会相反。
+      expect(data.rows.map((r) => r.label)).toEqual([
+        "zeta/codex · memory=a-value",
+        "alpha/codex · memory=z-value",
+      ]);
     });
 
     it("可比性配置不同(model 不同)的两实验不配对", async () => {
@@ -1004,13 +1071,13 @@ describe("deltaTableData", () => {
         pairs: pairsByFlag("memory", { baseline: "agents-md" }),
         metrics: [endToEndPassRate],
       });
-      // a = *--agents-md;b = 未声明(显示键 (missing))与 mempal
+      // a = *--agents-md;b = 未声明(显示键 (missing))与 mempal;label 用完整 a experiment id。
       expect(data.rows.map((r) => r.label)).toEqual([
-        "bub--agents-md · memory=(missing)",
-        "codex--agents-md · memory=(missing)",
-        "codex--agents-md · memory=mempal",
-        "gemini--agents-md · memory=(missing)",
-        "gemini--agents-md · memory=mempal",
+        "mem/bub--agents-md · memory=(missing)",
+        "mem/codex--agents-md · memory=(missing)",
+        "mem/codex--agents-md · memory=mempal",
+        "mem/gemini--agents-md · memory=(missing)",
+        "mem/gemini--agents-md · memory=mempal",
       ]);
     });
   });
@@ -1153,5 +1220,62 @@ describe("labels 维度、series 归类与 connect", () => {
     // 前 6 个键占满 6 色;第 7 个开始只能复用
     const seven = colorIndicesForKeys(["s0", "s1", "s2", "s3", "s4", "s5", "s6"]);
     expect(new Set([...seven.values()].slice(0, 6)).size).toBe(6);
+  });
+});
+
+describe("validate*Data 接受真实计算产物(不是只接受手写 literal)", () => {
+  // 手写 literal 通过校验只证明 validator 认得自己设想的形状;真正的把关是喂真实计算产物——
+  // 尤其是省略可选字段(如自定义指标不声明 label)的真实路径,不是校验作者假想的边界。
+  const a = snap({ experimentId: "compare/a", results: [res("q1", "passed"), res("q2", "failed")] });
+  const b = snap({ experimentId: "compare/b", results: [res("q1", "failed"), res("q2", "passed")] });
+  const scope = scopeOf([a, b]);
+  const noLabelMetric = defineMetric({ name: "custom-no-label", value: (attempt) => (attempt.result.verdict === "passed" ? 1 : 0) });
+
+  it("metricTableData:含未声明 label 的自定义指标", async () => {
+    const table = await metricTableData(scope, { rows: "agent", columns: [costUSD, noLabelMetric] });
+    expect(validateTableData(table)).toBeNull();
+  });
+
+  it("metricMatrixData", async () => {
+    const matrix = await metricMatrixData(scope, { rows: "experiment", columns: "eval", cell: endToEndPassRate });
+    expect(validateMatrixData(matrix)).toBeNull();
+  });
+
+  it("metricScatterData:含缺 y 的点(null MetricCell.value)", async () => {
+    const scatter = await metricScatterData(scope, { points: "experiment", x: costUSD, y: noLabelMetric });
+    expect(validateScatterData(scatter)).toBeNull();
+  });
+
+  it("metricLineData", async () => {
+    const line = await metricLineData(scope, { x: numericFlag("budget"), y: endToEndPassRate });
+    expect(validateLineData(line)).toBeNull();
+  });
+
+  it("scoreboardData", async () => {
+    const board = await scoreboardData(scope, { rows: "agent", questions: ["q1", "q2"] });
+    expect(validateScoreboardData(board)).toBeNull();
+  });
+
+  it("deltaTableData(含 pairsByFlag 派生 pair)", async () => {
+    const withFlag = snap({
+      experimentId: "compare/withflag",
+      results: [res("q1", "passed")],
+      experiment: { runs: 1, earlyExit: false, selectedEvalIds: [], flags: { memory: "on" } },
+    });
+    const withoutFlag = snap({ experimentId: "compare/noflag", results: [res("q1", "failed")] });
+    const deltaScope = scopeOf([withFlag, withoutFlag]);
+    const delta = await deltaTableData(deltaScope, { by: "experiment", pairs: pairsByFlag("memory"), metrics: [costUSD] });
+    expect(validateDeltaData(delta)).toBeNull();
+  });
+
+  it("scopeSummaryData", async () => {
+    const summary = await scopeSummaryData(scope);
+    expect(validateScopeSummaryData(summary)).toBeNull();
+  });
+
+  it("experimentListData / evalListData / attemptListData(同一 Scope 三种粒度)", async () => {
+    expect(validateExperimentListData(await experimentListData(scope))).toBeNull();
+    expect(validateEvalListData(await evalListData(scope))).toBeNull();
+    expect(validateAttemptListData(await attemptListData(scope))).toBeNull();
   });
 });

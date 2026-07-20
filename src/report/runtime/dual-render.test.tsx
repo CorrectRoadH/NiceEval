@@ -33,7 +33,8 @@ import { CopyFixPrompt, Hero, ScopeWarnings, TraceWaterfall } from "../component
 import { ExperimentComparison, ScopeSummary } from "../components/summaries/index.tsx";
 import { MetricBars, MetricMatrix, MetricScatter, MetricTable } from "../components/metric-views/index.tsx";
 import { AttemptDetail } from "../components/attempt-detail/index.tsx";
-import { Col, Row, Section, Style, Tab, Table, Tabs, Text } from "../definition/primitives.tsx";
+import { Col, Grid, Row, Section, Stat, Style, Tab, Table, Tabs, Text } from "../definition/primitives.tsx";
+import { stringWidth } from "../model/text-layout.ts";
 import { attemptListData, experimentListData } from "../components/entity-lists/compute.ts";
 import { metricScatterData } from "../components/metric-views/compute.ts";
 import { scopeSummaryData } from "../components/summaries/compute.ts";
@@ -669,6 +670,281 @@ describe("Table 与文本排版原语", () => {
     expect(text).toBe("visible");
     const html = await renderReportToStaticHtml(definition, hostCtx);
     expect(html).toContain("<style>");
+  });
+});
+
+// ───────────────────────── Grid / Stat / Section.meta ─────────────────────────
+
+describe("Grid / Stat / Section.meta", () => {
+  const ctx = (width = 100) => createTextContext({ width });
+
+  it("展平数组 / Fragment,空分支不占格,任意 ReportNode 可作 cell,Col 内多个 Stat 保持同一格", () => {
+    const groups = ["a", "b"];
+    const tree = (
+      <Grid columns={4}>
+        {groups.map((g) => (
+          <Stat key={g} label={g} value={g} />
+        ))}
+        {null}
+        {undefined}
+        {false}
+        <>
+          <Text>free block</Text>
+        </>
+        <Col>
+          <Stat label="col-stat-1" value="1" />
+          <Stat label="col-stat-2" value="2" />
+        </Col>
+      </Grid>
+    );
+    const text = renderNodeToText(tree, ctx());
+    const html = renderToStaticMarkup(tree as never);
+    // a, b, free block, Col(两个 Stat) = 4 格;空分支不占格
+    expect((html.match(/nre-grid-cell/g) ?? []).length).toBe(4);
+    for (const face of [text, html]) {
+      expect(face).toContain("free block");
+      expect(face).toContain("col-stat-1");
+      expect(face).toContain("col-stat-2");
+    }
+    // 两面 cell 顺序一致:a 在 b 之前,free block 在 Col 之前
+    expect(text.indexOf("a")).toBeLessThan(text.indexOf("b"));
+    expect(text.indexOf("free block")).toBeLessThan(text.indexOf("col-stat-1"));
+  });
+
+  it("全部子节点为空分支时 0 格,text 面输出空串", () => {
+    const tree = <Grid columns={3}>{[null, false, undefined]}</Grid>;
+    expect(renderNodeToText(tree, ctx())).toBe("");
+  });
+
+  for (const bad of [0, -1, 1.5, NaN, Infinity]) {
+    it(`columns={${bad}} 给完整用户反馈`, () => {
+      const tree = <Grid columns={bad}>{<Stat label="x" value="y" />}</Grid>;
+      expect(() => renderNodeToText(tree, ctx())).toThrow(/columns/);
+      expect(() => renderToStaticMarkup(tree as never)).toThrow(/columns/);
+    });
+  }
+
+  it("columns=1 与 columns 大于 cell 数都正常渲染;variant / density 默认 plain / regular", () => {
+    const single = <Grid columns={1}>{[<Stat key="a" label="a" value="1" />, <Stat key="b" label="b" value="2" />]}</Grid>;
+    expect(renderNodeToText(single, ctx())).toContain("a");
+    const roomy = (
+      <Grid columns={99}>
+        <Stat label="only" value="1" />
+      </Grid>
+    );
+    const html = renderToStaticMarkup(roomy as never);
+    expect(html).toContain("nre-grid--plain");
+    expect(html).toContain("nre-grid--regular");
+    expect(html).toContain('style="--nre-grid-max-columns:99"');
+  });
+
+  it("web 初始 HTML 含全部格、稳定 root/cell/variant/density class 与最大列数事实,无 JS 也完整可读", () => {
+    const tree = (
+      <Grid columns={3} variant="boxed" density="compact">
+        <Stat label="one" value="1" />
+        <Stat label="two" value="2" />
+        <Stat label="three" value="3" />
+      </Grid>
+    );
+    const html = renderToStaticMarkup(tree as never);
+    expect(html).toContain("nre-grid--boxed");
+    expect(html).toContain("nre-grid--compact");
+    expect(html).toContain('style="--nre-grid-max-columns:3"');
+    expect((html.match(/nre-grid-cell/g) ?? []).length).toBe(3);
+    expect(html).toContain("one");
+    expect(html).toContain("two");
+    expect(html).toContain("three");
+    expect(html).not.toMatch(/<script/);
+    expect(html).not.toContain("hydrat");
+  });
+
+  it("boxed 每个 cell 四边完整;plain 只去掉边框与内边距,不改变列数与内容宽", () => {
+    const tree = (variant: "plain" | "boxed") => (
+      <Grid columns={2} variant={variant}>
+        <Stat label="left" value="1" />
+        <Stat label="right" value="2" />
+      </Grid>
+    );
+    const boxed = renderNodeToText(tree("boxed"), ctx(80));
+    const plain = renderNodeToText(tree("plain"), ctx(80));
+    expect(boxed.match(/┌/g)?.length).toBe(2);
+    expect(boxed.match(/┐/g)?.length).toBe(2);
+    expect(boxed.match(/└/g)?.length).toBe(2);
+    expect(boxed.match(/┘/g)?.length).toBe(2);
+    expect(plain).not.toContain("┌");
+    expect(plain).toContain("left");
+    expect(plain).toContain("right");
+    for (const line of [...boxed.split("\n"), ...plain.split("\n")]) {
+      expect(stringWidth(line)).toBeLessThanOrEqual(80);
+    }
+  });
+
+  it("compact 不合并或丢弃字段,label/value/detail 三者仍全部可见", () => {
+    const text = renderNodeToText(
+      <Grid columns={2} variant="boxed" density="compact">
+        <Stat label="label-x" value="value-x" detail="detail-x" />
+        <Stat label="label-y" value="value-y" detail="detail-y" />
+      </Grid>,
+      ctx(80),
+    );
+    for (const token of ["label-x", "value-x", "detail-x", "label-y", "value-y", "detail-y"]) {
+      expect(text).toContain(token);
+    }
+  });
+
+  it("text 宽面使用声明列数,继续收窄降为一列,不丢任何 cell", () => {
+    const cells = Array.from({ length: 6 }, (_, i) => <Stat key={i} label={`s${i}`} value={i} />);
+    const wide = renderNodeToText(<Grid columns={6}>{cells}</Grid>, ctx(200));
+    for (let i = 0; i < 6; i++) expect(wide).toContain(`s${i}`);
+    const narrow = renderNodeToText(<Grid columns={6}>{cells}</Grid>, ctx(15));
+    for (let i = 0; i < 6; i++) expect(narrow).toContain(`s${i}`);
+  });
+
+  it("Stat:LocalizedText、number(按 locale 格式化)、null(—)、数字 0、detail 省略与四种 tone", () => {
+    const html0 = renderToStaticMarkup(<Stat label="zero" value={0} /> as never);
+    expect(html0).toContain(">0<");
+    expect(html0).not.toContain("—");
+    const htmlNull = renderToStaticMarkup(<Stat label="none" value={null} /> as never);
+    expect(htmlNull).toContain("—");
+    const htmlNumber = renderToStaticMarkup(<Stat label="n" value={1234} /> as never);
+    expect(htmlNumber).toContain("1,234"); // 默认 locale "en"
+    const htmlLocalized = renderToStaticMarkup(<Stat label={{ en: "Label", "zh-CN": "标签" }} value="v" /> as never);
+    expect(htmlLocalized).toContain("Label");
+    // detail 省略:text 面不留空行(恰好两行:label、value)
+    const textNoDetail = renderNodeToText(<Stat label="l" value="v" />, ctx());
+    expect(textNoDetail.split("\n")).toEqual(["l", "v"]);
+    const textWithDetail = renderNodeToText(<Stat label="l" value="v" detail="d" />, ctx());
+    expect(textWithDetail.split("\n")).toEqual(["l", "v", "d"]);
+    for (const tone of ["neutral", "positive", "negative", "warning"] as const) {
+      const html = renderToStaticMarkup(<Stat label="t" value="v" tone={tone} /> as never);
+      expect(html).toContain(`nre-stat--${tone}`);
+    }
+    // tone 不出现在 text 面(不新造 ANSI 颜色协议,不泄露内部词)
+    const textToned = renderNodeToText(<Stat label="t" value="v" tone="positive" />, ctx());
+    expect(textToned).not.toMatch(/positive|negative|warning|neutral/);
+  });
+
+  it("Section.meta:web 面同行(header 结构),text 面同行右对齐;省略 meta 时旧行为不变", () => {
+    const withMeta = (
+      <Section title="Title" meta="6/6 done">
+        <Text>body</Text>
+      </Section>
+    );
+    const html = renderToStaticMarkup(withMeta as never);
+    expect(html).toContain("nre-section-header");
+    expect(html).toContain("nre-section-meta");
+    expect(html).toContain("Title");
+    expect(html).toContain("6/6 done");
+    const text = renderNodeToText(withMeta, ctx());
+    const firstLine = text.split("\n")[0];
+    expect(firstLine).toContain("Title");
+    expect(firstLine).toContain("6/6 done");
+    expect(stringWidth(firstLine)).toBeLessThanOrEqual(100);
+
+    // 放不下时以两格缩进换行(meta 本身够长,createTextContext 最窄也钳在 20 列)
+    const longMeta = (
+      <Section title="Title" meta="this meta text is intentionally too long to fit on the title line">
+        <Text>body</Text>
+      </Section>
+    );
+    const narrowText = renderNodeToText(longMeta, ctx(20));
+    const lines = narrowText.split("\n");
+    expect(lines[0]).toBe("Title");
+    expect(lines[1]!.startsWith("  ")).toBe(true);
+    expect(narrowText).toContain("intentionally");
+
+    // 省略 meta:旧结构不变(裸 <h2>,无 header 包裹)
+    const withoutMeta = (
+      <Section title="Plain">
+        <Text>body</Text>
+      </Section>
+    );
+    const htmlPlain = renderToStaticMarkup(withoutMeta as never);
+    expect(htmlPlain).not.toContain("nre-section-header");
+    expect(htmlPlain).toContain('<h2 class="nre-section-title">Plain</h2>');
+  });
+
+  it("目标运行总览示例:恰好 100 显示列时两个 Grid 都降为三列,21 个 Stat 全部存在且索引递增,逐行不越界", () => {
+    const groupStats: Array<[string, string, string]> = [
+      ["平均净 R / case", "+0.479 R", "累计 +2.877 R"],
+      ["单笔期望", "+0.093 R", "已成交交易"],
+      ["Episode 胜率", "66.7%", "4 / 6 cases"],
+      ["MFE / MAE", "0.87 / 0.71", "捕获 4.3%"],
+      ["交易胜率", "41.9%", "13 / 31 笔"],
+      ["持有 / 回撤", "1.5 / 1.47 R", "bars / max DD"],
+      ["方向命中", "66.7%", "cutoff → horizon"],
+      ["完成率", "100.0%", "6 / 6"],
+      ["Profit Factor", "1.29", "盈利 R / 亏损 R"],
+      ["执行成本", "$1.09", "0 bps"],
+      ["参与 / 成交", "100.0% / 100.0%", "6 个方向订单"],
+      ["耗时 / 首次决策", "207.4 s / B0.8", "34.7 tools · 84927 tokens"],
+    ];
+    const compactStats: Array<[string, string]> = [
+      ["初始 1H", "0 bars"],
+      ["初始日线", "250 bars"],
+      ["初始周线", "104 bars"],
+      ["回放窗口", "— sessions"],
+      ["回放 1H", "20 bars"],
+      ["首次决策", "B0 起自主决定"],
+      ["待成交窗口", "— bars"],
+      ["强平提醒", "T-5 → T-1"],
+      ["长桥日 / 周回填", "0 / 0"],
+    ];
+    const cols: ReportNode[] = [];
+    for (let i = 0; i < groupStats.length; i += 2) {
+      const [a, b] = [groupStats[i]!, groupStats[i + 1]!];
+      cols.push(
+        <Col key={i}>
+          <Stat label={a[0]} value={a[1]} detail={a[2]} tone="positive" />
+          <Stat label={b[0]} value={b[1]} detail={b[2]} tone="positive" />
+        </Col>,
+      );
+    }
+    const tree = (
+      <Section title="运行总览" meta="6/6 完成 · 31 笔完整交易">
+        <Grid columns={6} variant="boxed">
+          {cols}
+        </Grid>
+        <Grid columns={9} variant="boxed" density="compact">
+          {compactStats.map(([label, value]) => (
+            <Stat key={label} label={label} value={value} />
+          ))}
+        </Grid>
+      </Section>
+    );
+    const text = renderNodeToText(tree, ctx(100));
+    for (const line of text.split("\n")) {
+      expect(stringWidth(line)).toBeLessThanOrEqual(100);
+    }
+    // 全部 21 个 Stat 都存在(声明序不丢格)
+    for (const [label] of [...groupStats, ...compactStats]) {
+      expect(text.indexOf(label), `缺少 ${label}`).toBeGreaterThan(-1);
+    }
+    // row-major 顺序:3 列的一整个物理行文本互相交织(同一 box 行内左右并排打印),
+    // 但物理行与物理行之间是严格顺序的(用 \n\n 隔开)——按行分组断言 min/max 递增,
+    // 比断言展平后的逐字段顺序更贴合实际排版,不会把「同一行内左右并排」误判成乱序。
+    // lastIndexOf:第二个 Grid 的「首次决策」是第一个 Grid「耗时 / 首次决策」的子串,
+    // indexOf 会先命中那个子串——两个 Grid 各自的真实位置都是各自标签的最后一次出现。
+    const rowIndexRange = (labels: string[]): { min: number; max: number } => {
+      const indices = labels.map((label) => text.lastIndexOf(label));
+      return { min: Math.min(...indices), max: Math.max(...indices) };
+    };
+    const grid1Rows = [
+      groupStats.slice(0, 6).map((s) => s[0]),
+      groupStats.slice(6, 12).map((s) => s[0]),
+    ].map(rowIndexRange);
+    const grid2Rows = [
+      compactStats.slice(0, 3).map((s) => s[0]),
+      compactStats.slice(3, 6).map((s) => s[0]),
+      compactStats.slice(6, 9).map((s) => s[0]),
+    ].map(rowIndexRange);
+    for (let i = 1; i < grid1Rows.length; i++) expect(grid1Rows[i]!.min).toBeGreaterThan(grid1Rows[i - 1]!.max);
+    for (let i = 1; i < grid2Rows.length; i++) expect(grid2Rows[i]!.min).toBeGreaterThan(grid2Rows[i - 1]!.max);
+    // Grid 1(6 列声明)整体先于 Grid 2(9 列声明,compact)
+    expect(grid2Rows[0]!.min).toBeGreaterThan(grid1Rows[grid1Rows.length - 1]!.max);
+    // 两个 Grid 都降到三列:每个 boxed cell 四边完整,6 + 9 = 15 个 cell 对应 5+3=... 实际按 3 列计数四角
+    expect(text.match(/┌/g)?.length).toBe(6 + 9);
+    expect(text.match(/└/g)?.length).toBe(6 + 9);
   });
 });
 

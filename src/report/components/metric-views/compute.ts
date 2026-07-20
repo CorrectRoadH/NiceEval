@@ -31,7 +31,6 @@ import type { JsonValue } from "../../../types.ts";
 import type { AttemptLocator } from "../../../results/locator.ts";
 import type { Snapshot } from "../../../results/types.ts";
 import { comparabilityConfigOf, deepEqualJson } from "../../../results/select.ts";
-import { experimentGroupOf } from "../../../shared/aggregate.ts";
 import {
   assertUniqueMetricNames,
   axisValueOf,
@@ -460,8 +459,10 @@ export async function metricLineData(input: ReportInput, options: MetricLineOpti
 
 /**
  * 按 flag 派生 A/B 对(docs/feature/reports/library/metric-views.md「DeltaTable」):
- * 配对域 = 同可比组 + 删除该 flag 后可比性配置深相等;a 取 baseline(缺省 = 未声明该 flag),
- * b 侧该 flag 的每个其它取值各成一对;label 自动 `<a 末段> · <flag>=<显示键>`。
+ * 配对域 = input Scope 内删除该 flag 后可比性配置深相等(不额外按 experiment id 的目录前缀分组
+ * ——architecture.md「Scope 是默认报告的比较边界」同一条契约);a 取 baseline(缺省 = 未声明该
+ * flag),b 侧该 flag 的每个其它取值各成一对;label 自动 `<完整 a experiment id> · <flag>=<显示键>`,
+ * 排序仍按 a 的末段、再按 flag 显示键(不受完整 id 的字符串差异影响)。
  */
 export function pairsByFlag(name: string, options?: { baseline?: JsonValue }): FlagPairs {
   if (typeof name !== "string" || name.length === 0) {
@@ -488,13 +489,13 @@ function isFlagPairs(pairs: DeltaTableOptions["pairs"]): pairs is FlagPairs {
   return typeof pairs === "object" && pairs !== null && !Array.isArray(pairs) && (pairs as FlagPairs).kind === "flagPairs";
 }
 
-/** experiment id 相对可比组的末段。 */
+/** experiment id 的末段(最后一个 `/` 之后;无 `/` 时是完整 id)。 */
 function experimentTail(experimentId: string): string {
   const slash = experimentId.lastIndexOf("/");
   return slash === -1 ? experimentId : experimentId.slice(slash + 1);
 }
 
-/** 派生配对:同可比组 + 删除该 flag 后可比性配置深相等。返回 pair 列表与配对域实验数。 */
+/** 派生配对:input Scope 内删除该 flag 后可比性配置深相等。返回 pair 列表与配对域实验数。 */
 function derivePairsByFlag(
   snapshots: readonly Snapshot[],
   spec: FlagPairs,
@@ -518,8 +519,9 @@ function derivePairsByFlag(
     const flagValue = config.flags?.[spec.flag];
     const reduced = { ...config, flags: { ...config.flags } };
     delete reduced.flags[spec.flag];
-    const group = experimentGroupOf(id) ?? id;
-    entries.push({ id, flagValue, bucket: `${group} ${JSON.stringify(sortedJson(reduced))}` });
+    // 配对域只是 input Scope + 删除该 flag 后的可比性配置深相等;不额外按 experiment id 的
+    // 目录前缀分组——组件不从路径猜比较边界(architecture.md「Scope 是默认报告的比较边界」)。
+    entries.push({ id, flagValue, bucket: JSON.stringify(sortedJson(reduced)) });
   }
 
   const baseline = spec.baseline; // undefined = 未声明该 flag 的实验作 a
@@ -530,28 +532,34 @@ function derivePairsByFlag(
     else buckets.set(entry.bucket, [entry]);
   }
 
-  const pairs: DeltaPair[] = [];
+  interface DerivedPair {
+    a: string;
+    b: string;
+    label: string;
+    flagKey: string;
+  }
+  const derived: DerivedPair[] = [];
   for (const bucket of buckets.values()) {
     const aSide = bucket.filter((e) => deepEqualJson(e.flagValue, baseline));
     const bSide = bucket.filter((e) => !deepEqualJson(e.flagValue, baseline));
     for (const a of aSide) {
       for (const b of bSide) {
-        pairs.push({
-          a: a.id,
-          b: b.id,
-          label: `${experimentTail(a.id)} · ${spec.flag}=${refDisplayKey(b.flagValue)[0]}`,
-        });
+        const flagKey = refDisplayKey(b.flagValue)[0]!;
+        // label 用完整 a experiment id 自动命名,不截断成末段——目录前缀不同的两个实验
+        // 配成一对时,末段可能撞名,完整 id 才能唯一标识这一对来自哪个实验。
+        derived.push({ a: a.id, b: b.id, label: `${a.id} · ${spec.flag}=${flagKey}`, flagKey });
       }
     }
   }
-  pairs.sort((p, q) => {
+  // 排序只看 a 的末段与 flag 显示键,不看完整 label 字符串——完整 a id 只服务显示,
+  // 不该让目录前缀的字符串差异打乱本该相邻的 a 末段分组。
+  derived.sort((p, q) => {
     const ta = experimentTail(p.a);
     const tb = experimentTail(q.a);
     if (ta !== tb) return ta < tb ? -1 : 1;
-    const la = p.label as string;
-    const lb = q.label as string;
-    return la < lb ? -1 : la > lb ? 1 : 0;
+    return p.flagKey < q.flagKey ? -1 : p.flagKey > q.flagKey ? 1 : 0;
   });
+  const pairs: DeltaPair[] = derived.map(({ a, b, label }) => ({ a, b, label }));
   return { pairs, experiments: byExperiment.size };
 }
 

@@ -1,7 +1,9 @@
 // 官方双面组件的共用装配机制:spec / data 双形态判别(DataProps)、data 结构校验的通用
-// 原语(isObject / isCell / isTally / dataShapeError)、`makeDataComponent` 装配器与
-// `hrefOf` 证据室深链解析、`ChromeProps` 呈现选项基类、`cx` classname 拼接——每个组件族
-// 在自己的 index.tsx 里用这些原语装配自己的组件,具体的 validate*Data 与组件导出留在各族。
+// 原语(isObject / isLocalizedText / isCell / isTally / cellProblem / tallyProblem /
+// arrayProblem / dataShapeError)、`makeDataComponent` 装配器与 `hrefOf` 证据室深链解析、
+// `ChromeProps` 呈现选项基类、`cx` classname 拼接——每个组件族在自己的 index.tsx 里用这些
+// 原语递归拼自己的 validate*Data(字段路径要覆盖到嵌套 MetricCell/Tally,不只顶层哨兵),
+// 具体的 validate*Data 与组件导出留在各族。
 
 import type { ReactNode } from "react";
 import {
@@ -39,25 +41,58 @@ export function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** LocalizedText = string | Record<string, string>(src/shared/types.ts)。 */
+export function isLocalizedText(value: unknown): boolean {
+  if (typeof value === "string") return true;
+  return isObject(value) && Object.values(value).every((entry) => typeof entry === "string");
+}
+
+/**
+ * 字段路径前缀的结构校验原语:通过为 `null`,否则给出带完整字段路径的具体问题
+ * (如 `"rows[2].cells.costUSD.samples" must be a number`)。每个族的 validate*Data
+ * 用这些原语递归拼自己的形状,不重新发明逐字段判断。
+ */
+export function cellProblem(value: unknown, path: string): string | null {
+  if (!isObject(value)) return `"${path}" must be a MetricCell { value, display, samples, total, refs }`;
+  if (!(value.value === null || typeof value.value === "number")) return `"${path}.value" must be a number or null`;
+  if (!isLocalizedText(value.display)) return `"${path}.display" must be a LocalizedText`;
+  if (typeof value.samples !== "number") return `"${path}.samples" must be a number`;
+  if (typeof value.total !== "number") return `"${path}.total" must be a number`;
+  if (!Array.isArray(value.refs) || !value.refs.every((ref) => typeof ref === "string")) {
+    return `"${path}.refs" must be an array of locator strings`;
+  }
+  return null;
+}
+
 export function isCell(value: unknown): boolean {
-  return (
-    isObject(value) &&
-    "value" in value &&
-    "display" in value &&
-    typeof value.samples === "number" &&
-    typeof value.total === "number" &&
-    Array.isArray(value.refs)
-  );
+  return cellProblem(value, "cell") === null;
+}
+
+/** 四态 tally { passed, failed, errored, skipped } 的字段路径前缀校验。 */
+export function tallyProblem(value: unknown, path: string): string | null {
+  if (!isObject(value)) return `"${path}" must be a tally { passed, failed, errored, skipped }`;
+  for (const key of ["passed", "failed", "errored", "skipped"] as const) {
+    if (typeof value[key] !== "number") return `"${path}.${key}" must be a number`;
+  }
+  return null;
 }
 
 export function isTally(value: unknown): boolean {
-  return (
-    isObject(value) &&
-    typeof value.passed === "number" &&
-    typeof value.failed === "number" &&
-    typeof value.errored === "number" &&
-    typeof value.skipped === "number"
-  );
+  return tallyProblem(value, "tally") === null;
+}
+
+/** 数组的逐项校验:每项跑 `itemCheck(item, "path[i]")`,第一个非 null 问题即返回。 */
+export function arrayProblem(
+  value: unknown,
+  path: string,
+  itemCheck: (item: unknown, itemPath: string) => string | null,
+): string | null {
+  if (!Array.isArray(value)) return `"${path}" must be an array`;
+  for (let i = 0; i < value.length; i++) {
+    const problem = itemCheck(value[i], `${path}[${i}]`);
+    if (problem !== null) return problem;
+  }
+  return null;
 }
 
 export type Validator = (data: unknown) => string | null;

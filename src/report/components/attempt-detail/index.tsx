@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 import { defineComponent, type ReportComponent, type ResolveContext, type TextContext, type WebContext } from "../../definition/tree.ts";
 import { Col } from "../../definition/primitives.tsx";
 import type { AttemptEvidence } from "../../../results/attempt-evidence.ts";
+import { arrayProblem, dataShapeError, isObject } from "../shared.ts";
 import type {
   AttemptAssertionsData,
   AttemptConversationData,
@@ -65,18 +66,6 @@ export type AttemptSectionProps<Data> =
   | { input?: AttemptEvidence; data?: never; className?: string }
   | { data: Data; input?: never; className?: string };
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function attemptDataShapeError(component: string, dataFnName: string, shape: string, problem: string): Error {
-  return new Error(
-    `<${component}> received data that does not match the current ${shape} shape: ${problem}. ` +
-      `It may have been computed by a different niceeval version (component data carries no schemaVersion; the support window is same-version write and read). ` +
-      `Recompute it with ${dataFnName}() from this niceeval version, then re-render.`,
-  );
-}
-
 interface AttemptComponentDef<Data> {
   name: string;
   dataFnName: string;
@@ -102,7 +91,7 @@ function makeAttemptComponent<Data>(
   const assertData = (data: unknown): Data | null => {
     if (data === null) return null;
     const problem = def.validate(data);
-    if (problem !== null) throw attemptDataShapeError(def.name, def.dataFnName, def.shapeName, problem);
+    if (problem !== null) throw dataShapeError(def.name, def.dataFnName, def.shapeName, problem);
     return data as Data;
   };
 
@@ -143,14 +132,75 @@ function makeAttemptComponent<Data>(
   return component;
 }
 
+// ───────────────────────── 跨叶子复用的字段路径校验 ─────────────────────────
+
+/** SourceLoc(src/shared/types.ts):`t.send` / 断言在 eval 源码里的调用点。 */
+function sourceLocProblem(value: unknown, path: string): string | null {
+  if (!isObject(value)) return `"${path}" must be a SourceLoc { file, line }`;
+  if (typeof value.file !== "string") return `"${path}.file" must be a string`;
+  if (typeof value.line !== "number") return `"${path}.line" must be a number`;
+  return null;
+}
+
+/** AssertionResult(src/scoring/types.ts):按 outcome 判别的联合,passed/failed 要 score,unavailable 要 reason。 */
+function assertionResultProblem(value: unknown, path: string): string | null {
+  if (!isObject(value)) return `"${path}" must be an AssertionResult object`;
+  if (typeof value.name !== "string") return `"${path}.name" must be a string`;
+  if (value.severity !== "gate" && value.severity !== "soft") return `"${path}.severity" must be "gate" or "soft"`;
+  if (value.outcome === "passed" || value.outcome === "failed") {
+    if (typeof value.score !== "number") return `"${path}.score" must be a number`;
+    return null;
+  }
+  if (value.outcome === "unavailable") {
+    if (typeof value.reason !== "string") return `"${path}.reason" must be a string`;
+    return null;
+  }
+  return `"${path}.outcome" must be "passed" | "failed" | "unavailable"`;
+}
+
+/** TraceSpan(src/o11y/types.ts):AttemptTimeline 的 trace 与 AttemptTrace 的 spans 共用。 */
+function traceSpanProblem(value: unknown, path: string): string | null {
+  if (!isObject(value)) return `"${path}" must be a TraceSpan { traceId, spanId, name, startMs, endMs }`;
+  if (typeof value.traceId !== "string") return `"${path}.traceId" must be a string`;
+  if (typeof value.spanId !== "string") return `"${path}.spanId" must be a string`;
+  if (typeof value.name !== "string") return `"${path}.name" must be a string`;
+  if (typeof value.startMs !== "number") return `"${path}.startMs" must be a number`;
+  if (typeof value.endMs !== "number") return `"${path}.endMs" must be a number`;
+  return null;
+}
+
 // ───────────────────────── AttemptSummary(恒非空) ─────────────────────────
 
-function validateSummaryData(data: unknown): string | null {
+/** AttemptIdentity(src/results/locator.ts):locator 派生自的不可变身份元组。 */
+function attemptIdentityProblem(value: unknown, path: string): string | null {
+  if (!isObject(value)) {
+    return `"${path}" must be an AttemptIdentity { experimentId, snapshotStartedAt, evalId, attempt }`;
+  }
+  if (typeof value.experimentId !== "string") return `"${path}.experimentId" must be a string`;
+  if (typeof value.snapshotStartedAt !== "string") return `"${path}.snapshotStartedAt" must be a string`;
+  if (typeof value.evalId !== "string") return `"${path}.evalId" must be a string`;
+  if (typeof value.attempt !== "number") return `"${path}.attempt" must be a number`;
+  return null;
+}
+
+/** AttemptEvidenceCapabilities(src/results/attempt-evidence.ts):四个证据切面开关。 */
+function capabilitiesProblem(value: unknown, path: string): string | null {
+  if (!isObject(value)) return `"${path}" must be an object { source, execution, timing, diff }`;
+  for (const key of ["source", "execution", "timing", "diff"] as const) {
+    if (typeof value[key] !== "boolean") return `"${path}.${key}" must be a boolean`;
+  }
+  return null;
+}
+
+export function validateSummaryData(data: unknown): string | null {
   if (!isObject(data)) return "expected an object";
   if (typeof data.locator !== "string") return 'missing "locator" (string)';
+  const identityProblem = attemptIdentityProblem(data.identity, "identity");
+  if (identityProblem !== null) return identityProblem;
   if (typeof data.verdict !== "string") return 'missing "verdict" (string)';
-  if (!isObject(data.capabilities)) return 'missing "capabilities" ({ source, execution, timing, diff })';
-  return null;
+  if (typeof data.durationMs !== "number") return '"durationMs" must be a number';
+  if (!(data.costUSD === null || typeof data.costUSD === "number")) return '"costUSD" must be a number or null';
+  return capabilitiesProblem(data.capabilities, "capabilities");
 }
 
 export const AttemptSummary = makeAttemptComponent<AttemptSummaryData>({
@@ -165,9 +215,11 @@ export const AttemptSummary = makeAttemptComponent<AttemptSummaryData>({
 
 // ───────────────────────── AttemptError ─────────────────────────
 
-function validateErrorData(data: unknown): string | null {
+export function validateErrorData(data: unknown): string | null {
   if (!isObject(data)) return "expected an object";
-  if (typeof data.code !== "string" || typeof data.message !== "string") return 'missing "code" / "message" (string)';
+  if (typeof data.code !== "string") return '"code" must be a string';
+  if (typeof data.message !== "string") return '"message" must be a string';
+  if (typeof data.phase !== "string") return '"phase" must be a string';
   return null;
 }
 
@@ -183,11 +235,16 @@ export const AttemptError = makeAttemptComponent<AttemptErrorData>({
 
 // ───────────────────────── AttemptAssertions ─────────────────────────
 
-function validateAssertionsData(data: unknown): string | null {
+export function validateAssertionsData(data: unknown): string | null {
   if (!isObject(data)) return "expected an object";
-  if (!Array.isArray(data.attention)) return 'missing "attention" (array)';
-  if (!Array.isArray(data.passedGroups)) return 'missing "passedGroups" (array)';
-  return null;
+  const attentionProblem = arrayProblem(data.attention, "attention", assertionResultProblem);
+  if (attentionProblem !== null) return attentionProblem;
+  return arrayProblem(data.passedGroups, "passedGroups", (group, path) => {
+    if (!isObject(group) || typeof group.group !== "string") {
+      return `"${path}" must be an object with a string "group"`;
+    }
+    return arrayProblem(group.items, `${path}.items`, assertionResultProblem);
+  });
 }
 
 export const AttemptAssertions = makeAttemptComponent<AttemptAssertionsData>({
@@ -202,12 +259,45 @@ export const AttemptAssertions = makeAttemptComponent<AttemptAssertionsData>({
 
 // ───────────────────────── AttemptSource ─────────────────────────
 
-function validateSourceData(data: unknown): string | null {
+/** AnnotatedSourceLine(src/results/annotated-source.ts):一行源码 + 映射到这一行的断言 / send 标注。 */
+function annotatedSourceLineProblem(value: unknown, path: string): string | null {
+  if (!isObject(value)) return `"${path}" must be an AnnotatedSourceLine { line, text, assertions, sends }`;
+  if (typeof value.line !== "number") return `"${path}.line" must be a number`;
+  if (typeof value.text !== "string") return `"${path}.text" must be a string`;
+  const assertionsProblem = arrayProblem(value.assertions, `${path}.assertions`, assertionResultProblem);
+  if (assertionsProblem !== null) return assertionsProblem;
+  if (!Array.isArray(value.sends)) return `"${path}.sends" must be an array`;
+  return null;
+}
+
+/** AnnotatedEvalSourceSummary(src/results/annotated-source.ts):全是计数字段。 */
+function sourceSummaryProblem(value: unknown, path: string): string | null {
+  if (!isObject(value)) return `"${path}" must be an AnnotatedEvalSourceSummary`;
+  for (const key of [
+    "totalAssertions",
+    "mappedAssertions",
+    "unmappedAssertions",
+    "passed",
+    "failed",
+    "gate",
+    "soft",
+    "totalLines",
+    "annotatedLines",
+  ] as const) {
+    if (typeof value[key] !== "number") return `"${path}.${key}" must be a number`;
+  }
+  return null;
+}
+
+export function validateSourceData(data: unknown): string | null {
   if (!isObject(data)) return "expected an object";
   if (typeof data.locator !== "string") return 'missing "locator" (string)';
   if (typeof data.sourcePath !== "string") return 'missing "sourcePath" (string)';
-  if (!Array.isArray(data.lines)) return 'missing "lines" (array)';
-  return null;
+  const linesProblem = arrayProblem(data.lines, "lines", annotatedSourceLineProblem);
+  if (linesProblem !== null) return linesProblem;
+  const unmappedProblem = arrayProblem(data.unmapped, "unmapped", assertionResultProblem);
+  if (unmappedProblem !== null) return unmappedProblem;
+  return sourceSummaryProblem(data.summary, "summary");
 }
 
 export const AttemptSource = makeAttemptComponent<AttemptSourceData>({
@@ -222,7 +312,7 @@ export const AttemptSource = makeAttemptComponent<AttemptSourceData>({
 
 // ───────────────────────── AttemptFixPrompt ─────────────────────────
 
-function validateFixPromptData(data: unknown): string | null {
+export function validateFixPromptData(data: unknown): string | null {
   if (!isObject(data)) return "expected an object";
   if (typeof data.prompt !== "string") return 'missing "prompt" (string)';
   return null;
@@ -240,10 +330,20 @@ export const AttemptFixPrompt = makeAttemptComponent<AttemptFixPromptData>({
 
 // ───────────────────────── AttemptTimeline ─────────────────────────
 
-function validateTimelineData(data: unknown): string | null {
+/** PhaseTiming(src/runner/types.ts):runner 阶段计时,按执行顺序。 */
+function phaseTimingProblem(value: unknown, path: string): string | null {
+  if (!isObject(value)) return `"${path}" must be a PhaseTiming { name, durationMs }`;
+  if (typeof value.name !== "string") return `"${path}.name" must be a string`;
+  if (typeof value.durationMs !== "number") return `"${path}.durationMs" must be a number`;
+  return null;
+}
+
+export function validateTimelineData(data: unknown): string | null {
   if (!isObject(data)) return "expected an object";
   if (typeof data.locator !== "string") return 'missing "locator" (string)';
-  if (!Array.isArray(data.phases)) return 'missing "phases" (array)';
+  const phasesProblem = arrayProblem(data.phases, "phases", phaseTimingProblem);
+  if (phasesProblem !== null) return phasesProblem;
+  if (data.trace !== null) return arrayProblem(data.trace, "trace", traceSpanProblem);
   return null;
 }
 
@@ -259,11 +359,71 @@ export const AttemptTimeline = makeAttemptComponent<AttemptTimelineData>({
 
 // ───────────────────────── AttemptConversation ─────────────────────────
 
-function validateConversationData(data: unknown): string | null {
+const CONVERSATION_REPLY_KINDS = [
+  "assistant",
+  "user",
+  "thinking",
+  "error",
+  "tool",
+  "skill",
+  "subagent",
+  "input",
+  "compaction",
+  "raw",
+];
+
+/**
+ * AttemptConversationReply(src/report/model/types.ts):按 `kind` 判别的联合,每支自己的必填
+ * 字段各自校验——`raw` 是未识别事件类型的兜底分支,不吞没其余 kind 的校验。
+ */
+function conversationReplyProblem(value: unknown, path: string): string | null {
+  if (!isObject(value)) return `"${path}" must be an AttemptConversationReply object`;
+  switch (value.kind) {
+    case "assistant":
+    case "user":
+    case "thinking":
+    case "error":
+      if (typeof value.text !== "string") return `"${path}.text" must be a string`;
+      return null;
+    case "tool":
+      if (typeof value.callId !== "string") return `"${path}.callId" must be a string`;
+      if (typeof value.name !== "string") return `"${path}.name" must be a string`;
+      if (!("input" in value)) return `"${path}.input" is required`;
+      return null;
+    case "skill":
+      if (typeof value.skill !== "string") return `"${path}.skill" must be a string`;
+      return null;
+    case "subagent":
+      if (typeof value.callId !== "string") return `"${path}.callId" must be a string`;
+      if (typeof value.name !== "string") return `"${path}.name" must be a string`;
+      return null;
+    case "input":
+      if (!isObject(value.request)) return `"${path}.request" must be an InputRequest object`;
+      return null;
+    case "compaction":
+      return null;
+    case "raw":
+      if (!("raw" in value)) return `"${path}.raw" is required`;
+      return null;
+    default:
+      return `"${path}.kind" must be one of ${JSON.stringify(CONVERSATION_REPLY_KINDS)}`;
+  }
+}
+
+function conversationRoundProblem(value: unknown, path: string): string | null {
+  if (!isObject(value)) return `"${path}" must be an AttemptConversationRound { sentText, replies }`;
+  if (typeof value.sentText !== "string") return `"${path}.sentText" must be a string`;
+  if (value.loc !== undefined) {
+    const locProblem = sourceLocProblem(value.loc, `${path}.loc`);
+    if (locProblem !== null) return locProblem;
+  }
+  return arrayProblem(value.replies, `${path}.replies`, conversationReplyProblem);
+}
+
+export function validateConversationData(data: unknown): string | null {
   if (!isObject(data)) return "expected an object";
   if (typeof data.locator !== "string") return 'missing "locator" (string)';
-  if (!Array.isArray(data.rounds)) return 'missing "rounds" (array)';
-  return null;
+  return arrayProblem(data.rounds, "rounds", conversationRoundProblem);
 }
 
 export const AttemptConversation = makeAttemptComponent<AttemptConversationData>({
@@ -278,10 +438,24 @@ export const AttemptConversation = makeAttemptComponent<AttemptConversationData>
 
 // ───────────────────────── AttemptDiagnostics ─────────────────────────
 
-function validateDiagnosticsData(data: unknown): string | null {
-  if (!isObject(data)) return "expected an object";
-  if (!Array.isArray(data.groups)) return 'missing "groups" (array)';
+/** DiagnosticRecord(src/runner/types.ts):`level` 是消息严重度,不是 verdict 的别名。 */
+function diagnosticRecordProblem(value: unknown, path: string): string | null {
+  if (!isObject(value)) return `"${path}" must be a DiagnosticRecord { code, level, message, phase }`;
+  if (typeof value.code !== "string") return `"${path}.code" must be a string`;
+  if (value.level !== "warning" && value.level !== "error") return `"${path}.level" must be "warning" or "error"`;
+  if (typeof value.message !== "string") return `"${path}.message" must be a string`;
+  if (typeof value.phase !== "string") return `"${path}.phase" must be a string`;
   return null;
+}
+
+export function validateDiagnosticsData(data: unknown): string | null {
+  if (!isObject(data)) return "expected an object";
+  return arrayProblem(data.groups, "groups", (group, path) => {
+    if (!isObject(group) || typeof group.phase !== "string") {
+      return `"${path}" must be an object with a string "phase"`;
+    }
+    return arrayProblem(group.items, `${path}.items`, diagnosticRecordProblem);
+  });
 }
 
 export const AttemptDiagnostics = makeAttemptComponent<AttemptDiagnosticsData>({
@@ -296,9 +470,19 @@ export const AttemptDiagnostics = makeAttemptComponent<AttemptDiagnosticsData>({
 
 // ───────────────────────── AttemptUsage ─────────────────────────
 
-function validateUsageData(data: unknown): string | null {
+/** Usage(src/o11y/types.ts):cacheReadTokens / cacheWriteTokens / requests / costUSD 均可选。 */
+function usageProblem(value: unknown, path: string): string | null {
+  if (!isObject(value)) return `"${path}" must be a Usage { inputTokens, outputTokens }`;
+  if (typeof value.inputTokens !== "number") return `"${path}.inputTokens" must be a number`;
+  if (typeof value.outputTokens !== "number") return `"${path}.outputTokens" must be a number`;
+  return null;
+}
+
+export function validateUsageData(data: unknown): string | null {
   if (!isObject(data)) return "expected an object";
-  if (!isObject(data.usage)) return 'missing "usage" (object)';
+  const usageProb = usageProblem(data.usage, "usage");
+  if (usageProb !== null) return usageProb;
+  if (!(data.costUSD === null || typeof data.costUSD === "number")) return '"costUSD" must be a number or null';
   return null;
 }
 
@@ -314,11 +498,10 @@ export const AttemptUsage = makeAttemptComponent<AttemptUsageData>({
 
 // ───────────────────────── AttemptTrace ─────────────────────────
 
-function validateTraceData(data: unknown): string | null {
+export function validateTraceData(data: unknown): string | null {
   if (!isObject(data)) return "expected an object";
   if (typeof data.locator !== "string") return 'missing "locator" (string)';
-  if (!Array.isArray(data.spans)) return 'missing "spans" (array)';
-  return null;
+  return arrayProblem(data.spans, "spans", traceSpanProblem);
 }
 
 export const AttemptTrace = makeAttemptComponent<AttemptTraceData>({
@@ -333,11 +516,26 @@ export const AttemptTrace = makeAttemptComponent<AttemptTraceData>({
 
 // ───────────────────────── AttemptDiff ─────────────────────────
 
-function validateDiffData(data: unknown): string | null {
+const DIFF_FILE_NET = ["added", "modified", "deleted"];
+
+/** AttemptDiffFileEntry(src/report/model/types.ts):`net` 恒 !== "none"(净无变化不进这份列表)。 */
+function diffFileEntryProblem(value: unknown, path: string): string | null {
+  if (!isObject(value)) return `"${path}" must be an AttemptDiffFileEntry { path, net, lines, windows }`;
+  if (typeof value.path !== "string") return `"${path}.path" must be a string`;
+  if (typeof value.net !== "string" || !DIFF_FILE_NET.includes(value.net)) {
+    return `"${path}.net" must be one of ${JSON.stringify(DIFF_FILE_NET)}`;
+  }
+  if (!isObject(value.lines) || typeof value.lines.added !== "number" || typeof value.lines.deleted !== "number") {
+    return `"${path}.lines" must be an object { added, deleted }`;
+  }
+  if (!Array.isArray(value.windows)) return `"${path}.windows" must be an array`;
+  return null;
+}
+
+export function validateDiffData(data: unknown): string | null {
   if (!isObject(data)) return "expected an object";
   if (typeof data.locator !== "string") return 'missing "locator" (string)';
-  if (!Array.isArray(data.files)) return 'missing "files" (array)';
-  return null;
+  return arrayProblem(data.files, "files", diffFileEntryProblem);
 }
 
 export const AttemptDiff = makeAttemptComponent<AttemptDiffData>({

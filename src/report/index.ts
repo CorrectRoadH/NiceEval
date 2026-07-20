@@ -75,13 +75,16 @@ export type {
   WebContext,
 } from "./definition/tree.ts";
 
-// 排版原语(八个内置双面组件)
-export { Col, Row, Section, Style, Tab, Table, Tabs, Text } from "./definition/primitives.tsx";
+// 排版原语(十个内置双面组件)
+export { Col, Grid, Row, Section, Stat, Style, Tab, Table, Tabs, Text } from "./definition/primitives.tsx";
 export type {
   ColProps,
+  GridProps,
   LayoutProps,
   RowProps,
   SectionProps,
+  StatProps,
+  StatTone,
   StyleProps,
   TabProps,
   TableColumn,

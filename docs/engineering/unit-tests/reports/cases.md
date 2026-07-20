@@ -45,6 +45,7 @@ it("scopeSummaryData 使用端到端两级聚合并保留覆盖率", async () =>
 | MetricCell 携带 value/display/samples/total/refs；缺数据格子 value 为 null 且不渲染成 0 | 三格 fixture：measuredZero、partial、missing 互不混淆 |
 | 覆盖率与 refs 不因渲染或 JSON 序列化丢失 | 正例：serialize round-trip 后 refs 完整 |
 | 组件消费 `data` 时校验结构：不符合当前版本形状按完整用户反馈报错并提示可能的版本漂移，不静默错渲染 | 反例：字段改名前的旧 JSON 传入 data 形态报错且文案含版本漂移提示；正例：round-trip 的同版本 JSON 照常渲染 |
+| `validate*Data` 递归覆盖到嵌套字段，不只检查顶层哨兵：数组每一项逐项校验（而非只看数组本身是否存在）、嵌套 `MetricCell` / 四态 tally 按字段级校验、判别联合按 `kind` 分支各自校验必填字段；报错文案带完整字段路径定位到具体坏字段，不是笼统的整份 data 报错；结构错误恒转成 `dataShapeError` 完整用户反馈，不让 renderer 抛未处理的 `TypeError` | 正例：`TableData.rows[0].cells.<metric>` 缺 `samples` 报错路径含 `rows[0].cells.<metric>.samples`；正例：`MatrixData.cells[i].cell`、`ScatterData.rows[i].y`、`DeltaData.rows[i].cells.<metric>.a` 结构错误各自定位到该嵌套格；正例：`ScoreboardData.rows[i].subjects[j]` 缺 `possible` 报错路径含该 subject 下标；正例：`ExperimentListItem[i].endToEndPassRate` / `EvalListItem[i].examScore` / `AttemptListItem[i].costUSD` 类型错误（如误传字符串）各自报错；正例：`ScopeWarning` 按 `kind` 分支校验：`partial-coverage` 缺 `covered` 与 `stale-snapshot` 缺 `latestStartedAt` 报出对应分支缺的字段，不是通用的「缺字段」；正例：`AttemptConversationData.rounds[i].replies[j]` 按 `kind` 分支校验，`tool` 分支缺 `callId`、`input` 分支缺 `request` 各自报错；边界：数组为空（`rows: []`）本身合法，不报错；边界：可选字段（如 `MetricColumn.unit`、`ScopeWarning` 的 `command`）缺省不报错 |
 | 缺 artifact 时指标返回 null，渲染层不猜值；`assistantTurns` / `repeatedFailedCommands` 缺 `o11y.json` 显示缺失不冒充 0 | 正例：删 o11y.json 后两指标为 missing；反例：来自 result.json 的指标不受影响 |
 | `repeatedFailedCommands` 口径：同一 attempt 内每条命令失败 n 次（n>1）记 n−1 求和；成功执行与只失败一次的命令不计 | 正例：同命令失败 3 次记 2；反例：两条不同命令各失败 1 次记 0 |
 | value 与 display 分别可断言；display 由 unit 或自定义 display(value) 驱动 | 正例：value≈5/6 与 display="83.3%" 独立断言 |
@@ -61,7 +62,8 @@ it("scopeSummaryData 使用端到端两级聚合并保留覆盖率", async () =>
 | 散点轴方向跟随指标 `better`：lower 反向（左贵右便宜）、higher 正向，「更好」恒指向右上，提示恒为「越靠右上越好」；刻度显示真实值；未声明 better 的轴正向且整图不出方向提示；两面同规则 | 正例：成本 × 通过率图上低成本点落在右侧且刻度值仍从大到小；边界：x 无 better 时无方向提示；正例：text 面同方向 |
 | `MetricLine` 对未声明数值 flag 的 experiment 不伪造 x 值并报告未绘制数 | 正例：flag 缺失与 flag="high" 两种；反例：不落到 x=0 |
 | `DeltaTable` 任一侧缺数据时 delta 保持缺失；方向按指标 `better` 判断改善/退化 | 正例：better:"lower" 的 costUSD 下降判改善；边界：一侧缺时 delta 为 null |
-| `pairsByFlag` 在 input Scope 内按「删除该 flag 后可比性配置深相等」配对：a 取 baseline，b 侧每个其它取值各成一对 | 正例：三 agent × baseline/agents-md/mempal 矩阵导出 5 对；反例：model 不同的两实验不配对；边界：单实验时 0 对显示空态 |
+| `pairsByFlag` 在 input Scope 内按「删除该 flag 后可比性配置深相等」配对：a 取 baseline，b 侧每个其它取值各成一对；配对边界只是 input Scope，不额外按 experiment id 的目录前缀分组 | 正例：三 agent × baseline/agents-md/mempal 矩阵导出 5 对；反例：model 不同的两实验不配对；边界：单实验时 0 对显示空态；正例：`compare/codex` 与 `bench/codex` 两个不同目录前缀的实验，只要删除该 flag 后可比性配置深相等就配对成一对（不因目录前缀不同而拆开） |
+| `pairsByFlag` 派生的 `DeltaPair.label` 使用完整 a experiment id（不截断成末段）；派生 pair 的排序仍按 a 的末段、再按 flag 显示键 | 正例：`a: "compare/codex"` 派生的 label 以完整 `"compare/codex"` 开头，不是 `"codex"`；正例：a 末段相同但完整 id 不同的两组 pair（如 `groupX/codex` 与 `groupY/codex`）排序只看末段与 flag 显示键，不因完整 id 的字符串差异打乱顺序 |
 | `pairs` 与 `questions` 类型放宽为普通数组，空数组在计算时按完整用户反馈报错；`metrics` / `columns` 保留非空元组 | 反例：`.filter()` 后为空的 pairs 报错且文案完整；正例：运行期构造的非空 pairs 直接可用，无需元组断言 |
 | `FailureList` 与手写组合等价：verdict ∈ failed/errored、开始时间降序（同刻按 locator 字典序）、`limit` 截断（默认 20）且 total 报告截断前总数 | 正例：与 `attemptListData` 手工过滤排序的渲染结果深等；边界：失败数少于 limit 时 total 等于 data 长度 |
 | `MetricMatrix` 是稀疏矩阵：无 attempt 的行列组合不生成格子；`MetricBars` 消费同一份矩阵数据 | 正例：缺组合无格子（而非 value:0）；正例：Bars 与 Matrix data 同源 |
@@ -180,6 +182,14 @@ it("text 与 web 显示同一个 MetricCell 终值和 warning", () => {
 | `Row` text 面在宽度装得下时按显示宽度并排（与 `columns` 同尺），装不下时整块纵向堆叠，不截断不隐藏 | 正例：宽 width 下两块并排；边界：窄 width 下纵向堆叠且内容完整 |
 | 列可设 `maxLines`（text 面）：数据格折行超出的行丢弃、末行按显示宽度以 `…` 收口；表头不受约束 | 正例：Result 列两行收口带 `…`；反例：未设 maxLines 的列不收口 |
 | 实体列表的 Result 单元格是两行收口的预览：主失败摘要先经宽度预算的优先级收口，再由列 `maxLines: 2` 兜底；值自带换行 / 空行不进表 | 正例：数千字符多行 received 的 attempt 行 ≤2 物理行、无空行、`…` 收口且 expected 前缀仍在 |
+| `Grid` 的直接子节点按 `ReportNode` 规则展平：数组 / Fragment 递归展开、空分支（null/undefined/boolean）不占格，任意 `ReportNode` 都可作为一格，`Col` 把多个子节点归成一格 | 正例：`groups.map(...)` 产生的数组与条件渲染的 `cond && <Stat .../>` 都正确展平且两面顺序一致；正例：`<Col><Stat/><Stat/></Col>` 在两面都是同一格；正例：非 `Stat` 的普通节点也能作为一格；边界：全部子节点为空分支时 0 格 |
+| `columns` 必须是有限正整数：0、负数、小数、`NaN`、`Infinity` 在组件创建时报完整用户反馈；`1` 与大于实际 cell 数都正常；`variant` 缺省 `"plain"`、`density` 缺省 `"regular"` | 反例：`columns={0}`/`columns={-1}`/`columns={1.5}`/`columns={NaN}`/`columns={Infinity}` 各自报错且文案含收到的值、原因与 `columns={N}` 下一步；正例：`columns={1}` 与 `columns` 大于 cell 数都正常渲染；正例：省略 `variant`/`density` 时两面呈现默认档 |
+| `Grid` web 初始 HTML 含全部 cell、稳定 `nre-grid`/`nre-grid-cell`/variant/density 类名与 `--nre-grid-max-columns` 事实，无 JS 完整可读 | 正例：静态 HTML 逐 cell 断言存在且顺序正确；正例：boxed/compact 的类名与自定义列数事实分别可见；反例：不出现本组件引入的 script/hydration 标记 |
+| `Grid` text 面按声明 `columns` 向下规划显示列数：目标运行总览示例在恰好 100 显示列降为三列，继续变窄降为一列；任意宽度下声明序、label/value/detail 全部保留不丢格 | 正例：100 列时两个 Grid（columns=6/columns=9）分别降到三列且逐行 `stringWidth <= 100`；正例：极窄宽度降为一列且 21 个 Stat 全部存在、索引顺序递增；反例：不隐藏、不截断任何 cell |
+| `variant="boxed"` 给每个 cell 独立完整四边框，同行以 density 对应 gutter 分隔，换行重新起框；`variant="plain"` 复用同一 plan 只去掉边框与内边距；`density="compact"` 收紧留白但不合并或丢弃字段 | 正例：boxed 每个 cell 有完整 `┌─┐`/`│ │`/`└─┘`；正例：plain 与 boxed 用同一列数与内容宽；正例：compact 三个字段仍全部可见，只留白更紧 |
+| `Stat` 的 `label`/`value`/`detail` 按 `LocalizedText` 回退、number 按 locale 格式化、`null` 显示 `—`、数字 `0` 正常显示；`detail` 省略不留空行；四种 `tone` 只染 value 且不自动推导 | 正例：en/zh-CN 两 locale 下 label 与 detail 各自解析；正例：`value={0}` 显示 `0` 而非 `—`，`value={null}` 显示 `—`；正例：省略 detail 时 text 面不留空行；正例：四种 tone 的修饰符 class 落在 `nre-stat` 根节点、label 与 detail 不随 tone 换色，text 面不出现 `positive` 等内部词 |
+| `Section.meta` 是标题行右侧短补充：web 面同行右对齐、空间不足换到下一行；text 面优先同行右对齐、放不下以一层缩进换行；省略 `meta` 时旧 Section 输出不变 | 正例：短 meta 与标题同行右对齐；边界：长 meta 换行仍完整可读；正例：无 `meta` 的 Section 渲染与改动前逐字节相同 |
+| 同一份含 `Section.meta` + `Grid` + `Stat` 的公开报告文件经 `show` 与 `view` 渲染同一批终值（label/value/detail/meta），不要求两面布局逐字一致 | 正例：两面都含相同的 meta 文本、全部 label/value/detail；text 面按宽度减列、web 面是 Grid 结构，不逐字比较布局 |
 
 ## show/view 宿主等价与选择
 

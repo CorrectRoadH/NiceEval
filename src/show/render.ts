@@ -16,7 +16,8 @@ import { attemptCostUSD } from "../report/model/metrics.ts";
 import { formatDurationMs, formatMetricValue, formatPlainNumber, formatUSD } from "../report/model/format.ts";
 import { indentBlock, padDisplay, renderAlignedRows, wrapDisplay } from "../report/model/text-layout.ts";
 import type { AttemptHistoryRow } from "./compose.ts";
-import { localizeText, showCommand, type HostCommandContext } from "./report-host.ts";
+import { localizeText, type HostCommandContext } from "../report/runtime/host.ts";
+import { showCommand } from "./command.ts";
 
 const MISSING = "—";
 

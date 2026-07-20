@@ -35,7 +35,7 @@ async function seedSnapshot(root: string, experimentId: string, evalId: string):
         { type: "message", role: "user", text: "hi", loc: { file: "evals/a.eval.ts", line: 3 } },
         { type: "message", role: "assistant", text: "hello there" },
       ],
-      trace: [{ name: "turn", kind: "turn" } as never],
+      trace: [{ traceId: "t1", spanId: "s1", name: "turn", kind: "turn", startMs: 0, endMs: 100 }],
       diff: [{ window: "s1/t1", changes: { "a.txt": { status: "added", after: "1" } } }] as never,
     },
   );

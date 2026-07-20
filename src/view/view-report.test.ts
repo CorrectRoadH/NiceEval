@@ -322,6 +322,27 @@ describe("loadViewScan · --report 报告槽", () => {
       expect(text).toContain(needle);
       expect(html.en).toContain(needle);
     }
+    // Grid/Stat/Section.meta:两面共享同一批 label/value/detail/meta 终值,不要求布局逐字一致。
+    for (const needle of ["速览", "人工摘要,非计算结果", "及格线", "60 分", "最高分", "97 分", "compare/codex"]) {
+      expect(text).toContain(needle);
+      expect(html.en).toContain(needle);
+    }
+    // web 面是 Grid 结构(稳定 nre-grid/nre-grid-cell class),text 面无 JS 概念、只有内容。
+    expect(html.en).toContain("nre-grid");
+    expect(html.en).toContain("nre-grid-cell");
+    expect(html.en).toContain("nre-stat");
+
+    // text 面按显示宽度减列但不丢 Stat:极窄终端下两个 Stat 仍都完整可读。
+    let narrowText = "";
+    const narrowCode = await runShow(root, [], { results: root, report: EXAM_REPORT }, {
+      out: (s) => (narrowText += s),
+      err: () => {},
+      width: 30,
+    });
+    expect(narrowCode).toBe(0);
+    for (const needle of ["及格线", "60 分", "最高分", "97 分"]) {
+      expect(narrowText).toContain(needle);
+    }
   });
 
   it("报告文件缺失 / 默认导出不是 defineReport 产物:ReportLoadError 直说", async () => {
@@ -587,7 +608,7 @@ describe("buildView · attempt/<locator>.html", () => {
           { type: "message", role: "user", text: "what is the forecast for brooklyn" },
           { type: "message", role: "assistant", text: "72 degrees and sunny" },
         ],
-        trace: [{ name: "turn", kind: "turn" }] as never,
+        trace: [{ traceId: "t1", spanId: "s1", name: "turn", kind: "turn", startMs: 0, endMs: 100 }],
         diff: [{ window: "s1/t1", changes: { "a.txt": { status: "added", after: "1" } } }] as never,
       },
     );

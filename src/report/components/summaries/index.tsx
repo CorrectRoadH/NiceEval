@@ -10,10 +10,10 @@ import { resolveInput, seriesName } from "../../model/aggregate.ts";
 import { label } from "../../model/flag.ts";
 import { costUSD, endToEndPassRate } from "../../model/metrics.ts";
 import {
+  cellProblem,
   isObject,
-  isTally,
-  isCell,
   makeDataComponent,
+  tallyProblem,
   type ChromeProps,
   type DataProps,
   type Validator,
@@ -24,16 +24,25 @@ import { ScopeSummary as ScopeSummaryWeb } from "./ScopeSummary.tsx";
 import { MetricScatter } from "../metric-views/index.tsx";
 import { ExperimentList } from "../entity-lists/index.tsx";
 
-const validateScopeSummaryData: Validator = (data) => {
+export const validateScopeSummaryData: Validator = (data) => {
   if (!isObject(data)) return "expected an object";
   if (!isObject(data.range)) return 'missing "range" ({ earliestStartedAt, latestStartedAt })';
-  if (!isTally(data.evalVerdicts) || !isTally(data.attemptVerdicts)) {
-    return 'missing "evalVerdicts" / "attemptVerdicts" tallies';
+  if (!(data.range.earliestStartedAt === null || typeof data.range.earliestStartedAt === "string")) {
+    return '"range.earliestStartedAt" must be a string or null';
   }
-  if (!isCell(data.endToEndPassRate) || !isCell(data.totalCostUSD)) {
-    return 'missing "endToEndPassRate" / "totalCostUSD" (MetricCell)';
+  if (!(data.range.latestStartedAt === null || typeof data.range.latestStartedAt === "string")) {
+    return '"range.latestStartedAt" must be a string or null';
   }
-  return null;
+  if (typeof data.experiments !== "number") return '"experiments" must be a number';
+  if (typeof data.evals !== "number") return '"evals" must be a number';
+  if (typeof data.attempts !== "number") return '"attempts" must be a number';
+  const evalVerdictsProblem = tallyProblem(data.evalVerdicts, "evalVerdicts");
+  if (evalVerdictsProblem !== null) return evalVerdictsProblem;
+  const attemptVerdictsProblem = tallyProblem(data.attemptVerdicts, "attemptVerdicts");
+  if (attemptVerdictsProblem !== null) return attemptVerdictsProblem;
+  const passRateProblem = cellProblem(data.endToEndPassRate, "endToEndPassRate");
+  if (passRateProblem !== null) return passRateProblem;
+  return cellProblem(data.totalCostUSD, "totalCostUSD");
 };
 
 // ───────────────────────── 概览组件 ─────────────────────────

@@ -9,11 +9,12 @@ import type { AttemptLocator } from "../../../results/locator.ts";
 import { collectItems, locatorOf, resolveInput } from "../../model/aggregate.ts";
 import type { ReportLocale } from "../../model/locale.ts";
 import {
-  isCell,
+  arrayProblem,
+  cellProblem,
   isObject,
-  isTally,
   makeDataComponent,
   hrefOf,
+  tallyProblem,
   type ChromeProps,
   type DataProps,
   type Validator,
@@ -24,33 +25,70 @@ import { AttemptList as AttemptListWeb } from "./AttemptList.tsx";
 import { EvalList as EvalListWeb } from "./EvalList.tsx";
 import { ExperimentList as ExperimentListWeb } from "./ExperimentList.tsx";
 
-const validateExperimentListData: Validator = (data) => {
-  if (!Array.isArray(data)) return "expected an array of ExperimentListItem";
-  for (const item of data as unknown[]) {
-    if (!isObject(item) || typeof item.experimentId !== "string" || !isTally(item.evalVerdicts) || !isCell(item.endToEndPassRate)) {
-      return "each item needs { experimentId, evalVerdicts, endToEndPassRate, costUSD, durationMs, tokens, evalRows, … }";
-    }
+/** AttemptListItem(src/report/model/types.ts):三个组件族共用的叶子形状(独立 data 或嵌套在 evalRows/attempts 里)。 */
+function attemptListItemProblem(value: unknown, path: string): string | null {
+  if (!isObject(value)) return `"${path}" must be an object`;
+  if (typeof value.experimentId !== "string") return `"${path}.experimentId" must be a string`;
+  if (typeof value.evalId !== "string") return `"${path}.evalId" must be a string`;
+  if (typeof value.attempt !== "number") return `"${path}.attempt" must be a number`;
+  if (typeof value.agent !== "string") return `"${path}.agent" must be a string`;
+  if (typeof value.verdict !== "string") return `"${path}.verdict" must be a string`;
+  if (!(value.failureSummary === null || typeof value.failureSummary === "string")) {
+    return `"${path}.failureSummary" must be a string or null`;
   }
+  if (typeof value.moreFailures !== "number") return `"${path}.moreFailures" must be a number`;
+  const examScoreProblem = cellProblem(value.examScore, `${path}.examScore`);
+  if (examScoreProblem !== null) return examScoreProblem;
+  if (typeof value.durationMs !== "number") return `"${path}.durationMs" must be a number`;
+  if (!(value.costUSD === null || typeof value.costUSD === "number")) return `"${path}.costUSD" must be a number or null`;
+  if (typeof value.locator !== "string") return `"${path}.locator" must be a string`;
   return null;
-};
-const validateEvalListData: Validator = (data) => {
-  if (!Array.isArray(data)) return "expected an array of EvalListItem";
-  for (const item of data as unknown[]) {
-    if (!isObject(item) || typeof item.evalId !== "string" || !isCell(item.examScore) || !Array.isArray(item.attempts)) {
-      return "each item needs { experimentId, evalId, verdict, examScore, durationMs, costUSD, attempts }";
-    }
-  }
-  return null;
-};
-const validateAttemptListData: Validator = (data) => {
-  if (!Array.isArray(data)) return "expected an array of AttemptListItem";
-  for (const item of data as unknown[]) {
-    if (!isObject(item) || typeof item.evalId !== "string" || !("failureSummary" in item) || !("costUSD" in item)) {
-      return "each item needs { experimentId, evalId, verdict, failureSummary, moreFailures, examScore, durationMs, costUSD, locator }";
-    }
-  }
-  return null;
-};
+}
+
+export const validateExperimentListData: Validator = (data) =>
+  arrayProblem(data, "data", (item, path) => {
+    if (!isObject(item)) return `"${path}" must be an object`;
+    if (typeof item.experimentId !== "string") return `"${path}.experimentId" must be a string`;
+    if (typeof item.agent !== "string") return `"${path}.agent" must be a string`;
+    const verdictsProblem = tallyProblem(item.evalVerdicts, `${path}.evalVerdicts`);
+    if (verdictsProblem !== null) return verdictsProblem;
+    const passRateProblem = cellProblem(item.endToEndPassRate, `${path}.endToEndPassRate`);
+    if (passRateProblem !== null) return passRateProblem;
+    const costProblem = cellProblem(item.costUSD, `${path}.costUSD`);
+    if (costProblem !== null) return costProblem;
+    const durationProblem = cellProblem(item.durationMs, `${path}.durationMs`);
+    if (durationProblem !== null) return durationProblem;
+    const tokensProblem = cellProblem(item.tokens, `${path}.tokens`);
+    if (tokensProblem !== null) return tokensProblem;
+    if (typeof item.evals !== "number") return `"${path}.evals" must be a number`;
+    if (typeof item.attempts !== "number") return `"${path}.attempts" must be a number`;
+    if (typeof item.lastRunAt !== "string") return `"${path}.lastRunAt" must be a string`;
+    return arrayProblem(item.evalRows, `${path}.evalRows`, (row, rowPath) => {
+      if (!isObject(row) || typeof row.evalId !== "string") {
+        return `"${rowPath}" must be an object with a string "evalId"`;
+      }
+      const rowDurationProblem = cellProblem(row.durationMs, `${rowPath}.durationMs`);
+      if (rowDurationProblem !== null) return rowDurationProblem;
+      const rowCostProblem = cellProblem(row.costUSD, `${rowPath}.costUSD`);
+      if (rowCostProblem !== null) return rowCostProblem;
+      return arrayProblem(row.attempts, `${rowPath}.attempts`, attemptListItemProblem);
+    });
+  });
+export const validateEvalListData: Validator = (data) =>
+  arrayProblem(data, "data", (item, path) => {
+    if (!isObject(item)) return `"${path}" must be an object`;
+    if (typeof item.experimentId !== "string") return `"${path}.experimentId" must be a string`;
+    if (typeof item.evalId !== "string") return `"${path}.evalId" must be a string`;
+    if (typeof item.verdict !== "string") return `"${path}.verdict" must be a string`;
+    const examScoreProblem = cellProblem(item.examScore, `${path}.examScore`);
+    if (examScoreProblem !== null) return examScoreProblem;
+    const durationProblem = cellProblem(item.durationMs, `${path}.durationMs`);
+    if (durationProblem !== null) return durationProblem;
+    const costProblem = cellProblem(item.costUSD, `${path}.costUSD`);
+    if (costProblem !== null) return costProblem;
+    return arrayProblem(item.attempts, `${path}.attempts`, attemptListItemProblem);
+  });
+export const validateAttemptListData: Validator = (data) => arrayProblem(data, "data", attemptListItemProblem);
 
 // ───────────────────────── 实体列表 ─────────────────────────
 

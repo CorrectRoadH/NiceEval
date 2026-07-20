@@ -326,6 +326,7 @@ interface TableColumn {
   key: string;
   header: LocalizedText;
   align?: "left" | "right";
+  maxLines?: number;
 }
 
 interface TableRow {
@@ -358,6 +359,7 @@ interface TableProps {
 | `key` | `string` | 取 `row.cells[key]` 的键 |
 | `header` | `LocalizedText` | 表头文案，按渲染 locale 选择 |
 | `align` | `"left" \| "right"` | 默认 `"left"`；`"right"` 按显示宽度右对齐，数字列用 |
+| `maxLines` | `number` | text 面数据格折行后的最大物理行数，省略则不限行数；只约束数据格，表头不受约束，web 面不消费——网页的高度约束是组件自己的 CSS 决定 |
 
 `TableRow`：
 
@@ -373,6 +375,7 @@ interface TableProps {
 - **列 key 与行 key 都必须唯一。** `cells` 出现未声明的 key 以完整用户反馈报错；缺少已声明 key 则按 `null` 处理。空列数组由 TypeScript 拒绝，无类型 JavaScript 输入在组件创建时同样报错。
 - **`null` 渲染成 `—`**，不补 0；`cells` 里缺这个键同样是 `—`。
 - **超宽先折行再丢列。** 总宽超过可用列宽时，先压最宽的左对齐列（按显示宽度折行）；右对齐列不折行——数字折行读不了。左对齐列压到下限仍放不下，就从右侧丢列，并在表下如实标注丢了几列。
+- **`maxLines` 只收口数据格的物理行数。** 折行后超出 `maxLines` 的行丢弃，末行按显示宽度以 `…` 收口；表头不受约束，省略 `maxLines` 的列不收口。web 面不消费这个字段——网页里格子的高度是组件自己的 CSS 决定，不是 `Table` 的职责。
 - **两个面各自成立。** text 面列间 3 空格、首行表头；web 面是 `<table>` + `<thead>` / `<tbody>`，右对齐落成 `nre-align-right` 类，不用内联样式。
 - **带 `locator` 的行只携带证据引用，不强造详情。** 有任一行带 `locator` 时多出一列 attempt：当前报告声明了 attempt-input page（或自有 React 页面显式传 `attemptHref`）时，web 面渲染链接、text 面渲染带完整报告上下文的命令；没有连接目标时两个面都只显示 locator 文本，宿主不追加隐藏 fallback。
 

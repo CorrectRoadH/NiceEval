@@ -41,6 +41,17 @@ import {
   AttemptTimeline,
   AttemptTrace,
   AttemptUsage,
+  validateAssertionsData,
+  validateConversationData,
+  validateDiagnosticsData,
+  validateDiffData,
+  validateErrorData,
+  validateFixPromptData,
+  validateSourceData,
+  validateSummaryData,
+  validateTimelineData,
+  validateTraceData,
+  validateUsageData,
 } from "./index.tsx";
 
 // ───────────────────────── fixture ─────────────────────────
@@ -119,6 +130,7 @@ describe("Attempt 详情组件族:非空/空证据矩阵", () => {
     const data = attemptSummaryData(evidence);
     expect(data.locator).toBe(evidence.locator);
     expect(data.verdict).toBe("passed");
+    expect(validateSummaryData(data)).toBeNull();
   });
 
   it("AttemptSummary 的 startedAt 与 identity.attempt 两面都可见,startedAt 缺失时两面都不产生该字段", () => {
@@ -152,6 +164,7 @@ describe("Attempt 详情组件族:非空/空证据矩阵", () => {
       result: resultOf({ verdict: "errored", error: { code: "timeout", message: "boom", phase: "eval.run" } }),
     });
     expect(attemptErrorData(withError)).toEqual({ code: "timeout", message: "boom", phase: "eval.run" });
+    expect(validateErrorData(attemptErrorData(withError))).toBeNull();
   });
 
   it("AttemptAssertions:没有 assertion 时 null,有时按 attention/passedGroups 分桶", () => {
@@ -164,6 +177,7 @@ describe("Attempt 详情组件族:非空/空证据矩阵", () => {
     const data = attemptAssertionsData(evidenceOf({ result: resultOf({ verdict: "failed", assertions }) }))!;
     expect(data.attention.map((a) => a.name)).toEqual(["a"]);
     expect(data.passedGroups).toEqual([{ group: "g1", items: [assertions[1], assertions[2]] }]);
+    expect(validateAssertionsData(data)).toBeNull();
   });
 
   it("AttemptSource:没有 source 时 null(evalSource null 或 capability 假)", () => {
@@ -189,6 +203,7 @@ describe("Attempt 详情组件族:非空/空证据矩阵", () => {
       },
     });
     expect(attemptSourceData(withSource)?.sourcePath).toBe("evals/a.ts");
+    expect(validateSourceData(attemptSourceData(withSource))).toBeNull();
   });
 
   it("AttemptFixPrompt:passed 时 null,failed 且有可归因原因时给出可复制 prompt", () => {
@@ -202,12 +217,18 @@ describe("Attempt 详情组件族:非空/空证据矩阵", () => {
     const data = attemptFixPromptData(failed);
     expect(data?.prompt).toContain("exp/a");
     expect(data?.prompt).toContain(`niceeval show ${failed.locator}`);
+    expect(validateFixPromptData(data)).toBeNull();
   });
 
   it("AttemptTimeline:没有 phase 时 null", () => {
     expect(attemptTimelineData(evidenceOf())).toBeNull();
-    const withPhases = evidenceOf({ result: resultOf({ phases: [{ name: "eval.run", durationMs: 10 }] }) });
-    expect(attemptTimelineData(withPhases)?.phases).toHaveLength(1);
+    const withPhases = evidenceOf({
+      result: resultOf({ phases: [{ name: "eval.run", durationMs: 10 }] }),
+      trace: [{ traceId: "t1", spanId: "s1", name: "model-call", startMs: 0, endMs: 100 }],
+    });
+    const data = attemptTimelineData(withPhases);
+    expect(data?.phases).toHaveLength(1);
+    expect(validateTimelineData(data)).toBeNull();
   });
 
   it("AttemptConversation:没有 events 时 null", () => {
@@ -220,21 +241,27 @@ describe("Attempt 详情组件族:非空/空证据矩阵", () => {
     const withDiag = evidenceOf({
       result: resultOf({ diagnostics: [{ code: "cleanup-failed", level: "warning", message: "m", phase: "eval.teardown" }] }),
     });
-    expect(attemptDiagnosticsData(withDiag)?.groups).toEqual([
+    const data = attemptDiagnosticsData(withDiag);
+    expect(data?.groups).toEqual([
       { phase: "eval.teardown", items: [{ code: "cleanup-failed", level: "warning", message: "m", phase: "eval.teardown" }] },
     ]);
+    expect(validateDiagnosticsData(data)).toBeNull();
   });
 
   it("AttemptUsage:没有 usage 时 null", () => {
     expect(attemptUsageData(evidenceOf())).toBeNull();
     const withUsage = evidenceOf({ result: resultOf({ usage: { inputTokens: 10, outputTokens: 5 } }) });
-    expect(attemptUsageData(withUsage)?.usage.inputTokens).toBe(10);
+    const data = attemptUsageData(withUsage);
+    expect(data?.usage.inputTokens).toBe(10);
+    expect(validateUsageData(data)).toBeNull();
   });
 
   it("AttemptTrace:没有 trace 时 null", () => {
     expect(attemptTraceData(evidenceOf())).toBeNull();
     const withTrace = evidenceOf({ trace: [{ traceId: "t1", spanId: "s1", name: "model-call", startMs: 0, endMs: 100 }] });
-    expect(attemptTraceData(withTrace)?.spans).toHaveLength(1);
+    const data = attemptTraceData(withTrace);
+    expect(data?.spans).toHaveLength(1);
+    expect(validateTraceData(data)).toBeNull();
   });
 
   it("AttemptDiff:没有变更时 null,net:none 的触碰不进列表", () => {
@@ -259,6 +286,7 @@ describe("Attempt 详情组件族:非空/空证据矩阵", () => {
     const data = attemptDiffData(withDiff);
     expect(data?.files.map((f) => f.path)).toEqual(["a.ts"]);
     expect(data?.files[0]!.lines).toEqual({ added: 1, deleted: 1 });
+    expect(validateDiffData(data)).toBeNull();
   });
 });
 
@@ -376,6 +404,7 @@ describe("AttemptConversation:标准事件流按 loc 分轮", () => {
     expect(data.rounds).toHaveLength(1);
     expect(data.rounds[0]!.loc).toEqual(loc);
     expect(data.rounds[0]!.replies).toEqual([{ kind: "assistant", text: "hi there" }]);
+    expect(validateConversationData(data)).toBeNull();
   });
 
   it("混入完全未知的事件类型时该条目原始 JSON 保留,不吞没其余事件", () => {
@@ -388,6 +417,7 @@ describe("AttemptConversation:标准事件流按 loc 分轮", () => {
     const data = attemptConversationData(evidenceOf({ events }))!;
     expect(data.rounds[0]!.replies.map((r) => r.kind)).toEqual(["raw", "assistant"]);
     expect(data.rounds[0]!.replies[0]).toEqual({ kind: "raw", raw: { type: "future.thing", weird: true } });
+    expect(validateConversationData(data)).toBeNull();
   });
 
   it("skill.loaded 显示 Skill 名,不伪装成工具调用", () => {
@@ -398,6 +428,7 @@ describe("AttemptConversation:标准事件流按 loc 分轮", () => {
     ];
     const data = attemptConversationData(evidenceOf({ events }))!;
     expect(data.rounds[0]!.replies).toEqual([{ kind: "skill", skill: "pdf-tools" }]);
+    expect(validateConversationData(data)).toBeNull();
   });
 
   it("流首无 loc 的 user 消息(旧 artifact)仍开 noloc 兜底轮", () => {
@@ -406,6 +437,7 @@ describe("AttemptConversation:标准事件流按 loc 分轮", () => {
     expect(data.rounds).toHaveLength(1);
     expect(data.rounds[0]!.loc).toBeUndefined();
     expect(data.rounds[0]!.replies).toEqual([{ kind: "assistant", text: "orphan reply" }]);
+    expect(validateConversationData(data)).toBeNull();
   });
 
   it("action.called + action.result 按 callId 合并成一条 tool 回复", () => {
@@ -419,6 +451,7 @@ describe("AttemptConversation:标准事件流按 loc 分轮", () => {
     expect(data.rounds[0]!.replies).toEqual([
       { kind: "tool", callId: "c1", name: "bash", tool: "shell", input: { command: "ls" }, output: "file.txt", status: "completed" },
     ]);
+    expect(validateConversationData(data)).toBeNull();
   });
 });
 

@@ -99,7 +99,8 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 - [view-attempt-detail-buries-failure](view-attempt-detail-buries-failure.md) — view 失败 attempt 弹窗首屏全是全展开 timing 树,契约要求的断言区从未实现(26e967e 删旧分组视图 + 792aae0 插时间树 + 74affaf 契约无场景行无测试);测试方案落 unit-tests/reports,修复计划在 plan/view-attempt-detail-evidence-first.md
 - 已修 [reasonfor-priority-and-severity-bug](reasonfor-priority-and-severity-bug.md) — `MetricTable` 展开子行、`CaseList.data`、`<DefaultReport />` failing board 曾各写一份 `.find(a => !a.passed)`,优先级还是断言先于 error、不查 skipReason、soft 断言混进失败原因;提炼成 `compute.ts` 的 `reasonFor`/`failingGateAssertions` 三处共用(修在 `src/report/compute.ts` + `official-report.tsx`)
 - 已修 [visual-migration-silently-changed-computed-formulas](visual-migration-silently-changed-computed-formulas.md) — `d0b6718` 把裸跑 UI 迁进 `defaultReport` 时没先建行为矩阵,静默换掉了通过率(two-level mean→朴素比例)、失败原因优先级、组汇总数字三处公式;修法=计算层预先算好唯一正确值(`OverviewData.totals.passRate`、共用 `reasonFor`、新增 `GroupSummary`),渲染面只展示不重算
-- [metric-views-compute-nul-byte-separator-blinds-grep](metric-views-compute-nul-byte-separator-blinds-grep.md) — `src/report/components/metric-views/compute.ts` 两处用真 NUL 字节当 Map key 分隔符(Phase G 拆分前的单体 compute.ts 就有,拆分忠实保留),`grep`/`rg` 不带 `-a` 会把文件当二进制静默返回空;功能无害(NUL 从不流入返回值),未修
+- [metric-views-compute-nul-byte-separator-blinds-grep](metric-views-compute-nul-byte-separator-blinds-grep.md) — 仓库故意惯例:NUL 字节当防撞车复合 key 分隔符,见于 `metric-views/compute.ts`/`locator.ts`/`skipped-notice.ts`/`EvalList.tsx`;`grep`/`rg` 不带 `-a` 会静默返回空;别当 corruption 用空格"修掉"(2026-07-19 Edit 工具真把一处写坏成 NUL,已 revert,记了怎么分辨)
+- 已修 [data-shape-validator-deepening-forward-compat-kind](data-shape-validator-deepening-forward-compat-kind.md) — 深化 `validate*Data` 判别联合炸出既有测试时两种反方向的坑:`ScopeWarning` 未登记 kind 要放行(validator 曾太严,改 validator);`TraceSpan` 字段被两处 fixture 的 `as never` 偷懒绕过(validator 是对的,改 fixture);判断法与两个真实案例见正文
 
 ## CLI 与运行
 
