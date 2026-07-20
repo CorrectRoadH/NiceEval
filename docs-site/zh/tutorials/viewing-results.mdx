@@ -9,21 +9,24 @@ description: "用 niceeval show 在终端按 @<locator> 查看 Attempt 的评估
 ## 控制台输出
 
 ```text
-Plan: 45 attempts · 9 evals × 5 configs · concurrency 19
+╭─ PLAN ─────────────────────────────────────────────────────────────────────────╮
+│ 45 attempts · 9 evals × 5 configs · concurrency 19                             │
+│ 6 of 45 carried in from cache · 39 to run                                      │
+╰────────────────────────────────────────────────────────────────────────────────╯
 ✗ @12h8m4k1 fixtures/button [compare/claude-e2b] errored · sandbox.create
     sandbox-rate-limit: E2B sandbox allocation failed after 5 attempts
     Inspect: niceeval show @12h8m4k1
 
-niceeval exp compare                                      2m 14s
-45 total · 6 reused · 19 running · 12 queued · 8 completed  $0.84
-
-ACTIVE
-● memory/agent-029-use-cache  compare/bub-e2b      1m 42s  running tests
-● memory/agent-030-app-route compare/codex        1m 18s  editing src/app.ts
-… 17 more active
+╭─ niceeval exp compare ──────────────────────────────────────────────── 2m 14s ─╮
+│ 45 total · 6 reused · 19 running · 12 queued · 8 completed                     │
+├─ ACTIVE ───────────────────────────────────────────────────────────────────────┤
+│ ● memory/agent-029-use-cache  compare/bub-e2b     1m 42s  running tests        │
+│ ● memory/agent-030-app-route  compare/codex       1m 18s  editing src/app.ts   │
+│ … 17 more active                                                               │
+╰──────────────────────────────────────────────────────────────────────── $0.84 ─╯
 ```
 
-Human profile 只原位更新当前总数和 active slots，不把历史帧推入 scrollback。失败、错误和去重后的 diagnostic 会保留并带 locator。结束块只包含摘要、失败 locator、查看命令和结果路径。完整的运行、读取、修复与重跑流程见 [Coding Agent 反馈闭环](/zh/tutorials/agent-feedback-loop)。
+在终端里跑的时候，运行中的那个框会原位刷新总数和 active slots，不把历史帧推进 scrollback；失败、错误和去重后的 diagnostic 以无框行留下来，都带 locator。输出被管道接走或终端太窄时，同样的内容会退化成不带框的纯文本。跑完框会换成结论、失败清单和下一步命令三块。完整的运行、读取、修复与重跑流程见 [Coding Agent 反馈闭环](/zh/tutorials/agent-feedback-loop)。
 
 ## `.niceeval/<experiment>/<快照>/`
 

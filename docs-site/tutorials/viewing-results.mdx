@@ -9,21 +9,24 @@ After every run, [NiceEval](https://niceeval.com/) writes structured results int
 ## Console Output
 
 ```text
-Plan: 45 attempts · 9 evals × 5 configs · concurrency 19
+╭─ PLAN ─────────────────────────────────────────────────────────────────────────╮
+│ 45 attempts · 9 evals × 5 configs · concurrency 19                             │
+│ 6 of 45 carried in from cache · 39 to run                                      │
+╰────────────────────────────────────────────────────────────────────────────────╯
 ✗ @12h8m4k1 fixtures/button [compare/claude-e2b] errored · sandbox.create
     sandbox-rate-limit: E2B sandbox allocation failed after 5 attempts
     Inspect: niceeval show @12h8m4k1
 
-niceeval exp compare                                      2m 14s
-45 total · 6 reused · 19 running · 12 queued · 8 completed  $0.84
-
-ACTIVE
-● memory/agent-029-use-cache  compare/bub-e2b      1m 42s  running tests
-● memory/agent-030-app-route compare/codex        1m 18s  editing src/app.ts
-… 17 more active
+╭─ niceeval exp compare ──────────────────────────────────────────────── 2m 14s ─╮
+│ 45 total · 6 reused · 19 running · 12 queued · 8 completed                     │
+├─ ACTIVE ───────────────────────────────────────────────────────────────────────┤
+│ ● memory/agent-029-use-cache  compare/bub-e2b     1m 42s  running tests        │
+│ ● memory/agent-030-app-route  compare/codex       1m 18s  editing src/app.ts   │
+│ … 17 more active                                                               │
+╰──────────────────────────────────────────────────────────────────────── $0.84 ─╯
 ```
 
-The human profile only updates the running totals and the active slots in place; it never pushes past frames into scrollback. Failures, errors, and deduplicated diagnostics are kept and carry a locator. The closing block contains only the summary, the failing locators, the drill-down commands, and the result path. For the complete run → read → fix → rerun loop, see [Agent Feedback Loop](/tutorials/agent-feedback-loop).
+While the run is live, that panel refreshes the totals and active slots in place; it never pushes past frames into scrollback. Failures, errors, and deduplicated diagnostics land as unframed lines above it and each carries a locator. When output is piped away or the terminal is too narrow, the same content degrades to plain unframed text. When the run finishes, the panel is replaced by three blocks: the verdict, the failure list, and the next commands. For the complete run → read → fix → rerun loop, see [Agent Feedback Loop](/tutorials/agent-feedback-loop).
 
 ## `.niceeval/<experiment>/<snapshot>/`
 
