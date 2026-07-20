@@ -104,8 +104,8 @@ export type ExperimentListProps = DataProps<
     filter?: boolean;
     /**
      * 可选父路径:两面的行标签去掉与它相同的前缀,只显示 experiment id 末段。自定义报告
-     * 显式传入使用;默认 `ExperimentComparison` 不传,完整 id 始终可见。完整 id 仍是
-     * 排序 / 着色 / 过滤 / 折叠的键。
+     * 显式传入使用;`ExperimentComparison` 原样透传自己的 relativeTo,缺省不设,行标签用
+     * 完整 id。完整 id 仍是排序 / 着色 / 过滤 / 折叠的键。
      */
     relativeTo?: string;
   }

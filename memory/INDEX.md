@@ -163,6 +163,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 - 已修 [reference-generator-url-in-tsdoc-nested-quotes](reference-generator-url-in-tsdoc-nested-quotes.md) — TSDoc 里带引号的 URL 字面量经 docs:reference 的自动反引号包裹生成嵌套引号乱码;修法=TSDoc 不写带引号的 URL 示例,改文字描述
 - 已修 [custom-reports-dimension-false-dichotomy](custom-reports-dimension-false-dichotomy.md) — custom-reports guide 曾写「内置维度覆盖不了的都走 flag()」,漏讲自定义维度 `{name, of}`,把下游 agent 推去改 8 个 experiment 文件;修法=「换分组:三种维度」三路并列 + 选择判据(guide 讲联合类型要逐臂对照导出面)
 - 已修 [docs-renames-dont-auto-propagate-to-docs-site](docs-renames-dont-auto-propagate-to-docs-site.md) — `--eval`→`--source` 改名与 `defineReport` 函数形态删除都只同步了 `docs/`,`docs-site/` 整篇教旧 API;修法=收尾大改动前单独 grep docs-site 找旧名字,不假设 docs/ 干净等于 docs-site 干净
+- [docs-site-en-report-components-stale-groupby](docs-site-en-report-components-stale-groupby.md) — 英文 `docs-site/reference/report-components.mdx` 的 ExperimentComparison 一节仍讲已否决的按父目录分组设计,还引用不存在的 `.data()` 静态方法;需独立重写
 
 ## 环境、发布与部署
 
@@ -237,6 +238,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 - 已修 [experimentlist-entity-boundary-keeps-comparison-table](experimentlist-entity-boundary-keeps-comparison-table.md) — 裁决(2026-07-13):保留 ExperimentList 一项一个 experiment 的实体边界,web 面恢复固定八列比较表、text 面保持 experiment→Eval→Attempt 层级;locator 不附证据字母;单实验散点照常画;裸 show/view 共用 `ExperimentComparison` 的 text/web 面
 - 已修 [eval-parent-repeats-attempt-failure](eval-parent-repeats-attempt-failure.md) — ExperimentList/EvalList 的 web 面曾在 Eval 父行复述某个 Attempt 的失败摘要,单轮完全重复、多轮又冒充题级事实;父行固定为判定+题级聚合,失败原因只留 Attempt 子行
 - [default-report-partitions-experiment-groups](default-report-partitions-experiment-groups.md) — 设计翻案(2026-07-19):默认报告取消实验组,直接比较当前 Scope;各 experiment 的 eval 集读取 `selectedEvalIds`,路径只负责身份与选择
+- [experimentcomparison-relativeto-cosmetic-vs-groupby](experimentcomparison-relativeto-cosmetic-vs-groupby.md) — 裁决(2026-07-20):`ExperimentComparison` 加 `relativeTo` 透传给 `ExperimentList`(只缩短显示,不改排序/过滤/身份键);与已否决的 `groupBy` 区分标准=改显示还是改语义边界
 - [error-feedback-message-carries-fix](error-feedback-message-carries-fix.md) — 裁决(2026-07-15):报错必带下一步定为跨切面契约(docs/error-feedback.md,三段式+可选 `command`);曾选「必填独立 fix 字段」否决——拆走下一步破坏「只打 message 就完整」承诺、留内嵌又成重复;AttemptError 划在契约边界外
 - [execution-tree-merges-events-and-otel-spans](execution-tree-merges-events-and-otel-spans.md) — 裁决(2026-07-12):`buildExecutionTree(events, spans)` 把标准事件流与 OTel span 合并进一棵树,事件当骨架、span 只补时间,推翻 `docs/observability.md` 现行"events 与 spans 永不合并"的旧决定;设计已定稿代码未实现
 - 已修 [global-react-jsx-shim-rejected](global-react-jsx-shim-rejected.md) — 裁决(2026-07-12):否决 `src/report/jsx-runtime-patch.ts` 的 `globalThis.React` 全局补丁(914a0bd 引入),改为 package-owned report runtime 发布预编译 ESM、固定自己的 JSX 语义,不依赖消费方 cwd/tsconfig;补丁已删除,`dist/report/**` 已接线(`pnpm run build:report`)

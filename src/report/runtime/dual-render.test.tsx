@@ -1431,6 +1431,28 @@ describe("ExperimentComparison(组合组件)", () => {
     const [, explicitScatterEl] = await resolveComparisonChildren(<ExperimentComparison series={label("memory")} />, all);
     expect((explicitScatterEl.props.data as { seriesDimension?: string }).seriesDimension).toBe("memory");
   });
+
+  it("relativeTo 原样透传给 ExperimentList,只缩短行显示名,不影响 ScopeSummary / MetricScatter 也不改变排序键", async () => {
+    const a = snap({ experimentId: "compare/a", agent: "bub", results: [res("q", "passed")] });
+    const b = snap({ experimentId: "compare/b", agent: "codex", results: [res("q", "failed")] });
+    const ctx = { scope: scopeOf([a, b]), results: resultsOf([a, b]) };
+
+    const withRelativeTo = defineReport(<ExperimentComparison relativeTo="compare" />);
+    const bare = defineReport(<ExperimentComparison />);
+
+    const relativeHtml = await renderReportToStaticHtml(withRelativeTo, ctx);
+    expect(relativeHtml).toContain(">a</b>");
+    expect(relativeHtml).toContain('data-sort-value="compare/a"');
+
+    const bareHtml = await renderReportToStaticHtml(bare, ctx);
+    expect(bareHtml).toContain(">compare/a</b>");
+
+    // ScopeSummary / MetricScatter 的输出与不传 relativeTo 时一致(relativeTo 只是 ExperimentList 的显示层参数)
+    const [summaryElWith, scatterElWith] = await resolveComparisonChildren(<ExperimentComparison relativeTo="compare" />, [a, b]);
+    const [summaryElBare, scatterElBare] = await resolveComparisonChildren(<ExperimentComparison />, [a, b]);
+    expect(summaryElWith.props.data).toEqual(summaryElBare.props.data);
+    expect(scatterElWith.props.data).toEqual(scatterElBare.props.data);
+  });
 });
 
 // ───────────────────────── extends 与内建视图集合 ─────────────────────────

@@ -81,6 +81,8 @@ export type ExperimentComparisonProps = ComparisonChrome & {
   input?: ReportInput;
   /** 散点的 series 维度。缺省解析:Scope 内任一实验声明了 label `line` → `label("line")` 并连线;否则 `"agent"`、不连线。 */
   series?: SeriesInput;
+  /** 透传给 ExperimentList;只缩短行显示名,不改变排序键、过滤或折叠依据的完整 id。缺省不设,行标签用完整 id。 */
+  relativeTo?: string;
 };
 
 /** 默认报告识别的归类键:声明了它的实验按线归类并连线(docs/feature/experiments/library.md「labels」)。 */
@@ -120,7 +122,7 @@ export const ExperimentComparison = defineComponent<ExperimentComparisonProps>((
         y={endToEndPassRate}
         locale={props.locale}
       />
-      <ExperimentList input={input} filter locale={props.locale} />
+      <ExperimentList input={input} filter relativeTo={props.relativeTo} locale={props.locale} />
     </Col>
   );
 });

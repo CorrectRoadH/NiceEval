@@ -152,6 +152,12 @@ description: "报告文件里能摆的全部官方双面组件：每个组件回
 
 每个 experiment 的评估用例集合来自快照记录的 `selectedEvalIds`。网页面与终端面都显示完整 Scope；需要子集时用 `--exp` 收窄，或在自定义报告里对 Scope 先 `.filter()` 再传给 `input`。
 
+experiment id 带公共目录前缀时（比如都在 `compare/` 下），传 `relativeTo` 去掉行显示里的这段前缀——只改显示，排序、过滤和折叠展开仍用完整 id：
+
+```tsx
+<ExperimentComparison relativeTo="compare" />
+```
+
 组卡使用 `Pass rate / 通过率`、`Experiments / 实验`、`Evals / Eval`、`Attempts / Attempt`、`Eval results / Eval 结果`、`Total cost / 总成本` 这套字段标签，不在标签里重复“数”“次”或“计票”。时间显示为本地化到分钟的 `Last run / 最近运行` 或 `Run range / 运行范围`，不直接暴露 ISO 字符串；成本数据覆盖不全时写明“`63/72 次有成本数据`”，不显示没有上下文的 `63/72`。六项 KPI 在宽卡片保持同一行，空间不足时按三项或两项一组换行，避免总成本单独掉到下一行。
 
 下面的 `MetricScatter`、`ScopeSummary` 和 `ExperimentList` 同样忠实消费调用方传入的数据，不推导隐藏范围。它等价于把三个组件按下面这样手工摆放——想自定义顺序或搭配其它组件时，照这个形状写：

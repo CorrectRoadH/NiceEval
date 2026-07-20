@@ -12,6 +12,8 @@ Scope 内任一实验声明了 [`labels`](../../experiments/library.md#labels声
 
 web 与 text 两面都输出当前 Scope 的摘要、散点和实验列表，不设组索引或组选择器；这是三个叶子组件各自双面输出后按 `Col` 排列的结果，不是 `ExperimentComparison` 自己实现第三套 renderer。
 
+`relativeTo` 原样透传给 `ExperimentList`，只缩短实验列表行的显示名（去掉给定路径前缀）；不设置时行标签是完整 experiment id。这是纯展示层的收窄，不影响 `ScopeSummary` 与 `MetricScatter`，也不改变 `ExperimentList` 用于排序、过滤与展开折叠的完整 id。`ExperimentComparison` 不从 Scope 里的 experiment id 反猜前缀——要收窄就由报告作者显式给出，契约与 [`ExperimentList` 的 `relativeTo`](entity-lists.md#experimentlist) 完全一致。
+
 ```ts
 interface ExperimentComparisonProps {
   input?: ReportInput;
@@ -19,6 +21,8 @@ interface ExperimentComparisonProps {
   series?: SeriesInput;
   /** 透传给散点；契约同 MetricScatter 的 connect。 */
   connect?: boolean;
+  /** 透传给 ExperimentList；只缩短行显示名，不改变排序键、过滤或折叠依据的完整 id。缺省不设，行标签用完整 id。 */
+  relativeTo?: string;
   locale?: ReportLocale;
   className?: string;
 }
@@ -27,6 +31,7 @@ interface ExperimentComparisonProps {
 ```tsx
 <ExperimentComparison />
 <ExperimentComparison series={label("line")} connect />
+<ExperimentComparison relativeTo="compare" />
 ```
 
 Experiment 按端到端通过率从高到低预排。要比较某个子集，先用宿主的 `--exp` 收窄，或在自定义报告里对 Scope 调 `filter`。
@@ -49,7 +54,7 @@ export const ExperimentComparison = defineComponent((props, ctx) => {
         y={endToEndPassRate}
         locale={props.locale}
       />
-      <ExperimentList input={input} filter locale={props.locale} />
+      <ExperimentList input={input} filter relativeTo={props.relativeTo} locale={props.locale} />
     </Col>
   );
 });
