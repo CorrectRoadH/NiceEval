@@ -24,6 +24,8 @@ html {
   /* 微信等内嵌 WebView 会按用户字号设置整体放大正文，拼贴卡片和代码块跟不上会互相压盖，锁死缩放。 */
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+  /* iOS Safari 的橡皮筋回弹跟随根滚动容器，只裁 body 在部分版本裁不干净，html/body 都裁一遍。 */
+  overflow-x: clip;
 }
 
 body {
@@ -1529,15 +1531,17 @@ h1 {
     padding: 18px;
   }
 
-  /* 窄屏收紧倾斜幅度，避免后排卡片顶出视口造成横向滚动。 */
+  /* 窄屏收紧倾斜幅度，避免后排卡片顶出视口造成横向滚动。
+     最高的卡片(内容行数多)旋转后包围盒横向增量最大，取它在 375px 视口下的实测值定死这两个平移量，
+     留出的余量对更矮的卡片自然只多不少。 */
   .deck-card.deck-pos-1,
   .deck-card.deck-pos-1:hover {
-    transform: rotate(2deg) translate(8px, -10px) scale(0.98);
+    transform: rotate(1.4deg) translate(3px, -10px) scale(0.98);
   }
 
   .deck-card.deck-pos-2,
   .deck-card.deck-pos-2:hover {
-    transform: rotate(-1.6deg) translate(-7px, -6px) scale(0.965);
+    transform: rotate(-1.1deg) translate(-3px, -6px) scale(0.965);
   }
 
   .eval-code {
