@@ -32,17 +32,19 @@
 
 ```text
 gate: Issue 15193: selected proposal matches the accepted proposal
-    equals(4) · expected 4 · received 3
+      equals(4) · expected 4 · received 3
 ```
 
 `received` 是大段原始内容（源码、命令输出、整份文件）时拆成三行，`+N more failures` 独立成尾行：
 
 ```text
 gate: Catalog reads use use-cache directive and products cache tag
-    includes(/['”]use cache['”];?/) · expected matches /['”]use cache['”];?/
-    received: // next.config.ts import type { NextConfig } from “next”; c…
+      includes(/['”]use cache['”];?/) · expected matches /['”]use cache['”];?/
+      received: // next.config.ts import type { NextConfig } from “next”; c…
 +2 more failures
 ```
+
+检查方式行是标题的悬挂缩进：缩进到 `gate: ` 之后，与标题文字左对齐，让「这条检查叫什么」和「它怎么判的」分成两层。
 
 两个例子共享一条规则：`expected` / `received` 先把换行、回车、制表折成单空格（`commandSucceeded()` 的整段 pytest stdout 因此先塌成 `exit 1 · “… 2 failed, 14 passed”`，不会几百行铺开），折完后 `received` 能并进 `matcher · expected` 那行就并，并不进去就单独截断一行、截断处补 `…`；`+N more failures`（其余同类失败计数，见上「主失败断言怎样选」）不参与截断也不拼进被截断的值——粘在一起会分不清 `…` 后面是值本身还是计数。落盘的 256 KiB 上限（[Results · 大值截断](../../results/architecture.md#大值截断)）管 artifact 体积，跟这里的展示宽度是两回事。
 

@@ -186,10 +186,15 @@ it("text 与 web 显示同一个 MetricCell 终值和 warning", () => {
 | `Grid` 的直接子节点按 `ReportNode` 规则展平：数组 / Fragment 递归展开、空分支（null/undefined/boolean）不占格，任意 `ReportNode` 都可作为一格，`Col` 把多个子节点归成一格 | 正例：`groups.map(...)` 产生的数组与条件渲染的 `cond && <Stat .../>` 都正确展平且两面顺序一致；正例：`<Col><Stat/><Stat/></Col>` 在两面都是同一格；正例：非 `Stat` 的普通节点也能作为一格；边界：全部子节点为空分支时 0 格 |
 | `columns` 必须是有限正整数：0、负数、小数、`NaN`、`Infinity` 在组件创建时报完整用户反馈；`1` 与大于实际 cell 数都正常；`variant` 缺省 `"plain"`、`density` 缺省 `"regular"` | 反例：`columns={0}`/`columns={-1}`/`columns={1.5}`/`columns={NaN}`/`columns={Infinity}` 各自报错且文案含收到的值、原因与 `columns={N}` 下一步；正例：`columns={1}` 与 `columns` 大于 cell 数都正常渲染；正例：省略 `variant`/`density` 时两面呈现默认档 |
 | `Grid` web 初始 HTML 含全部 cell、稳定 `nre-grid`/`nre-grid-cell`/variant/density 类名与 `--nre-grid-max-columns` 事实，无 JS 完整可读 | 正例：静态 HTML 逐 cell 断言存在且顺序正确；正例：boxed/compact 的类名与自定义列数事实分别可见；反例：不出现本组件引入的 script/hydration 标记 |
-| `Grid` text 面按声明 `columns` 向下规划显示列数：目标运行总览示例在恰好 100 显示列降为三列，继续变窄降为一列；任意宽度下声明序、label/value/detail 全部保留不丢格 | 正例：100 列时两个 Grid（columns=6/columns=9）分别降到三列且逐行 `stringWidth <= 100`；正例：极窄宽度降为一列且 21 个 Stat 全部存在、索引顺序递增；反例：不隐藏、不截断任何 cell |
+| `Grid` text 面按声明 `columns` 向下规划显示列数，可用宽度取所在区域框的内宽（框宽减 4）：目标运行总览示例在恰好 100 显示列时 Grid 拿到 96 列、降为三列并分到 31/31/30，继续变窄降为一列；任意宽度下声明序、label/value/detail 全部保留不丢格 | 正例：100 列时两个 Grid（columns=6/columns=9）分别降到三列、三格宽度为 31/31/30 且含框逐行 `stringWidth === 100`；正例：极窄宽度降为一列且 21 个 Stat 全部存在、索引顺序递增；反例：不隐藏、不截断任何 cell |
 | `variant="boxed"` 给每个 cell 独立完整四边框，同行以 density 对应 gutter 分隔，换行重新起框；`variant="plain"` 复用同一 plan 只去掉边框与内边距；`density="compact"` 收紧留白但不合并或丢弃字段 | 正例：boxed 每个 cell 有完整 `┌─┐`/`│ │`/`└─┘`；正例：plain 与 boxed 用同一列数与内容宽；正例：compact 三个字段仍全部可见，只留白更紧 |
 | `Stat` 的 `label`/`value`/`detail` 按 `LocalizedText` 回退、number 按 locale 格式化、`null` 显示 `—`、数字 `0` 正常显示；`detail` 省略不留空行；四种 `tone` 只染 value 且不自动推导 | 正例：en/zh-CN 两 locale 下 label 与 detail 各自解析；正例：`value={0}` 显示 `0` 而非 `—`，`value={null}` 显示 `—`；正例：省略 detail 时 text 面不留空行；正例：四种 tone 的修饰符 class 落在 `nre-stat` 根节点、label 与 detail 不随 tone 换色，text 面不出现 `positive` 等内部词 |
-| `Section.meta` 是标题行右侧短补充：web 面同行右对齐、空间不足换到下一行；text 面优先同行右对齐、放不下以一层缩进换行；省略 `meta` 时旧 Section 输出不变 | 正例：短 meta 与标题同行右对齐；边界：长 meta 换行仍完整可读；正例：无 `meta` 的 Section 渲染与改动前逐字节相同 |
+| `Section` text 面渲染为圆角区域框：`title` 嵌上边框左侧、`meta` 嵌上边框右侧；省略 `meta` 时上边框只嵌标题 | 正例：`╭─ <title> ─…─ <meta> ─╮` 首行含两者且首尾角为 `╭`/`╮`；正例：无 meta 时上边框无右侧嵌入段 |
+| 区域框每一行显示宽度严格相等，且等于计划框宽（≤100 显示列）；含 CJK、`·`/`●`/`…`/`✓`/`✗` 的内容不破坏右边框 | 正例：逐行 `stringWidth` 全等；边界：中英混排 + ambiguous 符号行仍对齐；反例：ambiguous 字符不按 2 列计量 |
+| 嵌套 `Section` 只画最外层：内层降为 `├─ <title> ─…─ <meta> ─┤` 隔条，不产生框中框，可用宽度不随嵌套深度递减 | 正例：两层嵌套时内层是隔条、外层是完整四边框；边界：三层嵌套的可用内宽与两层相同；反例：输出中不出现相邻的 `│ ╭` |
+| 上下边框空间不足时先缩横线、再截断标题中段补 `…`、最后才舍弃 `meta` | 边界：宽度递减时依次观察三档降级；反例：标题未截断前 meta 不消失 |
+| 非 TTY、窄于 60 显示列或朴素输出要求生效时整套框线降级为无框纯文本：title 单独成行、meta 同行右侧、正文缩进两列，内容与分节顺序不变 | 正例：非 TTY 下输出零框字符与零 ANSI；正例：59 列降级、60 列仍画框；正例：降级前后正文逐行文本相同 |
+| 区域框用圆角 `╭╮╰╯`，`Grid` 的 boxed cell 用直角 `┌┐└┘`，两层可区分 | 正例：同一输出中区域框首行以 `╭` 起、cell 首行以 `┌` 起 |
 | 同一份含 `Section.meta` + `Grid` + `Stat` 的公开报告文件经 `show` 与 `view` 渲染同一批终值（label/value/detail/meta），不要求两面布局逐字一致 | 正例：两面都含相同的 meta 文本、全部 label/value/detail；text 面按宽度减列、web 面是 Grid 结构，不逐字比较布局 |
 
 ## show/view 宿主等价与选择

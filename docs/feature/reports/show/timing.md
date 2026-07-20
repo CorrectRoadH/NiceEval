@@ -13,44 +13,46 @@
 
 ```text
 $ niceeval show @1qrdcfq8 --timing
-@1qrdcfq8 · memory/swelancer-manager-proposals · dev-e2b/codex-e2b · failed
-total 50.0s
+@1qrdcfq8 · memory/swelancer-manager-proposals · dev-e2b/codex-e2b · ✗ failed
 
-sandbox.queue          0.2s
-sandbox.create         5.6s
-sandbox.setup          3.5s
-  ├─ warmModelCache        2.9s
-  │  ├─ shell · mkdir -p ~/.cache/model       0.1s
-  │  └─ shell · restore-model-cache           2.8s
-  └─ setup#2               0.6s
-     └─ shell · pnpm config set store-dir …   0.6s
-workspace.baseline     0.1s
-  └─ shell · git init && git commit …          0.1s
-agent.setup           12.1s
-  ├─ shell · npm install -g @openai/codex…    10.8s
-  ├─ shell · mkdir -p ~/.codex                 0.1s
-  └─ shell · codex plugin install …            1.2s
-telemetry.configure    0.1s
-  └─ shell · append ~/.codex/config.toml       0.1s
-eval.run              26.3s
-  └─ turn s1/t1           22.4s
-     └─ shell · codex exec …                  22.1s
-        ├─ agent · codex.exec                 22.0s  OTel
-        ├─ model · chat                       14.8s  OTel
-        └─ tool · shell                        3.2s  OTel
-workspace.diff         0.3s
-  └─ operation · export workspace diff · 1 window · 2 files  0.3s
-     └─ shell · export ledger window …                         0.3s
-scoring.evaluate       1.4s
-telemetry.collect      0.3s
-
-teardown (not counted in total):
-agent.teardown         0.2s
-sandbox.teardown       0.1s
-  └─ persistCache          0.1s
-     └─ shell · tar czf …                      0.1s
-sandbox.stop           0.5s
+╭─ timing ───────────────────────────────────────────────────────── total 50.0s ─╮
+│ sandbox.queue          0.2s                                                    │
+│ sandbox.create         5.6s                                                    │
+│ sandbox.setup          3.5s                                                    │
+│   ├─ warmModelCache        2.9s                                                │
+│   │  ├─ shell · mkdir -p ~/.cache/model       0.1s                             │
+│   │  └─ shell · restore-model-cache           2.8s                             │
+│   └─ setup#2               0.6s                                                │
+│      └─ shell · pnpm config set store-dir …   0.6s                             │
+│ workspace.baseline     0.1s                                                    │
+│   └─ shell · git init && git commit …          0.1s                            │
+│ agent.setup           12.1s                                                    │
+│   ├─ shell · npm install -g @openai/codex…    10.8s                            │
+│   ├─ shell · mkdir -p ~/.codex                 0.1s                            │
+│   └─ shell · codex plugin install …            1.2s                            │
+│ telemetry.configure    0.1s                                                    │
+│   └─ shell · append ~/.codex/config.toml       0.1s                            │
+│ eval.run              26.3s                                                    │
+│   └─ turn s1/t1           22.4s                                                │
+│      └─ shell · codex exec …                  22.1s                            │
+│         ├─ agent · codex.exec                 22.0s  OTel                      │
+│         ├─ model · chat                       14.8s  OTel                      │
+│         └─ tool · shell                        3.2s  OTel                      │
+│ workspace.diff         0.3s                                                    │
+│   └─ operation · export workspace diff · 1 window · 2 files  0.3s              │
+│      └─ shell · export ledger window …                         0.3s            │
+│ scoring.evaluate       1.4s                                                    │
+│ telemetry.collect      0.3s                                                    │
+├─ teardown ────────────────────────────────────────────── not counted in total ─┤
+│ agent.teardown         0.2s                                                    │
+│ sandbox.teardown       0.1s                                                    │
+│   └─ persistCache          0.1s                                                │
+│      └─ shell · tar czf …                      0.1s                            │
+│ sandbox.stop           0.5s                                                    │
+╰──────────────────────────────────────── niceeval show @1qrdcfq8 --timing=full ─╯
 ```
+
+整棵树是一个 `Section`，按[区域框](../library/layout.md#区域框text-面的框线体裁)套一个外框：总耗时嵌上边框右侧，`--timing=full` 嵌下边框，收尾段作为嵌套 `Section` 降为 `├─ teardown ─┤` 隔条。树内每个节点不各自画框——`├─` `└─` 已经表达了层级，逐节点加框只会与它打架。
 
 缩进表达包含关系而不是可相加的账本：hook 包含命令，turn 包含启动 Agent CLI 的命令，OTel span 又可能嵌套或并发；子项不能求和后与父项比较。runner 节点使用本机单调时钟，OTel 节点使用 span 自带时钟，跨进程只按 `traceId` / parent span 关系归属，不按绝对时间硬对齐。主链各阶段之和小于等于 `total`，差值是阶段间的粘合代码，不单独列行。
 
