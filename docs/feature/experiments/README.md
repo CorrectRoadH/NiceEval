@@ -52,7 +52,7 @@ export default defineExperiment({
 
 `flags` 与 `labels` 的分界是**这个值会不会改变 attempt 里发生的事**:会(开关联网、注入 skill)→ `flags`,进 `ctx.flags` / `t.flags`、参与可比性配置;只是给报表归类(「这格用的记忆机制是 mempal」)→ `labels`,agent 和 eval 都看不见,改它不作废任何已有结果。声明与消费见 [Library · labels](library.md#labels声明归类坐标不进运行时)。
 
-`maxConcurrency` 是**实验自己的并发闸**:调度器为这个实验单建一道信号量,它的 attempt 先过这道闸再去占全局并发位;同批跑的其它实验不受影响,仍按全局并发(CLI / env / config / 沙箱默认)跑。两个用途:把有共享状态的实验串行化(例如跨 eval 累积记忆的场景,`maxConcurrency: 1` 保证 attempt 按 eval 顺序一个个跑),或给撞了 provider 限额的实验单独降速。
+`maxConcurrency` 是**实验自己的并发闸**:调度器为这个实验单建一道信号量,它的 attempt 先过这道闸再去占全局并发位;同批跑的其它实验不受影响,仍按全局并发(CLI / env / config / 沙箱默认)跑。三个用途:把有共享状态的实验串行化(例如跨 eval 累积记忆的场景,`maxConcurrency: 1` 保证 attempt 按 eval 顺序一个个跑)、给撞了 provider 限额的实验单独降速,或让 `runs` + `earlyExit` 变成"过了就停、没过才跑下一次"的严格重试语义——`runs` 的多个 attempt 默认按并发闸的名额数一起派发,不等前一次出结果;闸只留一张名额时才会被挤成一个接一个跑,细节见 [Runner · 首过即停](../../runner.md#首过即停earlyexit)。
 
 `setup` / `teardown` 是**实验级生命周期钩子对**:整场至多一次、跑在宿主机上。`setup` 在本实验第一个真正要派发的 attempt 之前执行;`teardown` 在本实验全部 attempt 收尾后执行(失败、中断也执行),当且仅当 `setup` 的时点走到过——`setup` 抛错不豁免,半路失败的现场同样要扫尾;一个 attempt 都不派发时两者都不跑。它们管「每个实验一份、所有 attempt 共享」的宿主机侧资源:起一条到内网服务的隧道、拉起本实验专用的 mock server、租一个 license。`setup` 的产物写模块级变量,`teardown` 与同文件的 agent / sandbox 钩子从闭包读——runner 不做值的中介。四层生命周期(experiment / sandbox / agent / eval)共用「成对 `setup` / `teardown`、闭包传状态」这一种形态,统一语义见 [Runner · 环境预置](../../runner.md#环境预置不进运行器但按顺序调它);用法与失败语义见 [Library · 实验级共享服务](library.md#实验级共享服务setup-与-teardown)、执行语义见 [Architecture · 实验级生命周期](architecture.md#实验级生命周期setup-与-teardown)。
 

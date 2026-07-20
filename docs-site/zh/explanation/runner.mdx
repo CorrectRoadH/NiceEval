@@ -48,6 +48,8 @@ npx niceeval exp local fixtures/button --runs 5 --no-early-exit
 
 `runs` 用于测 pass rate。首过即停默认开启：某个 Attempt 通过后，同一 eval 的剩余 Attempt 会被停止。想拿完整的通过率分布时，用 `--no-early-exit` 关闭，让每个 eval 跑满 `runs` 次。
 
+`runs` 的多次 Attempt 默认并发派发，并发上限由 `--max-concurrency`（或该实验的 `maxConcurrency`）决定——不会等上一次的结果出来再决定要不要派发下一次。首过即停能省下的，只是还没抢到并发名额、原本要排队的那些 Attempt；已经在跑的不受影响。想要"跑一次，过了就停、没过才跑下一次"这种一个接一个的效果，把该实验的 `maxConcurrency` 设成 1：并发名额只有一个时，同一个 eval 的 Attempt 只能排队依次跑，首过即停自然就能在下一次派发前生效。
+
 ## 缓存
 
 [NiceEval](https://niceeval.com/) 可以根据输入、配置和相关文件 fingerprint 跳过已判定为 `passed` 或 `failed` 的结果——两者都是判定确定的终态。`errored`（超时、Sandbox 异常等框架/环境层面的不确定失败）永远重试。缓存适合加速迭代，但如果你在调试非确定性行为，应该明确关闭（`--force`）或清理相关缓存。
