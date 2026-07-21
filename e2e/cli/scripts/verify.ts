@@ -4,10 +4,11 @@
 // 库代码,不递归扫 `.niceeval/`(见 docs/engineering/testing/e2e/README.md §4.2、verification.md)。
 //
 // 验收顺序对齐 cli.md 的三段验收计划:
-//   1-2. 选择——未命中选择器的用法错误;eval id 前缀收窄实际计划(--dry,零网络成本)。
-//   3-6. 退出码折叠——deliberate-fail(<failure>)、deliberate-error(<error>)、
+//   1-3. 选择——未命中选择器的用法错误(Experiment 零命中、Eval 前缀零命中两条路径都
+//        给下一步命令);eval id 前缀收窄实际计划(--dry,零网络成本)。
+//   4-7. 退出码折叠——deliberate-fail(<failure>)、deliberate-error(<error>)、
 //        normal(真实 DeepSeek 调用,按 Eval 级折叠后退出 0)+ 一次 CLI 读回。
-//   7.   缓存三步——同一个 normal 实验先 --force 建基线,不带 --force 复用,再 --force 真新跑。
+//   8.   缓存三步——同一个 normal 实验先 --force 建基线,不带 --force 复用,再 --force 真新跑。
 
 import "dotenv/config";
 import { spawnSync } from "node:child_process";
@@ -55,17 +56,41 @@ function latestAttemptLine(evalId: string): string {
   return lines.at(-1)!;
 }
 
-function selectionUnmatched(): void {
+function selectionExperimentUnmatched(): void {
   console.log("\n=== 1. selection: unmatched experiment selector exits as a usage error ===");
   const out = sh("pnpm exec niceeval exp totally-bogus-selector-zzz --output ci", "nonzero");
   assert.ok(
     out.includes("No experiment matched"),
     `未命中选择器没有给出 "No experiment matched" 的可行动反馈——用法错误的输出契约变了:\n${out.slice(-1000)}`,
   );
+  assert.ok(
+    out.includes("Run `niceeval exp"),
+    `"No experiment matched" 没有给出下一步命令——cli.md 要求"错误信息给出下一步":\n${out.slice(-1000)}`,
+  );
+}
+
+// experiment 选择器本身命中(normal 存在),但尾随 eval id 前缀在该实验的 evals 里零命中——
+// 与上面「experiment 选择器零命中」是判然有别的另一条用法错误路径(No evals selected,见
+// docs/feature/experiments/cli.md「实验选择器怎样解析」与 use-case/selector-narrowing.md
+// 「边界」)。--dry 零网络成本。
+function selectionEvalUnmatched(): void {
+  console.log("\n=== 2. selection: matched experiment but unmatched eval id prefix exits as a usage error ===");
+  const out = sh(
+    "pnpm exec niceeval exp normal totally-bogus-eval-prefix-zzz --dry --output agent",
+    "nonzero",
+  );
+  assert.ok(
+    out.includes("No evals selected"),
+    `experiment 命中但 eval 前缀零命中时没有给出 "No evals selected"——用法错误的输出契约变了:\n${out.slice(-1000)}`,
+  );
+  assert.ok(
+    out.includes("Run `niceeval exp"),
+    `"No evals selected" 没有给出下一步命令——cli.md 要求"错误信息给出下一步":\n${out.slice(-1000)}`,
+  );
 }
 
 function selectionNarrowing(): void {
-  console.log("\n=== 2. selection: eval id prefix narrows the plan (--dry, no network) ===");
+  console.log("\n=== 3. selection: eval id prefix narrows the plan (--dry, no network) ===");
   const planGreet = sh("pnpm exec niceeval exp normal greet --dry --output agent");
   assert.ok(planGreet.includes("greet/hello"), `--dry 计划缺少 greet/hello:\n${planGreet}`);
   assert.ok(
@@ -88,7 +113,7 @@ function selectionNarrowing(): void {
 }
 
 function exitCodeFoldingDeliberateFail(): void {
-  console.log("\n=== 3. exit-code folding: deliberate-fail → failed, <failure> ===");
+  console.log("\n=== 4. exit-code folding: deliberate-fail → failed, <failure> ===");
   sh("pnpm exec niceeval exp deliberate-fail --force --output ci --junit junit/fail.xml", "nonzero");
   const failXml = readFileSync("junit/fail.xml", "utf8");
   assert.ok(
@@ -104,7 +129,7 @@ function exitCodeFoldingDeliberateFail(): void {
 }
 
 function exitCodeFoldingDeliberateError(): void {
-  console.log("\n=== 4. exit-code folding: deliberate-error → errored, <error> ===");
+  console.log("\n=== 5. exit-code folding: deliberate-error → errored, <error> ===");
   sh("pnpm exec niceeval exp deliberate-error --force --output ci --junit junit/error.xml", "nonzero");
   const errorXml = readFileSync("junit/error.xml", "utf8");
   assert.ok(
@@ -127,7 +152,7 @@ interface NormalBaseline {
 
 /** 正常路径全部通过(真实 DeepSeek 调用),同时建立缓存三步的基线计数。 */
 function exitCodeFoldingNormal(): NormalBaseline {
-  console.log("\n=== 5. exit-code folding: normal (real DeepSeek calls) → passed, exit 0 ===");
+  console.log("\n=== 6. exit-code folding: normal (real DeepSeek calls) → passed, exit 0 ===");
   sh("pnpm exec niceeval exp normal --force --output ci --junit junit/normal.xml");
   const normalXml = readFileSync("junit/normal.xml", "utf8");
   assert.ok(
@@ -144,7 +169,7 @@ function exitCodeFoldingNormal(): NormalBaseline {
 }
 
 function cliReadBack(greetLine: string): void {
-  console.log("\n=== 6. CLI read-back: niceeval show @<locator> ===");
+  console.log("\n=== 7. CLI read-back: niceeval show @<locator> ===");
   const locator = greetLine.match(/@\S+/)?.[0];
   assert.ok(locator, `history 行里没有 @locator,读回没有入口:${greetLine}`);
   const shown = sh(`pnpm exec niceeval show ${locator}`);
@@ -153,7 +178,7 @@ function cliReadBack(greetLine: string): void {
 }
 
 function cacheThreeStep(baseline: NormalBaseline): void {
-  console.log("\n=== 7. cache three-step dance ===");
+  console.log("\n=== 8. cache three-step dance ===");
   const second = sh("pnpm exec niceeval exp normal --output ci"); // 不带 --force:复用
   assert.ok(second.includes("reused"), `第二次运行的摘要没有报告复用——缓存没生效:\n${second}`);
   assert.equal(
@@ -183,7 +208,8 @@ function cacheThreeStep(baseline: NormalBaseline): void {
 export async function runVerify(): Promise<void> {
   ensureDirs();
 
-  selectionUnmatched();
+  selectionExperimentUnmatched();
+  selectionEvalUnmatched();
   selectionNarrowing();
 
   exitCodeFoldingDeliberateFail();
