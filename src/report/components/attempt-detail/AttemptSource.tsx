@@ -5,6 +5,7 @@
 import type { ReactElement, ReactNode } from "react";
 import type { AttemptSourceData, AttemptSourceLineData, AttemptSourceTurn } from "../../model/types.ts";
 import type { AssertionResult } from "../../../types.ts";
+import { stripControl } from "../../../scoring/display.ts";
 import { cx } from "../shared.ts";
 import { ConversationReplies } from "./AttemptConversation.tsx";
 
@@ -146,12 +147,12 @@ function AssertionDetail({ assertion }: { assertion: AssertionResult }): ReactEl
       </div>
       {assertion.detail ? <div className="nre-assertion-detail">{assertion.detail}</div> : null}
       {assertion.outcome === "unavailable" ? (
-        <div className="nre-assertion-body">reason: {assertion.reason}</div>
+        <div className="nre-assertion-body">reason: {assertion.reason === undefined ? undefined : stripControl(assertion.reason)}</div>
       ) : assertion.expected !== undefined || assertion.received !== undefined || assertion.evidence !== undefined ? (
         <div className="nre-assertion-body">
-          {assertion.expected !== undefined ? <span>expected: {assertion.expected}</span> : null}
-          {assertion.received !== undefined ? <span>received: {assertion.received}</span> : null}
-          {assertion.evidence !== undefined ? <span>evidence: {assertion.evidence}</span> : null}
+          {assertion.expected !== undefined ? <span>expected: {stripControl(assertion.expected)}</span> : null}
+          {assertion.received !== undefined ? <span>received: {stripControl(assertion.received)}</span> : null}
+          {assertion.evidence !== undefined ? <span>evidence: {stripControl(assertion.evidence)}</span> : null}
         </div>
       ) : null}
     </div>

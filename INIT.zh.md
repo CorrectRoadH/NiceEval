@@ -2,15 +2,16 @@
 
 你正在被要求把 [niceeval](https://github.com/CorrectRoadH/niceeval) 接入**当前打开的这个仓库**（不是 niceeval 自己的源码仓库）。用用户的语言与用户交流。不要凭训练记忆里的旧 API 现编。
 
-本文件只负责一件事：把包装进项目。接入流程本身（探索项目、与用户确认路径、写 adapter / experiment / eval、跑通）全部住在随包文档里，与安装版本一起发布——所以本文件不含任何线上文档链接，装完以 `node_modules/niceeval/INDEX.md` 的路由为准。
+本文件只负责一件事：把包装进项目。接入流程本身（探索项目、与用户确认路径、写 adapter / experiment / eval、跑通）全部住在随包文档里，与安装版本一起发布——所以本文件不含任何线上文档链接，装完以 `node_modules/niceeval/INDEX.md` 的路由为准。随包文档目前只有中文；不要为了找英文版去抓官网或 GitHub——那里可能是另一个版本的 API。
 
-## 第 0 步：三条心智模型
+## 第 0 步：四条心智模型
 
-niceeval 是一个 TypeScript evals 库：用声明式 API 定义"什么是好结果"，再施加到 coding agent、已部署的 agent/服务、或一个纯函数上。记住三条就够安装决策用：
+niceeval 是一个 TypeScript evals 库：用声明式 API 定义"什么是好结果"，再施加到 coding agent、已部署的 agent/服务、或一个纯函数上。记住四条就够安装决策用：
 
 1. 三个文件各管一件事——**adapter**（怎么连被测对象）、**experiment**（评谁、用什么配置跑几次）、**eval**（发什么输入、断言什么）。
 2. niceeval **不定义任何 agent 协议**。连你自己的服务，adapter 里就是发一个普通 HTTP 请求；URL、鉴权是 adapter 的工厂参数，不是 niceeval 的配置项。
 3. CLI 位置参数只用来筛"跑哪些 eval"（按 id 前缀）。选"对着哪个 agent/model 跑"永远是 flag 或 experiment 文件，不要把 URL、agent 名塞进位置参数。
+4. **「跑通」不是完成标准。** eval 的输入要让被测系统干它的核心活（不是问它「你是什么/你能做什么」这类关于它自己的元问题）；断言要在被测系统胡编时会变红——不要断言输入里本来就有的词，那被测方复读题目就能通过；能写就写一条负例（喂一个它应该答不了的输入，断言它明确说做不到而不是编造）。收尾自检清单在随包教程页里。
 
 ## 第 1 步：确认前置条件
 

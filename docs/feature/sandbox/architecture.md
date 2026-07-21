@@ -75,6 +75,7 @@ agent 归因之外,最终工作区仍完整可读:`t.sandbox.readFile` / `runCom
 - **Docker** —— suspend = `docker stop`:文件系统落盘持久、不占内存、跨 daemon 重启存活。创建容器时就不带 `AutoRemove`(留存意图必须在创建期传入),`stop()` 改为显式 stop + remove,行为等价;容器带 `niceeval.keep-candidate=true` 标签,正常 run 结束后该标签下只剩已登记的 kept 容器,异常硬退时可用它核对未完成提交的候选。停驻的容器不会自己消失,仍是唯一需要用户主动清理的 provider。两个否决项:`docker pause` 不用于留存(内存驻留,daemon 重启即失,反而更脆);`docker commit` 转镜像也不用(引入第二种要管理的资源面,停驻容器已给出同等持久性)。
 - **E2B** —— suspend = `pause`:文件系统与内存整体持久化,暂停期间停止计费,现场无限期保留、可 `resume` 找回;没有自然过期时刻,`expiresAt` 不写。
 - **Vercel Sandbox** —— suspend = `stop`:sandbox 默认持久,stop 保存文件系统,之后经 `Sandbox.get` / `getOrCreate` 恢复(SDK 原生能力);内存态不保留,唤醒后进程要重新启动。`expiresAt` 写 provider 声明的保留期限(有则写)。
+- **Local** —— 不参与留存,`--keep-sandbox` 组合在创建前报错:本地档从不销毁,现场天然留在用户的工作树里,无需注册表纳管(见[本地执行](local.md))。
 - **`defineSandbox` 自定义 provider** —— 不参与留存。`niceeval sandbox` 刻意不加载 config / eval 模块,新进程只有序列化登记项,无法安全找回用户对象上的任意 `stopDetached` 函数;只删登记项又会违反「stop = 销毁」。因此 `--keep-sandbox` 与自定义 provider 组合在创建前报清晰错误。需要统一留存生命周期的 provider 应贡献为内置 provider;未来若引入可序列化、可审计的 detached cleanup 协议,再扩这条边界。
 
 `Sandbox` 接口不因留存扩大:没有 pause / detach / keep 方法——「留下」不是沙箱的能力,是 runner 的一次调度决定。留存的 attempt 在 `result.json` 落 `sandbox: { provider, sandboxId, kept: true }`(字段契约见 [Results](../results/architecture.md#resultjson)),`phases` 无 `sandbox.stop` 条目。
@@ -114,6 +115,16 @@ await sandbox.runCommand("npm", ["install"]);     // cwd 省略 → workdir
 - 命令经 `commands.run`(走 bash,支持 `&&` / 管道);`{ root: true }` → `{ user: "root" }`。
 - 文件用 `files.read` / `files.write`(文本 + 二进制)。
 - node 版本由模板决定 —— `runtime` 字段对 e2b 仅作记录。要 node24 / 烘焙好 agent CLI,用预制模板 `e2bSandbox({ template: "niceeval-agents" })`——参数的典型用途正是把 agent CLI 烘焙进模板,让后续 eval 跳过安装直接开跑(构建工作流见 [Library · 预制环境](library/prebuilt-environments.md))。
+
+## Local provider(宿主机,零隔离)
+
+契约与安全边界的单一来源是[本地执行](local.md),这里只列实现要点:
+
+- **直跑宿主进程** —— `runCommand` 按 argv `child_process` 起进程(不经 shell),`runShell` 整段交给宿主 shell;`cwd` 默认 `workdir`,`env` 叠加宿主默认环境。路径解析共用 `src/sandbox/paths.ts` 的同一份实现。
+- **私有 GIT_DIR 在 workdir 外的宿主侧** —— 变更分类账以用户目录为 work-tree、git 目录放 runner 自有路径,不写用户的 `.git`,`stop()` 时随 runner 资源一并清理;工作树本身一个字节不动。
+- **独占串行声明** —— provider 元数据声明 `exclusive`,并发语义由 [Runner](../../runner.md#调度有界并发) 按中性声明执行,核心无 provider 名分支;推荐并发默认值 1。
+- **不参与 provisioning 重试** —— 创建不经网络控制面,失败都是确定性错误,第一次如实抛出。
+- **不参与预制环境** —— 无 image / template / snapshot 参数,宿主机本身就是环境。
 
 ## Provisioning 失败与重试
 

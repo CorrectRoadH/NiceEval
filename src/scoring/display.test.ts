@@ -6,7 +6,33 @@ import {
   compactAssertionSummary,
   fitCompactAssertionSummary,
   primaryAssertionSummary,
+  stripControl,
+  summaryText,
 } from "./display.ts";
+
+// 用字符码构造真实控制字节,避免源码里嵌裸控制字符。
+const ESC = String.fromCharCode(0x1b);
+const BEL = String.fromCharCode(0x07);
+const BS = String.fromCharCode(0x08);
+
+describe("stripControl / summaryText 控制字节收口", () => {
+  it("剥 ANSI/OSC/裸控制字节,保留可打印字符与结构性换行", () => {
+    const colored = `${ESC}[2m 28 |${ESC}[22m code ${ESC}[31m✕${ESC}[39m Tests: 2 failed`;
+    const stripped = stripControl(colored);
+    expect(stripped).not.toContain(ESC);
+    expect(stripped).toContain("✕"); // jest 合法 glyph 保留
+    expect(stripControl(`${ESC}]0;title${BEL}kept`)).toBe("kept"); // OSC 连 payload 去除
+    expect(stripControl(`a${BS}b`)).toBe("ab"); // 裸 BS 去除
+    expect(stripControl(`${ESC}[2mline1${ESC}[22m\nline2`)).toBe("line1\nline2"); // 保留换行
+  });
+
+  it("summaryText 先剥控制字节再折单行,输出不含任何 ESC", () => {
+    const s = summaryText(`exit 1 · "${ESC}[2m 28 |${ESC}[22m\n  ${ESC}[31m✕${ESC}[39m failed"`);
+    expect(s).not.toContain(ESC);
+    expect(s).not.toContain("\n");
+    expect(s).toContain("✕");
+  });
+});
 
 describe("primaryAssertionSummary", () => {
   it("选择第一条失败 gate，保留领域 group、matcher 与 expected/received，并只计数其余 gate", () => {

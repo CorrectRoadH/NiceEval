@@ -128,7 +128,7 @@ pnpm exec niceeval view // 評価結果を確認する
 ## クイックスタート
 
 ```text
-READ https://niceeval.com/INIT.md and install niceeval for this repo.
+READ https://niceeval.com/INIT.md and set up niceeval for this repo: install it, integrate it with this project, and run the first eval end to end.
 ```
 
 自分のシナリオから始めましょう。

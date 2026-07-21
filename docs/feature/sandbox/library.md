@@ -11,6 +11,7 @@
 | docker | `/home/sandbox/workspace` |
 | E2B | `/home/user/workspace` |
 | Vercel Sandbox | `/vercel/sandbox` |
+| local | 你指定的目录(默认当前 git 仓库根,见[本地执行](local.md)) |
 
 契约一句话:**API 里任何沙箱侧相对路径,一律解析到 `workdir`;省略的 `targetDir` / `cwd` 默认就是 `workdir`;绝对路径原样使用。** 本地侧(宿主机)的相对路径则解析到 eval 定义文件所在目录。两侧各只有一个锚点,学一次就够。
 
@@ -87,12 +88,13 @@ await sandbox.runCommand("npm", ["install"]);   // 默认非 root,cwd 默认 wor
 | docker | `node`(UID 1000) | `exec --user root` |
 | E2B | 非 root(`user`) | `commands.run(cmd, { user: "root" })` |
 | Vercel Sandbox | 非 root(`vercel-sandbox`) | `runCommand(cmd, { sudo: true })` |
+| local | 宿主当前用户 | 不支持,报错(niceeval 不在你的机器上提权,见[本地执行](local.md)) |
 
 约定:**默认值(非 root)与 `root` 的语义在所有 provider 保持一致**,不因 provider 而变——自定义 provider(`defineSandbox()`)接哪个服务都照这条约定映射到该服务的原生机制。本就全程 root 的服务把提 root 视作 no-op;完全无法提 root 的服务可不支持(抛错)—— 但这是"不支持",不是"语义不同"。eval 因此不必感知底下是哪个 provider。
 
 ## provider 选择:没有默认值,没有按名字选
 
-`sandbox` 字段的类型是 `SandboxOption`(= `SandboxSpec`,一个按 `provider` 区分的数据结构),**不接受裸字符串,也不会自动探测环境替你选一个**。沙箱型 agent 必须显式给 `sandbox` 一个工厂函数产出的 spec,写在 experiment 的 `sandbox` 字段,或写在 `niceeval.config.ts` 的 `sandbox` 字段做全项目兜底(`config.sandbox`,experiment 没设时用它)。两处都没设、又用了沙箱型 agent 时,`resolveSandbox()` 直接抛错,不会替你猜环境、不会静默兜底到某个 provider。也没有 `--sandbox <name>` 这种 CLI 覆盖——provider 选择是 experiment/config 的书面配置,不是运行时临时参数。
+`sandbox` 字段的类型是 `SandboxOption`(= `SandboxSpec`,一个按 `provider` 区分的数据结构),**不接受裸字符串,也不会自动探测环境替你选一个**。沙箱型 agent 必须显式给 `sandbox` 一个工厂函数产出的 spec,写在 experiment 的 `sandbox` 字段,或写在 `niceeval.config.ts` 的 `sandbox` 字段做全项目兜底(`config.sandbox`,experiment 没设时用它)。两处都没设、又用了沙箱型 agent 时,`resolveSandbox()` 直接抛错,不会替你猜环境、不会静默兜底到某个 provider。这条对 [`localSandbox()`](local.md) 尤其硬:在宿主机上直接跑 agent 生成的命令是有后果的,绝不因缺配置替你悄悄落到本地档。也没有 `--sandbox <name>` 这种 CLI 覆盖——provider 选择是 experiment/config 的书面配置,不是运行时临时参数。
 
 ```typescript
 import { defineExperiment } from "niceeval";
@@ -110,12 +112,13 @@ export default defineExperiment({
 provider 名只是个字符串,带不了参数,也没法表达"哪个是镜像、哪个是沙箱快照 ID"。和 [agent](../adapters/README.md) 一样,sandbox 用**数据结构**定义:工厂函数(从 `niceeval/sandbox` 导出)产出 spec,放进 `experiment.sandbox`。
 
 ```typescript
-import { dockerSandbox, vercelSandbox, e2bSandbox } from "niceeval/sandbox";
+import { dockerSandbox, vercelSandbox, e2bSandbox, localSandbox } from "niceeval/sandbox";
 
 dockerSandbox()                                     // docker:用默认镜像
 dockerSandbox({ image: "niceeval-agents:node24" })  // docker:指定镜像
 vercelSandbox({ snapshotId: "snap_xxx" })            // vercel:从沙箱快照起
 e2bSandbox({ template: "niceeval-agents" })          // e2b:指定模板
+localSandbox()                                       // 宿主机本地目录(默认当前 git 仓库根,见 local.md)
 ```
 
 `sandbox/resolve.ts` 把 spec 归一化成 `{ provider, image?, snapshotId?, template?, runtime? }`,再按 `provider` 派发到各 provider 的 `create()` —— **核心仍不按 provider 名分支**,参数只在对应 provider 的 `create()` 里消费。

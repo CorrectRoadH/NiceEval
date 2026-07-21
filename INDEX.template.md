@@ -8,6 +8,8 @@
 
 按当前任务从树里挑 1–3 页读取（通常是一页 tutorial 或 explanation 搭一页 reference）；页面再引用其它概念或参考时，继续读取包内文件。
 
+随包文档目前只有中文。不要为了找英文版而去抓官网或 GitHub——那里的页面可能对应另一个版本，「另一个版本的英文页」比「当前版本的中文页」更危险。中文页读起来没有障碍就直接读；与用户交流仍用用户的语言。
+
 <!-- GENERATED:BEGIN bundled-docs-tree -->
 <!-- GENERATED:END bundled-docs-tree -->
 

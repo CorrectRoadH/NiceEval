@@ -46,7 +46,7 @@ gate: Catalog reads use use-cache directive and products cache tag
 
 检查方式行是标题的悬挂缩进：缩进到 `gate: ` 之后，与标题文字左对齐，让「这条检查叫什么」和「它怎么判的」分成两层。
 
-两个例子共享一条规则：`expected` / `received` 先把换行、回车、制表折成单空格（`commandSucceeded()` 的整段 pytest stdout 因此先塌成 `exit 1 · “… 2 failed, 14 passed”`，不会几百行铺开），折完后 `received` 能并进 `matcher · expected` 那行就并，并不进去就单独截断一行、截断处补 `…`；`+N more failures`（其余同类失败计数，见上「主失败断言怎样选」）不参与截断也不拼进被截断的值——粘在一起会分不清 `…` 后面是值本身还是计数。落盘的 256 KiB 上限（[Results · 大值截断](../../results/architecture.md#大值截断)）管 artifact 体积，跟这里的展示宽度是两回事。
+两个例子共享一条规则：`expected` / `received` 先剥控制字节，再把换行、回车、制表折成单空格。剥控制字节指去除 ANSI 转义序列（CSI 着色 / 光标控制、OSC 及其 payload）与其余不可打印 C0/C1（含裸 ESC、BEL、退格），只保留可打印字符——被测工具（jest / vitest / pytest）几乎总把代码帧、行号、`✕` 着色，这些 ESC 字节不是空白，若原样进任何展示面，终端会把它重新解释成乱码（单行截断从转义序列中间切开时尤其乱），HTML 报告则把 `ESC[2m…ESC[22m` 当字面文本渲染；`✕ ✓ › ❯ ↓ │` 这类工具合法打印的符号在可打印范围内，保留不删。剥净并折单行后（`commandSucceeded()` 的整段 pytest stdout 因此塌成 `exit 1 · “… 2 failed, 14 passed”`，不会几百行铺开），`received` 能并进 `matcher · expected` 那行就并，并不进去就单独截断一行、截断处补 `…`；`+N more failures`（其余同类失败计数，见上「主失败断言怎样选」）不参与截断也不拼进被截断的值——粘在一起会分不清 `…` 后面是值本身还是计数。剥的是展示投影：落盘 `AssertionResult` / artifact 存原始字节，完整证据不失真；落盘的 256 KiB 上限（[Results · 大值截断](../../results/architecture.md#大值截断)）管 artifact 体积，跟这里的展示宽度是两回事。
 
 `exp` 的 Human 永久行/最终 handoff、Agent handoff、CI failure 行用同一套排版。这里的领域标题必须由 eval 作者通过 `t.group(“Issue 15193: …”, fn)`（或断言自身的语义 name）明确提供；renderer 不读取变量名、源码表达式或 prompt 猜标题。没有 group 的原始 `t.check(value, equals(4))` 仍能可靠显示 `equals(4) · expected 4 · received 3`，只是没有足够事实生成 “selected proposal” 这层语义。
 
@@ -73,7 +73,7 @@ CI 单行反馈使用独立结构化字段 `severity=` / `assertion=` / `matcher
 - **每条的行格式**：首行 `severity · <标题>`——有 `group` 时标题是分组路径（嵌套用 " > " 拼接），随后 `assertion: <detail>` 行给检查方式；没有分组时标题就是 `name`（即 matcher / judge 摘要），`assertion:` 行与标题重复时省略。之后按有则显示的顺序列 `expected:` / `received:` / `score`（judge 与 soft 带阈值时含 `threshold`）/ `reason:`（仅 unavailable），最后 `source: <loc>`。
 - **view 的 Attempt 详情**保留**全量**断言，但默认先展开 failed / unavailable 与影响判定的 soft，passed 收进按 group 组织的折叠区并在区头显示数量；每条一行（状态图标 + 分组路径 + name + detail + 分数），展开显示 expected / received / `evidence`（这条分数看的材料预览，默认折叠）与源码位置锚（点击跳 `--source` 同款源码视图）；judge 额外画分数条与阈值线；`unavailable` 用独立的第三态样式（非红非绿）标 reason。
 - **作用域前缀**：挂在 turn / session 上的断言，`name` 带接收者前缀（`s1/t2 · calledTool(...)`、`s2 · succeeded()`）；挂在 `t` 上的 attempt 级断言无前缀。
-- 所有值都是有界预览（截断规则见 [Results · 大值截断](../../results/architecture.md#大值截断)），完整证据在 `events.json` / `diff.json` 等 artifact。
+- 所有值都是有界预览（截断规则见 [Results · 大值截断](../../results/architecture.md#大值截断)），且展示前都剥控制字节（与契约一同一条规则：去 ANSI 转义与不可打印 C0/C1，保留换行等结构性空白）——`show` 终端面与 view / HTML 报告面都不把捕获输出里的着色码原样渲染；完整原始字节仍在 `events.json` / `diff.json` 等 artifact。
 
 ## 值断言
 

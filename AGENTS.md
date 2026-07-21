@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 `niceeval` 是 TypeScript evals 库。直接在 `main` 上协作；仓库可能同时有用户或其它 agent 的未提交工作。
-
+总是使用中文回复与讨论
 ## 动态发现
 
 不要从本文件学习整个项目。先按任务进入对应目录，读取该目录最近的 `README.md`、`AGENTS.md` 或索引，再沿链接只加载相关正文：

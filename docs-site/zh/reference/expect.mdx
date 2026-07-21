@@ -1,7 +1,7 @@
 ---
 title: "niceeval/expect matchers 与自定义断言参考"
 sidebarTitle: "断言 Matchers"
-description: "niceeval/expect 参考：includes、equals、matches、similarity、satisfies。可链式调用 .gate() 或 .atLeast(0.7)，也可以用 makeAssertion 构建自定义 matcher。"
+description: "niceeval/expect 参考：includes、equals、matches、similarity、satisfies，以及形状断言 includesUrl、hasSections。可链式调用 .gate() 或 .atLeast(0.7)，也可以用 makeAssertion 构建自定义 matcher。"
 ---
 
 `niceeval/expect` 提供一组可组合 matcher，传给 `t.check()` 或 `t.require()`。matcher 会返回一个 `Assertion`，并带有默认严重性：`gate` 或 `soft`。
@@ -73,6 +73,26 @@ export function similarity(expected: string): ValueAssertion { ... }
 
 纯字符串编辑距离,不是语义相似度——归一化 Levenshtein 距离 [0,1](1 - 编辑距离 / 较长串长度),
 不理解含义,同义改写 / 语序调整会被判低分。默认软分,阈值 0.6。
+
+#### `includesUrl`
+
+```ts
+export function includesUrl(min = 1): ValueAssertion { ... }
+```
+
+文本含至少 min 条(默认 1)去重后的 http(s) 链接则 1,否则 0。默认硬门槛。
+「回答有没有引用真实来源」的形状断言:没有 Judge key 时,它是「至少引用一条来源链接」
+的最低成本兜底——被测方复读题目糊弄不过去,编造的链接则留给负例或 Judge 去抓。
+
+#### `hasSections`
+
+```ts
+export function hasSections(min = 2): ValueAssertion { ... }
+```
+
+文本含至少 min 个(默认 2)Markdown 标题(行首 # 到 ######)则 1,否则 0。默认硬门槛。
+「回答是不是一份有结构的文档」的形状断言,适合研究报告、方案文档这类产出型回答——
+一段没有任何小标题的流水文本过不了。
 
 #### `satisfies`
 

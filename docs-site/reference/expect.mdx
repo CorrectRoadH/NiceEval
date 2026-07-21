@@ -1,7 +1,7 @@
 ---
 title: "niceeval/expect matchers and custom assertion reference"
 sidebarTitle: "Assertion Matchers"
-description: "Reference for niceeval/expect: includes, equals, matches, similarity, satisfies. Chain .gate() or .atLeast(0.7), or build custom matchers with makeAssertion."
+description: "Reference for niceeval/expect: includes, equals, matches, similarity, satisfies, plus the shape assertions includesUrl and hasSections. Chain .gate() or .atLeast(0.7), or build custom matchers with makeAssertion."
 ---
 
 `niceeval/expect` provides a set of composable matchers, passed to `t.check()` or `t.require()`. A matcher returns an `Assertion` with a default severity: `gate` or `soft`.
@@ -73,6 +73,27 @@ export function similarity(expected: string): ValueAssertion { ... }
 
 Pure string edit distance, not semantic similarity — a normalized Levenshtein distance in [0,1] (1 − edit distance / length of the longer string),
 with no understanding of meaning, so paraphrasing / reordering scores low. A soft score by default, threshold 0.6.
+
+#### `includesUrl`
+
+```ts
+export function includesUrl(min = 1): ValueAssertion { ... }
+```
+
+1 if the text contains at least min (default 1) deduplicated http(s) links, otherwise 0. A hard gate by default.
+A shape assertion for "does the answer cite real sources": when no Judge key is available, this is the lowest-cost
+backstop for "cites at least one source link" — echoing the question back cannot pass it; fabricated links are left
+for negative cases or the Judge to catch.
+
+#### `hasSections`
+
+```ts
+export function hasSections(min = 2): ValueAssertion { ... }
+```
+
+1 if the text contains at least min (default 2) Markdown headings (line-leading # through ######), otherwise 0. A hard gate by default.
+A shape assertion for "is the answer a structured document" — suited to research reports, design docs, and other
+produce-type answers; a wall of flowing text with no section headings does not pass.
 
 #### `satisfies`
 

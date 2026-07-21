@@ -4,6 +4,7 @@
 import type { ReactElement } from "react";
 import type { AttemptAssertionsData } from "../../model/types.ts";
 import type { AssertionResult } from "../../../types.ts";
+import { stripControl } from "../../../scoring/display.ts";
 import { cx } from "../shared.ts";
 
 function assertTone(a: AssertionResult): "good" | "warn" | "bad" | "na" {
@@ -26,9 +27,9 @@ function AssertionRow({ a }: { a: AssertionResult }): ReactElement {
         {a.detail && a.detail !== a.name ? <span className="nre-assertion-detail">{a.detail}</span> : null}
       </summary>
       <div className="nre-assertion-body">
-        {a.outcome === "unavailable" ? <div>{a.reason}</div> : null}
-        {a.outcome !== "unavailable" && a.expected !== undefined ? <div>expected: {a.expected}</div> : null}
-        {a.outcome !== "unavailable" && a.received !== undefined ? <div>received: {a.received}</div> : null}
+        {a.outcome === "unavailable" ? <div>{a.reason === undefined ? undefined : stripControl(a.reason)}</div> : null}
+        {a.outcome !== "unavailable" && a.expected !== undefined ? <div>expected: {stripControl(a.expected)}</div> : null}
+        {a.outcome !== "unavailable" && a.received !== undefined ? <div>received: {stripControl(a.received)}</div> : null}
       </div>
     </details>
   );
