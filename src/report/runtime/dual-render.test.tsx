@@ -1,14 +1,20 @@
 // cases: docs/engineering/testing/unit/reports.md
-// 管线与双面渲染的单元测试:resolve(spec/data 双形态、记忆化、组合组件、同层并行保序、
-// 非法节点拒绝)、validate(裸字符串、单面组件、Tabs 配对)、装载规范化(defineReport 三种
-// 写法、content/pages 互斥、外壳嵌套、page id、标题回退)、text/web 双面同源、
-// Table 与文本排版原语、FailureList 等价、内建报告等价。
+// 管线测试(resolve/validate/装载规范化):spec/data 双形态严格等价、记忆化、组合组件递归展开、
+// 同层并行保序、非法节点拒绝、defineReport 三种写法与外壳嵌套的装载规范化、标题回退链、
+// 内建报告的结构与具名导出同引用、组合组件(FailureList / ExperimentComparison)与手写组合的
+// 解析结果严格等价。
+//
+// 观察面全部是 resolve 阶段的解析结果(元素 type / props,尤其是叶子组件的 `data` 字段)与装载
+// 产物的结构、或者抛出的错误对象——不渲染到文本或 HTML 去比较两条路径。渲染出的终端排版、DOM
+// 结构、text/web 双面比对属于 docs/engineering/testing/e2e/report.md,不在本层验收。
+//
+// 例外:Table 的列 / 行 key 校验目前只长在 web()/text() 两个渲染面函数体内(没有独立导出的纯
+// 校验函数),要触发它只能经 renderNodeToText;断言对象仍是抛出的 Error,不是渲染内容本身。
 
-import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import type { EvalResult, Verdict } from "../../types.ts";
-import type { AttemptHandle, Results, Scope, ScopeWarning, Snapshot } from "../../results/index.ts";
+import type { AttemptHandle, Results, Scope, Snapshot } from "../../results/index.ts";
 import { makeScope } from "../../results/select.ts";
 import {
   createTextContext,
@@ -20,29 +26,19 @@ import {
   type ReportNode,
 } from "../definition/tree.ts";
 import { buildReportMeta, defineReport, FALLBACK_REPORT_TITLE, resolveReportTitle } from "../definition/report.ts";
-import {
-  pickReportPage,
-  renderReportToText,
-  renderReportTreeToText,
-  ReportPageNeedsLocatorError,
-  ReportPageNotFoundError,
-} from "./text.ts";
-import { renderReportToStaticHtml, renderReportTreeToStaticHtml } from "./web.ts";
-import { AttemptList, ExperimentList, FailureList } from "../components/entity-lists/index.tsx";
+import { pickReportPage, ReportPageNeedsLocatorError, ReportPageNotFoundError } from "./text.ts";
+import { AttemptList, FailureList } from "../components/entity-lists/index.tsx";
 import { CopyFixPrompt, Hero, ScopeWarnings, TraceWaterfall } from "../components/site-components/index.tsx";
 import { ExperimentComparison, ScopeSummary } from "../components/summaries/index.tsx";
 import { MetricBars, MetricMatrix, MetricScatter, MetricTable } from "../components/metric-views/index.tsx";
 import { AttemptDetail } from "../components/attempt-detail/index.tsx";
-import { Col, Grid, Row, Section, Stat, Style, Tab, Table, Tabs, Text } from "../definition/primitives.tsx";
-import { stringWidth } from "../model/text-layout.ts";
+import { Col, Section, Tab, Table, Tabs, Text } from "../definition/primitives.tsx";
 import { attemptListData, experimentListData } from "../components/entity-lists/compute.ts";
 import { metricScatterData } from "../components/metric-views/compute.ts";
 import { scopeSummaryData } from "../components/summaries/compute.ts";
 import { costUSD, defineMetric, endToEndPassRate } from "../model/metrics.ts";
 import { label } from "../model/flag.ts";
 import builtInReport, { standard, standardAttemptPage } from "../built-in/index.tsx";
-import type { AttemptEvidence } from "../../results/attempt-evidence.ts";
-import { encodeAttemptLocator } from "../../results/locator.ts";
 
 // ───────────────────────── fake 数据 ─────────────────────────
 
@@ -104,8 +100,8 @@ function snap(spec: {
   return snapshot;
 }
 
-function scopeOf(snapshots: Snapshot[], warnings: ScopeWarning[] = []): Scope {
-  return makeScope("current-evals", snapshots, warnings);
+function scopeOf(snapshots: Snapshot[]): Scope {
+  return makeScope("current-evals", snapshots, []);
 }
 
 function resultsOf(snapshots: Snapshot[]): Results {
@@ -128,25 +124,12 @@ function resultsOf(snapshots: Snapshot[]): Results {
   } as unknown as Results;
 }
 
-/** 最小 AttemptEvidence fixture:只用于验证 standardAttemptPage 的渲染管线接线,不摆事实。 */
-function attemptEvidenceOf(): AttemptEvidence {
-  const identity = { experimentId: "exp/a", snapshotStartedAt: "2026-07-01T00:00:00.000Z", evalId: "eval/one", attempt: 0 };
-  return {
-    locator: encodeAttemptLocator(identity),
-    identity,
-    result: { id: "eval/one", agent: "agent-x", verdict: "passed" as Verdict, attempt: 0, durationMs: 1000, assertions: [] },
-    events: null,
-    evalSource: null,
-    execution: null,
-    diff: null,
-    trace: null,
-    artifactPaths: { dir: "/results/exp/a/eval-one/a0" },
-    capabilities: { source: false, execution: false, timing: false, diff: false },
-  };
-}
-
-/** 管线便捷入口:resolve + validate + text 渲染,报告声明用最小 meta。 */
-async function renderTreeText(node: ReportNode, scope: Scope, width = 100): Promise<string> {
+/**
+ * 管线便捷入口:装载 + 挑页 + resolve + validate,不渲染——断言面是解析后的树结构
+ * (元素 type / props)或抛出的错误对象。裸字符串 / 非法节点这类只在 validate 阶段
+ * 才拒绝的输入,同样会在这里抛出(validateReportTree 紧跟 resolve 之后调用)。
+ */
+async function resolveTree(node: ReportNode, scope: Scope): Promise<ReportNode> {
   const definition = defineReport(node);
   const page = pickReportPage(definition);
   const resolved = await resolveReportTree(page.content, {
@@ -157,7 +140,7 @@ async function renderTreeText(node: ReportNode, scope: Scope, width = 100): Prom
     memo: new ResolveMemo(),
   });
   validateReportTree(resolved);
-  return renderNodeToText(resolved, createTextContext({ width }));
+  return resolved;
 }
 
 // ───────────────────────── spec / data 双形态 ─────────────────────────
@@ -177,23 +160,19 @@ describe("spec 形态与 data 形态", () => {
       }),
     ]);
 
-  it("spec 形态与「先手工调 *Data 再传 data」严格等价:两棵树渲染深等", async () => {
+  it("spec 形态与「先手工调 *Data 再传 data」严格等价:两棵树解析出同一份 data", async () => {
     const scope = scatterScope();
     const options = { points: "experiment", series: "agent", x: costUSD, y: endToEndPassRate } as const;
-    const specText = await renderTreeText(
-      <MetricScatter points="experiment" series="agent" x={costUSD} y={endToEndPassRate} />,
-      scope,
-    );
+    const specResolved = await resolveTree(<MetricScatter points="experiment" series="agent" x={costUSD} y={endToEndPassRate} />, scope);
     const data = await metricScatterData(scope, options);
-    const dataText = await renderTreeText(<MetricScatter data={data} />, scope);
-    expect(specText).toBe(dataText);
+    expect((specResolved as unknown as { props: { data: unknown } }).props.data).toEqual(data);
   });
 
   it("同一组件同时给 data 与 spec 字段报完整用户反馈,不静默取一边", async () => {
     const scope = scatterScope();
     const data = await metricScatterData(scope, { points: "experiment", x: costUSD, y: endToEndPassRate });
     await expect(
-      renderTreeText(
+      resolveTree(
         // @ts-expect-error data 与 spec 字段互斥,类型层已拒绝;这里模拟无类型 JS 输入
         <MetricScatter data={data} points="experiment" x={costUSD} y={endToEndPassRate} />,
         scope,
@@ -205,72 +184,32 @@ describe("spec 形态与 data 形态", () => {
     const a = snap({ experimentId: "in/a", results: [res("q", "passed")] });
     const b = snap({ experimentId: "in/b", results: [res("q", "failed")] });
     const scope = scopeOf([a, b]);
-    const all = await renderTreeText(<ScopeSummary />, scope);
-    expect(all).toContain("2 experiments");
-    const narrowed = await renderTreeText(
-      <ScopeSummary input={scope.filter((s) => s.experimentId === "in/a")} />,
-      scope,
-    );
-    expect(narrowed).toContain("1 experiment ·");
+
+    const allResolved = await resolveTree(<ScopeSummary />, scope);
+    expect((allResolved as unknown as { props: { data: unknown } }).props.data).toEqual(await scopeSummaryData(scope));
+
+    const narrowed = scope.filter((s) => s.experimentId === "in/a");
+    const narrowedResolved = await resolveTree(<ScopeSummary input={narrowed} />, scope);
+    expect((narrowedResolved as unknown as { props: { data: unknown } }).props.data).toEqual(await scopeSummaryData(narrowed));
+
     // input 也可以是手挑的 Snapshot[](按快照出行)
-    const snapshotsOnly = await renderTreeText(
-      <MetricTable input={[a]} rows="snapshot" columns={[endToEndPassRate]} />,
-      scope,
-      140,
-    );
-    expect(snapshotsOnly).toContain("in/a @");
-    expect(snapshotsOnly).not.toContain("in/b");
+    const tableResolved = await resolveTree(<MetricTable input={[a]} rows="snapshot" columns={[endToEndPassRate]} />, scope);
+    const rows = (tableResolved as unknown as { props: { data: { rows: Array<{ key: string }> } } }).props.data.rows;
+    expect(rows.some((r) => r.key.startsWith("in/a"))).toBe(true);
+    expect(rows.some((r) => r.key.startsWith("in/b"))).toBe(false);
   });
 
-  it("data 结构校验:字段改名前的旧 JSON 报错且文案含版本漂移提示;round-trip 的同版本 JSON 照常渲染", async () => {
+  it("data 结构校验:字段改名前的旧 JSON 报错且文案含版本漂移提示;round-trip 的同版本 JSON 解析结果不变", async () => {
     const scope = scatterScope();
     const table = { dimension: "agent", columns: [], rows: [] }; // 旧形状:dimension 而非 rowDimension
-    await expect(renderTreeText(<MetricTable data={table as never} />, scope)).rejects.toThrow(
+    await expect(resolveTree(<MetricTable data={table as never} />, scope)).rejects.toThrow(
       /does not match the current TableData shape[\s\S]*different niceeval version/,
     );
 
     const fresh = await metricScatterData(scope, { points: "experiment", x: costUSD, y: endToEndPassRate });
     const roundTrip = JSON.parse(JSON.stringify(fresh));
-    const html = renderToStaticMarkup(<MetricScatter data={roundTrip} />);
-    expect(html).toContain("nre-metric-scatter");
-  });
-
-  it("text 面散点轴方向跟随 better:成本轴反向(便宜在右)、提示恒为右上;x 无 better 时整图无提示", async () => {
-    // cmp/a:cost $0.20、通过;cmp/b:cost $0.10、失败。cost better:"lower" → 轴反向,
-    // 便宜的 cmp/b(标记 B)落在贵的 cmp/a(标记 A)右侧;刻度仍显示真实值(右端是更小的 $0.10)。
-    const scope = scatterScope();
-    const text = await renderTreeText(
-      <MetricScatter points="experiment" x={costUSD} y={endToEndPassRate} />,
-      scope,
-    );
-    const markCol = (mark: string): number => {
-      const line = text.split("\n").find((l) => l.includes(mark));
-      expect(line, `plot row with mark ${mark}`).toBeTruthy();
-      return line!.indexOf(mark);
-    };
-    expect(markCol("B")).toBeGreaterThan(markCol("A"));
-    expect(text).toContain("better → upper right");
-    expect(text).toContain("$0.10");
-    expect(text).toContain("$0.20");
-
-    // x 未声明 better:轴正向、整图无方向提示(组件不猜「更好」朝哪边)。
-    const rawCost = defineMetric({
-      name: "rawCost",
-      unit: "$",
-      value: (attempt) => attempt.result.usage?.costUSD ?? null,
-    });
-    const noHint = await renderTreeText(
-      <MetricScatter points="experiment" x={rawCost} y={endToEndPassRate} />,
-      scope,
-    );
-    expect(noHint).not.toContain("better →");
-    // 正向轴:贵的 cmp/a(A)在右。
-    const noHintCol = (mark: string): number => {
-      const line = noHint.split("\n").find((l) => l.includes(mark));
-      expect(line, `plot row with mark ${mark}`).toBeTruthy();
-      return line!.indexOf(mark);
-    };
-    expect(noHintCol("A")).toBeGreaterThan(noHintCol("B"));
+    const resolved = await resolveTree(<MetricScatter data={roundTrip} />, scope);
+    expect((resolved as unknown as { props: { data: unknown } }).props.data).toEqual(roundTrip);
   });
 });
 
@@ -287,7 +226,7 @@ describe("resolve 记忆化", () => {
       },
     });
     const scope = scopeOf([snap({ experimentId: "memo/a", results: [res("q", "passed")] })]);
-    await renderTreeText(
+    await resolveTree(
       <Col>
         <MetricMatrix rows="eval" columns="agent" cell={counted} />
         <MetricBars rows="eval" columns="agent" cell={counted} />
@@ -297,7 +236,7 @@ describe("resolve 记忆化", () => {
     expect(calls).toBe(1); // 一个 attempt,矩阵只算一遍
 
     calls = 0;
-    await renderTreeText(
+    await resolveTree(
       <Col>
         <MetricMatrix rows="eval" columns="agent" cell={counted} />
         <MetricMatrix rows="eval" columns="model" cell={counted} />
@@ -318,7 +257,7 @@ describe("resolve 记忆化", () => {
     const a = snap({ experimentId: "memo/in-a", results: [res("q", "passed")] });
     const b = snap({ experimentId: "memo/in-b", results: [res("q", "passed")] });
     const scope = scopeOf([a, b]);
-    await renderTreeText(
+    await resolveTree(
       <Col>
         <MetricMatrix input={[a]} rows="eval" columns="agent" cell={m1} />
         <MetricMatrix input={[b]} rows="eval" columns="agent" cell={m1} />
@@ -333,21 +272,21 @@ describe("resolve 记忆化", () => {
 // ───────────────────────── 组合组件与树形状 ─────────────────────────
 
 describe("组合组件(函数形态)", () => {
-  it("resolve 阶段以 (props, ctx) 调用并递归展开;与手写等价树渲染相同;async 可用", async () => {
+  it("resolve 阶段以 (props, ctx) 调用并递归展开;与手写等价树解析出同一棵树;async 可用", async () => {
     const scope = scopeOf([snap({ experimentId: "compose/a", results: [res("q", "passed")] })]);
     const Composed = defineComponent(async (_props: Record<never, never>, ctx) => (
       <Section title="wrapped">
         <ScopeSummary input={ctx.scope} />
       </Section>
     ));
-    const composed = await renderTreeText(<Composed />, scope);
-    const manual = await renderTreeText(
+    const composed = await resolveTree(<Composed />, scope);
+    const manual = await resolveTree(
       <Section title="wrapped">
         <ScopeSummary />
       </Section>,
       scope,
     );
-    expect(composed).toBe(manual);
+    expect(composed).toEqual(manual);
   });
 
   it("ctx.results 可自行挑 Snapshot[] 喂 input;ctx.report 携带走完回退链的 title,ctx.page 携带当前页 id", async () => {
@@ -363,12 +302,20 @@ describe("组合组件(函数形态)", () => {
       );
     });
     const definition = defineReport({ pages: [{ id: "meta", title: "Meta", content: <Meta /> }] });
-    const text = await renderReportToText(definition, { scope, results: resultsOf([named]) }, { pageId: "meta" });
+    const page = pickReportPage(definition, "meta");
+    const resolved = await resolveReportTree(page.content, {
+      scope,
+      results: resultsOf([named]),
+      report: buildReportMeta(definition, scope),
+      page: { id: page.id, input: "scope" },
+      memo: new ResolveMemo(),
+    });
+    const textNode = (resolved as unknown as { props: { children: Array<{ props: { children: string } }> } }).props.children[0]!;
     // 声明没给 title → 唯一快照 name 回退
-    expect(text).toContain("title=Memory Evals page=meta");
+    expect(textNode.props.children).toBe("title=Memory Evals page=meta");
   });
 
-  it("同层 sibling 并行取数且输出保持声明顺序:慢 resolve 在前不换位", async () => {
+  it("同层 sibling 并行取数且解析结果保持声明顺序:慢 resolve 在前不换位", async () => {
     const order: string[] = [];
     const Slow = defineComponent<{ label: string }, { label: string }>({
       resolve: async (props) => {
@@ -388,7 +335,7 @@ describe("组合组件(函数形态)", () => {
       text: ({ label }) => label,
     });
     const scope = scopeOf([]);
-    const text = await renderTreeText(
+    const resolved = await resolveTree(
       <Col>
         <Slow label="first" />
         <Fast label="second" />
@@ -396,47 +343,26 @@ describe("组合组件(函数形态)", () => {
       scope,
     );
     expect(order[0]).toBe("fast-resolved"); // 真并行:快的先完成
-    expect(text.indexOf("first")).toBeLessThan(text.indexOf("second")); // 输出仍按声明序
+    const children = (resolved as unknown as { props: { children: Array<{ props: { label: string } }> } }).props.children;
+    expect(children.map((c) => c.props.label)).toEqual(["first", "second"]); // 解析结果仍按声明序
   });
 });
 
 describe("ReportNode 形状与非法节点", () => {
   const scope = () => scopeOf([snap({ experimentId: "node/a", results: [res("q", "passed")] })]);
 
-  it("数组 / Fragment 展平保序;null / undefined / boolean 渲染为空", async () => {
-    const groups = ["g1", "g2"];
-    const text = await renderTreeText(
-      <Col>
-        {groups.map((g) => (
-          <Section key={g} title={g}>
-            <Text>{`body of ${g}`}</Text>
-          </Section>
-        ))}
-        <>
-          <Text>in fragment</Text>
-        </>
-        {false && <Text>hidden</Text>}
-        {null}
-      </Col>,
-      scope(),
-    );
-    expect(text.indexOf("g1")).toBeLessThan(text.indexOf("g2"));
-    expect(text).toContain("in fragment");
-    expect(text).not.toContain("hidden");
-  });
-
   it("裸字符串在树校验时按完整用户反馈拒绝并指引包 <Text>", async () => {
-    await expect(renderTreeText(<Col>{"free text" as unknown as ReportNode}</Col>, scope())).rejects.toThrow(
+    await expect(resolveTree(<Col>{"free text" as unknown as ReportNode}</Col>, scope())).rejects.toThrow(
       /bare string[\s\S]*<Text>/,
     );
   });
 
   it("React 组件 / 未包装函数与 HTML intrinsic 在展开遇到时拒绝", async () => {
     const Plain = ({ label }: { label: string }) => <p>{label}</p>;
-    await expect(renderTreeText(<Plain label="x" />, scope())).rejects.toThrow(
+    await expect(resolveTree(<Plain label="x" />, scope())).rejects.toThrow(
       /not a report component[\s\S]*defineComponent/,
     );
-    await expect(renderTreeText(<div>x</div>, scope())).rejects.toThrow(/raw HTML <div>/);
+    await expect(resolveTree(<div>x</div>, scope())).rejects.toThrow(/raw HTML <div>/);
   });
 
   it("validateReportTree 拒绝缺任一渲染面的组件(无类型 JS 绕过 defineComponent 时)", () => {
@@ -452,93 +378,23 @@ describe("ReportNode 形状与非法节点", () => {
   });
 });
 
-// ───────────────────────── 双面同源 ─────────────────────────
+// ───────────────────────── 渐进增强不改数据 ─────────────────────────
 
-describe("text/web 双面同源", () => {
-  it("双面显示同一份解析终值、覆盖率与 warning;警告的呈现件是页内 ScopeWarnings 组件,宿主无树外通道", async () => {
-    const s = snap({ experimentId: "dual/a", results: [res("q1", "passed"), res("q2", "skipped")] });
-    const warning: ScopeWarning = {
-      kind: "unfinished-snapshot",
-      experimentId: "dual/a",
-      startedAt: s.startedAt,
-      dir: s.dir,
-      message: "snapshot is incomplete",
-      command: "niceeval exp dual/a",
-    };
-    const scope = scopeOf([s], [warning]);
-    const definition = defineReport(
-      <Col>
-        <ScopeWarnings />
-        <ScopeSummary />
-      </Col>,
-    );
-    const ctx = { scope, results: resultsOf([s]) };
-    const text = await renderReportToText(definition, ctx);
-    const html = await renderReportToStaticHtml(definition, ctx);
-    for (const face of [text, html]) {
-      expect(face).toContain("100%"); // endToEndPassRate:skipped 不稀释
-      expect(face).toContain("1/2"); // samples/total 覆盖率
-      expect(face).toContain("snapshot is incomplete");
-    }
-    // web 面把警告的 command 渲染为可复制命令
-    expect(html).toContain("niceeval exp dual/a");
-    expect(html).toContain("nre-warning-command");
-    // 宿主不再前置树外警告块:没有 ScopeWarnings 的树两面都不出现警告
-    const bare = defineReport(<ScopeSummary />);
-    expect(await renderReportToText(bare, ctx)).not.toContain("snapshot is incomplete");
-    expect(await renderReportToStaticHtml(bare, ctx)).not.toContain("nre-warning");
-  });
-
-  it("web 排序/过滤只改变浏览状态:有无 filter prop 数值与行集合相同", async () => {
+describe("渐进增强不改数据的不变量", () => {
+  it("filter 只改变浏览状态:有无 filter prop 解析出的 data 相同", async () => {
     const scope = scopeOf([snap({ experimentId: "f/a", results: [res("q", "passed")] })]);
-    const definition = (filter: boolean) =>
-      defineReport(<MetricTable rows="experiment" columns={[endToEndPassRate]} filter={filter} />);
-    const ctx = { scope, results: resultsOf(scope.snapshots) };
-    const plain = await renderReportToStaticHtml(definition(false), ctx);
-    const filtered = await renderReportToStaticHtml(definition(true), ctx);
-    const values = (html: string) => html.match(/data-sort-value="[^"]*"/g);
-    expect(values(filtered)).toEqual(values(plain));
-  });
-
-  it("ExperimentList text 面保持实体层级:一题两 attempt 只出现一次 Eval 标题;失败摘要只在 Attempt 子行", async () => {
-    const s = snap({
-      experimentId: "grp/exp-a",
-      results: [
-        res("algebra/retry", "failed", {
-          attempt: 0,
-          assertions: [
-            {
-              name: "equals",
-              severity: "gate",
-              outcome: "failed",
-              score: 0,
-              detail: "equals(42)",
-              expected: "42",
-              received: "41",
-            },
-          ],
-        }),
-        res("algebra/retry", "passed", { attempt: 1 }),
-      ],
-    });
-    const text = await renderTreeText(<ExperimentList />, scopeOf([s]), 160);
-    expect(text.match(/algebra\/retry/g)).toHaveLength(1); // Eval 父行只出现一次
-    expect(text).toContain("├─");
-    expect(text).toContain("└─");
-    // 失败摘要只在 Attempt 子行(父行不复述)
-    expect(text.match(/equals\(42\)/g)).toHaveLength(1);
-    // 行标签默认缩成最短唯一后缀
-    expect(text).toContain("exp-a");
+    const plain = await resolveTree(<MetricTable rows="experiment" columns={[endToEndPassRate]} />, scope);
+    const filtered = await resolveTree(<MetricTable rows="experiment" columns={[endToEndPassRate]} filter />, scope);
+    expect((filtered as unknown as { props: { data: unknown } }).props.data).toEqual(
+      (plain as unknown as { props: { data: unknown } }).props.data,
+    );
   });
 });
-
-// ScopeWarnings 的聚合、排序、折叠与下一步行为在 site-components.test.tsx(组件版单源);
-// 宿主不再有树外警告前置块,这里不重复宿主版。
 
 // ───────────────────────── FailureList ─────────────────────────
 
 describe("FailureList", () => {
-  it("与手写组合严格等价:failed/errored、开始时间降序、limit 截断且 total 报截断前总数", async () => {
+  it("与手写组合(attemptListData → 过滤 → 排序 → 截断)严格等价:failed/errored、开始时间降序、limit 截断且 total 报截断前总数", async () => {
     const s = snap({
       experimentId: "fail/a",
       results: [
@@ -552,57 +408,37 @@ describe("FailureList", () => {
       ],
     });
     const scope = scopeOf([s]);
-    const failureText = await renderTreeText(<FailureList limit={2} />, scope);
+    const resolved = await resolveTree(<FailureList limit={2} />, scope);
 
-    // 手写组合:attemptListData → 过滤 → 排序 → AttemptList data 形态
+    // 手写组合:attemptListData → 过滤 → 排序(最近的失败在前)→ 截断到 limit。
     const all = await attemptListData(scope);
     const startedAt = new Map(s.attempts.map((a) => [a.evalId, a.result.startedAt ?? ""]));
     const failures = all
       .filter((x) => x.verdict === "failed" || x.verdict === "errored")
       .sort((a, b) => (startedAt.get(b.evalId) ?? "").localeCompare(startedAt.get(a.evalId) ?? ""));
-    const manualText = await renderTreeText(<AttemptList data={failures.slice(0, 2)} total={failures.length} />, scope);
-    expect(failureText).toBe(manualText);
-    expect(failureText).toContain("(1 more not shown)"); // 3 条失败,截断到 2
-    // 最近的失败在前
-    expect(failureText.indexOf("q2")).toBeLessThan(failureText.indexOf("q3"));
-    expect(failureText).not.toContain("q4"); // passed 不进失败清单
+
+    const props = (resolved as unknown as { props: { data: unknown; total?: number } }).props;
+    expect(props.data).toEqual(failures.slice(0, 2)); // 截断到 2,且顺序 = q2(最近)在前、q3 在后
+    expect(props.total).toBe(failures.length); // total 报截断前总数(3),不是 data.length
   });
 
-  it("失败数少于 limit 时 total 等于 data 长度,不产出截断文案", async () => {
+  it("失败数少于 limit 时 total 等于 data 长度,不产生截断信号", async () => {
     const s = snap({ experimentId: "fail/few", results: [res("q1", "failed")] });
-    const text = await renderTreeText(<FailureList />, scopeOf([s]));
-    expect(text).not.toContain("more not shown");
+    const resolved = await resolveTree(<FailureList />, scopeOf([s]));
+    const props = (resolved as unknown as { props: { data: unknown[]; total?: number } }).props;
+    expect(props.total).toBe(props.data.length);
   });
 });
 
-// ───────────────────────── Table 与排版原语 ─────────────────────────
+// ───────────────────────── Table 装载校验 ─────────────────────────
 
-describe("Table 与文本排版原语", () => {
-  const ctx = () => createTextContext({ width: 100 });
-
-  it("null 单元格与 cells 缺键都渲染成 —,不补 0", () => {
-    const text = renderNodeToText(
-      <Table
-        columns={[
-          { key: "a", header: "A" },
-          { key: "b", header: "B", align: "right" },
-        ]}
-        rows={[
-          { key: "r1", cells: { a: "x", b: null } },
-          { key: "r2", cells: { a: "y" } },
-        ]}
-      />,
-      ctx(),
-    );
-    expect(text.match(/—/g)!.length).toBe(2);
-    expect(text).not.toMatch(/\b0\b/);
-  });
-
+describe("Table 装载校验", () => {
   it("cells 出现未声明的 key 以完整用户反馈报错;列 key 重复报错", () => {
+    const ctx = createTextContext({ width: 100 });
     expect(() =>
       renderNodeToText(
         <Table columns={[{ key: "a", header: "A" }]} rows={[{ key: "r", cells: { ghost: "x" } }]} />,
-        ctx(),
+        ctx,
       ),
     ).toThrow(/no column declares/);
     expect(() =>
@@ -616,365 +452,15 @@ describe("Table 与文本排版原语", () => {
           }
           rows={[]}
         />,
-        ctx(),
+        ctx,
       ),
     ).toThrow(/declared twice/);
-  });
-
-  it("带 locator 的行多出 attempt 列;全部无 locator 时不出该列", () => {
-    const withLocator = renderNodeToText(
-      <Table
-        columns={[{ key: "a", header: "A" }]}
-        rows={[
-          { key: "r1", cells: { a: "x" }, locator: "@1abc0def" as never },
-          { key: "r2", cells: { a: "y" } },
-        ]}
-      />,
-      ctx(),
-    );
-    expect(withLocator).toContain("@1abc0def");
-    expect(withLocator).toContain("attempt");
-    const without = renderNodeToText(
-      <Table columns={[{ key: "a", header: "A" }]} rows={[{ key: "r1", cells: { a: "x" } }]} />,
-      ctx(),
-    );
-    expect(without).not.toContain("attempt");
-  });
-
-  it("Row text 面:宽度装得下按显示宽度并排,装不下整块纵向堆叠、内容完整", () => {
-    const tree = (
-      <Row>
-        <Text>left block</Text>
-        <Text>right block</Text>
-      </Row>
-    );
-    const wide = renderNodeToText(tree, createTextContext({ width: 80 }));
-    expect(wide.split("\n")[0]).toContain("left block");
-    expect(wide.split("\n")[0]).toContain("right block");
-    const narrow = renderNodeToText(tree, createTextContext({ width: 20 }));
-    expect(narrow).toContain("left block");
-    expect(narrow).toContain("right block");
-    expect(narrow.split("\n")[0]).not.toContain("right block"); // 纵向堆叠
-  });
-
-  it("Style 在 text 面零输出,web 面吐 <style>(页级全局)", async () => {
-    const scope = scopeOf([]);
-    const definition = defineReport(
-      <Col>
-        <Style>{`.nre .x { color: red; }`}</Style>
-        <Text>visible</Text>
-      </Col>,
-    );
-    const hostCtx = { scope, results: resultsOf([]) };
-    const text = await renderReportToText(definition, hostCtx);
-    expect(text).toBe("visible");
-    const html = await renderReportToStaticHtml(definition, hostCtx);
-    expect(html).toContain("<style>");
-  });
-});
-
-// ───────────────────────── Grid / Stat / Section.meta ─────────────────────────
-
-describe("Grid / Stat / Section.meta", () => {
-  const ctx = (width = 100) => createTextContext({ width });
-
-  it("展平数组 / Fragment,空分支不占格,任意 ReportNode 可作 cell,Col 内多个 Stat 保持同一格", () => {
-    const groups = ["a", "b"];
-    const tree = (
-      <Grid columns={4}>
-        {groups.map((g) => (
-          <Stat key={g} label={g} value={g} />
-        ))}
-        {null}
-        {undefined}
-        {false}
-        <>
-          <Text>free block</Text>
-        </>
-        <Col>
-          <Stat label="col-stat-1" value="1" />
-          <Stat label="col-stat-2" value="2" />
-        </Col>
-      </Grid>
-    );
-    const text = renderNodeToText(tree, ctx());
-    const html = renderToStaticMarkup(tree as never);
-    // a, b, free block, Col(两个 Stat) = 4 格;空分支不占格
-    expect((html.match(/nre-grid-cell/g) ?? []).length).toBe(4);
-    for (const face of [text, html]) {
-      expect(face).toContain("free block");
-      expect(face).toContain("col-stat-1");
-      expect(face).toContain("col-stat-2");
-    }
-    // 两面 cell 顺序一致:a 在 b 之前,free block 在 Col 之前
-    expect(text.indexOf("a")).toBeLessThan(text.indexOf("b"));
-    expect(text.indexOf("free block")).toBeLessThan(text.indexOf("col-stat-1"));
-  });
-
-  it("全部子节点为空分支时 0 格,text 面输出空串", () => {
-    const tree = <Grid columns={3}>{[null, false, undefined]}</Grid>;
-    expect(renderNodeToText(tree, ctx())).toBe("");
-  });
-
-  for (const bad of [0, -1, 1.5, NaN, Infinity]) {
-    it(`columns={${bad}} 给完整用户反馈`, () => {
-      const tree = <Grid columns={bad}>{<Stat label="x" value="y" />}</Grid>;
-      expect(() => renderNodeToText(tree, ctx())).toThrow(/columns/);
-      expect(() => renderToStaticMarkup(tree as never)).toThrow(/columns/);
-    });
-  }
-
-  it("columns=1 与 columns 大于 cell 数都正常渲染;variant / density 默认 plain / regular", () => {
-    const single = <Grid columns={1}>{[<Stat key="a" label="a" value="1" />, <Stat key="b" label="b" value="2" />]}</Grid>;
-    expect(renderNodeToText(single, ctx())).toContain("a");
-    const roomy = (
-      <Grid columns={99}>
-        <Stat label="only" value="1" />
-      </Grid>
-    );
-    const html = renderToStaticMarkup(roomy as never);
-    expect(html).toContain("nre-grid--plain");
-    expect(html).toContain("nre-grid--regular");
-    expect(html).toContain('style="--nre-grid-max-columns:99"');
-  });
-
-  it("web 初始 HTML 含全部格、稳定 root/cell/variant/density class 与最大列数事实,无 JS 也完整可读", () => {
-    const tree = (
-      <Grid columns={3} variant="boxed" density="compact">
-        <Stat label="one" value="1" />
-        <Stat label="two" value="2" />
-        <Stat label="three" value="3" />
-      </Grid>
-    );
-    const html = renderToStaticMarkup(tree as never);
-    expect(html).toContain("nre-grid--boxed");
-    expect(html).toContain("nre-grid--compact");
-    expect(html).toContain('style="--nre-grid-max-columns:3"');
-    expect((html.match(/nre-grid-cell/g) ?? []).length).toBe(3);
-    expect(html).toContain("one");
-    expect(html).toContain("two");
-    expect(html).toContain("three");
-    expect(html).not.toMatch(/<script/);
-    expect(html).not.toContain("hydrat");
-  });
-
-  it("boxed 每个 cell 四边完整;plain 只去掉边框与内边距,不改变列数与内容宽", () => {
-    const tree = (variant: "plain" | "boxed") => (
-      <Grid columns={2} variant={variant}>
-        <Stat label="left" value="1" />
-        <Stat label="right" value="2" />
-      </Grid>
-    );
-    const boxed = renderNodeToText(tree("boxed"), ctx(80));
-    const plain = renderNodeToText(tree("plain"), ctx(80));
-    expect(boxed.match(/┌/g)?.length).toBe(2);
-    expect(boxed.match(/┐/g)?.length).toBe(2);
-    expect(boxed.match(/└/g)?.length).toBe(2);
-    expect(boxed.match(/┘/g)?.length).toBe(2);
-    expect(plain).not.toContain("┌");
-    expect(plain).toContain("left");
-    expect(plain).toContain("right");
-    for (const line of [...boxed.split("\n"), ...plain.split("\n")]) {
-      expect(stringWidth(line)).toBeLessThanOrEqual(80);
-    }
-  });
-
-  it("compact 不合并或丢弃字段,label/value/detail 三者仍全部可见", () => {
-    const text = renderNodeToText(
-      <Grid columns={2} variant="boxed" density="compact">
-        <Stat label="label-x" value="value-x" detail="detail-x" />
-        <Stat label="label-y" value="value-y" detail="detail-y" />
-      </Grid>,
-      ctx(80),
-    );
-    for (const token of ["label-x", "value-x", "detail-x", "label-y", "value-y", "detail-y"]) {
-      expect(text).toContain(token);
-    }
-  });
-
-  it("text 宽面使用声明列数,继续收窄降为一列,不丢任何 cell", () => {
-    const cells = Array.from({ length: 6 }, (_, i) => <Stat key={i} label={`s${i}`} value={i} />);
-    const wide = renderNodeToText(<Grid columns={6}>{cells}</Grid>, ctx(200));
-    for (let i = 0; i < 6; i++) expect(wide).toContain(`s${i}`);
-    const narrow = renderNodeToText(<Grid columns={6}>{cells}</Grid>, ctx(15));
-    for (let i = 0; i < 6; i++) expect(narrow).toContain(`s${i}`);
-  });
-
-  it("Stat:LocalizedText、number(按 locale 格式化)、null(—)、数字 0、detail 省略与四种 tone", () => {
-    const html0 = renderToStaticMarkup(<Stat label="zero" value={0} /> as never);
-    expect(html0).toContain(">0<");
-    expect(html0).not.toContain("—");
-    const htmlNull = renderToStaticMarkup(<Stat label="none" value={null} /> as never);
-    expect(htmlNull).toContain("—");
-    const htmlNumber = renderToStaticMarkup(<Stat label="n" value={1234} /> as never);
-    expect(htmlNumber).toContain("1,234"); // 默认 locale "en"
-    const htmlLocalized = renderToStaticMarkup(<Stat label={{ en: "Label", "zh-CN": "标签" }} value="v" /> as never);
-    expect(htmlLocalized).toContain("Label");
-    // detail 省略:text 面不留空行(恰好两行:label、value)
-    const textNoDetail = renderNodeToText(<Stat label="l" value="v" />, ctx());
-    expect(textNoDetail.split("\n")).toEqual(["l", "v"]);
-    const textWithDetail = renderNodeToText(<Stat label="l" value="v" detail="d" />, ctx());
-    expect(textWithDetail.split("\n")).toEqual(["l", "v", "d"]);
-    for (const tone of ["neutral", "positive", "negative", "warning"] as const) {
-      const html = renderToStaticMarkup(<Stat label="t" value="v" tone={tone} /> as never);
-      expect(html).toContain(`nre-stat--${tone}`);
-    }
-    // tone 不出现在 text 面(不新造 ANSI 颜色协议,不泄露内部词)
-    const textToned = renderNodeToText(<Stat label="t" value="v" tone="positive" />, ctx());
-    expect(textToned).not.toMatch(/positive|negative|warning|neutral/);
-  });
-
-  it("Section.meta:web 面同行(header 结构),text 面同行右对齐;省略 meta 时旧行为不变", () => {
-    const withMeta = (
-      <Section title="Title" meta="6/6 done">
-        <Text>body</Text>
-      </Section>
-    );
-    const html = renderToStaticMarkup(withMeta as never);
-    expect(html).toContain("nre-section-header");
-    expect(html).toContain("nre-section-meta");
-    expect(html).toContain("Title");
-    expect(html).toContain("6/6 done");
-    const text = renderNodeToText(withMeta, ctx());
-    const firstLine = text.split("\n")[0];
-    expect(firstLine).toContain("Title");
-    expect(firstLine).toContain("6/6 done");
-    expect(stringWidth(firstLine)).toBeLessThanOrEqual(100);
-
-    // 放不下时以两格缩进换行(meta 本身够长,createTextContext 最窄也钳在 20 列)
-    const longMeta = (
-      <Section title="Title" meta="this meta text is intentionally too long to fit on the title line">
-        <Text>body</Text>
-      </Section>
-    );
-    const narrowText = renderNodeToText(longMeta, ctx(20));
-    const lines = narrowText.split("\n");
-    expect(lines[0]).toBe("Title");
-    expect(lines[1]!.startsWith("  ")).toBe(true);
-    expect(narrowText).toContain("intentionally");
-
-    // 省略 meta:旧结构不变(裸 <h2>,无 header 包裹)
-    const withoutMeta = (
-      <Section title="Plain">
-        <Text>body</Text>
-      </Section>
-    );
-    const htmlPlain = renderToStaticMarkup(withoutMeta as never);
-    expect(htmlPlain).not.toContain("nre-section-header");
-    expect(htmlPlain).toContain('<h2 class="nre-section-title">Plain</h2>');
-  });
-
-  it("目标运行总览示例:恰好 100 显示列时两个 Grid 都降为三列,21 个 Stat 全部存在且索引递增,逐行不越界", () => {
-    const groupStats: Array<[string, string, string]> = [
-      ["平均净 R / case", "+0.479 R", "累计 +2.877 R"],
-      ["单笔期望", "+0.093 R", "已成交交易"],
-      ["Episode 胜率", "66.7%", "4 / 6 cases"],
-      ["MFE / MAE", "0.87 / 0.71", "捕获 4.3%"],
-      ["交易胜率", "41.9%", "13 / 31 笔"],
-      ["持有 / 回撤", "1.5 / 1.47 R", "bars / max DD"],
-      ["方向命中", "66.7%", "cutoff → horizon"],
-      ["完成率", "100.0%", "6 / 6"],
-      ["Profit Factor", "1.29", "盈利 R / 亏损 R"],
-      ["执行成本", "$1.09", "0 bps"],
-      ["参与 / 成交", "100.0% / 100.0%", "6 个方向订单"],
-      ["耗时 / 首次决策", "207.4 s / B0.8", "34.7 tools · 84927 tokens"],
-    ];
-    const compactStats: Array<[string, string]> = [
-      ["初始 1H", "0 bars"],
-      ["初始日线", "250 bars"],
-      ["初始周线", "104 bars"],
-      ["回放窗口", "— sessions"],
-      ["回放 1H", "20 bars"],
-      ["首次决策", "B0 起自主决定"],
-      ["待成交窗口", "— bars"],
-      ["强平提醒", "T-5 → T-1"],
-      ["长桥日 / 周回填", "0 / 0"],
-    ];
-    const cols: ReportNode[] = [];
-    for (let i = 0; i < groupStats.length; i += 2) {
-      const [a, b] = [groupStats[i]!, groupStats[i + 1]!];
-      cols.push(
-        <Col key={i}>
-          <Stat label={a[0]} value={a[1]} detail={a[2]} tone="positive" />
-          <Stat label={b[0]} value={b[1]} detail={b[2]} tone="positive" />
-        </Col>,
-      );
-    }
-    const tree = (
-      <Section title="运行总览" meta="6/6 完成 · 31 笔完整交易">
-        <Grid columns={6} variant="boxed">
-          {cols}
-        </Grid>
-        <Grid columns={9} variant="boxed" density="compact">
-          {compactStats.map(([label, value]) => (
-            <Stat key={label} label={label} value={value} />
-          ))}
-        </Grid>
-      </Section>
-    );
-    const text = renderNodeToText(tree, ctx(100));
-    for (const line of text.split("\n")) {
-      expect(stringWidth(line)).toBeLessThanOrEqual(100);
-    }
-    // 全部 21 个 Stat 都存在(声明序不丢格)
-    for (const [label] of [...groupStats, ...compactStats]) {
-      expect(text.indexOf(label), `缺少 ${label}`).toBeGreaterThan(-1);
-    }
-    // row-major 顺序:3 列的一整个物理行文本互相交织(同一 box 行内左右并排打印),
-    // 但物理行与物理行之间是严格顺序的(用 \n\n 隔开)——按行分组断言 min/max 递增,
-    // 比断言展平后的逐字段顺序更贴合实际排版,不会把「同一行内左右并排」误判成乱序。
-    // lastIndexOf:第二个 Grid 的「首次决策」是第一个 Grid「耗时 / 首次决策」的子串,
-    // indexOf 会先命中那个子串——两个 Grid 各自的真实位置都是各自标签的最后一次出现。
-    const rowIndexRange = (labels: string[]): { min: number; max: number } => {
-      const indices = labels.map((label) => text.lastIndexOf(label));
-      return { min: Math.min(...indices), max: Math.max(...indices) };
-    };
-    const grid1Rows = [
-      groupStats.slice(0, 6).map((s) => s[0]),
-      groupStats.slice(6, 12).map((s) => s[0]),
-    ].map(rowIndexRange);
-    const grid2Rows = [
-      compactStats.slice(0, 3).map((s) => s[0]),
-      compactStats.slice(3, 6).map((s) => s[0]),
-      compactStats.slice(6, 9).map((s) => s[0]),
-    ].map(rowIndexRange);
-    for (let i = 1; i < grid1Rows.length; i++) expect(grid1Rows[i]!.min).toBeGreaterThan(grid1Rows[i - 1]!.max);
-    for (let i = 1; i < grid2Rows.length; i++) expect(grid2Rows[i]!.min).toBeGreaterThan(grid2Rows[i - 1]!.max);
-    // Grid 1(6 列声明)整体先于 Grid 2(9 列声明,compact)
-    expect(grid2Rows[0]!.min).toBeGreaterThan(grid1Rows[grid1Rows.length - 1]!.max);
-    // 两个 Grid 都降到三列:每个 boxed cell 四边完整,6 + 9 = 15 个 cell 对应 5+3=... 实际按 3 列计数四角
-    expect(text.match(/┌/g)?.length).toBe(6 + 9);
-    expect(text.match(/└/g)?.length).toBe(6 + 9);
   });
 });
 
 // ───────────────────────── Tabs ─────────────────────────
 
 describe("Tabs", () => {
-  it("两面都输出全部 tab 完整内容:web 每 tab 一个 <details> 且仅首个 open;text 按声明序分节不省略", async () => {
-    const scope = scopeOf([]);
-    const definition = defineReport(
-      <Tabs>
-        <Tab title="First">
-          <Text>alpha body</Text>
-        </Tab>
-        <Tab title="Second">
-          <Text>beta body</Text>
-        </Tab>
-      </Tabs>,
-    );
-    const hostCtx = { scope, results: resultsOf([]) };
-    const html = await renderReportToStaticHtml(definition, hostCtx);
-    expect(html.match(/<details/g)).toHaveLength(2);
-    expect(html.match(/<details[^>]* open/g)).toHaveLength(1);
-    expect(html).toContain("alpha body");
-    expect(html).toContain("beta body");
-    const text = await renderReportToText(definition, hostCtx);
-    expect(text.indexOf("First")).toBeLessThan(text.indexOf("Second"));
-    expect(text).toContain("alpha body");
-    expect(text).toContain("beta body"); // 不丢第二个 tab
-  });
-
   it("空 Tabs、普通组件混作直接子节点、游离 Tab 都在树校验期给出完整用户反馈", () => {
     expect(() => validateReportTree(<Tabs>{null}</Tabs>)).toThrow(/at least one <Tab>/);
     expect(() =>
@@ -1226,107 +712,6 @@ describe("内建报告", () => {
     expect(attemptPage!.navigation).toBe(false);
     expect((attemptPage!.content as { type: unknown }).type).toBe(AttemptDetail);
   });
-
-  it("与 --report 同内容文件完全等价:同一棵页树经同一条管线渲染出逐字节相同的两面", async () => {
-    const s1 = snap({ experimentId: "compare/a", agent: "bub", results: [res("q", "passed")] });
-    const s2 = snap({ experimentId: "compare/b", agent: "codex", results: [res("q", "failed")] });
-    const scope = scopeOf([s1, s2]);
-    const ctx = { scope, results: resultsOf([s1, s2]) };
-    // 用户按 built-in.md 全文自己写同内容的 defineReport(不 import 内建入口)。
-    const user = defineReport({
-      pages: [
-        {
-          id: "report",
-          title: { en: "Report", "zh-CN": "报告" },
-          content: (
-            <Col>
-              <Hero />
-              <ScopeWarnings />
-              <CopyFixPrompt />
-              <ExperimentComparison />
-            </Col>
-          ),
-        },
-        { id: "attempts", title: "Attempts", content: <Col><Hero /><ScopeWarnings /><AttemptList filter /></Col> },
-        {
-          id: "traces",
-          title: { en: "Traces", "zh-CN": "追踪" },
-          content: <Col><Hero /><ScopeWarnings /><TraceWaterfall /></Col>,
-        },
-        { id: "attempt", title: "Attempt", input: "attempt" as const, navigation: false as const, content: <AttemptDetail /> },
-      ],
-    });
-    for (const pageId of ["report", "attempts", "traces"]) {
-      expect(await renderReportToText(builtInReport, ctx, { width: 120, pageId })).toBe(
-        await renderReportToText(user, ctx, { width: 120, pageId }),
-      );
-      expect(await renderReportToStaticHtml(builtInReport, ctx, { pageId })).toBe(
-        await renderReportToStaticHtml(user, ctx, { pageId }),
-      );
-    }
-    // 第四页(attempt-input,不能经 pageId 挑选)另走 tree 级渲染入口逐字节比对。
-    const evidence = attemptEvidenceOf();
-    const page = { id: "attempt", input: "attempt" as const, locator: evidence.locator, evidence };
-    const treeCtx = { scope, results: resultsOf([s1, s2]), report: buildReportMeta(builtInReport, scope), page };
-    expect(await renderReportTreeToText(standardAttemptPage.content, treeCtx, { width: 120 })).toBe(
-      await renderReportTreeToText(<AttemptDetail />, treeCtx, { width: 120 }),
-    );
-    expect(await renderReportTreeToStaticHtml(standardAttemptPage.content, treeCtx)).toBe(
-      await renderReportTreeToStaticHtml(<AttemptDetail />, treeCtx),
-    );
-  });
-
-  it("首页 web/text 两面都展示完整 Scope,不同深度目录的 experiment 同屏且行标签缩成最短唯一后缀;无组选择器或组索引", async () => {
-    const g1 = snap({ experimentId: "compare/alpha-exp", results: [res("q", "passed")] });
-    const g2 = snap({ experimentId: "dev/beta-exp", results: [res("q", "failed")] });
-    const ctx = { scope: scopeOf([g1, g2]), results: resultsOf([g1, g2]) };
-
-    const text = await renderReportToText(builtInReport, ctx, { width: 120 });
-    // Hero text 面:标题行(回退链终点)+ 最后运行 meta 行在页首
-    expect(text.split("\n")[0]).toBe("Eval Results");
-    expect(text).toContain("Last run");
-    // 完整 Scope 直接展示:两个不同路径的 experiment 都可见,不是组索引 + 单组查看命令;
-    // 行标签是各自末段(两个 id 互不撞名,不必加长),不带父路径。
-    expect(text).toContain("alpha-exp");
-    expect(text).toContain("beta-exp");
-    expect(text).not.toContain("compare/alpha-exp");
-    expect(text).not.toContain("dev/beta-exp");
-    expect(text).not.toContain("niceeval show --exp compare");
-    expect(text).not.toContain("niceeval show --exp dev");
-    expect(text).not.toContain("niceeval exp compare");
-    expect(text).not.toContain("niceeval exp dev");
-
-    const html = await renderReportToStaticHtml(builtInReport, ctx);
-    expect(html).not.toContain('role="tablist"');
-    expect(html).not.toContain("data-nre-experiment-group");
-    expect(html).toContain(">alpha-exp</b>");
-    expect(html).toContain(">beta-exp</b>");
-    // 完整 id 仍是排序键,只是不再重复出现在显示文字里
-    expect(html).toContain('data-sort-value="compare/alpha-exp"');
-    expect(html).toContain('data-sort-value="dev/beta-exp"');
-  });
-
-  it("0/1/多 experiment 均可渲染;0 个时三个叶子组件各自显示自己的空态", async () => {
-    const empty = { scope: scopeOf([]), results: resultsOf([]) };
-    const emptyText = await renderReportToText(builtInReport, empty, { width: 120 });
-    expect(emptyText).toContain("No data to plot Cost × Pass rate"); // MetricScatter 零点空态
-    expect(emptyText).toContain("No attempts"); // ExperimentList 零行空态
-    const emptyHtml = await renderReportToStaticHtml(builtInReport, empty);
-    expect(emptyHtml).toContain("No data to plot Cost × Pass rate");
-
-    const priced = snap({
-      experimentId: "compare/priced",
-      results: [res("q", "passed", { usage: { inputTokens: 1, outputTokens: 1, costUSD: 0.2 } })],
-    });
-    const single = await renderReportToText(
-      builtInReport,
-      { scope: scopeOf([priced]), results: resultsOf([priced]) },
-      { width: 140 },
-    );
-    expect(single).toContain("Eval / Attempt"); // 单 experiment 直接展示散点与实验明细
-    // 成本轴(better: lower)反向渲染,「更好」恒指向右上;两轴都声明 better → 提示在场
-    expect(single).toContain("better → upper right");
-  });
 });
 
 // ───────────────────────── ExperimentComparison(组合组件)─────────────────────────
@@ -1350,25 +735,6 @@ describe("ExperimentComparison(组合组件)", () => {
     return resolved.props.children;
   }
 
-  it("等价于手写的 Col<ScopeSummary/MetricScatter/ExperimentList>:同一份 input 下两棵树渲染逐字节相同(text 与 web)", async () => {
-    const a = snap({ experimentId: "cmp/a", agent: "bub", results: [res("q", "passed")] });
-    const b = snap({ experimentId: "cmp/b", agent: "codex", results: [res("q", "failed")] });
-    const ctx = { scope: scopeOf([a, b]), results: resultsOf([a, b]) };
-
-    const viaCompose = defineReport(<ExperimentComparison />);
-    const viaHandwritten = defineReport(
-      <Col>
-        <ScopeSummary />
-        <MetricScatter points="experiment" series="agent" x={costUSD} y={endToEndPassRate} />
-        <ExperimentList filter />
-      </Col>,
-    );
-    expect(await renderReportToText(viaCompose, ctx, { width: 120 })).toBe(
-      await renderReportToText(viaHandwritten, ctx, { width: 120 }),
-    );
-    expect(await renderReportToStaticHtml(viaCompose, ctx)).toBe(await renderReportToStaticHtml(viaHandwritten, ctx));
-  });
-
   it("不同深度目录的 experiments 一律进同一份 data;展开树里 ScopeSummary / MetricScatter / ExperimentList 的解析结果与直接调用三个函数深等", async () => {
     const g1a = snap({ experimentId: "compare/a", agent: "bub", results: [res("q", "passed")] });
     const g1b = snap({ experimentId: "compare/b", agent: "codex", results: [res("q", "failed")] });
@@ -1389,14 +755,14 @@ describe("ExperimentComparison(组合组件)", () => {
     withLine.experiment = { runs: 1, earlyExit: false, selectedEvalIds: ["q"], labels: { line: "codex" } };
     const withoutLine = snap({ experimentId: "series/plain", results: [res("q", "passed", withCost)] });
 
-    const textWithLine = await renderTreeText(<ExperimentComparison />, scopeOf([withLine, withoutLine]));
-    expect(textWithLine).toContain("grouped by line");
+    const [, scatterWithLine] = await resolveComparisonChildren(<ExperimentComparison />, [withLine, withoutLine]);
+    expect((scatterWithLine.props.data as { seriesDimension?: string }).seriesDimension).toBe("line");
 
-    const textNoLine = await renderTreeText(<ExperimentComparison />, scopeOf([withoutLine]));
-    expect(textNoLine).toContain("grouped by agent");
+    const [, scatterNoLine] = await resolveComparisonChildren(<ExperimentComparison />, [withoutLine]);
+    expect((scatterNoLine.props.data as { seriesDimension?: string }).seriesDimension).toBe("agent");
 
-    const textExplicit = await renderTreeText(<ExperimentComparison series="agent" />, scopeOf([withLine]));
-    expect(textExplicit).toContain("grouped by agent");
+    const [, scatterExplicit] = await resolveComparisonChildren(<ExperimentComparison series="agent" />, [withLine]);
+    expect((scatterExplicit.props.data as { seriesDimension?: string }).seriesDimension).toBe("agent");
   });
 
   it("connect 缺省跟随 series 解析:默认 line 时同 series 两点连线,默认 agent 时不连线", async () => {
@@ -1405,18 +771,13 @@ describe("ExperimentComparison(组合组件)", () => {
     lineA.experiment = { runs: 1, earlyExit: false, selectedEvalIds: ["q"], labels: { line: "codex" } };
     const lineB = snap({ experimentId: "connect/b", agent: "codex", results: [res("q", "failed", withCost)] });
     lineB.experiment = { runs: 1, earlyExit: false, selectedEvalIds: ["q"], labels: { line: "codex" } };
-    // 同一个 agent 分两个 experiment,声明 line 时归同一条线;位移摘要行(└ Pass rate …)只在
-    // connect 开时出现(scatterText 的 connect 分支),是比裸 "→" 更可靠的标记
-    // ("better → upper right" 提示行本身也含 "→",不能用来判连线)。
-    const connected = await renderTreeText(<ExperimentComparison />, scopeOf([lineA, lineB]));
-    expect(connected).toContain("grouped by line");
-    expect(connected).toContain("└ Pass rate");
+    const [, connectedScatter] = await resolveComparisonChildren(<ExperimentComparison />, [lineA, lineB]);
+    expect((connectedScatter.props as unknown as { connect?: boolean }).connect).toBe(true);
 
     const plainA = snap({ experimentId: "connect/plain-a", agent: "codex", results: [res("q", "passed", withCost)] });
     const plainB = snap({ experimentId: "connect/plain-b", agent: "codex", results: [res("q", "failed", withCost)] });
-    const unconnected = await renderTreeText(<ExperimentComparison />, scopeOf([plainA, plainB]));
-    expect(unconnected).toContain("grouped by agent");
-    expect(unconnected).not.toContain("└ Pass rate");
+    const [, unconnectedScatter] = await resolveComparisonChildren(<ExperimentComparison />, [plainA, plainB]);
+    expect((unconnectedScatter.props as unknown as { connect?: boolean }).connect).toBe(false);
   });
 
   it("line 缺省对整个 Scope 生效:混入一个声明 line 的实验后,没声明的实验落 (missing) 而非回退 agent;显式 series 覆盖全部", async () => {
@@ -1436,33 +797,6 @@ describe("ExperimentComparison(组合组件)", () => {
 
     const [, explicitScatterEl] = await resolveComparisonChildren(<ExperimentComparison series={label("memory")} />, all);
     expect((explicitScatterEl.props.data as { seriesDimension?: string }).seriesDimension).toBe("memory");
-  });
-
-  it("ExperimentList 行标签默认缩成 Scope 内的最短唯一后缀,不改变 ScopeSummary / MetricScatter 输出或排序键", async () => {
-    const a = snap({ experimentId: "compare/a", agent: "bub", results: [res("q", "passed")] });
-    const b = snap({ experimentId: "compare/b", agent: "codex", results: [res("q", "failed")] });
-    const ctx = { scope: scopeOf([a, b]), results: resultsOf([a, b]) };
-
-    const definition = defineReport(<ExperimentComparison />);
-    const html = await renderReportToStaticHtml(definition, ctx);
-    expect(html).toContain(">a</b>");
-    expect(html).toContain(">b</b>");
-    expect(html).toContain('data-sort-value="compare/a"');
-    expect(html).toContain('data-sort-value="compare/b"');
-
-    // 换成末段撞名的一对(a/run、b/run 都叫 run)时两行都要加长到能区分为止,不是随口断言。
-    const dupeA = snap({ experimentId: "compare/x/run", agent: "bub", results: [res("q", "passed")] });
-    const dupeB = snap({ experimentId: "compare/y/run", agent: "codex", results: [res("q", "failed")] });
-    const dupeHtml = await renderReportToStaticHtml(definition, { scope: scopeOf([dupeA, dupeB]), results: resultsOf([dupeA, dupeB]) });
-    expect(dupeHtml).toContain(">x/run</b>");
-    expect(dupeHtml).toContain(">y/run</b>");
-
-    // ScopeSummary / MetricScatter 完全不受行标签缩短影响
-    const [summaryEl, scatterEl] = await resolveComparisonChildren(<ExperimentComparison />, [a, b]);
-    expect(summaryEl.props.data).toEqual(await scopeSummaryData([a, b]));
-    expect(scatterEl.props.data).toEqual(
-      await metricScatterData([a, b], { points: "experiment", series: "agent", x: costUSD, y: endToEndPassRate }),
-    );
   });
 });
 
@@ -1493,21 +827,6 @@ describe("extends 与内建视图集合", () => {
     // ctx.report.title 取 extends 上声明的 title
     const s = snap({ experimentId: "compare/a", results: [res("q", "passed")] });
     expect(buildReportMeta(branded, scopeOf([s])).title).toBe("Memory Evals");
-  });
-
-  it("无外壳字段的 extends 与内建逐页两面渲染逐字节相同", async () => {
-    const s1 = snap({ experimentId: "compare/a", agent: "bub", results: [res("q", "passed")] });
-    const s2 = snap({ experimentId: "compare/b", agent: "codex", results: [res("q", "failed")] });
-    const ctx = { scope: scopeOf([s1, s2]), results: resultsOf([s1, s2]) };
-    const alias = defineReport({ extends: standard });
-    for (const pageId of ["report", "attempts", "traces"]) {
-      expect(await renderReportToText(alias, ctx, { width: 120, pageId })).toBe(
-        await renderReportToText(builtInReport, ctx, { width: 120, pageId }),
-      );
-      expect(await renderReportToStaticHtml(alias, ctx, { pageId })).toBe(
-        await renderReportToStaticHtml(builtInReport, ctx, { pageId }),
-      );
-    }
   });
 
   it("extends 只收 defineReport 产物;与 content/pages 多选或全省略按完整用户反馈报错", () => {

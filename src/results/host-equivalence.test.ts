@@ -1,25 +1,20 @@
 // cases: docs/engineering/testing/unit/results.md
-// show / view 宿主等价契约(设计契约:plan/show-view-equivalence.md 完成定义;
-// docs/feature/reports/architecture.md「Selection 是计算入口」;docs/feature/results/library.md「选择快照」)。
+// show / view 两宿主的 Scope 选择等价契约(docs/feature/results/architecture.md「Selection 是计算入口」;
+// docs/feature/results/library.md「选择快照」)。
 //
-// 守护的不变量:同一结果根、同一组范围参数下,两扇门(niceeval show 的 text 面、
-// niceeval view 的 web 面)的报告槽收到同一份现刻水位 Selection,并按同一公式算出同一批事实。
+// 守护的不变量:同一结果根、同一组范围参数下,两扇门(niceeval show 的 text 面、niceeval view 的
+// web 面)传给 selectCurrentResults(results, scope) 同形的 scope({ experiment, patterns }),必须
+// 算出同一份现刻水位 Selection —— 归一化后的 experiment 集 / 每 experiment 的 eval 集 / 每 eval 的
+// attempt 原始身份(经 AttemptRef.snapshot + attempt)/ warnings 的 kind 与结构字段全部深等。
 //
-// 分三层验:
-//  1. 结构化身份契约 —— 直接对两个宿主共同调用的选择入口 selectCurrentResults(results, scope)
-//     断言归一化后的 Selection(experiment 集 / 每 experiment 的 eval 集 / 每 eval 的 attempt 原始身份
-//     via AttemptRef.snapshot+attempt / warnings 的 kind + 结构字段)。这是最直接的契约对象:
-//     两个宿主都调这一个函数、传同形状的 scope({ experiment, patterns }),它对了两扇门就对。
-//  2. 宿主接线冒烟 —— 用真实 runShow(...) 与 loadViewScan(...) 跑同一 fixture + scope,断言两条
-//     真实渲染路径反映同一批事实(同一 experiment / eval / 通过率 / 警告在/不在),证明两扇门确实
-//     接在共享选择器上,而不是碰巧一致。轻断言渲染文案,不做整段 snapshot(排版差异是预期)。
-//  3. 默认报告计算事实对照 —— 即使 Selection 相同,也要 text 面与 web 面算出同一通过率、同一警告
-//     横幅在/不在,防止某一宿主在下游偷换公式或吞掉 warning。
+// 这是最直接的契约对象:两个宿主都调这一个函数、传同形状的 scope,它对了两扇门就对——不需要真的
+// 起 show / view 两条渲染路径去比较文案。渲染出的终端文案与 HTML 不在本层断言,归
+// docs/engineering/testing/e2e/report.md 的读面 CLI 行为(§4)与渲染面(§5)验收。
 //
 // fixture 直接写新布局(<expDir>/<snapDir>/snapshot.json + <evalId>/a<n>/result.json),
 // 依据 docs/feature/results/architecture.md 的稳定磁盘契约(与 show.test.ts / view/data.test.ts 同一写法)。
 
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -27,8 +22,6 @@ import { openResults } from "./index.ts";
 import type { Scope, ScopeWarning } from "./index.ts";
 import { selectCurrentResults, type ResultScope } from "./select.ts";
 import { RESULTS_FORMAT, RESULTS_SCHEMA_VERSION, type EvalResult, type Verdict } from "../types.ts";
-import { runShow, type ShowFlags } from "../show/index.ts";
-import { loadViewScan, type ViewScanOptions } from "../view/data.ts";
 
 // ───────────────────────── fixture 工具 ─────────────────────────
 
@@ -40,17 +33,6 @@ async function makeRoot(): Promise<string> {
 }
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((r) => rm(r, { recursive: true, force: true })));
-});
-
-// 报告 chrome 跟随 CLI 界面语言(detectLocale);固定 en 让文案断言不随宿主机 LANG 漂移。
-let langBackup: string | undefined;
-beforeAll(() => {
-  langBackup = process.env.NICEEVAL_LANG;
-  process.env.NICEEVAL_LANG = "en";
-});
-afterAll(() => {
-  if (langBackup === undefined) delete process.env.NICEEVAL_LANG;
-  else process.env.NICEEVAL_LANG = langBackup;
 });
 
 type AttemptFixture = Pick<EvalResult, "id" | "verdict"> &
@@ -170,35 +152,26 @@ function normalizeSelection(selection: Scope): NormSelection {
   };
 }
 
-// ───────────────────────── 宿主运行封装 ─────────────────────────
-
-/** show 的 text 面:与 CLI 同一调用面(runShow),报告槽输出捕获成字符串。 */
-async function showText(root: string, patterns: string[], flags: ShowFlags = {}): Promise<string> {
-  let out = "";
-  let err = "";
-  const code = await runShow(root, patterns, { results: root, ...flags }, {
-    out: (s) => (out += s),
-    err: (s) => (err += s),
-    width: 120,
-    now: Date.parse("2026-07-09T10:01:00.000Z"),
-  });
-  if (code !== 0) throw new Error(`runShow exited ${code}: ${err}`);
-  return out;
-}
-
-/** view 的 web 面:loadViewScan → 报告槽 HTML(en)。 */
-async function viewHtml(root: string, opts: ViewScanOptions = {}): Promise<string> {
-  const { reportPages } = await loadViewScan(root, opts);
-  return reportPages.map((page) => page.html.en).join("\n");
-}
-
 /** 两个宿主构造给选择器的 scope 完全同形:验证读源无误,避免"我以为它们一样"。 */
 function hostScope(patterns: string[], experiment?: string): ResultScope {
   return { experiment, patterns };
 }
 
+/** 周一全量(q1 通过、q2 失败)+ 周二只补跑 q1(仍通过):现刻水位 = q1 周二 + q2 周一,50%。 */
+async function seedPartialRerun(): Promise<string> {
+  const root = await makeRoot();
+  await writeSnapshot(root, "2026-07-01T08-00-00-000Z", { experimentId: "compare/bub", startedAt: "2026-07-01T08:00:00.000Z" }, [
+    res("q1", "passed"),
+    res("q2", "failed", { assertions: [{ name: 'fileChanged("q2.tsx")', severity: "gate", score: 0, outcome: "failed" as const, detail: "file was not modified" }] }),
+  ]);
+  await writeSnapshot(root, "2026-07-02T08-00-00-000Z", { experimentId: "compare/bub", startedAt: "2026-07-02T08:00:00.000Z" }, [
+    res("q1", "passed"),
+  ]);
+  return root;
+}
+
 // ══════════════════════════════════════════════════════════════════════════
-// 第 1 层:selectCurrentResults 结构化身份契约(11 必测场景中的选择器可判定部分)
+// selectCurrentResults · 现刻水位结构化身份(11 必测场景中的选择器可判定部分)
 // ══════════════════════════════════════════════════════════════════════════
 
 describe("selectCurrentResults · 现刻水位结构化身份", () => {
@@ -393,19 +366,14 @@ describe("selectCurrentResults · 现刻水位结构化身份", () => {
   it("场景9 --run 指向单个结果根:选择器只看该根的实验,不串到另一个根", async () => {
     const rootA = await makeRoot();
     const rootB = await makeRoot();
-    // 失败 eval 让 id 现于两面(通过 eval 只进折叠子行,不便断言);qa / qb 各根独有。
-    const boom = { assertions: [{ name: "succeeded()", severity: "gate" as const, score: 0, outcome: "failed" as const, detail: "boom" }] };
-    await writeSnapshot(rootA, "2026-07-01T08-00-00-000Z", { experimentId: "onlyA/bub", startedAt: "2026-07-01T08:00:00.000Z" }, [res("qa", "failed", boom)]);
-    await writeSnapshot(rootB, "2026-07-02T08-00-00-000Z", { experimentId: "onlyB/bub", startedAt: "2026-07-02T08:00:00.000Z" }, [res("qb", "failed", boom)]);
+    await writeSnapshot(rootA, "2026-07-01T08-00-00-000Z", { experimentId: "onlyA/bub", startedAt: "2026-07-01T08:00:00.000Z" }, [res("qa", "passed")]);
+    await writeSnapshot(rootB, "2026-07-02T08-00-00-000Z", { experimentId: "onlyB/bub", startedAt: "2026-07-02T08:00:00.000Z" }, [res("qb", "passed")]);
+    const normA = normalizeSelection(selectCurrentResults(await openResults(rootA)));
     const normB = normalizeSelection(selectCurrentResults(await openResults(rootB)));
+    // 各根只看见自己的实验;show --run rootB / view rootB 传的都是同一个 root 参数,
+    // 不会把另一个根的 experiment 混进来 —— 隔离性在选择入口这一层就成立。
+    expect(normA.experiments.map((e) => e.experimentId)).toEqual(["onlyA/bub"]);
     expect(normB.experiments.map((e) => e.experimentId)).toEqual(["onlyB/bub"]);
-    // 宿主接线:show --run rootB / view rootB 只反映 rootB(qb 在、qa 不在)。
-    const text = await showText(rootB, []);
-    expect(text).toContain("qb");
-    expect(text).not.toContain("qa");
-    const html = await viewHtml(rootB);
-    expect(html).toContain("qb");
-    expect(html).not.toContain("qa");
   });
 
   it("场景11 resume 携带的复印件不重复计票,证据 ref 仍指向可读 artifact", async () => {
@@ -432,165 +400,5 @@ describe("selectCurrentResults · 现刻水位结构化身份", () => {
     // 证据 ref 可达:复印件的 artifactBase 回退到原快照,events.json 仍读得到(非 null)。
     const q1 = selection.snapshots[0].evals.find((e) => e.id === "q1")!;
     expect(await q1.attempts[0].events()).not.toBeNull();
-  });
-});
-
-// ══════════════════════════════════════════════════════════════════════════
-// 第 2 层:两个宿主接线同一选择器(真实 runShow / loadViewScan 反映同一批事实)
-// ══════════════════════════════════════════════════════════════════════════
-
-/** 周一全量(q1 通过、q2 失败)+ 周二只补跑 q1(仍通过):现刻水位 = q1 周二 + q2 周一,50%。 */
-async function seedPartialRerun(): Promise<string> {
-  const root = await makeRoot();
-  await writeSnapshot(root, "2026-07-01T08-00-00-000Z", { experimentId: "compare/bub", startedAt: "2026-07-01T08:00:00.000Z" }, [
-    res("q1", "passed"),
-    res("q2", "failed", { assertions: [{ name: 'fileChanged("q2.tsx")', severity: "gate", score: 0, outcome: "failed" as const, detail: "file was not modified" }] }),
-  ]);
-  await writeSnapshot(root, "2026-07-02T08-00-00-000Z", { experimentId: "compare/bub", startedAt: "2026-07-02T08:00:00.000Z" }, [
-    res("q1", "passed"),
-  ]);
-  return root;
-}
-
-/** partial-coverage:knownEvalIds 声明 q2 但从未落盘;q1 失败让失败 eval id 现于两面。 */
-async function seedPartialCoverage(): Promise<string> {
-  const root = await makeRoot();
-  await writeSnapshot(
-    root,
-    "2026-07-01T08-00-00-000Z",
-    { experimentId: "compare/bub", startedAt: "2026-07-01T08:00:00.000Z", knownEvalIds: ["q1", "q2"] },
-    [res("q1", "failed", { assertions: [{ name: "succeeded()", severity: "gate", score: 0, outcome: "failed" as const, detail: "boom" }] })],
-  );
-  return root;
-}
-
-describe("宿主接线 · show text 面与 view web 面反映同一批事实", () => {
-  it("局部补跑:两扇门都从周一补齐 q2,通过率 50%,不出伪残缺警告", async () => {
-    const root = await seedPartialRerun();
-    const text = await showText(root, []);
-    const html = await viewHtml(root);
-    for (const face of [text, html]) {
-      expect(face).toContain("q2"); // 周一补齐的失败 eval,若宿主回退 results.latest() 就会消失
-    }
-    expect(text).toMatch(/\bbub\s+default\s+bub\s+1s\s+50%/);
-    expect(html).toContain('data-sort-value="compare/bub"');
-    expect(text).toContain("1 passed · 1 failed");
-    expect(html).toContain("50%");
-    // 现刻水位覆盖齐全 → 两面都不出 partial-coverage(text: "verdicts cover"; html: data-kind)。
-    expect(hasPartialCoverageText(text)).toBe(false);
-    expect(hasPartialCoverageHtml(html)).toBe(false);
-    // 直接对照选择器口径:两个宿主传的 scope 同形,选择器给出的正是这份现刻水位。
-    const norm = normalizeSelection(selectCurrentResults(await openResults(root), hostScope([])));
-    expect(norm.experiments[0].evals.map((e) => e.evalId)).toEqual(["q1", "q2"]);
-  });
-
-  it("位置前缀收窄:两扇门都只见范围内的 eval,范围外一致排除", async () => {
-    const root = await makeRoot();
-    await writeSnapshot(root, "2026-07-01T08-00-00-000Z", { experimentId: "compare/bub", startedAt: "2026-07-01T08:00:00.000Z" }, [
-      res("weather/brooklyn", "failed", { assertions: [{ name: "succeeded()", severity: "gate", score: 0, outcome: "failed" as const, detail: "boom" }] }),
-      res("weather/queens", "passed"),
-      res("algebra/quadratic", "passed"),
-    ]);
-    // "weather" 前缀匹配 2 题 → show 仍走报告槽(非单 eval 详情)。
-    const text = await showText(root, ["weather"]);
-    const html = await viewHtml(root, { patterns: ["weather"] });
-    for (const face of [text, html]) {
-      expect(face).toContain("weather/brooklyn"); // 范围内失败 eval 现身两面
-      expect(face).not.toContain("algebra"); // 范围外一致排除
-    }
-  });
-
-  it("--report 收到与裸默认报告相同的 Selection(eval 集一致)", async () => {
-    const root = await seedPartialRerun();
-    // 回显报告:把注入 Selection 的 eval id 集打印出来 —— 与裸默认报告用同一份 Selection 才对得上。
-    const reportPath = join(root, "echo-report.mjs");
-    await writeFile(
-      reportPath,
-      [
-        "// 手搭新 defineReport 产物(kind + brand + 规范化页列表);组合组件从 ctx.scope 读注入范围。",
-        'const FACES = Symbol.for("niceeval.report.faces");',
-        'const COMPOSE = Symbol.for("niceeval.report.compose");',
-        "const Leaf = (props) => Leaf[FACES].web(props);",
-        "Leaf[FACES] = {",
-        '  web: (props) => "EVALS[" + props.ids + "]",',
-        '  text: (props) => "EVALS[" + props.ids + "]",',
-        "};",
-        "const Echo = () => { throw new Error(\"compose only\"); };",
-        "Echo[COMPOSE] = (_props, ctx) => ({",
-        '  $$typeof: Symbol.for("react.transitional.element"),',
-        "  type: Leaf,",
-        '  props: { ids: ctx.scope.snapshots.flatMap((s) => s.evals.map((e) => e.id)).sort().join(",") },',
-        "  key: null,",
-        "});",
-        "export default {",
-        '  kind: "report",',
-        '  [Symbol.for("niceeval.report.definition")]: true,',
-        "  links: [],",
-        "  head: [],",
-        "  scripts: [],",
-        "  styles: [],",
-        "  pages: [{",
-        '    id: "report",',
-        '    title: "Report",',
-        '    content: { $$typeof: Symbol.for("react.transitional.element"), type: Echo, props: {}, key: null },',
-        "  }],",
-        "};",
-        "",
-      ].join("\n"),
-      "utf-8",
-    );
-    const bareNorm = normalizeSelection(selectCurrentResults(await openResults(root)));
-    const expectedIds = bareNorm.experiments.flatMap((e) => e.evals.map((ev) => ev.evalId)).sort().join(",");
-
-    const text = await showText(root, [], { report: reportPath });
-    const html = await viewHtml(root, { report: { path: reportPath, cwd: root } });
-    expect(text).toContain(`EVALS[${expectedIds}]`);
-    expect(html).toContain(`EVALS[${expectedIds}]`);
-  });
-});
-
-// ══════════════════════════════════════════════════════════════════════════
-// 第 3 层:默认报告计算事实对照(通过率 / 警告横幅 在 text 面与 web 面口径一致)
-// ══════════════════════════════════════════════════════════════════════════
-
-/** partial-coverage 的 text 形态(report.ts 的 "! <message>" 前置块,message 含 "verdicts cover N of M")。 */
-function hasPartialCoverageText(text: string): boolean {
-  return /verdicts cover \d+ of \d+ evals/.test(text);
-}
-/** partial-coverage 的 web 形态(web.ts 的 li.nre-warning[data-kind="partial-coverage"])。 */
-function hasPartialCoverageHtml(html: string): boolean {
-  return html.includes('data-kind="partial-coverage"');
-}
-
-  describe("默认宿主事实对照 · show / view 渲染同一报告的两面", () => {
-  it("通过计数一致:同一 fixture 两面反映 3 过 1 败", async () => {
-    const root = await makeRoot();
-    await writeSnapshot(root, "2026-07-01T08-00-00-000Z", { experimentId: "compare/bub", startedAt: "2026-07-01T08:00:00.000Z" }, [
-      res("q1", "failed", { durationMs: 40_000, estimatedCostUSD: 0.04, assertions: [{ name: "succeeded()", severity: "gate", score: 0, outcome: "failed" as const, detail: "boom" }] }),
-      res("q2", "passed", { durationMs: 2_000, estimatedCostUSD: 0.02 }),
-      res("q3", "passed", { durationMs: 2_000, estimatedCostUSD: 0.02 }),
-      res("q4", "passed", { durationMs: 2_000, estimatedCostUSD: 0.02 }),
-    ]);
-    const text = await showText(root, []);
-    const html = await viewHtml(root);
-    expect(text).toContain("3 passed · 1 failed");
-    expect(html).toContain("75%");
-    for (const face of [text, html]) expect(face).toContain("compare/bub");
-    // 无残缺:两面都不出 partial-coverage,布尔一致(某面偷偷补/漏警告即失配)。
-    expect(hasPartialCoverageText(text)).toBe(hasPartialCoverageHtml(html));
-    expect(hasPartialCoverageText(text)).toBe(false);
-  });
-
-  it("警告横幅一致:真实 partial-coverage 在两面同时在场(布尔对照)", async () => {
-    const root = await seedPartialCoverage();
-    const text = await showText(root, []);
-    const html = await viewHtml(root);
-    // 两面都必须报出真残缺;某一宿主吞掉 warning → 下面这条布尔对照失配。
-    expect(hasPartialCoverageText(text)).toBe(true);
-    expect(hasPartialCoverageHtml(html)).toBe(true);
-    expect(hasPartialCoverageText(text)).toBe(hasPartialCoverageHtml(html));
-    // 且 message 里的分子/分母(1 of 2)两面一致 —— 同一 SelectionWarning.message。
-    expect(text).toContain("verdicts cover 1 of 2 evals");
-    expect(html).toContain("verdicts cover 1 of 2 evals");
   });
 });
