@@ -101,6 +101,30 @@ coordinator 的 failure / kept 事件、reporter 的 `eval:complete` 与最终 `
 同一个 locator。Artifacts writer 经 `RunShape.snapshotStartedAt` 使用同一个锚点;自动携带的
 条目仍原样保留旧 locator,不按当前 invocation 重算。
 
+## 终端框线:一个渲染件,全仓消费
+
+框线的**行为契约**单源在[排版原语 · 区域框](feature/reports/library/layout.md#区域框text-面的框线体裁)(几何、嵌字、嵌套降级、量测、非 TTY 降级);本节定它的**物理实现**:全仓只有一个面板渲染件,所有终端面板——`show` 的证据区块(Section text 面)、`exp` 的 live 面板与结束面板(`runner/feedback/human.ts`)、`sandbox` 命令组的一次性面板(`sandbox/cli-commands.ts`)——都经它产出物理行,任何模块不得自己拼 `╭─` 字符串。理由与量测同源:渲染与量测必须用同一张宽度表,框线几何一旦出现第二份实现,嵌字优先级、截断规则与宽度表就开始各自漂移——右边框顶歪、标题截断不一致这类 bug 的结构性根因就是「多处手拼」。
+
+### 落点与依赖方向
+
+```text
+src/report/model/text-layout.ts   量测与折行单源(stringWidth / wrapText / …,已定稿)
+src/report/model/panel.ts         面板渲染件:同步纯函数,消费 text-layout,实现区域框全部几何
+```
+
+- **输入输出**:渲染件收 `{ title?, meta?, footerCommand?, rows, width, mode }`——`rows` 是已经组好的逻辑行,`mode` 是传输能力(框线 / 朴素);返回物理行数组。它实现区域框契约的全部几何规则:宽度上限 100、边框嵌字与「先保标题后保 meta」的截断次序、嵌套 Section 降横隔 `├─ ─┤`、朴素模式降为「标题成行 + 正文缩进」的无框文本。
+- **不做 IO**:渲染件不读 `process`、不知道 stdout / stderr、不管重画。传输能力由调用方注入——`exp` 走 `FeedbackIO`、`show` 走 `TextContext.width`、`sandbox` 命令组启动时探测一次。live 面板的帧率合并、`clear → append → redraw` 排序仍归 feedback coordinator;一次性命令拿到行直接写出。降级判断因此也只有一份:调用方只报告能力,不各自实现「窄于 60 列怎么办」。
+- **消费方**:`Section` 的 text 面(`src/report/definition/primitives.tsx`)、`runner/feedback/human.ts`、`sandbox/cli-commands.ts`。`Grid` cell 的直角框仍归 `grid-layout.ts`(它是数据格几何,不是区域框),但量测同样只走 text-layout。
+- **依赖方向**:面板渲染件与 text-layout 同属 report 构建单元的 model 层,是无模块态的同步纯函数。CLI 侧(feedback renderer、sandbox 命令组)按普通模块 import 它们,与[单一 report runtime 身份](feature/reports/architecture.md#单一-report-runtime-身份)不冲突——那条约束针对装载态与 `ReportDefinition` 品牌,不约束纯函数工具;反向(report 组件 import CLI / feedback)仍然禁止。
+
+### 为什么不引第三方终端 UI 库
+
+- **`ink`(React 终端渲染器)**:报告树已有自己的双面组件模型与 `resolve → validate → render` 管线,ink 再带一套 reconciler 与 JSX runtime 就是第二个组件模型。live 面板的刷新契约(真实状态变化驱动、每秒最多 4 帧、历史帧不得进 scrollback)要求重绘时点完全受控,交给 reconciler 就失去这层控制。且 `react` 在本包只是可选 peerDependency,CLI 核心路径不能硬依赖它。
+- **`boxen` / `cli-table3` 这类框线库**:框画得出来,但它们各自内置宽度量测(`string-width` 及其 East-Asian-Ambiguous 策略),与区域框契约定死的宽度表(CJK 记 2 列、`·` `●` 等 ambiguous 恒记 1 列)不保证一致——两张宽度表并存正是要消灭的漂移;边框嵌标题 / meta / 下钻命令、嵌套降横隔、100 列上限这些契约规则它们也不覆盖,包一层适配后几何还是要自己写。
+- **结论**:框线几何是百行级同步纯函数,底层唯一的难点(显示宽度)已由 `text-layout.ts` 单源解决;引库的成本(供应链、版本漂移、第二张宽度表)高于自写成本。色彩只标结论词,按需写 ANSI 转义,不引 `chalk`。
+
+哪些输出该画框不由这套实现决定,由[区域框的体裁规则](feature/reports/library/layout.md#区域框text-面的框线体裁)决定:面板画框;`list` 的 eval 清单、`sandbox stop` 的确认行、diff hunk、失败流这类逐条流事件不画框,不为统一观感而框化。
+
 ## flag 解析:表驱动,单源
 
 `FLAG_OPTIONS`(`src/cli.ts`)是 `node:util` `parseArgs` 的 options 表,每一项的 JSDoc 注释就是它在生成的 CLI 参考页 flag 表里的说明——改 flag 语义只改这条注释,不用碰生成脚本(`scripts/generate-reference.ts`)。`--no-x` 形式的负向 flag 显式声明成独立表项(而不是依赖 `parseArgs` 的 `allowNegative`,后者要求 Node 20.14+,而 `engines` 只保证 >=18)。`strict: true` 让未知 flag 直接报错,不静默吞掉后面的位置参数。
