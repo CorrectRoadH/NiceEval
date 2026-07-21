@@ -20,7 +20,8 @@
 
 | recharts 组件 | recharts 的绑定方式 | niceeval 候选处理 | 为什么 |
 |---|---|---|---|
-| `Line` / `Bar` / `Area` / `Scatter`(四个独立组件) | `dataKey: string`,从作者传入的原始对象数组里取一个字段 | 合并成一个 `ChartSeries`,`as="line" \| "bar" \| "area"` 选呈现;核心数据 prop 从 `dataKey` 换成 `metric: Metric` | recharts 的 `dataKey` 假设作者随手传一个 JSON 数组、取字段名;niceeval 的 series 永远绑定一个 `Metric` 实例(带聚合口径、`better` 方向、单位),四个组件的真正差异只在"怎么画",不在"怎么取数"。拆成四个组件会让"新增一种画法"等价于"照抄一个新组件",合并成一个 `as` 属性才对应 niceeval 实际会变化的维度。 |
+| `Line` / `Bar` / `Area` / `Scatter`(四个独立组件) | `dataKey: string`,从作者传入的原始对象数组里取一个字段;堆叠用 series 组件上的 `stackId` prop 表达 | 合并成一个 `ChartSeries`,`as="line" \| "bar" \| "area"` 选呈现;核心数据 prop 从 `dataKey` 换成 `metric: Metric`;`stackId` 以 `stack` prop 承接——同容器内 `stack` 值相同的 series 堆进同一根柱([真实图表对照 · 图 3](gallery.md#图-3成本构成堆叠条形)) | recharts 的 `dataKey` 假设作者随手传一个 JSON 数组、取字段名;niceeval 的 series 永远绑定一个 `Metric` 实例(带聚合口径、`better` 方向、单位),四个组件的真正差异只在"怎么画",不在"怎么取数"。拆成四个组件会让"新增一种画法"等价于"照抄一个新组件",合并成一个 `as` 属性才对应 niceeval 实际会变化的维度。 |
+| `ErrorBar` | 子组件,`dataKey` 指向作者预先算好的误差值字段 | 同名 `ErrorBar`,但不收 `dataKey`:误差区间从该 series 聚合值已有的 attempt 级样本证据(`samples`/`refs`)计算,作者只选统计口径 | recharts 不知道数据从哪来,误差值只能作者自备;niceeval 的聚合值天然携带样本证据,让作者手工再算一遍置信区间等于把管线已有的信息复写进报告。用例见[真实图表对照 · 图 1](gallery.md#图-1单指标排行条形与置信区间)。 |
 | `XAxis` / `YAxis` | 独立子组件,携带 `dataKey`、domain、tick 格式 | 不作为子组件出现,继续是容器/组件自身的 `x` / `y` prop(与今天 `MetricLine.x`、`MetricScatter.x`/`y` 一致) | recharts 需要独立轴组件,是因为它的 `data` 只是裸数组,tick 格式化、label、domain 全靠这个组件的 props 表达;niceeval 的 `NumericAxis` / `Metric` 对象本身已经携带这些字段([指标与维度](../../feature/reports/library/metrics.md)),再包一层 JSX 元素是纯重复,不是新增表达力。 |
 | `LineChart` / `BarChart` / `AreaChart`(单一类型容器) | 容器名字直接等于图表类型 | 不改名:沿用既有 `MetricLine` / `MetricBars`,只给它们加"可选 children"这一能力 | 这两个名字已经是 niceeval 导出多年的定稿概念([指标组件](../../feature/reports/library/metric-views.md)),候选只扩展它们的组合能力,不该无故打散已有心智——[Library 举例](library.md)的场景 1、2、4 都基于这个决定。 |
 | `ComposedChart`(混合类型容器) | 同一容器下并列多种 series 组件类型 | 新增 `MetricComposed` | niceeval 现状没有任何组件能表达"同一张图混合多种呈现类型"([Library 举例 · 场景 3](library.md#场景-3同一张图混合柱与线现状完全不可能)),这是唯一必须开一个新名字的场景,也是候选里唯一直接对应 recharts 概念的全新组件。 |
@@ -52,10 +53,12 @@
 5. **`connect`——散点图内按 series 排序连线。** recharts 的 `Scatter` 从不连线、`Line` 总是连线,没有"可选连线的散点"这个概念;niceeval 用它表达 baseline → 变体的位移([`MetricScatter`](../../feature/reports/library/metric-views.md#metricscatter))。
 6. **`better` 方向感知的坐标轴渲染。** "越靠右上越好"的自动翻转是 niceeval 领域特有的渲染规则,recharts 的 `XAxis` / `YAxis` 不知道"哪个方向更好"。
 7. **`ChartSeries` 的 `by` / `value` 双形态。** 上一节已经展开:recharts 的 series 永远是字面量声明,"按维度自动展开出未知数量的 series"是 niceeval 需要新增的能力,recharts 没有对应物。
+8. **`sort` 与 `MetricBars` 单维排行形态。** recharts 不排序——作者自备排好序的 `data` 数组即可;niceeval 的条形数据产自聚合管线,作者手里没有中间数组,排序必须是组件选项,语义沿用 [`MetricTable.sort`](../../feature/reports/library/metric-views.md#metrictable) 的 `better` 规则。`MetricBars` 省略 `columns` 的单维排行形态(一个维度值一根条)同属这次新增,动机见[真实图表对照 · 图 1](gallery.md#图-1单指标排行条形与置信区间)。
 
 ## 相关阅读
 
 - [图表组件的声明式子组件语法](README.md) —— 问题陈述、recharts 模型、兼容性分析与候选契约全文。
 - [Library 举例](library.md) —— 逐场景对比现状写法与候选写法,用的就是本页定下的命名。
+- [真实图表对照](gallery.md) —— 四张真实报告图的结构对照;`ErrorBar`、`stack`、单维排行形态的动机来源。
 - [References · Recharts](../../references.md#recharts) —— 调研原始记录。
 - [指标组件](../../feature/reports/library/metric-views.md) —— 现状组件的完整 props 契约、`DataProps`、`DeltaTable.pairs` 字面量与派生声明并存的先例。

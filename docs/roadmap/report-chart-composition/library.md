@@ -1,6 +1,6 @@
 # Library 举例——现状写法 vs 候选写法
 
-这篇逐场景对比[现状图表组件](../../feature/reports/library/metric-views.md)的扁平 props 写法与[候选 A](README.md#候选契约)的声明式子组件写法,给出每个场景下语法是否更短、表现力是否更强的具体结论——结论并不总是"候选更好",子组件语法只在特定场景下有真实收益,见文末[结论](#结论子组件语法的收益边界)。候选写法沿用[组件对照](component-mapping.md)定下的命名:`MetricLine`/`MetricBars` 保留现状名字只新增 children,`MetricComposed` 是唯一的新容器,`ChartSeries`/`Tooltip`/`Legend`/`CartesianGrid`/`ReferenceLine` 是子组件——这些都是本页用来举例的候选形状,不是定稿契约。
+这篇逐场景对比[现状图表组件](../../feature/reports/library/metric-views.md)的扁平 props 写法与[候选 A](README.md#候选契约)的声明式子组件写法,给出每个场景下语法是否更短、表现力是否更强的具体结论——结论并不总是"候选更好",子组件语法只在特定场景下有真实收益,见文末[结论](#结论子组件语法的收益边界)。本页从 niceeval 的场景出发;从真实报告图的形态出发的反向检验在[真实图表对照](gallery.md),两篇互补。候选写法沿用[组件对照](component-mapping.md)定下的命名:`MetricLine`/`MetricBars` 保留现状名字只新增 children,`MetricComposed` 是唯一的新容器,`ChartSeries`/`Tooltip`/`Legend`/`CartesianGrid`/`ReferenceLine` 是子组件——这些都是本页用来举例的候选形状,不是定稿契约。
 
 ## 场景 1——单一 series 趋势图:候选没有优势
 
@@ -109,5 +109,6 @@
 
 - [图表组件的声明式子组件语法](README.md) —— 问题陈述、recharts 模型、兼容性分析与候选契约全文。
 - [组件对照](component-mapping.md) —— 每个 recharts 组件原样借用、改名还是不借用,及 niceeval 新增的部分,本页命名的判定依据。
+- [真实图表对照](gallery.md) —— 四张真实报告图的结构对照,本页场景 2/5 的结论在真实图上的验证。
 - [指标组件](../../feature/reports/library/metric-views.md) —— 现状组件的完整 props 契约与数据形状。
 - [概览组件](../../feature/reports/library/summaries.md) —— `ExperimentComparison` 现状"多图并列"的组合方式。
