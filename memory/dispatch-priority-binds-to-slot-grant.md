@@ -27,7 +27,7 @@
 
 ## 落点
 
-契约：`docs/runner.md`「调度:有界并发」+「派发顺序:瓶颈优先」两节重写，`docs/feature/experiments/architecture.md` 实验级生命周期的「不占并发位」条改为「不占并发位,也不折损优先级」，`docs-site/zh/explanation/runner.mdx` 并发节补用户视角一段。场景行登记在 `docs/engineering/testing/unit/experiments-runner/cases.md` 并发分区（3 行：瓶颈优先分配 / work-conserving / 等待中被中止不泄漏名额）。实现未动，待按登记行先写红测试再改 `src/runner/run.ts`。
+契约：`docs/runner.md`「调度:有界并发」+「派发顺序:瓶颈优先」两节重写，`docs/feature/experiments/architecture.md` 实验级生命周期的「不占并发位」条改为「不占并发位,也不折损优先级」，`docs-site/zh/explanation/runner.mdx` 并发节补用户视角一段。场景行登记在 `docs/engineering/testing/unit/experiments-runner.md` 并发分区（3 行：瓶颈优先分配 / work-conserving / 等待中被中止不泄漏名额）。实现未动，待按登记行先写红测试再改 `src/runner/run.ts`。
 
 ## 可复用的判据
 

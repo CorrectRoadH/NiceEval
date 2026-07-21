@@ -1,4 +1,4 @@
-// cases: docs/engineering/testing/unit/reports/cases.md
+// cases: docs/engineering/testing/unit/reports.md
 // 「外壳、页面与 Tabs」分区——
 // 宿主页头不渲染任何品牌位、宿主无 hero 区(hero / 品牌行是页内组件,见 site-components 测试);
 // view 导航只有报告定义声明的页(声明序),宿主不追加或保留任何导航项;

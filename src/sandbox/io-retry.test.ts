@@ -1,4 +1,4 @@
-// cases: docs/engineering/testing/unit/sandbox/cases.md
+// cases: docs/engineering/testing/unit/sandbox.md
 import { describe, expect, it, vi } from "vitest";
 import { classifySandboxIoError } from "./errors.ts";
 import { withSandboxIoRetry } from "./io-retry.ts";

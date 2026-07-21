@@ -5,4 +5,4 @@
 - **曾选方案 B**(讨论中被否):收窄语义与本地 view 完全一致——只过滤页面 Scope,证据树全量出站。否决理由:页面显示只有 compare、`artifact/` 里 dev-e2b 的 prompt/输出/源码全部出站,发布者被误导,这正是旧互斥要防的事故。
 - **曾选方案 C′**(实现中途被收紧):收窄只滤证据文件清单,viewData 保持全量、本地宿主「越过收窄」解析 attempt 深链。否决理由:viewData(判定、摘要、annotated 数据)烘进 index.html,被滤实验的数据仍随 HTML 出站,承诺没兑现;且本地宿主要长出「清单外回根查找」的特例,破坏两宿主对称。
 - **代价**:本地 `view --exp compare` 下,被滤掉实验的 attempt 深链不再可达(旧行为可达)。逃生门:不带收窄重新打开完整 Scope。
-- **落点**:契约 `docs/feature/reports/view.md`(开篇 + 静态导出)、`docs/feature/reports/architecture.md`(attempt 详情路由);实现 `src/view/data.ts`(loadViewScan 的 scopedExperiments / matchEval)、`src/view/index.ts`(删互斥校验);用例 `docs/engineering/testing/unit/reports/cases.md`、`src/view/view-report.test.ts`。
+- **落点**:契约 `docs/feature/reports/view.md`(开篇 + 静态导出)、`docs/feature/reports/architecture.md`(attempt 详情路由);实现 `src/view/data.ts`(loadViewScan 的 scopedExperiments / matchEval)、`src/view/index.ts`(删互斥校验);用例 `docs/engineering/testing/unit/reports.md`、`src/view/view-report.test.ts`。

@@ -1,4 +1,4 @@
-// cases: docs/engineering/testing/unit/reports/cases.md
+// cases: docs/engineering/testing/unit/reports.md
 // view 数据层(data.ts)的单测:loader 收编到 openResults、统计整体住进报告槽之后,
 // 守护三件事——skipped 三种原因如实进 viewData(producer 感知的 npx 提示)、报告槽是
 // 现刻水位口径(裸跑经 selectCurrentResults 跨快照合成每 experiment × eval 的最新判定,

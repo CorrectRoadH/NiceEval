@@ -1,4 +1,4 @@
-// cases: docs/engineering/testing/unit/sandbox/cases.md
+// cases: docs/engineering/testing/unit/sandbox.md
 // 覆盖 reconcileProvision 对账逻辑,不打真实 e2b API——mock "e2b" 整个模块。
 // 背景:线上跑分撞见过 nextItems() 之后 `for...of` 抛 "X is not iterable" 的一次,
 // 没能稳定复现出确切成因;这里补的是"对账这条路径本身撞上瞬时错误该怎么办"这层契约,

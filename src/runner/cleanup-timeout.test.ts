@@ -1,4 +1,4 @@
-// cases: docs/engineering/testing/unit/experiments-runner/cases.md
+// cases: docs/engineering/testing/unit/experiments-runner.md
 // (「cleanup 执行有界」行;sandbox/cases.md 的「收尾链每个可调用体各有清理超时」行同样由本文件证明机制)
 // bug: memory/force-exit-skips-experiment-teardown.md
 import { describe, expect, it } from "vitest";

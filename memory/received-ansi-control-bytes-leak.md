@@ -32,7 +32,7 @@ niceeval **自己生成的帧**不含 ESC,从没覆盖「捕获内容本身带 A
   注意:改 `src/report/**` 后 CLI 行为要 `pnpm run build:report` 才生效(见 [[report-src-changes-need-dist-rebuild]])。
 - 契约单源在 `docs/feature/scoring/library/display.md` 契约一「折单行规则」+ 通用渲染规则;
   `docs/feature/experiments/cli.md` received 截断段与 agent/ci 的「无 ANSI」条消歧到「捕获内容也剥净」。
-- 测试登记 `docs/engineering/testing/unit/scoring/cases.md` 展示投影段,新增 `src/scoring/display.test.ts`
+- 测试登记 `docs/engineering/testing/unit/scoring.md` 展示投影段,新增 `src/scoring/display.test.ts`
   用 `String.fromCharCode` 造真实控制字节(源码里别嵌裸控制字符)验剥净 + 保留 glyph + 保留换行。
 
 适用场景:任何把捕获输出(命令 stdout/stderr、源码、evidence)放进展示面的地方,都过 `stripControl`;

@@ -1,4 +1,4 @@
-// cases: docs/engineering/testing/unit/eval/cases.md
+// cases: docs/engineering/testing/unit/eval.md
 import { describe, expect, it } from "vitest";
 import { createEvalContext, type ContextState } from "./context.ts";
 import { commandSucceeded, includes } from "../expect/index.ts";

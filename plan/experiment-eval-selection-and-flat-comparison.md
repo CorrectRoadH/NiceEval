@@ -63,12 +63,12 @@ interface ExperimentComparisonData {
 
 按仓库“先登记后写测”规则，先改 cases 表，再写测试：
 
-- `docs/engineering/testing/unit/experiments-runner/cases.md`
+- `docs/engineering/testing/unit/experiments-runner.md`
   - 把现有选题行补全为：谓词同时读取 `id.startsWith("coding/")`、`tags`、`environment`、`metadata`；收到的对象不含内部路径/执行字段；每个 experiment × eval 只求值一次；尾随前缀与谓词取交集；非法非 boolean 返回和抛错都带 experiment id + eval id。
   - 把“`exp <组>`”等用语改成“目录路径批量选择”，不改变选择器规则。
-- `docs/engineering/testing/unit/results/cases.md`
+- `docs/engineering/testing/unit/results.md`
   - 新增：`current()` 合成 q1 新快照 + q2 旧快照后，合成快照的 `selectedEvalIds` 等于实际 picks；来源快照中不在其 `selectedEvalIds` 的异常 attempt 不进入合成结果；缺字段的第三方快照退化为实际 eval 集。
-- `docs/engineering/testing/unit/reports/cases.md`
+- `docs/engineering/testing/unit/reports.md`
   - 补充已有 `experimentComparisonData()` 场景：不同深度目录的 experiments 仍进同一份 data；每个 experiment 只保留自己选择的 eval；缺字段第三方快照可见。
   - web/text 场景明确断言无 `role=tablist`、无 group 命令、experiment 显示完整 id。
 

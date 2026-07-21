@@ -1,4 +1,4 @@
-// cases: docs/engineering/testing/unit/reports/cases.md
+// cases: docs/engineering/testing/unit/reports.md
 import { describe, expect, it } from "vitest";
 
 import { estimateCost } from "./cost.ts";

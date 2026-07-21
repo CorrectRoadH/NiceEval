@@ -1,4 +1,4 @@
-// cases: docs/engineering/testing/unit/experiments-runner/cases.md
+// cases: docs/engineering/testing/unit/experiments-runner.md
 // Human renderer 测试:全部经真实 FeedbackCoordinator + createFakeFeedbackIO 驱动(不
 // monkey-patch process/Date/setInterval),断言具体文本/结构属性而不是整段 ANSI snapshot diff——
 // 逐条对应 plan section D 的 checklist(见文件内每个 describe 块的注释)。

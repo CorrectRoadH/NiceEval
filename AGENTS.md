@@ -8,7 +8,7 @@
 
 - 产品、架构或内部设计：[`docs/README.md`](docs/README.md)
 - 设计到源码的定位：[`docs/source-map.md`](docs/source-map.md)
-- 写、改或评审测试：先读 [`docs/engineering/testing/README.md`](docs/engineering/testing/README.md)（两层体系、变更预算、改了什么跑什么）；写单元测试前再读 [`docs/engineering/testing/unit/README.md`](docs/engineering/testing/unit/README.md) 与对应 Feature 的 `docs/engineering/testing/unit/<feature>/cases.md` 登记表；造或改 fixture 前读 [`docs/engineering/testing/unit/harness.md`](docs/engineering/testing/unit/harness.md) 与该 Feature 的 `testing/unit/<feature>/README.md` 测试架构页
+- 写、改或评审测试：先读 [`docs/engineering/testing/README.md`](docs/engineering/testing/README.md)（两层体系、变更预算、改了什么跑什么）；写单元测试前再读 [`docs/engineering/testing/unit/README.md`](docs/engineering/testing/unit/README.md) 与对应 Feature 的 `docs/engineering/testing/unit/<feature>.md` 测试文档；造或改 fixture 前读 [`docs/engineering/testing/unit/harness.md`](docs/engineering/testing/unit/harness.md) 与该文档的 Fixture 规范
 - 历史踩坑与设计裁决：[`memory/INDEX.md`](memory/INDEX.md)，命中索引项后才读正文
 - 公开文档站：[`docs-site/AGENTS.md`](docs-site/AGENTS.md)
 - 可运行示例：[`examples/README.md`](examples/README.md)
@@ -24,7 +24,7 @@
 - 保持 core 中立。具体边界以 [`docs/architecture.md`](docs/architecture.md) 为准。
 - 公共 API、可观察行为或文档变更时，沿对应目录入口完成同步与验证；测试命令以 `package.json` 和局部入口文档为准。
 - 需要新增仓库级机器守护时，优先写进 `test/` 下的 Vitest 测试并复用 `pnpm test`，不另造脚本、命令或 hook。
-- 测试求质不求量：先登记后写测——测试只实现对应 `cases.md` 已登记的场景行，新场景先补行再动手（[`docs/engineering/testing/unit/registry.md`](docs/engineering/testing/unit/registry.md)）；答不出「证明哪条契约、删了会放走哪类错误」的测试不写，同一场景的第二条测试是维护负担。
+- 测试求质不求量：先声明后写测——测试只实现对应 Feature 测试文档「覆盖规范」已声明的类别，新类别先补文档条目再动手（[`docs/engineering/testing/unit/registry.md`](docs/engineering/testing/unit/registry.md)）；答不出「证明哪条契约、删了会放走哪类错误」的测试不写，同一场景的第二条测试是维护负担。
 
 ## Git 与协作安全
 

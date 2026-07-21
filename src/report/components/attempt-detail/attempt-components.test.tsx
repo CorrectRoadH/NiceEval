@@ -1,4 +1,4 @@
-// cases: docs/engineering/testing/unit/reports/cases.md
+// cases: docs/engineering/testing/unit/reports.md
 // Attempt 详情组件族的单元测试:11 个叶子的非空/空证据矩阵、AttemptAssessment 的
 // source/assertions fallback、AttemptDetail 的内建顺序、spec/data 等价与 scope-input page
 // 报错、AttemptConversation 的 loc 分轮、attemptSourceData 的 loc 投影、AttemptTimeline 的默认折叠。

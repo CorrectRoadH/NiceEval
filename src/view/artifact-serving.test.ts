@@ -1,4 +1,4 @@
-// cases: docs/engineering/testing/unit/reports/cases.md
+// cases: docs/engineering/testing/unit/reports.md
 // 回归覆盖:src/results/open.ts 把 sources.json 从「全量 SourceArtifact[]」改成两层去重存储
 // (attempt 级引用 `{path, sha256}[]` + 快照根 `sources/<sha256>.json` 内容仓库,见 memory/
 // attempt-locator-and-source-dedup.md)之后,view 的两条 artifact 出口(server.ts 的

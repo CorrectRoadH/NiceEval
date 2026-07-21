@@ -12,4 +12,4 @@
 
 ## 落点
 
-新增 `docs/feature/sandbox/serial-reuse.md`;改写 `docs/runner.md` 预热与复用小节、`docs/feature/sandbox/architecture.md` 性能小节、`cli.md` keep/reuse 互斥条目、`local.md` 两处;场景行登记在 `docs/engineering/testing/unit/sandbox/cases.md` 串行复用分区。
+新增 `docs/feature/sandbox/serial-reuse.md`;改写 `docs/runner.md` 预热与复用小节、`docs/feature/sandbox/architecture.md` 性能小节、`cli.md` keep/reuse 互斥条目、`local.md` 两处;场景行登记在 `docs/engineering/testing/unit/sandbox.md` 串行复用分区。

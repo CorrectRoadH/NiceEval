@@ -1,4 +1,4 @@
-// cases: docs/engineering/testing/unit/reports/cases.md
+// cases: docs/engineering/testing/unit/reports.md
 // buildExecutionTree 的单测(定稿见 docs/observability.md「OTLP traces → 统一瀑布图」、
 // docs/concepts.md「执行树」词条)。覆盖:无 OTel 时骨架完整、有 OTel 时按 callId 精确合并、
 // 唯一关联不上时降级成 telemetry-only 节点(不猜)、同 callId 撞多条 span 时不強行择一、

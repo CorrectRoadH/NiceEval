@@ -2,7 +2,7 @@
 
 > 主契约：`docs/runner.md`「调度:有界并发」与「派发顺序:瓶颈优先,追求最小总墙钟时间」，以及 `docs/feature/experiments/architecture.md`「实验级生命周期」的「不占并发位,也不折损优先级」条。本计划与主契约冲突时以主契约为准并同步修正本计划。
 >
-> 场景行已登记在 `docs/engineering/testing/unit/experiments-runner/cases.md` 的「并发」分区（3 行）。只为这些行写测试。
+> 场景行已登记在 `docs/engineering/testing/unit/experiments-runner.md` 的「并发」分区（3 行）。只为这些行写测试。
 >
 > 设计裁决与否决方案见 `memory/dispatch-priority-binds-to-slot-grant.md`。
 

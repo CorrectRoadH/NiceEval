@@ -16,8 +16,8 @@
 - [Architecture · 报告树与两个宿主](../docs/feature/reports/architecture.md#报告树与两个宿主)
 - [Architecture · 排版原语的语义层与面内布局](../docs/feature/reports/architecture.md#排版原语的语义层与面内布局)
 - [Architecture · 静态网页](../docs/feature/reports/architecture.md#静态网页)
-- [Reports 测试架构](../docs/engineering/testing/unit/reports/README.md)
-- [Reports 用例登记表](../docs/engineering/testing/unit/reports/cases.md)
+- [Reports 测试架构](../docs/engineering/testing/unit/reports.md)
+- [Reports 用例登记表](../docs/engineering/testing/unit/reports.md)
 - [Source Map · Reports](../docs/source-map.md)
 
 ## 本次审计确认的 docs ↔ code gap
@@ -29,7 +29,7 @@
 | text 面 | Row 只有“全部并排或全部纵排”，没有可规划的多行网格 | 按 Architecture 新增纯 `TextGridPlan`：从 `columns` 向下选择可读列数，row-major、不丢格；boxed / plain、regular / compact 和单列 fallback 满足文档 |
 | web 面 | report stylesheet 没有 Grid / Stat / Section meta 结构与样式 | 增稳定 `nre-*` 结构、CSS Grid、响应式减列、完整 cell 四边框、density、tone 和 Section header/meta |
 | 契约句子 | `GridProps.columns` 是普通 `number`，但目标文档写“TypeScript 接受不到非正整数” | 改成“运行时拒绝非有限正整数和小数”；类型仍是 `number`，两面共享校验 |
-| 测试登记 | [`cases.md`](../docs/engineering/testing/unit/reports/cases.md) 没有 Grid / Stat / Section.meta 场景 | 先登记对应场景，再写实现测试；不新增未登记测试 |
+| 测试登记 | [`cases.md`](../docs/engineering/testing/unit/reports.md) 没有 Grid / Stat / Section.meta 场景 | 先登记对应场景，再写实现测试；不新增未登记测试 |
 | 双宿主公开消费 | show / view 已共用 report runtime，但 fixture 未使用新 API | 扩充既有 `exam-report.tsx` 与 `view-report.test.ts`，证明一个公开报告文件被两个宿主消费 |
 | 公开用户文档 | 中文参考仍写六个原语；教程仍把所有非表格形态导向 `defineComponent` | 同步成十个原语，加入自由摘要格任务和短示例 |
 | Table 契约冲突（非 theme gap） | 公开 `TableColumn` 类型、text renderer 与 cases 已支持 `maxLines`，但 Feature 的穷尽形状和 props 表未列该字段 | 保留既有实现与登记场景，在 `layout.md` 的 `TableColumn` 形状、字段表和渲染契约补齐 `maxLines?: number`；不得让公开类型继续超出 Feature 形状 |
@@ -53,7 +53,7 @@
 - [ ] 执行前记录 `git status --short`、未暂存 diff 与暂存 diff；未知和并行改动全部保留，只修改本清单列出的路径。
 - [ ] 在 [`docs/feature/reports/library/layout.md`](../docs/feature/reports/library/layout.md) 把 `columns` 的不可实现 TypeScript 表述改成运行时校验；保留 `GridProps.columns: number`。
 - [ ] 在同一 Feature 文档补齐 `TableColumn.maxLines?: number`：只约束 text 数据格的最大物理行数，超出以 `…` 收口，表头与 web 面不消费；同步字段表和渲染契约，不改变当前代码语义。
-- [ ] 在 [`docs/engineering/testing/unit/reports/cases.md`](../docs/engineering/testing/unit/reports/cases.md) 的“Table 与文本排版原语”登记且只登记以下新增场景：
+- [ ] 在 [`docs/engineering/testing/unit/reports.md`](../docs/engineering/testing/unit/reports.md) 的“Table 与文本排版原语”登记且只登记以下新增场景：
   - Grid 展平数组 / Fragment、空分支不占格，任意 ReportNode 可作 cell，Col 内多个 Stat 保持同一格。
   - `columns` 为 0、负数、小数、NaN 或 Infinity 时给完整用户反馈；1 和大于实际 cell 数正常；variant / density 默认 plain / regular。
   - web 初始 HTML 含全部格、稳定 root/cell/variant/density class 与最大列数事实，无 JS 也完整可读。

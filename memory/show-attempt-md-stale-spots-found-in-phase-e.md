@@ -26,7 +26,7 @@ Phase E(`show @locator` 接线到 `standardAttemptPage`,删除旧 `attemptOvervi
 # Why 记录而不是当场改
 
 Advisor 复核时确认:这三处只活在 `show/attempt.md` 的散文里,**没有一处被
-`docs/engineering/testing/unit/reports/cases.md` 登记**(cases.md 第 256 行的 AttemptTimeline 场景只
+`docs/engineering/testing/unit/reports.md` 登记**(cases.md 第 256 行的 AttemptTimeline 场景只
 要求 children 折叠、失败节点标记默认展开,不要求过滤短阶段)。cases.md 是绑定测试的权威来源,
 show/attempt.md 是给用户看的任务文档——按 CLAUDE.md 的"先文档后代码",理应文档先定稿再实现,但这
 篇文档显然是先写死了旧实现的输出样例,新实现从未回头核对。当场按这三处重写整篇文档超出 Phase E

@@ -1,4 +1,4 @@
-// cases: docs/engineering/testing/unit/reports/cases.md
+// cases: docs/engineering/testing/unit/reports.md
 // 「不 hydrate 也完整」的验收测试:每个组件过 renderToStaticMarkup,
 // 断言纯静态 HTML 里就有全部关键内容——数字、覆盖率角标、缺数据文案、
 // 散点的 SVG 与系列名、truncated 行、attemptHref 链接。

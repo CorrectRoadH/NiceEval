@@ -23,4 +23,4 @@
 
 ## 落点
 
-契约：`docs/feature/reports/library/site-components.md#scopewarnings`、`docs/feature/results/library.md` kind 表两列；实现：`src/report/scope-warnings.ts`（聚合层，web/text 共用）、`src/report/web.ts` / `src/report/report.ts`（两面渲染）、`src/report/locale.ts`（chrome 词典）、`src/results/select.ts`（`gapParts` 时距单源）；测试登记：`docs/engineering/testing/unit/reports/cases.md`，测试在 `src/report/dual-render.test.tsx`。当时 `ScopeWarnings` 组件本体尚未从宿主级警告块迁出，聚合层落在宿主渲染函数上，组件化（见 [`reports-no-privilege-chrome-rulings`](reports-no-privilege-chrome-rulings.md)）时整体搬移。
+契约：`docs/feature/reports/library/site-components.md#scopewarnings`、`docs/feature/results/library.md` kind 表两列；实现：`src/report/scope-warnings.ts`（聚合层，web/text 共用）、`src/report/web.ts` / `src/report/report.ts`（两面渲染）、`src/report/locale.ts`（chrome 词典）、`src/results/select.ts`（`gapParts` 时距单源）；测试登记：`docs/engineering/testing/unit/reports.md`，测试在 `src/report/dual-render.test.tsx`。当时 `ScopeWarnings` 组件本体尚未从宿主级警告块迁出，聚合层落在宿主渲染函数上，组件化（见 [`reports-no-privilege-chrome-rulings`](reports-no-privilege-chrome-rulings.md)）时整体搬移。

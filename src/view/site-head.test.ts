@@ -1,4 +1,4 @@
-// cases: docs/engineering/testing/unit/reports/cases.md
+// cases: docs/engineering/testing/unit/reports.md
 // 覆盖登记行:head 通道注入面——声明序注入 <head>、外链原样透传不进 assets/、
 // 本地 src/href 物化为 assets/<sha256><ext>、attrs 渲染与转义、注入不改初始 HTML
 // 数据节点、head 不进 ctx.report / viewData。

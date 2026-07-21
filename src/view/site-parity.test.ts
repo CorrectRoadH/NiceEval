@@ -1,4 +1,4 @@
-// cases: docs/engineering/testing/unit/reports/cases.md
+// cases: docs/engineering/testing/unit/reports.md
 // 「show/view 宿主等价与选择」分区——
 // 本地 server 与 --out 消费同一份站点产物:同一路径两宿主逐字节一致;server 不提供产物清单
 // 之外的路径。server 打开首页触发产物整份重建(盘上新数据无需重启),artifact 未命中重建一次。

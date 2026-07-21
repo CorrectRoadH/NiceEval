@@ -1,4 +1,4 @@
-// cases: docs/engineering/testing/unit/sandbox/cases.md
+// cases: docs/engineering/testing/unit/sandbox.md
 // 变更分类账的集成测试:用宿主 shell 扮演沙箱(真实 git),验证
 // - .git 不在 workdir 内(agent 看不到分类账;eval 自己 git init 不冲突)
 // - eval 归因(send 前写入)不进 agent diff;send 窗口内写入逐窗口归因

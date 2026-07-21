@@ -1,6 +1,6 @@
 # PLAN：测试体系重划的代码侧迁移
 
-契约已定稿：[测试体系总纲](../docs/engineering/testing/README.md)（分层与负面清单）、[功能域 · 报告与读面](../docs/engineering/testing/e2e/report.md)（读面 CLI 行为与渲染面验收）、[Reports 单元登记表](../docs/engineering/testing/unit/reports/cases.md)（只剩数据语义）。本计划是把存量测试代码对齐到新边界的执行清单，供实现 Agent 认领。
+契约已定稿：[测试体系总纲](../docs/engineering/testing/README.md)（分层与负面清单）、[功能域 · 报告与读面](../docs/engineering/testing/e2e/report.md)（读面 CLI 行为与渲染面验收）、[Reports 测试文档](../docs/engineering/testing/unit/reports.md)（只剩数据语义）。本计划是把存量测试代码对齐到新边界的执行清单，供实现 Agent 认领。
 
 ## 背景与依据
 
@@ -26,7 +26,7 @@
 
 - 逐文件分拣：数据级断言（`*Data` 终值、装载规范化、错误对象）留下，改写测试名与断言使之只观察数据；渲染断言删除。
 - 删除的渲染断言对应的行为，核对 [report.md §5 渲染面](../docs/engineering/testing/e2e/report.md) 已覆盖；有缺口先补该文档，再在 `e2e/report` 仓库的 `scripts/verify.ts` 落断言。
-- 保留文件的 `// cases:` 头注对照 [reports/cases.md](../docs/engineering/testing/unit/reports/cases.md) 现存段落；断言不到任何登记行的文件整体删除。
+- 保留文件的 `// cases:` 头注对照 [Reports 测试文档](../docs/engineering/testing/unit/reports.md)的覆盖规范；指认不了任何覆盖类别的文件整体删除。
 
 ## 任务 2：CLI 进程行为单元测试迁出
 

@@ -1,4 +1,4 @@
-// cases: docs/engineering/testing/unit/reports/cases.md
+// cases: docs/engineering/testing/unit/reports.md
 // "validate*Data 递归覆盖到嵌套字段" 行:summaries 的 validateScopeSummaryData 表驱动字段突变覆盖,range 的 null 边界、两级 tally、
 // 两个 MetricCell 字段各自的嵌套校验。
 

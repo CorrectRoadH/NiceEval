@@ -1,4 +1,4 @@
-// cases: docs/engineering/testing/unit/experiments-runner/cases.md
+// cases: docs/engineering/testing/unit/experiments-runner.md
 // Json/JUnit 的同目录 temp → write → rename 原子替换契约(见 docs/feature/experiments/cli.md
 // 「输出流和落盘节奏」):成功后不留 temp;写入失败保留旧目标文件、不留半成品、不留 temp。
 //

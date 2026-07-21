@@ -1,4 +1,4 @@
-// cases: docs/engineering/testing/unit/reports/cases.md
+// cases: docs/engineering/testing/unit/reports.md
 // 第 207 行:增强脚本拦截 locator 链接后,dialog 内容与直接打开该文档的内容是同一份
 // server-rendered 字节/DOM 片段。
 import { describe, expect, it } from "vitest";

@@ -23,8 +23,8 @@
 
 ## 测试（只实现已登记的行）
 
-- `docs/engineering/testing/unit/sandbox/cases.md` 「Local provider」分区：4 行。
-- `docs/engineering/testing/unit/experiments-runner/cases.md` 「并发」分区新增的 exclusive 行；全局上限解析行的括号已加 `local 1`。
+- `docs/engineering/testing/unit/sandbox.md` 「Local provider」分区：4 行。
+- `docs/engineering/testing/unit/experiments-runner.md` 「并发」分区新增的 exclusive 行；全局上限解析行的括号已加 `local 1`。
 
 ## 验证与收尾
 

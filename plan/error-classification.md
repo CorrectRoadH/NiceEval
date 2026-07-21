@@ -22,8 +22,8 @@
 
 ## 测试（只实现已登记的行）
 
-- `docs/engineering/testing/unit/eval/cases.md` 「Turn 瞬时错误与重试」分区：4 行（分类器归类、adapter 覆盖回落、只包 send 不重放记账、封顶/activity/耗尽/interruption）。
-- `docs/engineering/testing/unit/experiments-runner/cases.md` 「并发」分区：退避释放槽位一行。
+- `docs/engineering/testing/unit/eval.md` 「Turn 瞬时错误与重试」分区：4 行（分类器归类、adapter 覆盖回落、只包 send 不重放记账、封顶/activity/耗尽/interruption）。
+- `docs/engineering/testing/unit/experiments-runner.md` 「并发」分区：退避释放槽位一行。
 - 用 scripted agent fixture 注入瞬时/确定性失败序列；受控时钟，不用真实 `setTimeout` 睡眠。
 
 ## 验证与收尾

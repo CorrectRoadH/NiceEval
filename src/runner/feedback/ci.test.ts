@@ -1,4 +1,4 @@
-// cases: docs/engineering/testing/unit/experiments-runner/cases.md
+// cases: docs/engineering/testing/unit/experiments-runner.md
 // CI renderer 测试:全部经真实 FeedbackCoordinator + createFakeFeedbackIO 驱动(不
 // monkey-patch process/Date/setInterval),断言具体文本而不是整段 snapshot diff——逐条对应
 // plan section F 的 checklist 与 docs/feature/experiments/cli.md「CI 怎么用」的例子。

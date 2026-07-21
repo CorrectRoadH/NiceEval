@@ -1,4 +1,4 @@
-// cases: docs/engineering/testing/unit/reports/cases.md
+// cases: docs/engineering/testing/unit/reports.md
 // 覆盖登记行:外壳 head 通道的白名单/宿主单例/attrs/children/scheme 分流装载校验,
 // 与 scripts {src} 外链拒绝。
 // defineReport 是装载校验的第一期(shell.md「校验分两期」),全部用例不落盘、不进渲染。

@@ -1,4 +1,4 @@
-// cases: docs/engineering/testing/unit/scoring/cases.md
+// cases: docs/engineering/testing/unit/scoring.md
 import { describe, expect, it } from "vitest";
 import type { AssertionResult } from "./types.ts";
 import {

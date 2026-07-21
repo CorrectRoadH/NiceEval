@@ -1,4 +1,4 @@
-// cases: docs/engineering/testing/unit/experiments-runner/cases.md
+// cases: docs/engineering/testing/unit/experiments-runner.md
 // bug: memory/force-exit-skips-experiment-teardown.md
 import { describe, expect, it } from "vitest";
 import {

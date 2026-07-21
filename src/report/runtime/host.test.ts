@@ -1,4 +1,4 @@
-// cases: docs/engineering/testing/unit/reports/cases.md
+// cases: docs/engineering/testing/unit/reports.md
 // 「外壳、页面与 Tabs」——宿主装载分流(文件 vs 内建)。
 // 装载规范化(content/pages/extends、page id、input/navigation、标题回退、icon)全部是
 // `defineReport` 自己的产物,由 src/report/runtime/dual-render.test.tsx 直接对着真实实现测试;

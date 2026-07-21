@@ -1,4 +1,4 @@
-// cases: docs/engineering/testing/unit/reports/cases.md
+// cases: docs/engineering/testing/unit/reports.md
 // niceeval/report 计算层的单元测试:全部用内存 fake(Snapshot / AttemptHandle 按
 // niceeval/results 的读取契约手工构造)。覆盖登记行:两级聚合 vs 平铺、errored=0 口径、
 // skipped=null、null≠0、Scoreboard 固定分母(notRun/unscorable 分开)、权重最长前缀、
