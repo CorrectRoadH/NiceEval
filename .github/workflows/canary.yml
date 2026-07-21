@@ -11,10 +11,13 @@ name: Canary
 # tag 用默认 GITHUB_TOKEN 推,GitHub 不会用它级联触发 release.yml——这是刻意依赖的行为,
 # 不然同一个版本会被发布两次。
 #
-# 为什么不在 push main 时自动发:eval 只是偶尔对比 canary,每次 push 都发一版只会在 npm
-# 上刷版本号噪声。要改成定期发,加一段 schedule 触发即可,发布逻辑不用动。
+# 触发:每天定时发一版(schedule),外加 workflow_dispatch 允许随时手动补发。不按 push main
+# 发是刻意的——eval 只是偶尔对比 canary,每次 push 都发一版只会在 npm 上刷版本号噪声。定时
+# 发让 main 的最新快照每天有一版可评,而 run_number 单调递增保证不撞号。
 
 on:
+  schedule:
+    - cron: "0 0 * * *" # 每天 00:00 UTC 发一版 canary
   workflow_dispatch:
 
 permissions:
