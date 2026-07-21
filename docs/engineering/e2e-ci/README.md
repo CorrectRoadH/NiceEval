@@ -32,7 +32,7 @@ E2E CI 同时证明以下行为：
 
 一个测试仓库满足以下约束：
 
-- 有自己的 `package.json` 和 lockfile，不加入 niceeval 根 workspace；Python 等其它运行时同样在仓库内声明依赖。
+- 有自己的 `package.json` 和 lockfile，不加入 niceeval 根 workspace；Python 等其它运行时同样在仓库内声明依赖。TS 系仓库带一份只含 `packages: []` 的 `pnpm-workspace.yaml`，让 pnpm 把仓库目录本身当 workspace root、不向上并入父级 workspace——这样候选 niceeval tarball 注入后解析到的是仓库自己的 `node_modules`，就地调试（`cd <repo> && pnpm install && pnpm e2e`）与拷贝到临时目录执行行为一致。仓库自己的原生构建开关（`allowBuilds`）也声明在这个文件里。
 - 有自己的 `niceeval.config.ts`、`evals/` 和 `experiments/`；Experiment 直接从 `niceeval/adapter` 导入并实例化官方 Agent 工厂。
 - 被测应用及其启动方式属于该仓库，不从中央 `apps/` 目录连接共享进程。
 - 不 import 另一个测试仓库，也不 import niceeval 根仓中的 `e2e/shared`、`src/` 或测试辅助源码。
@@ -55,6 +55,7 @@ E2E CI 同时证明以下行为：
 <repo>/
   package.json
   pnpm-lock.yaml
+  pnpm-workspace.yaml          # 只含 packages: []，令仓库自成 workspace root；兼放 allowBuilds
   .gitignore
   .env.example
   e2e.json
@@ -208,6 +209,8 @@ e2e/
   undo/                        # 缺少完整官方工厂的停用 fixture；不参与发现与 CI
   scripts/
     discovery.ts               # 跨 repos/、mechanism/ 两个 collection 发现并校验 e2e.json
+    injection.ts               # 构建候选 tarball、算内容指纹、装后核验实际解析到的就是候选包
+    secrets.ts                 # 按 e2e.json.secrets 为每个仓库构造最小注入的子进程环境
     list.ts                    # discovery.ts 的 CLI 包装（tsx 执行）
     run.ts                     # 构建候选包、选择仓库、隔离 spawn、汇总退出码（tsx 执行）
 ```
@@ -311,10 +314,10 @@ niceeval 是 beta 软件，公开 API / CLI 的破坏性重设计是常态。仓
 - 每个仓库有 lockfile、`.env.example` 与 `.gitignore`，其中 `.niceeval/` 被忽略；
 - 启用仓库没有 `agents/`，也不导入自定义 Agent 拼装入口；
 - package manifest 不含指向 niceeval 父目录的 `file:` / `link:`；
-- 把仓库复制到临时目录后可以完成依赖解析和 list/discovery 冒烟；
+- 每个仓库带只含 `packages: []` 的 `pnpm-workspace.yaml`，自成 workspace root（§2.1）；
 - 根编排器不含 Eval ID、expected count、artifact 文件名或协议工具名。
 
-新增仓库级机器守护写进 `test/` 下的 Vitest，并由 `pnpm test` 执行；不增加独立 lint hook。
+这些都是**离线**结构守护：只读仓库文件、不装依赖、不起进程。仓库能被复制到临时目录后完成依赖解析并真实执行，是编排器每次隔离运行（§5）本身就在做的事，由真实运行覆盖，不另设需要联网安装的离线守护。新增仓库级机器守护写进 `test/` 下的 Vitest，并由 `pnpm test` 执行；不增加独立 lint hook。
 
 ## 9. 不做的事
 

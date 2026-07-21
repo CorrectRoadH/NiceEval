@@ -13,6 +13,8 @@ e2e/
   undo/                        # 缺少完整官方 Agent 工厂的停用 fixture；不参与发现与 CI
   scripts/
     discovery.ts               # 跨 repos/、mechanism/ 发现并校验每个仓库的 e2e.json
+    injection.ts               # 构建候选 tarball、算指纹、装后核验解析到的确实是候选包
+    secrets.ts                 # 按 e2e.json.secrets 构造每个仓库最小注入的子进程环境
     list.ts                    # discovery.ts 的 CLI 包装
     run.ts                     # 构建候选包、选择仓库、隔离运行、汇总退出码
 ```

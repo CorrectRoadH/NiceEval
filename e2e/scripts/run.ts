@@ -220,7 +220,8 @@ async function runRepoOnce(
   await copyRepoIsolated(repo.dir, copyDir);
   await pointAtCandidateTarball(copyDir, candidate.path);
 
-  // Each repo declares its own `allowBuilds` in pnpm-workspace.yaml (README §2.1) — that's
+  // Each repo self-roots as its own workspace (empty `packages: []` in its
+  // pnpm-workspace.yaml, README §2.1) and declares its own `allowBuilds` there — that's
   // the source of truth for which native builds run, not a blanket CLI override. pnpm 10.33+
   // translates allowBuilds into onlyBuiltDependencies, and a `--config.dangerouslyAllowAllBuilds`
   // override collides with it (pnpm sets neverBuiltDependencies to an empty-but-truthy array,
