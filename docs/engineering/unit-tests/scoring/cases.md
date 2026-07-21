@@ -12,6 +12,8 @@
 | `excludes(needle)` 与 includes 镜像：含 needle 得 0 | 正例：不含 → 1；反例：含 → 0 |
 | `similarity(expected)` score 恒在 [0,1]，唯一默认 soft 的内置 matcher | 正例：相同 → 1；边界：空串、emoji、超长文本不越界 |
 | `matches(schema)` 接受 Standard Schema / Zod，通过 1 失败 0，默认 gate | 正例：合法对象；反例：缺字段；边界：非 Zod 的 Standard Schema 实现 |
+| `includesUrl(min?)` 按去重后的 http(s) 链接计数，≥min 得 1，默认 gate、min=1 | 正例：一条链接；反例：无链接、裸域名（无协议头）不计；边界：同一链接重复出现只算一条 |
+| `hasSections(min?)` 按行首 Markdown 标题计数，≥min 得 1，默认 gate、min=2 | 正例：两个小节；反例：无标题的流水文本、行中 `#`（非行首）不计；边界：`######` 六级标题也计 |
 | `equals(expected)` 深度相等而非引用相等，默认 gate | 正例：结构相同不同引用；边界：NaN、undefined 字段、数组顺序 |
 | `isTrue` / `isFalse` 严格布尔判断，truthy/falsy（1、""）不通过 | 反例：1、0、"true"；边界：null |
 | `isDefined(label?)` 对 null/undefined 得 0，其它一切值（含 0、""、false）得 1 | 正例：0、空串通过；反例：null、undefined |
@@ -193,7 +195,8 @@ it.each([
 
 | 契约 | 场景 |
 |---|---|
-| 单值收口 `summaryText`：折单行 + 240 字符上限，超出以 `…` 收口 | 正例：多行大值折成单行有界预览且不含换行 |
+| 控制字节收口 `stripControl`：剥离 ANSI 转义（CSI SGR/光标、OSC 及其 payload）与其余不可打印 C0/C1（含裸 ESC、BEL、BS），保留可打印字符与结构性换行 | 正例：jest 着色代码帧（`ESC[2m…ESC[22m`）剥净后不含 ESC/BEL，多行值保留 `\n`；边界：jest 合法打印的 `✕ › ↓ │`（≥ U+2020）保留不被误删；反例：OSC `ESC]0;title BEL` 连 payload 一并去除，不留裸 `title` 文本 |
+| 单值收口 `summaryText`：先 `stripControl` 再折单行 + 240 字符上限，超出以 `…` 收口 | 正例：多行大值折成单行有界预览且不含换行；反例：带 ANSI 着色的命令输出折出的单行不含任何 ESC 字节 |
 | 比较列表单元格的宽度收口按优先级让位：语义标题先截、matcher 次之、expected / received 与 `+N more failures` 最后截 | 正例：预算充足时与 `compactAssertionSummary` 逐字一致；反例：预算不足时长标题全称消失而 expected/received 前缀仍在；边界：极小预算下整串 ≤ 预算且以 `…` 收口 |
 | `assertionSummaryLines`（Human 永久行/handoff）：`received` 与 `matcher · expected` 合并成一行仍在预算内就合并，超预算则 `received` 单独截断一行；`+N more failures` 永远独立成尾行，不参与截断也不拼接在被截断的值末尾 | 正例：短 `received`（如 `received 3`）与 matcher/expected 维持同一行；反例：大段 `received`（源码/命令输出）拆出独立一行且行内不含 `+N more failures`；边界：`+N more failures` 出现时始终是最后一行，且不因 `received` 被截断而消失或粘连 |
 

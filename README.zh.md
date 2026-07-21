@@ -129,7 +129,7 @@ pnpm exec niceeval view // 查看评估结果
 ## 快速开始
 
 ```text
-READ https://niceeval.com/INIT.md and install niceeval for this repo.
+READ https://niceeval.com/INIT.md and set up niceeval for this repo: install it, integrate it with this project, and run the first eval end to end.
 ```
 
 从你的场景开始：

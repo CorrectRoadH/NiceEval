@@ -39,6 +39,7 @@ docs/
 │   ├── adapters/                        连接 AI / Agent；各 SDK 契约见 adapters/sdk/
 │   ├── eval/                            编写 Eval：defineEval
 │   ├── experiments/                     组织运行配置：defineExperiment
+│   ├── error-classification/            turn 级瞬时错误分类与有界重试
 │   ├── sandbox/                         隔离运行环境
 │   ├── scoring/                         评分器与判定
 │   ├── results/                         .niceeval 运行产物、读写与搬运

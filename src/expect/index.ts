@@ -165,6 +165,39 @@ export function similarity(expected: string): ValueAssertion {
   );
 }
 
+/**
+ * 文本含至少 min 条(默认 1)去重后的 http(s) 链接则 1,否则 0。默认硬门槛。
+ * 「回答有没有引用真实来源」的形状断言:没有 Judge key 时,它是「至少引用一条来源链接」
+ * 的最低成本兜底——被测方复读题目糊弄不过去,编造的链接则留给负例或 Judge 去抓。
+ */
+export function includesUrl(min = 1): ValueAssertion {
+  return createAssertion(
+    `includesUrl(min=${min})`,
+    "gate",
+    (value) => {
+      const urls = new Set(String(value).match(/https?:\/\/[^\s<>()"'`]+/g) ?? []);
+      return urls.size >= min ? 1 : 0;
+    },
+    undefined,
+    { expected: `contains >= ${min} distinct http(s) URL(s)` },
+  );
+}
+
+/**
+ * 文本含至少 min 个(默认 2)Markdown 标题(行首 # 到 ######)则 1,否则 0。默认硬门槛。
+ * 「回答是不是一份有结构的文档」的形状断言,适合研究报告、方案文档这类产出型回答——
+ * 一段没有任何小标题的流水文本过不了。
+ */
+export function hasSections(min = 2): ValueAssertion {
+  return createAssertion(
+    `hasSections(min=${min})`,
+    "gate",
+    (value) => ((String(value).match(/^#{1,6}\s+\S/gm) ?? []).length >= min ? 1 : 0),
+    undefined,
+    { expected: `contains >= ${min} markdown heading(s)` },
+  );
+}
+
 /** 谓词为真则 1,否则 0。默认硬门槛;name 带上 label 便于报告辨认。 */
 export function satisfies(predicate: (v: unknown) => boolean, label?: string): ValueAssertion {
   const name = label ? `satisfies(${label})` : "satisfies(predicate)";

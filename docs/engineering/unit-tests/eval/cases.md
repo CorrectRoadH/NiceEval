@@ -136,6 +136,17 @@ it("多个 pending request 时拒绝无法对位的字符串回答", async () =>
 | `t.progress` / `t.diagnostic` 的 scope 固定 `eval.run`，eval 代码不能伪装成其它阶段 | 正例：scope 字段恒为 eval.run；类型负例：不接受 scope 参数 |
 | `t.progress` 只更新当前 attempt 短期状态，不逐条进入最终输出 | 正例：多次 progress 后结果记录不逐条累积 |
 
+## Turn 瞬时错误与重试
+
+契约来源：[执行错误类型](../../../feature/error-classification/README.md)。
+
+| 契约 | 场景 |
+|---|---|
+| 兜底分类器按重试安全性归类：限流关键字 / 明示 retry later → `rate_limit`；连接建立失败 → `network`；流中断、响应中途 reset 与其余 → `unknown`；`isRetryableTurnError` 仅对 `unknown` 为 false | 正例：真实样本「Concurrency limit exceeded … please retry later」→ `rate_limit`；反例：无限流关键字的 "stream disconnected" → `unknown`；边界：三个 kind 的 retryable 判定 |
+| adapter 自带分类器时覆盖兜底，未提供时回落兜底 | 正例：覆盖生效；边界：未提供回落 |
+| 重试只包 `agent.send`：会话记账（`turnCount`、`userEvent`）不重放，重试成功后 turn 数与事件流与一次成功的 send 无异 | 正例：第 2 次尝试成功后 `turnCount` 仅 +1、userEvent 仅一条；反例：`unknown` 不重试、第一次即走 TurnFailed |
+| 封顶 4 次尝试；重试期间进度走 activity 不产生 diagnostic；耗尽后照旧 `TurnFailed` → `AttemptError{code: "turn-failed"}`，code 不变 | 正例：3 次瞬时后第 4 次成功；反例：4 次全瞬时 → errored 且 code 仍为 `turn-failed`；边界：退避睡眠可被外层 deadline interruption 干净打断 |
+
 ## 不这样测
 
 - 不断言 `defineEval(x)` 与 `x` 是同一个对象，除非对象身份本身是公开契约。

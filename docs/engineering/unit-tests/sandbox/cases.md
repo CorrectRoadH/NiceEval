@@ -177,6 +177,17 @@ it("runCommand 保留参数边界、cwd、env 和 root 语义", async () => {
 |---|---|
 | `createCheckpoint` 打包失败（tar 非零退出）直接抛错，不下载残缺归档冒充成功 checkpoint；`restoreCheckpoint` 解压失败同样直接抛错，临时归档文件按 finally 语义清理不受失败影响 | 反例：tar 打包非零退出 → 抛 "checkpoint archive failed" 且 `downloadFile` 未被调用；反例：tar 解压非零退出 → 抛 "checkpoint restore failed" 但清理命令 `rm -f` 仍执行 |
 
+## Local provider
+
+契约来源：[本地执行](../../../feature/sandbox/local.md)。
+
+| 契约 | 场景 |
+|---|---|
+| `localSandbox()` 省略 `dir` 时从 cwd 向上解析 git 仓库根;不在仓库内报错并指明两条出路(进入仓库或传 `dir`);显式 `dir` 可为非 git 仓库的任意目录 | 正例:仓库子目录内解析到根;反例:仓库外报错含下一步;边界:显式 `dir` 指向非 git 目录仍可创建 |
+| `runCommand` 在 workdir 起宿主进程且 argv 不经 shell,`env` 叠加宿主默认环境;`{ root: true }` 报错说明本地档不提权 | 正例:含 `;` 的参数只作为普通 argv 值;反例:`root: true` 报错并指向容器 provider |
+| 只观察不还原:agent 写入落真实工作树且进 agent diff;用户 `.git`(HEAD / index / 未提交改动)全程不被触碰;`stop()` 只清 runner 私有资源,不删除、不还原工作树任何文件 | 正例:diff 采到且用户 git 状态逐字节不变;反例:`stop()` 后 agent 写入的文件仍在 |
+| `--keep-sandbox` 与 local 组合在创建前报错,不先起实例 | 反例:报错发生在 create 之前且说明现场天然留在工作树 |
+
 ## 不这样测
 
 - 不在 Context 测试里重新实现一个会执行真实 shell 的 fake Sandbox。

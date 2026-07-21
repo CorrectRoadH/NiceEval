@@ -250,7 +250,7 @@ live 面板只展示当前状态,不保存历史帧:
 | `errored` | locator / eval / experiment + `error.phase` / code / message | failures 中给同一层错误摘要；cause / stack / diagnostics 下钻 |
 | `skipped` | 不冒充失败；只有需要用户行动的 skip 才以 diagnostic 留痕 | 只进 skipped / completion 汇总 |
 
-`received` 是源码 / 命令输出这类大段原始内容时单独截断一行，不跟 `matcher · expected` 挤在一起，`+N more failures` 也不跟被截断的值粘连：
+`received` 常是被测命令的 stdout/stderr，jest / vitest / pytest 几乎总把代码帧、行号、`✕` 用 ANSI 转义着色。这些 ESC 字节在放进摘要行前先剥掉（连同 OSC、裸退格等不可打印控制字节；`✕ › ↓ │` 这类合法符号保留），否则终端会把它重新解释成乱码——尤其被单行截断从转义序列中间切开时。剥控制字节与折单行、截断同属摘要投影，规则单源在 [Scoring · 一条摘要怎样排版](../scoring/library/display.md#一条摘要怎样排版)；三种 profile 与 `show` / `view` 的比较列表共用这条，捕获输出的着色码不会泄漏进任何终端事实行或 HTML 报告面。`received` 是源码 / 命令输出这类大段原始内容时单独截断一行，不跟 `matcher · expected` 挤在一起，`+N more failures` 也不跟被截断的值粘连：
 
 ```text
 ✗ @1czntzel memory/agent-029-use-cache-directive [codex-gpt-5.6-luna--mempal]
@@ -453,7 +453,7 @@ Agent 反馈遵守以下边界:
 - locator 是继续调查的主键,不能只给 eval id 或第几个 attempt;
 - handoff 给一条主失败断言的语义标题、matcher 与有界 expected / received；完整 assertions、源码、execution、trace、diff 按需通过 `show` 下钻;
 - 快照与 attempt artifacts 是权威数据,checkpoint 和 handoff 不是另一份结果 schema;
-- 输出不含 ANSI,不依赖终端宽度,不因本地化改变字段名;
+- 输出不含 ANSI——既不写 niceeval 自己的框 / 光标控制,也不让捕获内容(`received` / `expected`)里被测工具的着色码原样透出(渲染前剥控制字节,见 [Scoring · 一条摘要怎样排版](../scoring/library/display.md#一条摘要怎样排版));不依赖终端宽度,不因本地化改变字段名;
 - 进程退出码仍是第一层红绿信号,agent 不靠自然语言猜成功。
 
 ### AI 常见循环
@@ -514,7 +514,7 @@ niceeval: snapshots=<3 snapshots>
 
 CI profile 固定满足:
 
-- 无 ANSI、spinner、表格边框和光标控制;
+- 无 ANSI、spinner、表格边框和光标控制——niceeval 自己不写,捕获内容里被测工具的着色码也在渲染前剥掉,不透出到日志行;
 - 同一种事件一行,方便日志搜索与 CI annotation adapter 消费;
 - 连续 60 秒没有其它永久事件时才写 heartbeat,防止长 eval 被平台误判为无输出;失败或诊断刚写过就重新计时,不紧跟一条冗余 progress;
 - 成功项不逐条打印,失败和 errored 立即打印;

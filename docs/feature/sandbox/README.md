@@ -11,6 +11,8 @@
 - **可并发** —— 几十个 case 同时跑,各自独立。
 - **可采集** —— 跑完用 `git diff` 取改动、读 transcript,环境随后销毁;要进活现场 debug 时用 [`--keep-sandbox`](cli.md) 显式留存,事后 `niceeval sandbox stop` 清理。
 
+这些默认由容器 / 微 VM provider 兑现。[本地执行 `localSandbox()`](local.md) 是刻意的例外——明码放弃隔离,换「就地评你手边的仓库」的零成本入口,它的安全边界在自己那篇里定义。
+
 ## provider 统一接口
 
 ```typescript
@@ -69,6 +71,7 @@ interface CommandOptions {
 ## 相关阅读
 
 - [Library](library.md) —— 路径与 workdir、用户与 root、provider 选择、生命周期钩子、自定义 provider。
+- [本地执行](local.md) —— `localSandbox()` 在宿主机本地目录直接跑,只观察 diff 不还原仓库,最小的 provider。
 - [预制环境](library/prebuilt-environments.md) —— 把稳定依赖做成 image / template / snapshot,attempt 直接从产物起。
 - [CLI](cli.md) —— `--keep-sandbox` 留存失败现场与 `niceeval sandbox list` / `stop` 的完整生命周期。
 - [操作 Sandbox](library/operations.md) —— eval 里怎样读写文件和运行命令。

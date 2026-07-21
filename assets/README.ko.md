@@ -128,7 +128,7 @@ pnpm exec niceeval view // 평가 결과 확인
 ## 빠른 시작
 
 ```text
-READ https://niceeval.com/INIT.md and install niceeval for this repo.
+READ https://niceeval.com/INIT.md and set up niceeval for this repo: install it, integrate it with this project, and run the first eval end to end.
 ```
 
 여러분의 시나리오에서 시작하세요:

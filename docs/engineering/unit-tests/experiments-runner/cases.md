@@ -30,7 +30,9 @@
 |---|---|
 | 全局在飞 attempt 任意时刻 ≤ 全局 maxConcurrency，释放一个才启动下一个 | 正例：barrier 观察 inFlight 峰值；边界：attempt 数 < 上限 |
 | 实验级 `maxConcurrency` 只让该实验自己排队，同批其它实验仍按全局并发跑 | 正例：实验 A 上限 1 时实验 B 仍并发 |
-| 全局上限解析：`--max-concurrency` → 配置 `maxConcurrency` → 所有实际 resolved sandbox provider 推荐值的最小值（docker 10 / e2b 20 / vercel 1 / 自定义 recommendedConcurrency，省略则 5）；实验级不参与全局解析 | 正例：三层各自生效；边界：两个实验分别用 vercel 与 e2b 时默认 1；反例：实验级不抬高全局上限 |
+| 全局上限解析：`--max-concurrency` → 配置 `maxConcurrency` → 所有实际 resolved sandbox provider 推荐值的最小值（docker 10 / e2b 20 / vercel 1 / local 1 / 自定义 recommendedConcurrency，省略则 5）；实验级不参与全局解析 | 正例：三层各自生效；边界：两个实验分别用 vercel 与 e2b 时默认 1；反例：实验级不抬高全局上限 |
+| provider 声明 `exclusive` 时该 provider 的 attempt 经 provider 级闸强制串行，显式 `--max-concurrency` 不解除；同批其它 provider 照常并发 | 正例：local 实验 2 个 attempt 串行而同批 docker 实验并发；反例：`--max-concurrency 8` 不使 exclusive provider 并发 |
+| turn 重试退避期间释放全局并发槽位，睡醒后重新排队 | 正例：一批 attempt 退避时其余 attempt 占满并发位；边界：重新排队按原优先级参与分配（出处：[执行错误类型](../../../feature/error-classification/README.md)） |
 | 报告回调经 permit=1 信号量串行化，且不阻塞执行 fiber | 正例：慢 reporter 下 inFlight 仍达上限；正例：并发完成时 onEvent 无重入 |
 | 全局并发位按瓶颈优先分配：空位发给当前等待者中轮次数最高的 attempt，与开始等待的先后无关 | 正例：带慢实验级 setup 的 `maxConcurrency: 1` 实验在 setup 结束后拿到下一个空位，先于更早排队的无上限 run；反例：先来后到不成立——低轮次 run 更早等待不因此先获分配；边界：同轮次两 run 按发现顺序 |
 | 等待实验级 setup 不持有也不预留全局并发位（work-conserving） | 正例：setup 进行期间其它 run 占满全部并发位；边界：等待 setup 的 attempt 计数保持 `queued` |

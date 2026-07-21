@@ -26,6 +26,8 @@ t.check(turn.data, matches(MySchema));
 | `equals(expected)` | 深度相等 | gate |
 | `matches(schema)` | Standard Schema / Zod 校验 | gate |
 | `similarity(expected)` | `[0,1]` 编辑距离相似度 | soft（阈值 0.6） |
+| `includesUrl(min?)` | 含至少 min 条（默认 1）去重后的 http(s) 链接 | gate |
+| `hasSections(min?)` | 含至少 min 个（默认 2）Markdown 标题 | gate |
 | `satisfies(predicate, label?)` | 自定义谓词 | gate |
 | `isDefined(label?)` | 非 null / undefined | gate |
 | `isTrue(label?)` / `isFalse(label?)` | 严格布尔判断 | gate |
@@ -45,6 +47,8 @@ t.check(turn.data, satisfies((v) => Array.isArray(v) && v.length <= 5, "最多 5
 ```
 
 `similarity(expected)` 是归一化编辑距离（1 − Levenshtein ÷ 较长串长度），不是语义相似度——同义改写、语序调整会得低分，适合期望输出接近逐字稳定的场景；语义评价用 [LLM-as-judge](judge.md)。
+
+`includesUrl(min?)` / `hasSections(min?)` 是**内容形状断言**：不判语义，只判回答具不具备预期产出的形状（带来源链接、有小节结构）。它们的定位是没有 Judge key 时的兜底——比「断言输入里本来就有的词」强一个量级（复读题目糊弄不过去），但判不了内容真伪；有 Judge 时语义质量仍交给 [LLM-as-judge](judge.md)。URL 按去重后的完整链接计数；标题按行首 `#` 到 `######` 计数。
 
 ## 改严重度与阈值
 

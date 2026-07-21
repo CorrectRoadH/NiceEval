@@ -56,6 +56,10 @@ npx niceeval exp local fixtures/button --runs 5 --early-exit
 
 [NiceEval](https://niceeval.com/) 可以根据输入、配置和相关文件 fingerprint 跳过已判定为 `passed` 或 `failed` 的结果——两者都是判定确定的终态。`errored`（超时、Sandbox 异常等框架/环境层面的不确定失败）永远重试。缓存适合加速迭代，但如果你在调试非确定性行为，应该明确关闭（`--force`）或清理相关缓存。
 
+## Turn 瞬时错误重试
+
+限流、连接建立失败这类瞬时错误，NiceEval 会在同一个 Turn 里自动做有限次数的指数退避重试，不需要你重跑整个实验；等待重试的 Attempt 会让出并发名额给别的 Attempt。只有能确认 Agent 还没开始处理这次输入的错误才会重试——请求已经开始、中途断流的情况不重试，直接记为 `errored`，避免 Agent 把已经做过的操作再做一遍。重试用尽仍失败时，该 Attempt 记为 `errored`，下次运行照常重试（见上面的缓存规则）。
+
 ## 超时和预算
 
 ```bash

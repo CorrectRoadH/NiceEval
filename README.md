@@ -129,7 +129,7 @@ pnpm exec niceeval view // view eval results
 ## Quick Start
 
 ```text
-READ https://niceeval.com/INIT.md and install niceeval for this repo.
+READ https://niceeval.com/INIT.md and set up niceeval for this repo: install it, integrate it with this project, and run the first eval end to end.
 ```
 
 Start from the scenario that matches what you need to evaluate:

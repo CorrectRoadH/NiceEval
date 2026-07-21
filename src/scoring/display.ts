@@ -16,9 +16,31 @@ const SUMMARY_TEXT_MAX_CHARS = 240;
  */
 const DETAIL_LINE_MAX_CHARS = 100;
 
-/** 摘要面的单值收口:折单行 + 240 字符上限。任何把断言事实放进「行」里的面共用这一条。 */
+// 捕获内容(received=命令输出 / expected=源码 / evidence)常带被测工具的着色:jest/vitest 的
+// 代码帧、行号、✕ 都由 ANSI 转义(ESC[…m 等)上色。这些 ESC(U+001B)不是 \s,若原样落进任何
+// 面,终端会重新解释它们(被单行截断从序列中间切开时尤其乱),HTML 报告则把 ESC[2m28|ESC[22m
+// 当字面文本渲染。所以任何展示面在渲染捕获内容前先剥控制字节;剥的是展示投影,不改存进
+// AssertionResult / artifact 的原始字节(完整证据仍在 events.json / diff.json)。
+// CSI(ESC[…,含 SGR 着色 / 光标控制)与 OSC(ESC]…,以 BEL 或 ST 收尾);OSC 的 payload 一并吃掉,
+// 不让它作为裸文本泄漏。没配成序列的裸 ESC 由 OTHER_CONTROL 兜底。
+// eslint-disable-next-line no-control-regex
+const ANSI_ESCAPE = /\u001B(?:\[[0-9;:?]*[ -/]*[@-~]|\][^\u0007\u001B]*(?:\u0007|\u001B\\))/g;
+// 其余不可打印 C0/C1(含裸 ESC);保留 \t\n\f\r 交给下游折空白规则,不在这里塌成空。
+// eslint-disable-next-line no-control-regex
+const OTHER_CONTROL = /[\u0000-\u0008\u000B\u000E-\u001F\u007F-\u009F]/g;
+
+/**
+ * 剥离 ANSI 转义与其余不可打印控制字节,保留可打印字符与结构性空白(换行 / 制表)。给需要
+ * 完整多行值的面(报告详情)直接用;`summaryText` 在此基础上再折单行 + 截断。jest 合法打印的
+ * `✕ ✓ › ❯ ↓ │`(均 ≥ U+2020)在保留范围内,不误删。
+ */
+export function stripControl(value: string): string {
+  return value.replace(ANSI_ESCAPE, "").replace(OTHER_CONTROL, "");
+}
+
+/** 摘要面的单值收口:剥控制字节 + 折单行 + 240 字符上限。任何把断言事实放进「行」里的面共用这一条。 */
 export function summaryText(value: string): string {
-  const singleLine = value.replace(/\s+/g, " ").trim();
+  const singleLine = stripControl(value).replace(/\s+/g, " ").trim();
   return singleLine.length <= SUMMARY_TEXT_MAX_CHARS
     ? singleLine
     : `${singleLine.slice(0, SUMMARY_TEXT_MAX_CHARS - 1)}…`;
