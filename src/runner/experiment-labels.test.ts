@@ -1,4 +1,4 @@
-// cases: docs/engineering/unit-tests/experiments-runner/cases.md
+// cases: docs/engineering/testing/unit/experiments-runner/cases.md
 // 登记行:ExperimentDef.labels 值域 string | number(解析时校验),原样投影进快照
 // ExperimentRunInfo.labels;不透传 ctx / t,不参与可比性配置。
 

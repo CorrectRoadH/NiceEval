@@ -1,4 +1,4 @@
-// cases: docs/engineering/unit-tests/experiments-runner/cases.md
+// cases: docs/engineering/testing/unit/experiments-runner/cases.md
 
 import { afterEach, describe, expect, it } from "vitest";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";

@@ -1,4 +1,4 @@
-// cases: docs/engineering/unit-tests/reports/cases.md
+// cases: docs/engineering/testing/unit/reports/cases.md
 // 站点组件的单元测试:Hero / HeroCard(标题同源、显式覆盖、手写等价、合成来源标注、空 Scope)、
 // PoweredBy(品牌行 href/rel、text 面零输出)、ScopeWarnings(按动作聚合、组排序与未知 kind
 // 回退、汇总行、明细折叠、下一步随行、空集零输出)、CopyFixPrompt(prompt 内容、烘进静态

@@ -5,7 +5,7 @@ metadata:
   type: infra-bug
 ---
 
-**现象**:`e2e/repos/codex-cli` 的 docs 契约(docs/engineering/e2e-ci/adapters/codex-cli.md
+**现象**:`e2e/adapter/codex-cli` 的 docs 契约(docs/engineering/testing/e2e/adapter/codex-cli.md
 「仓库验收」)写"OTel:...执行树的时间注释就是记录成立的展示证明"、"`show --timing` 的 OTel
 子树以 tool/model 角色挂出 span"。真机跑 `coding-task` Eval(2 次 shell 调用 + 1 次文件编辑,
 `niceeval.config.ts` 已配 `dockerSandbox()` 默认镜像 + agent 的 `tracing.configure` 写入
@@ -56,11 +56,11 @@ metadata:
   tool/model 角色挂出 span"。
 
 **这次没有做的事,以及为什么**:没有据此修改 `src/o11y/execution-tree.ts` 的关联策略,也没有
-放宽 `docs/engineering/e2e-ci/adapters/codex-cli.md` 的 tracing 契约,也没有把
+放宽 `docs/engineering/testing/e2e/adapter/codex-cli.md` 的 tracing 契约,也没有把
 `verify.ts` 的两条 tracing 断言改造成会真实失败的"诚实"版本——三者都是设计/契约层决定
 (要不要在 codex CLI 场景放弃 call_id 精确关联、改成本文件开头提到的"窗口兜底归属"或干脆
 承认 codex-cli 的工具级 timing 不可得、比照 `docs/feature/eval/README.md` 或
-`e2e/repos/codex-sdk` 用 `"timing unavailable"` 明确声明"本仓库不声明 tracing 面"),不是
+`e2e/adapter/codex-sdk` 用 `"timing unavailable"` 明确声明"本仓库不声明 tracing 面"),不是
 "完成脚手架"这个任务范围内该单方面拍板的事,只记录复现证据留待评审裁决。
 
 **适用场景**:任何评审 codex-cli(built-in `codexAgent`)tracing/OTel 覆盖是否名副其实的场合;

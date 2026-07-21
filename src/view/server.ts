@@ -80,7 +80,7 @@ export async function startViewServer(opts: ViewOptions = {}): Promise<ViewServe
         file = plan.files.get(sitePath);
       }
       if (!file) {
-        // 本地宿主的 attempt 详情路由越过收窄,对完整结果根解析(docs/engineering/unit-tests/
+        // 本地宿主的 attempt 详情路由越过收窄,对完整结果根解析(docs/engineering/testing/unit/
         // reports/cases.md 第 198/220 行;与 `show @<locator>` 同一套「各自结果根语义寻址」,
         // 不是 SitePlan 清单之外的旁路取数——这条路由本来就不该受 --exp/eval 前缀收窄限制,
         // 与「server 不提供清单之外的路径」的奇偶保证不冲突,那条保证只约束收窄之内的路径)。

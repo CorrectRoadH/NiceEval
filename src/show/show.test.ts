@@ -1,4 +1,4 @@
-// cases: docs/engineering/unit-tests/reports/cases.md
+// cases: docs/engineering/testing/unit/reports/cases.md
 // niceeval show 终端宿主的测试(行为规范:docs-site/zh/tutorials/viewing-results.mdx;
 // 组合语义:docs/feature/reports/architecture.md「Selection 是计算入口」)。覆盖:
 // - 榜单合成口径:每 experiment × eval 取最新判定,局部重跑从更早快照补齐,头部标注合成自几个快照;
@@ -701,7 +701,7 @@ describe("--report 装载", () => {
     return path;
   }
 
-  it("show @<locator> --report <file>:选中该定义自己声明的 attempt-input page,不是内建固定首页(docs/engineering/unit-tests/reports/cases.md 第 202 行)", async () => {
+  it("show @<locator> --report <file>:选中该定义自己声明的 attempt-input page,不是内建固定首页(docs/engineering/testing/unit/reports/cases.md 第 202 行)", async () => {
     const root = await seedComposedRoot();
     const report = await writeReportFile(root);
     const results = await openResults(root);

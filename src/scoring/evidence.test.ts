@@ -1,4 +1,4 @@
-// cases: docs/engineering/unit-tests/scoring/cases.md
+// cases: docs/engineering/testing/unit/scoring/cases.md
 // 证据完整性模型的单测:覆盖代数(resolve/downgrade/worst)、作用域断言的三值折叠、
 // 判定折叠(非 optional unavailable → errored)、judge 未解析 → unavailable。
 // 契约见 docs/feature/scoring/architecture/{severity-and-verdict,evidence}.md 与

@@ -1,11 +1,11 @@
 ---
 name: langgraph-e2e-hitl-resume-register-before-send
-description: "e2e/repos/langgraph 的自建 SSE bridge 里,并发跑 HITL eval 时 /api/chat/resume 偶发 404 no pending interrupt——根因是先把 interrupted 帧发给客户端再登记 pending queue,已定位并修复(登记必须先于发送)"
+description: "e2e/adapter/langgraph 的自建 SSE bridge 里,并发跑 HITL eval 时 /api/chat/resume 偶发 404 no pending interrupt——根因是先把 interrupted 帧发给客户端再登记 pending queue,已定位并修复(登记必须先于发送)"
 metadata:
   type: infra-bug
 ---
 
-**现象**：`e2e/repos/langgraph` 的 `src/backend/server.py`(自建 HTTP/SSE bridge,把真实
+**现象**：`e2e/adapter/langgraph` 的 `src/backend/server.py`(自建 HTTP/SSE bridge,把真实
 `graph.stream(..., subgraphs=True)` 翻译成 `fromLangGraphEvents()` 认识的协议帧)在
 `niceeval exp langgraph --force`(`maxConcurrency: 2`,四条 Eval 里 `hitl` 一条会触发
 interrupt)偶发这样的错误:
@@ -34,4 +34,4 @@ niceeval: errored ... eval=hitl ... reason="POST /api/chat/resume 失败: 404 {\
 实现"停轮-恢复"语义(不止 LangGraph,任何要在多轮/多 eval 并发下把"服务端记下等待状态"和
 "通知客户端已经在等待"这两件事拆成两步做的场景)都要检查这个顺序——`await`/线程阻塞点必须放在
 "客户端已经不可能抢先"的地方之后,不能放在"通知客户端"之后才登记。落点：
-`e2e/repos/langgraph/src/backend/server.py` 的 `_register_pending` + `_stream_chat` 主循环。
+`e2e/adapter/langgraph/src/backend/server.py` 的 `_register_pending` + `_stream_chat` 主循环。

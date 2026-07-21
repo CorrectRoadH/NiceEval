@@ -1,5 +1,5 @@
 // Candidate tarball build + content fingerprint + post-install injection
-// verification. See docs/engineering/e2e-ci/README.md §3.2 and §5 point 4.
+// verification. See docs/engineering/testing/e2e/README.md §3.2 and §5 point 4.
 //
 // The trust chain is entirely local and independently re-derivable:
 //   1. We build the tarball ourselves (`pnpm pack`) and hash its bytes.

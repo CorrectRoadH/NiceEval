@@ -10,7 +10,7 @@
 
 ## 仓库形态
 
-评估仓库是独立仓库，不进 niceeval workspace——自治边界与理由同 [E2E CI 的独立测试仓库](../e2e-ci/README.md)。它同时是一个正常的 niceeval 用户项目：被测对象是 coding agent CLI（claude-code、codex 等），跑在 sandbox 隔离 workspace 里，任务输入是「把 niceeval 接入这个项目」。niceeval 评估自己的安装体验，本身就是 sandbox-agent 能力的一次完整使用。
+评估仓库是独立仓库，不进 niceeval workspace——自治边界与理由同 [E2E CI 的独立测试仓库](../testing/e2e/README.md)。它同时是一个正常的 niceeval 用户项目：被测对象是 coding agent CLI（claude-code、codex 等），跑在 sandbox 隔离 workspace 里，任务输入是「把 niceeval 接入这个项目」。niceeval 评估自己的安装体验，本身就是 sandbox-agent 能力的一次完整使用。
 
 仓库的核心资产是 **fixture 宿主项目矩阵**：每个 fixture 是一个签入的最小真实项目，对应 `INIT.zh.md` 第 2 步的一个判断分支，让评估覆盖不同的接入路径：
 
@@ -21,7 +21,7 @@
 | coding agent 的 Skill / MCP server | sandbox 路径，agent 本体进隔离 workspace |
 | 非 JS 项目（如 Python 服务） | 「宿主不是 TS 项目、就地新建 `package.json`」分支 |
 
-每次运行把 fixture 复制进隔离 workspace，注入候选 niceeval tarball（注入模型同 [E2E 的候选包注入](../e2e-ci/README.md)）与安装前文档来源，agent 从零开始自主执行；workspace 结束即弃，不把上一次的产出带进下一次。
+每次运行把 fixture 复制进隔离 workspace，注入候选 niceeval tarball（注入模型同 [E2E 的候选包注入](../testing/e2e/README.md)）与安装前文档来源，agent 从零开始自主执行；workspace 结束即弃，不把上一次的产出带进下一次。
 
 ## 一条 eval 的形状
 

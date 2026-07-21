@@ -16,7 +16,7 @@ Phase C 给 11 个叶子组件写了渲染矩阵测试(见 [render-matrix-not-ju
    本身能不能跑,所以这处彻底不可执行的命令从未被测出来。
 2. **`AttemptAssertions`/`AttemptSource` 的失败断言原来不带源码锚**:`assertionLine()` 只显示
    expected/received,没有用 `AssertionResult.loc`(断言在 eval 源码里的调用点,独立于整份源码是否被
-   捕获)拼 `file:line:col`。docs/engineering/unit-tests/reports/cases.md 第 255 行明确要求"提供源码锚",
+   捕获)拼 `file:line:col`。docs/engineering/testing/unit/reports/cases.md 第 255 行明确要求"提供源码锚",
    逐组件测试(见上条 memory)第一版只测了 data 层返回的 `expected`/`received` 字段本身,没有对着这行
    注册表场景逐句核对"源码锚"这个词。
 

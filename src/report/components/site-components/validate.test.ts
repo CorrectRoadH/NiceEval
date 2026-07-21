@@ -1,4 +1,4 @@
-// cases: docs/engineering/unit-tests/reports/cases.md
+// cases: docs/engineering/testing/unit/reports/cases.md
 // "validate*Data 递归覆盖到嵌套字段" 行:site-components 四个 validate*Data 的表驱动字段突变覆盖,重点是 ScopeWarning 的四个已登记
 // kind 各自的必填字段,以及未登记 kind 的前向兼容放行路径(与 ScopeWarnings 组件的「未知 kind
 // 单独成组」渲染回退是同一条契约,结构校验不能比渲染逻辑更严)。

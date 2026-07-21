@@ -109,7 +109,7 @@ bench/
 
 ### 复用点:直接调 runner 的单次 attempt 引擎,不重新拼装顺序
 
-单次 attempt 的执行序——沙箱就绪 → `sandbox.setup` 钩子链 → git baseline → `eval.setup` → `agent.setup` → `tracing.configure` → `send`(见[沙箱生命周期](../../feature/sandbox/architecture.md#沙箱在生命周期里的位置))——已经封在 `runAttemptBody`(`src/runner/attempt.ts`)里,包括错误处理、超时中断、teardown-on-error 这些容易漏的细节。`bench/` 与其在脚本里重新手搭 `AgentContext`(`session`/`log`/`signal`/`flags` 这些字段漏一个就是隐蔽 bug),不如直接从 `../src/runner/attempt.ts` 相对导入调用它——这和 `e2e/` 允许自己触达 niceeval 内部机制、不受制于对外发布的包边界是同一类「仓库内部工程工具的特权」:[E2E CI](../e2e-ci/README.md) 的 `verify.ts` 黑盒起 CLI 子进程验证外部可观察行为,`bench/` 反过来直接调用内部函数拿第一手耗时——两者都不是"包外用户能做的事",都只在同一个仓库、同一次提交里和 runner 保持同步,`pnpm run typecheck` 天然守住调用签名不漂移。
+单次 attempt 的执行序——沙箱就绪 → `sandbox.setup` 钩子链 → git baseline → `eval.setup` → `agent.setup` → `tracing.configure` → `send`(见[沙箱生命周期](../../feature/sandbox/architecture.md#沙箱在生命周期里的位置))——已经封在 `runAttemptBody`(`src/runner/attempt.ts`)里,包括错误处理、超时中断、teardown-on-error 这些容易漏的细节。`bench/` 与其在脚本里重新手搭 `AgentContext`(`session`/`log`/`signal`/`flags` 这些字段漏一个就是隐蔽 bug),不如直接从 `../src/runner/attempt.ts` 相对导入调用它——这和 `e2e/` 允许自己触达 niceeval 内部机制、不受制于对外发布的包边界是同一类「仓库内部工程工具的特权」:[E2E CI](../testing/e2e/README.md) 的 `verify.ts` 黑盒起 CLI 子进程验证外部可观察行为,`bench/` 反过来直接调用内部函数拿第一手耗时——两者都不是"包外用户能做的事",都只在同一个仓库、同一次提交里和 runner 保持同步,`pnpm run typecheck` 天然守住调用签名不漂移。
 
 探测 eval 用 `defineEval`(公开 API)在脚本里就地内联构造,不落 `.eval.ts` 文件、不经过 discover:
 
@@ -164,7 +164,7 @@ npx tsx bench/compare.ts bench/.snapshots/docker-codex-<old>.json bench/.snapsho
 - **`sandbox.create` 的读数只测容器起停,不测镜像拉取**。跑 bench 之前统一 `docker pull` 预热用到的基础镜像(或固定 digest,保证跨快照镜像层缓存状态一致),不把「这次要不要拉镜像」设计成第二组冷 / 热变量——那会让 `sandbox.create` 失去跨快照可比性。真要测镜像拉取速度是另一个问题,不在这份基准范围内。
 - **一个矩阵一个进程**。全矩阵逐 provider 串行跑,绝不并行多个 `run.ts` 进程指向同一批 provider(避免无意义的资源争抢和难以复现的抖动)。
 - **结果不进 git**:`bench/.snapshots/` 是本地测量数据。
-- **与 e2e 的边界**:[E2E CI](../e2e-ci/README.md) 的沙箱矩阵管适配层**回归门禁**(nightly、真实任务、真模型);bench 管安装路径的**优化迭代**(本地随手跑、不调模型)。互不依赖,bench 不进任何 CI,也不进 `pnpm test`——vitest 层守护的是计时机制本身(见下节),`bench/*.ts` 本身和 e2e 一样不受这条约束。
+- **与 e2e 的边界**:[E2E CI](../testing/e2e/README.md) 的沙箱矩阵管适配层**回归门禁**(nightly、真实任务、真模型);bench 管安装路径的**优化迭代**(本地随手跑、不调模型)。互不依赖,bench 不进任何 CI,也不进 `pnpm test`——vitest 层守护的是计时机制本身(见下节),`bench/*.ts` 本身和 e2e 一样不受这条约束。
 
 ## 框架自测:计时机制的 vitest 守护
 
@@ -183,5 +183,5 @@ npx tsx bench/compare.ts bench/.snapshots/docker-codex-<old>.json bench/.snapsho
 
 - [Sandbox · 沙箱在生命周期里的位置](../../feature/sandbox/architecture.md#沙箱在生命周期里的位置) —— phases 阶段边界的出处,也是 `runAttemptBody` 执行序的出处。
 - [Results Format](../../feature/results/architecture.md) —— `result.json` 的权威记录契约与 `phases` 字段。
-- [E2E CI](../e2e-ci/README.md) —— 回归门禁侧的沙箱矩阵,与 bench 的分工见「运行纪律」;`bench/` 触达 runner 内部函数与 e2e 触达 CLI 子进程是同一类仓库内部特权。
+- [E2E CI](../testing/e2e/README.md) —— 回归门禁侧的沙箱矩阵,与 bench 的分工见「运行纪律」;`bench/` 触达 runner 内部函数与 e2e 触达 CLI 子进程是同一类仓库内部特权。
 - [Observability](../../observability.md) —— 为什么 phases 不走 OTel trace。

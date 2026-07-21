@@ -1,4 +1,4 @@
-// cases: docs/engineering/unit-tests/experiments-runner/cases.md
+// cases: docs/engineering/testing/unit/experiments-runner/cases.md
 // 路径提升单测:agent.setup 写进沙箱 `__niceeval__/agent-setup.json` 的安装 manifest,
 // runAttemptEffect 在 setup 之后把它读出来、原样挂到 EvalResult.agentSetup(见
 // docs/feature/results/architecture.md「agent-setup.json」、src/agents/manifest.ts 的注释)。

@@ -1,9 +1,9 @@
-// cases: docs/engineering/unit-tests/reports/cases.md
+// cases: docs/engineering/testing/unit/reports/cases.md
 // Attempt 详情组件族的单元测试:11 个叶子的非空/空证据矩阵、AttemptAssessment 的
 // source/assertions fallback、AttemptDetail 的内建顺序、spec/data 等价与 scope-input page
 // 报错、AttemptConversation 的 loc 分轮、attemptSourceData 的 loc 投影、AttemptTimeline 的默认折叠。
 // 纯渲染,注入数据:直接构造 AttemptEvidence fixture,不 mock fetch(这些组件从不 fetch)。
-// 样式与视觉交互(染色、布局、展开观感)不在本层:归 E2E 报告域(docs/engineering/e2e-ci/results.md)。
+// 样式与视觉交互(染色、布局、展开观感)不在本层:归 E2E 报告域(docs/engineering/testing/e2e/report.md)。
 
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";

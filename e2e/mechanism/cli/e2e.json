@@ -1,8 +1,0 @@
-{
-  "id": "cli",
-  "group": "mechanism",
-  "command": ["pnpm", "e2e"],
-  "timeoutMinutes": 15,
-  "secrets": ["OPENAI_API_KEY", "OPENAI_BASE_URL", "NICEEVAL_JUDGE_KEY", "NICEEVAL_JUDGE_BASE"],
-  "artifacts": [".niceeval/**", "junit/**", "logs/**"]
-}

@@ -54,7 +54,7 @@ export default defineReport({
 - **语法高亮**：零依赖逐行 TypeScript token（comment / string / keyword / number / function 五类语义 class）；暗色 token 取 VS Code Dark+ 系（与示例卡的 prism vsDark 主题同源），浅色为等价可读色。
 - **交互载体**：展开一律是原生 `<details>`，静态文档零 JS 成立。
 
-这份规范与官方 stylesheet 组合后的实际观感（染色、布局、滚动、展开交互）由 [E2E 报告域](../../../engineering/e2e-ci/results.md)在真实浏览器里验收，单元层只覆盖数据投影与 DOM 结构事实。
+这份规范与官方 stylesheet 组合后的实际观感（染色、布局、滚动、展开交互）由 [E2E 报告域](../../../engineering/testing/e2e/report.md)在真实浏览器里验收，单元层只覆盖数据投影与 DOM 结构事实。
 
 ## page 输入与 spec / data 形态
 

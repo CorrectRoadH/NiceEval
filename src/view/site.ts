@@ -314,7 +314,7 @@ async function renderAttemptDocument(
 
 /**
  * 独立渲染一个 locator 的 attempt 文档,不依赖已建好的站点清单——供本地 server 的「越过收窄」
- * 回退路由使用(docs/engineering/unit-tests/reports/cases.md 第 198/220 行:本地宿主的 attempt
+ * 回退路由使用(docs/engineering/testing/unit/reports/cases.md 第 198/220 行:本地宿主的 attempt
  * 详情路由对完整结果根解析,不受 `--exp`/eval 前缀收窄限制,与 `show @<locator>` 同一套「各自
  * 结果根语义寻址」)。头资产的物化路径由内容哈希确定性算出,这里用一个用后即弃的 Map 重新
  * 算一遍就够——真正的文件已经由主 plan(`planSite` 对 index.html 的物化)写过一次,不需要

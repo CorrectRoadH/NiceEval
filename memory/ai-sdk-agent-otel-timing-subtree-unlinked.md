@@ -5,7 +5,7 @@ metadata:
   type: infra-bug
 ---
 
-**现象**：`e2e/repos/ai-sdk` 用内置 `aiSdkAgent({ tracing: aiSdkOtel(), generate })` 真机跑
+**现象**：`e2e/adapter/ai-sdk` 用内置 `aiSdkAgent({ tracing: aiSdkOtel(), generate })` 真机跑
 一条含 `get_weather` 工具调用的 Eval。`niceeval show @<locator> --execution`
 表现完全正确：TOOL 卡片带真实 span 耗时注释（如 `TOOL · get_weather  1.4s · 0ms`），没有
 "timing unavailable"，footer 只提示"N unlinked telemetry spans omitted"（这部分是 AI SDK 的
@@ -42,7 +42,7 @@ turn.traceId"这一半：
   给消费方用，只留下一个日后永远配不上真实 span 的合成 id。
 
 **修法**：**未修**——这是 niceeval 侧的真实 gap，不是这个 e2e 仓库能绕过的问题（已尝试两种
-配置，见上）。`e2e/repos/ai-sdk/scripts/verify.ts` 把这条断言写成非 gating 的
+配置，见上）。`e2e/adapter/ai-sdk/scripts/verify.ts` 把这条断言写成非 gating 的
 `console.warn`（真实的、写死的目标断言注释在原地，指向这条记录），不伪造绿灯。
 
 **适用场景**：任何用 `aiSdkAgent({ tracing: aiSdkOtel() })` 或其他 attempt-scope
@@ -58,7 +58,7 @@ span 从不匹配，见上）。修复需要两者之一：(a) `AgentOtelChannel
 turn-otel.ts` / `src/agents/ai-sdk.ts`，不在本仓库范围内。
 
 **范围不限于 aiSdkAgent**：根因在 `AgentOtelChannel.runTurn()` 的 window-attribution
-分支本身，与哪个 Agent 工厂驱动 turn 无关——`e2e/repos/ai-sdk` 把 OTel 证明从 `aiSdkAgent`
+分支本身，与哪个 Agent 工厂驱动 turn 无关——`e2e/adapter/ai-sdk` 把 OTel 证明从 `aiSdkAgent`
 （进程内）迁到 `uiMessageStreamAgent`（HTTP）+ `defineConfig({ telemetry })` 后
 （[[ai-sdk-official-entry-points-narrowed]]），`scripts/verify.ts` 对 `show --timing` 的
 断言仍保持非 gating——同一个合成 `traceId` 不匹配真实 span 的问题原样复现，迁移传输层不能

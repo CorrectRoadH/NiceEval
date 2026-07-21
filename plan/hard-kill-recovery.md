@@ -14,7 +14,7 @@
 4. `docs/feature/experiments/architecture.md`「强杀后的收尾兜底:收尾登记与启动自愈」：登记时点与形状、启动自愈裁决表（同宿主 pid 死 → 自愈/提醒；否则不触碰）、删登记互斥、`--teardown` 语义。
 5. `docs/runner.md`「缓存:指纹去重」：attempt 粒度携带、未收尾快照参与携带、与 earlyExit 的组合。
 6. `docs/cli.md`「中断:三级响应」末段：SIGKILL 兜底的两个事后入口；实验级注册表段的磁盘持久化一句。
-7. 登记表新行：`docs/engineering/unit-tests/sandbox/cases.md`「孤儿核对与 prune」、`docs/engineering/unit-tests/experiments-runner/cases.md` 实验级生命周期新增 4 行 + 缓存分区新增 2 行——测试只为这些行而写。
+7. 登记表新行：`docs/engineering/testing/unit/sandbox/cases.md`「孤儿核对与 prune」、`docs/engineering/testing/unit/experiments-runner/cases.md` 实验级生命周期新增 4 行 + 缓存分区新增 2 行——测试只为这些行而写。
 8. memory：`force-exit-skips-experiment-teardown`（进程内注册表与 settle 语义，别破坏）、`e2b-provision-429-duplicate-sandbox`（e2b metadata 通道已用于 provision token，运行标识同通道追加）、`vercel-sandbox-issues`（session 寿命短，expiresAt 照实算）。
 9. 当前实现入口：`src/sandbox/docker.ts` / `e2b.ts`（创建参数、label/metadata）、`src/sandbox/registry.ts`（逐条目文件纪律，孤儿核对与收尾登记复用同一套原子写）、`src/cli.ts`（sandbox 命令组分派、`FLAG_OPTIONS`）、`src/runner/experiment-cleanup-registry.ts`（触发时点、settle 点——磁盘登记挂同一时点）、`src/runner/fingerprint.ts` + `planCarry`（携带规划）。
 
@@ -24,7 +24,7 @@
 - `sandbox list --orphans`：docker 按 label 查本地 daemon，e2b 按 metadata 过滤 SDK 实例列表；排除留存注册表已登记条目；同宿主 pid 探测（`process.kill(pid, 0)` 语义）裁决 `orphan` / `unverified`；输出样式照 `docs/feature/sandbox/cli.md`。只读。
 - `sandbox prune`：销毁 `orphan`（docker `rm -f`、e2b SDK kill），`--force` 含 `unverified`；幂等；单台失败列出并退出 1、其余照常。不触碰注册表条目。
 - `niceeval exp` 启动残留提醒追加孤儿行：仅 docker 本地 daemon 零成本核对，云 provider 不探测。
-- 验收：`docs/engineering/unit-tests/sandbox/cases.md`「孤儿核对与 prune」3 行全部变绿；`pnpm run typecheck`、`pnpm test` 通过；本机 docker 手测：起一个假 niceeval label 容器（pid 填已死进程）→ `list --orphans` 可见 → `prune` 收回。
+- 验收：`docs/engineering/testing/unit/sandbox/cases.md`「孤儿核对与 prune」3 行全部变绿；`pnpm run typecheck`、`pnpm test` 通过；本机 docker 手测：起一个假 niceeval label 容器（pid 填已死进程）→ `list --orphans` 可见 → `prune` 收回。
 
 ## 阶段 2：实验收尾登记与启动自愈（实验面）
 

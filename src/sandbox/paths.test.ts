@@ -1,4 +1,4 @@
-// cases: docs/engineering/unit-tests/sandbox/cases.md
+// cases: docs/engineering/testing/unit/sandbox/cases.md
 import { describe, expect, it } from "vitest";
 import { normalizeSandboxPaths, resolveLocalPath, resolveSandboxPath } from "./paths.ts";
 import type { Sandbox } from "../types.ts";

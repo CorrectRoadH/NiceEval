@@ -1,4 +1,4 @@
-// 唯一执行入口(docs/engineering/e2e-ci/README.md §3.1):准备、运行、验收、分类退出码。
+// 唯一执行入口(docs/engineering/testing/e2e/README.md §3.1):准备、运行、验收、分类退出码。
 // dotenv 必须在本文件顶部最先加载——本进程随后 spawn 的 `pnpm exec niceeval ...` 子进程
 // 默认继承 process.env,verify.ts 与 experiments/agents 读到的 CODEX_API_KEY 等变量都来自这里。
 import "dotenv/config";
@@ -55,6 +55,6 @@ main()
     }
 
     // 判不准就按回归退出——宁可误报回归,不可把回归漏报成环境问题
-    // (docs/engineering/e2e-ci/verification.md「失败分类」)。
+    // (docs/engineering/testing/e2e/verification.md「失败分类」)。
     process.exit(infra ? 75 : 1);
   });

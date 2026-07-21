@@ -1,4 +1,4 @@
-// cases: docs/engineering/unit-tests/reports/cases.md
+// cases: docs/engineering/testing/unit/reports/cases.md
 // 「外壳、页面与 Tabs」——show 专属的索引命令拼装(showCommand)与其余页索引文案(otherPagesText)。
 
 import { describe, expect, it } from "vitest";

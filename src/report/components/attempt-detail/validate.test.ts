@@ -1,4 +1,4 @@
-// cases: docs/engineering/unit-tests/reports/cases.md
+// cases: docs/engineering/testing/unit/reports/cases.md
 // "validate*Data 递归覆盖到嵌套字段" 行:attempt-detail 十一个叶子的 validate*Data 表驱动字段突变覆盖,重点是 AttemptConversationData
 // 的 AttemptConversationReply 判别联合(每个 kind 分支各自的必填字段)与其余嵌套结构
 // (AttemptIdentity / AssertionResult 判别联合 / TraceSpan / AttemptDiffFileEntry 的 net 枚举)。

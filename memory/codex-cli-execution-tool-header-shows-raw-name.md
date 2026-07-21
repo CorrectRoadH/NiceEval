@@ -5,7 +5,7 @@ metadata:
   type: infra-bug
 ---
 
-**现象**:`e2e/repos/codex-cli` 的 `coding-task` Eval 内部 `t.calledTool("shell", …)` /
+**现象**:`e2e/adapter/codex-cli` 的 `coding-task` Eval 内部 `t.calledTool("shell", …)` /
 `t.calledTool("file_edit", …)` 断言真机通过(attempt 标 passed),但 `scripts/verify.ts`
 对同一个 attempt 跑 `pnpm exec niceeval show <locator> --execution` 后
 `execution.includes("file_edit")` / `execution.includes("shell")` 两条断言必然失败——真机抓到
@@ -38,9 +38,9 @@ MCP 工具调用不受影响:`mcp_tool_call` 分支的原始名本身就是 `${s
 只有 command_execution/file_change 这类"协议原始名是内部事件类型、canonical 名才是人话"的
 情况才会踩这个坑。
 
-**修法**:`e2e/repos/codex-cli/scripts/verify.ts` 的 `--execution` 断言改成 OR 两种写法都接受:
+**修法**:`e2e/adapter/codex-cli/scripts/verify.ts` 的 `--execution` 断言改成 OR 两种写法都接受:
 `execution.includes("file_edit") || execution.includes("file_change")`、
-`execution.includes("shell") || execution.includes("command_execution")`——`e2e/repos/codex-sdk`
+`execution.includes("shell") || execution.includes("command_execution")`——`e2e/adapter/codex-sdk`
 的 `verify.ts` 已经用同一个 OR 写法处理过这个坑(`execution.includes("shell") ||
 execution.includes("command_execution")`),这次是同一坑第二次出现,直接照抄。
 

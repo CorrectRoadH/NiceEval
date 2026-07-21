@@ -1,5 +1,5 @@
 #!/usr/bin/env -S npx tsx
-// 唯一执行入口(docs/engineering/e2e-ci/README.md §3.1)。运行时的先决条件——安装依赖、
+// 唯一执行入口(docs/engineering/testing/e2e/README.md §3.1)。运行时的先决条件——安装依赖、
 // 候选包注入、secrets 授权——由调用方保证(根编排器 e2e/scripts/run.ts 的隔离 install,或
 // crabbox 独立 checkout 场景下 `pnpm install && pnpm e2e` 的显式链)。本脚本自己负责:
 //

@@ -1,4 +1,4 @@
-// cases: docs/engineering/unit-tests/experiments-runner/cases.md
+// cases: docs/engineering/testing/unit/experiments-runner/cases.md
 import { describe, expect, it } from "vitest";
 import { isCIEnvironment, resolveOutputProfile } from "./profile.ts";
 

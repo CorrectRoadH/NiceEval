@@ -3,9 +3,9 @@ import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 // 用例登记表与测试套件的双向挂钩由测试守护(契约见
-// docs/engineering/unit-tests/README.md「套件边界与仓库守护」与
-// docs/engineering/unit-tests/registry.md),不引入脚本:
-// 1. src/ 下每个测试文件头部声明所属清单(// cases: docs/engineering/unit-tests/<feature>/cases.md),
+// docs/engineering/testing/unit/README.md「套件边界与仓库守护」与
+// docs/engineering/testing/unit/registry.md),不引入脚本:
+// 1. src/ 下每个测试文件头部声明所属清单(// cases: docs/engineering/testing/unit/<feature>/cases.md),
 //    且声明指向真实存在的 cases.md——没有这条,新增测试可以绕开登记表存在,
 //    「先登记后写测」的预算闸门静默失效;
 // 2. 每份 cases.md 至少被一个 src 测试文件声明——没有这条,登记表可以整册与套件脱钩,
@@ -27,7 +27,7 @@ const isTestFile = (name: string) => name.endsWith(".test.ts") || name.endsWith(
 
 describe("用例登记表守护", () => {
   const srcTests = walk("src", isTestFile);
-  const CASES_LINE = /^\/\/ cases: (docs\/engineering\/unit-tests\/[a-z-]+\/cases\.md)$/;
+  const CASES_LINE = /^\/\/ cases: (docs\/engineering\/testing\/unit\/[a-z-]+\/cases\.md)$/;
 
   it("src/ 下每个测试文件前 20 行内有且仅有一行 cases 声明,且指向真实存在的清单", () => {
     const problems: string[] = [];
@@ -38,7 +38,7 @@ describe("用例登记表守护", () => {
         .filter((m): m is RegExpExecArray => m !== null);
       if (matches.length === 0) {
         problems.push(
-          `${file}: 前 20 行没有 cases 声明——在文件第一行加 // cases: docs/engineering/unit-tests/<feature>/cases.md`,
+          `${file}: 前 20 行没有 cases 声明——在文件第一行加 // cases: docs/engineering/testing/unit/<feature>/cases.md`,
         );
         continue;
       }
@@ -54,8 +54,8 @@ describe("用例登记表守护", () => {
     expect(problems, "这些测试文件的 cases 声明缺失或失效").toEqual([]);
   });
 
-  it("docs/engineering/unit-tests/ 下每份 cases.md 至少被一个 src 测试文件声明", () => {
-    const registries = walk("docs/engineering/unit-tests", (name) => name === "cases.md");
+  it("docs/engineering/testing/unit/ 下每份 cases.md 至少被一个 src 测试文件声明", () => {
+    const registries = walk("docs/engineering/testing/unit", (name) => name === "cases.md");
     const declared = new Set(
       srcTests.flatMap((file) =>
         readFileSync(join(ROOT, file), "utf8")

@@ -1,6 +1,6 @@
 # 设计裁决:测试预算按「静默出错的代价」分配,不按代码量或好测程度
 
-**裁决**:判定层(评分/断言/缓存键/调度)必须有直接测试;展示层测薄可以接受。行覆盖率不作为指标,也不作为验收依据。落成 [`docs/engineering/unit-tests/README.md`](../docs/engineering/unit-tests/README.md)。
+**裁决**:判定层(评分/断言/缓存键/调度)必须有直接测试;展示层测薄可以接受。行覆盖率不作为指标,也不作为验收依据。落成 [`docs/engineering/testing/unit/README.md`](../docs/engineering/testing/unit/README.md)。
 
 **曾选方案(未明说、但事实上在执行的)**:哪儿好测测哪儿。结果是纯函数密集、断言好写的模块被反复加测试,而难测的核心一直裸奔。
 

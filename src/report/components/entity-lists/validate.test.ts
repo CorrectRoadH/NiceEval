@@ -1,4 +1,4 @@
-// cases: docs/engineering/unit-tests/reports/cases.md
+// cases: docs/engineering/testing/unit/reports/cases.md
 // "validate*Data 递归覆盖到嵌套字段" 行:entity-lists 三个 validate*Data 的表驱动字段突变覆盖,AttemptListItem 的形状在三个组件族
 // 共用(独立 data 或嵌套在 evalRows/attempts 里),重点覆盖嵌套 MetricCell/tally 字段与
 // 深层嵌套(ExperimentListItem.evalRows[i].attempts[j])的路径定位。

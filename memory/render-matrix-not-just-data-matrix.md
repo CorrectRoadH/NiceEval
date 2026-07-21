@@ -5,7 +5,7 @@ metadata:
   type: feedback
 ---
 
-`docs/engineering/unit-tests/reports/cases.md` 第 249 行(Attempt 详情组件族非空/空证据矩阵)登记的场景原文是"零输出态断言两面都不产生可见节点,非零输出态断言两面都含预期字段"——这句话的主语是**两面渲染输出**,不是 data 函数返回值。
+`docs/engineering/testing/unit/reports/cases.md` 第 249 行(Attempt 详情组件族非空/空证据矩阵)登记的场景原文是"零输出态断言两面都不产生可见节点,非零输出态断言两面都含预期字段"——这句话的主语是**两面渲染输出**,不是 data 函数返回值。
 
 写 Phase C(11 个叶子组件)的测试时,我把这行注册表条目实现成了 11 个 `expect(attemptXData(evidence)).toBeNull()` / `.toEqual({...})` 断言,只验证了 `attempt*Data()` 的返回形状。`pnpm run typecheck` 与 `pnpm run build:report` 都绿,套件也全绿,但 11 个叶子里有 9 个(除 AttemptSummary、AttemptTimeline 外)的 web/text 渲染函数**一次都没有被真正调用过**——`.toLocaleString()`、`JSON.stringify` 递归、`buildForest` 的 parentSpanId 查找这类只在渲染时才执行的代码路径,类型检查和"能编译"完全遮蔽不了。
 

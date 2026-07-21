@@ -1,5 +1,5 @@
 #!/usr/bin/env -S npx tsx
-// scripts/e2e.ts — 唯一执行入口(docs/engineering/e2e-ci/README.md §3.1)。
+// scripts/e2e.ts — 唯一执行入口(docs/engineering/testing/e2e/README.md §3.1)。
 //
 // 1. 检查所需 secrets(fail-fast)。
 // 2. 启动本仓库自带的被测应用(src/backend/server.ts),等它 /healthz 就绪。

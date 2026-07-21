@@ -3,7 +3,7 @@ import { equals } from "niceeval/expect";
 
 // canUseTool 审批门:calculate 经 canUseTool 挂了审批(见 src/backend/agent.ts、
 // agents/claude-agent-sdk.ts),approve 与 reject 是同一个协议行为的两个分支,合并成一个 Eval
-// (docs/engineering/e2e-ci/adapters/README.md「仓库 Eval 预算」:一种协议行为一个 Eval)。
+// (docs/engineering/testing/e2e/adapter/README.md「仓库 Eval 预算」:一种协议行为一个 Eval)。
 // 两个分支各用独立 session(t.newSession())隔离,避免上一分支的挂起状态串到下一个分支。
 //
 // 提示词不提"审批"——不同模型在提示词里看到"审批"字样时,有的会倾向于用文字问"可以吗"而不是

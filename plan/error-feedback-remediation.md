@@ -12,7 +12,7 @@
 2. `docs/error-feedback.md`：本次落地的权威契约——三段式、`command` 字段、CLI 两行形状、适用边界。
 3. `docs/feature/results/library.md`「警告 kind 全集」：每个 kind 的下一步与 `command` 已逐行定稿，照表实现。
 4. `docs/feature/results/architecture.md`：`DiagnosticRecord` 新形状（`command?: string`）；新增可选字段按该页版本规则**不递增** `schemaVersion`。
-5. `docs/engineering/unit-tests/registry.md` 与三份登记表的新增行：`results/cases.md`（Selection 分区「警告必带下一步」行）、`experiments-runner/cases.md`（「CLI 启动期错误格式」分区）、`reports/cases.md`（「show/view 宿主等价与选择」分区宿主渲染行）。测试只为这些已登记行而写。
+5. `docs/engineering/testing/unit/registry.md` 与三份登记表的新增行：`results/cases.md`（Selection 分区「警告必带下一步」行）、`experiments-runner/cases.md`（「CLI 启动期错误格式」分区）、`reports/cases.md`（「show/view 宿主等价与选择」分区宿主渲染行）。测试只为这些已登记行而写。
 6. memory：`error-feedback-message-carries-fix`（为什么不是独立必填 fix 字段——不要在实现里"顺手"加回去）。
 7. 当前实现入口：`src/results/`（Selection 警告构造，`select.ts` 一带）、`src/types.ts`（`SelectionWarning` / `DiagnosticRecord`）、`src/cli.ts` 与 `src/tty-line.ts`（bootstrap 错误出口）、`src/runner/feedback/`（运行期诊断渲染）、`src/show/` 与 `src/view/`（宿主警告显示）、`src/report/`（web 警告条）。
 

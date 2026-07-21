@@ -17,7 +17,7 @@ ERR_PNPM_CONFIG_CONFLICT_BUILT_DEPENDENCIES  Cannot have both neverBuiltDependen
 **根因**：`run.ts`(旧版)给隔离拷贝装依赖时带了 `--config.dangerouslyAllowAllBuilds=true`。
 在 pnpm 10.33+(用真实二进制在 `/tmp` 隔离拷贝上验证复现,pnpm 11.12 不复现,行为随大版本变化):
 `dangerouslyAllowAllBuilds=true` 会把 `neverBuiltDependencies` 设成 `[]`——空数组,但 JS
-里依然是 truthy。而 `e2e/repos/*` 每个仓库自己的 `pnpm-workspace.yaml` 都声明了
+里依然是 truthy。而 `e2e/adapter/*` 每个仓库自己的 `pnpm-workspace.yaml` 都声明了
 `allowBuilds`(如 `ai-sdk` 的 `esbuild: true`),这会被翻译成非空的
 `onlyBuiltDependencies`。pnpm 自己的校验用 `if (opts.onlyBuiltDependencies &&
 opts.neverBuiltDependencies)` 做真值判断,两边都是 truthy(一个非空、一个空但

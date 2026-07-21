@@ -1,6 +1,6 @@
 // 协议行为:coding tool——command execution 与文件变更事件都进入标准事件流,调用与结果配对成立。
 // 一个 Eval 里同时验两种编码工具形态(写文件 + 跑命令),不为每种形态各开一条 Eval
-// (见 docs/engineering/e2e-ci/adapters/README.md「仓库 Eval 预算」)。
+// (见 docs/engineering/testing/e2e/adapter/README.md「仓库 Eval 预算」)。
 import { defineEval } from "niceeval";
 import { includes } from "niceeval/expect";
 import { existsSync, readFileSync, rmSync } from "node:fs";

@@ -14,4 +14,4 @@
 
 同类反模式(**grep 源码文本当测试**)在同一文件里还有两处:`readFileSync(src/show/index.ts)` + 正则匹配它的源码文本来断言"宿主选对了报告"、grep `report.ts`/`web.ts` 有没有出现字符串 `"ExperimentComparison"`。这是 lint 规则穿了测试的马甲,改个局部变量名就红,而它们声称守护的行为在 `show.test.ts` / `view-report.test.ts` 里已有真实的行为测试。
 
-规则已升格进 [`docs/engineering/unit-tests/README.md`](../docs/engineering/unit-tests/README.md)「不写的测试」。出处见 [[test-budget-inverted-pyramid]]。
+规则已升格进 [`docs/engineering/testing/unit/README.md`](../docs/engineering/testing/unit/README.md)「不写的测试」。出处见 [[test-budget-inverted-pyramid]]。

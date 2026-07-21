@@ -1,4 +1,4 @@
-// cases: docs/engineering/unit-tests/experiments-runner/cases.md
+// cases: docs/engineering/testing/unit/experiments-runner/cases.md
 // 纯选题边界:EvalDescriptor 投影 + resolveExperimentEvals 求值(定稿见
 // docs/feature/eval/library.md「EvalDescriptor」、docs/feature/experiments/library.md「evals」)。
 

@@ -68,8 +68,8 @@
 
 动实现前，先更新：
 
-- `docs/engineering/unit-tests/reports/README.md`
-- `docs/engineering/unit-tests/reports/cases.md`
+- `docs/engineering/testing/unit/reports/README.md`
+- `docs/engineering/testing/unit/reports/cases.md`
 
 登记表至少完成以下替换，不保留两套场景：
 
@@ -87,7 +87,7 @@
 7. view 增加：每个有效 locator 生成独立 HTML、收窄决定可达集合、直接页面无 JS 完整可读、dialog 使用同一 page 内容、导航不含 hidden page。
 8. site parity 场景把 `attempt/*.html` 纳入 server / `--out` 逐字节比较。
 
-测试文件继续用 `// cases: docs/engineering/unit-tests/reports/cases.md` 绑定登记表。不要新增整页大 snapshot、CSS class 全量 snapshot、复制内建源码的 parity 测试或 grep 私有源码文本的“架构测试”。
+测试文件继续用 `// cases: docs/engineering/testing/unit/reports/cases.md` 绑定登记表。不要新增整页大 snapshot、CSS class 全量 snapshot、复制内建源码的 parity 测试或 grep 私有源码文本的“架构测试”。
 
 ## 5. Phase A：统一 report definition、page context 与 runtime facade
 

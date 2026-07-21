@@ -1,4 +1,4 @@
-// cases: docs/engineering/unit-tests/scoring/cases.md
+// cases: docs/engineering/testing/unit/scoring/cases.md
 import { describe, expect, it } from "vitest";
 import { hasSections, includesUrl } from "./index.ts";
 

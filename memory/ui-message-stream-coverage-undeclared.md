@@ -1,11 +1,11 @@
 ---
 name: ui-message-stream-coverage-undeclared
-description: "内置 uiMessageStreamAgent 没有声明 EvidenceCoverage，让所有作用域断言在真实协议下 unavailable→errored——e2e/repos/ai-sdk 的 hitl-approval/tool-call 首跑全 errored 才发现"
+description: "内置 uiMessageStreamAgent 没有声明 EvidenceCoverage，让所有作用域断言在真实协议下 unavailable→errored——e2e/adapter/ai-sdk 的 hitl-approval/tool-call 首跑全 errored 才发现"
 metadata:
   type: infra-bug
 ---
 
-**现象**：`e2e/repos/ai-sdk`（AI SDK 三接入面 E2E 仓库）用内置 `uiMessageStreamAgent` 真机跑
+**现象**：`e2e/adapter/ai-sdk`（AI SDK 三接入面 E2E 仓库）用内置 `uiMessageStreamAgent` 真机跑
 `ui-message-stream/tool-call` 与 `ui-message-stream/hitl-approval` 两条 Eval，`--output ci`
 报 6 条 `errored`（不是 `failed`），reason 都是 `coverage:actions=unknown` /
 `coverage:status=unknown`——`notCalledTool(calculate)`、`succeeded()`、`noFailedActions()`
@@ -26,7 +26,7 @@ unavailable；负断言（`notCalledTool`）同理对 `actions` 通道。`uiMess
 { status: "unavailable", reason: "..." } }`——events/actions/messages/status/data 全部
 `complete`，只有 `usage` 例外（协议帧本身不带 token 计数，声明 unavailable 而不是硬编 unknown
 或造假 complete）。已加回归测试（`src/agents/ui-message-stream.test.ts` 新增一条
-`coverage` 断言用例）、`docs/engineering/unit-tests/adapters/cases.md` 补场景行、
+`coverage` 断言用例）、`docs/engineering/testing/unit/adapters/cases.md` 补场景行、
 `pnpm run typecheck` 与该文件单测全绿。
 
 **适用场景**：任何"官方 SDK 适配器"新增或改动时，检查 `defineAgent`/`defineSandboxAgent` 调用

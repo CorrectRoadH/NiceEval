@@ -1,4 +1,4 @@
-// cases: docs/engineering/unit-tests/reports/cases.md
+// cases: docs/engineering/testing/unit/reports/cases.md
 // "validate*Data 递归覆盖到嵌套字段" 行:metric-views 六个 validate*Data 的表驱动字段突变覆盖,每个校验函数先证明合规 literal 通过,
 // 再对嵌套字段(MetricColumn / MetricCell / tally)逐个突变,证明报错文案定位到具体坏字段
 // 路径而不是笼统的整份 data 报错。不复制 compute.ts 的聚合逻辑——fixture 是手写的合规

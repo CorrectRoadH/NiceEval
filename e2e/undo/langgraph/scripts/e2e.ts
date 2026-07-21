@@ -1,5 +1,5 @@
 #!/usr/bin/env -S npx tsx
-// 唯一执行入口(docs/engineering/e2e-ci/README.md §3.1):检查环境、起被测应用、跑
+// 唯一执行入口(docs/engineering/testing/e2e/README.md §3.1):检查环境、起被测应用、跑
 // Experiment、跑 verify.ts、按能否确证外部故障分类退出码,最后无论成败都收尾服务。
 //
 // exit 0   契约符合预期

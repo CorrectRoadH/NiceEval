@@ -10,7 +10,7 @@ metadata:
 语言的两份实现**，规范落成 `docs/feature/reports/library/attempt-detail.md`「AttemptSource
 web 面视觉规范」（8% 浅染整行 + 2px 左缘、行号位图标顶替行号、sticky 右缘 meta、展开区按
 cqw 换行并钉滚动视口左缘、vsDark 系暗色 token）。同批把样式/视觉守护从单元层移交
-[E2E 报告域](../docs/engineering/e2e-ci/results.md)真实浏览器验收：删除
+[E2E 报告域](../docs/engineering/testing/e2e/report.md)真实浏览器验收：删除
 `view-report.test.ts` 的 JSDOM computed-style 守护与 `attempt-components.test.tsx` 的
 markup 断言（保留 `attemptSourceData` 的 loc 投影 data 级断言），jsdom devDependency 移除。
 

@@ -5,7 +5,7 @@ metadata:
   type: infra-bug
 ---
 
-**现象**：`e2e/repos/claude-code` 的 `websearch-denied` Eval（挂了 `settingsFile:
+**现象**：`e2e/adapter/claude-code` 的 `websearch-denied` Eval（挂了 `settingsFile:
 "configs/claude-code/no-web.json"` 的 claude-code agent）真机跑 Docker 沙箱时,
 `agent.setup` 阶段 100% 复现 `errored`：
 

@@ -1,6 +1,6 @@
 // codex-sdk 的 adapter:进程内直接用 `@openai/codex-sdk` 驱动 Codex,没有中间 HTTP 服务——
 // SDK 自己已经 spawn 了 codex CLI 子进程,那才是这条协议路径真实的进程边界(不搭 apps/ + 薄
-// projects/ 的隐含拓扑,见 docs/engineering/e2e-ci/README.md §9)。
+// projects/ 的隐含拓扑,见 docs/engineering/testing/e2e/README.md §9)。
 //
 // 断言依据全部来自标准事件流:官方转换器 `fromCodexThreadEvents()` 翻消息文本、工具项
 // (command_execution / mcp_tool_call / file_change → action.*)、`turn.completed` 的 usage;

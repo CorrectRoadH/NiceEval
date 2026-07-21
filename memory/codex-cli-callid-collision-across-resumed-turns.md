@@ -5,7 +5,7 @@ metadata:
   type: infra-bug
 ---
 
-**现象**:`e2e/repos/codex-cli` 的 MCP Eval 里,同一条会话先后调用两个不同 MCP 工具
+**现象**:`e2e/adapter/codex-cli` 的 MCP Eval 里,同一条会话先后调用两个不同 MCP 工具
 (`t.send()` 两次,第二次经 `codex exec resume` 续接):第一轮点名 stdio 工具 `e2e.get-sum`
 (真实入参 `{a:100,b:23}`,真实返回 "123"),第二轮点名远程 HTTP 工具
 `deepwiki.read_wiki_structure`。两次调用在 `codex exec --json` 的原始事件里都**真实发生

@@ -1,4 +1,4 @@
-// cases: docs/engineering/unit-tests/results/cases.md
+// cases: docs/engineering/testing/unit/results/cases.md
 // AttemptLocator 单测(定稿见 docs/feature/results/library.md「按 locator 寻址一个 attempt」、docs/concepts.md「Attempt 定位符」):
 // 确定性编码、字段敏感(任一身份字段变化都换 locator)、@ 前缀与定长 base36 格式、decode 的语法
 // 校验分支、大批量下的实际无撞车、buildLocatorIndex 的撞车检测(用可注入的 encode 强制制造撞车,

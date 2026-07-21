@@ -15,4 +15,4 @@
 
 **crabbox 边界**：repo 暴露唯一的 `pnpm e2e` 命令。crabbox 只同步 checkout、转发 allowlist 环境、执行该命令、收集 JUnit/artifact 并传播退出码，不理解 niceeval 的 Eval、Results 或服务拓扑。
 
-定稿契约：`docs/engineering/e2e-ci/README.md`。
+定稿契约：`docs/engineering/testing/e2e/README.md`。

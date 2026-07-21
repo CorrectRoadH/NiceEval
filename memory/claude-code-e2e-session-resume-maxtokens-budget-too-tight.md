@@ -1,6 +1,6 @@
 ---
 name: claude-code-e2e-session-resume-maxtokens-budget-too-tight
-description: e2e/repos/claude-code 的 session-resume eval 用 t.maxTokens(80_000) 当"usage 非空"哨兵断言，真机第二次跑就在 90008 tokens 上假阳性判 regression；claude-code CLI 单轮 usage(含 cache read)本身在 24k~90k 区间正常浮动，80k 不是够用的上限
+description: e2e/adapter/claude-code 的 session-resume eval 用 t.maxTokens(80_000) 当"usage 非空"哨兵断言，真机第二次跑就在 90008 tokens 上假阳性判 regression；claude-code CLI 单轮 usage(含 cache read)本身在 24k~90k 区间正常浮动，80k 不是够用的上限
 metadata:
   type: project
 ---

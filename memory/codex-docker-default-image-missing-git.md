@@ -5,7 +5,7 @@ metadata:
   type: infra-bug
 ---
 
-**现象**:`e2e/repos/codex-cli` 的 native Plugin 实验(挂载一个真实公开 GitHub 仓库当
+**现象**:`e2e/adapter/codex-cli` 的 native Plugin 实验(挂载一个真实公开 GitHub 仓库当
 Marketplace)在默认 `dockerSandbox()`(镜像 `node:24-slim`)下,`agent.setup` 阶段必现:
 
 ```

@@ -1,17 +1,17 @@
 // Shared discovery + schema validation for the e2e root orchestrator.
 //
-// This module is orchestration code, not a test repo under e2e/repos/*, so it
+// This module is orchestration code, not a test repo under e2e/adapter/*, so it
 // is exempt from the "no shared code between test repos" rule in
-// docs/engineering/e2e-ci/README.md — it only reads each repo's own e2e.json,
+// docs/engineering/testing/e2e/README.md — it only reads each repo's own e2e.json,
 // never a repo's Eval/Experiment/adapter source.
 //
-// Schema is defined in docs/engineering/e2e-ci/README.md §2.3.
+// Schema is defined in docs/engineering/testing/e2e/README.md §2.3.
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const GROUPS = ["sdk", "sandbox", "mechanism"] as const;
+export const GROUPS = ["sdk", "sandbox", "cli", "report"] as const;
 export type Group = (typeof GROUPS)[number];
 
 export interface RepoRequires {
@@ -32,7 +32,7 @@ export interface RepoManifest {
 }
 
 export interface DiscoveredRepo {
-  /** Absolute path to the repo directory (e.g. e2e/repos/claude-agent-sdk or e2e/mechanism/results). */
+  /** Absolute path to the repo directory (e.g. e2e/adapter/claude-agent-sdk or e2e/report). */
   dir: string;
   manifest: RepoManifest;
 }
@@ -44,13 +44,20 @@ export interface DiscoveryResult {
 }
 
 /**
- * Directory names directly under e2e/, each holding one flat set of test repos (one
- * e2e.json per immediate subdirectory) — `repos/` for every adapter (sdk/sandbox) repo,
- * `mechanism/` for the two contract repos that assert CLI and Results mechanism instead
- * of a protocol path. A repo's collection is physical grouping only, not part of its
- * identity: ids must stay unique across both (see `discoverAllRepos`).
+ * The e2e/ layout is flat, mirroring the acceptance domains
+ * (docs/engineering/testing/e2e/README.md):
+ *
+ *   e2e/adapter/<id>/   one repo per official adapter factory (group sdk/sandbox)
+ *   e2e/cli/            the CLI feature repo (group cli)
+ *   e2e/report/         the report/read-surface feature repo (group report)
+ *
+ * `adapter/` is the only collection (one e2e.json per immediate subdirectory);
+ * every other immediate child of e2e/ that carries its own e2e.json is a
+ * standalone repo. `undo/` and `scripts/` carry no top-level e2e.json and are
+ * never scanned. Physical location is grouping only, not identity: ids must
+ * stay unique across the whole set (see `discoverAllRepos`).
  */
-export const REPO_COLLECTIONS = ["repos", "mechanism"] as const;
+export const ADAPTER_COLLECTION = "adapter";
 
 /** Absolute path to the niceeval checkout root (two levels up from e2e/scripts/). */
 export function repoRootDir(): string {
@@ -58,14 +65,14 @@ export function repoRootDir(): string {
   return resolve(here, "..", "..");
 }
 
-/** Absolute path to e2e/, the root under which every repo collection (`repos/`, `mechanism/`) lives. */
+/** Absolute path to e2e/, the root every test repo lives under. */
 export function e2eRootDir(): string {
   return join(repoRootDir(), "e2e");
 }
 
-/** Absolute path to e2e/repos/, the collection holding every adapter (sdk/sandbox) test repo. */
-export function reposRootDir(): string {
-  return join(e2eRootDir(), "repos");
+/** Absolute path to e2e/adapter/, the collection holding every adapter (sdk/sandbox) test repo. */
+export function adapterRootDir(): string {
+  return join(e2eRootDir(), ADAPTER_COLLECTION);
 }
 
 function describe(reposRoot: string, manifestPath: string): string {
@@ -166,8 +173,8 @@ function validateManifest(raw: unknown, source: string): ValidateResult {
 }
 
 /**
- * Discover every e2e/repos/<id>/e2e.json, parse and validate it against the
- * schema, and check that every id is globally unique.
+ * Discover every <collectionRoot>/<id>/e2e.json, parse and validate it against
+ * the schema, and check that every id is globally unique.
  *
  * Zero repos under reposRoot (directory missing or empty) is not an error —
  * it returns `{ repos: [], errors: [] }`. Any malformed e2e.json or duplicate
@@ -227,19 +234,41 @@ export function discoverRepos(reposRoot: string): DiscoveryResult {
 }
 
 /**
- * Discover every repo across every collection under e2e/ (`REPO_COLLECTIONS`), and check
- * id uniqueness across the whole set — a repo's collection is a physical grouping, not
- * part of its identity, so the same id under both `repos/` and `mechanism/` is a
- * collision even though each collection's own `discoverRepos` call only sees its half.
+ * Discover every repo across the flat e2e/ layout: each adapter repo under
+ * `adapter/<id>/`, plus every standalone repo `e2e/<id>/` that carries its own
+ * e2e.json (`undo/` and `scripts/` carry none and are never scanned). Physical
+ * location is grouping only, not identity, so id uniqueness is checked across
+ * the whole set.
  */
 export function discoverAllRepos(e2eRoot: string): DiscoveryResult {
   const repos: DiscoveredRepo[] = [];
   const errors: string[] = [];
 
-  for (const collection of REPO_COLLECTIONS) {
-    const result = discoverRepos(join(e2eRoot, collection));
-    repos.push(...result.repos);
-    errors.push(...result.errors);
+  const adapterResult = discoverRepos(join(e2eRoot, ADAPTER_COLLECTION));
+  repos.push(...adapterResult.repos);
+  errors.push(...adapterResult.errors);
+
+  if (existsSync(e2eRoot)) {
+    for (const entry of readdirSync(e2eRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.name === ADAPTER_COLLECTION) continue;
+      const dir = join(e2eRoot, entry.name);
+      const manifestPath = join(dir, "e2e.json");
+      if (!existsSync(manifestPath)) continue; // not a standalone repo (undo/, scripts/, …)
+
+      let raw: unknown;
+      try {
+        raw = JSON.parse(readFileSync(manifestPath, "utf8"));
+      } catch (err) {
+        errors.push(`${entry.name}/e2e.json: invalid JSON (${(err as Error).message})`);
+        continue;
+      }
+      const result = validateManifest(raw, `${entry.name}/e2e.json`);
+      if (!result.ok) {
+        errors.push(...result.errors);
+        continue;
+      }
+      repos.push({ dir, manifest: result.manifest });
+    }
   }
 
   const byId = new Map<string, string[]>();

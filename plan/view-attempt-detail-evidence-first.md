@@ -6,7 +6,7 @@
 
 契约 `docs/feature/reports/view.md`「Attempt 详情」要求断言区(failed / unavailable 先展开、每条失败直接显示 matcher、expected / received 或 reason、passed 按 group 折叠计数、源码锚),且时间树 children 默认收合。当前 view 实现两者都没有:断言只以代码视图行内锚存在(点行才展开),`PhaseTimingBlock` 无条件全展开压满首屏。来龙去脉与根因见 `memory/view-attempt-detail-buries-failure.md`。
 
-场景已登记:`docs/engineering/unit-tests/reports/cases.md`「Attempt 详情(view 证据室)」四行。测试方法(纯渲染、`<details>` 表达折叠态、静态 markup 断言)见 `docs/engineering/unit-tests/reports/README.md`「view 证据室的观察面」。
+场景已登记:`docs/engineering/testing/unit/reports/cases.md`「Attempt 详情(view 证据室)」四行。测试方法(纯渲染、`<details>` 表达折叠态、静态 markup 断言)见 `docs/engineering/testing/unit/reports/README.md`「view 证据室的观察面」。
 
 ## 改动点
 
@@ -19,7 +19,7 @@
    - 没有 assertions 的 attempt(纯 errored)不渲染空区块。
 2. **时间树默认收合**:`PhaseTimingBlock` / `TimingRow` 的 children 改用原生 `<details>`(summary = phase 行),默认不带 `open`;失败最深节点保留 ✗ 标记,祖先不重复标。收尾段分组保持现状。
 3. **纯渲染边界**:把 `AttemptModal` 里的 artifact fetch 移出渲染组件(提炼 hook 或上移到调用方),使弹窗内容组件对 props 纯渲染,单测可用 `renderToStaticMarkup` 直接断言。
-4. **测试**:实现 cases.md 该分区四行,一行一测,放 `src/view/app/components/` 旁(如 `attempt-detail.test.tsx`),fixture 直接构造 `ViewResult`;文件头注释按惯例标 `// cases: docs/engineering/unit-tests/reports/cases.md`,并加 `// bug: memory/view-attempt-detail-buries-failure.md`。
+4. **测试**:实现 cases.md 该分区四行,一行一测,放 `src/view/app/components/` 旁(如 `attempt-detail.test.tsx`),fixture 直接构造 `ViewResult`;文件头注释按惯例标 `// cases: docs/engineering/testing/unit/reports/cases.md`,并加 `// bug: memory/view-attempt-detail-buries-failure.md`。
 
 ## 验证与收尾
 

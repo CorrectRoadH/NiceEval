@@ -4,7 +4,7 @@ import { defineEval } from "niceeval";
 // (get_weather 经真实 LangGraph ToolNode 执行,见 agents/langgraph.ts 头注释)。
 // 反例:calculate 这轮挂载但没被调用,notCalledTool 断言证明「没调用」在事件流上真的看得出来,
 // 不是从最终文本猜的。eventOrder 顺带验证 action.called 先于 action.result 落地
-// (对应 docs/engineering/e2e-ci/adapters/langgraph.md「事件顺序与生命周期」一行)。
+// (对应 docs/engineering/testing/e2e/adapter/langgraph.md「事件顺序与生命周期」一行)。
 export default defineEval({
   description: "工具调用:get_weather 经 tools channel started/finished 配对,calculate 本轮未挂载调用",
 

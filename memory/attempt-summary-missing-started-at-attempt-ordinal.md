@@ -11,7 +11,7 @@ metadata:
 (经新 locale 键 `attemptSummary.attempt`)与 `startedAt`(经 `formatReportDateTime`,未定义时不追加)。
 web 面(`AttemptSummary.tsx`)在这条记之前已经渲染了这两个字段——重新核对代码才发现原描述"web 面同样
 没渲染"已经不准确,只有 text 面缺。真机 dogfood(`niceeval show @<locator>`)确认首行现为
-`attempt 1 · ✗ failed · Jul 18, 2026, 17:42`。测试登记在 `docs/engineering/unit-tests/reports/cases.md`
+`attempt 1 · ✗ failed · Jul 18, 2026, 17:42`。测试登记在 `docs/engineering/testing/unit/reports/cases.md`
 「Attempt 参数化 page 与详情组件族」新增一行,实现在 `attempt-components.test.tsx`。
 
 `attemptSummaryText`(`src/report/text/attempt-faces.ts`)只渲染 `data.locator`、`data.identity.evalId`、

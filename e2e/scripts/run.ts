@@ -1,9 +1,9 @@
 #!/usr/bin/env -S npx tsx
-// Root E2E orchestrator (docs/engineering/e2e-ci/README.md §5).
+// Root E2E orchestrator (docs/engineering/testing/e2e/README.md §5).
 //
 // Builds the current niceeval checkout into a candidate tarball once, then
 // for each selected repo (discovered across every collection under e2e/ —
-// `repos/` and `mechanism/`, see discovery.ts): copies it into an isolated
+// `adapter/<id>/` plus standalone repos, see discovery.ts): copies it into an isolated
 // temp working directory, points its niceeval dependency at the candidate
 // tarball, installs there, injects only its own declared secrets, runs its
 // single command, and — before trusting the exit code — independently

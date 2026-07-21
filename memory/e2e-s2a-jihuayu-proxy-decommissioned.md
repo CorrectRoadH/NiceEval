@@ -5,7 +5,7 @@ metadata:
   type: infra-bug
 ---
 
-**现象**：为 E2E 矩阵新仓库(`e2e/repos/*`)复用旧 `e2e/apps/*` `.env` 里的凭据时,
+**现象**：为 E2E 矩阵新仓库(`e2e/adapter/*`)复用旧 `e2e/apps/*` `.env` 里的凭据时,
 `OPENAI_API_KEY`(`OPENAI_BASE_URL=https://s2a.jihuayu.site/v1`)、`CODEX_API_KEY`
 (`CODEX_BASE_URL=https://s2a.jihuayu.site/v1`)、`NICEEVAL_JUDGE_KEY`
 (`NICEEVAL_JUDGE_BASE=https://s2a.jihuayu.site/v1`)三组凭据对 `/models` 一律返回

@@ -1,4 +1,4 @@
-// cases: docs/engineering/unit-tests/reports/cases.md
+// cases: docs/engineering/testing/unit/reports/cases.md
 // 分区「Table 与文本排版原语」:Grid 展平规则、columns 校验与 TextGridPlan 的宽度算术
 // 直接对 normalizeGrid / planTextGrid 断言,不经渲染面或 HTML。
 

@@ -1,4 +1,4 @@
-// cases: docs/engineering/unit-tests/reports/cases.md
+// cases: docs/engineering/testing/unit/reports/cases.md
 // 管线与双面渲染的单元测试:resolve(spec/data 双形态、记忆化、组合组件、同层并行保序、
 // 非法节点拒绝)、validate(裸字符串、单面组件、Tabs 配对)、装载规范化(defineReport 三种
 // 写法、content/pages 互斥、外壳嵌套、page id、标题回退)、text/web 双面同源、

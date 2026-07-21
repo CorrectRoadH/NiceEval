@@ -1,6 +1,6 @@
 name: e2e
 
-# 独立测试仓库矩阵的 CI 编排(docs/engineering/e2e-ci/README.md §6.1)。
+# 独立测试仓库矩阵的 CI 编排(docs/engineering/testing/e2e/README.md §6.1)。
 #
 # 设计原则:本 workflow 不重新实现根编排逻辑——`discover` job 只做「发现 + 按触发层级
 # 过滤」,真正的每仓库执行永远是同一条命令 `pnpm e2e --repo <id>`(§5),与开发者本机、
@@ -9,7 +9,7 @@ name: e2e
 # `e2e.json`,中央 workflow 不内置任何仓库专属知识(README §5「编排器不得」)。
 #
 # 触发层级(README §6.1):
-#   1. PR 门禁    — pull_request + push(main):sdk + mechanism 组,仓库自己 Experiment
+#   1. PR 门禁    — pull_request + push(main):sdk、cli、report 组,仓库自己 Experiment
 #                    声明的便宜档位。
 #   2. 路径门禁   — sandbox 组(Docker 仓库),仅当改动触及沙箱相关路径时随 1 一起跑。
 #   3. Nightly    — 全量矩阵(全部 group),schedule + workflow_dispatch(可选 --repo/--group)。
@@ -39,14 +39,15 @@ on:
           - all
           - sdk
           - sandbox
-          - mechanism
+          - cli
+          - report
         default: all
 
 permissions:
   contents: read
 
 jobs:
-  # 发现 e2e/ 下每个 collection(repos/、mechanism/)里的 e2e.json,按本次触发层级
+  # 发现 e2e/ 平铺布局(adapter/<id>/ 与独立仓库 cli/、report/)里的 e2e.json,按本次触发层级
   # 过滤成最终 matrix。
   # 不读取、不解释任何仓库的 .niceeval/、Eval 或 Experiment 内容(README §5 编排边界)。
   discover:
@@ -108,7 +109,7 @@ jobs:
           sandbox_ids=$(jq -r '[.[] | select(.group == "sandbox") | .id] | join("|")' "$RUNNER_TEMP/e2e-repos.json")
           pattern='^(src/agents/|src/sandbox/|e2e/scripts/|\.github/workflows/e2e\.yml)'
           if [ -n "$sandbox_ids" ]; then
-            pattern="^(e2e/repos/($sandbox_ids)/|src/agents/|src/sandbox/|e2e/scripts/|\\.github/workflows/e2e\\.yml)"
+            pattern="^(e2e/adapter/($sandbox_ids)/|src/agents/|src/sandbox/|e2e/scripts/|\\.github/workflows/e2e\\.yml)"
           fi
 
           if echo "$changed" | grep -qE "$pattern"; then
@@ -144,8 +145,8 @@ jobs:
           } else if (event === "schedule") {
             selected = repos; // nightly: full matrix, all groups
           } else {
-            // pull_request / push(main): sdk + mechanism always, sandbox only on path hit
-            selected = repos.filter((r) => r.group === "sdk" || r.group === "mechanism" || (r.group === "sandbox" && sandboxHit));
+            // pull_request / push(main): sdk + cli + report always, sandbox only on path hit
+            selected = repos.filter((r) => r.group === "sdk" || r.group === "cli" || r.group === "report" || (r.group === "sandbox" && sandboxHit));
           }
 
           const matrixLine = `matrix=${JSON.stringify(selected)}\n`;
@@ -173,7 +174,7 @@ jobs:
     timeout-minutes: 150
     concurrency:
       # sandbox 组单仓库可能跑 20-40 分钟(且内部对 75 退出码重跑一次),被连续 push
-      # 顶掉就永远验证不完;sdk/mechanism 组便宜,新 push 顶掉旧的没问题。按仓库 id
+      # 顶掉就永远验证不完;sdk/cli/report 组便宜,新 push 顶掉旧的没问题。按仓库 id
       # 分组是因为同一仓库不该并发跑两份,不同仓库之间本就没有互斥必要。
       group: e2e-${{ matrix.repo.id }}-${{ github.ref }}
       cancel-in-progress: ${{ matrix.repo.group != 'sandbox' }}
@@ -210,8 +211,8 @@ jobs:
       # actions/upload-artifact 直接消费的仓库前缀路径列表。不重复 run.ts 的
       # discoverAllRepos/schema 校验——那条校验已经在 discover job 的 list.ts 里跑过。
       # REPO_DIR 来自 list.ts --json 的 `dir` 字段(相对 e2e/ 的路径,如
-      # "repos/claude-agent-sdk"、"mechanism/results")——不能假设每个仓库都挂在
-      # `e2e/repos/<id>` 下,仓库所属的 collection(repos/ vs mechanism/)由发现结果
+      # "adapter/claude-agent-sdk"、"report")——不能假设每个仓库都挂在
+      # `e2e/adapter/<id>` 下,仓库的物理位置(adapter/<id>/ 或 e2e/ 直挂)由发现结果
       # 给出,本 workflow 不重新猜测。
       - name: Read repo manifest
         id: manifest
@@ -268,7 +269,7 @@ jobs:
       # 回显环境变量,脱敏由这一层兜底,不指望每个仓库的日志纪律。
       #
       # run.ts 在隔离拷贝里跑完命令后(无论成败)把声明的 artifacts 拷回这里的
-      # $REPO_DIR(e2e/repos/<id>/ 或 e2e/mechanism/<id>/),再删 scratch 目录——
+      # $REPO_DIR(e2e/adapter/<id>/ 或 e2e/<id>/),再删 scratch 目录——
       # 下面两步读到的就是这份拷回的证据。
       - name: Redact secret values from collected artifacts
         if: always()

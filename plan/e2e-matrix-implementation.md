@@ -1,6 +1,6 @@
 # Handoff：E2E 矩阵按验收域契约落地
 
-契约已定稿并提交（`fcde655` → `06f941e`）：`docs/engineering/e2e-ci/README.md`（总则：独立测试仓库、e2e.json、统一执行协议、候选包注入、CLI 读回、编排、CI/crabbox、守护）、`adapters/README.md` + 10 篇适配器评估计划、`report.md`（results-contract）、`cli.md`（cli-contract）、`verification.md`（验收脚本写法与断言用例）。实现一律以这些 docs 为准，不从现有 `e2e/` 反推。
+契约已定稿并提交（`fcde655` → `06f941e`）：`docs/engineering/testing/e2e/README.md`（总则：独立测试仓库、e2e.json、统一执行协议、候选包注入、CLI 读回、编排、CI/crabbox、守护）、`adapters/README.md` + 10 篇适配器评估计划、`report.md`（results-contract）、`cli.md`（cli-contract）、`verification.md`（验收脚本写法与断言用例）。实现一律以这些 docs 为准，不从现有 `e2e/` 反推。
 
 **现有 `e2e/` 是被契约否决的旧布局**（中央 `apps/` + `projects/` + `shared/`，见总则「不做的事」）。旧目录里的被测应用与 Eval 语义可以搬进对应新仓库作起点，但搬完必须满足自治约束（自带 lockfile、无跨仓库 import、无父目录 `file:` 依赖）；`shared/` 整体废弃，不允许换个名字复活。
 
@@ -19,7 +19,7 @@
 
 落点 `e2e/scripts/list.ts`、`e2e/scripts/run.ts`（tsx 执行），职责边界严格按总则 §5：
 
-- `list.ts`：发现 `e2e/repos/*/e2e.json`，校验 schema 与 id 唯一。
+- `list.ts`：发现 `e2e/adapter/*/e2e.json`，校验 schema 与 id 唯一。
 - `run.ts`：`pnpm pack` 构建一次候选 tarball → 按 `--repo <id>` / `--group <sdk|sandbox|contract>` 选仓库 → 逐仓库隔离工作目录（复制到临时目录）→ 注入候选包 + 按 `e2e.json.secrets` 最小注入环境 → spawn `command` → **注入核验**（解析到的 niceeval 指纹 ≠ 候选 tarball 则作废按 infra 处理）→ 退出码 `75` 整仓库重跑一次 → 原样汇总退出码与失败类别、收集 `artifacts`。
 - 根 `package.json` 加 `"e2e": "tsx e2e/scripts/run.ts"`。
 - 编排器不得内置 SDK 名、端口、Eval 数、verdict 期望，不读 `.niceeval/`。
@@ -30,8 +30,8 @@
 
 ## 3. contract 仓库先行（一个 agent；先绿再放行 4）
 
-- `e2e/repos/results-contract/`：按 `report.md` 四出口验收——落盘文件逐字段（依据 `docs/feature/results/architecture.md`）、`openResults()` 与盘上一致、`--json` 口径、`--junit` 折叠。**全矩阵唯一允许 import `niceeval/results` 的仓库。**
-- `e2e/repos/cli-contract/`：按 `cli.md`——选择器命中/未命中反馈、正常 / deliberate-fail / deliberate-error 三 Experiment 的退出码折叠、缓存三步。verify 写法直接抄 `verification.md` 用例六、七。
+- `e2e/adapter/results-contract/`：按 `report.md` 四出口验收——落盘文件逐字段（依据 `docs/feature/results/architecture.md`）、`openResults()` 与盘上一致、`--json` 口径、`--junit` 折叠。**全矩阵唯一允许 import `niceeval/results` 的仓库。**
+- `e2e/adapter/cli-contract/`：按 `cli.md`——选择器命中/未命中反馈、正常 / deliberate-fail / deliberate-error 三 Experiment 的退出码折叠、缓存三步。verify 写法直接抄 `verification.md` 用例六、七。
 
 ## 4. 适配器仓库 ×10（每仓库一个 agent，可全部并行）
 
