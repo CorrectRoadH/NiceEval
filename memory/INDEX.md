@@ -276,6 +276,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 
 ## 跨切面裁决
 
+- [index-classification-by-subsystem](index-classification-by-subsystem.md) — 裁决(2026-07-21):memory 索引按「子系统」单一主轴归档(分区=动手前扫哪块),溶解「设计决定」分区、报告拆出独立、大区内拆裁决(≈DX 反馈)/台账(≈bug);否决把 bug/DX 反馈当顶层主轴(类型轴切顶层=同一块工作扫两处,正是原问题根因)与分离已修条目(违反不归档规则);commit 05a040e
 - [turn-label-plain-words](turn-label-plain-words.md) — 裁决(2026-07-21):轮/窗口标签从 `s<session>/t<turn>` 改为自描述词——主会话 `turn<N>`、`t.newSession()` 会话 `session<K>/turn<N>`(从 2 起),全证据面同一枚 token、`--window` 等值匹配;否决全局连号(并行 session 竞态)与恒带 session 前缀(主线噪音);标签不透明不解析,schemaVersion 不递增、旧快照不迁移
 - [test-budget-inverted-pyramid](test-budget-inverted-pyramid.md) — 裁决(2026-07-13):测试预算按「静默出错的代价」分配,不按代码量或好测程度,行覆盖率不作指标;出处=全套件审计实测「读结果/画结果」测到 0.91 而「判断对错」(scoring/expect/fingerprint/runEvals/computeVerdict)测到 0;套件质量本身是好的,问题是指向了错的代码,落成 docs/engineering/unit-tests/
 - [terminology-overhaul-2026-07](terminology-overhaul-2026-07.md) — 术语大改名裁决(两批):Outcome→Verdict(经 Conclusion 同日翻案,eve/TTCN-3 先例)、Backend→Provider、早停→首过即停(代码名不动)、Judge/Attempt/Turn/artifact/Selection 中文直用、值断言/严重度/dual-render、结果快照限定语;多义词逐语境甄别纪律
