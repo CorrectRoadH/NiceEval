@@ -1,12 +1,11 @@
 // 手工 fixture:模拟计算函数(metricTableData / metricMatrixData / …)的产物。
-// 仅供渲染测试与 scripts/report-react-demo.tsx 使用,不从入口导出。
+// 仅供 scripts/report-react-demo.tsx 使用,不从入口导出。
 // 数字刻意覆盖诚实细节:coverage 角标(samples<total)、全 null 格子、
 // 稀疏矩阵、缺数据的散点、delta 的 null 不硬算、truncated 计数。
 
 import type {
   AttemptListItem,
   DeltaData,
-  EvalListItem,
   ExperimentListItem,
   LineData,
   MatrixData,
@@ -261,7 +260,7 @@ export const deltaData: DeltaData = {
   ],
 };
 
-// ───────────────────────── 实体列表(ExperimentList / EvalList / AttemptList)─────────────────────────
+// ───────────────────────── 实体列表(ExperimentList / AttemptList)─────────────────────────
 
 /** algebra/quadratic 在 compare/bub 上失败的那次 attempt——两条子失败夹具共用同一条。 */
 const failedAttempt: AttemptListItem = {
@@ -316,27 +315,6 @@ const passedAttempt: AttemptListItem = {
 };
 
 export const attemptListItems: AttemptListItem[] = [failedAttempt, erroredAttempt];
-
-export const evalListItems: EvalListItem[] = [
-  {
-    experimentId: "compare/bub",
-    evalId: "algebra/quadratic",
-    verdict: "failed",
-    examScore: { value: 0, display: "0%", samples: 1, total: 1, refs: [failedAttempt.locator] },
-    durationMs: { value: 32_000, display: "32.0s", samples: 1, total: 1, refs: [failedAttempt.locator] },
-    costUSD: { value: 0.12, display: "$0.12", samples: 1, total: 1, refs: [failedAttempt.locator] },
-    attempts: [failedAttempt],
-  },
-  {
-    experimentId: "compare/codex",
-    evalId: "geometry/angles",
-    verdict: "errored",
-    examScore: { value: 0, display: "0%", samples: 1, total: 1, refs: [erroredAttempt.locator] },
-    durationMs: { value: 4_500, display: "4.5s", samples: 1, total: 1, refs: [erroredAttempt.locator] },
-    costUSD: { value: null, display: "—", samples: 0, total: 1, refs: [] },
-    attempts: [erroredAttempt],
-  },
-];
 
 export const experimentListItems: ExperimentListItem[] = [
   {
