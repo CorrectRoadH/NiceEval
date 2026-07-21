@@ -1,5 +1,7 @@
 // cases: docs/engineering/testing/unit/reports.md
-// 「外壳、页面与 Tabs」——show 专属的索引命令拼装(showCommand)与其余页索引文案(otherPagesText)。
+// 「show 终端宿主的选择、时间轴与文案」——show 专属的索引命令拼装(showCommand)与其余页索引文案
+// (otherPagesText):拼出的是可复现命令文本这个数据契约本身,不是终端渲染的哪个位置,断言面是
+// 返回字符串的内容与包含关系。
 
 import { describe, expect, it } from "vitest";
 import { showCommand } from "./command.ts";
