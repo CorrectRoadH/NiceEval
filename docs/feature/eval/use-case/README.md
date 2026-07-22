@@ -35,6 +35,6 @@
 | `t.check` / `t.require` / `niceeval/expect` matcher | [单轮](first-single-turn.md) · [沙箱](sandbox-coding.md) |
 | `t.judge` / `session.judge` / `turn.judge` / `autoevals.*` / `{ on }` / `.atLeast(x)` | [裁判评质量](judge-quality.md) |
 | 数组导出 / keyed record 导出 / `loadYaml` / `loadJson` | [数据集扇出](dataset-fanout.md) |
-| `t.sandbox.writeFiles` / `uploadDirectory` / `runCommand` / `runShell` | [沙箱 coding 任务](sandbox-coding.md) |
+| `t.sandbox.writeFiles` / `uploadDirectory` / `downloadDirectory` / `runCommand` / `runShell` | [沙箱 coding 任务](sandbox-coding.md) |
 | `t.sandbox.diff` / `file` / `fileChanged` / `fileDeleted` / `notInDiff` | [沙箱 coding 任务](sandbox-coding.md) |
 | `setup` / `teardown` / `t.progress` / `t.diagnostic` / `t.skip` | [Fixture 与反馈](fixtures-lifecycle.md) |

@@ -55,6 +55,18 @@
    }).atLeast(0.7);
    ```
 
+## 把最终产物存到宿主机
+
+diff 断言评的是这一次跑分内的归因增量，跑完就随沙箱销毁；要把 agent 的最终产出整体留存到宿主机（离线复查、喂给外部工具、归档训练材料）用 `downloadDirectory`——它是 `uploadDirectory` 的镜像，原样搬运、不做扩展名或内容过滤：
+
+```typescript
+// localDir("./out/attempt-final")相对本 eval 文件所在目录解析,与 uploadDirectory 同一锚点,
+// 不是相对进程 cwd(运行 niceeval 命令时所在的目录)
+await t.sandbox.downloadDirectory("./out/attempt-final", "src");
+```
+
+不内置「哪些文件算产出」的判断：下载下来就是宿主机上的普通目录，要筛选、要拼给 judge 用，用 `fs`/`glob` 写普通代码处理——这与 `t.sandbox` 不设 `readSourceFiles` 这类带过滤约定的批量读取器是同一条原则（[操作 Sandbox](../../sandbox/library/operations.md#文件)）。
+
 ## 边界
 
 - `t.sandbox` 的前提是 agent 声明了 sandbox capability；非沙箱型 agent 上一调用就报清晰错误。

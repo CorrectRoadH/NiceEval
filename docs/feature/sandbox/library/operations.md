@@ -1,6 +1,6 @@
 # 操作 Sandbox
 
-`t.sandbox` 提供文件 IO 和命令执行。相对路径解析到 workdir；不要 hardcode provider 的绝对路径。
+`t.sandbox` 提供文件 IO 和命令执行。两侧各有一个锚点：**Sandbox 侧**的相对路径（`targetDir`、`cwd`、`readFile`/`downloadFile` 的 `path` 等）解析到 `workdir`；**宿主机侧**的相对路径（`uploadDirectory` / `downloadDirectory` 的 `localDir`）解析到 **eval 定义文件所在目录**，不是进程的 `cwd`（不是运行 `niceeval` 命令时所在的目录）。不要 hardcode provider 的绝对路径；两侧锚点的完整原理见 [Sandbox · 路径与 workdir](../library.md#路径与-workdir一个坐标系)。
 
 ## 文件
 
@@ -11,9 +11,10 @@
 | `uploadDirectory(localDir, targetDir?, opts?)` | 递归上传宿主目录；`opts.ignore` 排除文件 |
 | `uploadFile(path, content)` | 写一个 `Buffer` |
 | `readFile(path)` / `downloadFile(path)` | 分别读取文本或二进制内容 |
+| `downloadDirectory(localDir, targetDir?, opts?)` | 递归下载 Sandbox 目录到宿主机；`opts.ignore` 排除文件 |
 | `fileExists(path)` | 判断文件是否存在 |
 
-少量内联文本用 `writeFiles`，宿主目录用 `uploadDirectory`，二进制单文件用 `uploadFile`。
+少量内联文本用 `writeFiles`，宿主目录用 `uploadDirectory`，二进制单文件用 `uploadFile`，要把 Sandbox 里一整个目录原样取回宿主机用 `downloadDirectory`。
 
 `writeFiles` 的 `files` 是 `Record<路径, 文本内容>`，key 相对 `targetDir`（默认 workdir）解析；`uploadFiles` 的 `files` 是 `{ path: string; content: string | Buffer }[]`：
 
@@ -35,6 +36,16 @@ t.check(py.stdout, includes("def solve"));
 
 // 评 agent 改动:用归因增量,不重读整棵工作区
 t.check(t.sandbox.diff.get("src/solver.py"), includes("def solve"));
+```
+
+`downloadDirectory(localDir, targetDir?, opts?)` 是上一段「不设批量读取器」原则下唯一提供的批量取回 API，因为它不带过滤约定：签名对称 `uploadDirectory`，省略 `targetDir` 落到 workdir（Sandbox 侧锚点），按远端路径把每个文件字节精确地落盘到 `localDir`（自动建目录，不做文本编码转换、不拼接、不返回带便利方法的包装类型），`opts.ignore` 与 `uploadDirectory` 同名同义——按 basename 排除路径，省略即不过滤。`localDir` 是宿主机侧参数，解析到 **eval 定义文件所在目录**（同 `uploadDirectory` 的 `localDir`，见本篇顶部「两侧锚点」），不是进程 cwd——写相对路径时要相对你的 `.eval.ts` 文件想，不是相对你在哪个目录敲的 `niceeval` 命令。下载下来就是宿主机上的普通目录，要只留某些扩展名、要拼成一段文本喂 judge，用 `fs`/`glob` 写普通代码处理：
+
+```ts
+// evals/archive.eval.ts —— localDir "./out/attempt-final" 相对本文件所在目录解析
+await t.sandbox.downloadDirectory("./out/attempt-final", "src");
+// downloadDirectory 后是宿主机普通目录,只要 .ts 文件就本地过滤,不必框架内置扩展名约定:
+const files = (await readdir("./out/attempt-final", { recursive: true }))
+  .filter((f) => f.endsWith(".ts"));
 ```
 
 这些固定路径的文件操作会对瞬时网络错误自动做有限重试，包括 429、5xx、`fetch failed` 和连接重置。文件不存在、权限错误、取消或 Sandbox terminated 不重试。批量写重跑时仍覆盖同一组目标路径。
