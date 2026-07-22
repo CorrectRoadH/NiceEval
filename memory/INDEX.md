@@ -191,6 +191,8 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 - 已修 [show-test-duplicates-selection-and-attempt-detail-coverage](show-test-duplicates-selection-and-attempt-detail-coverage.md) — show.test.ts 曾有三条断言经 `runShow()` 整条 CLI 管线复述 `host-equivalence.test.ts` 已直调 `selectCurrentResults` 验证过的 Selection 语义,另一条渲染断言自认与 Attempt 详情组件测试同契约仍留着;测试体系重划 A2 分拣时删除重复覆盖
 - [table-primitive-validation-only-reachable-via-render](table-primitive-validation-only-reachable-via-render.md) — `Table` 的列/行 key 校验只嵌在 `web()`/`text()` 渲染面函数体内、未独立导出,纯 resolve/validate 断言够不着,与已导出且有专属测试的 `validateGridColumns` 不对称;测试体系重划 A4 保留渲染触发作为唯一例外,根治需要 touch `primitives.tsx`(超出 A4 范围)
 - [show-single-eval-narrow-drops-page-index](show-single-eval-narrow-drops-page-index.md) — 位置参数把 show 收窄到恰好 1 个 eval 时切换成单题详情视图,尾部不附「Other pages」多页索引;写 --page 相关 E2E 断言要选会命中多个 eval 的前缀
+- [verify-readback-mutation-orders-later-e2e-report-domains](verify-readback-mutation-orders-later-e2e-report-domains.md) — verifyReadback 结尾对 .niceeval/main 追加 2 次真实快照,晚于它调用、现场跑 show 核对 evidence.main 原始 locator 的验收域会在「当前」Scope 里查不到;e2e.ts 里此类只读域必须排在 verifyReadback 之前
+- [experimentlist-text-column-order-and-wrap-instability](experimentlist-text-column-order-and-wrap-instability.md) — ExperimentList text 面真实列序(Results 排 Tokens/Cost 之前)与 entity-lists.md 范例不符;width 80 折行哪列换行随真实数值内容漂移,只有 deliberate-error/deliberate-fail 这类恒定长 id 折行稳定可断言;tokens 聚合值可为小数
 
 ## o11y 采集
 

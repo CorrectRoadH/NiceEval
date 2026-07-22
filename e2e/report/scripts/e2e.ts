@@ -22,6 +22,7 @@ import { dirname, join } from "node:path";
 import { InfraError, produceEvidence } from "./evidence.ts";
 import { verifyFormat } from "./verify-format.ts";
 import { verifyReadback } from "./verify-readback.ts";
+import { verifyRenderStructure } from "./verify-render-structure.ts";
 // ── new verify-<domain>.ts imports go here (one line each) ──
 
 const EX_TEMPFAIL = 75;
@@ -62,6 +63,12 @@ async function main(): Promise<void> {
   try {
     const evidence = await produceEvidence();
     await verifyFormat(evidence);
+    // verifyRenderStructure must run BEFORE verifyReadback: verifyReadback's
+    // verifyHistoryAndPages makes 2 extra real `niceeval exp main` calls as its documented
+    // final step, which changes which snapshot is "current" for the main experiment —
+    // evidence.main's original locators would no longer appear in --page traces / show's
+    // ExperimentList (current-scope views) if this module ran after that mutation.
+    await verifyRenderStructure(evidence);
     await verifyReadback(evidence);
     // ── new verify-<domain>.ts calls go here (one line each, in any order) ──
     console.log("[e2e] report: all assertions passed");
