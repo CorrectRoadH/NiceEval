@@ -21,6 +21,8 @@ import { verdictSymbol } from "../reporters/shared.ts";
 import { formatCost } from "../../shared/format.ts";
 import { assertionSummaryLines } from "../../scoring/display.ts";
 import { encodeAttemptKey } from "../types.ts";
+import { renderPanel, type PanelMode, type PanelRow } from "../../report/model/panel.ts";
+import { stringWidth } from "../../report/model/text-layout.ts";
 import type {
   ActiveAttempt,
   ActiveExperimentHook,
@@ -33,6 +35,14 @@ import type {
 } from "../types.ts";
 import type { FeedbackRenderer } from "./renderer.ts";
 import type { FeedbackIO } from "./io.ts";
+
+/** live/结束面板的传输能力(docs/feature/reports/library/layout.md「区域框」):是 TTY 且
+ *  没有要求朴素输出(`NO_COLOR`)时才画框——`io.env` 而不是直接读 `process.env`,保持
+ *  profile renderer 可用假 IO 确定性测试。 */
+function panelCapabilityOf(io: FeedbackIO): { mode: PanelMode; width: number } {
+  const mode: PanelMode = io.stderr.isTTY && io.env.NO_COLOR === undefined ? "boxed" : "plain";
+  return { mode, width: io.stderr.columns };
+}
 
 /** 失败/errored 默认展开上限(见 cli.md「'立即追加'也必须有上限」表:human 前 10 条)。 */
 const HUMAN_FAILURE_CAP = 10;
@@ -62,11 +72,17 @@ export function createHumanRenderer(options: HumanRendererOptions): FeedbackRend
 // ───────────────────────── 共享:永久事件 → 文本行(纯函数,两种模式同一份文案) ─────────────────────────
 
 /** 一条永久事件 → 待写入的整行文本(不含结尾换行,调用方统一 join("\n") + "\n")。
- *  空数组表示这个事件类型在 human 下没有可见内容(目前没有这种情形,保留以防未来扩展)。 */
-export function renderDurableLines(event: DurableFeedbackEvent, state: RunFeedbackState): string[] {
+ *  空数组表示这个事件类型在 human 下没有可见内容(目前没有这种情形,保留以防未来扩展)。
+ *  `panel` 是面板的传输能力(见 `panelCapabilityOf`)——只有面板体裁(plan/summary/saved)
+ *  消费它;流事件(failure/diagnostic/…)不画框,不需要这份能力。 */
+export function renderDurableLines(
+  event: DurableFeedbackEvent,
+  state: RunFeedbackState,
+  panel: { mode: PanelMode; width: number },
+): string[] {
   switch (event.type) {
     case "plan":
-      return buildPlanLines(event.plan);
+      return buildPlanLines(event.plan, panel);
     case "failure": {
       // 立即追加也要遵守展开上限(见 cli.md「'立即追加'也必须有上限,防止失败风暴重新淹没
       // 输出」)。reducer 已经把这一条计入 state.failures(emit() 先 reduce 再入队),所以
@@ -112,9 +128,9 @@ export function renderDurableLines(event: DurableFeedbackEvent, state: RunFeedba
       return [`${label} ${statusWord} · ${event.experimentId}${duration}`];
     }
     case "summary":
-      return buildSummaryLines(event, state);
+      return buildSummaryLines(event, state, panel);
     case "saved":
-      return buildSavedLines(event);
+      return buildSavedLines(event, state, panel);
     default: {
       // 穷尽性检查:新增 DurableFeedbackEvent 变体时这里编译期报错提醒补上对应分支。
       const exhaustive: never = event;
@@ -128,30 +144,38 @@ export function renderDurableLines(event: DurableFeedbackEvent, state: RunFeedba
  *  "saved" 这两个事件;计划、失败、诊断等其它永久事件与 dashboard 本身都在 `stderr`)。
  *  TTY/非 TTY 两个变体共用这一份判断,不各自重复一遍分支。 */
 function writeDurable(io: FeedbackIO, event: DurableFeedbackEvent, state: RunFeedbackState): void {
-  const lines = renderDurableLines(event, state);
+  const lines = renderDurableLines(event, state, panelCapabilityOf(io));
   if (lines.length === 0) return;
   const text = `${lines.join("\n")}\n`;
   if (event.type === "summary" || event.type === "saved") io.stdout.write(text);
   else io.stderr.write(text);
 }
 
-function buildPlanLines(plan: RunFeedbackPlan): string[] {
-  const lines = [
-    t("feedback.human.plan", {
-      total: plan.shape.totalRuns,
-      evals: plan.shape.evals,
-      configs: plan.shape.configs,
-      concurrency: plan.shape.maxConcurrency,
-    }),
+/** `PLAN` 面板(docs/feature/experiments/cli.md「运行中的 live 面板」):规模一行 + 复用一行
+ *  (全新派发时省略),经 panel.ts 画框——面板体裁全仓只有一个渲染件,这里不手拼 `╭─`。 */
+function buildPlanLines(plan: RunFeedbackPlan, panel: { mode: PanelMode; width: number }): string[] {
+  const rows: PanelRow[] = [
+    {
+      kind: "line",
+      text: t("feedback.human.plan", {
+        total: plan.shape.totalRuns,
+        evals: plan.shape.evals,
+        configs: plan.shape.configs,
+        concurrency: plan.shape.maxConcurrency,
+      }),
+    },
   ];
   if (plan.reused > 0) {
-    lines.push(t("feedback.human.reuse", {
-      reused: plan.reused,
-      total: plan.shape.totalRuns,
-      toRun: Math.max(0, plan.shape.totalRuns - plan.reused),
-    }));
+    rows.push({
+      kind: "line",
+      text: t("feedback.human.reuse", {
+        reused: plan.reused,
+        total: plan.shape.totalRuns,
+        toRun: Math.max(0, plan.shape.totalRuns - plan.reused),
+      }),
+    });
   }
-  return lines;
+  return renderPanel({ title: t("feedback.human.planHeader"), rows, width: panel.width, mode: panel.mode });
 }
 
 function buildFailureLine(event: DurableFeedbackEvent & { type: "failure" }): string {
@@ -169,7 +193,15 @@ function buildDiagnosticLines(event: DurableFeedbackEvent & { type: "diagnostic"
   return [`${sym} ${event.key}${suffix}`, `  ${event.message}`];
 }
 
-function buildSummaryLines(event: DurableFeedbackEvent & { type: "summary" }, state: RunFeedbackState): string[] {
+/** 结束结论(`FAILED`/`PASSED`/…)+ `FAILURES`(有失败才出现)+ `KEPT SANDBOXES`(有留存才
+ *  出现)——三个各自独立的面板,用空行分隔(docs/feature/experiments/cli.md「人看的结束反馈」、
+ *  docs/feature/sandbox/cli.md「run 收尾输出」)。`NEXT` 面板不在这里:它要等 `saved` 事件
+ *  的落盘路径,见 `buildSavedLines`。 */
+function buildSummaryLines(
+  event: DurableFeedbackEvent & { type: "summary" },
+  state: RunFeedbackState,
+  panel: { mode: PanelMode; width: number },
+): string[] {
   const { summary, completion } = event;
   const fullReuse = state.total > 0 && state.total === state.reused;
   // required reporter(默认 artifacts、显式 --json/--junit)写失败必须让这行判红——它不是
@@ -185,74 +217,110 @@ function buildSummaryLines(event: DurableFeedbackEvent & { type: "summary" }, st
           ? t("feedback.human.resultFailed")
           : t("feedback.human.resultPassed");
 
-  const lines: string[] = [
-    `${verdictWord}  ${t(fullReuse ? "feedback.human.summaryAllReusedLine" : "feedback.human.summaryLine", {
-      passed: summary.passed,
-      failed: summary.failed,
-      errored: summary.errored,
-      reused: state.reused,
-    })}`,
-    `        ${formatSummaryDetail(summary.durationMs, state)}`,
+  const summaryRows: PanelRow[] = [
+    {
+      kind: "line",
+      text: t(fullReuse ? "feedback.human.summaryAllReusedLine" : "feedback.human.summaryLine", {
+        passed: summary.passed,
+        failed: summary.failed,
+        errored: summary.errored,
+        reused: state.reused,
+      }),
+    },
+    { kind: "line", text: formatSummaryCostLine(state) },
+  ];
+  const blocks: string[][] = [
+    renderPanel({ title: verdictWord, meta: formatElapsed(summary.durationMs), rows: summaryRows, width: panel.width, mode: panel.mode }),
   ];
 
-  // 全通过时(state.failures 为空)不留空 FAILURES 区块。fresh 失败来自 durable event，carry
+  // 全通过时(state.failures 为空)不留空 FAILURES 面板。fresh 失败来自 durable event，carry
   // 失败由 plan 静态注入；reducer 把两者按 locator 收进同一清单，这里不从 RunSummary 再造。
   if (state.failures.length > 0) {
-    lines.push("", t("feedback.human.failuresHeader"));
     const shown = state.failures.slice(0, HUMAN_FAILURE_CAP);
-    for (const f of shown) lines.push(buildFailureLine({ ...f, type: "failure" }));
+    const failureRows: PanelRow[] = [
+      { kind: "line", text: shown.map((f) => buildFailureLine({ ...f, type: "failure" })).join("\n\n") },
+    ];
     if (state.failures.length > HUMAN_FAILURE_CAP) {
-      lines.push(t("feedback.human.suppressedFailures", { count: state.failures.length - HUMAN_FAILURE_CAP }));
+      failureRows.push({
+        kind: "line",
+        text: t("feedback.human.suppressedFailures", { count: state.failures.length - HUMAN_FAILURE_CAP }),
+      });
     }
-    // 下钻命令只给第一条失败做示范(cli.md 的完成页示例只有一条失败时展示了一组;多条失败
-    // 时逐条重复三行命令会让「有界摘要」变成新的刷屏源,和「不逐条输出」的原则冲突)。
-    const first = shown[0];
-    if (first) {
-      lines.push("", t("feedback.human.inspect", { locator: first.locator }));
-      lines.push(t("feedback.human.evalHint", { locator: first.locator }));
-      lines.push(t("feedback.human.trace", { locator: first.locator }));
-      lines.push(t("feedback.human.diffHint", { locator: first.locator }));
-    }
+    const meta =
+      state.failures.length > HUMAN_FAILURE_CAP
+        ? `${state.failures.length} total · showing ${HUMAN_FAILURE_CAP}`
+        : undefined;
+    blocks.push(
+      renderPanel({ title: t("feedback.human.failuresHeader"), meta, rows: failureRows, width: panel.width, mode: panel.mode }),
+    );
   }
 
   // 留存授予块(--keep-sandbox,见 docs/feature/sandbox/cli.md「run 收尾输出」):
-  // 每条给 locator(接 niceeval show)、provider 与实例 id、进入现场的命令。
+  // 每条给 locator(接 niceeval show)、provider 与实例 id、进入现场的命令,下边框嵌批量清理。
   if (state.kept.length > 0) {
-    lines.push("", `Kept sandboxes (${state.kept.length})`);
+    const keptRows: PanelRow[] = [];
     for (const k of state.kept) {
-      lines.push(`  ${k.locator}  ${k.identity.evalId} #${k.identity.attempt}  ${k.verdict}  ${k.provider} · ${k.sandboxId}`);
-      lines.push(`             enter: niceeval sandbox enter ${k.sandboxId.slice(0, 12)}`);
+      keptRows.push({
+        kind: "line",
+        text: `${k.locator}  ${k.identity.evalId} #${k.identity.attempt}  ${k.verdict}  ${k.provider} · ${k.sandboxId}`,
+      });
+      keptRows.push({
+        kind: "line",
+        text: `${" ".repeat(stringWidth(k.locator) + 2)}enter: niceeval sandbox enter ${k.sandboxId.slice(0, 12)}`,
+      });
     }
-    lines.push(`Stop them with: niceeval sandbox stop --all`);
+    blocks.push(
+      renderPanel({
+        title: t("feedback.human.keptSandboxesHeader"),
+        meta: `${state.kept.length} kept`,
+        footerCommand: "niceeval sandbox stop --all",
+        rows: keptRows,
+        width: panel.width,
+        mode: panel.mode,
+      }),
+    );
   }
-  return lines;
+
+  return blocks.flatMap((block, i) => (i === 0 ? block : ["", ...block]));
 }
 
-function buildSavedLines(event: DurableFeedbackEvent & { type: "saved" }): string[] {
-  const paths = event.paths;
+/** `NEXT` 面板(docs/feature/experiments/cli.md「人看的结束反馈」):下钻命令(只给第一条
+ *  失败做示范)+ `Compare:`,再加一条嵌套 `RESULTS` 横隔带出本次落盘的快照路径——两部分
+ *  在旧实现里分属两个事件(summary 的下钻命令 / saved 的路径),现在合成同一个面板,
+ *  借 `state.failures` 在 `saved` 事件触发时仍然可读(reducer 早已把失败收进 state)。 */
+function buildSavedLines(
+  event: DurableFeedbackEvent & { type: "saved" },
+  state: RunFeedbackState,
+  panel: { mode: PanelMode; width: number },
+): string[] {
+  const rows: PanelRow[] = [];
+  const first = state.failures[0];
+  if (first) {
+    rows.push({ kind: "line", text: t("feedback.human.inspect", { locator: first.locator }) });
+    rows.push({ kind: "line", text: t("feedback.human.evalHint", { locator: first.locator }) });
+    rows.push({ kind: "line", text: t("feedback.human.trace", { locator: first.locator }) });
+    rows.push({ kind: "line", text: t("feedback.human.diffHint", { locator: first.locator }) });
+  }
   // 比较命令直接是 `niceeval view`——它读整个结果根,不需要(也不该被)目录路径收窄成
   // 一个 eval 位置参数(那是选择语义,不是报告分组语义);见 docs/feature/experiments/cli.md。
-  const lines: string[] = [t("feedback.human.compare")];
-  if (paths.length === 0) return lines;
-  if (paths.length === 1) {
-    lines.push(`${t("feedback.human.resultsHeader")} ${paths[0]}`);
-    return lines;
+  rows.push({ kind: "line", text: t("feedback.human.compare") });
+
+  const paths = event.paths;
+  if (paths.length > 0) {
+    rows.push({ kind: "divider", title: t("feedback.human.resultsHeader") });
+    for (const p of paths.slice(0, RESULTS_PATH_CAP)) rows.push({ kind: "line", text: p });
+    if (paths.length > RESULTS_PATH_CAP) {
+      rows.push({ kind: "line", text: t("feedback.human.resultsMore", { count: paths.length - RESULTS_PATH_CAP }) });
+    }
   }
-  lines.push(t("feedback.human.resultsHeader"));
-  for (const p of paths.slice(0, RESULTS_PATH_CAP)) lines.push(`  ${p}`);
-  if (paths.length > RESULTS_PATH_CAP) {
-    lines.push(`  ${t("feedback.human.resultsMore", { count: paths.length - RESULTS_PATH_CAP })}`);
-  }
-  return lines;
+  return renderPanel({ title: t("feedback.human.nextHeader"), rows, width: panel.width, mode: panel.mode });
 }
 
-function formatSummaryDetail(durationMs: number, state: RunFeedbackState): string {
-  const parts = [formatElapsed(durationMs)];
+/** tok/cost 一行(不含时长——时长已经嵌在面板上边框右侧的 meta 里,不在正文里重复一遍)。 */
+function formatSummaryCostLine(state: RunFeedbackState): string {
   const fullReuse = state.total > 0 && state.total === state.reused;
-  if (fullReuse) {
-    parts.push("0 new tok", "$0.00");
-    return parts.join(" · ");
-  }
+  if (fullReuse) return "0 new tok · $0.00";
+  const parts: string[] = [];
   if (state.newTokenCount !== undefined) parts.push(`${formatTokenCount(state.newTokenCount)} new tok`);
   const cost = formatCost(state.estimatedCostUSD);
   if (cost !== "—") parts.push(cost);
@@ -343,21 +411,6 @@ function formatCounts(state: RunFeedbackState): string {
   return `${counts}  ${formatCost(state.estimatedCostUSD)}`;
 }
 
-/** 命令名靠左、elapsed 靠右对齐到 `columns`;放不下两端对齐时退化成单空格分隔,并按 `columns`
- *  硬截断 —— 不产生软换行(见 checklist「窄终端…不产生软换行」)。 */
-function formatCommandLine(command: string, elapsedMs: number, columns: number): string {
-  const elapsed = formatElapsed(elapsedMs);
-  const gap = columns - command.length - elapsed.length;
-  if (gap >= 1) return command + " ".repeat(gap) + elapsed;
-  const line = `${command} ${elapsed}`;
-  return truncateNoWrap(line, columns);
-}
-
-function truncateNoWrap(s: string, columns: number): string {
-  if (columns <= 0) return "";
-  return s.length <= columns ? s : s.slice(0, Math.max(0, columns - 1)) + "…";
-}
-
 function padTrunc(s: string, width: number): string {
   return s.length > width ? s.slice(0, width) : s.padEnd(width);
 }
@@ -373,37 +426,62 @@ function createDashboardRenderer(io: FeedbackIO, command: string): FeedbackRende
   let linesDrawn = 0;
   let lastFrameText: string | undefined;
 
+  /** 上边框标题 = 本次命令、meta = 已运行时长;下边框 footerCommand = 本次新派发的累计成本
+   *  (docs/feature/experiments/cli.md「运行中的 live 面板」)。ACTIVE 是嵌套 Section 的
+   *  同构体裁——一条贯穿框宽的横隔,不是独立的框;非 boxed(非 TTY 或 NO_COLOR)时
+   *  panel.ts 自动降级成无框文本,dashboard 的覆盖重画机制不因此改变,只是重画的内容
+   *  换成了无框版本。 */
   function buildFrameLines(state: RunFeedbackState): string[] {
     // 全量复用没有 active attempt，也没有“本次执行中”状态；plan/reuse 与终局摘要已经完整，
     // 不画一块只有 0 running 的 dashboard。
     if (state.total > 0 && state.total === state.reused) return [];
-    const columns = io.stderr.columns;
-    const lines: string[] = [formatCommandLine(command, state.elapsedMs, columns), formatCounts(state)];
+    const capability = panelCapabilityOf(io);
+    const contentWidth = capability.mode === "boxed" ? capability.width - 4 : capability.width;
+    const rows: PanelRow[] = [
+      {
+        kind: "line",
+        text: t("feedback.human.counts", {
+          total: state.total,
+          reused: state.reused,
+          running: state.running,
+          queued: state.queued,
+          completed: state.completed,
+        }),
+      },
+    ];
     // 实验级钩子的运行级行排在 attempt 行前面(见 cli.md「实验级钩子的显示」):它解释了
     // 为什么后面的 attempt 还停在 queued。Map 按插入序迭代,天然满足稳定 slot。
     const hookRows = [...state.experimentHooks.values()];
-    if (activeOrder.length === 0 && hookRows.length === 0) return lines.map((l) => truncateNoWrap(l, columns));
-
-    lines.push("", t("feedback.human.active"));
-    const rowBudget = Math.max(0, io.stderr.rows - lines.length - DASHBOARD_ROW_RESERVE);
-    const total = hookRows.length + activeOrder.length;
-    // 窄/矮终端先减 active slots(减少行数),而不是先压缩单行内容 ——
-    // 单行内容的截断在 formatActiveRow 里按 columns 单独处理。
-    const showCount = total <= rowBudget ? total : Math.max(0, rowBudget - 1);
-    const rows: string[] = hookRows.map((hookRow) => formatExperimentHookRow(hookRow, io));
-    for (const key of activeOrder) {
-      if (rows.length >= showCount) break;
-      const active = state.active.get(key);
-      if (active) rows.push(formatActiveRow(active, io));
+    if (activeOrder.length > 0 || hookRows.length > 0) {
+      rows.push({ kind: "divider", title: t("feedback.human.active") });
+      // 固定开销:上边框 + counts 行 + ACTIVE 横隔 + 下边框(boxed);plain 时同样按 4 行估算,
+      // 差一两行不影响「窄/矮终端先减 active slots」这条大方向。
+      const rowBudget = Math.max(0, io.stderr.rows - 4 - DASHBOARD_ROW_RESERVE);
+      const total = hookRows.length + activeOrder.length;
+      // 窄/矮终端先减 active slots(减少行数),而不是先压缩单行内容 ——
+      // 单行内容的截断在 formatActiveRow 里按 contentWidth 单独处理。
+      const showCount = total <= rowBudget ? total : Math.max(0, rowBudget - 1);
+      const activeLines: string[] = hookRows.map((hookRow) => formatExperimentHookRow(hookRow, io, contentWidth));
+      for (const key of activeOrder) {
+        if (activeLines.length >= showCount) break;
+        const active = state.active.get(key);
+        if (active) activeLines.push(formatActiveRow(active, io, contentWidth));
+      }
+      for (const line of activeLines.slice(0, showCount)) rows.push({ kind: "line", text: line });
+      if (total > showCount) {
+        rows.push({ kind: "line", text: t("feedback.human.moreActive", { count: total - showCount }) });
+      }
     }
-    lines.push(...rows.slice(0, showCount));
-    if (total > showCount) {
-      lines.push(t("feedback.human.moreActive", { count: total - showCount }));
-    }
-    // 宽度是硬上限:formatCommandLine/formatActiveRow 已经按 columns 自己算好了,但守恒计数行、
-    // "ACTIVE" 标题、overflow 摘要行都是变长文本(i18n 插值后长度不定,数字多位、experiment 名长
-    // 都可能超),这里统一兜底截断,不产生软换行。
-    return lines.map((l) => truncateNoWrap(l, columns));
+    const footerCommand =
+      state.estimatedCostUSD !== undefined && state.estimatedCostUSD > 0 ? formatCost(state.estimatedCostUSD) : undefined;
+    return renderPanel({
+      title: command,
+      meta: formatElapsed(state.elapsedMs),
+      footerCommand,
+      rows,
+      width: capability.width,
+      mode: capability.mode,
+    });
   }
 
   function redraw(state: RunFeedbackState): void {
@@ -479,8 +557,7 @@ function createDashboardRenderer(io: FeedbackIO, command: string): FeedbackRende
 /** evalId/who 列宽按可用宽度成比例分配(约 55/45),不是固定 26/18 —— 固定宽度在窄终端下
  *  会让整行早早超出 `columns`(违反「宽度以 columns 为硬上限」),给宽终端又会截得比必要更早。
  *  身份列不能吞掉全部剩余宽度：phase/detail 才是 active 行存在的理由，必须预留可见空间。 */
-function formatActiveRow(active: ActiveAttempt, io: FeedbackIO): string {
-  const columns = io.stderr.columns;
+function formatActiveRow(active: ActiveAttempt, io: FeedbackIO, columns: number): string {
   const elapsed = formatElapsed(io.clock.now() - active.phaseStartedAt).padStart(6);
   const sym = "● ";
   const fixedWidth = sym.length + elapsed.length + 6; // 6 = 三处两两分隔空格
@@ -500,8 +577,7 @@ function formatActiveRow(active: ActiveAttempt, io: FeedbackIO): string {
 
 /** 实验级钩子的运行级行:与 attempt 行同一套列宽算法,label 跨过 evalId+who 两列的宽度,
  *  elapsed 列因此对齐;detail 来自实验级 `ctx.progress`,没有就只留标签行。 */
-function formatExperimentHookRow(hook: ActiveExperimentHook, io: FeedbackIO): string {
-  const columns = io.stderr.columns;
+function formatExperimentHookRow(hook: ActiveExperimentHook, io: FeedbackIO, columns: number): string {
   const elapsed = formatElapsed(io.clock.now() - hook.startedAt).padStart(6);
   const sym = "● ";
   const fixedWidth = sym.length + elapsed.length + 6;
