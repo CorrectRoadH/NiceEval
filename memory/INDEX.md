@@ -122,6 +122,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 
 ### 裁决
 
+- [staleness-demoted-from-warning-to-provenance](staleness-demoted-from-warning-to-provenance.md) — 裁决(2026-07-22):stale-snapshot/partial-coverage 两个警告 kind 删除——时效降级为行级 `↩` 标注(attempt.carried/historical),覆盖缺口物化为 scope.coverage+榜单占位行,新增 fresh 口径(--fresh);warnings 只留定位不到行的三种;否决理由=警告粒度与事实粒度错位、carry 是正常功能不该带「多数情况请忽略」的警告
 - [publish-redaction-copysnapshots-not-report](publish-redaction-copysnapshots-not-report.md) — 设计裁决:发布消毒移到 copySnapshots({ redact }),AttemptList.redact 降为展示层(2026-07-14),推翻「消毒归报告」——view --out 原样发布 artifact,列表脱敏挡不住深链
 - [view-compare-tab-rejected](view-compare-tab-rejected.md) — 裁决(2026-07-21):不做 view 内建 Compare tab 与 Eval 目录页,roadmap「View 增强」删除;两快照对比由 `DeltaTable by="snapshot"` 报告组件承担,内建 tab 违反「宿主不拥有 pages 之外的导航」契约
 - [chart-subcomponent-syntax-decisions](chart-subcomponent-syntax-decisions.md) — 裁决(2026-07-21):图表子组件语法三候选收敛为自研子组件单一设计(recharts SVG 生成器与「只加阶梯」否决,阶梯并入);component-mapping 撤页溶进 library,facet 容器/共享图例/线端标注定为设计上不支持,by+value 合并=精确匹配覆盖;roadmap 文档不留待裁决中间态、不写「现状做不到」
@@ -224,6 +225,8 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 - [ai-sdk-v7-streamtext-reuse-and-gateway-image-limits](ai-sdk-v7-streamtext-reuse-and-gateway-image-limits.md) — eval 复用生产 streamText 的正确姿势(v7 await 字段即消费流);网关不支持图像在 eval 侧 skip,不改应用元数据
 - 已修 [claude-code-e2e-session-resume-maxtokens-budget-too-tight](claude-code-e2e-session-resume-maxtokens-budget-too-tight.md) — `t.maxTokens(80_000)` 当 usage 非空哨兵时贴着真实采样值设上限,真机第二次跑就在 90008 tokens 假阳性判 regression;usage 哨兵上限要留 2~3 倍余量,不能按样本量 1 定(修在 `e2e/adapter/claude-code/evals/session-resume.eval.ts`,提到 200_000)
 - [scoped-match-language-docs-first](scoped-match-language-docs-first.md) — 裁决(2026-07-14):`eventsSatisfy(label, predicate)` label 必填在前、`calledTool` 的 `input` 是深度部分匹配小语言(值位 RegExp/顶层 RegExp/谓词);曾按源码反推把契约改成 `(predicate, label?)`+浅层包含被否决——docs 先行,源码落后应改代码;实现缺口在 src/scoring/scoped.ts
+- 已被同日裁决替代 [severity-is-single-vs-multi-score-switch](severity-is-single-vs-multi-score-switch.md) — 裁决(2026-07-22 上午):severity 当单分/多分开关;装不下自定分值 rubric 被下条替代,但「gate 不进质量分」「soft 无权均值」「组 gate 读数=失败定位」被继承
+- [pass-vs-score-eval-two-modes](pass-vs-score-eval-two-modes.md) — 裁决(2026-07-22 定稿):两种题型 defineEval(通过制)/defineScoreEval(计分制,叠加给分无满分,.points/t.score 仅 score eval 的 t),实验内混型=启动期错误;否决满分声明+Σpoints守护、用法推断题型、混型「通过制挣1分」;一天四轮翻案全记录
 
 ## examples · tier-sync · e2e repos
 

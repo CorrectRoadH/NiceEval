@@ -39,7 +39,7 @@ Sandbox 专属结果断言见 [断言 Sandbox 结果](../../sandbox/library/asse
 
 ## 匹配条件的字段全集
 
-`calledTool` / `notCalledTool` 的 `match` 是 `ToolMatch`，多个字段之间是 AND。**一条调用的全部可断面——入参、次数、输出、状态——都在这一个 match 对象里表达**，不借助断言句柄：
+`calledTool` / `notCalledTool` 的 `match` 是 `ToolMatch`。**一条调用的全部可断面——入参、次数、输出、状态——都在这一个 match 对象里表达**，不借助断言句柄。`input` / `output` / `status` 之间是 AND，且作用在**同一笔调用**上；`count` 数的是满足这些条件的调用笔数——不存在「一笔满足 input、另一笔满足 output」也算命中的读法：
 
 | 字段 | 语义 |
 |---|---|

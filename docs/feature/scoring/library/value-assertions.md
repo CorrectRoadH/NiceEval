@@ -67,7 +67,7 @@ Severity 折叠成 Verdict 的完整规则见 [Severity 与 Verdict](../architec
 
 ## 分组
 
-`t.group(title, fn)` 只组织报告，不改变各断言分数或严重度：
+`t.group(title, fn)` 组织报告区块，并给对比提供得分点维度；不改变各断言分数或严重度，也不参与判定：
 
 ```ts
 await t.group("天气查询", async () => {
@@ -76,4 +76,4 @@ await t.group("天气查询", async () => {
 });
 ```
 
-分组可以嵌套，返回 `fn` 的返回值。
+分组可以嵌套，返回 `fn` 的返回值。组名在对比读取面按字面聚合成跨 eval 可比的得分点：计分制下读组内挣分之和，通过制下读组质量分（soft 断言均值），gate 失败按组定位「死在哪层」；同类检查在不同 eval 里保持组名一致——折叠语义见[计分粒度](../../experiments/score-points.md)。

@@ -25,6 +25,7 @@ interface EvalDescriptor {
   id: string;
   description?: string;
   tags: readonly string[];
+  scoring: "pass" | "points";   // 题型:defineEval → "pass",defineScoreEval → "points"
   environment?: string;
   metadata?: Readonly<Record<string, unknown>>;
 }
@@ -50,6 +51,8 @@ export default defineExperiment({
 });
 ```
 
+`evals` 选中的 eval 必须**同一题型**（`EvalDescriptor.scoring`，`defineEval` 的通过制或 `defineScoreEval` 的计分制）：通过率和总分是两种不能相加的读数，一个实验只回答一种。混型选择是启动期配置错误，报错列出两类 eval id 并建议按 tags / 前缀 / `scoring` 谓词收窄，或拆成两个实验文件（计分语义见[计分粒度](score-points.md)）。
+
 `flags` 与 `labels` 的分界是**这个值会不会改变 attempt 里发生的事**:会(开关联网、注入 skill)→ `flags`,进 `ctx.flags` / `t.flags`、参与可比性配置;只是给报表归类(「这格用的记忆机制是 mempal」)→ `labels`,agent 和 eval 都看不见,改它不作废任何已有结果。声明与消费见 [Library · labels](library.md#labels声明归类坐标不进运行时)。
 
 `maxConcurrency` 是**实验自己的并发闸**:调度器为这个实验单建一道信号量,它的 attempt 先过这道闸再去占全局并发位;同批跑的其它实验不受影响,仍按全局并发(CLI / env / config / 沙箱默认)跑。三个用途:把有共享状态的实验串行化(例如跨 eval 累积记忆的场景,`maxConcurrency: 1` 保证 attempt 按 eval 顺序一个个跑)、给撞了 provider 限额的实验单独降速,或让 `runs` + `earlyExit` 变成"过了就停、没过才跑下一次"的严格重试语义——`runs` 的多个 attempt 默认按并发闸的名额数一起派发,不等前一次出结果;闸只留一张名额时才会被挤成一个接一个跑,细节见 [Runner · 首过即停](../../runner.md#首过即停earlyexit)。
@@ -65,7 +68,7 @@ id 只从**路径**推导:`experiments/agents/codex/gpt-5.4.ts` → `agents/code
 ## 相关阅读
 
 - [Library](library.md) —— model/flags 怎么透传、怎样选择 eval、路径怎样形成 id、与 config 的关系。
-- [计分粒度](score-points.md) —— 对比里一个 eval 记几分:现状「一个 eval 一分」的契约,与多得分点的未定稿方向。
+- [计分粒度](score-points.md) —— 对比里一个 eval 记几分:通过制(`defineEval`,一题一分,读通过率)与计分制(`defineScoreEval`,题内叠加挣分,读总分),实验内不混型。
 - [Architecture](architecture.md) —— 对照 agent-eval 的 `ExperimentConfig`,砍了什么、为什么。
 - [CLI](cli.md) —— `niceeval exp` 命令。
 - [Authoring](../eval/README.md) —— eval 怎么写(experiment 跑的就是它们)。

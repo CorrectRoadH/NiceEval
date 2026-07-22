@@ -13,6 +13,8 @@
 
 `.atLeast` 的参数是分数线，不是调用次数——「至少调用 n 次」在匹配条件的 `count` 里表达（数字恰好、谓词自定，见[作用域断言](../library/scoped-assertions.md#匹配条件的字段全集)）。
 
+severity 只管**判定面**：它声明一条断言的失败怎么向上传播，同一语义沿组、eval、experiment 逐层作用，不按层另设规则，`--strict` 是作用于所有层的同一个旋钮——它把带线 soft 翻成 gate，只改判定传播，分数照记。分数面（计分制的 `.points(n)` / `t.score` 给分）与质量分（soft 断言的均值）是与 severity 正交的另两个读数，折叠规则见[计分粒度](../../experiments/score-points.md)。
+
 ## Verdict
 
 Verdict 只有 passed、failed、errored、skipped，按固定优先级取第一个成立项：

@@ -30,7 +30,7 @@ value / scope / judge / sandbox / efficiency
 interface AssertionBase {
   /** 断言标题:t.group 内是该断言自己的摘要,组外是 matcher 摘要或 judge 问题;show/view 失败行的标题。 */
   name: string;
-  /** 所属分组路径:外层在前的 t.group 标题数组;无分组省略。纯报告用,不影响判定。 */
+  /** 所属分组路径:外层在前的 t.group 标题数组;无分组省略。报告分块与对比得分点的维度键,不影响判定。 */
   groupPath?: string[];
   severity: "gate" | "soft";
   /** 作者用 .optional() 显式允许该断言缺席;只改变 unavailable 的折叠方式(见 Severity 与 Verdict),不改变 severity 语义。 */
