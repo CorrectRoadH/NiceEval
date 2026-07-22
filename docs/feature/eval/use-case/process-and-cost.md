@@ -56,5 +56,6 @@
 ## 相关阅读
 
 - [作用域断言](../../scoring/library/scoped-assertions.md) —— 词汇全表与匹配条件的字段全集。
+- [Experiments · 计分粒度](../../experiments/score-points.md) —— 对比里一个 eval 记一分；`t.group` 的组名未来可能升级为跨 eval 的对比维度（多得分点方向），同类检查在不同 eval 里保持组名一致。
 - [Severity 与 Verdict](../../scoring/architecture/severity-and-verdict.md) —— `.gate(x?)` / `.atLeast(x)` / `.soft()` 的分工与折叠规则。
 - [自定义断言](../../scoring/library/custom-assertions.md) —— 词汇表不够用时的扩展方式。
