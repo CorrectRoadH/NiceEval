@@ -108,6 +108,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 - 已修 [show-skipped-version-hint-missing](show-skipped-version-hint-missing.md) — `niceeval show` 全部落盘不可读时只报 `skipped <dir> (reason)`,不像 `view` 那样给 `npx niceeval@<version>` 建议;`show --run` 认结果根不认单快照,修为按版本分组给统一 `--run` 建议(`src/results/skipped-notice.ts` + `src/show/render.ts` 的 `skippedRunsText`)
 - 已修 [exp-show-unbounded-output-cases](exp-show-unbounded-output-cases.md) — 真机实测:exp 全 reused 时缺 FAILURES + per-config 复用清单铺开 + `0s` 却 `$7.04`(时长本次/成本累计矛盾);show 的 `commandSucceeded` Result 单元格 dump 整段 stdout ~30 行;契约已补 docs,exp 反馈侧与 show 展示侧(两步压缩第二步 + received 分层塑形 + CommandResult.command evidence)均已修,落点见正文
 - 已修 [received-ansi-control-bytes-leak](received-ansi-control-bytes-leak.md) — `received`(jest/vitest 命令输出)的 ANSI 着色码在 exp/show/report 里显成乱码:`summaryText` 只折 `\s` 不覆盖 ESC/BEL/BS;修为新增 `stripControl`(去 ANSI+不可打印控制字节、保留 glyph 与换行),summaryText 与两个报告详情面共用,原始字节仍存 artifact(`src/scoring/display.ts` + `AttemptAssertions/AttemptSource.tsx`)
+- [cli-usage-errors-go-to-stderr](cli-usage-errors-go-to-stderr.md) — CLI 用法错误/无匹配提示一律写 stderr 不是 stdout,写 E2E verify 脚本时只查 stdout 会稳定断言失败
 - 已被后续裁决替代 [attempt-phase-tracking-teardown-always-last](attempt-phase-tracking-teardown-always-last.md) — 给失败通知补 `phase` 字段时,朴素地取「最后一次 onPhase 回调」几乎恒等于 `"teardown"`;排除 teardown 仍会被正常的 diff/scoring/trace collect 污染,最终修法见下一条
 - 已修 [failure-notice-phase-is-error-origin-not-last-lifecycle-phase](failure-notice-phase-is-error-origin-not-last-lifecycle-phase.md) — failure 通知对 `failed` 不发 phase,对 `errored` 直接取 `result.error.phase`;不能用最后 lifecycle phase 反推 verdict 原因
 - 已修 [experiment-setup-progress-activity-blackhole](experiment-setup-progress-activity-blackhole.md) — 实验级 setup 全程零输出(状态行全员 queued 像卡死):runner 不为 setup 发布事件且 cli.md 无显示契约,`ctx.progress`→`reportActivity` 因四个渲染器都没实现可选 `activity()` 钩子被静默丢弃;修为 runner 发布 `experiment-hook` 起止事件 + 运行级 active 行 + agent/ci 起止行,human 实现 `activity()`(feedback 各文件 + run.ts)
@@ -189,6 +190,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 - [report-component-data-fn-spyon-must-target-component](report-component-data-fn-spyon-must-target-component.md) — 组件 `.data` 是 `Object.assign` 装配时按值拷贝的,`vi.spyOn(计算模块, "xxxData")` 拦不住经组件属性发起的调用,要 spy 组件对象自己(`vi.spyOn(ExperimentList, "data")`)
 - 已修 [show-test-duplicates-selection-and-attempt-detail-coverage](show-test-duplicates-selection-and-attempt-detail-coverage.md) — show.test.ts 曾有三条断言经 `runShow()` 整条 CLI 管线复述 `host-equivalence.test.ts` 已直调 `selectCurrentResults` 验证过的 Selection 语义,另一条渲染断言自认与 Attempt 详情组件测试同契约仍留着;测试体系重划 A2 分拣时删除重复覆盖
 - [table-primitive-validation-only-reachable-via-render](table-primitive-validation-only-reachable-via-render.md) — `Table` 的列/行 key 校验只嵌在 `web()`/`text()` 渲染面函数体内、未独立导出,纯 resolve/validate 断言够不着,与已导出且有专属测试的 `validateGridColumns` 不对称;测试体系重划 A4 保留渲染触发作为唯一例外,根治需要 touch `primitives.tsx`(超出 A4 范围)
+- [show-single-eval-narrow-drops-page-index](show-single-eval-narrow-drops-page-index.md) — 位置参数把 show 收窄到恰好 1 个 eval 时切换成单题详情视图,尾部不附「Other pages」多页索引;写 --page 相关 E2E 断言要选会命中多个 eval 的前缀
 
 ## o11y 采集
 
@@ -236,6 +238,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 - [e2e-repo-autonomy-replaces-shared-suite](e2e-repo-autonomy-replaces-shared-suite.md) — 裁决（2026-07-13）：E2E 从共享 factory/profile + 中央 verifier 翻案为独立 repo；每个 repo 自有 app/adapter/eval/experiment/验收，根仓只注入候选包并编排，crabbox 原样执行 repo 命令
 - [e2e-repo-self-root-workspace](e2e-repo-self-root-workspace.md) — 裁决(2026-07-21):每个 E2E 仓库必带只含 `packages: []` 的 pnpm-workspace.yaml 自成 workspace root,否则就地 install 会并入父级 workspace 绕过候选注入;曾半数仓库缺、run.ts 注释错引 §2.1,已补齐仓库+升进 docs §2.1/§8+加结构守护
 - 已修 [e2e-artifacts-glob-overwrites-repo-manifest](e2e-artifacts-glob-overwrites-repo-manifest.md) — `e2e/report/e2e.json` 曾用 `"*.json"`/`"*.xml"` 通配声明 artifacts,根编排器收尾把隔离副本顶层文件拷回真实仓库时连带命中并覆盖真实 `package.json`(改写成失效的临时 tarball 路径),下次直接 install/typecheck 报 ENOENT;修为显式文件名(`main.json`/`main.xml`/`fail.xml`/`error.xml`),裸 glob 会命中仓库自带顶层文件是通用坑
+- [e2e-report-dev-loop-pnpm-link-pollutes-workspace-yaml](e2e-report-dev-loop-pnpm-link-pollutes-workspace-yaml.md) — `pnpm link` 给 e2e 仓库做本地快速迭代会把 override 写进 pnpm-workspace.yaml/pnpm-lock.yaml,`rm -rf node_modules` 不消失,须 `git checkout` 两个文件才能复原;更省事的替代是直接 `node bin/niceeval.js`
 
 ## docs · docs-site · reference
 

@@ -21,6 +21,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { InfraError, produceEvidence } from "./evidence.ts";
 import { verifyFormat } from "./verify-format.ts";
+import { verifyReadback } from "./verify-readback.ts";
 // ── new verify-<domain>.ts imports go here (one line each) ──
 
 const EX_TEMPFAIL = 75;
@@ -61,6 +62,7 @@ async function main(): Promise<void> {
   try {
     const evidence = await produceEvidence();
     await verifyFormat(evidence);
+    await verifyReadback(evidence);
     // ── new verify-<domain>.ts calls go here (one line each, in any order) ──
     console.log("[e2e] report: all assertions passed");
     process.exit(0);
