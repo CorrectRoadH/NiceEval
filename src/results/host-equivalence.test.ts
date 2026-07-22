@@ -111,33 +111,39 @@ interface NormExperiment {
   evals: NormEval[];
 }
 type NormWarning =
-  | { kind: "partial-coverage"; experimentId: string; covered: number; total: number }
-  | { kind: "stale-snapshot"; experimentId: string; startedAt: string; latestStartedAt: string }
   | { kind: "unfinished-snapshot"; experimentId: string; startedAt: string }
   | { kind: "unreadable-snapshot"; reason: string };
+interface NormCoverage {
+  experimentId: string;
+  knownEvalIds: string[];
+  missingEvalIds: string[];
+}
 interface NormSelection {
   warnings: NormWarning[];
+  coverage: NormCoverage[];
   experiments: NormExperiment[];
 }
 
 function normalizeWarning(w: ScopeWarning): NormWarning {
   switch (w.kind) {
-    case "partial-coverage":
-      return { kind: w.kind, experimentId: w.experimentId, covered: w.covered, total: w.total };
-    case "stale-snapshot":
-      return { kind: w.kind, experimentId: w.experimentId, startedAt: w.startedAt, latestStartedAt: w.latestStartedAt };
     case "unfinished-snapshot":
       // dir 是宿主机绝对路径,归一化掉;身份靠 experimentId + startedAt。
       return { kind: w.kind, experimentId: w.experimentId, startedAt: w.startedAt };
     case "unreadable-snapshot":
       // dir 是宿主机绝对路径,归一化掉;这个 kind 本就非实验作用域,没有 experimentId 可比。
       return { kind: w.kind, reason: w.reason };
+    case "missing-startedAt":
+      // 不透出到 Scope.warnings(只由 dedupeAttempts 直调返回),两宿主的 Selection 不会带上它。
+      throw new Error("unexpected missing-startedAt in Scope.warnings");
   }
 }
 
 function normalizeSelection(selection: Scope): NormSelection {
   return {
     warnings: selection.warnings.map(normalizeWarning),
+    coverage: selection.coverage
+      .map((c) => ({ experimentId: c.experimentId, knownEvalIds: c.knownEvalIds, missingEvalIds: c.missingEvalIds }))
+      .sort((a, b) => a.experimentId.localeCompare(b.experimentId)),
     experiments: selection.snapshots.map((snapshot) => ({
       experimentId: snapshot.experimentId,
       evals: snapshot.evals.map((ev) => ({
@@ -153,8 +159,8 @@ function normalizeSelection(selection: Scope): NormSelection {
 }
 
 /** 两个宿主构造给选择器的 scope 完全同形:验证读源无误,避免"我以为它们一样"。 */
-function hostScope(patterns: string[], experiment?: string): ResultScope {
-  return { experiment, patterns };
+function hostScope(patterns: string[], experiment?: string, fresh?: boolean): ResultScope {
+  return { experiment, patterns, fresh };
 }
 
 /** 周一全量(q1 通过、q2 失败)+ 周二只补跑 q1(仍通过):现刻水位 = q1 周二 + q2 周一,50%。 */
@@ -183,6 +189,7 @@ describe("selectCurrentResults · 现刻水位结构化身份", () => {
     const results = await openResults(root);
     expect(normalizeSelection(selectCurrentResults(results))).toEqual({
       warnings: [],
+      coverage: [{ experimentId: "solo/bub", knownEvalIds: ["q1"], missingEvalIds: [] }],
       experiments: [
         {
           experimentId: "solo/bub",
@@ -197,6 +204,7 @@ describe("selectCurrentResults · 现刻水位结构化身份", () => {
     const results = await openResults(root);
     expect(normalizeSelection(selectCurrentResults(results))).toEqual({
       warnings: [],
+      coverage: [{ experimentId: "compare/bub", knownEvalIds: ["q1", "q2"], missingEvalIds: [] }],
       experiments: [
         {
           experimentId: "compare/bub",
@@ -208,8 +216,21 @@ describe("selectCurrentResults · 现刻水位结构化身份", () => {
         },
       ],
     } satisfies NormSelection);
-    // 对照:results.latest() 只挑周二快照,是残缺的(这正是宿主要合成现刻水位的原因)。
-    expect(results.latest().warnings.some((w) => w.kind === "partial-coverage")).toBe(true);
+    // 对照:results.latest() 只挑周二快照,是残缺的(这正是宿主要合成现刻水位的原因)——
+    // coverage 承载这份残缺事实,不再是 warning。
+    expect(results.latest().coverage.some((c) => c.missingEvalIds.length > 0)).toBe(true);
+  });
+
+  it("show / view 两宿主注入同一个 fresh 口径(hostScope({ fresh: true })):跨快照拼入的 q2 被排除,分母缺口进 coverage", async () => {
+    const root = await seedPartialRerun();
+    const results = await openResults(root);
+    // 两宿主都用同一个 hostScope(...) 构造 ResultScope 传给 selectCurrentResults——这里直接验证
+    // 该共享函数收到 fresh: true 后的行为,即两宿主实际得到的是同一份口径(show/index.ts 与
+    // view/data.ts 都把各自的 --fresh flag 原样透传成这个字段,不做任何宿主特有的加工)。
+    const fresh = selectCurrentResults(results, hostScope([], undefined, true));
+    // q1 来自周二(新执行),q2 只在周一跑过、被周二"补齐"进来——是跨快照拼入的历史执行,fresh 排除它。
+    expect(fresh.snapshots[0]!.evals.map((e) => e.id)).toEqual(["q1"]);
+    expect(fresh.coverage.find((c) => c.experimentId === "compare/bub")!.missingEvalIds).toEqual(["q2"]);
   });
 
   it("合成快照的 selectedEvalIds 重建为最终 picks(q1 新快照 + q2 旧快照补齐),不是照抄某一来源的局部选择", async () => {
@@ -281,7 +302,7 @@ describe("selectCurrentResults · 现刻水位结构化身份", () => {
     expect(norm.warnings).toEqual([]);
   });
 
-  it("场景4 多 experiment 更新时间不同:较早的实验触发 stale-snapshot", async () => {
+  it("场景4 多 experiment 更新时间不同:staleness 已删除,时效是逐 attempt 的行级属性,不产生跨实验的页面警告", async () => {
     const root = await makeRoot();
     await writeSnapshot(root, "2026-07-01T08-00-00-000Z", { experimentId: "compare/bub", startedAt: "2026-07-01T08:00:00.000Z" }, [
       res("q1", "passed"),
@@ -291,9 +312,13 @@ describe("selectCurrentResults · 现刻水位结构化身份", () => {
     ]);
     const results = await openResults(root);
     const norm = normalizeSelection(selectCurrentResults(results));
-    expect(norm.warnings).toEqual([
-      { kind: "stale-snapshot", experimentId: "compare/bub", startedAt: "2026-07-01T08:00:00.000Z", latestStartedAt: "2026-07-03T08:00:00.000Z" },
-    ] satisfies NormWarning[]);
+    // compare/bub 比 compare/codex 更新时间早,但这是两个不同的 experiment ——
+    // 每个 experiment 只跟自己的历史比,不跟 Scope 里其它 experiment 比,两者都无警告、无缺口。
+    expect(norm.warnings).toEqual([]);
+    expect(norm.coverage).toEqual([
+      { experimentId: "compare/bub", knownEvalIds: ["q1"], missingEvalIds: [] },
+      { experimentId: "compare/codex", knownEvalIds: ["q1"], missingEvalIds: [] },
+    ] satisfies NormCoverage[]);
     expect(norm.experiments.map((e) => e.experimentId)).toEqual(["compare/bub", "compare/codex"]);
   });
 
@@ -308,7 +333,7 @@ describe("selectCurrentResults · 现刻水位结构化身份", () => {
     ] satisfies NormWarning[]);
   });
 
-  it("场景6 历史已知 eval 从未有可读结果:触发真实 partial-coverage", async () => {
+  it("场景6 历史已知 eval 从未有可读结果:coverage.missingEvalIds 列出真残缺", async () => {
     const root = await makeRoot();
     // knownEvalIds 声明 q1 与 q2,但 q2 从未落盘 —— 跨快照补齐后仍缺,这是真残缺。
     await writeSnapshot(
@@ -320,9 +345,10 @@ describe("selectCurrentResults · 现刻水位结构化身份", () => {
     const results = await openResults(root);
     const norm = normalizeSelection(selectCurrentResults(results));
     expect(norm.experiments[0].evals.map((e) => e.evalId)).toEqual(["q1"]);
-    expect(norm.warnings).toEqual([
-      { kind: "partial-coverage", experimentId: "compare/bub", covered: 1, total: 2 },
-    ] satisfies NormWarning[]);
+    expect(norm.warnings).toEqual([]);
+    expect(norm.coverage).toEqual([
+      { experimentId: "compare/bub", knownEvalIds: ["q1", "q2"], missingEvalIds: ["q2"] },
+    ] satisfies NormCoverage[]);
   });
 
   it("场景7 eval id 前缀过滤:覆盖分母同步收窄到范围内", async () => {
@@ -343,9 +369,10 @@ describe("selectCurrentResults · 现刻水位结构化身份", () => {
     const weather = normalizeSelection(selectCurrentResults(results, hostScope(["weather"])));
     expect(weather.experiments[0].evals.map((e) => e.evalId)).toEqual(["weather/brooklyn"]);
     // 分母 = {weather/brooklyn, weather/queens} ∩ 范围 = 2,缺 queens → 1/2;algebra 的缺口不进来。
-    expect(weather.warnings).toEqual([
-      { kind: "partial-coverage", experimentId: "compare/bub", covered: 1, total: 2 },
-    ] satisfies NormWarning[]);
+    expect(weather.warnings).toEqual([]);
+    expect(weather.coverage).toEqual([
+      { experimentId: "compare/bub", knownEvalIds: ["weather/brooklyn", "weather/queens"], missingEvalIds: ["weather/queens"] },
+    ] satisfies NormCoverage[]);
 
     // algebra 范围:该题有结果,范围内无缺口 → 不刷 weather 的残缺屏。
     const algebra = normalizeSelection(selectCurrentResults(results, hostScope(["algebra"])));

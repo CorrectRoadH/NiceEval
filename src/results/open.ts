@@ -175,11 +175,11 @@ function makeResults(experiments: Experiment[], skipped: SkippedDir[], root: str
     root,
     experiments,
     skipped,
-    latest(opts?: { experiments?: string | string[] }): Scope {
+    latest(opts?: { experiments?: string | string[]; fresh?: boolean }): Scope {
       return selectLatest(results, opts);
     },
-    current(opts?: { experiments?: string | string[] }): Scope {
-      return selectCurrentResults(results, { experiment: opts?.experiments });
+    current(opts?: { experiments?: string | string[]; fresh?: boolean }): Scope {
+      return selectCurrentResults(results, { experiment: opts?.experiments, fresh: opts?.fresh });
     },
   };
   return results;
@@ -362,6 +362,9 @@ function makeAttempt(snapshot: Snapshot, snapshotDir: string, attemptDir: string
     ref,
     snapshot,
     locator: record.locator as AttemptLocator,
+    // 携带条目投影:artifactBase 有值就是本快照 `--resume` 合入的上一轮终态结果
+    // (docs/feature/results/library.md「时效:新执行与历史执行」)。
+    carried: Boolean(record.artifactBase),
     events: lazyArtifact<StreamEvent[]>(candidates, "events", record.events),
     trace: lazyArtifact<TraceSpan[]>(candidates, "trace", record.trace),
     o11y: lazyArtifact<O11ySummary>(candidates, "o11y", record.o11y),

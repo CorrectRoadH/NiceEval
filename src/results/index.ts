@@ -80,6 +80,7 @@ export {
   type Experiment,
   type Results,
   type Scope,
+  type ScopeCoverage,
   type ScopeWarning,
   type SkippedDir,
   type Snapshot,

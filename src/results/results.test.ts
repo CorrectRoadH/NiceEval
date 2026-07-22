@@ -315,7 +315,7 @@ describe("results.latest() · Selection", () => {
     expect(results.latest({ experiments: "mid/a" }).snapshots[0].experimentId).toBe("mid/a"); // 不误配 "mid/ab"
   });
 
-  it("partial-coverage:最新快照覆盖 < 已知并集;结构化字段 + 渲染好的英文 message", async () => {
+  it("coverage:最新快照覆盖 < 已知并集时,missingEvalIds 列出缺的题;分母是 knownEvalIds", async () => {
     const root = await makeRoot();
     const mondayDir = await writeSnapshot(root, "midterm", "2026-07-01T08-00-00-000Z", meta({ experimentId: "midterm/bub-gpt-5.4", agent: "bub", startedAt: "2026-07-01T08:00:00.000Z", completedAt: "2026-07-01T08:10:00.000Z" }));
     await writeResultFile(mondayDir, "algebra/q1/a1", record({ id: "algebra/q1", attempt: 1 }));
@@ -327,23 +327,11 @@ describe("results.latest() · Selection", () => {
 
     const latest = (await openResults(root)).latest();
     expect(latest.snapshots).toHaveLength(1);
-    const partial = latest.warnings.find((w) => w.kind === "partial-coverage")!;
-    expect(partial).toMatchObject({ experimentId: "midterm/bub-gpt-5.4", covered: 1, total: 3 });
-    expect(partial.message).toBe(
-      "snapshot covers 1 of 3 evals seen in history; re-run `niceeval exp midterm/bub-gpt-5.4` for a full snapshot",
-    );
-  });
-
-  it("stale-snapshot:早于 Selection 中最新落盘即触发(无阈值),message 带人话时距", async () => {
-    const root = await makeRoot();
-    await writeSnapshot(root, "mid_a", "s1", meta({ experimentId: "mid/a", agent: "bub", startedAt: "2026-07-01T08:00:00.000Z", completedAt: "2026-07-01T08:10:00.000Z" }));
-    await writeSnapshot(root, "mid_b", "s1", meta({ experimentId: "mid/b", agent: "codex", startedAt: "2026-07-05T08:00:00.000Z", completedAt: "2026-07-05T08:10:00.000Z" }));
-
-    const latest = (await openResults(root)).latest();
-    const stale = latest.warnings.filter((w) => w.kind === "stale-snapshot");
-    expect(stale).toHaveLength(1);
-    expect(stale[0]).toMatchObject({ experimentId: "mid/a", startedAt: "2026-07-01T08:00:00.000Z", latestStartedAt: "2026-07-05T08:00:00.000Z" });
-    expect(stale[0].message).toContain("predates the latest run in this scope by 4 days");
+    // partial-coverage / stale-snapshot 不再是 warnings —— 覆盖缺口是行级事实,物化在 coverage 上。
+    expect(latest.warnings.filter((w) => w.kind !== "unreadable-snapshot")).toHaveLength(0);
+    const coverage = latest.coverage.find((c) => c.experimentId === "midterm/bub-gpt-5.4")!;
+    expect(coverage.knownEvalIds).toEqual(["algebra/q1", "algebra/q2", "algebra/q3"]);
+    expect(coverage.missingEvalIds).toEqual(["algebra/q2", "algebra/q3"]);
   });
 
   it("unfinished-snapshot:选中快照缺 completedAt", async () => {
@@ -356,7 +344,7 @@ describe("results.latest() · Selection", () => {
     expect(warn.message).toContain("has no completedAt");
   });
 
-  it("Selection.filter 只删不换:快照删减,幸存实验的警告保留、其余丢弃", async () => {
+  it("Selection.filter 只删不换:快照删减,幸存实验的 coverage / 警告保留、其余丢弃", async () => {
     const root = await makeRoot();
     const aDir = await writeSnapshot(root, "mid_a", "s1", meta({ experimentId: "mid/a", agent: "bub", startedAt: "2026-07-01T08:00:00.000Z", completedAt: "2026-07-01T08:10:00.000Z" }));
     await writeResultFile(aDir, "q1/a1", record({ id: "q1", attempt: 1 }));
@@ -365,19 +353,24 @@ describe("results.latest() · Selection", () => {
     await writeResultFile(bDir, "q1/a1", record({ id: "q1", attempt: 1 }));
     await writeResultFile(bDir, "q2/a1", record({ id: "q2", attempt: 1 }));
 
-    const aDir2 = await writeSnapshot(root, "mid_a", "s2", meta({ experimentId: "mid/a", agent: "bub", startedAt: "2026-07-02T08:00:00.000Z", completedAt: "2026-07-02T08:10:00.000Z" }));
+    // 两个实验的最新快照都只重跑了 q1(残缺,进 coverage.missingEvalIds)且都未收尾(进 warnings)。
+    const aDir2 = await writeSnapshot(root, "mid_a", "s2", meta({ experimentId: "mid/a", agent: "bub", startedAt: "2026-07-02T08:00:00.000Z" }));
     await writeResultFile(aDir2, "q1/a1", record({ id: "q1", attempt: 1 }));
-    const bDir2 = await writeSnapshot(root, "mid_b", "s2", meta({ experimentId: "mid/b", agent: "codex", startedAt: "2026-07-02T08:00:00.000Z", completedAt: "2026-07-02T08:10:00.000Z" }));
+    const bDir2 = await writeSnapshot(root, "mid_b", "s2", meta({ experimentId: "mid/b", agent: "codex", startedAt: "2026-07-02T08:00:00.000Z" }));
     await writeResultFile(bDir2, "q1/a1", record({ id: "q1", attempt: 1 }));
 
     const latest = (await openResults(root)).latest();
-    expect(latest.warnings.filter((w) => w.kind === "partial-coverage")).toHaveLength(2);
+    expect(latest.coverage.map((c) => c.experimentId).sort()).toEqual(["mid/a", "mid/b"]);
+    expect(latest.coverage.find((c) => c.experimentId === "mid/a")!.missingEvalIds).toEqual(["q2"]);
+    expect(latest.warnings.filter((w) => w.kind === "unfinished-snapshot")).toHaveLength(2);
 
     const filtered = latest.filter((s) => s.experimentId !== "mid/b");
     expect(filtered.snapshots.map((s) => s.experimentId)).toEqual(["mid/a"]);
+    expect(filtered.coverage.map((c) => c.experimentId)).toEqual(["mid/a"]);
     expect(filtered.warnings.map((w) => ("experimentId" in w ? w.experimentId : undefined))).toEqual(["mid/a"]);
     // 原 Selection 不被改动。
     expect(latest.snapshots).toHaveLength(2);
+    expect(latest.coverage).toHaveLength(2);
     expect(latest.warnings).toHaveLength(2);
   });
 });
@@ -458,6 +451,83 @@ describe("results.latest() / results.current() · unreadable-snapshot", () => {
   });
 });
 
+// ───────────────────────── ScopeWarning 联合成员恰为三种(回归锁死) ─────────────────────────
+
+describe("ScopeWarning 判别联合", () => {
+  it("kind 全集恰为 unfinished-snapshot / missing-startedAt / unreadable-snapshot;新增成员需同步改这里(穷尽 switch 编译期报错)", () => {
+    function assertKnownKind(kind: import("./types.ts").ScopeWarning["kind"]): void {
+      switch (kind) {
+        case "unfinished-snapshot":
+        case "missing-startedAt":
+        case "unreadable-snapshot":
+          return;
+        default: {
+          // 编译期穷尽检查:多一个 kind 而没同步改这里,这一行编译不过——
+          // 这就是「ScopeWarning 联合成员恰为三种」的运行时+类型层双重锁死。
+          const exhausted: never = kind;
+          throw new Error(`unexpected ScopeWarning kind: ${String(exhausted)}`);
+        }
+      }
+    }
+    const samples: import("./types.ts").ScopeWarning[] = [
+      { kind: "unfinished-snapshot", experimentId: "e", startedAt: "t", dir: "/d", message: "m", command: "c" },
+      { kind: "missing-startedAt", experimentId: "e", evalId: "q1", message: "m" },
+      { kind: "unreadable-snapshot", dir: "/d", reason: "malformed", message: "m" },
+    ];
+    for (const s of samples) assertKnownKind(s.kind);
+    expect(samples.map((s) => s.kind)).toEqual(["unfinished-snapshot", "missing-startedAt", "unreadable-snapshot"]);
+  });
+});
+
+// ───────────────────────── 时效:attempt.carried 与 fresh 口径 ─────────────────────────
+
+describe("时效:carried 投影与 fresh 口径", () => {
+  it("latest({ fresh: true }):排除携带条目,被排除的题进 coverage.missingEvalIds", async () => {
+    const root = await makeRoot();
+    const monday = await writeSnapshot(root, "e", "2026-07-01T08-00-00-000Z", meta({ experimentId: "e", agent: "bub", startedAt: "2026-07-01T08:00:00.000Z", completedAt: "2026-07-01T08:10:00.000Z" }));
+    await writeResultFile(monday, "q1/a1", record({ id: "q1", attempt: 1 }));
+
+    // 周二:q1 携带合入(artifactBase 指回周一),q2 真实执行。
+    const tuesday = await writeSnapshot(root, "e", "2026-07-02T08-00-00-000Z", meta({ experimentId: "e", agent: "bub", startedAt: "2026-07-02T08:00:00.000Z", completedAt: "2026-07-02T08:10:00.000Z" }));
+    await writeResultFile(tuesday, "q1/a1", record({ id: "q1", attempt: 1, startedAt: "2026-07-01T08:00:00.000Z", artifactBase: "e/2026-07-01T08-00-00-000Z/q1/a1" }));
+    await writeResultFile(tuesday, "q2/a1", record({ id: "q2", attempt: 1 }));
+
+    const results = await openResults(root);
+    const notFresh = results.latest();
+    expect(notFresh.snapshots[0]!.evals.map((e) => e.id).sort()).toEqual(["q1", "q2"]);
+    expect(notFresh.coverage.find((c) => c.experimentId === "e")!.missingEvalIds).toEqual([]);
+
+    const fresh = results.latest({ fresh: true });
+    expect(fresh.snapshots[0]!.evals.map((e) => e.id)).toEqual(["q2"]); // q1 是携带条目,被排除
+    expect(fresh.coverage.find((c) => c.experimentId === "e")!.missingEvalIds).toEqual(["q1"]);
+  });
+
+  it("current({ fresh: true }):同时排除携带条目与跨快照拼入的历史执行,区分力 fixture ——「只排携带 / 只排旧快照 / 两者都排」三种候选算法各给出不同答案", async () => {
+    const root = await makeRoot();
+    // 周一:q1、q2 真实执行。
+    const monday = await writeSnapshot(root, "e", "2026-07-01T08-00-00-000Z", meta({ experimentId: "e", agent: "bub", startedAt: "2026-07-01T08:00:00.000Z", completedAt: "2026-07-01T08:10:00.000Z" }));
+    await writeResultFile(monday, "q1/a1", record({ id: "q1", attempt: 1 }));
+    await writeResultFile(monday, "q2/a1", record({ id: "q2", attempt: 1 }));
+
+    // 周二:q1 携带合入(仍是这次快照里"最新"的一份,但 carried=true);q3 真实执行;q2 本次没有
+    // 任何 attempt —— current() 从周一补齐它,补齐来的 q2 attempt 所属快照早于本实验在 Scope 中
+    // 最新快照(周二),是「跨快照拼入」的历史执行,即使它自己不是携带条目。
+    const tuesday = await writeSnapshot(root, "e", "2026-07-02T08-00-00-000Z", meta({ experimentId: "e", agent: "bub", startedAt: "2026-07-02T08:00:00.000Z", completedAt: "2026-07-02T08:10:00.000Z" }));
+    await writeResultFile(tuesday, "q1/a1", record({ id: "q1", attempt: 1, startedAt: "2026-07-01T08:00:00.000Z", artifactBase: "e/2026-07-01T08-00-00-000Z/q1/a1" }));
+    await writeResultFile(tuesday, "q3/a1", record({ id: "q3", attempt: 1 }));
+
+    const results = await openResults(root);
+    const notFresh = results.current();
+    expect(notFresh.snapshots[0]!.evals.map((e) => e.id).sort()).toEqual(["q1", "q2", "q3"]);
+    expect(notFresh.coverage.find((c) => c.experimentId === "e")!.missingEvalIds).toEqual([]);
+
+    const fresh = results.current({ fresh: true });
+    // 只有 q3(本次快照真实执行、非携带)是新执行;q1(携带)与 q2(跨快照拼入)都被排除。
+    expect(fresh.snapshots[0]!.evals.map((e) => e.id)).toEqual(["q3"]);
+    expect(fresh.coverage.find((c) => c.experimentId === "e")!.missingEvalIds.sort()).toEqual(["q1", "q2"]);
+  });
+});
+
 // ───────────────────────── 身份键去重 ─────────────────────────
 
 function fakeSnapshot(over: { experimentId: string; startedAt: string; dir: string }): Snapshot {
@@ -478,6 +548,7 @@ function fakeAttempt(snapshot: Snapshot, result: EvalResult): AttemptHandle {
     result,
     ref: { snapshot: "x/y", attempt: `${result.id}/a${result.attempt}` },
     snapshot,
+    carried: Boolean(result.artifactBase),
     events: async () => null,
     trace: async () => null,
     o11y: async () => null,
@@ -587,8 +658,9 @@ describe("createResultsWriter", () => {
     expect(bDiff?.windows).toEqual([{ window: "s1/t1", changes: { "a.txt": { status: "added", after: "1" } } }]);
     expect(bDiff?.get("a.txt")).toBe("1");
 
-    const partial = results.latest().warnings.find((w) => w.kind === "partial-coverage")!;
-    expect(partial).toMatchObject({ experimentId: "compare/a", covered: 2, total: 3 });
+    const coverage = results.latest().coverage.find((c) => c.experimentId === "compare/a")!;
+    expect(coverage.knownEvalIds).toHaveLength(3);
+    expect(coverage.missingEvalIds).toHaveLength(1);
   });
 
   it("agentSetup:落成 agent-setup.json(不内联进 result.json),懒加载读回;没装扩展的 attempt 恒 null;copySnapshots 能带上", async () => {
@@ -834,11 +906,11 @@ describe("copySnapshots", () => {
     expect(destRecord).not.toHaveProperty("artifactBase");
     expect(destRecord).not.toHaveProperty("agent"); // 快照级字段不重复
 
-    // 发布目录上重新 openResults().latest():残缺警告被同一套机制重新算出来,不靠发布者转述。
+    // 发布目录上重新 openResults().latest():覆盖缺口被同一套机制重新算出来,不靠发布者转述。
     const republished = await openResults(dest);
     expect(republished.experiments[0].evalIds).toEqual(["q1", "q2"]);
-    const partial = republished.latest().warnings.find((w) => w.kind === "partial-coverage")!;
-    expect(partial).toMatchObject({ experimentId: "compare/bub", covered: 1, total: 2 });
+    const coverage = republished.latest().coverage.find((c) => c.experimentId === "compare/bub")!;
+    expect(coverage).toMatchObject({ knownEvalIds: ["q1", "q2"], missingEvalIds: ["q2"] });
   });
 
   it("目标目录非空即报错;artifacts 非法值报错;无快照报错;同实验多快照选中 → 取最新 + warning", async () => {
@@ -945,6 +1017,9 @@ describe("AttemptLocator · 落盘 / 读取 / 携带 / 撞车", () => {
     const carriedAttempt = newest.evals.find((e) => e.id === "q1")!.attempts[0];
     expect(carriedAttempt.locator).toBe(originalLocator);
     expect(resolveLocator(opened2, originalLocator).evalId).toBe("q1");
+    // attempt.carried 是 artifactBase 的读取面投影:携带条目为 true,本快照真实执行的 q2 为 false。
+    expect(carriedAttempt.carried).toBe(true);
+    expect(newest.evals.find((e) => e.id === "q2")!.attempts[0].carried).toBe(false);
 
     // 反证:如果按「新快照的 startedAt」重算,会得到一个不同的字符串——证明确实是原样复制,不是重算。
     const wronglyRecomputed = encodeAttemptLocator({
@@ -1054,7 +1129,7 @@ describe("AttemptLocator · 落盘 / 读取 / 携带 / 撞车", () => {
       experiments: [{ id: "e", snapshots: [snapshot], latest: snapshot, evalIds: ["q1"] }],
       skipped: [],
       // filter() 本测试不调用,用不到,给个占位实现即可满足 Scope 接口。
-      latest: () => ({ mode: "latest-snapshots" as const, snapshots: [snapshot], attempts: snapshot.attempts, warnings: [], filter: () => { throw new Error("not implemented"); } }),
+      latest: () => ({ mode: "latest-snapshots" as const, snapshots: [snapshot], attempts: snapshot.attempts, coverage: [], warnings: [], filter: () => { throw new Error("not implemented"); } }),
       current: () => { throw new Error("not implemented"); },
     };
     // 这份 locator 语法合法、甚至真的对应 handMadeResults 里那个 attempt 的身份,

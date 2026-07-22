@@ -84,6 +84,12 @@ export interface AttemptHandle {
    * 不强制手工构造的 AttemptHandle(测试里的内存 fake)也必须带上——真实读取路径永远有值。
    */
   locator?: AttemptLocator;
+  /**
+   * 携带条目投影:true = fingerprint 未变、上一轮终态结果合入本快照(`result.artifactBase`
+   * 有值);false = 本快照那次运行真实执行。`startedAt` 为原执行时刻,不因携带而改写
+   * (时效语义见 docs/feature/results/library.md「时效:新执行与历史执行」)。
+   */
+  carried: boolean;
   events(): Promise<StreamEvent[] | null>;
   trace(): Promise<TraceSpan[] | null>;
   o11y(): Promise<O11ySummary | null>;
@@ -172,16 +178,31 @@ export interface Results {
   /**
    * 每个实验取最新一次快照,返回 Scope(快照与挑选警告绑在一起走)。
    * `experiments` 是 experiment id 前缀过滤(string | string[]),同 CLI 位置参数语义。
+   * `fresh: true` 只保留新执行的 attempt(排除携带条目),被排除的题按覆盖事实进入
+   * `coverage.missingEvalIds`(见 docs/feature/results/library.md「时效:新执行与历史执行」)。
    */
-  latest(opts?: { experiments?: string | string[] }): Scope;
+  latest(opts?: { experiments?: string | string[]; fresh?: boolean }): Scope;
   /**
    * 官方现刻水位:每个 experiment × eval 取「包含该 eval 的最新快照」里的全部 attempt,
    * 跨历史拼出当前判定水位。可比性前提:每个 experiment 以最新快照的可比性配置
    * (agent / model / reasoningEffort / flags / budget / timeoutMs / sandbox)为基准,
-   * 配置不一致的旧快照不贡献 attempt,缺口走 partial-coverage
-   * (见 docs/feature/results/library.md「官方现刻水位」)。
+   * 配置不一致的旧快照不贡献 attempt,缺口进 `coverage.missingEvalIds`
+   * (见 docs/feature/results/library.md「官方现刻水位」)。`fresh: true` 同 `latest()`。
    */
-  current(opts?: { experiments?: string | string[] }): Scope;
+  current(opts?: { experiments?: string | string[]; fresh?: boolean }): Scope;
+}
+
+/**
+ * 一个实验的覆盖事实:已知 eval 并集(分母)与当前口径下没有任何 attempt 的题。
+ * `missingEvalIds` 永远被算出来,不静默——渲染面把它转成榜单占位行
+ * (见 docs/feature/results/library.md「选择快照」「时效:新执行与历史执行」)。
+ */
+export interface ScopeCoverage {
+  experimentId: string;
+  /** 分母:本地历史 ∪ 各快照携带的 knownEvalIds,交命令行范围(与 `exp.evalIds` 同源)。 */
+  knownEvalIds: string[];
+  /** 当前口径下没有任何 attempt 的题(含 `fresh: true` 排除历史执行后新产生的缺口)。 */
+  missingEvalIds: string[];
 }
 
 /**
@@ -198,10 +219,12 @@ export interface Scope {
    * 也就不可能算错口径。官方计算函数同样只消费它。
    */
   attempts: AttemptHandle[];
+  /** 逐实验的覆盖事实(见 `ScopeCoverage`);手工挑的 `Snapshot[]` 没有挑选过程,不带覆盖事实。 */
+  coverage: ScopeCoverage[];
   warnings: ScopeWarning[];
   /**
-   * 只删不换:返回新 Scope,快照删减,attempts 与 warnings 随之同步修剪 ——
-   * experimentId 不在幸存快照中的警告丢弃,非实验作用域的警告保留。
+   * 只删不换:返回新 Scope,快照删减,attempts、coverage 与 warnings 随之同步修剪 ——
+   * experimentId 不在幸存快照中的条目丢弃,非实验作用域的警告保留。
    * 「换成上一个完整快照」这类替换式重挑不给方法,回 exp.snapshots 自己挑。
    */
   filter(predicate: (snapshot: Snapshot) => boolean): Scope;
@@ -210,29 +233,11 @@ export interface Scope {
 /**
  * 挑选警告:每种带 kind、可判断的结构化字段和渲染好的英文 message;能用一条命令直接推进的
  * kind 同时带 `command`(已替换真实 id,复制即跑)。kind 是契约的一部分,全集与触发条件见
- * docs/feature/results/library.md「警告 kind 全集」。
+ * docs/feature/results/library.md「警告 kind 全集」——三种都是**定位不到任何一行**的完整性
+ * 事实:覆盖缺口(行级事实,见 `ScopeCoverage`)与时效(`AttemptHandle.carried` 投影的行级
+ * 属性)不在这个联合里。
  */
 export type ScopeWarning =
-  | {
-      /** 选中快照的覆盖 < 该实验已知 eval 并集(本地历史 ∪ knownEvalIds)。 */
-      kind: "partial-coverage";
-      experimentId: string;
-      covered: number;
-      total: number;
-      message: string;
-      /** 一条可复制即跑的推进命令:`niceeval exp <experimentId>`。 */
-      command: string;
-    }
-  | {
-      /** 该实验选中的快照早于 Scope 中最新的落盘;无阈值,如实触发,要阈值消费方按字段自比。 */
-      kind: "stale-snapshot";
-      experimentId: string;
-      startedAt: string;
-      latestStartedAt: string;
-      message: string;
-      /** 一条可复制即跑的推进命令:`niceeval exp <experimentId>`。 */
-      command: string;
-    }
   | {
       /** 选中快照缺 completedAt(进程中断,未收尾);已落盘 attempt 照常读出,警告提示集合可能不完整。 */
       kind: "unfinished-snapshot";
@@ -243,6 +248,18 @@ export type ScopeWarning =
       message: string;
       /** 一条可复制即跑的推进命令:`niceeval exp <experimentId>`。 */
       command: string;
+    }
+  | {
+      /**
+       * 身份键(experimentId, evalId, attempt, startedAt)缺 startedAt,`dedupeAttempts` 宁可
+       * 不去重也不误删。归属 `dedupeAttempts`,不进 `Scope.warnings`(selectLatest / current
+       * 不产出这个 kind)——`dedupeAttempts()` 直调时警告随它自己的返回值走,`DedupeWarning`
+       * 是这个成员的类型别名。
+       */
+      kind: "missing-startedAt";
+      experimentId: string;
+      evalId: string;
+      message: string;
     }
   | {
       /**
@@ -266,10 +283,5 @@ export type ScopeWarning =
       command?: string;
     };
 
-/** dedupeAttempts 的警告:身份键缺 startedAt,宁可不去重也不误删。 */
-export interface DedupeWarning {
-  kind: "missing-startedAt";
-  experimentId: string;
-  evalId: string;
-  message: string;
-}
+/** `dedupeAttempts` 的警告:`ScopeWarning` 里 `missing-startedAt` 那个成员的类型别名。 */
+export type DedupeWarning = Extract<ScopeWarning, { kind: "missing-startedAt" }>;
