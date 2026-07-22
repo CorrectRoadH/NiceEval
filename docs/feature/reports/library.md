@@ -18,7 +18,7 @@
 | 参数变化时指标怎样变化 | [`MetricLine`](library/metric-views.md#metricline) |
 | A 与 B 相差多少 | [`DeltaTable`](library/metric-views.md#deltatable) |
 | 页首放站点标题、最后运行时间与品牌行 | [`Hero`](library/site-components.md#hero) |
-| 这批数据的选择警告（覆盖缺口、过旧、未完成） | [`ScopeWarnings`](library/site-components.md#scopewarnings) |
+| 这批数据的选择警告（快照未收尾、落盘被跳过） | [`ScopeWarnings`](library/site-components.md#scopewarnings) |
 | 把全部失败打包成可交给 coding agent 的修复 prompt | [`CopyFixPrompt`](library/site-components.md#copyfixprompt) |
 | 每个 attempt 的执行时间瀑布 | [`TraceWaterfall`](library/site-components.md#tracewaterfall) |
 | 自定义 locator 打开的参数化 page | [`AttemptDetail`，或 `AttemptSummary`、`AttemptAssessment`、`AttemptTimeline` 等详情组件](library/attempt-detail.md) |
@@ -64,7 +64,7 @@ niceeval show --report reports/quality-cost.tsx
 niceeval view --report reports/quality-cost.tsx
 ```
 
-宿主先按位置参数、`--results` 和 `--exp` 选择数据，再把 Scope 注入报告；管线在 [resolve 阶段](architecture.md#报告树与两个宿主)并行完成所有组件的取数，作者不写任何取数管道。覆盖不完整、快照过旧或未完成等警告由 [`ScopeWarnings`](library/site-components.md#scopewarnings) 组件呈现——宿主不在报告树外另设警告通道，[内建报告](library/built-in.md)每页都放它，自定义报告放不放是作者义务；`ScopeSummaryData` 等指标数据不携带警告。显示时下一步随行：组件按「下一步动作」把警告聚合成组，组头带可复制的推进 `command`，逐条 `message`（[三段式](../../error-feedback.md#消息三段式)，已含下一步）作为明细原样保留——聚合、排序与折叠规则见[组件契约](library/site-components.md#scopewarnings)。
+宿主先按位置参数、`--results`、`--exp` 和 `--fresh` 选择数据，再把 Scope 注入报告；管线在 [resolve 阶段](architecture.md#报告树与两个宿主)并行完成所有组件的取数，作者不写任何取数管道。快照未收尾、落盘不可读等选择警告由 [`ScopeWarnings`](library/site-components.md#scopewarnings) 组件呈现——宿主不在报告树外另设警告通道，[内建报告](library/built-in.md)的三张 scope-input page 都放它（attempt-input page 不重复站点范围警告），自定义报告放不放是作者义务；能定位到行的事实不走警告：覆盖缺口是 [`ExperimentList` 的占位行](library/entity-lists.md#experimentlist)，携带与跨快照拼接是行上的[时效标注](library/entity-lists.md#时效标注)。`ScopeSummaryData` 等指标数据不携带警告。显示时下一步随行：组件按「下一步动作」把警告聚合成组，组头带可复制的推进 `command`，逐条 `message`（[三段式](../../error-feedback.md#消息三段式)，已含下一步）作为明细原样保留——聚合、排序与折叠规则见[组件契约](library/site-components.md#scopewarnings)。
 
 取数之后要用普通 JavaScript 加工（filter / slice / 自定义排序）时，写一个[组合组件](library/layout.md#自定义组件)：在里面调 `*Data` 函数、加工数组，再以 **data 形态** 把结果递给组件：
 

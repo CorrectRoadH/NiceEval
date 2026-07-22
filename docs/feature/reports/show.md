@@ -31,6 +31,7 @@ niceeval show memory/swelancer --history   # 这个 eval 的真实执行历史
 | 看 agent 每轮说了什么、调了什么工具 | [`--execution`](show/execution.md) |
 | 分析整个 attempt 的时间花在哪 | [`--timing`](show/timing.md) |
 | 核对 agent 实际改了哪些文件 | [`--diff`](show/diff.md) |
+| 看一道题历次执行的时间轴 | [`--history`](show/history.md) |
 | 渲染自定义报告：单页、多页与 `--page` 的操作步骤 | [`--report` 的单页与多页](show/reports.md) |
 
 ## 选择结果范围
@@ -40,15 +41,12 @@ niceeval show --results tmp/published-results
 niceeval show --exp dev-e2b           # experiment id 路径前缀
 niceeval show --exp dev-e2b/codex-e2b
 niceeval show memory/swelancer --exp dev-e2b/codex-e2b
+niceeval show --fresh                 # 只统计最新一次运行实测的 attempt
 niceeval show --report reports/exam.tsx
 niceeval show --report reports/site.tsx --page exam
 ```
 
-`--results` 改变结果根；`--exp` 按 experiment id 路径段匹配，eval id 位置参数按裸前缀过滤。`--report` 替换整份 pages：无证据 flag 的 `show @<locator> --report <file>` 选择其中唯一的 attempt-input page，注入 locator 对应的 evidence 并渲染 text 面；`--source`、`--execution`、`--timing`、`--diff` 仍是直接读取同一份 Results evidence 的专用终端投影。
-
-## `--history`：一个 eval 的执行时间轴
-
-`--history` 回答「这道题历次跑下来发生了什么」，逐 attempt 而非逐快照：对 Scope 中匹配的每个 `experimentId + evalId` 分节，节内按 startedAt 升序列出跨快照按 attempt 身份键去重后的历次 attempt——时间、verdict、单行结果摘要（主失败断言或结构化 error 的一层摘要，与榜单同一 display 契约）、耗时、成本与 locator。它与 `--report` 互斥：两者都占据主输出，`--history` 是宿主证据面的时间轴，不经报告树。快照级趋势（成绩随配置版本变好还是变坏）不归它，用报告库的[历史配方](library/recipes.md#历史一个实验的逐次快照走势)。
+`--results` 改变结果根；`--exp` 按 experiment id 路径段匹配，eval id 位置参数按裸前缀过滤。`--fresh` 把口径收窄成只含新执行的 attempt——排除携带条目与跨快照拼入的历史执行，被排除的题按覆盖事实转为榜单占位行，不静默消失（语义见 [Results · 时效](../results/library.md#时效新执行与历史执行)）。`--report` 替换整份 pages：无证据 flag 的 `show @<locator> --report <file>` 选择其中唯一的 attempt-input page，注入 locator 对应的 evidence 并渲染 text 面；`--source`、`--execution`、`--timing`、`--diff` 仍是直接读取同一份 Results evidence 的专用终端投影。
 
 ## 无匹配与不可读结果
 

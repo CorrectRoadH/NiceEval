@@ -36,11 +36,11 @@ const scope = reportScopeFixture({
 
 - **指标聚合口径**：两级折叠与题目权重、默认通过率的 errored=0 口径、skipped 与 null/0 的语义分离、固定题集分母（notRun 与 unscorable 不合并）、跨快照按身份键去重、自定义指标的 where 与两级 aggregate、分组维度规则。每条口径都要有能与错误算法区分的 fixture。
 - **MetricCell 与缺数据**：字段构成与序列化不丢值；`validate*Data` 递归到嵌套字段、报错带完整路径、结构错误恒转完整用户反馈不抛裸 TypeError；缺 artifact 时返回 null 不猜值。
-- **数据计算函数（`*Data`）**：各组件 data 函数的选择、配对、排序、缺失与报错语义（selectedEvalIds 口径、pairsByFlag 配对边界、FailureList 等价、稀疏矩阵、单行摘要的字段瘦身、可比性冲突的完整反馈）；共享算法（最短唯一后缀）在消费方之间一致。
-- **站点组件与内建报告**：`standard` 的构成与具名导出同引用、`defineReport({ extends })` 的外壳叠加与页列表同引用、组合组件与手写组合严格等价、数据派生（heroData、warning 分类）与渐进增强不改数据的不变量。
+- **数据计算函数（`*Data`）**：各组件 data 函数的选择、配对、排序、缺失与报错语义（selectedEvalIds 口径、pairsByFlag 配对边界、FailureList 等价、稀疏矩阵、单行摘要的字段瘦身、可比性冲突的完整反馈）；共享算法（最短唯一后缀）在消费方之间一致；`experimentListData` 的时效字段（`historical` / `historicalAttempts` 与新执行的判定边界）与占位行数据（`missingEvalIds` 来自 `scope.coverage`、不参与任何指标聚合）。
+- **站点组件与内建报告**：`standard` 的构成与具名导出同引用、`defineReport({ extends })` 的外壳叠加与页列表同引用、组合组件与手写组合严格等价、数据派生（heroData、warning 分组聚合与组排序）与渐进增强不改数据的不变量。
 - **resolve 与组合组件**：spec/data 严格等价、`input` 缺省与覆盖、记忆化的等价判据、`ReportNode` 全集与非法节点的完整反馈、`ctx` 的构成、sibling 并行但输出保序、`defineComponent` 两种形态。
 - **纯函数布局算法**：MetricScatter 点标签布局是 `chart-math` 纯几何函数，直接对函数断言标签框与点框的几何关系，不经 HTML；labels 维度与 series 归类的解析规则；series 配色的稳定散列与撞色线性探测（`colorIndexForKey` / `colorIndicesForKeys`）同属这一类——确定性索引计算，不断言渲染出的颜色值。
-- **宿主装载等价**：裸 `show`/`view` 与 `--report` 在装载边界消费同一份 definition（同引用）与同规则选出的 Scope（深等）——不比较终端输出与 HTML，渲染面与进程级读面行为归 E2E。
+- **宿主装载等价**：裸 `show`/`view` 与 `--report` 在装载边界消费同一份 definition（同引用）与同规则选出的 Scope（深等）；`--fresh` 在两宿主注入同一个 `fresh` 口径——不比较终端输出与 HTML，渲染面与进程级读面行为归 E2E。
 - **view 数据装载（ViewScan）**：`resolveViewInput` 的位置参数 / `--results` / `--snapshot` 互斥与存在性校验，位置参数按 eval id 前缀透传、含义不随文件系统状态改变；`loadViewScan` 的有效根收窄使证据室（`attemptsByBase` / `artifactDirs` / `attemptPages.locators`）与报告槽 Selection 同步收窄；`viewData` 只含证据室元信息（`composedRuns`、`skippedRuns`、`report` 元信息）不携带统计产物；外壳标题取值链与 `ReportLink.icon` 原样透传进 `viewData.report`；报告文件缺失、非法默认导出、前缀 / 实验匹配不到、零可读结果的完整错误反馈；报告文件变更后下一次装载读取新内容（不复用陈旧模块缓存）。全部以返回结构、Map/Set 内容与错误对象为断言面，不断言渲染出的 HTML 或终端文本。
 - **Attempt 证据组件族**：`attempt*Data(evidence)` 纯派生零 IO、装配恰好一次；组合组件的展开树构成与二选一规则；spec 缺省取注入 evidence、错位使用的完整反馈；对话数据的分轮与容错。渲染出的 DOM、默认展开标记、染色与交互归 E2E；改动这些组件后需要 `pnpm run build:report`，改动 view 壳 / dialog 摆放后需要 `pnpm run view:build`。
 - **外壳与页面装载**：三种声明形态归一到同一规范化产物、`content`/`pages`/`extends` 恰好其一、标题取值链、资产路径纪律与 head 白名单/转义/scheme 分流、page id 与 attempt-input page 的校验规则。全部以装载结果或错误对象为断言面。

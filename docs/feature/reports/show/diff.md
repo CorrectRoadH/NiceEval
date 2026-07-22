@@ -13,7 +13,7 @@ $ niceeval show @1qrdcfq8 --diff
 single file: niceeval show @1qrdcfq8 --diff=manager_decisions.json
 ```
 
-`--diff=<path>` 输出单文件 patch，**按窗口逐段渲染**（`diff.json` 存的就是逐窗口 delta，窗口之间可能夹着 eval 侧写入，不产出跨窗口合成 patch）：
+`--diff=<path>` 输出单文件 patch，**按窗口逐段渲染**（`diff.json` 存的就是逐窗口 delta，窗口之间可能夹着 eval 侧写入，不产出跨窗口合成 patch）。窗口分隔是裸横线 `── window <turn>`，不套面板框：patch 正文要保持逐行可复制、可直接喂给 `git apply` 一类工具，框线前缀会把它废掉：
 
 ```text
 $ niceeval show @1qrdcfq8 --diff=manager_decisions.json

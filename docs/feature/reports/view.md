@@ -12,6 +12,7 @@ niceeval view weather                  # eval id 前缀，只收窄报告槽
 niceeval view --exp agents/codex       # 按 experiment id 路径收窄
 niceeval view --exp agents/codex/gpt-5.4 # 只看一个 experiment
 niceeval view --results site-data/run  # 换结果根
+niceeval view --fresh                  # 只统计最新一次运行实测的 attempt
 niceeval view --snapshot .niceeval/dev-e2b_codex-e2b/2026-07-12T10-08/snapshot.json
                                        # 只打开这一份快照
 niceeval view --no-open                # 只打印 URL
@@ -24,7 +25,7 @@ niceeval view --report reports/site.tsx --page exam   # 多页报告，指定初
 
 本地 server 只监听 `127.0.0.1`。默认让操作系统随机分配端口；`--port <n>` 指定首选端口，被占用时从 n 起向上顺延最多 20 个，全被占用才报错。
 
-裸 `niceeval view` 默认把结果根中的完整 Scope 交给 scope-input pages。`--exp` 按 experiment id 路径收窄，位置参数按 eval id 前缀收窄；两者可组合取交集。locator URL 选择报告中唯一的 attempt-input page，并从有效根把 locator 解析为一份 `AttemptEvidence` 注入它——收窄之内、即使不在现刻水位里的历史 attempt 也能打开；收窄之外的 attempt 不可达。同一份收窄交给 `--out` 时决定出站内容。
+裸 `niceeval view` 默认把结果根中的完整 Scope 交给 scope-input pages。`--exp` 按 experiment id 路径收窄，位置参数按 eval id 前缀收窄；两者可组合取交集。`--fresh` 注入只含新执行 attempt 的 [`fresh` 口径](../results/library.md#时效新执行与历史执行)，被排除的题按覆盖事实转为占位行。locator URL 选择报告中唯一的 attempt-input page，并从有效根把 locator 解析为一份 `AttemptEvidence` 注入它——收窄之内、即使不在现刻水位里的历史 attempt 也能打开；收窄之外的 attempt 不可达。同一份收窄交给 `--out` 时决定出站内容。
 
 ## 页面构成
 

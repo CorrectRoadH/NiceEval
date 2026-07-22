@@ -29,7 +29,7 @@ spec 的字段全集：
 |---|---|
 | `name: string` | 报告里显示的断言名——谓词不可展示，名字是失败的全部解释，展示形态见 [断言与 Turn 的展示](display.md#值断言) |
 | `severity?: "gate" \| "soft"` | 省略默认 `gate` |
-| `threshold?: number` | 及格线：分数 ≥ 阈值通过；省略时 gate 按「分数 > 0」及格，soft 只记分不判定 |
+| `threshold?: number` | 及格线：分数 ≥ 阈值通过；省略时 gate 用默认通过线 1（打分制的 `score` 应显式给阈值），soft 只记分不判定 |
 | `score: (value) => number \| Promise<number>` | 返回 `[0,1]` 分数，可以是异步函数 |
 
 `score` 是异步时，评分在 finalize 阶段 await，eval 代码不需要额外等待。典型场景是把值交给外部工具或服务打分：

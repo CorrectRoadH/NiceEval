@@ -26,7 +26,7 @@ niceeval 的位置一句话:**契约形状学 eve(强类型事件、callId、`re
 
 ## 事件词汇:26 种类型,带三级坐标
 
-`HandleMessageStreamEvent` 是 26 个成员的判别联合。和 niceeval `StreamEvent`(10 种)最大的结构差异:**几乎每个事件带 `sequence`(全序)+ `turnId` + `stepIndex` 坐标**——事件不止有顺序,还有归属;而 niceeval 的事件只有数组顺序,turn 归属靠"哪次 `send` 返回的"隐式表达。
+`HandleMessageStreamEvent` 是 26 个成员的判别联合。和 niceeval `StreamEvent`(11 种)最大的结构差异:**几乎每个事件带 `sequence`(全序)+ `turnId` + `stepIndex` 坐标**——事件不止有顺序,还有归属;而 niceeval 的事件只有数组顺序,turn 归属靠"哪次 `send` 返回的"隐式表达。
 
 按层列出(字段为源码原文):
 
@@ -93,7 +93,7 @@ interface RuntimeIdentity {
 ## eval 侧怎么消费
 
 - **`t.events` 就是原始协议事件**,没有第二层 eval 专用 schema。作用域断言直接查这条流。
-- **派生事实**(`derive-run-facts.ts` → `EveEvalDerivedFacts`):`toolCalls / toolCallCount / subagentCalls / subagentCallCount / inputRequests / parked / messageCount / reasoningBlockCount / failureCode?`。比 niceeval 的 `DerivedFacts` 多 `reasoningBlockCount` 和 `failureCode`(顶层失败码,从 `*.failed` 事件抠)。
+- **派生事实**(`derive-run-facts.ts` → `EveEvalDerivedFacts`):`toolCalls / toolCallCount / subagentCalls / subagentCallCount / inputRequests / parked / messageCount / reasoningBlockCount / failureCode?`。对照 niceeval `deriveRunFacts` 的事实集:多 `reasoningBlockCount` 和 `failureCode`(顶层失败码,从 `*.failed` 事件抠),少压缩次数与 `contextInjections`。
 - **轮次边界在协议里**:`isCurrentTurnBoundaryEvent` = `session.completed | session.failed | session.waiting`——客户端读到边界事件就知道这轮到头了,不靠连接关闭或超时猜。
 - **parked 判定同思路**:`endedParkedOnInput(events)`,niceeval 的"最后一条有意义事件是 `input.requested`"与之对齐。
 

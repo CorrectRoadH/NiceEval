@@ -91,7 +91,7 @@ Results 保存事实：判定、断言、runner 时间树、事件、trace、dif
 
 ## Scope 是计算入口
 
-所有官方 `*Data(input, options?)` 计算函数接受 `ReportInput = Scope | readonly Snapshot[]`。Scope 同时携带快照和选择警告，避免报告把数据与“这批数据是否完整”的信息拆开。warning 的呈现件是 [`ScopeWarnings`](library/site-components.md#scopewarnings) 组件——宿主不在报告树外另设警告通道，[内建报告](library/built-in.md)每页都放它，自定义报告放不放是作者义务；指标与列表组件的数据不复制 warning，自有 React 页面用 data 形态直接渲染 `scope.warnings`。
+所有官方 `*Data(input, options?)` 计算函数接受 `ReportInput = Scope | readonly Snapshot[]`。Scope 同时携带快照、覆盖事实（coverage）和选择警告，避免报告把数据与“这批数据是否完整”的信息拆开。warning 的呈现件是 [`ScopeWarnings`](library/site-components.md#scopewarnings) 组件——宿主不在报告树外另设警告通道，[内建报告](library/built-in.md)的三张 scope-input page 都放它（attempt-input page 不重复站点范围警告），自定义报告放不放是作者义务；覆盖缺口由 `experimentListData` 消费成占位行、时效由 attempt 行的时效标注呈现（见[实体列表](library/entity-lists.md)），指标与列表组件的数据不复制 warning，自有 React 页面用 data 形态直接渲染 `scope.warnings`。
 
 `show` 与 `view` 对命令行范围使用同一套选择规则：
 

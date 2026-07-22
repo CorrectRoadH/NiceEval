@@ -309,20 +309,22 @@ $ niceeval show @1c3h6twx --diff=src/components/Button.tsx
 
 ### 历史与抖动：`--history`
 
-默认报告和单个评估用例视图显示最新判定。`--history` 用跨 run 时间轴显示稳定性和回归起点，每次真实执行一行：
+默认报告和单个评估用例视图显示最新判定。`--history` 把一道评估用例的历次执行摊开成时间轴：每个 experiment × 评估用例一个框，框内按开始时间从早到晚一行一次执行——时间、判定、失败摘要、耗时、成本，行尾是这次执行的 `@<locator>`：
 
 ```text
 $ niceeval show weather/brooklyn --history
-compare/codex-gpt-5.4 · 5 runs · passed 2/5
+执行历史 · weather/brooklyn 匹配 1 个评估用例 · 1 个 experiment
 
-  2026-07-09T10-00   ✗ failed   3 attempts   $0.04   gate calledTool("get_weather")
-  2026-07-09T08-12   ✓ passed   1 attempt    $0.03
-  2026-07-08T18-22   ✗ failed   3 attempts   $0.05   gate calledTool("get_weather")
-  2026-07-08T11-05   ✓ passed   1 attempt    $0.03
-  2026-07-07T16-40   ✗ failed   3 attempts   $0.05   gate calledTool("get_weather")
+╭─ compare/codex-gpt-5.4 · weather/brooklyn ──────────────────────────── 5 次执行 · 2 通过 3 失败 ─╮
+│ 2026-07-07 16:40  ✗ 失败  calledTool("get_weather") · 未调用            12.4s   $0.05  @1w3k0dqe │
+│ 2026-07-08 11:05  ✓ 通过  —                                             8.9s   $0.03  @1m82hyqk │
+│ 2026-07-08 18:22  ✗ 失败  calledTool("get_weather") · 未调用            11.7s   $0.05  @19fjq2xw │
+│ 2026-07-09 08:12  ✓ 通过  —                                             9.2s   $0.03  @1zpk57vn │
+│ 2026-07-09 10:00  ✗ 失败  calledTool("get_weather") · 未调用            13.1s   $0.04  @1c4vmt8d │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
-✓✗ 交替说明这个评估用例在抖，该修的是稳定性（被测程序或断言），反复重跑碰运气只会烧钱；连续绿转红的拐点就是回归引入的位置，用 `view --snapshot <snapshot.json>` 钉住拐点前后两次细看。时间轴只列真实执行——缓存携带的旧结果是判定的复印件，不占行，否则趋势会被复印件灌满假数据。不带评估用例 id 的 `niceeval show --history` 给每个 experiment 的 per-run 通过率序列，同一份趋势的榜单视角。
+✓✗ 交替说明这个评估用例在抖，该修的是稳定性（被测程序或断言），反复重跑碰运气只会烧钱。从时间轴上挑一次失败和一次通过，复制行尾 `@<locator>` 分别 `niceeval show @<locator> --execution`，比对 Agent 两次行为差在哪。红绿分界正好对着一次配置改动（换过 model、flags）时，那不是抖，是配置引入的变化：默认报告只统计与实验当前配置一致的结果，时间轴不做这个筛选，改配置之前的执行也在轴上，正适合看出这条分界线。同一次执行被之后的运行以缓存携带时，时间轴仍只占一行——列的是执行本身，不是它被复制的次数。
 
 两次 run 的精确对比不提供专用 flag。使用 `DeltaTable` 组件编写自定义对比报告，再把文件传给 `--report`；终端和网页会渲染同一份报告。具体写法见[自定义报告](/zh/tutorials/custom-reports)。
 

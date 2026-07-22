@@ -39,6 +39,7 @@ interface Sandbox {
   uploadDirectory(localDir: string, targetDir?: string, opts?: { ignore?: string[] }): Promise<void>;
   downloadFile(path: string): Promise<Buffer>;                  // 二进制读
   uploadFile(path: string, content: Buffer): Promise<void>;     // 二进制写
+  downloadDirectory(localDir: string, targetDir?: string, opts?: { ignore?: string[] }): Promise<void>;  // 递归取回,镜像 uploadDirectory
 
   // 生命周期
   stop(): Promise<void>;

@@ -125,6 +125,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 
 - [staleness-demoted-from-warning-to-provenance](staleness-demoted-from-warning-to-provenance.md) — 裁决(2026-07-22):stale-snapshot/partial-coverage 两个警告 kind 删除——时效降级为行级 `↩` 标注(attempt.carried/historical),覆盖缺口物化为 scope.coverage+榜单占位行,新增 fresh 口径(--fresh);warnings 只留定位不到行的三种;否决理由=警告粒度与事实粒度错位、carry 是正常功能不该带「多数情况请忽略」的警告
 - [publish-redaction-copysnapshots-not-report](publish-redaction-copysnapshots-not-report.md) — 设计裁决:发布消毒移到 copySnapshots({ redact }),AttemptList.redact 降为展示层(2026-07-14),推翻「消毒归报告」——view --out 原样发布 artifact,列表脱敏挡不住深链
+- [copysnapshots-deletion-rejected-carried-entries](copysnapshots-deletion-rejected-carried-entries.md) — 裁决(2026-07-22):否决「writer stamp knownEvalIds 后删 copySnapshots、手工 cp 子集合法」——携带条目 artifactBase 指向原快照,子集 cp 静默丢证据,物化只能是库原语;不可替代核心=自包含物化,发布判据同日改「跨出可信边界」
 - [view-compare-tab-rejected](view-compare-tab-rejected.md) — 裁决(2026-07-21):不做 view 内建 Compare tab 与 Eval 目录页,roadmap「View 增强」删除;两快照对比由 `DeltaTable by="snapshot"` 报告组件承担,内建 tab 违反「宿主不拥有 pages 之外的导航」契约
 - [chart-subcomponent-syntax-decisions](chart-subcomponent-syntax-decisions.md) — 裁决(2026-07-21):图表子组件语法三候选收敛为自研子组件单一设计(recharts SVG 生成器与「只加阶梯」否决,阶梯并入);component-mapping 撤页溶进 library,facet 容器/共享图例/线端标注定为设计上不支持,by+value 合并=精确匹配覆盖;roadmap 文档不留待裁决中间态、不写「现状做不到」
 - [view-out-narrowing-reversal](view-out-narrowing-reversal.md) — 裁决(2026-07-17):view 收窄(位置参数/--exp)改为管线输入,滤出有效根,页面+viewData+证据树一致收窄,`view <收窄> --out` ≡ 对收窄后的根导出;翻案旧「--out 与收窄互斥、发布收窄走 copySnapshots」;中途方案「只滤证据清单、viewData 全量」因数据仍烘进 HTML 出站被收紧;同日 `--experiment` 更名 `--exp`

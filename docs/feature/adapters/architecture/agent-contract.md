@@ -37,6 +37,8 @@ interface Turn {
 
 `kind` 由 `defineAgent` / `defineSandboxAgent` 固定写入。进程内调用仍属于 remote kind，不形成第三种运行器分支。
 
+Adapter 只负责把行为落进 `events` 单源，`send` 返回的 `Turn` 不含消息便利字段；core 在把结果交给 eval 作者前，把本轮 assistant `message` 事件的文本按序折叠成便利字段 `turn.message` 补上（作者面字段表见 [Context · 读取结果](../../eval/library/context.md#读取结果)）。`thinking`、`compaction`、`context.injected` 不获得同类便利字段，按 `type` 过滤 `events` 读取（见[标准事件模型](events.md#派生事实)）。
+
 ## AgentContext
 
 ```ts
