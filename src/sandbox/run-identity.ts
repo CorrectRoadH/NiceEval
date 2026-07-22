@@ -4,6 +4,7 @@
 // docs/feature/sandbox/architecture.md「孤儿核对:强杀路径的实例面兜底」)。
 
 import { hostname } from "node:os";
+import { execFileSync } from "node:child_process";
 
 export interface RunIdentity {
   host: string;
@@ -82,13 +83,33 @@ export function isPidAlive(pid: number): boolean {
 
 export type OrphanState = "orphan" | "unverified";
 
+/** 返回 pid 的操作系统启动时刻；无法可靠取得时留给调用方保守降级。 */
+export function pidStartedAt(pid: number): string | undefined {
+  try {
+    // macOS 与常见 Linux 均支持 lstart；避免 /proc 专有格式和时钟 tick 换算。
+    const raw = execFileSync("ps", ["-o", "lstart=", "-p", String(pid)], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    const timestamp = Date.parse(raw);
+    return Number.isNaN(timestamp) ? undefined : new Date(timestamp).toISOString();
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * 孤儿三条件里「属主 run 已被证实死亡」这一条的裁决:`"alive"` 表示属主还活着(调用方应把这类
  * 实例整个排除在孤儿列表之外,不是标 unverified);host 不匹配当前宿主机时无法核对 pid,归
  * `"unverified"`;host 匹配且 pid 不存活才是 `"orphan"`。偏保守——host 不匹配时宁可多一条
  * unverified,也不错误地当活实例处理。
  */
-export function classifyRunIdentity(identity: RunIdentity): "alive" | OrphanState {
+export function classifyRunIdentity(
+  identity: RunIdentity,
+  readPidStartedAt: (pid: number) => string | undefined = pidStartedAt,
+): "alive" | OrphanState {
   if (identity.host !== hostname()) return "unverified";
-  return isPidAlive(identity.pid) ? "alive" : "orphan";
+  if (!isPidAlive(identity.pid)) return "orphan";
+  const startedAt = readPidStartedAt(identity.pid);
+  const ownerStartedAt = Date.parse(identity.startedAt);
+  if (startedAt === undefined || Number.isNaN(ownerStartedAt)) return "unverified";
+  // 同一 pid 的当前进程比登记 run 晚启动，说明宿主已复用 pid，原 owner 必已死亡。
+  return Date.parse(startedAt) > ownerStartedAt ? "orphan" : "alive";
 }

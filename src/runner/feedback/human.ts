@@ -21,7 +21,7 @@ import { verdictSymbol } from "../reporters/shared.ts";
 import { formatCost } from "../../shared/format.ts";
 import { assertionSummaryLines } from "../../scoring/display.ts";
 import { encodeAttemptKey } from "../types.ts";
-import { renderPanel, type PanelMode, type PanelRow } from "../../report/model/panel.ts";
+import { panelCapabilityOf as panelCapability, renderPanel, type PanelMode, type PanelRow } from "../../report/model/panel.ts";
 import { stringWidth } from "../../report/model/text-layout.ts";
 import type {
   ActiveAttempt,
@@ -39,9 +39,8 @@ import type { FeedbackIO } from "./io.ts";
 /** live/结束面板的传输能力(docs/feature/reports/library/layout.md「区域框」):是 TTY 且
  *  没有要求朴素输出(`NO_COLOR`)时才画框——`io.env` 而不是直接读 `process.env`,保持
  *  profile renderer 可用假 IO 确定性测试。 */
-function panelCapabilityOf(io: FeedbackIO): { mode: PanelMode; width: number } {
-  const mode: PanelMode = io.stderr.isTTY && io.env.NO_COLOR === undefined ? "boxed" : "plain";
-  return { mode, width: io.stderr.columns };
+function panelCapabilityForFeedback(io: FeedbackIO): { mode: PanelMode; width: number } {
+  return panelCapability({ isTTY: io.stderr.isTTY, noColor: io.env.NO_COLOR, width: io.stderr.columns });
 }
 
 /** 失败/errored 默认展开上限(见 cli.md「'立即追加'也必须有上限」表:human 前 10 条)。 */
@@ -144,7 +143,7 @@ export function renderDurableLines(
  *  "saved" 这两个事件;计划、失败、诊断等其它永久事件与 dashboard 本身都在 `stderr`)。
  *  TTY/非 TTY 两个变体共用这一份判断,不各自重复一遍分支。 */
 function writeDurable(io: FeedbackIO, event: DurableFeedbackEvent, state: RunFeedbackState): void {
-  const lines = renderDurableLines(event, state, panelCapabilityOf(io));
+  const lines = renderDurableLines(event, state, panelCapabilityForFeedback(io));
   if (lines.length === 0) return;
   const text = `${lines.join("\n")}\n`;
   if (event.type === "summary" || event.type === "saved") io.stdout.write(text);
@@ -435,7 +434,7 @@ function createDashboardRenderer(io: FeedbackIO, command: string): FeedbackRende
     // 全量复用没有 active attempt，也没有“本次执行中”状态；plan/reuse 与终局摘要已经完整，
     // 不画一块只有 0 running 的 dashboard。
     if (state.total > 0 && state.total === state.reused) return [];
-    const capability = panelCapabilityOf(io);
+    const capability = panelCapabilityForFeedback(io);
     const contentWidth = capability.mode === "boxed" ? capability.width - 4 : capability.width;
     const rows: PanelRow[] = [
       {

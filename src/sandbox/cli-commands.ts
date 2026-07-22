@@ -15,14 +15,18 @@ import {
 } from "./keep.ts";
 import {
   findNiceevalRoot,
+  acquireKeptLease,
   keptEntryId,
   readKeptEntries,
+  readKeptLease,
+  releaseKeptLease,
   removeKeptEntry,
   updateKeptEntry,
   type KeptSandboxEntry,
 } from "./keep-registry.ts";
 import { dockerOrphanCount, listOrphanCandidates, pruneOrphans, type OrphanCandidate } from "./orphans.ts";
-import { renderPanel, type PanelMode, type PanelRow } from "../report/model/panel.ts";
+import { panelCapabilityOf, renderPanel, type PanelMode, type PanelRow } from "../report/model/panel.ts";
+import { computeExpiresAt } from "./keep.ts";
 
 export interface SandboxCommandFlags {
   all?: boolean;
@@ -52,12 +56,12 @@ const LEASE_TTL_MS = 60 * 60 * 1000;
 /** `list`/`history` 一次性面板的传输能力:是 TTY 且没有要求朴素输出时才画框
  *  (docs/feature/sandbox/cli.md「输出体裁」)——`sandbox` 命令组只在启动时探测一次,
  *  不像 `exp` 的 live 面板那样需要随 resize 重新判断。 */
-function panelCapabilityOf(io: Io): { mode: PanelMode; width: number } {
-  const isTTY = io.isTTY ?? process.stdout.isTTY;
-  const mode: PanelMode = isTTY === true && process.env.NO_COLOR === undefined ? "boxed" : "plain";
-  const columns = io.columns ?? process.stdout.columns;
-  const width = Number.isFinite(columns) && (columns ?? 0) > 0 ? (columns as number) : 80;
-  return { mode, width };
+function panelCapabilityForIo(io: Io): { mode: PanelMode; width: number } {
+  return panelCapabilityOf({
+    isTTY: io.isTTY ?? process.stdout.isTTY,
+    noColor: process.env.NO_COLOR,
+    width: io.columns ?? process.stdout.columns,
+  });
 }
 
 /** 入口:`niceeval sandbox <list|enter|history|diff|stop> …`;返回退出码。 */
@@ -77,13 +81,13 @@ export async function runSandboxCommand(
   }
   switch (sub) {
     case "list":
-      return flags.orphans ? listOrphansCommand(root, io) : listCommand(root, io, panelCapabilityOf(io));
+      return flags.orphans ? listOrphansCommand(root, io) : listCommand(root, io, panelCapabilityForIo(io));
     case "stop":
       return stopCommand(root, positionals.slice(1), flags, io);
     case "enter":
       return enterCommand(root, positionals.slice(1), flags, io);
     case "history":
-      return historyCommand(root, positionals.slice(1), flags, io, panelCapabilityOf(io));
+      return historyCommand(root, positionals.slice(1), flags, io, panelCapabilityForIo(io));
     case "diff":
       return diffCommand(root, positionals.slice(1), flags, io);
     case "prune":
@@ -190,7 +194,8 @@ async function listCommand(root: string, io: Io, panel: { mode: PanelMode; width
   for (const { id, entry } of entries) {
     // STATE 是当下核对的现场状态,不是登记时的旧值。
     const state = await inspectDetached(entry.provider, entry.sandboxId);
-    if (state !== entry.state) await updateKeptEntry(root, id, { state }).catch(() => false);
+    // unknown 是探测失败，不是可持久化的现场事实；保留上次已知状态供下次核对。
+    if (state !== "unknown" && state !== entry.state) await updateKeptEntry(root, id, { state }).catch(() => false);
     const from = `${entry.evalId} #${entry.attempt} · ${entry.verdict} · ${entry.locator}`;
     rows.push({
       kind: "line",
@@ -200,6 +205,8 @@ async function listCommand(root: string, io: Io, panel: { mode: PanelMode; width
     if (state === "expired") {
       const when = entry.expiresAt !== undefined ? `expired ${formatWhen(entry.expiresAt)} — ` : "";
       rows.push({ kind: "line", text: `${indent}${when}remove: niceeval sandbox stop ${id}` });
+    } else if (state === "unknown") {
+      rows.push({ kind: "line", text: `${indent}status unknown — check credentials or retry later` });
     } else {
       rows.push({ kind: "line", text: `${indent}${formatWhen(entry.keptAt)} · enter: niceeval sandbox enter ${id}` });
     }
@@ -245,11 +252,6 @@ function leaseHolder(): string {
   return `${process.pid}@${hostname()}`;
 }
 
-function leaseActive(entry: KeptSandboxEntry): boolean {
-  if (!entry.lease) return false;
-  return Date.now() - Date.parse(entry.lease.acquiredAt) < entry.lease.ttlMs;
-}
-
 async function stopCommand(root: string, ids: string[], flags: SandboxCommandFlags, io: Io): Promise<number> {
   let targets: { id: string; entry: KeptSandboxEntry }[];
   if (flags.all) {
@@ -265,8 +267,9 @@ async function stopCommand(root: string, ids: string[], flags: SandboxCommandFla
 
   let code = 0;
   for (const { id, entry } of targets) {
-    if (leaseActive(entry)) {
-      io.err(`${entry.sandboxId} (${entry.provider}) is in use by ${entry.lease!.holder} since ${entry.lease!.acquiredAt}; not stopping.\n`);
+    const lease = await readKeptLease(root, id);
+    if (lease && Date.now() - Date.parse(lease.acquiredAt) < lease.ttlMs) {
+      io.err(`${entry.sandboxId} (${entry.provider}) is in use by ${lease.holder} since ${lease.acquiredAt}; not stopping.\n`);
       code = 1;
       continue;
     }
@@ -293,24 +296,16 @@ async function withLease<T>(
   io: Io,
   fn: () => Promise<T>,
 ): Promise<T | undefined> {
-  if (leaseActive(entry) && entry.lease!.holder !== leaseHolder()) {
-    io.err(`${entry.sandboxId} is in use by ${entry.lease!.holder} since ${entry.lease!.acquiredAt}\n`);
+  const lease = { holder: leaseHolder(), op, acquiredAt: new Date().toISOString(), ttlMs: LEASE_TTL_MS };
+  const acquired = await acquireKeptLease(root, id, lease);
+  if (!acquired.acquired) {
+    io.err(`${entry.sandboxId} is in use by ${acquired.lease.holder} since ${acquired.lease.acquiredAt}\n`);
     return undefined;
   }
-  if (entry.lease && !leaseActive(entry)) {
-    io.err(`taking over an expired lease from ${entry.lease.holder} (acquired ${entry.lease.acquiredAt})\n`);
-  }
-  await updateKeptEntry(root, id, {
-    lease: { holder: leaseHolder(), op, acquiredAt: new Date().toISOString(), ttlMs: LEASE_TTL_MS },
-  });
   try {
     return await fn();
   } finally {
-    await updateKeptEntry(root, id, (e) => {
-      const { lease, ...rest } = e;
-      void lease;
-      return rest as KeptSandboxEntry;
-    }).catch(() => false);
+    await releaseKeptLease(root, id, acquired.token);
   }
 }
 
@@ -331,10 +326,18 @@ async function enterCommand(root: string, ids: string[], flags: SandboxCommandFl
     io.err(`${entry.sandboxId} (${entry.provider}) is gone — the instance no longer exists. Clean up with: niceeval sandbox stop ${id}\n`);
     return 1;
   }
+  if (state === "unknown") {
+    io.err(`${entry.sandboxId} (${entry.provider}) could not be inspected — check credentials or retry later.\n`);
+    return 1;
+  }
 
   const result = await withLease(root, id, entry, "enter", io, async () => {
     await wakeDetached(entry.provider, entry.sandboxId);
-    await updateKeptEntry(root, id, { state: "alive" });
+    await updateKeptEntry(root, id, (current) => ({
+      ...current,
+      state: "alive",
+      expiresAt: computeExpiresAt(current.provider, new Date().toISOString()),
+    }));
     let code: number;
     try {
       code = await openInteractiveShell(entry.provider, entry.sandboxId, entry.workdir);
@@ -353,7 +356,11 @@ async function enterCommand(root: string, ids: string[], flags: SandboxCommandFl
     // shell 退出(含 Ctrl+C)后自动送回休眠——「休眠不烧资源」不因进去看过一眼失效。
     try {
       await suspendDetached(entry.provider, entry.sandboxId);
-      await updateKeptEntry(root, id, { state: "dormant" });
+      await updateKeptEntry(root, id, (current) => ({
+        ...current,
+        state: "dormant",
+        expiresAt: computeExpiresAt(current.provider, new Date().toISOString()),
+      }));
     } catch (e) {
       io.err(`failed to re-suspend ${entry.sandboxId}: ${e instanceof Error ? e.message : String(e)}\n`);
       await updateKeptEntry(root, id, { state: "alive" });
@@ -383,6 +390,9 @@ async function withWokenSandbox<T>(
   if (state === "expired") {
     throw new Error(`${entry.sandboxId} (${entry.provider}) is gone; the in-sandbox ledger died with it (artifacts are unaffected). Clean up with: niceeval sandbox stop ${id}`);
   }
+  if (state === "unknown") {
+    throw new Error(`${entry.sandboxId} (${entry.provider}) could not be inspected — check credentials or retry later.`);
+  }
   const wasDormant = state === "dormant";
   if (wasDormant) await wakeDetached(entry.provider, entry.sandboxId);
   try {
@@ -394,10 +404,9 @@ async function withWokenSandbox<T>(
   }
 }
 
-/** 一个提交的文件级改动(`git diff --name-status <hash>^ <hash>`),`status` 是 git 的单字母
- *  改动类型(M/A/D/…)。第一个提交(anchor,没有父提交)不调这个函数——它是基线,不是改动。 */
-async function commitFileChanges(entry: KeptSandboxEntry, hash: string): Promise<{ status: string; path: string }[]> {
-  const out = await execInKept(entry, `git diff --name-status ${hash}^ ${hash} 2>/dev/null`);
+type CommitFileChange = { status: string; path: string };
+
+function parseCommitFileChanges(out: string): CommitFileChange[] {
   return out
     .trim()
     .split("\n")
@@ -406,6 +415,30 @@ async function commitFileChanges(entry: KeptSandboxEntry, hash: string): Promise
       const tab = line.indexOf("\t");
       return tab === -1 ? { status: line, path: "" } : { status: line.slice(0, tab), path: line.slice(tab + 1) };
     });
+}
+
+/** 一次 provider exec 导出日志与每笔提交的改动。RS 分段使无父提交的 diff 失败自然成为零改动。 */
+const HISTORY_EXPORT_SCRIPT = [
+  "git log --reverse --format='%H %at %s' 2>/dev/null",
+  "git rev-list --reverse HEAD 2>/dev/null | while IFS= read -r hash; do",
+  "  printf '\\036%s\\n' \"$hash\"",
+  "  git diff --name-status \"$hash^\" \"$hash\" 2>/dev/null || true",
+  "done",
+].join("\n");
+
+function parseHistoryExport(out: string): { commits: { hash: string; at: number; subject: string }[]; changesByHash: Map<string, CommitFileChange[]> } {
+  const [log, ...sections] = out.split("\x1e");
+  const commits = log!.trim().split("\n").filter(Boolean).map((line) => {
+    const [hash, atRaw, ...rest] = line.split(" ");
+    return { hash: hash!, at: Number(atRaw), subject: rest.join(" ") };
+  });
+  const changesByHash = new Map<string, CommitFileChange[]>();
+  for (const section of sections) {
+    const newline = section.indexOf("\n");
+    const hash = (newline === -1 ? section : section.slice(0, newline)).trim();
+    if (hash) changesByHash.set(hash, parseCommitFileChanges(newline === -1 ? "" : section.slice(newline + 1)));
+  }
+  return { commits, changesByHash };
 }
 
 /** 窗口 / eval 阶段标签列宽(与 "agent"/"eval" 关键词列共用同一份对齐规则,见
@@ -427,17 +460,8 @@ async function historyCommand(
   }
   const { id, entry } = resolved[0]!;
   try {
-    const out = await withWokenSandbox(root, id, entry, () =>
-      execInKept(entry, `git log --reverse --format='%H %at %s' 2>/dev/null`),
-    );
-    const commits = out
-      .trim()
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => {
-        const [hash, atRaw, ...rest] = line.split(" ");
-        return { hash: hash!, at: Number(atRaw), subject: rest.join(" ") };
-      });
+    const out = await withWokenSandbox(root, id, entry, () => execInKept(entry, HISTORY_EXPORT_SCRIPT));
+    const { commits, changesByHash } = parseHistoryExport(out);
     if (commits.length === 0) {
       io.out("(no ledger found in this sandbox)\n");
       return 0;
@@ -456,7 +480,7 @@ async function historyCommand(
         // 校验写入——两者用同一份改动计数,只是阶段标签不同(见 docs 示例)。
         const label = sawEvalCommit ? "post-send validation" : "fixture / setup";
         sawEvalCommit = true;
-        const changes = await commitFileChanges(entry, c.hash);
+        const changes = changesByHash.get(c.hash) ?? [];
         const count = `+${changes.length} file${changes.length === 1 ? "" : "s"}`;
         rows.push({
           kind: "line",
@@ -465,7 +489,7 @@ async function historyCommand(
       } else if (c.subject.startsWith("agent ")) {
         const window = c.subject.slice(6);
         lastWindow = window;
-        const changes = await commitFileChanges(entry, c.hash);
+        const changes = changesByHash.get(c.hash) ?? [];
         const changeText = changes.map((fc) => `${fc.status} ${fc.path}`).join(" · ");
         rows.push({
           kind: "line",

@@ -202,6 +202,8 @@ function replySummary(reply: AttemptConversationReply): string {
       return `tool ${reply.name}${reply.status ? ` (${reply.status})` : ""}`;
     case "skill":
       return `skill loaded: ${reply.skill}`;
+    case "context":
+      return `context injected${reply.source ? ` (${reply.source})` : ""}: ${summaryText(reply.text)}`;
     case "subagent":
       return `subagent ${reply.name}${reply.status ? ` (${reply.status})` : ""}`;
     case "input":

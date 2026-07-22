@@ -161,7 +161,8 @@ function finalize<T>(
 
   if (failure.type === "thrown") {
     const e = failure.error;
-    if (e instanceof Error) e.message += suffix;
+    // adapter 抛出的 Error 仍可能被上层保留、复用或记录；不要原地篡改它。
+    if (e instanceof Error) throw new Error(e.message + suffix, { cause: e });
     throw e;
   }
   const withSuffix = appendToLastErrorEvent(failure.turn, suffix);

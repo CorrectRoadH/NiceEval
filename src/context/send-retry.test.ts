@@ -181,17 +181,19 @@ describe("sendWithTurnRetry · send 级预算(封顶 4 次尝试)", () => {
     expect(budget.remaining).toBe(ATTEMPT_MAX_RETRIES - (SEND_MAX_ATTEMPTS - 1));
   });
 
-  it("thrown 形态耗尽同样追加摘要到 Error.message,不吞掉原始错误", async () => {
+  it("thrown 形态耗尽追加摘要但不变异 adapter 原始 Error", async () => {
     const budget = createAttemptRetryBudget();
+    const original = new Error("429 too many requests");
     await expect(
       sendWithTurnRetry(
         async () => {
-          throw new Error("429 too many requests");
+          throw original;
         },
         identityLens,
         baseDeps({ budget }),
       ),
     ).rejects.toThrow(/429 too many requests.*(retries exhausted|重试已耗尽)/s);
+    expect(original.message).toBe("429 too many requests");
   });
 });
 

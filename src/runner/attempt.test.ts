@@ -112,7 +112,7 @@ async function runOnce(
     maxConcurrency: 1,
   };
   const sandboxSem = Effect.runSync(Effect.makeSemaphore(1));
-  return Effect.runPromise(runAttemptEffect(attempt, runOpts, sandboxSem, undefined, opts.onPhase));
+  return Effect.runPromise(runAttemptEffect(attempt, runOpts, sandboxSem, { onPhase: opts.onPhase }));
 }
 
 describe("runAttemptEffect · agent-setup 路径提升(沙箱 __niceeval__/agent-setup.json → EvalResult.agentSetup)", () => {
@@ -369,6 +369,33 @@ describe("runAttemptEffect · 计分制(scoring:\"points\")的挣分落盘", () 
     const passedAssertion = result.assertions.find((a) => a.outcome === "passed") as { points?: number } | undefined;
     expect(passedAssertion?.points).toBe(3);
     expect(result.scoreEntries).toEqual([{ label: "手动给分", points: 7 }]);
+  });
+
+  it("通过制即使被运行时绕过类型调用 points/score，也不把给分字段落盘", async () => {
+    const result = await runOnce(scoringAgent(), new FakeSandbox(), {
+      evalDefOverrides: {
+        test: (async (t: ScoreTestContext) => {
+          t.check("actual", equals("actual")).points(3);
+          t.score("运行时绕过", 7);
+        }) as unknown as DiscoveredEval["test"],
+      },
+    });
+    expect(result.scoring).toBe("pass");
+    expect((result.assertions[0] as { points?: number } | undefined)?.points).toBeUndefined();
+    expect(result.scoreEntries).toBeUndefined();
+  });
+
+  it("计分制在评分前异常收束时也落空 scoreEntries，而非省略字段", async () => {
+    const result = await runOnce(scoringAgent(), new FakeSandbox(), {
+      evalDefOverrides: {
+        scoring: "points",
+        setup: async () => {
+          throw new Error("setup boom");
+        },
+      },
+    });
+    expect(result.verdict).toBe("errored");
+    expect(result.scoreEntries).toEqual([]);
   });
 
   it("t.require 中止后:verdict 为 failed(非 errored),中止前的给分保留、中止后的代码不执行", async () => {

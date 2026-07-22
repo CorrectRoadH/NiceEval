@@ -140,7 +140,7 @@ export class AssertionCollector {
     return handle;
   }
 
-  async finalize(ctx: ScoringContext): Promise<AssertionResult[]> {
+  async finalize(ctx: ScoringContext, options: { includePoints?: boolean } = {}): Promise<AssertionResult[]> {
     const out: AssertionResult[] = [];
     for (const spec of this.specs) {
       const base = {
@@ -189,7 +189,7 @@ export class AssertionCollector {
         ...(evidence !== undefined ? { evidence } : {}),
         // .points(n) 挂了才有:0/1 断言通过挣 n、不过挣 0;打分断言按连续分比例挣 n × score。
         // 求值抛错时 score 已经归零(见上面的 catch),points 自然也归零,不需要再判一次。
-        ...(spec.points !== undefined ? { points: spec.points * score } : {}),
+        ...(options.includePoints !== false && spec.points !== undefined ? { points: spec.points * score } : {}),
       });
     }
     return out;

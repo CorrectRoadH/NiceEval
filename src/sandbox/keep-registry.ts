@@ -23,10 +23,16 @@ export interface KeptSandboxEntry {
   enter?: string;
   /** 现场可找回的截止时刻——provider 声明了保留期限才写(vercel 写,e2b pause 无限期保留则不写)。 */
   expiresAt?: string;
-  /** alive = 实例在跑(suspend 失败或 --leave-running);dormant = 休眠可唤醒;expired = 现场已没了。 */
-  state: "alive" | "dormant" | "expired";
-  /** 事后命令的条目级互斥凭据(enter 持有;stop 与另一个 enter 对同一条目直接拒绝)。 */
-  lease?: { holder: string; op: string; acquiredAt: string; ttlMs: number };
+  /** alive = 实例在跑;dormant = 可唤醒;expired = 确认不存在;unknown = 探测失败。 */
+  state: "alive" | "dormant" | "expired" | "unknown";
+}
+
+/** 条目旁独立 lease 文件的内容。注册表条目本体不承载短暂互斥状态。 */
+export interface KeptSandboxLease {
+  holder: string;
+  op: string;
+  acquiredAt: string;
+  ttlMs: number;
 }
 
 /** entry id:provider + sandboxId 的稳定散列(条目文件名)。 */
@@ -36,6 +42,65 @@ export function keptEntryId(provider: string, sandboxId: string): string {
 
 export function sandboxesDirOf(niceevalRoot: string): string {
   return join(niceevalRoot, "sandboxes");
+}
+
+function leasePath(niceevalRoot: string, id: string): string {
+  return join(sandboxesDirOf(niceevalRoot), `${id}.lease`);
+}
+
+/** 读取当前 lease；坏文件也视为占坑，避免在不明状态下并发操作现场。 */
+export async function readKeptLease(niceevalRoot: string, id: string): Promise<KeptSandboxLease | undefined> {
+  try {
+    return JSON.parse(await readFile(leasePath(niceevalRoot, id), "utf-8")) as KeptSandboxLease;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * 原子占坑：`wx` 是唯一持有点。TTL 到期时先移除旧文件、再重新竞争；因此旧持有者 finally
+ * 只会尝试删除带自己 token 的文件，绝不剥离后来者。
+ */
+export async function acquireKeptLease(
+  niceevalRoot: string,
+  id: string,
+  lease: KeptSandboxLease,
+): Promise<{ acquired: true; token: string } | { acquired: false; lease: KeptSandboxLease }> {
+  const dir = sandboxesDirOf(niceevalRoot);
+  await mkdir(dir, { recursive: true });
+  const path = leasePath(niceevalRoot, id);
+  const token = `${lease.holder}:${lease.acquiredAt}:${Math.random().toString(36).slice(2)}`;
+  const payload = { ...lease, token };
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const handle = await open(path, "wx");
+      try {
+        await handle.writeFile(JSON.stringify(payload), "utf-8");
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+      return { acquired: true, token };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      const current = await readKeptLease(niceevalRoot, id);
+      if (current && Date.now() - Date.parse(current.acquiredAt) < current.ttlMs) return { acquired: false, lease: current };
+      // 过期或损坏的 lease 可以被接管；unlink 后所有竞争者重新 wx，不能覆盖彼此。
+      await rm(path, { force: true });
+    }
+  }
+  const current = await readKeptLease(niceevalRoot, id);
+  return { acquired: false, lease: current ?? lease };
+}
+
+export async function releaseKeptLease(niceevalRoot: string, id: string, token: string): Promise<void> {
+  const path = leasePath(niceevalRoot, id);
+  try {
+    const current = JSON.parse(await readFile(path, "utf-8")) as KeptSandboxLease & { token?: string };
+    if (current.token === token) await rm(path, { force: true });
+  } catch {
+    // 已被接管或删除时无需动作。
+  }
 }
 
 /**

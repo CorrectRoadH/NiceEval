@@ -19,6 +19,15 @@ import type {
 } from "./types.ts";
 import { t } from "./i18n/index.ts";
 
+// 发现期必须区分 defineScoreEval 的真正产物与运行时手写 `{ scoring: "points" }` 的裸对象。
+// WeakSet 是模块私有来源证明，不污染 EvalDef 的公开结构，也不能被用户对象伪造。
+const definedScoreEvals = new WeakSet<EvalDef>();
+
+/** @internal 仅供 discoverEvals 验证 points 题型来源。 */
+export function isDefinedScoreEval(value: EvalDef): boolean {
+  return definedScoreEvals.has(value);
+}
+
 /** 沙箱型 agent:在沙箱里 spawn 一个 coding agent 的 CLI,跑完读回 transcript。 */
 export function defineSandboxAgent(def: SandboxAgentDef): Agent {
   if (!def.name) throw new Error(t("define.sandboxAgentNameRequired"));
@@ -86,7 +95,9 @@ export function defineScoreEval(def: ScoreEvalDef): EvalDef {
   if (def.environment !== undefined && def.environment.trim().length === 0) {
     throw new Error(t("define.scoreEvalEnvironmentEmpty"));
   }
-  return { ...def, scoring: "points" };
+  const result: EvalDef = { ...def, scoring: "points" };
+  definedScoreEvals.add(result);
+  return result;
 }
 
 /** 实验:可签入的运行配置(怎么跑这批 eval)。 */

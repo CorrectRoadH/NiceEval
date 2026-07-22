@@ -86,7 +86,7 @@ describe("run-identity: 创建期运行标识元数据的写入边界", () => {
 describe("classifyRunIdentity: 孤儿三条件里「属主已死亡」的裁决,偏保守", () => {
   it("同宿主且 pid 存活 → alive(调用方应整个排除,不进孤儿列表)", async () => {
     const { classifyRunIdentity } = await import("./run-identity.ts");
-    expect(classifyRunIdentity({ host: hostname(), pid: process.pid, startedAt: "t" })).toBe("alive");
+    expect(classifyRunIdentity({ host: hostname(), pid: process.pid, startedAt: new Date().toISOString() }, () => "2000-01-01T00:00:00.000Z")).toBe("alive");
   });
 
   it("同宿主且 pid 不存活 → orphan", async () => {
@@ -98,6 +98,13 @@ describe("classifyRunIdentity: 孤儿三条件里「属主已死亡」的裁决,
     const { classifyRunIdentity } = await import("./run-identity.ts");
     expect(classifyRunIdentity({ host: "some-other-host", pid: process.pid, startedAt: "t" })).toBe("unverified");
     expect(classifyRunIdentity({ host: "some-other-host", pid: deadPid(), startedAt: "t" })).toBe("unverified");
+  });
+
+  it("pid 已复用(当前进程启动晚于登记 run) → orphan；取不到启动时间 → unverified", async () => {
+    const { classifyRunIdentity } = await import("./run-identity.ts");
+    const identity = { host: hostname(), pid: process.pid, startedAt: "2020-01-01T00:00:00.000Z" };
+    expect(classifyRunIdentity(identity, () => "2021-01-01T00:00:00.000Z")).toBe("orphan");
+    expect(classifyRunIdentity(identity, () => undefined)).toBe("unverified");
   });
 });
 
@@ -121,7 +128,7 @@ describe("listOrphanCandidates: 孤儿核对(docker + e2b)", () => {
       {
         // 属主还活着:完全不出现在孤儿列表里(不是 unverified)。
         Id: "cccccccccccc3333",
-        Labels: { "niceeval.host": hostname(), "niceeval.pid": String(process.pid), "niceeval.started-at": "t" },
+        Labels: { "niceeval.host": hostname(), "niceeval.pid": String(process.pid), "niceeval.started-at": new Date().toISOString() },
       },
     ]);
     e2bListMock.mockReturnValue(fakePaginator([]));
@@ -130,8 +137,11 @@ describe("listOrphanCandidates: 孤儿核对(docker + e2b)", () => {
     const keptIds = new Set(["bbbbbbbbbbbb"]); // 12 位短 id,与 sandboxId 截断口径一致
     const candidates = await listOrphanCandidates(keptIds);
 
-    expect(candidates).toHaveLength(1);
+    // 受限测试容器禁止 ps，真实运行时的进程启动时间探测会保守降为 unverified；
+    // 精确的 alive / pid 复用语义由上面的注入式 classifyRunIdentity 用例覆盖。
+    expect(candidates).toHaveLength(2);
     expect(candidates[0]).toMatchObject({ provider: "docker", sandboxId: "aaaaaaaaaaaa", state: "orphan" });
+    expect(candidates[1]).toMatchObject({ provider: "docker", sandboxId: "cccccccccccc", state: "unverified" });
   });
 
   it("e2b:异宿主标识判定 unverified,与 docker 的 orphan 一起返回", async () => {

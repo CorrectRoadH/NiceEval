@@ -16,6 +16,9 @@ export interface LedgerPaths {
   exportDir: string;
 }
 
+/** 云 provider 的私有分类账默认 git 目录；runner 与 detached 读回共用这一口径。 */
+export const DEFAULT_LEDGER_GIT_DIR = "/tmp/.niceeval-ledger";
+
 const overrides = new Map<string, LedgerPaths>();
 
 /** provider 在创建沙箱实例时登记一份专属路径(如 local 在 create() 里调用)。 */

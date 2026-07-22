@@ -395,6 +395,7 @@ const CONVERSATION_REPLY_KINDS = [
   "error",
   "tool",
   "skill",
+  "context",
   "subagent",
   "input",
   "compaction",
@@ -421,6 +422,10 @@ function conversationReplyProblem(value: unknown, path: string): string | null {
       return null;
     case "skill":
       if (typeof value.skill !== "string") return `"${path}.skill" must be a string`;
+      return null;
+    case "context":
+      if (typeof value.text !== "string") return `"${path}.text" must be a string`;
+      if (value.source !== undefined && typeof value.source !== "string") return `"${path}.source" must be a string`;
       return null;
     case "subagent":
       if (typeof value.callId !== "string") return `"${path}.callId" must be a string`;

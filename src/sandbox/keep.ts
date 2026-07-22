@@ -4,6 +4,7 @@
 // 运行器与评分路径不感知 provider 名。
 
 import type { Sandbox } from "../types.ts";
+import { DEFAULT_LEDGER_GIT_DIR } from "./ledger-paths.ts";
 
 /** 有留存能力的 provider 实例都带一个非公开接口成员 suspend()(Sandbox 接口不因留存扩大)。 */
 interface Suspendable {
@@ -67,7 +68,7 @@ export function computeExpiresAt(provider: string, keptAt: string): string | und
   }
 }
 
-export type DetachedState = "alive" | "dormant" | "expired";
+export type DetachedState = "alive" | "dormant" | "expired" | "unknown";
 
 /** 事后核对现场状态(docker 问本地 daemon;云 provider 按实例状态核对,查不到 = expired)。 */
 export async function inspectDetached(provider: string, sandboxId: string): Promise<DetachedState> {
@@ -78,22 +79,21 @@ export async function inspectDetached(provider: string, sandboxId: string): Prom
         const info = await new Docker().getContainer(sandboxId).inspect();
         return info.State?.Running ? "alive" : "dormant";
       } catch {
-        return "expired";
+        return "unknown";
       }
     }
     case "e2b": {
       try {
         const { Sandbox: E2BSdkSandbox } = await import("e2b");
-        const list = (E2BSdkSandbox as unknown as {
-          list?: (opts?: Record<string, unknown>) => Promise<Array<{ sandboxId: string; state?: string }>>;
-        }).list;
-        if (typeof list !== "function") return "dormant";
-        const sandboxes = await list({ apiKey: process.env.E2B_API_KEY });
-        const hit = sandboxes.find((s) => s.sandboxId === sandboxId || s.sandboxId.startsWith(sandboxId));
+        const paginator = E2BSdkSandbox.list({ apiKey: process.env.E2B_API_KEY });
+        let hit: { sandboxId: string; state?: string } | undefined;
+        while (paginator.hasNext && !hit) {
+          hit = (await paginator.nextItems()).find((s) => s.sandboxId === sandboxId || s.sandboxId.startsWith(sandboxId));
+        }
         if (!hit) return "expired";
         return hit.state === "running" ? "alive" : "dormant";
       } catch {
-        return "expired";
+        return "unknown";
       }
     }
     case "vercel": {
@@ -111,7 +111,7 @@ export async function inspectDetached(provider: string, sandboxId: string): Prom
         if (!found) return "expired";
         return found.status === "running" ? "alive" : "dormant";
       } catch {
-        return "expired";
+        return "unknown";
       }
     }
     default:
@@ -157,7 +157,15 @@ export async function destroyDetached(provider: string, sandboxId: string): Prom
         }
       ).get;
       if (typeof get !== "function") throw new Error("this vercel SDK version has no detached get capability");
-      const found = await get({ name: sandboxId, resume: false }).catch(() => null);
+      let found;
+      try {
+        found = await get({ name: sandboxId, resume: false });
+      } catch (error) {
+        if ((error as { statusCode?: number; status?: number }).statusCode === 404 || (error as { status?: number }).status === 404) {
+          return "already-gone";
+        }
+        throw error;
+      }
       if (!found) return "already-gone";
       await found.delete();
       return "stopped";
@@ -304,7 +312,7 @@ export async function execInDetached(provider: string, sandboxId: string, workdi
       const sbx = await E2BSdkSandbox.connect(sandboxId, { apiKey: process.env.E2B_API_KEY });
       const res = await sbx.commands.run(script, {
         cwd: workdir,
-        envs: { GIT_DIR: "/tmp/.niceeval-ledger", GIT_WORK_TREE: workdir, HOME: "/tmp" },
+        envs: { GIT_DIR: DEFAULT_LEDGER_GIT_DIR, GIT_WORK_TREE: workdir, HOME: "/tmp" },
       });
       return res.stdout;
     }
@@ -324,7 +332,7 @@ export async function execInDetached(provider: string, sandboxId: string, workdi
         cmd: "sh",
         args: ["-c", script],
         cwd: workdir,
-        env: { GIT_DIR: "/tmp/.niceeval-ledger", GIT_WORK_TREE: workdir, HOME: "/tmp" },
+        env: { GIT_DIR: DEFAULT_LEDGER_GIT_DIR, GIT_WORK_TREE: workdir, HOME: "/tmp" },
       });
       return await finished.stdout();
     }
@@ -341,7 +349,7 @@ async function execInDockerLedger(sandboxId: string, workdir: string, script: st
     Cmd: ["sh", "-c", script],
     AttachStdout: true,
     AttachStderr: true,
-    Env: ["GIT_DIR=/tmp/.niceeval-ledger", `GIT_WORK_TREE=${workdir}`, "HOME=/tmp"],
+    Env: [`GIT_DIR=${DEFAULT_LEDGER_GIT_DIR}`, `GIT_WORK_TREE=${workdir}`, "HOME=/tmp"],
   });
   const stream = await exec.start({});
   return await new Promise<string>((resolvePromise, reject) => {

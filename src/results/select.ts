@@ -348,7 +348,13 @@ export function makeScope(
         const scope = (w as { experimentId?: unknown }).experimentId;
         return typeof scope !== "string" || survivors.has(scope);
       });
-      const keptCoverage = coverage.filter((c) => survivors.has(c.experimentId));
+      // coverage 是独立于 attempt 快照的事实。`current()` 在一个实验完全没有可用 attempt
+      // 时仍会留下 coverage 项；不能因为没有幸存快照就把这个缺口静默抹掉。对原本有快照
+      // 的实验仍随该实验的快照存续而修剪，只有 snapshot-less coverage 自己保留。
+      const experimentIdsWithSnapshots = new Set(snapshots.map((s) => s.experimentId));
+      const keptCoverage = coverage.filter(
+        (c) => !experimentIdsWithSnapshots.has(c.experimentId) || survivors.has(c.experimentId),
+      );
       return makeScope(mode, kept, keptWarnings, keptCoverage);
     },
   };

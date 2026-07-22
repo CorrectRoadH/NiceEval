@@ -16,7 +16,7 @@ import type { Results, Scope } from "../../results/types.ts";
 import { DEFAULT_REPORT_LOCALE, type ReportLocale } from "../model/locale.ts";
 import type { ReportInput } from "../model/types.ts";
 import type { ReportMeta } from "./report.ts";
-import type { PanelMode } from "../model/panel.ts";
+import type { PanelMode, PanelRow } from "../model/panel.ts";
 
 // ───────────────────────── 当前页判别(PageContext) ─────────────────────────
 
@@ -111,6 +111,10 @@ export interface TextContext {
    * 是否真的画框还要再叠加宽度下限,那份判断只在 `panel.ts` 里做一次。
    */
   panelMode: PanelMode;
+  /** 当前 boxed Section 的运行期深度；属于一次渲染上下文，绝不写到模块全局。 */
+  sectionBoxedDepth: number;
+  /** boxed 嵌套 Section 向最近外层 Section 登记结构化横隔的带外渲染期通道。 */
+  collectPanelRow?(row: PanelRow): void;
 }
 
 export interface WebContext {
@@ -580,16 +584,34 @@ export function createTextContext(options?: TextRenderOptions): TextContext {
   const experimentCommand =
     options?.experimentCommand ?? ((prefix: string) => `niceeval show --exp ${shellQuote(prefix)}`);
   const panelMode = options?.panelMode ?? "plain";
-  const make = (w: number): TextContext => ({
-    width: w,
-    locale,
-    attemptCommand,
-    experimentCommand,
-    panelMode,
-    render(node, childWidth) {
-      return renderNodeToText(node, childWidth === undefined ? this : make(Math.max(10, childWidth)));
-    },
-  });
+  // 宽度随 render(child, width) 派生；Section 深度与横隔收集器则必须贯穿同一次树遍历，
+  // 才能穿过 Row/Grid 等中间组件而不退回模块级状态。
+  const state: { sectionBoxedDepth: number; collectPanelRow?: (row: PanelRow) => void } = { sectionBoxedDepth: 0 };
+  const make = (w: number): TextContext => {
+    const ctx: TextContext = {
+      width: w,
+      locale,
+      attemptCommand,
+      experimentCommand,
+      panelMode,
+      get sectionBoxedDepth() {
+        return state.sectionBoxedDepth;
+      },
+      set sectionBoxedDepth(value: number) {
+        state.sectionBoxedDepth = value;
+      },
+      get collectPanelRow() {
+        return state.collectPanelRow;
+      },
+      set collectPanelRow(value: ((row: PanelRow) => void) | undefined) {
+        state.collectPanelRow = value;
+      },
+      render(node, childWidth) {
+        return renderNodeToText(node, childWidth === undefined ? this : make(Math.max(10, childWidth)));
+      },
+    };
+    return ctx;
+  };
   return make(width);
 }
 

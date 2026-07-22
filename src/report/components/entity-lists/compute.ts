@@ -192,6 +192,29 @@ export async function experimentListData(input: ReportInput): Promise<Experiment
       evalRows,
     });
   }
+  // coverage 不是 attempt 的附属品：--fresh 和 current() 都可能让一个实验当前口径下
+  // 零 attempt。仍然给它一行，让 missingEvalIds 的占位题可达，不能把整实验静默吞掉。
+  for (const coverageEntry of coverage) {
+    if (groups.has(coverageEntry.experimentId)) continue;
+    const emptyItems: Item[] = [];
+    out.push({
+      experimentId: coverageEntry.experimentId,
+      // ScopeCoverage 是结果选择层的覆盖事实，不伪造不存在的运行配置。这里的空值只让
+      // 实体行保持既有 data 形状；渲染面会以 missingEvalIds 的占位行表达真实状态。
+      agent: "",
+      evalVerdicts: { passed: 0, failed: 0, errored: 0, skipped: 0 },
+      endToEndPassRate: await computeCell(endToEndPassRate, emptyItems),
+      costUSD: await computeCell(costUSD, emptyItems),
+      durationMs: await computeCell(durationMs, emptyItems),
+      tokens: await computeCell(tokens, emptyItems),
+      evals: 0,
+      attempts: 0,
+      historicalAttempts: 0,
+      missingEvalIds: coverageEntry.missingEvalIds,
+      lastRunAt: "",
+      evalRows: [],
+    });
+  }
   // 初始态按端到端通过率(endToEndPassRate)从高到低,缺数据沉底;同分按 experiment id 稳定排序。
   out.sort((a, b) => {
     const va = a.endToEndPassRate.value;

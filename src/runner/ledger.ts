@@ -10,7 +10,7 @@
 // - agent 归因增量 = 逐窗口 delta 序列(DiffWindow[]),不做跨窗口压缩。
 
 import type { DiffArtifact, DiffWindow, Sandbox, WindowChange } from "../types.ts";
-import { ledgerPathsFor } from "../sandbox/ledger-paths.ts";
+import { DEFAULT_LEDGER_GIT_DIR, ledgerPathsFor } from "../sandbox/ledger-paths.ts";
 
 /**
  * ledger 的私有 git 目录:workdir 之外、runner 控制;agent 的工具默认不会去 /tmp 翻它。这是
@@ -18,7 +18,7 @@ import { ledgerPathsFor } from "../sandbox/ledger-paths.ts";
  * 跨实例踩踏。宿主本身即工作树的 provider(如 local)按 sandboxId 登记专属路径覆盖它
  * (见 sandbox/ledger-paths.ts),避免同机多次运行共享同一个 /tmp。
  */
-const LEDGER_GIT_DIR = "/tmp/.niceeval-ledger";
+export const LEDGER_GIT_DIR = DEFAULT_LEDGER_GIT_DIR;
 
 /** 整相导出文件的落点(与 ledger 同前缀,同样是 runner 私有路径;覆盖规则同上)。 */
 const EXPORT_DIR = "/tmp/.niceeval-ledger-export";

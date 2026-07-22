@@ -712,7 +712,7 @@ async function main(): Promise<void> {
       const { staleTeardownReminder } = await import("./runner/teardown-registry.ts");
       const staleReminder = await staleTeardownReminder(
         resolvePath(cwd, ".niceeval"),
-        new Set(selected.map((e) => e.id)),
+        new Set(selected.filter((e) => e.teardown).map((e) => e.id)),
         hostname(),
       ).catch(() => undefined);
       if (staleReminder) process.stderr.write(staleReminder);
@@ -728,6 +728,8 @@ async function main(): Promise<void> {
         process.exit(1);
       }
       const niceevalRootForTeardown = resolvePath(cwd, ".niceeval");
+      const { isStaleTeardownRegistration, readTeardownRegistrations, removeTeardownRegistrationIfPresent } =
+        await import("./runner/teardown-registry.ts");
       let anyFailed = false;
       for (const exp of selected) {
         if (!exp.teardown) continue;
@@ -744,18 +746,26 @@ async function main(): Promise<void> {
           progress: () => {},
           diagnostic: (input) => process.stderr.write(`${input.message}\n`),
         };
-        try {
-          await withCleanupTimeout(() => exp.teardown!(ctx));
-          process.stderr.write(t("cli.exp.teardownDone", { experimentId: exp.id }));
-        } catch (e) {
-          anyFailed = true;
-          process.stderr.write(
-            t("cli.exp.teardownFailed", { experimentId: exp.id, message: e instanceof Error ? e.message : String(e) }),
-          );
+        const registrations = await readTeardownRegistrations(niceevalRootForTeardown).catch(() => []);
+        const matching = registrations.filter(({ entry }) => entry.experimentId === exp.id);
+        // 已有登记时，只有抢到某一条原子删除的路径可以执行；没有登记才保留手动兜底的一次执行。
+        const claimed = await Promise.all(
+          matching
+            .filter(({ entry }) => isStaleTeardownRegistration(entry, hostname()))
+            .map(async ({ id }) => (await removeTeardownRegistrationIfPresent(niceevalRootForTeardown, id).catch(() => false)) ? id : undefined),
+        );
+        const executions = matching.length === 0 ? [undefined] : claimed.filter((id): id is string => id !== undefined);
+        for (const _ of executions) {
+          try {
+            await withCleanupTimeout(() => exp.teardown!(ctx));
+            process.stderr.write(t("cli.exp.teardownDone", { experimentId: exp.id }));
+          } catch (e) {
+            anyFailed = true;
+            process.stderr.write(
+              t("cli.exp.teardownFailed", { experimentId: exp.id, message: e instanceof Error ? e.message : String(e) }),
+            );
+          }
         }
-        // 完成后删除对应遗留登记(没有登记也照常执行——手动补收尾不依赖登记存在)。
-        const { removeTeardownRegistrationIfPresent, teardownEntryId } = await import("./runner/teardown-registry.ts");
-        await removeTeardownRegistrationIfPresent(niceevalRootForTeardown, teardownEntryId(exp.id)).catch(() => {});
       }
       process.exit(anyFailed ? 1 : 0);
     }

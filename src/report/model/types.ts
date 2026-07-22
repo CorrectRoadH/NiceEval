@@ -566,6 +566,7 @@ export type AttemptConversationReply =
   | { kind: "assistant" | "user" | "thinking" | "error"; text: string }
   | { kind: "tool"; callId: string; name: string; tool?: ToolName; input: JsonValue; output?: JsonValue; status?: "completed" | "failed" | "rejected" }
   | { kind: "skill"; skill: string }
+  | { kind: "context"; text: string; source?: string }
   | { kind: "subagent"; callId: string; name: string; remoteUrl?: string; output?: JsonValue; status?: "completed" | "failed" }
   | { kind: "input"; request: InputRequest }
   | { kind: "compaction"; reason?: string }

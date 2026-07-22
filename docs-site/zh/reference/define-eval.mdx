@@ -364,7 +364,7 @@ calledTool(name: string, match?: ToolMatch): H;
 #### `notCalledTool`
 
 ```ts
-notCalledTool(name: string, match?: ToolMatch): H;
+notCalledTool(name: string, match?: Omit<ToolMatch, "count">): H;
 ```
 
 断言默认会话累计未调用指定工具(或未按 match 条件调用)。
@@ -412,7 +412,7 @@ noFailedActions(): H;
 #### `event`
 
 ```ts
-event(type: StreamEvent["type"], opts?: { count?: number }): H;
+event(type: StreamEvent["type"], opts?: { count?: number | ((n: number) => boolean) }): H;
 ```
 
 断言默认会话累计出现过指定类型的事件;opts.count 可约束出现次数。
@@ -617,7 +617,7 @@ calledTool(name: string, match?: ToolMatch): H;
 #### `notCalledTool`
 
 ```ts
-notCalledTool(name: string, match?: ToolMatch): H;
+notCalledTool(name: string, match?: Omit<ToolMatch, "count">): H;
 ```
 
 断言本轮未调用指定工具(或未按 match 条件调用)。
@@ -665,7 +665,7 @@ noFailedActions(): H;
 #### `event`
 
 ```ts
-event(type: StreamEvent["type"], opts?: { count?: number }): H;
+event(type: StreamEvent["type"], opts?: { count?: number | ((n: number) => boolean) }): H;
 ```
 
 断言本轮出现过指定类型的事件;`opts.count` 可约束出现次数。

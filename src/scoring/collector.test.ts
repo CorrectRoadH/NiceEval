@@ -119,6 +119,13 @@ describe("计分制给分链路:.points(n) 挂在断言上", () => {
     expect(result!.outcome === "unavailable" ? undefined : result!.points).toBeUndefined();
   });
 
+  it("持久化边界未开启 points 时，即使运行时链了 .points() 也不输出 points", async () => {
+    const collector = new AssertionCollector();
+    collector.record(specForAssertion(equals(4), 4)).points(5);
+    const [result] = await collector.finalize(ctxWith(), { includePoints: false });
+    expect(result!.outcome === "unavailable" ? undefined : result!.points).toBeUndefined();
+  });
+
   it("n <= 0 或非有限数立即抛错(不是记一条失败断言)", () => {
     const collector = new AssertionCollector();
     const handle = collector.record(specForAssertion(equals(4), 4));

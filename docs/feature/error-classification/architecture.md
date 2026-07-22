@@ -65,7 +65,7 @@ export function turnErrorText(turn: Turn): string | undefined;
 | attempt 级预算 | 整个 attempt 全部 send 加总的重试次数封顶 8 次;预算耗尽后,后续可重试失败不再重试、直接浮出。两层预算叠加:单轮抖动由 send 级吸收,多轮持续挣扎由 attempt 级止损——环境系统性出问题时该如实 `errored`,不该把 attempt 泡在退避里蚕食 deadline |
 | 退避 | 指数 + 全抖动:第 n 次重试前睡 `uniform(0, 5s × 2^(n-1))`,上界依次 5s / 10s / 20s |
 | 槽位 | 睡眠期间经 `ProvisionSlot` 接口释放全局并发槽位,睡醒重新排队——与 [provisioning 重试](../sandbox/architecture.md#provisioning-失败与重试)同一接口,不共享实现;被限流的一批 attempt 不占着并发名额陪睡 |
-| 中断 | 退避睡眠可被 interruption 干净打断;attempt 外层 deadline 原样生效,重试不延长任何预算,不新增第二套超时语义 |
+| 中断 | 退避睡眠可被 interruption 干净打断;随后仍须等待已释放槽位重新取得，才会把中断向外传播——这是 permit 记账不丢失优先于中断及时性的阶段性取舍。attempt 外层 deadline 原样生效,重试不延长任何预算,不新增第二套超时语义 |
 
 基数比 provisioning 的 1 秒大一个量级:限流窗口通常以十秒计,过小的基数只会让前几次重试在同一个限流窗口里白烧尝试次数。
 

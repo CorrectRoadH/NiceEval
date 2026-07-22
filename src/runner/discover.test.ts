@@ -80,6 +80,13 @@ describe("discoverEvals · 源码捕获", () => {
     await expect(discoverEvals(root)).resolves.toEqual([]);
   });
 
+  it("裸对象手写 scoring: points 在发现期拒绝，并指向 defineScoreEval", async () => {
+    const root = await makeRoot();
+    await mkdir(join(root, "evals"), { recursive: true });
+    await writeFile(join(root, "evals", "bad-score.eval.ts"), 'export default { scoring: "points", test() {} };\n', "utf-8");
+    await expect(discoverEvals(root)).rejects.toThrow(/defineScoreEval/);
+  });
+
   it.each(["", ".", "..", "a/b", "a\\b", "line\nbreak"])(
     "keyed record 拒绝非法业务 key %j",
     async (key) => {

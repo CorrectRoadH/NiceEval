@@ -59,7 +59,7 @@ export interface CarryPlan {
    * `${experimentId}|${evalId}` → 该 eval 下具体携入的 attempt 序号集合(0-based)。同一个
    * eval 在 `runs > 1` 时可能只有部分序号是终态、其余是 errored/未跑完——只有逐条命中的那些
    * 序号才在这个集合里,不是"key 命中就整段携入"(反例与修法见 memory 的
-   * carry-key-must-be-per-attempt-not-whole-eval)。
+   * carry-includes-failed-verdict)。
    */
   carriedAttemptsByKey: Map<string, Set<number>>;
   /** carriedAttemptsByKey 对应的完整结果对象,供 run.ts 直接并入 summary、cli.ts 直接取 verdict 展示。 */

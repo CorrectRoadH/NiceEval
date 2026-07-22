@@ -12,6 +12,7 @@ import {
   readTeardownRegistration,
   readTeardownRegistrations,
   removeTeardownRegistrationIfPresent,
+  staleTeardownReminder,
   teardownEntryId,
   teardownsDirOf,
   writeTeardownRegistration,
@@ -32,7 +33,6 @@ afterEach(async () => {
 function registration(over: Partial<TeardownRegistration> = {}): TeardownRegistration {
   return {
     experimentId: "compare/bub-e2b",
-    experimentFile: "experiments/compare/bub-e2b.ts",
     selectedEvalIds: ["memory/commit0", "memory/commit1"],
     pid: 999_999_999,
     host: hostname(),
@@ -47,10 +47,10 @@ describe("teardown registry: 逐条目文件的原子写 / 读 / 删", () => {
     const niceevalRoot = join(root, ".niceeval");
     await writeTeardownRegistration(niceevalRoot, registration());
 
-    const read = await readTeardownRegistration(niceevalRoot, "compare/bub-e2b");
+    const read = await readTeardownRegistration(niceevalRoot, "compare/bub-e2b", 999_999_999);
     expect(read).toEqual(registration());
 
-    const id = teardownEntryId("compare/bub-e2b");
+    const id = teardownEntryId("compare/bub-e2b", 999_999_999);
     const claimed = await removeTeardownRegistrationIfPresent(niceevalRoot, id);
     expect(claimed).toBe(true);
 
@@ -58,14 +58,17 @@ describe("teardown registry: 逐条目文件的原子写 / 读 / 删", () => {
     expect(files).toEqual([]); // 没有遗留的 .tmp 临时文件
   });
 
-  it("删登记是互斥点:第二次删除同一个 id 返回 false(已被别的进程/路径删过)", async () => {
+  it("删登记是互斥点:并发补收尾竞争同一个 id，只有一方获得执行权", async () => {
     const root = await makeRoot();
     const niceevalRoot = join(root, ".niceeval");
     await writeTeardownRegistration(niceevalRoot, registration());
-    const id = teardownEntryId("compare/bub-e2b");
+    const id = teardownEntryId("compare/bub-e2b", 999_999_999);
 
-    expect(await removeTeardownRegistrationIfPresent(niceevalRoot, id)).toBe(true);
-    expect(await removeTeardownRegistrationIfPresent(niceevalRoot, id)).toBe(false);
+    const claims = await Promise.all([
+      removeTeardownRegistrationIfPresent(niceevalRoot, id),
+      removeTeardownRegistrationIfPresent(niceevalRoot, id),
+    ]);
+    expect(claims.sort()).toEqual([false, true]);
   });
 
   it("不同 experimentId 对应不同 entry id,互不覆盖", async () => {
@@ -78,10 +81,24 @@ describe("teardown registry: 逐条目文件的原子写 / 读 / 删", () => {
     expect(all.map(({ entry }) => entry.experimentId).sort()).toEqual(["exp/a", "exp/b"]);
   });
 
+  it("同一 experimentId 的并发 pid 各有独立登记，任一 finally 只删除自己的义务", async () => {
+    const root = await makeRoot();
+    const niceevalRoot = join(root, ".niceeval");
+    await writeTeardownRegistration(niceevalRoot, registration({ pid: 10_001 }));
+    await writeTeardownRegistration(niceevalRoot, registration({ pid: 10_002 }));
+
+    expect(await removeTeardownRegistrationIfPresent(niceevalRoot, teardownEntryId("compare/bub-e2b", 10_001))).toBe(
+      true,
+    );
+    expect(await readTeardownRegistrations(niceevalRoot)).toEqual([
+      expect.objectContaining({ entry: expect.objectContaining({ pid: 10_002 }) }),
+    ]);
+  });
+
   it("读不存在的登记 / 目录返回 undefined 或空集合,不抛错", async () => {
     const root = await makeRoot();
     const niceevalRoot = join(root, ".niceeval");
-    expect(await readTeardownRegistration(niceevalRoot, "nothing/here")).toBeUndefined();
+    expect(await readTeardownRegistration(niceevalRoot, "nothing/here", 1)).toBeUndefined();
     expect(await readTeardownRegistrations(niceevalRoot)).toEqual([]);
   });
 
@@ -111,5 +128,16 @@ describe("isStaleTeardownRegistration: 遗留义务判定", () => {
     expect(isStaleTeardownRegistration(registration({ host: "some-other-host", pid: 999_999_999 }), hostname())).toBe(
       false,
     );
+  });
+});
+
+describe("staleTeardownReminder: 选中但已删除 teardown 的实验仍须提醒", () => {
+  it("只排除会由 runner 自愈的实验，避免无 teardown 定义的遗留义务静默", async () => {
+    const root = await makeRoot();
+    const niceevalRoot = join(root, ".niceeval");
+    await writeTeardownRegistration(niceevalRoot, registration());
+
+    const reminder = await staleTeardownReminder(niceevalRoot, new Set(), hostname());
+    expect(reminder).toContain('niceeval exp compare/bub-e2b --teardown');
   });
 });

@@ -1236,7 +1236,6 @@ describe("runEvals · 强杀后的启动自愈(收尾登记的补执行)", () =>
     const experimentId = "recovery-exp";
     await writeTeardownRegistration(root, {
       experimentId,
-      experimentFile: `experiments/${experimentId}.ts`,
       selectedEvalIds: ["stale-a", "stale-b"],
       pid: 999_999_999, // 几乎确定不存在的 pid:同宿主 + 不存活 = 遗留义务
       host: hostname(),
@@ -1313,6 +1312,42 @@ describe("runEvals · 强杀后的启动自愈(收尾登记的补执行)", () =>
     expect(remaining).toEqual([]);
   });
 
+  it("全部 attempt 被携带而零派发时，选中实验仍在调度前补执行遗留 teardown", async () => {
+    const { mkdtemp } = await import("node:fs/promises");
+    const { tmpdir, hostname } = await import("node:os");
+    const { join } = await import("node:path");
+    const { writeTeardownRegistration, readTeardownRegistrations } = await import("./teardown-registry.ts");
+    const root = await mkdtemp(join(tmpdir(), "niceeval-teardown-carry-recovery-"));
+    roots.push(root);
+    const experimentId = "recovery-all-carried";
+    await writeTeardownRegistration(root, {
+      experimentId,
+      selectedEvalIds: ["carried-eval"],
+      pid: 999_999_999,
+      host: hostname(),
+      startedAt: "2026-07-21T10:00:00.000Z",
+    });
+
+    let teardownCalls = 0;
+    await run([], [
+      {
+        agent: makeAgent(`agent-${experimentId}`),
+        flags: {},
+        runs: 1,
+        earlyExit: true,
+        timeoutMs: 5_000,
+        selectedEvalIds: ["carried-eval"],
+        experimentId,
+        teardown: () => {
+          teardownCalls += 1;
+        },
+      },
+    ], { root });
+
+    expect(teardownCalls).toBe(1);
+    expect(await readTeardownRegistrations(root)).toEqual([]);
+  });
+
   it("pid 仍存活:不触碰遗留登记,不补执行 teardown(可能是并发 run)", async () => {
     const { mkdtemp } = await import("node:fs/promises");
     const { tmpdir, hostname } = await import("node:os");
@@ -1324,7 +1359,6 @@ describe("runEvals · 强杀后的启动自愈(收尾登记的补执行)", () =>
     const experimentId = "recovery-alive-exp";
     await writeTeardownRegistration(root, {
       experimentId,
-      experimentFile: `experiments/${experimentId}.ts`,
       selectedEvalIds: ["stale-a"],
       pid: process.pid, // 存活:可能是并发 run,不触碰
       host: hostname(),
@@ -1385,7 +1419,6 @@ describe("runEvals · 强杀后的启动自愈(收尾登记的补执行)", () =>
     const experimentId = "recovery-otherhost-exp";
     await writeTeardownRegistration(root, {
       experimentId,
-      experimentFile: `experiments/${experimentId}.ts`,
       selectedEvalIds: ["stale-a"],
       pid: 999_999_999, // pid 数值上确实不存在于本机,但 host 不匹配时不能据此判定死亡
       host: "some-other-host",

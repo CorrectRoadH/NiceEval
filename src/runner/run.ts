@@ -32,7 +32,7 @@ import { withCleanupTimeout } from "./cleanup-timeout.ts";
 import { hostname } from "node:os";
 import {
   isStaleTeardownRegistration,
-  readTeardownRegistration,
+  readTeardownRegistrations,
   removeTeardownRegistrationIfPresent,
   teardownEntryId,
   writeTeardownRegistration,
@@ -468,7 +468,10 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
         // experiments/architecture.md「强杀后的收尾兜底」)。没写过(裸 run / 无 teardown)
         // 时删除是 no-op。
         if (run.experimentId) {
-          await removeTeardownRegistrationIfPresent(niceevalRoot, teardownEntryId(run.experimentId)).catch(() => {});
+          await removeTeardownRegistrationIfPresent(
+            niceevalRoot,
+            teardownEntryId(run.experimentId, process.pid),
+          ).catch(() => {});
         }
       }
     })();
@@ -483,62 +486,61 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
    */
   const recoverStaleTeardownRegistration = async (run: AgentRun, experimentId: string): Promise<void> => {
     if (!run.experimentId || !run.teardown) return;
-    let existing;
+    let registrations;
     try {
-      existing = await readTeardownRegistration(niceevalRoot, run.experimentId);
+      registrations = await readTeardownRegistrations(niceevalRoot);
     } catch {
       return;
     }
-    if (!existing || !isStaleTeardownRegistration(existing, currentHost)) return;
-    const claimed = await removeTeardownRegistrationIfPresent(
-      niceevalRoot,
-      teardownEntryId(run.experimentId),
-    ).catch(() => false);
-    if (!claimed) return; // 已被另一个进程抢先删除,义务已被别处接手
-    reportExperimentHook({ experimentId, hook: "teardown", status: "started", recovery: true });
-    const startedAt = Date.now();
-    const recoveryCtx: ExperimentHookContext = {
-      experimentId,
-      selectedEvalIds: existing.selectedEvalIds,
-      signal: opts.signal ?? new AbortController().signal,
-      progress: (u) => {
-        const suffix = u.current !== undefined && u.total !== undefined ? ` (${u.current}/${u.total})` : "";
-        reportExperimentProgress({ experimentId, detail: `${u.message}${suffix}` });
-      },
-      diagnostic: (input) =>
-        reportDiagnostic({
-          key: input.dedupeKey ?? `${input.code}:experiment:${experimentId}`,
-          severity: input.level,
-          message: input.message,
-          data: { experimentId, ...(input.data ?? {}) },
-        }),
-    };
-    try {
-      await withCleanupTimeout(() => run.teardown!(recoveryCtx));
-      reportExperimentHook({
+    for (const { id, entry } of registrations) {
+      if (entry.experimentId !== run.experimentId || !isStaleTeardownRegistration(entry, currentHost)) continue;
+      const claimed = await removeTeardownRegistrationIfPresent(niceevalRoot, id).catch(() => false);
+      if (!claimed) continue; // 已被另一个进程抢先删除,义务已被别处接手
+      reportExperimentHook({ experimentId, hook: "teardown", status: "started", recovery: true });
+      const startedAt = Date.now();
+      const recoveryCtx: ExperimentHookContext = {
         experimentId,
-        hook: "teardown",
-        status: "done",
-        durationMs: Date.now() - startedAt,
-        recovery: true,
-      });
-    } catch (e) {
-      reportExperimentHook({
-        experimentId,
-        hook: "teardown",
-        status: "failed",
-        durationMs: Date.now() - startedAt,
-        recovery: true,
-      });
-      reportDiagnostic({
-        key: `experiment-teardown-failed:${experimentId}`,
-        severity: "warning",
-        message: t("runner.experimentTeardownFailed", {
+        selectedEvalIds: entry.selectedEvalIds,
+        signal: opts.signal ?? new AbortController().signal,
+        progress: (u) => {
+          const suffix = u.current !== undefined && u.total !== undefined ? ` (${u.current}/${u.total})` : "";
+          reportExperimentProgress({ experimentId, detail: `${u.message}${suffix}` });
+        },
+        diagnostic: (input) =>
+          reportDiagnostic({
+            key: input.dedupeKey ?? `${input.code}:experiment:${experimentId}`,
+            severity: input.level,
+            message: input.message,
+            data: { experimentId, ...(input.data ?? {}) },
+          }),
+      };
+      try {
+        await withCleanupTimeout(() => run.teardown!(recoveryCtx));
+        reportExperimentHook({
           experimentId,
-          message: e instanceof Error ? e.message : String(e),
-        }).trimEnd(),
-        data: { experimentId },
-      });
+          hook: "teardown",
+          status: "done",
+          durationMs: Date.now() - startedAt,
+          recovery: true,
+        });
+      } catch (e) {
+        reportExperimentHook({
+          experimentId,
+          hook: "teardown",
+          status: "failed",
+          durationMs: Date.now() - startedAt,
+          recovery: true,
+        });
+        reportDiagnostic({
+          key: `experiment-teardown-failed:${experimentId}`,
+          severity: "warning",
+          message: t("runner.experimentTeardownFailed", {
+            experimentId,
+            message: e instanceof Error ? e.message : String(e),
+          }).trimEnd(),
+          data: { experimentId },
+        });
+      }
     }
   };
   const ensureExperimentSetup = (a: Attempt): Promise<void> => {
@@ -559,7 +561,6 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
           await recoverStaleTeardownRegistration(run, experimentId);
           await writeTeardownRegistration(niceevalRoot, {
             experimentId: run.experimentId,
-            experimentFile: `experiments/${run.experimentId}.ts`,
             selectedEvalIds: run.selectedEvalIds,
             pid: process.pid,
             host: currentHost,
@@ -610,6 +611,15 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
     }
     return lc.setupPromise;
   };
+
+  // 自愈是「选中实验」的启动期职责，不是首个派发 attempt 的副作用：全携带使 attempts 为空时，
+  // 仍必须补上上一进程强杀遗留的收尾。无 teardown 的新定义无法安全补执行，交由 CLI 提醒。
+  const recoveredExperimentIds = new Set<string>();
+  for (const run of opts.agentRuns) {
+    if (!run.experimentId || !run.teardown || recoveredExperimentIds.has(run.experimentId)) continue;
+    recoveredExperimentIds.add(run.experimentId);
+    await recoverStaleTeardownRegistration(run, run.experimentId);
+  }
 
   // earlyExit:为每个 key 各建一个 AbortController。某 attempt 通过或 errored 时 abort 它,
   // 让并发进行中的同 key attempt 通过 signal 尽早退出,而不只是等排队的才能被跳过。
@@ -799,7 +809,7 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
                   assertions: [],
                   error: { ...errorFromThrown(expLc.setupError, "experiment.setup"), code: "experiment-setup-failed" },
                 } satisfies EvalResult)
-              : yield* runAttemptEffect(a, opts, sandboxSem, attemptSignal, undefined, concurrencySlot);
+              : yield* runAttemptEffect(a, opts, sandboxSem, { parentSignal: attemptSignal, concurrencySlot });
             // locator 在这里确定 —— 早于本 attempt 触发的任何 reporter 回调 / 事件
             // (onEvalComplete、eval:complete),所以每一个观察者看到的都已经是最终值,
             // 和落盘 result.json 完全一致(writer.ts 的 entry.locator ?? 兜底分支因此

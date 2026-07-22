@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from "vitest";
 import { createTextContext, renderNodeToText } from "./tree.ts";
-import { Col, Section, Text } from "./primitives.tsx";
+import { Col, Grid, Row, Section, Text } from "./primitives.tsx";
 
 describe("Section text 面 — 接线到 panel.ts", () => {
   it("panelMode: \"boxed\" 时顶层 Section 画完整四边框(panel.ts 的产物,不是手拼字符)", () => {
@@ -58,6 +58,29 @@ describe("Section text 面 — 接线到 panel.ts", () => {
     const lines = text.split("\n");
     expect(lines.filter((l) => l.startsWith("╭")).length).toBe(1);
     expect(lines.some((l) => /^├─ Inner ─+┤$/.test(l))).toBe(true);
+  });
+
+  it("Row / Grid 内嵌套 Section 走带外横隔通道:不泄漏哨兵，且不再二次吞掉内容宽度", () => {
+    const ctx = createTextContext({ width: 82, panelMode: "boxed" });
+    const text = renderNodeToText(
+      <Section title="Outer">
+        <Row>
+          <Section title="In row"><Text>{"x".repeat(78)}</Text></Section>
+        </Row>
+        <Grid columns={1}>
+          <Section title="In grid"><Text>{"y".repeat(78)}</Text></Section>
+        </Grid>
+      </Section>,
+      ctx,
+    );
+    expect(text).not.toContain("nre-panel-divider");
+    expect(text).not.toContain("\0");
+    expect(text).toMatch(/├─ In row ─+┤/);
+    expect(text).toMatch(/├─ In grid ─+┤/);
+    expect(text.split("\n").some((line) => line.includes("x".repeat(78)))).toBe(true);
+    // Grid 自己的 regular cell padding 留出 4 列；嵌套 Section 必须透传这 74 列，
+    // 不能再扣成 70 列。
+    expect(text.split("\n").some((line) => line.includes("y".repeat(74)))).toBe(true);
   });
 
   it("两个独立(非嵌套)的顶层 Section 各自画完整框——不会被上一个 Section 的深度计数误判成嵌套", () => {

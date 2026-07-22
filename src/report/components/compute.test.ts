@@ -655,6 +655,15 @@ describe("实体列表 data", () => {
     expect(items[0]!.attempts).toBe(2);
     expect(items[0]!.evalRows.map((row) => row.evalId)).toEqual(["a", "b"]); // 占位行不在 evalRows 里(占位行只在渲染面合成)
   });
+
+  it("coverage-only 实验也产生榜单占位行；--fresh 清空全部 attempt 时缺口不再静默消失", async () => {
+    const scope = scopeOf([], [], [{ experimentId: "exp/fresh", knownEvalIds: ["a", "b"], missingEvalIds: ["a", "b"] }]);
+    const items = await experimentListData(scope);
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ experimentId: "exp/fresh", missingEvalIds: ["a", "b"], evals: 0, attempts: 0, evalRows: [] });
+    // Scope.filter 不再拿 snapshots 当 coverage 的存续代理；无 snapshot 的覆盖事实保持不变。
+    expect(scope.filter(() => true).coverage).toEqual(scope.coverage);
+  });
 });
 
 // ───────────────────────── scopeSummaryData ─────────────────────────

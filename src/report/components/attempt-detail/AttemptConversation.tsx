@@ -68,6 +68,13 @@ function ReplyRow({ reply }: { reply: AttemptConversationReply }): ReactNode {
           <span className="nre-conv-role">skill loaded</span> {reply.skill}
         </div>
       );
+    case "context":
+      return (
+        <details className="nre-conv-context">
+          <summary>context injected{reply.source ? ` · ${reply.source}` : ""}</summary>
+          <div className="nre-conv-text">{reply.text}</div>
+        </details>
+      );
     case "tool":
       const verb = (reply.tool ? TOOL_VERB[reply.tool] : undefined) ?? reply.name;
       const arg = toolPrimaryArg(reply.input);

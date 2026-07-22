@@ -30,6 +30,11 @@ vi.mock("e2b", () => ({
   },
 }));
 
+function fakePaginator(items: unknown[]) {
+  let done = false;
+  return { get hasNext() { return !done; }, nextItems: async () => { done = true; return items; } };
+}
+
 // ---- @vercel/sandbox ----
 const vercelGetMock = vi.fn();
 vi.mock("@vercel/sandbox", () => ({
@@ -267,26 +272,28 @@ describe("inspectDetached", () => {
       expect(await inspectDetached("docker", "abc")).toBe("dormant");
     });
 
-    it("inspect 失败(容器已不存在) -> expired", async () => {
+    it("inspect 探测抛错 -> unknown(不把凭据/daemon 故障伪装成已删除)", async () => {
       dockerGetContainerMock.mockReturnValue({ inspect: vi.fn().mockRejectedValue(new Error("no such container")) });
-      expect(await inspectDetached("docker", "abc")).toBe("expired");
+      expect(await inspectDetached("docker", "abc")).toBe("unknown");
     });
   });
 
   describe("e2b", () => {
     it("list 命中且 running -> alive", async () => {
-      e2bListMock.mockResolvedValue([{ sandboxId: "sbx-1", state: "running" }]);
+      e2bListMock.mockReturnValue(fakePaginator([{ sandboxId: "sbx-1", state: "running" }]));
       expect(await inspectDetached("e2b", "sbx-1")).toBe("alive");
     });
 
     it("list 未命中 -> expired", async () => {
-      e2bListMock.mockResolvedValue([]);
+      e2bListMock.mockReturnValue(fakePaginator([]));
       expect(await inspectDetached("e2b", "sbx-1")).toBe("expired");
     });
 
-    it("list 抛错 -> expired", async () => {
-      e2bListMock.mockRejectedValue(new Error("boom"));
-      expect(await inspectDetached("e2b", "sbx-1")).toBe("expired");
+    it("list 抛错 -> unknown", async () => {
+      e2bListMock.mockImplementation(() => {
+        throw new Error("boom");
+      });
+      expect(await inspectDetached("e2b", "sbx-1")).toBe("unknown");
     });
   });
 
@@ -302,9 +309,9 @@ describe("inspectDetached", () => {
       expect(await inspectDetached("vercel", "gone")).toBe("expired");
     });
 
-    it("get 抛错 -> expired", async () => {
+    it("get 抛错 -> unknown", async () => {
       vercelGetMock.mockRejectedValue(new Error("boom"));
-      expect(await inspectDetached("vercel", "my-sbx")).toBe("expired");
+      expect(await inspectDetached("vercel", "my-sbx")).toBe("unknown");
     });
   });
 
@@ -358,9 +365,12 @@ describe("destroyDetached", () => {
       expect(stop).not.toHaveBeenCalled();
     });
 
-    it("get 失败或未找到 -> already-gone(幂等)", async () => {
-      vercelGetMock.mockRejectedValue(new Error("not found"));
+    it("get 明确 404 或未找到 -> already-gone(幂等),其它错误上抛", async () => {
+      vercelGetMock.mockRejectedValue(Object.assign(new Error("not found"), { status: 404 }));
       expect(await destroyDetached("vercel", "gone")).toBe("already-gone");
+      const outage = new Error("credentials unavailable");
+      vercelGetMock.mockRejectedValueOnce(outage);
+      await expect(destroyDetached("vercel", "gone")).rejects.toBe(outage);
     });
   });
 

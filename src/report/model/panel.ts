@@ -13,6 +13,17 @@ import { charDisplayWidth, padDisplay, stringWidth } from "./text-layout.ts";
  *  「窄于 60 列怎么办」,那份判断只在这个模块里实现一次。 */
 export type PanelMode = "boxed" | "plain";
 
+/** 面板传输能力的唯一探测规则；调用方提供自己的 IO 事实，测试也可稳定注入。 */
+export function panelCapabilityOf(input: {
+  isTTY: boolean | undefined;
+  noColor?: string;
+  width: number | undefined;
+}): { mode: PanelMode; width: number } {
+  const mode: PanelMode = input.isTTY === true && input.noColor === undefined ? "boxed" : "plain";
+  const width = Number.isFinite(input.width) && (input.width ?? 0) > 0 ? (input.width as number) : 80;
+  return { mode, width };
+}
+
 /**
  * 面板收到的一行逻辑内容:`"line"` 是已经按内容宽度组好的一段正文(可以内嵌 `\n` 表示多个
  * 物理行,调用方不需要预先拆行);`"divider"` 是一个嵌套 `Section` 降级出的横隔——`boxed`
@@ -223,40 +234,4 @@ function renderPlain(input: PanelInput): string[] {
 export function renderPanel(input: PanelInput): string[] {
   const eff = effectiveMode(input.mode, input.width);
   return eff === "boxed" ? renderBoxed(input) : renderPlain(input);
-}
-
-// ───────────────────────── Section 的字符串桥接:嵌套横隔 ─────────────────────────
-//
-// `ComponentFaces.text` 的公开契约是 `(props, ctx) => string`——单个字符串返回值,不能直接
-// 传 PanelRow[]。嵌套 `Section`(boxed 模式)因此需要把「这其实是一条横隔」的意图编码进它
-// 返回的字符串里,由外层(真正调用 renderPanel 的那个 Section)解码回 PanelRow —— 这样任意
-// 中间层(Row/Col/Grid/Tabs)都能像对待普通文本块一样透传它,不需要感知嵌套框的存在。
-
-const DIVIDER_MARKER = " nre-panel-divider ";
-
-/** 嵌套 Section 编码一条横隔贡献:第一行是不可见的哨兵,外层用 `takeEncodedDivider` 解码。 */
-export function encodeDividerLine(title: string, meta: string | undefined): string {
-  return `${DIVIDER_MARKER}${JSON.stringify({ title, meta })}`;
-}
-
-/** 尝试把一行解码成横隔;不是哨兵行时返回 `undefined`,调用方按普通正文处理。 */
-export function decodeDividerLine(line: string): { title: string; meta?: string } | undefined {
-  if (!line.startsWith(DIVIDER_MARKER)) return undefined;
-  try {
-    const parsed = JSON.parse(line.slice(DIVIDER_MARKER.length)) as { title: string; meta?: string };
-    return parsed;
-  } catch {
-    return undefined;
-  }
-}
-
-/** 把一段可能内嵌哨兵行的正文,拆成 `renderPanel` 认识的 `PanelRow[]`。 */
-export function rowsFromBodyText(body: string): PanelRow[] {
-  if (body.length === 0) return [];
-  const rows: PanelRow[] = [];
-  for (const line of body.split("\n")) {
-    const divider = decodeDividerLine(line);
-    rows.push(divider ? { kind: "divider", ...divider } : { kind: "line", text: line });
-  }
-  return rows;
 }

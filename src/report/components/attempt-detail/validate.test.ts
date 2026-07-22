@@ -181,6 +181,7 @@ describe("validateConversationData — AttemptConversationReply 判别联合", (
     ["tool 缺 callId", { kind: "tool", name: "shell", input: "ls" }, /"rounds\[0\]\.replies\[0\]\.callId"/],
     ["tool 缺 input", { kind: "tool", callId: "c1", name: "shell" }, /"rounds\[0\]\.replies\[0\]\.input"/],
     ["skill 缺 skill", { kind: "skill" }, /"rounds\[0\]\.replies\[0\]\.skill"/],
+    ["context 缺 text", { kind: "context", source: "hook" }, /"rounds\[0\]\.replies\[0\]\.text"/],
     ["subagent 缺 name", { kind: "subagent", callId: "c1" }, /"rounds\[0\]\.replies\[0\]\.name"/],
     ["input 缺 request", { kind: "input" }, /"rounds\[0\]\.replies\[0\]\.request"/],
     ["raw 缺 raw", { kind: "raw" }, /"rounds\[0\]\.replies\[0\]\.raw"/],

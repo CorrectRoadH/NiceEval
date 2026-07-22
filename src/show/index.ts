@@ -35,6 +35,7 @@ import { detectLocale, t } from "../i18n/index.ts";
 import { foldEvalVerdict } from "../shared/verdict.ts";
 import { selectCurrentResults, filterExperiments } from "../results/select.ts";
 import { evalPrefixPredicate } from "../shared/aggregate.ts";
+import { panelCapabilityOf } from "../report/model/panel.ts";
 import { attemptHistory } from "./compose.ts";
 import {
   buildHostReportMeta,
@@ -95,7 +96,7 @@ export interface ShowIO {
 
 /** 真实 CLI 入口的框线传输能力探测:是 TTY 且没有要求朴素输出时才画框。 */
 function detectPanelMode(): "boxed" | "plain" {
-  return process.stdout.isTTY === true && process.env.NO_COLOR === undefined ? "boxed" : "plain";
+  return panelCapabilityOf({ isTTY: process.stdout.isTTY, noColor: process.env.NO_COLOR, width: process.stdout.columns }).mode;
 }
 
 /** 可预期的用户错误:打一句英文直说问题与下一步,退出码 1,不抛堆栈。 */

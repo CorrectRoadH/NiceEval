@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url";
 import { pad4 } from "../util.ts";
 import { captureEvalSource } from "./eval-source.ts";
 import { evalPrefixPredicate } from "../shared/aggregate.ts";
+import { isDefinedScoreEval } from "../define.ts";
 import type { DiscoveredEval, DiscoveredExperiment, EvalDef, ExperimentDef } from "../types.ts";
 
 const SKIP_DIRS = new Set(["node_modules", ".git", ".niceeval", "dist", ".next"]);
@@ -50,7 +51,10 @@ export async function discoverEvals(root: string): Promise<DiscoveredEval[]> {
     // 全部共享同一份 CapturedEvalSource 引用——写入面按哈希去重靠的就是这份内容天然相同。
     const source = await captureEvalSource(file, { root });
     if (Array.isArray(def)) {
-      def.forEach((d, i) => out.push({ ...d, id: `${baseId}/${pad4(i)}`, baseDir, sourcePath: file, source }));
+      def.forEach((d, i) => {
+        assertScoreEvalOrigin(d, file);
+        out.push({ ...d, id: `${baseId}/${pad4(i)}`, baseDir, sourcePath: file, source });
+      });
     } else if (!isEvalDef(def)) {
       const dataset = def;
       for (const key of Object.keys(dataset).sort()) {
@@ -61,13 +65,21 @@ export async function discoverEvals(root: string): Promise<DiscoveredEval[]> {
             `Invalid keyed eval dataset export in ${file}: key ${JSON.stringify(key)} must map to an EvalDef with test().`,
           );
         }
+        assertScoreEvalOrigin(d, file);
         out.push({ ...d, id: `${baseId}/${key}`, baseDir, sourcePath: file, source });
       }
     } else {
+      assertScoreEvalOrigin(def, file);
       out.push({ ...def, id: baseId, baseDir, sourcePath: file, source });
     }
   }
   return out;
+}
+
+function assertScoreEvalOrigin(def: EvalDef, file: string): void {
+  if (def.scoring === "points" && !isDefinedScoreEval(def)) {
+    throw new Error(`Invalid points-scoring eval export in ${file}: use defineScoreEval() instead of writing scoring: "points".`);
+  }
 }
 
 function isEvalDef(value: EvalDef | Record<string, EvalDef>): value is EvalDef {

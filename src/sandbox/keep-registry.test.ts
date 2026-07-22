@@ -6,8 +6,11 @@ import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  acquireKeptLease,
   findNiceevalRoot,
   keptEntryId,
+  readKeptLease,
+  releaseKeptLease,
   readKeptEntries,
   removeKeptEntry,
   updateKeptEntry,
@@ -82,5 +85,31 @@ describe("kept-sandbox registry", () => {
     expect(await findNiceevalRoot(deep)).toBe(niceeval);
     const outside = await makeRoot();
     expect(await findNiceevalRoot(outside)).toBeUndefined();
+  });
+
+  it("lease 用 wx 原子占坑：并发只有一方成功，过期接管后旧持有者不能删除新 lease", async () => {
+    const root = await makeRoot();
+    const niceeval = join(root, ".niceeval");
+    const id = keptEntryId("docker", "lease-sandbox");
+    const first = { holder: "first@host", op: "enter", acquiredAt: new Date().toISOString(), ttlMs: 60_000 };
+    const [a, b] = await Promise.all([acquireKeptLease(niceeval, id, first), acquireKeptLease(niceeval, id, first)]);
+    expect([a, b].filter((result) => result.acquired)).toHaveLength(1);
+    const winner = a.acquired ? a : b as Extract<typeof b, { acquired: true }>;
+
+    const expiredId = keptEntryId("docker", "expired-lease-sandbox");
+    const expired = await acquireKeptLease(niceeval, expiredId, {
+      holder: "expired@host", op: "enter", acquiredAt: "2000-01-01T00:00:00.000Z", ttlMs: 1,
+    });
+    if (!expired.acquired) throw new Error("fixture failed to acquire the initial expired lease");
+    const next = await acquireKeptLease(niceeval, expiredId, {
+      holder: "second@host",
+      op: "enter",
+      acquiredAt: new Date().toISOString(),
+      ttlMs: 60_000,
+    });
+    expect(next.acquired).toBe(true);
+    await releaseKeptLease(niceeval, expiredId, expired.token);
+    expect((await readKeptLease(niceeval, expiredId))?.holder).toBe("second@host");
+    await releaseKeptLease(niceeval, id, winner.token);
   });
 });

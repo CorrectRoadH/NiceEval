@@ -12,7 +12,7 @@ import { COMPONENT_RAW_CHILDREN, COMPONENT_ROLE, defineComponent, type ReportNod
 import { localeText, resolveLocalizedText, type LocalizedText, type ReportLocale } from "../model/locale.ts";
 import { indentBlock, joinColumns, padDisplay, stringWidth, wrapDisplay } from "../model/text-layout.ts";
 import type { ColumnAlign } from "../model/text-layout.ts";
-import { encodeDividerLine, panelContentWidth, renderPanel, rowsFromBodyText } from "../model/panel.ts";
+import { panelContentWidth, renderPanel, type PanelRow } from "../model/panel.ts";
 import { renderTableText } from "./table-text.ts";
 import { normalizeGrid, planTextGrid, type GridDensity, type GridVariant } from "./grid-layout.ts";
 
@@ -209,13 +209,6 @@ export interface SectionProps extends LayoutProps {
   meta?: LocalizedText;
 }
 
-// text 面的框线体裁(docs/feature/reports/library/layout.md「区域框」):顶层 Section 画完整
-// 四边框,嵌在其中的 Section 降为横隔 `├─ ─┤`。「嵌套」按运行期调用栈深度判断(而不是静态树
-// 结构),天然处理任意中间层(Row/Col/Grid/Tabs)——只在 boxed 模式下计数,plain 模式的嵌套
-// 靠递归自然处理(每层各自加两格缩进),不需要这份计数。深度在 try/finally 里配对增减,
-// 渲染是纯同步调用栈,不会跨 Section 泄漏。
-let sectionBoxedDepth = 0;
-
 /** 带标题的块:网页是标题层级(可选 meta 同行右对齐);终端面框线体裁全部委托给 panel.ts,
  *  这里只负责按 ctx.panelMode 组装 title/meta/rows 喂给它,不自己拼框字符。 */
 export const Section = defineComponent<SectionProps>({
@@ -256,29 +249,41 @@ export const Section = defineComponent<SectionProps>({
       }).join("\n");
     }
 
-    const nested = sectionBoxedDepth > 0;
-    const contentWidth = panelContentWidth(ctx.width, "boxed");
-    sectionBoxedDepth++;
+    const nested = ctx.sectionBoxedDepth > 0;
+    if (nested) {
+      // 横隔走结构化渲染期通道；不把哨兵塞进 text(): string，避免被 Row/Grid 改写或泄漏。
+      ctx.collectPanelRow?.({ kind: "divider", title: heading, ...(metaText !== undefined ? { meta: metaText } : {}) });
+    }
+    // 外层 Section 已经把子树放进内容区；嵌套 Section 只登记横隔，不能再扣一次框宽。
+    const contentWidth = nested ? ctx.width : panelContentWidth(ctx.width, "boxed");
+    ctx.sectionBoxedDepth++;
     try {
-      const body = childArray(children)
-        .map((child) => ctx.render(child, contentWidth))
-        .filter((block) => block.length > 0)
-        .join("\n\n");
+      const rows: PanelRow[] = [];
+      const priorCollector = ctx.collectPanelRow;
+      ctx.collectPanelRow = (row) => rows.push(row);
+      let body: string;
+      try {
+        body = childArray(children)
+          .map((child) => ctx.render(child, contentWidth))
+          .filter((block) => block.length > 0)
+          .join("\n\n");
+      } finally {
+        ctx.collectPanelRow = priorCollector;
+      }
       if (nested) {
-        // 嵌套 Section 不再画自己的框,借字符串桥接把「这是一条横隔」的意图交给外层
-        // (真正调用 renderPanel 的那个 Section);中间层(Row/Col/…)把它当普通文本块透传。
-        const marker = encodeDividerLine(heading, metaText);
-        return body.length > 0 ? `${marker}\n${body}` : marker;
+        // 更深一层的横隔由本层收集后，继续上交给真正画框的祖先。
+        for (const row of rows) priorCollector?.(row);
+        return body;
       }
       return renderPanel({
         title: heading,
         meta: metaText,
-        rows: rowsFromBodyText(body),
+        rows: [...rows, ...(body.length > 0 ? [{ kind: "line", text: body } satisfies PanelRow] : [])],
         width: ctx.width,
         mode: "boxed",
       }).join("\n");
     } finally {
-      sectionBoxedDepth--;
+      ctx.sectionBoxedDepth--;
     }
   },
 });

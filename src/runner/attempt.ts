@@ -63,21 +63,26 @@ import type {
   RunOptions,
 } from "./types.ts";
 
-export function runAttemptEffect(
-  a: Attempt,
-  opts: RunOptions,
-  sandboxSem: Effect.Semaphore,
-  parentSignal?: AbortSignal,
+export interface RunAttemptEffectOptions {
+  /** 父级调度器的中断信号；测试直调时省略。 */
+  parentSignal?: AbortSignal;
   /** 每次跨入一个新 `LifecyclePhase` 边界时同步回调一次(与下面的 `enterPhase` 同一调用点,见
    *  该函数)。run.ts 用它在本地跟踪「这个 attempt 目前所在的阶段」,好在 attempt 失败/errored
    *  时把 phase 塞进 `reportFailure()`(见 sink.ts 的 `FailureInput.phase`)—— 到那时
    *  attempt:complete 已经让 coordinator 把 active map 里的条目删掉,没有别的地方能事后查到。 */
-  onPhase?: (phase: LifecyclePhase) => void,
+  onPhase?: (phase: LifecyclePhase) => void;
   /**
    * turn 级重试退避期间释放/收回的全局并发槽位(globalSem / 实验级 runSem,见 run.ts 的调用点)。
    * 省略时(如测试直调)退避不释放槽位。
    */
-  concurrencySlot?: ConcurrencySlot,
+  concurrencySlot?: ConcurrencySlot;
+}
+
+export function runAttemptEffect(
+  a: Attempt,
+  opts: RunOptions,
+  sandboxSem: Effect.Semaphore,
+  { parentSignal, onPhase, concurrencySlot }: RunAttemptEffectOptions = {},
 ): Effect.Effect<EvalResult> {
   const config = opts.config;
   const { evalDef, run, attempt } = a;
@@ -98,6 +103,9 @@ export function runAttemptEffect(
     durationMs: 0,
     assertions: [],
     scoring: evalDef.scoring ?? "pass",
+    // 资源获取/硬超时等在 collector 尚不可用前就可能收束；计分制的异常骨架也保持该字段的
+    // 读取面（空数组而非缺失），与正常路径一致。
+    ...(evalDef.scoring === "points" ? { scoreEntries: [] } : {}),
   };
 
   const timeoutMs = run.timeoutMs ?? evalDef.timeoutMs ?? config.timeoutMs ?? 600_000;
@@ -810,7 +818,8 @@ async function runAttemptBody(
       enterPhase("scoring.evaluate");
       log(t("runner.scoreJudge"));
     }
-    const assertions = skipReason ? [] : await state.collector.finalize(scoringContext);
+    // 类型面挡住通过制 t.points()/t.score()，但 tsx 与 JS 可绕过；持久化边界必须再门控一次。
+    const assertions = skipReason ? [] : await state.collector.finalize(scoringContext, { includePoints: evalDef.scoring === "points" });
     const verdict = computeVerdict({ error, assertions, skipReason, strict: run.strict });
 
     // 收 OTLP trace:给最后一批导出留点落地时间,再 collect(空则不挂)。

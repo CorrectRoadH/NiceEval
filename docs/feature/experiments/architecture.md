@@ -52,11 +52,11 @@ experiment 影响调度的字段就四个，语义单点在 [Runner](../../runne
 
 进程内的兜底注册表覆盖正常、中断与崩溃退出,覆盖不到 `SIGKILL` / 宿主断电——此时实验级 `setup` 起过的外部资源(隧道、共享服务、license 席位)没有任何代码来得及释放,而且强杀往往来自会重复触发的外部看门狗(CI 时限、宿主超时),泄漏会随重跑累积。这条路径的兜底建立在磁盘上:
 
-- **收尾登记与触发时点同步落盘。** 实验的触发时点(第一个通过派发许可的 attempt)在跑 `setup` 之前,先把收尾登记原子写入 `.niceeval/teardowns/<entry>.json`(与留存注册表同一套逐条目文件纪律):`{ experimentId, experimentFile, selectedEvalIds, pid, host, startedAt }`。teardown settle 后——不论由哪条路径触发、成功还是超时——删除登记。不变量:磁盘上存在登记,当且仅当某次 run 的实验级收尾义务尚未完成。
-- **启动自愈。** `niceeval exp` 启动时扫描登记目录。`host` 等于当前宿主机名且 `pid` 不存活的登记是**遗留义务**:该实验在本次 run 的选择里时,先补执行一次它的 teardown(运行级反馈行标注 recovery)再照常走 `setup`——被强杀后重跑同一条命令,收尾自动补上,不累积泄漏。不在本次选择里的遗留登记打一行提醒并给出 `--teardown` 补收尾命令。`pid` 仍存活或 `host` 不匹配的登记可能属于并发 run,不触碰。
+- **收尾登记与触发时点同步落盘。** 实验的触发时点(第一个通过派发许可的 attempt)在跑 `setup` 之前,先把收尾登记原子写入 `.niceeval/teardowns/<entry>.json`(与留存注册表同一套逐条目文件纪律):`{ experimentId, selectedEvalIds, pid, host, startedAt }`。条目键包含实验身份与 pid，因此同一实验的并发 run 各自保留一份义务。teardown settle 后——不论由哪条路径触发、成功还是超时——删除**自己的**登记。不变量:磁盘上存在登记,当且仅当某次 run 的实验级收尾义务尚未完成。
+- **启动自愈。** `niceeval exp` 启动时扫描登记目录。`host` 等于当前宿主机名且 `pid` 不存活的登记是**遗留义务**:只要该实验被本次选中且仍声明 `teardown`,就在调度 attempt 前逐条补执行一次(运行级反馈行标注 recovery),再照常走本次的生命周期——即使全部结果被 carry、零 attempt 会派发，也会补上强杀遗留的收尾。不在这类可自愈选择中的遗留登记打一行提醒并给出 `--teardown` 补收尾命令；这包括选中了但定义已删除 `teardown` 的实验。`pid` 仍存活或 `host` 不匹配的登记可能属于并发 run,不触碰。
 - **补执行是新进程语义。** 原进程的模块闭包已随强杀丢失,补执行时 teardown 读到的闭包变量是未赋值状态——这正是 teardown 既有防御契约(`tunnel?.stop()`)覆盖的形态;需要跨进程收尾的资源应由 teardown 从环境或自身的持久化(容器名、pid 文件、幂等的外部 down 脚本)找回,不依赖 `setup` 的内存产物。`ctx.selectedEvalIds` 从登记恢复,`ctx.signal` 绑定当前进程的中断。
 - **删登记是互斥点,义务至多补执行一次。** 补执行(启动自愈或 `--teardown`)先原子删除登记,删除成功者获得执行权;登记已被别的进程删除则跳过——同一份遗留义务不会被两个进程双跑。补执行失败按既有失败语义记 `experiment-teardown-failed` diagnostic,不自动重试;手动 `--teardown` 是重试入口。
-- **手动补收尾:`--teardown`。** `niceeval exp <experiment 路径> --teardown` 只对选中的实验各执行一次实验级 teardown(新进程语义):不派发任何 attempt、不跑 `setup`,完成后删除对应遗留登记;没有登记也照常执行——手动补收尾不依赖登记存在,这让「我知道有东西泄漏了」的场景不需要先考证登记去向。teardown 抛错记 diagnostic 并退出 1。与 eval 前缀位置参数组合报用法错误——这个 flag 选择的是「只收尾」这种跑法,不参与 eval 选择。
+- **手动补收尾:`--teardown`。** `niceeval exp <experiment 路径> --teardown` 不派发 attempt、不跑 `setup`。它先逐条原子删除选中实验的遗留登记；删除成功者才执行相应 teardown，登记已被启动自愈或另一条 `--teardown` 路径删除则跳过，因而同一义务不会双跑。没有任何登记时仍照常执行一次，供「我知道有东西泄漏了」的场景使用；若扫描时已有登记但本进程未抢到删除权，不另行执行。teardown 抛错记 diagnostic 并退出 1，失败后不回写登记，重试入口仍是 `--teardown`。与 eval 前缀位置参数组合报用法错误——这个 flag 选择的是「只收尾」这种跑法,不参与 eval 选择。
 
 ## Carry：自动携带
 

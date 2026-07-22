@@ -127,6 +127,29 @@ describe("calledTool:output 四种值语义", () => {
     const failing = await evaluate(Scoped.calledTool("count_items", { output: 43 }), ctxWith({ events }));
     expect(failing.outcome).toBe("failed");
   });
+
+  it("嵌套位置的非 plain-object 不会因空可枚举键匹配一切", async () => {
+    const events: StreamEvent[] = [
+      { type: "action.called", callId: "c1", name: "get_weather", input: {} },
+      { type: "action.result", callId: "c1", output: new Date("2026-01-01") as never, status: "completed" },
+    ];
+    const r = await evaluate(Scoped.calledTool("get_weather", { output: new Date("2026-01-01") }), ctxWith({ events }));
+    expect(r.outcome).toBe("failed");
+  });
+});
+
+describe("event:count 谓词", () => {
+  const events: StreamEvent[] = [
+    { type: "message", role: "assistant", text: "one" },
+    { type: "message", role: "assistant", text: "two" },
+  ];
+
+  it("谓词命中与未命中按事件计数判定", async () => {
+    const hit = await evaluate(Scoped.eventOfType("message", { count: (n) => n >= 2 }), ctxWith({ events }));
+    const miss = await evaluate(Scoped.eventOfType("message", { count: (n) => n === 1 }), ctxWith({ events }));
+    expect(hit.outcome).toBe("passed");
+    expect(miss.outcome).toBe("failed");
+  });
 });
 
 describe("calledTool:count 数字精确 vs 谓词", () => {

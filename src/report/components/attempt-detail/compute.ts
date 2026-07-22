@@ -237,6 +237,8 @@ function conversationReplyOf(
       return [{ kind: "error", text: ev.message }];
     case "skill.loaded":
       return [{ kind: "skill", skill: ev.skill }];
+    case "context.injected":
+      return [{ kind: "context", text: ev.text, ...(ev.source !== undefined ? { source: ev.source } : {}) }];
     case "input.requested":
       return [{ kind: "input", request: ev.request }];
     case "compaction":

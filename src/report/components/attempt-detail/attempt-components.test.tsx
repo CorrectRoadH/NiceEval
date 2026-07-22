@@ -460,6 +460,17 @@ describe("AttemptConversation:标准事件流按 loc 分轮", () => {
     expect(validateConversationData(data)).toBeNull();
   });
 
+  it("context.injected 是已知一等事件，保留 source/text 而不落入 raw JSON 兜底", () => {
+    const loc = { file: "evals/a.ts", line: 1 };
+    const events: StreamEvent[] = [
+      { type: "message", role: "user", text: "go", loc },
+      { type: "context.injected", source: "SessionStart", text: "project guidance" },
+    ];
+    const data = attemptConversationData(evidenceOf({ events }))!;
+    expect(data.rounds[0]!.replies).toEqual([{ kind: "context", source: "SessionStart", text: "project guidance" }]);
+    expect(validateConversationData(data)).toBeNull();
+  });
+
   it("流首无 loc 的 user 消息(旧 artifact)仍开 noloc 兜底轮", () => {
     const events: StreamEvent[] = [{ type: "message", role: "assistant", text: "orphan reply" }];
     const data = attemptConversationData(evidenceOf({ events }))!;
@@ -530,4 +541,3 @@ describe("attemptSourceData:标准事件流按 loc 投影回 send 行", () => {
     expect(data.lines[0]!.turns).toEqual([]);
   });
 });
-

@@ -53,14 +53,22 @@ function valueMatches(actual: unknown, expected: unknown, fullInput: unknown): b
 
 function deepPartial(actual: unknown, expected: unknown): boolean {
   if (expected instanceof RegExp) return valueMatches(actual, expected, actual);
-  if (expected !== null && typeof expected === "object") {
+  // 只有 plain object 才是部分匹配的结构字面量。Date/Map/Set 等实例没有可枚举键，
+  // 把它们当对象枚举会把空 entries 误判为「匹配一切」。
+  if (isPlainObject(expected)) {
     if (actual === null || typeof actual !== "object") return false;
     for (const [k, v] of Object.entries(expected)) {
       if (!valueMatches((actual as Record<string, unknown>)[k], v, actual)) return false;
     }
     return true;
   }
-  return actual === expected;
+  return Object.is(actual, expected);
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== "object") return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
 }
 
 /**
@@ -280,7 +288,7 @@ export function calledTool(name: string, match?: ToolMatch): Spec {
   };
 }
 
-export function notCalledTool(name: string, match?: ToolMatch): Spec {
+export function notCalledTool(name: string, match?: Omit<ToolMatch, "count">): Spec {
   return {
     name: `notCalledTool(${name})`,
     severity: "gate",
@@ -404,22 +412,22 @@ export function calledSubagent(name: string, match?: SubagentMatch): Spec {
   };
 }
 
-export function eventOfType(type: string, opts?: { count?: number }): Spec {
+export function eventOfType(type: string, opts?: { count?: number | ((n: number) => boolean) }): Spec {
   return {
     name: `event(${type})`,
     severity: "gate",
     evaluate: (ctx) => {
       const n = ctx.events.filter((e) => e.type === type).length;
-      const ok = opts?.count !== undefined ? n === opts.count : n >= 1;
+      const ok = countSatisfies(n, opts?.count);
       if (ok) return 1;
-      const definitiveOvershoot = opts?.count !== undefined && n > opts.count;
+      const definitiveOvershoot = isDefinitiveCountOvershoot(n, opts?.count);
       if (!definitiveOvershoot) {
         const gap = coverageGap(ctx, "events");
         if (gap) return gap;
       }
       return {
         score: 0,
-        expected: opts?.count !== undefined ? `exactly ${opts.count} × ${type}` : `≥1 × ${type}`,
+        expected: opts?.count !== undefined ? `${describeCountExpectation(opts.count)} × ${type}` : `≥1 × ${type}`,
         received: `${n} × ${type}`,
       };
     },

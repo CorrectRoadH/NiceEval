@@ -3,7 +3,7 @@
 // 断言,不经真实终端或 HTML(与 chart-math/grid-layout 同一类,见 grid-layout.test.ts)。
 
 import { describe, expect, it } from "vitest";
-import { decodeDividerLine, encodeDividerLine, panelContentWidth, renderPanel, rowsFromBodyText } from "./panel.ts";
+import { panelContentWidth, renderPanel } from "./panel.ts";
 import { stringWidth } from "./text-layout.ts";
 
 describe("renderPanel — 顶层完整框", () => {
@@ -75,16 +75,6 @@ describe("renderPanel — 嵌套 Section 降横隔", () => {
     expect(dividerLine).toMatch(/^├─ ACTIVE ─+ 3 running ─┤$/);
   });
 
-  it("encodeDividerLine/decodeDividerLine/rowsFromBodyText 编解码往返:嵌套 Section 借字符串桥接传递横隔意图", () => {
-    const body = `line one\n${encodeDividerLine("Cost", "6/6")}\nline two`;
-    const rows = rowsFromBodyText(body);
-    expect(rows).toEqual([
-      { kind: "line", text: "line one" },
-      { kind: "divider", title: "Cost", meta: "6/6" },
-      { kind: "line", text: "line two" },
-    ]);
-    expect(decodeDividerLine("not a divider line")).toBeUndefined();
-  });
 });
 
 describe("renderPanel — 宽度上限与截断优先级", () => {

@@ -134,7 +134,7 @@ $ niceeval sandbox list
 
 - 留存总数嵌上边框右侧;下边框不嵌命令——每个现场的下一步动作各不相同,批量 `stop --all` 不能当所有条目的默认下一步。
 - 提示行缩进在所属条目下面,不共用——每个现场的下一步动作(enter / remove)各自成行,紧跟身份行。
-- `STATE` 是当下核对的现场状态:`alive` 在跑(suspend 失败或 `--leave-running` 留下的)、`dormant` 休眠中可唤醒(docker 停驻、e2b 已 pause、vercel 已 stop)、`expired` 现场已经没了、只剩注册表记录(vercel 保留期限已过,或实例被外部删除)。docker 问本地 daemon,云 provider 按注册表的 `expiresAt` 与实例状态核对。
+- `STATE` 是当下核对的现场状态:`alive` 在跑(suspend 失败或 `--leave-running` 留下的)、`dormant` 休眠中可唤醒(docker 停驻、e2b 已 pause、vercel 已 stop)、`expired` 是 provider 明确确认现场已经没了、只剩注册表记录(vercel 保留期限已过,或实例被外部删除)、`unknown` 是探测因网络、凭据或 SDK 错误失败。`unknown` 不改写注册表，也不暗示用户销毁；检查凭据或稍后重试。docker 问本地 daemon,云 provider 按注册表的 `expiresAt` 与实例状态核对。
 - 没有留存沙箱时输出 `No kept sandboxes.`,退出码 0。
 - `list` 只读,不清理任何东西——包括 `expired` 条目;条目的移除只发生在 `stop`。
 
@@ -170,6 +170,7 @@ Remove orphans with: niceeval sandbox prune
 - `unverified`:标识来自另一台宿主或无法核对,不自动销毁;确认后用 `prune --force`。
 - 属主 run 还活着的实例不出现在这张表里——它们属于并发运行中的另一次 run,不是孤儿。
 - 查询通道:docker 问本地 daemon 的 label 索引,e2b 走 SDK 的 metadata 过滤;vercel 无检索通道、不参与,靠 provider 保留期限到期回收。
+- runner 启动期的提醒只做零成本的本地 docker 核对；云 provider 的网络/凭据探测只在用户显式执行 `list --orphans` 时发生。
 - 没有孤儿时输出 `No orphan sandboxes.`,退出码 0;只读,不清理任何东西。
 
 ### `sandbox prune`

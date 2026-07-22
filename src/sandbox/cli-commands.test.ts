@@ -7,13 +7,13 @@
 // detachedCapabilityGap),只证明 cli-commands.ts 自己的编排逻辑——provider SDK 细节由
 // keep.test.ts 覆盖。
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { keptEntryId, readKeptEntries, writeKeptEntry, type KeptSandboxEntry } from "./keep-registry.ts";
+import { keptEntryId, readKeptEntries, readKeptLease, writeKeptEntry, type KeptSandboxEntry } from "./keep-registry.ts";
 
-const mockInspectDetached = vi.fn<(provider: string, sandboxId: string) => Promise<"alive" | "dormant" | "expired">>();
+const mockInspectDetached = vi.fn<(provider: string, sandboxId: string) => Promise<"alive" | "dormant" | "expired" | "unknown">>();
 const mockWakeDetached = vi.fn<(provider: string, sandboxId: string) => Promise<void>>();
 const mockSuspendDetached = vi.fn<(provider: string, sandboxId: string) => Promise<void>>();
 const mockDestroyDetached = vi.fn<(provider: string, sandboxId: string) => Promise<"stopped" | "already-gone">>();
@@ -49,6 +49,11 @@ vi.mock("./orphans.ts", () => ({
 const { runSandboxCommand } = await import("./cli-commands.ts");
 
 let roots: string[] = [];
+let savedNoColor: string | undefined;
+beforeEach(() => {
+  savedNoColor = process.env.NO_COLOR;
+  delete process.env.NO_COLOR;
+});
 afterEach(async () => {
   await Promise.all(roots.map((r) => rm(r, { recursive: true, force: true })));
   roots = [];
@@ -62,6 +67,8 @@ afterEach(async () => {
   mockListOrphanCandidates.mockReset();
   mockPruneOrphans.mockReset();
   mockDockerOrphanCount.mockReset();
+  if (savedNoColor === undefined) delete process.env.NO_COLOR;
+  else process.env.NO_COLOR = savedNoColor;
 });
 
 async function makeRoot(): Promise<string> {
@@ -313,10 +320,9 @@ describe("sandbox enter/stop — 条目级 lease 互斥", () => {
     const enterIo = collectOut();
     const enterPromise = runSandboxCommand(root, ["enter", id], { run: niceevalRoot }, enterIo.io);
 
-    // 等 enter 真正持有 lease(已原子写入注册表)再发起并发 stop——不靠 sleep 猜时序。
+    // 等 enter 真正原子占坑再发起并发 stop——不靠 sleep 猜时序。
     await vi.waitFor(async () => {
-      const { entries } = await readKeptEntries(niceevalRoot);
-      expect(entries[0]!.entry.lease).toBeDefined();
+      expect(await readKeptLease(niceevalRoot, id)).toBeDefined();
     });
 
     const stopIo = collectOut();
@@ -452,9 +458,9 @@ describe("sandbox list/history — 一次性面板接线到 panel.ts", () => {
       h4: "M\tmanager_decisions.json\nA\tnotes/decision-log.md",
     };
     mockExecInDetached.mockImplementation(async (_provider: string, _sandboxId: string, _workdir: string, script: string) => {
-      if (script.includes("git log")) return commits.map((c) => `${c.hash} ${c.at} ${c.subject}`).join("\n");
-      const m = /git diff --name-status (\S+)\^ (\S+)/.exec(script);
-      if (m) return diffs[m[1]!] ?? "";
+      if (script.includes("git rev-list")) {
+        return `${commits.map((c) => `${c.hash} ${c.at} ${c.subject}`).join("\n")}${commits.map((c) => `\x1e${c.hash}\n${diffs[c.hash] ?? ""}`).join("")}`;
+      }
       return "";
     });
 
@@ -475,6 +481,7 @@ describe("sandbox list/history — 一次性面板接线到 panel.ts", () => {
     expect(out.at(-1)).toBe(
       "╰──────────────────────────────── niceeval sandbox diff a3f9c2d1 --window turn2 ─╯",
     );
+    expect(mockExecInDetached).toHaveBeenCalledTimes(1);
   });
 
   it("history: 非 TTY(未声明 isTTY 的默认场景)不产生任何框字符,内容仍完整", async () => {
@@ -484,8 +491,7 @@ describe("sandbox list/history — 一次性面板接线到 panel.ts", () => {
     const id = keptEntryId("docker", "a3f9c2d1");
     mockDetachedCapabilityGap.mockReturnValue(undefined);
     mockExecInDetached.mockImplementation(async (_provider: string, _sandboxId: string, _workdir: string, script: string) => {
-      if (script.includes("git log")) return "h0 1752476412 anchor\nh1 1752476413 agent turn1";
-      if (script.includes("git diff")) return "M\tfile.txt";
+      if (script.includes("git rev-list")) return "h0 1752476412 anchor\nh1 1752476413 agent turn1\x1eh0\n\x1eh1\nM\tfile.txt";
       return "";
     });
 

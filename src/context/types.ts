@@ -43,7 +43,7 @@ export interface TurnHandle<H extends AssertionHandle = AssertionHandle> {
   /** 断言本轮调用过指定名字的工具;`match` 可进一步约束入参 / 次数 / 状态。 */
   calledTool(name: string, match?: ToolMatch): H;
   /** 断言本轮未调用指定工具(或未按 match 条件调用)。 */
-  notCalledTool(name: string, match?: ToolMatch): H;
+  notCalledTool(name: string, match?: Omit<ToolMatch, "count">): H;
   /** 断言本轮工具调用按给定顺序出现(允许中间夹杂其它调用)。 */
   toolOrder(names: string[]): H;
   /** 断言本轮未调用任何工具。 */
@@ -55,7 +55,7 @@ export interface TurnHandle<H extends AssertionHandle = AssertionHandle> {
   /** 断言本轮没有失败的工具调用 / 命令。 */
   noFailedActions(): H;
   /** 断言本轮出现过指定类型的事件;`opts.count` 可约束出现次数。 */
-  event(type: StreamEvent["type"], opts?: { count?: number }): H;
+  event(type: StreamEvent["type"], opts?: { count?: number | ((n: number) => boolean) }): H;
   /** 断言本轮未出现指定类型的事件。 */
   notEvent(type: StreamEvent["type"]): H;
   /** 断言本轮调用过指定名字的子 agent;`match` 可约束次数 / 状态 / remoteUrl。 */
@@ -225,7 +225,7 @@ export interface SessionHandle<H extends AssertionHandle = AssertionHandle> {
   /** 断言这个会话累计调用过指定名字的工具;match 可约束入参 / 次数 / 状态。 */
   calledTool(name: string, match?: ToolMatch): H;
   /** 断言这个会话累计未调用指定工具(或未按 match 条件调用)。 */
-  notCalledTool(name: string, match?: ToolMatch): H;
+  notCalledTool(name: string, match?: Omit<ToolMatch, "count">): H;
   /** 断言这个会话累计工具调用按给定顺序出现。 */
   toolOrder(names: string[]): H;
   /** 断言这个会话至今未调用任何工具。 */
@@ -237,7 +237,7 @@ export interface SessionHandle<H extends AssertionHandle = AssertionHandle> {
   /** 断言这个会话累计没有失败的工具调用 / 命令。 */
   noFailedActions(): H;
   /** 断言这个会话累计出现过指定类型的事件;opts.count 可约束次数。 */
-  event(type: StreamEvent["type"], opts?: { count?: number }): H;
+  event(type: StreamEvent["type"], opts?: { count?: number | ((n: number) => boolean) }): H;
   /** 断言这个会话累计未出现指定类型的事件。 */
   notEvent(type: StreamEvent["type"]): H;
   /** 断言这个会话累计调用过指定名字的子 agent;match 可约束次数 / 状态 / remoteUrl。 */
@@ -350,7 +350,7 @@ export interface TestContext<H extends AssertionHandle = AssertionHandle> {
   /** 断言默认会话累计调用过指定名字的工具;match 可约束入参 / 次数 / 状态。 */
   calledTool(name: string, match?: ToolMatch): H;
   /** 断言默认会话累计未调用指定工具(或未按 match 条件调用)。 */
-  notCalledTool(name: string, match?: ToolMatch): H;
+  notCalledTool(name: string, match?: Omit<ToolMatch, "count">): H;
   /** 断言默认会话累计工具调用按给定顺序出现(允许中间夹杂其它调用)。 */
   toolOrder(names: string[]): H;
   /** 断言默认会话至今未调用任何工具。 */
@@ -362,7 +362,7 @@ export interface TestContext<H extends AssertionHandle = AssertionHandle> {
   /** 断言默认会话累计没有失败的工具调用 / 命令。 */
   noFailedActions(): H;
   /** 断言默认会话累计出现过指定类型的事件;opts.count 可约束出现次数。 */
-  event(type: StreamEvent["type"], opts?: { count?: number }): H;
+  event(type: StreamEvent["type"], opts?: { count?: number | ((n: number) => boolean) }): H;
   /** 断言默认会话累计未出现指定类型的事件。 */
   notEvent(type: StreamEvent["type"]): H;
   /** 断言默认会话累计调用过指定名字的子 agent;match 可约束次数 / 状态 / remoteUrl。 */
