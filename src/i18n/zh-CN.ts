@@ -90,11 +90,13 @@ export const zhCN = {
     "      --results <目录> 钉死结果根   --exp <id> 只看该实验\n" +
     "      --report <文件> 自定义报告   --page <id> 定初始页(多页报告渲染该页,\n" +
     "        尾部再附其余页索引)\n" +
+    "      --fresh   只统计新执行的 attempt(排除携带条目与跨快照拼入的历史执行);\n" +
+    "        被排除的题转成占位行\n" +
     "  niceeval list                            列出发现到的 eval\n" +
     "  niceeval view [eval-id 前缀…] [--out 目录] [--port n] [--no-open]\n" +
     "      报告页 + 证据室;--report <文件> 整槽换成自定义报告(与 show 同一文件)\n" +
     "      --page <id> 定初始页   --results <目录> 钉死结果根\n" +
-    "      --snapshot <文件> 只打开这一份快照   --exp <id> 只看该实验\n" +
+    "      --snapshot <文件> 只打开这一份快照   --exp <id> 只看该实验;--fresh 只看新执行\n" +
     "      --out <目录> 静态导出:index.html 连同查看器 artifact,可直接静态托管\n" +
     "  niceeval sandbox list|enter|history|diff|stop  查看与销毁 --keep-sandbox 留下的现场\n" +
     "  niceeval clean                           删除 .niceeval/ 历史 artifact\n" +

@@ -116,6 +116,7 @@ interface Flags {
   snapshot?: string;
   report?: string;
   page?: string;
+  fresh: boolean;
 }
 
 // 表驱动的 flag 定义(node:util parseArgs)。--no-x 显式声明,不依赖 allowNegative(需 Node 20.14+,
@@ -182,6 +183,8 @@ const FLAG_OPTIONS = {
   report: { type: "string" },
   /** `show` / `view` 命令专用:选择报告的初始页;`show` 渲染该页并在尾部附其余页索引,`view` 以它作初始路由。未命中的页 id 按用法错误退出并列出可用页 id。 */
   page: { type: "string" },
+  /** `show` / `view` 命令专用:只统计新执行的 attempt(排除携带条目与跨快照拼入的历史执行);被排除的题按覆盖事实转为榜单占位行,不静默消失。 */
+  fresh: { type: "boolean" },
   /** 只打印本次会匹配到的 eval × 运行配置,不实际执行(按下面 `--output` 选中的 profile 给出预览)。 */
   dry: { type: "boolean" },
   /** 反馈 profile:`auto`(默认)按环境自动选择,`human` / `agent` / `ci` 强制指定;只改变终端展示,不改变选择、调度、判定、artifact 或退出码。`auto` 依次判定:stderr 是 TTY → human;否则 `CI`(或其它常见 CI 平台环境变量)存在 → ci;否则 → agent。 */
@@ -316,6 +319,7 @@ function parseArgs(argv: string[]): { command: string; positionals: string[]; fl
     snapshot: values.snapshot as string | undefined,
     report: values.report as string | undefined,
     page: values.page as string | undefined,
+    fresh: values.fresh === true,
   };
   return { command, positionals, flags };
 }
@@ -340,6 +344,7 @@ function firstViewerOnlyFlag(flags: Flags): { flag: string; command: string } | 
   if (flags.results !== undefined) return { flag: "--results", command: BOTH };
   if (flags.report !== undefined) return { flag: "--report", command: BOTH };
   if (flags.page !== undefined) return { flag: "--page", command: BOTH };
+  if (flags.fresh) return { flag: "--fresh", command: BOTH };
   if (flags.snapshot !== undefined) return { flag: "--snapshot", command: VIEW };
   if (flags.out !== undefined) return { flag: "--out", command: VIEW };
   if (flags.port !== undefined) return { flag: "--port", command: VIEW };
@@ -567,6 +572,7 @@ async function main(): Promise<void> {
       ...(flags.experiment !== undefined ? { experiment: flags.experiment } : {}),
       ...(flags.report !== undefined ? { report: { path: flags.report, cwd } } : {}),
       ...(flags.page !== undefined ? { page: flags.page } : {}),
+      ...(flags.fresh ? { fresh: true } : {}),
     };
     if (flags.out) {
       const out = await buildView({ input: viewInput.input, out: flags.out, scan }).catch(exitOnViewUserError);
@@ -613,6 +619,7 @@ async function main(): Promise<void> {
       results: flags.results,
       report: flags.report,
       page: flags.page,
+      fresh: flags.fresh,
     });
     process.exit(code);
   }

@@ -94,12 +94,14 @@ export const en = {
     "      --results <dir>   pin a results root    --exp <id>   one experiment\n" +
     "      --report <file>   custom report    --page <id>   pick the initial page (multi-page\n" +
     "        reports render it, then list the rest as a page index with copyable commands)\n" +
+    "      --fresh   only count freshly executed attempts (excludes carried-over and\n" +
+    "        historical stitched-in attempts); excluded evals show up as placeholder rows\n" +
     "  niceeval list                                       list discovered evals\n" +
     "  niceeval view [eval-id-prefix…] [--out dir] [--port n] [--no-open]\n" +
     "      report pages + evidence rooms; --report <file> swaps in your report\n" +
     "      (same file as show); --page <id> picks the initial page;\n" +
     "      --results <dir> pins a results root; --snapshot <file> opens exactly\n" +
-    "      one snapshot; --exp <id> one experiment\n" +
+    "      one snapshot; --exp <id> one experiment; --fresh only new executions\n" +
     "      --out <dir> exports a static site: index.html plus the viewer\n" +
     "      artifacts, ready for any static host\n" +
     "  niceeval sandbox list|enter|history|diff|stop  inspect & destroy sandboxes kept by --keep-sandbox\n" +

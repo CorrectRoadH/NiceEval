@@ -78,6 +78,8 @@ export interface ShowFlags {
   report?: string;
   /** --page:多页报告选页;未命中按用法错误退出并列出可用页 id。 */
   page?: string;
+  /** --fresh:只统计新执行的 attempt(排除携带条目与跨快照拼入的历史执行)。 */
+  fresh?: boolean;
 }
 
 /** 注入 IO 供测试;默认写 stdout/stderr、宽度取终端列数。 */
@@ -215,7 +217,7 @@ async function show(
       );
     }
     const locale = detectLocale();
-    const selection = selectCurrentResults(results, {});
+    const selection = selectCurrentResults(results, { fresh: flags.fresh });
     const meta = await buildHostReportMeta(report, selection);
     const text = await renderHostPageText(
       attemptPage,
@@ -240,7 +242,7 @@ async function show(
     );
   }
 
-  const selection = selectCurrentResults(results, { experiment: flags.experiment, patterns });
+  const selection = selectCurrentResults(results, { experiment: flags.experiment, patterns, fresh: flags.fresh });
   const matchedEvalIds = [
     ...new Set(selection.snapshots.flatMap((s) => s.evals.map((e) => e.id))),
   ].sort();
