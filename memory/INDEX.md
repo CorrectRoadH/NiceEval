@@ -243,6 +243,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 - [e2e-repo-self-root-workspace](e2e-repo-self-root-workspace.md) — 裁决(2026-07-21):每个 E2E 仓库必带只含 `packages: []` 的 pnpm-workspace.yaml 自成 workspace root,否则就地 install 会并入父级 workspace 绕过候选注入;曾半数仓库缺、run.ts 注释错引 §2.1,已补齐仓库+升进 docs §2.1/§8+加结构守护
 - 已修 [e2e-artifacts-glob-overwrites-repo-manifest](e2e-artifacts-glob-overwrites-repo-manifest.md) — `e2e/report/e2e.json` 曾用 `"*.json"`/`"*.xml"` 通配声明 artifacts,根编排器收尾把隔离副本顶层文件拷回真实仓库时连带命中并覆盖真实 `package.json`(改写成失效的临时 tarball 路径),下次直接 install/typecheck 报 ENOENT;修为显式文件名(`main.json`/`main.xml`/`fail.xml`/`error.xml`),裸 glob 会命中仓库自带顶层文件是通用坑
 - [e2e-report-dev-loop-pnpm-link-pollutes-workspace-yaml](e2e-report-dev-loop-pnpm-link-pollutes-workspace-yaml.md) — `pnpm link` 给 e2e 仓库做本地快速迭代会把 override 写进 pnpm-workspace.yaml/pnpm-lock.yaml,`rm -rf node_modules` 不消失,须 `git checkout` 两个文件才能复原;更省事的替代是直接 `node bin/niceeval.js`
+- 已修 [e2e-report-playwright-browser-never-installed](e2e-report-playwright-browser-never-installed.md) — B4/B5 新增的 chromium.launch() 验收在 CI 上炸`Executable doesn't exist`:playwright 系依赖已无 postinstall 生命周期脚本,`pnpm install` 从不下载浏览器二进制;修为 `e2e/report/package.json` 加 `postinstall: playwright install chromium`(项目自身脚本,不受 onlyBuiltDependencies 门禁)
 
 ## docs · docs-site · reference
 
