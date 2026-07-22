@@ -125,6 +125,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 
 - [one-line-summary-grammar-and-flat-attempt-assertions](one-line-summary-grammar-and-flat-attempt-assertions.md) — 裁决(2026-07-22):单行失败摘要语法收拢为 display.md#单行压缩形态 单点(` · ` 分隔、matcher 即条件时省 expected、received 永不省);attempt 首页四段分节(failures:/soft/scores/unavailable)被 Phase G 平铺混排取代,display 与 docs-site 中英示例已同步铲平
 - [staleness-demoted-from-warning-to-provenance](staleness-demoted-from-warning-to-provenance.md) — 裁决(2026-07-22):stale-snapshot/partial-coverage 两个警告 kind 删除——时效降级为行级 `↩` 标注(attempt.carried/historical),覆盖缺口物化为 scope.coverage+榜单占位行,新增 fresh 口径(--fresh);warnings 只留定位不到行的三种;否决理由=警告粒度与事实粒度错位、carry 是正常功能不该带「多数情况请忽略」的警告
+- [scopewarning-includes-member-never-pushed-to-scope-warnings](scopewarning-includes-member-never-pushed-to-scope-warnings.md) — 上一条落地时的实现细节:`ScopeWarning` 判别联合恰三个成员(含 `missing-startedAt`),但 `missing-startedAt` 永远不会被 push 进 `Scope.warnings`——只由 `dedupeAttempts()` 直调返回,`DedupeWarning` 降级为该成员的类型别名
 - [publish-redaction-copysnapshots-not-report](publish-redaction-copysnapshots-not-report.md) — 设计裁决:发布消毒移到 copySnapshots({ redact }),AttemptList.redact 降为展示层(2026-07-14),推翻「消毒归报告」——view --out 原样发布 artifact,列表脱敏挡不住深链
 - [copysnapshots-deletion-rejected-carried-entries](copysnapshots-deletion-rejected-carried-entries.md) — 裁决(2026-07-22):否决「writer stamp knownEvalIds 后删 copySnapshots、手工 cp 子集合法」——携带条目 artifactBase 指向原快照,子集 cp 静默丢证据,物化只能是库原语;不可替代核心=自包含物化,发布判据同日改「跨出可信边界」
 - [view-compare-tab-rejected](view-compare-tab-rejected.md) — 裁决(2026-07-21):不做 view 内建 Compare tab 与 Eval 目录页,roadmap「View 增强」删除;两快照对比由 `DeltaTable by="snapshot"` 报告组件承担,内建 tab 违反「宿主不拥有 pages 之外的导航」契约
@@ -199,6 +200,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 - [experimentlist-text-column-order-and-wrap-instability](experimentlist-text-column-order-and-wrap-instability.md) — ExperimentList text 面真实列序(Results 排 Tokens/Cost 之前)与 entity-lists.md 范例不符;width 80 折行哪列换行随真实数值内容漂移,只有 deliberate-error/deliberate-fail 这类恒定长 id 折行稳定可断言;tokens 聚合值可为小数
 - [computed-style-color-mix-oklch-not-rgba](computed-style-color-mix-oklch-not-rgba.md) — 报告 CSS 状态染色大量用 `color-mix(in oklch, ...)`,Chromium `getComputedStyle` 算出来是 `oklch(L C H / A)` 斜杠语法而非 `rgba(r,g,b,a)`;B4 浏览器视觉验收里解析 alpha 的正则要两种语法都认
 - [e2e-report-file-cross-package-module-split](e2e-report-file-cross-package-module-split.md) — e2e/report 里用 HEAD 的 `bin/niceeval.js` 渲染用户自己 `--report` 文件,`niceeval/report` 解析到该仓库自己 `node_modules` 与 checkout 仓库 `dist/report` 是两个模块实例,`activeWebContext` 互不可见,locator 深链静默退化成纯文本;本地冒烟 `--report` 文件一律用 `pnpm exec niceeval`
+- [bivariant-method-shorthand-hides-missing-opt-plumbing](bivariant-method-shorthand-hides-missing-opt-plumbing.md) — `Results.latest`/`current` 加 `fresh` opts 字段后,`open.ts` 的 `makeResults()` 用方法简写实现、参数类型没同步加宽,TS 对方法简写做双变检查,typecheck 全绿但 `fresh` 被静默丢弃;行为测试才抓到,光凭 typecheck 通过不能证明新 opts 字段被接住
 
 ## o11y 采集
 
