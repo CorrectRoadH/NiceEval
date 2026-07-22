@@ -111,7 +111,7 @@ describe("calledTool:output 四种值语义", () => {
       { type: "action.result", callId: "c1", output: { tempF: 72 }, status: "completed" },
     ];
     const r = await evaluate(
-      Scoped.calledTool("get_weather", { output: (output) => (output as { tempF?: number })?.tempF! > 70 }),
+      Scoped.calledTool("get_weather", { output: (output: unknown) => (output as { tempF?: number })?.tempF! > 70 }),
       ctxWith({ events }),
     );
     expect(r.outcome).toBe("passed");
