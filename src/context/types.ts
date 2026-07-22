@@ -95,27 +95,41 @@ export interface DiffView {
   matches(re: RegExp): boolean;
 }
 
-/** 工具匹配小语言。 */
+/**
+ * 工具匹配小语言。一条调用的全部可断面——入参、次数、输出、状态——都在这一个对象里表达:
+ * `input` / `output` / `status` 之间是 AND,且作用在同一笔调用上;`count` 数的是满足这些
+ * 条件的调用笔数,不存在「一笔满足 input、另一笔满足 output」也算命中的读法。
+ */
 export interface ToolMatch {
   /**
-   * 只匹配入参包含这些键值的调用:**深度部分匹配**——嵌套对象逐键下钻,数组按值比较;
-   * 值可以是 RegExp(对字符串字段测试,不命中时再对整个 input 的序列化串兜底测一次)
-   * 或谓词函数。不要求深度相等,多余的入参键不影响命中。
+   * 入参匹配:对象做**深度部分匹配**(写出的键值要求出现且相等,未写的忽略,嵌套递归比较;
+   * 值位置可以放 RegExp 匹配该字段的字符串值,不命中时再对整个 input 的序列化串兜底测一次,
+   * 或放谓词函数拿该字段原始值判断);顶层直接给 RegExp 则匹配序列化后的**完整输入**;
+   * 顶层给谓词函数 `(input) => boolean` 拿原始输入值自行判断。三种顶层形态互斥,不会退化
+   * 成深比对——RegExp / 函数不是"键值对象",不会被当成 plain object 逐键枚举。
    */
-  input?: Record<string, unknown>;
-  /** 精确匹配调用次数,省略则只要求「至少一次」。 */
-  count?: number;
-  /** 只匹配处于该状态的调用(如 HITL 场景下的 rejected)。 */
-  status?: "completed" | "failed" | "rejected";
+  input?: Record<string, unknown> | RegExp | ((input: unknown) => boolean);
+  /** 数字精确匹配调用次数;谓词对命中次数自行判定(如 `(n) => n >= 2`);省略则只要求「至少一次」。 */
+  count?: number | ((n: number) => boolean);
+  /**
+   * 输出匹配,值语义同 `input` 的值位置:RegExp 对字符串输出测试(非字符串先序列化再测);
+   * 谓词函数拿原始输出自行判断;对象做深度部分匹配;其余值严格相等。
+   */
+  output?: unknown;
+  /** 只匹配处于该状态的调用。`pending` 是已发起、尚无结果的调用——典型是 HITL 停在审批上的那一笔。 */
+  status?: "pending" | "completed" | "failed" | "rejected";
 }
 
 /** calledSubagent 的匹配小语言,语义同 ToolMatch。 */
 export interface SubagentMatch {
-  /** 精确匹配调用次数,省略则只要求「至少一次」。 */
-  count?: number;
-  status?: "completed" | "failed";
-  /** 只匹配指向该远程地址的子 agent 调用。 */
-  remoteUrl?: string | RegExp;
+  /** 数字精确匹配调用次数;谓词对命中次数自行判定;省略则只要求「至少一次」。 */
+  count?: number | ((n: number) => boolean);
+  /** 子 agent 委派没有 rejected 状态(subagent.completed 只报 completed / failed)。 */
+  status?: "pending" | "completed" | "failed";
+  /** 只匹配指向该远程地址的子 agent 调用:字符串精确匹配、RegExp 测试、或谓词函数自行判断。 */
+  remoteUrl?: string | RegExp | ((url: string) => boolean);
+  /** 匹配子 agent 的返回,值语义同 ToolMatch.output。 */
+  output?: unknown;
 }
 
 /** requireInputRequest 的过滤条件;多个字段之间是 AND 关系。 */
@@ -256,8 +270,10 @@ export interface TestContext {
   /** 取默认会话里等待中的 HITL 输入请求;不传 filter 要求恰好一条,拿不到就抛。 */
   requireInputRequest(filter?: InputRequestFilter): InputRequest;
   /**
-   * 回答默认会话里等待中的输入请求,返回续接的 TurnHandle。字符串形式按顺序对应各请求;
-   * 多个请求并停、需要指名回答哪一条时用 RespondAnswer 对象形式(见其类型注释)。
+   * 回答默认会话里等待中的输入请求,返回续接的 TurnHandle。字符串形式只在恰好一条待处理请求时
+   * 才能自动对位——命中该请求 `options` 里的某个 id 就是 `optionId`,否则整句落自由文本;
+   * 多个请求并停时字符串形式无法消歧,直接抛 `hitl.stringAmbiguous`,要求改用
+   * `{ request, optionId }` / `{ request, text }` 对象形式(RespondAnswer,见其类型注释)显式指名。
    */
   respond(...responses: (string | RespondAnswer)[]): Promise<TurnHandle>;
   /** 用同一个 optionId 批量回答默认会话里全部等待中的输入请求。 */

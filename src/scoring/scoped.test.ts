@@ -1,0 +1,239 @@
+// cases: docs/engineering/testing/unit/scoring.md
+// ToolMatch/SubagentMatch 的 match 小语言单测(定稿见
+// docs/feature/scoring/library/scoped-assertions.md「匹配条件的字段全集」)。覆盖:
+// input/output/count/remoteUrl/status 各字段的独立形态与命中语义,以及旧「RegExp input
+// 落入深比对分支、枚举其自身空可枚举属性、静默匹配一切调用」的回归锁定。
+
+import { describe, expect, it } from "vitest";
+import { AssertionCollector } from "./collector.ts";
+import { completeCoverage, downgradeCoverage, resolveAgentCoverage } from "./coverage.ts";
+import { emptyDiffData } from "./diff.ts";
+import * as Scoped from "./scoped.ts";
+import { deriveRunFacts } from "../o11y/derive.ts";
+import type { AssertionResult, ScoringContext, StreamEvent, SubagentMatch } from "../types.ts";
+
+function ctxWith(over: Partial<ScoringContext> = {}): ScoringContext {
+  const events = (over.events ?? []) as StreamEvent[];
+  return {
+    events,
+    facts: deriveRunFacts(events),
+    diff: emptyDiffData(),
+    scripts: {},
+    usage: { inputTokens: 0, outputTokens: 0 },
+    status: "completed",
+    coverage: resolveAgentCoverage(completeCoverage),
+    readFile: async () => undefined,
+    ...over,
+  };
+}
+
+const INCOMPLETE_ACTIONS = downgradeCoverage(resolveAgentCoverage(completeCoverage), {
+  actions: { status: "partial", reason: "stream reconnected" },
+});
+
+async function evaluate(spec: ReturnType<typeof Scoped.calledTool>, ctx: ScoringContext): Promise<AssertionResult> {
+  const collector = new AssertionCollector();
+  collector.record(spec);
+  const [result] = await collector.finalize(ctx);
+  return result!;
+}
+
+describe("calledTool:input 顶层三种形态", () => {
+  const events: StreamEvent[] = [
+    { type: "action.called", callId: "c1", name: "get_weather", input: { city: "Brooklyn" } },
+    { type: "action.result", callId: "c1", output: { tempF: 72 }, status: "completed" },
+    { type: "action.called", callId: "c2", name: "get_weather", input: { city: "Chicago" } },
+    { type: "action.result", callId: "c2", output: { tempF: 40 }, status: "completed" },
+  ];
+
+  it("顶层 RegExp 测序列化后的完整输入,精确命中匹配的那一笔", async () => {
+    const r = await evaluate(Scoped.calledTool("get_weather", { input: /Brooklyn/, count: 1 }), ctxWith({ events }));
+    expect(r.outcome).toBe("passed");
+  });
+
+  it("回归:顶层 RegExp 不静默匹配一切——不匹配任何调用的正则必须 failed,而不是把 RegExp 当 plain object 深比对出一个空条件恒真", async () => {
+    const r = await evaluate(Scoped.calledTool("get_weather", { input: /Denver/ }), ctxWith({ events }));
+    expect(r.outcome).toBe("failed");
+  });
+
+  it("顶层谓词函数拿原始输入值自行判断", async () => {
+    const r = await evaluate(
+      Scoped.calledTool("get_weather", { input: (input) => (input as { city?: string })?.city === "Chicago" }),
+      ctxWith({ events }),
+    );
+    expect(r.outcome).toBe("passed");
+  });
+
+  it("对象形态仍是深度部分匹配(既有行为不受顶层 RegExp/谓词分支影响)", async () => {
+    const passing = await evaluate(Scoped.calledTool("get_weather", { input: { city: "Brooklyn" } }), ctxWith({ events }));
+    expect(passing.outcome).toBe("passed");
+    const failing = await evaluate(Scoped.calledTool("get_weather", { input: { city: "Miami" } }), ctxWith({ events }));
+    expect(failing.outcome).toBe("failed");
+  });
+
+  it("对象值位置的 RegExp 仍然生效(如 { command: /curl/ })", async () => {
+    const shellEvents: StreamEvent[] = [
+      { type: "action.called", callId: "c1", name: "shell", input: { command: "curl https://x" } },
+      { type: "action.result", callId: "c1", output: "ok", status: "completed" },
+    ];
+    const r = await evaluate(Scoped.calledTool("shell", { input: { command: /curl/ } }), ctxWith({ events: shellEvents }));
+    expect(r.outcome).toBe("passed");
+    const miss = await evaluate(Scoped.notCalledTool("shell", { input: { command: /npm i/ } }), ctxWith({ events: shellEvents }));
+    expect(miss.outcome).toBe("passed");
+  });
+});
+
+describe("calledTool:output 四种值语义", () => {
+  it("对象深度部分匹配", async () => {
+    const events: StreamEvent[] = [
+      { type: "action.called", callId: "c1", name: "get_weather", input: {} },
+      { type: "action.result", callId: "c1", output: { tempF: 72, humidity: 50 }, status: "completed" },
+    ];
+    const r = await evaluate(Scoped.calledTool("get_weather", { output: { tempF: 72 } }), ctxWith({ events }));
+    expect(r.outcome).toBe("passed");
+  });
+
+  it("RegExp 对字符串输出测试", async () => {
+    const events: StreamEvent[] = [
+      { type: "action.called", callId: "c1", name: "shell", input: { command: "curl https://example.com/tutorials/x" } },
+      { type: "action.result", callId: "c1", output: "fetched tutorials/x", status: "completed" },
+    ];
+    const r = await evaluate(
+      Scoped.calledTool("shell", { input: { command: /curl/ }, output: /tutorials\// }),
+      ctxWith({ events }),
+    );
+    expect(r.outcome).toBe("passed");
+  });
+
+  it("谓词函数拿原始输出自行判断", async () => {
+    const events: StreamEvent[] = [
+      { type: "action.called", callId: "c1", name: "get_weather", input: {} },
+      { type: "action.result", callId: "c1", output: { tempF: 72 }, status: "completed" },
+    ];
+    const r = await evaluate(
+      Scoped.calledTool("get_weather", { output: (output) => (output as { tempF?: number })?.tempF! > 70 }),
+      ctxWith({ events }),
+    );
+    expect(r.outcome).toBe("passed");
+  });
+
+  it("其余值严格相等", async () => {
+    const events: StreamEvent[] = [
+      { type: "action.called", callId: "c1", name: "count_items", input: {} },
+      { type: "action.result", callId: "c1", output: 42, status: "completed" },
+    ];
+    const passing = await evaluate(Scoped.calledTool("count_items", { output: 42 }), ctxWith({ events }));
+    expect(passing.outcome).toBe("passed");
+    const failing = await evaluate(Scoped.calledTool("count_items", { output: 43 }), ctxWith({ events }));
+    expect(failing.outcome).toBe("failed");
+  });
+});
+
+describe("calledTool:count 数字精确 vs 谓词", () => {
+  const twoCalls: StreamEvent[] = [
+    { type: "action.called", callId: "c1", name: "file_read", input: { path: "a" } },
+    { type: "action.result", callId: "c1", output: "a", status: "completed" },
+    { type: "action.called", callId: "c2", name: "file_read", input: { path: "b" } },
+    { type: "action.result", callId: "c2", output: "b", status: "completed" },
+  ];
+
+  it("谓词命中次数自行判定:complete 通道下满足即 passed", async () => {
+    const r = await evaluate(Scoped.calledTool("file_read", { count: (n) => n >= 2 }), ctxWith({ events: twoCalls }));
+    expect(r.outcome).toBe("passed");
+  });
+
+  it("谓词不满足且 complete 通道:failed(不是 unavailable)", async () => {
+    const r = await evaluate(Scoped.calledTool("file_read", { count: (n) => n >= 3 }), ctxWith({ events: twoCalls }));
+    expect(r.outcome).toBe("failed");
+  });
+
+  it("谓词不满足且通道非 complete:unavailable——谓词 count 从不算「确凿超出」", async () => {
+    const r = await evaluate(
+      Scoped.calledTool("file_read", { count: (n) => n === 1 }),
+      ctxWith({ events: twoCalls, coverage: INCOMPLETE_ACTIONS }),
+    );
+    expect(r.outcome).toBe("unavailable");
+  });
+
+  it("数字精确 count 在实测超出时是确凿失败,即使通道非 complete", async () => {
+    const r = await evaluate(
+      Scoped.calledTool("file_read", { count: 1 }),
+      ctxWith({ events: twoCalls, coverage: INCOMPLETE_ACTIONS }),
+    );
+    expect(r.outcome).toBe("failed");
+  });
+});
+
+describe("calledTool:status 四态含 pending", () => {
+  it("称职 HITL 场景:called 但尚无 result 的调用以 pending 状态被断言命中", async () => {
+    const events: StreamEvent[] = [
+      { type: "action.called", callId: "c1", name: "send_email", input: { to: "a@b.com" } },
+    ];
+    const r = await evaluate(Scoped.calledTool("send_email", { status: "pending", count: 1 }), ctxWith({ events }));
+    expect(r.outcome).toBe("passed");
+  });
+
+  it("被拒绝后状态是 rejected,不是 pending 也不是 failed", async () => {
+    const events: StreamEvent[] = [
+      { type: "action.called", callId: "c1", name: "send_email", input: {} },
+      { type: "action.result", callId: "c1", status: "rejected" },
+    ];
+    const r = await evaluate(Scoped.calledTool("send_email", { status: "rejected" }), ctxWith({ events }));
+    expect(r.outcome).toBe("passed");
+    const stillPending = await evaluate(Scoped.calledTool("send_email", { status: "pending" }), ctxWith({ events }));
+    expect(stillPending.outcome).toBe("failed");
+  });
+
+  it("不带 status 过滤时匹配任意状态", async () => {
+    const events: StreamEvent[] = [
+      { type: "action.called", callId: "c1", name: "send_email", input: {} },
+    ];
+    const r = await evaluate(Scoped.calledTool("send_email"), ctxWith({ events }));
+    expect(r.outcome).toBe("passed");
+  });
+});
+
+describe("calledSubagent:remoteUrl 三种形态与 output", () => {
+  const events: StreamEvent[] = [
+    { type: "subagent.called", callId: "s1", name: "weather", remoteUrl: "https://weather.example/agent" },
+    { type: "subagent.completed", callId: "s1", output: "72F and sunny", status: "completed" },
+  ];
+
+  it("字符串精确匹配", async () => {
+    const r = await evaluate(
+      Scoped.calledSubagent("weather", { remoteUrl: "https://weather.example/agent" }),
+      ctxWith({ events }),
+    );
+    expect(r.outcome).toBe("passed");
+  });
+
+  it("RegExp 测试", async () => {
+    const r = await evaluate(Scoped.calledSubagent("weather", { remoteUrl: /weather\.example/ }), ctxWith({ events }));
+    expect(r.outcome).toBe("passed");
+  });
+
+  it("谓词函数自行判断,并与 output 一起 AND", async () => {
+    const r = await evaluate(
+      Scoped.calledSubagent("weather", {
+        remoteUrl: (url) => url === "https://weather.example/agent",
+        output: /72F/,
+      }),
+      ctxWith({ events }),
+    );
+    expect(r.outcome).toBe("passed");
+  });
+
+  it("subagent.called 尚无 completed 时以 pending 状态被断言命中", async () => {
+    const pendingEvents: StreamEvent[] = [{ type: "subagent.called", callId: "s2", name: "researcher" }];
+    const r = await evaluate(Scoped.calledSubagent("researcher", { status: "pending" }), ctxWith({ events: pendingEvents }));
+    expect(r.outcome).toBe("passed");
+  });
+
+  it("类型层:SubagentMatch.status 没有 rejected 成员(子 agent 委派没有 rejected 状态)", () => {
+    const match: SubagentMatch = {
+      // @ts-expect-error SubagentMatch 的 status 只有 pending | completed | failed,没有 rejected
+      status: "rejected",
+    };
+    expect(match.status).toBe("rejected");
+  });
+});

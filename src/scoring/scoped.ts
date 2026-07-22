@@ -11,7 +11,15 @@
 
 import { unavailable, type EvalUnavailable, type Spec } from "./collector.ts";
 import type { CoverageChannel } from "./coverage.ts";
-import type { ScoringContext, StreamEvent, SubagentCall, SubagentMatch, ToolCall, ToolMatch } from "../types.ts";
+import type {
+  JsonValue,
+  ScoringContext,
+  StreamEvent,
+  SubagentCall,
+  SubagentMatch,
+  ToolCall,
+  ToolMatch,
+} from "../types.ts";
 
 // ── 覆盖折叠 ──
 
@@ -55,15 +63,50 @@ function deepPartial(actual: unknown, expected: unknown): boolean {
   return actual === expected;
 }
 
+/**
+ * `match.input` 顶层的三种独立形态:RegExp 匹配序列化后的**完整输入**;谓词函数拿原始输入值
+ * 自行判断;plain object 做深度部分匹配(逐键复用 valueMatches,值位置仍可放 RegExp/谓词)。
+ * RegExp / 函数不是"键值对象",绝不落进下面的逐键枚举分支——否则会枚举 RegExp 实例自身的
+ * (空)可枚举属性,静默匹配一切调用。
+ */
+function matchTopLevelInput(actual: JsonValue, expected: NonNullable<ToolMatch["input"]>): boolean {
+  if (expected instanceof RegExp) {
+    try {
+      return expected.test(JSON.stringify(actual) ?? String(actual));
+    } catch {
+      return false;
+    }
+  }
+  if (typeof expected === "function") {
+    return Boolean((expected as (input: unknown) => unknown)(actual));
+  }
+  for (const [k, v] of Object.entries(expected)) {
+    const field = (actual as Record<string, unknown> | null | undefined)?.[k];
+    if (!valueMatches(field, v, actual)) return false;
+  }
+  return true;
+}
+
+/** 数字精确匹配次数;谓词对命中次数自行判定;省略即「至少一次」。 */
+function countSatisfies(n: number, count: number | ((n: number) => boolean) | undefined): boolean {
+  if (count === undefined) return n >= 1;
+  if (typeof count === "function") return Boolean(count(n));
+  return n === count;
+}
+
+/**
+ * 只有数字精确 count 才谈得上"确凿超出"(partial 通道只会少采,超出不可能是采集造成的);
+ * 谓词 count 不满足时缺证据的计数没有可信判定,一律走覆盖折叠。
+ */
+function isDefinitiveCountOvershoot(n: number, count: number | ((n: number) => boolean) | undefined): boolean {
+  return typeof count === "number" && n > count;
+}
+
 function toolMatches(tc: ToolCall, name: string, match?: ToolMatch): boolean {
   if (tc.name !== name && tc.originalName !== name) return false;
   if (match?.status && tc.status !== match.status) return false;
-  if (match?.input) {
-    for (const [k, expected] of Object.entries(match.input)) {
-      const actual = (tc.input as Record<string, unknown> | null | undefined)?.[k];
-      if (!valueMatches(actual, expected, tc.input)) return false;
-    }
-  }
+  if (match?.input !== undefined && !matchTopLevelInput(tc.input, match.input)) return false;
+  if (match?.output !== undefined && !valueMatches(tc.output, match.output, tc.output)) return false;
   return true;
 }
 
@@ -108,20 +151,45 @@ function subagentMatches(call: SubagentCall, name: string, match?: SubagentMatch
   if (match?.remoteUrl !== undefined) {
     const actual = call.remoteUrl ?? "";
     const expected = match.remoteUrl;
-    if (expected instanceof RegExp ? !expected.test(actual) : actual !== expected) return false;
+    if (expected instanceof RegExp) {
+      if (!expected.test(actual)) return false;
+    } else if (typeof expected === "function") {
+      if (!(expected as (url: string) => unknown)(actual)) return false;
+    } else if (actual !== expected) {
+      return false;
+    }
   }
+  if (match?.output !== undefined && !valueMatches(call.output, match.output, call.output)) return false;
   return true;
+}
+
+/** count 字段(number | 谓词 | 省略)的期望文案片段。 */
+function describeCountExpectation(count: number | ((n: number) => boolean) | undefined): string {
+  if (count === undefined) return "≥1";
+  if (typeof count === "function") return "matching count predicate";
+  return `exactly ${count}`;
 }
 
 /** ToolMatch 的期望描述(`≥1 call matching input.city = "Brooklyn"` 之类)。 */
 function describeToolExpectation(name: string, match?: ToolMatch): string {
   const conditions: string[] = [];
-  if (match?.input) {
-    for (const [k, v] of Object.entries(match.input)) conditions.push(`input.${k} = ${briefJson(v, 120)}`);
+  if (match?.input !== undefined) {
+    if (match.input instanceof RegExp) conditions.push(`input matches ${match.input}`);
+    else if (typeof match.input === "function") conditions.push("input matching predicate");
+    else for (const [k, v] of Object.entries(match.input)) conditions.push(`input.${k} = ${briefJson(v, 120)}`);
+  }
+  if (match?.output !== undefined) {
+    conditions.push(
+      match.output instanceof RegExp
+        ? `output matches ${match.output}`
+        : typeof match.output === "function"
+          ? "output matching predicate"
+          : `output = ${briefJson(match.output, 120)}`,
+    );
   }
   if (match?.status) conditions.push(`status = ${match.status}`);
   const cond = conditions.length ? ` matching ${conditions.join(", ")}` : "";
-  const count = match?.count !== undefined ? `exactly ${match.count} calls of ${name}` : `≥1 call of ${name}`;
+  const count = `${describeCountExpectation(match?.count)} calls of ${name}`;
   return `${count}${cond}`;
 }
 
@@ -190,13 +258,13 @@ export function calledTool(name: string, match?: ToolMatch): Spec {
     evaluate: (ctx) => {
       const matched = ctx.facts.toolCalls.filter((tc) => toolMatches(tc, name, match));
       const n = matched.length;
-      const ok = match?.count !== undefined ? n === match.count : n >= 1;
+      const ok = countSatisfies(n, match?.count);
       // 命中给命中调用的出入参;没命中给同名调用(条件不满足的近失);再没有就列出实际调过的工具。
       const sameName = ctx.facts.toolCalls.filter((tc) => tc.name === name || tc.originalName === name);
       const shown = matched.length ? matched : sameName.length ? sameName : ctx.facts.toolCalls;
       if (ok) return { score: 1, received: describeCalls(shown) };
-      // 精确 count 且实测已超出:partial 只会少采,超出是确凿失败;其余未命中按覆盖折叠。
-      const definitiveOvershoot = match?.count !== undefined && n > match.count;
+      // 精确 count 且实测已超出:partial 只会少采,超出是确凿失败;谓词 count 或其余未命中按覆盖折叠。
+      const definitiveOvershoot = isDefinitiveCountOvershoot(n, match?.count);
       if (!definitiveOvershoot) {
         const gap = coverageGap(ctx, "actions");
         if (gap) return gap;
@@ -324,9 +392,9 @@ export function calledSubagent(name: string, match?: SubagentMatch): Spec {
     evaluate: (ctx) => {
       const matched = ctx.facts.subagentCalls.filter((call) => subagentMatches(call, name, match));
       const n = matched.length;
-      const ok = match?.count !== undefined ? n === match.count : n >= 1;
+      const ok = countSatisfies(n, match?.count);
       if (ok) return { score: 1, received: describeSubagents(matched) };
-      const definitiveOvershoot = match?.count !== undefined && n > match.count;
+      const definitiveOvershoot = isDefinitiveCountOvershoot(n, match?.count);
       if (!definitiveOvershoot) {
         const gap = coverageGap(ctx, "actions");
         if (gap) return gap;

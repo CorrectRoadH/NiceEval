@@ -49,7 +49,7 @@ export interface AssertionBase {
   optional?: true;
   /** matcher / judge 摘要,如 `equals(4)`、`closedQA("…")`;与 name 分开,供 show/view 同时展示分组标题与检查方式。 */
   detail?: string;
-  /** 断言在 eval 源码中的调用点,`--eval` 把结果标回源码行的锚。 */
+  /** 断言在 eval 源码中的调用点,`--source` 把结果标回源码行的锚。 */
   loc?: SourceLoc;
 }
 

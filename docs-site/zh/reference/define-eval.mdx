@@ -176,8 +176,10 @@ requireInputRequest(filter?: InputRequestFilter): InputRequest;
 respond(...responses: (string | RespondAnswer)[]): Promise<TurnHandle>;
 ```
 
-回答默认会话里等待中的输入请求,返回续接的 TurnHandle。字符串形式按顺序对应各请求;
-多个请求并停、需要指名回答哪一条时用 RespondAnswer 对象形式(见其类型注释)。
+回答默认会话里等待中的输入请求,返回续接的 TurnHandle。字符串形式只在恰好一条待处理请求时
+才能自动对位——命中该请求 `options` 里的某个 id 就是 `optionId`,否则整句落自由文本;
+多个请求并停时字符串形式无法消歧,直接抛 `hitl.stringAmbiguous`,要求改用
+`{ request, optionId }` / `{ request, text }` 对象形式(RespondAnswer,见其类型注释)显式指名。
 
 #### `respondAll`
 

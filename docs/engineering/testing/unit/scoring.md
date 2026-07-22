@@ -43,6 +43,7 @@ Scope fixture 必须让三个接收者得到**不同答案**，才能发现 sele
 
 - **内置 matcher**：每个 matcher 覆盖会改变得分的等价类（命中/未命中/非法类型输入）、默认 severity、niceeval 附加语义（去重、行首识别、深相等、归一化范围）。不测试 JavaScript 标准库本身；`makeAssertion` 的错误捕获与文本回退（stack 优先、非 Error 值字符串化）单独证明。
 - **值断言入口**：`check` 记录后继续、`require` 失败按 gate 中止且通过时透传原引用、`group` 只组织报告不改变语义；值断言只评显式传入的值，不隐式读取 scope 证据；`CommandResult` 失败摘要的构成（首行、尾部段、evidence 取命令行）。
+- **ToolMatch/SubagentMatch 的 match 小语言**：`calledTool`/`notCalledTool`/`calledSubagent` 的 `match` 参数各字段独立形态与命中语义——`input` 顶层给对象是深度部分匹配、给 RegExp 是测序列化后的完整输入、给谓词函数是拿原始值自行判断，三种形态互不退化（回归：RegExp 实例误落深比对分支、枚举其自身空可枚举属性、静默匹配一切调用，必须锁死为不匹配）；`output` 同样支持深度部分匹配、RegExp（非字符串先序列化再测）、谓词函数与严格相等四种值语义；`count` 数字精确匹配与谓词自定义判定两种形态，且只有数字精确形态在实测超出时才是确凿失败，谓词形态不满足时按覆盖折叠走 `unavailable`；`remoteUrl` 字符串精确、RegExp、谓词函数三种形态；`status` 按 `ToolMatch` 四态（含 `pending`）与 `SubagentMatch` 三态（无 `rejected`）过滤，且不带 `status` 过滤时匹配任意状态。
 - **Scope**：同名断言挂三个接收者时按各自数据范围判定；session 时点快照不被后续事件追溯；新 session 事件进 `t.*` 聚合但不进主 session 即时视图；子序列匹配类断言的顺序语义；互斥断言对（`succeeded`/`parked`）在同一证据上反转；接收者专属能力不下放（类型负例）。
 - **Collector 生命周期**：链式句柄只改 severity/threshold 且 evaluate 恰好一次（这里断言调用次数是有意义的——"延迟断言只求值一次"本身是生命周期契约）；延迟断言 finalize 时求值、即时断言立即求值、两者产出同构 AssertionResult；五种评分来源折叠进同一 collector；AssertionResult 判别联合的字段构成与有界预览（含 `undefined` 值不崩溃）；判定只消费声明的字段。
 - **证据完整性**：负断言与上限断言在「完整且找到 / 完整且确认无 / 不完整」三态矩阵下的结果——不完整时绝不给出可信 passed；正断言缺数据时失败不猜；不用 OTel span 补写行为事件。这一族的 fixture 必须让完整性是显式字段。
