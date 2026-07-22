@@ -81,6 +81,9 @@
 |---|---|
 | `Sandbox` 统一接口 | `src/sandbox/types.ts`(`Sandbox`) |
 | Docker provider(dockerode,node:24-slim,非 root,tar 上传) | `src/sandbox/docker.ts`(编排)+ `src/sandbox/docker-stream.ts`(exec 流解复用 / tar 工具) |
+| Local provider(宿主机本地目录、零隔离;仓库根解析 / 显式 `dir`;`{ root: true }` 报错;`downloadDirectory` 复用 vercel/e2b 的 find+read 模板) | `src/sandbox/local.ts`(`LocalSandbox`) |
+| 变更分类账 GIT_DIR / 导出目录的按 sandboxId 覆盖登记(local 用宿主侧每实例私有临时目录,避免同机多次运行互相踩踏;其余 provider 用固定沙箱内路径,不登记) | `src/sandbox/ledger-paths.ts`;消费端在 `src/runner/ledger.ts`(`gitEnv` / `createChangeLedger` / `buildExportScript`) |
+| provider 级独占串行闸(`exclusive` 中性声明:`resolveSandbox()` 对 local 恒为 true,自定义 provider 由 `defineSandbox({ exclusive })` 声明;`--max-concurrency` / 实验级 `maxConcurrency` 都不解除) | `src/sandbox/resolve.ts`(`ResolvedSandbox.exclusive`)、`src/sandbox/types.ts`(`CustomSandboxSpec.exclusive`)、`src/runner/run.ts`(`providerExclusiveSems` / `exclusiveSemFor`) |
 | 三 provider 共享工具(shellQuote / find 脚本构造 / 宿主文件遍历) | `src/sandbox/shell.ts`、`src/sandbox/local-files.ts` |
 | `downloadDirectory`(vercel/e2b 共用的 find 列路径 + 逐文件二进制读取两阶段模板;docker 走 `getArchive` 单次 tar 取回,见上一行 docker-stream.ts) | `src/sandbox/download-directory.ts` |
 | NiceEval 公共 E2B baseline 的具名 release-pinned ref、官方起点派生 factory | `src/sandbox/e2b-agent-template.ts`(`NICEEVAL_*_E2B_TEMPLATE` / `e2bCodingAgentTemplate`) |
@@ -90,6 +93,7 @@
 | 沙箱编排固定段(变更分类账锚点 / 折叠 agent diff;起始文件上传是 `test()` 里的手工调用,不属于固定段) | `src/runner/sandbox-prep.ts` |
 | 沙箱生命周期钩子(`SandboxSpec.setup()` / `.teardown()` 链式方法、多钩子顺序、失败语义；`SandboxHook` / `SandboxHookContext` 从 `niceeval/sandbox` 公开导出) | `src/sandbox/types.ts`(`SandboxHooks<Self>`,类型定义);`src/sandbox/index.ts`(公开类型出口);`src/runner/attempt.ts`(按序调用 `sandboxSetupHooks` / 逆序调用 `sandboxTeardownHooks`) |
 | 留存(`--keep-sandbox`):suspend 路由、detached 生命周期(inspect / wake / suspend / destroy)、provider 原生 enter 命令 | `src/sandbox/keep.ts`(provider 名分支只在 sandbox/ 域内)+ 各 provider 的 `suspend()`(`src/sandbox/{docker,e2b,vercel}.ts`) |
+| `--keep-sandbox` 的创建前组合校验(自定义 provider、或内置但不在 `KEEPABLE_PROVIDERS` 里的 provider 如 local,统一报清晰错误) | `src/runner/attempt.ts`(`runAttemptEffect` 顶部,读 `resolveSandbox().create` / `KEEPABLE_PROVIDERS`) |
 | 留存注册表(`.niceeval/sandboxes/` 逐条目原子文件、entry id 散列、向上发现 `.niceeval/`、条目级 lease) | `src/sandbox/keep-registry.ts`(+ 同目录 `.test.ts`) |
 | `niceeval sandbox list/enter/history/diff/stop` 命令组 | `src/sandbox/cli-commands.ts`(`runSandboxCommand`;dispatch 在 `src/cli.ts`) |
 
