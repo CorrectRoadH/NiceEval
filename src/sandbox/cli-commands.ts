@@ -22,6 +22,7 @@ import {
   type KeptSandboxEntry,
 } from "./keep-registry.ts";
 import { dockerOrphanCount, listOrphanCandidates, pruneOrphans, type OrphanCandidate } from "./orphans.ts";
+import { renderPanel, type PanelMode, type PanelRow } from "../report/model/panel.ts";
 
 export interface SandboxCommandFlags {
   all?: boolean;
@@ -39,9 +40,25 @@ export interface SandboxCommandFlags {
 interface Io {
   out(text: string): void;
   err(text: string): void;
+  /** stdout 的 TTY 探测(面板 `mode` 的传输能力信号);省略时按 `process.stdout` 探测——
+   *  测试注入固定值,不依赖真实终端设备。 */
+  isTTY?: boolean;
+  /** stdout 的显示列数;省略时按 `process.stdout.columns` 探测,取不到时兜底 80。 */
+  columns?: number;
 }
 
 const LEASE_TTL_MS = 60 * 60 * 1000;
+
+/** `list`/`history` 一次性面板的传输能力:是 TTY 且没有要求朴素输出时才画框
+ *  (docs/feature/sandbox/cli.md「输出体裁」)——`sandbox` 命令组只在启动时探测一次,
+ *  不像 `exp` 的 live 面板那样需要随 resize 重新判断。 */
+function panelCapabilityOf(io: Io): { mode: PanelMode; width: number } {
+  const isTTY = io.isTTY ?? process.stdout.isTTY;
+  const mode: PanelMode = isTTY === true && process.env.NO_COLOR === undefined ? "boxed" : "plain";
+  const columns = io.columns ?? process.stdout.columns;
+  const width = Number.isFinite(columns) && (columns ?? 0) > 0 ? (columns as number) : 80;
+  return { mode, width };
+}
 
 /** 入口:`niceeval sandbox <list|enter|history|diff|stop> …`;返回退出码。 */
 export async function runSandboxCommand(
@@ -60,13 +77,13 @@ export async function runSandboxCommand(
   }
   switch (sub) {
     case "list":
-      return flags.orphans ? listOrphansCommand(root, io) : listCommand(root, io);
+      return flags.orphans ? listOrphansCommand(root, io) : listCommand(root, io, panelCapabilityOf(io));
     case "stop":
       return stopCommand(root, positionals.slice(1), flags, io);
     case "enter":
       return enterCommand(root, positionals.slice(1), flags, io);
     case "history":
-      return historyCommand(root, positionals.slice(1), flags, io);
+      return historyCommand(root, positionals.slice(1), flags, io, panelCapabilityOf(io));
     case "diff":
       return diffCommand(root, positionals.slice(1), flags, io);
     case "prune":
@@ -154,26 +171,47 @@ export async function keptSandboxReminder(cwd: string): Promise<string | undefin
   return `${entries.length} kept sandbox${entries.length === 1 ? "" : "es"} from earlier runs — niceeval sandbox list\n`;
 }
 
-async function listCommand(root: string, io: Io): Promise<number> {
+/** 每个留存条目在 `SANDBOXES` 面板里占两行:身份行(ID/PROVIDER/STATE/FROM)紧跟一条
+ *  缩进到 ID 列宽的提示行(下一步动作各不相同,批量 stop --all 不能当默认下一步,所以下边框
+ *  不嵌命令——见 docs/feature/sandbox/cli.md「sandbox list」)。 */
+const LIST_ID_COL = 10;
+const LIST_PROVIDER_COL = 10;
+const LIST_STATE_COL = 10;
+
+async function listCommand(root: string, io: Io, panel: { mode: PanelMode; width: number }): Promise<number> {
   const { entries } = await readKeptEntries(root);
   if (entries.length === 0) {
     io.out("No kept sandboxes.\n");
     return 0;
   }
-  io.out(`ID        PROVIDER  STATE            FROM\n`);
+  const rows: PanelRow[] = [
+    { kind: "line", text: `${"ID".padEnd(LIST_ID_COL)}${"PROVIDER".padEnd(LIST_PROVIDER_COL)}${"STATE".padEnd(LIST_STATE_COL)}FROM` },
+  ];
   for (const { id, entry } of entries) {
     // STATE 是当下核对的现场状态,不是登记时的旧值。
     const state = await inspectDetached(entry.provider, entry.sandboxId);
     if (state !== entry.state) await updateKeptEntry(root, id, { state }).catch(() => false);
-    const from = `${entry.evalId} #${entry.attempt} · ${entry.verdict} · ${entry.locator} · ${formatWhen(entry.keptAt)}`;
-    io.out(`${id.padEnd(10)}${entry.provider.padEnd(10)}${state.padEnd(17)}${from}\n`);
+    const from = `${entry.evalId} #${entry.attempt} · ${entry.verdict} · ${entry.locator}`;
+    rows.push({
+      kind: "line",
+      text: `${id.padEnd(LIST_ID_COL)}${entry.provider.padEnd(LIST_PROVIDER_COL)}${state.padEnd(LIST_STATE_COL)}${from}`,
+    });
+    const indent = " ".repeat(LIST_ID_COL);
     if (state === "expired") {
       const when = entry.expiresAt !== undefined ? `expired ${formatWhen(entry.expiresAt)} — ` : "";
-      io.out(`            ${when}remove with: niceeval sandbox stop ${id}\n`);
+      rows.push({ kind: "line", text: `${indent}${when}remove: niceeval sandbox stop ${id}` });
     } else {
-      io.out(`            enter: niceeval sandbox enter ${id}\n`);
+      rows.push({ kind: "line", text: `${indent}${formatWhen(entry.keptAt)} · enter: niceeval sandbox enter ${id}` });
     }
   }
+  const lines = renderPanel({
+    title: "SANDBOXES",
+    meta: `${entries.length} kept`,
+    rows,
+    width: panel.width,
+    mode: panel.mode,
+  });
+  io.out(`${lines.join("\n")}\n`);
   return 0;
 }
 
@@ -356,7 +394,32 @@ async function withWokenSandbox<T>(
   }
 }
 
-async function historyCommand(root: string, ids: string[], _flags: SandboxCommandFlags, io: Io): Promise<number> {
+/** 一个提交的文件级改动(`git diff --name-status <hash>^ <hash>`),`status` 是 git 的单字母
+ *  改动类型(M/A/D/…)。第一个提交(anchor,没有父提交)不调这个函数——它是基线,不是改动。 */
+async function commitFileChanges(entry: KeptSandboxEntry, hash: string): Promise<{ status: string; path: string }[]> {
+  const out = await execInKept(entry, `git diff --name-status ${hash}^ ${hash} 2>/dev/null`);
+  return out
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      const tab = line.indexOf("\t");
+      return tab === -1 ? { status: line, path: "" } : { status: line.slice(0, tab), path: line.slice(tab + 1) };
+    });
+}
+
+/** 窗口 / eval 阶段标签列宽(与 "agent"/"eval" 关键词列共用同一份对齐规则,见
+ *  docs/feature/sandbox/cli.md「sandbox history / diff」的示例输出)。 */
+const HISTORY_LABEL_COL = 8;
+const HISTORY_EVAL_COUNT_COL = 20;
+
+async function historyCommand(
+  root: string,
+  ids: string[],
+  _flags: SandboxCommandFlags,
+  io: Io,
+  panel: { mode: PanelMode; width: number },
+): Promise<number> {
   const resolved = await resolveEntries(root, ids.slice(0, 1), io);
   if (!resolved || resolved.length === 0) {
     if (ids.length === 0) io.err("usage: niceeval sandbox history <id>\n");
@@ -365,27 +428,67 @@ async function historyCommand(root: string, ids: string[], _flags: SandboxComman
   const { id, entry } = resolved[0]!;
   try {
     const out = await withWokenSandbox(root, id, entry, () =>
-      execInKept(entry, `git log --reverse --format='%at %s' 2>/dev/null`),
+      execInKept(entry, `git log --reverse --format='%H %at %s' 2>/dev/null`),
     );
-    const lines = out.trim().split("\n").filter(Boolean);
-    if (lines.length === 0) {
+    const commits = out
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => {
+        const [hash, atRaw, ...rest] = line.split(" ");
+        return { hash: hash!, at: Number(atRaw), subject: rest.join(" ") };
+      });
+    if (commits.length === 0) {
       io.out("(no ledger found in this sandbox)\n");
       return 0;
     }
-    for (const line of lines) {
-      const space = line.indexOf(" ");
-      const at = new Date(Number(line.slice(0, space)) * 1000);
-      const subject = line.slice(space + 1);
-      if (subject === "anchor") {
-        io.out(`anchor  ${formatWhen(at.toISOString())}\n`);
-      } else if (subject.startsWith("eval ")) {
-        io.out(`eval    (window ${subject.slice(5)} 之前的 fixture / setup / 校验写入)\n`);
-      } else if (subject.startsWith("agent ")) {
-        io.out(`${subject.slice(6).padEnd(8)}agent\n`);
+
+    const anchor = commits.find((c) => c.subject === "anchor");
+    const meta = anchor ? `anchor ${formatWhen(new Date(anchor.at * 1000).toISOString())}` : undefined;
+
+    const rows: PanelRow[] = [];
+    let sawEvalCommit = false;
+    let lastWindow: string | undefined;
+    for (const c of commits) {
+      if (c.subject === "anchor") continue;
+      if (c.subject.startsWith("eval ")) {
+        // 第一次出现的 eval 提交是运行前的 fixture / setup;之后每次都是某轮 send 之后的
+        // 校验写入——两者用同一份改动计数,只是阶段标签不同(见 docs 示例)。
+        const label = sawEvalCommit ? "post-send validation" : "fixture / setup";
+        sawEvalCommit = true;
+        const changes = await commitFileChanges(entry, c.hash);
+        const count = `+${changes.length} file${changes.length === 1 ? "" : "s"}`;
+        rows.push({
+          kind: "line",
+          text: `${"eval".padEnd(HISTORY_LABEL_COL)}${count.padEnd(HISTORY_EVAL_COUNT_COL)}(${label})`,
+        });
+      } else if (c.subject.startsWith("agent ")) {
+        const window = c.subject.slice(6);
+        lastWindow = window;
+        const changes = await commitFileChanges(entry, c.hash);
+        const changeText = changes.map((fc) => `${fc.status} ${fc.path}`).join(" · ");
+        rows.push({
+          kind: "line",
+          text: `${window.padEnd(HISTORY_LABEL_COL)}${"agent".padEnd(HISTORY_LABEL_COL)}${changeText}`,
+        });
       } else {
-        io.out(`${subject}\n`);
+        rows.push({ kind: "line", text: c.subject });
       }
     }
+
+    const footerCommand =
+      lastWindow !== undefined
+        ? `niceeval sandbox diff ${entry.sandboxId} --window ${lastWindow}`
+        : `niceeval sandbox diff ${entry.sandboxId}`;
+    const lines = renderPanel({
+      title: `HISTORY · ${entry.sandboxId}`,
+      meta,
+      footerCommand,
+      rows,
+      width: panel.width,
+      mode: panel.mode,
+    });
+    io.out(`${lines.join("\n")}\n`);
     return 0;
   } catch (e) {
     io.err(`${e instanceof Error ? e.message : String(e)}\n`);

@@ -85,9 +85,12 @@ function entry(over: Partial<KeptSandboxEntry> = {}): KeptSandboxEntry {
   };
 }
 
-function collectOut() {
+function collectOut(capability: { isTTY?: boolean; columns?: number } = {}) {
   const lines: string[] = [];
-  return { io: { out: (s: string) => lines.push(s), err: (s: string) => lines.push(s) }, lines: () => lines.join("") };
+  return {
+    io: { out: (s: string) => lines.push(s), err: (s: string) => lines.push(s), ...capability },
+    lines: () => lines.join(""),
+  };
 }
 
 /** cli-commands.ts 的 formatWhen() 按本地时区渲染 "YYYY-MM-DD HH:MM";测试用同一算法算期望值,
@@ -112,7 +115,7 @@ describe("niceeval sandbox list — expired 分支", () => {
     expect(code).toBe(0);
     const out = lines();
     expect(out).toContain("expired");
-    expect(out).toContain("remove with: niceeval sandbox stop");
+    expect(out).toContain("remove: niceeval sandbox stop");
     // formatWhen 不导出,直接核对年月日片段而不依赖具体时区的时分表示。
     expect(out).toMatch(/expired 2026-08-13/);
   });
@@ -129,7 +132,7 @@ describe("niceeval sandbox list — expired 分支", () => {
     expect(code).toBe(0);
     const out = lines();
     expect(out).toContain("expired");
-    expect(out).toContain("remove with: niceeval sandbox stop");
+    expect(out).toContain("remove: niceeval sandbox stop");
     // 没有 expiresAt 时不拼出 "expired undefined" 一类假时刻。
     expect(out).not.toContain("expired undefined");
     expect(out).not.toMatch(/expired \d{4}-\d{2}-\d{2}/);
@@ -257,7 +260,7 @@ describe("sandbox history/diff — 能力路由", () => {
     mockInspectDetached.mockResolvedValue("dormant");
     mockWakeDetached.mockResolvedValue(undefined);
     mockSuspendDetached.mockResolvedValue(undefined);
-    mockExecInDetached.mockResolvedValue("1700000000 anchor\n");
+    mockExecInDetached.mockResolvedValue("abc123 1700000000 anchor\n");
 
     const { io, lines } = collectOut();
     const code = await runSandboxCommand(root, ["history", id], { run: niceevalRoot }, io);
@@ -417,5 +420,99 @@ describe("sandbox list --orphans / prune — 命令组编排(判定与销毁逻�
 
     expect(code).toBe(1);
     expect(lines()).toContain("failed to prune f31b9a02 (docker): docker daemon rejected removal");
+  });
+});
+
+describe("sandbox list/history — 一次性面板接线到 panel.ts", () => {
+  /** cli-commands.ts 的 formatWhen() 按本地时区渲染;测试用同一算法算期望 meta 文本
+   *  (与文件顶部的 localWhen 同一目的,这里额外接受一个 epoch 秒方便从 git 提交时间戳推导)。 */
+  function localWhenFromEpochSeconds(epochSeconds: number): string {
+    return localWhen(new Date(epochSeconds * 1000).toISOString());
+  }
+
+  it("history: 对着固定的 git 日志 fixture,完整输出与 docs/feature/sandbox/cli.md 的框线示例逐字一致", async () => {
+    const root = await makeRoot();
+    const niceevalRoot = join(root, ".niceeval");
+    await writeKeptEntry(niceevalRoot, entry({ provider: "docker", sandboxId: "a3f9c2d1", workdir: "/workspace" }));
+    const id = keptEntryId("docker", "a3f9c2d1");
+    mockDetachedCapabilityGap.mockReturnValue(undefined);
+
+    const anchorAt = 1_752_476_412; // 任意固定时刻,仅用于核对 meta 文案的推导算法
+    const commits = [
+      { hash: "h0", at: anchorAt, subject: "anchor" },
+      { hash: "h1", at: anchorAt + 1, subject: "eval s0" },
+      { hash: "h2", at: anchorAt + 2, subject: "agent turn1" },
+      { hash: "h3", at: anchorAt + 3, subject: "eval s1" },
+      { hash: "h4", at: anchorAt + 4, subject: "agent turn2" },
+    ];
+    const diffs: Record<string, string> = {
+      h1: "A\tfixture-a.json\nA\tfixture-b.json\nA\tfixture-c.json",
+      h2: "M\tmanager_decisions.json",
+      h3: "M\tnotes/status.md",
+      h4: "M\tmanager_decisions.json\nA\tnotes/decision-log.md",
+    };
+    mockExecInDetached.mockImplementation(async (_provider: string, _sandboxId: string, _workdir: string, script: string) => {
+      if (script.includes("git log")) return commits.map((c) => `${c.hash} ${c.at} ${c.subject}`).join("\n");
+      const m = /git diff --name-status (\S+)\^ (\S+)/.exec(script);
+      if (m) return diffs[m[1]!] ?? "";
+      return "";
+    });
+
+    const { io, lines } = collectOut({ isTTY: true, columns: 82 });
+    const code = await runSandboxCommand(root, ["history", id], { run: niceevalRoot }, io);
+
+    expect(code).toBe(0);
+    const expectedMeta = `anchor ${localWhenFromEpochSeconds(anchorAt)}`;
+    const out = lines().replace(/\n$/, "").split("\n");
+    expect(out[0]!.startsWith("╭─ HISTORY · a3f9c2d1 ")).toBe(true);
+    expect(out[0]!.endsWith(`${expectedMeta} ─╮`)).toBe(true);
+    expect(out).toContain("│ eval    +3 files            (fixture / setup)                                  │");
+    expect(out).toContain("│ turn1   agent   M manager_decisions.json                                       │");
+    expect(out).toContain("│ eval    +1 file             (post-send validation)                             │");
+    expect(out).toContain(
+      "│ turn2   agent   M manager_decisions.json · A notes/decision-log.md             │",
+    );
+    expect(out.at(-1)).toBe(
+      "╰──────────────────────────────── niceeval sandbox diff a3f9c2d1 --window turn2 ─╯",
+    );
+  });
+
+  it("history: 非 TTY(未声明 isTTY 的默认场景)不产生任何框字符,内容仍完整", async () => {
+    const root = await makeRoot();
+    const niceevalRoot = join(root, ".niceeval");
+    await writeKeptEntry(niceevalRoot, entry({ provider: "docker", sandboxId: "a3f9c2d1", workdir: "/workspace" }));
+    const id = keptEntryId("docker", "a3f9c2d1");
+    mockDetachedCapabilityGap.mockReturnValue(undefined);
+    mockExecInDetached.mockImplementation(async (_provider: string, _sandboxId: string, _workdir: string, script: string) => {
+      if (script.includes("git log")) return "h0 1752476412 anchor\nh1 1752476413 agent turn1";
+      if (script.includes("git diff")) return "M\tfile.txt";
+      return "";
+    });
+
+    const { io, lines } = collectOut(); // 不声明 isTTY
+    const code = await runSandboxCommand(root, ["history", id], { run: niceevalRoot }, io);
+
+    expect(code).toBe(0);
+    const out = lines();
+    expect(out).not.toMatch(/[╭╮╰╯├┤]/);
+    expect(out).toContain("HISTORY · a3f9c2d1");
+    expect(out).toContain("turn1");
+    expect(out).toContain("M file.txt");
+  });
+
+  it("list: isTTY 声明为真时产生框线字符(panel.ts 的产物),STATE 列仍如实反映核对结果", async () => {
+    const root = await makeRoot();
+    const niceevalRoot = join(root, ".niceeval");
+    await writeKeptEntry(niceevalRoot, entry());
+    mockInspectDetached.mockResolvedValue("dormant");
+
+    const { io, lines } = collectOut({ isTTY: true, columns: 82 });
+    const code = await runSandboxCommand(root, ["list"], { run: niceevalRoot }, io);
+
+    expect(code).toBe(0);
+    const out = lines();
+    expect(out).toMatch(/^╭─ SANDBOXES .* 1 kept ─╮$/m);
+    expect(out).toContain("dormant");
+    expect(out).toMatch(/^╰─+╯$/m);
   });
 });
