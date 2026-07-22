@@ -152,7 +152,7 @@ export default defineExperiment({
 
 `teardown` 里资源释放是必达底线,观测类动作(probe、指标上报)是 best-effort:给观测自己的短超时、失败不阻断,且在 `ctx.signal.aborted` 时直接跳过——中断路径上,一次可能挂起的观测不该挡在「拆容器、退租约」前面;无论观测成败,释放必须执行(`try/finally`)。
 
-`setup` 管的是**宿主机侧、每实验一份**的资源;别把其它层的活挪进来:沙箱内的环境预置(装二进制、预热)挂 `sandbox` spec 的链式钩子,任务夹具写 `EvalDef.setup` / `test(t)`,跨实验共享、run 之前就该存在的服务仍用外部编排(分工表见 [环境预置放哪](../sandbox/library.md#环境预置放哪))。运行时值要传给沙箱内的 agent 时,在 agent / sandbox 钩子里把闭包值写成沙箱内的 env 或配置文件——那是每 attempt 的事,发生在 `setup` 之后。
+`setup` 管的是**宿主机侧、每实验一份**的资源;别把其它层的活挪进来:沙箱内的环境预置(装二进制、预热)挂 `sandbox` spec 的链式钩子,任务 Fixture 写 `EvalDef.setup` / `test(t)`,跨实验共享、run 之前就该存在的服务仍用外部编排(分工表见 [环境预置放哪](../sandbox/library.md#环境预置放哪))。运行时值要传给沙箱内的 agent 时,在 agent / sandbox 钩子里把闭包值写成沙箱内的 env 或配置文件——那是每 attempt 的事,发生在 `setup` 之后。
 
 ### 与沙箱钩子在同一个实验文件里协作
 
@@ -191,7 +191,7 @@ export default defineExperiment({
 });
 ```
 
-一份实验文件从上往下读就是完整的运行说明:整场一次的宿主机资源在实验级钩子对里;每沙箱的写入与回存在 `sandbox` 链式钩子里,经闭包消费实验级产物;agent 怎么连自己、eval 的任务夹具各在 agent 定义与 `EvalDef` 里,不进实验文件。层的分工判据(随什么变化 × 活在哪一侧)见 [环境预置放哪](../sandbox/library.md#环境预置放哪)。
+一份实验文件从上往下读就是完整的运行说明:整场一次的宿主机资源在实验级钩子对里;每沙箱的写入与回存在 `sandbox` 链式钩子里,经闭包消费实验级产物;agent 怎么连自己、eval 的任务 Fixture 各在 agent 定义与 `EvalDef` 里,不进实验文件。层的分工判据(随什么变化 × 活在哪一侧)见 [环境预置放哪](../sandbox/library.md#环境预置放哪)。
 
 ### 多个实验共享同一套生命周期代码
 

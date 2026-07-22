@@ -2,10 +2,16 @@
 
 ## Severity
 
-- **gate**：硬要求，不通过即 failed。
-- **soft**：质量分；无阈值时只记录，带 `.atLeast(x)` 时仅在 strict 模式下影响 Verdict。
+- **gate**：硬要求，通过线默认 1（matcher 自身的及格线），不过即 failed。
+- **soft**：质量指标。**无通过线＝纯记录**，分数如实落盘、永不 fail；**有通过线**＝低于线记该条 failed，默认不改 Verdict，strict 模式下才计入。
 
-`.gate()` 使用 matcher 默认通过线，`.gate(x)` 指定硬阈值；`.atLeast(x)` 始终是 soft threshold。
+严重度句柄三个词、三种互不重叠的行为（对齐 eve）：
+
+- `.gate(x?)` —— 升级为硬要求。省略 `x` 用默认通过线 1；打分断言可给 `x` 指定硬阈值。
+- `.atLeast(x)` —— 降级为带通过线的 soft。`x` 是**分数线**：0/1 断言写 `.atLeast(1)`（挂了照实记 failed，`--strict` 才拖垮 Verdict），打分断言写 `.atLeast(0.7)`。
+- `.soft()` —— 降级为纯记录的 soft，不设线（judge 的默认严重度就是它）。**无参数**——要设线用 `.atLeast(x)`，不提供同义的 `soft(x)`。
+
+`.atLeast` 的参数是分数线，不是调用次数——「至少调用 n 次」在匹配条件的 `count` 里表达（数字恰好、谓词自定，见[作用域断言](../library/scoped-assertions.md#匹配条件的字段全集)）。
 
 ## Verdict
 
@@ -13,7 +19,7 @@ Verdict 只有 passed、failed、errored、skipped，按固定优先级取第一
 
 ```text
 执行异常、超时、作者错误，或任一非 optional 断言 unavailable   → errored
-任一 gate 不通过，或 strict 下 soft 低于阈值                   → failed
+任一 gate 不通过，或 strict 下任一 soft 不通过                 → failed
 显式 t.skip(reason)                                            → skipped
 否则                                                           → passed
 ```

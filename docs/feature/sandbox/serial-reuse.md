@@ -20,21 +20,21 @@
 |---|---|---|
 | `createSandbox` | 否 | 整组 eval **一次** |
 | `sandbox.setup`(环境层钩子) | 否 | 整组 eval **一次** |
-| `SandboxAgent.setup`(装 CLI / 写主配置) | 否 | 整组 eval **一次**,提前到夹具之前 |
-| `EvalDef.setup` / `test(t)` 里的夹具写入 | 是 | **每题**重置后重放 |
+| `SandboxAgent.setup`(装 CLI / 写主配置) | 否 | 整组 eval **一次**,提前到 Fixture 之前 |
+| `EvalDef.setup` / `test(t)` 里的 Fixture 写入 | 是 | **每题**重置后重放 |
 | `test(t)` 的 `t.send()` agent 运行 | 是 | **每题**重跑 |
 | eval / agent 收尾 | 是 | **每题** |
 | `sandbox.teardown`(环境层收尾)+ `stop` | 否 | 整组 eval **一次**,最后一题之后 |
 
-装好上面三层「否」之后,runner 落一笔**温基线** commit——它同时就是每题的变更归因锚点(见[变更归因:send 窗口与分类账](architecture.md#变更归因send-窗口与分类账)):夹具写在它之后仍是 eval 归因,`t.send()` 仍是 agent 归因,逐窗口 diff 语义一字不改。
+装好上面三层「否」之后,runner 落一笔**温基线** commit——它同时就是每题的变更归因锚点(见[变更归因:send 窗口与分类账](architecture.md#变更归因send-窗口与分类账)):Fixture 写在它之后仍是 eval 归因,`t.send()` 仍是 agent 归因,逐窗口 diff 语义一字不改。
 
-这里有一处相对默认链的**重排**:默认模式下 `SandboxAgent.setup` 排在 `EvalDef.setup` 之后(先夹具、后装 CLI),复用模式把 agent 安装提到温基线**之前**——因为它与本题无关,必须留在重置 floor 之下才不会被每题的 `git reset` 抹掉。
+这里有一处相对默认链的**重排**:默认模式下 `SandboxAgent.setup` 排在 `EvalDef.setup` 之后(先 Fixture、后装 CLI),复用模式把 agent 安装提到温基线**之前**——因为它与本题无关,必须留在重置 floor 之下才不会被每题的 `git reset` 抹掉。
 
-这个提前**永远合法**,复用模式不需要为它加任何「这个 setup 是不是偷看了某条 eval」的检测:`SandboxAgent.setup`(装 CLI、写 agent 主配置)按[配置归属不变量](../adapters/architecture/agent-contract.md#配置归属不变量)本就只随 experiment 变、不随 eval 变——MCP / skills / model / 主配置都从 adapter factory 与 experiment 进,不从「当前是哪条 eval」进。真去偷看当前 eval 状态的 adapter 已经违反了那条不变量,该当 bug 修,而不是让复用去容忍它、退化成「这条题走全新沙箱」在复用组里挖洞。按 eval 变的东西只有一个家——`EvalDef.setup` / `test(t)` 里的夹具,它本来就在每题重放。
+这个提前**永远合法**,复用模式不需要为它加任何「这个 setup 是不是偷看了某条 eval」的检测:`SandboxAgent.setup`(装 CLI、写 agent 主配置)按[配置归属不变量](../adapters/architecture/agent-contract.md#配置归属不变量)本就只随 experiment 变、不随 eval 变——MCP / skills / model / 主配置都从 adapter factory 与 experiment 进,不从「当前是哪条 eval」进。真去偷看当前 eval 状态的 adapter 已经违反了那条不变量,该当 bug 修,而不是让复用去容忍它、退化成「这条题走全新沙箱」在复用组里挖洞。按 eval 变的东西只有一个家——`EvalDef.setup` / `test(t)` 里的 Fixture,它本来就在每题重放。
 
 ### 每题重置 = `git reset --hard 温基线 && git clean`
 
-「清空 repo」不引入任何新机制,直接复用分类账已经在 workdir 上维护的 git:上一题跑完、diff 折叠完之后,把工作树 `git reset --hard` 回温基线那笔 commit,再 `git clean` 掉未跟踪文件(夹具、agent 新建的文件、构建产物),workdir 就回到「刚装完、还没碰任何题目」的状态。下一题在这张干净的工作树上重放自己的夹具、重取归因窗口。
+「清空 repo」不引入任何新机制,直接复用分类账已经在 workdir 上维护的 git:上一题跑完、diff 折叠完之后,把工作树 `git reset --hard` 回温基线那笔 commit,再 `git clean` 掉未跟踪文件(Fixture、agent 新建的文件、构建产物),workdir 就回到「刚装完、还没碰任何题目」的状态。下一题在这张干净的工作树上重放自己的 Fixture、重取归因窗口。
 
 不发明第二套 checkpoint / 快照机制是刻意的:分类账已经是「便携、增量、带内容、能支撑逐窗口归因的 git 引擎」(见架构文里选 git 的理由),温基线只是它上面多钉一个可 reset 回去的 commit。运行时 [`createCheckpoint` / `restoreCheckpoint`](library/prebuilt-environments.md#运行时-checkpointcreatecheckpoint--restorecheckpoint) 解决的是「跨沙箱搬文件系统片段」,与「同一沙箱内回退工作树」是两件事,本文不碰它。
 

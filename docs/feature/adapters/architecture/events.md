@@ -50,6 +50,6 @@ interface InputRequest {
 
 ## 派生事实
 
-`deriveRunFacts(events)` 统一折叠工具调用、subagent 调用、待输入请求、parked、消息数、压缩次数与 `context.injected` 次数（`contextInjections`）。Adapter 不预计算断言结果。只有 called 或只有 result 的情况属于 core 容错，不是正常映射契约。
+`deriveRunFacts(events)` 统一折叠工具调用、subagent 调用、待输入请求、parked、消息数、压缩次数与 `context.injected` 次数（`contextInjections`）。Adapter 不预计算断言结果。折叠按 `callId` 把 called 与 result 对成一条调用：配上 result 的取 result 的状态（`completed` / `failed` / `rejected`）；只有 called、尚未等到 result 的调用状态是 **`pending`**——HITL 停在审批上的调用就以这个状态被断言（`calledTool(name, { status: "pending" })`），不是容错分支。只有 result、没配上 called 的情况才属于 core 容错，不是正常映射契约。
 
 `context.injected` 不获得专属的 `Turn` 便利字段（不像 `message` 有 `Turn.message`）——它和 `thinking`、`compaction` 同一档次，通过 `Turn.events` / 跨轮 `events` 数组按 `type` 过滤读取；`contextInjections` 计数只回答「这一轮有没有发生过注入」这种存在性问题，不替代逐条读取原文用 `text`。

@@ -17,7 +17,7 @@
 
 ## Fixture 规范
 
-Context 测试不需要真实模型。Fixture 只实现 Agent 契约，按顺序返回预设 Turn，并记录收到的输入：
+Context 测试不需要真实模型。 Fixture 只实现 Agent 契约，按顺序返回预设 Turn，并记录收到的输入：
 
 ```ts
 import type { Agent, Turn, TurnInput } from "../../types.ts"

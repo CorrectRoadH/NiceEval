@@ -33,31 +33,43 @@ t.calledTool("get_weather", { count: 2 }); // 全 attempt
 | `eventsSatisfy(label, predicate)` | 用谓词检查事件流 |
 | `maxTokens(max)` / `maxCost(usd)` | token 或估算成本不超上限 |
 
-负断言和上限断言依赖完整证据；所需通道非 complete 时这些断言记为 `unavailable`（非 `.optional()` 断言评不了使 attempt `errored`），不会按空证据静默通过；正断言在非 complete 通道上没找到匹配同样记 `unavailable` 而不是 failed。覆盖声明与消费规则见 [证据与完整性](../architecture/evidence.md)。
+负断言和上限断言依赖完整证据；所需通道非 complete 时这些断言记为 `unavailable`（非 `.optional()` 断言评不了使 attempt `errored`），不会按空证据静默通过；正断言在非 complete 通道上没找到匹配同样记 `unavailable` 而不是 failed。`count` 为精确数字且实测已超出时是确凿失败（partial 通道只会少采，超出不可能是采集造成的）；`count` 为谓词且不满足时，非 complete 通道上一律记 `unavailable`——缺证据的计数没有可信的判定。覆盖声明与消费规则见 [证据与完整性](../architecture/evidence.md)。
 
 Sandbox 专属结果断言见 [断言 Sandbox 结果](../../sandbox/library/asserting-results.md)。
 
 ## 匹配条件的字段全集
 
-`calledTool` / `notCalledTool` 的 `match` 是 `ToolMatch`，多个字段之间是 AND：
+`calledTool` / `notCalledTool` 的 `match` 是 `ToolMatch`，多个字段之间是 AND。**一条调用的全部可断面——入参、次数、输出、状态——都在这一个 match 对象里表达**，不借助断言句柄：
 
 | 字段 | 语义 |
 |---|---|
 | `input?` | 入参匹配小语言：对象做**深度部分匹配**（写出的键值要求出现且相等，未写的忽略，嵌套递归比较；值位置可以放 `RegExp` 匹配该字段的字符串值）；顶层给 `RegExp` 匹配序列化后的完整输入；给谓词函数 `(input) => boolean` 拿原始值自行判断 |
-| `count?: number` | 精确匹配调用次数；省略只要求「至少一次」 |
-| `status?: "completed" \| "failed" \| "rejected"` | 只匹配处于该状态的调用 |
+| `count?: number \| ((n: number) => boolean)` | 数字＝恰好 n 次；谓词＝对命中次数自行判定（`(n) => n >= 2`）；省略＝至少一次 |
+| `output?` | 输出匹配，值语义同 `input` 的值位置：`RegExp` 对字符串输出测试（非字符串先序列化再测）；谓词拿原始输出自行判断；对象深度部分匹配；其余值严格相等 |
+| `status?: "pending" \| "completed" \| "failed" \| "rejected"` | 只匹配处于该状态的调用。`pending` 是已发起、尚无结果的调用——典型是 HITL 停在审批上的那一笔 |
 
-`calledSubagent` 的 `match` 是 `SubagentMatch`，语义同 `ToolMatch`：`{ count?: number; status?: "completed" | "failed"; remoteUrl?: string | RegExp }`，`remoteUrl` 只匹配指向该远程地址的子 Agent 委派。`event(type, opts?)` 的 `opts` 是 `{ count?: number }`，同样是精确次数。
+`calledSubagent` 的 `match` 是 `SubagentMatch`，语义同 `ToolMatch`：`{ count?: number | ((n: number) => boolean); status?: "pending" | "completed" | "failed"; remoteUrl?: string | RegExp | ((url: string) => boolean); output? }`——`remoteUrl` 只匹配指向该远程地址的子 Agent 委派，`output` 匹配子 Agent 的返回。`event(type, opts?)` 的 `opts` 是 `{ count?: number | ((n: number) => boolean) }`，语义同上。
 
 ```ts
 t.calledTool("get_weather", { input: { city: "Brooklyn" }, count: 1 });
-t.notCalledTool("bash", { input: { command: /npm i/ } }); // 值位置用 RegExp
+t.calledTool("file_read", { count: (n) => n >= 2 });           // 次数在 count 里,不是严重度修饰
+t.calledTool("shell", { input: { command: /curl/ }, output: /tutorials\// }); // 入参与输出一起断
+t.notCalledTool("bash", { input: { command: /npm i/ } });      // 值位置用 RegExp
 
-// HITL 拒绝分支:被拒的工具调用状态是 rejected,不是 failed
+t.calledSubagent("weather", {
+  remoteUrl: (url) => url === process.env.WEATHER_AGENT_URL,
+  output: /72F/,
+});
+
+// HITL:停在审批上的调用是 pending;被拒后是 rejected,不是 failed
+const draft = await t.send("发布前要我确认。");
+draft.calledTool("send_email", { status: "pending", count: 1 });
 const request = t.requireInputRequest({ optionIds: ["approve", "reject"] });
 await t.respond({ request, optionId: "reject" });
 t.calledTool("send_email", { status: "rejected" });
 ```
+
+严重度与匹配条件正交：作用域断言默认 gate；降级成软指标链 `.atLeast(1)`——参数是分数线，不是调用次数，次数在 `count` 里表达；只记录、不设线用无参 `.soft()`（裁决见 [Severity 与 Verdict](../architecture/severity-and-verdict.md#severity)）。
 
 ## 顺序与谓词
 

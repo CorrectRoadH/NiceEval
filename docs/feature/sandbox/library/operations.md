@@ -12,7 +12,6 @@
 | `uploadFile(path, content)` | 写一个 `Buffer` |
 | `readFile(path)` / `downloadFile(path)` | 分别读取文本或二进制内容 |
 | `fileExists(path)` | 判断文件是否存在 |
-| `readSourceFiles(opts?)` | 从 workdir 批量读取源码；opts 只控制过滤规则 |
 
 少量内联文本用 `writeFiles`，宿主目录用 `uploadDirectory`，二进制单文件用 `uploadFile`。
 
@@ -27,12 +26,15 @@ await t.sandbox.writeFiles({
 await t.sandbox.uploadFiles([{ path: "assets/logo.png", content: logoBuffer }]);
 ```
 
-`readSourceFiles` 的 `opts` 是 `{ extensions?; ignoreDirs?; ignoreFiles? }`：`extensions` 按扩展名收文件（不带点，默认 `ts/tsx/js/jsx`）、`ignoreDirs` 按目录名任意深度剪枝（默认 `.git/.next/node_modules/dist/build/coverage`）、`ignoreFiles` 按文件 basename 忽略（默认 `EVAL.ts/PROMPT.md`）。返回值是 `SourceFile[]`（`{ path, content }`，`.filter/.map` 照用）外加便利方法：`text()` 拼接全部内容（每段前带 `// path` 注释）、`code()` 同 `text()` 但先剥注释、`fileMatching(re)` / `fileMatchingAll(res)` 找内容命中的文件、`hasPath(re)` 判断是否存在命中路径：
+文本读取只有 `readFile(path)` 一个 API。批量读取、按扩展名过滤、拼接全文是普通代码，不设 `readSourceFiles` 这类带过滤约定的批量读取器——哪些扩展名算源码、哪些目录该剪枝因项目而异，收进 API 就成了约定式黑箱。要聚合就用命令表达，要评 agent 的改动则直接读 `t.sandbox.diff`（归因增量，起始 fixture 不会混进来，见[断言结果](asserting-results.md)）：
 
 ```ts
-const source = await t.sandbox.readSourceFiles({ extensions: ["py"] });
-t.check(source.code(), includes("def solve"));
-t.check(source.hasPath(/test_.*\.py$/), isTrue("有测试文件"));
+// 批量聚合:一条命令,过滤规则明明白白写在 eval 里
+const py = await t.sandbox.runShell("find . -name '*.py' -not -path './.venv/*' -exec cat {} +");
+t.check(py.stdout, includes("def solve"));
+
+// 评 agent 改动:用归因增量,不重读整棵工作区
+t.check(t.sandbox.diff.get("src/solver.py"), includes("def solve"));
 ```
 
 这些固定路径的文件操作会对瞬时网络错误自动做有限重试，包括 429、5xx、`fetch failed` 和连接重置。文件不存在、权限错误、取消或 Sandbox terminated 不重试。批量写重跑时仍覆盖同一组目标路径。

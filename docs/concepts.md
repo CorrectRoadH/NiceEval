@@ -24,7 +24,7 @@
 | 评分器 | Scorer | 把"结果"映射成分数的东西,三类:值断言、作用域断言、LLM-as-judge |
 | 断言 | Assertion | Scorer 的一次具体应用,带名字、严重度、可选阈值,产出 0–1 分数和过/挂 |
 | 判定 | Verdict | 一个 Eval 的评分判定,四态:`passed` / `failed` / `errored` / `skipped`,没有中间态 |
-| 严重度 | Severity | 断言的两档:gate 不过即 `failed`;soft 只记分,`--strict` 下低于阈值才降级 `failed` |
+| 严重度 | Severity | 断言的两档:gate 不过即 `failed`;soft 失败照实记录但默认不改判定,`--strict` 下才计入 |
 | Judge(LLM-as-judge) | Judge(LLM-as-judge) | 用一个大模型当裁判给开放式回答打分的 Scorer,默认 soft、无阈值,详见 [Scoring](feature/scoring/library/judge.md) |
 
 ### 被测对象与适配器
@@ -136,7 +136,7 @@
 
 **Verdict** / **判定** —— 一个 Eval 的评分判定,只有四态:`passed` / `failed` / `errored` / `skipped`。四态**按固定优先级折叠**,一条 attempt 同时满足多个条件时取最高的一档:**`errored`**(执行出错:超时、异常、作者错误)> **`failed`**(任一 gate 断言不过,或 `--strict` 下有 soft 断言低于阈值)> **`skipped`**(显式 `t.skip(reason)`)> **`passed`**。优先级不是可有可无的细节:`t.skip()` 之前已经记下的失败断言照样让这条判 `failed`,跳过不能掩盖已经暴露的失败;执行出错则压过一切,因为断言结果在出错的运行里不可信。**没有 `scored` 这个中间态**——soft 断言没达标,在非 `--strict` 下就是 `passed`,分数照样如实记录、供横向对比,只是不影响这四态判定。`failed` 只表示断言/评分不通过,`errored` 是环境、超时、adapter、agent runtime 等执行问题,两者互斥,报告、JUnit、CI 都按这个口径分开统计,别把 `errored` 当成 agent 任务做错了。
 
-**Severity** / **严重度** —— 断言的两档。**gate**:硬性要求,不过即判 `failed`,任何时候都生效。**soft**:质量分,不会单独让 eval 立即 `failed`——`.atLeast(x)` 本身就是 soft 带阈值的写法:非 `--strict` 下低于阈值仍判 `passed`(分数如实记录),`--strict` 下才降级为 `failed`;不调 `.atLeast()` 时走匹配器自己的默认档(如 judge 默认 soft、无阈值,纯记分永不 fail)。
+**Severity** / **严重度** —— 断言的两档。**gate**:硬性要求,通过线默认 1,不过即判 `failed`,任何时候都生效。**soft**:质量指标——无通过线纯记录、永不 fail(judge 默认档);有通过线时低于线照实记 failed,默认不改 Verdict,`--strict` 下才计入。句柄三个词互不重叠:`.gate(x?)` 升硬、`.atLeast(x)` 降软并设分数线(0/1 断言写 `.atLeast(1)`,打分断言写 `.atLeast(0.7)`)、无参 `.soft()` 纯记录。`.atLeast` 的参数是分数线不是调用次数——次数在匹配条件的 `count` 里表达。裁决见 [Severity 与 Verdict](feature/scoring/architecture/severity-and-verdict.md)。
 
 ## 被测对象与适配器
 
@@ -162,7 +162,7 @@
 
 **Dataset** / **数据集** —— 一组共享同一 `test` 逻辑、只有输入不同的 case。用 `loadYaml`/`loadJson` 读进来；没有业务身份的行导出 eval 数组，生成 `sql/0000`、`sql/0001`；已有稳定外部身份的行导出 keyed record，生成 `swelancer/15193` 这类 id。两者都由文件路径决定 id 前缀，不允许在 `defineEval` 内手写 id。
 
-**Discovery** / **发现** —— 运行器扫 `evals/` 找 `*.eval.ts` 与 `*.eval.tsx` 文件(要在 eval 里写 JSX 时用 `.tsx`,发现规则与 id 推导完全相同),据路径推导 id 并排序。没有目录层面的隐式发现——沙箱型 eval 和会话型 eval 一样,必须有一个 eval 文件;起始文件靠 `test()` 里手工 `t.sandbox.writeFiles` / `uploadFiles` 放进沙箱(见 [Eval Authoring](feature/eval/library.md#沙箱型手工把文件放进沙箱)),不靠运行器扫目录。
+**Discovery** / **发现** —— 运行器扫 `evals/` 找 `*.eval.ts` 与 `*.eval.tsx` 文件(要在 eval 里写 JSX 时用 `.tsx`,发现规则与 id 推导完全相同),据路径推导 id 并排序。没有目录层面的隐式发现——沙箱型 eval 和会话型 eval 一样,必须有一个 eval 文件;起始文件靠 `test()` 里手工 `t.sandbox.writeFiles` / `uploadFiles` 放进沙箱(见 [Eval 用例 · 沙箱 coding 任务](feature/eval/use-case/sandbox-coding.md)),不靠运行器扫目录。
 
 ## 运行与结果
 

@@ -79,7 +79,7 @@ budget 按**域**计,不是全局总闸:每个 experimentId 一个域(没有 exp
 沙箱冷启动的优先级排序(先预制环境、再小 setup、最后才是池化)在 [Sandbox · 性能](feature/sandbox/architecture.md#性能预制环境复用与预热)——provider 侧提供"创建、重置、销毁"的能力;什么时候预创建、什么时候复用是运行器的调度决策,契约如下:
 
 - **预热池**:开启后,运行器在调度开始时按 `min(预热池大小, 计划 attempt 数)` 预先创建同 spec 沙箱挂进池里;attempt 到达 `sandbox.create` 阶段时先领池中现货,领到则该阶段只计领取耗时,池空则回落到即时创建。池只在同一次 run 内存活,run 结束时未被领用的沙箱一并销毁。预热池不改变生命周期钩子的调用顺序:领到的沙箱仍在 attempt 里按[固定调用链](feature/sandbox/architecture.md#沙箱在生命周期里的位置)走一遍 `sandbox.setup` 链与分类账锚点。
-- **串行复用**:`--reuse-sandbox` 打开后,整批同基线 eval 共用一个热沙箱串行跑:不随 eval 变的层(`createSandbox`、`sandbox.setup` 链、`SandboxAgent.setup`)整组只执行一次,落成温基线 commit;题间把 workdir 重置回温基线(`git reset --hard` + 尊重分类账排除清单的 `git clean`),每题只重放 `EvalDef.setup` / `test(t)` 夹具。复用与并发互斥(一个热沙箱 = 一条执行道,并发钉成 1,显式 `--max-concurrency` 组合是创建前的用法错误),复用与指纹缓存双向绝缘(不消费携带、不产生命中);完整契约——温基线分层、诚实边界、同基线批次约束——见 [Sandbox · 串行复用](feature/sandbox/serial-reuse.md)。
+- **串行复用**:`--reuse-sandbox` 打开后,整批同基线 eval 共用一个热沙箱串行跑:不随 eval 变的层(`createSandbox`、`sandbox.setup` 链、`SandboxAgent.setup`)整组只执行一次,落成温基线 commit;题间把 workdir 重置回温基线(`git reset --hard` + 尊重分类账排除清单的 `git clean`),每题只重放 `EvalDef.setup` / `test(t)` Fixture。复用与并发互斥(一个热沙箱 = 一条执行道,并发钉成 1,显式 `--max-concurrency` 组合是创建前的用法错误),复用与指纹缓存双向绝缘(不消费携带、不产生命中);完整契约——温基线分层、诚实边界、同基线批次约束——见 [Sandbox · 串行复用](feature/sandbox/serial-reuse.md)。
 - [`--keep-sandbox`](feature/sandbox/cli.md) 与 `--reuse-sandbox` 互斥,组合在创建沙箱前报错:留存的现场必须属于那一次 attempt,不能被题间 `git reset` 抹掉后再当现场留下。预热池不受影响——run 结束时未被领用的池内沙箱照常销毁,留存只作用于跑过 attempt 的沙箱。
 
 ## 缓存:指纹去重
@@ -125,7 +125,7 @@ budget 按**域**计,不是全局总闸:每个 experimentId 一个域(没有 exp
 
 - **实验级** —— `ExperimentDef.setup` / `.teardown`:每实验整场至多一次、宿主机侧;`setup` 在本实验第一个要派发的 attempt 前跑,`teardown` 在全部 attempt 收尾后跑(中断、强清退出也跑,执行带 30s 清理上限);管每实验一份的共享服务(隧道、mock server),语义见 [Experiments · 实验级生命周期](feature/experiments/architecture.md#实验级生命周期setup-与-teardown)。
 - **沙箱级** —— 沙箱创建后、变更分类账锚点之前,运行器调用 `experiment.sandbox` 链上挂的环境钩子(`SandboxSpec.setup()` / `.teardown()`,见 [Sandbox · 沙箱生命周期钩子](feature/sandbox/library.md#沙箱生命周期钩子setup--teardown))。
-- **eval 级 / agent 级** —— 沙箱固定段("发现 → 调度 → 沙箱起停 / 分类账锚点 / 折叠 agent diff → 评分 → 报告"这条主轴)之内,还分出这条 eval 的任务夹具(`EvalDef.setup` 或 `test(t)`)和 agent 自己的一次性预置([`SandboxAgent.setup`](feature/adapters/architecture/agent-contract.md#生命周期不变量))。
+- **eval 级 / agent 级** —— 沙箱固定段("发现 → 调度 → 沙箱起停 / 分类账锚点 / 折叠 agent diff → 评分 → 报告"这条主轴)之内,还分出这条 eval 的任务 Fixture(`EvalDef.setup` 或 `test(t)`)和 agent 自己的一次性预置([`SandboxAgent.setup`](feature/adapters/architecture/agent-contract.md#生命周期不变量))。
 
 跨实验共享、生命周期长于一次 run 的外部服务(共享 DB、公司内网服务本体)仍然用外部编排(`docker compose` / CI 脚本)起停、经 env 传入——这类资源跨进程共享,不属于任何一次 run 的生命周期。完整分工表见 [环境预置放哪](feature/sandbox/library.md#环境预置放哪)。
 

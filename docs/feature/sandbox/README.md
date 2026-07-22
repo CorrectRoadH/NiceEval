@@ -34,7 +34,6 @@ interface Sandbox {
   // 文件 IO(相对路径 → workdir;targetDir 省略 → workdir)
   readFile(path: string): Promise<string>;                      // 文本;不存在直接抛
   fileExists(path: string): Promise<boolean>;
-  readSourceFiles(opts?: ReadSourceFilesOptions): Promise<SourceFiles>;  // 一次往返读全部源码
   writeFiles(files: Record<string, string>, targetDir?: string): Promise<void>;
   uploadFiles(files: SandboxFile[], targetDir?: string): Promise<void>;  // 批量,可含二进制
   uploadDirectory(localDir: string, targetDir?: string, opts?: { ignore?: string[] }): Promise<void>;
@@ -58,7 +57,7 @@ interface CommandOptions {
 
 这是 provider 实现和 runner 使用的底层接口,所以包含 `stop()`。eval 作者在 `test(t)` 里拿到的是 author-facing 的 `t.sandbox`:只暴露文件 IO、命令执行和结果断言 / diff,不暴露 `stop()`。沙箱生命周期由 runner 统一管理。
 
-`readSourceFiles` 返回的 `SourceFiles` 仍是一个 `SourceFile[]`(`.filter` / `.map` 照用),额外挂了 `text()` / `code()`(剥注释)/ `fileMatching(re)` / `fileMatchingAll(res)` / `hasPath(re)` 几个便利方法,省掉每个 eval 目录里手写的 source helper。`appendLog` 是可选方法:声明了意图的 adapter 照调,provider 没实现就是 no-op。
+文本读取只有一个 API:`readFile(path)` 读一个文件。批量读、按扩展名过滤、拼接全文这类聚合是普通代码——用 `runShell` 一条命令表达(`find`/`cat`),或对着已知路径循环 `readFile`;要评「agent 改了什么」时,正当材料本来就是 `t.sandbox.diff` 的归因增量,不是重读整棵工作区(起始 fixture 会混进来)。不提供 `readSourceFiles` 这类带过滤约定的批量读取器:过滤规则(哪些扩展名算源码、哪些目录该剪枝)因项目而异,收进 API 就成了约定式黑箱,违背「自组织优先于约定」。`appendLog` 是可选方法:声明了意图的 adapter 照调,provider 没实现就是 no-op。
 
 ### 为什么 `runCommand` 和 `runShell` 不合并成一个
 

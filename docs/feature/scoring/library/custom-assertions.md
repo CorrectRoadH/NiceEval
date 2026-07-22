@@ -46,7 +46,7 @@ function passesTypecheck(): Assertion {
 }
 ```
 
-产出的 matcher 与内置 matcher 一样可以链 `.gate(threshold?)` / `.atLeast(threshold)` 调级（见 [值断言 · 改严重度与阈值](value-assertions.md#改严重度与阈值)）。
+产出的 matcher 与内置 matcher 一样可以链 `.gate(threshold?)` / `.atLeast(threshold)` / `.soft()` 调级（见 [值断言 · 改严重度与阈值](value-assertions.md#改严重度与阈值)）。
 
 Assertion 适合评价一个值或一个 scope。跨 attempts 的 pass@k、均值和趋势属于 reporter metric，不应在单 attempt Assertion 中自行读取历史结果。
 

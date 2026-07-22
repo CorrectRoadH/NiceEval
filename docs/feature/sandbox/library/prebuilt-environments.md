@@ -42,7 +42,7 @@ export const e2b = e2bSandbox({
 3. **重建只在环境依赖变化时发生**:改了要装的 CLI 版本、系统包或模型 cache 才跑构建脚本;日常 `niceeval exp` 直接消费既有产物。
 4. **升级 agent CLI 版本 = 构建一个新 tag**,experiment 改引用即可、回滚可逆;不要原地覆盖同一个 tag——那会让"同一配置"在不同时间指向不同环境,跑分失去可比性。
 
-进不进预制产物的判据只有一条:**这内容是不是所有 attempt 都相同、且与本次实验的参数无关。** 按实验变化的内容(装不装某二进制、开不开预热)进 [`.setup()` 钩子](../library.md#沙箱生命周期钩子setup--teardown);按 eval 变化的任务夹具进 `test(t)`。
+进不进预制产物的判据只有一条:**这内容是不是所有 attempt 都相同、且与本次实验的参数无关。** 按实验变化的内容(装不装某二进制、开不开预热)进 [`.setup()` 钩子](../library.md#沙箱生命周期钩子setup--teardown);按 eval 变化的任务 Fixture 进 `test(t)`。
 
 ### Docker:Dockerfile 派生
 

@@ -46,7 +46,7 @@ type AssertionResult =
       outcome: "passed" | "failed";
       /** 归一化得分:值断言 0/1,judge 等打分断言 0..1。 */
       score: number;
-      /** soft 断言的 .atLeast(x) 阈值;没有设阈值则省略。 */
+      /** .atLeast(x) / .gate(x) 设的通过线;纯记录 soft 与默认线时省略。 */
       threshold?: number;
       /** 失败证据摘要:期望值 / 实际值的有界文本预览,供 show/view 直接展示。 */
       expected?: string;

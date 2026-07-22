@@ -29,8 +29,8 @@
 
 ## 边界
 
-- Gate 断言不受 `--strict` 影响,任何模式下不通过都 failed——`--strict` 只对带 `.atLeast(x)` 的 soft 生效。
-- 无阈值的 soft 在 `--strict` 下也只记录:没有线就没有「低于线」。
+- Gate 断言不受 `--strict` 影响,任何模式下不通过都 failed——`--strict` 只对带通过线的 soft 生效:打分断言的 `.atLeast(0.7)` 与 0/1 断言的 `.atLeast(1)` 都在此列。
+- 无参 `.soft()` 的纯记录断言在 `--strict` 下也只记录:没有线就没有「低于线」。
 - 断言评不了(judge 缺 key、证据通道不完整)是 `unavailable` 走 errored,不是 failed——`--strict` 不改变这条(见 [CLI](../cli.md))。
 
 ## 相关阅读

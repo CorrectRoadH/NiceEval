@@ -44,11 +44,11 @@ Provider 共同语义用同一组 contract cases 验证：内存 provider 在 un
 - **命令执行**：argv 传参不经 shell（含分号/美元符的参数原样送达——参数透传能发现错误的 shell 拼接，断言 mock 被调一次不能）；非零退出返回 CommandResult 而非抛异常；env 叠加不清空；root 的映射与不支持时报错；命令级超时；可选能力未实现时的 no-op 语义；执行入口永不被隐式重试。
 - **文件操作与 IO 重试**：只有幂等固定目标操作进默认重试；瞬时/非瞬时错误的分类边界；`fileExists` 遇瞬时错误必须抛出不伪装 false；重试耗尽抛回原始错误链；批量写的重跑等价性；读取 API 的缺失行为与二进制完整性。
 - **Provisioning 失败与重试**：原生限流归类、兜底瞬时分类器复用、可重试 kind 的退避与确定性错误零重试；退避期间归还并发槽位；有对账通道时先对账再重试、对账失败放弃并抛回原始错误、无通道时歧义类零重试；自定义 provider 不套用这层重试。相关裁决与踩坑见 memory 的 [sandbox-provision-ratelimit-retry](../../../../memory/sandbox-provision-ratelimit-retry.md)、[e2b-provision-429-duplicate-sandbox](../../../../memory/e2b-provision-429-duplicate-sandbox.md)。
-- **diff 与结果断言**：分类账锚点与 send 窗口归因（环境钩子、eval 夹具、send 后校验写入都不进 agent diff）；窗口标签与轮标签同枚 token、按等值匹配；默认排除与 ignore/include 的 glob 语义、nested repo 不静默吞改动；`noFailedShellCommands` 只看 agent 自己的调用；延迟断言 finalize 时对最终 diff 求值。
+- **diff 与结果断言**：分类账锚点与 send 窗口归因（环境钩子、eval Fixture、send 后校验写入都不进 agent diff）；窗口标签与轮标签同枚 token、按等值匹配；默认排除与 ignore/include 的 glob 语义、nested repo 不静默吞改动；`noFailedShellCommands` 只看 agent 自己的调用；延迟断言 finalize 时对最终 diff 求值。
 - **provider 选择与作者面**：sandbox 字段无裸字符串/无默认/无探测、两处皆空报错带下一步；自定义 provider 直接调用、核心路径无 provider 名分支；`t.sandbox` 的错误反馈带 API 名与 agent 名；反馈经管线不经 stdout。
 - **Checkpoint**：打包/解压失败直接抛错不冒充成功，临时归档按 finally 清理。
 - **Local provider**：仓库根解析与仓库外报错；只观察不还原（用户 git 状态不被触碰、stop 不删工作树）；不提权；与 keep 组合创建前报错。
-- **串行复用**：不随 eval 变的层整组只执行一次、夹具每题重放；题间重置尊重排除清单；温基线即归因锚点（跨题 diff 零串扰）；互斥与异构批次在创建前报错；与指纹缓存双向绝缘（复用 attempt 不作缓存来源，复用 run 也不消费携带——存在可携带终态时计划内 attempt 仍全量派发）；显式 `--max-concurrency` 组合是创建前用法错误且与值无关（`1` 也报），环境层并发缺省被覆盖为 1 并在 PLAN 标注。
+- **串行复用**：不随 eval 变的层整组只执行一次、 Fixture 每题重放；题间重置尊重排除清单；温基线即归因锚点（跨题 diff 零串扰）；互斥与异构批次在创建前报错；与指纹缓存双向绝缘（复用 attempt 不作缓存来源，复用 run 也不消费携带——存在可携带终态时计划内 attempt 仍全量派发）；显式 `--max-concurrency` 组合是创建前用法错误且与值无关（`1` 也报），环境层并发缺省被覆盖为 1 并在 PLAN 标注。
 - **孤儿核对与 prune**：创建期运行标识元数据的写入边界；孤儿三条件与 unverified 的保守判定；prune 的幂等、`--force` 语义与失败退出码。
 
 ## 不这样测

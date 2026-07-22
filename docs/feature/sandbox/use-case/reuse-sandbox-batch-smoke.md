@@ -2,7 +2,7 @@
 
 ## 解决什么问题
 
-改了公共 prompt、adapter 配置或共享夹具,想在本地把整组 eval 快速过一遍,看有没有明显挂。默认模式每个 attempt 一套全新沙箱:12 道题就是 12 次「起容器 + slim 镜像补系统依赖 + `npm install` + 装 agent CLI」。这批题共享同一套安装,重复付 12 次冷启动,总耗时被准备工作主导,真正跑题的时间只占零头。
+改了公共 prompt、adapter 配置或共享 Fixture,想在本地把整组 eval 快速过一遍,看有没有明显挂。默认模式每个 attempt 一套全新沙箱:12 道题就是 12 次「起容器 + slim 镜像补系统依赖 + `npm install` + 装 agent CLI」。这批题共享同一套安装,重复付 12 次冷启动,总耗时被准备工作主导,真正跑题的时间只占零头。
 
 ## 全流程
 
@@ -20,7 +20,7 @@
    ```
 
 3. 第一题开跑前付**唯一一次**安装:`createSandbox` → `sandbox.setup` 链 → `SandboxAgent.setup`,落成温基线。
-4. 之后每题只重放自己的 `EvalDef.setup` / `test(t)` 夹具;题与题之间 runner 把 workdir `git reset --hard` 回温基线再 `git clean`(尊重分类账排除清单,`node_modules` 这类目录不动),下一题近乎立即开跑。
+4. 之后每题只重放自己的 `EvalDef.setup` / `test(t)` Fixture;题与题之间 runner 把 workdir `git reset --hard` 回温基线再 `git clean`(尊重分类账排除清单,`node_modules` 这类目录不动),下一题近乎立即开跑。
 5. 结束反馈照常给判定汇总与 FAILED / NEXT;这些 attempt 落盘时带 `reuse` 标记,`show` / `view` 照常可查。
 
 ## 边界

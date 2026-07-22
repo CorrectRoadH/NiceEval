@@ -36,8 +36,7 @@ t.check(turn.data, matches(MySchema));
 `includes` / `excludes` 的 `opts` 是 `{ stripComments?: boolean }`：`stripComments` 先剥掉代码注释再匹配，用于只对真实代码断言、不被注释里的字面量干扰：
 
 ```ts
-const source = await t.sandbox.readSourceFiles();
-t.check(source.text(), excludes(/console\.log/, { stripComments: true }));
+t.check(t.sandbox.diff.get("src/weather.ts"), excludes(/console\.log/, { stripComments: true }));
 ```
 
 `satisfies` 的 `predicate` 是 `(value: unknown) => boolean`，真记 1 分、假记 0 分；`label` 进报告名：
@@ -52,10 +51,11 @@ t.check(turn.data, satisfies((v) => Array.isArray(v) && v.length <= 5, "最多 5
 
 ## 改严重度与阈值
 
-每个 matcher 都可以链 `.gate(threshold?)`、`.atLeast(threshold)` 或 `.optional()`，返回新的不可变 matcher，原实例不变、可复用：
+每个 matcher 都可以链 `.gate(threshold?)`、`.atLeast(threshold)`、`.soft()` 或 `.optional()`，返回新的不可变 matcher，原实例不变、可复用：
 
-- `.gate(t?)`：变硬门槛，不及格即整条 eval 不通过。省略阈值按「分数 > 0」及格，给了阈值按「分数 ≥ 阈值」。
-- `.atLeast(t)`：变软阈值，不及格默认不影响 verdict；`--strict` 下才使 verdict 变 failed。
+- `.gate(t?)`：变硬门槛，不及格即整条 eval 不通过。省略阈值用默认通过线 1（0/1 即「命中」），给了阈值按「分数 ≥ 阈值」。
+- `.atLeast(t)`：降级为带通过线的 soft——低于 `t` 照实记 failed，默认不影响 verdict，`--strict` 下才计入。`t` 是分数线：0/1 matcher 写 `.atLeast(1)`，打分 matcher（`similarity` 这类 0..1 的）写 `.atLeast(0.7)`。
+- `.soft()`：降级为纯记录的 soft，不设线，分数落盘、永不 fail；无参数，要设线用 `.atLeast(t)`。
 - `.optional()`：允许这条断言证据缺席——评不了时只记录 `unavailable`，不把 attempt 拖成 `errored`；与 severity 正交，主要用在依赖证据通道的作用域断言和 judge 上（[折叠规则](../architecture/severity-and-verdict.md#证据不可用unavailable不折叠成通过)）。
 
 ```ts
