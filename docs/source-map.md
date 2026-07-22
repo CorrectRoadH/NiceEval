@@ -96,6 +96,8 @@
 | `--keep-sandbox` 的创建前组合校验(自定义 provider、或内置但不在 `KEEPABLE_PROVIDERS` 里的 provider 如 local,统一报清晰错误) | `src/runner/attempt.ts`(`runAttemptEffect` 顶部,读 `resolveSandbox().create` / `KEEPABLE_PROVIDERS`) |
 | 留存注册表(`.niceeval/sandboxes/` 逐条目原子文件、entry id 散列、向上发现 `.niceeval/`、条目级 lease) | `src/sandbox/keep-registry.ts`(+ 同目录 `.test.ts`) |
 | `niceeval sandbox list/enter/history/diff/stop` 命令组 | `src/sandbox/cli-commands.ts`(`runSandboxCommand`;dispatch 在 `src/cli.ts`) |
+| 创建期运行标识元数据(host/pid/startedAt;docker label / e2b metadata,与 `niceeval.keep-candidate` / provision token 同通道)、孤儿三条件判定(`classifyRunIdentity`:同宿主+pid 存活→整个排除、同宿主+pid 不存活→orphan、异宿主→unverified) | `src/sandbox/run-identity.ts` |
+| `sandbox list --orphans` / `sandbox prune`(docker 按 label 查本地 daemon、e2b 按 metadata 过滤 SDK 列表,排除留存注册表条目;prune 幂等 + `--force` 语义,单台失败列出继续处理其余) | `src/sandbox/orphans.ts`(判定与销毁)+ `src/sandbox/cli-commands.ts`(`listOrphansCommand` / `pruneCommand` / `orphanReminder` 输出编排) |
 
 ## Scoring([feature/scoring/](feature/scoring/README.md))
 
@@ -127,7 +129,8 @@
 | 单 attempt 生命周期(沙箱 / OTLP 接收器 Scope、超时硬边界、沙箱编排固定段、LifecyclePhase 转换) | `src/runner/attempt.ts` |
 | 阶段计时树(`PhaseTiming` / `TimingNode`:enter / 失败标记 / 收尾段测量 / hook 与命令子节点) | `src/runner/timing.ts`(`TimingRecorder`;接线在 `src/runner/attempt.ts`) |
 | 变更分类账(workdir 外私有 git dir、锚点冻结排除清单、eval/agent 归因 commit、整相一条命令导出全部 send 窗口) | `src/runner/ledger.ts`(+ 同目录 `.test.ts`) |
-| 指纹缓存((eval 源码 + 运行配置) 哈希,跨 run 结果携入) | `src/runner/fingerprint.ts` |
+| 指纹缓存((eval 源码 + 运行配置) 哈希,携带以 attempt 为粒度——`planCarry` 逐条比较每个 attempt 自己的终态 + 指纹,产出 `carriedAttemptsByKey`(具体序号集合,不是整段 key 命中就携入);`run.ts` 的调度按这个具体序号集合跳过,缺失序号真实派发) | `src/runner/fingerprint.ts`(`planCarry`)、`src/runner/run.ts`(attempt 展开处按 `carriedAttemptsByKey.get(carryKey)?.has(i)` 跳过) |
+| 强杀后的收尾登记(`.niceeval/teardowns/` 逐条目原子文件,与留存注册表同纪律)+ 启动自愈(触发 setup 前核对本实验自己的遗留登记、同宿主 pid 已死则先补执行一次 teardown 再走本次 setup、反馈标注 `recovery: true`)+ `--teardown` 独立入口 | `src/runner/teardown-registry.ts`(登记表原子写/读/删)、`src/runner/run.ts`(`recoverStaleTeardownRegistration` / `ensureExperimentSetup` / `runExperimentTeardown` 的磁盘镜像写入与删除)、`src/cli.ts`(`--teardown` 分支 + 未选中实验的遗留提醒) |
 | reporter 编排 + 运行级汇总 + eval 级 reporter 作用域(scopeReporter / filterSummary)+ required/best-effort 兜错(runReporter) | `src/runner/report.ts` |
 | remote 占位 Sandbox / eval 级本地路径视图(Proxy) | `src/runner/remote-sandbox.ts` |
 | 反馈 coordinator(profile 解析、纯 reducer、human/agent/ci renderer、终端 sink、可注入 FeedbackIO) | `src/runner/feedback/{profile,reducer,renderer,human,agent,ci,sink,coordinator,io,testing,index}.ts` |
