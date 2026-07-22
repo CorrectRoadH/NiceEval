@@ -1,7 +1,7 @@
 // 断言收集器:test 期间记录断言(值断言就地、作用域断言延迟),test 结束后对完整运行
 // 结果(ScoringContext)统一 finalize 成 AssertionResult[],再交判定。
 
-import type { AssertionResult, ScoringContext, Severity, SourceLoc } from "../types.ts";
+import type { AssertionResult, ScoreEntry, ScoringContext, Severity, SourceLoc } from "../types.ts";
 import { captureLoc } from "../source-loc.ts";
 import { t } from "../i18n/index.ts";
 import { formatThrown } from "../util.ts";
@@ -45,24 +45,52 @@ export interface Spec {
   groupPath?: string[];
   /** 断言在 eval 源码里的调用点(record 时栈回溯抠出)。 */
   loc?: SourceLoc;
+  /**
+   * `.points(n)` 挂在这条断言上的挣分权重(仅计分制 eval 的 `t` 类型上可链):`n × score`。
+   * 运行时对全部 eval 一视同仁地记录(不需要按题型守护,见 docs/feature/experiments/score-points.md);
+   * 通过制 eval 的 `AssertionHandle` 类型上没有 `.points()`,作者写不出来,这里只是同一个宽 Spec
+   * 的可选字段。
+   */
+  points?: number;
   evaluate(ctx: ScoringContext): number | EvalScore | EvalUnavailable | Promise<number | EvalScore | EvalUnavailable>;
 }
 
-/** 作者拿到的可链式句柄,改严重度 / 阈值 / optional(回头改 spec)。 */
+/** 作者拿到的可链式句柄,改严重度 / 阈值 / optional / 计分权重(回头改 spec)。 */
 export interface RecordHandle {
   atLeast(threshold: number): RecordHandle;
   gate(threshold?: number): RecordHandle;
   /** 降级为纯记录的 soft:不设线,分数照实落盘、永不 fail(judge 的默认严重度就是它)。无参数——要设线用 .atLeast(x)。 */
   soft(): RecordHandle;
   optional(): RecordHandle;
+  /** 挂计分权重:`n` 必须是正有限数,非法值立即抛错(不是记一条失败断言)。 */
+  points(n: number): RecordHandle;
 }
 
 export class AssertionCollector {
   private readonly specs: Spec[] = [];
   private readonly groupStack: string[] = [];
+  private readonly entries: ScoreEntry[] = [];
 
   get hasEntries(): boolean {
     return this.specs.length > 0;
+  }
+
+  /** `t.score(label, n)` 的直接给分:立即记录(不像断言那样要等 finalize 求值),n 必须非负有限数。 */
+  score(label: string, points: number): void {
+    if (!Number.isFinite(points) || points < 0) {
+      throw new Error(t("scoring.scoreInvalid", { label, n: points }));
+    }
+    this.entries.push({
+      label,
+      points,
+      ...(this.groupStack.length > 0 ? { groupPath: this.groupStack.slice() } : {}),
+      loc: captureLoc(),
+    });
+  }
+
+  /** `t.score(...)` 记录的快照,供 finalize 时随 EvalResult 落盘;数组顺序 = 调用顺序。 */
+  get scoreEntries(): ScoreEntry[] {
+    return this.entries.slice();
   }
 
   /** t.group(title, fn) 期间入栈;栈内 record 的断言都打上当前分组路径(嵌套时外层在前)。 */
@@ -99,6 +127,13 @@ export class AssertionCollector {
       },
       optional() {
         spec.optional = true;
+        return handle;
+      },
+      points(n) {
+        if (!Number.isFinite(n) || n <= 0) {
+          throw new Error(t("scoring.pointsInvalid", { n }));
+        }
+        spec.points = n;
         return handle;
       },
     };
@@ -152,6 +187,9 @@ export class AssertionCollector {
         ...(expected !== undefined ? { expected } : {}),
         ...(received !== undefined ? { received } : {}),
         ...(evidence !== undefined ? { evidence } : {}),
+        // .points(n) 挂了才有:0/1 断言通过挣 n、不过挣 0;打分断言按连续分比例挣 n × score。
+        // 求值抛错时 score 已经归零(见上面的 catch),points 自然也归零,不需要再判一次。
+        ...(spec.points !== undefined ? { points: spec.points * score } : {}),
       });
     }
     return out;

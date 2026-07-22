@@ -132,6 +132,11 @@ export const zhCN = {
   "cli.experiment.noEvalsSelected":
     "未选择任何 eval:{{selection}} 匹配到 0 个 eval。可用的 eval 前缀:{{experiments}}。\n" +
     "运行 `niceeval exp {{selection}} --dry` 查看它覆盖了什么,或去掉 eval 过滤跑这些实验选中的全部 eval。\n",
+  "cli.experiment.mixedScoring":
+    "实验 \"{{experimentId}}\" 选中的 eval 混了两种题型:{{passCount}} 个通过制(defineEval)—— {{passIds}} —— " +
+    "与 {{pointsCount}} 个计分制(defineScoreEval)—— {{pointsIds}}。\n" +
+    "通过率与总分不能折成一个读数;按 tags / id 前缀 / scoring 字段收窄 `evals`,让选中的 eval 同一题型," +
+    "或拆成两个实验文件(每种题型一个)。\n",
   "cli.experimentGroup": "路径",
   "cli.fallbackCleanupTimeout": "\ngraceful 清理超时,强制清理沙箱…\n",
   "cli.forceCleanupExit": "\n强制清理沙箱并退出…\n",
@@ -163,6 +168,11 @@ export const zhCN = {
   "define.evalIdRejected": "defineEval 不接受 id —— id 由文件路径推导。",
   "define.evalEnvironmentEmpty": "defineEval 的 environment 如有提供，必须是非空的 profile id。",
   "define.evalTestRequired": "defineEval 需要一个 async test(t) 函数。",
+  "define.evalScoringRejected": "defineEval 不接受 scoring —— 恒定为 \"pass\"(通过制)。计分制请用 defineScoreEval。",
+  "define.scoreEvalIdRejected": "defineScoreEval 不接受 id —— id 由文件路径推导。",
+  "define.scoreEvalEnvironmentEmpty": "defineScoreEval 的 environment 如有提供，必须是非空的 profile id。",
+  "define.scoreEvalTestRequired": "defineScoreEval 需要一个 async test(t) 函数。",
+  "define.scoreEvalScoringRejected": "defineScoreEval 不接受 scoring —— 恒定为 \"points\"(计分制)。通过制请用 defineEval。",
   "define.experimentAgentRequired": "defineExperiment 需要 agent。",
   "define.experimentFlagNotJson": "experiment.flags.{{key}} 不是可 JSON 序列化的值(函数 / undefined / 循环引用 / bigint 不允许);flags 会原样进入结果快照,必须是纯 JSON。",
   "define.experimentLabelInvalid": "experiment.labels.{{key}} 必须是字符串或有限数字;labels 是报告侧的归类坐标,会原样进入结果快照。",
@@ -309,6 +319,8 @@ export const zhCN = {
   "sandbox.stopFailed": "  · [sandbox] 停沙箱 {{id}} 失败(已忽略,靠 provider 过期兜底):{{message}}\n",
   "sandbox.stopTimeout": "stop 超时({{timeoutMs}}ms)",
   "scoring.evalError": "评估出错: {{error}}",
+  "scoring.pointsInvalid": ".points({{n}}) 非法;给分必须是正有限数(n > 0)。",
+  "scoring.scoreInvalid": "t.score({{label}}, {{n}}) 非法;给分必须是非负有限数(n >= 0)。",
   "session.fileFallback": "[file]",
   "session.tools": "{{count}} 工具",
   "session.turn.primary": "第{{turn}}轮",

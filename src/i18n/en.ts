@@ -137,6 +137,11 @@ export const en = {
   "cli.experiment.noEvalsSelected":
     "No evals selected: {{selection}} matched 0 evals. Available eval prefixes: {{experiments}}.\n" +
     "Run `niceeval exp {{selection}} --dry` to see what it covers, or drop the eval filter to run every eval selected by those experiments.\n",
+  "cli.experiment.mixedScoring":
+    'experiment "{{experimentId}}" selected evals of two scoring types: {{passCount}} pass-scoring (defineEval) — {{passIds}} — ' +
+    "and {{pointsCount}} points-scoring (defineScoreEval) — {{pointsIds}}.\n" +
+    "Pass rate and total score cannot be combined into one reading; narrow `evals` by tags, id prefix, or the `scoring` field " +
+    "so every selected eval is the same type, or split into two experiment files (one per type).\n",
   "cli.experimentGroup": " path",
   "cli.fallbackCleanupTimeout": "\ngraceful cleanup timed out; force-cleaning sandboxes...\n",
   "cli.forceCleanupExit": "\nForce-cleaning sandboxes and exiting...\n",
@@ -168,6 +173,11 @@ export const en = {
   "define.evalIdRejected": "defineEval does not accept id; ids are derived from file paths.",
   "define.evalEnvironmentEmpty": "defineEval environment must be a non-empty profile id when provided.",
   "define.evalTestRequired": "defineEval requires an async test(t) function.",
+  "define.evalScoringRejected": "defineEval does not accept scoring; it is always set to \"pass\" (pass-scoring eval type). Use defineScoreEval for the points-scoring type.",
+  "define.scoreEvalIdRejected": "defineScoreEval does not accept id; ids are derived from file paths.",
+  "define.scoreEvalEnvironmentEmpty": "defineScoreEval environment must be a non-empty profile id when provided.",
+  "define.scoreEvalTestRequired": "defineScoreEval requires an async test(t) function.",
+  "define.scoreEvalScoringRejected": "defineScoreEval does not accept scoring; it is always set to \"points\" (points-scoring eval type). Use defineEval for the pass-scoring type.",
   "define.experimentAgentRequired": "defineExperiment requires agent.",
   "define.experimentFlagNotJson": "experiment.flags.{{key}} is not JSON-serializable (functions / undefined / cycles / bigint are not allowed); flags are persisted verbatim into result snapshots and must be plain JSON.",
   "define.experimentLabelInvalid": "experiment.labels.{{key}} must be a string or a finite number; labels are report-side grouping coordinates persisted verbatim into result snapshots.",
@@ -316,6 +326,8 @@ export const en = {
   "sandbox.stopFailed": "  · [sandbox] failed to stop sandbox {{id}} (ignored; provider TTL should clean it up): {{message}}\n",
   "sandbox.stopTimeout": "stop timed out ({{timeoutMs}}ms)",
   "scoring.evalError": "evaluation error: {{error}}",
+  "scoring.pointsInvalid": ".points({{n}}) is invalid; points must be a positive finite number (n > 0).",
+  "scoring.scoreInvalid": "t.score({{label}}, {{n}}) is invalid; points must be a non-negative finite number (n >= 0).",
   "session.fileFallback": "[file]",
   "session.tools": "{{count}} tools",
   "session.turn.primary": "turn {{turn}}",

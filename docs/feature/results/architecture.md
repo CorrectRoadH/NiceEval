@@ -168,6 +168,10 @@ interface AttemptRecord {
   phases?: PhaseTiming[];
   /** 记录态断言;元素字段契约单独定义在 [Scoring · 断言记录](../scoring/architecture.md#断言记录assertionresult)。 */
   assertions: AssertionResult[];
+  /** 题型:`defineEval` → `"pass"`,`defineScoreEval` → `"points"`,定义期事实,与 `EvalDescriptor.scoring` 同源(见 [Experiments](../experiments/README.md#defineexperiment-的形状))。省略等价于 `"pass"`——兼容此字段引入前写入的落盘与未声明它的第三方 harness。 */
+  scoring?: "pass" | "points";
+  /** `t.score(label, n)` 的直接给分记录;元素字段契约见 [Scoring · 断言记录](../scoring/architecture.md#断言记录assertionresult)。只在 `scoring: "points"` 时出现,省略等价于空数组。 */
+  scoreEntries?: ScoreEntry[];
   /** 证据覆盖聚合:Agent 声明经各 turn 降级后的最差值,字段契约见 [Adapters · 证据与完整性](../adapters/architecture/evidence.md);省略 = 全通道 unknown(Adapter 未声明),消费侧按保守处理。 */
   coverage?: EvidenceCoverage;
   usage?: Usage;
@@ -302,7 +306,7 @@ interface DiagnosticRecord {
 }
 ```
 
-`sandbox` 是新增的可选字段(remote attempt 与旧 producer 都可以没有),老读取器按未知字段忽略,这类新增本身按本页版本规则不递增 `schemaVersion`。词表新增成员(如实验级两员)同理:消费方把 `phase` 当归因标签渲染,不得假设穷尽后拒绝未知成员,所以扩充词表不递增版本。
+`sandbox` 是新增的可选字段(remote attempt 与旧 producer 都可以没有),老读取器按未知字段忽略,这类新增本身按本页版本规则不递增 `schemaVersion`。词表新增成员(如实验级两员)同理:消费方把 `phase` 当归因标签渲染,不得假设穷尽后拒绝未知成员,所以扩充词表不递增版本。`scoring` / `scoreEntries` 同属这类新增:省略 `scoring` 按 `"pass"` 处理,省略 `scoreEntries` 按空数组处理,读取器不因这两个字段缺席而拒绝落盘。
 
 `phases` 缺失表示结果不是由带阶段计时的 runner 产出。数组顺序就是执行顺序；不适用、未定义或没有执行的阶段不写 0 值条目。`eval.teardown` / `agent.teardown` / `sandbox.teardown` / `sandbox.stop` 是收尾段：主链抛错后它们照常执行、照常计时，各自可独立标 `failed`（对应 teardown diagnostic，不改判定），且不计入 `durationMs` 口径——「结果早已确定、收尾还卡着」的耗时因此可归因。结果封口必须发生在 Effect Scope 的 release 完成之后：`sandbox.stop` 与 receiver close 这类 finalizer 也向 attempt 共用的 timing recorder 写入，再由 Scope 外层组装最终 `AttemptRecord`；不能在 body 返回时先封口、事后再尝试修改已写出的结果。
 

@@ -13,6 +13,10 @@ export function evalDescriptorOf(evalDef: DiscoveredEval): EvalDescriptor {
     id: evalDef.id,
     ...(evalDef.description !== undefined ? { description: evalDef.description } : {}),
     tags: Object.freeze([...(evalDef.tags ?? [])]),
+    // 题型是定义期事实(defineEval → "pass"、defineScoreEval → "points"),不靠执行 test() 推断;
+    // 省略(未经这两个定义函数处理的裸对象)按 "pass" 兜底,每条发现出的 eval 上都有确定值,
+    // 谓词读不到 undefined(见 docs/feature/experiments/score-points.md)。
+    scoring: evalDef.scoring ?? "pass",
     ...(evalDef.environment !== undefined ? { environment: evalDef.environment } : {}),
     ...(evalDef.metadata !== undefined ? { metadata: Object.freeze({ ...evalDef.metadata }) } : {}),
   }) as EvalDescriptor;
@@ -83,6 +87,27 @@ export function resolveExperimentEvals(input: ResolveExperimentEvalsInput): Reso
     selectedEvals.push(evalDef);
   }
   return { selectedEvals, selectedEvalIds: selectedEvals.map((e) => e.id) };
+}
+
+/** `resolveExperimentEvals` 选中的 eval 按题型分桶后的 id 列表(见 splitByScoring)。 */
+export interface ScoringSplit {
+  pass: string[];
+  points: string[];
+}
+
+/**
+ * 按题型(`EvalDescriptor.scoring`)把选中的 eval 分桶。只做检测,不抛错、不格式化——一个
+ * experiment 选中的 eval 必须同一题型(通过率与总分不能相加),两桶都非空是启动期配置错误,
+ * 由调用方(CLI)决定怎么报(纯选题边界不持有格式化职责,见
+ * docs/feature/experiments/README.md「defineExperiment 的形状」)。
+ */
+export function splitByScoring(selectedEvals: readonly DiscoveredEval[]): ScoringSplit {
+  const pass: string[] = [];
+  const points: string[] = [];
+  for (const evalDef of selectedEvals) {
+    (evalDef.scoring === "points" ? points : pass).push(evalDef.id);
+  }
+  return { pass, points };
 }
 
 /**

@@ -3,7 +3,7 @@
 // docs/feature/eval/library.md「EvalDescriptor」、docs/feature/experiments/library.md「evals」)。
 
 import { describe, expect, it } from "vitest";
-import { evalDescriptorOf, resolveExperimentEvals, selectedEvalsForRun } from "./eval-selection.ts";
+import { evalDescriptorOf, resolveExperimentEvals, selectedEvalsForRun, splitByScoring } from "./eval-selection.ts";
 import type { DiscoveredEval, EvalDescriptor } from "./types.ts";
 
 const source = { path: "evals/fake.eval.ts", content: "export default { test() {} };\n", sha256: "fake" };
@@ -32,6 +32,7 @@ describe("evalDescriptorOf", () => {
       id: "coding/fix-button",
       description: "fix the button",
       tags: ["coding", "frontend"],
+      scoring: "pass",
       environment: "node-22",
       metadata: { owner: "team-a" },
     });
@@ -181,7 +182,47 @@ describe("selectedEvalsForRun", () => {
 
 describe("EvalDescriptor 类型可从公开入口导入", () => {
   it("类型层守卫:占位断言(真正的推断检查在 pnpm typecheck)", () => {
-    const descriptor: EvalDescriptor = { id: "x", tags: [] };
+    const descriptor: EvalDescriptor = { id: "x", tags: [], scoring: "pass" };
     expect(descriptor.id).toBe("x");
+  });
+});
+
+describe("evalDescriptorOf: scoring 投影", () => {
+  it("defineEval 产物(scoring: \"pass\")投影为 \"pass\"", () => {
+    const evalDef = makeEval("pass/one", { scoring: "pass" });
+    expect(evalDescriptorOf(evalDef).scoring).toBe("pass");
+  });
+
+  it("defineScoreEval 产物(scoring: \"points\")投影为 \"points\"", () => {
+    const evalDef = makeEval("points/one", { scoring: "points" });
+    expect(evalDescriptorOf(evalDef).scoring).toBe("points");
+  });
+
+  it("未经 defineEval/defineScoreEval 处理的裸对象(scoring 缺失)兜底按 \"pass\" 投影,不是 undefined", () => {
+    const evalDef = makeEval("bare/no-scoring");
+    expect(evalDef.scoring).toBeUndefined(); // fixture 本身没设 scoring,模拟裸对象
+    expect(evalDescriptorOf(evalDef).scoring).toBe("pass");
+  });
+});
+
+describe("splitByScoring", () => {
+  it("全通过制:points 桶为空", () => {
+    const a = makeEval("a", { scoring: "pass" });
+    const b = makeEval("b", { scoring: "pass" });
+    expect(splitByScoring([a, b])).toEqual({ pass: ["a", "b"], points: [] });
+  });
+
+  it("全计分制:pass 桶为空", () => {
+    const a = makeEval("a", { scoring: "points" });
+    const b = makeEval("b", { scoring: "points" });
+    expect(splitByScoring([a, b])).toEqual({ pass: [], points: ["a", "b"] });
+  });
+
+  it("混合题型:两桶都非空且各自列出对应 id", () => {
+    const a = makeEval("pass-eval", { scoring: "pass" });
+    const b = makeEval("points-eval", { scoring: "points" });
+    const split = splitByScoring([a, b]);
+    expect(split.pass).toEqual(["pass-eval"]);
+    expect(split.points).toEqual(["points-eval"]);
   });
 });

@@ -136,11 +136,21 @@ test(t: TestContext): Promise<void> | void;
 
 评估用例主体:拿到 TestContext,驱动对话 / Sandbox 操作并就地断言。
 
+#### `scoring`
+
+```ts
+scoring?: EvalScoring;
+```
+
+题型标记:由 `defineEval`(定死 `"pass"`)/ `defineScoreEval`(定死 `"points"`)写入,
+定义里禁止手写(与 `id` 同规则,两个定义函数都会拒绝显式传入)。省略(未经这两个定义函数
+处理的裸对象)按 `"pass"` 处理(见 `EvalDescriptor.scoring`)。
+
 {/* GENERATED:END defineeval-options */}
 
 ## Test context: `t`
 
-`t`（`TestContext`）是评估用例作者拿到的高层上下文。运行器按 agent 的实际能力组装它——`t.sandbox` 这类字段只在 `defineSandboxAgent` 构造的 agent 上才有意义，完整规则见[能力位参考](/zh/reference/capabilities)。全部成员：
+`t`（`TestContext`）是评估用例作者拿到的高层上下文。运行器按 agent 的实际能力组装它——`t.sandbox` 这类字段只在 `defineSandboxAgent` 构造的 agent 上才有意义，完整规则见[能力位参考](/zh/reference/capabilities)。下面签名里的 `H` 是断言句柄类型：`defineEval` 的 `t` 上 `H` 恒为 `AssertionHandle`；计分制 `defineScoreEval` 的 `t`（`ScoreTestContext`）换成 `ScoreAssertionHandle`，同一份方法列表多出 `.points(n)`，详见[计分制](/zh/tutorials/scoring-guide#计分制检查点没走完也要看走了几步)。全部成员：
 
 {/* GENERATED:BEGIN test-context */}
 
@@ -149,7 +159,7 @@ test(t: TestContext): Promise<void> | void;
 #### `send`
 
 ```ts
-send(input: SendInput): Promise<TurnHandle>;
+send(input: SendInput): Promise<TurnHandle<H>>;
 ```
 
 向默认会话发一条消息(字符串或结构化消息),返回该轮的 TurnHandle。事件同时累加进默认会话的累计事件流,供下面的作用域断言使用。
@@ -157,7 +167,7 @@ send(input: SendInput): Promise<TurnHandle>;
 #### `sendFile`
 
 ```ts
-sendFile(path: string, text?: string): Promise<TurnHandle>;
+sendFile(path: string, text?: string): Promise<TurnHandle<H>>;
 ```
 
 发一条带文件(图片等多模态输入)的消息。`path` 相对项目根;读出后 base64 随 TurnInput.files 交给 adapter。
@@ -173,7 +183,7 @@ requireInputRequest(filter?: InputRequestFilter): InputRequest;
 #### `respond`
 
 ```ts
-respond(...responses: (string | RespondAnswer)[]): Promise<TurnHandle>;
+respond(...responses: (string | RespondAnswer)[]): Promise<TurnHandle<H>>;
 ```
 
 回答默认会话里等待中的输入请求,返回续接的 TurnHandle。字符串形式只在恰好一条待处理请求时
@@ -184,7 +194,7 @@ respond(...responses: (string | RespondAnswer)[]): Promise<TurnHandle>;
 #### `respondAll`
 
 ```ts
-respondAll(optionId: string): Promise<TurnHandle>;
+respondAll(optionId: string): Promise<TurnHandle<H>>;
 ```
 
 用同一个 optionId 批量回答默认会话里全部等待中的输入请求。
@@ -216,7 +226,7 @@ readonly events: readonly StreamEvent[];
 #### `newSession`
 
 ```ts
-newSession(): SessionHandle;
+newSession(): SessionHandle<H>;
 ```
 
 另开一路独立会话,返回它的 SessionHandle——不是 void。多会话隔离的关键入口:
@@ -292,7 +302,7 @@ skip(reason: string): never;
 #### `check`
 
 ```ts
-check(value: unknown, assertion: ValueAssertion): AssertionHandle;
+check(value: unknown, assertion: ValueAssertion): H;
 ```
 
 对任意值跑一个 ValueAssertion,返回可链 `.gate()` / `.atLeast()` 的 AssertionHandle。
@@ -322,7 +332,7 @@ group<T>(title: string, fn: () => Promise<T> | T): Promise<T>;
 #### `succeeded`
 
 ```ts
-succeeded(): AssertionHandle;
+succeeded(): H;
 ```
 
 断言默认会话累计状态为 "completed"(跨该会话所有轮次,不止最后一轮)。
@@ -330,7 +340,7 @@ succeeded(): AssertionHandle;
 #### `parked`
 
 ```ts
-parked(): AssertionHandle;
+parked(): H;
 ```
 
 断言默认会话当前卡在 HITL 输入请求上。
@@ -338,7 +348,7 @@ parked(): AssertionHandle;
 #### `messageIncludes`
 
 ```ts
-messageIncludes(token: string | RegExp): AssertionHandle;
+messageIncludes(token: string | RegExp): H;
 ```
 
 断言默认会话累计的助手回复包含 token(跨该会话所有轮次,不止最后一轮)。
@@ -346,7 +356,7 @@ messageIncludes(token: string | RegExp): AssertionHandle;
 #### `calledTool`
 
 ```ts
-calledTool(name: string, match?: ToolMatch): AssertionHandle;
+calledTool(name: string, match?: ToolMatch): H;
 ```
 
 断言默认会话累计调用过指定名字的工具;match 可约束入参 / 次数 / 状态。
@@ -354,7 +364,7 @@ calledTool(name: string, match?: ToolMatch): AssertionHandle;
 #### `notCalledTool`
 
 ```ts
-notCalledTool(name: string, match?: ToolMatch): AssertionHandle;
+notCalledTool(name: string, match?: ToolMatch): H;
 ```
 
 断言默认会话累计未调用指定工具(或未按 match 条件调用)。
@@ -362,7 +372,7 @@ notCalledTool(name: string, match?: ToolMatch): AssertionHandle;
 #### `toolOrder`
 
 ```ts
-toolOrder(names: string[]): AssertionHandle;
+toolOrder(names: string[]): H;
 ```
 
 断言默认会话累计工具调用按给定顺序出现(允许中间夹杂其它调用)。
@@ -370,7 +380,7 @@ toolOrder(names: string[]): AssertionHandle;
 #### `usedNoTools`
 
 ```ts
-usedNoTools(): AssertionHandle;
+usedNoTools(): H;
 ```
 
 断言默认会话至今未调用任何工具。
@@ -378,7 +388,7 @@ usedNoTools(): AssertionHandle;
 #### `maxToolCalls`
 
 ```ts
-maxToolCalls(max: number): AssertionHandle;
+maxToolCalls(max: number): H;
 ```
 
 断言默认会话累计工具调用总数不超过 max。
@@ -386,7 +396,7 @@ maxToolCalls(max: number): AssertionHandle;
 #### `loadedSkill`
 
 ```ts
-loadedSkill(skill: string): AssertionHandle;
+loadedSkill(skill: string): H;
 ```
 
 断言默认会话累计加载过指定 skill。
@@ -394,7 +404,7 @@ loadedSkill(skill: string): AssertionHandle;
 #### `noFailedActions`
 
 ```ts
-noFailedActions(): AssertionHandle;
+noFailedActions(): H;
 ```
 
 断言默认会话累计没有失败的工具调用 / 命令。
@@ -402,7 +412,7 @@ noFailedActions(): AssertionHandle;
 #### `event`
 
 ```ts
-event(type: StreamEvent["type"], opts?: { count?: number }): AssertionHandle;
+event(type: StreamEvent["type"], opts?: { count?: number }): H;
 ```
 
 断言默认会话累计出现过指定类型的事件;opts.count 可约束出现次数。
@@ -410,7 +420,7 @@ event(type: StreamEvent["type"], opts?: { count?: number }): AssertionHandle;
 #### `notEvent`
 
 ```ts
-notEvent(type: StreamEvent["type"]): AssertionHandle;
+notEvent(type: StreamEvent["type"]): H;
 ```
 
 断言默认会话累计未出现指定类型的事件。
@@ -418,7 +428,7 @@ notEvent(type: StreamEvent["type"]): AssertionHandle;
 #### `calledSubagent`
 
 ```ts
-calledSubagent(name: string, match?: SubagentMatch): AssertionHandle;
+calledSubagent(name: string, match?: SubagentMatch): H;
 ```
 
 断言默认会话累计调用过指定名字的子 agent;match 可约束次数 / 状态 / remoteUrl。
@@ -426,7 +436,7 @@ calledSubagent(name: string, match?: SubagentMatch): AssertionHandle;
 #### `eventOrder`
 
 ```ts
-eventOrder(types: StreamEvent["type"][]): AssertionHandle;
+eventOrder(types: StreamEvent["type"][]): H;
 ```
 
 断言默认会话累计事件按给定类型顺序出现(允许中间夹杂其它事件)。
@@ -434,7 +444,7 @@ eventOrder(types: StreamEvent["type"][]): AssertionHandle;
 #### `eventsSatisfy`
 
 ```ts
-eventsSatisfy(label: string, predicate: (events: readonly StreamEvent[]) => boolean): AssertionHandle;
+eventsSatisfy(label: string, predicate: (events: readonly StreamEvent[]) => boolean): H;
 ```
 
 用自定义谓词对默认会话累计的整段事件流断言;label 必填、进断言标题。
@@ -442,7 +452,7 @@ eventsSatisfy(label: string, predicate: (events: readonly StreamEvent[]) => bool
 #### `sandbox`
 
 ```ts
-readonly sandbox: SandboxHandle;
+readonly sandbox: SandboxHandle<H>;
 ```
 
 受限 Sandbox 视图:能执行命令 / 读写文件 / 看最终 diff,不能 stop Sandbox 本身(见 SandboxHandle)。
@@ -458,7 +468,7 @@ readonly usage: Usage;
 #### `maxTokens`
 
 ```ts
-maxTokens(max: number): AssertionHandle;
+maxTokens(max: number): H;
 ```
 
 断言默认会话累计 token 用量不超过 max。
@@ -466,7 +476,7 @@ maxTokens(max: number): AssertionHandle;
 #### `maxCost`
 
 ```ts
-maxCost(usd: number): AssertionHandle;
+maxCost(usd: number): H;
 ```
 
 断言默认会话累计花费(USD)不超过 usd。
@@ -474,7 +484,7 @@ maxCost(usd: number): AssertionHandle;
 #### `judge`
 
 ```ts
-readonly judge: JudgeNamespace;
+readonly judge: JudgeNamespace<H>;
 ```
 
 可用的 judge 命名空间(t.judge.autoevals.*)。
@@ -551,7 +561,7 @@ readonly usage?: Usage;
 #### `expectOk`
 
 ```ts
-expectOk(): TurnHandle;
+expectOk(): TurnHandle<H>;
 ```
 
 上一轮若 failed 则抛(中止后续)。
@@ -559,7 +569,7 @@ expectOk(): TurnHandle;
 #### `outputEquals`
 
 ```ts
-outputEquals(value: unknown): AssertionHandle;
+outputEquals(value: unknown): H;
 ```
 
 断言 data 与给定值深度相等。
@@ -567,7 +577,7 @@ outputEquals(value: unknown): AssertionHandle;
 #### `outputMatches`
 
 ```ts
-outputMatches(schema: unknown): AssertionHandle;
+outputMatches(schema: unknown): H;
 ```
 
 断言 data 满足给定 schema(如 zod schema)。
@@ -575,7 +585,7 @@ outputMatches(schema: unknown): AssertionHandle;
 #### `messageIncludes`
 
 ```ts
-messageIncludes(token: string | RegExp): AssertionHandle;
+messageIncludes(token: string | RegExp): H;
 ```
 
 断言本轮助手回复包含 token(仅限本轮事件流,不跨轮)。
@@ -583,7 +593,7 @@ messageIncludes(token: string | RegExp): AssertionHandle;
 #### `succeeded`
 
 ```ts
-succeeded(): AssertionHandle;
+succeeded(): H;
 ```
 
 断言本轮 status 为 "completed"。
@@ -591,7 +601,7 @@ succeeded(): AssertionHandle;
 #### `parked`
 
 ```ts
-parked(): AssertionHandle;
+parked(): H;
 ```
 
 断言本轮卡在 HITL 输入请求上(status 为 "waiting")。
@@ -599,7 +609,7 @@ parked(): AssertionHandle;
 #### `calledTool`
 
 ```ts
-calledTool(name: string, match?: ToolMatch): AssertionHandle;
+calledTool(name: string, match?: ToolMatch): H;
 ```
 
 断言本轮调用过指定名字的工具;`match` 可进一步约束入参 / 次数 / 状态。
@@ -607,7 +617,7 @@ calledTool(name: string, match?: ToolMatch): AssertionHandle;
 #### `notCalledTool`
 
 ```ts
-notCalledTool(name: string, match?: ToolMatch): AssertionHandle;
+notCalledTool(name: string, match?: ToolMatch): H;
 ```
 
 断言本轮未调用指定工具(或未按 match 条件调用)。
@@ -615,7 +625,7 @@ notCalledTool(name: string, match?: ToolMatch): AssertionHandle;
 #### `toolOrder`
 
 ```ts
-toolOrder(names: string[]): AssertionHandle;
+toolOrder(names: string[]): H;
 ```
 
 断言本轮工具调用按给定顺序出现(允许中间夹杂其它调用)。
@@ -623,7 +633,7 @@ toolOrder(names: string[]): AssertionHandle;
 #### `usedNoTools`
 
 ```ts
-usedNoTools(): AssertionHandle;
+usedNoTools(): H;
 ```
 
 断言本轮未调用任何工具。
@@ -631,7 +641,7 @@ usedNoTools(): AssertionHandle;
 #### `maxToolCalls`
 
 ```ts
-maxToolCalls(max: number): AssertionHandle;
+maxToolCalls(max: number): H;
 ```
 
 断言本轮工具调用总数不超过 max。
@@ -639,7 +649,7 @@ maxToolCalls(max: number): AssertionHandle;
 #### `loadedSkill`
 
 ```ts
-loadedSkill(skill: string): AssertionHandle;
+loadedSkill(skill: string): H;
 ```
 
 断言本轮加载过指定 skill。
@@ -647,7 +657,7 @@ loadedSkill(skill: string): AssertionHandle;
 #### `noFailedActions`
 
 ```ts
-noFailedActions(): AssertionHandle;
+noFailedActions(): H;
 ```
 
 断言本轮没有失败的工具调用 / 命令。
@@ -655,7 +665,7 @@ noFailedActions(): AssertionHandle;
 #### `event`
 
 ```ts
-event(type: StreamEvent["type"], opts?: { count?: number }): AssertionHandle;
+event(type: StreamEvent["type"], opts?: { count?: number }): H;
 ```
 
 断言本轮出现过指定类型的事件;`opts.count` 可约束出现次数。
@@ -663,7 +673,7 @@ event(type: StreamEvent["type"], opts?: { count?: number }): AssertionHandle;
 #### `notEvent`
 
 ```ts
-notEvent(type: StreamEvent["type"]): AssertionHandle;
+notEvent(type: StreamEvent["type"]): H;
 ```
 
 断言本轮未出现指定类型的事件。
@@ -671,7 +681,7 @@ notEvent(type: StreamEvent["type"]): AssertionHandle;
 #### `calledSubagent`
 
 ```ts
-calledSubagent(name: string, match?: SubagentMatch): AssertionHandle;
+calledSubagent(name: string, match?: SubagentMatch): H;
 ```
 
 断言本轮调用过指定名字的子 agent;`match` 可约束次数 / 状态 / remoteUrl。
@@ -679,7 +689,7 @@ calledSubagent(name: string, match?: SubagentMatch): AssertionHandle;
 #### `eventOrder`
 
 ```ts
-eventOrder(types: StreamEvent["type"][]): AssertionHandle;
+eventOrder(types: StreamEvent["type"][]): H;
 ```
 
 断言本轮事件按给定类型顺序出现(允许中间夹杂其它事件)。
@@ -687,7 +697,7 @@ eventOrder(types: StreamEvent["type"][]): AssertionHandle;
 #### `eventsSatisfy`
 
 ```ts
-eventsSatisfy(label: string, predicate: (events: readonly StreamEvent[]) => boolean): AssertionHandle;
+eventsSatisfy(label: string, predicate: (events: readonly StreamEvent[]) => boolean): H;
 ```
 
 用自定义谓词对本轮整段事件流断言;label 必填、进断言标题(谓词不透明,解释责任在 label)。
@@ -695,7 +705,7 @@ eventsSatisfy(label: string, predicate: (events: readonly StreamEvent[]) => bool
 #### `maxTokens`
 
 ```ts
-maxTokens(max: number): AssertionHandle;
+maxTokens(max: number): H;
 ```
 
 断言本轮 token 用量不超过 max。
@@ -703,7 +713,7 @@ maxTokens(max: number): AssertionHandle;
 #### `maxCost`
 
 ```ts
-maxCost(usd: number): AssertionHandle;
+maxCost(usd: number): H;
 ```
 
 断言本轮花费(USD)不超过 usd。
@@ -711,7 +721,7 @@ maxCost(usd: number): AssertionHandle;
 #### `judge`
 
 ```ts
-readonly judge: JudgeNamespace;
+readonly judge: JudgeNamespace<H>;
 ```
 
 本轮可用的 judge 命名空间(t.judge.autoevals.*)。

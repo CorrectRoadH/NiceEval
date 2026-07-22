@@ -404,6 +404,9 @@ export function createEvalContext(deps: ContextDeps): { context: TestContext; st
       return collector.record(spec);
     },
     group: <T,>(title: string, fn: () => Promise<T> | T) => collector.withGroup(title, fn),
+    // 计分制直接给分(仅 ScoreTestContext 类型上暴露;运行时对全部 eval 一视同仁地记录,
+    // 不需要按题型守护,见 docs/feature/experiments/score-points.md)。
+    score: (label: string, points: number) => collector.score(label, points),
     require: async (value: unknown, assertion: ValueAssertion) => {
       const v = value instanceof FileRef ? await deps.sandbox.readFile(value.path).catch(() => "") : value;
       const score = await assertion.score(v);

@@ -97,6 +97,7 @@ export function runAttemptEffect(
     startedAt: new Date(t0).toISOString(),
     durationMs: 0,
     assertions: [],
+    scoring: evalDef.scoring ?? "pass",
   };
 
   const timeoutMs = run.timeoutMs ?? evalDef.timeoutMs ?? config.timeoutMs ?? 600_000;
@@ -869,6 +870,11 @@ async function runAttemptBody(
       startedAt: new Date(t0).toISOString(),
       durationMs,
       assertions,
+      scoring: evalDef.scoring ?? "pass",
+      // 只在计分制 eval 上落 scoreEntries(t.score 直接给分记录);通过制 eval 的 t 上没有
+      // t.score,collector.scoreEntries 恒为空数组,省略即等价于空数组
+      // (见 docs/feature/results/architecture.md「result.json」)。
+      ...(evalDef.scoring === "points" ? { scoreEntries: state.collector.scoreEntries } : {}),
       usage,
       estimatedCostUSD: cost,
       error,

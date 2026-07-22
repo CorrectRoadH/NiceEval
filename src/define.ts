@@ -14,6 +14,7 @@ import type {
   SandboxAgentDef,
   SandboxHook,
   SandboxHooks,
+  ScoreEvalDef,
   VercelSandboxSpec,
 } from "./types.ts";
 import { t } from "./i18n/index.ts";
@@ -50,10 +51,13 @@ export function defineAgent(def: RemoteAgentDef): Agent {
   };
 }
 
-/** 会话型 eval。禁止提供 id —— 从路径推导。 */
+/** 会话型 eval(通过制:一个 eval 折叠成一分)。禁止提供 id —— 从路径推导。 */
 export function defineEval(def: EvalDef): EvalDef {
   if ((def as { id?: unknown }).id !== undefined) {
     throw new Error(t("define.evalIdRejected"));
+  }
+  if ((def as { scoring?: unknown }).scoring !== undefined) {
+    throw new Error(t("define.evalScoringRejected"));
   }
   if (typeof def.test !== "function") {
     throw new Error(t("define.evalTestRequired"));
@@ -61,7 +65,28 @@ export function defineEval(def: EvalDef): EvalDef {
   if (def.environment !== undefined && def.environment.trim().length === 0) {
     throw new Error(t("define.evalEnvironmentEmpty"));
   }
-  return def;
+  return { ...def, scoring: "pass" };
+}
+
+/**
+ * 计分制 eval:题内用给分词汇(`.points(n)` / `t.score(label, n)`)叠加挣分,对比读总分而不是
+ * 通过率。字段与 `defineEval` 完全同形,唯一区别是 `test(t)` 的 `t` 额外提供给分词汇——禁止
+ * 提供 id,从路径推导(见 docs/feature/eval/README.md「defineScoreEval:计分制题型」)。
+ */
+export function defineScoreEval(def: ScoreEvalDef): EvalDef {
+  if ((def as { id?: unknown }).id !== undefined) {
+    throw new Error(t("define.scoreEvalIdRejected"));
+  }
+  if ((def as { scoring?: unknown }).scoring !== undefined) {
+    throw new Error(t("define.scoreEvalScoringRejected"));
+  }
+  if (typeof def.test !== "function") {
+    throw new Error(t("define.scoreEvalTestRequired"));
+  }
+  if (def.environment !== undefined && def.environment.trim().length === 0) {
+    throw new Error(t("define.scoreEvalEnvironmentEmpty"));
+  }
+  return { ...def, scoring: "points" };
 }
 
 /** 实验:可签入的运行配置(怎么跑这批 eval)。 */

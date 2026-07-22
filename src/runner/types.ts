@@ -5,8 +5,15 @@ import type { JsonValue, LocalizedText, ScopedFeedback, SourceArtifact } from ".
 import type { O11ySummary, StreamEvent, TraceSpan, Usage } from "../o11y/types.ts";
 import type { Agent, AgentSetupManifest } from "../agents/types.ts";
 import type { Sandbox, SandboxHookContext, SandboxOption } from "../sandbox/types.ts";
-import type { AssertionResult, DiffArtifact, JudgeConfig, PrimaryAssertionSummary, Verdict } from "../scoring/types.ts";
-import type { TestContext } from "../context/types.ts";
+import type {
+  AssertionResult,
+  DiffArtifact,
+  JudgeConfig,
+  PrimaryAssertionSummary,
+  ScoreEntry,
+  Verdict,
+} from "../scoring/types.ts";
+import type { ScoreTestContext, TestContext } from "../context/types.ts";
 import type { CapturedEvalSource } from "./eval-source.ts";
 import type { AttemptLocator } from "../results/locator.ts";
 
@@ -177,6 +184,17 @@ export interface EvalResult {
   locator?: string;
   durationMs: number;
   assertions: AssertionResult[];
+  /**
+   * 题型:`defineEval` → `"pass"`,`defineScoreEval` → `"points"`,定义期事实,与
+   * `EvalDescriptor.scoring` 同源。省略等价于 `"pass"`——兼容此字段引入前写入的落盘与未声明它的
+   * 第三方 harness(见 docs/feature/results/architecture.md「result.json」)。
+   */
+  scoring?: EvalScoring;
+  /**
+   * `t.score(label, n)` 的直接给分记录,只在 `scoring: "points"` 时出现;省略等价于空数组。
+   * 与 `assertions[].points` 共同构成分数面(见 docs/feature/experiments/score-points.md)。
+   */
+  scoreEntries?: ScoreEntry[];
   usage?: Usage;
   estimatedCostUSD?: number;
   /** 使 attempt 进入 `errored` 的唯一致命执行错误(结构化);榜单显示 `error.message` 一层原因。 */
@@ -319,6 +337,13 @@ export type ReporterEvent =
 
 // ───────────────────────── eval / experiment / config 定义 ─────────────────────────
 
+/**
+ * 计分粒度题型:`defineEval` 恒 `"pass"`(通过制,一题一分,读通过率),`defineScoreEval` 恒
+ * `"points"`(计分制,题内叠加挣分,读总分)。定义期事实,发现期从 `EvalDef.scoring` 直接读取,
+ * 不靠执行 `test()` 推断(见 docs/feature/experiments/score-points.md)。
+ */
+export type EvalScoring = "pass" | "points";
+
 export interface EvalDef {
   /** 路径推导,定义里禁止手写。 */
   id?: string;
@@ -362,6 +387,21 @@ export interface EvalDef {
   teardown?: (sandbox: Sandbox, ctx: SandboxHookContext) => Promise<void> | void;
   /** 评估用例主体:拿到 TestContext,驱动对话 / Sandbox 操作并就地断言。 */
   test(t: TestContext): Promise<void> | void;
+  /**
+   * 题型标记:由 `defineEval`(定死 `"pass"`)/ `defineScoreEval`(定死 `"points"`)写入,
+   * 定义里禁止手写(与 `id` 同规则,两个定义函数都会拒绝显式传入)。省略(未经这两个定义函数
+   * 处理的裸对象)按 `"pass"` 处理(见 `EvalDescriptor.scoring`)。
+   */
+  scoring?: EvalScoring;
+}
+
+/**
+ * `defineScoreEval` 的输入形状:字段与 `EvalDef` 完全同形,唯一区别是 `test(t)` 的 `t`
+ * 额外提供给分词汇(见 docs/feature/eval/README.md「defineScoreEval:计分制题型」)。
+ */
+export interface ScoreEvalDef extends Omit<EvalDef, "test" | "scoring"> {
+  /** 评估用例主体:拿到 ScoreTestContext,除 TestContext 全部能力外还能 `.points(n)` / `t.score(label, n)`。 */
+  test(t: ScoreTestContext): Promise<void> | void;
 }
 
 /** 内部:发现后带上 id 的 eval。 */
@@ -486,6 +526,13 @@ export interface EvalDescriptor {
   readonly id: string;
   readonly description?: string;
   readonly tags: readonly string[];
+  /**
+   * 计分粒度题型,`defineEval` → `"pass"`,`defineScoreEval` → `"points"`。定义期事实,
+   * 每条发现出的 eval 上都有确定值(未经这两个定义函数处理的裸对象按 `"pass"` 兜底,不是
+   * `undefined`)。供 `ExperimentDef.evals` 谓词按题型过滤(见
+   * docs/feature/experiments/score-points.md「横截面聚合:同型实验,各读各的」)。
+   */
+  readonly scoring: EvalScoring;
   readonly environment?: string;
   readonly metadata?: Readonly<Record<string, unknown>>;
 }

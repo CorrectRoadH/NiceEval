@@ -76,12 +76,33 @@ export type AssertionResult =
       received?: string;
       /** 这条分数看着什么材料算出(judge 输入或被检查值预览);view 展开排查用,默认不展示。 */
       evidence?: string;
+      /**
+       * `.points(n)` 挂在这条断言上的挣分:`n × score`。只在计分制 eval 里链过 `.points()` 时出现
+       * (见 docs/feature/experiments/score-points.md「计分制:叠加给分,没有上限声明」)。
+       */
+      points?: number;
     })
   | (AssertionBase & {
       outcome: "unavailable";
       /** 机器可读原因,如 "judge-model-unresolved"、"coverage:actions=partial"。 */
       reason: string;
     });
+
+/**
+ * `t.score(label, n)` 的直接给分记录(见 docs/feature/scoring/architecture.md「断言记录」)。
+ * 与 `AssertionResult` 分属两个数组——它不是一条被评估的断言,没有 severity、没有 outcome,
+ * 不参与判定或质量分,只贡献分数面。
+ */
+export interface ScoreEntry {
+  /** 作者传入的 label,原样进报告。 */
+  label: string;
+  /** 直接给分,n >= 0。 */
+  points: number;
+  /** 所属分组路径,同 AssertionBase.groupPath;规则一致(外层在前的 t.group 标题数组)。 */
+  groupPath?: string[];
+  /** 调用点,同 AssertionBase.loc。 */
+  loc?: SourceLoc;
+}
 
 /**
  * 摘要面从完整 `AssertionResult[]` 选出的一条主失败断言。它只负责展示，不参与 verdict；
@@ -112,6 +133,25 @@ export interface AssertionHandle {
   soft(): AssertionHandle;
   /** 允许这条断言证据缺席:unavailable 只保留在记录里,不影响判定(见 Severity 与 Verdict)。 */
   optional(): AssertionHandle;
+}
+
+/**
+ * 计分制(`defineScoreEval`)才暴露的断言句柄:在 `AssertionHandle` 之上多一个 `.points(n)`。
+ * 与 severity 正交、可任意顺序组合(`.gate().points(60)` 与 `.points(60).atLeast(0.7)` 都合法),
+ * 因此四个方法在这里全部重声明为返回 `ScoreAssertionHandle`,使链条闭合。
+ * 通过制(`defineEval`)的 `t` 上只暴露 `AssertionHandle`——写 `.points(...)` 是类型错误,
+ * 不需要运行时守护(见 docs/feature/experiments/score-points.md)。
+ */
+export interface ScoreAssertionHandle extends AssertionHandle {
+  /**
+   * 挂在这条断言上的条件给分:0/1 断言通过挣 `n` 分、不过挣 0;judge 等打分断言按连续分比例
+   * 挣 `n × score`。`n` 必须为正数。返回同一条链的句柄,可继续叠加 severity 方法。
+   */
+  points(n: number): ScoreAssertionHandle;
+  atLeast(threshold: number): ScoreAssertionHandle;
+  gate(threshold?: number): ScoreAssertionHandle;
+  soft(): ScoreAssertionHandle;
+  optional(): ScoreAssertionHandle;
 }
 
 /** scoped / judge 断言在 final 评估时拿到的运行结果。 */

@@ -1,7 +1,7 @@
 // niceeval 公开导出(import { … } from "niceeval")。
 // Agent/Adapter 相关见 "niceeval/adapter";Sandbox 相关见 "niceeval/sandbox"。
 
-export { defineEval, defineConfig, defineExperiment } from "./define.ts";
+export { defineEval, defineScoreEval, defineConfig, defineExperiment } from "./define.ts";
 
 export { requireEnv, getEnv, stripComments } from "./util.ts";
 
@@ -19,12 +19,18 @@ export type {
   TurnHandle,
   SessionHandle,
   TestContext,
+  ScoreTestContext,
   ToolMatch,
   ValueAssertion,
+  AssertionHandle,
+  ScoreAssertionHandle,
   Severity,
   Verdict,
   EvalDef,
+  ScoreEvalDef,
+  EvalScoring,
   EvalDescriptor,
+  ScoreEntry,
   ExperimentDef,
   ExperimentHookContext,
   Config,

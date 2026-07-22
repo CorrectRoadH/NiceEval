@@ -14,7 +14,7 @@ import { discoverEvals, discoverExperiments } from "./runner/discover.ts";
 import { browsableExperimentPaths, matchExperimentSelector } from "./shared/aggregate.ts";
 import { runEvals, type AgentRun } from "./runner/run.ts";
 import { planCarry } from "./runner/fingerprint.ts";
-import { fingerprintEvalsFilter, resolveExperimentEvals, selectedEvalsForRun } from "./runner/eval-selection.ts";
+import { fingerprintEvalsFilter, resolveExperimentEvals, selectedEvalsForRun, splitByScoring } from "./runner/eval-selection.ts";
 import { failureDetailFromResult } from "./runner/feedback/failure.ts";
 import { stopAllSandboxes, liveSandboxCount } from "./sandbox/registry.ts";
 import { drainExperimentTeardowns } from "./runner/experiment-cleanup-registry.ts";
@@ -697,12 +697,26 @@ async function main(): Promise<void> {
       // evals 谓词在这里对本次 invocation 的候选 eval 各求值一次;下游(dry-run、sandbox 查表、
       // fingerprint/carry、attempt 展开)只消费 selectedEvalIds,不重新调用谓词
       // (见 docs/feature/experiments/library.md「evals」)。
-      const { selectedEvalIds } = resolveExperimentEvals({
+      const { selectedEvals, selectedEvalIds } = resolveExperimentEvals({
         experimentId: exp.id,
         selector: exp.evals,
         cliPatterns: extraPatterns,
         evals,
       });
+      // 一个 experiment 选中的 eval 必须同一题型:通过率(defineEval)与总分(defineScoreEval)
+      // 是两种不能相加的读数,混型是启动期配置错误(见 docs/feature/experiments/score-points.md
+      // 「横截面聚合:同型实验,各读各的」)。
+      const scoringSplit = splitByScoring(selectedEvals);
+      if (scoringSplit.pass.length > 0 && scoringSplit.points.length > 0) {
+        process.stderr.write(t("cli.experiment.mixedScoring", {
+          experimentId: exp.id,
+          passCount: scoringSplit.pass.length,
+          passIds: scoringSplit.pass.join(", "),
+          pointsCount: scoringSplit.points.length,
+          pointsIds: scoringSplit.points.join(", "),
+        }));
+        process.exit(1);
+      }
       agentRuns.push({
         agent: exp.agent,
         model: exp.model,

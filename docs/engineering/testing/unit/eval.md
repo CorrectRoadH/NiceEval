@@ -56,6 +56,7 @@ function scriptedAgent(turns: readonly Turn[]): ScriptedAgent {
 每个域必须证明的行为类别与不允许静默放走的错误；具体场景由测试代码枚举，测试名描述契约和场景：
 
 - **发现与 id 推导**：id 只从文件路径推导（配置对象禁止 `id`/`name`）；`.eval.ts`/`.eval.tsx` 两种后缀同规则，其它后缀不被发现；数组与 keyed record 扇出的 id 构成与顺序稳定性；非法 key 的完整报错。必须同时覆盖"应发现"与"不应发现"的两面。
+- **`defineEval` / `defineScoreEval` 的题型标记**：`defineEval` 产物恒 `scoring: "pass"`，`defineScoreEval` 产物恒 `"points"`——两者字段与校验规则完全同形（拒绝显式 `id`、拒绝显式 `scoring`、要求 `test` 为函数、`environment` 非空字符串），各自的报错消息各自指名函数名，不复用对方文案。`defineScoreEval` 的 `test(t)` 里 `t` 允许调用 `.points(n)` / `t.score(label, n)`（类型层证明，见 typecheck fixture）。
 - **send 与 turn**：`send` 的输入形态与不可变 Turn；send 后 `reply`/`events`/`sessionId` 反映本轮结果——直接观察用户会读取的值，只断言 `agent.send` 被调用一次发现不了 Context 暴露旧快照的 bug；`turn.status` 三值与 usage 可缺失；轮标签铸造规则（主会话 `turn<N>`、新会话 `session<K>/turn<N>`）；`sendFile` 的 MIME 推断与错误反馈；turn 级断言失败不中断 `test()`。
 - **Session**：session 与主 session 的读写隔离（各自续接、respond 不串消费），同时新 session 的事件仍汇入 `t.*` 聚合——隔离与聚合两面都要有区分力场景。
 - **作用域断言的接收者行为**：`t.*` 全量聚合 + final timing、`session.*` 时点快照、`turn.*` 本轮独占；接收者专属 API 的类型边界。判定语义的完整矩阵归 [Scoring](scoring.md)，这里只测接收者行为。

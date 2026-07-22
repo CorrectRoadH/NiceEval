@@ -60,6 +60,35 @@ t.check(t.reply, includes("friendly tone").atLeast(0.7));
 - `gate`：失败就是失败。
 - `soft`：保留分数，用于比较质量。
 
+## 计分制:检查点没走完也要看走了几步
+
+`defineEval` 把一次运行折成一个"过"或"不过"。有些任务分步骤，走完三步比一步没走强得多——这类任务用 `defineScoreEval`，题内用给分 API 累加挣分，`niceeval show` / `view` 的榜单读总分而不是通过率：
+
+```ts
+import { defineScoreEval } from "niceeval";
+import { commandSucceeded, exists } from "niceeval/expect";
+
+export default defineScoreEval({
+  description: "安装并启动 DB-GPT",
+  async test(t) {
+    await t.send("把 DB-GPT 装起来并通过健康检查。");
+    // 前置条件没过，后面步骤没意义，直接中止，后面的分自然挣不到。
+    await t.require(t.sandbox.file("db-gpt/README.md"), exists());
+
+    t.sandbox.fileChanged("db-gpt/.env").points(1);
+    t.calledTool("shell", { input: { command: /pip install/ } }).points(1);
+
+    const health = await t.sandbox.runShell("curl -s localhost:5670/health");
+    t.check(health, commandSucceeded()).points(1);
+  },
+});
+```
+
+- `.points(n)` 挂在任意断言后面：通过挣 `n` 分，不过挣 0；`t.judge.*` 这类连续打分断言按比例挣分。
+- `t.score(label, n)` 用于自己算好条件和分数后直接累加（比如按代码行数分档给分）。
+- `.points()` 与 `t.score` 只存在于 `defineScoreEval` 的 `t` 上；在 `defineEval` 里写会是类型错误。
+- 一个 experiment 选中的 eval 必须是同一题型；混用会在启动时报错，并提示按 `tags` / id 前缀收窄。
+
 ## 代码任务用测试评分
 
 在 `.eval.ts` 里运行项目测试或临时探针：
