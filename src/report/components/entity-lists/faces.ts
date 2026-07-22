@@ -10,6 +10,7 @@ import type { TableColumn, TableRow } from "../../definition/primitives.tsx";
 import {
   fitFailureSummary,
   formatDurationMs,
+  formatHistoricalGap,
   formatUSD,
   shortestUniqueLabels,
   verdictMark,
@@ -27,6 +28,22 @@ import { cellText, missingText, verdictTallyText, MISSING_MARK } from "../shared
 
 function locatorBadge(item: { locator: string; verdict: AttemptListItem["verdict"] }): string {
   return `${item.locator}${verdictMark(item.verdict)}`;
+}
+
+/**
+ * 时效标注(`↩` + 紧凑时距)的 text 面:历史执行(携带,或跨快照拼入)才输出,新执行为
+ * 空串;三面(ExperimentList / EvalList / AttemptList)共用
+ * (docs/feature/reports/library/entity-lists.md「时效标注」)。
+ */
+function historicalSuffix(item: Pick<AttemptListItem, "startedAt" | "historical">): string {
+  return item.historical ? `   ↩ ${formatHistoricalGap(item.startedAt)}` : "";
+}
+
+/** Eval 父行的时效标注:全部 attempt 均为历史执行时,标最近一次执行的时距;新旧混合不标。 */
+function evalHistoricalSuffix(attempts: readonly AttemptListItem[]): string {
+  if (attempts.length === 0 || !attempts.every((a) => a.historical)) return "";
+  const mostRecent = attempts.reduce((a, b) => (b.startedAt > a.startedAt ? b : a));
+  return `   ↩ ${formatHistoricalGap(mostRecent.startedAt)}`;
 }
 
 /**
@@ -74,12 +91,27 @@ function experimentSummaryTable(
       cost: cellText(item.costUSD, locale),
     },
   }));
-  const metadata = items.flatMap((item) =>
-    wrapDisplay(
-      `${labels.get(item.experimentId) ?? item.experimentId}: ${localeText(locale, "overview.evalsCount", { n: item.evals })} · ${localeText(locale, "overview.attemptsCount", { n: item.attempts })} · ${item.lastRunAt}`,
+  const metadata = items.flatMap((item) => {
+    const evalsText =
+      item.missingEvalIds.length > 0
+        ? localeText(locale, "overview.evalsCountPartial", {
+            covered: item.evals,
+            total: item.evals + item.missingEvalIds.length,
+          })
+        : localeText(locale, "overview.evalsCount", { n: item.evals });
+    const parts = [
+      evalsText,
+      localeText(locale, "overview.attemptsCount", { n: item.attempts }),
+      ...(item.historicalAttempts > 0
+        ? [localeText(locale, "experimentList.historicalAttempts", { n: item.historicalAttempts, m: item.attempts })]
+        : []),
+      item.lastRunAt,
+    ];
+    return wrapDisplay(
+      `${labels.get(item.experimentId) ?? item.experimentId}: ${parts.join(" · ")}`,
       Math.max(8, ctx.width - 2),
-    ).map((line) => `  ${line}`),
-  );
+    ).map((line) => `  ${line}`);
+  });
   return [renderTableText({ columns: columns as unknown as [TableColumn, ...TableColumn[]], rows, locale }, ctx), metadata.join("\n")].join("\n");
 }
 
@@ -111,7 +143,7 @@ function experimentDetailTable(item: ExperimentListItem, ctx: TextContext, label
       key: row.evalId,
       cells: {
         status: `${verdictMark(row.verdict)} ${localeText(locale, `verdict.${row.verdict}`)}`,
-        entity: row.evalId,
+        entity: `${row.evalId}${evalHistoricalSuffix(row.attempts)}`,
         result: "",
         duration: localeText(locale, "entityList.average", { value: cellText(row.durationMs, locale) }),
         cost: localeText(locale, "entityList.average", { value: cellText(row.costUSD, locale) }),
@@ -121,7 +153,7 @@ function experimentDetailTable(item: ExperimentListItem, ctx: TextContext, label
       key: attempt.locator,
       cells: {
         status: `  ${verdictMark(attempt.verdict)}`,
-        entity: `${index === row.attempts.length - 1 ? "└─" : "├─"} ${attempt.locator}`,
+        entity: `${index === row.attempts.length - 1 ? "└─" : "├─"} ${attempt.locator}${historicalSuffix(attempt)}`,
         result: attemptReasonText(attempt, locale, resultBudget) ?? MISSING_MARK,
         duration: attempt.verdict === "skipped" && attempt.durationMs === 0 ? null : formatDurationMs(attempt.durationMs),
         cost: attempt.costUSD === null ? null : formatUSD(attempt.costUSD),
@@ -129,6 +161,19 @@ function experimentDetailTable(item: ExperimentListItem, ctx: TextContext, label
     }));
     return [parent, ...attempts];
   });
+  // 覆盖缺口的占位行:状态列为 —,结果列为「当前配置下无结果」+ 可复制的补跑命令,
+  // 无 attempt 子行,duration/cost 留空(不参与任何指标聚合)。
+  const missingRows: TableRow[] = item.missingEvalIds.map((evalId) => ({
+    key: evalId,
+    cells: {
+      status: MISSING_MARK,
+      entity: evalId,
+      result: `${localeText(locale, "experimentList.noResultsForConfig")} · niceeval exp ${item.experimentId}`,
+      duration: null,
+      cost: null,
+    },
+  }));
+  rows.push(...missingRows);
   const flags = item.flags && Object.keys(item.flags).length > 0
     ? `${localeText(locale, "experimentList.flags")} ${Object.entries(item.flags)
         .map(([key, value]) => `${key}=${typeof value === "string" ? value : JSON.stringify(value)}`)
@@ -157,14 +202,14 @@ export function experimentListText(items: readonly ExperimentListItem[], ctx: Te
 function evalListAttemptLine(item: AttemptListItem, ctx: TextContext): string {
   // 行式列表同守「Result 最多两行」:预算 = 两行终端宽,超出按尾截收口。
   const reason = attemptReasonText(item, ctx.locale, ctx.width * 2 - stringWidth(locatorBadge(item)) - 6);
-  return `  ${locatorBadge(item)}${reason ? ` · ${reason}` : ""}`;
+  return `  ${locatorBadge(item)}${historicalSuffix(item)}${reason ? ` · ${reason}` : ""}`;
 }
 
 export function evalListText(items: readonly EvalListItem[], ctx: TextContext): string {
   const locale = ctx.locale;
   if (items.length === 0) return localeText(locale, "attemptList.empty");
   const blocks = items.map((item) => {
-    const identity = `${item.evalId} · ${item.experimentId} · ${localeText(locale, `verdict.${item.verdict}`)}`;
+    const identity = `${item.evalId}${evalHistoricalSuffix(item.attempts)} · ${item.experimentId} · ${localeText(locale, `verdict.${item.verdict}`)}`;
     const summary = [
       localeText(locale, "attemptList.score", { score: cellText(item.examScore, locale) }),
       localeText(locale, "overview.attemptsCount", { n: item.attempts.length }),
@@ -186,7 +231,7 @@ export function evalListText(items: readonly EvalListItem[], ctx: TextContext): 
 /** Attempt 比较卡片:只显示一条主失败摘要(至多两行终端宽);完整 assertions 走 locator 下钻。 */
 function attemptListItemText(item: AttemptListItem, ctx: TextContext): string {
   const head = [
-    `${verdictMark(item.verdict)} ${item.locator}`,
+    `${verdictMark(item.verdict)} ${item.locator}${historicalSuffix(item)}`,
     item.evalId,
     item.experimentId,
     formatDurationMs(item.durationMs),

@@ -3,6 +3,7 @@
 // metric.display 可整体覆盖;这里只负责默认。
 
 import type { Verdict } from "../../types.ts";
+import { gapParts } from "../../results/select.ts";
 import { DISPLAY_LOCALES, type LocalizedText, type ReportLocale } from "./locale.ts";
 
 /**
@@ -181,6 +182,19 @@ export function formatReportDateTimeRange(
     from: formatReportDate(fromDate, locale, FULL_REPORT_DATE_TIME),
     to: formatReportDate(toDate, locale, toOptions),
   };
+}
+
+// ── 实体列表(ExperimentList / EvalList / AttemptList)共用的时效标注 ──
+
+/**
+ * 历史执行的紧凑时距("3d" / "2h" / "5m" / "10s"):自 `startedAt` 起算,渲染时刻由调用方
+ * 传入(`nowIso` 缺省当前时刻)——粒度阈值复用 `gapParts`(与曾经的 stale-snapshot message
+ * 同一套单源,见 `results/select.ts`),只是这里的呈现是紧凑单字母,不是完整单词
+ * (docs/feature/reports/library/entity-lists.md「时效标注」)。
+ */
+export function formatHistoricalGap(startedAtIso: string, nowIso: string = new Date().toISOString()): string {
+  const { n, unit } = gapParts(startedAtIso, nowIso);
+  return `${n}${unit[0]}`;
 }
 
 // ── 实体列表(ExperimentList / EvalList / AttemptList)共用的判定符 ──

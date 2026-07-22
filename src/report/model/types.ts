@@ -3,7 +3,7 @@
 // 这些不是持久化格式,没有 format / schemaVersion 信封,兼容性跟随 npm 版本
 // (组件消费 data 时校验结构,不符按完整用户反馈报错并提示版本漂移)。
 
-import type { AttemptHandle, Scope, ScopeWarning, Snapshot } from "../../results/types.ts";
+import type { AttemptHandle, Scope, ScopeCoverage, ScopeWarning, Snapshot } from "../../results/types.ts";
 import type { AttemptIdentity, AttemptLocator } from "../../results/locator.ts";
 import type { AttemptEvidenceCapabilities } from "../../results/attempt-evidence.ts";
 import type { AnnotatedEvalSourceSummary, AnnotatedSourceLine } from "../../results/annotated-source.ts";
@@ -23,7 +23,7 @@ import type {
 } from "../../types.ts";
 import type { LocalizedText, ReportLocale } from "./locale.ts";
 
-export type { ScopeWarning };
+export type { ScopeWarning, ScopeCoverage };
 export type { AttemptLocator };
 export type { LocalizedText, ReportLocale };
 
@@ -402,6 +402,10 @@ export interface AttemptListItem {
   durationMs: number;
   /** 缺失为 null(测不了),不伪造 0;attempt 级条目的缺失一律用 null,不用省略字段。 */
   costUSD: number | null;
+  /** 执行时刻(携带条目为原执行时刻)。时效标注的时距从这里起算。 */
+  startedAt: string;
+  /** 历史执行:携带条目,或来自该实验在 Scope 中最新快照之外的快照;false = 最新一次运行实测。 */
+  historical: boolean;
   locator: AttemptLocator;
 }
 
@@ -450,6 +454,10 @@ export interface ExperimentListItem {
   evals: number;
   /** 这个 experiment 覆盖的 attempt 总数(原始计数,含多轮重试)。 */
   attempts: number;
+  /** 历史执行的 attempt 数(分母是 attempts);时效标注「↩ n/m attempts」的数据源。 */
+  historicalAttempts: number;
+  /** 已知 eval 并集里、当前口径下没有任何 attempt 的题(来自 `scope.coverage`);渲染为占位行。 */
+  missingEvalIds: string[];
   /** 所含快照中最近的 startedAt。 */
   lastRunAt: string;
   evalRows: ExperimentListEvalRow[];

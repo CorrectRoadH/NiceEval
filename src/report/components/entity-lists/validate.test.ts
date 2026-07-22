@@ -20,6 +20,8 @@ const validAttemptItem = {
   examScore: validCell,
   durationMs: 1000,
   costUSD: 0.01,
+  startedAt: "2026-07-01T00:00:00Z",
+  historical: false,
   locator: "@1abcdef2",
 };
 
@@ -40,6 +42,12 @@ describe("validateAttemptListData", () => {
   it("[i].verdict 非字符串报错", () => {
     const bad = [{ ...validAttemptItem, verdict: 1 }];
     expect(validateAttemptListData(bad)).toMatch(/"data\[0\]\.verdict"/);
+  });
+
+  it("[i].startedAt 缺失报错;[i].historical 非布尔报错", () => {
+    const { startedAt: _startedAt, ...withoutStartedAt } = validAttemptItem;
+    expect(validateAttemptListData([withoutStartedAt])).toMatch(/"data\[0\]\.startedAt"/);
+    expect(validateAttemptListData([{ ...validAttemptItem, historical: "yes" }])).toMatch(/"data\[0\]\.historical"/);
   });
 });
 
@@ -84,6 +92,8 @@ describe("validateExperimentListData", () => {
       tokens: validCell,
       evals: 1,
       attempts: 1,
+      historicalAttempts: 0,
+      missingEvalIds: [],
       lastRunAt: "2026-07-01T00:00:00Z",
       evalRows: [validEvalRow],
     },
@@ -110,5 +120,10 @@ describe("validateExperimentListData", () => {
 
   it("model / flags 可选字段省略仍合法", () => {
     expect(validateExperimentListData(valid)).toBeNull();
+  });
+
+  it("[i].historicalAttempts 非数字报错;[i].missingEvalIds 非字符串数组报错", () => {
+    expect(validateExperimentListData([{ ...valid[0], historicalAttempts: "0" }])).toMatch(/"data\[0\]\.historicalAttempts"/);
+    expect(validateExperimentListData([{ ...valid[0], missingEvalIds: [1] }])).toMatch(/"data\[0\]\.missingEvalIds\[0\]"/);
   });
 });

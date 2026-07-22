@@ -275,6 +275,8 @@ const failedAttempt: AttemptListItem = {
   examScore: { value: 0, display: "0%", samples: 1, total: 1, refs: [locator("@1a4a4a4a")] },
   durationMs: 32_000,
   costUSD: 0.12,
+  startedAt: "2026-07-01T09:58:00Z",
+  historical: false,
   locator: locator("@1a4a4a4a"),
 };
 
@@ -290,6 +292,8 @@ const erroredAttempt: AttemptListItem = {
   examScore: { value: 0, display: "0%", samples: 1, total: 1, refs: [locator("@1c1c1c1c")] },
   durationMs: 4_500,
   costUSD: null,
+  startedAt: "2026-07-01T11:29:00Z",
+  historical: false,
   locator: locator("@1c1c1c1c"),
 };
 
@@ -311,6 +315,8 @@ const passedAttempt: AttemptListItem = {
   examScore: { value: 1, display: "100%", samples: 1, total: 1, refs: [locator("@1d2d2d2d")] },
   durationMs: 5_000,
   costUSD: 0.02,
+  startedAt: "2026-07-01T09:59:00Z",
+  historical: false,
   locator: locator("@1d2d2d2d"),
 };
 
@@ -329,6 +335,8 @@ export const experimentListItems: ExperimentListItem[] = [
     tokens: { value: null, display: "—", samples: 0, total: 2, refs: [] },
     evals: 2,
     attempts: 3,
+    historicalAttempts: 0,
+    missingEvalIds: [],
     lastRunAt: "2026-07-01T10:00:00Z",
     evalRows: [
       {
@@ -357,6 +365,8 @@ export const experimentListItems: ExperimentListItem[] = [
     tokens: { value: null, display: "—", samples: 0, total: 1, refs: [] },
     evals: 1,
     attempts: 1,
+    historicalAttempts: 0,
+    missingEvalIds: [],
     lastRunAt: "2026-07-01T11:30:00Z",
     evalRows: [
       {

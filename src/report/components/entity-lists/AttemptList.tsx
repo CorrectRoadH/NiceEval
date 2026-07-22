@@ -10,8 +10,43 @@ import type { AttemptListItem } from "../../model/types.ts";
 import type { AttemptLocator } from "../../../results/locator.ts";
 import { DEFAULT_REPORT_LOCALE, countText, localeText, type ReportLocale } from "../../model/locale.ts";
 import { colorClassForKey } from "../../assets/colors.ts";
-import { formatDurationMs, formatUSD, verdictMark } from "../../model/format.ts";
+import { formatDurationMs, formatHistoricalGap, formatReportDateTime, formatUSD, verdictMark } from "../../model/format.ts";
 import { cx } from "../shared.ts";
+
+/**
+ * 时效标注(`↩` + 紧凑时距):历史执行(携带,或跨快照拼入)才渲染,新执行不标——subdued
+ * 行内事实,不占框、不用警示色(docs/feature/reports/library/entity-lists.md「时效标注」)。
+ * web 面 hover 显示完整执行时刻;ExperimentList / EvalList / AttemptList 三处共用。
+ */
+export function HistoricalMark({
+  item,
+  locale = DEFAULT_REPORT_LOCALE,
+}: {
+  item: Pick<AttemptListItem, "startedAt" | "historical">;
+  locale?: ReportLocale;
+}): ReactElement | null {
+  if (!item.historical) return null;
+  return (
+    <span className="nre-historical" title={formatReportDateTime(item.startedAt, locale)}>
+      ↩ {formatHistoricalGap(item.startedAt)}
+    </span>
+  );
+}
+
+/**
+ * Eval 父行的时效标注:全部 attempt 均为历史执行时,标最近一次执行(startedAt 最大)的时距;
+ * 新旧混合时父行不标,子行各自可见(docs/feature/reports/library/entity-lists.md「时效标注」)。
+ * EvalList 与 ExperimentList 的 Eval 父行共用。
+ */
+export function EvalHistoricalMark({
+  attempts,
+}: {
+  attempts: readonly Pick<AttemptListItem, "startedAt" | "historical">[];
+}): ReactElement | null {
+  if (attempts.length === 0 || !attempts.every((a) => a.historical)) return null;
+  const mostRecent = attempts.reduce((a, b) => (b.startedAt > a.startedAt ? b : a));
+  return <span className="nre-historical">↩ {formatHistoricalGap(mostRecent.startedAt)}</span>;
+}
 
 /**
  * locator + 判定符,AttemptList/EvalList/ExperimentList 共用。没有 target(当前报告没有
@@ -65,6 +100,7 @@ export function AttemptRow({
     <li className={cx("nre-attempt", `nre-attempt-${item.verdict}`)} data-nre-verdict={item.verdict}>
       <div className="nre-attempt-head">
         <AttemptLocatorBadge item={item} attemptHref={attemptHref} />
+        <HistoricalMark item={item} locale={locale} />
         <span className="nre-attempt-eval">{item.evalId}</span>
         <span className="nre-attempt-experiment">{item.experimentId}</span>
         {/* agent 键:稳定散列上色,与其它块(MetricMatrix 列头、DeltaTable 行…)同键同色 */}

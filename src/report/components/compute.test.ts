@@ -133,6 +133,7 @@ function snap(spec: SnapSpec): Snapshot {
     result: r,
     ref: { snapshot: `exp/snap-${runSeq}`, attempt: `${r.id}/a${r.attempt}` },
     snapshot,
+    carried: Boolean(r.artifactBase),
     events: async () => null,
     trace: async () => null,
     o11y: async () => r.o11y ?? null,
@@ -151,8 +152,8 @@ function snap(spec: SnapSpec): Snapshot {
   return snapshot;
 }
 
-function scopeOf(snapshots: Snapshot[], warnings: ScopeWarning[] = []): Scope {
-  return makeScope("current-evals", snapshots, warnings);
+function scopeOf(snapshots: Snapshot[], warnings: ScopeWarning[] = [], coverage: import("../../results/types.ts").ScopeCoverage[] = []): Scope {
+  return makeScope("current-evals", snapshots, warnings, coverage);
 }
 
 // ───────────────────────── 指标聚合口径 ─────────────────────────
@@ -339,7 +340,7 @@ describe("宿主现刻水位(selectCurrentResults)", () => {
     expect(data.evalVerdicts).toEqual({ passed: 2, failed: 0, errored: 0, skipped: 0 });
   });
 
-  it("可比性前提:配置不一致的旧快照不贡献 attempt,缺口走 partial-coverage", () => {
+  it("可比性前提:配置不一致的旧快照不贡献 attempt,缺口进 coverage.missingEvalIds", () => {
     const oldConfig = snap({
       experimentId: "exp/cfg",
       model: "gpt-old",
@@ -355,8 +356,9 @@ describe("宿主现刻水位(selectCurrentResults)", () => {
     const scope = selectCurrentResults(resultsOf([oldConfig, newConfig]));
     // 旧 model 的 b 不冒充新配置的水位
     expect(scope.snapshots[0]!.evals.map((e) => e.id)).toEqual(["a"]);
-    const warning = scope.warnings.find((w) => w.kind === "partial-coverage");
-    expect(warning).toMatchObject({ covered: 1, total: 2, command: "niceeval exp exp/cfg" });
+    expect(scope.warnings.filter((w) => w.kind !== "unreadable-snapshot")).toHaveLength(0);
+    const coverage = scope.coverage.find((c) => c.experimentId === "exp/cfg");
+    expect(coverage).toMatchObject({ knownEvalIds: ["a", "b"], missingEvalIds: ["b"] });
   });
 
   it("编排字段(runs / maxConcurrency / description…)不参与可比性比较", () => {
@@ -374,7 +376,7 @@ describe("宿主现刻水位(selectCurrentResults)", () => {
     });
     const scope = selectCurrentResults(resultsOf([older, newer]));
     expect(scope.snapshots[0]!.evals.map((e) => e.id)).toEqual(["a", "b"]);
-    expect(scope.warnings.filter((w) => w.kind === "partial-coverage")).toHaveLength(0);
+    expect(scope.coverage.find((c) => c.experimentId === "exp/orch")?.missingEvalIds).toEqual([]);
   });
 });
 
@@ -623,6 +625,29 @@ describe("实体列表 data", () => {
     // current() 口径的 Scope(一实验一配置)照常计算
     const clean = scopeOf([a]);
     await expect(experimentListData(clean)).resolves.toHaveLength(1);
+  });
+
+  it("时效字段:attemptListData.historical 是 carried 的投影;experimentListData.historicalAttempts 计入携带的 attempt", async () => {
+    const carriedB = res("b", "passed", { artifactBase: "exp/hist/old-snap/b/a0" });
+    const s = snap({ experimentId: "exp/hist", results: [res("a", "passed"), carriedB] });
+    const attempts = await attemptListData([s]);
+    expect(attempts.find((item) => item.evalId === "a")!.historical).toBe(false);
+    expect(attempts.find((item) => item.evalId === "b")!.historical).toBe(true); // 携带条目
+
+    const items = await experimentListData([s]);
+    expect(items[0]!.historicalAttempts).toBe(1);
+    expect(items[0]!.attempts).toBe(2); // historicalAttempts 是子集,不改变 attempts 总数口径
+  });
+
+  it("占位行数据:missingEvalIds 来自 scope.coverage,不参与 evals/attempts 计数或任何指标聚合", async () => {
+    const s = snap({ experimentId: "exp/gap", results: [res("a", "passed"), res("b", "failed")] });
+    const scope = scopeOf([s], [], [{ experimentId: "exp/gap", knownEvalIds: ["a", "b", "c"], missingEvalIds: ["c"] }]);
+    const items = await experimentListData(scope);
+    expect(items[0]!.missingEvalIds).toEqual(["c"]);
+    // 占位行(c)不冒充有 attempt 的题:evals/attempts 分母仍是 2 道有 attempt 的题,不是 3。
+    expect(items[0]!.evals).toBe(2);
+    expect(items[0]!.attempts).toBe(2);
+    expect(items[0]!.evalRows.map((row) => row.evalId)).toEqual(["a", "b"]); // 占位行不在 evalRows 里(占位行只在渲染面合成)
   });
 });
 

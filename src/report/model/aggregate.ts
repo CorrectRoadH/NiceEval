@@ -7,7 +7,7 @@
 // 自定义维度把同一道题的 attempt 分进不同组时,第一级折叠发生在各组内部。
 
 import { dedupeAttempts } from "../../results/select.ts";
-import type { AttemptHandle, Scope, ScopeWarning, Snapshot } from "../../results/types.ts";
+import type { AttemptHandle, Scope, ScopeCoverage, ScopeWarning, Snapshot } from "../../results/types.ts";
 import { encodeAttemptLocator, type AttemptLocator } from "../../results/locator.ts";
 import type {
   Aggregator,
@@ -31,10 +31,11 @@ const KEY_SEP = "\u0000";
 export function resolveInput(input: ReportInput): {
   snapshots: readonly Snapshot[];
   warnings: readonly ScopeWarning[];
+  coverage: readonly ScopeCoverage[];
 } {
-  if (Array.isArray(input)) return { snapshots: input as readonly Snapshot[], warnings: [] };
+  if (Array.isArray(input)) return { snapshots: input as readonly Snapshot[], warnings: [], coverage: [] };
   const scope = input as Scope;
-  return { snapshots: scope.snapshots, warnings: scope.warnings };
+  return { snapshots: scope.snapshots, warnings: scope.warnings, coverage: scope.coverage };
 }
 
 /** 展平后的一条样本:attempt + 它所属的快照(维度解析与题级折叠都需要快照身份)。 */
@@ -49,6 +50,16 @@ export function experimentIdOf(item: Item): string {
 
 export function evalIdOf(item: Item): string {
   return item.attempt.evalId || item.attempt.result.id;
+}
+
+/**
+ * 历史执行判定(docs/feature/results/library.md「时效:新执行与历史执行」):携带条目,或
+ * 所属快照(`attempt.snapshot`,attempt 自己的反向引用,真实落盘)早于该实验在 Scope 中
+ * 最新快照(`item.snapshot`,`collectItems` 归属的容器快照——latest() 口径下二者是同一个
+ * 对象,比较恒假,只剩 carried 生效;current() 口径下容器快照是合成的最新水位)。
+ */
+export function historicalOf(item: Item): boolean {
+  return item.attempt.carried || item.attempt.snapshot.startedAt < item.snapshot.startedAt;
 }
 
 /** 快照键:"<experimentId> @ <startedAt>"("snapshot" 维度与手挑快照数组的对比用)。 */

@@ -41,7 +41,7 @@ export function ScopeWarnings({
         <summary className="nre-warnings-summary">{summary}</summary>
         <ul className="nre-warning-groups">
           {groups.map((group, i) => (
-            <li key={i} className="nre-warning-group" data-category={group.category}>
+            <li key={i} className="nre-warning-group">
               <div className="nre-warning-head">
                 <span className="nre-warning-title">{group.title}</span>
                 {group.badges.map((badge, j) => (

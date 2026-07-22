@@ -25,6 +25,7 @@ import {
   experimentIdOf,
   fullEvalKey,
   groupItems,
+  historicalOf,
   locatorOf,
   resolveInput,
   type Item,
@@ -76,6 +77,11 @@ async function attemptListItemOf(item: Item): Promise<AttemptListItem> {
     examScore: await computeCell(examScore, [item]),
     durationMs: result.durationMs,
     costUSD: attemptCostUSD(result),
+    // 缺 startedAt(legacy / 第三方落盘)时退化到所属快照的 startedAt——时效标注宁可粗一档
+    // 时距,不留空字段(与 dedupeAttempts「缺才不去重」同一条「不伪造」纪律,这里伪造的只是
+    // 展示粒度,不影响身份判定)。
+    startedAt: result.startedAt ?? item.snapshot.startedAt,
+    historical: historicalOf(item),
     locator: locatorOf(item),
   };
 }
@@ -125,8 +131,9 @@ export async function evalListData(input: ReportInput): Promise<EvalListItem[]> 
  * 看跨配置演化用 snapshot 维度或 MetricLine,不把两套配置拼成一行冒充单一配置。
  */
 export async function experimentListData(input: ReportInput): Promise<ExperimentListItem[]> {
-  const { snapshots: rawSnapshots } = resolveInput(input);
+  const { snapshots: rawSnapshots, coverage } = resolveInput(input);
   const snapshots = selectedEvalsOnly(rawSnapshots);
+  const coverageByExperiment = new Map(coverage.map((c) => [c.experimentId, c]));
 
   // 可比性配置单义检查:同一 experiment 的输入快照必须共享一套可比性配置。
   const configByExperiment = new Map<string, { snapshot: Snapshot; config: unknown }>();
@@ -179,6 +186,8 @@ export async function experimentListData(input: ReportInput): Promise<Experiment
       tokens: await computeCell(tokens, group),
       evals: stats.evals,
       attempts: stats.attempts,
+      historicalAttempts: group.filter(historicalOf).length,
+      missingEvalIds: coverageByExperiment.get(experimentId)?.missingEvalIds ?? [],
       lastRunAt: stats.lastRunAt!,
       evalRows,
     });

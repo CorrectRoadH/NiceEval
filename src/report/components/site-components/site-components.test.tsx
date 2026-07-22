@@ -65,6 +65,7 @@ function snap(spec: {
     result: r,
     ref: { snapshot: `exp/snap-${runSeq}`, attempt: `${r.id}/a${r.attempt}` },
     snapshot,
+    carried: Boolean(r.artifactBase),
     events: async () => null,
     trace: async () => spec.traces?.[r.id] ?? null,
     o11y: async () => null,
@@ -119,29 +120,7 @@ async function resolveOnScope(node: ReportNode, scope: Scope): Promise<unknown> 
   return resolveDefinition(defineReport(node), scope);
 }
 
-// ───────────────────────── 警告 fixture(按 ScopeWarning 联合造)─────────────────────────
-
-function partialCoverage(id: string): ScopeWarning {
-  return {
-    kind: "partial-coverage",
-    experimentId: id,
-    covered: 4,
-    total: 6,
-    message: `snapshot "${id}" covers 4 of 6 known evals; re-run \`niceeval exp ${id}\` to fill the gap`,
-    command: `niceeval exp ${id}`,
-  };
-}
-
-function staleSnapshot(id: string): ScopeWarning {
-  return {
-    kind: "stale-snapshot",
-    experimentId: id,
-    startedAt: "2026-07-10T00:00:00Z",
-    latestStartedAt: "2026-07-12T00:00:00Z",
-    message: `verdicts for "${id}" were produced at 2026-07-10T00:00:00Z, 2 days before the latest run in this scope; re-run \`niceeval exp ${id}\` to align, or ignore if evals, agent and model are unchanged between the runs`,
-    command: `niceeval exp ${id}`,
-  };
-}
+// ───────────────────────── 警告 fixture(按 ScopeWarning 联合造,只剩三种 kind)─────────────────────────
 
 function unfinishedSnapshot(id: string): ScopeWarning {
   return {
@@ -151,6 +130,15 @@ function unfinishedSnapshot(id: string): ScopeWarning {
     dir: `/results/${id}`,
     message: `snapshot "${id}" (2026-07-11T00:00:00Z) is unfinished (the process was interrupted); completed attempts are read as-is, but the set may be incomplete — re-run \`niceeval exp ${id}\` for a complete snapshot`,
     command: `niceeval exp ${id}`,
+  };
+}
+
+function unreadableSnapshot(dir: string): ScopeWarning {
+  return {
+    kind: "unreadable-snapshot",
+    dir,
+    reason: "malformed",
+    message: `snapshot at "${dir}" is malformed and was skipped; inspect snapshot.json in that directory for corrupted JSON or a missing required field`,
   };
 }
 
@@ -210,46 +198,45 @@ describe("Hero 与 HeroCard", () => {
 // ───────────────────────── ScopeWarnings 的聚合层:groupScopeWarnings ─────────────────────────
 
 describe("groupScopeWarnings(按动作聚合,web/text 两面共用的纯函数)", () => {
-  it("同 experimentId 的多 kind 聚合为一组:组头是实验 id、徽标齐全、组内命令去重后恰一条,混合 kind 按最重成员(integrity)归类;不同实验不进同一组", () => {
-    const warnings = [partialCoverage("exp/a"), staleSnapshot("exp/a"), partialCoverage("exp/b")];
+  it("带 experimentId 的 unfinished-snapshot 各自成组:组头是实验 id、带徽标与去重后的命令;不同实验各自一组", () => {
+    const warnings = [unfinishedSnapshot("exp/a"), unfinishedSnapshot("exp/b")];
     const { groups } = groupScopeWarnings(warnings, "en");
     expect(groups).toHaveLength(2);
     const groupA = groups.find((g) => g.title === "exp/a")!;
-    expect(groupA.category).toBe("integrity");
-    expect(groupA.badges.map((b) => b.text)).toEqual(["coverage 4/6", "2 days behind"]);
+    expect(groupA.badges.map((b) => b.text)).toEqual(["unfinished"]);
     expect(groupA.headCommand).toBe("niceeval exp exp/a");
     const groupB = groups.find((g) => g.title === "exp/b")!;
     expect(groupB.headCommand).toBe("niceeval exp exp/b");
   });
 
-  it("组排序:integrity 组在 freshness 组之前;未登记的 kind 单独成组、message 原样保留、按 integrity 归位", () => {
+  it("组排序:实验作用域组在前(按实验 id 字典序),非实验作用域组(按 kind)在后;未登记的 kind 单独成组、message 原样保留", () => {
     const unknown = {
       kind: "future-kind",
       message: "something new happened; check the docs for future-kind",
     } as unknown as ScopeWarning;
-    // 声明顺序故意把 freshness(仅 stale 的实验)放最前
-    const warnings = [staleSnapshot("exp/fresh"), partialCoverage("exp/int"), unknown];
+    // 声明顺序故意把非实验作用域组放最前,验证排序不依赖出现顺序
+    const warnings = [unreadableSnapshot("/results/bad"), unfinishedSnapshot("exp/b"), unfinishedSnapshot("exp/a"), unknown];
     const { groups } = groupScopeWarnings(warnings, "en");
     const titles = groups.map((g) => g.title);
-    const posInt = titles.indexOf("exp/int");
-    const posUnknown = titles.indexOf("future-kind");
-    const posFresh = titles.indexOf("exp/fresh");
-    expect(posInt).toBeLessThan(posFresh);
-    expect(posUnknown).toBeLessThan(posFresh);
+    // 实验组按 id 字典序排在前:exp/a 先于 exp/b。
+    expect(titles.indexOf("exp/a")).toBeLessThan(titles.indexOf("exp/b"));
+    // 两个实验组都排在非实验作用域组(unreadable-snapshot 的组头文案、未登记 kind)之前。
+    const lastExperimentPos = Math.max(titles.indexOf("exp/a"), titles.indexOf("exp/b"));
+    expect(lastExperimentPos).toBeLessThan(titles.indexOf("1 snapshot skipped"));
+    expect(lastExperimentPos).toBeLessThan(titles.indexOf("future-kind"));
     const unknownGroup = groups.find((g) => g.title === "future-kind")!;
-    expect(unknownGroup.category).toBe("integrity");
     expect(unknownGroup.warnings[0]!.message).toBe("something new happened; check the docs for future-kind");
   });
 
   it("summary 是分类计数汇总、随单复数变化;detailsOpen 阈值是总条数 ≤ 3(跨组计数,不是按组)", () => {
-    const two = groupScopeWarnings([partialCoverage("exp/a"), staleSnapshot("exp/b")], "en");
+    const two = groupScopeWarnings([unfinishedSnapshot("exp/a"), unfinishedSnapshot("exp/b")], "en");
     expect(two.summary).toBe("2 experiments flagged");
-    const one = groupScopeWarnings([partialCoverage("exp/a")], "en");
+    const one = groupScopeWarnings([unfinishedSnapshot("exp/a")], "en");
     expect(one.summary).toBe("1 experiment flagged");
 
-    const three = [partialCoverage("exp/a"), staleSnapshot("exp/a"), partialCoverage("exp/b")];
+    const three = [unfinishedSnapshot("exp/a"), unfinishedSnapshot("exp/b"), unreadableSnapshot("/results/bad")];
     expect(groupScopeWarnings(three, "en").detailsOpen).toBe(true);
-    const four = [...three, unfinishedSnapshot("exp/b")];
+    const four = [...three, unreadableSnapshot("/results/bad2")];
     expect(groupScopeWarnings(four, "en").detailsOpen).toBe(false);
   });
 
@@ -274,13 +261,13 @@ describe("groupScopeWarnings(按动作聚合,web/text 两面共用的纯函数)"
 
 describe("scopeWarningsData", () => {
   it("Scope 携带的挑选警告原样透出", async () => {
-    const warnings = [partialCoverage("exp/a")];
+    const warnings = [unfinishedSnapshot("exp/a")];
     const scope = scopeOf([snap({ experimentId: "exp/a", results: [res("q1", "passed")] })], warnings);
     await expect(scopeWarningsData(scope)).resolves.toEqual(scope.warnings);
   });
 
   it("裸 Snapshot[] 输入没有挑选过程,返回空数组", async () => {
-    const scope = scopeOf([snap({ experimentId: "exp/a", results: [res("q1", "passed")] })], [partialCoverage("exp/a")]);
+    const scope = scopeOf([snap({ experimentId: "exp/a", results: [res("q1", "passed")] })], [unfinishedSnapshot("exp/a")]);
     await expect(scopeWarningsData(scope.snapshots)).resolves.toEqual([]);
   });
 });

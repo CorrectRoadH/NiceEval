@@ -1,6 +1,6 @@
 // cases: docs/engineering/testing/unit/reports.md
-// "validate*Data 递归覆盖到嵌套字段" 行:site-components 四个 validate*Data 的表驱动字段突变覆盖,重点是 ScopeWarning 的四个已登记
-// kind 各自的必填字段,以及未登记 kind 的前向兼容放行路径(与 ScopeWarnings 组件的「未知 kind
+// "validate*Data 递归覆盖到嵌套字段" 行:site-components 四个 validate*Data 的表驱动字段突变覆盖,重点是 ScopeWarning 三个已登记
+// kind(unfinished-snapshot / missing-startedAt / unreadable-snapshot)各自的必填字段,以及未登记 kind 的前向兼容放行路径(与 ScopeWarnings 组件的「未知 kind
 // 单独成组」渲染回退是同一条契约,结构校验不能比渲染逻辑更严)。
 
 import { describe, expect, it } from "vitest";
@@ -17,14 +17,11 @@ describe("validateHeroData", () => {
 });
 
 describe("validateScopeWarningsData — ScopeWarning 判别联合", () => {
-  it("partial-coverage 缺 covered 报错", () => {
-    const bad = [{ kind: "partial-coverage", experimentId: "exp/a", total: 6, message: "m", command: "niceeval exp exp/a" }];
-    expect(validateScopeWarningsData(bad)).toMatch(/"data\[0\]\.covered"/);
-  });
-
-  it("stale-snapshot 缺 latestStartedAt 报错", () => {
-    const bad = [{ kind: "stale-snapshot", experimentId: "exp/a", startedAt: "t1", message: "m", command: "c" }];
-    expect(validateScopeWarningsData(bad)).toMatch(/"data\[0\]\.latestStartedAt"/);
+  it("missing-startedAt 缺 evalId 报错(不带 command 恒合法,无单条命令能解决)", () => {
+    const bad = [{ kind: "missing-startedAt", experimentId: "exp/a", message: "m" }];
+    expect(validateScopeWarningsData(bad)).toMatch(/"data\[0\]\.evalId"/);
+    const ok = [{ kind: "missing-startedAt", experimentId: "exp/a", evalId: "q1", message: "m" }];
+    expect(validateScopeWarningsData(ok)).toBeNull();
   });
 
   it("unfinished-snapshot 缺 dir 报错", () => {

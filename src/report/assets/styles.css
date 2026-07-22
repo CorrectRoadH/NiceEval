@@ -50,6 +50,9 @@
 .nre .nre-locator.nre-verdict-failed .nre-locator-mark,
 .nre .nre-locator.nre-verdict-errored .nre-locator-mark { color:var(--bad); }
 .nre .nre-locator.nre-verdict-skipped .nre-locator-mark { color:var(--soft); }
+/* 时效标注(↩ + 紧凑时距):subdued 行内事实,不占框、不用警示色——携带是正常缓存,
+   跨快照拼接受可比性前提保护,不是警告(见 entity-lists.md「时效标注」)。 */
+.nre .nre-historical { color:var(--soft); font-size:.92em; white-space:nowrap; }
 
 /* ---- AttemptList:实体列表的叶子层,一条卡片一个 Attempt ---- */
 .nre-attempt-list .nre-attempts { list-style:none; margin:0; padding:0; }
@@ -128,6 +131,9 @@
 .nre-experiment-list .nre-eval-id { font-weight:560; overflow-wrap:anywhere; }
 .nre-experiment-list .nre-eval-attempt-count { color:var(--soft); font-size:12px; }
 .nre-experiment-list .nre-eval-rollup { color:var(--muted); font-size:.92em; overflow-wrap:anywhere; }
+/* 覆盖缺口占位行:不冒充有 attempt 的题,视觉上比正常 Eval 行更 subdued。 */
+.nre-experiment-list .nre-experiment-eval-missing { color:var(--soft); }
+.nre-experiment-list .nre-experiment-eval-missing code { font-size:.92em; }
 .nre-experiment-list .nre-attempt-branch { color:var(--line-strong); font-variant-numeric:tabular-nums; }
 .nre-experiment-list .nre-eval-attempt-badges { display:inline-flex; flex-wrap:wrap; gap:.6em; }
 .nre-experiment-list .nre-eval-attempt-metrics,
@@ -396,12 +402,6 @@ table.nre,
   background: color-mix(in oklch, var(--warn), var(--panel) 84%);
   font-size: 0.9em;
   white-space: nowrap;
-}
-/* freshness 组(数字对但可能过期)视觉降一档,integrity 保持警示底色。 */
-.nre .nre-warning-group[data-category="freshness"] .nre-warning-badge {
-  border-color: var(--line);
-  background: var(--panel);
-  color: var(--soft);
 }
 .nre .nre-warning-details { margin: 4px 0 0; }
 /* <details> 原生无 JS 可展开,cursor 不经 .nre-js 门控。 */

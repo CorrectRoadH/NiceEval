@@ -36,11 +36,12 @@ export const validateHeroData: Validator = (data) => {
 const UNREADABLE_SNAPSHOT_REASONS = ["incompatible-version", "malformed", "incomplete"];
 
 /**
- * ScopeWarning(src/results/types.ts「警告 kind 全集」):按 `kind` 判别的联合,已登记 kind
- * 各自的必填字段单独校验——`unreadable-snapshot` 没有 experimentId(非实验作用域)、
+ * ScopeWarning(src/results/types.ts「警告 kind 全集」):按 `kind` 判别的联合(三种,只承载
+ * 定位不到任何一行的完整性事实),已登记 kind 各自的必填字段单独校验——`missing-startedAt`
+ * 没有 `command`(无单条命令能解决)、`unreadable-snapshot` 没有 experimentId(非实验作用域)、
  * `command` 恒可选。未登记的 `kind`(如未来版本新增的 warning)只要求 `kind` / `message`
  * 这份两族共用的最小形状,不拒绝——`ScopeWarnings` 的分组渲染对未识别 kind 有专门的
- * 单独成组回退(message 原样、按 integrity 归位),这条前向兼容路径本身就是契约的一部分,
+ * 单独成组回退(message 原样),这条前向兼容路径本身就是契约的一部分,
  * 结构校验不能比渲染逻辑更严。
  */
 function scopeWarningProblem(value: unknown, path: string): string | null {
@@ -48,23 +49,15 @@ function scopeWarningProblem(value: unknown, path: string): string | null {
   if (typeof value.kind !== "string") return `"${path}.kind" must be a string`;
   if (typeof value.message !== "string") return `"${path}.message" must be a string`;
   switch (value.kind) {
-    case "partial-coverage":
-      if (typeof value.experimentId !== "string") return `"${path}.experimentId" must be a string`;
-      if (typeof value.covered !== "number") return `"${path}.covered" must be a number`;
-      if (typeof value.total !== "number") return `"${path}.total" must be a number`;
-      if (typeof value.command !== "string") return `"${path}.command" must be a string`;
-      return null;
-    case "stale-snapshot":
-      if (typeof value.experimentId !== "string") return `"${path}.experimentId" must be a string`;
-      if (typeof value.startedAt !== "string") return `"${path}.startedAt" must be a string`;
-      if (typeof value.latestStartedAt !== "string") return `"${path}.latestStartedAt" must be a string`;
-      if (typeof value.command !== "string") return `"${path}.command" must be a string`;
-      return null;
     case "unfinished-snapshot":
       if (typeof value.experimentId !== "string") return `"${path}.experimentId" must be a string`;
       if (typeof value.startedAt !== "string") return `"${path}.startedAt" must be a string`;
       if (typeof value.dir !== "string") return `"${path}.dir" must be a string`;
       if (typeof value.command !== "string") return `"${path}.command" must be a string`;
+      return null;
+    case "missing-startedAt":
+      if (typeof value.experimentId !== "string") return `"${path}.experimentId" must be a string`;
+      if (typeof value.evalId !== "string") return `"${path}.evalId" must be a string`;
       return null;
     case "unreadable-snapshot":
       if (typeof value.dir !== "string") return `"${path}.dir" must be a string`;
@@ -187,9 +180,9 @@ export type ScopeWarningsProps = DataProps<readonly ScopeWarning[], Record<never
 /**
  * `ScopeWarnings`:选择警告区,警告的唯一呈现组件。把 Scope 携带的 `ScopeWarning[]`
  * 按「下一步动作」聚合渲染(带 experimentId 的按实验聚合、非实验作用域按 kind 聚合;
- * integrity 组在前);web 面组头带去重后的可复制命令、明细收原生 `<details>`(总条数 ≤ 3
- * 默认展开),text 面同构但不折叠。空警告集与裸 `Snapshot[]` 输入两面零输出
- * (docs/feature/reports/library/site-components.md「ScopeWarnings」)。
+ * 实验作用域组在前、非实验作用域组在后);web 面组头带去重后的可复制命令、明细收原生
+ * `<details>`(总条数 ≤ 3 默认展开),text 面同构但不折叠。空警告集与裸 `Snapshot[]` 输入
+ * 两面零输出(docs/feature/reports/library/site-components.md「ScopeWarnings」)。
  */
 export const ScopeWarnings = makeDataComponent<readonly ScopeWarning[], Record<never, never>, ChromeProps>({
   name: "ScopeWarnings",

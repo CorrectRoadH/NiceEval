@@ -86,6 +86,7 @@ function snap(spec: {
     result: r,
     ref: { snapshot: `exp/snap-${runSeq}`, attempt: `${r.id}/a${r.attempt}` },
     snapshot,
+    carried: Boolean(r.artifactBase),
     events: async () => null,
     trace: async () => null,
     o11y: async () => null,

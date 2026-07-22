@@ -8,7 +8,7 @@ import type { AttemptLocator } from "../../../results/locator.ts";
 import type { AttemptListItem, ExperimentListEvalRow, ExperimentListItem } from "../../model/types.ts";
 import { shortestUniqueLabels } from "../../model/format.ts";
 import { DEFAULT_REPORT_LOCALE, localeText, type ReportLocale } from "../../model/locale.ts";
-import { AttemptLocatorBadge, failureSummaryText } from "./AttemptList.tsx";
+import { AttemptLocatorBadge, EvalHistoricalMark, HistoricalMark, failureSummaryText } from "./AttemptList.tsx";
 import { MetricCellView } from "../cell.tsx";
 import { colorClassForKey } from "../../assets/colors.ts";
 import { formatDurationMs, formatUSD, verdictMark } from "../../model/format.ts";
@@ -58,6 +58,7 @@ function ExperimentAttemptRow({
       <span className="nre-attempt-branch" aria-hidden="true">{last ? "└─" : "├─"}</span>
       <span className="nre-eval-attempt-badges">
         <AttemptLocatorBadge item={attempt} attemptHref={attemptHref} />
+        <HistoricalMark item={attempt} locale={locale} />
       </span>
       <span className="nre-eval-attempt-metrics">
         {formatDurationMs(attempt.durationMs)}
@@ -86,6 +87,7 @@ function EvalAttempts({
       <div className={cx("nre-experiment-eval-header", `nre-eval-${row.verdict}`)}>
         <span className={cx("nre-eval-verdict", `nre-verdict-${row.verdict}`)}>{verdictMark(row.verdict)}</span>
         <span className="nre-eval-id">{row.evalId}</span>
+        <EvalHistoricalMark attempts={row.attempts} />
         <span className="nre-eval-attempt-count">{localeText(locale, "overview.attemptsCount", { n: row.attempts.length })}</span>
         <span className="nre-eval-rollup">
           {localeText(locale, "entityList.average", { value: duration })}
@@ -104,6 +106,34 @@ function EvalAttempts({
           />
         ))}
       </ul>
+    </li>
+  );
+}
+
+/**
+ * 覆盖缺口的占位行:状态列为 —,结果列为「当前配置下无结果」+ 可复制的补跑命令,无 attempt
+ * 子行,不参与任何指标聚合——只把分母缺口摆进读者正在看的表里
+ * (docs/feature/reports/library/entity-lists.md「ExperimentList」)。
+ */
+function MissingEvalRow({
+  evalId,
+  experimentId,
+  locale,
+}: {
+  evalId: string;
+  experimentId: string;
+  locale: ReportLocale;
+}): ReactElement {
+  const command = `niceeval exp ${experimentId}`;
+  return (
+    <li className="nre-experiment-eval nre-experiment-eval-missing">
+      <div className="nre-experiment-eval-header">
+        <span className="nre-eval-verdict">—</span>
+        <span className="nre-eval-id">{evalId}</span>
+        <span className="nre-eval-rollup">
+          {localeText(locale, "experimentList.noResultsForConfig")} · <code>{command}</code>
+        </span>
+      </div>
     </li>
   );
 }
@@ -138,8 +168,16 @@ function ExperimentRow({
         <span className="nre-experiment-name" data-sort-value={item.experimentId}>
           <b className={cx("nre-experiment-id", "nre-key")}>{label}</b>
           <small>
-            {localeText(locale, "overview.evalsCount", { n: item.evals })}
+            {item.missingEvalIds.length > 0
+              ? localeText(locale, "overview.evalsCountPartial", {
+                  covered: item.evals,
+                  total: item.evals + item.missingEvalIds.length,
+                })
+              : localeText(locale, "overview.evalsCount", { n: item.evals })}
             {item.attempts > item.evals ? ` · ${localeText(locale, "overview.attemptsCount", { n: item.attempts })}` : ""}
+            {item.historicalAttempts > 0
+              ? ` · ${localeText(locale, "experimentList.historicalAttempts", { n: item.historicalAttempts, m: item.attempts })}`
+              : ""}
             {` · ${formatDate(item.lastRunAt, locale)}`}
           </small>
         </span>
@@ -169,6 +207,9 @@ function ExperimentRow({
         <ul className="nre-experiment-evals">
           {item.evalRows.map((row) => (
             <EvalAttempts key={row.evalId} row={row} attemptHref={attemptHref} locale={locale} />
+          ))}
+          {item.missingEvalIds.map((evalId) => (
+            <MissingEvalRow key={evalId} evalId={evalId} experimentId={item.experimentId} locale={locale} />
           ))}
         </ul>
       </div>

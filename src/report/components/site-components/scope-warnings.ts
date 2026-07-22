@@ -5,11 +5,7 @@
 // 回退为单独成组、逐条 message 原样。
 
 import type { ScopeWarning } from "../../../results/types.ts";
-import { gapParts } from "../../../results/select.ts";
 import { localeText, type ReportLocale, type ReportMessageKey } from "../../model/locale.ts";
-
-/** kind 表登记的类别:integrity(选中集合的分母可能不对)组排在 freshness(可能过期)之前。 */
-export type WarningCategory = "integrity" | "freshness";
 
 /**
  * 聚合层的宽松形态:kind 表新增 kind 时(如 unreadable-snapshot 先于类型落地)
@@ -24,7 +20,6 @@ interface AnyWarning {
 }
 
 export interface ScopeWarningGroup {
-  category: WarningCategory;
   /** 实验组为 experimentId;kind 组为登记的组头文案(含条数);未登记 kind 用 kind 原文。 */
   title: string;
   /** 每条警告一枚、与 warnings 同序;未登记徽标模板的成员不出徽标。 */
@@ -43,15 +38,8 @@ export interface GroupedScopeWarnings {
   detailsOpen: boolean;
 }
 
-const CATEGORY: Record<string, WarningCategory> = {
-  "partial-coverage": "integrity",
-  "unfinished-snapshot": "integrity",
-  "unreadable-snapshot": "integrity",
-  "stale-snapshot": "freshness",
-};
-
 /** 实验作用域且登记了徽标模板的 kind 才进实验组;其余(含未登记 kind)按 kind 聚合。 */
-const EXPERIMENT_KINDS = new Set(["partial-coverage", "stale-snapshot", "unfinished-snapshot"]);
+const EXPERIMENT_KINDS = new Set(["unfinished-snapshot"]);
 
 function pluralText(
   locale: ReportLocale,
@@ -66,22 +54,8 @@ export function warningDetailsLabel(locale: ReportLocale, n: number): string {
   return pluralText(locale, "warnings.details", n);
 }
 
-function gapText(locale: ReportLocale, fromIso: string, toIso: string): string {
-  const { n, unit } = gapParts(fromIso, toIso);
-  return localeText(locale, `warnings.gap.${unit}.${n === 1 ? "one" : "other"}` as ReportMessageKey, { n });
-}
-
 function badgeText(w: AnyWarning, locale: ReportLocale): string | null {
   switch (w.kind) {
-    case "partial-coverage":
-      return localeText(locale, "warnings.badge.partialCoverage", {
-        covered: String(w.covered),
-        total: String(w.total),
-      });
-    case "stale-snapshot":
-      return localeText(locale, "warnings.badge.staleSnapshot", {
-        gap: gapText(locale, String(w.startedAt), String(w.latestStartedAt)),
-      });
     case "unfinished-snapshot":
       return localeText(locale, "warnings.badge.unfinishedSnapshot");
     default:
@@ -95,10 +69,13 @@ function dedupeCommand(members: readonly AnyWarning[]): string | null {
   return commands.size === 1 ? [...commands][0] : null;
 }
 
-function groupCategory(members: readonly AnyWarning[]): WarningCategory {
-  return members.some((w) => (CATEGORY[w.kind] ?? "integrity") === "integrity") ? "integrity" : "freshness";
-}
-
+/**
+ * 按「用户要做什么」组织,不按发生顺序:带 experimentId 且登记了徽标模板的 kind 按实验聚合,
+ * 其余(含未登记 kind)按 kind 聚合。组排序:实验作用域组在前(按实验 id 字典序),
+ * 非实验作用域组在后(按 kind);类别两档制(integrity / freshness)已随 stale-snapshot /
+ * partial-coverage 一并删除——三种 warning kind 都是同一类完整性事实,不再需要档位区分
+ * (docs/feature/reports/library/site-components.md「聚合轴是动作,不是发生顺序」)。
+ */
 export function groupScopeWarnings(input: readonly ScopeWarning[], locale: ReportLocale): GroupedScopeWarnings {
   const warnings = input as readonly AnyWarning[];
   const byExperiment = new Map<string, AnyWarning[]>();
@@ -116,9 +93,10 @@ export function groupScopeWarnings(input: readonly ScopeWarning[], locale: Repor
   }
 
   const groups: ScopeWarningGroup[] = [];
-  for (const [experimentId, members] of byExperiment) {
+  // 实验作用域组在前,按实验 id 字典序(Map 插入顺序取决于扫描顺序,这里显式排序)。
+  for (const experimentId of [...byExperiment.keys()].sort()) {
+    const members = byExperiment.get(experimentId)!;
     groups.push({
-      category: groupCategory(members),
       title: experimentId,
       badges: members
         .map((w) => ({ kind: w.kind, text: badgeText(w, locale) }))
@@ -127,9 +105,10 @@ export function groupScopeWarnings(input: readonly ScopeWarning[], locale: Repor
       warnings: members as unknown as ScopeWarning[],
     });
   }
-  for (const [kind, members] of byKind) {
+  // 非实验作用域组在后,按 kind 字典序。
+  for (const kind of [...byKind.keys()].sort()) {
+    const members = byKind.get(kind)!;
     groups.push({
-      category: CATEGORY[kind] ?? "integrity",
       title:
         kind === "unreadable-snapshot" ? pluralText(locale, "warnings.group.unreadableSnapshot", members.length) : kind,
       badges: [],
@@ -137,13 +116,11 @@ export function groupScopeWarnings(input: readonly ScopeWarning[], locale: Repor
       warnings: members as unknown as ScopeWarning[],
     });
   }
-  // 稳定排序:integrity 在前,同类别保持首次出现顺序。
-  const rank = (c: WarningCategory) => (c === "integrity" ? 0 : 1);
-  groups.sort((a, b) => rank(a.category) - rank(b.category));
 
   const parts: string[] = [];
   if (byExperiment.size > 0) parts.push(pluralText(locale, "warnings.summary.experiments", byExperiment.size));
-  for (const [kind, members] of byKind) {
+  for (const kind of [...byKind.keys()].sort()) {
+    const members = byKind.get(kind)!;
     parts.push(
       kind === "unreadable-snapshot"
         ? pluralText(locale, "warnings.group.unreadableSnapshot", members.length)
