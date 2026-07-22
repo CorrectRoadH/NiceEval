@@ -141,12 +141,12 @@
 |---|---|
 | `openResults`:实验/结果快照/eval 分层、版本分流(skipped 三种原因)、懒加载(attempt 目录→artifactBase 携带条目回退) | `src/results/open.ts` |
 | 布局与版本知识(attempt 目录规则、快照分类、完整 producer) | `src/results/format.ts` |
-| `results.latest()`(= `selectLatest`,每实验取最新一次快照 + 范围内 `ScopeWarning`,kind 全集三种:unfinished-snapshot / missing-startedAt / unreadable-snapshot,见[警告 kind 全集](feature/results/library.md#警告-kind-全集))/ `results.current()`(= `selectCurrentResults`,现刻水位合成器:对每个 experiment × eval 跨该实验全部历史快照取最新判定,合成一份报告用 Snapshot,警告随范围重算,同样含 unreadable-snapshot;show 与 view 共用的报告槽 Scope 就出自这里)/ `unreadableSnapshotWarnings`(扫描不可读快照——incompatible / malformed / incomplete——产出 `unreadable-snapshot` warning,接线进 `selectLatest` 与 `selectCurrentResults`;类型在 `src/results/types.ts`)/ `Scope.filter` / `dedupeAttempts`(身份键去重;缺 `startedAt` 的身份键不去重,记 `missing-startedAt` 警告)/ `ResultScope`(`{ experiment?, patterns? }` 范围输入) | `src/results/select.ts` |
+| `results.latest()`(= `selectLatest`,每实验取最新一次快照 + 范围内 `ScopeWarning` + `ScopeCoverage`,kind 全集三种:unfinished-snapshot / missing-startedAt / unreadable-snapshot,见[警告 kind 全集](feature/results/library.md#警告-kind-全集))/ `results.current()`(= `selectCurrentResults`,现刻水位合成器:对每个 experiment × eval 跨该实验全部历史快照取最新判定,合成一份报告用 Snapshot,coverage/警告随范围重算,同样含 unreadable-snapshot;show 与 view 共用的报告槽 Scope 就出自这里)/ 两者都接受 `fresh?: boolean`(排除历史执行 attempt,`freshEvals`/`withFreshEvals` 实现,被排除的题进 `coverage.missingEvalIds`)/ `unreadableSnapshotWarnings`(扫描不可读快照——incompatible / malformed / incomplete——产出 `unreadable-snapshot` warning,接线进 `selectLatest` 与 `selectCurrentResults`;类型在 `src/results/types.ts`)/ `Scope.filter`(同步修剪 attempts / coverage / warnings)/ `dedupeAttempts`(身份键去重;缺 `startedAt` 的身份键不去重,记 `missing-startedAt` 警告)/ `ResultScope`(`{ experiment?, patterns?, fresh? }` 范围输入) | `src/results/select.ts` |
 | `createResultsWriter`(快照目录独占创建、快照级元数据落盘、attempt 记录与 artifact 增量落盘、`finish()` 补 `completedAt`) | `src/results/writer.ts` |
 | `copySnapshots`(发布原语:计划 → 预检 → 复制,knownEvalIds 补记) | `src/results/copy.ts` |
 | 发布预算常量(50 MiB 单文件预检上限) | `src/results/publish.ts` |
 | 落盘截断(单值 256 KiB 上限,events / spans 写入前截断并标记) | `src/results/truncate.ts` |
-| 分层契约(Experiment / Snapshot / Eval / AttemptHandle / AttemptRef / Scope / 警告类型) | `src/results/types.ts` |
+| 分层契约(Experiment / Snapshot / Eval / AttemptHandle(含 `carried` 携带条目投影)/ AttemptRef / Scope(含 `coverage: ScopeCoverage[]`)/ 警告类型) | `src/results/types.ts` |
 | `defineMetric` 与内置指标(verdict 逐项表态) | `src/report/model/metrics.ts` |
 | `flag()`(experiment flags 当维度 / 轴) | `src/report/model/flag.ts` |
 | 两级聚合引擎 / 维度 / MetricCell 计算 / 聚合前去重接线 | `src/report/model/aggregate.ts` |
