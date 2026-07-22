@@ -86,6 +86,7 @@ npx niceeval exp models weather
 | `--window` | string | `sandbox diff` 专用:只看某个 send 窗口(如 `--window s1/t2`);省略输出全部窗口的串联视图。 |
 | `--path` | string | `sandbox diff` 专用:只看某个文件的 patch;省略输出该窗口的全部文件。 |
 | `--leave-running` | boolean | `sandbox enter` 专用:shell 退出后让现场保持运行,不送回休眠。 |
+| `--orphans` | boolean | `sandbox list` 专用:核对强杀(`SIGKILL` / 断电)路径留下的无主沙箱实例(docker + e2b;vercel 无按元数据检索实例的通道,不参与)。只读,不清理;销毁走 `niceeval sandbox prune`。 |
 | `--tag` | string | 只运行带有该 tag 的 eval(见 `defineEval` 的 `tags`)。 |
 | `--junit` | string | 额外写一份 JUnit XML 报告到指定路径,供 CI 消费。 |
 | `--json` | string | 额外写一份 JSON 结果(`RunSummary` 原样序列化)到指定路径,供 CI 或下游脚本消费。 |
@@ -102,6 +103,7 @@ npx niceeval exp models weather
 | `--report` | string | `show` / `view` 命令专用:用文件默认导出的 `defineReport(...)` 替换两者共用的默认报告。 |
 | `--page` | string | `show` / `view` 命令专用:选择报告的初始页;`show` 渲染该页并在尾部附其余页索引,`view` 以它作初始路由。未命中的页 id 按用法错误退出并列出可用页 id。 |
 | `--fresh` | boolean | `show` / `view` 命令专用:只统计新执行的 attempt(排除携带条目与跨快照拼入的历史执行);被排除的题按覆盖事实转为榜单占位行,不静默消失。 |
+| `--teardown` | boolean | `exp` 命令专用:补齐被强杀打断的实验级 teardown——只对选中的实验各执行一次 teardown(新进程语义),不派发 attempt、不跑 setup;没有遗留登记也照常执行。与 eval 前缀位置参数组合是用法错误。 |
 | `--dry` | boolean | 只打印本次会匹配到的 eval × 运行配置,不实际执行(按下面 `--output` 选中的 profile 给出预览)。 |
 | `--output` | string | 反馈 profile:`auto`(默认)按环境自动选择,`human` / `agent` / `ci` 强制指定;只改变终端展示,不改变选择、调度、判定、artifact 或退出码。`auto` 依次判定:stderr 是 TTY → human;否则 `CI`(或其它常见 CI 平台环境变量)存在 → ci;否则 → agent。 |
 | `--force` | boolean | 忽略上次运行结果,不跳过已通过的 (experiment, eval) 组合,强制全部重跑。 |

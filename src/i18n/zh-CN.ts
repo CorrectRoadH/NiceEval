@@ -65,6 +65,8 @@ export const zhCN = {
     "{{layer}} 返回了一个函数。setup 不承载收尾,返回值不会被执行——收尾写在同层成对的 teardown 里({{hint}});见 docs-site 的实验教程或 docs/runner.md「环境预置」。\n",
   "runner.experimentTeardownLate":
     "实验 {{experimentId}} 的 teardown 未被正常计数路径触发,已在运行收尾兜底执行。结果不受影响;这行出现说明命中了一个未定位的调度间歇问题,请把本次运行信息记入 memory 台账。\n",
+  "runner.teardownRegistrationWriteFailed":
+    "实验 {{experimentId}} 的强杀恢复收尾登记写入失败:{{message}}。本次运行照常继续,但这次运行期间若被 SIGKILL,`niceeval exp --teardown` 与启动自愈都无法找到它——检查 .niceeval/teardowns/ 下的磁盘空间或权限。\n",
   "judge.modelMissing":
     "judge 未配置模型:在 defineConfig({ judge: { model: \"...\" } })、eval 的 judge 配置或环境变量 NICEEVAL_JUDGE_MODEL 里指定裁判模型(没有内置默认模型)。\n" +
     "  文档:node_modules/niceeval/docs-site/zh/tutorials/scoring-guide.mdx",
@@ -76,6 +78,8 @@ export const zhCN = {
     "niceeval — agent-native evals\n\n" +
     "用法:\n" +
     "  niceeval exp [路径|实验] [eval-id 前缀…]   跑实验\n" +
+    "      --teardown   强杀后补收尾:只对选中的实验各执行一次 teardown(不派发\n" +
+    "        attempt、不跑 setup);与 eval id 前缀组合是用法错误\n" +
     "  niceeval show [eval-id 前缀… | @<locator>]   终端读结果\n" +
     "      裸跑:每个 experiment 的现刻判定(跨 run 合成),每行带紧凑 attempt 索引\n" +
     "        (locator + 失败原因)\n" +
@@ -99,6 +103,7 @@ export const zhCN = {
     "      --snapshot <文件> 只打开这一份快照   --exp <id> 只看该实验;--fresh 只看新执行\n" +
     "      --out <目录> 静态导出:index.html 连同查看器 artifact,可直接静态托管\n" +
     "  niceeval sandbox list|enter|history|diff|stop  查看与销毁 --keep-sandbox 留下的现场\n" +
+    "  niceeval sandbox list --orphans / prune         核对并收回被强杀留下的无主实例\n" +
     "  niceeval clean                           删除 .niceeval/ 历史 artifact\n" +
     "  niceeval init                            脚手架 config + evals/\n\n" +
     "标志:\n" +
@@ -125,6 +130,10 @@ export const zhCN = {
   "cli.eval.noMatchKnown": "已发现 {{count}} 个 eval:{{evals}}\n",
   "cli.exp.agentModelFlagUnsupported": "experiment 运行不支持 --agent / --model。请新增或复制一个 experiment 文件并修改 model。\n",
   "cli.exp.viewerFlagUnsupported": "`{{flag}}` 只适用于 niceeval {{command}},不能用于 niceeval exp。\n",
+  "cli.exp.teardownNoEvalPatterns":
+    "--teardown 只选择实验,不跑任何 eval,所以不能再带 eval id 前缀。用法:niceeval exp <experiment 路径> --teardown\n",
+  "cli.exp.teardownDone": "teardown 完成:{{experimentId}}\n",
+  "cli.exp.teardownFailed": "teardown 失败:{{experimentId}}:{{message}}\n",
   "cli.experiment.noMatch":
     "没有匹配的实验:{{arg}}。可用路径:{{experiments}}。\n" +
     "运行 `niceeval exp <路径> --dry` 预览计划。\n",

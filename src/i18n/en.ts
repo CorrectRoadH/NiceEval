@@ -67,6 +67,8 @@ export const en = {
     "{{layer}} returned a function. setup does not carry cleanup and the returned value will not be executed — put the cleanup in the paired teardown of the same layer ({{hint}}); see the experiments tutorial on docs-site or docs/runner.md.\n",
   "runner.experimentTeardownLate":
     "experiment {{experimentId}}'s teardown was not triggered by the normal countdown path; it has been executed by the end-of-run sweep instead. Results are unaffected; seeing this line means an unlocated intermittent scheduling issue fired — please record this run in the memory ledger.\n",
+  "runner.teardownRegistrationWriteFailed":
+    "writing the crash-recovery teardown registration for experiment {{experimentId}} failed: {{message}}. The run continues normally, but a SIGKILL during this run cannot be recovered via `niceeval exp --teardown` or the startup self-heal — check disk space/permissions under .niceeval/teardowns/.\n",
   "judge.modelMissing":
     "No judge model configured. Set it in defineConfig({ judge: { model: \"...\" } }), the eval's judge config, or the NICEEVAL_JUDGE_MODEL environment variable (there is no built-in default model).\n" +
     "  Docs: node_modules/niceeval/docs-site/zh/tutorials/scoring-guide.mdx",
@@ -78,6 +80,8 @@ export const en = {
     "niceeval — agent-native evals\n\n" +
     "Usage:\n" +
     "  niceeval exp [path|experiment] [eval-id-prefix…]    run experiments\n" +
+    "      --teardown   recover a killed run: run only the selected experiments'\n" +
+    "        teardown (no attempts, no setup); combining it with eval id prefixes is an error\n" +
     "  niceeval show [eval-id-prefix… | @<locator>]        read results in the terminal\n" +
     "      bare: current verdicts per experiment (composed across runs), each row\n" +
     "        with a compact attempt index (locator + failure reason)\n" +
@@ -105,6 +109,7 @@ export const en = {
     "      --out <dir> exports a static site: index.html plus the viewer\n" +
     "      artifacts, ready for any static host\n" +
     "  niceeval sandbox list|enter|history|diff|stop  inspect & destroy sandboxes kept by --keep-sandbox\n" +
+    "  niceeval sandbox list --orphans / prune         reclaim instances orphaned by a killed run\n" +
     "  niceeval clean                                      delete .niceeval/ artifacts\n" +
     "  niceeval init                                       scaffold config + evals/\n\n" +
     "Flags:\n" +
@@ -130,6 +135,10 @@ export const en = {
   "cli.eval.noMatchKnown": "Discovered {{count}} evals: {{evals}}\n",
   "cli.exp.agentModelFlagUnsupported": "experiment runs do not support --agent / --model. Add or copy an experiment file and change its model instead.\n",
   "cli.exp.viewerFlagUnsupported": "`{{flag}}` only applies to niceeval {{command}}, not niceeval exp.\n",
+  "cli.exp.teardownNoEvalPatterns":
+    "--teardown selects experiments only; it does not run any eval, so eval id patterns are not allowed with it. Use `niceeval exp <experiment path> --teardown`.\n",
+  "cli.exp.teardownDone": "teardown done: {{experimentId}}\n",
+  "cli.exp.teardownFailed": "teardown failed: {{experimentId}}: {{message}}\n",
   "cli.experiment.noMatch":
     "No experiment matched: {{arg}}. Available paths: {{experiments}}.\n" +
     "Run `niceeval exp <path> --dry` to preview a plan.\n",

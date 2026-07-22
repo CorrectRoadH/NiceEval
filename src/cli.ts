@@ -5,6 +5,7 @@
 //   niceeval clean                   删除 .niceeval/ 历史运行 artifact
 
 import { spawn } from "node:child_process";
+import { hostname } from "node:os";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, relative, resolve as resolvePath } from "node:path";
@@ -18,7 +19,8 @@ import { fingerprintEvalsFilter, resolveExperimentEvals, selectedEvalsForRun, sp
 import { failureDetailFromResult } from "./runner/feedback/failure.ts";
 import { stopAllSandboxes, liveSandboxCount } from "./sandbox/registry.ts";
 import { drainExperimentTeardowns } from "./runner/experiment-cleanup-registry.ts";
-import { CLEANUP_TIMEOUT_MS } from "./runner/cleanup-timeout.ts";
+import { CLEANUP_TIMEOUT_MS, withCleanupTimeout } from "./runner/cleanup-timeout.ts";
+import type { ExperimentHookContext } from "./runner/types.ts";
 import { evalLevelStats } from "./shared/verdict.ts";
 import { prepareRunSandboxes, resolvedSandboxRecommendedConcurrency } from "./runner/sandbox-selection.ts";
 import { Json, JUnit } from "./runner/reporters/json.ts";
@@ -117,6 +119,10 @@ interface Flags {
   report?: string;
   page?: string;
   fresh: boolean;
+  /** `sandbox list` 专用:核对强杀路径留下的无主实例。 */
+  orphans: boolean;
+  /** `exp` 命令专用:只对选中实验各执行一次实验级 teardown,不派发 attempt、不跑 setup。 */
+  teardown: boolean;
 }
 
 // 表驱动的 flag 定义(node:util parseArgs)。--no-x 显式声明,不依赖 allowNegative(需 Node 20.14+,
@@ -148,6 +154,8 @@ const FLAG_OPTIONS = {
   path: { type: "string" },
   /** `sandbox enter` 专用:shell 退出后让现场保持运行,不送回休眠。 */
   "leave-running": { type: "boolean" },
+  /** `sandbox list` 专用:核对强杀(`SIGKILL` / 断电)路径留下的无主沙箱实例(docker + e2b;vercel 无按元数据检索实例的通道,不参与)。只读,不清理;销毁走 `niceeval sandbox prune`。 */
+  orphans: { type: "boolean" },
   /** 只运行带有该 tag 的 eval(见 `defineEval` 的 `tags`)。 */
   tag: { type: "string" },
   /** 额外写一份 JUnit XML 报告到指定路径,供 CI 消费。 */
@@ -185,6 +193,8 @@ const FLAG_OPTIONS = {
   page: { type: "string" },
   /** `show` / `view` 命令专用:只统计新执行的 attempt(排除携带条目与跨快照拼入的历史执行);被排除的题按覆盖事实转为榜单占位行,不静默消失。 */
   fresh: { type: "boolean" },
+  /** `exp` 命令专用:补齐被强杀打断的实验级 teardown——只对选中的实验各执行一次 teardown(新进程语义),不派发 attempt、不跑 setup;没有遗留登记也照常执行。与 eval 前缀位置参数组合是用法错误。 */
+  teardown: { type: "boolean" },
   /** 只打印本次会匹配到的 eval × 运行配置,不实际执行(按下面 `--output` 选中的 profile 给出预览)。 */
   dry: { type: "boolean" },
   /** 反馈 profile:`auto`(默认)按环境自动选择,`human` / `agent` / `ci` 强制指定;只改变终端展示,不改变选择、调度、判定、artifact 或退出码。`auto` 依次判定:stderr 是 TTY → human;否则 `CI`(或其它常见 CI 平台环境变量)存在 → ci;否则 → agent。 */
@@ -320,6 +330,8 @@ function parseArgs(argv: string[]): { command: string; positionals: string[]; fl
     report: values.report as string | undefined,
     page: values.page as string | undefined,
     fresh: values.fresh === true,
+    orphans: values.orphans === true,
+    teardown: values.teardown === true,
   };
   return { command, positionals, flags };
 }
@@ -602,6 +614,8 @@ async function main(): Promise<void> {
       leaveRunning: flags.leaveRunning,
       // CLI flag 是 --results(结果根);sandbox 命令组的内部选项名保持 run,值语义相同。
       run: flags.results,
+      orphans: flags.orphans,
+      force: flags.force,
     });
     process.exit(code);
   }
@@ -686,11 +700,64 @@ async function main(): Promise<void> {
       }
       process.exit(1);
     }
-    // 残留提醒:注册表里还有上次留下的沙箱时打一行(不阻塞、不清理)。
+    // 残留提醒:注册表里还有上次留下的沙箱、强杀留下的孤儿候选、或不在本次选择里的遗留实验级
+    // teardown 时各打一行(不阻塞、不清理;见 docs/feature/sandbox/cli.md「残留提醒」与
+    // docs/feature/experiments/architecture.md「强杀后的收尾兜底」)。
     {
-      const { keptSandboxReminder } = await import("./sandbox/cli-commands.ts");
+      const { keptSandboxReminder, orphanReminder } = await import("./sandbox/cli-commands.ts");
       const reminder = await keptSandboxReminder(cwd).catch(() => undefined);
       if (reminder) process.stderr.write(reminder);
+      const orphans = await orphanReminder(cwd).catch(() => undefined);
+      if (orphans) process.stderr.write(orphans);
+      const { staleTeardownReminder } = await import("./runner/teardown-registry.ts");
+      const staleReminder = await staleTeardownReminder(
+        resolvePath(cwd, ".niceeval"),
+        new Set(selected.map((e) => e.id)),
+        hostname(),
+      ).catch(() => undefined);
+      if (staleReminder) process.stderr.write(staleReminder);
+    }
+
+    // `--teardown`:只对选中的实验各执行一次实验级 teardown(新进程语义),不派发任何 attempt、
+    // 不跑 setup;与 eval 前缀位置参数组合是用法错误(这个 flag 选择的是「只收尾」这种跑法,
+    // 不参与 eval 选择)。启动自愈(选中实验里遗留登记的补执行)发生在 runEvals() 内部
+    // 触发 setup 之前,不需要这里重复处理(见 run.ts 的 recoverStaleTeardownRegistration)。
+    if (flags.teardown) {
+      if (extraPatterns.length > 0) {
+        process.stderr.write(t("cli.exp.teardownNoEvalPatterns"));
+        process.exit(1);
+      }
+      const niceevalRootForTeardown = resolvePath(cwd, ".niceeval");
+      let anyFailed = false;
+      for (const exp of selected) {
+        if (!exp.teardown) continue;
+        const { selectedEvalIds } = resolveExperimentEvals({
+          experimentId: exp.id,
+          selector: exp.evals,
+          cliPatterns: [],
+          evals,
+        });
+        const ctx: ExperimentHookContext = {
+          experimentId: exp.id,
+          selectedEvalIds,
+          signal: new AbortController().signal,
+          progress: () => {},
+          diagnostic: (input) => process.stderr.write(`${input.message}\n`),
+        };
+        try {
+          await withCleanupTimeout(() => exp.teardown!(ctx));
+          process.stderr.write(t("cli.exp.teardownDone", { experimentId: exp.id }));
+        } catch (e) {
+          anyFailed = true;
+          process.stderr.write(
+            t("cli.exp.teardownFailed", { experimentId: exp.id, message: e instanceof Error ? e.message : String(e) }),
+          );
+        }
+        // 完成后删除对应遗留登记(没有登记也照常执行——手动补收尾不依赖登记存在)。
+        const { removeTeardownRegistrationIfPresent, teardownEntryId } = await import("./runner/teardown-registry.ts");
+        await removeTeardownRegistrationIfPresent(niceevalRootForTeardown, teardownEntryId(exp.id)).catch(() => {});
+      }
+      process.exit(anyFailed ? 1 : 0);
     }
     for (const exp of selected) {
       // 一个实验 = 一个配置(单 model)。跨模型对比写多个实验文件,各钉一个 model。
