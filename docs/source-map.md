@@ -38,6 +38,17 @@
 | 原生配置文件替换(`settingsFile` / `configFile`:项目根内路径校验、上传替换、保留键冲突检测、SHA-256 进 checkpoint key) | `src/agents/native-config.ts`(共享层)+ `src/agents/{claude-code,codex}.ts`(各自保留键表) |
 | Marketplace 注册名回读校验(`marketplace add` 后回读列表,配置名对不上立刻报错) | `src/agents/marketplace.ts`(claude-code / codex 共用,回读命令由 adapter 传入) |
 
+## 执行错误类型:turn 级重试([README](feature/error-classification/README.md) / [架构](feature/error-classification/architecture.md) / [库用法](feature/error-classification/library.md))
+
+| 行为 | 文件 |
+|---|---|
+| `TurnErrorClass` / `TurnFailure` / `TurnErrorClassifier` / `turnErrorText` / 保守兜底分类器 / 受理证据门 / 三道分类链决议(`resolveTurnErrorClass`) | `src/context/turn-errors.ts` |
+| `Agent.classifyTurnError` 挂载面(`SandboxAgentDef` / `RemoteAgentDef` / `Agent`) | `src/agents/types.ts`;经 `src/define.ts` 的 `defineSandboxAgent` / `defineAgent` 透传 |
+| 重试执行体(两层预算、指数全抖动退避、`ConcurrencySlot` 槽位释放、activity 与耗尽摘要) | `src/context/send-retry.ts` |
+| 挂载点:包住 `agent.send(...)` 的那一次调用(非 otel / otel 两条路径) | `src/context/session.ts`(`SessionManager.sendSerialized` / `sendWithOtel`) |
+| `concurrencySlot`(globalSem / 实验级 runSem 的临时释放/收回)从 run 级信号量到 context 的透传 | `src/runner/run.ts` → `src/runner/attempt.ts`(`runAttemptEffect` / `AttemptResources`)→ `src/context/context.ts`(`ContextDeps.concurrencySlot`) |
+| `expectOk()` 的失败文本(`turnErrorText` 同源) | `src/context/context.ts`(`makeTurnHandle.expectOk`) |
+
 ## Coding Agent Skills / Plugins DX([用法](feature/adapters/library/coding-agent-extensions.md) / [架构](feature/adapters/architecture/coding-agent-extensions.md))
 
 | 行为 | 文件 |
