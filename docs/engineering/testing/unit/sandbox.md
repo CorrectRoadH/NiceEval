@@ -40,7 +40,7 @@ Provider 共同语义用同一组 contract cases 验证：内存 provider 在 un
 ## 覆盖规范
 
 - **生命周期与资源释放**：attempt 调用链的固定顺序与缺省跳过；setup 抛错时已成功部分的逆序 cleanup、teardown 与 stop 的 finally 语义；setup 抛错计 errored 而 teardown 报错只记日志；逐段清理超时的诊断收束；`.setup()`/`.teardown()` 的追加序/LIFO 与 spec 不可变；创建后被终止属 lifecycle failure 不进 IO 重试；remote agent 下 spec 整体忽略；hook 的窄上下文。失败与中断路径的清理和成功路径同等重要。
-- **路径规则**：沙箱侧相对/绝对/缺省三态解析、`../` 规范化与逃逸拒绝、无 shell 变量展开、本地侧按 eval 定义文件目录解析——适合表驱动，每个 case 指向一条允许或拒绝语义。
+- **路径规则**：沙箱侧相对/绝对/缺省三态解析、`../` 规范化与逃逸拒绝、无 shell 变量展开、本地侧按 eval 定义文件目录解析——适合表驱动，每个 case 指向一条允许或拒绝语义。`normalizeSandboxPaths` 对接口之外的可选能力（`appendLog`、`suspend`）按「实例有就转发、没有就是 undefined」原样传递，不吞掉——留存路径的 `sandbox.suspend`（`keep.ts` 的 `suspendSandbox`）经这层包装后仍能找到底层 provider 实例的 `suspend()`，找不到时抛出的是「没有 suspend 能力」而不是「转发时误吞成 undefined」。`suspendSandbox` 自身两条路径都要证明：底层实例有 `suspend()` 时原样调用、没有时抛出带 `sandboxId` 的清晰错误（不是静默跳过）。
 - **命令执行**：argv 传参不经 shell（含分号/美元符的参数原样送达——参数透传能发现错误的 shell 拼接，断言 mock 被调一次不能）；非零退出返回 CommandResult 而非抛异常；env 叠加不清空；root 的映射与不支持时报错；命令级超时；可选能力未实现时的 no-op 语义；执行入口永不被隐式重试。
 - **文件操作与 IO 重试**：只有幂等固定目标操作进默认重试；瞬时/非瞬时错误的分类边界；`fileExists` 遇瞬时错误必须抛出不伪装 false；重试耗尽抛回原始错误链；批量写的重跑等价性；读取 API 的缺失行为与二进制完整性；`downloadDirectory` 与 `uploadDirectory` 对称的 `ignore` 语义(按 basename 排除、命中即整支剪除,不区分文件与目录)与落盘行为(自动建目录、原样二进制字节、不做编码转换、不返回带便利方法的包装类型)——docker(单次 tar 取回后按首段路径剥离归位)与 vercel/e2b(共享的 find 列路径 + 逐文件二进制读取模板)两条实现路径都要证明。
 - **Provisioning 失败与重试**：原生限流归类、兜底瞬时分类器复用、可重试 kind 的退避与确定性错误零重试；退避期间归还并发槽位；有对账通道时先对账再重试、对账失败放弃并抛回原始错误、无通道时歧义类零重试；自定义 provider 不套用这层重试。相关裁决与踩坑见 memory 的 [sandbox-provision-ratelimit-retry](../../../../memory/sandbox-provision-ratelimit-retry.md)、[e2b-provision-429-duplicate-sandbox](../../../../memory/e2b-provision-429-duplicate-sandbox.md)。

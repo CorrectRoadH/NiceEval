@@ -53,8 +53,10 @@ import {
   nativeEnterCommand,
   openInteractiveShell,
   suspendDetached,
+  suspendSandbox,
   wakeDetached,
 } from "./keep.ts";
+import type { Sandbox } from "../types.ts";
 
 const CLOUD_ENV_KEYS = ["VERCEL_API_TOKEN", "VERCEL_TEAM_ID", "VERCEL_PROJECT_ID", "E2B_API_KEY"] as const;
 let savedEnv: Record<string, string | undefined> = {};
@@ -91,6 +93,39 @@ describe("computeExpiresAt", () => {
 
   it("未知 provider 名同样不写(不是 KEEPABLE_PROVIDERS 三家之一时没有 TTL 语义可算)", () => {
     expect(computeExpiresAt("local", "2026-07-14T15:02:00.000Z")).toBeUndefined();
+  });
+});
+
+describe("suspendSandbox", () => {
+  function fakeSandboxWithoutSuspend(): Sandbox {
+    return {
+      workdir: "/work",
+      sandboxId: "sbx-no-suspend",
+      otlpHost: null,
+      runCommand: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+      runShell: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+      readFile: async () => "",
+      fileExists: async () => true,
+      writeFiles: async () => {},
+      uploadFiles: async () => {},
+      uploadDirectory: async () => {},
+      stop: async () => {},
+      downloadFile: async () => Buffer.from(""),
+      uploadFile: async () => {},
+      downloadDirectory: async () => {},
+    };
+  }
+
+  it("底层实例有 suspend() -> 原样调用", async () => {
+    const suspend = vi.fn().mockResolvedValue(undefined);
+    const sandbox = { ...fakeSandboxWithoutSuspend(), suspend } as Sandbox & { suspend: () => Promise<void> };
+    await suspendSandbox(sandbox);
+    expect(suspend).toHaveBeenCalledTimes(1);
+  });
+
+  it("底层实例没有 suspend() -> 抛出带 sandboxId 的清晰错误(不是静默跳过)", async () => {
+    const sandbox = fakeSandboxWithoutSuspend();
+    await expect(suspendSandbox(sandbox)).rejects.toThrow(/no suspend capability.*sbx-no-suspend/);
   });
 });
 

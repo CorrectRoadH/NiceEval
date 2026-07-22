@@ -81,4 +81,24 @@ describe("sandbox path helpers", () => {
       "download-dir:/work/dist",
     ]);
   });
+
+  it("forwards the non-interface suspend() capability when the underlying provider implements it", async () => {
+    const sandbox = fakeSandbox() as Sandbox & { calls: string[]; suspend?: () => Promise<void> };
+    sandbox.suspend = async () => {
+      sandbox.calls.push("suspend");
+    };
+    const normalized = normalizeSandboxPaths(sandbox);
+
+    // 留存路径的 suspendSandbox()(keep.ts)靠属性探测这个非接口成员——包装后必须还在,
+    // 且调用要转发到底层实例(不能只是"存在但不生效"的空转发)。
+    expect(typeof (normalized as unknown as { suspend?: unknown }).suspend).toBe("function");
+    await (normalized as unknown as { suspend(): Promise<void> }).suspend();
+    expect(sandbox.calls).toEqual(["suspend"]);
+  });
+
+  it("omits suspend entirely when the underlying provider does not implement it (no fake capability appears)", () => {
+    const sandbox = fakeSandbox(); // no .suspend on this fixture
+    const normalized = normalizeSandboxPaths(sandbox);
+    expect((normalized as unknown as { suspend?: unknown }).suspend).toBeUndefined();
+  });
 });
