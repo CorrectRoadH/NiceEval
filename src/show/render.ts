@@ -5,15 +5,15 @@
 // 盘上。全部纯函数(时间经 now 显式传入),证据数据由调用方 await 好了递进来。
 
 import { join, relative } from "node:path";
-import type { AssertionResult, DiffData, EvalResult, LocalizedText, TimingNode, TraceSpan, Verdict } from "../types.ts";
+import type { AssertionResult, DiffData, EvalResult, LocalizedText, TimingNode, TraceSpan, Usage, Verdict } from "../types.ts";
 import type { AttemptEvidence, AttemptHandle } from "../results/index.ts";
 import type { AnnotatedSourceLine, SendAnnotation } from "../results/index.ts";
 import { groupIncompatibleVersionSkips } from "../results/index.ts";
 import type { SkippedDir } from "../results/index.ts";
-import type { ExecutionNode } from "../o11y/execution-tree.ts";
+import type { ExecutionNode, ExecutionTree } from "../o11y/execution-tree.ts";
 import { summaryText } from "../scoring/display.ts";
 import { firstLine } from "../util.ts";
-import { formatDurationMs, formatPlainNumber, formatUSD } from "../report/model/format.ts";
+import { formatDurationMs, formatMetricValue, formatPlainNumber, formatUSD } from "../report/model/format.ts";
 import { indentBlock, padDisplay, renderAlignedRows, wrapDisplay } from "../report/model/text-layout.ts";
 import type { AttemptHistoryRow } from "./compose.ts";
 import { localizeText, type HostCommandContext } from "../report/runtime/host.ts";
@@ -388,169 +388,492 @@ export function evalSourceText(
 
 // ───────────────────────── 证据切面:--execution(标准事件流 + OTel enrichment) ─────────────────────────
 
-const EXEC_LABEL_PAD = 12;
-const EXEC_TIME_PAD = 6;
-
 function relSeconds(ms: number, originMs: number): string {
   return `${((ms - originMs) / 1000).toFixed(1)}s`;
 }
 
-/** 一个 ExecutionNode 的一行(或折行后多行);时间列只在整棵树 timingAvailable 时出现。 */
-function execBody(
-  time: string | undefined,
-  label: string,
-  text: string,
-  duration: string | undefined,
-  width: number,
-  timingAvailable: boolean,
-): string[] {
-  const timeCol = timingAvailable ? padDisplay(time ?? "", EXEC_TIME_PAD) + " " : "";
-  const marginWidth = timeCol.length + EXEC_LABEL_PAD;
-  const wrapped = wrapDisplay(clip(text), Math.max(20, width - marginWidth));
-  return wrapped.map((line, i) => {
-    if (i !== 0) return " ".repeat(marginWidth) + line;
-    const head = timeCol + padDisplay(label, EXEC_LABEL_PAD) + line;
-    return duration ? `${head}  ${duration}` : head;
-  });
+/** 卡片正文的有界预览预算(docs/feature/reports/show/execution.md「卡片预览预算与 --expand」):
+ *  8 KiB,按 UTF-8 字节计,超限时按字符边界(codepoint,不切分代理对)回退截断。 */
+const CARD_BODY_BUDGET_BYTES = 8 * 1024;
+
+/**
+ * 按 UTF-8 字节预算截断,永不切断一个 codepoint。快速路径:总字节数不超预算时不做任何逐字符
+ * 扫描。慢速路径只在确实超限时才逐 codepoint 累加字节数,找到恰好塞满预算的前缀。
+ */
+function truncateCardBody(text: string, maxBytes: number): { shown: string; foldedChars: number } {
+  if (Buffer.byteLength(text, "utf8") <= maxBytes) return { shown: text, foldedChars: 0 };
+  const chars = Array.from(text);
+  let bytes = 0;
+  let i = 0;
+  for (; i < chars.length; i++) {
+    const charBytes = Buffer.byteLength(chars[i]!, "utf8");
+    if (bytes + charBytes > maxBytes) break;
+    bytes += charBytes;
+  }
+  return { shown: chars.slice(0, i).join(""), foldedChars: chars.length - i };
+}
+
+/** 逐行加前缀,保留原始换行(不做 wrapDisplay 折行——「保留原始换行」是这个区块 text 面的契约)。
+ *  空行不补前缀,避免制造纯空白的尾随行。 */
+function indentLines(text: string, indent: string): string {
+  if (indent === "") return text;
+  return text
+    .split("\n")
+    .map((line) => (line === "" ? "" : `${indent}${line}`))
+    .join("\n");
+}
+
+function jsonText(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? String(value);
+  } catch {
+    return String(value);
+  }
+}
+
+/** grep 的一次匹配测试;显式重置 lastIndex,不让调用方传入的全局/粘性正则的内部状态
+ *  在多张卡片之间互相污染(RegExp.test 对 g/y 标志有状态)。 */
+function testGrep(grep: RegExp, text: string): boolean {
+  if (grep.global || grep.sticky) grep.lastIndex = 0;
+  return grep.test(text);
+}
+
+// ───────────────────────── 卡片模型:句柄、分组、内容 ─────────────────────────
+
+/** Agent 事件卡:句柄 `t<轮序>.c<轮内卡序>`,两个序号从 1 起、由 events.json 的事件序确定性派生
+ *  (docs/feature/reports/show/execution.md「卡片预览预算与 --expand」)。 */
+interface AgentCard {
+  handle: string;
+  turnNumber: number;
+  cardNumber: number;
+  node: ExecutionNode;
+}
+
+interface TurnSection {
+  turnNumber: number;
+  /** 对应的 timing turn 节点;缺失时(如没有阶段计时)只用序号兜底渲染头行。 */
+  turn?: TimingNode;
+  cards: AgentCard[];
 }
 
 /**
- * action / subagent 节点渲染成两行(call + result)——节点模型把 call+result 合并成一个
- * ExecutionNode(按 callId),但分两行读更符合「先看调用、再看结果」的阅读顺序,
- * 与 docs-site/zh/tutorials/agent-feedback-loop.mdx 的示例一致。
+ * `commands.json` 的投影(docs/feature/results/architecture.md「commands.json」)。AttemptEvidence
+ * 目前还没有 `commands` 字段(落盘写入未接线,见本函数头注的节点说明)——duck-type 读取,字段不存在
+ * 时零输出,不是这里的判定逻辑本身有缺口。
  */
-function executionNodeLines(node: ExecutionNode, originMs: number, timingAvailable: boolean, width: number): string[] {
-  const time = node.kind !== "telemetry" && node.span ? relSeconds(node.span.startMs, originMs) : undefined;
-  const duration = node.kind !== "telemetry" && node.span ? formatDurationMs(node.span.endMs - node.span.startMs) : undefined;
-  const meta = [time, duration].filter(Boolean).join(" · ");
-  const block = (title: string, body: string, extra: string[] = []): string[] => {
-    const heading = meta ? `${title}  ${meta}` : title;
-    const bodyLines = wrapDisplay(clip(body), Math.max(20, width - 2)).map((line) => `  ${line}`);
-    return [heading, ...bodyLines, ...extra.flatMap((line) => wrapDisplay(line, Math.max(20, width - 2)).map((part) => `  ${part}`))];
-  };
+interface FailedCommandEvidence {
+  timingNodeId: string;
+  phase: string;
+  display: string;
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  truncated?: { path: string; originalBytes: number }[];
+}
 
+/** 失败 Sandbox 命令卡:句柄 `cmd<序号>`,按关联 timing 节点的 startOffsetMs 排序后从 1 编号。 */
+interface CommandCard {
+  handle: string;
+  command: FailedCommandEvidence;
+  timingNode?: TimingNode;
+}
+
+function failedCommandsOf(evidence: AttemptEvidence): readonly FailedCommandEvidence[] {
+  return (evidence as unknown as { commands?: readonly FailedCommandEvidence[] }).commands ?? [];
+}
+
+function findTimingNodeById(nodes: readonly TimingNode[] | undefined, id: string): TimingNode | undefined {
+  for (const n of nodes ?? []) {
+    if (n.id === id) return n;
+    const found = findTimingNodeById(n.children, id);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+function findCommandTimingNode(phases: NonNullable<EvalResult["phases"]>, id: string): TimingNode | undefined {
+  for (const p of phases) {
+    const found = findTimingNodeById(p.children, id);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+/** 失败命令卡按关联 timing 节点的 startOffsetMs 排序后编号;关联不到节点的排到最后(仍确定性,
+ *  按原始 commands.json 顺序兜底)。 */
+function buildCommandCards(evidence: AttemptEvidence): CommandCard[] {
+  const commands = failedCommandsOf(evidence);
+  if (commands.length === 0) return [];
+  const phases = evidence.result.phases ?? [];
+  const withNode = commands.map((command) => ({ command, timingNode: findCommandTimingNode(phases, command.timingNodeId) }));
+  withNode.sort((a, b) => (a.timingNode?.startOffsetMs ?? Number.POSITIVE_INFINITY) - (b.timingNode?.startOffsetMs ?? Number.POSITIVE_INFINITY));
+  return withNode.map((entry, i) => ({ handle: `cmd${i + 1}`, command: entry.command, timingNode: entry.timingNode }));
+}
+
+/**
+ * 按轮分段(docs/feature/reports/show.md「--execution」):边界按用户消息切(t.send 恒以用户消息
+ * 开轮)。事件流不以用户消息开头的极端情形(如首个事件是前置注入)仍归入轮 1——句柄两个序号从 1
+ * 起是契约,不发明 0 号轮。
+ */
+function groupIntoTurnCards(agentNodes: readonly ExecutionNode[], turnNodes: readonly TimingNode[]): TurnSection[] {
+  const turns: TurnSection[] = [];
+  for (const node of agentNodes) {
+    const isTurnStart = node.kind === "message" && node.role === "user";
+    if (isTurnStart || turns.length === 0) {
+      const turnNumber = turns.length + 1;
+      turns.push({ turnNumber, turn: turnNodes[turnNumber - 1], cards: [] });
+    }
+    const section = turns[turns.length - 1]!;
+    const cardNumber = section.cards.length + 1;
+    section.cards.push({ handle: `t${section.turnNumber}.c${cardNumber}`, turnNumber: section.turnNumber, cardNumber, node });
+  }
+  return turns;
+}
+
+function nodeMeta(node: ExecutionNode, originMs: number): string {
+  const span = node.kind !== "telemetry" ? node.span : undefined;
+  if (!span) return "";
+  return `${relSeconds(span.startMs, originMs)} · ${formatDurationMs(span.endMs - span.startMs)}`;
+}
+
+interface CardParts {
+  /** 卡片标题行(不缩进,含 kind 标签与相对时间/耗时 meta)。 */
+  header: string;
+  /** 卡片正文的完整(未截断)原始内容,保留原始换行;预算截断与 --expand 的完整输出都基于它。 */
+  body: string;
+  /** --grep 的匹配面:角色文本、工具名、input、result(docs/feature/reports/show/execution.md
+   *  「范围化:跨 attempt 扫描与 --grep」);未经截断,grep 命中不受预览预算影响。 */
+  matchText: string;
+  /** 截断尾巴 `(+N chars · …)` 相对卡片正文的额外缩进——多段结构(如 TOOL 的 input/result)
+   *  的正文本身已经带一层内嵌缩进,尾巴要落在同一层,不是贴着卡片左边。 */
+  tailIndent: string;
+}
+
+/** 一个 Agent 事件节点 → 卡片的标题/正文/匹配面。`node.kind` 已排除 telemetry(见调用方的
+ *  agentNodes 过滤),telemetry 分支仅为联合类型穷尽性存在,不会被触达。 */
+function agentCardParts(node: ExecutionNode, originMs: number): CardParts {
+  const meta = nodeMeta(node, originMs);
+  const withMeta = (title: string) => (meta ? `${title}  ${meta}` : title);
   switch (node.kind) {
     case "message":
-      return block(node.role.toUpperCase(), node.text);
+      return { header: withMeta(node.role.toUpperCase()), body: node.text, matchText: node.text, tailIndent: "" };
     case "thinking":
-      return block("THINKING", clip(node.text, 200));
+      return { header: withMeta("THINKING"), body: node.text, matchText: node.text, tailIndent: "" };
     case "context.injected":
-      return block(node.source ? `CONTEXT INJECTED · ${node.source}` : "CONTEXT INJECTED", clip(node.text, 200));
+      return {
+        header: withMeta(node.source ? `CONTEXT INJECTED · ${node.source}` : "CONTEXT INJECTED"),
+        body: node.text,
+        matchText: node.text,
+        tailIndent: "",
+      };
     case "skill.loaded":
-      return block(`SKILL · ${node.skill}`, "loaded");
+      return { header: withMeta(`SKILL · ${node.skill}`), body: "loaded", matchText: node.skill, tailIndent: "" };
     case "action": {
       const input = recordOf(node.input);
       const output = recordOf(node.output);
-      const inputText = typeof input?.command === "string" ? input.command : jsonPreview(node.input);
-      const outputText = typeof output?.output === "string" ? output.output : node.output !== undefined ? jsonPreview(node.output) : "(no result)";
+      const inputText = typeof input?.command === "string" ? input.command : jsonText(node.input);
+      const outputText = typeof output?.output === "string"
+        ? output.output
+        : node.output !== undefined
+          ? jsonText(node.output)
+          : "(no result)";
       const exit = typeof output?.exit_code === "number" ? ` · exit ${output.exit_code}` : "";
-      return [
-        meta ? `TOOL · ${node.name}  ${meta}` : `TOOL · ${node.name}`,
-        "  input",
-        ...indentedText(inputText, width),
-        `  result · ${node.status}${exit}`,
-        ...indentedText(outputText, width),
-      ];
+      const body = ["input", indentLines(inputText, "  "), `result · ${node.status}${exit}`, indentLines(outputText, "  ")].join("\n");
+      return { header: withMeta(`TOOL · ${node.name}`), body, matchText: `${node.name} ${inputText} ${outputText}`, tailIndent: "  " };
     }
     case "subagent": {
-      return block(`SUBAGENT · ${node.name}`, node.output === undefined ? node.status : `result · ${node.status}: ${jsonPreview(node.output)}`);
+      const resultText = node.output === undefined ? node.status : `result · ${node.status}: ${jsonText(node.output)}`;
+      return { header: withMeta(`SUBAGENT · ${node.name}`), body: resultText, matchText: `${node.name} ${resultText}`, tailIndent: "" };
     }
-    case "input.requested":
-      return block("INPUT REQUESTED", node.request.prompt ?? node.request.display ?? "(input requested)");
+    case "input.requested": {
+      const text = node.request.prompt ?? node.request.display ?? "(input requested)";
+      const matchText = [text, node.request.action, node.request.input !== undefined ? jsonText(node.request.input) : undefined]
+        .filter((s): s is string => s !== undefined)
+        .join(" ");
+      return { header: withMeta("INPUT REQUESTED"), body: text, matchText, tailIndent: "" };
+    }
     case "compaction":
-      return block("COMPACTION", node.reason ?? "context compacted");
+      return { header: withMeta("COMPACTION"), body: node.reason ?? "context compacted", matchText: node.reason ?? "", tailIndent: "" };
     case "error":
-      return block("ERROR", node.message);
+      return { header: withMeta("ERROR"), body: node.message, matchText: node.message, tailIndent: "" };
     case "telemetry":
-      return execBody(
-        relSeconds(node.span.startMs, originMs),
-        "telemetry",
-        node.span.name || node.span.kind || "span",
-        formatDurationMs(node.span.endMs - node.span.startMs),
-        width,
-        true,
-      );
+      return { header: "TELEMETRY", body: "", matchText: "", tailIndent: "" };
   }
 }
 
-/**
- * `--execution`:标准事件流骨架(message / thinking / context.injected / skill load /
- * tool call+result / subagent / input.requested / compaction / error),有 OTel 时同一节点补相对时间与耗时;没有 OTel 时
- * 节点、顺序与内容不变,只去掉时间列,并在结尾如实标 timing unavailable
- * (ExecutionTree 的契约:骨架不因时间有无而变形,见 o11y/execution-tree.ts 头注)。
- */
-export function executionText(
-  evidence: AttemptEvidence,
-  opts: { header: string; artifactPath?: string; width: number },
-): string {
-  const { header, artifactPath, width } = opts;
-  const tree = evidence.execution;
-  const eventsSource = artifactPath ? join(artifactPath, "events.json") : undefined;
-  if (!tree) {
-    return `${header}\n\n(no events recorded for this attempt${eventsSource ? ` · expected: ${eventsSource}` : ""})`;
+function commandCardParts(command: FailedCommandEvidence): CardParts {
+  const sections = [command.display];
+  if (command.stdout) sections.push("stdout", indentLines(command.stdout, "  "));
+  if (command.stderr) sections.push("stderr", indentLines(command.stderr, "  "));
+  return {
+    header: "",
+    body: sections.join("\n"),
+    matchText: `${command.display} ${command.stdout} ${command.stderr}`,
+    tailIndent: "  ",
+  };
+}
+
+function commandCardHeader(entry: CommandCard): string {
+  const duration = entry.timingNode ? ` · ${formatDurationMs(entry.timingNode.durationMs)}` : "";
+  return `FAILED COMMAND · ${entry.command.phase} · exit ${entry.command.exitCode}${duration}`;
+}
+
+/** turn 头行:`标签 · status · 该轮墙钟 · 该轮 usage`(usage 有记录才出现;docs/feature/reports/
+ *  show/execution.md)。usage 通过 duck-type 读取 TimingNode 上的可选 `usage` 字段——运行时目前
+ *  还没有把 Turn.usage 写进 result.json 的 timing 树,字段不存在时这一段照常省略。 */
+function turnHeadLine(section: TurnSection): string {
+  const label = section.turn?.label ?? `t${section.turnNumber}`;
+  const status = section.turn?.failed ? "failed" : "completed";
+  const parts = [label, status];
+  if (section.turn) parts.push(formatDurationMs(section.turn.durationMs));
+  const usage = turnUsageText(section.turn);
+  if (usage) parts.push(usage);
+  return parts.join(" · ");
+}
+
+function turnUsageText(turn: TimingNode | undefined): string | undefined {
+  const usage = (turn as unknown as { usage?: Usage } | undefined)?.usage;
+  if (!usage) return undefined;
+  const parts: string[] = [];
+  if (usage.inputTokens !== undefined && usage.outputTokens !== undefined) {
+    const total = usage.inputTokens + usage.outputTokens + (usage.cacheReadTokens ?? 0) + (usage.cacheWriteTokens ?? 0);
+    parts.push(`${formatMetricValue(total)} tok`);
   }
+  if (usage.costUSD !== undefined) parts.push(formatUSD(usage.costUSD));
+  return parts.length > 0 ? parts.join(" · ") : undefined;
+}
 
-  const timingAvailable = tree.timingAvailable;
-  const spanStarts = tree.nodes.flatMap((n) => (n.span ? [n.span.startMs] : []));
-  const originMs = spanStarts.length > 0 ? Math.min(...spanStarts) : 0;
+/** 一张卡片的完整渲染:`full` 时输出未截断的落盘内容(--expand);否则按 8 KiB 预算截断,
+ *  截断尾巴带被折字符数与展开句柄。两种形态都只做逐行前缀(indentLines),不做 wrapDisplay 折行
+ *  ——保留原始换行是这个区块 text 面的契约,不是遗漏。 */
+function renderCardLines(parts: CardParts, handle: string, locator: string, full: boolean): string[] {
+  if (full) {
+    const body = indentLines(parts.body, "  ");
+    return parts.header ? [parts.header, ...body.split("\n")] : body.split("\n");
+  }
+  const { shown, foldedChars } = truncateCardBody(parts.body, CARD_BODY_BUDGET_BYTES);
+  const withTail = foldedChars > 0
+    ? `${shown}\n${parts.tailIndent}(+${foldedChars} chars · niceeval show ${locator} --execution --expand ${handle})`
+    : shown;
+  const body = indentLines(withTail, "  ");
+  return parts.header ? [parts.header, ...body.split("\n")] : body.split("\n");
+}
 
-  // `--execution` 回答 Agent 做了什么。未关联到标准事件的原始 spans 属于 trace 证据，
-  // 逐条混入 transcript 会把几十条 SDK 内部 span 盖过消息和工具调用。
-  const agentNodes = tree.nodes.filter((node) => node.kind !== "telemetry");
-  const telemetryCount = tree.nodes.length - agentNodes.length;
-  const shown = agentNodes.slice(0, MAX_EVENTS);
+// ───────────────────────── --execution 三种输出形态 ─────────────────────────
 
-  // 按轮分段(见 docs/feature/reports/show.md「--execution」):每轮以 TURN 头行开始——身份
-  // s<session>/t<turn>(与 --timing 的 turn 节点、diff 的 windows 同一套标签,来自
-  // result.json.phases 的 turn 时间树)、该轮墙钟;边界按用户消息切(t.send 恒以用户消息开轮)。
-  const turnNodes = (evidence.result.phases ?? [])
-    .flatMap((p) => p.children ?? [])
-    .filter((n) => n.kind === "turn");
-  const lines: string[] = [];
-  let turnIndex = -1;
-  shown.forEach((node, index) => {
-    const isTurnStart = node.kind === "message" && node.role === "user";
-    if (isTurnStart) {
-      turnIndex += 1;
-      const turn = turnNodes[turnIndex];
-      const label = turn?.label ?? `t${turnIndex + 1}`;
-      const durationPart = turn ? ` · ${formatDurationMs(turn.durationMs)}` : "";
-      const failedPart = turn?.failed ? " · failed" : "";
-      if (index > 0) lines.push("");
-      lines.push(`TURN ${label}${failedPart || " · completed"}${durationPart}`);
-    } else if (index > 0) {
-      lines.push("");
-    }
-    lines.push(...executionNodeLines(node, originMs, timingAvailable, width).map((l) => (turnIndex >= 0 ? `  ${l}` : l)));
-  });
-
+function executionTail(
+  evidence: AttemptEvidence,
+  tree: ExecutionTree | null,
+  timingAvailable: boolean,
+  telemetryCount: number,
+  eventsSource: string | undefined,
+  artifactPath: string | undefined,
+): string[] {
   const tail: string[] = [];
   if (timingAvailable) {
-    const skillLoads = tree.nodes.filter((n) => n.kind === "skill.loaded").length;
-    const toolCalls = tree.nodes.filter((n) => n.kind === "action").length;
-    const aiMessages = tree.nodes.filter((n) => n.kind === "message" && n.role === "assistant").length;
+    const nodes = tree?.nodes ?? [];
+    const skillLoads = nodes.filter((n) => n.kind === "skill.loaded").length;
+    const toolCalls = nodes.filter((n) => n.kind === "action").length;
+    const aiMessages = nodes.filter((n) => n.kind === "message" && n.role === "assistant").length;
     tail.push(
       [
         `total ${formatDurationMs(evidence.result.durationMs)}`,
         `${skillLoads} skill ${skillLoads === 1 ? "load" : "loads"}`,
         `${toolCalls} tool ${toolCalls === 1 ? "call" : "calls"}`,
         `${aiMessages} AI ${aiMessages === 1 ? "message" : "messages"}`,
-        ...(agentNodes.length > shown.length ? [`${agentNodes.length - shown.length} more events not shown`] : []),
       ].join(" · "),
     );
   } else {
-    tail.push(
-      [
-        "timing unavailable · OTel trace was not collected",
-        ...(agentNodes.length > shown.length ? [`${agentNodes.length - shown.length} more events not shown`] : []),
-      ].join(" · "),
-    );
+    tail.push("timing unavailable · OTel trace was not collected");
   }
   if (eventsSource) tail.push(`full events: ${eventsSource}`);
   if (telemetryCount > 0) tail.push(`${telemetryCount} unlinked telemetry spans omitted; inspect the OTel trace for framework timing.`);
   if (timingAvailable && artifactPath) tail.push(`full OTel trace: ${join(artifactPath, "trace.json")}`);
+  return tail;
+}
 
+/** 全量渲染(无 --grep/--expand):逐轮头行 + 卡片,末尾追加失败命令卡与事实小结。 */
+function renderFull(
+  evidence: AttemptEvidence,
+  header: string,
+  tree: ExecutionTree | null,
+  timingAvailable: boolean,
+  telemetryCount: number,
+  eventsSource: string | undefined,
+  artifactPath: string | undefined,
+  turns: readonly TurnSection[],
+  commandCards: readonly CommandCard[],
+  originMs: number,
+): string {
+  const lines: string[] = [];
+  turns.forEach((section, i) => {
+    if (i > 0) lines.push("");
+    lines.push(turnHeadLine(section));
+    section.cards.forEach((card, j) => {
+      if (j > 0) lines.push("");
+      const parts = agentCardParts(card.node, originMs);
+      lines.push(...renderCardLines(parts, card.handle, evidence.locator, false).map((l) => `  ${l}`));
+    });
+  });
+  if (commandCards.length > 0) {
+    if (lines.length > 0) lines.push("");
+    commandCards.forEach((entry, i) => {
+      if (i > 0) lines.push("");
+      const parts = commandCardParts(entry.command);
+      lines.push(...renderCardLines({ ...parts, header: commandCardHeader(entry) }, entry.handle, evidence.locator, false).map((l) => `  ${l}`));
+    });
+  }
+  const tail = executionTail(evidence, tree, timingAvailable, telemetryCount, eventsSource, artifactPath);
   return `${header}\n\n${lines.join("\n")}\n\n${tail.join("\n")}`;
+}
+
+/**
+ * `--grep`:只输出命中的卡片,每卡自带定位行(locator · evalId · experimentId · 所在轮/阶段,
+ * 不是 verdict——grep 结果关心「这条证据在哪一轮」,不是判定)。命中卡照常受预览预算约束。
+ * 0 命中与「N matches in M attempts」的最终措辞归调用方,这里只回填 matches 数。
+ */
+function renderGrep(
+  evidence: AttemptEvidence,
+  turns: readonly TurnSection[],
+  commandCards: readonly CommandCard[],
+  grep: RegExp,
+  originMs: number,
+): { text: string; matches: number } {
+  const blocks: string[] = [];
+  let matches = 0;
+  for (const section of turns) {
+    for (const card of section.cards) {
+      const parts = agentCardParts(card.node, originMs);
+      if (!testGrep(grep, parts.matchText)) continue;
+      matches += 1;
+      const locatorLine = [evidence.locator, evidence.identity.evalId, evidence.identity.experimentId, section.turn?.label ?? `t${section.turnNumber}`].join(
+        " · ",
+      );
+      const cardLines = renderCardLines(parts, card.handle, evidence.locator, false);
+      blocks.push([locatorLine, ...cardLines.map((l) => `  ${l}`)].join("\n"));
+    }
+  }
+  for (const entry of commandCards) {
+    const parts = commandCardParts(entry.command);
+    if (!testGrep(grep, parts.matchText)) continue;
+    matches += 1;
+    const locatorLine = [evidence.locator, evidence.identity.evalId, evidence.identity.experimentId, entry.command.phase].join(" · ");
+    const cardLines = renderCardLines({ ...parts, header: commandCardHeader(entry) }, entry.handle, evidence.locator, false);
+    blocks.push([locatorLine, ...cardLines.map((l) => `  ${l}`)].join("\n"));
+  }
+  return { text: blocks.join("\n\n"), matches };
+}
+
+/**
+ * `--expand <handle>`:句柄未命中(轮/卡序号或命令序号超界,或语法不认识)按用法错误抛出,报该
+ * attempt 实际的 turn 数与该 turn 的卡片数(或命令数)——不猜相邻卡片
+ * (docs/feature/reports/show/execution.md「卡片预览预算与 --expand」)。
+ */
+function renderExpand(
+  evidence: AttemptEvidence,
+  header: string,
+  turns: readonly TurnSection[],
+  commandCards: readonly CommandCard[],
+  handle: string,
+  originMs: number,
+): string {
+  const agentMatch = /^t(\d+)\.c(\d+)$/.exec(handle);
+  const cmdMatch = /^cmd(\d+)$/.exec(handle);
+  if (agentMatch) {
+    const turnNumber = Number(agentMatch[1]);
+    const cardNumber = Number(agentMatch[2]);
+    const section = turns.find((s) => s.turnNumber === turnNumber);
+    if (!section) {
+      throw new Error(`handle "${handle}" not found: this attempt has ${turns.length} turn${turns.length === 1 ? "" : "s"}.`);
+    }
+    const card = section.cards.find((c) => c.cardNumber === cardNumber);
+    if (!card) {
+      throw new Error(`handle "${handle}" not found: turn ${turnNumber} has ${section.cards.length} card${section.cards.length === 1 ? "" : "s"}.`);
+    }
+    const parts = agentCardParts(card.node, originMs);
+    const lines = renderCardLines(parts, handle, evidence.locator, true);
+    return `${header}\n\n${lines.join("\n")}`;
+  }
+  if (cmdMatch) {
+    const n = Number(cmdMatch[1]);
+    const entry = commandCards[n - 1];
+    if (!entry) {
+      throw new Error(
+        `handle "${handle}" not found: this attempt has ${commandCards.length} failed command${commandCards.length === 1 ? "" : "s"}.`,
+      );
+    }
+    const parts = commandCardParts(entry.command);
+    const lines = renderCardLines({ ...parts, header: commandCardHeader(entry) }, handle, evidence.locator, true);
+    return `${header}\n\n${lines.join("\n")}`;
+  }
+  throw new Error(`invalid handle "${handle}": expected "t<turn>.c<card>" or "cmd<n>".`);
+}
+
+/** `--execution` 的渲染选项(docs/feature/reports/show/execution.md):两者互斥,`expand` 优先——
+ *  校验层面的「--expand 与 --grep 不能组合」不是这里的职责,这里按存在性直接分支。 */
+export interface ExecutionRenderOptions {
+  /** JS 正则;有值时只输出命中的卡片,每卡带定位行。 */
+  grep?: RegExp;
+  /** 展开句柄(`t<N>.c<M>` 或 `cmd<N>`);有值时只输出该卡片完整落盘内容(不截断),未命中抛
+   *  带 turn/卡计数(或命令计数)的 Error。 */
+  expand?: string;
+}
+
+/**
+ * `--execution`:标准事件流骨架(message / thinking / context.injected / skill load /
+ * tool call+result / subagent / input.requested / compaction / error)按轮分段渲染成卡片,
+ * 有 OTel 时同一节点补相对时间与耗时;没有 OTel 时节点、顺序与内容不变,只去掉时间列,并在结尾
+ * 如实标 timing unavailable(ExecutionTree 的契约:骨架不因时间有无而变形,见
+ * o11y/execution-tree.ts 头注)。除 Agent 事件外,attempt 节末尾追加失败 Sandbox 命令卡
+ * (`cmd<N>`,来自 `commands.json`——AttemptEvidence 尚未接线这个字段,读取面已就绪、无数据时
+ * 这一段自然零输出,见 `failedCommandsOf`)。
+ *
+ * 卡片正文是 8 KiB(UTF-8 字节,按字符边界回退)的有界预览,截断尾巴带被折字符数与展开句柄；
+ * `options.expand` 精确定位一张卡片输出完整落盘内容;`options.grep` 只输出匹配面(角色文本/
+ * 工具名/input/result,命令卡另加 display/stdout/stderr)命中的卡片,返回值的 `matches` 是本
+ * attempt 内的命中卡片数——「N matches in M attempts」与 0 命中的措辞归调用方组装。
+ */
+export function executionText(
+  evidence: AttemptEvidence,
+  opts: { header: string; artifactPath?: string; width: number },
+  options?: ExecutionRenderOptions,
+): { text: string; matches?: number } {
+  const { header, artifactPath } = opts;
+  const tree = evidence.execution;
+  const eventsSource = artifactPath ? join(artifactPath, "events.json") : undefined;
+
+  const timingAvailable = tree?.timingAvailable ?? false;
+  const spanStarts = tree ? tree.nodes.flatMap((n) => (n.span ? [n.span.startMs] : [])) : [];
+  const originMs = spanStarts.length > 0 ? Math.min(...spanStarts) : 0;
+
+  // `--execution` 回答 Agent 做了什么。未关联到标准事件的原始 spans 属于 trace 证据，
+  // 逐条混入 transcript 会把几十条 SDK 内部 span 盖过消息和工具调用。
+  const agentNodes = tree ? tree.nodes.filter((node) => node.kind !== "telemetry") : [];
+  const telemetryCount = tree ? tree.nodes.length - agentNodes.length : 0;
+
+  // 按轮分段(见 docs/feature/reports/show.md「--execution」):边界按用户消息切
+  // (t.send 恒以用户消息开轮),turn 身份取自 result.json.phases 的 turn 时间树。
+  const turnNodes = (evidence.result.phases ?? [])
+    .flatMap((p) => p.children ?? [])
+    .filter((n) => n.kind === "turn");
+
+  const turns = groupIntoTurnCards(agentNodes, turnNodes);
+  const commandCards = buildCommandCards(evidence);
+
+  if (options?.expand !== undefined) {
+    return { text: renderExpand(evidence, header, turns, commandCards, options.expand, originMs) };
+  }
+
+  if (agentNodes.length === 0 && commandCards.length === 0) {
+    if (options?.grep) return { text: "", matches: 0 };
+    return { text: `${header}\n\n(no events recorded for this attempt${eventsSource ? ` · expected: ${eventsSource}` : ""})` };
+  }
+
+  if (options?.grep) {
+    return renderGrep(evidence, turns, commandCards, options.grep, originMs);
+  }
+
+  return { text: renderFull(evidence, header, tree, timingAvailable, telemetryCount, eventsSource, artifactPath, turns, commandCards, originMs) };
 }
 
 /** net 效果的单字母标记(A/M/D;none = 动过但净无变化,标 ±)。 */

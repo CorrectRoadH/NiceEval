@@ -91,11 +91,17 @@ export const zhCN = {
     "      --source      该 attempt 运行时保存的 Eval 源码,断言标回源码行\n" +
     "      --execution   该 attempt 的执行事件流(消息/thinking/Skill/工具调用),\n" +
     "        有 OTel 时同一节点补时间\n" +
+    "      --execution --grep <pattern>   只输出命中卡片,末尾附跨 attempt 汇总;\n" +
+    "        --execution --expand <t<n>.c<n>|cmd<n>>   展开一张卡片完整内容\n" +
+    "        (两者互斥;--expand 要求范围恰好一个 attempt)\n" +
     "      --timing      整个 attempt 的统一时间树(阶段 + hook/命令/turn + 轮内 OTel)\n" +
     "      --diff[=文件] agent 归因的文件改动摘要;=文件 按窗口展开单个文件\n" +
     "      证据 flag 接受任意范围:范围含多个 attempt 时逐 attempt 分节\n" +
     "        (按 experimentId、evalId、attempt 序)\n" +
     "      --history   逐 experiment × eval 的执行时间轴(与 --report 互斥)\n" +
+    "      --usage     范围内逐 attempt 的用量表,按 experiment 分节各自合计\n" +
+    "      --stats     eval × experiment 的历史全执行稳定性矩阵\n" +
+    "        (与 @<locator>、--report 互斥)\n" +
     "      --results <目录> 钉死结果根   --exp <id> 可重复,两个以上进入对照\n" +
     "      --report <文件> 自定义报告   --page <id> 定初始页(多页报告渲染该页,\n" +
     "        尾部再附其余页索引)\n" +
@@ -129,8 +135,21 @@ export const zhCN = {
     "error: --exp {{arg}} matched {{matched}} experiments: {{candidates}}\n  fix: use one of the exact ids above, or a longer prefix — each --exp in a compare must resolve to exactly one experiment\n",
   "cli.show.locatorExpConflict":
     "error: {{locator}} cannot combine with repeated --exp ({{exp}})\n  fix: drop the extra --exp flags — a locator already pins one attempt to one experiment; for a multi-condition comparison, drop the locator and use eval id prefixes with --exp instead\n",
-  "cli.show.compareNotWired":
-    "error: comparing --exp {{conditions}} is not wired yet — the compare matrix (DeltaTable) lands in a parallel implementation node\n  fix: run `niceeval show --exp {{first}}` for that condition's leaderboard now, or add --json against one --exp at a time\n",
+  "cli.show.statsLocatorConflict":
+    "error: --stats cannot combine with a locator ({{locator}}) — a single attempt has no stability to measure\n  fix: drop the locator and use eval id prefixes / --exp to select a range for --stats\n",
+  "cli.show.statsReportConflict":
+    "error: --stats cannot combine with --report ({{report}}) — --stats is a zero-config slice, it does not render a user report tree\n  fix: drop --report to use --stats, or drop --stats and put a StabilityMatrix in your own report file\n",
+  "cli.show.grepExpandConflict":
+    "error: --grep and --expand cannot combine — --grep scans for matching cards, --expand prints one card in full\n  fix: drop one of the two flags\n",
+  "cli.show.grepExecutionOnly":
+    "error: --grep only combines with --execution — it narrows that block's text rendering, not a slice of its own\n  fix: add --execution, or drop --grep\n",
+  "cli.show.expandExecutionOnly":
+    "error: --expand only combines with --execution — it narrows that block's text rendering, not a slice of its own\n  fix: add --execution, or drop --expand\n",
+  "cli.show.grepInvalidPattern":
+    "error: --grep pattern is not a valid JS regular expression: \"{{pattern}}\" ({{message}})\n  fix: fix the pattern syntax (it is passed to `new RegExp(...)`)\n",
+  "cli.show.expandMultiAttempt":
+    "error: --expand requires the range to resolve to exactly one attempt, got {{count}}\n  fix: narrow the range to a single attempt — an eval id prefix matching one eval, or @<locator>\n",
+  "cli.show.expandNotFound": "error: {{message}}\n  fix: use a handle from a truncated card's own hint (t<turn>.c<card> or cmd<n>), or drop --expand to see the whole attempt\n",
   "cli.show.historyReportConflict":
     "`--history` and `--report` are mutually exclusive: both take over the main output. --history is the host's per-attempt execution timeline; for snapshot-level trends, compose exp.snapshots inside your report file instead.\n",
   "cli.show.locatorMalformed": "{{message}}\n",

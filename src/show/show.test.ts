@@ -26,7 +26,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openResults } from "../results/index.ts";
-import { RESULTS_FORMAT, RESULTS_SCHEMA_VERSION, type EvalResult, type Verdict } from "../types.ts";
+import { RESULTS_FORMAT, RESULTS_SCHEMA_VERSION, type EvalResult, type StreamEvent, type Verdict } from "../types.ts";
 import { attemptHistory } from "./compose.ts";
 import { runShow, type ShowFlags } from "./index.ts";
 
@@ -56,7 +56,12 @@ afterAll(() => {
 
 /** 一条 attempt 的最小 fixture;字段照 docs/feature/results/architecture.md 的 AttemptRecord。 */
 type AttemptFixture = Pick<EvalResult, "id" | "verdict"> &
-  Partial<Pick<EvalResult, "attempt" | "durationMs" | "assertions" | "estimatedCostUSD" | "startedAt" | "artifactBase">>;
+  Partial<
+    Pick<
+      EvalResult,
+      "attempt" | "durationMs" | "assertions" | "estimatedCostUSD" | "startedAt" | "artifactBase" | "usage" | "facts"
+    >
+  >;
 
 function res(id: string, verdict: Verdict, extra: Partial<AttemptFixture> = {}): AttemptFixture {
   return { id, verdict, attempt: 0, durationMs: 1000, assertions: [], ...extra };
@@ -103,6 +108,29 @@ async function writeSnapshot(
     await writeFile(join(attemptDir, "result.json"), JSON.stringify(r, null, 2), "utf-8");
   }
   return dir;
+}
+
+/** 补写一个 attempt 的 events.json(--execution/--grep/--expand fixture 用);attempt 目录已由 writeSnapshot 建好。 */
+async function writeEvents(
+  root: string,
+  experimentId: string,
+  snapDirName: string,
+  evalId: string,
+  attempt: number,
+  events: StreamEvent[],
+): Promise<void> {
+  const dir = join(root, cleanDirName(experimentId), snapDirName, evalId, `a${attempt}`);
+  await writeFile(join(dir, "events.json"), JSON.stringify(events), "utf-8");
+}
+
+/** 两个事件的最小 turn:一句用户消息 + 一次工具调用,`tag` 进 query 里方便 --grep 区分。 */
+function toolCallEvents(tag: string): StreamEvent[] {
+  return [
+    { type: "message", role: "user", text: `do the ${tag} thing` },
+    { type: "message", role: "assistant", text: "on it" },
+    { type: "action.called", callId: "c1", name: "memory_search", input: { query: tag } },
+    { type: "action.result", callId: "c1", output: { total: 1 }, status: "completed" },
+  ];
 }
 
 /**
@@ -432,11 +460,12 @@ describe("eval 前缀:默认榜单", () => {
   });
 });
 
-// ───────────────────────── 多 --exp:范围校验、互斥与对照占位 ─────────────────────────
+// ───────────────────────── 多 --exp:范围校验、互斥与对照矩阵 ─────────────────────────
 // cases: docs/engineering/testing/unit/reports.md「show 的范围 × 切片正交」——
 // docs/feature/reports/show.md「选择结果范围」:0/1 个 --exp 沿用前缀收窄;2 个以上进入对照
 // 语义,每个必须恰好解析到一个 experiment,命中多个按用法错误列出候选;`@<locator>` 与重复
-// `--exp` 互斥。DeltaTable 组件由并行节点接线,这里只验证占位错误诚实可执行。
+// `--exp` 互斥;每个 --exp 都恰好解析到一个 experiment 时渲染 DeltaTable 对照矩阵
+// (docs/feature/reports/show/compare.md)。
 
 describe("多 --exp:范围校验与用法冲突", () => {
   async function seedTwoExperimentsRoot(): Promise<string> {
@@ -478,14 +507,19 @@ describe("多 --exp:范围校验与用法冲突", () => {
     expect(err).toContain("No experiment matched --exp nosuch");
   });
 
-  it("每个 --exp 都恰好解析到一个 experiment 时,缺省切片是对照矩阵——组件接线前给诚实的占位错误,不是静默渲染榜单", async () => {
+  it("每个 --exp 都恰好解析到一个 experiment 时,缺省切片是对照矩阵——DeltaTable 装配,首个 --exp 是基准", async () => {
     const root = await seedTwoExperimentsRoot();
-    const { err, code } = await show(root, [], { experiment: ["compare/bub-baseline", "compare/bub-mempal"] });
-    expect(code).toBe(1);
-    expect(err).toContain("error:");
-    expect(err).toContain("fix:");
-    expect(err).toContain("compare/bub-baseline, compare/bub-mempal");
-    expect(err).toContain("niceeval show --exp compare/bub-baseline");
+    const { out, err, code } = await show(root, [], { experiment: ["compare/bub-baseline", "compare/bub-mempal"] });
+    expect(code).toBe(0);
+    expect(err).toBe("");
+    // 头两行是 show 自己拼的 CLI 呈现(不是 DeltaTable 组件内容):条件数、基准、共同/仅某条件覆盖。
+    expect(out).toContain("compare · 2 conditions · paired by eval id · baseline compare/bub-baseline");
+    expect(out).toContain("common 1 · compare/bub-baseline only 0 · compare/bub-mempal only 0");
+    // 表格本体复用 DeltaTable 的 text 面:eval 一行、每条件一组列、passed 判定。
+    expect(out).toContain("weather/brooklyn");
+    expect(out).toContain("compare/bub-baseline");
+    expect(out).toContain("compare/bub-mempal");
+    expect(out).toMatch(/✓ passed/);
   });
 
   it("--exp >= 2 与 --report 组合时不进对照占位,照常渲染自定义报告(对照与 --report 互斥,--report 接管缺省切片)", async () => {
@@ -516,5 +550,246 @@ describe("多 --exp:范围校验与用法冲突", () => {
     // dist/report/built-in;带一个证据 flag 绕开报告槽,只验证 mutex 没有误伤单个 --exp。
     const { code } = await show(root, [locator], { experiment: ["compare/bub-baseline"], execution: true });
     expect(code).toBe(0);
+  });
+});
+
+// ───────────────────────── --stats:稳定性矩阵 ─────────────────────────
+// cases: docs/engineering/testing/unit/reports.md「show 的范围 × 切片正交」——`--stats` 与
+// `@<locator>`/`--report` 的用法冲突;深层聚合判据(failed/errored 分列、skipped 不计、
+// neverPassed……)的断言面是 stabilityMatrixData 本身(见
+// src/report/components/metric-views/stability-matrix.test.ts),这里只证明 show 把范围正确
+// 接到 StabilityMatrix 并拼出 CLI 专属的头行。
+
+describe("--stats", () => {
+  /** 同一 (experiment, eval) 两次历史执行,先 failed 后 errored——分列不合并的最小判据。 */
+  async function seedStatsRoot(): Promise<string> {
+    const root = await makeRoot();
+    await writeSnapshot(root, "2026-07-01T00-00-00-000Z", { experimentId: "compare/base", startedAt: "2026-07-01T00:00:00.000Z" }, [
+      res("weather/brooklyn", "failed"),
+    ]);
+    await writeSnapshot(root, "2026-07-08T00-00-00-000Z", { experimentId: "compare/base", startedAt: "2026-07-08T00:00:00.000Z" }, [
+      res("weather/brooklyn", "errored"),
+    ]);
+    return root;
+  }
+
+  it("头行报 eval × experiment 计数与证据面说明,格内 failed/errored 分列不合并", async () => {
+    const root = await seedStatsRoot();
+    const { out, err, code } = await show(root, [], { stats: true });
+    expect(code).toBe(0);
+    expect(err).toBe("");
+    expect(out).toContain("stability · 1 evals × 1 experiments");
+    expect(out).toContain("all historical executions");
+    // 两次历史执行(failed 一次、errored 一次)分列各自 1,不是揉成一个 executions=2 的单一数字。
+    expect(out).toMatch(/✓0 ✗1 !1/);
+  });
+
+  it("与 @<locator> 互斥:单 attempt 没有稳定性可言", async () => {
+    const root = await seedStatsRoot();
+    const results = await openResults(root);
+    const locator = results.experiments[0]!.latest.evals[0]!.attempts[0]!.locator!;
+    const { err, code } = await show(root, [locator], { stats: true });
+    expect(code).toBe(1);
+    expect(err).toContain("error:");
+    expect(err).toContain("fix:");
+    expect(err).toContain("--stats cannot combine with a locator");
+  });
+
+  it("与 --report 互斥:零配置装配不经用户显式报告树", async () => {
+    const root = await seedStatsRoot();
+    const report = await writeMinimalReport(root);
+    const { err, code } = await show(root, [], { stats: true, report });
+    expect(code).toBe(1);
+    expect(err).toContain("error:");
+    expect(err).toContain("fix:");
+    expect(err).toContain("--stats cannot combine with --report");
+  });
+
+  it("与 --stats/--usage/--history 同一档:与 --page 组合是用法矛盾", async () => {
+    const root = await seedStatsRoot();
+    const { err, code } = await show(root, [], { stats: true, page: "report" });
+    expect(code).toBe(1);
+    expect(err).toContain("--stats");
+  });
+});
+
+// ───────────────────────── --usage:用量表 ─────────────────────────
+// cases: docs/engineering/testing/unit/reports.md「usage 组装与 facts 投影」——组装口径(行为
+// 计数、token 来源、uncachedInputTokens 派生、requests 缺失整段省略)的断言面是
+// usageTableData 本身(见 src/report/components/attempt-detail/attempt-components.test.ts);
+// 这里证明 --usage 把范围摊成表、逐 experiment 分节各自合计、缺失不计入合计且标 `*`。
+
+describe("--usage", () => {
+  it("单 experiment 范围:一行一个 attempt,尾行合计;缺失字段显示 — 且不计入合计(标 *)", async () => {
+    const root = await makeRoot();
+    await writeSnapshot(root, "2026-07-08T10-00-00-000Z", { experimentId: "dev/e2b", startedAt: "2026-07-08T10:00:00.000Z" }, [
+      res("weather/brooklyn", "passed", { estimatedCostUSD: 0.05, usage: { inputTokens: 100, outputTokens: 20 } }),
+      res("weather/queens", "failed"),
+    ]);
+    const { out, err, code } = await show(root, [], { experiment: ["dev/e2b"], usage: true });
+    expect(code).toBe(0);
+    expect(err).toBe("");
+    expect(out).toContain("usage · dev/e2b · 2 attempts");
+    expect(out).toContain("weather/brooklyn");
+    expect(out).toMatch(/✓ passed/);
+    expect(out).toMatch(/✗ failed/);
+    // 第二行没有 usage 事实,uncached in / out / cost 三列都是缺失占位。
+    const lines = out.split("\n");
+    const queensLine = lines.find((l) => l.includes("weather/queens"))!;
+    expect(queensLine).toBeDefined();
+    expect(queensLine.trim().endsWith("—")).toBe(true);
+    // 合计行:1/2 passed;有列只在一行缺失时求和并标 *,不是简单相加两行也不是当 0 处理。
+    expect(out).toContain("1/2 passed");
+    expect(out).toContain("100*");
+    expect(out).toContain("20*");
+    expect(out).toContain("$0.05*");
+  });
+
+  it("多 experiment 范围:逐 experiment 分节,节尾各自合计", async () => {
+    const root = await makeRoot();
+    await writeSnapshot(root, "2026-07-08T10-00-00-000Z", { experimentId: "dev/e2b-a", startedAt: "2026-07-08T10:00:00.000Z" }, [
+      res("weather/brooklyn", "passed"),
+    ]);
+    await writeSnapshot(root, "2026-07-08T10-00-00-000Z", { experimentId: "dev/e2b-b", startedAt: "2026-07-08T10:00:00.000Z" }, [
+      res("weather/brooklyn", "passed"),
+    ]);
+    const { out, code } = await show(root, [], { usage: true });
+    expect(code).toBe(0);
+    const aAt = out.indexOf("usage · dev/e2b-a");
+    const bAt = out.indexOf("usage · dev/e2b-b");
+    expect(aAt).toBeGreaterThan(-1);
+    expect(bAt).toBeGreaterThan(aAt);
+  });
+
+  it("@<locator> --usage 退化成该 attempt 的单行表,复用同一份实现", async () => {
+    const root = await makeRoot();
+    await writeSnapshot(root, "2026-07-08T10-00-00-000Z", { experimentId: "dev/e2b", startedAt: "2026-07-08T10:00:00.000Z" }, [
+      res("weather/brooklyn", "passed", { estimatedCostUSD: 0.05, usage: { inputTokens: 100, outputTokens: 20 } }),
+    ]);
+    const results = await openResults(root);
+    const locator = results.experiments[0]!.latest.evals[0]!.attempts[0]!.locator!;
+    const { out, code } = await show(root, [locator], { usage: true });
+    expect(code).toBe(0);
+    expect(out).toContain("usage · dev/e2b · 1 attempt");
+    expect(out).not.toContain("1 attempts");
+    expect(out).toContain("weather/brooklyn");
+  });
+});
+
+// ───────────────────────── facts: 行 ─────────────────────────
+// cases: docs/engineering/testing/unit/reports.md「usage 组装与 facts 投影」——attempt 级
+// facts 的读取投影:usage: 行后紧邻 facts: 行,没有 facts 时该行不出现。
+
+describe("facts: 行", () => {
+  it("有 facts 时,attempt 诊断首页在 usage: 行后紧邻一行 facts:(中间不空行)", async () => {
+    const root = await makeRoot();
+    await writeSnapshot(root, "2026-07-08T10-00-00-000Z", { experimentId: "memory/claude", startedAt: "2026-07-08T10:00:00.000Z" }, [
+      res("memory/notes", "passed", {
+        estimatedCostUSD: 0.05,
+        usage: { inputTokens: 100, outputTokens: 20 },
+        facts: { "memory.notes": 73, "memory.restored": true },
+      }),
+    ]);
+    const results = await openResults(root);
+    const locator = results.experiments[0]!.latest.evals[0]!.attempts[0]!.locator!;
+    const { out, code } = await show(root, [locator], {});
+    expect(code).toBe(0);
+    expect(out).toContain("usage: 100 in / 20 out · $0.05\nfacts: memory.notes=73 · memory.restored=true");
+  });
+
+  it("没有 facts 时,attempt 诊断首页不出现 facts: 行", async () => {
+    const root = await makeRoot();
+    await writeSnapshot(root, "2026-07-08T10-00-00-000Z", { experimentId: "memory/claude", startedAt: "2026-07-08T10:00:00.000Z" }, [
+      res("memory/notes", "passed", { estimatedCostUSD: 0.05, usage: { inputTokens: 100, outputTokens: 20 } }),
+    ]);
+    const results = await openResults(root);
+    const locator = results.experiments[0]!.latest.evals[0]!.attempts[0]!.locator!;
+    const { out, code } = await show(root, [locator], {});
+    expect(code).toBe(0);
+    expect(out).not.toContain("facts:");
+  });
+});
+
+// ───────────────────────── --grep / --expand:show 层接线 ─────────────────────────
+// cases: docs/engineering/testing/unit/reports.md「execution 的预算、句柄与 grep」——卡片
+// 预算 / 句柄派生 / 匹配面本身的判据断言面是 executionText(见 src/show/render.test.ts,并行
+// render 节点已覆盖);这里只证明 show 层的组合校验(互斥、只与 --execution 组合、--expand
+// 要求单 attempt)与跨 attempt 汇总行的拼装。
+
+describe("--grep / --expand", () => {
+  async function seedTwoAttemptEventsRoot(): Promise<string> {
+    const root = await makeRoot();
+    await writeSnapshot(root, "2026-07-08T10-00-00-000Z", { experimentId: "memory/claude", startedAt: "2026-07-08T10:00:00.000Z" }, [
+      res("memory/alpha", "passed"),
+      res("memory/beta", "passed"),
+    ]);
+    await writeEvents(root, "memory/claude", "2026-07-08T10-00-00-000Z", "memory/alpha", 0, toolCallEvents("alpha"));
+    await writeEvents(root, "memory/claude", "2026-07-08T10-00-00-000Z", "memory/beta", 0, toolCallEvents("beta"));
+    return root;
+  }
+
+  it("命中卡片跨 attempt 汇总:N matches in M attempts", async () => {
+    const root = await seedTwoAttemptEventsRoot();
+    const { out, code } = await show(root, [], { execution: true, grep: "memory_search" });
+    expect(code).toBe(0);
+    expect(out).toContain("2 matches in 2 attempts");
+  });
+
+  it("0 命中:明确输出 0 matches in N attempts,不是非零退出", async () => {
+    const root = await seedTwoAttemptEventsRoot();
+    const { out, code } = await show(root, [], { execution: true, grep: "nonexistent-xyz" });
+    expect(code).toBe(0);
+    expect(out).toBe("0 matches in 2 attempts\n");
+  });
+
+  it("--grep pattern 不是合法 JS 正则:直说语法问题", async () => {
+    const root = await seedTwoAttemptEventsRoot();
+    const { err, code } = await show(root, [], { execution: true, grep: "(unclosed" });
+    expect(code).toBe(1);
+    expect(err).toContain("error:");
+    expect(err).toContain("fix:");
+    expect(err).toContain("not a valid JS regular expression");
+  });
+
+  it("--grep 只与 --execution 组合:出现在其它切片上按用法错误退出", async () => {
+    const root = await seedTwoAttemptEventsRoot();
+    const { err, code } = await show(root, [], { grep: "x" });
+    expect(code).toBe(1);
+    expect(err).toContain("error:");
+    expect(err).toContain("--grep only combines with --execution");
+  });
+
+  it("--grep 与 --expand 互斥", async () => {
+    const root = await seedTwoAttemptEventsRoot();
+    const { err, code } = await show(root, [], { execution: true, grep: "x", expand: "t1.c1" });
+    expect(code).toBe(1);
+    expect(err).toContain("error:");
+    expect(err).toContain("cannot combine");
+  });
+
+  it("--expand 要求范围恰好一个 attempt", async () => {
+    const root = await seedTwoAttemptEventsRoot();
+    const { err, code } = await show(root, [], { execution: true, expand: "t1.c1" });
+    expect(code).toBe(1);
+    expect(err).toContain("error:");
+    expect(err).toContain("fix:");
+    expect(err).toContain("resolve to exactly one attempt, got 2");
+  });
+
+  it("--expand 命中单 attempt 范围时展开完整卡片内容", async () => {
+    const root = await seedTwoAttemptEventsRoot();
+    const { out, code } = await show(root, ["memory/alpha"], { execution: true, expand: "t1.c3" });
+    expect(code).toBe(0);
+    expect(out).toContain("TOOL · memory_search");
+    expect(out).toContain("alpha");
+  });
+
+  it("--expand 句柄未命中:裸 Error 被套成 error:/fix: 三段式,带真实 turn 数", async () => {
+    const root = await seedTwoAttemptEventsRoot();
+    const { err, code } = await show(root, ["memory/alpha"], { execution: true, expand: "t9.c1" });
+    expect(code).toBe(1);
+    expect(err).toContain("error:");
+    expect(err).toContain("fix:");
+    expect(err).toContain("this attempt has 1 turn");
   });
 });

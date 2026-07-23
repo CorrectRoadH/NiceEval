@@ -102,6 +102,10 @@ interface Flags {
   diff: boolean;
   /** --diff=<路径>(必须 = 连写;空格形式会把路径当 eval id 前缀,按文档如此)。 */
   diffPath?: string;
+  /** --grep <pattern>:只与 --execution 组合,收窄命中卡片;与 --expand 互斥。 */
+  grep?: string;
+  /** --expand <handle>:只与 --execution 组合,要求范围恰好一个 attempt;与 --grep 互斥。 */
+  expand?: string;
   timing?: "summary" | "full";
   keepSandbox?: "failed" | "all";
   all: boolean;
@@ -109,6 +113,8 @@ interface Flags {
   sandboxPath?: string;
   leaveRunning: boolean;
   history: boolean;
+  usage: boolean;
+  stats: boolean;
   /** `show` / `view` 命令专用:`--exp` 可重复出现;每次出现是一个数组元素,顺序即用户输入顺序。 */
   experiment?: string[];
   results?: string;
@@ -172,12 +178,20 @@ const FLAG_OPTIONS = {
   execution: { type: "boolean" },
   /** `show` 命令专用:整个 Attempt 的统一时间树;裸 `--timing` 给有界诊断投影,`--timing=full` 逐节点展开全部 runner/已关联 OTel 节点。 */
   timing: { type: "boolean" },
+  /** `show` 命令专用:只与 `--execution` 组合;JS 正则,只输出命中的执行卡片(角色文本、工具名、input、result,失败命令再加 display/stdout/stderr),末尾报跨 attempt 汇总 `N matches in M attempts`。与 `--expand` 互斥。 */
+  grep: { type: "string" },
+  /** `show` 命令专用:只与 `--execution` 组合,要求范围恰好命中一个 attempt;展开一张卡片的完整落盘内容(不截断)。句柄语法 `t<轮次>.c<卡片>`(agent 事件)或 `cmd<n>`(失败 Sandbox 命令),来自截断卡片自带的提示。与 `--grep` 互斥。 */
+  expand: { type: "string" },
   // --diff 是布尔;--diff=<路径> 在 parseArgs 前预扫成 diffPath(路径必须 = 连写,
   // 空格形式的下一个 token 仍是位置参数 = eval id 前缀,与文档一致)。
   /** `show` 命令专用:sandbox 里的文件改动摘要;`--diff=<文件路径>` 看单个文件的完整改动(路径必须 `=` 连写)。 */
   diff: { type: "boolean" },
   /** `show` 命令专用:执行时间轴——对匹配的每个 experiment × eval 分节,逐 attempt 列时间 / verdict / 摘要 / 耗时 / 成本 / locator;与 `--report` 互斥。 */
   history: { type: "boolean" },
+  /** `show` 命令专用:范围内逐 attempt 的用量表(`UsageTable` 装配)——判定、轮数、工具调用数、token 拆分与成本;多个 experiment 时逐 experiment 分节、节尾各自合计,缺失字段显示 `—` 且不计入合计。`@<locator>` 范围下退化成该 attempt 的单行表。 */
+  usage: { type: "boolean" },
+  /** `show` 命令专用:eval × experiment 的稳定性矩阵(`StabilityMatrix` 装配)——每格是该组合全部历史执行(跨快照去重、不设可比性门槛)的判定计数,回答「哪些题从来没通过过」;与 `@<locator>`、`--report` 互斥。 */
+  stats: { type: "boolean" },
   /** `show` / `view` 命令专用:按路径段前缀收窄 experiment(与 `niceeval exp` 位置参数同一套匹配);目录路径会选中其下全部配置。可重复;出现两次以上进入对照语义——每次出现必须恰好解析到一个 experiment,顺序即对照条件顺序、首个是基准,`@<locator>` 与重复 `--exp` 互斥。`view --out` 时同一收窄决定出站内容。 */
   exp: { type: "string", multiple: true },
   /** `show` / `view` / `sandbox enter|list|stop` 共用:结果根目录(`.niceeval` 之外的另一个根,如 `copySnapshots` 产出的发布根)。 */
@@ -311,12 +325,16 @@ function parseArgs(argv: string[]): { command: string; positionals: string[]; fl
     diff: values.diff === true && diffPath === undefined,
     diffPath,
     timing: values.timing === true ? (timingMode ?? "summary") : undefined,
+    grep: values.grep as string | undefined,
+    expand: values.expand as string | undefined,
     keepSandbox: values["keep-sandbox"] === true ? (keepSandboxTier ?? "failed") : undefined,
     all: values.all === true,
     window: values.window as string | undefined,
     sandboxPath: values.path as string | undefined,
     leaveRunning: values["leave-running"] === true,
     history: values.history === true,
+    usage: values.usage === true,
+    stats: values.stats === true,
     experiment: values.exp as string[] | undefined,
     results: values.results as string | undefined,
     snapshot: values.snapshot as string | undefined,
@@ -343,8 +361,12 @@ function firstViewerOnlyFlag(flags: Flags): { flag: string; command: string } | 
   if (flags.source) return { flag: "--source", command: SHOW };
   if (flags.execution) return { flag: "--execution", command: SHOW };
   if (flags.timing !== undefined) return { flag: "--timing", command: SHOW };
+  if (flags.grep !== undefined) return { flag: "--grep", command: SHOW };
+  if (flags.expand !== undefined) return { flag: "--expand", command: SHOW };
   if (flags.diff || flags.diffPath !== undefined) return { flag: "--diff", command: SHOW };
   if (flags.history) return { flag: "--history", command: SHOW };
+  if (flags.usage) return { flag: "--usage", command: SHOW };
+  if (flags.stats) return { flag: "--stats", command: SHOW };
   if (flags.experiment !== undefined) return { flag: "--exp", command: BOTH };
   if (flags.results !== undefined) return { flag: "--results", command: BOTH };
   if (flags.report !== undefined) return { flag: "--report", command: BOTH };
@@ -621,7 +643,11 @@ async function main(): Promise<void> {
       timing: flags.timing,
       diff: flags.diff,
       diffPath: flags.diffPath,
+      grep: flags.grep,
+      expand: flags.expand,
       history: flags.history,
+      usage: flags.usage,
+      stats: flags.stats,
       experiment: flags.experiment,
       results: flags.results,
       report: flags.report,

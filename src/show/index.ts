@@ -37,6 +37,8 @@ import { detectLocale, t } from "../i18n/index.ts";
 import { selectCurrentResults, filterExperiments } from "../results/select.ts";
 import { evalPrefixPredicate, matchExperimentSelector } from "../shared/aggregate.ts";
 import { panelCapabilityOf } from "../report/model/panel.ts";
+import { formatMetricValue, formatUSD, verdictMark } from "../report/model/format.ts";
+import { renderAlignedRows, type ColumnAlign } from "../report/model/text-layout.ts";
 import { attemptHistory } from "./compose.ts";
 import {
   buildHostReportMeta,
@@ -44,6 +46,7 @@ import {
   loadHostReport,
   renderHostPageText,
   type HostCommandContext,
+  type ReportPage,
 } from "../report/runtime/host.ts";
 import {
   attemptArtifactsPath,
@@ -56,7 +59,8 @@ import {
   timingText,
   skippedRunsText,
 } from "./render.ts";
-import type { AttemptHandle } from "../results/index.ts";
+import type { AttemptHandle, Results, Scope } from "../results/index.ts";
+import type { DeltaData, StabilityMatrixData, UsageTableData } from "../report/model/types.ts";
 
 export interface ShowFlags {
   /** --source:该 attempt 运行时保存的 Eval 源码,断言标回源码行(证据切面)。 */
@@ -69,6 +73,18 @@ export interface ShowFlags {
   diff?: boolean;
   /** --diff=<路径>(单个文件的完整改动;路径必须 = 连写,位置参数永远留给 eval id 前缀)。 */
   diffPath?: string;
+  /**
+   * --grep:只与 --execution 组合(docs/feature/reports/show/execution.md「范围化:跨 attempt
+   * 扫描与 --grep」);JS 正则字符串,收窄 --execution text 渲染面的注意力范围,不是事实过滤器。
+   * 与 --expand 互斥。
+   */
+  grep?: string;
+  /**
+   * --expand:只与 --execution 组合,要求范围恰好命中一个 attempt;句柄语法 `t<turn>.c<card>`
+   * 或 `cmd<n>`,输出该卡片完整落盘内容(不截断)。与 --grep 互斥
+   * (docs/feature/reports/show/execution.md「卡片预览预算与 --expand」)。
+   */
+  expand?: string;
   history?: boolean;
   /**
    * --exp(可重复):0/1 个沿用前缀收窄语义(可能匹配多个 experiment);2 个以上进入对照语义——
@@ -83,6 +99,17 @@ export interface ShowFlags {
   page?: string;
   /** --fresh:只统计新执行的 attempt(排除携带条目与跨快照拼入的历史执行)。 */
   fresh?: boolean;
+  /**
+   * --usage:`UsageTable` 在 show 上的零配置装配——范围内逐 attempt 摊成一行,逐 experiment
+   * 分节各自合计(docs/feature/reports/show/usage.md)。`@<locator>` 范围下退化成该 attempt
+   * 的单行表,不经 --report 传入的 page 声明(docs/feature/reports/show.md「选择结果范围」)。
+   */
+  usage?: boolean;
+  /**
+   * --stats:`StabilityMatrix` 在 show 上的零配置装配——eval × experiment 的历史全执行判定
+   * 计数矩阵(docs/feature/reports/show/stats.md)。与 `@<locator>`、`--report` 互斥。
+   */
+  stats?: boolean;
 }
 
 /** 注入 IO 供测试;默认写 stdout/stderr、宽度取终端列数。 */
@@ -128,27 +155,74 @@ export function sortAttemptsForSections(attempts: readonly AttemptHandle[]): Att
   );
 }
 
+/** "N attempt(s)" 的单复数——`--grep` 汇总行与 `--usage` 分节头共用同一条拼法。 */
+function attemptCountLabel(n: number): string {
+  return `${n} ${n === 1 ? "attempt" : "attempts"}`;
+}
+
+/**
+ * `--grep` 的跨 attempt 汇总行(docs/feature/reports/show/execution.md「范围化:跨 attempt
+ * 扫描与 --grep」):0 命中时明确输出 `0 matches in N attempts`,不带「N attempts with 0
+ * matches」括注(该括注在全 0 时是重言,反而稀释「一个词都没匹配到」这件事本身)。
+ */
+function grepSummaryText(matches: number, attempts: number, zeroMatchAttempts: number): string {
+  if (matches === 0) return `0 matches in ${attemptCountLabel(attempts)}`;
+  const suffix = zeroMatchAttempts > 0 ? ` (${attemptCountLabel(zeroMatchAttempts)} with 0 matches)` : "";
+  return `${matches} matches in ${attemptCountLabel(attempts)}${suffix}`;
+}
+
 /**
  * 证据切面的范围通用渲染:对排序后的每个 attempt 装配 flags 选中的区块并拼成一节;范围含
  * 多个 attempt 时天然分节(节头是每节 block 自带的 `attemptEvidenceHeader` 定位行),单
  * attempt 范围只是省掉了分节——两种输入量走同一份实现(docs/feature/reports/show.md
  * 「一次调用 = 范围 × 切片 × 形态」)。
+ *
+ * `--grep`/`--expand` 只影响 `--execution` 这一块(两者的组合校验在 show() 顶层先于任何 IO
+ * 做完,这里不重复):`grep` 收窄命中卡片并在全部分节之后追加一行跨 attempt 汇总
+ * (grepSummaryText);`expand` 要求恰好一个 attempt——校验放在这里而不是 show() 顶层,因为
+ * 「范围有几个 attempt」只有拿到 `attempts` 之后才知道,`@<locator>` 与范围收窄两条调用路径
+ * 因此天然共享同一次校验,不重复。`executionText` 对未命中的展开句柄抛裸 `Error`
+ * (docs/feature/reports/show/execution.md「句柄未命中……按用法错误退出」),这里捕获后套成
+ * `error:`/`fix:` 三段式,不让一条裸堆栈冒到用户面前。
  */
 async function renderEvidenceSections(
   attempts: readonly AttemptHandle[],
-  flags: Pick<ShowFlags, "source" | "execution" | "timing" | "diff" | "diffPath">,
+  flags: Pick<ShowFlags, "source" | "execution" | "timing" | "diff" | "diffPath" | "expand">,
+  grep: RegExp | undefined,
   cwd: string,
   width: number,
 ): Promise<string> {
+  if (flags.expand !== undefined && attempts.length !== 1) {
+    throw new ShowError(t("cli.show.expandMultiAttempt", { count: attempts.length }));
+  }
   const ordered = sortAttemptsForSections(attempts);
   const sections: string[] = [];
+  let grepMatches = 0;
+  let grepAttempts = 0;
+  let grepZeroMatchAttempts = 0;
   for (const attempt of ordered) {
     const attemptEvidence = await loadAttemptEvidence(attempt);
     const header = attemptEvidenceHeader(attemptEvidence);
     const artifactPath = attemptArtifactsPath(attempt, cwd);
     const blocks: string[] = [];
     if (flags.source) blocks.push(evalSourceText(attemptEvidence, { header, artifactPath, width }));
-    if (flags.execution) blocks.push(executionText(attemptEvidence, { header, artifactPath, width }));
+    if (flags.execution) {
+      let result: { text: string; matches?: number };
+      try {
+        result = executionText(attemptEvidence, { header, artifactPath, width }, { grep, expand: flags.expand });
+      } catch (e) {
+        if (flags.expand !== undefined && e instanceof Error) {
+          throw new ShowError(t("cli.show.expandNotFound", { message: e.message }));
+        }
+        throw e;
+      }
+      if (result.text.length > 0) blocks.push(result.text);
+      if (grep !== undefined) {
+        grepAttempts += 1;
+        grepMatches += result.matches ?? 0;
+        if ((result.matches ?? 0) === 0) grepZeroMatchAttempts += 1;
+      }
+    }
     if (flags.timing !== undefined && flags.timing !== false) {
       blocks.push(
         timingText(attemptEvidence, { header, artifactPath, width, mode: flags.timing === "full" ? "full" : "summary" }),
@@ -159,18 +233,213 @@ async function renderEvidenceSections(
     }
     sections.push(blocks.join("\n\n"));
   }
-  return sections.join("\n\n");
+  // `--grep` 常态是「大部分 attempt 0 命中」——0 命中的那一节本身就是空字符串(见上面
+  // executionText 的 grep 分支),不过滤会在汇总行前面堆出一串空段落的空行。非 grep 路径不
+  // 过滤:那里的空段落理论上不会出现(单/多 attempt 字节相同这条测试假设 join 不丢段落)。
+  const body = grep !== undefined ? sections.filter((section) => section.length > 0) : sections;
+  if (grep !== undefined) body.push(grepSummaryText(grepMatches, grepAttempts, grepZeroMatchAttempts));
+  return body.join("\n\n");
 }
 
 /**
- * 缺省切片选择表第二行(`--exp` 出现两次以上 → 对照矩阵)的接线点:`DeltaTable` 组件与
- * `deltaTableData` 计算函数由并行节点实现(plan/show-scope-slice-json.md 节点 C1,
- * docs/feature/reports/show/compare.md);本节点只完成范围解析与校验,渲染入口先给诚实的
- * 占位错误,不假装已经装好。DeltaTable 落地后,这个函数体替换成组件装配 + text 面渲染,
- * 调用点(show() 里对 renderCompareSlice 的调用)不用改。
+ * `--exp` 出现两次以上的对照覆盖行:每个条件在 `data.rows` 里是否有格子。共同 = 全部条件都
+ * 有格子;某条件独占 = 只有它自己有格子,其余条件都缺
+ * (docs/feature/reports/show/compare.md「头两行报条件数、配对身份、基准与配对覆盖」)。这行
+ * 不是 `DeltaTable` 自己的文案——组件的 text 面(deltaText)只产出表格与共同题 footnote,
+ * 不产出这行覆盖统计,所以由 show 自己按 `DeltaData.rows[].cells` 算。
  */
-function renderCompareSlice(conditions: readonly string[]): never {
-  throw new ShowError(t("cli.show.compareNotWired", { conditions: conditions.join(", "), first: conditions[0] ?? "" }));
+function compareCoverageText(data: DeltaData): string {
+  const common = data.rows.filter((row) => data.conditions.every((c) => row.cells[c] !== undefined)).length;
+  const onlyCounts = data.conditions.map((condition) => {
+    const n = data.rows.filter(
+      (row) =>
+        row.cells[condition] !== undefined &&
+        data.conditions.every((other) => other === condition || row.cells[other] === undefined),
+    ).length;
+    return `${condition} only ${n}`;
+  });
+  return `common ${common} · ${onlyCounts.join(" · ")}`;
+}
+
+/**
+ * 缺省切片选择表第二行(`--exp` 出现两次以上 → 对照矩阵):`DeltaTable` 在 show 上的零配置
+ * 装配(docs/feature/reports/show/compare.md)。`--exp` 出现顺序即 `conditions`(首个是
+ * 基准),已解析成实际 experiment id;数据源是调用方已经按 `selection`(现刻水位 Scope)
+ * narrow 好的范围,不重复传 `evals`(eval id 前缀已经收进 `selection` 里)。
+ *
+ * 头两行(条件数、配对身份、基准、共同/仅某条件覆盖)是 CLI 呈现的行为,不是组件内容——
+ * compare.md「聚合口径……单源在 DeltaTable;本页只保留 CLI 呈现的行为与示例」。表格本体
+ * 复用组件已实现的 text 面(deltaText 经 `renderHostPageText` 渲染 `<DeltaTable data={data} />`
+ * 这棵一元素报告树),不再手写第二份版式。
+ */
+async function renderCompareSlice(
+  cwd: string,
+  results: Results,
+  selection: Scope,
+  conditions: readonly [string, string, ...string[]],
+  io: { width: number; locale: string; panelMode: "boxed" | "plain" },
+): Promise<string> {
+  const { DeltaTable, deltaTableData } = await import("../../dist/report/index.js");
+  const data = await deltaTableData(selection, { by: "experiment", conditions });
+  const report = await loadHostReport(cwd, undefined);
+  const meta = await buildHostReportMeta(report, selection);
+  const page: ReportPage = { id: "compare", title: "Compare", content: { type: DeltaTable, props: { data } } };
+  const table = await renderHostPageText(
+    page,
+    { scope: selection, results, report: meta, page: { id: "compare", input: "scope" } },
+    { width: io.width, locale: io.locale, panelMode: io.panelMode },
+  );
+  const head = `compare · ${data.conditions.length} conditions · paired by eval id · baseline ${data.conditions[0]}`;
+  return `${head}\n${compareCoverageText(data)}\n\n${table}`;
+}
+
+/**
+ * `--stats`:`StabilityMatrix` 在 show 上的零配置装配(docs/feature/reports/show/stats.md)。
+ * 证据面与 `--history` 相同——全部历史执行,不设可比性门槛,所以传原始 `Snapshot[]`(不是
+ * `current()` 现刻水位 Scope);渲染管线要求的 `ctx.scope`/`ctx.report` 只是占位上下文,
+ * 实际矩阵数据已经由 `data` 形态算好,不再消费它们(与 compare 分支同一条纪律)。
+ *
+ * 头行(eval × experiment 计数、证据面说明)是 CLI 呈现的行为,不是组件内容——表格本体复用
+ * 组件已实现的 text 面(stabilityMatrixText)。
+ */
+async function renderStatsSlice(
+  cwd: string,
+  results: Results,
+  experimentFilter: readonly string[] | undefined,
+  patterns: readonly string[],
+  io: { width: number; locale: string; panelMode: "boxed" | "plain" },
+): Promise<string> {
+  const experiments = filterExperiments(results.experiments, experimentFilter as string[] | undefined);
+  const snapshots = experiments.flatMap((exp) => exp.snapshots);
+  const { StabilityMatrix, stabilityMatrixData } = await import("../../dist/report/index.js");
+  const data = await stabilityMatrixData(snapshots, {
+    by: "experiment",
+    ...(patterns.length > 0 ? { evals: [...patterns] } : {}),
+  });
+  // 只给渲染管线占位用的 Scope——StabilityMatrix 走 data 形态,不重新消费它;单独调用
+  // selectCurrentResults 避免借用「现刻水位」口径当稳定性矩阵的真实数据源(上面已用 snapshots)。
+  const scope = selectCurrentResults(results, { experiment: experimentFilter as string[] | undefined, patterns: [...patterns] });
+  const report = await loadHostReport(cwd, undefined);
+  const meta = await buildHostReportMeta(report, scope);
+  const page: ReportPage = { id: "stats", title: "Stability", content: { type: StabilityMatrix, props: { data } } };
+  const table = await renderHostPageText(
+    page,
+    { scope, results, report: meta, page: { id: "stats", input: "scope" } },
+    { width: io.width, locale: io.locale, panelMode: io.panelMode },
+  );
+  const head =
+    `stability · ${data.rows.length} evals × ${data.columns.length} experiments · ` +
+    `all historical executions · ✗ failed / ! errored broken out`;
+  return table.length > 0 ? `${head}\n\n${table}` : head;
+}
+
+const MISSING_MARK = "—";
+const USAGE_COLUMNS = ["locator", "eval", "result", "turns", "tools", "uncached in", "cache read", "out", "requests", "cost"];
+const USAGE_ALIGN: readonly ColumnAlign[] = ["left", "left", "left", "right", "right", "right", "right", "right", "right", "right"];
+
+/** uncached in 列的取值:与 `usage:` 行同一条回退口径(见 docs/feature/reports/library/
+ *  attempt-detail.md#usagetable-组装口径单源)——优先派生的 uncachedInputTokens,两个输入
+ *  缺一个就回退显示原始 inputTokens,不猜 0。 */
+function uncachedInOf(row: UsageTableData): number | undefined {
+  return row.uncachedInputTokens ?? row.usage?.inputTokens;
+}
+
+/**
+ * 一列的合计:缺失值不计入求和(与「证据完整性」同一条纪律,见 show/usage.md);该列有任意
+ * 一行缺失时在合计数字后标 `*`,表示合计不完整。全部缺失时整格 `—`,不假装合计是 0。
+ */
+function summarizeUsageColumn(values: readonly (number | undefined)[], format: (n: number) => string): string {
+  const defined = values.filter((v): v is number => v !== undefined);
+  if (defined.length === 0) return MISSING_MARK;
+  const sum = defined.reduce((a, b) => a + b, 0);
+  return defined.length < values.length ? `${format(sum)}*` : format(sum);
+}
+
+/** 一个 experiment 分节的用量表:一行一个 attempt,尾行合计(docs/feature/reports/show/usage.md)。 */
+function usageSectionText(experimentId: string, rows: readonly UsageTableData[]): string {
+  const head = `usage · ${experimentId} · ${rows.length} ${rows.length === 1 ? "attempt" : "attempts"}`;
+  const body = rows.map((r) => [
+    r.locator,
+    r.evalId,
+    `${verdictMark(r.verdict)} ${r.verdict}`,
+    r.turns !== undefined ? String(r.turns) : MISSING_MARK,
+    r.toolCalls !== undefined ? String(r.toolCalls) : MISSING_MARK,
+    uncachedInOf(r) !== undefined ? formatMetricValue(uncachedInOf(r)!) : MISSING_MARK,
+    r.usage?.cacheReadTokens !== undefined ? formatMetricValue(r.usage.cacheReadTokens) : MISSING_MARK,
+    r.usage?.outputTokens !== undefined ? formatMetricValue(r.usage.outputTokens) : MISSING_MARK,
+    r.usage?.requests !== undefined ? String(r.usage.requests) : MISSING_MARK,
+    r.estimatedCostUSD !== undefined ? formatUSD(r.estimatedCostUSD) : MISSING_MARK,
+  ]);
+  const passed = rows.filter((r) => r.verdict === "passed").length;
+  const totals = [
+    "total",
+    "",
+    `${passed}/${rows.length} passed`,
+    summarizeUsageColumn(rows.map((r) => r.turns), (n) => String(n)),
+    summarizeUsageColumn(rows.map((r) => r.toolCalls), (n) => String(n)),
+    summarizeUsageColumn(rows.map(uncachedInOf), formatMetricValue),
+    summarizeUsageColumn(rows.map((r) => r.usage?.cacheReadTokens), formatMetricValue),
+    summarizeUsageColumn(rows.map((r) => r.usage?.outputTokens), formatMetricValue),
+    summarizeUsageColumn(rows.map((r) => r.usage?.requests), (n) => String(n)),
+    summarizeUsageColumn(rows.map((r) => r.estimatedCostUSD), formatUSD),
+  ];
+  const table = renderAlignedRows([USAGE_COLUMNS, ...body, totals], USAGE_ALIGN);
+  return `${head}\n\n${table}`;
+}
+
+/**
+ * `--usage`:`UsageTable` 逐 attempt 装配的表(docs/feature/reports/show/usage.md)。行按
+ * experimentId、evalId、attempt 序排列(与证据切面共用的 `sortAttemptsForSections`),范围
+ * 含多个 experiment 时逐 experiment 分节、节尾各自合计;单 attempt 范围(`@<locator>
+ * --usage`)只是退化成一节一行的表,与这里共用同一份实现。`usageTableData` 全部三项
+ * (turns/toolCalls/usage)都缺时返回 null(没有 usage 时零输出的组件口径),但这张表要求
+ * 「范围内每个 attempt 逐条映射成一行」——即便某个 attempt 没有任何用量事实,行本身仍要
+ * 出现,数值格全部落 `—`,所以 null 时在这里现场兜底出一行只有身份字段的 `UsageTableData`。
+ */
+async function renderUsageSlice(attempts: readonly AttemptHandle[]): Promise<string> {
+  const { usageTableData } = await import("../../dist/report/index.js");
+  const ordered = sortAttemptsForSections(attempts);
+  const rows: UsageTableData[] = [];
+  for (const attempt of ordered) {
+    const evidence = await loadAttemptEvidence(attempt);
+    rows.push(
+      usageTableData(evidence) ?? {
+        locator: evidence.locator,
+        experimentId: evidence.identity.experimentId,
+        evalId: evidence.identity.evalId,
+        attempt: evidence.identity.attempt,
+        verdict: evidence.result.verdict,
+      },
+    );
+  }
+  const byExperiment = new Map<string, UsageTableData[]>();
+  for (const row of rows) {
+    const list = byExperiment.get(row.experimentId);
+    if (list) list.push(row);
+    else byExperiment.set(row.experimentId, [row]);
+  }
+  if (byExperiment.size === 0) return "usage · no attempts matched this range";
+  return [...byExperiment.entries()].map(([experimentId, list]) => usageSectionText(experimentId, list)).join("\n\n");
+}
+
+/**
+ * attempt 诊断首页在 `usage:` 行后追加的 `facts:` 行(docs/feature/reports/show/attempt.md
+ * 「facts: 行」)。`usage:`、`facts:`、`trace:` 都是「一个事实的摘要」,本来就不是
+ * `Section`——两行紧邻、中间不空行,与文档示例的排版一致。facts 不是报告组件的公开面(源码
+ * 边界:本节点不动 `src/report/**`),`usage:` 行已经由内建 `UsageTable` 产出,这里只做
+ * 字符串级别的紧邻插入,不重新实现 `usage:` 的组装。没有 facts 时原样返回 pageText——
+ * 与「没有证据的块不出现」同一条规则。找不到 `usage:` 行时退而找 `trace:` 行前插入(两者都
+ * 不在时追加到页尾),保持 AttemptDetail 声明顺序(Timeline → Diagnostics → UsageTable →
+ * Conversation → Trace → Diff)里 facts 应处的相对位置。
+ */
+function insertFactsLine(pageText: string, facts: Record<string, string | number | boolean> | undefined): string {
+  if (!facts) return pageText;
+  const entries = Object.entries(facts);
+  if (entries.length === 0) return pageText;
+  const line = `facts: ${entries.map(([key, value]) => `${key}=${value}`).join(" · ")}`;
+  if (/^usage: .*$/m.test(pageText)) return pageText.replace(/^(usage: .*)$/m, `$1\n${line}`);
+  if (/^trace: .*$/m.test(pageText)) return pageText.replace(/^(trace: .*)$/m, `${line}\n\n$1`);
+  return `${pageText}\n\n${line}`;
 }
 
 /**
@@ -236,10 +505,11 @@ async function show(
     throw new ShowError(t("cli.show.historyReportConflict"));
   }
 
-  // --page 只在报告槽里有意义:证据切面 / 时间轴与它组合是用法矛盾,先于任何 IO 报出来。
-  if (flags.page !== undefined && (evidence || flags.history)) {
+  // --page 只在报告槽里有意义:证据切面 / 时间轴 / 零配置切片(--stats/--usage)与它组合是
+  // 用法矛盾,先于任何 IO 报出来。
+  if (flags.page !== undefined && (evidence || flags.history || flags.stats || flags.usage)) {
     throw new ShowError(
-      `--page selects a report page and cannot be combined with ${flags.history ? "--history" : "evidence flags"}.\n`,
+      `--page selects a report page and cannot be combined with ${flags.history ? "--history" : flags.stats ? "--stats" : flags.usage ? "--usage" : "evidence flags"}.\n`,
     );
   }
 
@@ -251,6 +521,38 @@ async function show(
     throw new ShowError(
       t("cli.show.locatorExpConflict", { locator: locatorArgForMutex, exp: expSelectors.join(", ") }),
     );
+  }
+
+  // `--stats` 与 `@<locator>`、`--report` 互斥(docs/feature/reports/show/stats.md「边界」):
+  // 单 attempt 没有稳定性可言;零配置装配不经用户显式报告树。先于任何 IO 报出来。
+  if (locatorArgForMutex !== undefined && flags.stats) {
+    throw new ShowError(t("cli.show.statsLocatorConflict", { locator: locatorArgForMutex }));
+  }
+  if (flags.stats && flags.report !== undefined) {
+    throw new ShowError(t("cli.show.statsReportConflict", { report: flags.report }));
+  }
+
+  // `--grep`/`--expand` 只是 `--execution` text 渲染面的选项,不是独立切片(docs/feature/
+  // reports/show/execution.md「范围化:跨 attempt 扫描与 --grep」「卡片预览预算与 --expand」);
+  // 两者互斥;出现在其它切片上(或裸出现,没有 --execution)按用法错误退出,先于任何 IO 报出来。
+  if (flags.grep !== undefined && flags.expand !== undefined) {
+    throw new ShowError(t("cli.show.grepExpandConflict"));
+  }
+  if (flags.grep !== undefined && flags.execution !== true) {
+    throw new ShowError(t("cli.show.grepExecutionOnly"));
+  }
+  if (flags.expand !== undefined && flags.execution !== true) {
+    throw new ShowError(t("cli.show.expandExecutionOnly"));
+  }
+  let grep: RegExp | undefined;
+  if (flags.grep !== undefined) {
+    try {
+      grep = new RegExp(flags.grep);
+    } catch (e) {
+      throw new ShowError(
+        t("cli.show.grepInvalidPattern", { pattern: flags.grep, message: e instanceof Error ? e.message : String(e) }),
+      );
+    }
   }
 
   const root = flags.results !== undefined ? resolve(cwd, flags.results) : join(cwd, ".niceeval");
@@ -283,10 +585,16 @@ async function show(
       if (e instanceof LocatorNotFoundError) throw new ShowError(t("cli.show.locatorNotFound", { message: e.message }));
       throw e;
     }
+    if (flags.usage) {
+      // `@<locator> --usage`:UsageTable 的单行装配,与下面「范围含多个 attempt」的表格
+      // 分节共用同一个实现(renderUsageSlice)——单元素范围只是退化成一个 1 行的表。
+      io.out((await renderUsageSlice([attempt])) + "\n");
+      return;
+    }
     if (evidence) {
       // locator = 单元素范围:与下面「证据切面是宿主本体」分支共用同一个范围通用实现
       // (renderEvidenceSections),不另立「locator 专属」代码路径。
-      io.out((await renderEvidenceSections([attempt], flags, cwd, io.width)) + "\n");
+      io.out((await renderEvidenceSections([attempt], flags, grep, cwd, io.width)) + "\n");
       return;
     }
     const attemptEvidence = await loadAttemptEvidence(attempt);
@@ -318,7 +626,7 @@ async function show(
       },
       { width: io.width, locale, panelMode: io.panelMode },
     );
-    io.out(text + "\n");
+    io.out(insertFactsLine(text, attemptEvidence.result.facts) + "\n");
     return;
   }
 
@@ -331,6 +639,21 @@ async function show(
   }
 
   const experimentFilter = expSelectors.length > 0 ? expSelectors : undefined;
+
+  // `--stats`:历史全执行的稳定性矩阵(docs/feature/reports/show/stats.md)。证据面与
+  // `--history` 相同——不是 `current()` 现刻水位,所以在下面的 `selection`/`matchedEvalIds`
+  // (现刻水位专属)计算与 noEvalMatch 校验之前分流掉,不借用那份口径。
+  if (flags.stats) {
+    io.out(
+      (await renderStatsSlice(cwd, results, experimentFilter, patterns, {
+        width: io.width,
+        locale: detectLocale(),
+        panelMode: io.panelMode,
+      })) + "\n",
+    );
+    return;
+  }
+
   const selection = selectCurrentResults(results, { experiment: experimentFilter, patterns, fresh: flags.fresh });
   const matchedEvalIds = [...new Set(selection.attempts.map((a) => a.evalId))].sort();
 
@@ -343,11 +666,20 @@ async function show(
     );
   }
 
+  // `--usage`:UsageTable 逐 attempt 装配的表(docs/feature/reports/show/usage.md)。对照范围
+  // (`--exp` 出现两次以上)下暂时沿用同一份「逐 experiment 分节」通用表,不是 usage.md 描述的
+  // 逐 eval 用量矩阵那个特化版式——那个版式是明确的后续接线点,这里先给正确但更朴素的输出,
+  // 不拿一个占位错误挡住 --usage 本身。
+  if (flags.usage) {
+    io.out((await renderUsageSlice(selection.attempts)) + "\n");
+    return;
+  }
+
   // 证据切面是宿主本体:出现即走证据室,不渲染报告槽(与默认报告同规则)。每个切片接受任意
   // 范围——范围含多个 attempt 时按 experimentId、evalId、attempt 序逐 attempt 分节
   // (renderEvidenceSections,与上面 `@<locator>` 单元素范围共用同一份实现)。
   if (evidence) {
-    io.out((await renderEvidenceSections(selection.attempts, flags, cwd, io.width)) + "\n");
+    io.out((await renderEvidenceSections(selection.attempts, flags, grep, cwd, io.width)) + "\n");
     return;
   }
 
@@ -374,9 +706,21 @@ async function show(
 
   // 缺省切片选择表(docs/feature/reports/show.md「缺省切片的选择规则」):`--exp` 出现两次以上
   // 且没有被 `--report` 接管时是对照矩阵,不是报告槽的裸榜单——与 `--report` 互斥(缺省切片被
-  // 报告树替换时对照矩阵不再适用)。DeltaTable 组件接线前先给诚实占位错误(renderCompareSlice)。
+  // 报告树替换时对照矩阵不再适用)。
   if (flags.report === undefined && expSelectors.length >= 2) {
-    renderCompareSlice(expSelectors);
+    const conditions = expSelectors.map((sel) => matchExperimentSelector(experimentIds, sel.replace(/\/+$/, ""))[0]!) as [
+      string,
+      string,
+      ...string[],
+    ];
+    io.out(
+      (await renderCompareSlice(cwd, results, selection, conditions, {
+        width: io.width,
+        locale: detectLocale(),
+        panelMode: io.panelMode,
+      })) + "\n",
+    );
+    return;
   }
 
   // 报告槽:裸 show / eval id 前缀 / 单个 `--exp` 都落在这里,装载 `niceeval/report/built-in`

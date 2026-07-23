@@ -97,11 +97,17 @@ export const en = {
     "        assertions mapped back to source lines\n" +
     "      --execution   this attempt's execution event stream (messages/thinking/\n" +
     "        Skill loads/tool calls); OTel adds timing to the same node when present\n" +
+    "      --execution --grep <pattern>   only matching cards, plus a cross-attempt\n" +
+    "        match summary; --execution --expand <t<n>.c<n>|cmd<n>>   one full card\n" +
+    "        (mutually exclusive with each other; range must be one attempt for --expand)\n" +
     "      --timing      unified timing tree for the attempt (phases + hooks/commands/turns + per-turn OTel)\n" +
     "      --diff[=file] sandbox workspace file-change summary; =file expands one file\n" +
     "      evidence flags accept any range: a range with more than one attempt\n" +
     "        renders one section per attempt (experimentId, evalId, attempt order)\n" +
     "      --history   per experiment × eval execution timeline (mutually exclusive with --report)\n" +
+    "      --usage     UsageTable per attempt in range, sectioned by experiment with totals\n" +
+    "      --stats     eval x experiment stability matrix over all historical executions\n" +
+    "        (mutually exclusive with @<locator> and --report)\n" +
     "      --results <dir>   pin a results root    --exp <id>   repeatable; 2+ compares conditions\n" +
     "      --report <file>   custom report    --page <id>   pick the initial page (multi-page\n" +
     "        reports render it, then list the rest as a page index with copyable commands)\n" +
@@ -136,8 +142,21 @@ export const en = {
     "error: --exp {{arg}} matched {{matched}} experiments: {{candidates}}\n  fix: use one of the exact ids above, or a longer prefix — each --exp in a compare must resolve to exactly one experiment\n",
   "cli.show.locatorExpConflict":
     "error: {{locator}} cannot combine with repeated --exp ({{exp}})\n  fix: drop the extra --exp flags — a locator already pins one attempt to one experiment; for a multi-condition comparison, drop the locator and use eval id prefixes with --exp instead\n",
-  "cli.show.compareNotWired":
-    "error: comparing --exp {{conditions}} is not wired yet — the compare matrix (DeltaTable) lands in a parallel implementation node\n  fix: run `niceeval show --exp {{first}}` for that condition's leaderboard now, or add --json against one --exp at a time\n",
+  "cli.show.statsLocatorConflict":
+    "error: --stats cannot combine with a locator ({{locator}}) — a single attempt has no stability to measure\n  fix: drop the locator and use eval id prefixes / --exp to select a range for --stats\n",
+  "cli.show.statsReportConflict":
+    "error: --stats cannot combine with --report ({{report}}) — --stats is a zero-config slice, it does not render a user report tree\n  fix: drop --report to use --stats, or drop --stats and put a StabilityMatrix in your own report file\n",
+  "cli.show.grepExpandConflict":
+    "error: --grep and --expand cannot combine — --grep scans for matching cards, --expand prints one card in full\n  fix: drop one of the two flags\n",
+  "cli.show.grepExecutionOnly":
+    "error: --grep only combines with --execution — it narrows that block's text rendering, not a slice of its own\n  fix: add --execution, or drop --grep\n",
+  "cli.show.expandExecutionOnly":
+    "error: --expand only combines with --execution — it narrows that block's text rendering, not a slice of its own\n  fix: add --execution, or drop --expand\n",
+  "cli.show.grepInvalidPattern":
+    "error: --grep pattern is not a valid JS regular expression: \"{{pattern}}\" ({{message}})\n  fix: fix the pattern syntax (it is passed to `new RegExp(...)`)\n",
+  "cli.show.expandMultiAttempt":
+    "error: --expand requires the range to resolve to exactly one attempt, got {{count}}\n  fix: narrow the range to a single attempt — an eval id prefix matching one eval, or @<locator>\n",
+  "cli.show.expandNotFound": "error: {{message}}\n  fix: use a handle from a truncated card's own hint (t<turn>.c<card> or cmd<n>), or drop --expand to see the whole attempt\n",
   "cli.show.historyReportConflict":
     "`--history` and `--report` are mutually exclusive: both take over the main output. --history is the host's per-attempt execution timeline; for snapshot-level trends, compose exp.snapshots inside your report file instead.\n",
   "cli.show.locatorMalformed": "{{message}}\n",

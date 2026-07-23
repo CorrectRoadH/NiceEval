@@ -95,8 +95,12 @@ npx niceeval exp models weather
 | `--source` | boolean | `show` 命令专用:该 attempt 运行时保存的 Eval 源码,gate/soft 断言标回源码行(证据切面)。 |
 | `--execution` | boolean | `show` 命令专用:该 attempt 的标准执行事件流(消息、thinking、Skill load、工具调用/结果);有 OTel 时同一节点补时间(证据切面)。 |
 | `--timing` | boolean | `show` 命令专用:整个 Attempt 的统一时间树;裸 `--timing` 给有界诊断投影,`--timing=full` 逐节点展开全部 runner/已关联 OTel 节点。 |
+| `--grep` | string | `show` 命令专用:只与 `--execution` 组合;JS 正则,只输出命中的执行卡片(角色文本、工具名、input、result,失败命令再加 display/stdout/stderr),末尾报跨 attempt 汇总 `N matches in M attempts`。与 `--expand` 互斥。 |
+| `--expand` | string | `show` 命令专用:只与 `--execution` 组合,要求范围恰好命中一个 attempt;展开一张卡片的完整落盘内容(不截断)。句柄语法 `t<轮次>.c<卡片>`(agent 事件)或 `cmd<n>`(失败 Sandbox 命令),来自截断卡片自带的提示。与 `--grep` 互斥。 |
 | `--diff` | boolean | `show` 命令专用:sandbox 里的文件改动摘要;`--diff=<文件路径>` 看单个文件的完整改动(路径必须 `=` 连写)。 |
 | `--history` | boolean | `show` 命令专用:执行时间轴——对匹配的每个 experiment × eval 分节,逐 attempt 列时间 / verdict / 摘要 / 耗时 / 成本 / locator;与 `--report` 互斥。 |
+| `--usage` | boolean | `show` 命令专用:范围内逐 attempt 的用量表(`UsageTable` 装配)——判定、轮数、工具调用数、token 拆分与成本;多个 experiment 时逐 experiment 分节、节尾各自合计,缺失字段显示 `—` 且不计入合计。`@<locator>` 范围下退化成该 attempt 的单行表。 |
+| `--stats` | boolean | `show` 命令专用:eval × experiment 的稳定性矩阵(`StabilityMatrix` 装配)——每格是该组合全部历史执行(跨快照去重、不设可比性门槛)的判定计数,回答「哪些题从来没通过过」;与 `@<locator>`、`--report` 互斥。 |
 | `--exp` | string | `show` / `view` 命令专用:按路径段前缀收窄 experiment(与 `niceeval exp` 位置参数同一套匹配);目录路径会选中其下全部配置。可重复;出现两次以上进入对照语义——每次出现必须恰好解析到一个 experiment,顺序即对照条件顺序、首个是基准,`@<locator>` 与重复 `--exp` 互斥。`view --out` 时同一收窄决定出站内容。 |
 | `--results` | string | `show` / `view` / `sandbox enter\|list\|stop` 共用:结果根目录(`.niceeval` 之外的另一个根,如 `copySnapshots` 产出的发布根)。 |
 | `--snapshot` | string | `view` 命令专用:只打开这一份快照文件(`snapshot.json`);文件不可读时命令失败(扫描模式只跳过)。 |
