@@ -743,19 +743,20 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
                 ? AbortSignal.any([opts.signal, evalAc.signal])
                 : (evalAc?.signal ?? opts.signal);
 
-            // turn 级重试退避期间释放/收回的并发槽位(见 docs/feature/error-classification/
-            // architecture.md「退避与槽位」):按获取定序 runSem → globalSem 重新收回,与本
-            // attempt 起跑时的顺序一致(见上方「获取定序恒为 runSem → globalSem」注释),
-            // 不引入新的死锁风险。release 顺序不影响正确性(此刻只有本 fiber 持有这两个
-            // permit),按对称顺序反着还。
-            const runSem = runSems.get(a.run);
+            // turn 级重试退避期间释放/收回的并发槽位——两级闸按持有期分工的单点契约见
+            // docs/runner.md「调度:有界并发」与 docs/feature/error-classification/
+            // architecture.md「退避与槽位」:这里只释放/收回全局并发位(globalSem),它管
+            // 吞吐,内部等待一律让位。实验级闸(runSem,若本实验声明了 maxConcurrency)管
+            // 正确性,名额与 attempt 同生命周期、退避这类内部等待不释放——继续由外层
+            // runSem.withPermits(1)(见上方「获取定序恒为 runSem → globalSem」注释)全程持有,
+            // 这个槽位对象因此不接触 runSem,否则同实验的下一个 attempt 会趁退避窗口提前
+            // 进场,击穿 maxConcurrency: 1 的串行契约(bug 台账见
+            // memory/turn-retry-backoff-releases-experiment-serial-lock.md)。
             const concurrencySlot: ConcurrencySlot = {
               release: async () => {
                 await Effect.runPromise(globalSem.release(1));
-                if (runSem) await Effect.runPromise(runSem.release(1));
               },
               reacquire: async () => {
-                if (runSem) await Effect.runPromise(runSem.take(1));
                 await Effect.runPromise(globalSem.take(1));
               },
             };

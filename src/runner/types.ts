@@ -489,7 +489,9 @@ export interface ExperimentDef {
    * 本实验自己的并发上限:调度器只对这个实验的 attempt 限流,同批其它实验不受影响,
    * 仍按全局并发(CLI / env / config / 沙箱默认)跑。用于串行化有共享状态的实验
    * (如跨 eval 累积记忆:`maxConcurrency: 1` 保证 attempt 按 eval 顺序一个个跑),
-   * 或给撞 provider 限额的实验单独降速。
+   * 或给撞 provider 限额的实验单独降速。名额与 attempt 同生命周期:从沙箱创建前一直握到
+   * teardown 与沙箱销毁完成才归还,中途任何等待(含 turn 重试退避)都不松手——
+   * `maxConcurrency: 1` 因此是严格的临界区,不会被同实验的下一个 attempt 提前闯入。
    */
   maxConcurrency?: number;
   /**
