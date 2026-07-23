@@ -52,6 +52,7 @@ import {
 import { scopeSummaryData } from "./summaries/compute.ts";
 import { validateScopeSummaryData } from "./summaries/index.tsx";
 import { evalGroupOf } from "../model/aggregate.ts";
+import { scoringComposition } from "../model/scoring.ts";
 
 // ───────────────────────── fake 数据(按 results 读取契约造)─────────────────────────
 
@@ -742,6 +743,30 @@ describe("scopeSummaryData", () => {
     const data = await scopeSummaryData([passExp, pointsExp]);
     expect(data.scoringComposition).toBe("mixed");
     expect(data.totalScore).toBeDefined();
+  });
+
+  it("scoringComposition() 与 ScopeSummaryData.scoringComposition 同一 fixture 下一致(同规则同值,不各自重复判据)", async () => {
+    const passInput = [snap({ experimentId: "exp/agree-pass", results: [res("a", "passed")] })];
+    expect(await scoringComposition(passInput)).toBe((await scopeSummaryData(passInput)).scoringComposition);
+
+    const pointsInput = [
+      snap({
+        experimentId: "exp/agree-points",
+        results: [res("a", "passed", { scoring: "points", assertions: [pointsAssertion("x", 3)] })],
+      }),
+    ];
+    expect(await scoringComposition(pointsInput)).toBe((await scopeSummaryData(pointsInput)).scoringComposition);
+
+    // 混型:一个通过制 experiment 快照 + 一个计分制 experiment 快照并排——最可能出现
+    // 复制粘贴分叉的形态。
+    const mixedInput = [
+      snap({ experimentId: "exp/agree-a-pass", results: [res("a", "passed")] }),
+      snap({
+        experimentId: "exp/agree-b-points",
+        results: [res("b", "passed", { scoring: "points", assertions: [pointsAssertion("x", 5)] })],
+      }),
+    ];
+    expect(await scoringComposition(mixedInput)).toBe((await scopeSummaryData(mixedInput)).scoringComposition);
   });
 });
 
