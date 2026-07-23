@@ -144,7 +144,7 @@ export function reportActivity(text: string): void {
   writeStderrLine(text.endsWith("\n") ? text : `${text}\n`);
 }
 
-/** 需要去重、要出现在三种 profile 永久事件流里的一条 warning/error。 */
+/** 需要去重、要出现在两种 profile 永久事件流里的一条 warning/error。 */
 export function reportDiagnostic(input: DiagnosticInput): void {
   const sink = current();
   if (sink) {

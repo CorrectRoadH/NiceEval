@@ -1,12 +1,12 @@
 // Human profile renderer(见 docs/feature/experiments/cli.md「人在终端里怎么用」)。
 //
 // 两个变体,由 `io.stderr.isTTY` 在构造时选一次(profile 是消费者模型,TTY 只是传输能力 ——
-// 显式 `--output human` 在非 TTY 下仍是 human,只是退化成纯追加文案,不悄悄变成 agent 语义):
+// 不加 `--json` 在非 TTY 下仍是人读文本,只是退化成纯追加文案,不悄悄变成 `--json` 语义):
 //
 // - TTY:动态 dashboard(命令/elapsed/守恒计数/cost/active slots)覆盖重画,永久事件走
 //   clear → append → redraw(coordinator 保证顺序,这里只需正确实现三个钩子)。
-// - 非 TTY:零 ANSI 的追加流 —— 只有 start(plan 永久事件天然充当)、永久事件、以及连续 30
-//   秒无永久事件时的一条 heartbeat;不追踪 active slot,不重画。
+// - 非 TTY:零 ANSI 的单一有序 stdout 追加流 —— 只有 start(plan 永久事件天然充当)、永久事件、
+//   运行级瞬时通知、以及连续 30 秒无永久事件时的一条 heartbeat;不追踪 active slot,不重画。
 //
 // 两个变体共用同一份「永久事件 → 文本行」的纯函数(renderDurableLines 及其子函数),保证
 // 完成页/失败行/诊断行的实际文案在两种模式下完全一致,只有「要不要用 ANSI 维护一块动态区域」
@@ -144,15 +144,21 @@ export function renderDurableLines(
   }
 }
 
-/** 把一条永久事件的渲染行写到正确的流(见 docs/feature/experiments/cli.md「输出流和落盘
- *  节奏」的 stream 边界表:human 的 `stdout` 只留给"最终摘要与结果路径",也就是 "summary" /
- *  "saved" 这两个事件;计划、失败、诊断等其它永久事件与 dashboard 本身都在 `stderr`)。
- *  TTY/非 TTY 两个变体共用这一份判断,不各自重复一遍分支。 */
-function writeDurable(io: FeedbackIO, event: DurableFeedbackEvent, state: RunFeedbackState): void {
+/**
+ * 把一条永久事件的渲染行写到正确的流(见 docs/feature/experiments/cli.md「输出流和落盘节奏」
+ * 的流边界表)。TTY 与非 TTY 两个变体在这里分岔,共用同一份「事件 → 文本行」的纯函数:
+ *
+ * - TTY(`allStdout: false`):`stdout` 只留给"最终摘要与结果路径"("summary"/"saved" 两个
+ *   事件);计划、失败、诊断等其它永久事件与 live 面板本身都在 `stderr`。
+ * - 非 TTY(`allStdout: true`):从 start 到结束摘要是单一有序的 `stdout` 追加流,`stderr` 只留
+ *   给启动期用法/配置错误——两个 OS stream 被 CI runner 或 agent 工具层分开缓冲时会打乱顺序,
+ *   单流才能保证事件序就是发生序(见 memory/exp-output-two-forms-ruling.md 的补充裁决)。
+ */
+function writeDurable(io: FeedbackIO, event: DurableFeedbackEvent, state: RunFeedbackState, allStdout: boolean): void {
   const lines = renderDurableLines(event, state, panelCapabilityForFeedback(io));
   if (lines.length === 0) return;
   const text = `${lines.join("\n")}\n`;
-  if (event.type === "summary" || event.type === "saved") io.stdout.write(text);
+  if (allStdout || event.type === "summary" || event.type === "saved") io.stdout.write(text);
   else io.stderr.write(text);
 }
 
@@ -352,7 +358,7 @@ export function formatTokenCount(n: number): string {
 }
 
 /** LifecyclePhase → Human 展示列的人读投影(见 docs/feature/experiments/cli.md「Attempt 阶段」);
- *  机器面(agent/ci 的 `phase=` 与落盘)保留精确的点分名,收尾段在 Human 侧合并显示为一档。 */
+ *  机器面(json 的 `phase=` 与落盘)保留精确的点分名,收尾段在 Human 侧合并显示为一档。 */
 function phaseLabel(phase: LifecyclePhase): string {
   switch (phase) {
     // 实验级两员不会作为 ActiveAttempt.phase 出现(钩子跑的时候没有活跃 attempt),
@@ -563,11 +569,12 @@ function createDashboardRenderer(io: FeedbackIO, command: string): FeedbackRende
       // 更新,coordinator 紧接着的 redrawDynamic 会画出来);成功钩子不写 scrollback 永久行
       // (见 cli.md「实验级钩子的显示」)。非 TTY 退化流才逐行追加(见 renderDurableLines)。
       if (event.type === "experiment-hook") return;
-      writeDurable(io, event, state);
+      writeDurable(io, event, state, false);
     },
     activity(text) {
       // 运行级瞬时通知(judge 预检、provider 一次性通知……):coordinator 已按
       // clearDynamic → activity → redrawDynamic 包好顺序,这里只管把这一行落进 scrollback。
+      // TTY 下永久事件与 live 面板都在 stderr(见 writeDurable 的流边界注释)。
       io.stderr.write(text.endsWith("\n") ? text : `${text}\n`);
     },
     clearDynamic() {
@@ -649,26 +656,33 @@ function formatExperimentHookRow(
 }
 
 // ───────────────────────── 非 TTY:human 文案的纯追加流 ─────────────────────────
+//
+// 单一 stdout 有序流(见 memory/exp-output-two-forms-ruling.md 的补充裁决):从 start 到结束
+// 摘要——计划、失败、诊断、运行级瞬时通知、heartbeat、最终摘要——全部落 `stdout`;`stderr` 只留
+// 给启动期用法/配置错误(那些错误发生在 coordinator 存在之前,根本不经过这个 renderer)。这与
+// TTY 变体（live 面板 + 永久事件在 stderr、只有最终摘要在 stdout）刻意不同:非 TTY 没有可覆盖的
+// 动态区域,两个 OS stream 被 CI runner 或 agent 工具层分开缓冲时交错写会打乱真实发生顺序,
+// 单流才能保证事件序就是发生序。
 
 function createPlainRenderer(io: FeedbackIO): FeedbackRenderer {
   // 上一条永久事件的时间戳:heartbeat 只在「连续 30 秒没有永久事件」时才追加一条
-  //(见 checklist「显式 human + 非 TTY」),failure/diagnostic 出现后立即重新计时。
+  //(见 cli.md「什么动态更新,什么逐条追加」表),failure/diagnostic 出现后立即重新计时。
   let lastDurableAtMs = 0;
   return {
     appendDurable(event, state) {
       lastDurableAtMs = event.at;
-      writeDurable(io, event, state);
+      writeDurable(io, event, state, true);
     },
     activity(text) {
-      // 运行级瞬时通知按永久行追加(非 TTY 没有可覆盖的动态区域),并重置 heartbeat 计时 ——
-      // 刚有输出就不需要紧跟一条「还活着」。
+      // 运行级瞬时通知按永久行追加(非 TTY 没有可覆盖的动态区域),并重置 heartbeat 计时——
+      // 刚有输出就不需要紧跟一条「还活着」。单一 stdout 流,不分流到 stderr。
       lastDurableAtMs = io.clock.now();
-      io.stderr.write(text.endsWith("\n") ? text : `${text}\n`);
+      io.stdout.write(text.endsWith("\n") ? text : `${text}\n`);
     },
     onTick(event, state) {
       if (event.at - lastDurableAtMs < NON_TTY_HEARTBEAT_IDLE_MS) return;
       lastDurableAtMs = event.at;
-      io.stderr.write(
+      io.stdout.write(
         `${t("feedback.human.heartbeat", { elapsed: formatElapsed(state.elapsedMs), counts: formatCounts(state) })}\n`,
       );
     },

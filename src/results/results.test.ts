@@ -4,7 +4,7 @@
 // 懒加载与 artifactBase 回退、skipped 三种原因、unfinished-snapshot、latest() 三种警告、
 // Selection.filter 修剪、dedupeAttempts 身份键、writer(独占目录、并发快照互不干扰、
 // snapshot.json 键形状、writeAttempt/writeAttemptFor、finish 幂等)、copySnapshots(布局、
-// knownEvalIds 补记、has* 重算)。
+// knownEvalIds 补记、artifacts 词干列表重算)。
 // 读取面 fixture 的目录名/artifact 路径手写(不 import 库的路径函数),让测试独立于实现充当格式基准。
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -170,7 +170,7 @@ describe("AttemptHandle · 懒加载", () => {
       "2026-06-30T08-00-00-000Z-xxxx",
       meta({ experimentId: "e", agent: "bub", startedAt: "2026-06-30T08:00:00.000Z", completedAt: "2026-06-30T08:10:00.000Z" }),
     );
-    await writeResultFile(oldSnap, "q3/a1", record({ id: "q3", attempt: 1, hasEvents: true }));
+    await writeResultFile(oldSnap, "q3/a1", record({ id: "q3", attempt: 1, artifacts: ["events"] }));
     await writeArtifactFile(oldSnap, "q3/a1", "events.json", [{ type: "message", text: "old" }]);
 
     const newSnap = await writeSnapshot(
@@ -179,7 +179,7 @@ describe("AttemptHandle · 懒加载", () => {
       "2026-07-01T08-00-00-000Z-yyyy",
       meta({ experimentId: "e", agent: "bub", startedAt: "2026-07-01T08:00:00.000Z", completedAt: "2026-07-01T08:10:00.000Z" }),
     );
-    await writeResultFile(newSnap, "q1/a1", record({ id: "q1", attempt: 1, hasEvents: true }));
+    await writeResultFile(newSnap, "q1/a1", record({ id: "q1", attempt: 1, artifacts: ["events"] }));
     const eventsPath = await writeArtifactFile(newSnap, "q1/a1", "events.json", [{ type: "message", text: "hi" }]);
     await writeResultFile(newSnap, "q2/a1", record({ id: "q2", attempt: 1 }));
     await writeResultFile(
@@ -190,7 +190,7 @@ describe("AttemptHandle · 懒加载", () => {
         attempt: 1,
         startedAt: "2026-06-30T08:01:00.000Z",
         artifactBase: "e/2026-06-30T08-00-00-000Z-xxxx/q3/a1",
-        hasEvents: true,
+        artifacts: ["events"],
       }),
     );
 
@@ -202,7 +202,8 @@ describe("AttemptHandle · 懒加载", () => {
 
     const events = await q1.events();
     expect(events).toEqual([{ type: "message", text: "hi" }]);
-    // result.json 只有 hasEvents/hasTrace/hasSources 三个标记,o11y/diff 没有标记 —— 全靠方法语义吸收。
+    // artifacts 只是「不 stat 磁盘就知道有什么」的声明;懒加载(缺失返回 null)独立成立、不依赖它——
+    // 这里没声明 trace/o11y/diff/sources,对应文件也确实没写,四个方法照常读出 null。
     expect(await q1.trace()).toBeNull();
     expect(await q1.o11y()).toBeNull();
     expect(await q1.diff()).toBeNull();
@@ -649,7 +650,7 @@ describe("dedupeAttempts", () => {
 // ───────────────────────── writer ─────────────────────────
 
 describe("createResultsWriter", () => {
-  it("snapshot() 建目录(独占)+ 写 snapshot.json(无 completedAt);writeAttempt 拆 artifact + 回填 has*;finish 补 completedAt 并幂等", async () => {
+  it("snapshot() 建目录(独占)+ 写 snapshot.json(无 completedAt);writeAttempt 拆 artifact + 回填 artifacts 词干列表;finish 补 completedAt 并幂等", async () => {
     const root = await makeRoot();
     const writer = createResultsWriter(root, { producer: { name: "my-harness", version: "1.0.0" } });
 
@@ -707,9 +708,7 @@ describe("createResultsWriter", () => {
       durationMs: 100,
       usage: { inputTokens: 10, outputTokens: 5 },
       estimatedCostUSD: 0.25,
-      hasEvents: true,
-      hasTrace: false,
-      hasSources: false,
+      artifacts: ["events", "o11y"],
     });
     expect(await q1.events()).toEqual(events);
     expect(await q1.o11y()).toEqual(o11yData);
@@ -887,7 +886,7 @@ describe("createResultsWriter", () => {
     }
   });
 
-  it("writeAttemptFor:按 EvalResult.experimentId 懒建快照;正常条目拆 artifact,携带条目原样保留 startedAt/artifactBase/has*", async () => {
+  it("writeAttemptFor:按 EvalResult.experimentId 懒建快照;正常条目拆 artifact,携带条目原样保留 startedAt/artifactBase/artifacts", async () => {
     const root = await makeRoot();
     const writer = createResultsWriter(root, { producer: { name: "niceeval", version: "0.12.0" } });
 
@@ -923,9 +922,7 @@ describe("createResultsWriter", () => {
       durationMs: 99,
       assertions: [],
       artifactBase: "compare_bub/2026-06-30T08-00-00-000Z-xxxx/algebra/q3/a1",
-      hasEvents: true,
-      hasTrace: false,
-      hasSources: true,
+      artifacts: ["events", "sources"],
     };
 
     await writer.writeAttemptFor(fresh);
@@ -942,18 +939,15 @@ describe("createResultsWriter", () => {
     }
     // startedAt 是 attempt 级事实(每条各异,view 靠它显示「何时跑的」),正常条目也原样落盘。
     expect(freshRecord.startedAt).toBe("2026-07-01T08:01:00.000Z");
-    expect(freshRecord.hasEvents).toBe(true);
-    expect(freshRecord.hasTrace).toBe(true);
-    expect(freshRecord.hasSources).toBe(true);
+    // 顺序与证据 registry 一致(events/trace/o11y/agentSetup/diff/sources);fresh 没写 agentSetup。
+    expect(freshRecord.artifacts).toEqual(["events", "trace", "o11y", "diff", "sources"]);
     expect(await readFile(join(snapDir, "algebra/q1/a1/events.json"), "utf-8")).toBe('[{"type":"message","role":"assistant","text":"hi"}]');
     expect(await readFile(join(snapDir, "algebra/q1/a1/o11y.json"), "utf-8")).toBe('{"toolCalls":2}');
 
     const carriedRecord = JSON.parse(await readFile(join(snapDir, "algebra/q3/a1/result.json"), "utf-8"));
     expect(carriedRecord.startedAt).toBe("2026-06-30T08:01:00.000Z");
     expect(carriedRecord.artifactBase).toBe("compare_bub/2026-06-30T08-00-00-000Z-xxxx/algebra/q3/a1");
-    expect(carriedRecord.hasEvents).toBe(true);
-    expect(carriedRecord.hasTrace).toBe(false);
-    expect(carriedRecord.hasSources).toBe(true);
+    expect(carriedRecord.artifacts).toEqual(["events", "sources"]); // 携带条目:artifacts 原样携带,不重算
     expect(carriedRecord).not.toHaveProperty("agent");
     expect(carriedRecord).not.toHaveProperty("experimentId");
     expect(await exists(join(snapDir, "algebra/q3/a1/events.json"))).toBe(false); // 携带条目不写 artifact 文件
@@ -976,7 +970,7 @@ describe("createResultsWriter", () => {
 // ───────────────────────── copySnapshots ─────────────────────────
 
 describe("copySnapshots", () => {
-  it("产物是标准结果根目录(快照目录名原样保留);按指定 artifact 复制;补记 knownEvalIds;has* 按目标目录重算", async () => {
+  it("产物是标准结果根目录(快照目录名原样保留);按指定 artifact 复制;补记 knownEvalIds;artifacts 按目标目录重算", async () => {
     const root = await makeRoot();
     const monday = await writeSnapshot(
       root,
@@ -984,7 +978,7 @@ describe("copySnapshots", () => {
       "2026-07-01T08-00-00-000Z-mon1",
       meta({ experimentId: "compare/bub", agent: "bub", model: "gpt-5", startedAt: "2026-07-01T08:00:00.000Z", completedAt: "2026-07-01T08:10:00.000Z" }),
     );
-    await writeResultFile(monday, "q1/a1", record({ id: "q1", attempt: 1, hasEvents: true, hasTrace: true }));
+    await writeResultFile(monday, "q1/a1", record({ id: "q1", attempt: 1, artifacts: ["events", "trace"] }));
     await writeArtifactFile(monday, "q1/a1", "events.json", [{ n: 1 }]);
     await writeArtifactFile(monday, "q1/a1", "trace.json", [{ name: "turn" }]);
     await writeArtifactFile(monday, "q1/a1", "diff.json", [{ window: "s1/t1", changes: {} }]);
@@ -997,7 +991,7 @@ describe("copySnapshots", () => {
       "2026-07-05T08-00-00-000Z-fri1",
       meta({ experimentId: "compare/bub", agent: "bub", model: "gpt-5", startedAt: "2026-07-05T08:00:00.000Z", completedAt: "2026-07-05T08:10:00.000Z" }),
     );
-    await writeResultFile(friday, "q1/a1", record({ id: "q1", attempt: 1, hasEvents: true }));
+    await writeResultFile(friday, "q1/a1", record({ id: "q1", attempt: 1, artifacts: ["events"] }));
     await writeArtifactFile(friday, "q1/a1", "events.json", [{ n: 1 }, { n: 2 }]);
 
     const results = await openResults(root);
@@ -1018,8 +1012,7 @@ describe("copySnapshots", () => {
     expect(destMeta.producer).toEqual({ name: "niceeval", version: "0.3.0" });
 
     const destRecord = JSON.parse(await readFile(join(destSnapDir, "q1/a1/result.json"), "utf-8"));
-    expect(destRecord.hasEvents).toBe(true);
-    expect(destRecord.hasTrace).toBe(false); // 没选中 trace,目标按实际复制重算(不沿用源的 true)
+    expect(destRecord.artifacts).toEqual(["events"]); // 没选中 trace,目标按实际复制重算(不沿用源的列表)
     expect(destRecord).not.toHaveProperty("artifactBase");
     expect(destRecord).not.toHaveProperty("agent"); // 快照级字段不重复
 
@@ -1426,7 +1419,7 @@ describe("sources · 快照级去重仓库", () => {
       "2026-06-30T08-00-00-000Z-xxxx",
       meta({ experimentId: "e", agent: "bub", startedAt: "2026-06-30T08:00:00.000Z", completedAt: "2026-06-30T08:10:00.000Z" }),
     );
-    await writeResultFile(oldSnap, "q1/a0", record({ id: "q1", attempt: 0, hasSources: true }));
+    await writeResultFile(oldSnap, "q1/a0", record({ id: "q1", attempt: 0, artifacts: ["sources"] }));
     await mkdir(join(oldSnap, "sources"), { recursive: true });
     await writeFile(join(oldSnap, "sources", "abc123.json"), JSON.stringify({ content: "export default {};\n" }), "utf-8");
     await writeArtifactFile(oldSnap, "q1/a0", "sources.json", [{ path: "evals/q1.eval.ts", sha256: "abc123" }]);
@@ -1440,7 +1433,7 @@ describe("sources · 快照级去重仓库", () => {
     await writeResultFile(
       newSnap,
       "q1/a0",
-      record({ id: "q1", attempt: 0, startedAt: "2026-06-30T08:01:00.000Z", artifactBase: "e/2026-06-30T08-00-00-000Z-xxxx/q1/a0", hasSources: true }),
+      record({ id: "q1", attempt: 0, startedAt: "2026-06-30T08:01:00.000Z", artifactBase: "e/2026-06-30T08-00-00-000Z-xxxx/q1/a0", artifacts: ["sources"] }),
     );
 
     const results = await openResults(root);

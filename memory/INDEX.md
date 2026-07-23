@@ -231,6 +231,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 - [events-user-message-and-source-loc](events-user-message-and-source-loc.md) — 事件流 user message 曾丢失 + `t.event("message")` 计数翻倍的根因与修法
 - 已修 [sdk-stream-transformers-missing-canonical-tool](sdk-stream-transformers-missing-canonical-tool.md) — `fromCodexThreadEvents` 曾不发 `tool` 规范名,`calledTool("shell")` 在 SDK 流路径静默失配(修在 `src/agents/sdk-streams.ts`;`fromClaudeSdkMessages` 同类未修)
 - [execution-tree-merges-events-and-otel-spans](execution-tree-merges-events-and-otel-spans.md) — 裁决(2026-07-12):`buildExecutionTree(events, spans)` 把标准事件流与 OTel span 合并进一棵树,事件当骨架、span 只补时间,推翻 `docs/observability.md` 现行"events 与 spans 永不合并"的旧决定;设计已定稿代码未实现
+- 已修 [usage-requests-accumulation-padded-with-1](usage-requests-accumulation-padded-with-1.md) — `SessionManager.accumulateUsage` 曾对缺失的 `requests` 用 `?? 1` 凑数(转录解析型 adapter 的一轮 send 被误算成 1 个请求)、`cacheReadTokens`/`cacheWriteTokens` 同理被垫 0;修为只在某轮真带回该值时才累加(`src/context/session.ts`)
 
 ## 写 eval · scoring · 断言 · judge
 

@@ -1,12 +1,12 @@
 // 纯 reducer:RunFeedbackEvent → RunFeedbackState。计数、active slot、cost 累计、
-// failure/diagnostic 去重全部只在这里计算 —— 三种 profile 的 renderer(后续阶段实现)只读
+// failure/diagnostic 去重全部只在这里计算 —— 两种 profile 的 renderer(后续阶段实现)只读
 // RunFeedbackState,不各自维护第二份推导,也不解析 message 里的人类文案(结构化字段都在
 // DiagnosticNotice.data / FailureNotice 的具名字段上,见 ../types.ts 的类型注释)。
 //
 // `total = reused + running + queued + completed` 在处理每一个事件之后都成立 —— 见
 // reducer.test.ts 的表驱动用例,每一步都断言这个不变量,不只在流程末尾断言一次。
 //
-// reducer 本身不读 Date.now()、不碰 process.stdout/stderr、不知道 profile 是 human/agent/ci ——
+// reducer 本身不读 Date.now()、不碰 process.stdout/stderr、不知道 profile 是 human/json ——
 // 纯函数 (state, event) => state,方便脱离真实 runner/terminal 单测。
 
 import type { DiagnosticNotice, FailureNotice, RunFeedbackEvent, RunFeedbackState } from "../types.ts";
@@ -206,7 +206,7 @@ export function reduceRunFeedback(state: RunFeedbackState, event: RunFeedbackEve
       // attempt:early-exit 同构),所以每次触发在这里折进 completed 一次 —— 不去信任
       // event.unstarted 的绝对值来算「这次要挪多少」(那需要 reducer 额外记住上一次的值,
       // 破坏纯 (state, event) => state 的最小状态原则)。event.unstarted / event.spent 仍然
-      // 整体写进 diagnostic 的 data,供 agent/ci 直接读取当次快照值;真正的去重计数由
+      // 整体写进 diagnostic 的 data,供 json 直接读取当次快照值;真正的去重计数由
       // upsertDiagnostic 的 count 字段给出,天然等于「目前为止因 budget 未派发的次数」。
       return {
         ...state,

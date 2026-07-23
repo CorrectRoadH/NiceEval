@@ -518,7 +518,7 @@ async function withCoordinator<T>(
   fn: (coordinator: FeedbackCoordinator) => Promise<T>,
 ): Promise<T> {
   const fakeIO = createFakeFeedbackIO();
-  const coordinator = createFeedbackCoordinator({ profile: "ci", renderer: { appendDurable() {} }, io: fakeIO.io });
+  const coordinator = createFeedbackCoordinator({ profile: "json", renderer: { appendDurable() {} }, io: fakeIO.io });
   coordinator.start(plan);
   try {
     return await fn(coordinator);

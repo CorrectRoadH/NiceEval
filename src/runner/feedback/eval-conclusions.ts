@@ -1,4 +1,4 @@
-// 逐 (experiment, eval) 结论行的纯派生:agent/ci 两个 profile 共用同一份计算,不各自维护
+// 逐 (experiment, eval) 结论行的纯派生:human/json 两个 profile 共用同一份计算,不各自维护
 // 第二份口径(docs/feature/experiments/cli.md「runs 与首过即停怎样展示」)。
 //
 // "代表 attempt" 的选取:earlyExit 触发时是命中通过的那一次(该 eval 组内 verdict === "passed"

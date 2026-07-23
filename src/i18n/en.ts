@@ -57,7 +57,8 @@ export const en = {
   "cli.dry.row": "  {{who}}{{experiment}}: {{evals}}  ×{{runs}}\n",
   "cli.error": "niceeval error: {{error}}\n",
   "cli.flag.invalidNumber": "Flag --{{flag}} expects a number, got \"{{value}}\".\n",
-  "cli.flag.invalidOutput": "Flag --output expects one of auto|human|agent|ci, got \"{{value}}\".\n",
+  "cli.flag.outputRemoved":
+    "error: unknown option '--output'\n  fix: run without a flag for human text; use --json for the machine feed\n",
   "runner.budgetUnenforceable":
     "budget for {{budgetKey}}: several attempts completed without any cost data (agent reports no usage and the model is not in the price table) — the budget cannot be enforced for this agent; continuing without the guard.\n",
   "runner.experimentTeardownFailed":
@@ -115,8 +116,8 @@ export const en = {
     "Flags:\n" +
     "  --runs n  --max-concurrency n  --timeout ms  --budget usd  --tag t\n" +
     "  --early-exit / --no-early-exit  --strict  --force  --dry\n" +
-    "  --output auto|human|agent|ci\n" +
-    "  --junit path  --json path  --out dir  --port n  --open / --no-open  -h, --help  -v, --version\n\n" +
+    "  --json  (machine feed: NDJSON on stdout; default is human text)\n" +
+    "  --junit path  --out dir  --port n  --open / --no-open  -h, --help  -v, --version\n\n" +
     "Positional args only select which evals to run (id prefixes); which agent and\n" +
     "how to run come from experiments/ + flags. Env overrides (flag > env > config):\n" +
     "  NICEEVAL_RUNS  NICEEVAL_MAX_CONCURRENCY  NICEEVAL_TIMEOUT  NICEEVAL_BUDGET\n",

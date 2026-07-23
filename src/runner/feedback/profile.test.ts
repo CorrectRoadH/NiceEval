@@ -1,50 +1,28 @@
 // cases: docs/engineering/testing/unit/experiments-runner.md
+// 分区「形态解析与 --json 流不变量」
 import { describe, expect, it } from "vitest";
-import { isCIEnvironment, resolveOutputProfile } from "./profile.ts";
+import { resolveOutputForm } from "./profile.ts";
 
-describe("resolveOutputProfile", () => {
-  it("显式值永远覆盖自动检测,无论 isTTY/env 是什么", () => {
-    expect(resolveOutputProfile({ explicit: "agent", isTTY: true, env: { CI: "true" } })).toBe("agent");
-    expect(resolveOutputProfile({ explicit: "ci", isTTY: true, env: {} })).toBe("ci");
-    expect(resolveOutputProfile({ explicit: "human", isTTY: false, env: { CI: "true" } })).toBe("human");
+describe("resolveOutputForm", () => {
+  it("json: true → \"json\",无论 isTTY 是什么", () => {
+    expect(resolveOutputForm({ json: true, isTTY: true })).toBe("json");
+    expect(resolveOutputForm({ json: true, isTTY: false })).toBe("json");
   });
 
-  it("auto:stderr 是 TTY → human,即便同时设了 CI 环境标记(TTY 优先于 CI 探测)", () => {
-    expect(resolveOutputProfile({ explicit: "auto", isTTY: true, env: { CI: "true" } })).toBe("human");
+  it("json: false → \"human\",无论 isTTY 是什么", () => {
+    expect(resolveOutputForm({ json: false, isTTY: true })).toBe("human");
+    expect(resolveOutputForm({ json: false, isTTY: false })).toBe("human");
   });
 
-  it("auto:非 TTY + CI 环境标记 → ci", () => {
-    expect(resolveOutputProfile({ explicit: "auto", isTTY: false, env: { CI: "true" } })).toBe("ci");
-  });
-
-  it("auto:非 TTY + 无 CI 环境标记 → agent", () => {
-    expect(resolveOutputProfile({ explicit: "auto", isTTY: false, env: {} })).toBe("agent");
-  });
-});
-
-describe("isCIEnvironment", () => {
-  it("命中任意已知 CI 平台变量即为 true", () => {
-    expect(isCIEnvironment({ CI: "true" })).toBe(true);
-    expect(isCIEnvironment({ GITHUB_ACTIONS: "true" })).toBe(true);
-    expect(isCIEnvironment({ GITLAB_CI: "true" })).toBe(true);
-    expect(isCIEnvironment({ CIRCLECI: "true" })).toBe(true);
-    expect(isCIEnvironment({ TRAVIS: "true" })).toBe(true);
-    expect(isCIEnvironment({ BUILDKITE: "true" })).toBe(true);
-    expect(isCIEnvironment({ JENKINS_URL: "https://ci.example.com" })).toBe(true);
-    expect(isCIEnvironment({ TEAMCITY_VERSION: "2024.1" })).toBe(true);
-    expect(isCIEnvironment({ APPVEYOR: "true" })).toBe(true);
-    expect(isCIEnvironment({ TF_BUILD: "true" })).toBe(true);
-  });
-
-  it("空对象、无关变量都不算 CI", () => {
-    expect(isCIEnvironment({})).toBe(false);
-    expect(isCIEnvironment({ PATH: "/usr/bin", HOME: "/root" })).toBe(false);
-  });
-
-  it("显式关闭(空串 / \"false\" / \"0\")不算已设置,不该被误判成在 CI 里", () => {
-    expect(isCIEnvironment({ CI: "" })).toBe(false);
-    expect(isCIEnvironment({ CI: "false" })).toBe(false);
-    expect(isCIEnvironment({ CI: "0" })).toBe(false);
-    expect(isCIEnvironment({ CI: undefined })).toBe(false);
+  it("不读任何 CI 环境变量:函数签名里没有 env 形参,结构上不可能被 process.env.CI 等标记影响", () => {
+    const original = process.env.CI;
+    process.env.CI = "true";
+    try {
+      expect(resolveOutputForm({ json: false, isTTY: false })).toBe("human");
+      expect(resolveOutputForm({ json: true, isTTY: false })).toBe("json");
+    } finally {
+      if (original === undefined) delete process.env.CI;
+      else process.env.CI = original;
+    }
   });
 });

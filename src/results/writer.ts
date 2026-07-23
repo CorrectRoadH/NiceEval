@@ -52,7 +52,7 @@ export interface SnapshotDeclaration {
 
 /**
  * writeAttempt 的第一参 = attempt 级条目:reader 的 attempt.result 中,快照级字段
- * (experimentId / agent / model / startedAt / experiment)与引用字段(artifactBase / has*)
+ * (experimentId / agent / model / startedAt / experiment)与引用字段(artifactBase / artifacts)
  * 以外的全部;引用字段由 writer 按实际写入的 artifact 回填。
  */
 export type AttemptEntry = Omit<
@@ -70,9 +70,7 @@ export type AttemptEntry = Omit<
   | "diff"
   | "rawTranscript"
   | "artifactBase"
-  | "hasTrace"
-  | "hasEvents"
-  | "hasSources"
+  | "artifacts"
 >;
 
 /** writeAttempt 的第二参:reader 懒加载能拿到的那几样 artifact,全部可选;缺哪样读取面就懒加载出 null。 */
@@ -238,7 +236,7 @@ export function createResultsWriter(root: string, opts: ResultsWriterOptions): R
     });
 
     if (result.artifactBase) {
-      // 携带条目(--resume 合入):本轮没有任何新数据,不写 artifact、不重算 has*,
+      // 携带条目(--resume 合入):本轮没有任何新数据,不写 artifact、不重算 artifacts 词干列表,
       // startedAt(身份锚)与 artifactBase 原样保留。locator 同理原样保留(在 ...rest 里,
       // 没被解构掉)、从不重算——`result` 是上一轮 openResults() 读回的记录,原快照的
       // startedAt 已经不在本轮快照里了,重算会用错的 snapshotStartedAt 算出不同的字符串,
@@ -277,9 +275,7 @@ export function createResultsWriter(root: string, opts: ResultsWriterOptions): R
       diff,
       rawTranscript,
       artifactBase,
-      hasTrace,
-      hasEvents,
-      hasSources,
+      artifacts,
       ...entry
     } = result;
     void agent;
@@ -287,9 +283,7 @@ export function createResultsWriter(root: string, opts: ResultsWriterOptions): R
     void experimentId;
     void experiment;
     void artifactBase;
-    void hasTrace;
-    void hasEvents;
-    void hasSources;
+    void artifacts;
     // startedAt 是 attempt 级事实(每条各异,view 靠它显示「何时跑的」),原样落盘;
     // 读取面只在记录缺失时才回退快照的 startedAt。
     const record = { ...entry, ...(startedAt !== undefined ? { startedAt } : {}) };
@@ -309,7 +303,7 @@ export function createResultsWriter(root: string, opts: ResultsWriterOptions): R
   };
 }
 
-/** 一条 attempt 的落盘:拆 artifact 文件、算 has*、写 result.json;空数据不落文件。 */
+/** 一条 attempt 的落盘:拆 artifact 文件、算 artifacts 词干列表、写 result.json;空数据不落文件。 */
 async function writeAttemptFiles(
   snapDir: string,
   snapshot: { experimentId: string; startedAt: string },
@@ -323,6 +317,9 @@ async function writeAttemptFiles(
   const hasEvents = !!(artifacts?.events && artifacts.events.length);
   const hasSources = !!(artifacts?.sources && artifacts.sources.length);
   const hasTrace = !!(artifacts?.trace && artifacts.trace.length);
+  const hasO11y = !!artifacts?.o11y;
+  const hasAgentSetup = !!artifacts?.agentSetup;
+  const hasDiff = !!artifacts?.diff;
 
   const writes: Promise<unknown>[] = [];
   // 大值截断只发生在这里(序列化的那一刻):events 的事件字段与 trace 的 span 属性里的任意
@@ -357,7 +354,22 @@ async function writeAttemptFiles(
       attempt: entry.attempt,
     });
 
-  const record = { ...entry, locator, hasEvents, hasTrace, hasSources };
+  // artifacts 词干列表:writer 实际写出的按需 artifact,顺序与证据 registry 表一致
+  // (commands 词干尚未有 writer,不在这条落盘路径里出现);省略等价于空列表。
+  const artifactStems = (
+    [
+      ["events", hasEvents],
+      ["trace", hasTrace],
+      ["o11y", hasO11y],
+      ["agentSetup", hasAgentSetup],
+      ["diff", hasDiff],
+      ["sources", hasSources],
+    ] as const
+  )
+    .filter(([, present]) => present)
+    .map(([stem]) => stem);
+
+  const record = { ...entry, locator, ...(artifactStems.length ? { artifacts: artifactStems } : {}) };
   await writeFile(join(attemptDir, RESULT_FILE), JSON.stringify(record, null, 2), "utf-8");
 }
 

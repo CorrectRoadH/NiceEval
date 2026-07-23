@@ -97,11 +97,9 @@ export interface FeedbackCoordinator extends FeedbackSink {
     summary: InvocationSummary;
     completion: InvocationCompletion;
     paths: readonly string[];
-    /** 实际写出的 `--json` 聚合报告路径;省略表示没有写出(未传 `--json` 或写入失败),
-     *  转发进 "saved" 永久事件的同名字段,供 ci renderer 打印独立的 `json=` 行(见
-     *  docs/feature/experiments/cli.md「CI 怎么用」)。human/agent renderer 不读这两个字段。 */
-    json?: string;
-    /** 实际写出的 `--junit` 聚合报告路径,语义同 `json`。 */
+    /** 实际写出的 `--junit` 聚合报告路径;省略表示没有写出(未传 `--junit` 或写入失败),
+     *  转发进 "saved" 永久事件的同名字段,供 json renderer 打印独立的 `junit` 字段(见
+     *  docs/feature/experiments/cli.md「机器怎么读:--json」)。human renderer 不读这个字段。 */
     junit?: string;
   }): Promise<void>;
 }
@@ -335,13 +333,12 @@ export function createFeedbackCoordinator(options: FeedbackCoordinatorOptions): 
     summary: InvocationSummary;
     completion: InvocationCompletion;
     paths: readonly string[];
-    json?: string;
     junit?: string;
   }): Promise<void> {
     if (phase === "finished") return; // 幂等
     await stopDynamic();
     emit({ type: "summary", at: io.clock.now(), summary: input.summary, completion: input.completion });
-    emit({ type: "saved", at: io.clock.now(), paths: input.paths, json: input.json, junit: input.junit });
+    emit({ type: "saved", at: io.clock.now(), paths: input.paths, junit: input.junit });
     await queue.drain();
     try {
       await renderer.close?.();

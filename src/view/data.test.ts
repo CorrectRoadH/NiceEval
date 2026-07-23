@@ -40,7 +40,7 @@ afterEach(async () => {
 });
 
 type AttemptFixture = Pick<EvalResult, "id" | "verdict"> &
-  Partial<Pick<EvalResult, "attempt" | "durationMs" | "assertions" | "fingerprint" | "startedAt" | "artifactBase" | "hasEvents">>;
+  Partial<Pick<EvalResult, "attempt" | "durationMs" | "assertions" | "fingerprint" | "startedAt" | "artifactBase" | "artifacts">>;
 
 function res(id: string, verdict: Verdict, extra: Partial<AttemptFixture> = {}): AttemptFixture {
   return { id, verdict, attempt: 0, durationMs: 1000, assertions: [], ...extra };
@@ -215,13 +215,13 @@ describe("loadViewScan · 跨快照去重(--resume 携带的复印件只算一�
       "exp_a",
       "2026-07-01T08-00-00-000Z",
       { experimentId: "exp/a", agent: "bub", startedAt: "2026-07-01T08:00:00.000Z" },
-      [res("q1", "passed", { hasEvents: true })],
+      [res("q1", "passed", { artifacts: ["events"] })],
     );
     await writeFile(join(oldDir, "q1", "a0", "events.json"), "[]", "utf-8");
     // 携带条目:startedAt 锚定原快照, artifactBase 指向原快照的 attempt 目录(root 相对)。
     await writeSnapshot(root, "exp_a", "2026-07-02T08-00-00-000Z", { experimentId: "exp/a", agent: "bub", startedAt: "2026-07-02T08:00:00.000Z" }, [
       res("q1", "passed", {
-        hasEvents: true,
+        artifacts: ["events"],
         startedAt: "2026-07-01T08:00:00.000Z",
         artifactBase: "exp_a/2026-07-01T08-00-00-000Z/q1/a0",
       }),
@@ -253,7 +253,7 @@ describe("loadViewScan · 新布局落盘直接可读(写入面 / 读取面同�
       "2026-07-03T08-00-00-000Z",
       { experimentId: "compare/bub", agent: "bub", model: "gpt-5", startedAt: "2026-07-03T08:00:00.000Z" },
       [
-        res("q1", "passed", { hasEvents: true }),
+        res("q1", "passed", { artifacts: ["events"] }),
         res("q2", "failed"),
       ],
     );
@@ -275,7 +275,7 @@ describe("loadViewScan · 新布局落盘直接可读(写入面 / 读取面同�
     const q1Base = "compare_bub/2026-07-03T08-00-00-000Z/q1/a0";
     const q1 = scan.attemptsByBase.get(q1Base)!;
     expect(q1).toBeTruthy();
-    expect(q1.result.hasEvents).toBe(true);
+    expect(q1.result.artifacts).toEqual(["events"]);
   });
 });
 

@@ -1,4 +1,4 @@
-// 可注入的终端 I/O 面:feedback coordinator(coordinator.ts)与三种 profile renderer(后续阶段)
+// 可注入的终端 I/O 面:feedback coordinator(coordinator.ts)与两种 profile renderer(后续阶段)
 // 只经这里读写 stdout/stderr、探测 TTY/尺寸、拿时钟与定时器 —— 不直接引用全局 `process`。
 //
 // 这样测试能喂一份完全确定性的假 IO(见 testing.ts 的 createFakeFeedbackIO):不靠 monkey-patch
@@ -27,7 +27,7 @@ export interface FeedbackClock {
   clearInterval(handle: FeedbackTimerHandle): void;
 }
 
-/** feedback coordinator 依赖的完整 IO 面。三种 profile renderer(human/agent/ci)也应该经这里
+/** feedback coordinator 依赖的完整 IO 面。两种 profile renderer(human/json)也应该经这里
  *  读写终端,不直接 import `process` —— 这是「不要把 process 到处传」与「测试不靠全局
  *  monkey-patch」两个目标共用的同一个注入点。 */
 export interface FeedbackIO {

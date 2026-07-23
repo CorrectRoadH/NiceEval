@@ -174,7 +174,12 @@ export interface TraceSpan {
   truncated?: Truncation[];
 }
 
-/** 给人 / 给 EVAL.ts 看的 o11y 摘要(注入沙箱 __niceeval__/results.json)。 */
+/**
+ * 给人 / 给 EVAL.ts 看的 o11y 摘要(注入沙箱 __niceeval__/results.json)。从 `events.json` 派生的
+ * 行为计数缓存,不是权威——同一 niceeval 版本写读,删除后可从 `events.json` 重算。token 用量、
+ * 成本与耗时不在这里:权威唯一在 `result.json` 的 `Usage` / `estimatedCostUSD` 与 `durationMs`
+ * / `phases`(见 docs/feature/results/architecture.md「o11y.json」)。
+ */
 export interface O11ySummary {
   totalTurns: number;
   /** 只有跑之前调用过的 canonical 工具名才有 key,不是全量出现;省略的 ToolName 视为 0。 */
@@ -187,7 +192,4 @@ export interface O11ySummary {
   errors: string[];
   thinkingBlocks: number;
   compactions: number;
-  durationMs: number;
-  usage: Usage;
-  estimatedCostUSD?: number;
 }

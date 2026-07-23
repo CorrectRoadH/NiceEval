@@ -36,7 +36,7 @@ afterEach(async () => {
 });
 
 type AttemptFixture = Pick<EvalResult, "id" | "verdict"> &
-  Partial<Pick<EvalResult, "attempt" | "durationMs" | "assertions" | "estimatedCostUSD" | "usage" | "startedAt" | "artifactBase" | "hasEvents">>;
+  Partial<Pick<EvalResult, "attempt" | "durationMs" | "assertions" | "estimatedCostUSD" | "usage" | "startedAt" | "artifactBase" | "artifacts">>;
 
 function res(id: string, verdict: Verdict, extra: Partial<AttemptFixture> = {}): AttemptFixture {
   return { id, verdict, attempt: 0, durationMs: 1000, assertions: [], ...extra };
@@ -507,12 +507,12 @@ describe("selectCurrentResults · 现刻水位结构化身份", () => {
     const root = await makeRoot();
     // 周一原始:q1 通过,带 events artifact。
     const oldDir = await writeSnapshot(root, "2026-07-01T08-00-00-000Z", { experimentId: "compare/bub", startedAt: "2026-07-01T08:00:00.000Z" }, [
-      res("q1", "passed", { hasEvents: true }),
+      res("q1", "passed", { artifacts: ["events"] }),
     ]);
     await writeFile(join(oldDir, "q1", "a0", "events.json"), "[]", "utf-8");
     // 周二 resume:q1 是复印件(startedAt 锚原快照,artifactBase 指原快照 artifact),q2 是新题。
     await writeSnapshot(root, "2026-07-02T08-00-00-000Z", { experimentId: "compare/bub", startedAt: "2026-07-02T08:00:00.000Z" }, [
-      res("q1", "passed", { hasEvents: true, startedAt: "2026-07-01T08:00:00.000Z", artifactBase: "compare_bub/2026-07-01T08-00-00-000Z/q1/a0" }),
+      res("q1", "passed", { artifacts: ["events"], startedAt: "2026-07-01T08:00:00.000Z", artifactBase: "compare_bub/2026-07-01T08-00-00-000Z/q1/a0" }),
       res("q2", "passed"),
     ]);
     const results = await openResults(root);

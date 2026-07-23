@@ -240,8 +240,9 @@ async function findArtifactFiles(
 
 /**
  * 重建 attempt 记录:去掉快照级字段(agent/model/experimentId/experiment,目标 snapshot.json
- * 已经带了)与 artifactBase(artifact 已本地化,不再需要回退指针);has* 按目标目录实际复制到的
- * 种类重算。startedAt 是 attempt 级事实(身份键与「何时跑的」都靠它),原样保留。
+ * 已经带了)与 artifactBase(artifact 已本地化,不再需要回退指针);artifacts 词干列表按目标目录
+ * 实际复制到的种类重算(不沿用源条目的旧列表)。startedAt 是 attempt 级事实(身份键与「何时跑的」
+ * 都靠它),原样保留。
  */
 function slimForCopy(r: EvalResult, copied: Set<ArtifactKind>): Record<string, unknown> {
   const {
@@ -257,9 +258,7 @@ function slimForCopy(r: EvalResult, copied: Set<ArtifactKind>): Record<string, u
     diff,
     rawTranscript,
     artifactBase,
-    hasTrace,
-    hasEvents,
-    hasSources,
+    artifacts: _artifacts,
     ...rest
   } = r;
   void agent;
@@ -274,14 +273,12 @@ function slimForCopy(r: EvalResult, copied: Set<ArtifactKind>): Record<string, u
   void diff;
   void rawTranscript;
   void artifactBase;
-  void hasTrace;
-  void hasEvents;
-  void hasSources;
+  void _artifacts;
+  // VALID_ARTIFACTS 的固定顺序驱动输出顺序,与写入面(events/trace/o11y/agentSetup/diff/sources)一致。
+  const artifacts = VALID_ARTIFACTS.filter((kind) => copied.has(kind));
   return {
     ...rest,
-    hasEvents: copied.has("events"),
-    hasTrace: copied.has("trace"),
-    hasSources: copied.has("sources"),
+    ...(artifacts.length ? { artifacts } : {}),
   };
 }
 

@@ -1,5 +1,5 @@
 // cases: docs/engineering/testing/unit/experiments-runner.md
-// evalConclusionRows 是 agent/ci 两个 profile 共用的纯派生:跑满给 attempts/rate,首过即停给
+// evalConclusionRows 是 human/json 两个 profile 共用的纯派生:跑满给 attempts/rate,首过即停给
 // attempts/planned/unstarted/reason=early_exit;fail-fast 与 budget 未派发的份额不得混进
 // reason=early_exit(docs/feature/experiments/cli.md「runs 与首过即停怎样展示」)。
 

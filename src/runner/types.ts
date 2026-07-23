@@ -231,9 +231,13 @@ export interface EvalResult {
   rawTranscript?: string;
   /** 携带条目(--resume 合入)专用:artifact 目录(相对结果根目录),指向原快照里的落盘。 */
   artifactBase?: string;
-  hasTrace?: boolean;
-  hasEvents?: boolean;
-  hasSources?: boolean;
+  /**
+   * writer 实际写出的按需 artifact 词干列表(词表与全部横切属性单源在
+   * docs/feature/results/architecture.md「证据 registry」,如 ["commands", "events", "sources"])。
+   * 省略等价于空列表;携带条目原样携带。读取面的懒加载语义(缺失返回 null)独立成立,
+   * 本字段只服务「不 stat 磁盘就知道有什么」的消费方。
+   */
+  artifacts?: string[];
 }
 
 /** `snapshot.json` 的格式标记;把 niceeval 报告和其它工具的同名文件区分开。 */
@@ -250,9 +254,13 @@ export const RESULTS_FORMAT = "niceeval.results";
  * `ExperimentRunInfo` 改为解析后运行配置的穷尽投影(sandbox 从字符串改结构化投影对象);
  * `diff.json` 落逐窗口 delta 序列(DiffWindow[]);events/trace 的字符串值统一 256 KiB 截断
  * (结构化 `truncated` 标记);snapshot.json 新增发布拷贝的 `publish` 标记。
+ * `9` = `hasEvents`/`hasTrace`/`hasSources` 三个布尔删除,统一为 `artifacts`(writer 实际写出的
+ * 按需 artifact 词干列表,单源在证据 registry);`O11ySummary` 删除 `usage`/`estimatedCostUSD`/
+ * `durationMs`,正名为纯行为计数缓存,权威唯一在 `result.json` 的 `Usage`/`estimatedCostUSD`/
+ * `durationMs`(见 memory 的 results-evidence-registry-ruling 条目)。
  * 旧版快照按格式规则整份判为不兼容并在扫描时列为占位条目,不迁移不降级。
  */
-export const RESULTS_SCHEMA_VERSION = 8;
+export const RESULTS_SCHEMA_VERSION = 9;
 
 /** 一次 Invocation 的纯运行时内存聚合(reporter 契约用);落盘格式契约在 niceeval/results 的 SnapshotMeta / AttemptRecord,见 docs/feature/results/architecture.md。不携带顶层 `agent`/`model`——一次 Invocation 可能横跨多个 `(agent, model, flags)` 配置,塞一个顶层单值只能代表其中一份配置;需要时从 `results` 里逐条 `EvalResult.agent`/`.model` 去重派生。 */
 export interface InvocationSummary {
@@ -727,8 +735,10 @@ export interface Attempt {
 // runner 侧的实际事件发射均由后续阶段实现 —— 这里先把事件形状和状态形状钉死,后续阶段
 // 不需要重新设计事件联合类型。
 
-/** 三种最终反馈 profile。`--output auto` 只是 CLI flag 的输入值,解析后必然落在这三者之一。 */
-export type OutputProfile = "human" | "agent" | "ci";
+/** 两种反馈形态(见 docs/feature/experiments/cli.md「每条命令一个人读 text 面,`--json` 是机器面」):
+ *  `--json` 即机器面,否则人读文本(TTY live 面板 / 非 TTY 追加流,由渲染层内部按 `io.stderr.isTTY`
+ *  再分派,不是第三个 profile)。 */
+export type OutputProfile = "human" | "json";
 
 // 反馈系统的 attempt 阶段与落盘 / envelope 用同一套 `LifecyclePhase` 闭集(见上),
 // 不再有独立的 dashboard 词表;`waiting for a slot` 是 attempt 开始前的调度态,不属于闭集;
@@ -1037,16 +1047,14 @@ export type DurableFeedbackEvent =
   | {
       type: "saved";
       at: number;
-      /** 本次 invocation 实际落盘的快照结果路径。不含 `--json`/`--junit` 聚合文件——那两个由
-       *  `json`/`junit` 两个独立字段单独携带,而不是塞进这个数组后靠猜文件后缀去反推「哪一个
-       *  是聚合报告、哪些是快照目录」;CI 的 result 收尾需要把 `json=`/`junit=`/`snapshots=`
-       *  打成三条独立的行(见 docs/feature/experiments/cli.md「CI 怎么用」的字面例子),
-       *  结构化字段让它不需要解析路径字符串就能做到。 */
+      /** 本次 invocation 实际落盘的快照结果路径。不含 `--junit` 聚合文件——那个由 `junit`
+       *  独立字段单独携带,而不是塞进这个数组后靠猜文件后缀去反推「哪个是聚合报告、哪些是
+       *  快照目录」。`exp` 没有 JSON 聚合文件出口(`--json` 是布尔:整条事件流本身就是机器面,
+       *  见 docs/feature/experiments/cli.md「机器怎么读:--json」);需要 JSON 聚合文件时
+       *  重定向事件流,或运行后 `niceeval show --json`。 */
       paths: readonly string[];
-      /** 实际写出的 `--json` 聚合报告路径。未传 `--json`,或写入失败(见 required reporter
+      /** 实际写出的 `--junit` 聚合报告路径;未传 `--junit`,或写入失败(见 required reporter
        *  语义),都省略这个字段——省略表示「不打印这一行」,不是打印一个空路径。 */
-      json?: string;
-      /** 实际写出的 `--junit` 聚合报告路径,语义同 `json`。 */
       junit?: string;
     };
 

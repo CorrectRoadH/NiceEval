@@ -867,10 +867,10 @@ async function runAttemptBody(
     // 主链合计大于 durationMs。Scope finalizer 只负责另记 sandbox.stop / sandbox.suspend。
     recorder.closeCurrent();
     const durationMs = Date.now() - t0;
-    const o11y = buildO11ySummary(events, usage, durationMs);
+    const o11y = buildO11ySummary(events);
     // 实测成本(网关带回)优先,缺则按 model + 用量查价格表估算(见 o11y/cost.ts)。
+    // 权威唯一在 result.json 的 estimatedCostUSD;o11y.json 只留行为计数(见 docs/feature/results/architecture.md「o11y.json」)。
     const cost = usage.costUSD ?? estimateCost(run.model, usage, config.pricing);
-    if (cost !== undefined) o11y.estimatedCostUSD = cost;
 
     // 收 test 引用到的 eval 源码(按 send / 断言的 loc 去重),供 view 渲染代码视图。
     const sources = await collectSources(events, assertions, evalDef.source);

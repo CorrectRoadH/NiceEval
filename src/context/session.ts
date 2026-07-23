@@ -87,7 +87,7 @@ export class RunSession implements AgentSession {
   lastStatus: "completed" | "failed" | "waiting" = "completed";
   readonly events: StreamEvent[] = [];
   readonly pendingInputRequests: InputRequest[] = [];
-  readonly usage: Usage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, requests: 0 };
+  readonly usage: Usage = { inputTokens: 0, outputTokens: 0 };
   /** 本会话累计的证据覆盖(初值 = Agent 级默认,逐轮按 Turn.coverage 降级折叠)。 */
   coverage!: ResolvedCoverage;
   /** 本会话内的轮次计数(turn 时间树 / 展示标签 s<session>/t<turn> 用)。 */
@@ -144,7 +144,7 @@ export interface SessionDeps {
 export class SessionManager {
   /** 整次运行(所有会话、所有轮)累计的标准事件流。 */
   readonly allEvents: StreamEvent[] = [];
-  readonly usage: Usage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, requests: 0 };
+  readonly usage: Usage = { inputTokens: 0, outputTokens: 0 };
   lastStatus: "completed" | "failed" | "waiting" = "completed";
   /** Agent 级默认覆盖(全通道解析,未声明 = unknown)。 */
   readonly agentCoverage: ResolvedCoverage;
@@ -397,11 +397,20 @@ export function lastAssistantText(events: readonly StreamEvent[]): string | unde
   return undefined;
 }
 
+/**
+ * inputTokens/outputTokens 是 Usage 的必填字段,始终累加。其余字段只在某一轮真的带回该值时才
+ * 累加,协议不提供就保持省略(见 docs/feature/results/architecture.md「Usage」:「协议不提供请求
+ * 计数就省略,绝不写 1 凑数」)。此前 `requests` 用 `add.requests ?? 1` 累加,会让转录解析型
+ * adapter(整个 attempt 只在末尾解析一次 transcript、天然不报每轮请求数)的一轮 send 被硬算成
+ * 1 个请求,一个内部发起了 21 次工具调用的 codex session 因此落盘 `requests: 1`——不是真值,是
+ * 轮数的误代理(见 memory 的 show-scope-slice-json-ruling 条目)。`cacheReadTokens` /
+ * `cacheWriteTokens` 同理:不支持 prompt cache 的 adapter 不应该在这里被垫成 0。
+ */
 function accumulateUsage(acc: Usage, add: Usage): void {
   acc.inputTokens += add.inputTokens ?? 0;
   acc.outputTokens += add.outputTokens ?? 0;
-  acc.cacheReadTokens = (acc.cacheReadTokens ?? 0) + (add.cacheReadTokens ?? 0);
-  acc.cacheWriteTokens = (acc.cacheWriteTokens ?? 0) + (add.cacheWriteTokens ?? 0);
-  acc.requests = (acc.requests ?? 0) + (add.requests ?? 1);
+  if (add.cacheReadTokens !== undefined) acc.cacheReadTokens = (acc.cacheReadTokens ?? 0) + add.cacheReadTokens;
+  if (add.cacheWriteTokens !== undefined) acc.cacheWriteTokens = (acc.cacheWriteTokens ?? 0) + add.cacheWriteTokens;
+  if (add.requests !== undefined) acc.requests = (acc.requests ?? 0) + add.requests;
   if (add.costUSD !== undefined) acc.costUSD = (acc.costUSD ?? 0) + add.costUSD;
 }

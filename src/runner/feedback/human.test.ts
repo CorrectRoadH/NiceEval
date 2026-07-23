@@ -210,6 +210,28 @@ describe("live dashboard — 接线到 panel.ts", () => {
     expect(written).not.toMatch(BOX_CHARS);
     expect(written).toContain("PLAN");
   });
+
+  // 补充裁决(memory/exp-output-two-forms-ruling.md):非 TTY 人读文本从 start 到结束摘要走单一
+  // 有序 stdout 流,stderr 只留启动期错误——不再像 TTY 变体那样把永久事件分流到 stderr。
+  it("非 TTY:永久事件、运行级瞬时通知、heartbeat 全部落 stdout,stderr 全程为空", () => {
+    const { io, stdout, stderr } = createFakeFeedbackIO({ stderr: { isTTY: false } });
+    const renderer = createHumanRenderer({ io, command: "niceeval exp compare" });
+    const state = { ...createInitialRunFeedbackState(), total: 45, reused: 6 };
+    renderer.appendDurable({ type: "plan", at: 0, plan: plan() }, state);
+    renderer.activity?.("pulling docker image node:24-slim...", state);
+    renderer.onTick?.({ type: "tick", at: 40_000, elapsedMs: 40_000 }, state);
+    renderer.appendDurable(
+      { type: "summary", at: 40_000, summary: summary({ passed: 45, failed: 0, errored: 0 }), completion: completion() },
+      state,
+    );
+    renderer.appendDurable({ type: "saved", at: 40_000, paths: [".niceeval/compare/s1"] }, state);
+
+    expect(stderr.writes).toEqual([]);
+    const out = stdout.writes.join("");
+    expect(out).toContain("PLAN");
+    expect(out).toContain("pulling docker image node:24-slim...");
+    expect(out).toContain("PASSED");
+  });
 });
 
 // eslint-disable-next-line no-control-regex

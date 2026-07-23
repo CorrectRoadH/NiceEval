@@ -55,7 +55,7 @@ export const zhCN = {
   "cli.dry.row": "  {{who}}{{experiment}}: {{evals}}  ×{{runs}}\n",
   "cli.error": "niceeval 出错:{{error}}\n",
   "cli.flag.invalidNumber": "标志 --{{flag}} 需要数字,收到 \"{{value}}\"。\n",
-  "cli.flag.invalidOutput": "标志 --output 需要 auto|human|agent|ci 之一,收到 \"{{value}}\"。\n",
+  "cli.flag.outputRemoved": "error: unknown option '--output'\n  fix: 不加 flag 运行得到人读文本;机器面用 --json\n",
   "runner.budgetUnenforceable":
     "{{budgetKey}} 的 budget:连续多个 attempt 完成后都拿不到成本数据(agent 不上报用量且模型不在价格表)——该 agent 的 budget 无法执行,取消护栏继续跑。\n",
   "runner.experimentTeardownFailed":
@@ -109,8 +109,8 @@ export const zhCN = {
     "标志:\n" +
     "  --runs n  --max-concurrency n  --timeout ms  --budget usd  --tag t\n" +
     "  --early-exit / --no-early-exit  --strict  --force  --dry  --keep-sandbox[=failed|all]\n" +
-    "  --output auto|human|agent|ci\n" +
-    "  --junit path  --json path  --out dir  --port n  --open / --no-open  -h, --help  -v, --version\n\n" +
+    "  --json  (机器面:stdout 上的 NDJSON 事件流;默认是人读文本)\n" +
+    "  --junit path  --out dir  --port n  --open / --no-open  -h, --help  -v, --version\n\n" +
     "位置参数只选「跑哪些 eval」(id 前缀);对着哪个 agent、怎么跑来自 experiments/ 与\n" +
     "标志。环境变量覆盖(标志 > 环境变量 > config):\n" +
     "  NICEEVAL_RUNS  NICEEVAL_MAX_CONCURRENCY  NICEEVAL_TIMEOUT  NICEEVAL_BUDGET\n",

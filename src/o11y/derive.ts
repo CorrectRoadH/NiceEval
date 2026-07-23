@@ -210,11 +210,7 @@ function numAttr(attrs: Record<string, JsonValue>, ...keys: string[]): number {
 
 // ───────────────────────── buildO11ySummary ─────────────────────────
 
-export function buildO11ySummary(
-  events: readonly StreamEvent[],
-  usage: Usage,
-  durationMs: number,
-): O11ySummary {
+export function buildO11ySummary(events: readonly StreamEvent[]): O11ySummary {
   const toolCalls: Partial<Record<ToolName, number>> = {};
   let totalToolCalls = 0;
   const filesRead = new Set<string>();
@@ -306,7 +302,5 @@ export function buildO11ySummary(
     errors,
     thinkingBlocks,
     compactions,
-    durationMs,
-    usage,
   };
 }
