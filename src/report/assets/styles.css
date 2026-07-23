@@ -1252,6 +1252,125 @@ table.nre,
 .nre-attempt-source .nre-attempt-source-unlocated > .nre-source-turn-failed { border-left-color: var(--bad); }
 .nre-attempt-source .nre-attempt-source-unlocated > .nre-source-turn-waiting { border-left-color: var(--warn); }
 
+/* Other conversation(unlocated turns):TurnDetail 在这里复用 AttemptConversation 同一套回复
+   renderer(showMeta/showSent 都为真,没有可依附的 send 行),但 .nre-conv-* 的规则此前只覆盖了
+   .nre-source-line-detail(行内展开)与 .nre-attempt-conversation(独立分轮视图)两个容器,这
+   第三个容器一条都没有,回复条目退化成浏览器默认排版。密度上贴 AttemptSource
+   自身语言(扁平、无二级卡片——外层轮卡片已经画好边框),sent 提示与 error/input 的强调色借
+   AttemptConversation 那份(这里没有独立 send 行可以显示 sent 文本,需要它可见)。 */
+.nre-attempt-source .nre-attempt-source-unlocated .nre-conv-sent {
+  padding: 11px 13px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in oklch, var(--blue, var(--nre-c0)), var(--panel-2) 94%);
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.nre-attempt-source .nre-attempt-source-unlocated .nre-conv-replies {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin: 0;
+  padding: 10px 13px;
+}
+.nre-attempt-source .nre-attempt-source-unlocated .nre-conv-assistant,
+.nre-attempt-source .nre-attempt-source-unlocated .nre-conv-user,
+.nre-attempt-source .nre-attempt-source-unlocated .nre-conv-skill,
+.nre-attempt-source .nre-attempt-source-unlocated .nre-conv-error,
+.nre-attempt-source .nre-attempt-source-unlocated .nre-conv-input,
+.nre-attempt-source .nre-attempt-source-unlocated .nre-conv-compaction,
+.nre-attempt-source .nre-attempt-source-unlocated .nre-conv-thinking,
+.nre-attempt-source .nre-attempt-source-unlocated .nre-conv-tool,
+.nre-attempt-source .nre-attempt-source-unlocated .nre-conv-subagent,
+.nre-attempt-source .nre-attempt-source-unlocated .nre-conv-raw {
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+}
+.nre-attempt-source .nre-attempt-source-unlocated .nre-conv-role {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--blue, var(--nre-c0));
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.nre-attempt-source .nre-attempt-source-unlocated .nre-conv-text {
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.nre-attempt-source .nre-attempt-source-unlocated .nre-conv-user .nre-conv-text { color: var(--muted); }
+.nre-attempt-source .nre-attempt-source-unlocated .nre-conv-error { color: var(--bad); }
+.nre-attempt-source .nre-attempt-source-unlocated .nre-conv-input { color: var(--warn); }
+.nre-attempt-source .nre-attempt-source-unlocated .nre-conv-thinking > summary,
+.nre-attempt-source .nre-attempt-source-unlocated .nre-conv-subagent > summary,
+.nre-attempt-source .nre-attempt-source-unlocated .nre-conv-raw > summary {
+  cursor: pointer;
+  list-style: none;
+  color: var(--muted);
+}
+.nre-attempt-source .nre-attempt-source-unlocated .nre-conv-thinking > summary::-webkit-details-marker,
+.nre-attempt-source .nre-attempt-source-unlocated .nre-conv-subagent > summary::-webkit-details-marker,
+.nre-attempt-source .nre-attempt-source-unlocated .nre-conv-raw > summary::-webkit-details-marker { display: none; }
+.nre-attempt-source .nre-attempt-source-unlocated .nre-conv-subagent > summary::before,
+.nre-attempt-source .nre-attempt-source-unlocated .nre-conv-raw > summary::before,
+.nre-attempt-source .nre-attempt-source-unlocated .nre-conv-thinking > summary::before { content: "▸ "; }
+.nre-attempt-source .nre-attempt-source-unlocated .nre-conv-subagent[open] > summary::before,
+.nre-attempt-source .nre-attempt-source-unlocated .nre-conv-raw[open] > summary::before,
+.nre-attempt-source .nre-attempt-source-unlocated .nre-conv-thinking[open] > summary::before { content: "▾ "; }
+.nre-attempt-source .nre-attempt-source-unlocated .nre-conv-tool > summary {
+  display: grid;
+  grid-template-columns: 8px minmax(110px, max-content) minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  cursor: pointer;
+  list-style: none;
+}
+.nre-attempt-source .nre-attempt-source-unlocated .nre-conv-tool > summary::-webkit-details-marker { display: none; }
+.nre-attempt-source .nre-attempt-source-unlocated .nre-conv-tool-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--good);
+}
+.nre-attempt-source .nre-attempt-source-unlocated .nre-conv-tool-failed { background: var(--bad); }
+.nre-attempt-source .nre-attempt-source-unlocated .nre-conv-tool-rejected { background: var(--warn); }
+.nre-attempt-source .nre-attempt-source-unlocated .nre-conv-tool-pending { background: var(--soft); }
+.nre-attempt-source .nre-attempt-source-unlocated .nre-conv-tool-name {
+  overflow: hidden;
+  color: var(--text);
+  font: 600 12px/1.5 ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nre-attempt-source .nre-attempt-source-unlocated .nre-conv-tool-preview {
+  overflow: hidden;
+  color: var(--soft);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nre-attempt-source .nre-attempt-source-unlocated .nre-conv-tool-io {
+  max-height: 220px;
+  overflow: auto;
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: color-mix(in oklch, var(--panel), black 8%);
+  color: var(--muted);
+  font: 11px/1.45 ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* 逐行轻量 TypeScript token;暗色取 VS Code Dark+ 系(与产品站示例卡的 prism vsDark 同源),
    浅色为等价可读色。 */
 .nre-attempt-source .tok-comment { color: light-dark(#6e7781, #6a9955); font-style: italic; }

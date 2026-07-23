@@ -65,6 +65,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 - 已修 [ui-message-stream-coverage-undeclared](ui-message-stream-coverage-undeclared.md) — 内置 uiMessageStreamAgent 没声明 EvidenceCoverage,真机跑 e2e/adapter/ai-sdk 时 succeeded()/notCalledTool()/noFailedActions() 全部 unknown→errored(不是断言写错);修为补 coverage(complete + usage unavailable)(`src/agents/ui-message-stream.ts`)
 - 已修 [docker-uploadfile-tmp-mv-eperm](docker-uploadfile-tmp-mv-eperm.md) — Docker sandbox 的 `uploadFile()` 不 chown 上传文件(与 `uploadFiles()` 不同),claude-code `settingsFile` 真机上传到 `/tmp` 后 `mv` 到 `~/.claude/settings.json` 因 sticky-bit 目录 + root 属主 100% EPERM;修为 putArchive 后补 `chownToSandboxUser(absPath)`(`src/sandbox/docker.ts`,同路径也影响 codex 的 `configFile`)
 - [hard-kill-leaves-orphans-and-experiment-leaks](hard-kill-leaves-orphans-and-experiment-leaks.md) — SIGKILL(外部看门狗 ~1h 强杀)下孤儿容器与实验 teardown 泄漏无事后入口;设计定稿三面兜底(运行标识+prune / 收尾登记+启动自愈 / attempt 级续跑),实现见 plan/hard-kill-recovery.md
+- [orphans-test-assumes-ps-restricted-environment](orphans-test-assumes-ps-restricted-environment.md) — 发现未修:orphans.test.ts 的 docker 用例把「ps 被禁的降级路径」写成对所有环境的期待,本机 ps 可用时属主判活成功、候选 1≠2 稳定红;修向=探测注入缝或异宿主 fixture
 - 已修 [keep-sandbox-suspend-wrapper-drops-capability](keep-sandbox-suspend-wrapper-drops-capability.md) — `normalizeSandboxPaths` 包装丢了接口外的 `suspend()` 能力,`--keep-sandbox` 对 docker/e2b/vercel 三家全部假成功真不停(state 永远停 alive,只留一条 warning);真机跑通 docker 全链路才发现,mock 单测互相拼不出这个 bug;修为按 `appendLog` 先例原样转发(`src/sandbox/paths.ts`)
 
 ## Runner · 调度 · CLI · 生命周期
@@ -164,6 +165,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 
 ### 台账
 
+- 已修 [attempt-source-unlocated-conversation-unstyled-and-escape-leak](attempt-source-unlocated-conversation-unstyled-and-escape-leak.md) — AttemptSource「Other conversation」兜底区文字墙 + 工具结果 `\n` 字面直出:`.nre-conv-*` 按容器限定没盖到第三容器、`compact()` 在 stringify 之后才收口;修为第三容器补 CSS + 先收口后字符串化;教训=共享 renderer 进新容器 CSS 不自动跟、自由文本收口必须在序列化前
 - 已修 [eval-header-historical-mark-shifts-grid-columns](eval-header-historical-mark-shifts-grid-columns.md) — ExperimentList Eval 父行的 `↩` 时效标注曾裸插进按位置取列的 4 轨 grid 当第 5 个子元素,全携带的题整行错位、rollup 挤进 20px 列逐字竖排;修为嵌进题目名格内(`ExperimentList.tsx` EvalAttempts);教训=固定轨数 grid 不能裸插条件子元素
 - [view-shell-nav-ignores-page-navigation-flag](view-shell-nav-ignores-page-navigation-flag.md) — scope-input page 显式声明 `navigation: false` 时,view 外壳导航仍把它渲染成 tab;`renderReportSlot` 算出的 `navigablePages` 只喂 `initialPageId` 兜底,没喂 `viewData.report.pages`;目前无场景触发(唯一会设它的 attempt-input page 更早已被过滤掉),未修
 - 已修 [scatter-series-color-collision](scatter-series-color-collision.md) — 散点两个不同 series(bub/codex)散列进同一色格显示同色不可辨;修为同图键集合按图例顺序线性探测消解冲突,跨图稳定让位图内可辨(`src/report/react/colors.ts` 的 colorIndicesForKeys)

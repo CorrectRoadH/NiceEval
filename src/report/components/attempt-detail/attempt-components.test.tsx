@@ -624,6 +624,66 @@ describe("attemptSourceData:标准事件流按 loc 投影回 send 行", () => {
     expect(data.lines[0]!.turns).toEqual([]);
   });
 
+  it("轮次没有 loc、指向别的文件或越界时进 unlocatedTurns,原样携带完整回复(不在数据层加工/丢失字段)", () => {
+    const noLocSourcePath = "evals/b.ts";
+    const data = attemptSourceData(
+      evidenceOf({
+        capabilities: { ...NO_CAPS, source: true },
+        evalSource: {
+          sourcePath: noLocSourcePath,
+          sourceSha256: "x",
+          lines: [{ line: 1, text: "export default {};", assertions: [], sends: [] }],
+          unmapped: [],
+          summary: {
+            totalAssertions: 0,
+            mappedAssertions: 0,
+            unmappedAssertions: 0,
+            passed: 0,
+            failed: 0,
+            gate: 0,
+            soft: 0,
+            totalLines: 1,
+            annotatedLines: 0,
+          },
+        },
+        events: [
+          // 无 loc:流首兜底轮。
+          { type: "message", role: "user", text: "hello" },
+          {
+            type: "action.called",
+            callId: "c1",
+            name: "bash",
+            tool: "shell",
+            input: { command: "rg --files" },
+          },
+          {
+            type: "action.result",
+            callId: "c1",
+            output: { output: "a.ts\nb.ts" },
+            status: "completed",
+          },
+          // 有 loc 但指向另一份文件:同样落 unlocatedTurns,不是当前源码的越界行。
+          { type: "message", role: "user", text: "second", loc: { file: "other-file.ts", line: 1 } },
+          { type: "error", message: "boom" },
+        ],
+      }),
+    )!;
+
+    expect(data.lines[0]!.turns).toEqual([]);
+    expect(data.unlocatedTurns).toHaveLength(2);
+
+    const [first, second] = data.unlocatedTurns;
+    expect(first).toMatchObject({ label: "t1", status: "completed", sentText: "hello" });
+    // 工具调用结果的原始 JsonValue 原样保留(即使不是字符串);字符串化/单行折叠是渲染层的事,
+    // 不在这里发生——数据层不能替渲染层背这个锅,也不能在这里悄悄把内容改没了。
+    expect(first!.replies).toEqual([
+      { kind: "tool", callId: "c1", name: "bash", tool: "shell", input: { command: "rg --files" }, output: { output: "a.ts\nb.ts" }, status: "completed" },
+    ]);
+
+    expect(second).toMatchObject({ label: "t2", status: "failed", sentText: "second" });
+    expect(second!.replies).toEqual([{ kind: "error", text: "boom" }]);
+  });
+
   const sourcePath = "evals/score.ts";
   /** 用真实的 buildAnnotatedEvalSource 装配(而不是手摆空 lines):断言到源码行的分桶是它的
    *  职责,fixture 手写会漏掉这份逻辑,让 assertions/unmapped 的期望值失真。 */

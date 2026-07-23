@@ -4,6 +4,7 @@
 import type { ReactElement, ReactNode } from "react";
 import type { AttemptConversationData, AttemptConversationReply, AttemptConversationRound } from "../../model/types.ts";
 import type { JsonValue, ToolName } from "../../../types.ts";
+import { stripControl } from "../../../scoring/display.ts";
 import { cx } from "../shared.ts";
 
 const TOOL_VERB: Partial<Record<ToolName, string>> = {
@@ -19,10 +20,24 @@ const TOOL_VERB: Partial<Record<ToolName, string>> = {
   agent_task: "Task",
 };
 
+/**
+ * 工具调用输入/输出的单行预览。自由文本的收口(剥控制字节 + 折空白)必须发生在
+ * `JSON.stringify` **之前**:stringify 会把字符串里真实的换行转成两字符字面转义 `\n`、把控制
+ * 字节转成 `` 文本,事后折空白的 `/\s+/` 与 `stripControl` 都收不到这些转义文本,多行
+ * 输出会在预览行里粘成 `{"output":"a\nb\nc"}` 原样直出;事后用正则拆转义又会误伤内容里真实的
+ * 「反斜杠+n」字面。`stripControl` 先例见 memory/received-ansi-control-bytes-leak.md。 */
 function compact(value: JsonValue | undefined, max = 140): string {
   if (value === undefined || value === null) return "";
-  const text = typeof value === "string" ? value : JSON.stringify(value);
-  const oneLine = text.replace(/\s+/g, " ").trim();
+  const clean = (s: string) => stripControl(s).replace(/\s+/g, " ");
+  const walk = (v: JsonValue): JsonValue =>
+    typeof v === "string"
+      ? clean(v)
+      : Array.isArray(v)
+        ? v.map(walk)
+        : v !== null && typeof v === "object"
+          ? Object.fromEntries(Object.entries(v).map(([k, inner]) => [k, walk(inner)]))
+          : v;
+  const oneLine = (typeof value === "string" ? clean(value) : JSON.stringify(walk(value))).trim();
   return oneLine.length > max ? `${oneLine.slice(0, max)}…` : oneLine;
 }
 

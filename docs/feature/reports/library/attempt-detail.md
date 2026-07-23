@@ -43,6 +43,8 @@ export default defineReport({
 
 区块按事实边界拆分，不按某个宿主当前的卡片拆分。`AttemptTimeline` 可以把 span 按显式 correlation 挂回 runner 时间树；`AttemptTrace` 则保留原始 OTel 视角，因此二者可以择一，也可以同时放。`AttemptSource` 与 `AttemptAssertions` 会呈现同一批 assertion 的不同视角，默认组合通过 `AttemptAssessment` 二选一，避免重复。`AttemptSource` 还把标准事件流按 `loc` 投影回 send 行，点击行可在源码上下文中展开回复；因此默认 `AttemptDetail` 有 source 时不再追加独立 `AttemptConversation`，没有 source 时才把它作为完整事件流 fallback。报告作者仍可显式同时放置两者，此时两种视角并存是作者选择。
 
+按 `loc` 投影盖不住的事实不丢弃，列在源码块之后的两个**兜底区**：「Other assertions」收 `loc` 缺失或不在展示源码内的断言，逐条平铺、判定语义与 `AttemptAssertions` 的条目一致；「Other conversation」收没有 `loc` 的轮次（动态构造的 send、`loc` 指向其它文件或越界）——有 source 时页面不放独立 `AttemptConversation`，这个兜底区因此是无 `loc` 轮次在页面上唯一的出现处，按 `AttemptConversation` 同形态呈现：分轮卡片带轮标签与状态，内部 user / assistant / thinking / tool / error 条目复用同一套回复渲染，不写第二份实现。工具出入参的单行预览在字符串化**之前**收口自由文本（剥控制字节、折空白）——结构化值先逐字段收口再 `JSON.stringify`，事后处理收不到已经变成字面转义文本的换行与控制字节。
+
 ## `AttemptSource` web 面视觉规范
 
 `AttemptSource` 的 web 面与产品站首页的 eval 示例卡（`site/components/site-home-setup.tsx` + `site/app/globals.css` 的 `.eval-code` 族）是同一套视觉语言的两份实现：示例卡是这套「源码即报告」叙事的公开形象，报告里的真实源码视图与它同语言，用户从官网到报告不切换视觉心智。二者不共享组件——示例卡是需要 hydration 的营销交互（React state 展开、轮播、埋点），`AttemptSource` 按报告契约必须在零 JS 的静态 attempt 文档里完整成立；数据上示例卡是策划数据，`AttemptSource` 是真实证据（一行多条 assertion、四种 tone、unmapped / unlocated 区）。因此对齐的单位是下面这份规范，不是组件：
@@ -53,6 +55,7 @@ export default defineReport({
 - **右缘 meta**：行右侧只放分数 pill（soft 的阈值分数，或计分制的挣分 `+1 pt` / `+0 pts`）、中止行的 `⤓` 标记与展开 chevron，钉在滚动视口右缘（sticky），横向滚动时始终可见；不显示内部 turn 标签（如 `turn1`）。
 - **展开区**：点击行展开的回复 / assertion 细节直接接在源码行下，dashed 上边线 + tone 色左缘；按容器可视宽度排版换行并钉在滚动视口左缘，不跟随代码横向滚动；不套二级卡片，不重复 turn 头与 sent prompt。首个失败或警告行默认展开。
 - **语法高亮**：零依赖逐行 TypeScript token（comment / string / keyword / number / function 五类语义 class）；暗色 token 取 VS Code Dark+ 系（与示例卡的 prism vsDark 主题同源），浅色为等价可读色。
+- **兜底区**：源码块之后、与源码块同宽。「Other conversation」的分轮卡片带 verdict 色左缘与轮标签头行（这里没有可依附的 send 行，轮标签是该轮唯一的身份锚），卡片内部条目与 `AttemptConversation` 同视觉语言；回复条目在每个渲染容器里都必须有完整样式覆盖——`.nre-conv-*` 规则按容器限定，新容器不会自动继承。
 - **交互载体**：展开一律是原生 `<details>`，静态文档零 JS 成立。
 
 这份规范与官方 stylesheet 组合后的实际观感（染色、布局、滚动、展开交互）由 [E2E 报告域](../../../engineering/testing/e2e/report.md)在真实浏览器里验收，单元层只覆盖数据投影与 DOM 结构事实。
