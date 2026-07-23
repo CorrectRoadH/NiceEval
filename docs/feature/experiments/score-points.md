@@ -17,7 +17,7 @@
 
 `defineScoreEval` 与 `defineEval` 字段完全同形，唯一区别是 `test(t)` 的 `t` 额外提供给分词汇——给分词汇**只**存在于计分制的 `t` 上，在通过制 eval 里写给分是类型错误，不需要运行时守护（形状声明见 [Eval · defineScoreEval](../eval/README.md#definescoreeval计分制题型)）。
 
-计分是**叠加制不是扣分制**：分从 0 往上挣、分值非负、给一次加一次，**不声明满分**。对比是相对的——同一条 eval 的代码对每个 experiment 是同一把尺子，模型 A 挣 3 分、模型 B 挣 1 分，结论不需要分母；不存在「满分声明」也就不存在「声明与实际给分对不上」这类要守护的一致性。「做了坏事」不用负分表达——要一票否决写 gate（判定面），要「没做坏事也算得分项」就把它写成正向检查点。
+计分是**叠加制不是扣分制**：分从 0 往上挣、分值非负、给一次加一次，**不声明满分**。对比是相对的——同一条 eval 的代码对每个 experiment 是同一把尺子，模型 A 挣 3 分、模型 B 挣 1 分，结论不需要分母；不存在「满分声明」也就不存在「声明与实际给分对不上」这类要守护的一致性。「做了坏事」不用负分表达——要「到这一步不成立就别往下跑了」写前置 `.gate()`，要「没做坏事也算得分项」就把它写成正向检查点。
 
 ```
 eval 得分 = Σ 各给分项的挣分        （纯累加,无分母）
@@ -28,11 +28,23 @@ eval 得分 = Σ 各给分项的挣分        （纯累加,无分母）
 - **`.points(n)`（链式句柄，`n > 0`）**——挂在断言上的条件给分：0/1 断言通过挣 `n` 分、不过挣 0；judge 等打分断言按连续分比例挣 `n × score`。`t.calledTool(...).points(1)` 读作「这个检查点值 1 分」。
 - **`t.score(label, n)`（直接给分，`n ≥ 0`）**——作者自己算好条件和分数后直接累加，`label` 进报告：行数分档 `t.score("代码精简", tierPoints)`、覆盖率换算 `t.score("覆盖率", coverage * 20)`。判定条件复杂到断言词汇装不下时的出口。
 
+一条断言在计分制里的**角色由断言句柄上链的词决定**，四种角色的读数落点两两不相交——同一条证据不会被两个读数读到：
+
+| 链的词 | 角色 | 落到哪个读数 | 挂了的后果 |
+|---|---|---|---|
+| `.points(n)` | 得分点 | 分数面：挣 `n × score` | 丢这 n 分，继续往下跑 |
+| `.points(n).gate(x?)` | 得分点兼前置 | 分数面 | 丢这 n 分 **+ 就地结束 `test()`** |
+| `.gate(x?)` | 纯前置 | 不进任何折叠读数 | 就地结束 `test()` |
+| 不链 / `.soft()` | 观测 | 质量分（soft 均值） | 无 |
+
 配套语义：
 
-- **`.points` 与 severity 正交**：severity 管判定面（这条挂了 verdict 怎么变），points 管分数面（这条值几分）。`t.check(test, commandSucceeded()).points(60)` 是「正确性值 60 分、同时是 gate」——没挣到这 60 分，verdict 也是 failed。
-- **中止挣 0，基础设施得 null，严格分开**：前置 `t.require` 挂了强制结束，后面的给分代码不执行、那些分自然没挣到——agent 没走到是它的责任，低分成立；沙箱炸了、judge 没 key 是 `errored`，整题分数为 `null`、不折成 0——评不了不是 agent 差。带 `.points` 的断言 `unavailable`（仅 `.optional()` 情形，否则整题已 errored）不挣分、在报告里如实标注。
-- **Verdict 面完全不动**：计分制 eval 同样有四态 verdict（errored 的判别、gate 的一票否决都照旧），缓存、重试、发现单位照旧。计分制只是把对比的主读数从通过率换成总分，两面各自成立。
+- **`.points(n)` 与 severity 互斥**：链过 `.points()` 的句柄上只剩 `.gate()` 与 `.optional()`，`.soft()` / `.atLeast()` 在类型层不存在（形状见 [Eval · defineScoreEval](../eval/README.md#definescoreeval计分制题型)）。得分点已经用分数表达了它的分量，再让它进质量分就是同一条证据被读两遍；`.atLeast(x)` 的语义（低于线记 failed、`--strict` 下拖垮 verdict）在计分制没有落点——要设通过线用 `.gate(0.5)`。
+- **角色只从句柄读**：matcher 自带的默认严重度（`includes` 默认 gate）与 matcher 上链的严重度（`similarity(...).gate(0.8)`）在计分制只贡献**通过线**，不使一条断言成为前置。前置是题目结构的声明，必须写在断言句柄上、一眼可见。
+- **`.gate()` 就地求值**：普通断言延迟到 finalize 才求值，前置断言在**写下的位置立即求值**——之后发生的事不改变它的结论，这正是「前置」的含义。挂了之后收集器进入中止态，下一次任何 `t.*` 调用或 `test()` 返回时抛出中止信号；收集器在每个 `t.*` 入口先结算待决前置，所以作者写不写 `await` 都不会漏掉中止（文档例子统一写 `await`）。
+- **计分制的 `t` 上没有 `t.require`**：`t.check(value, matcher).gate()` 覆盖 `t.require(value, matcher)` 的全部能力，还能同时挣分，前置在计分制里只有 `.gate()` 一种写法。`t.require` 仍是通过制的前置词（[值断言](../scoring/library/value-assertions.md#check-与-require)）。
+- **中止挣 0，基础设施得 null，严格分开**：前置挂了强制结束，后面的给分代码不执行、那些分自然没挣到——agent 没走到是它的责任，低分成立；沙箱炸了、judge 没 key 是 `errored`，整题分数为 `null`、不折成 0——评不了不是 agent 差。带 `.points` 的断言 `unavailable`（仅 `.optional()` 情形，否则整题已 errored）不挣分、在报告里如实标注。
+- **Verdict 回答「这次的分数完不完整」**：四态照旧，但计分制的 `failed` 只有一个来源——前置 `.gate()` 中止。**丢分不是失败**：五步走完三步的 attempt 是 `passed` 且挣 3 分，「做到几成」由分数面回答，不借判定面表达。`errored` / `skipped` 与通过制同义，缓存、重试、发现单位照旧。
 - **`runs > 1`**：eval 得分取各 attempt 的均值（`null` 跳过，全 `null` 为 `null`），与通过制按通过率聚合同构。
 
 两种题内写法（完整用例见[计分制用例](../eval/use-case/rubric-scoring.md)）：
@@ -43,10 +55,11 @@ export default defineScoreEval({
   description: "安装并启动 DB-GPT",
   async test(t) {
     await t.send("把 DB-GPT 装起来并通过健康检查。");
-    // 前置:挂了强制结束,后面自然 0 分——存在性检查用 fileExists(布尔) + isTrue
-    await t.require(await t.sandbox.fileExists("db-gpt/README.md"), isTrue("db-gpt cloned"));
+    // 纯前置:挂了就地结束,后面自然 0 分——存在性检查用 fileExists(布尔) + isTrue
+    await t.check(await t.sandbox.fileExists("db-gpt/README.md"), isTrue("db-gpt cloned")).gate();
     t.sandbox.fileChanged("db-gpt/.env").points(1);
-    t.calledTool("shell", { input: { command: /pip install/ } }).points(1);
+    // 值 1 分,且没装依赖后面全白跑——得分点兼前置
+    await t.calledTool("shell", { input: { command: /pip install/ } }).points(1).gate();
     // ……每个检查点 1 分,互相独立
   },
 });
@@ -57,7 +70,7 @@ export default defineScoreEval({
   async test(t) {
     await t.send("把 src/legacy.js 的回调改写成 async/await,并写重构说明。");
     const test = await t.sandbox.runCommand("npm", ["test"]);
-    t.check(test, commandSucceeded()).points(60);                    // gate 兼计分
+    t.check(test, commandSucceeded()).points(60);                    // 纯得分点,丢分不中止
     t.score("代码精简", tierPoints(lines, [50, 80, 120], 20));       // 自算分档,直接给分
     t.judge.autoevals.closedQA("说明是否讲清动机与风险?").points(20); // judge 按连续分比例挣
   },
@@ -68,9 +81,9 @@ export default defineScoreEval({
 
 评分证据是一棵四层折叠树（assertion → group → eval → experiment），每层最多折叠出三个读数：
 
-- **判定面（verdict，两种题型都有）**：由 severity 决定。severity 是折叠树的**边属性**：gate 边一票否决；`atLeast` 边挂了记 failed、默认不传播、`--strict` 下翻成 gate 边；`soft()` 边永不传播。`--strict` 是作用于所有层的同一个旋钮，组层、eval 层不另设规则。
+- **判定面（verdict，两种题型都有）**：通过制里由 severity 决定，severity 是折叠树的**边属性**：gate 边一票否决；`atLeast` 边挂了记 failed、默认不传播、`--strict` 下翻成 gate 边；`soft()` 边永不传播。`--strict` 是作用于所有层的同一个旋钮，组层、eval 层不另设规则。计分制里判定面只由前置中止决定，丢分不向上传播——它回答「这次的分数完不完整」，「做到几成」由分数面回答。
 - **分数面（挣分，计分制才有）**：由给分项构成，逐层求和；组的分数读数 = 组内给分项挣分之和（「正确性挣 45 分」）。
-- **质量分（tracked，两种题型都有）**：soft 断言（`.atLeast(x)` / `.soft()`）分数的**无权均值**（组内直接子项均值，逐层同构），eve 式 tracked-only 读数。gate 不进质量分——10 条全过的 gate 加一个 0.6 的 judge 均值 0.96，质量差被淹没；不带 points 的 soft 断言在计分制 eval 里也照常进质量分。选无权均值：对 0/1 型 soft 断言，均值就是过线比例（过线比例是均值的退化情形）；对打分断言保留连续信息；引入默认权重则是替作者发明没有原则化取值的参数——**权重只在作者显式给分时存在**。
+- **质量分（tracked，两种题型都有）**：soft 断言（`.atLeast(x)` / `.soft()`）分数的**无权均值**（组内直接子项均值，逐层同构），eve 式 tracked-only 读数。gate 不进质量分——10 条全过的 gate 加一个 0.6 的 judge 均值 0.96，质量差被淹没；计分制里带 `.points()` 的断言同样不进质量分（它属于分数面），不链词或链 `.soft()` 的观测断言照常进。选无权均值：对 0/1 型 soft 断言，均值就是过线比例（过线比例是均值的退化情形）；对打分断言保留连续信息；引入默认权重则是替作者发明没有原则化取值的参数——**权重只在作者显式给分时存在**。
 
 通用规则：**`unavailable` 在每一层都是 `null` 传播**、不折成 0，无 soft 内容或子项全 `null` 的节点质量分为 `null`（[Metric 的缺数据语义](../../concepts.md#结果数据与报告)）；**无组断言与无组给分归属隐式根组**。
 
@@ -93,7 +106,7 @@ export default defineScoreEval({
 | 得分点 = | 否决理由 |
 |---|---|
 | 单条断言 | 太细：断言数量差异直接污染权重，回到一分制要解决的问题 |
-| 显式新 API（`t.scorePoint(...)`） | severity + 给分词汇 + `t.group` 已完整表达「哪些检查是分、值多少、叫什么名字」，新词汇纯冗余 |
+| 显式新 API（`t.scorePoint(...)`） | 给分词汇 + `t.group` 已完整表达「哪些检查是分、值多少、叫什么名字」，新词汇纯冗余 |
 | **`t.group` 组** | 组是作者已经在用的语义分块（「路由层」「正确性」），零新概念 |
 
 组名即维度值，报告按 **`groupPath` 字面相等**聚合，不做归一化、不做模糊匹配：「路由层」和「路由」是两个维度。对齐靠 authoring 侧约定——同类检查抽成共享函数（如 `evals/*/share/`），组名在函数里写一次，跨 eval 天然一致；没对齐的组名不是错误，只是各自形成稀疏行。
@@ -103,7 +116,7 @@ export default defineScoreEval({
 `show` 与 `view` 共用同一份 page 声明（[Reports](../reports/README.md)），读取面在内建 `standard` 报告一处声明、两个宿主同时生效：
 
 - **榜单按实验题型选主列**：通过制实验显示通过率列，计分制实验显示总分列；存在质量分时两者都附质量分列。不摆空列。
-- **组深度视图 `MetricMatrix`**：行 = eval × 组，列 = experiment；格在计分制下读组内挣分，通过制下读组质量分，叠加组 gate 失败定位标记；`null` 显示为缺数据。
+- **组深度视图 `MetricMatrix`**：行 = eval × 组，列 = experiment；格在计分制下读组内挣分，通过制下读组质量分，叠加失败定位标记（通过制标组 gate 挂在哪层，计分制标中止发生在哪个组）；`null` 显示为缺数据。
 - attempt 详情按 `groupPath` 分块展示断言与给分记录是既有行为的延伸（[断言与 Turn 的展示](../scoring/library/display.md)），失败定位的逐条证据在那里下钻。
 - 自定义报告经 `niceeval/report` 读同一套折叠读数，组件契约的家在 [Reports Library](../reports/library.md)。
 
@@ -111,7 +124,7 @@ export default defineScoreEval({
 
 1. 这些检查点是**独立可跑的题目**还是**同一次运行内的检查**？独立可跑 → 拆成多个 eval（[数据集扇出](../eval/use-case/dataset-fanout.md)），粒度来自更多的题、不是更细的分。
 2. 同一道题内，「做对」是二值的 → `defineEval`：一票否决写 gate，观测指标写 soft。
-3. 同一道题内，「做到几成」有意义（长链条、rubric 大题）→ `defineScoreEval`：检查点 `.points(n)`，自算分数 `t.score`，前置条件 `t.require`。
+3. 同一道题内，「做到几成」有意义（长链条、rubric 大题）→ `defineScoreEval`：检查点 `.points(n)`，自算分数 `t.score`，前置条件 `.gate()`。
 
 各用例的题型对照见[用例目录](../eval/use-case/README.md#通过制还是计分制)。
 

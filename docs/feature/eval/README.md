@@ -32,22 +32,27 @@ export default defineEval({
 
 ## defineScoreEval：计分制题型
 
-`defineScoreEval` 定义**计分制**题型:题内用给分词汇叠加挣分(五步走完三步挣 3 分、rubric 大题按分值给分),对比读总分而不是通过率。字段与 `defineEval` 完全同形,唯一区别是 `test(t)` 的 `t` 额外提供给分词汇——`.points(n)` 链式句柄与 `t.score(label, n)`,它们**只**存在于计分制的 `t` 上,在 `defineEval` 里写给分是类型错误:
+`defineScoreEval` 定义**计分制**题型:题内用给分词汇叠加挣分(五步走完三步挣 3 分、rubric 大题按分值给分),对比读总分而不是通过率。字段与 `defineEval` 完全同形,区别只在 `test(t)` 的 `t` ——它是另一套类型,给分词汇 `.points(n)` / `t.score(label, n)` **只**存在于这里(在 `defineEval` 里写给分是类型错误):
 
 ```typescript
 import { defineScoreEval } from "niceeval";
+import { isTrue } from "niceeval/expect";
 
 export default defineScoreEval({
   description: "安装并启动 DB-GPT",
   async test(t) {
     await t.send("把 DB-GPT 装起来并通过健康检查。");
+    // 前置:挂了就地结束,后面的分自然挣不到
+    await t.check(await t.sandbox.fileExists("db-gpt/README.md"), isTrue("cloned")).gate();
     t.sandbox.fileChanged("db-gpt/.env").points(1);   // 检查点通过挣 1 分
     t.score("代码精简", 15);                           // 自己算好条件后直接累加
   },
 });
 ```
 
-题型是定义期事实,进 `EvalDescriptor.scoring`(`"pass" | "points"`)供 experiment 的 `evals` 谓词过滤;一个 experiment 选中的 eval 必须同型,混型是启动期配置错误。计分语义(叠加不扣分、无满分声明、中止挣 0 与 errored 得 null 的分界)的单源契约见[计分粒度](../experiments/score-points.md#计分制叠加给分没有上限声明),完整写法见[计分制用例](use-case/rubric-scoring.md)。
+计分制的 `t` 上一条断言只扮演一个角色:`.points(n)` 得分点、`.gate(x?)` 前置(挂了就地结束 `test()`)、什么都不链或 `.soft()` 观测(进质量分)。链过 `.points()` 的句柄上只剩 `.gate()` 与 `.optional()`;`.atLeast(x)` 与 `t.require` 在这套 `t` 上不存在——设通过线用 `.gate(x)`,前置只有 `.gate()` 一种写法。
+
+题型是定义期事实,进 `EvalDescriptor.scoring`(`"pass" | "points"`)供 experiment 的 `evals` 谓词过滤;一个 experiment 选中的 eval 必须同型,混型是启动期配置错误。计分语义(叠加不扣分、无满分声明、中止挣 0 与 errored 得 null 的分界、丢分不产生 failed)的单源契约见[计分粒度](../experiments/score-points.md#计分制叠加给分没有上限声明),完整写法见[计分制用例](use-case/rubric-scoring.md)。
 
 API 全景与组织约定见 [Library](library.md);单轮、多轮、HITL、数据集扇出、沙箱型等真实场景一篇一个用例,见 [use-case/](use-case/README.md);API 取舍背后的设计依据见 [Architecture](architecture.md)。评分手段(judge、匹配器、gate/soft)单独成篇,见 [Scoring](../scoring/README.md)。
 

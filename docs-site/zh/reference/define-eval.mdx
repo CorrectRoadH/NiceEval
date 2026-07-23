@@ -150,7 +150,7 @@ scoring?: EvalScoring;
 
 ## Test context: `t`
 
-`t`（`TestContext`）是评估用例作者拿到的高层上下文。运行器按 agent 的实际能力组装它——`t.sandbox` 这类字段只在 `defineSandboxAgent` 构造的 agent 上才有意义，完整规则见[能力位参考](/zh/reference/capabilities)。下面签名里的 `H` 是断言句柄类型：`defineEval` 的 `t` 上 `H` 恒为 `AssertionHandle`；计分制 `defineScoreEval` 的 `t`（`ScoreTestContext`）换成 `ScoreAssertionHandle`，同一份方法列表多出 `.points(n)`，详见[计分制](/zh/tutorials/scoring-guide#计分制检查点没走完也要看走了几步)。全部成员：
+`t`（`TestContext`）是评估用例作者拿到的高层上下文。运行器按 agent 的实际能力组装它——`t.sandbox` 这类字段只在 `defineSandboxAgent` 构造的 agent 上才有意义，完整规则见[能力位参考](/zh/reference/capabilities)。下面签名里的 `H` 是断言句柄类型：`defineEval` 的 `t` 上 `H` 恒为 `AssertionHandle`；计分制 `defineScoreEval` 的 `t`（`ScoreTestContext`）换成 `ScoreAssertionHandle`——多出 `.points(n)`，没有 `.atLeast(x)`，`.gate()` 的含义是「挂了就地结束 `test()`」，成员表里的 `require` 也不在这套 `t` 上（前置写成 `t.check(value, assertion).gate()`）。详见[计分制](/zh/tutorials/scoring-guide#计分制检查点没走完也要看走了几步)。全部成员：
 
 {/* GENERATED:BEGIN test-context */}
 

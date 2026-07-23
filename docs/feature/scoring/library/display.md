@@ -237,10 +237,21 @@ judge 没有解析到模型 / key 时记 `unavailable`（[判定规则](../archi
 ```text
 ✓ passed · 装了依赖
     +1 pt
-✗ gate · 健康检查可达
+✗ soft · 健康检查可达
     expected: exit 0
     received: exit 1
     +0 pts
+```
+
+得分点的 severity 是 `soft`——丢分不改 verdict（[计分粒度](../../experiments/score-points.md#计分制叠加给分没有上限声明)），失败行照常展开证据。
+
+**前置中止**：计分制里链了 `.gate()` 的断言挂掉会就地结束 `test()`，它按 `✗ gate` 展开，行尾追加一个中止标注，其后不再有任何断言或给分记录——详情里「后面是空的」和「后面全挂了」因此一眼可分：
+
+```text
+✗ gate · db-gpt cloned
+    expected: true
+    received: false
+    ⤓ 前置未过,test() 就地结束
 ```
 
 **`t.score(label, n)` 的直接给分记录**：与断言分属两个数组（见 [Scoring 架构 · 断言记录](../architecture.md#断言记录assertionresult)），没有 severity、没有 outcome，不与 assertions 混排；展示时单独成一个「给分记录」区块，按 `groupPath` 分组（与 passed 断言同一套 `groupPath.join(" > ")` 分组算法，无分组归到同一个空键），组内保持记录顺序：

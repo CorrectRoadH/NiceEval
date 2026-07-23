@@ -236,7 +236,8 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 - 已修 [claude-code-e2e-session-resume-maxtokens-budget-too-tight](claude-code-e2e-session-resume-maxtokens-budget-too-tight.md) — `t.maxTokens(80_000)` 当 usage 非空哨兵时贴着真实采样值设上限,真机第二次跑就在 90008 tokens 假阳性判 regression;usage 哨兵上限要留 2~3 倍余量,不能按样本量 1 定(修在 `e2e/adapter/claude-code/evals/session-resume.eval.ts`,提到 200_000)
 - [scoped-match-language-docs-first](scoped-match-language-docs-first.md) — 裁决(2026-07-14):`eventsSatisfy(label, predicate)` label 必填在前、`calledTool` 的 `input` 是深度部分匹配小语言(值位 RegExp/顶层 RegExp/谓词);曾按源码反推把契约改成 `(predicate, label?)`+浅层包含被否决——docs 先行,源码落后应改代码;实现缺口在 src/scoring/scoped.ts
 - 已被同日裁决替代 [severity-is-single-vs-multi-score-switch](severity-is-single-vs-multi-score-switch.md) — 裁决(2026-07-22 上午):severity 当单分/多分开关;装不下自定分值 rubric 被下条替代,但「gate 不进质量分」「soft 无权均值」「组 gate 读数=失败定位」被继承
-- [pass-vs-score-eval-two-modes](pass-vs-score-eval-two-modes.md) — 裁决(2026-07-22 定稿):两种题型 defineEval(通过制)/defineScoreEval(计分制,叠加给分无满分,.points/t.score 仅 score eval 的 t),实验内混型=启动期错误;否决满分声明+Σpoints守护、用法推断题型、混型「通过制挣1分」;一天四轮翻案全记录
+- 第 5 条被下条推翻 [pass-vs-score-eval-two-modes](pass-vs-score-eval-two-modes.md) — 裁决(2026-07-22 定稿):两种题型 defineEval(通过制)/defineScoreEval(计分制,叠加给分无满分,.points/t.score 仅 score eval 的 t),实验内混型=启动期错误;否决满分声明+Σpoints守护、用法推断题型、混型「通过制挣1分」;一天四轮翻案全记录
+- [score-eval-assertion-roles-not-orthogonal](score-eval-assertion-roles-not-orthogonal.md) — 裁决(2026-07-23):推翻「points 与 severity 正交」,计分制一条断言只扮演一个角色(.points 得分点 / .gate 前置中止 / 不链词=观测),.points 后只剩 .gate/.optional,计分制 failed 只由中止产生、没有 t.require;起因是默认 gate 让「五步走三步」被判 failed、.points().soft() 双读质量分
 
 ## examples · tier-sync · e2e repos
 

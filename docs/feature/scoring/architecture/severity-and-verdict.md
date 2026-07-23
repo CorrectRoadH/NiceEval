@@ -13,7 +13,18 @@
 
 `.atLeast` 的参数是分数线，不是调用次数——「至少调用 n 次」在匹配条件的 `count` 里表达（数字恰好、谓词自定，见[作用域断言](../library/scoped-assertions.md#匹配条件的字段全集)）。
 
-severity 只管**判定面**：它声明一条断言的失败怎么向上传播，同一语义沿组、eval、experiment 逐层作用，不按层另设规则，`--strict` 是作用于所有层的同一个旋钮——它把带线 soft 翻成 gate，只改判定传播，分数照记。分数面（计分制的 `.points(n)` / `t.score` 给分）与质量分（soft 断言的均值）是与 severity 正交的另两个读数，折叠规则见[计分粒度](../../experiments/score-points.md)。
+severity 只管**判定面**：它声明一条断言的失败怎么向上传播，同一语义沿组、eval、experiment 逐层作用，不按层另设规则，`--strict` 是作用于所有层的同一个旋钮——它把带线 soft 翻成 gate，只改判定传播，分数照记。质量分（soft 断言的均值）与分数面（计分制的给分）是另外两个读数，折叠规则见[计分粒度](../../experiments/score-points.md)。
+
+## 计分制里的 `.gate()`：前置中止
+
+上面三个词描述的是通过制（`defineEval`）的 `t`。计分制（`defineScoreEval`）的 `t` 是另一套类型，句柄上的词各有各的定义：
+
+- **`.gate(x?)` = 前置**。挂了**就地结束 `test()`**，后面的给分代码不执行；它是计分制里 `failed` 的唯一来源。与通过制的 gate 不同：通过制的 gate 不中止执行（继续收集其余断言作为诊断证据），把 verdict 翻成 failed；计分制不需要「翻 verdict」这一层——丢分已经由分数表达——需要的是「后面跑了也白跑，别浪费沙箱时间」。
+- **`.points(n)` = 得分点**，不参与判定、不进质量分；链过 `.points()` 的句柄上只剩 `.gate()` 与 `.optional()`。
+- **`.atLeast(x)` 不存在**：它的语义（低于线记 failed、`--strict` 下拖垮 verdict）在计分制没有落点，设通过线用 `.gate(x)`。
+- **`.soft()` 是默认**：什么都不链的断言就是纯记录的观测，进质量分；显式写 `.soft()` 只为可读性。
+
+前置断言在**写下的位置立即求值**（普通断言延迟到收尾才求值）——之后发生的事不改变它的结论，这正是「前置」的含义。matcher 自带或链上的严重度在计分制只贡献通过线，不使一条断言成为前置：前置是题目结构的声明，必须写在断言句柄上。完整的角色表见[计分粒度](../../experiments/score-points.md#计分制叠加给分没有上限声明)。
 
 ## Verdict
 
@@ -27,6 +38,8 @@ Verdict 只有 passed、failed、errored、skipped，按固定优先级取第一
 ```
 
 Errored 压过一切，因为执行证据已经不可信。Failed 压过 skipped，避免 `t.skip()` 掩盖此前记录的硬失败。
+
+计分制（`defineScoreEval`）用同一张表，只是 `failed` 那一行换成**前置 `.gate()` 中止**——得分点丢分不产生 failed。所以计分制的 verdict 回答的是「这次的分数完不完整」：跑完了是 `passed`（哪怕只挣 1 分），断在前置是 `failed`，评不了是 `errored`（分数 `null`）。「做到几成」由分数面回答，不借判定面表达。
 
 ## 证据不可用（unavailable）不折叠成通过
 

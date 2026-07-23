@@ -15,7 +15,7 @@ t.check(turn.data, matches(MySchema));
 - `t.check(value, matcher)` 同步记录断言并继续执行，适合一次收集多条结果。
 - `await t.require(value, matcher)` 立即等待；不通过就按 gate 中止依赖它的后续代码，通过后返回原 value。
 
-只有后续逻辑依赖这个值时才使用 `require`。
+只有后续逻辑依赖这个值时才使用 `require`。`require` 是**通过制**（`defineEval`）的前置词；计分制（`defineScoreEval`）的 `t` 上没有它，前置写成 `t.check(value, matcher).gate()`——同一件事，还能顺带挣分（见 [Severity 与 Verdict · 计分制里的 `.gate()`](../architecture/severity-and-verdict.md#计分制里的-gate前置中止)）。
 
 ## 内置 matcher
 
@@ -62,6 +62,8 @@ t.check(turn.data, satisfies((v) => Array.isArray(v) && v.length <= 5, "最多 5
 t.check(t.reply, similarity("布鲁克林今天晴。").atLeast(0.9)); // 收紧默认的 0.6
 t.check(t.reply, similarity("布鲁克林今天晴。").gate(0.8));    // 相似度不足直接挂
 ```
+
+这四个词描述的是通过制的 `t`。计分制（`defineScoreEval`）里 matcher 上链的严重度只贡献**通过线**，角色由断言句柄上的 `.points(n)` / `.gate(x?)` 决定，见 [Severity 与 Verdict · 计分制里的 `.gate()`](../architecture/severity-and-verdict.md#计分制里的-gate前置中止)。
 
 Severity 折叠成 Verdict 的完整规则见 [Severity 与 Verdict](../architecture/severity-and-verdict.md)；每个 matcher 失败时在 show / view 里显示什么，见 [断言与 Turn 的展示](display.md)。
 
