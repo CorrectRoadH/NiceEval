@@ -18,6 +18,7 @@ const validAttemptItem = {
   failureSummary: null,
   moreFailures: 0,
   examScore: validCell,
+  totalScore: validCell,
   durationMs: 1000,
   costUSD: 0.01,
   startedAt: "2026-07-01T00:00:00Z",
@@ -58,6 +59,7 @@ describe("validateEvalListData", () => {
       evalId: "q1",
       verdict: "passed",
       examScore: validCell,
+      totalScore: validCell,
       durationMs: validCell,
       costUSD: validCell,
       attempts: [validAttemptItem],
@@ -80,13 +82,22 @@ describe("validateEvalListData", () => {
 });
 
 describe("validateExperimentListData", () => {
-  const validEvalRow = { evalId: "q1", verdict: "passed", durationMs: validCell, costUSD: validCell, attempts: [validAttemptItem] };
+  const validEvalRow = {
+    evalId: "q1",
+    verdict: "passed",
+    totalScore: validCell,
+    durationMs: validCell,
+    costUSD: validCell,
+    attempts: [validAttemptItem],
+  };
   const valid = [
     {
       experimentId: "compare/codex",
       agent: "codex",
+      scoring: "pass",
       evalVerdicts: validTally,
       endToEndPassRate: validCell,
+      totalScore: validCell,
       costUSD: validCell,
       durationMs: validCell,
       tokens: validCell,
