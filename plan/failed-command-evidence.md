@@ -2,7 +2,8 @@
 
 目标契约单点：
 
-- 落盘形状与截断：`docs/feature/results/architecture.md#commandsjson`
+- 落盘形状、截断与横切接线（writer 参数面 / reader 懒加载 / `copySnapshots` 缺省）：
+  `docs/feature/results/architecture.md#证据-registry`、`#commandsjson`
 - 终端 / JSON 读取：`docs/feature/reports/show/execution.md`、`show/json.md`
 - 反馈分层：`docs/error-feedback.md`
 - 测试类别：`docs/engineering/testing/unit/{sandbox,results,reports}.md`
@@ -11,10 +12,11 @@
 
 - [ ] 在 runner 的公开 Sandbox timing wrapper 中，给最外层 `runCommand` / `runShell` 分配的
   command node id 同时作为 evidence id；非零返回先登记完整 `CommandResult`，再交还调用方。
-- [ ] attempt writer 新增 `commands.json` 与 `hasCommands`；stdout/stderr 复用
-  `ARTIFACT_VALUE_MAX_BYTES` / `Truncation`，不另造截断规则。
-- [ ] Results reader 新增 commands 懒加载；携带按 `artifactBase` 回退；`copySnapshots` 的
-  artifact 联合增加 `"commands"`。
+- [ ] 按证据 registry（`docs/feature/results/architecture.md#证据-registry`）给 `commands`
+  加一行接线：attempt writer 落盘 `commands.json`，写入的 `AttemptRecord.artifacts` 含
+  `commands`；stdout/stderr 复用 `ARTIFACT_VALUE_MAX_BYTES` / `Truncation`，不另造截断规则。
+- [ ] Results reader 按 registry 表新增 `commands` 懒加载方法；携带按 `artifactBase` 回退；
+  `copySnapshots` 的 `artifacts` 联合按 registry 词表带上 `"commands"`（缺省带）。
 - [ ] execution compose 把 `events.json` 的 Agent 卡与 `commands.json` 的失败命令卡组成同一
   attempt 视图；命令卡按 timing node `startOffsetMs` 排序，缺 timing node 时保留证据并明确显示
   timing unavailable，不按数组偶然顺序猜时间。
