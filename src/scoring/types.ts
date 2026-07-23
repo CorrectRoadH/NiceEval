@@ -121,7 +121,10 @@ export interface PrimaryAssertionSummary {
   threshold?: number;
   /** unavailable 断言的结构化原因。 */
   reason?: string;
-  /** 同类因果失败中除主失败外的条数。 */
+  /** 计分制 `.points(n)` 挣到的分（`n × score`）；单行摘要的尾缀，见
+   *  docs/feature/scoring/library/display.md「计分制」。 */
+  points?: number;
+  /** 同类因果失败（或计分制 passed 分支下：其余丢分得分点）中除主失败外的条数。 */
   additionalFailures: number;
 }
 

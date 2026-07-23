@@ -37,7 +37,8 @@ import { selectedEvalsOnly, summarizeItems } from "../shared-compute.ts";
 /**
  * 一次 attempt 的单行结果摘要(Scoring display 契约):failed 取主失败断言摘要(不含
  * "+N more",N 单独进 moreFailures),errored 取结构化 error 的一层摘要
- * (phase · code · message),passed / skipped 为 null。
+ * (phase · code · message);计分制(`scoring: "points"`)passed 存在丢分得分点时取首条丢分
+ * 摘要(规则 6,含 points 挣分尾缀);其余 passed / skipped 为 null。
  */
 export function failureSummaryOf(result: EvalResult): { summary: string | null; more: number } {
   if (result.verdict === "errored" && result.error !== undefined) {
@@ -46,8 +47,10 @@ export function failureSummaryOf(result: EvalResult): { summary: string | null; 
     );
     return { summary: summaryText(parts.join(" · ")), more: 0 };
   }
-  if (result.verdict === "failed" || result.verdict === "errored") {
-    const primary = primaryAssertionSummary(result.assertions, result.verdict);
+  const scoring = result.scoring === "points" ? "points" : "pass";
+  const scorablePassed = result.verdict === "passed" && scoring === "points";
+  if (result.verdict === "failed" || result.verdict === "errored" || scorablePassed) {
+    const primary = primaryAssertionSummary(result.assertions, result.verdict, scoring);
     if (primary !== undefined) {
       return {
         summary: compactAssertionSummary({ ...primary, additionalFailures: 0 }),

@@ -47,6 +47,12 @@ describe("validateSummaryData", () => {
     const bad = { ...valid, capabilities: { ...validCapabilities, timing: "false" } };
     expect(validateSummaryData(bad)).toMatch(/"capabilities\.timing"/);
   });
+
+  it("totalScore 省略合法(通过制);非数字报错", () => {
+    expect(validateSummaryData(valid)).toBeNull();
+    expect(validateSummaryData({ ...valid, totalScore: 4 })).toBeNull();
+    expect(validateSummaryData({ ...valid, totalScore: "4" })).toMatch(/"totalScore"/);
+  });
 });
 
 describe("validateErrorData", () => {
@@ -89,6 +95,14 @@ describe("validateAssertionsData", () => {
     const bad = { attention: [], passedGroups: [{ group: "setup", items: [{ name: "eq", severity: "gate" }] }] };
     expect(validateAssertionsData(bad)).toMatch(/"passedGroups\[0\]\.items\[0\]\.outcome"/);
   });
+
+  it("scorePointsEarned 省略合法(通过制);结构错误报错", () => {
+    const valid = { attention: [passed], passedGroups: [], scorePointsEarned: { earned: 1, total: 2 } };
+    expect(validateAssertionsData(valid)).toBeNull();
+    expect(validateAssertionsData({ attention: [], passedGroups: [] })).toBeNull();
+    const bad = { attention: [], passedGroups: [], scorePointsEarned: { earned: "1", total: 2 } };
+    expect(validateAssertionsData(bad)).toMatch(/"scorePointsEarned\.earned"/);
+  });
 });
 
 describe("validateSourceData", () => {
@@ -106,7 +120,7 @@ describe("validateSourceData", () => {
   const valid = {
     locator: "@1abcdef2",
     sourcePath: "eval.ts",
-    lines: [{ line: 1, text: "t.send(...)", assertions: [], sends: [], turns: [] }],
+    lines: [{ line: 1, text: "t.send(...)", assertions: [], sends: [], turns: [], scoreEntries: [] }],
     unmapped: [],
     unlocatedTurns: [],
     summary: validSummary,
@@ -127,7 +141,7 @@ describe("validateSourceData", () => {
   });
 
   it("lines[i].assertions 嵌套断言结构错误报错", () => {
-    const bad = { ...valid, lines: [{ line: 1, text: "x", assertions: [{ name: "eq" }], sends: [], turns: [] }] };
+    const bad = { ...valid, lines: [{ line: 1, text: "x", assertions: [{ name: "eq" }], sends: [], turns: [], scoreEntries: [] }] };
     expect(validateSourceData(bad)).toMatch(/"lines\[0\]\.assertions\[0\]\.severity"/);
   });
 
@@ -141,10 +155,29 @@ describe("validateSourceData", () => {
           assertions: [],
           sends: [],
           turns: [{ label: "s1/t1", status: "completed", sentText: "go", replies: [{ kind: "assistant" }] }],
+          scoreEntries: [],
         },
       ],
     };
     expect(validateSourceData(bad)).toMatch(/"lines\[0\]\.turns\[0\]\.replies\[0\]\.text"/);
+  });
+
+  it("lines[i].scoreEntries 嵌套 ScoreEntry 结构错误报错", () => {
+    const bad = { ...valid, lines: [{ line: 1, text: "x", assertions: [], sends: [], turns: [], scoreEntries: [{ label: "x" }] }] };
+    expect(validateSourceData(bad)).toMatch(/"lines\[0\]\.scoreEntries\[0\]\.points"/);
+  });
+
+  it("lines[i].aborted / unreached 非 true 报错;省略合法", () => {
+    expect(validateSourceData(valid)).toBeNull();
+    const bad = { ...valid, lines: [{ ...valid.lines[0], aborted: "yes" }] };
+    expect(validateSourceData(bad)).toMatch(/"lines\[0\]\.aborted"/);
+  });
+
+  it("unmappedScoreEntries 存在时按分组结构校验,省略合法", () => {
+    const withEntries = { ...valid, unmappedScoreEntries: [{ group: "", items: [{ label: "bonus", points: 2 }] }] };
+    expect(validateSourceData(withEntries)).toBeNull();
+    const bad = { ...valid, unmappedScoreEntries: [{ group: "", items: [{ label: "bonus" }] }] };
+    expect(validateSourceData(bad)).toMatch(/"unmappedScoreEntries\[0\]\.items\[0\]\.points"/);
   });
 });
 

@@ -200,6 +200,7 @@ export function validateSummaryData(data: unknown): string | null {
   if (typeof data.verdict !== "string") return 'missing "verdict" (string)';
   if (typeof data.durationMs !== "number") return '"durationMs" must be a number';
   if (!(data.costUSD === null || typeof data.costUSD === "number")) return '"costUSD" must be a number or null';
+  if (data.totalScore !== undefined && typeof data.totalScore !== "number") return '"totalScore" must be a number';
   return capabilitiesProblem(data.capabilities, "capabilities");
 }
 
@@ -243,6 +244,26 @@ function scoreEntryProblem(value: unknown, path: string): string | null {
   return null;
 }
 
+/** `{ group, items: ScoreEntry[] }[]` 分组结构;AttemptAssertionsData.scoreEntries 与
+ *  AttemptSourceData.unmappedScoreEntries 共用同一套算法(groupByPath)与同一份校验。 */
+function scoreEntryGroupsProblem(value: unknown, path: string): string | null {
+  return arrayProblem(value, path, (group, groupPath) => {
+    if (!isObject(group) || typeof group.group !== "string") {
+      return `"${groupPath}" must be an object with a string "group"`;
+    }
+    return arrayProblem(group.items, `${groupPath}.items`, scoreEntryProblem);
+  });
+}
+
+/** 得分点挣满计数;AttemptAssertionsData 与 AttemptSourceData 共用同一条判据(源码不可用时
+ *  换成 AttemptAssertions「规则完全一致」,见 docs/feature/reports/show/attempt.md)。 */
+function scorePointsEarnedProblem(value: unknown, path: string): string | null {
+  if (!isObject(value)) return `"${path}" must be an object { earned, total }`;
+  if (typeof value.earned !== "number") return `"${path}.earned" must be a number`;
+  if (typeof value.total !== "number") return `"${path}.total" must be a number`;
+  return null;
+}
+
 export function validateAssertionsData(data: unknown): string | null {
   if (!isObject(data)) return "expected an object";
   const attentionProblem = arrayProblem(data.attention, "attention", assertionResultProblem);
@@ -254,13 +275,12 @@ export function validateAssertionsData(data: unknown): string | null {
     return arrayProblem(group.items, `${path}.items`, assertionResultProblem);
   });
   if (passedGroupsProblem !== null) return passedGroupsProblem;
-  if (data.scoreEntries === undefined) return null;
-  return arrayProblem(data.scoreEntries, "scoreEntries", (group, path) => {
-    if (!isObject(group) || typeof group.group !== "string") {
-      return `"${path}" must be an object with a string "group"`;
-    }
-    return arrayProblem(group.items, `${path}.items`, scoreEntryProblem);
-  });
+  if (data.scoreEntries !== undefined) {
+    const scoreEntriesProblem = scoreEntryGroupsProblem(data.scoreEntries, "scoreEntries");
+    if (scoreEntriesProblem !== null) return scoreEntriesProblem;
+  }
+  if (data.scorePointsEarned === undefined) return null;
+  return scorePointsEarnedProblem(data.scorePointsEarned, "scorePointsEarned");
 }
 
 export const AttemptAssertions = makeAttemptComponent<AttemptAssertionsData>({
@@ -269,7 +289,7 @@ export const AttemptAssertions = makeAttemptComponent<AttemptAssertionsData>({
   shapeName: "AttemptAssertionsData",
   dataFn: attemptAssertionsData,
   validate: validateAssertionsData,
-  web: (props, ctx) => <AttemptAssertionsWeb data={props.data} className={props.className} />,
+  web: (props, ctx) => <AttemptAssertionsWeb data={props.data} locale={ctx.locale} className={props.className} />,
   text: (props, ctx) => attemptAssertionsText(props.data, ctx),
 });
 
@@ -283,7 +303,13 @@ function annotatedSourceLineProblem(value: unknown, path: string): string | null
   const assertionsProblem = arrayProblem(value.assertions, `${path}.assertions`, assertionResultProblem);
   if (assertionsProblem !== null) return assertionsProblem;
   if (!Array.isArray(value.sends)) return `"${path}.sends" must be an array`;
-  return arrayProblem(value.turns, `${path}.turns`, sourceTurnProblem);
+  const turnsProblem = arrayProblem(value.turns, `${path}.turns`, sourceTurnProblem);
+  if (turnsProblem !== null) return turnsProblem;
+  const scoreEntriesProblem = arrayProblem(value.scoreEntries, `${path}.scoreEntries`, scoreEntryProblem);
+  if (scoreEntriesProblem !== null) return scoreEntriesProblem;
+  if (value.aborted !== undefined && value.aborted !== true) return `"${path}.aborted" must be true or omitted`;
+  if (value.unreached !== undefined && value.unreached !== true) return `"${path}.unreached" must be true or omitted`;
+  return null;
 }
 
 function sourceTurnProblem(value: unknown, path: string): string | null {
@@ -324,9 +350,16 @@ export function validateSourceData(data: unknown): string | null {
   if (linesProblem !== null) return linesProblem;
   const unmappedProblem = arrayProblem(data.unmapped, "unmapped", assertionResultProblem);
   if (unmappedProblem !== null) return unmappedProblem;
+  if (data.unmappedScoreEntries !== undefined) {
+    const unmappedScoreEntriesProblem = scoreEntryGroupsProblem(data.unmappedScoreEntries, "unmappedScoreEntries");
+    if (unmappedScoreEntriesProblem !== null) return unmappedScoreEntriesProblem;
+  }
   const turnsProblem = arrayProblem(data.unlocatedTurns, "unlocatedTurns", sourceTurnProblem);
   if (turnsProblem !== null) return turnsProblem;
-  return sourceSummaryProblem(data.summary, "summary");
+  const summaryProblem = sourceSummaryProblem(data.summary, "summary");
+  if (summaryProblem !== null) return summaryProblem;
+  if (data.scorePointsEarned === undefined) return null;
+  return scorePointsEarnedProblem(data.scorePointsEarned, "scorePointsEarned");
 }
 
 export const AttemptSource = makeAttemptComponent<AttemptSourceData>({
@@ -335,7 +368,7 @@ export const AttemptSource = makeAttemptComponent<AttemptSourceData>({
   shapeName: "AttemptSourceData",
   dataFn: attemptSourceData,
   validate: validateSourceData,
-  web: (props, ctx) => <AttemptSourceWeb data={props.data} className={props.className} />,
+  web: (props, ctx) => <AttemptSourceWeb data={props.data} locale={ctx.locale} className={props.className} />,
   text: (props, ctx) => attemptSourceText(props.data, ctx),
 });
 

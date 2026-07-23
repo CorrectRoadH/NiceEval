@@ -24,11 +24,25 @@ import type {
   AttemptTraceData,
   AttemptUsageData,
 } from "../../model/types.ts";
-import type { DiagnosticRecord, JsonValue, ScoreEntry, StreamEvent } from "../../../types.ts";
+import type { AssertionResult, DiagnosticRecord, EvalResult, JsonValue, ScoreEntry, StreamEvent } from "../../../types.ts";
 import { attemptCostUSD } from "../../model/metrics.ts";
 import { failureSummaryOf } from "../entity-lists/compute.ts";
 
 // ───────────────────────── AttemptSummary(恒非空) ─────────────────────────
+
+/**
+ * 计分制 attempt 本轮挣分:`assertions[].points`(排除 unavailable)之和 + `scoreEntries[].points`
+ * 之和——纯累加,与 model/metrics.ts 的 `totalScore` 指标同一条口径,但这里恒返回一个数字
+ * (不为 errored/skipped 归 null):详情页总分位「不摆 null 占位」,只在通过制时整字段省略。
+ */
+function earnedPoints(result: EvalResult): number {
+  let total = 0;
+  for (const assertion of result.assertions) {
+    if (assertion.outcome !== "unavailable" && typeof assertion.points === "number") total += assertion.points;
+  }
+  for (const entry of result.scoreEntries ?? []) total += entry.points;
+  return total;
+}
 
 export function attemptSummaryData(evidence: AttemptEvidence): AttemptSummaryData {
   const { result } = evidence;
@@ -40,6 +54,8 @@ export function attemptSummaryData(evidence: AttemptEvidence): AttemptSummaryDat
     durationMs: result.durationMs,
     costUSD: attemptCostUSD(result),
     capabilities: evidence.capabilities,
+    // 题型判定读定义期 result.scoring,不从 assertions 是否带 points 推断。
+    ...(result.scoring === "points" ? { totalScore: earnedPoints(result) } : {}),
   };
 }
 
@@ -65,18 +81,55 @@ function groupByPath<T extends { groupPath?: string[] }>(items: readonly T[]): {
   return [...groups.entries()].map(([group, items]) => ({ group, items }));
 }
 
+/**
+ * 得分点挣满计数("2/5 得分点挣满"):分母是全部带 `.points` 的断言(unavailable 结构上不携带
+ * `points`,天然不计入);挣满 = `score === 1`——连续打分断言(如 judge)挣到 `n × 0.8` 时
+ * `score` 恰是 0.8,不算挣满(docs/feature/scoring/library/display.md「计分制」)。
+ */
+function scorePointsEarnedOf(assertions: readonly AssertionResult[]): { earned: number; total: number } | undefined {
+  const scorePoints = assertions.filter((a) => a.outcome !== "unavailable" && a.points !== undefined);
+  if (scorePoints.length === 0) return undefined;
+  const earned = scorePoints.filter((a) => a.outcome !== "unavailable" && a.score === 1).length;
+  return { earned, total: scorePoints.length };
+}
+
+/**
+ * 计分制前置中止的中止断言:`failed` 只有前置中止一个来源,中止点恒为记录顺序最后一条
+ * `AssertionResult`(必为 failed gate)——从既有事实推导,不加落盘字段(见本 plan「实现判据」)。
+ * 按引用标注(不是按行号):这条断言无论展示在哪个面(平铺列表、还是投影回某行源码)都是
+ * 同一个对象,标注一次两处都认得出,循环产生的同行多条断言也不会被行级粒度混淆。
+ */
+function abortAssertionOf(result: EvalResult): AssertionResult | undefined {
+  return result.scoring === "points" && result.verdict === "failed" && result.assertions.length > 0
+    ? result.assertions[result.assertions.length - 1]
+    : undefined;
+}
+
+/** 中止断言追加 `aborted` 标注(⤓ 前置未过,详情见 docs/feature/scoring/library/display.md「前置中止」);其余原样返回。 */
+function markAborted<T extends AssertionResult>(items: readonly T[], abortAssertion: AssertionResult | undefined): (T & { aborted?: true })[] {
+  if (abortAssertion === undefined) return items.slice();
+  return items.map((a) => (a === abortAssertion ? { ...a, aborted: true as const } : a));
+}
+
 export function attemptAssertionsData(evidence: AttemptEvidence): AttemptAssertionsData | null {
-  const assertions = evidence.result.assertions ?? [];
+  const { result } = evidence;
+  const assertions = result.assertions ?? [];
   // t.score(label, n) 直接给分记录:与 assertions 分属两个数组,只在计分制 eval 上出现
   // (见 docs/feature/scoring/architecture.md「断言记录」)。
-  const scoreEntries: readonly ScoreEntry[] = evidence.result.scoreEntries ?? [];
+  const scoreEntries: readonly ScoreEntry[] = result.scoreEntries ?? [];
   if (assertions.length === 0 && scoreEntries.length === 0) return null;
-  const attention = assertions.filter((a) => a.outcome !== "passed");
-  const passed = assertions.filter((a) => a.outcome === "passed");
+  // 得分点(带 .points)豁免 passed 收纳:即使 passed 也进平铺列表,不折进 passedGroups 计数——
+  // 收纳只作用于不带 .points 的观测断言(docs/feature/scoring/library/display.md「得分点不参与
+  // passed 收纳」)。中止断言(若存在)恒是 failed,天然落在这个平铺列表里,不需要额外分支。
+  const attentionBase = assertions.filter((a) => a.outcome !== "passed" || a.points !== undefined);
+  const passed = assertions.filter((a) => a.outcome === "passed" && a.points === undefined);
+  const scorePointsEarned = scorePointsEarnedOf(assertions);
+  const attention = markAborted(attentionBase, abortAssertionOf(result));
   return {
     attention,
     passedGroups: groupByPath(passed),
     ...(scoreEntries.length > 0 ? { scoreEntries: groupByPath(scoreEntries) } : {}),
+    ...(scorePointsEarned ? { scorePointsEarned } : {}),
   };
 }
 
@@ -85,8 +138,38 @@ export function attemptAssertionsData(evidence: AttemptEvidence): AttemptAsserti
 export function attemptSourceData(evidence: AttemptEvidence): AttemptSourceData | null {
   if (!evidence.capabilities.source || evidence.evalSource === null) return null;
   const { sourcePath, lines, unmapped, summary } = evidence.evalSource;
+  const { result } = evidence;
+  const scorePointsEarned = scorePointsEarnedOf(result.assertions);
+
+  // t.score(...) 给分记录按 loc 投影到源码行,原位标注给分;不在展示源码内的落
+  // unmappedScoreEntries——与断言的 unmapped 桶同一条「不映射就进末尾分组」规则
+  // (docs/feature/scoring/library/display.md「源码面同样承载给分证据」)。
+  const scoreEntriesByLine = new Map<number, ScoreEntry[]>();
+  const unmappedScoreEntries: ScoreEntry[] = [];
+  for (const entry of result.scoreEntries ?? []) {
+    const loc = entry.loc;
+    if (loc && loc.file === sourcePath && loc.line >= 1 && loc.line <= lines.length) {
+      const list = scoreEntriesByLine.get(loc.line);
+      if (list) list.push(entry);
+      else scoreEntriesByLine.set(loc.line, [entry]);
+    } else {
+      unmappedScoreEntries.push(entry);
+    }
+  }
+
+  // 计分制前置中止:中止断言(若存在)按引用标注(与 attemptAssertionsData 同一份判据);中止点
+  // 之后的源码行即未到达区。abortLoc 不在展示源码内时(未捕获或指向别的文件)不标注任何行——
+  // 这条断言仍会出现在 attention/unmapped 里(带 aborted 标注),只是没有可锚定的行。
+  const abortAssertion = abortAssertionOf(result);
+  const abortLoc = abortAssertion?.loc;
+  const abortLine =
+    abortLoc && abortLoc.file === sourcePath && abortLoc.line >= 1 && abortLoc.line <= lines.length
+      ? abortLoc.line
+      : undefined;
+
   const projectedLines = lines.map((line) => ({
     ...line,
+    assertions: markAborted(line.assertions, abortAssertion),
     turns: line.sends.map<AttemptSourceTurn>((send) => ({
       label: send.label,
       status: send.status,
@@ -94,6 +177,9 @@ export function attemptSourceData(evidence: AttemptEvidence): AttemptSourceData 
       sentText: "",
       replies: [],
     })),
+    scoreEntries: scoreEntriesByLine.get(line.line) ?? [],
+    ...(abortLine === line.line ? { aborted: true as const } : {}),
+    ...(abortLine !== undefined && line.line > abortLine ? { unreached: true as const } : {}),
   }));
   const usedTurns = new Map<number, number>();
   const unlocatedTurns: AttemptSourceTurn[] = [];
@@ -133,22 +219,46 @@ export function attemptSourceData(evidence: AttemptEvidence): AttemptSourceData 
     }
   }
 
-  return { locator: evidence.locator, sourcePath, lines: projectedLines, unmapped, unlocatedTurns, summary };
+  return {
+    locator: evidence.locator,
+    sourcePath,
+    lines: projectedLines,
+    unmapped: markAborted(unmapped, abortAssertion),
+    ...(unmappedScoreEntries.length > 0 ? { unmappedScoreEntries: groupByPath(unmappedScoreEntries) } : {}),
+    unlocatedTurns,
+    summary,
+    // 源码不可用时换成 AttemptAssertions「规则完全一致」(docs/feature/reports/show/attempt.md):
+    // 得分点挣满计数同一条判据,不因为有源码就换一套算法。
+    ...(scorePointsEarned ? { scorePointsEarned } : {}),
+  };
 }
 
 // ───────────────────────── AttemptFixPrompt ─────────────────────────
 
-/** 单条 attempt 版的批量修复 prompt(与 CopyFixPrompt 的多条版本同一份步骤文案)。 */
+/**
+ * 单条 attempt 版的批量修复 prompt(与 CopyFixPrompt 的多条版本同一份步骤文案)。三态
+ * (docs/feature/reports/library/attempt-detail.md「`AttemptFixPrompt`」):计分制丢分或中止 →
+ * 非 null(围绕丢分检查点组装);计分制挣满且未中止、或通过制 passed → null;skipped 恒 null。
+ */
 export function attemptFixPromptData(evidence: AttemptEvidence): AttemptFixPromptData | null {
   const { result, identity } = evidence;
-  if (result.verdict !== "failed" && result.verdict !== "errored") return null;
+  if (result.verdict === "skipped") return null;
+  // 通过制(省略或 "pass")passed 恒 null;计分制 passed 是否可操作看下面的 failureSummaryOf——
+  // 挣满(或没有得分点)时它同样返回 null summary,不需要在这里重复判断。
+  if (result.verdict === "passed" && result.scoring !== "points") return null;
   const { summary, more } = failureSummaryOf(result);
   if (summary === null) return null;
-  const reason = more > 0 ? `${summary} (+${more} more failures)` : summary;
+  // 计分制 passed 但有丢分:可操作失败,但这条 attempt 并没有"失败"——措辞与真正的 failed/
+  // errored 分开,不把丢分说成失败。
+  const lostPoints = result.verdict === "passed";
+  const moreNoun = lostPoints ? "lost points" : "failures";
+  const reason = more > 0 ? `${summary} (+${more} more ${moreNoun})` : summary;
   const prompt = [
-    "Fix the failing eval from this niceeval run.",
+    lostPoints
+      ? "Recover the lost points on this niceeval scoring eval."
+      : "Fix the failing eval from this niceeval run.",
     "",
-    "## Failure",
+    lostPoints ? "## Lost points" : "## Failure",
     `eval "${identity.evalId}" [experiment ${identity.experimentId}] — ${result.verdict}`,
     `  reason: ${reason}`,
     `  inspect: niceeval show ${evidence.locator}`,
@@ -158,7 +268,9 @@ export function attemptFixPromptData(evidence: AttemptEvidence): AttemptFixPromp
     "2. Run the inspect command above with `--source`, `--execution`, `--timing`, and `--diff` to see the assertions, transcript, timing, and workspace diff.",
     "3. Decide which side the defect is on: the program under test, or the eval itself (over-tight assertion, wrong fixture, missing setup). Fix that side; do not weaken assertions just to turn the run green.",
     `4. Re-run: \`npx niceeval exp ${identity.experimentId} ${identity.evalId}\`. Already-passing evals are skipped by the fingerprint cache; pass \`--force\` to re-run everything.`,
-    "5. Run `npx niceeval show` and confirm this failure is gone.",
+    lostPoints
+      ? "5. Run `npx niceeval show` and confirm the score improved."
+      : "5. Run `npx niceeval show` and confirm this failure is gone.",
   ].join("\n");
   return { prompt };
 }

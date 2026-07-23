@@ -13,6 +13,7 @@ import type { Results, Scope } from "../../../results/index.ts";
 import { makeScope } from "../../../results/select.ts";
 import type { AttemptEvidence, AttemptEvidenceCapabilities } from "../../../results/attempt-evidence.ts";
 import { encodeAttemptLocator, type AttemptIdentity } from "../../../results/locator.ts";
+import { buildAnnotatedEvalSource } from "../../../results/annotated-source.ts";
 import { composeOf, resolveReportTree, ResolveMemo, type ReportNode } from "../../definition/tree.ts";
 import { buildReportMeta, defineReport } from "../../definition/report.ts";
 import {
@@ -148,6 +149,26 @@ describe("Attempt 详情组件族:非空/空证据矩阵", () => {
     expect(dataWithoutStartedAt.startedAt).toBeUndefined();
   });
 
+  it("AttemptSummary:计分制 attempt 加本轮挣分字段,通过制省略(不摆 null 占位),题型判定读定义期 scoring", () => {
+    const assertions: AssertionResult[] = [
+      { name: "a", severity: "gate", outcome: "passed", score: 1, points: 1 },
+      { name: "b", severity: "soft", outcome: "failed", score: 0, points: 0 },
+    ];
+    const scored = evidenceOf({
+      result: resultOf({ scoring: "points", assertions, scoreEntries: [{ label: "bonus", points: 2 }] }),
+    });
+    expect(attemptSummaryData(scored).totalScore).toBe(3); // 1(a) + 0(b) + 2(scoreEntry)
+
+    // 题型判定读定义期 scoring,不从「assertions 是否带 points」反推:通过制 eval 即使意外带了
+    // points 字段也不产生这个读数(现实里通过制的 AssertionHandle 类型层没有 .points())。
+    const passRun = evidenceOf({ result: resultOf({ scoring: "pass", assertions }) });
+    expect(attemptSummaryData(passRun).totalScore).toBeUndefined();
+    expect("totalScore" in attemptSummaryData(passRun)).toBe(false);
+
+    const scoringOmitted = evidenceOf({ result: resultOf({ assertions: [] }) });
+    expect(attemptSummaryData(scoringOmitted).totalScore).toBeUndefined();
+  });
+
   it("AttemptError:没有 error 时 null,有 error 时结构化字段齐全", () => {
     expect(attemptErrorData(evidenceOf())).toBeNull();
     const withError = evidenceOf({
@@ -179,8 +200,28 @@ describe("Attempt 详情组件族:非空/空证据矩阵", () => {
     const data = attemptAssertionsData(
       evidenceOf({ result: resultOf({ verdict: "failed", scoring: "points", assertions }) }),
     )!;
-    expect((data.attention[0] as { points?: number }).points).toBe(0); // 挂了的检查点如实显示挣到 0 分,不隐藏
-    expect((data.passedGroups[0]!.items[0]! as { points?: number }).points).toBe(3);
+    // 得分点(含 passed)豁免 passed 收纳:两条都进平铺列表,按原始声明顺序。
+    expect(data.attention.map((a) => a.name)).toEqual(["a", "b"]);
+    expect((data.attention[0] as { points?: number }).points).toBe(3); // passed 得分点如实显示挣到的分
+    expect((data.attention[1] as { points?: number }).points).toBe(0); // 挂了的检查点如实显示挣到 0 分,不隐藏
+    expect(data.passedGroups).toEqual([]); // 没有不带 .points 的 passed 观测断言
+    expect(validateAssertionsData(data)).toBeNull();
+  });
+
+  it("AttemptAssertions:收纳只作用于不带 .points 的观测断言,得分点挣满计数只数带 .points 的断言", () => {
+    const assertions: AssertionResult[] = [
+      { name: "a", severity: "gate", outcome: "passed", score: 1, points: 3, groupPath: ["g1"] }, // 得分点:豁免收纳
+      { name: "b", severity: "gate", outcome: "passed", score: 1, groupPath: ["g1"] }, // 不带 points:走收纳
+      { name: "c", severity: "soft", outcome: "failed", score: 0, points: 0 }, // 丢分得分点
+      { name: "d", severity: "soft", outcome: "unavailable", reason: "no-key" }, // 非得分点的 unavailable,不进挣满计数分母
+    ];
+    const data = attemptAssertionsData(
+      evidenceOf({ result: resultOf({ verdict: "passed", scoring: "points", assertions }) }),
+    )!;
+    expect(data.attention.map((a) => a.name)).toEqual(["a", "c", "d"]);
+    expect(data.passedGroups).toEqual([{ group: "g1", items: [assertions[1]] }]);
+    // 2 个得分点(a、c),a 挣满(score===1)、c 没挣满(score===0);d 不带 points,不计入分母。
+    expect(data.scorePointsEarned).toEqual({ earned: 1, total: 2 });
     expect(validateAssertionsData(data)).toBeNull();
   });
 
@@ -245,6 +286,48 @@ describe("Attempt 详情组件族:非空/空证据矩阵", () => {
     expect(data?.prompt).toContain("exp/a");
     expect(data?.prompt).toContain(`niceeval show ${failed.locator}`);
     expect(validateFixPromptData(data)).toBeNull();
+  });
+
+  it("AttemptFixPrompt:计分制三态——丢分/中止非 null,挣满且未中止 null,通过制 passed 恒 null", () => {
+    // 通过制 passed:即使 verdict 是 passed,scoring 省略时恒 null(既有行为不变)。
+    expect(attemptFixPromptData(evidenceOf({ result: resultOf({ verdict: "passed" }) }))).toBeNull();
+
+    // 计分制 passed 但有丢分得分点:可操作失败,非 null,围绕丢分检查点组装。
+    const lostPoints = evidenceOf({
+      result: resultOf({
+        verdict: "passed",
+        scoring: "points",
+        assertions: [
+          { name: "healthy", severity: "soft", outcome: "failed", score: 0, points: 0, detail: "exit 1" },
+          { name: "installed", severity: "gate", outcome: "passed", score: 1, points: 1 },
+        ],
+      }),
+    });
+    const lostPointsData = attemptFixPromptData(lostPoints);
+    expect(lostPointsData).not.toBeNull();
+    expect(lostPointsData?.prompt).toContain("healthy");
+    expect(lostPointsData?.prompt).not.toMatch(/^Fix the failing eval/); // 丢分不是「失败」,措辞分开
+    expect(validateFixPromptData(lostPointsData)).toBeNull();
+
+    // 计分制 passed 且全部得分点挣满:没有可操作失败,null。
+    const earnedInFull = evidenceOf({
+      result: resultOf({
+        verdict: "passed",
+        scoring: "points",
+        assertions: [{ name: "installed", severity: "gate", outcome: "passed", score: 1, points: 1 }],
+      }),
+    });
+    expect(attemptFixPromptData(earnedInFull)).toBeNull();
+
+    // 计分制 failed(前置中止):仍走既有 failed 分支,非 null。
+    const aborted = evidenceOf({
+      result: resultOf({
+        verdict: "failed",
+        scoring: "points",
+        assertions: [{ name: "cloned", severity: "gate", outcome: "failed", score: 0 }],
+      }),
+    });
+    expect(attemptFixPromptData(aborted)).not.toBeNull();
   });
 
   it("AttemptTimeline:没有 phase 时 null", () => {
@@ -539,5 +622,131 @@ describe("attemptSourceData:标准事件流按 loc 投影回 send 行", () => {
       { kind: "assistant", text: "assistant reply attached to the source line" },
     ]);
     expect(data.lines[0]!.turns).toEqual([]);
+  });
+
+  const sourcePath = "evals/score.ts";
+  /** 用真实的 buildAnnotatedEvalSource 装配(而不是手摆空 lines):断言到源码行的分桶是它的
+   *  职责,fixture 手写会漏掉这份逻辑,让 assertions/unmapped 的期望值失真。 */
+  function evalSourceOf(lineCount: number, assertions: AssertionResult[] = []) {
+    const content = Array.from({ length: lineCount }, (_, i) => `line ${i + 1}`).join("\n");
+    return buildAnnotatedEvalSource({ path: sourcePath, content }, assertions);
+  }
+
+  it("t.score(...) 给分记录按 loc 投影到源码行,loc 不在展示源码内的进 unmappedScoreEntries(按 groupPath 分组)", () => {
+    const data = attemptSourceData(
+      evidenceOf({
+        capabilities: { ...NO_CAPS, source: true },
+        evalSource: evalSourceOf(3),
+        result: resultOf({
+          scoring: "points",
+          scoreEntries: [
+            { label: "on line 2", points: 5, loc: { file: sourcePath, line: 2 } },
+            { label: "no loc", points: 2 },
+            { label: "wrong file", points: 3, loc: { file: "other.ts", line: 1 }, groupPath: ["g1"] },
+          ],
+        }),
+      }),
+    )!;
+    expect(data.lines[1]!.scoreEntries).toEqual([{ label: "on line 2", points: 5, loc: { file: sourcePath, line: 2 } }]);
+    expect(data.lines[0]!.scoreEntries).toEqual([]);
+    expect(data.lines[2]!.scoreEntries).toEqual([]);
+    expect(data.unmappedScoreEntries).toEqual([
+      { group: "", items: [{ label: "no loc", points: 2 }] },
+      { group: "g1", items: [{ label: "wrong file", points: 3, loc: { file: "other.ts", line: 1 }, groupPath: ["g1"] }] },
+    ]);
+    expect(validateSourceData(data)).toBeNull();
+  });
+
+  it("计分制 attempt 没有给分记录时 unmappedScoreEntries 不摆空数组,每行 scoreEntries 恒是数组", () => {
+    const data = attemptSourceData(
+      evidenceOf({ capabilities: { ...NO_CAPS, source: true }, evalSource: evalSourceOf(2), result: resultOf({}) }),
+    )!;
+    expect(data.unmappedScoreEntries).toBeUndefined();
+    expect(data.lines.every((line) => Array.isArray(line.scoreEntries))).toBe(true);
+    expect(validateSourceData(data)).toBeNull();
+  });
+
+  it("计分制前置中止:中止点(记录顺序最后一条 assertion)标 aborted,其后源码行标 unreached", () => {
+    const assertions: AssertionResult[] = [
+      { name: "earlier", severity: "soft", outcome: "passed", score: 1, points: 1, loc: { file: sourcePath, line: 1 } },
+      { name: "cloned", severity: "gate", outcome: "failed", score: 0, loc: { file: sourcePath, line: 2 } },
+    ];
+    const data = attemptSourceData(
+      evidenceOf({
+        capabilities: { ...NO_CAPS, source: true },
+        evalSource: evalSourceOf(4, assertions),
+        result: resultOf({ verdict: "failed", scoring: "points", assertions }),
+      }),
+    )!;
+    expect(data.lines[0]!.aborted).toBeUndefined();
+    expect(data.lines[0]!.unreached).toBeUndefined();
+    expect(data.lines[1]!.aborted).toBe(true);
+    expect(data.lines[1]!.unreached).toBeUndefined(); // 中止行本身不算未到达
+    expect(data.lines[2]!.unreached).toBe(true);
+    expect(data.lines[3]!.unreached).toBe(true);
+    expect(data.lines[2]!.aborted).toBeUndefined();
+    // 行级标记之外,中止断言本身也带 aborted(供 ⤓ 标注渲染,与无源码的 AttemptAssertions 同一份判据)。
+    expect(data.lines[1]!.assertions[0]).toMatchObject({ name: "cloned", aborted: true });
+    expect(data.lines[0]!.assertions[0]!.aborted).toBeUndefined();
+    expect(validateSourceData(data)).toBeNull();
+  });
+
+  it("计分制前置中止:没有源码(AttemptAssertions 平铺列表)时,中止断言同样带 aborted 标注", () => {
+    const data = attemptAssertionsData(
+      evidenceOf({
+        result: resultOf({
+          verdict: "failed",
+          scoring: "points",
+          assertions: [
+            { name: "earlier", severity: "soft", outcome: "passed", score: 1, points: 1 },
+            { name: "cloned", severity: "gate", outcome: "failed", score: 0 },
+          ],
+        }),
+      }),
+    )!;
+    expect(data.attention.map((a) => a.name)).toEqual(["earlier", "cloned"]);
+    expect(data.attention.find((a) => a.name === "cloned")).toMatchObject({ aborted: true });
+    expect(data.attention.find((a) => a.name === "earlier")!.aborted).toBeUndefined();
+    expect(validateAssertionsData(data)).toBeNull();
+  });
+
+  it("中止断言的 loc 不在展示源码内(未捕获或指向别的文件)时,不标注任何行,但断言本身仍带 aborted(落在 unmapped)", () => {
+    const assertions: AssertionResult[] = [
+      { name: "cloned", severity: "gate", outcome: "failed", score: 0, loc: { file: "other.ts", line: 1 } },
+    ];
+    const data = attemptSourceData(
+      evidenceOf({
+        capabilities: { ...NO_CAPS, source: true },
+        evalSource: evalSourceOf(2, assertions),
+        result: resultOf({ verdict: "failed", scoring: "points", assertions }),
+      }),
+    )!;
+    expect(data.lines.every((l) => !l.aborted && !l.unreached)).toBe(true);
+    expect(data.unmapped).toEqual([{ name: "cloned", severity: "gate", outcome: "failed", score: 0, loc: { file: "other.ts", line: 1 }, aborted: true }]);
+    expect(validateSourceData(data)).toBeNull();
+  });
+
+  it("通过制 / 计分制 passed / 计分制 failed 但非中止来源:不产生 aborted/unreached 标注", () => {
+    // 通过制 failed:不是计分制,不判定中止。
+    const passRunAssertions: AssertionResult[] = [{ name: "a", severity: "gate", outcome: "failed", score: 0, loc: { file: sourcePath, line: 1 } }];
+    const passRunFailed = attemptSourceData(
+      evidenceOf({
+        capabilities: { ...NO_CAPS, source: true },
+        evalSource: evalSourceOf(2, passRunAssertions),
+        result: resultOf({ verdict: "failed", assertions: passRunAssertions }),
+      }),
+    )!;
+    expect(passRunFailed.lines.some((l) => l.aborted || l.unreached)).toBe(false);
+
+    // 计分制 passed(即使有丢分):没有中止,不产生标注。
+    const scoredAssertions: AssertionResult[] = [{ name: "a", severity: "soft", outcome: "failed", score: 0, points: 0, loc: { file: sourcePath, line: 1 } }];
+    const scoredPassed = attemptSourceData(
+      evidenceOf({
+        capabilities: { ...NO_CAPS, source: true },
+        evalSource: evalSourceOf(2, scoredAssertions),
+        result: resultOf({ verdict: "passed", scoring: "points", assertions: scoredAssertions }),
+      }),
+    )!;
+    expect(scoredPassed.lines.some((l) => l.aborted || l.unreached)).toBe(false);
   });
 });

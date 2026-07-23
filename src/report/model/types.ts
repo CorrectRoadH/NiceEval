@@ -508,6 +508,13 @@ export interface AttemptSummaryData {
   durationMs: number;
   costUSD: number | null;
   capabilities: AttemptEvidenceCapabilities;
+  /**
+   * 计分制(`scoring: "points"`)attempt 本轮挣分:`assertions[].points` 之和(排除 unavailable)
+   * 加 `scoreEntries[].points` 之和;详情页总分位的唯一出现处,其它区块不重复这个总数
+   * (docs/feature/scoring/library/display.md「计分制」)。通过制 eval 恒省略,不是 0——
+   * 题型判定读定义期 `result.scoring`,不从结果推断。
+   */
+  totalScore?: number;
 }
 
 /** `AttemptError` 的 data:结构化 error 一层原因 + cause + stack;没有 error 时 null。 */
@@ -521,9 +528,18 @@ export type AttemptErrorData = AttemptError;
  * (docs/feature/scoring/library/display.md「计分制:.points 与给分记录」)。
  */
 export interface AttemptAssertionsData {
-  /** failed / unavailable / soft 全部非 passed 条目,按原始声明顺序。 */
-  attention: AssertionResult[];
-  /** passed 条目按 groupPath.join(" > ") 分组(无分组键为 ""),组内保持原始顺序。 */
+  /**
+   * failed / unavailable / soft 全部非 passed 条目,按原始声明顺序;计分制的得分点(带
+   * `.points`)豁免 passed 收纳——即使 outcome 是 passed 也进这个平铺列表,不折进
+   * `passedGroups`(docs/feature/scoring/library/display.md「得分点不参与 passed 收纳」)。
+   * 计分制前置中止时,中止断言(记录顺序最后一条,必为 failed gate)带 `aborted: true`——
+   * 其后不再有任何断言或给分记录,展示时紧跟一个中止标注(`⤓`,见「计分制」)。
+   */
+  attention: (AssertionResult & { aborted?: true })[];
+  /**
+   * passed 条目按 groupPath.join(" > ") 分组(无分组键为 ""),组内保持原始顺序;只包含不带
+   * `.points` 的观测断言——收纳规则不吞掉分数面的明细。
+   */
   passedGroups: { group: string; items: AssertionResult[] }[];
   /**
    * `t.score(label, n)` 记录,按 groupPath.join(" > ") 分组(无分组键为 "",同 passedGroups
@@ -531,6 +547,12 @@ export interface AttemptAssertionsData {
    * (通过制 eval 的 attempt 恒省略)。
    */
   scoreEntries?: { group: string; items: ScoreEntry[] }[];
+  /**
+   * 得分点挣满计数("2/5 得分点挣满"):分母是全部带 `.points` 的断言(unavailable 结构上不
+   * 携带 `points`,不计入分母);挣满 = `score === 1`(连续打分断言不足 `n × 1.0` 不算挣满)。
+   * 只在存在至少一个得分点时出现(通过制 eval 恒省略)。
+   */
+  scorePointsEarned?: { earned: number; total: number };
 }
 
 /** `AttemptSource` 源码行内的一轮执行：send 头事实 + 标准事件流归并出的完整回复。 */
@@ -542,9 +564,20 @@ export interface AttemptSourceTurn {
   replies: AttemptConversationReply[];
 }
 
-/** AnnotatedSourceLine 加上 web 源码视图需要的行内执行轮。 */
+/**
+ * AnnotatedSourceLine 加上 web 源码视图需要的行内执行轮与计分制给分投影
+ * (docs/feature/scoring/library/display.md「源码面同样承载给分证据」)。
+ */
 export interface AttemptSourceLineData extends AnnotatedSourceLine {
+  /** 覆盖基类字段:中止断言(若映射到这一行)带 `aborted: true`,与 AttemptAssertionsData.attention 同一份标注。 */
+  assertions: (AssertionResult & { aborted?: true })[];
   turns: AttemptSourceTurn[];
+  /** `t.score(label, n)` 调用行原位标注的给分记录(该行 `loc` 命中的全部记录,按声明顺序)。 */
+  scoreEntries: ScoreEntry[];
+  /** 计分制前置中止点:此行的某条断言是让 `test()` 就地结束的 failed gate。 */
+  aborted?: true;
+  /** 中止行之后的未到达区:此行在中止点之后,没有任何断言或给分记录跑到这里(而不是没写)。 */
+  unreached?: true;
 }
 
 /** `AttemptSource` 的 data:AnnotatedEvalSource + 按 loc 投影的标准事件流;没有 source 时 null。 */
@@ -553,7 +586,19 @@ export interface AttemptSourceData {
   locator: AttemptLocator;
   sourcePath: string;
   lines: AttemptSourceLineData[];
-  unmapped: AssertionResult[];
+  unmapped: (AssertionResult & { aborted?: true })[];
+  /**
+   * `t.score(...)` 给分记录里 `loc` 不在展示源码内的部分,按 groupPath.join(" > ") 分组
+   * (无分组键为 "",与 `AttemptAssertionsData.scoreEntries` 同一套算法)。只在存在给分记录时
+   * 出现。
+   */
+  unmappedScoreEntries?: { group: string; items: ScoreEntry[] }[];
+  /**
+   * 得分点挣满计数,与 `AttemptAssertionsData.scorePointsEarned` 同一条判据(源码不可用时换成
+   * `AttemptAssertions`「规则完全一致」,见 docs/feature/reports/show/attempt.md)。只在存在
+   * 至少一个得分点时出现。
+   */
+  scorePointsEarned?: { earned: number; total: number };
   /** 没有 loc、指向其它文件或越界的轮次；不能静默丢弃，放在源码块末尾。 */
   unlocatedTurns: AttemptSourceTurn[];
   summary: AnnotatedEvalSourceSummary;

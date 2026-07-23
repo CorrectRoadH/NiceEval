@@ -76,12 +76,17 @@ export function AttemptLocatorBadge({
   );
 }
 
-/** failureSummary + moreFailures 的展示形态:摘要原样,+N 计数由 moreFailures 驱动。 */
-export function failureSummaryText(item: Pick<AttemptListItem, "failureSummary" | "moreFailures">, locale: ReportLocale): string | null {
+/**
+ * failureSummary + moreFailures 的展示形态:摘要原样,+N 计数由 moreFailures 驱动。计分制
+ * passed attempt 的非 null 摘要只可能来自丢分得分点(规则 6)——"+N more lost points",不是
+ * "+N more failures":丢分不是失败,措辞分开(docs/feature/reports/library/entity-lists.md
+ * `AttemptListItem.moreFailures` 字段注释)。
+ */
+export function failureSummaryText(item: Pick<AttemptListItem, "failureSummary" | "moreFailures" | "verdict">, locale: ReportLocale): string | null {
   if (item.failureSummary === null) return null;
-  return item.moreFailures > 0
-    ? `${item.failureSummary} · ${countText(locale, "entityList.moreFailures", item.moreFailures)}`
-    : item.failureSummary;
+  if (item.moreFailures === 0) return item.failureSummary;
+  const moreKey = item.verdict === "passed" ? "entityList.moreLostPoints" : "entityList.moreFailures";
+  return `${item.failureSummary} · ${countText(locale, moreKey, item.moreFailures)}`;
 }
 
 /** 一条 Attempt 的比较卡片;完整 assertions 通过 locator 下钻,不在列表内展开。 */

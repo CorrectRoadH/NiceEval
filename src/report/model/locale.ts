@@ -91,6 +91,10 @@ const en = {
   "entityList.average": "{value} avg",
   "entityList.moreFailures.one": "+{n} more failure",
   "entityList.moreFailures.other": "+{n} more failures",
+  /** 计分制 passed attempt 丢分得分点的「其余」计数(规则 6);与 moreFailures 同结构,措辞不同——
+   *  丢分不是失败,不该说成 "more failures"(entity-lists.md AttemptListItem.moreFailures 字段注释)。 */
+  "entityList.moreLostPoints.one": "+{n} more lost point",
+  "entityList.moreLostPoints.other": "+{n} more lost points",
   /** <Table> 压到下限仍放不下时,从右侧丢列并如实报数。 */
   "table.columnsHidden.one": "({n} more column not shown)",
   "table.columnsHidden.other": "({n} more columns not shown)",
@@ -187,6 +191,11 @@ const en = {
   /** AttemptList 的 web 面过滤框占位符(filter 渐进增强)。 */
   "attemptList.filterPlaceholder": "Filter attempts…",
 
+  /** 计分制 attempt 详情的 chrome(docs/feature/scoring/library/display.md「计分制」)。 */
+  "attemptAssertions.scorePointsEarned": "{earned}/{total} score points earned in full",
+  "attemptAssertions.scoreEntries": "Score entries",
+  "attemptSource.abortReason": "prerequisite failed, test() ended here",
+
   "tabs.tab": "Tab",
 } as const;
 
@@ -234,6 +243,8 @@ const zhCN: Record<ReportMessageKey, string> = {
   "entityList.average": "平均 {value}",
   "entityList.moreFailures.one": "+{n} 条其它失败",
   "entityList.moreFailures.other": "+{n} 条其它失败",
+  "entityList.moreLostPoints.one": "+{n} 处其它丢分",
+  "entityList.moreLostPoints.other": "+{n} 处其它丢分",
   "table.columnsHidden.one": "(还有 {n} 列未列出)",
   "table.columnsHidden.other": "(还有 {n} 列未列出)",
 
@@ -317,6 +328,10 @@ const zhCN: Record<ReportMessageKey, string> = {
 
   "attemptList.filterPlaceholder": "筛选 attempt…",
 
+  "attemptAssertions.scorePointsEarned": "{earned}/{total} 得分点挣满",
+  "attemptAssertions.scoreEntries": "给分记录",
+  "attemptSource.abortReason": "前置未过,test() 就地结束",
+
   "tabs.tab": "Tab",
 };
 
@@ -348,6 +363,7 @@ export function countText(
     | "scoreboard.unscorable"
     | "scoreboard.ignored"
     | "entityList.moreFailures"
+    | "entityList.moreLostPoints"
     | "table.columnsHidden"
     | "copyFixPrompt.summary"
     | "traceWaterfall.spans"

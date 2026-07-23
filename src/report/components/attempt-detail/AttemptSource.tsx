@@ -4,8 +4,10 @@
 
 import type { ReactElement, ReactNode } from "react";
 import type { AttemptSourceData, AttemptSourceLineData, AttemptSourceTurn } from "../../model/types.ts";
-import type { AssertionResult } from "../../../types.ts";
+import type { AssertionResult, ScoreEntry } from "../../../types.ts";
 import { stripControl } from "../../../scoring/display.ts";
+import { formatPointsSuffix } from "../../model/format.ts";
+import { DEFAULT_REPORT_LOCALE, localeText, type ReportLocale } from "../../model/locale.ts";
 import { cx } from "../shared.ts";
 import { ConversationReplies } from "./AttemptConversation.tsx";
 
@@ -63,6 +65,27 @@ function thresholdScores(assertions: AssertionResult[]): string[] {
   return scores;
 }
 
+/** 一行是否可展开:断言 / send / turn / t.score 给分记录任一非空。 */
+function isLineInteractive(line: AttemptSourceLineData): boolean {
+  return line.assertions.length > 0 || line.sends.length > 0 || line.turns.length > 0 || line.scoreEntries.length > 0;
+}
+
+/**
+ * 一行的挣分 pill 总额:`.points` 断言挣到的分(排除 unavailable)+ `t.score(...)` 给分记录之和;
+ * 两者都不存在时 undefined(该行不是分数面证据),0 分照实显示(docs/feature/scoring/library/
+ * display.md「计分制」)。
+ */
+function linePointsTotal(line: AttemptSourceLineData): number | undefined {
+  const hasScorePoint = line.assertions.some((a) => a.outcome !== "unavailable" && a.points !== undefined);
+  if (!hasScorePoint && line.scoreEntries.length === 0) return undefined;
+  const fromAssertions = line.assertions.reduce(
+    (sum, a) => sum + (a.outcome !== "unavailable" && typeof a.points === "number" ? a.points : 0),
+    0,
+  );
+  const fromScoreEntries = line.scoreEntries.reduce((sum, e) => sum + e.points, 0);
+  return fromAssertions + fromScoreEntries;
+}
+
 /** 行号位标记(与产品站示例卡同语言:图标顶替行号,不加独立状态列);内联 SVG,零图标依赖。 */
 const MARK_ICONS: Record<"send" | "good" | "bad" | "warn" | "na", ReactElement> = {
   send: <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" />,
@@ -107,14 +130,20 @@ function LineNo({ line, tone, send }: { line: number; tone: ReturnType<typeof li
 }
 
 function LineSummary({ line, tone }: { line: AttemptSourceLineData; tone: ReturnType<typeof lineTone> }): ReactElement {
-  const interactive = line.assertions.length > 0 || line.sends.length > 0 || line.turns.length > 0;
+  const interactive = isLineInteractive(line);
   const scores = thresholdScores(line.assertions);
+  const points = linePointsTotal(line);
   return (
     <span className="nre-source-line-summary">
       <LineNo line={line.line} tone={tone} send={line.sends.length > 0 || line.turns.length > 0} />
       <code className="nre-source-text">{highlightTs(line.text)}</code>
       <span className="nre-source-line-meta">
         {scores.length > 0 ? <span className="nre-source-score-badge">{scores.join(", ")}</span> : null}
+        {/* 得分点/t.score(...) 的挣分 pill,钉在滚动视口右缘(docs/feature/reports/library/
+            attempt-detail.md「AttemptSource web 面视觉规范」右缘 meta)。 */}
+        {points !== undefined ? <span className="nre-source-points-pill">{formatPointsSuffix(points)}</span> : null}
+        {/* 前置中止行的 ⤓ 标记,同处右缘 meta。 */}
+        {line.aborted ? <span className="nre-source-abort-mark" aria-hidden="true">⤓</span> : null}
         {interactive ? <span className="nre-source-chevron">›</span> : null}
       </span>
     </span>
@@ -137,7 +166,7 @@ function TurnDetail({ turn, showMeta = false, showSent = false }: { turn: Attemp
   );
 }
 
-function AssertionDetail({ assertion }: { assertion: AssertionResult }): ReactElement {
+function AssertionDetail({ assertion, locale }: { assertion: AssertionResult & { aborted?: true }; locale: ReportLocale }): ReactElement {
   return (
     <div className={`nre-assertion-row nre-tone-${assertTone(assertion)}`}>
       <div className="nre-source-assertion-head">
@@ -155,11 +184,35 @@ function AssertionDetail({ assertion }: { assertion: AssertionResult }): ReactEl
           {assertion.evidence !== undefined ? <span>evidence: {stripControl(assertion.evidence)}</span> : null}
         </div>
       ) : null}
+      {/* 前置中止:这条断言让 test() 就地结束,其后不再有任何断言或给分记录
+          (docs/feature/scoring/library/display.md「前置中止」)。 */}
+      {assertion.aborted ? <div className="nre-assertion-abort">⤓ {localeText(locale, "attemptSource.abortReason")}</div> : null}
     </div>
   );
 }
 
-export function AttemptSource({ data, className }: { data: AttemptSourceData | null; className?: string }): ReactElement | null {
+/** `t.score(label, n)` 调用行的展开区:给分记录本体(label、挣分、分组路径),不着判定色——
+ *  给分是分数面事实,不是判定(docs/feature/reports/library/attempt-detail.md「AttemptSource
+ *  web 面视觉规范」给分行)。 */
+function ScoreEntryDetail({ entry }: { entry: ScoreEntry }): ReactElement {
+  return (
+    <div className="nre-score-entry-row">
+      {entry.groupPath?.length ? <span className="nre-score-entry-group">{entry.groupPath.join(" > ")} · </span> : null}
+      <span className="nre-score-entry-label">{entry.label}</span>
+      <span className="nre-assertion-points">{formatPointsSuffix(entry.points)}</span>
+    </div>
+  );
+}
+
+export function AttemptSource({
+  data,
+  locale = DEFAULT_REPORT_LOCALE,
+  className,
+}: {
+  data: AttemptSourceData | null;
+  locale?: ReportLocale;
+  className?: string;
+}): ReactElement | null {
   if (data === null) return null;
   const firstAttentionLine = data.lines.find((line) => {
     const tone = lineTone(line);
@@ -167,15 +220,27 @@ export function AttemptSource({ data, className }: { data: AttemptSourceData | n
   })?.line;
   return (
     <div className={cx("nre", "nre-attempt-source", className)}>
-      <div className="nre-attempt-source-head">{data.sourcePath}</div>
+      <div className="nre-attempt-source-head">
+        {data.sourcePath}
+        {/* 顶层计数:计分制 attempt 加一项得分点挣满计数(源码不可用时换成 AttemptAssertions
+            「规则完全一致」,docs/feature/reports/show/attempt.md)。 */}
+        {data.scorePointsEarned ? (
+          <span className="nre-attempt-source-score-points">
+            {localeText(locale, "attemptAssertions.scorePointsEarned", data.scorePointsEarned)}
+          </span>
+        ) : null}
+      </div>
       <div className="nre-attempt-source-lines">
         {data.lines.map((line) => {
           const tone = lineTone(line);
-          const interactive = line.assertions.length > 0 || line.sends.length > 0 || line.turns.length > 0;
+          const interactive = isLineInteractive(line);
           const lineClass = cx(
             "nre-source-line",
             tone ? `nre-tone-${tone}` : undefined,
             line.sends.length > 0 || line.turns.length > 0 ? "nre-source-line-send" : undefined,
+            // 前置中止行之后整体降灰(未到达——那些行没有任何断言或给分记录,不是因为没写,
+            // 是因为没跑到),行号照常显示(docs/feature/scoring/library/display.md「前置中止」)。
+            line.unreached ? "nre-source-line-unreached" : undefined,
           );
           if (!interactive) {
             return (
@@ -194,7 +259,10 @@ export function AttemptSource({ data, className }: { data: AttemptSourceData | n
                   <TurnDetail key={`${turn.label}-${i}`} turn={turn} />
                 ))}
                 {line.assertions.map((assertion, i) => (
-                  <AssertionDetail key={i} assertion={assertion} />
+                  <AssertionDetail key={i} assertion={assertion} locale={locale} />
+                ))}
+                {line.scoreEntries.map((entry, i) => (
+                  <ScoreEntryDetail key={i} entry={entry} />
                 ))}
               </div>
             </details>
@@ -208,6 +276,20 @@ export function AttemptSource({ data, className }: { data: AttemptSourceData | n
             <div key={i} className={`nre-assertion-row nre-tone-${assertTone(a)}`}>
               {a.groupPath?.length ? `${a.groupPath.join(" > ")} · ` : ""}
               {a.name}
+              {a.aborted ? <span className="nre-assertion-abort"> · ⤓ {localeText(locale, "attemptSource.abortReason")}</span> : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {data.unmappedScoreEntries && data.unmappedScoreEntries.length > 0 ? (
+        <div className="nre-attempt-source-unmapped-score-entries">
+          <div className="nre-attempt-source-unmapped-head">{localeText(locale, "attemptAssertions.scoreEntries")}</div>
+          {data.unmappedScoreEntries.map(({ group, items }) => (
+            <div key={group || "·"} className="nre-score-entries-group">
+              {group ? <div className="nre-score-entry-group">{group}</div> : null}
+              {items.map((entry, i) => (
+                <ScoreEntryDetail key={i} entry={entry} />
+              ))}
             </div>
           ))}
         </div>

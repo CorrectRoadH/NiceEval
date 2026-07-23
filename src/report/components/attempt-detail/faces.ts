@@ -21,7 +21,7 @@ import type { AssertionResult, ScoreEntry, TimingNode } from "../../../types.ts"
 import type { AttemptLocator } from "../../../results/locator.ts";
 import type { TextContext } from "../../definition/tree.ts";
 import { localeText } from "../../model/locale.ts";
-import { formatDurationMs, formatMetricValue, formatPointsSuffix, formatReportDateTime, formatUSD, verdictMark } from "../../model/format.ts";
+import { formatDurationMs, formatMetricValue, formatPoints, formatPointsSuffix, formatReportDateTime, formatUSD, verdictMark } from "../../model/format.ts";
 import { TIMELINE_CLOSING_PHASES } from "./compute.ts";
 import { summaryText } from "../../../scoring/display.ts";
 
@@ -45,6 +45,9 @@ export function attemptSummaryText(data: AttemptSummaryData, ctx: TextContext): 
     localeText(locale, "attemptSummary.attempt", { n: data.identity.attempt + 1 }),
     `${verdictMark(data.verdict)} ${localeText(locale, `verdict.${data.verdict}`)}`,
   ];
+  // 计分制:头行 verdict 后跟本轮挣分——详情页总分位的唯一出现处
+  // (docs/feature/reports/show/attempt.md 计分制示例头行)。
+  if (data.totalScore !== undefined) parts.push(formatPoints(data.totalScore));
   if (data.startedAt !== undefined) parts.push(formatReportDateTime(data.startedAt, locale));
   parts.push(formatDurationMs(data.durationMs));
   if (data.costUSD !== null) parts.push(formatUSD(data.costUSD));
@@ -74,7 +77,7 @@ function locAnchor(loc: { file: string; line: number; column?: number }): string
   return `${loc.file}:${loc.line}${loc.column ? `:${loc.column}` : ""}`;
 }
 
-function assertionLine(a: AssertionResult): string {
+function assertionLine(a: AssertionResult & { aborted?: true }, ctx: TextContext): string {
   const group = a.groupPath && a.groupPath.length > 0 ? `${a.groupPath.join(" > ")} · ` : "";
   if (a.outcome === "unavailable") return `◌ unavailable · ${group}${a.name} — ${a.reason}`;
   const mark = a.outcome === "passed" ? "✓" : "✗";
@@ -91,7 +94,10 @@ function assertionLine(a: AssertionResult): string {
   // 计分制(defineScoreEval)才有:.points(n) 挣到的分,0 分也如实显示,不隐藏
   // (docs/feature/scoring/library/display.md「计分制:.points 与给分记录」)。
   const pointsSuffix = a.points !== undefined ? ` · ${formatPointsSuffix(a.points)}` : "";
-  return `${mark} ${a.severity} · ${group}${a.name}${detail}${evidenceSuffix}${pointsSuffix}`;
+  // 前置中止:这条断言让 test() 就地结束,其后不再有任何断言或给分记录
+  // (docs/feature/scoring/library/display.md「前置中止」)。
+  const abortSuffix = a.aborted ? ` · ⤓ ${localeText(ctx.locale, "attemptSource.abortReason")}` : "";
+  return `${mark} ${a.severity} · ${group}${a.name}${detail}${evidenceSuffix}${pointsSuffix}${abortSuffix}`;
 }
 
 /** 组内 `.points` 挣分之和;组内没有任何断言带 points 时返回 undefined(该组不是计分制组)。 */
@@ -107,9 +113,14 @@ function scoreEntryLine(group: string, entry: ScoreEntry): string {
   return `  ${prefix}${entry.label} · ${formatPointsSuffix(entry.points)}`;
 }
 
-export function attemptAssertionsText(data: AttemptAssertionsData | null, _ctx: TextContext): string {
+export function attemptAssertionsText(data: AttemptAssertionsData | null, ctx: TextContext): string {
   if (data === null) return "";
-  const lines = data.attention.map(assertionLine);
+  const lines: string[] = [];
+  // 顶层计数:计分制 attempt 加一项得分点挣满计数(docs/feature/scoring/library/display.md「计分制」)。
+  if (data.scorePointsEarned) {
+    lines.push(localeText(ctx.locale, "attemptAssertions.scorePointsEarned", data.scorePointsEarned));
+  }
+  lines.push(...data.attention.map((a) => assertionLine(a, ctx)));
   for (const { group, items } of data.passedGroups) {
     const total = groupPointsTotal(items);
     const pointsSuffix = total === undefined ? "" : ` · ${formatPointsSuffix(total)}`;
@@ -117,7 +128,7 @@ export function attemptAssertionsText(data: AttemptAssertionsData | null, _ctx: 
   }
   if (data.scoreEntries && data.scoreEntries.length > 0) {
     const total = data.scoreEntries.reduce((sum, g) => sum + g.items.reduce((s, e) => s + e.points, 0), 0);
-    lines.push(`score entries · ${formatPointsSuffix(total)}`);
+    lines.push(`${localeText(ctx.locale, "attemptAssertions.scoreEntries")} · ${formatPointsSuffix(total)}`);
     for (const { group, items } of data.scoreEntries) {
       for (const entry of items) lines.push(scoreEntryLine(group, entry));
     }
@@ -130,15 +141,33 @@ export function attemptAssertionsText(data: AttemptAssertionsData | null, _ctx: 
 export function attemptSourceText(data: AttemptSourceData | null, ctx: TextContext): string {
   if (data === null) return "";
   const command = evidenceCommand(ctx, data.locator, "--source");
-  const headerParts = [`${data.sourcePath} · ${data.summary.annotatedLines}/${data.summary.totalLines} lines annotated`];
+  const headerParts = [data.sourcePath];
+  // 得分点挣满计数排在行数标注之前(docs/feature/reports/show/attempt.md 计分制示例的框上边框)。
+  if (data.scorePointsEarned !== undefined) {
+    headerParts.push(localeText(ctx.locale, "attemptAssertions.scorePointsEarned", data.scorePointsEarned));
+  }
+  headerParts.push(`${data.summary.annotatedLines}/${data.summary.totalLines} lines annotated`);
   if (command) headerParts.push(command);
   const hasConversation = data.unlocatedTurns.length > 0 || data.lines.some((line) => line.turns.length > 0);
   const executionCommand = hasConversation ? evidenceCommand(ctx, data.locator, "--execution") : null;
   if (executionCommand) headerParts.push(executionCommand);
-  // 源码锚由 assertionLine 自己按 a.loc 拼(与 AttemptAssertions 共用同一份逻辑);这里只负责
-  // 挑出非 passed 的条目,不重复算锚点。
-  const failed = data.lines.flatMap((line) => line.assertions.filter((a) => a.outcome !== "passed"));
-  const lines = failed.map((a) => `  ${assertionLine(a)}`);
+  // 源码锚由 assertionLine 自己按 a.loc 拼(与 AttemptAssertions 共用同一份逻辑);这里只负责挑出
+  // 要展开的条目——得分点(带 .points)豁免 passed 收纳,即使 passed 也逐条列出(与
+  // attemptAssertionsData 同一条规则,docs/feature/scoring/library/display.md「得分点不参与
+  // passed 收纳」)。
+  const attention = data.lines.flatMap((line) => line.assertions.filter((a) => a.outcome !== "passed" || a.points !== undefined));
+  const lines = attention.map((a) => `  ${assertionLine(a, ctx)}`);
+  // t.score(...) 给分记录:行内映射的按行序收集,unmapped 的按既有分组顺序接在后面
+  // (docs/feature/scoring/library/display.md「源码面同样承载给分证据」)。
+  const scoreEntries: { group: string; entry: ScoreEntry }[] = [
+    ...data.lines.flatMap((line) => line.scoreEntries.map((entry) => ({ group: entry.groupPath?.join(" > ") ?? "", entry }))),
+    ...(data.unmappedScoreEntries ?? []).flatMap((g) => g.items.map((entry) => ({ group: g.group, entry }))),
+  ];
+  if (scoreEntries.length > 0) {
+    const total = scoreEntries.reduce((sum, { entry }) => sum + entry.points, 0);
+    lines.push(`  ${localeText(ctx.locale, "attemptAssertions.scoreEntries")} · ${formatPointsSuffix(total)}`);
+    for (const { group, entry } of scoreEntries) lines.push(scoreEntryLine(group, entry));
+  }
   return [headerParts.join(" · "), ...lines].join("\n");
 }
 

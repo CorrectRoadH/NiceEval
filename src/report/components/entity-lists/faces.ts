@@ -48,15 +48,15 @@ function evalHistoricalSuffix(attempts: readonly AttemptListItem[]): string {
 }
 
 /**
- * failureSummary + moreFailures 的展示形态:摘要在计算侧已按 Scoring display 契约折好,
- * 这里只加 "+N more failures" 计数与宽度收口,不重算摘要。
+ * failureSummary + moreFailures 的展示形态:摘要在计算侧已按 Scoring display 契约折好,这里
+ * 只加 "+N more failures" / "+N more lost points" 计数与宽度收口,不重算摘要。计分制 passed
+ * attempt 的非 null 摘要只可能来自丢分得分点(规则 6),按 verdict 选措辞——丢分不是失败。
  */
 function attemptReasonText(item: AttemptListItem, locale: ReportLocale, maxChars: number): string | undefined {
   if (item.failureSummary === null) return undefined;
-  const withMore =
-    item.moreFailures > 0
-      ? `${item.failureSummary} · ${countText(locale, "entityList.moreFailures", item.moreFailures)}`
-      : item.failureSummary;
+  if (item.moreFailures === 0) return fitFailureSummary(item.failureSummary, Math.max(24, maxChars));
+  const moreKey = item.verdict === "passed" ? "entityList.moreLostPoints" : "entityList.moreFailures";
+  const withMore = `${item.failureSummary} · ${countText(locale, moreKey, item.moreFailures)}`;
   return fitFailureSummary(withMore, Math.max(24, maxChars));
 }
 
@@ -147,16 +147,20 @@ function experimentDetailTable(item: ExperimentListItem, ctx: TextContext, label
   const columns: TableColumn[] = [
     { key: "status", header: localeText(locale, "experimentList.status") },
     { key: "entity", header: localeText(locale, "experimentList.evalAttempt") },
+  ];
+  // 计分制实验:挣分列插在结果列之前(entity-lists.md 的 exam/claude 示例:Status | Eval /
+  // Attempt | Score | Result | Duration | Cost)。Eval 父行是这道题的平均、Attempt 子行是这
+  // 一轮的原始值(与 duration/cost 的父行 avg、子行原始值同一惯例)。通过制实验没有这个读数,
+  // 不摆占位列。
+  if (showScore) {
+    columns.push({ key: "score", header: localeText(locale, "experimentList.totalScore"), align: "right" });
+  }
+  columns.push(
     // Result 是可扫读的失败预览,不是证据面:两行放不下的以 … 收口,完整值走 locator 下钻。
     { key: "result", header: localeText(locale, "experimentList.result"), maxLines: 2 },
     { key: "duration", header: localeText(locale, "experimentList.duration"), align: "right" },
     { key: "cost", header: localeText(locale, "experimentList.cost"), align: "right" },
-  ];
-  // 计分制实验:附一列挣分,Eval 父行是这道题的平均、Attempt 子行是这一轮的原始值
-  // (与 duration/cost 的父行 avg、子行原始值同一惯例)。通过制实验没有这个读数,不摆占位列。
-  if (showScore) {
-    columns.push({ key: "score", header: localeText(locale, "experimentList.totalScore"), align: "right" });
-  }
+  );
   // Result 的字符预算 ≈ 两行 × 它能分到的列宽(总宽减其它列的自然宽与列距)。这里只做
   // 粗预算;精确的按宽度收口由列的 maxLines 兜底。
   const statusWidth = Math.max(

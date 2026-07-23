@@ -50,7 +50,7 @@ describe("primaryAssertionSummary", () => {
       { name: "matches(schema)", severity: "gate", outcome: "failed", score: 0 },
     ];
 
-    const summary = primaryAssertionSummary(assertions, "failed");
+    const summary = primaryAssertionSummary(assertions, "failed", "pass");
     expect(summary).toEqual({
       severity: "gate",
       assertion: "Issue 15193: selected proposal matches the accepted proposal",
@@ -73,6 +73,7 @@ describe("primaryAssertionSummary", () => {
     const summary = primaryAssertionSummary(
       [{ name: "similarity", severity: "soft", outcome: "failed", score: 0.71, threshold: 0.9 }],
       "failed",
+      "pass",
     );
     expect(compactAssertionSummary(summary!)).toBe("similarity · score 0.71 · threshold 0.9");
   });
@@ -83,11 +84,11 @@ describe("primaryAssertionSummary", () => {
       { name: "optional judge", severity: "soft", optional: true, outcome: "unavailable", reason: "no-key" },
       { name: "required judge", severity: "gate", outcome: "unavailable", reason: "judge-model-unresolved" },
     ];
-    expect(primaryAssertionSummary(assertions, "errored")).toMatchObject({
+    expect(primaryAssertionSummary(assertions, "errored", "pass")).toMatchObject({
       assertion: "required judge",
       reason: "judge-model-unresolved",
     });
-    expect(primaryAssertionSummary(assertions, "passed")).toBeUndefined();
+    expect(primaryAssertionSummary(assertions, "passed", "pass")).toBeUndefined();
   });
 
   it("摘要把多行大值压成单行有界预览，完整断言证据不在这里展开", () => {
@@ -100,7 +101,7 @@ describe("primaryAssertionSummary", () => {
       received: `// app/actions/posts.ts\n'use server';\n${"const source = 1;\n".repeat(80)}`,
     }];
 
-    const summary = primaryAssertionSummary(assertions, "failed")!;
+    const summary = primaryAssertionSummary(assertions, "failed", "pass")!;
     expect(summary.received).not.toContain("\n");
     expect(summary.received!.length).toBeLessThanOrEqual(240);
     expect(summary.received).toMatch(/…$/);
@@ -127,7 +128,7 @@ describe("primaryAssertionSummary", () => {
       { name: "matches(schema)", severity: "gate", outcome: "failed", score: 0 },
     ];
 
-    const summary = primaryAssertionSummary(assertions, "failed")!;
+    const summary = primaryAssertionSummary(assertions, "failed", "pass")!;
     const lines = assertionSummaryLines(summary);
     expect(lines.at(-1)).toBe("+1 more failures");
     const receivedLine = lines.find((line) => line.startsWith("received:"))!;
@@ -147,6 +148,7 @@ describe("fitCompactAssertionSummary", () => {
       received: `// next.config.ts\n${"import type { NextConfig } from 'next';\n".repeat(20)}`,
     }],
     "failed",
+    "pass",
   )!;
 
   it("预算充足时与 compactAssertionSummary 完全一致", () => {

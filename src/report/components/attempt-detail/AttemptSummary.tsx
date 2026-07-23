@@ -3,6 +3,7 @@
 import type { ReactElement } from "react";
 import type { AttemptSummaryData } from "../../model/types.ts";
 import { DEFAULT_REPORT_LOCALE, localeText, type ReportLocale } from "../../model/locale.ts";
+import { formatPoints } from "../../model/format.ts";
 import { cx } from "../shared.ts";
 
 const CAPABILITY_LABEL: Record<keyof AttemptSummaryData["capabilities"], string> = {
@@ -43,6 +44,14 @@ export function AttemptSummary({
           <dt>Attempt</dt>
           <dd>{data.identity.attempt + 1}</dd>
         </div>
+        {/* 计分制 attempt 本轮挣分:详情页总分位的唯一出现处,其它区块不重复这个总数
+            (docs/feature/scoring/library/display.md「计分制」)。通过制 eval 恒省略。 */}
+        {data.totalScore !== undefined ? (
+          <div>
+            <dt>Score</dt>
+            <dd>{formatPoints(data.totalScore)}</dd>
+          </div>
+        ) : null}
         {data.startedAt ? (
           <div>
             <dt>Started</dt>

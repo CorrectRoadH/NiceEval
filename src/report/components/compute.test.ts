@@ -603,6 +603,49 @@ describe("实体列表 data", () => {
     expect(byEval.get("list/skipped")!.failureSummary).toBeNull();
   });
 
+  it("failureSummary 计分制口径(规则 6):passed 全部得分点挣满为 null,存在丢分得分点时取记录顺序第一条(含挣分尾缀),其余计入 moreFailures;中止 attempt 仍由既有规则 1 选中前置,不受规则 6 影响", async () => {
+    // 挣满:唯一得分点满分(pointsAssertion 默认 outcome passed、score 1),不是「没有得分点」的
+    // null,是「挣满」的 null——两种 null 的根因不同,fixture 用真实挣满而非省略得分点来区分。
+    const earnedInFull = res("exam/earned", "passed", {
+      scoring: "points",
+      assertions: [pointsAssertion("installed", 1), pointsAssertion("configured", 1)],
+    });
+    // 丢分:两个得分点失败(严重度必须是 soft——scoring 下失败的 gate 会中止,不可能与 passed
+    // 并存),取记录顺序第一条(healthy)为主摘要,second-loss 计入 moreFailures。
+    const lostPoints = res("exam/lost", "passed", {
+      scoring: "points",
+      assertions: [
+        pointsAssertion("installed", 1), // 挣满,不是候选
+        pointsAssertion("healthy", 16, { severity: "soft", outcome: "failed", score: 0.8 }),
+        pointsAssertion("second-loss", 0, { severity: "soft", outcome: "failed", score: 0 }),
+      ],
+    });
+    // 中止:记录顺序最后一条、唯一 failed 的 gate——既有规则 1 自然选中,计分制不改选择逻辑
+    // (docs/feature/scoring/library/display.md「主失败断言怎样选」规则 5)。
+    const aborted = res("exam/aborted", "failed", {
+      scoring: "points",
+      assertions: [
+        pointsAssertion("cloned repo", 1),
+        { name: "installed deps", severity: "gate", outcome: "failed" as const, score: 0 },
+      ] as AssertionResult[],
+    });
+    const s = snap({ experimentId: "exam/rule6", results: [earnedInFull, lostPoints, aborted] });
+    const items = await attemptListData([s]);
+    const byEval = new Map(items.map((item) => [item.evalId, item]));
+
+    expect(byEval.get("exam/earned")!.failureSummary).toBeNull();
+    expect(byEval.get("exam/earned")!.moreFailures).toBe(0);
+
+    const lostSummary = byEval.get("exam/lost")!;
+    expect(lostSummary.failureSummary).toContain("healthy");
+    expect(lostSummary.failureSummary).not.toContain("second-loss"); // 只有首条丢分进正文
+    expect(lostSummary.failureSummary).toMatch(/\+16 pts/); // 首条丢分得分点的挣分尾缀
+    expect(lostSummary.moreFailures).toBe(1); // second-loss 单独计数,不进 failureSummary 正文
+
+    expect(byEval.get("exam/aborted")!.failureSummary).toContain("installed deps");
+    expect(byEval.get("exam/aborted")!.moreFailures).toBe(0);
+  });
+
   it("序列化 JSON 不含第二条断言文本、stack、evidence 或 diagnostics;costUSD 缺失一律 null", async () => {
     const items = await attemptListData([listSnap()]);
     const json = JSON.stringify(items);

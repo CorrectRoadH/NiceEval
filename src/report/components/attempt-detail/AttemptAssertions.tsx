@@ -6,6 +6,7 @@ import type { AttemptAssertionsData } from "../../model/types.ts";
 import type { AssertionResult, ScoreEntry } from "../../../types.ts";
 import { stripControl } from "../../../scoring/display.ts";
 import { formatPointsSuffix } from "../../model/format.ts";
+import { DEFAULT_REPORT_LOCALE, localeText, type ReportLocale } from "../../model/locale.ts";
 import { cx } from "../shared.ts";
 
 function assertTone(a: AssertionResult): "good" | "warn" | "bad" | "na" {
@@ -14,7 +15,7 @@ function assertTone(a: AssertionResult): "good" | "warn" | "bad" | "na" {
   return a.severity === "soft" ? "warn" : "bad";
 }
 
-function AssertionRow({ a }: { a: AssertionResult }): ReactElement {
+function AssertionRow({ a, locale }: { a: AssertionResult & { aborted?: true }; locale: ReportLocale }): ReactElement {
   return (
     <details className="nre-assertion-row" open>
       <summary>
@@ -36,6 +37,9 @@ function AssertionRow({ a }: { a: AssertionResult }): ReactElement {
         {a.outcome !== "unavailable" && a.points !== undefined ? (
           <div className="nre-assertion-points">{formatPointsSuffix(a.points)}</div>
         ) : null}
+        {/* 前置中止:这条断言让 test() 就地结束,其后不再有任何断言或给分记录
+            (docs/feature/scoring/library/display.md「前置中止」)。 */}
+        {a.aborted ? <div className="nre-assertion-abort">⤓ {localeText(locale, "attemptSource.abortReason")}</div> : null}
       </div>
     </details>
   );
@@ -53,16 +57,22 @@ function ScoreEntryRow({ entry }: { entry: ScoreEntry }): ReactElement {
 
 export function AttemptAssertions({
   data,
+  locale = DEFAULT_REPORT_LOCALE,
   className,
 }: {
   data: AttemptAssertionsData | null;
+  locale?: ReportLocale;
   className?: string;
 }): ReactElement | null {
   if (data === null) return null;
   return (
     <div className={cx("nre", "nre-attempt-assertions", className)}>
+      {/* 顶层计数:计分制 attempt 加一项得分点挣满计数(docs/feature/scoring/library/display.md「计分制」)。 */}
+      {data.scorePointsEarned ? (
+        <p className="nre-assertions-score-points">{localeText(locale, "attemptAssertions.scorePointsEarned", data.scorePointsEarned)}</p>
+      ) : null}
       {data.attention.map((a, i) => (
-        <AssertionRow key={i} a={a} />
+        <AssertionRow key={i} a={a} locale={locale} />
       ))}
       {data.passedGroups.length > 0 ? (
         <details className="nre-assertions-passed">
@@ -73,7 +83,7 @@ export function AttemptAssertions({
                 {group || "—"} · {items.length}
               </summary>
               {items.map((a, i) => (
-                <AssertionRow key={i} a={a} />
+                <AssertionRow key={i} a={a} locale={locale} />
               ))}
             </details>
           ))}
@@ -81,7 +91,9 @@ export function AttemptAssertions({
       ) : null}
       {data.scoreEntries && data.scoreEntries.length > 0 ? (
         <details className="nre-score-entries" open>
-          <summary>score entries · {data.scoreEntries.reduce((n, g) => n + g.items.length, 0)}</summary>
+          <summary>
+            {localeText(locale, "attemptAssertions.scoreEntries")} · {data.scoreEntries.reduce((n, g) => n + g.items.length, 0)}
+          </summary>
           {data.scoreEntries.map(({ group, items }) => (
             <details key={group || "·"} className="nre-score-entries-group" open>
               <summary>

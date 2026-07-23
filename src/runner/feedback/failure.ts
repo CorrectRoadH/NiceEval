@@ -19,7 +19,7 @@ export function failureDetailFromResult(result: EvalResult): FailureDetail | und
   }
 
   const assertion = result.error === undefined
-    ? primaryAssertionSummary(result.assertions, result.verdict)
+    ? primaryAssertionSummary(result.assertions, result.verdict, result.scoring === "points" ? "points" : "pass")
     : undefined;
   const reason = result.verdict === "errored"
     ? firstLine(result.error?.message ?? result.verdict)

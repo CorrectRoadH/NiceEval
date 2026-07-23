@@ -38,7 +38,7 @@ function attemptKey(attempt: AttemptHandle): string | undefined {
 function rowSummary(result: EvalResult): string | undefined {
   if (result.error !== undefined) return summaryText(result.error.message);
   if (result.skipReason !== undefined) return summaryText(result.skipReason);
-  const summary = primaryAssertionSummary(result.assertions, result.verdict);
+  const summary = primaryAssertionSummary(result.assertions, result.verdict, result.scoring === "points" ? "points" : "pass");
   return summary === undefined ? undefined : compactAssertionSummary(summary);
 }
 
