@@ -362,6 +362,8 @@ interface Usage {
   reasoningTokens?: number;
   /** 真实发生的模型请求数。协议不提供请求计数就省略,绝不写 1 凑数——一个 20 轮 session 报 `requests: 1` 比缺失更有害。 */
   requests?: number;
+  /** 网关/协议实测的计费金额(如实转发,不换算)。与顶层 `estimatedCostUSD`(价目表估算)是两个事实:实测存在时消费方优先它(口径见 [Reports 内置指标](../reports/library/metrics.md#内置指标) costUSD 行)。 */
+  costUSD?: number;
 }
 ```
 
