@@ -21,7 +21,13 @@ import { verdictSymbol } from "../reporters/shared.ts";
 import { formatCost } from "../../shared/format.ts";
 import { assertionSummaryLines } from "../../scoring/display.ts";
 import { encodeAttemptKey } from "../types.ts";
-import { panelCapabilityOf as panelCapability, renderPanel, type PanelMode, type PanelRow } from "../../report/model/panel.ts";
+import {
+  panelCapabilityOf as panelCapability,
+  panelContentWidth,
+  renderPanel,
+  type PanelMode,
+  type PanelRow,
+} from "../../report/model/panel.ts";
 import { stringWidth } from "../../report/model/text-layout.ts";
 import type {
   ActiveAttempt,
@@ -410,8 +416,13 @@ function formatCounts(state: RunFeedbackState): string {
   return `${counts}  ${formatCost(state.estimatedCostUSD)}`;
 }
 
+/** 定宽格式化:内容按 `width` 左对齐补空格对齐后面的列;超宽时尾部截断补 `…`(cli.md
+ *  「active 行的列序」:身份列「超宽截尾补 `…`」),不是硬切丢字符。`width <= 0` 退化为空串。 */
 function padTrunc(s: string, width: number): string {
-  return s.length > width ? s.slice(0, width) : s.padEnd(width);
+  if (width <= 0) return "";
+  if (s.length <= width) return s.padEnd(width);
+  if (width === 1) return "…";
+  return `${s.slice(0, width - 1)}…`;
 }
 
 // ───────────────────────── TTY:动态 dashboard ─────────────────────────
@@ -424,6 +435,20 @@ function createDashboardRenderer(io: FeedbackIO, command: string): FeedbackRende
   // 上一帧写了多少行(供 \x1B[nA 回跳)与上一帧的完整文本(供「同帧不写」判断)。
   let linesDrawn = 0;
   let lastFrameText: string | undefined;
+  // 身份两列(evalId/who)本次运行里"实际出现过的最长值"宽度——跨帧单调只放宽不回缩
+  // (cli.md「active 行的列序」),存在这个闭包里而不是每次从当前行现算,完成的 attempt
+  // 让出 slot 后也不应该让列宽跟着变窄。渲染时还要叠加当帧内容宽算出的封顶(见
+  // identityColumnWidths)——封顶随终端 resize 每帧重新从 contentWidth 推导,这里的
+  // 「见过的最长值」本身不因为封顶变严就被吃掉,分辨率更宽的下一帧仍能用得上。
+  let maxEvalIdWidth = 0;
+  let maxWhoWidth = 0;
+
+  /** 身份两列本帧的渲染宽度:观测到的最长值与本帧内容宽算出的 40% / 20% 封顶取较小值。 */
+  function identityColumnWidths(contentWidth: number): { evalWidth: number; whoWidth: number } {
+    const evalCap = Math.floor(contentWidth * 0.4);
+    const whoCap = Math.floor(contentWidth * 0.2);
+    return { evalWidth: Math.min(maxEvalIdWidth, evalCap), whoWidth: Math.min(maxWhoWidth, whoCap) };
+  }
 
   /** 上边框标题 = 本次命令、meta = 已运行时长;下边框 footerCommand = 本次新派发的累计成本
    *  (docs/feature/experiments/cli.md「运行中的 live 面板」)。ACTIVE 是嵌套 Section 的
@@ -435,7 +460,11 @@ function createDashboardRenderer(io: FeedbackIO, command: string): FeedbackRende
     // 不画一块只有 0 running 的 dashboard。
     if (state.total > 0 && state.total === state.reused) return [];
     const capability = panelCapabilityForFeedback(io);
-    const contentWidth = capability.mode === "boxed" ? capability.width - 4 : capability.width;
+    // live 面板豁免 100 列上限、跟随终端全宽(cli.md「框线体裁」);contentWidth 与下面
+    // renderPanel 的 width/capWidth 必须传同一份豁免声明,否则行按这里的宽度排版、框却在
+    // renderPanel 内部按另一个宽度钳制,行尾会被框吃掉——这正是 memory/
+    // live-dashboard-active-row-width-clamp-mismatch.md 的根因类别。
+    const contentWidth = panelContentWidth(capability.width, capability.mode, false);
     const rows: PanelRow[] = [
       {
         kind: "line",
@@ -460,13 +489,33 @@ function createDashboardRenderer(io: FeedbackIO, command: string): FeedbackRende
       // 窄/矮终端先减 active slots(减少行数),而不是先压缩单行内容 ——
       // 单行内容的截断在 formatActiveRow 里按 contentWidth 单独处理。
       const showCount = total <= rowBudget ? total : Math.max(0, rowBudget - 1);
-      const activeLines: string[] = hookRows.map((hookRow) => formatExperimentHookRow(hookRow, io, contentWidth));
+
+      // 先选出本帧真正会显示的行(hook 恒排在前面,与旧实现一致),再统一量测/定宽——
+      // 同一帧内所有行必须共用同一套身份列宽度,不能让前面几行按旧宽度格式化、后面
+      // 的行又观测到更长的值再推宽,导致同一帧内本该对齐的列错位。
+      const shownHooks = hookRows.slice(0, showCount);
+      const shownActive: ActiveAttempt[] = [];
       for (const key of activeOrder) {
-        if (activeLines.length >= showCount) break;
+        if (shownHooks.length + shownActive.length >= showCount) break;
         const active = state.active.get(key);
-        if (active) activeLines.push(formatActiveRow(active, io, contentWidth));
+        if (active) shownActive.push(active);
       }
-      for (const line of activeLines.slice(0, showCount)) rows.push({ kind: "line", text: line });
+      // 身份列本次运行"实际出现过的最长值"只放宽不回缩:hook 行的 label 是拼好的一整块
+      // 文本,不是 evalId/who 两个独立字段,不单独参与这里的放宽,只复用下面算出的宽度
+      // (cli.md「active 行的列序」:「同一套算法」= 复用同一份结果,不是各自维护一份)。
+      for (const active of shownActive) {
+        maxEvalIdWidth = Math.max(maxEvalIdWidth, active.identity.evalId.length);
+        maxWhoWidth = Math.max(maxWhoWidth, active.who.length);
+      }
+      const { evalWidth, whoWidth } = identityColumnWidths(contentWidth);
+
+      const activeLines: string[] = shownHooks.map((hookRow) =>
+        formatExperimentHookRow(hookRow, io, contentWidth, evalWidth, whoWidth),
+      );
+      for (const active of shownActive) {
+        activeLines.push(formatActiveRow(active, io, contentWidth, evalWidth, whoWidth));
+      }
+      for (const line of activeLines) rows.push({ kind: "line", text: line });
       if (total > showCount) {
         rows.push({ kind: "line", text: t("feedback.human.moreActive", { count: total - showCount }) });
       }
@@ -480,6 +529,7 @@ function createDashboardRenderer(io: FeedbackIO, command: string): FeedbackRende
       rows,
       width: capability.width,
       mode: capability.mode,
+      capWidth: false,
     });
   }
 
@@ -553,19 +603,21 @@ function createDashboardRenderer(io: FeedbackIO, command: string): FeedbackRende
   };
 }
 
-/** evalId/who 列宽按可用宽度成比例分配(约 55/45),不是固定 26/18 —— 固定宽度在窄终端下
- *  会让整行早早超出 `columns`(违反「宽度以 columns 为硬上限」),给宽终端又会截得比必要更早。
- *  身份列不能吞掉全部剩余宽度：phase/detail 才是 active 行存在的理由，必须预留可见空间。 */
-function formatActiveRow(active: ActiveAttempt, io: FeedbackIO, columns: number): string {
+/** active 行的身份两列(evalId/who)按调用方传入的 `evalWidth`/`whoWidth` 定宽——这两个数
+ *  是 `createDashboardRenderer` 闭包按「本次运行实际出现过的最长值,封顶内容宽 40% / 20%」
+ *  算出来再传进来的(见 `identityColumnWidths`),这个函数本身不比例分配、也不知道 `columns`
+ *  的其余部分怎么分。elapsed 固定 6 列右对齐;detail 拿到 `sym + 身份两列 + elapsed + 分隔符`
+ *  之后剩下的全部宽度——不是某个比例或固定预留,宽终端因此把整段 phase/detail 露出来
+ *  (cli.md「active 行的列序」)。 */
+function formatActiveRow(
+  active: ActiveAttempt,
+  io: FeedbackIO,
+  columns: number,
+  evalWidth: number,
+  whoWidth: number,
+): string {
   const elapsed = formatElapsed(io.clock.now() - active.phaseStartedAt).padStart(6);
   const sym = "● ";
-  const fixedWidth = sym.length + elapsed.length + 6; // 6 = 三处两两分隔空格
-  // 之前把 `columns - fixedWidth` 全给了 identity，导致 prefix 恒占满一行，detail
-  // budget 恒为 0；lifecycle/progress 已进 reducer，却永远无法画到终端。
-  const detailReserve = Math.min(80, Math.max(0, Math.floor(columns * 0.35)));
-  const remaining = Math.max(0, columns - fixedWidth - detailReserve);
-  const evalWidth = Math.max(0, Math.round(remaining * 0.55));
-  const whoWidth = Math.max(0, remaining - evalWidth);
   const evalCol = padTrunc(active.identity.evalId, evalWidth);
   const whoCol = padTrunc(active.who, whoWidth);
   const prefix = `${sym}${evalCol}  ${whoCol}  ${elapsed}  `;
@@ -574,18 +626,22 @@ function formatActiveRow(active: ActiveAttempt, io: FeedbackIO, columns: number)
   return prefix + detail.slice(0, budget);
 }
 
-/** 实验级钩子的运行级行:与 attempt 行同一套列宽算法,label 跨过 evalId+who 两列的宽度,
- *  elapsed 列因此对齐;detail 来自实验级 `ctx.progress`,没有就只留标签行。 */
-function formatExperimentHookRow(hook: ActiveExperimentHook, io: FeedbackIO, columns: number): string {
+/** 实验级钩子的运行级行:与 attempt 行同一套定宽结果,label 跨过 evalId + 两格间隔 + who
+ *  两列的合计宽度(不单独维护第三份"最长值"状态——label 是拼好的一整块文本,拆不出
+ *  evalId/who 两个独立字段,所以只复用 attempt 行算出的宽度,而不是各自决定),elapsed 列
+ *  因此与 attempt 行对齐;detail 来自实验级 `ctx.progress`,没有就只留标签行。 */
+function formatExperimentHookRow(
+  hook: ActiveExperimentHook,
+  io: FeedbackIO,
+  columns: number,
+  evalWidth: number,
+  whoWidth: number,
+): string {
   const elapsed = formatElapsed(io.clock.now() - hook.startedAt).padStart(6);
   const sym = "● ";
-  const fixedWidth = sym.length + elapsed.length + 6;
-  const detailReserve = Math.min(80, Math.max(0, Math.floor(columns * 0.35)));
-  const remaining = Math.max(0, columns - fixedWidth - detailReserve);
-  // attempt 行的身份区是 evalCol + 两格间隔 + whoCol(合计 remaining + 2),这里用同一跨度。
   const label = padTrunc(
     `${experimentHookLabel(hook.hook)} · ${hook.experimentId}${hook.recovery ? " (recovery)" : ""}`,
-    remaining + 2,
+    evalWidth + 2 + whoWidth,
   );
   const prefix = `${sym}${label}  ${elapsed}  `;
   const budget = Math.max(0, columns - prefix.length);

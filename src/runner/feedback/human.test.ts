@@ -9,6 +9,7 @@ import { createHumanRenderer, renderDurableLines } from "./human.ts";
 import { createFakeFeedbackIO } from "./testing.ts";
 import { createInitialRunFeedbackState } from "./reducer.ts";
 import { encodeAttemptKey } from "../types.ts";
+import { stringWidth } from "../../report/model/text-layout.ts";
 import type { DurableFeedbackEvent, RunCompletion, RunFeedbackPlan, RunFeedbackState, RunSummary } from "../types.ts";
 import type { AttemptLocator } from "../../results/locator.ts";
 
@@ -209,5 +210,169 @@ describe("live dashboard — 接线到 panel.ts", () => {
     const written = stdout.writes.join("") + stderr.writes.join("");
     expect(written).not.toMatch(BOX_CHARS);
     expect(written).toContain("PLAN");
+  });
+});
+
+// eslint-disable-next-line no-control-regex
+const ANSI_ESCAPE = /\x1B\[[0-9]*[A-Za-z]/g;
+function stripAnsi(written: string): string {
+  return written.replace(ANSI_ESCAPE, "");
+}
+
+// cases: docs/engineering/testing/unit/experiments-runner.md
+// 分区「live 面板的宽度与 ACTIVE 列分配」:live 面板豁免 100 列上限跟随终端全宽,行内容与
+// 外框同一个宽度值;身份列(evalId/who)按本次运行实际出现过的最长值定宽,只放宽不回缩,
+// 各自封顶内容宽 40% / 20%,超宽尾部截断补「…」;detail 拿到其余全部宽度。断言面是
+// `redrawDynamic` 实际写入 stderr 的渲染帧文本(剥离 ANSI 光标控制序列后),不是内部算式。
+describe("live dashboard — 宽终端下 ACTIVE 行与身份列分配", () => {
+  it("宽终端(columns 200)ACTIVE 行 phase/detail 完整可见,行内容与外框同一个宽度值 // bug: memory/live-dashboard-active-row-width-clamp-mismatch.md", () => {
+    const { io, stderr } = createFakeFeedbackIO({ stderr: { isTTY: true, columns: 200, rows: 30 } });
+    const renderer = createHumanRenderer({ io, command: "niceeval exp compare" });
+    const identity = { experimentId: "compare", evalId: "memory/agent-029-use-cache", attempt: 0 };
+    const key = encodeAttemptKey(identity);
+    // 98 个字符:比旧 bug 里实际生效的框内容宽(100 列上限下约 96 列)更长,只有两处宽度
+    // 计算(contentWidth 与 renderPanel 内部 boxWidth)真的用同一个豁免声明时才会整段可见。
+    const longDetail = "pnpm vitest run --coverage --reporter=verbose src/runner/feedback/human.test.ts --update-snapshots";
+    const state: RunFeedbackState = {
+      ...createInitialRunFeedbackState(),
+      total: 45,
+      reused: 6,
+      running: 19,
+      queued: 12,
+      completed: 8,
+      elapsedMs: 134_000,
+      active: new Map([
+        [key, { identity, who: "compare/bub-e2b", phase: "eval.run", phaseStartedAt: 0, detail: longDetail }],
+      ]),
+    };
+    renderer.onLifecycle?.(
+      { type: "attempt:start", at: 0, identity, who: "compare/bub-e2b", phase: "eval.run" },
+      state,
+    );
+    renderer.redrawDynamic?.(state);
+
+    const plain = stripAnsi(stderr.writes.join(""));
+    const lines = plain.split("\n").filter(Boolean);
+    // 行内容与外框必须按同一个宽度值计算:每一行(边框 + ACTIVE 行)显示宽度恒等,且跟随
+    // 200 列终端全宽,不被 100 上限钳制。
+    const widths = new Set(lines.map((l) => stringWidth(l)));
+    expect(widths.size).toBe(1);
+    expect([...widths][0]).toBe(200);
+    // phase/detail 完整出现,不在中途被框吃掉。
+    expect(plain).toContain(longDetail);
+  });
+
+  it("短 id 不垫空格:身份列贴着实际内容定宽,不按比例预留大段空白", () => {
+    const { io, stderr } = createFakeFeedbackIO({ stderr: { isTTY: true, columns: 200, rows: 30 } });
+    const renderer = createHumanRenderer({ io, command: "niceeval exp compare" });
+    const identity = { experimentId: "compare", evalId: "e1", attempt: 0 };
+    const key = encodeAttemptKey(identity);
+    const state: RunFeedbackState = {
+      ...createInitialRunFeedbackState(),
+      total: 1,
+      running: 1,
+      active: new Map([[key, { identity, who: "w1", phase: "eval.run", phaseStartedAt: 0 }]]),
+    };
+    renderer.onLifecycle?.({ type: "attempt:start", at: 0, identity, who: "w1", phase: "eval.run" }, state);
+    renderer.redrawDynamic?.(state);
+
+    const plain = stripAnsi(stderr.writes.join(""));
+    // "e1"/"w1" 是本次运行里唯一出现过的值,列宽就该等于各自的实际长度——不是旧 bug 那样
+    // 按比例把短 id 垫到一大段空白(memory 台账截图:eval 22 字符垫到 27、who 6 字符垫到 22)。
+    expect(plain).toContain("● e1  w1  ");
+  });
+
+  it("身份列跨帧单调:长 id 出现后,后续短 id 所在帧的列宽不回缩", () => {
+    const { io, stderr } = createFakeFeedbackIO({ stderr: { isTTY: true, columns: 200, rows: 30 } });
+    const renderer = createHumanRenderer({ io, command: "niceeval exp compare" });
+    const who = "compare/bub-e2b";
+    const longIdentity = { experimentId: "compare", evalId: "memory/agent-100-a-fairly-long-eval-id", attempt: 0 };
+    const shortIdentity = { experimentId: "compare", evalId: "short/id", attempt: 0 };
+    const longKey = encodeAttemptKey(longIdentity);
+    const shortKey = encodeAttemptKey(shortIdentity);
+
+    const frame1State: RunFeedbackState = {
+      ...createInitialRunFeedbackState(),
+      total: 2,
+      running: 1,
+      queued: 1,
+      active: new Map([[longKey, { identity: longIdentity, who, phase: "eval.run", phaseStartedAt: 0 }]]),
+    };
+    renderer.onLifecycle?.(
+      { type: "attempt:start", at: 0, identity: longIdentity, who, phase: "eval.run" },
+      frame1State,
+    );
+    renderer.redrawDynamic?.(frame1State);
+    const frame1 = stripAnsi(stderr.writes.join(""));
+    const whoIndexFrame1 = frame1.indexOf(who);
+    expect(whoIndexFrame1).toBeGreaterThan(-1);
+
+    const markBeforeFrame2 = stderr.writes.length;
+    renderer.onLifecycle?.(
+      { type: "attempt:complete", at: 1, identity: longIdentity, who, verdict: "passed" },
+      frame1State,
+    );
+    const frame2State: RunFeedbackState = {
+      ...createInitialRunFeedbackState(),
+      total: 2,
+      running: 1,
+      completed: 1,
+      active: new Map([[shortKey, { identity: shortIdentity, who, phase: "eval.run", phaseStartedAt: 1 }]]),
+    };
+    renderer.onLifecycle?.(
+      { type: "attempt:start", at: 1, identity: shortIdentity, who, phase: "eval.run" },
+      frame2State,
+    );
+    renderer.redrawDynamic?.(frame2State);
+    const frame2 = stripAnsi(stderr.writes.slice(markBeforeFrame2).join(""));
+    const whoIndexFrame2 = frame2.indexOf(who);
+
+    // 短 id 这一帧,"who" 列仍从与长 id 那一帧相同的位置开始起——列宽只放宽不回缩,
+    // 不因为当前行内容变短就跟着变窄。
+    expect(frame2).toContain("short/id");
+    expect(whoIndexFrame2).toBe(whoIndexFrame1);
+  });
+
+  it("身份列各自封顶内容宽的 40% / 20%,超出封顶的值尾部截断补 …", () => {
+    const { io, stderr } = createFakeFeedbackIO({ stderr: { isTTY: true, columns: 200, rows: 30 } });
+    const renderer = createHumanRenderer({ io, command: "niceeval exp compare" });
+    // contentWidth = 200 - 4(边框+padding)= 196;封顶 = floor(196*0.4)=78 / floor(196*0.2)=39。
+    const longEvalId = `memory/${"a".repeat(100)}`; // 107 字符,远超 78 的封顶
+    const longWho = `compare/${"b".repeat(50)}`; // 58 字符,远超 39 的封顶
+    const identity = { experimentId: "compare", evalId: longEvalId, attempt: 0 };
+    const key = encodeAttemptKey(identity);
+    const state: RunFeedbackState = {
+      ...createInitialRunFeedbackState(),
+      total: 1,
+      running: 1,
+      active: new Map([[key, { identity, who: longWho, phase: "eval.run", phaseStartedAt: 0 }]]),
+    };
+    renderer.onLifecycle?.({ type: "attempt:start", at: 0, identity, who: longWho, phase: "eval.run" }, state);
+    renderer.redrawDynamic?.(state);
+
+    const plain = stripAnsi(stderr.writes.join(""));
+    const evalCap = 78;
+    const whoCap = 39;
+    const evalCol = `${longEvalId.slice(0, evalCap - 1)}…`;
+    const whoCol = `${longWho.slice(0, whoCap - 1)}…`;
+    expect(plain).toContain(`● ${evalCol}  ${whoCol}  `);
+  });
+
+  it("scrollback 永久面板(PLAN/FAILED/FAILURES)在宽终端下仍封顶 100,不继承 live 面板的豁免", () => {
+    const planLines = renderDurableLines(
+      { type: "plan", at: 0, plan: plan() },
+      createInitialRunFeedbackState(),
+      { mode: "boxed", width: 200 },
+    );
+    expect(stringWidth(planLines[0]!)).toBe(100);
+
+    const summaryLines = renderDurableLines(
+      { type: "summary", at: 0, summary: summary(), completion: completion() },
+      stateWithFailureAndKept(),
+      { mode: "boxed", width: 200 },
+    );
+    const framedLines = summaryLines.filter((l) => /^[╭╰├]/.test(l));
+    expect(framedLines.length).toBeGreaterThan(0);
+    for (const l of framedLines) expect(stringWidth(l)).toBe(100);
   });
 });
