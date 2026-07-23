@@ -39,6 +39,8 @@ function attemptListItemProblem(value: unknown, path: string): string | null {
   if (typeof value.moreFailures !== "number") return `"${path}.moreFailures" must be a number`;
   const examScoreProblem = cellProblem(value.examScore, `${path}.examScore`);
   if (examScoreProblem !== null) return examScoreProblem;
+  const totalScoreProblem = cellProblem(value.totalScore, `${path}.totalScore`);
+  if (totalScoreProblem !== null) return totalScoreProblem;
   if (typeof value.durationMs !== "number") return `"${path}.durationMs" must be a number`;
   if (!(value.costUSD === null || typeof value.costUSD === "number")) return `"${path}.costUSD" must be a number or null`;
   if (typeof value.startedAt !== "string") return `"${path}.startedAt" must be a string`;
@@ -52,10 +54,13 @@ export const validateExperimentListData: Validator = (data) =>
     if (!isObject(item)) return `"${path}" must be an object`;
     if (typeof item.experimentId !== "string") return `"${path}.experimentId" must be a string`;
     if (typeof item.agent !== "string") return `"${path}.agent" must be a string`;
+    if (typeof item.scoring !== "string") return `"${path}.scoring" must be a string`;
     const verdictsProblem = tallyProblem(item.evalVerdicts, `${path}.evalVerdicts`);
     if (verdictsProblem !== null) return verdictsProblem;
     const passRateProblem = cellProblem(item.endToEndPassRate, `${path}.endToEndPassRate`);
     if (passRateProblem !== null) return passRateProblem;
+    const totalScoreProblem = cellProblem(item.totalScore, `${path}.totalScore`);
+    if (totalScoreProblem !== null) return totalScoreProblem;
     const costProblem = cellProblem(item.costUSD, `${path}.costUSD`);
     if (costProblem !== null) return costProblem;
     const durationProblem = cellProblem(item.durationMs, `${path}.durationMs`);
@@ -74,6 +79,8 @@ export const validateExperimentListData: Validator = (data) =>
       if (!isObject(row) || typeof row.evalId !== "string") {
         return `"${rowPath}" must be an object with a string "evalId"`;
       }
+      const rowTotalScoreProblem = cellProblem(row.totalScore, `${rowPath}.totalScore`);
+      if (rowTotalScoreProblem !== null) return rowTotalScoreProblem;
       const rowDurationProblem = cellProblem(row.durationMs, `${rowPath}.durationMs`);
       if (rowDurationProblem !== null) return rowDurationProblem;
       const rowCostProblem = cellProblem(row.costUSD, `${rowPath}.costUSD`);
@@ -89,6 +96,8 @@ export const validateEvalListData: Validator = (data) =>
     if (typeof item.verdict !== "string") return `"${path}.verdict" must be a string`;
     const examScoreProblem = cellProblem(item.examScore, `${path}.examScore`);
     if (examScoreProblem !== null) return examScoreProblem;
+    const totalScoreProblem = cellProblem(item.totalScore, `${path}.totalScore`);
+    if (totalScoreProblem !== null) return totalScoreProblem;
     const durationProblem = cellProblem(item.durationMs, `${path}.durationMs`);
     if (durationProblem !== null) return durationProblem;
     const costProblem = cellProblem(item.costUSD, `${path}.costUSD`);

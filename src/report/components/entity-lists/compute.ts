@@ -30,7 +30,7 @@ import {
   resolveInput,
   type Item,
 } from "../../model/aggregate.ts";
-import { attemptCostUSD, costUSD, durationMs, endToEndPassRate, examScore, tokens } from "../../model/metrics.ts";
+import { attemptCostUSD, costUSD, durationMs, endToEndPassRate, examScore, tokens, totalScore } from "../../model/metrics.ts";
 import { compactAssertionSummary, primaryAssertionSummary, summaryText } from "../../../scoring/display.ts";
 import { selectedEvalsOnly, summarizeItems } from "../shared-compute.ts";
 
@@ -75,6 +75,7 @@ async function attemptListItemOf(item: Item): Promise<AttemptListItem> {
     failureSummary: summary,
     moreFailures: more,
     examScore: await computeCell(examScore, [item]),
+    totalScore: await computeCell(totalScore, [item]),
     durationMs: result.durationMs,
     costUSD: attemptCostUSD(result),
     // 缺 startedAt(legacy / 第三方落盘)时退化到所属快照的 startedAt——时效标注宁可粗一档
@@ -114,6 +115,7 @@ export async function evalListData(input: ReportInput): Promise<EvalListItem[]> 
       evalId: evalIdOf(sorted[0]!),
       verdict,
       examScore: await computeCell(examScore, sorted),
+      totalScore: await computeCell(totalScore, sorted),
       durationMs: await computeCell(durationMs, sorted),
       costUSD: await computeCell(costUSD, sorted),
       attempts,
@@ -124,8 +126,47 @@ export async function evalListData(input: ReportInput): Promise<EvalListItem[]> 
 }
 
 /**
- * `experimentListData(input)`:每个 experiment 一项,展开到每道 Eval;初始按端到端通过率
- * 从高到低(缺数据沉底,同分按 id)。一行只有一套 agent / model / flags 是输入约束:
+ * `experimentListData` 默认排序专用的题型构成判据——列表自己的、只看这份 data 的局部决定,
+ * 不是 `scoringComposition()`(那是 Scope 级公开判据,见 metrics.md「题型构成与主读数」)的
+ * 第二份实现。跳过 attempts === 0 的行:这类行只可能来自 coverage-only 占位(真实 experiment
+ * 分组恒 attempts >= 1),它们的 `scoring` 是占位默认值而非读到的事实,一屏占位行不该把纯
+ * 计分制列表误判成 mixed。
+ */
+function listScoringComposition(items: readonly ExperimentListItem[]): "pass" | "points" | "mixed" {
+  let hasPass = false;
+  let hasPoints = false;
+  for (const item of items) {
+    if (item.attempts === 0) continue;
+    if (item.scoring === "points") hasPoints = true;
+    else hasPass = true;
+  }
+  if (hasPass && hasPoints) return "mixed";
+  return hasPoints ? "points" : "pass";
+}
+
+/**
+ * `ExperimentList` 默认排序的共用比较器形状:按 `valueOf` 降序,null 沉底(含双 null),
+ * 同值一律按 experimentId 字典序收口。纯通过制传 `endToEndPassRate`、纯计分制传 `totalScore`,
+ * 复用同一形状而不是各写一份。
+ */
+function byMetricDescThenId(
+  valueOf: (item: ExperimentListItem) => number | null,
+): (a: ExperimentListItem, b: ExperimentListItem) => number {
+  return (a, b) => {
+    const va = valueOf(a);
+    const vb = valueOf(b);
+    if (va === null && vb === null) return a.experimentId.localeCompare(b.experimentId);
+    if (va === null) return 1;
+    if (vb === null) return -1;
+    return vb - va || a.experimentId.localeCompare(b.experimentId);
+  };
+}
+
+/**
+ * `experimentListData(input)`:每个 experiment 一项,展开到每道 Eval;初始排序按这份列表
+ * 自身的题型构成选择主读数——纯通过制沿用端到端通过率降序,纯计分制改按总分降序(缺数据
+ * 沉底,同值按 id 收口);两者都出现时两种读数不能互相排名,退回 experiment id 字典序
+ * (metrics.md「题型构成与主读数」)。一行只有一套 agent / model / flags 是输入约束:
  * 宿主注入的 current() Scope 保证每个 experiment 只由可比性配置一致的快照拼成;作者自选
  * Snapshot[] 时若同一 experiment 混入不一致的可比性配置,按完整用户反馈失败并指引——
  * 看跨配置演化用 snapshot 维度或 MetricLine,不把两套配置拼成一行冒充单一配置。
@@ -167,6 +208,7 @@ export async function experimentListData(input: ReportInput): Promise<Experiment
       evalRows.push({
         evalId,
         verdict,
+        totalScore: await computeCell(totalScore, sorted),
         durationMs: await computeCell(durationMs, sorted),
         costUSD: await computeCell(costUSD, sorted),
         attempts,
@@ -179,8 +221,11 @@ export async function experimentListData(input: ReportInput): Promise<Experiment
       agent: newest.snapshot.agent || newest.attempt.result.agent,
       ...(model !== undefined ? { model } : {}),
       ...(experiment?.flags ? { flags: experiment.flags } : {}),
+      // 定义期事实,单个 experiment 内由启动期强制同型:newest 里任一 attempt 都能代表整组。
+      scoring: newest.attempt.result.scoring === "points" ? "points" : "pass",
       evalVerdicts: stats.verdicts,
       endToEndPassRate: await computeCell(endToEndPassRate, group),
+      totalScore: await computeCell(totalScore, group),
       costUSD: await computeCell(costUSD, group),
       durationMs: await computeCell(durationMs, group),
       tokens: await computeCell(tokens, group),
@@ -202,8 +247,12 @@ export async function experimentListData(input: ReportInput): Promise<Experiment
       // ScopeCoverage 是结果选择层的覆盖事实，不伪造不存在的运行配置。这里的空值只让
       // 实体行保持既有 data 形状；渲染面会以 missingEvalIds 的占位行表达真实状态。
       agent: "",
+      // ScopeCoverage 不携带题型事实(没有 attempt 可读);"pass" 是同一条「占位默认值」
+      // 纪律下的默认,不是从任何真实数据推断出来的。
+      scoring: "pass",
       evalVerdicts: { passed: 0, failed: 0, errored: 0, skipped: 0 },
       endToEndPassRate: await computeCell(endToEndPassRate, emptyItems),
+      totalScore: await computeCell(totalScore, emptyItems),
       costUSD: await computeCell(costUSD, emptyItems),
       durationMs: await computeCell(durationMs, emptyItems),
       tokens: await computeCell(tokens, emptyItems),
@@ -215,14 +264,18 @@ export async function experimentListData(input: ReportInput): Promise<Experiment
       evalRows: [],
     });
   }
-  // 初始态按端到端通过率(endToEndPassRate)从高到低,缺数据沉底;同分按 experiment id 稳定排序。
-  out.sort((a, b) => {
-    const va = a.endToEndPassRate.value;
-    const vb = b.endToEndPassRate.value;
-    if (va === null && vb === null) return a.experimentId.localeCompare(b.experimentId);
-    if (va === null) return 1;
-    if (vb === null) return -1;
-    return vb - va || a.experimentId.localeCompare(b.experimentId);
-  });
+  // 默认排序按这份列表自身的题型构成选择主读数(占位行不计入构成判断,见
+  // listScoringComposition):纯通过制沿用端到端通过率降序;纯计分制改按总分降序——
+  // endToEndPassRate 对计分制 attempt 同样是良态数字,此前一律拿它预排会把总分列表
+  // 悄悄按错误指标排序,这正是本节点要修的 bug。两型并存时两种读数不能互相排名,
+  // 退回 experiment id 字典序。
+  const composition = listScoringComposition(out);
+  if (composition === "points") {
+    out.sort(byMetricDescThenId((item) => item.totalScore.value));
+  } else if (composition === "mixed") {
+    out.sort((a, b) => a.experimentId.localeCompare(b.experimentId));
+  } else {
+    out.sort(byMetricDescThenId((item) => item.endToEndPassRate.value));
+  }
   return out;
 }
