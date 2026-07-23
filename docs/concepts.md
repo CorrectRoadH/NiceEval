@@ -186,7 +186,7 @@
 
 **Transcript** —— agent 一次运行的逐事件记录。原始形态是各 agent 自己的 JSONL,被**归一化**成统一事件模型(message / thinking / `action.called` / `action.result` / error)后供断言和报告消费。详见 [Observability](observability.md)。
 
-**o11y summary** —— 从**标准事件流**(见 [Observability](observability.md))派生的统计:工具调用计数、读/改的文件、shell 命令、web 请求、思考块数、**耗时、token 用量、估算成本**等。会注入沙箱(`__niceeval__/results.json`),让你在沙箱内手工跑的验证测试能断言 agent 的**行为**而不只是结果。
+**o11y summary** —— 从**标准事件流**(见 [Observability](observability.md))派生的行为计数:工具调用计数、读/改的文件、shell 命令、web 请求、思考块数等;token 用量、估算成本与耗时的权威在 `result.json`(`Usage` / `estimatedCostUSD` / `durationMs`),不在这里。会注入沙箱(`__niceeval__/results.json`),让你在沙箱内手工跑的验证测试能断言 agent 的**行为**而不只是结果。
 
 **Usage** / **用量** —— 一次运行的 token 计数(`inputTokens` / `outputTokens` / 可选 cache 读写)。随结果带回:remote agent 由 `send` 返回,沙箱型由 transcript 解析器从 agent 的 JSONL 抠出累加。可经 `t.usage` 读、`t.maxTokens()` 断言。
 

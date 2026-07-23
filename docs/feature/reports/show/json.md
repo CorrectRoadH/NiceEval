@@ -26,6 +26,7 @@ interface ShowJson {
 ```
 
 - 输出是**一个**顶层 JSON 文档，不是 NDJSON；stdout 只有这个文档，人读的进度与警告走 stderr。
+- **范围含多个 attempt 时**，逐 attempt 组件的 `data` 是该组件 `*Data` 产物的数组，排序与 text 面分节同序（experimentId、evalId、attempt 序）；text 面的节头与合计行是渲染面派生，不进 `data`——消费方从数组自行聚合，聚合口径与 text 合计一致（缺失不计入、见各组件声明）。scope 级切片（leaderboard / compare / stats）的 `data` 本身就是聚合视图，恒为单个对象。
 - 错误路径与 text 面一致：无匹配、用法冲突、零可读结果按同样的判定非零退出，错误信息走 stderr，不输出半个 JSON。
 - 字符串值忠实转发落盘内容：终端形态的列宽截断、卡片预览预算**都不适用**；落盘时已被 [256 KiB 上限](../../results/architecture.md#大值截断)截断的值带原样的 `truncated` 标记，`--json` 不追溯还原也不二次截断。
 

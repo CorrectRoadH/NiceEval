@@ -37,11 +37,10 @@ interface O11ySummary {
   errors: string[];
   thinkingBlocks: number;
   contextInjections: number;             // 被测系统内部机制(如 Claude Code 的 SessionStart/UserPromptSubmit hook)注入进上下文的次数
-  durationMs: number;                    // 本次运行的 wall-clock 耗时(运行器计时)
-  usage: Usage;                          // 累加这个 attempt 所有轮的 token 用量
-  estimatedCostUSD?: number;             // usage × 价格表换算(见下)
 }
 ```
+
+`O11ySummary` 只承载**从标准事件流可重算的行为计数**([缓存定位](feature/results/architecture.md#o11yjson))。token 用量、估算成本与耗时不在其中:权威分别是 `result.json` 的 `Usage`、`estimatedCostUSD` 与 `durationMs` / `phases`,同一事实不落第二份。
 
 ### 注入沙箱:让测试断言「行为」
 
@@ -213,7 +212,7 @@ artifact 是机器可读的,可回放、可二次分析、可喂给下游 dashbo
 - **远程 agent** —— 你在 `send` 里把模型返回的 usage(或你服务响应里带的 usage,若它回了)一并返回。
 - **沙箱 coding agent** —— **不必手填**:agent 的 JSONL transcript 里本就逐条带 token 用量,transcript 解析器(`o11y/parsers/<agent>.ts`)抠出来。这正是 agent-eval 留下的 TODO。
 
-每轮的用量来源二选一:remote agent 由 `Turn.usage` 直接给,sandbox agent 由解析器从该轮 transcript 抠出。运行器把每轮累加 → 单 eval 用量(落进 `O11ySummary.usage`);reporter 再跨 eval 累加 → 整个 run 的用量。
+每轮的用量来源二选一:remote agent 由 `Turn.usage` 直接给,sandbox agent 由解析器从该轮 transcript 抠出。运行器把每轮累加 → 单 attempt 用量(落进 `result.json` 的 [`Usage`](feature/results/architecture.md#usage));reporter 再跨 eval 累加 → 整个 run 的用量。
 
 ### 换算成本:价格表从哪来
 
@@ -234,7 +233,7 @@ token 数能可靠拿到;难点是 token→$ 的价格表 —— 价格会随时
    ```
 3. **未知模型 → 只报 token、不报 $,并打一行 warning** 列出没映射的模型(绝不静默瞎猜)。
 
-`estimatedCostUSD = inputTokens×单价 + outputTokens×单价 + cache…`,落进 `O11ySummary` 与每个 attempt 的 `result.json`。字段名带 **estimated** 是有意的:它是估算,真实账单以 provider 发票为准 —— 这也正是「网关实测」和「用户覆盖」两条通道存在的原因。
+`estimatedCostUSD = inputTokens×单价 + outputTokens×单价 + cache…`,落进每个 attempt 的 `result.json`。字段名带 **estimated** 是有意的:它是估算,真实账单以 provider 发票为准 —— 这也正是「网关实测」和「用户覆盖」两条通道存在的原因。
 
 > 设计取舍:价格是**会过期的数据**,所以内置快照只为「零配置能用」,不写死进核心逻辑;准确性靠用户覆盖与网关实测兜底,未知则诚实降级。快照随版本更新,也可考虑 `pricing: "auto"` 从社区维护的价目拉取(默认仍用离线快照,保证确定性)。
 
@@ -264,7 +263,7 @@ run 级合计不落盘:总时长、总用量、总成本由消费方([Results Li
 
 ### 时间也是一等指标(效率三件套)
 
-成本不是新指标里唯一的一个。**wall-clock 时间一直就记录**——运行器给每个 attempt 整体计时,落进 `O11ySummary.durationMs`,并把生命周期、hook、沙箱命令与每轮 send 的单调时钟时间树落进 `result.json.phases`,现在和 token / 成本**并排**成组:
+成本不是新指标里唯一的一个。**时间一直就记录**——运行器把判定链耗时落进 `result.json.durationMs`,生命周期、hook、沙箱命令与每轮 send 的单调时钟时间树落进 `result.json.phases`,现在和 token / 成本**并排**成组:
 
 | 维度 | 粒度 | 来源 |
 |---|---|---|
@@ -273,7 +272,7 @@ run 级合计不落盘:总时长、总用量、总成本由消费方([Results Li
 | **token 用量** | 同 | 标准事件流 / transcript 抠出 |
 | **估算成本 $** | 同 | usage × 价格表(或网关实测) |
 
-`O11ySummary.durationMs` 仍只有整个 attempt 一个聚合数,`StreamEvent` 本身也不携带时间。更细的时间来自两条互补事实线:
+`result.json.durationMs` 仍只有判定链一个聚合数,`StreamEvent` 本身也不携带时间。更细的时间来自两条互补事实线:
 
 - **Runner 时间树**:runner 在 lifecycle 边界、hook、`Sandbox.runCommand()` / `runShell()` 与每次 `send` 外层使用单调时钟计时。它能可靠回答「这一轮端到端花了多久」「安装 CLI 的命令花了多久」,不依赖 OTel；命令正文只保存有界脱敏摘要,env value 与输出不进时间树。
 - **OTel trace**:回答 turn 内部「模型想了多久」「Agent 工具调用多久」「谁套谁」。span 有显式 `traceId` / call ID 且能唯一关联时才挂到对应 turn 或 event；没有就诚实显示 timing unavailable,不拿 turn 或 attempt 总耗时反推。
