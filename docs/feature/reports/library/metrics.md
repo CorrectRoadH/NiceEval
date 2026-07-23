@@ -23,6 +23,8 @@ interface Metric<Name extends string = string> {
   description?: LocalizedText;
   unit?: string;
   better?: "higher" | "lower";
+  /** 指标值的自然边界（如通过率 0–1、成本下界 0）。图轴呼吸边距不越过声明的边界，见指标组件页「图轴值域」。 */
+  bounds?: { min?: number; max?: number };
   where?: (attempt: AttemptHandle) => boolean;
   value(attempt: AttemptHandle): number | null | Promise<number | null>;
   aggregate?: MetricAggregate;
@@ -40,6 +42,7 @@ interface MetricColumn {
   description?: LocalizedText;
   unit?: string;
   better?: "higher" | "lower";
+  bounds?: { min?: number; max?: number };
 }
 
 interface MetricCell {
@@ -75,6 +78,8 @@ interface MetricCell {
 | `costUSD` | 网关实测成本优先，否则估算成本 | 低 | `result.json` |
 | `assistantTurns` | o11y 事件流中的 assistant turn 数；与 `t.send` 的轮次（轮标签 `turn<N>`）是两个计数，名字因此带限定词 | 低 | `o11y.json` |
 | `repeatedFailedCommands` | 同一 attempt 内同一条 shell 命令的重复失败数：每条命令失败 n 次（n > 1）记 n − 1，求和。回答 agent 是否在反复撞同一个已知失败的命令 | 低 | `o11y.json` |
+
+内置指标都声明 `bounds`：三个通过率指标与 `examScore` 是 `{ min: 0, max: 1 }`（质量分是 soft 断言的均值），其余（`totalScore`、`durationMs`、`tokens`、`costUSD`、`assistantTurns`、`repeatedFailedCommands`）是 `{ min: 0 }`——计分制分值非负（[计分粒度](../../experiments/score-points.md)），耗时、tokens、成本与计数天然非负。
 
 `skipped` 对这些指标返回 `null`。`errored` 只在 `taskPassRate` 中返回 `null`，在默认 `endToEndPassRate` 与 `executionReliability` 中都返回 0。三个指标都遵守“先在同一 eval 的 attempts 内聚合，再跨 eval 聚合”的两级规则；每个 eval 只有一个 attempt 时，`endToEndPassRate` 才简化为 `passed / (passed + failed + errored)`。它的完整口径名是“End-to-end pass rate / 端到端通过率”，默认组件的可见短标签统一为“Pass rate / 通过率”；任何默认总览和任何只写这个短标签的位置都使用 `endToEndPassRate`。`taskPassRate` 必须标成“Task pass rate / 可判定任务通过率”等条件口径，不能把 `2 passed / 5 errored` 显示成无条件的 `100%`。要定位损失来自答题还是执行，可把三列并排：
 

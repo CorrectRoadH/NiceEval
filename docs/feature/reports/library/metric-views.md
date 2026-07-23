@@ -209,6 +209,14 @@ type ScoreboardProps = DataProps<ScoreboardData, ScoreboardOptions, {
 
 Scope 中存在题集之外的 eval 时，Scoreboard 忽略它们，把数量写进 `ignoredEvals` 并在注脚显示；`questions` 重复、空数组、空权重前缀、`fullMarks <= 0`、非正或非有限权重、score 超出 `[0, 1]`，或 `subject()` 返回空字符串时，计算以完整用户反馈失败，不产出歧义成绩单。
 
+## 图轴值域
+
+`MetricScatter` 的两轴与 `MetricLine` 的两轴按同一条规则推定值域：**值域 = 数据极值向两端各扩数据跨度的 5%，数据极值点不落在绘图框线上**。落在框线上的点标记被框线穿过、视觉上残缺，而极值点（最好与最差）恰是图上最需要被完整看清的点。数据跨度为零（单点，或全部点同值）时，边距改取该值绝对值的 5%；值恰为 0 时取 1。
+
+指标声明了 `bounds`（自然边界，见[指标](metrics.md)）的轴，边距截到边界为止：通过率 100% 的点落在框线上是「顶到语义天花板」的如实呈现，不是裁剪——此时框线就是指标的自然边界。`MetricLine` 的 x 轴是 `NumericAxis`，没有边界声明，只做边距不钳制。
+
+边距是呈现，与 `connect` 同一定性：不改变 `ScatterData` / `LineData`，不产生假刻度——刻度取扩后值域内的整值、标签始终显示真实值；反向轴（`better: "lower"`）先扩边距再反向。text 面的字符坐标图共用同一份值域，按字符行列粒度取整。
+
 ## `MetricScatter`
 
 每个点是一个维度值，x / y 各一个指标，`series` 决定颜色和图例归类，默认不连线。`connect` 显式开启后，每个 series 内的点按 x 升序连成折线——只给「线 = 同族变体」的 lineage series 用：基线与加了某个机制的变体同线，连线显示位移。散点云之间没有天然顺序，对无关点连线只会画出虚构趋势；表达数值参数的进程用 `MetricLine`。
