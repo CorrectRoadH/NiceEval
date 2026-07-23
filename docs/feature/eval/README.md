@@ -50,7 +50,7 @@ export default defineScoreEval({
 });
 ```
 
-计分制的 `t` 上一条断言只扮演一个角色:`.points(n)` 得分点、`.gate(x?)` 前置(挂了就地结束 `test()`)、什么都不链或 `.soft()` 观测(进质量分)。链过 `.points()` 的句柄上只剩 `.gate()` 与 `.optional()`;`.atLeast(x)` 与 `t.require` 在这套 `t` 上不存在——设通过线用 `.gate(x)`,前置只有 `.gate()` 一种写法。
+计分制的 `t` 上一条断言只扮演一个角色:`.points(n)` 得分点、`.gate(x?)` 前置(挂了就地结束 `test()`)、什么都不链或 `.soft()` 观测(进质量分)。链过 `.points()` 的句柄上只剩 `.gate()` 与 `.optional()`;`.atLeast(x)` 在计分制只是观测的通过线(低于线记 failed、永不影响判定),`t.require` 在这套 `t` 上不存在——前置只有 `.gate()` 一种写法。
 
 题型是定义期事实,进 `EvalDescriptor.scoring`(`"pass" | "points"`)供 experiment 的 `evals` 谓词过滤;一个 experiment 选中的 eval 必须同型,混型是启动期配置错误。计分语义(叠加不扣分、无满分声明、中止挣 0 与 errored 得 null 的分界、丢分不产生 failed)的单源契约见[计分粒度](../experiments/score-points.md#计分制叠加给分没有上限声明),完整写法见[计分制用例](use-case/rubric-scoring.md)。
 

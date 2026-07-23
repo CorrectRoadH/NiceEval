@@ -398,24 +398,59 @@ describe("runAttemptEffect · 计分制(scoring:\"points\")的挣分落盘", () 
     expect(result.scoreEntries).toEqual([]);
   });
 
-  it("t.require 中止后:verdict 为 failed(非 errored),中止前的给分保留、中止后的代码不执行", async () => {
+  it("前置 .gate() 中止后:verdict 为 failed(非 errored),中止前的给分保留、中止后的记录被丢弃", async () => {
     const result = await runOnce(scoringAgent(), new FakeSandbox(), {
       evalDefOverrides: {
         scoring: "points",
         test: (async (t: ScoreTestContext) => {
           t.score("早期给分", 5);
-          await t.require("actual", equals("expected")); // 必然不匹配,抛出并中止 test()
-          t.score("永不执行", 100); // require 挂了之后这行代码不会跑到
+          await t.check("actual", equals("expected")).gate(); // 必然不匹配,就地中止 test()
+          t.score("永不执行", 100); // 中止之后的给分不进结果
         }) as unknown as DiscoveredEval["test"],
       },
     });
 
-    // require 已经把断言记下来了,不是执行异常——中止挣 0 是 agent 的责任,verdict 是 failed
+    // 前置已经把断言记下来了,不是执行异常——中止挣 0 是 agent 的责任,verdict 是 failed
     // 不是 errored(见 docs/feature/experiments/score-points.md「计分制:叠加给分」)。
     expect(result.error).toBeUndefined();
     expect(result.verdict).toBe("failed");
     expect(result.scoreEntries).toEqual([{ label: "早期给分", points: 5 }]); // 没有"永不执行"那 100 分
-    expect(result.assertions).toHaveLength(1); // require 之后的断言代码从未执行
+    expect(result.assertions).toHaveLength(1); // 前置之后记录的断言被截断
     expect(result.assertions[0]!.outcome).toBe("failed");
+  });
+
+  it("前置不写 await 也不漏中止:结论与写了 await 完全一致(中止后的记录被截断)", async () => {
+    const result = await runOnce(scoringAgent(), new FakeSandbox(), {
+      evalDefOverrides: {
+        scoring: "points",
+        test: (async (t: ScoreTestContext) => {
+          t.score("早期给分", 5);
+          t.check("actual", equals("expected")).gate(); // 没有 await
+          t.score("永不执行", 100);
+        }) as unknown as DiscoveredEval["test"],
+      },
+    });
+
+    expect(result.error).toBeUndefined();
+    expect(result.verdict).toBe("failed");
+    expect(result.scoreEntries).toEqual([{ label: "早期给分", points: 5 }]);
+    expect(result.assertions).toHaveLength(1);
+  });
+
+  it("计分制丢分不是失败:得分点全挂但没有前置中止时 verdict 仍是 passed", async () => {
+    const result = await runOnce(scoringAgent(), new FakeSandbox(), {
+      evalDefOverrides: {
+        scoring: "points",
+        test: (async (t: ScoreTestContext) => {
+          // matcher 自带默认 severity 是 gate,计分制里只贡献通过线——不使这条成为前置
+          t.check("actual", equals("expected")).points(3);
+          t.check("actual", equals("expected"));
+        }) as unknown as DiscoveredEval["test"],
+      },
+    });
+
+    expect(result.verdict).toBe("passed");
+    expect(result.assertions.map((a) => a.severity)).toEqual(["soft", "soft"]);
+    expect(result.assertions[0]).toMatchObject({ outcome: "failed", points: 0 });
   });
 });

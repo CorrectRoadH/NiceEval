@@ -125,33 +125,57 @@ export interface PrimaryAssertionSummary {
   additionalFailures: number;
 }
 
-/** eval 作者拿到的可链式句柄(t.judge.autoevals.closedQA(...).atLeast(0.7))。 */
-export interface AssertionHandle {
-  atLeast(threshold: number): AssertionHandle;
-  gate(threshold?: number): AssertionHandle;
+/**
+ * 两种题型的断言句柄共有的部分。泛型上下文(`TestContext<H>` 等)按它约束 `H`,
+ * 使通过制的 `AssertionHandle` 与计分制的 `ScoreAssertionHandle` 各自增删方法。
+ */
+export interface BaseAssertionHandle {
+  gate(threshold?: number): BaseAssertionHandle;
   /** 降级为纯记录的软断言:不设线,分数照实落盘、永不使该条 failed。无参数——要设线用 .atLeast(threshold)。 */
-  soft(): AssertionHandle;
+  soft(): BaseAssertionHandle;
   /** 允许这条断言证据缺席:unavailable 只保留在记录里,不影响判定(见 Severity 与 Verdict)。 */
+  optional(): BaseAssertionHandle;
+}
+
+/** eval 作者拿到的可链式句柄(t.judge.autoevals.closedQA(...).atLeast(0.7))。 */
+export interface AssertionHandle extends BaseAssertionHandle {
+  atLeast(threshold: number): AssertionHandle;
+  /** 升级为硬门槛:不过即整条 eval failed(不中止执行,其余断言照常收集为诊断证据)。 */
+  gate(threshold?: number): AssertionHandle;
+  soft(): AssertionHandle;
   optional(): AssertionHandle;
 }
 
 /**
- * 计分制(`defineScoreEval`)才暴露的断言句柄:在 `AssertionHandle` 之上多一个 `.points(n)`。
- * 与 severity 正交、可任意顺序组合(`.gate().points(60)` 与 `.points(60).atLeast(0.7)` 都合法),
- * 因此四个方法在这里全部重声明为返回 `ScoreAssertionHandle`,使链条闭合。
- * 通过制(`defineEval`)的 `t` 上只暴露 `AssertionHandle`——写 `.points(...)` 是类型错误,
- * 不需要运行时守护(见 docs/feature/experiments/score-points.md)。
+ * 计分制(`defineScoreEval`)才暴露的断言句柄。一条断言只扮演一个角色,由链上的词决定:
+ * `.points(n)` 得分点(进分数面)、`.gate(x?)` 前置(挂了就地结束 `test()`)、什么都不链或
+ * `.soft()` / `.atLeast(x)` 观测(进质量分)。通过制的 `t` 上则没有 `.points(...)`,两边都是
+ * 类型层拒绝,不需要运行时守护(见 docs/feature/experiments/score-points.md)。
  */
-export interface ScoreAssertionHandle extends AssertionHandle {
+export interface ScoreAssertionHandle extends BaseAssertionHandle {
   /**
    * 挂在这条断言上的条件给分:0/1 断言通过挣 `n` 分、不过挣 0;judge 等打分断言按连续分比例
-   * 挣 `n × score`。`n` 必须为正数。返回同一条链的句柄,可继续叠加 severity 方法。
+   * 挣 `n × score`。`n` 必须为正数。返回的句柄上只剩 `.gate()` / `.optional()`——得分点已经
+   * 用分数表达了分量,再进质量分就是同一条证据被读两遍。
    */
-  points(n: number): ScoreAssertionHandle;
-  atLeast(threshold: number): ScoreAssertionHandle;
+  points(n: number): ScorePointHandle;
+  /** 前置:这条挂了就地结束 `test()`,后面的给分代码不执行。给了 `x` 就是通过线。 */
   gate(threshold?: number): ScoreAssertionHandle;
+  /**
+   * 给观测设通过线:低于 `x` 如实记 failed,**永不影响判定**(计分制的判定面只认前置中止,
+   * `--strict` 也不翻)。judge 这类默认没有线的打分断言靠它把「装好了但质量差」显示成 ✗;
+   * 0/1 断言不需要它——matcher 自带的线在计分制照常生效。
+   */
+  atLeast(threshold: number): ScoreAssertionHandle;
   soft(): ScoreAssertionHandle;
   optional(): ScoreAssertionHandle;
+}
+
+/** 链过 `.points(n)` 之后的句柄:只能再声明前置与缺席策略。 */
+export interface ScorePointHandle {
+  /** 前置:这条挂了就地结束 `test()`(这一份分也没挣到)。 */
+  gate(threshold?: number): ScorePointHandle;
+  optional(): ScorePointHandle;
 }
 
 /** scoped / judge 断言在 final 评估时拿到的运行结果。 */

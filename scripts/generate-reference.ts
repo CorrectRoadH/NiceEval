@@ -448,9 +448,13 @@ function computeRegionBody(regionId: string, sources: SourceMap): string {
         extractInterfaceMembers(sources["src/runner/types.ts"], "src/runner/types.ts", "EvalDef"),
       );
     case "test-context":
-      return renderMemberList(
-        extractInterfaceMembers(sources["src/context/types.ts"], "src/context/types.ts", "TestContext"),
-      );
+      // `t` 的成员分两处声明:两种题型共有的在 BaseTestContext,通过制专属的 require 在
+      // TestContext(计分制的 ScoreTestContext 换成 score)。参考页给的是通过制的 `t`,
+      // 两段按声明顺序接起来,漏掉任一段都会让这一页只剩半张表。
+      return renderMemberList([
+        ...extractInterfaceMembers(sources["src/context/types.ts"], "src/context/types.ts", "BaseTestContext"),
+        ...extractInterfaceMembers(sources["src/context/types.ts"], "src/context/types.ts", "TestContext"),
+      ]);
     case "turn-handle":
       return renderMemberList(
         extractInterfaceMembers(sources["src/context/types.ts"], "src/context/types.ts", "TurnHandle"),

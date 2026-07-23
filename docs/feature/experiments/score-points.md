@@ -35,12 +35,16 @@ eval 得分 = Σ 各给分项的挣分        （纯累加,无分母）
 | `.points(n)` | 得分点 | 分数面：挣 `n × score` | 丢这 n 分，继续往下跑 |
 | `.points(n).gate(x?)` | 得分点兼前置 | 分数面 | 丢这 n 分 **+ 就地结束 `test()`** |
 | `.gate(x?)` | 纯前置 | 不进任何折叠读数 | 就地结束 `test()` |
-| 不链 / `.soft()` | 观测 | 质量分（soft 均值） | 无 |
+| 不链 | 观测 | 质量分（soft 均值） | 照记 failed（用 matcher 自带的线），不影响判定 |
+| `.atLeast(x)` | 观测（带通过线） | 质量分（soft 均值） | 低于 `x` 记 failed，不影响判定 |
+| `.soft()` | 观测（纯记录） | 质量分（soft 均值） | 无（不设线，永不 failed） |
 
 配套语义：
 
-- **`.points(n)` 与 severity 互斥**：链过 `.points()` 的句柄上只剩 `.gate()` 与 `.optional()`，`.soft()` / `.atLeast()` 在类型层不存在（形状见 [Eval · defineScoreEval](../eval/README.md#definescoreeval计分制题型)）。得分点已经用分数表达了它的分量，再让它进质量分就是同一条证据被读两遍；`.atLeast(x)` 的语义（低于线记 failed、`--strict` 下拖垮 verdict）在计分制没有落点——要设通过线用 `.gate(0.5)`。
-- **角色只从句柄读**：matcher 自带的默认严重度（`includes` 默认 gate）与 matcher 上链的严重度（`similarity(...).gate(0.8)`）在计分制只贡献**通过线**，不使一条断言成为前置。前置是题目结构的声明，必须写在断言句柄上、一眼可见。
+- **`.points(n)` 与 severity 互斥**：链过 `.points()` 的句柄上只剩 `.gate()` 与 `.optional()`，`.soft()` / `.atLeast()` 在类型层不存在（形状见 [Eval · defineScoreEval](../eval/README.md#definescoreeval计分制题型)）。得分点已经用分数表达了它的分量：再让它进质量分是同一条证据被读两遍，再给它设一条通过线是拿两个标准评同一件事。
+- **`.atLeast(x)` 只是观测的通过线**：低于线如实记 failed，**永不影响判定**（计分制的判定面只认前置中止，`--strict` 也不翻）。judge 这类默认没有线的打分断言靠它把「装好了但质量差」显示成失败行；0/1 断言不需要它——matcher 自带的线在计分制照常生效。
+- **角色只从句柄读**：matcher 自带的默认严重度（`includes` 默认 gate）与 matcher 上链的严重度（`similarity(...).gate(0.8)`）在计分制只贡献**通过线**，不使一条断言成为前置。前置是题目结构的声明，必须写在断言句柄上、一眼可见。通过线照常生效：没做到的检查点如实记 `failed` 挣 0 分，只是不参与判定——要连线都不要（纯记录一个分数）就显式链 `.soft()`。
+- **`--strict` 在计分制不做事**：它翻的是「带通过线的 soft」，而计分制的 `t` 上根本没有 `.atLeast(x)`；丢分在任何模式下都不翻 verdict。
 - **`.gate()` 就地求值**：普通断言延迟到 finalize 才求值，前置断言在**写下的位置立即求值**——之后发生的事不改变它的结论，这正是「前置」的含义。挂了之后收集器进入中止态，下一次任何 `t.*` 调用或 `test()` 返回时抛出中止信号；收集器在每个 `t.*` 入口先结算待决前置，所以作者写不写 `await` 都不会漏掉中止（文档例子统一写 `await`）。
 - **计分制的 `t` 上没有 `t.require`**：`t.check(value, matcher).gate()` 覆盖 `t.require(value, matcher)` 的全部能力，还能同时挣分，前置在计分制里只有 `.gate()` 一种写法。`t.require` 仍是通过制的前置词（[值断言](../scoring/library/value-assertions.md#check-与-require)）。
 - **中止挣 0，基础设施得 null，严格分开**：前置挂了强制结束，后面的给分代码不执行、那些分自然没挣到——agent 没走到是它的责任，低分成立；沙箱炸了、judge 没 key 是 `errored`，整题分数为 `null`、不折成 0——评不了不是 agent 差。带 `.points` 的断言 `unavailable`（仅 `.optional()` 情形，否则整题已 errored）不挣分、在报告里如实标注。

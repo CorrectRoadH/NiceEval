@@ -91,6 +91,10 @@ export interface ContextDeps {
   /** 仅供确定性单测注入:透传给 SessionManager 的 turn 重试随机数/睡眠(生产路径省略)。 */
   retryRandom?: import("./session.ts").SessionDeps["retryRandom"];
   retrySleep?: import("./session.ts").SessionDeps["retrySleep"];
+  /** 题型(默认通过制);计分制下句柄上的 `.gate()` 是前置中止,见 AssertionCollector 的 scoring。 */
+  scoring?: "pass" | "points";
+  /** 取当前已提交窗口的 agent diff(计分制前置断言就地求值要用;非沙箱型省略)。 */
+  liveDiff?: () => Promise<DiffData>;
 }
 
 /**
@@ -126,12 +130,63 @@ export function createEvalContext(deps: ContextDeps): { context: TestContext; st
     retryRandom: deps.retryRandom,
     retrySleep: deps.retrySleep,
   });
-  const collector = new AssertionCollector();
-  const state: ContextState = {
-    collector,
-    manager,
-    late: { diff: emptyDiffData(), scripts: {} },
+  const late: LateResult = { diff: emptyDiffData(), scripts: {} };
+
+  // 计分制前置断言就地求值时看的实时运行结果。diff 只在 send 之后才会变(agent 只在窗口内动
+  // 工作区),所以按 send 计数缓存一次导出,同一批前置不重复跑 git 导出。
+  let liveDiffCache: { at: number; diff: Promise<DiffData> } | undefined;
+  const liveContext = async (): Promise<ScoringContext> => {
+    const events = manager.allEvents;
+    let diff = late.diff;
+    if (deps.liveDiff) {
+      const at = manager.allEvents.length;
+      if (liveDiffCache === undefined || liveDiffCache.at !== at) {
+        liveDiffCache = { at, diff: deps.liveDiff() };
+      }
+      diff = await liveDiffCache.diff;
+    }
+    return {
+      events,
+      facts: deriveRunFacts(events),
+      diff,
+      scripts: late.scripts,
+      usage: manager.usage,
+      status: manager.lastStatus,
+      coverage: manager.coverage,
+      readFile: async (path) => {
+        try {
+          return await deps.sandbox.readFile(path);
+        } catch {
+          return undefined;
+        }
+      },
+    };
   };
+
+  const collector = new AssertionCollector({
+    ...(deps.scoring !== undefined ? { scoring: deps.scoring } : {}),
+    liveContext,
+  });
+  const state: ContextState = { collector, manager, late };
+
+  /** 每个 t.* 异步入口先结算待决前置:未过就抛中止信号,后面的代码不再执行。 */
+  async function settlePrerequisites(): Promise<void> {
+    const aborted = await collector.settlePrerequisites();
+    if (aborted !== undefined) throw new EvalRequirementFailed(aborted);
+  }
+
+  /** 驱动会话的唯一入口(t.send / sendFile / respond / respondAll 都走它),前置守在这里。 */
+  async function send(...args: Parameters<SessionManager["send"]>): Promise<Turn> {
+    await settlePrerequisites();
+    return manager.send(...args);
+  }
+
+  function guardAsync<A extends unknown[], R>(fn: (...args: A) => Promise<R>): (...args: A) => Promise<R> {
+    return async (...args: A) => {
+      await settlePrerequisites();
+      return fn(...args);
+    };
+  }
 
   async function resolveValue(value: unknown, sc: ScoringContext): Promise<unknown> {
     if (value instanceof FileRef) return (await sc.readFile(value.path)) ?? "";
@@ -206,18 +261,21 @@ export function createEvalContext(deps: ContextDeps): { context: TestContext; st
     get diff() {
       return diffView;
     },
-    runCommand: (cmd, args, opts) => deps.sandbox.runCommand(cmd, args, opts),
-    runShell: (script, opts) => deps.sandbox.runShell(script, opts),
-    readFile: (path) => deps.sandbox.readFile(path),
-    fileExists: (path) => deps.sandbox.fileExists(path),
-    writeFiles: (files, targetDir) => deps.sandbox.writeFiles(files, targetDir),
-    uploadFiles: (files, targetDir) => deps.sandbox.uploadFiles(files, targetDir),
-    uploadDirectory: (localDir, targetDir, opts) =>
+    // 沙箱动作都先结算待决前置:前置没过时后面这些活儿一件都不该干(白跑沙箱时间)。
+    runCommand: guardAsync((cmd, args, opts) => deps.sandbox.runCommand(cmd, args, opts)),
+    runShell: guardAsync((script, opts) => deps.sandbox.runShell(script, opts)),
+    readFile: guardAsync((path) => deps.sandbox.readFile(path)),
+    fileExists: guardAsync((path) => deps.sandbox.fileExists(path)),
+    writeFiles: guardAsync((files, targetDir) => deps.sandbox.writeFiles(files, targetDir)),
+    uploadFiles: guardAsync((files, targetDir) => deps.sandbox.uploadFiles(files, targetDir)),
+    uploadDirectory: guardAsync((localDir, targetDir, opts) =>
       deps.sandbox.uploadDirectory(resolveLocalPath(deps.evalBaseDir, localDir), targetDir, opts),
-    downloadFile: (path) => deps.sandbox.downloadFile(path),
-    uploadFile: (path, content) => deps.sandbox.uploadFile(path, content),
-    downloadDirectory: (localDir, targetDir, opts) =>
+    ),
+    downloadFile: guardAsync((path) => deps.sandbox.downloadFile(path)),
+    uploadFile: guardAsync((path, content) => deps.sandbox.uploadFile(path, content)),
+    downloadDirectory: guardAsync((localDir, targetDir, opts) =>
       deps.sandbox.downloadDirectory(resolveLocalPath(deps.evalBaseDir, localDir), targetDir, opts),
+    ),
     ...sandboxAssertions,
   };
 
@@ -269,11 +327,11 @@ export function createEvalContext(deps: ContextDeps): { context: TestContext; st
       send: async (input) => {
         const text = typeof input === "string" ? input : input.text;
         const files = typeof input === "string" ? undefined : input.files;
-        const turn = await manager.send(session, text, files);
+        const turn = await send(session, text, files);
         return makeTurnHandle(turn, collector, deps, text, manager.resolveTurnCoverage(turn));
       },
       sendFile: async (path, text) => {
-        const turn = await manager.send(session, text ?? "", [await readInputFile(path)]);
+        const turn = await send(session, text ?? "", [await readInputFile(path)]);
         return makeTurnHandle(turn, collector, deps, text ?? "", manager.resolveTurnCoverage(turn));
       },
       requireInputRequest: (filter) => requireInputRequest(session, filter),
@@ -281,7 +339,7 @@ export function createEvalContext(deps: ContextDeps): { context: TestContext; st
         if (answers.length === 0) throw new Error(t("hitl.respondEmpty"));
         const built = buildRespondInput(session, answers);
         session.pendingInputRequests.length = 0;
-        const turn = await manager.send(session, built.text, undefined, built.responses);
+        const turn = await send(session, built.text, undefined, built.responses);
         return makeTurnHandle(turn, collector, deps, built.text, manager.resolveTurnCoverage(turn));
       },
       respondAll: async (optionId) => {
@@ -296,7 +354,7 @@ export function createEvalContext(deps: ContextDeps): { context: TestContext; st
         }));
         session.pendingInputRequests.length = 0;
         const input = requests.map(() => optionId).join("\n");
-        const turn = await manager.send(session, input, undefined, responses);
+        const turn = await send(session, input, undefined, responses);
         return makeTurnHandle(turn, collector, deps, input, manager.resolveTurnCoverage(turn));
       },
       get reply() {
@@ -403,11 +461,15 @@ export function createEvalContext(deps: ContextDeps): { context: TestContext; st
       };
       return collector.record(spec);
     },
-    group: <T,>(title: string, fn: () => Promise<T> | T) => collector.withGroup(title, fn),
+    group: async <T,>(title: string, fn: () => Promise<T> | T) => {
+      await settlePrerequisites();
+      return collector.withGroup(title, fn);
+    },
     // 计分制直接给分(仅 ScoreTestContext 类型上暴露;运行时对全部 eval 一视同仁地记录,
     // 不需要按题型守护,见 docs/feature/experiments/score-points.md)。
     score: (label: string, points: number) => collector.score(label, points),
     require: async (value: unknown, assertion: ValueAssertion) => {
+      await settlePrerequisites();
       const v = value instanceof FileRef ? await deps.sandbox.readFile(value.path).catch(() => "") : value;
       const score = await assertion.score(v);
       // require 恒为硬门槛(不过即中止 eval),判定口径与 finalize 同一份 computePassed。
@@ -417,6 +479,7 @@ export function createEvalContext(deps: ContextDeps): { context: TestContext; st
         name: assertion.name,
         severity: "gate",
         threshold: assertion.threshold,
+        prerequisite: true,
         evaluate: () =>
           passed
             ? evidence !== undefined

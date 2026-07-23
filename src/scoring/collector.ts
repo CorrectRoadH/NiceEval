@@ -38,6 +38,12 @@ export interface Spec {
   name: string;
   severity: Severity;
   threshold?: number;
+  /**
+   * 前置断言:就地立即求值、挂了中止 test()。`t.require`(通过制)记录时直接置位;计分制里
+   * 由句柄上的 `.gate()` 置位。它同时豁免计分制的「matcher 自带严重度只贡献通过线」降级——
+   * 前置是作者在句柄/入口上写下的题目结构声明,不是 matcher 默认值带来的。
+   */
+  prerequisite?: true;
   /** 作者用 .optional() 显式允许该断言证据缺席;unavailable 只保留在记录里,不影响判定。 */
   optional?: true;
   detail?: string;
@@ -52,6 +58,8 @@ export interface Spec {
    * 的可选字段。
    */
   points?: number;
+  /** 前置断言就地求值的结果快照;finalize 直接用它,不再求值一次(见 armPrerequisite)。 */
+  settled?: number | EvalScore | EvalUnavailable;
   evaluate(ctx: ScoringContext): number | EvalScore | EvalUnavailable | Promise<number | EvalScore | EvalUnavailable>;
 }
 
@@ -66,10 +74,41 @@ export interface RecordHandle {
   points(n: number): RecordHandle;
 }
 
+export interface CollectorOptions {
+  /**
+   * 题型(默认通过制)。计分制下句柄语义换一套:`.gate()` 是前置(就地求值、挂了中止),
+   * matcher 自带的默认严重度只贡献通过线、不使断言成为前置(否则默认 gate 的 matcher
+   * 会让第一条检查点腰斩整题),见 docs/feature/experiments/score-points.md。
+   */
+  scoring?: "pass" | "points";
+  /**
+   * 计分制前置断言就地求值时看的实时运行结果(events/diff/沙箱等)。省略时前置退化为
+   * 普通 gate(finalize 时才求值、不中止),仅用于直接构造 collector 的单测。
+   */
+  liveContext?: () => Promise<ScoringContext>;
+}
+
+/** 前置未过时截断到哪里:该前置本身保留,它之后记录的断言与给分记录一律丢弃。 */
+interface AbortPoint {
+  specCount: number;
+  entryCount: number;
+  name: string;
+}
+
 export class AssertionCollector {
   private readonly specs: Spec[] = [];
   private readonly groupStack: string[] = [];
   private readonly entries: ScoreEntry[] = [];
+  private readonly scoring: "pass" | "points";
+  private readonly liveContext: (() => Promise<ScoringContext>) | undefined;
+  /** 待结算的前置求值(按 arm 顺序);settlePrerequisites 依次等它们。 */
+  private pending: Promise<AbortPoint | undefined>[] = [];
+  private aborted: AbortPoint | undefined;
+
+  constructor(options: CollectorOptions = {}) {
+    this.scoring = options.scoring ?? "pass";
+    this.liveContext = options.liveContext;
+  }
 
   get hasEntries(): boolean {
     return this.specs.length > 0;
@@ -108,7 +147,18 @@ export class AssertionCollector {
       spec.groupPath = this.groupStack.slice();
     }
     if (spec.loc === undefined) spec.loc = captureLoc();
+    // 计分制:角色只从断言句柄读。matcher 自带的默认严重度(includes 等默认 gate)与 matcher
+    // 上链的 .gate(x) 只贡献通过线,记录为观测;成为前置要作者在句柄上写 .gate()。降级时把
+    // gate 的通过线显式留下(省略即默认满分线),这样没做到的检查点照记 failed、挣 0 分,
+    // 只是不参与判定——判定面在计分制只认前置中止(见 computeVerdict 的 scoring 分支)。
+    if (this.scoring === "points" && spec.severity === "gate" && spec.prerequisite !== true) {
+      spec.severity = "soft";
+      spec.threshold = spec.threshold ?? 1;
+    }
     this.specs.push(spec);
+    // 该断言之前的记录量:这条一旦成为未过的前置,就截断回这里(它自己保留)。
+    const before = { specCount: this.specs.length, entryCount: this.entries.length };
+    const collector = this;
     const handle: RecordHandle = {
       atLeast(threshold) {
         spec.severity = "soft";
@@ -118,6 +168,10 @@ export class AssertionCollector {
       gate(threshold) {
         spec.severity = "gate";
         spec.threshold = threshold;
+        if (collector.scoring === "points") {
+          spec.prerequisite = true;
+          collector.armPrerequisite(spec, before);
+        }
         return handle;
       },
       soft() {
@@ -140,6 +194,54 @@ export class AssertionCollector {
     return handle;
   }
 
+  /**
+   * 计分制前置:就地求值(不进延迟队列),结论定在写下的位置——之后发生的事不改变它。
+   * 求值本身是异步的,结果挂进 pending 队列,由下一次 `settlePrerequisites()` 结算。
+   */
+  private armPrerequisite(spec: Spec, before: { specCount: number; entryCount: number }): void {
+    const live = this.liveContext;
+    if (live === undefined) return; // 无实时上下文(裸 collector 单测):退化为普通 gate,不中止
+    this.pending.push(
+      (async (): Promise<AbortPoint | undefined> => {
+        let raw: number | EvalScore | EvalUnavailable;
+        try {
+          raw = await spec.evaluate(await live());
+        } catch {
+          raw = 0; // 求值抛错 = 0 分,与 finalize 的 catch 同口径;详情在 finalize 里落成 detail
+          spec.settled = undefined;
+          return { ...before, name: spec.name };
+        }
+        spec.settled = raw;
+        // 证据评不了不算「前置未过」:非 optional 的 unavailable 会把整个 attempt 判成 errored,
+        // 那是比中止更强的结论,不需要再中止一次。
+        if (isUnavailable(raw)) return undefined;
+        const score = typeof raw === "number" ? raw : raw.score;
+        return computePassed("gate", spec.threshold, score) ? undefined : { ...before, name: spec.name };
+      })(),
+    );
+  }
+
+  /**
+   * 结算待决前置。返回未过前置的断言名(调用方据此抛中止信号),没有则 undefined。
+   * 一旦中止过就一直返回同一个名字——后续每个 `t.*` 入口都会再抛一次,直到 test() 退出。
+   */
+  async settlePrerequisites(): Promise<string | undefined> {
+    while (this.pending.length > 0) {
+      const batch = this.pending;
+      this.pending = [];
+      for (const task of batch) {
+        const failure = await task;
+        if (failure !== undefined && this.aborted === undefined) this.aborted = failure;
+      }
+    }
+    if (this.aborted === undefined) return undefined;
+    // 中止后写下的断言与给分记录一律丢弃:作者写不写 await 都得到同一份结果
+    // (不 await 时后续同步调用仍会记录,这里统一截断回中止点)。
+    this.specs.length = Math.min(this.specs.length, this.aborted.specCount);
+    this.entries.length = Math.min(this.entries.length, this.aborted.entryCount);
+    return this.aborted.name;
+  }
+
   async finalize(ctx: ScoringContext, options: { includePoints?: boolean } = {}): Promise<AssertionResult[]> {
     const out: AssertionResult[] = [];
     for (const spec of this.specs) {
@@ -157,7 +259,8 @@ export class AssertionCollector {
       let received: string | undefined;
       let evidence: string | undefined;
       try {
-        const raw = await spec.evaluate(ctx);
+        // 前置断言已在写下的位置就地求值过,直接用那份快照——之后发生的事不改变它的结论。
+        const raw = spec.settled ?? (await spec.evaluate(ctx));
         if (isUnavailable(raw)) {
           out.push({ ...base, outcome: "unavailable", reason: raw.reason });
           continue;

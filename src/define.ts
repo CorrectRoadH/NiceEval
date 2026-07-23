@@ -95,7 +95,10 @@ export function defineScoreEval(def: ScoreEvalDef): EvalDef {
   if (def.environment !== undefined && def.environment.trim().length === 0) {
     throw new Error(t("define.scoreEvalEnvironmentEmpty"));
   }
-  const result: EvalDef = { ...def, scoring: "points" };
+  // 两种题型的 `t` 是两套类型(计分制多 `.points`/`t.score`、少 `.atLeast`/`require`),
+  // 互相不可赋值——这正是类型分离要的效果。运行时 `t` 是同一个对象,题型差异由 collector
+  // 按 `scoring` 处理,所以这里显式收窄成 `EvalDef` 的 `test`。
+  const result: EvalDef = { ...def, scoring: "points", test: def.test as unknown as EvalDef["test"] };
   definedScoreEvals.add(result);
   return result;
 }

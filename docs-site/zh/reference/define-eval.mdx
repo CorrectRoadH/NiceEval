@@ -150,7 +150,7 @@ scoring?: EvalScoring;
 
 ## Test context: `t`
 
-`t`（`TestContext`）是评估用例作者拿到的高层上下文。运行器按 agent 的实际能力组装它——`t.sandbox` 这类字段只在 `defineSandboxAgent` 构造的 agent 上才有意义，完整规则见[能力位参考](/zh/reference/capabilities)。下面签名里的 `H` 是断言句柄类型：`defineEval` 的 `t` 上 `H` 恒为 `AssertionHandle`；计分制 `defineScoreEval` 的 `t`（`ScoreTestContext`）换成 `ScoreAssertionHandle`——多出 `.points(n)`，没有 `.atLeast(x)`，`.gate()` 的含义是「挂了就地结束 `test()`」，成员表里的 `require` 也不在这套 `t` 上（前置写成 `t.check(value, assertion).gate()`）。详见[计分制](/zh/tutorials/scoring-guide#计分制检查点没走完也要看走了几步)。全部成员：
+`t`（`TestContext`）是评估用例作者拿到的高层上下文。运行器按 agent 的实际能力组装它——`t.sandbox` 这类字段只在 `defineSandboxAgent` 构造的 agent 上才有意义，完整规则见[能力位参考](/zh/reference/capabilities)。下面签名里的 `H` 是断言句柄类型：`defineEval` 的 `t` 上 `H` 恒为 `AssertionHandle`；计分制 `defineScoreEval` 的 `t`（`ScoreTestContext`）换成 `ScoreAssertionHandle`——多出 `.points(n)`，`.gate()` 的含义变成「挂了就地结束 `test()`」，`.atLeast(x)` 只给观测设通过线（永不影响判定），成员表里的 `require` 也不在这套 `t` 上（前置写成 `t.check(value, assertion).gate()`）。跨两种题型复用的 helper 把参数标注成 `BaseTestContext<H>`，两种 `t` 都能传进去。详见[计分制](/zh/tutorials/scoring-guide#计分制检查点没走完也要看走了几步)。全部成员：
 
 {/* GENERATED:BEGIN test-context */}
 
@@ -308,17 +308,6 @@ check(value: unknown, assertion: ValueAssertion): H;
 对任意值跑一个 ValueAssertion,返回可链 `.gate()` / `.atLeast()` 的 AssertionHandle。
 打分延迟到评估用例结束后统一 finalize,调用本身同步、不抛错——不通过只是记一条失败断言,
 不会中止后续代码。要「不满足就立即中止评估用例」用 require。
-
-#### `require`
-
-```ts
-require(value: unknown, assertion: ValueAssertion): Promise<unknown>;
-```
-
-对任意值跑一个 ValueAssertion,立即(await 时)求值;不满足就抛错中止整个评估用例剩余步骤
-(仍会把这条断言计入报告,不影响已记录的其它断言)。跟 check 的区别:check 只记录、
-从不抛错,打分留到最后统一算;require 当场判定、失败即中止,适合「前置条件不满足,
-后面写了也没意义」的场景。
 
 #### `group`
 
@@ -488,6 +477,18 @@ readonly judge: JudgeNamespace<H>;
 ```
 
 可用的 judge 命名空间(t.judge.autoevals.*)。
+
+#### `require`
+
+```ts
+require(value: unknown, assertion: ValueAssertion): Promise<unknown>;
+```
+
+对任意值跑一个 ValueAssertion,立即(await 时)求值;不满足就抛错中止整个评估用例剩余步骤
+(仍会把这条断言计入报告,不影响已记录的其它断言)。跟 check 的区别:check 只记录、
+从不抛错,打分留到最后统一算;require 当场判定、失败即中止,适合「前置条件不满足,
+后面写了也没意义」的场景。计分制的 `t` 上没有它——前置在那边只有一种写法
+`t.check(value, assertion).gate()`,它覆盖 require 的全部能力,还能同时挣分。
 
 {/* GENERATED:END test-context */}
 

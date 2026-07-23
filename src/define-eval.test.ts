@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 import { defineEval, defineScoreEval } from "./define.ts";
 import { makeAssertion } from "./expect/index.ts";
-import type { ScoreTestContext, TestContext } from "./types.ts";
+import type { BaseAssertionHandle, BaseTestContext, ScoreTestContext, TestContext } from "./types.ts";
 
 describe("defineEval:通过制", () => {
   it("产物恒 scoring: \"pass\"", () => {
@@ -75,6 +75,53 @@ describe("类型层:给分词汇只存在于计分制的 t 上", () => {
       async test(t: ScoreTestContext) {
         t.check(1, makeAssertion({ name: "x", score: () => 1 })).points(1);
         t.score("直接给分", 10);
+      },
+    });
+    expect(true).toBe(true);
+  });
+
+  it("计分制句柄上一条断言只扮演一个角色:.points() 之后只剩 .gate()/.optional()", () => {
+    defineScoreEval({
+      async test(t: ScoreTestContext) {
+        const handle = t.check(1, makeAssertion({ name: "x", score: () => 1 }));
+        handle.points(1).gate(); // 得分点兼前置:唯一的合法组合
+        handle.points(1).optional();
+        handle.gate(0.5); // 纯前置(给了通过线)
+        handle.soft(); // 观测(纯记录)
+        handle.atLeast(0.7); // 观测(带通过线:低于线记 failed,不影响判定)
+        // @ts-expect-error 得分点已经用分数表达了分量,再进质量分就是同一条证据被读两遍
+        handle.points(1).soft();
+        // @ts-expect-error 同上:得分点的成败由挣分表达,不另设线
+        handle.points(1).atLeast(0.7);
+      },
+    });
+    expect(true).toBe(true);
+  });
+
+  it("跨题型复用的 helper 标注 BaseTestContext<H>,两种 t 都能传进去", () => {
+    // 共享步骤函数(evals/*/share/ 里的典型写法):只用两种题型共有的能力。
+    async function step<H extends BaseAssertionHandle>(t: BaseTestContext<H>): Promise<H> {
+      await t.send("hi");
+      return t.check(t.reply, makeAssertion({ name: "x", score: () => 1 }));
+    }
+    defineEval({
+      async test(t: TestContext) {
+        await step(t);
+      },
+    });
+    defineScoreEval({
+      async test(t: ScoreTestContext) {
+        (await step(t)).points(1); // 句柄类型跟着 H 走:计分制里拿回的是 ScoreAssertionHandle
+      },
+    });
+    expect(true).toBe(true);
+  });
+
+  it("计分制的 t 上没有 require:前置只有 t.check(...).gate() 一种写法", () => {
+    defineScoreEval({
+      async test(t: ScoreTestContext) {
+        // @ts-expect-error require 是通过制的前置词,计分制的前置写成 .gate()
+        await t.require(1, makeAssertion({ name: "x", score: () => 1 }));
       },
     });
     expect(true).toBe(true);

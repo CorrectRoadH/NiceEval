@@ -135,14 +135,81 @@ describe("计分制给分链路:.points(n) 挂在断言上", () => {
     expect(() => handle.points(Number.POSITIVE_INFINITY)).toThrow();
   });
 
-  it(".points() 与 .gate()/.atLeast()/.soft() 可任意顺序组合,互不覆盖对方设的字段", async () => {
-    const collector = new AssertionCollector();
-    // .points() 在前:severity 仍能被之后链的 .atLeast() 正常设置。
-    collector.record(specForAssertion(equals(4), 4)).points(10).atLeast(0.5);
+  it(".points(n).gate() 同时挣分与声明前置,两个字段互不覆盖", async () => {
+    const collector = new AssertionCollector({ scoring: "points", liveContext: async () => ctxWith() });
+    collector.record(specForAssertion(equals(4), 4)).points(10).gate();
+    expect(await collector.settlePrerequisites()).toBeUndefined(); // 前置过了,不中止
     const [result] = await collector.finalize(ctxWith());
     expect(result!.outcome === "unavailable" ? undefined : result!.points).toBe(10);
-    expect(result!.severity).toBe("soft");
-    expect(result!.outcome === "unavailable" ? undefined : result!.threshold).toBe(0.5);
+    expect(result!.severity).toBe("gate");
+  });
+});
+
+describe("计分制的角色互斥:severity 只从断言句柄读", () => {
+  const points = () => new AssertionCollector({ scoring: "points", liveContext: async () => ctxWith() });
+
+  it("matcher 自带的默认 gate 只贡献通过线,不使断言成为前置(回归:否则第一条检查点腰斩整题)", async () => {
+    const collector = points();
+    collector.record(specForAssertion(equals(4), 5)).points(3); // equals 默认 severity 是 gate
+    expect(await collector.settlePrerequisites()).toBeUndefined(); // 没有前置,不中止
+    const [result] = await collector.finalize(ctxWith());
+    expect(result!.severity).toBe("soft"); // 降级为观测:丢分不参与判定
+    expect(result!.outcome).toBe("failed"); // 通过线保留,没做到照记 failed
+    expect(result!.outcome === "unavailable" ? undefined : result!.points).toBe(0);
+    expect(computeVerdict({ assertions: [result!], strict: true, scoring: "points" })).toBe("passed");
+  });
+
+  it("句柄上的 .gate() 未过:就地求值 + 截断到中止点(后面记录的断言与给分一律丢弃)", async () => {
+    const collector = points();
+    collector.score("早期给分", 5);
+    collector.record(specForAssertion(equals(4), 5)).points(1).gate();
+    // 作者没 await:中止之后的同步记录照样进了 collector,由 settle 统一截断回中止点。
+    collector.record(specForAssertion(equals(4), 4)).points(99);
+    collector.score("永不计入", 100);
+
+    expect(await collector.settlePrerequisites()).toBe('equals(4)');
+    expect(collector.scoreEntries.map((e) => e.label)).toEqual(["早期给分"]);
+    const results = await collector.finalize(ctxWith());
+    expect(results).toHaveLength(1);
+    expect(results[0]!.severity).toBe("gate");
+    expect(results[0]!.outcome).toBe("failed");
+    expect(computeVerdict({ assertions: results, scoring: "points" })).toBe("failed");
+  });
+
+  it("前置就地求值:结论定在写下的位置,之后运行结果再变也不改判(finalize 不重新求值)", async () => {
+    let value = 5;
+    const collector = points();
+    collector.record({
+      name: "moving target",
+      severity: "soft",
+      evaluate: async () => (value === 4 ? 1 : 0),
+    }).gate();
+    expect(await collector.settlePrerequisites()).toBe("moving target");
+    value = 4; // 前置之后世界变了:结论不跟着变
+    const [result] = await collector.finalize(ctxWith());
+    expect(result!.outcome).toBe("failed");
+  });
+
+  it("前置过了就不中止,后续断言与给分照常保留", async () => {
+    const collector = points();
+    collector.record(specForAssertion(equals(4), 4)).gate();
+    collector.record(specForAssertion(equals(4), 4)).points(2);
+    collector.score("后续给分", 7);
+    expect(await collector.settlePrerequisites()).toBeUndefined();
+    const results = await collector.finalize(ctxWith());
+    expect(results).toHaveLength(2);
+    expect(collector.scoreEntries).toHaveLength(1);
+  });
+
+  it("通过制不受影响:matcher 的默认 gate 照旧是硬门槛,.gate() 不中止执行", async () => {
+    const collector = new AssertionCollector();
+    collector.record(specForAssertion(equals(4), 5));
+    collector.record(specForAssertion(equals(4), 4));
+    expect(await collector.settlePrerequisites()).toBeUndefined();
+    const results = await collector.finalize(ctxWith());
+    expect(results).toHaveLength(2); // 不截断
+    expect(results[0]!.severity).toBe("gate");
+    expect(computeVerdict({ assertions: results })).toBe("failed");
   });
 });
 

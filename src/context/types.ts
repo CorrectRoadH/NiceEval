@@ -3,7 +3,7 @@
 
 import type { InputRequest, StreamEvent, ToolCall, Usage } from "../o11y/types.ts";
 import type { DiagnosticInput, ProgressUpdate } from "../shared/types.ts";
-import type { AssertionHandle, ScoreAssertionHandle, ValueAssertion } from "../scoring/types.ts";
+import type { AssertionHandle, BaseAssertionHandle, ScoreAssertionHandle, ValueAssertion } from "../scoring/types.ts";
 import type { CommandOptions, CommandResult, SandboxFile } from "../sandbox/types.ts";
 
 /** `t.send()` / `session.send()` 的入参:字符串,或带附件的结构化消息。 */
@@ -15,7 +15,7 @@ export type SendInput = string | { text: string; files?: readonly import("../age
  * `TurnHandle<ScoreAssertionHandle>`)共用这一份形状,区别只在 `H` 是否带 `.points(n)`
  * (见 docs/feature/experiments/score-points.md)。
  */
-export interface TurnHandle<H extends AssertionHandle = AssertionHandle> {
+export interface TurnHandle<H extends BaseAssertionHandle = AssertionHandle> {
   /** 本轮的原始事件流(工具调用、消息增量等);下面的派生字段都算自它。 */
   readonly events: StreamEvent[];
   /** 本轮内被调用的工具列表,从 events 派生。 */
@@ -73,13 +73,13 @@ export interface TurnHandle<H extends AssertionHandle = AssertionHandle> {
 }
 
 /** autoevals 子命名空间:结构化的参考材料对照评估(closedQA / factuality / summarizes)。 */
-export interface AutoevalsNamespace<H extends AssertionHandle = AssertionHandle> {
+export interface AutoevalsNamespace<H extends BaseAssertionHandle = AssertionHandle> {
   closedQA(question: string, opts?: { on?: string; model?: string }): H;
   factuality(expected: string, opts?: { on?: string; model?: string }): H;
   summarizes(source: string, opts?: { on?: string; model?: string }): H;
 }
 
-export interface JudgeNamespace<H extends AssertionHandle = AssertionHandle> {
+export interface JudgeNamespace<H extends BaseAssertionHandle = AssertionHandle> {
   /** 结构化对照评估的子命名空间(t.judge.autoevals.closedQA / .factuality / .summarizes)。 */
   autoevals: AutoevalsNamespace<H>;
 }
@@ -154,7 +154,7 @@ export interface RespondAnswer {
 }
 
 /** 评估用例作者可见的受限 Sandbox 视图:能执行命令 / 文件 IO / 读最终 diff,但不能 stop。 */
-export interface SandboxHandle<H extends AssertionHandle = AssertionHandle> {
+export interface SandboxHandle<H extends BaseAssertionHandle = AssertionHandle> {
   /** Sandbox 内的工作目录绝对路径。 */
   readonly workdir: string;
   /** 在 Sandbox 里执行一条命令(argv 形式,不经 shell)。装系统依赖等需要 root 时传 `{ root: true }`。 */
@@ -199,7 +199,7 @@ export interface SandboxHandle<H extends AssertionHandle = AssertionHandle> {
  * 「这个会话到目前为止的累计事件流」评估(跨该会话所有轮次),不是仅最后一轮——
  * 只看最后一轮要用 `send()` 返回的 TurnHandle。
  */
-export interface SessionHandle<H extends AssertionHandle = AssertionHandle> {
+export interface SessionHandle<H extends BaseAssertionHandle = AssertionHandle> {
   /** 在这个会话里发一条消息(字符串或结构化消息),返回该轮的 TurnHandle。 */
   send(input: SendInput): Promise<TurnHandle<H>>;
   /** 在这个会话里发一条带文件的消息,语义同 TestContext.sendFile。 */
@@ -257,16 +257,16 @@ export interface SessionHandle<H extends AssertionHandle = AssertionHandle> {
 }
 
 /**
- * eval 作者拿到的高层上下文。运行器按 agent 能力组装;tsx 不做类型检查,所以这里
- * 用一个宽接口承载全部动作(运行时按 capability 守卫)。
+ * 两种题型的 `t` 共有的部分:除各自专属词汇(通过制的 `require`、计分制的 `score`)之外的
+ * 全部能力。**跨题型复用的 helper 就标注它**——`function step<H extends BaseAssertionHandle>
+ * (t: BaseTestContext<H>)` 同时接受两种 `t`,不需要重载或联合类型。
  *
- * 泛型 `H` 是全部断言方法的返回句柄类型,默认 `AssertionHandle`(通过制 `defineEval` 的
- * `t`)。计分制 `defineScoreEval` 的 `t` 是 `ScoreTestContext = TestContext<ScoreAssertionHandle>`
- * 加 `score()`——同一份方法列表,`H` 换成带 `.points(n)` 的 `ScoreAssertionHandle`,写
- * `.points(...)` 在通过制 `t` 上因此是类型错误,不需要运行时守护(见
- * docs/feature/experiments/score-points.md)。
+ * 运行器按 agent 能力组装;tsx 不做类型检查,所以这里用一个宽接口承载全部动作(运行时按
+ * capability 守卫)。泛型 `H` 是全部断言方法的返回句柄类型,默认 `AssertionHandle`(通过制),
+ * 计分制换成带 `.points(n)` 的 `ScoreAssertionHandle`——写 `.points(...)` 在通过制 `t` 上
+ * 因此是类型错误,不需要运行时守护(见 docs/feature/experiments/score-points.md)。
  */
-export interface TestContext<H extends AssertionHandle = AssertionHandle> {
+export interface BaseTestContext<H extends BaseAssertionHandle = AssertionHandle> {
   // 会话
   /** 向默认会话发一条消息(字符串或结构化消息),返回该轮的 TurnHandle。事件同时累加进默认会话的累计事件流,供下面的作用域断言使用。 */
   send(input: SendInput): Promise<TurnHandle<H>>;
@@ -328,13 +328,6 @@ export interface TestContext<H extends AssertionHandle = AssertionHandle> {
    */
   check(value: unknown, assertion: ValueAssertion): H;
   /**
-   * 对任意值跑一个 ValueAssertion,立即(await 时)求值;不满足就抛错中止整个评估用例剩余步骤
-   * (仍会把这条断言计入报告,不影响已记录的其它断言)。跟 check 的区别:check 只记录、
-   * 从不抛错,打分留到最后统一算;require 当场判定、失败即中止,适合「前置条件不满足,
-   * 后面写了也没意义」的场景。
-   */
-  require(value: unknown, assertion: ValueAssertion): Promise<unknown>;
-  /**
    * 把一组断言归到一个有标题的分组下(对照 vitest 的 test('title', ...))。纯组织/报告用,
    * 不改打分:组里每条断言仍独立计分。可嵌套(标题用 › 连接)。
    */
@@ -390,12 +383,27 @@ export interface TestContext<H extends AssertionHandle = AssertionHandle> {
 }
 
 /**
- * 计分制(`defineScoreEval`)的 `t`:除 `TestContext` 全部能力外(全部断言方法换成返回
- * `ScoreAssertionHandle`,可继续链 `.points(n)`),额外提供 `t.score(label, n)` 直接给分。
- * 通过制 `t`(`TestContext`)上没有这两者,写下去是类型错误,不需要运行时守护(见
- * docs/feature/experiments/score-points.md「计分制:叠加给分,没有上限声明」)。
+ * 通过制(`defineEval`)的 `t`:共有能力 + 前置词 `require`。
  */
-export interface ScoreTestContext extends TestContext<ScoreAssertionHandle> {
+export interface TestContext<H extends BaseAssertionHandle = AssertionHandle> extends BaseTestContext<H> {
+  /**
+   * 对任意值跑一个 ValueAssertion,立即(await 时)求值;不满足就抛错中止整个评估用例剩余步骤
+   * (仍会把这条断言计入报告,不影响已记录的其它断言)。跟 check 的区别:check 只记录、
+   * 从不抛错,打分留到最后统一算;require 当场判定、失败即中止,适合「前置条件不满足,
+   * 后面写了也没意义」的场景。计分制的 `t` 上没有它——前置在那边只有一种写法
+   * `t.check(value, assertion).gate()`,它覆盖 require 的全部能力,还能同时挣分。
+   */
+  require(value: unknown, assertion: ValueAssertion): Promise<unknown>;
+}
+
+/**
+ * 计分制(`defineScoreEval`)的 `t`:共有能力 + 给分词汇。断言方法全部返回
+ * `ScoreAssertionHandle`(可链 `.points(n)` 给分、`.gate(x?)` 声明前置),额外提供
+ * `t.score(label, n)` 直接给分。通过制 `t` 上没有给分词汇,写下去是类型错误;两边都不
+ * 需要运行时守护(见 docs/feature/experiments/score-points.md「计分制:叠加给分,没有
+ * 上限声明」)。
+ */
+export interface ScoreTestContext extends BaseTestContext<ScoreAssertionHandle> {
   /**
    * 直接给分:作者自己算好条件和分数后累加,`label` 原样进报告。`n` 必须是非负有限数
    * (`n >= 0`)。判定条件复杂到断言词汇装不下时的出口(见 [Library](../eval/library.md)「计分制」)。

@@ -706,6 +706,10 @@ async function runAttemptBody(
       evalBaseDir: evalDef.baseDir,
       feedback,
       concurrencySlot,
+      // 题型:计分制下句柄上的 .gate() 是前置(就地求值 + 挂了中止 test()),见 collector。
+      scoring: evalDef.scoring ?? "pass",
+      // 前置断言就地求值要看当前已提交窗口的 agent diff(非沙箱型没有分类账,省略)。
+      ...(ledger ? { liveDiff: async () => deriveDiffData(await ledger!.exportWindows()) } : {}),
       // send 窗口钩子:进入前落 eval 归因、返回后落 agent 归因(见 ledger.ts)。
       ledgerHooks: ledger
         ? {
@@ -734,6 +738,10 @@ async function runAttemptBody(
     let skipReason: string | undefined;
     try {
       await evalDef.test(context);
+      // test() 正常返回也要结算待决前置:最后一条前置挂了而后面没有 t.* 调用时,
+      // 中止信号在这里抛出(判定与写了 await 完全一致)。
+      const aborted = await state.collector.settlePrerequisites();
+      if (aborted !== undefined) throw new EvalRequirementFailed(aborted);
     } catch (e) {
       if (e instanceof EvalSkipped) skipReason = e.reason;
       else if (e instanceof EvalRequirementFailed) {
@@ -820,7 +828,7 @@ async function runAttemptBody(
     }
     // 类型面挡住通过制 t.points()/t.score()，但 tsx 与 JS 可绕过；持久化边界必须再门控一次。
     const assertions = skipReason ? [] : await state.collector.finalize(scoringContext, { includePoints: evalDef.scoring === "points" });
-    const verdict = computeVerdict({ error, assertions, skipReason, strict: run.strict });
+    const verdict = computeVerdict({ error, assertions, skipReason, strict: run.strict, scoring: evalDef.scoring ?? "pass" });
 
     // 收 OTLP trace:给最后一批导出留点落地时间,再 collect(空则不挂)。
     // codex 的 OTLP 把内部 Rust tracing 全导出来(handle_responses / append_items … 上万条);
