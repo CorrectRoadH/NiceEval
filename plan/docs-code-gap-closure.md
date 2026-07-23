@@ -55,11 +55,11 @@
   - [x] B.8 Reports 单测覆盖：同一旧来源 Snapshot 还含已被更新 eval 的历史 attempt，所有指标只算 `Scope.attempts`；历史标记以水位基准比较；snapshot 维度仍显示真实 startedAt；experiment 有效题集不因最新快照局部选择而缩小
 
 - [ ] **C. Snapshot diagnostics 持久化链**（子树按各自依赖启动，不把整条链错误串行化）
-  - [ ] C.1 **Results 写读面**（依赖 0.6；可与 A、B 并行）
-    - [ ] `SnapshotMeta` / `Snapshot` 增 `diagnostics?: DiagnosticRecord[]`，补齐代码里缺失的 `DiagnosticRecord.command?: string`
-    - [ ] 把封口 API 放到 `SnapshotWriter.finish({ diagnostics?, completedAt?, name? })`；每个 Snapshot 只能封一次，空 diagnostics 省略字段，开始写的 meta 不提前带封口字段
-    - [ ] reader 从 `snapshot.json` 原样读回 diagnostics；`copySnapshots` 与其它格式感知复制保留该字段
-    - [ ] 单测证明开始态、封口态、重复封口、两个 Experiment 不同完成时点/诊断、result.json 不出现快照字段
+  - [x] C.1 **Results 写读面**（依赖 0.6；可与 A、B 并行）
+    - [x] `SnapshotMeta` / `Snapshot` 增 `diagnostics?: DiagnosticRecord[]`，补齐代码里缺失的 `DiagnosticRecord.command?: string`
+    - [x] 把封口 API 放到 `SnapshotWriter.finish({ diagnostics?, completedAt?, name? })`；每个 Snapshot 只能封一次，空 diagnostics 省略字段，开始写的 meta 不提前带封口字段
+    - [x] reader 从 `snapshot.json` 原样读回 diagnostics；`copySnapshots` 与其它格式感知复制保留该字段
+    - [x] 单测证明开始态、封口态、重复封口、两个 Experiment 不同完成时点/诊断、result.json 不出现快照字段
   - [ ] C.2 **Runner 归属与交付**（依赖 A、C.1、0.5、0.6）
     - [ ] 建 per-experiment 的有界 diagnostic accumulator；只接无法归属单 Attempt 的实验事实
     - [ ] Experiment hook `ctx.diagnostic`、teardown failed/timeout/late、`budget-unenforceable` 等在产生处直接构造结构化记录；interrupted、provider 全局并发提示、reporter error 等 Invocation 事实不得误落任一 Snapshot
