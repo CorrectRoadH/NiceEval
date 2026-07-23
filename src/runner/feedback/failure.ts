@@ -1,5 +1,5 @@
 import { decodeAttemptLocator, type AttemptLocator } from "../../results/locator.ts";
-import { compactAssertionSummary, primaryAssertionSummary } from "../../scoring/display.ts";
+import { compactAssertionSummary, primaryAssertionSummary, summaryText } from "../../scoring/display.ts";
 import type { EvalResult } from "../../types.ts";
 import { firstLine } from "../../util.ts";
 import { runWho, type FailureDetail } from "../types.ts";
@@ -21,11 +21,15 @@ export function failureDetailFromResult(result: EvalResult): FailureDetail | und
   const assertion = result.error === undefined
     ? primaryAssertionSummary(result.assertions, result.verdict, result.scoring === "points" ? "points" : "pass")
     : undefined;
+  // 执行错误只给一层可行动摘要(docs/feature/experiments/cli.md「运行反馈」):message 取首行
+  // ——多行 message 的后续行(如 diagnose 的 output tail)归 `show @locator` 展开,不进
+  // scrollback;再过 summaryText 剥控制字节并按摘要上限收口,adapter 组装的文本里混进
+  // ANSI 着色时不泄漏进终端事实行。
   const reason = result.verdict === "errored"
-    ? firstLine(result.error?.message ?? result.verdict)
+    ? summaryText(firstLine(result.error?.message ?? result.verdict))
     : assertion
       ? compactAssertionSummary(assertion)
-      : firstLine(result.error?.message ?? result.verdict);
+      : summaryText(firstLine(result.error?.message ?? result.verdict));
   const phase = result.verdict === "errored" ? result.error?.phase : undefined;
 
   return {

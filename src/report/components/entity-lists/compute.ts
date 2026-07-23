@@ -32,6 +32,7 @@ import {
 } from "../../model/aggregate.ts";
 import { attemptCostUSD, costUSD, durationMs, endToEndPassRate, examScore, tokens, totalScore } from "../../model/metrics.ts";
 import { compactAssertionSummary, primaryAssertionSummary, summaryText } from "../../../scoring/display.ts";
+import { firstLine } from "../../../util.ts";
 import { selectedEvalsOnly, summarizeItems } from "../shared-compute.ts";
 
 /**
@@ -42,7 +43,9 @@ import { selectedEvalsOnly, summarizeItems } from "../shared-compute.ts";
  */
 export function failureSummaryOf(result: EvalResult): { summary: string | null; more: number } {
   if (result.verdict === "errored" && result.error !== undefined) {
-    const parts = [result.error.phase, result.error.code, result.error.message].filter(
+    // message 取首行:多行 message 的后续行(diagnose 的 output tail)是下钻证据,折进
+    // 单行摘要会把 traceback 碎片挤满 Result 单元格;summaryText 只管折行与截断,分层归这里。
+    const parts = [result.error.phase, result.error.code, firstLine(result.error.message)].filter(
       (part): part is string => typeof part === "string" && part.length > 0,
     );
     return { summary: summaryText(parts.join(" · ")), more: 0 };

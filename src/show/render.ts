@@ -12,6 +12,7 @@ import type { SkippedDir } from "../results/index.ts";
 import type { ExecutionNode } from "../o11y/execution-tree.ts";
 import { foldEvalVerdict } from "../shared/verdict.ts";
 import { summaryText } from "../scoring/display.ts";
+import { firstLine } from "../util.ts";
 import { attemptCostUSD } from "../report/model/metrics.ts";
 import { formatDurationMs, formatMetricValue, formatPlainNumber, formatUSD } from "../report/model/format.ts";
 import { indentBlock, padDisplay, renderAlignedRows, wrapDisplay } from "../report/model/text-layout.ts";
@@ -195,7 +196,9 @@ export function attemptEvidenceHeader(evidence: AttemptEvidence): string {
  * 依赖它的内部实现细节。
  */
 export function verdictReasonLine(result: EvalResult): string | undefined {
-  if (result.error !== undefined) return result.error.message;
+  // 单行面只要 error 的一层摘要:message 取首行(diagnose 的 output tail 等后续行归
+  // attempt 详情块展开),再经 summaryText 剥控制字节 + 收口。
+  if (result.error !== undefined) return summaryText(firstLine(result.error.message));
   if (result.skipReason !== undefined) return result.skipReason;
   const gates = result.assertions.filter((a) => a.outcome === "failed" && a.severity === "gate");
   if (gates.length === 0) {

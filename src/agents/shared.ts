@@ -12,6 +12,7 @@ import {
 } from "../o11y/parsers/index.ts";
 import type { AgentSetupManifest, AgentSetupSkill, Sandbox, SkillSpec, StreamEvent } from "../types.ts";
 import { t } from "../i18n/index.ts";
+import { firstLine } from "../util.ts";
 import { shellQuote } from "../sandbox/shell.ts";
 import { writeAgentSetupManifest } from "./manifest.ts";
 import {
@@ -140,6 +141,12 @@ function firstJsonField(raw: string | undefined, field: string): string | undefi
  * 非零退出的通用诊断:退出码、transcript 有无、事件数、最后一条 error、输出末尾,
  * 拼成一条可读信息。adapter 在 status=failed 时把它塞进 error 事件——
  * 否则 transcript 为空时失败原因彻底丢失,用户只能干瞪眼。
+ *
+ * 分层:首行是一层可行动摘要(exit code · transcript 状态 · 最后一条 error 的首行),
+ * output tail 从第二行起按原始换行保留——scrollback 失败行 / 榜单等单行面对 message 取
+ * 首行即得一层摘要,tail 归 `show` 的 attempt 详情展开(docs/feature/experiments/cli.md
+ * 「运行反馈」:执行错误即时输出一层摘要,不把 stack 或 SDK 输出灌进 scrollback)。
+ * lastErr 的完整多行文本已是 events 里的独立事件,首行截取不丢证据。
  */
 function diagnoseFailure(
   res: { exitCode: number; stdout: string; stderr: string },
@@ -152,14 +159,14 @@ function diagnoseFailure(
   const lastErr = [...events].reverse().find((e) => e.type === "error") as
     | { type: "error"; message: string }
     | undefined;
-  if (lastErr) parts.push(t("agent.diagnose.lastError", { message: lastErr.message }));
+  if (lastErr) parts.push(t("agent.diagnose.lastError", { message: firstLine(lastErr.message) }));
+  const headline = parts.join(" · ");
   const errTail = outputTail(res.stderr) || outputTail(res.stdout);
-  if (errTail) parts.push(t("agent.diagnose.outputTail", { tail: errTail }));
-  return parts.join(" · ");
+  return errTail ? `${headline}\n${t("agent.diagnose.outputTail", { tail: errTail })}` : headline;
 }
 
 function outputTail(s: string, n = 6): string {
-  return s.trim().split("\n").filter(Boolean).slice(-n).join(" ⏎ ").slice(0, 600);
+  return s.trim().split("\n").filter(Boolean).slice(-n).join("\n").slice(0, 600);
 }
 
 /**

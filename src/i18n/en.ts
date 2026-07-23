@@ -6,7 +6,7 @@ export const en = {
   "agent.diagnose.exitCode": "agent run exited with code {{code}}",
   "agent.diagnose.lastError": "last error: {{message}}",
   "agent.diagnose.noTranscript": "transcript was not generated",
-  "agent.diagnose.outputTail": "output tail: {{tail}}",
+  "agent.diagnose.outputTail": "output tail:\n{{tail}}",
   "agent.diagnose.zeroEvents": "transcript exists but contains 0 events",
   "bub.homeDetectFailed": "Failed to detect sandbox $HOME (empty output from `printf $HOME`). Refusing to fall back to a provider-specific path; check the sandbox provider.",
   "bub.checkpointCaptureFailed": "bub checkpoint cache backfill failed (this sandbox is unaffected; later sandboxes will reinstall): {{error}}",

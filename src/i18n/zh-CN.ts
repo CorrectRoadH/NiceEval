@@ -4,7 +4,7 @@ export const zhCN = {
   "agent.diagnose.exitCode": "agent 运行退出码 {{code}}",
   "agent.diagnose.lastError": "最后错误:{{message}}",
   "agent.diagnose.noTranscript": "transcript 未生成",
-  "agent.diagnose.outputTail": "输出末尾:{{tail}}",
+  "agent.diagnose.outputTail": "输出末尾:\n{{tail}}",
   "agent.diagnose.zeroEvents": "transcript 存在但 0 事件",
   "bub.homeDetectFailed": "无法探测沙箱 $HOME(printf $HOME 输出为空)。不兜底到 provider 专属固定路径,请检查沙箱 provider。",
   "bub.checkpointCaptureFailed": "bub checkpoint 缓存回填失败(本沙箱不受影响,后续沙箱会重新安装):{{error}}",

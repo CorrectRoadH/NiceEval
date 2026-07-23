@@ -747,7 +747,8 @@ async function runAttemptBody(
       else if (e instanceof EvalRequirementFailed) {
         /* 断言已记录,非执行错误 */
       } else if (e instanceof TurnFailed) {
-        // TurnFailed 是 eval 驱动 agent 时的一层可读失败(message 已是一句话);稳定 code
+        // TurnFailed 是 eval 驱动 agent 时的可读失败(message 首行是一层摘要,后续行是
+        // diagnose 的 output tail 等下钻证据,单行面各自取首行);稳定 code
         // `turn-failed`,不带控制流 stack(那指向 control-flow.ts,对定位无益)。
         error = { code: "turn-failed", message: e.message, phase: getPhase() ?? "eval.run" };
       } else {
