@@ -94,7 +94,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 ### 台账
 
 - [turn-retry-backoff-releases-experiment-serial-lock](turn-retry-backoff-releases-experiment-serial-lock.md) — turn 级重试退避把实验级 runSem 一并释放,`maxConcurrency: 1` 的串行契约被击穿(下游 mempal 记忆回存竞态、running=2 实证);修法=退避只释放 globalSem,退避期间继续持有 runSem(裁决见 experiment-gate-tenure-ruling,TODO 在 plan/experiment-gate-full-attempt-tenure.md)
-- [live-dashboard-active-row-width-clamp-mismatch](live-dashboard-active-row-width-clamp-mismatch.md) — 宽终端(>100 列)live 面板 ACTIVE 行 phase/detail 被框截断完全不可见:human.ts 手写 width-4 漏过 MAX_BOX_WIDTH 钳制,该用 panelContentWidth;修完列宽分配仍待设计(detail 预算 ~20 列太短、比例分配垫空格)
+- 已修 [live-dashboard-active-row-width-clamp-mismatch](live-dashboard-active-row-width-clamp-mismatch.md) — 宽终端(>100 列)live 面板 ACTIVE 行 phase/detail 被框截断完全不可见:human.ts 手写 width-4 漏过 MAX_BOX_WIDTH 钳制,该用 panelContentWidth;修为 panel.ts 新增 `capWidth` 豁免声明 + 身份列按实际最长值定宽跨帧单调、detail 拿全部剩余宽度(`src/report/model/panel.ts` + `src/runner/feedback/human.ts`)
 - 已修 [exp-eval-prefix-segment-drift](exp-eval-prefix-segment-drift.md) — `exp` 把「eval ID 前缀」实现成路径段匹配，和文档/show/view 分叉；统一为裸字符串 prefix
 - 已修 [experiment-maxconcurrency-was-global-clamp](experiment-maxconcurrency-was-global-clamp.md) — 实验级 maxConcurrency 曾按最小值钳全局,一个串行实验拖慢整批;修为 runner 两级信号量按实验限流(src/runner/run.ts + cli.ts)
 - 已修 [cli-exit-code-attempt-level-not-eval-level](cli-exit-code-attempt-level-not-eval-level.md) — 退出码曾按 attempt 计红,earlyExit 重试吸收的失败也 exit 1;修为 foldEvalOutcome 按 eval 折叠(src/cli.ts + e2e verify.mjs)
