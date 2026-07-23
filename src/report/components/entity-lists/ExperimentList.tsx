@@ -103,8 +103,11 @@ function EvalAttempts({
       {/* Eval 父行只显示折叠判定、Attempt 数与题级平均;失败原因只在 Attempt 子行 */}
       <div className={cx("nre-experiment-eval-header", `nre-eval-${row.verdict}`)}>
         <span className={cx("nre-eval-verdict", `nre-verdict-${row.verdict}`)}>{verdictMark(row.verdict)}</span>
-        <span className="nre-eval-id">{row.evalId}</span>
-        <EvalHistoricalMark attempts={row.attempts} />
+        {/* 时效标注嵌在题目名格内:eval-header 是按位置取列的 4 轨 grid,裸插兄弟元素会把
+            后续格子全部挤移一轨 */}
+        <span className="nre-eval-id">
+          {row.evalId} <EvalHistoricalMark attempts={row.attempts} />
+        </span>
         <span className="nre-eval-attempt-count">{localeText(locale, "overview.attemptsCount", { n: row.attempts.length })}</span>
         <span className="nre-eval-rollup">
           {localeText(locale, "entityList.average", { value: duration })}
