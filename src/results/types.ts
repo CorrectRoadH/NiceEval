@@ -6,7 +6,7 @@
 // 命名约定:Experiment / Snapshot / Eval 是纯数据,不带 Handle 后缀;
 // 唯一叫 AttemptHandle 的是 attempt —— 它的方法真的会碰磁盘,后缀标记的就是这件事。
 
-import type { EvalResult, ExperimentRunInfo, LocalizedText } from "../types.ts";
+import type { DiagnosticRecord, EvalResult, ExperimentRunInfo, LocalizedText } from "../types.ts";
 import type { O11ySummary, StreamEvent, TraceSpan } from "../types.ts";
 import type { AgentSetupManifest, DiffData, SourceArtifact } from "../types.ts";
 import type { AttemptLocator } from "./locator.ts";
@@ -42,6 +42,12 @@ export interface SnapshotMeta {
   startedAt: string;
   /** 收尾时补写;缺失 = 快照未收尾(进程中断),已落盘的 attempt 照常可读。 */
   completedAt?: string;
+  /**
+   * 属于整个 Experiment 快照、无法诚实挂到单个 Attempt 的操作性诊断。与 completedAt 在同一次
+   * 快照封口补写;例如 experiment-teardown-failed、budget-unenforceable。不与 attempt 级
+   * diagnostics 混合,不得放入跨 Experiment 的 Invocation 汇总(见 docs/runner.md「实验域诊断持久化」)。
+   */
+  diagnostics?: DiagnosticRecord[];
   /** 写入时刻该实验已知的 eval 并集 —— 残缺检测的分母随数据走(copySnapshots 自动补记,writer 可声明)。 */
   knownEvalIds?: string[];
   /** 项目名(来自 config.name),透传给 `niceeval view` 顶部 hero 显示。 */
@@ -112,6 +118,8 @@ export interface Snapshot {
   startedAt: string;
   /** 缺失 = 未收尾(进程中断);已落盘 attempt 照常在下面读到。 */
   completedAt?: string;
+  /** 快照级诊断;不与 attempt diagnostics 混合(见 SnapshotMeta.diagnostics)。 */
+  diagnostics?: DiagnosticRecord[];
   /** 本快照自己的 agent。 */
   agent: string;
   model?: string;

@@ -8,7 +8,7 @@
 
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { AgentSetupManifest, EvalResult, ExperimentRunInfo, LocalizedText } from "../types.ts";
+import type { AgentSetupManifest, DiagnosticRecord, EvalResult, ExperimentRunInfo, LocalizedText } from "../types.ts";
 import type { DiffArtifact, O11ySummary, SourceArtifact, StreamEvent, TraceSpan } from "../types.ts";
 import { RESULTS_FORMAT, RESULTS_SCHEMA_VERSION } from "../types.ts";
 import { RESULT_FILE, SNAPSHOT_FILE, artifactFileOf, attemptDirOf, experimentDirOf } from "./format.ts";
@@ -91,6 +91,13 @@ export interface SnapshotWriter {
   readonly dir: string;
   /** 增量落盘一条 attempt:拆 artifact 文件、回填 has* 引用、写 result.json;空数据不落文件。 */
   writeAttempt(entry: AttemptEntry, artifacts?: AttemptArtifacts): Promise<void>;
+  /**
+   * 封口这一个 Snapshot:唯一一次补 `completedAt`(省略则取当前时刻)与快照级 `diagnostics`
+   * (省略则不写该字段,不摆空数组);`name` 未在 `snapshot()` 声明过时可以在这里补。每个
+   * Snapshot 只能封一次,重复调用抛错。不做跨 Experiment 聚合——一次 Invocation 里的每个
+   * Snapshot 各自独立封口,不必等其它 Snapshot(见 docs/runner.md「Experiment 收尾协议」)。
+   */
+  finish(opts?: { diagnostics?: DiagnosticRecord[]; completedAt?: string; name?: LocalizedText }): Promise<void>;
 }
 
 export interface ResultsWriter {
@@ -100,12 +107,16 @@ export interface ResultsWriter {
    * knownEvalIds 取并集,completedAt / name 以最后一次声明为准,finish() 时才落盘)。
    */
   snapshot(decl: SnapshotDeclaration): Promise<SnapshotWriter>;
-  /** 给每个已声明的快照补 completedAt(decl.completedAt ?? 当前时刻)与 name(参数优先,声明兜底)。 */
-  finish(opts?: { name?: LocalizedText }): Promise<void>;
   /** @internal runner 薄壳入口:按 EvalResult 的 experimentId 懒建快照并落盘一条 attempt。 */
   writeAttemptFor(result: EvalResult): Promise<void>;
   /** @internal 已创建快照清单(CLI 收尾打印)。 */
   snapshotDirs(): { experimentId: string; dir: string }[];
+  /**
+   * @internal 已创建的全部 SnapshotWriter 句柄。Artifacts reporter 据此在每个 Experiment
+   * 收尾(`experiment:complete`)时找到对应快照的 `finish()`,不必自己重新走 `snapshot()`
+   * 的懒建语义。
+   */
+  snapshotWriters(): Promise<{ experimentId: string; writer: SnapshotWriter }[]>;
 }
 
 interface SnapshotState {
@@ -115,13 +126,14 @@ interface SnapshotState {
   writer: SnapshotWriter;
   declCompletedAt?: string;
   declName?: LocalizedText;
+  /** 这个 Snapshot 是否已经封口;`finish()` 只能对每个 Snapshot 生效一次。 */
+  finished: boolean;
 }
 
 /** 同步:不建目录、不碰磁盘。目录创建发生在第一次 snapshot() 调用里。 */
 export function createResultsWriter(root: string, opts: ResultsWriterOptions): ResultsWriter {
   const pending = new Map<string, Promise<SnapshotState>>();
   const created: { experimentId: string; dir: string }[] = [];
-  let finished = false;
 
   async function buildSnapshot(decl: SnapshotDeclaration): Promise<SnapshotState> {
     const meta: SnapshotMeta = {
@@ -143,13 +155,46 @@ export function createResultsWriter(root: string, opts: ResultsWriterOptions): R
     // 快照级源码去重仓库:sha256 → 落盘 Promise,同一快照内并发/重复的 writeAttempt 共享同一次写入
     // (Map 的 has/set 之间没有 await,JS 单线程语义下不会重复起两次写)。
     const sourceStore = new Map<string, Promise<void>>();
-    const writer: SnapshotWriter = {
+
+    const state: SnapshotState = {
+      meta,
+      dir,
+      declCompletedAt: decl.completedAt,
+      declName: decl.name,
+      finished: false,
+      writer: undefined as unknown as SnapshotWriter, // 下面立即补上,writer.finish 需要闭包引用 state 本身
+    };
+    state.writer = {
       dir,
       async writeAttempt(entry: AttemptEntry, artifacts?: AttemptArtifacts): Promise<void> {
-        await writeAttemptFiles(dir, { experimentId: meta.experimentId, startedAt: meta.startedAt }, entry, artifacts, sourceStore);
+        await writeAttemptFiles(dir, { experimentId: state.meta.experimentId, startedAt: state.meta.startedAt }, entry, artifacts, sourceStore);
+      },
+      async finish(finishOpts): Promise<void> {
+        if (state.finished) {
+          throw new Error(`snap.finish() for experiment "${state.meta.experimentId}" (${dir}) was already called.`);
+        }
+        state.finished = true;
+        const completedAt = finishOpts?.completedAt ?? state.declCompletedAt ?? new Date().toISOString();
+        const name = finishOpts?.name ?? state.declName;
+        const finalMeta: SnapshotMeta = {
+          format: state.meta.format,
+          schemaVersion: state.meta.schemaVersion,
+          producer: state.meta.producer,
+          experimentId: state.meta.experimentId,
+          ...(state.meta.experiment !== undefined ? { experiment: state.meta.experiment } : {}),
+          agent: state.meta.agent,
+          ...(state.meta.model !== undefined ? { model: state.meta.model } : {}),
+          startedAt: state.meta.startedAt,
+          completedAt,
+          ...(finishOpts?.diagnostics?.length ? { diagnostics: finishOpts.diagnostics } : {}),
+          ...(state.meta.knownEvalIds?.length ? { knownEvalIds: state.meta.knownEvalIds } : {}),
+          ...(name !== undefined ? { name } : {}),
+        };
+        state.meta = finalMeta;
+        await writeFile(join(dir, SNAPSHOT_FILE), JSON.stringify(finalMeta, null, 2), "utf-8");
       },
     };
-    return { meta, dir, writer, declCompletedAt: decl.completedAt, declName: decl.name };
+    return state;
   }
 
   async function snapshotImpl(decl: SnapshotDeclaration): Promise<SnapshotWriter> {
@@ -257,32 +302,9 @@ export function createResultsWriter(root: string, opts: ResultsWriterOptions): R
     snapshotDirs(): { experimentId: string; dir: string }[] {
       return [...created];
     },
-
-    async finish(finishOpts?: { name?: LocalizedText }): Promise<void> {
-      if (finished) throw new Error("writer.finish() was already called.");
-      finished = true;
+    async snapshotWriters(): Promise<{ experimentId: string; writer: SnapshotWriter }[]> {
       const states = await Promise.all([...pending.values()]);
-      await Promise.all(
-        states.map(async (state) => {
-          const completedAt = state.declCompletedAt ?? new Date().toISOString();
-          const name = finishOpts?.name ?? state.declName;
-          const finalMeta: SnapshotMeta = {
-            format: state.meta.format,
-            schemaVersion: state.meta.schemaVersion,
-            producer: state.meta.producer,
-            experimentId: state.meta.experimentId,
-            ...(state.meta.experiment !== undefined ? { experiment: state.meta.experiment } : {}),
-            agent: state.meta.agent,
-            ...(state.meta.model !== undefined ? { model: state.meta.model } : {}),
-            startedAt: state.meta.startedAt,
-            completedAt,
-            ...(state.meta.knownEvalIds?.length ? { knownEvalIds: state.meta.knownEvalIds } : {}),
-            ...(name !== undefined ? { name } : {}),
-          };
-          state.meta = finalMeta;
-          await writeFile(join(state.dir, SNAPSHOT_FILE), JSON.stringify(finalMeta, null, 2), "utf-8");
-        }),
-      );
+      return states.map((state) => ({ experimentId: state.meta.experimentId, writer: state.writer }));
     },
   };
 }

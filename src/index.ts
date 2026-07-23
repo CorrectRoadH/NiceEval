@@ -45,6 +45,7 @@ export type {
   InvocationSummary,
   InvocationShape,
   AssertionResult,
+  DiagnosticRecord,
   ExperimentRunInfo,
   SandboxRunInfo,
   DiffData,

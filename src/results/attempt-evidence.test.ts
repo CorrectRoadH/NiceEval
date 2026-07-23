@@ -64,7 +64,7 @@ async function seedAttempt(
     { verdict: "passed", attempt: 0, durationMs: 1000, assertions: [], ...entry },
     artifacts,
   );
-  await writer.finish();
+  await snap.finish();
   const results = await openResults(root);
   return results.experiments[0]!.latest.evals.find((e) => e.id === entry.id)!.attempts[0]!;
 }

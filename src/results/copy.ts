@@ -137,6 +137,7 @@ async function planOneSnapshot(
     ...(snapshot.model !== undefined ? { model: snapshot.model } : {}),
     startedAt: snapshot.startedAt,
     ...(snapshot.completedAt !== undefined ? { completedAt: snapshot.completedAt } : {}),
+    ...(snapshot.diagnostics?.length ? { diagnostics: snapshot.diagnostics } : {}),
     ...(knownEvalIds.length ? { knownEvalIds } : {}),
     ...(snapshot.name !== undefined ? { name: snapshot.name } : {}),
   };

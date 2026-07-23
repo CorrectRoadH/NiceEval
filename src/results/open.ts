@@ -273,6 +273,7 @@ async function readSnapshotDir(dir: string, meta: SnapshotMeta, state: ScanState
     experimentId: meta.experimentId,
     startedAt: meta.startedAt,
     ...(meta.completedAt !== undefined ? { completedAt: meta.completedAt } : {}),
+    ...(meta.diagnostics?.length ? { diagnostics: meta.diagnostics } : {}),
     agent: meta.agent,
     ...(meta.model !== undefined ? { model: meta.model } : {}),
     ...(meta.experiment !== undefined ? { experiment: meta.experiment } : {}),

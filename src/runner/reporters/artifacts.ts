@@ -50,13 +50,19 @@ export function Artifacts(root = ".niceeval"): ArtifactsReporter {
 
     // run 结束:先把携带条目(--resume 合入,summary.results 里带 artifactBase 的那些)
     // 逐条落盘——它们没有触发过 onEvalComplete,只会原样写 result.json,不写 artifact
-    // (artifact 仍在原快照里,靠 artifactBase 懒加载回退)。再给每个快照补 completedAt。
+    // (artifact 仍在原快照里,靠 artifactBase 懒加载回退)。再给每个快照各自封口。
+    //
+    // 这里仍是「Invocation 收尾时一次性封口全部快照」——与 docs/runner.md「Experiment 收尾
+    // 协议」描述的目标(每个 Experiment 在自己的 teardown 之后立即封口、携带该 Experiment
+    // 的诊断)不同,那条协议依赖 `experiment:complete` 事件与 runner 侧的诊断累积器,由
+    // 计划里单独的节点接线;这里只是把封口 API 迁到 SnapshotWriter.finish() 后的行为等价适配。
     async onInvocationComplete(summary) {
       if (!writer) return;
       for (const result of summary.results) {
         if (result.artifactBase !== undefined) await writer.writeAttemptFor(result);
       }
-      await writer.finish({ name: summary.name });
+      const snapshots = await writer.snapshotWriters();
+      await Promise.all(snapshots.map(({ writer: snap }) => snap.finish({ name: summary.name })));
     },
   };
 }

@@ -26,6 +26,7 @@ import {
   encodeAttemptLocator,
   type AttemptHandle,
   type EvalResult,
+  type ResultsWriter,
   type Results,
   type Snapshot,
   type SnapshotMeta,
@@ -42,6 +43,13 @@ async function makeRoot(): Promise<string> {
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((r) => rm(r, { recursive: true, force: true })));
 });
+
+/** 测试便利:封口一个 writer 已声明的全部 Snapshot(finish() 现在是 SnapshotWriter 的方法,
+ *  每个 Snapshot 各自只能封一次;多数测试不关心逐个 Snapshot 分别封口,只要「全部封完」)。 */
+async function finishAll(writer: ResultsWriter): Promise<void> {
+  const snapshots = await writer.snapshotWriters();
+  await Promise.all(snapshots.map(({ writer: snap }) => snap.finish()));
+}
 
 function meta(over: { experimentId: string; agent: string; startedAt: string } & Partial<SnapshotMeta>): SnapshotMeta {
   return {
@@ -661,14 +669,15 @@ describe("createResultsWriter", () => {
     const snapB = await writer.snapshot({ experimentId: "compare/b", agent: "codex", startedAt: "2026-07-02T09:00:00.000Z" });
     await snapB.writeAttempt({ id: "q1", verdict: "passed", attempt: 1, durationMs: 80, assertions: [] }, { diff: [{ window: "s1/t1", changes: { "a.txt": { status: "added", after: "1" } } }] });
 
-    await writer.finish();
+    await snapA.finish();
+    await snapB.finish();
     expect(writer.snapshotDirs().map((s) => s.experimentId).sort()).toEqual(["compare/a", "compare/b"]);
 
     const after = JSON.parse(await readFile(join(snapA.dir, "snapshot.json"), "utf-8"));
     expect(typeof after.completedAt).toBe("string");
     expect(Object.keys(after)).toEqual(["format", "schemaVersion", "producer", "experimentId", "agent", "model", "startedAt", "completedAt", "knownEvalIds"]);
 
-    await expect(writer.finish()).rejects.toThrow(/already called/);
+    await expect(snapA.finish()).rejects.toThrow(/already called/);
 
     const results = await openResults(root);
     expect(results.skipped).toHaveLength(0);
@@ -733,7 +742,7 @@ describe("createResultsWriter", () => {
     });
     await snap.writeAttempt({ id: "q1", verdict: "passed", attempt: 1, durationMs: 10, assertions: [] }, { agentSetup: manifest });
     await snap.writeAttempt({ id: "q2", verdict: "passed", attempt: 1, durationMs: 10, assertions: [] });
-    await writer.finish();
+    await finishAll(writer);
 
     // 文件名是磁盘侧的 kebab;判决记录里不内联 manifest(它是 artifact,不是判决的一部分)
     const attemptDir = join(snap.dir, "q1", "a1");
@@ -752,6 +761,60 @@ describe("createResultsWriter", () => {
     expect(JSON.parse(await readFile(copied, "utf-8"))).toEqual(manifest);
   });
 
+  it("每个 Snapshot 各自独立封口:两个 Experiment 各自不同的 completedAt 与 diagnostics 不串味,空 diagnostics 省略字段", async () => {
+    // cases: docs/engineering/testing/unit/results.md「落盘格式」——snap.finish() 唯一一次补
+    // completedAt 与快照级 diagnostics。
+    const root = await makeRoot();
+    const writer = createResultsWriter(root, { producer: { name: "niceeval", version: "1.0.0" } });
+    const snapA = await writer.snapshot({ experimentId: "compare/a", agent: "bub", startedAt: "2026-07-01T08:00:00.000Z" });
+    await snapA.writeAttempt({ id: "q1", verdict: "passed", attempt: 0, durationMs: 1, assertions: [] });
+    const snapB = await writer.snapshot({ experimentId: "compare/b", agent: "codex", startedAt: "2026-07-01T09:00:00.000Z" });
+    await snapB.writeAttempt({ id: "q1", verdict: "passed", attempt: 0, durationMs: 1, assertions: [] });
+
+    // 开始态:两份 snapshot.json 都还没有 completedAt 或 diagnostics。
+    const startedA = JSON.parse(await readFile(join(snapA.dir, "snapshot.json"), "utf-8"));
+    const startedB = JSON.parse(await readFile(join(snapB.dir, "snapshot.json"), "utf-8"));
+    expect(startedA).not.toHaveProperty("completedAt");
+    expect(startedA).not.toHaveProperty("diagnostics");
+    expect(startedB).not.toHaveProperty("completedAt");
+    expect(startedB).not.toHaveProperty("diagnostics");
+
+    // A 先收尾,带一条 teardown 失败诊断;B 后收尾,不带诊断(空 diagnostics 省略字段,不摆空数组)。
+    await snapA.finish({
+      completedAt: "2026-07-01T08:10:00.000Z",
+      diagnostics: [{ code: "experiment-teardown-failed", level: "warning", message: "m: tunnel refused to stop; a: leftover process; f: run `niceeval sandbox prune`", phase: "experiment.teardown", command: "niceeval sandbox prune" }],
+    });
+    await snapB.finish({ completedAt: "2026-07-01T09:20:00.000Z" });
+
+    const finishedA = JSON.parse(await readFile(join(snapA.dir, "snapshot.json"), "utf-8"));
+    const finishedB = JSON.parse(await readFile(join(snapB.dir, "snapshot.json"), "utf-8"));
+    expect(finishedA.completedAt).toBe("2026-07-01T08:10:00.000Z");
+    expect(finishedA.diagnostics).toEqual([
+      { code: "experiment-teardown-failed", level: "warning", message: "m: tunnel refused to stop; a: leftover process; f: run `niceeval sandbox prune`", phase: "experiment.teardown", command: "niceeval sandbox prune" },
+    ]);
+    expect(finishedB.completedAt).toBe("2026-07-01T09:20:00.000Z");
+    expect(finishedB).not.toHaveProperty("diagnostics"); // B 没有诊断,不是 B 意外继承了 A 的
+
+    // diagnostics 不是快照级字段拼合进 attempt 的一部分——result.json 里不出现它。
+    const recordA = JSON.parse(await readFile(join(snapA.dir, "q1/a0/result.json"), "utf-8"));
+    expect(recordA).not.toHaveProperty("diagnostics");
+
+    // reader 原样读回,attempt.snapshot.diagnostics 只读自己所属快照的那份。
+    const results = await openResults(root);
+    const a = results.experiments.find((e) => e.id === "compare/a")!.latest;
+    const b = results.experiments.find((e) => e.id === "compare/b")!.latest;
+    expect(a.diagnostics).toEqual(finishedA.diagnostics);
+    expect(b.diagnostics).toBeUndefined();
+  });
+
+  it("重复 finish() 同一个 Snapshot 抛可执行错误(每个 Snapshot 只能封一次)", async () => {
+    const root = await makeRoot();
+    const writer = createResultsWriter(root, { producer: { name: "x" } });
+    const snap = await writer.snapshot({ experimentId: "e", agent: "bub", startedAt: "2026-07-01T08:00:00.000Z" });
+    await snap.finish();
+    await expect(snap.finish()).rejects.toThrow(/already called/);
+  });
+
   it("snapshot() 缺 experimentId/agent/startedAt 抛可执行错误", async () => {
     const root = await makeRoot();
     const writer = createResultsWriter(root, { producer: { name: "x" } });
@@ -766,7 +829,7 @@ describe("createResultsWriter", () => {
     const s1 = await writer.snapshot({ experimentId: "e", agent: "bub", startedAt: "2026-07-01T08:00:00.000Z", knownEvalIds: ["q1", "q2"] });
     const s2 = await writer.snapshot({ experimentId: "e", agent: "bub", startedAt: "2026-07-01T08:00:00.000Z", knownEvalIds: ["q2", "q3"] });
     expect(s2).toBe(s1);
-    await writer.finish();
+    await finishAll(writer);
     const written = JSON.parse(await readFile(join(s1.dir, "snapshot.json"), "utf-8"));
     expect(written.knownEvalIds).toEqual(["q1", "q2", "q3"]);
   });
@@ -781,7 +844,7 @@ describe("createResultsWriter", () => {
       writer.snapshot({ experimentId: "e/c", agent: "bub", startedAt: now }),
     ]);
     expect(new Set([a.dir, b.dir, c.dir]).size).toBe(3);
-    await writer.finish();
+    await finishAll(writer);
     const results = await openResults(root);
     expect(results.experiments.map((e) => e.id).sort()).toEqual(["e/a", "e/b", "e/c"]);
   });
@@ -860,7 +923,7 @@ describe("createResultsWriter", () => {
 
     await writer.writeAttemptFor(fresh);
     await writer.writeAttemptFor(carried);
-    await writer.finish();
+    await finishAll(writer);
 
     const dirs = writer.snapshotDirs();
     expect(dirs).toHaveLength(1);
@@ -995,7 +1058,7 @@ describe("AttemptLocator · 落盘 / 读取 / 携带 / 撞车", () => {
     const snap = await writer.snapshot({ experimentId: "e", agent: "bub", startedAt: "2026-07-01T08:00:00.000Z" });
     await snap.writeAttempt({ id: "q1", verdict: "passed", attempt: 0, durationMs: 1, assertions: [] });
     await snap.writeAttempt({ id: "q2", verdict: "passed", attempt: 0, durationMs: 1, assertions: [] });
-    await writer.finish();
+    await finishAll(writer);
 
     const record1 = JSON.parse(await readFile(join(snap.dir, "q1/a0/result.json"), "utf-8"));
     expect(record1.locator).toMatch(/^@1[0-9a-z]{7}$/);
@@ -1029,7 +1092,7 @@ describe("AttemptLocator · 落盘 / 读取 / 携带 / 撞车", () => {
       durationMs: 1,
       assertions: [],
     });
-    await writer1.finish();
+    await finishAll(writer1);
 
     const opened1 = await openResults(root);
     const original = opened1.experiments[0].latest.evals.find((e) => e.id === "q1")!.attempts[0];
@@ -1057,7 +1120,7 @@ describe("AttemptLocator · 落盘 / 读取 / 携带 / 撞车", () => {
       artifactBase: `${original.ref.snapshot}/${original.ref.attempt}`,
     };
     await writer2.writeAttemptFor(carried);
-    await writer2.finish();
+    await finishAll(writer2);
 
     const opened2 = await openResults(root);
     const newest = opened2.experiments[0].latest;
@@ -1093,7 +1156,7 @@ describe("AttemptLocator · 落盘 / 读取 / 携带 / 撞车", () => {
     const snap = await writer.snapshot({ experimentId: "e", agent: "bub", startedAt: "2026-07-01T08:00:00.000Z" });
     await snap.writeAttempt({ id: "q1", verdict: "passed", attempt: 0, durationMs: 1, assertions: [] });
     await snap.writeAttempt({ id: "q2", verdict: "passed", attempt: 0, durationMs: 1, assertions: [] });
-    await writer.finish();
+    await finishAll(writer);
 
     // 人为制造撞车:把 q2 的 locator 改成和 q1 一样(真实哈希撞车不可复现,这里直接模拟其效果——
     // 索引建立逻辑只关心「同一 locator 字符串映射到身份三元组不同的两个 attempt」)。
@@ -1114,7 +1177,7 @@ describe("AttemptLocator · 落盘 / 读取 / 携带 / 撞车", () => {
     const snapB = await writer.snapshot({ experimentId: "compare/codex", agent: "codex", startedAt: "2026-07-01T08:00:00.000Z" });
     await snapA.writeAttempt({ id: "algebra/q1", verdict: "passed", attempt: 0, durationMs: 1, assertions: [] });
     await snapB.writeAttempt({ id: "algebra/q1", verdict: "passed", attempt: 0, durationMs: 1, assertions: [] });
-    await writer.finish();
+    await finishAll(writer);
 
     const results = await openResults(root);
     const a = results.experiments.find((e) => e.id === "compare/bub")!.latest.evals[0]!.attempts[0]!;
@@ -1132,7 +1195,7 @@ describe("AttemptLocator · 落盘 / 读取 / 携带 / 撞车", () => {
     const snap = await writer.snapshot({ experimentId: "e", agent: "bub", startedAt: "2026-07-01T08:00:00.000Z" });
     await snap.writeAttempt({ id: "q1", verdict: "failed", attempt: 0, durationMs: 1, assertions: [] });
     await snap.writeAttempt({ id: "q1", verdict: "passed", attempt: 1, durationMs: 1, assertions: [] });
-    await writer.finish();
+    await finishAll(writer);
 
     const results = await openResults(root);
     const attempts = results.experiments[0]!.latest.evals.find((e) => e.id === "q1")!.attempts;
@@ -1148,12 +1211,12 @@ describe("AttemptLocator · 落盘 / 读取 / 携带 / 撞车", () => {
     const writer1 = createResultsWriter(root, { producer: { name: "niceeval", version: "1.0.0" } });
     const monday = await writer1.snapshot({ experimentId: "e", agent: "bub", startedAt: "2026-07-01T08:00:00.000Z" });
     await monday.writeAttempt({ id: "q1", verdict: "failed", attempt: 0, durationMs: 1, assertions: [] });
-    await writer1.finish();
+    await finishAll(writer1);
 
     const writer2 = createResultsWriter(root, { producer: { name: "niceeval", version: "1.0.0" } });
     const friday = await writer2.snapshot({ experimentId: "e", agent: "bub", startedAt: "2026-07-05T08:00:00.000Z" });
     await friday.writeAttempt({ id: "q1", verdict: "passed", attempt: 0, durationMs: 1, assertions: [] });
-    await writer2.finish();
+    await finishAll(writer2);
 
     const results = await openResults(root);
     const exp = results.experiments[0]!;
@@ -1196,7 +1259,7 @@ describe("AttemptLocator · 落盘 / 读取 / 携带 / 撞车", () => {
     const snap = await writer.snapshot({ experimentId: "e", agent: "bub", startedAt: "2026-07-01T08:00:00.000Z" });
     await snap.writeAttempt({ id: "q1", verdict: "passed", attempt: 0, durationMs: 1, assertions: [] });
     await snap.writeAttempt({ id: "q1", verdict: "failed", attempt: 1, durationMs: 1, assertions: [] });
-    await writer.finish();
+    await finishAll(writer);
 
     const results = await openResults(root);
     const [a0, a1] = results.experiments[0]!.latest.evals[0]!.attempts;
@@ -1230,7 +1293,7 @@ describe("AttemptLocator · 落盘 / 读取 / 携带 / 撞车", () => {
       id: "q1", experimentId: "e2", agent: "bub", verdict: "passed", attempt: 0,
       startedAt: "2021-06-15T00:00:00.000Z", durationMs: 1, assertions: [],
     });
-    await writer.finish();
+    await finishAll(writer);
 
     const results = await openResults(root);
     const expE1 = results.experiments.find((e) => e.id === "e1")!;
@@ -1262,7 +1325,7 @@ describe("AttemptLocator · 落盘 / 读取 / 携带 / 撞车", () => {
       id: "q1", experimentId: "e", agent: "bub", verdict: "passed", attempt: 0,
       startedAt: "2020-03-03T00:00:00.000Z", durationMs: 1, assertions: [],
     });
-    await writer.finish();
+    await finishAll(writer);
 
     const results = await openResults(root);
     expect(results.experiments[0]!.latest.startedAt).toBe("2020-03-03T00:00:00.000Z");
@@ -1287,7 +1350,7 @@ describe("sources · 快照级去重仓库", () => {
       assertions: [],
       sources: [{ path: "evals/q1.eval.ts", content }],
     });
-    await writer1.finish();
+    await finishAll(writer1);
 
     const opened1 = await openResults(root);
     const original = opened1.experiments[0]!.latest.evals.find((e) => e.id === "q1")!.attempts[0]!;
@@ -1313,7 +1376,7 @@ describe("sources · 快照级去重仓库", () => {
       artifactBase: `${original.ref.snapshot}/${original.ref.attempt}`,
     };
     await writer2.writeAttemptFor(carried);
-    await writer2.finish();
+    await finishAll(writer2);
 
     const opened2 = await openResults(root);
     const carriedAttempt = opened2.experiments[0]!.latest.evals.find((e) => e.id === "q1")!.attempts[0]!;
@@ -1331,7 +1394,7 @@ describe("sources · 快照级去重仓库", () => {
     await snap.writeAttempt({ id: "q1", verdict: "passed", attempt: 0, durationMs: 1, assertions: [] }, { sources: shared });
     await snap.writeAttempt({ id: "q2", verdict: "passed", attempt: 0, durationMs: 1, assertions: [] }, { sources: shared });
     await snap.writeAttempt({ id: "q3", verdict: "passed", attempt: 0, durationMs: 1, assertions: [] }, { sources: other });
-    await writer.finish();
+    await finishAll(writer);
 
     const storeFiles = await readdir(join(snap.dir, "sources"));
     expect(storeFiles).toHaveLength(2); // 三份引用,内容只两种 → 两个 blob
@@ -1385,7 +1448,7 @@ describe("sources · 快照级去重仓库", () => {
     const shared = [{ path: "evals/shared.eval.ts", content: "export default { test() {} };\n" }];
     await snap.writeAttempt({ id: "q1", verdict: "passed", attempt: 0, durationMs: 1, assertions: [] }, { sources: shared });
     await snap.writeAttempt({ id: "q2", verdict: "passed", attempt: 0, durationMs: 1, assertions: [] }, { sources: shared });
-    await writer.finish();
+    await finishAll(writer);
 
     const originalLocator = JSON.parse(await readFile(join(snap.dir, "q1/a0/result.json"), "utf-8")).locator;
 
@@ -1420,7 +1483,7 @@ describe("loadAnnotatedEvalSource · discovery 捕获 → 去重存储 → 检�
       { id: "q1", verdict: "passed", attempt: 0, durationMs: 1, assertions },
       { sources: [{ path: "evals/a.eval.ts", content }] },
     );
-    await writer.finish();
+    await finishAll(writer);
 
     const results = await openResults(root);
     const attempt = results.experiments[0].latest.evals.find((e) => e.id === "q1")!.attempts[0];
@@ -1437,7 +1500,7 @@ describe("loadAnnotatedEvalSource · discovery 捕获 → 去重存储 → 检�
     const writer = createResultsWriter(root, { producer: { name: "niceeval", version: "1.0.0" } });
     const snap = await writer.snapshot({ experimentId: "e", agent: "bub", startedAt: "2026-07-01T08:00:00.000Z" });
     await snap.writeAttempt({ id: "q1", verdict: "passed", attempt: 0, durationMs: 1, assertions: [] });
-    await writer.finish();
+    await finishAll(writer);
 
     const results = await openResults(root);
     const attempt = results.experiments[0].latest.evals.find((e) => e.id === "q1")!.attempts[0];
