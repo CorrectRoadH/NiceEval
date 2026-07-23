@@ -665,6 +665,79 @@ describe("实体列表 data", () => {
     // Scope.filter 不再拿 snapshots 当 coverage 的存续代理；无 snapshot 的覆盖事实保持不变。
     expect(scope.filter(() => true).coverage).toEqual(scope.coverage);
   });
+
+  // ─────── 计分制字段:scoring 定义期投影 / totalScore 的两级聚合方向 / 预排 ───────
+
+  it('ExperimentListItem.scoring 是定义期事实投影,不从 attempt 判定推断:failed 的计分制 eval 仍读 "points",passed 的通过制 eval 仍读 "pass"', async () => {
+    const pointsFailed = snap({ experimentId: "exam/points-fail", results: [res("a", "failed", { scoring: "points" })] });
+    const plainPassed = snap({ experimentId: "exam/plain-pass", results: [res("a", "passed")] });
+    const items = await experimentListData([pointsFailed, plainPassed]);
+    const byId = new Map(items.map((item) => [item.experimentId, item]));
+    expect(byId.get("exam/points-fail")!.scoring).toBe("points");
+    expect(byId.get("exam/plain-pass")!.scoring).toBe("pass");
+  });
+
+  it("ExperimentListItem.totalScore 是跨题 sum,不是 mean:3 分 + 5 分 = 8,不是 4", async () => {
+    const s = snap({
+      experimentId: "exam/multi",
+      results: [
+        res("q1", "passed", { scoring: "points", assertions: [pointsAssertion("x", 3)] }),
+        res("q2", "passed", { scoring: "points", assertions: [pointsAssertion("x", 5)] }),
+      ],
+    });
+    const items = await experimentListData([s]);
+    expect(items[0]!.totalScore.value).toBe(8);
+    expect(items[0]!.totalScore.value).not.toBe(4); // 区分力:sum ≠ mean,同分 fixture 证明不了聚合方向
+  });
+
+  it("EvalListItem.totalScore / ExperimentListEvalRow.totalScore 是题内多轮的 mean,不是 sum:4 分与 2 分平均 3,不是 6", async () => {
+    const s = snap({
+      experimentId: "exam/retry",
+      results: [
+        res("q1", "passed", { attempt: 0, scoring: "points", assertions: [pointsAssertion("x", 4)] }),
+        res("q1", "passed", { attempt: 1, scoring: "points", assertions: [pointsAssertion("x", 2)] }),
+      ],
+    });
+    const evalItems = await evalListData([s]);
+    expect(evalItems[0]!.totalScore.value).toBe(3);
+    expect(evalItems[0]!.totalScore.value).not.toBe(6); // 区分力:mean ≠ sum
+
+    const expItems = await experimentListData([s]);
+    expect(expItems[0]!.evalRows[0]!.totalScore.value).toBe(3);
+  });
+
+  it("通过制 experiment:ExperimentListItem.totalScore 为 null cell,同一行 endToEndPassRate 仍是良态数字,二者并存不互斥", async () => {
+    const s = snap({ experimentId: "exam/passonly", results: [res("a", "passed"), res("b", "failed")] });
+    const items = await experimentListData([s]);
+    expect(items[0]!.totalScore.value).toBeNull();
+    expect(items[0]!.endToEndPassRate.value).toBe(0.5);
+  });
+
+  it("默认预排:纯计分制列表按 totalScore 降序,不是 endToEndPassRate(两个 experiment 端到端通过率同为 1,只有总分能分出高低)", async () => {
+    const low = snap({
+      experimentId: "exam/a-lowscore",
+      results: [res("q1", "passed", { scoring: "points", assertions: [pointsAssertion("x", 3)] })],
+    });
+    const high = snap({
+      experimentId: "exam/z-highscore",
+      results: [res("q1", "passed", { scoring: "points", assertions: [pointsAssertion("x", 9)] })],
+    });
+    const items = await experimentListData([low, high]);
+    expect(items.map((item) => item.experimentId)).toEqual(["exam/z-highscore", "exam/a-lowscore"]);
+  });
+
+  it("默认预排:pass 与 points 混型退回 experiment id 字典序,两种读数不能互相排名", async () => {
+    const pointsExp = snap({
+      experimentId: "exam/z-points",
+      results: [res("q1", "passed", { scoring: "points", assertions: [pointsAssertion("x", 100)] })],
+    });
+    const passExp = snap({ experimentId: "exam/a-pass", results: [res("q1", "passed")] });
+    const items = await experimentListData([pointsExp, passExp]);
+    // 若混型误走「只要有 points 行就按总分排」的分支,总分良态数字的 points 行会排到
+    // totalScore=null(沉底)的 pass 行前面,顺序会是 [z-points, a-pass];正确的混型退回
+    // 字典序应是 [a-pass, z-points]。
+    expect(items.map((item) => item.experimentId)).toEqual(["exam/a-pass", "exam/z-points"]);
+  });
 });
 
 // ───────────────────────── scopeSummaryData ─────────────────────────
