@@ -11,6 +11,7 @@
 
 import type { DiagnosticNotice, FailureNotice, RunFeedbackEvent, RunFeedbackState } from "../types.ts";
 import { encodeAttemptKey } from "../types.ts";
+import { evalConclusionKey } from "./eval-conclusions.ts";
 
 /** reducer 的起始状态:一个尚未收到任何事件的 run。 */
 export function createInitialRunFeedbackState(): RunFeedbackState {
@@ -21,6 +22,7 @@ export function createInitialRunFeedbackState(): RunFeedbackState {
     queued: 0,
     completed: 0,
     earlyExitSkipped: 0,
+    earlyExitByEval: new Map(),
     elapsedMs: 0,
     active: new Map(),
     experimentHooks: new Map(),
@@ -147,16 +149,26 @@ export function reduceRunFeedback(state: RunFeedbackState, event: RunFeedbackEve
       return { ...state, experimentHooks };
     }
 
-    case "attempt:early-exit":
+    case "attempt:early-exit": {
       // 首过即停下已知 verdict 的省略次数:折进 completed(结论已经确定,不再需要派发),
       // 不产生 failures/diagnostics —— 这不是一次失败或异常,只是省下的重复验证
       // (真正「未完整覆盖」的信号来自 budget-exhausted / fail-fast diagnostic,不是这里)。
+      // 同一份事件也用于 fail-fast 未派发(run.ts 两处调用同一个 "attempt:early-exit" 类型)——
+      // earlyExitByEval 在这里按 (experiment, eval) 记的是原始计数,不剔除 fail-fast 份额;
+      // `feedback/eval-conclusions.ts` 的 `evalConclusionRows` 消费时才对照 `state.diagnostics`
+      // 里的 `fail-fast:` 记录减去那部分,不在 reducer 这一步做(reducer 只管纯计数,不掺业务
+      // 判断,也避免依赖 run.ts 里两个事件的发出顺序这类隐式契约)。
+      const key = evalConclusionKey(event.identity);
+      const earlyExitByEval = new Map(state.earlyExitByEval);
+      earlyExitByEval.set(key, (earlyExitByEval.get(key) ?? 0) + 1);
       return {
         ...state,
         queued: state.queued - 1,
         completed: state.completed + 1,
         earlyExitSkipped: state.earlyExitSkipped + 1,
+        earlyExitByEval,
       };
+    }
 
     case "failure": {
       const isFresh = !state.failures.some((failure) => failure.locator === event.locator);

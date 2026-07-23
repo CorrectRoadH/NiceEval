@@ -61,6 +61,7 @@
 import type { FeedbackRenderer } from "./renderer.ts";
 import type { FeedbackIO } from "./io.ts";
 import type { DurableFeedbackEvent, InvocationCompletion, InvocationSummary, RunFeedbackState } from "../types.ts";
+import { evalConclusionRows, type EvalConclusionRow } from "./eval-conclusions.ts";
 
 /** failed/errored 立即展开上限(cli.md「'立即追加'也必须有上限」表:ci 前 50 条;完整清单
  *  由 JSON/JUnit 保存,checklist 第四条)。 */
@@ -182,6 +183,7 @@ export function createCiRenderer(options: CiRendererOptions): FeedbackRenderer {
           return;
 
         case "saved":
+          writeEvalConclusions(io, pendingSummary, state);
           writeResultBlock(io, pendingSummary, event);
           return;
 
@@ -278,6 +280,43 @@ function writeFailureCheckpoint(io: FeedbackIO, event: DurableFeedbackEvent & { 
     parts.push(kv("reason", event.reason));
   }
   io.stdout.write(parts.join(" ") + "\n");
+}
+
+// ───────────────────────── 逐 eval 结论行(stdout,先于 result,不设上限)─────────────────────────
+
+/** 一条 `niceeval: eval …` 行(cli.md「runs 与首过即停怎样展示」);字段随 earlyExit 是否
+ *  触发在 planned/unstarted/reason 与 passed/rate 两组间二选一,不同时出现两组字段——与
+ *  agent.ts 的 `evalConclusionLine` 字面同构但刻意独立实现(见文件顶部「不共享」注释)。 */
+function evalConclusionLine(row: EvalConclusionRow): string {
+  const parts = ["niceeval: eval"];
+  if (row.locator !== undefined) parts.push(kv("locator", row.locator));
+  parts.push(kv("eval", row.evalId));
+  if (row.experimentId !== undefined) parts.push(kv("experiment", row.experimentId));
+  parts.push(kv("verdict", row.verdict));
+  parts.push(kv("attempts", row.attempts));
+  if (row.reason !== undefined) {
+    parts.push(kv("planned", row.planned!));
+    parts.push(kv("unstarted", row.unstarted!));
+    parts.push(kv("reason", row.reason));
+  } else {
+    parts.push(kv("passed", row.passed!));
+    parts.push(kv("rate", row.rate!));
+  }
+  return parts.join(" ");
+}
+
+/** 逐 (experiment, eval) 结论行:result 行是 Invocation 级的一份汇总,这里是更细一层的
+ *  逐 eval 账目,两者不重复冒充同一层(cli.md「runs 与首过即停怎样展示」)——result 只给
+ *  折叠计数,failed/errored 的明细已经在立即追加的 checkpoint 里出现过,这里补上 passed
+ *  的一份,覆盖全部 eval、不设上限。写在 result 之前,读者先看到完整账目,再看到收束结论。 */
+function writeEvalConclusions(
+  io: FeedbackIO,
+  pending: { summary: InvocationSummary; completion: InvocationCompletion; reused: number } | undefined,
+  state: RunFeedbackState,
+): void {
+  if (!pending) return;
+  const rows = evalConclusionRows(pending.summary.results, state.earlyExitByEval, state.diagnostics);
+  for (const row of rows) io.stdout.write(evalConclusionLine(row) + "\n");
 }
 
 // ───────────────────────── result 收尾(stdout,status/counts/reused/unstarted/duration + json/junit/snapshots) ─────────────────────────

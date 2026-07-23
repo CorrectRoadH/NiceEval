@@ -41,6 +41,7 @@ import type { FeedbackRenderer } from "./renderer.ts";
 import type { FeedbackIO } from "./io.ts";
 import type { DurableFeedbackEvent, FailureNotice, InvocationCompletion, InvocationSummary, RunFeedbackState } from "../types.ts";
 import { assertionSummaryLines } from "../../scoring/display.ts";
+import { evalConclusionRows, type EvalConclusionRow } from "./eval-conclusions.ts";
 
 /** 失败/errored checkpoint 与最终 handoff 共用同一个展开上限(cli.md「'立即追加'也必须有
  *  上限」表:agent 前 5 条)。 */
@@ -180,6 +181,7 @@ export function createAgentRenderer(options: AgentRendererOptions): FeedbackRend
           return;
 
         case "saved":
+          writeEvalConclusions(io, pendingSummary, state);
           writeHandoff(io, pendingSummary, event.paths, state.failures, state.kept.length > 0);
           return;
 
@@ -277,6 +279,42 @@ function writeFailureCheckpoint(io: FeedbackIO, event: DurableFeedbackEvent & { 
   if (event.phase) parts.push(kv("phase", event.phase));
   parts.push(kv("verdict", event.verdict));
   io.stderr.write(parts.join(" ") + "\n");
+}
+
+// ───────────────────────── 逐 eval 结论行(stdout,先于 handoff,不设上限)─────────────────────────
+
+/** 一条 `NICEEVAL eval …` 行(cli.md「runs 与首过即停怎样展示」);字段随 earlyExit 是否
+ *  触发在 planned/unstarted/reason 与 passed/rate 两组间二选一,不同时出现两组字段。 */
+function evalConclusionLine(row: EvalConclusionRow): string {
+  const parts = ["NICEEVAL eval"];
+  if (row.locator !== undefined) parts.push(kv("locator", row.locator));
+  parts.push(kv("eval", row.evalId));
+  if (row.experimentId !== undefined) parts.push(kv("experiment", row.experimentId));
+  parts.push(kv("verdict", row.verdict));
+  parts.push(kv("attempts", row.attempts));
+  if (row.reason !== undefined) {
+    parts.push(kv("planned", row.planned!));
+    parts.push(kv("unstarted", row.unstarted!));
+    parts.push(kv("reason", row.reason));
+  } else {
+    parts.push(kv("passed", row.passed!));
+    parts.push(kv("rate", row.rate!));
+  }
+  return parts.join(" ");
+}
+
+/** 逐 (experiment, eval) 结论行:handoff 是 Invocation 级的一份汇总,这里是更细一层的
+ *  逐 eval 账目,两者不重复冒充同一层(cli.md「runs 与首过即停怎样展示」)——handoff 的
+ *  failures 列表只覆盖 failed/errored 且有界,这里覆盖全部 eval、不设上限。写在 handoff
+ *  之前,读者先看到完整账目,再看到收束的整体结论。 */
+function writeEvalConclusions(
+  io: FeedbackIO,
+  pending: { summary: InvocationSummary; completion: InvocationCompletion; reused: number } | undefined,
+  state: RunFeedbackState,
+): void {
+  if (!pending) return;
+  const rows = evalConclusionRows(pending.summary.results, state.earlyExitByEval, state.diagnostics);
+  for (const row of rows) io.stdout.write(evalConclusionLine(row) + "\n");
 }
 
 // ───────────────────────── 最终 handoff(stdout,有界,一次性写完) ─────────────────────────

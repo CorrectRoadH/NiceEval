@@ -74,11 +74,11 @@
     - [x] `standard.tsx` 的 report / attempts / traces 三张 scope-input page 均按 `ScopeWarnings` → `SnapshotDiagnostics` 相邻放置；attempt-input page 不放
     - [x] 单元层只断言 data 与展开树；折叠、HTML/text 结构、相邻顺序和真实命令归 `e2e/report` 验收
 
-- [ ] **D. agent/ci 的 Eval 级结论行**（依赖 A；可与 B、C、F、G 并行）
-  - [ ] D.1 从同一份结构化终局数据派生逐 `(experiment, eval)` 聚合，不让 agent/ci renderer 各算第二份口径
-  - [ ] D.2 early exit 输出 `attempts/planned/unstarted/reason=early_exit`；跑满输出 attempts 与 rate；顺序稳定且不与 Invocation handoff 重复冒充同一层
-  - [ ] D.3 补 runner feedback 单测：纯跑满、首过即停、并发时已有在飞 attempt、fail-fast 与 budget 未派发不得误标 early_exit
-  - [ ] D.4 `pnpm e2e --repo cli` 验收 agent 与 ci 两种 profile 的真实 stdout 单一事件流
+- [x] **D. agent/ci 的 Eval 级结论行**（依赖 A；可与 B、C、F、G 并行）
+  - [x] D.1 从同一份结构化终局数据派生逐 `(experiment, eval)` 聚合，不让 agent/ci renderer 各算第二份口径
+  - [x] D.2 early exit 输出 `attempts/planned/unstarted/reason=early_exit`；跑满输出 attempts 与 rate；顺序稳定且不与 Invocation handoff 重复冒充同一层
+  - [x] D.3 补 runner feedback 单测：纯跑满、首过即停、并发时已有在飞 attempt、fail-fast 与 budget 未派发不得误标 early_exit
+  - [x] D.4 `pnpm e2e --repo cli` 验收 agent 与 ci 两种 profile 的真实 stdout 单一事件流
 
 - [ ] **E. 组深度读取面重新设计并实现**（设计部分无依赖，可与 A–D/F/G 并行；实现依赖 E.1 裁决）
   - [ ] E.1 在 `docs/roadmap/report-chart-composition/` 或独立 ADR 比较两种形状：扩展通用 Matrix 为“一 attempt 多成员 + cell context”，或新增专用组深度组件；**推荐专用组件**，因为组是 assertion/score-entry 子实体，不是 Attempt 身份维度

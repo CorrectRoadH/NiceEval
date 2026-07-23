@@ -162,7 +162,7 @@ describe("reduceRunFeedback: 守恒公式", () => {
     expect(state).toMatchObject({ running: 0, completed: 4, queued: 0 });
   });
 
-  it("early exit:未派发的重复轮次折进 completed,不产生 failures/diagnostics", () => {
+  it("early exit:未派发的重复轮次折进 completed,不产生 failures/diagnostics;按 (experiment, eval) 累计 earlyExitByEval", () => {
     const first = ref("memory/retry", 0);
     const retry1 = ref("memory/retry", 1);
     const retry2 = ref("memory/retry", 2);
@@ -176,6 +176,21 @@ describe("reduceRunFeedback: 守恒公式", () => {
     expect(state).toMatchObject({ total: 3, reused: 0, running: 0, queued: 0, completed: 3 });
     expect(state.failures).toEqual([]);
     expect(state.diagnostics).toEqual([]);
+    // 无 experimentId 的裸 run:evalConclusionKey 用 "" 占位空 experimentId 段。
+    expect(state.earlyExitByEval.get("|memory/retry")).toBe(2);
+  });
+
+  it("attempt:early-exit 按 (experiment, eval) 分组,不同 eval 与不同 experiment 各自独立计数", () => {
+    const state = replay([
+      { type: "plan", at: 0, plan: { shape: { evals: 2, configs: 1, totalAttempts: 4, maxConcurrency: 4 }, reused: 0, reusedFailures: [] } },
+      { type: "attempt:early-exit", at: 1, identity: ref("q1", 1, "exp-a"), who: "codex" },
+      { type: "attempt:early-exit", at: 2, identity: ref("q1", 2, "exp-a"), who: "codex" },
+      { type: "attempt:early-exit", at: 3, identity: ref("q1", 1, "exp-b"), who: "codex" },
+      { type: "attempt:early-exit", at: 4, identity: ref("q2", 1, "exp-a"), who: "codex" },
+    ]);
+    expect(state.earlyExitByEval.get("exp-a|q1")).toBe(2);
+    expect(state.earlyExitByEval.get("exp-b|q1")).toBe(1);
+    expect(state.earlyExitByEval.get("exp-a|q2")).toBe(1);
   });
 
   it("errored:失败事件带 locator 写入 failures,重复同一 locator 幂等覆盖而不是重复追加", () => {

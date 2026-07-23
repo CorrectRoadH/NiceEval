@@ -874,6 +874,14 @@ export interface RunFeedbackState {
   /** attempt:early-exit 事件的累计次数(首过即停省略 + fail-fast 未派发;后者由 fail-fast
    *  diagnostic 的 count 单独区分,见 cli.ts 的 assembleRunCompletion)。 */
   earlyExitSkipped: number;
+  /**
+   * `attempt:early-exit` 事件的原始次数,按 `${experimentId ?? ""}|${evalId}` 分组(见
+   * `feedback/eval-conclusions.ts` 的 `evalConclusionKey`)。这份计数**未**剔除 fail-fast 的
+   * 份额(fail-fast 未派发同样发出这个事件类型,见 run.ts)——`evalConclusionRows()` 消费时
+   * 对照 `diagnostics` 里的 `fail-fast:` 记录减去那部分,得到真正的首过即停省略次数,据此判断
+   * 是否给出 `reason=early_exit`。不得把这份原始计数直接当作首过即停次数使用。
+   */
+  earlyExitByEval: ReadonlyMap<string, number>;
   elapsedMs: number;
   /** 仅本次实际派发 attempt 的 token；carry 结果的历史 usage 不进入这里。 */
   newTokenCount?: number;
