@@ -88,9 +88,9 @@ export const en = {
     "      --teardown   recover a killed run: run only the selected experiments'\n" +
     "        teardown (no attempts, no setup); combining it with eval id prefixes is an error\n" +
     "  niceeval show [eval-id-prefix… | @<locator>]        read results in the terminal\n" +
-    "      bare: current verdicts per experiment (composed across runs), each row\n" +
-    "        with a compact attempt index (locator + failure reason)\n" +
-    "      a single eval id: attempts + assertion details\n" +
+    "      no evidence flag: leaderboard scoped to the matched evals (bare show, an\n" +
+    "        eval id prefix, or a single --exp all land here); two or more --exp\n" +
+    "        compares those conditions eval by eval instead\n" +
     "      @<locator>  exactly one attempt: no flag -> compact overview;\n" +
     "        with a flag -> that evidence slice\n" +
     "      --source      the Eval source captured when this attempt ran,\n" +
@@ -99,8 +99,10 @@ export const en = {
     "        Skill loads/tool calls); OTel adds timing to the same node when present\n" +
     "      --timing      unified timing tree for the attempt (phases + hooks/commands/turns + per-turn OTel)\n" +
     "      --diff[=file] sandbox workspace file-change summary; =file expands one file\n" +
+    "      evidence flags accept any range: a range with more than one attempt\n" +
+    "        renders one section per attempt (experimentId, evalId, attempt order)\n" +
     "      --history   per experiment × eval execution timeline (mutually exclusive with --report)\n" +
-    "      --results <dir>   pin a results root    --exp <id>   one experiment\n" +
+    "      --results <dir>   pin a results root    --exp <id>   repeatable; 2+ compares conditions\n" +
     "      --report <file>   custom report    --page <id>   pick the initial page (multi-page\n" +
     "        reports render it, then list the rest as a page index with copyable commands)\n" +
     "      --fresh   only count freshly executed attempts (excludes carried-over and\n" +
@@ -110,7 +112,8 @@ export const en = {
     "      report pages + evidence rooms; --report <file> swaps in your report\n" +
     "      (same file as show); --page <id> picks the initial page;\n" +
     "      --results <dir> pins a results root; --snapshot <file> opens exactly\n" +
-    "      one snapshot; --exp <id> one experiment; --fresh only new executions\n" +
+    "      one snapshot; --exp <id> (repeatable) narrows to those experiments;\n" +
+    "      --fresh only new executions\n" +
     "      --out <dir> exports a static site: index.html plus the viewer\n" +
     "      artifacts, ready for any static host\n" +
     "  niceeval sandbox list|enter|history|diff|stop  inspect & destroy sandboxes kept by --keep-sandbox\n" +
@@ -129,10 +132,14 @@ export const en = {
   "cli.show.runDirMissing": "Results directory not found: {{dir}}\n",
   "cli.show.noEvalMatch": "No results matched: {{patterns}}. Evals with results: {{evals}}\n",
   "cli.show.noExperimentMatch": "No experiment matched --exp {{arg}}. Experiments with results: {{experiments}}\n",
+  "cli.show.expAmbiguous":
+    "error: --exp {{arg}} matched {{matched}} experiments: {{candidates}}\n  fix: use one of the exact ids above, or a longer prefix — each --exp in a compare must resolve to exactly one experiment\n",
+  "cli.show.locatorExpConflict":
+    "error: {{locator}} cannot combine with repeated --exp ({{exp}})\n  fix: drop the extra --exp flags — a locator already pins one attempt to one experiment; for a multi-condition comparison, drop the locator and use eval id prefixes with --exp instead\n",
+  "cli.show.compareNotWired":
+    "error: comparing --exp {{conditions}} is not wired yet — the compare matrix (DeltaTable) lands in a parallel implementation node\n  fix: run `niceeval show --exp {{first}}` for that condition's leaderboard now, or add --json against one --exp at a time\n",
   "cli.show.historyReportConflict":
     "`--history` and `--report` are mutually exclusive: both take over the main output. --history is the host's per-attempt execution timeline; for snapshot-level trends, compose exp.snapshots inside your report file instead.\n",
-  "cli.show.evidenceNeedsEval":
-    "--source / --execution / --diff show one attempt's evidence, but the selection matched {{matched}} evals. Pick an attempt locator from the index below:\n{{index}}\n",
   "cli.show.locatorMalformed": "{{message}}\n",
   "cli.show.locatorNotFound": "{{message}}\n",
   "cli.eval.noMatch": "No eval matched: {{patterns}}.\n",

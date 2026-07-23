@@ -85,17 +85,18 @@ export const zhCN = {
     "      --teardown   强杀后补收尾:只对选中的实验各执行一次 teardown(不派发\n" +
     "        attempt、不跑 setup);与 eval id 前缀组合是用法错误\n" +
     "  niceeval show [eval-id 前缀… | @<locator>]   终端读结果\n" +
-    "      裸跑:每个 experiment 的现刻判定(跨 run 合成),每行带紧凑 attempt 索引\n" +
-    "        (locator + 失败原因)\n" +
-    "      单个 eval id:attempt 与断言明细\n" +
+    "      不带证据 flag:命中范围的榜单(裸跑、eval id 前缀、单个 --exp 都落在这里);\n" +
+    "        两个以上 --exp 改为逐条件对照\n" +
     "      @<locator>  精确一个 attempt:无 flag → 紧凑全景;带 flag → 对应证据切面\n" +
     "      --source      该 attempt 运行时保存的 Eval 源码,断言标回源码行\n" +
     "      --execution   该 attempt 的执行事件流(消息/thinking/Skill/工具调用),\n" +
     "        有 OTel 时同一节点补时间\n" +
     "      --timing      整个 attempt 的统一时间树(阶段 + hook/命令/turn + 轮内 OTel)\n" +
     "      --diff[=文件] agent 归因的文件改动摘要;=文件 按窗口展开单个文件\n" +
+    "      证据 flag 接受任意范围:范围含多个 attempt 时逐 attempt 分节\n" +
+    "        (按 experimentId、evalId、attempt 序)\n" +
     "      --history   逐 experiment × eval 的执行时间轴(与 --report 互斥)\n" +
-    "      --results <目录> 钉死结果根   --exp <id> 只看该实验\n" +
+    "      --results <目录> 钉死结果根   --exp <id> 可重复,两个以上进入对照\n" +
     "      --report <文件> 自定义报告   --page <id> 定初始页(多页报告渲染该页,\n" +
     "        尾部再附其余页索引)\n" +
     "      --fresh   只统计新执行的 attempt(排除携带条目与跨快照拼入的历史执行);\n" +
@@ -104,7 +105,8 @@ export const zhCN = {
     "  niceeval view [eval-id 前缀…] [--out 目录] [--port n] [--no-open]\n" +
     "      报告页 + 证据室;--report <文件> 整槽换成自定义报告(与 show 同一文件)\n" +
     "      --page <id> 定初始页   --results <目录> 钉死结果根\n" +
-    "      --snapshot <文件> 只打开这一份快照   --exp <id> 只看该实验;--fresh 只看新执行\n" +
+    "      --snapshot <文件> 只打开这一份快照   --exp <id>(可重复)收窄到这些实验;\n" +
+    "      --fresh 只看新执行\n" +
     "      --out <目录> 静态导出:index.html 连同查看器 artifact,可直接静态托管\n" +
     "  niceeval sandbox list|enter|history|diff|stop  查看与销毁 --keep-sandbox 留下的现场\n" +
     "  niceeval sandbox list --orphans / prune         核对并收回被强杀留下的无主实例\n" +
@@ -123,10 +125,14 @@ export const zhCN = {
   "cli.show.runDirMissing": "Results directory not found: {{dir}}\n",
   "cli.show.noEvalMatch": "No results matched: {{patterns}}. Evals with results: {{evals}}\n",
   "cli.show.noExperimentMatch": "No experiment matched --exp {{arg}}. Experiments with results: {{experiments}}\n",
+  "cli.show.expAmbiguous":
+    "error: --exp {{arg}} matched {{matched}} experiments: {{candidates}}\n  fix: use one of the exact ids above, or a longer prefix — each --exp in a compare must resolve to exactly one experiment\n",
+  "cli.show.locatorExpConflict":
+    "error: {{locator}} cannot combine with repeated --exp ({{exp}})\n  fix: drop the extra --exp flags — a locator already pins one attempt to one experiment; for a multi-condition comparison, drop the locator and use eval id prefixes with --exp instead\n",
+  "cli.show.compareNotWired":
+    "error: comparing --exp {{conditions}} is not wired yet — the compare matrix (DeltaTable) lands in a parallel implementation node\n  fix: run `niceeval show --exp {{first}}` for that condition's leaderboard now, or add --json against one --exp at a time\n",
   "cli.show.historyReportConflict":
     "`--history` and `--report` are mutually exclusive: both take over the main output. --history is the host's per-attempt execution timeline; for snapshot-level trends, compose exp.snapshots inside your report file instead.\n",
-  "cli.show.evidenceNeedsEval":
-    "--source / --execution / --diff show one attempt's evidence, but the selection matched {{matched}} evals. Pick an attempt locator from the index below:\n{{index}}\n",
   "cli.show.locatorMalformed": "{{message}}\n",
   "cli.show.locatorNotFound": "{{message}}\n",
   "cli.eval.noMatch": "没有匹配的 eval:{{patterns}}。\n",

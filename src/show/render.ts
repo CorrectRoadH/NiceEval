@@ -1,20 +1,19 @@
-// show 的文本渲染:单 eval 详情、--history 时间轴、三个证据切面(transcript / trace / diff)。
-// 输出形态照 docs-site/zh/tutorials/viewing-results.mdx 的示例块;长内容一律截断,
-// 但截断永远如实标注剩余数量和原始 artifact 路径 —— 输出对上下文窗口友好,事实源留在盘上。
-// 全部纯函数(时间经 now 显式传入),证据数据由调用方 await 好了递进来。
+// show 的文本渲染:--history 时间轴、四个证据切面(source / execution / timing / diff)。多
+// attempt 范围的分节由 show/index.ts 的 renderEvidenceSections 逐 attempt 复用这些 renderer,
+// 不在这里重复。输出形态照 docs-site/zh/tutorials/viewing-results.mdx 的示例块;长内容一律
+// 截断,但截断永远如实标注剩余数量和原始 artifact 路径 —— 输出对上下文窗口友好,事实源留在
+// 盘上。全部纯函数(时间经 now 显式传入),证据数据由调用方 await 好了递进来。
 
 import { join, relative } from "node:path";
 import type { AssertionResult, DiffData, EvalResult, LocalizedText, TimingNode, TraceSpan, Verdict } from "../types.ts";
-import type { AttemptEvidence, AttemptHandle, Snapshot } from "../results/index.ts";
+import type { AttemptEvidence, AttemptHandle } from "../results/index.ts";
 import type { AnnotatedSourceLine, SendAnnotation } from "../results/index.ts";
 import { groupIncompatibleVersionSkips } from "../results/index.ts";
 import type { SkippedDir } from "../results/index.ts";
 import type { ExecutionNode } from "../o11y/execution-tree.ts";
-import { foldEvalVerdict } from "../shared/verdict.ts";
 import { summaryText } from "../scoring/display.ts";
 import { firstLine } from "../util.ts";
-import { attemptCostUSD } from "../report/model/metrics.ts";
-import { formatDurationMs, formatMetricValue, formatPlainNumber, formatUSD } from "../report/model/format.ts";
+import { formatDurationMs, formatPlainNumber, formatUSD } from "../report/model/format.ts";
 import { indentBlock, padDisplay, renderAlignedRows, wrapDisplay } from "../report/model/text-layout.ts";
 import type { AttemptHistoryRow } from "./compose.ts";
 import { localizeText, type HostCommandContext } from "../report/runtime/host.ts";
@@ -51,11 +50,6 @@ function verdictMark(verdict: Verdict): string {
 
 function attemptsLabel(n: number): string {
   return `${n} ${n === 1 ? "attempt" : "attempts"}`;
-}
-
-/** attempt 的展示序号:落盘 attempt 从 0 计,人看 1 计( artifact 目录后缀 __2 = attempt 3)。 */
-export function displayAttemptNumber(attempt: AttemptHandle): number {
-  return attempt.result.attempt + 1;
 }
 
 /**
@@ -100,32 +94,7 @@ export function skippedRunsText(skipped: readonly SkippedDir[], root: string, cw
   return lines.join("\n");
 }
 
-// ───────────────────────── attempt 挑选 ─────────────────────────
-
-/**
- * Scope 内某道题的全部 attempt。从 `Scope.attempts` 筛选,不扫 `Snapshot.evals`——真实
- * Snapshot 各自持有完整(未按现刻水位收窄的)evals,只有物化的 `Scope.attempts` 才是这次
- * 选择的真正结果(docs/feature/results/library.md「官方现刻水位」)。
- */
-export function attemptsOfEval(attempts: readonly AttemptHandle[], evalId: string): AttemptHandle[] {
-  return attempts.filter((a) => a.evalId === evalId);
-}
-
-/**
- * 详情块 / eval-id 前缀证据切面默认挑最新一次失败的 attempt;没有失败挑最新一次。
- * 精确选某一次 attempt 走 `@<locator>`(`resolveLocator`),不再有数字 `--attempt`——
- * --exp 已在 Selection 合成时收窄。
- */
-export function pickDetailAttempt(attempts: AttemptHandle[]): AttemptHandle | undefined {
-  if (attempts.length === 0) return undefined;
-  const byTime = [...attempts].sort((a, b) =>
-    (a.result.startedAt ?? "").localeCompare(b.result.startedAt ?? "") || a.result.attempt - b.result.attempt,
-  );
-  const failing = byTime.filter((a) => a.result.verdict === "failed" || a.result.verdict === "errored");
-  return failing.at(-1) ?? byTime.at(-1);
-}
-
-// ───────────────────────── 单 eval 详情 ─────────────────────────
+// ───────────────────────── 断言行 ─────────────────────────
 
 function scoreText(score: number): string {
   return formatPlainNumber(Math.round(score * 100) / 100);
@@ -159,27 +128,13 @@ export function assertionLine(a: AssertionResult): string {
   return head;
 }
 
-/** 详情块头部:`attempt 3 · compare/codex-gpt-5.4 · failed · 41s · 12.3k tokens · $0.04`。 */
-export function attemptHeader(attempt: AttemptHandle): string {
-  const r = attempt.result;
-  const parts = [
-    `attempt ${displayAttemptNumber(attempt)}`,
-    attempt.experimentId,
-    r.verdict,
-    formatDurationMs(r.durationMs),
-  ];
-  if (r.usage) parts.push(`${formatMetricValue(r.usage.inputTokens + r.usage.outputTokens)} tokens`);
-  const cost = attemptCostUSD(r);
-  if (cost !== null) parts.push(formatUSD(cost));
-  return parts.join(" · ");
-}
-
 // ───────────────────────── AttemptEvidence 共用 ─────────────────────────
 // evalSourceText / executionText / timingText / diffText(--source / --execution / --timing / --diff
-// 四个证据切面)与 evalDetailText 的紧凑索引列共用的小件:locator 头、失败原因、断言计票摘要。
-// 四个证据 renderer 都只消费同一份 AttemptEvidence,不各自读 artifact 或重新判定 capability
-// (loadAttemptEvidence 已经算好)。无证据 flag 的默认页改由 niceeval/report 的 attempt-input
-// page 管线渲染(docs/feature/reports/show/attempt.md),不在这里。
+// 四个证据切面)共用的小件:locator 头、失败原因、断言计票摘要。四个证据 renderer 都只消费
+// 同一份 AttemptEvidence,不各自读 artifact 或重新判定 capability(loadAttemptEvidence 已经
+// 算好);多 attempt 范围的分节由 show/index.ts 的 renderEvidenceSections 逐 attempt 复用这些
+// renderer,不在这里重复。无证据 flag 的默认页改由 niceeval/report 的 attempt-input page 管线
+// 渲染(docs/feature/reports/show/attempt.md),不在这里。
 
 /** 证据切面的头行:`@<locator> · <evalId> · <experimentId> · <verdict>`。 */
 export function attemptEvidenceHeader(evidence: AttemptEvidence): string {
@@ -207,19 +162,6 @@ export function verdictReasonLine(result: EvalResult): string | undefined {
   return gates.map((a) => `gate ${a.name}`).join(", ");
 }
 
-/** 紧凑多 attempt 索引的一行:`✗ weather/brooklyn  @7K2M9Q  gate calledTool(...)`。 */
-export function attemptIndexLine(opts: {
-  evalId: string;
-  verdict: Verdict;
-  locator: string | undefined;
-  reason?: string;
-}): string {
-  const loc = opts.locator ?? MISSING;
-  const parts = [`${verdictMark(opts.verdict)} ${opts.evalId}`, loc];
-  if (opts.reason) parts.push(opts.reason);
-  return parts.join("  ");
-}
-
 /**
  * 断言计票摘要,`--eval` 与全景面共用:`assertions: 1 passed · 1 gate failed · 1 soft below
  * target`。直接读 `EvalResult.assertions`(恒可用的瘦身字段)而不是
@@ -238,88 +180,6 @@ export function assertionSummaryLine(assertions: AssertionResult[]): string {
   if (softBelow > 0) parts.push(`${softBelow} soft below target`);
   if (unavailableCount > 0) parts.push(`${unavailableCount} unavailable`);
   return `assertions: ${parts.length > 0 ? parts.join(" · ") : "(none)"}`;
-}
-
-export interface EvalDetailOptions {
-  evalId: string;
-  /** 该题在当前 Scope 里物化的全部 attempt(跨 experiment),不是某个 Snapshot 的原始 evals。 */
-  attempts: readonly AttemptHandle[];
-  /** 详情块展示的 attempt(pickDetailAttempt 的产物);无 attempt 时省略详情块。 */
-  detail?: AttemptHandle;
-  cwd: string;
-  now: number;
-  width: number;
-}
-
-/** `niceeval show <eval id>`:各 experiment 的判定行 + 默认 attempt 的断言明细。 */
-export function evalDetailText(opts: EvalDetailOptions): string {
-  const { evalId, attempts, detail, cwd, now, width } = opts;
-  const blocks: string[] = [];
-
-  const description = attempts.map((a) => a.result.description).find((d) => d !== undefined);
-  blocks.push(description ? `${evalId} — ${description}` : evalId);
-
-  // 每 experiment 一行:折叠判定、attempt 数、最新 attempt 的耗时、总成本、判定时间、
-  // 代表 attempt 的紧凑索引(locator + 失败原因)——agent 从这张榜单
-  // 就能直接摘到一个 `@<locator>` 下钻,不必先跑一遍 `--eval`/`--execution` 才知道选谁。
-  const byExperiment = new Map<string, AttemptHandle[]>();
-  for (const a of attempts) {
-    const list = byExperiment.get(a.experimentId);
-    if (list) list.push(a);
-    else byExperiment.set(a.experimentId, [a]);
-  }
-  const rows: string[][] = [];
-  for (const [experimentId, evAttempts] of byExperiment) {
-    if (evAttempts.length === 0) continue;
-    const verdict = foldEvalVerdict(evAttempts.map((a) => a.result));
-    const latest = evAttempts.reduce((a, b) => (b.result.attempt >= a.result.attempt ? b : a));
-    let cost: number | null = null;
-    for (const attempt of evAttempts) {
-      const c = attemptCostUSD(attempt.result);
-      if (c !== null) cost = (cost ?? 0) + c;
-    }
-    const rep = pickDetailAttempt(evAttempts);
-    const locatorCell = rep?.locator ?? MISSING;
-    const reasonCell = rep ? (verdictReasonLine(rep.result) ?? "") : "";
-    rows.push([
-      experimentId,
-      `${verdictMark(verdict)} ${verdict}`,
-      attemptsLabel(evAttempts.length),
-      formatDurationMs(latest.result.durationMs),
-      cost === null ? MISSING : formatUSD(cost),
-      `(${relativeAgo(latest.result.startedAt ?? latest.snapshot.startedAt, now)})`,
-      locatorCell,
-      reasonCell,
-    ]);
-  }
-  if (rows.length > 0) blocks.push(renderAlignedRows(rows));
-
-  if (detail) {
-    const lines: string[] = [attemptHeader(detail)];
-    for (const a of detail.result.assertions) {
-      lines.push(indentBlock(wrapDisplay(assertionLine(a), width - 2).join("\n"), "  "));
-    }
-    if (detail.result.error !== undefined) {
-      lines.push(indentBlock(wrapDisplay(`error: ${detail.result.error.message}`, width - 2).join("\n"), "  "));
-    }
-    if (detail.result.skipReason !== undefined) {
-      lines.push(indentBlock(wrapDisplay(`skipped: ${detail.result.skipReason}`, width - 2).join("\n"), "  "));
-    }
-    blocks.push(lines.join("\n"));
-
-    const tail: string[] = [];
-    const artifacts = attemptArtifactsPath(detail, cwd);
-    if ( artifacts) tail.push(`artifacts: ${artifacts}/`);
-    if (detail.locator) tail.push(`attempt locator: ${detail.locator}`);
-    tail.push(
-      detail.locator
-        ? `next: niceeval show ${detail.locator} [--source|--execution|--diff]`
-        : `next: niceeval show ${evalId} [--source|--execution|--diff]`,
-    );
-    blocks.push(tail.join("\n"));
-  }
-
-  return blocks.join("\n\n");
 }
 
 // ───────────────────────── --history ─────────────────────────

@@ -76,8 +76,10 @@ const SIBLING_ATTEMPT_HREF = (locator: AttemptLocator): string => `${encodeURICo
 export interface ViewScanOptions {
   /** eval id 前缀(位置参数):把根滤成有效根,页面 Scope 与证据(快照明细、artifact 清单)一致收窄。 */
   patterns?: string[];
-  /** experiment id 前缀(--exp):有效根只留匹配实验。 */
-  experiment?: string;
+  /** experiment id 前缀(--exp,可重复):有效根只留匹配实验(union 前缀收窄,与 show 的单/双
+   *  个 `--exp` 同一套 `filterExperiments`;view 目前不做 show 对照矩阵那一套"每个 --exp 必须
+   *  恰好命中一个 experiment"校验)。 */
+  experiment?: string | string[];
   /** --report 报告文件:相对 cwd 的路径。装载失败抛 ReportLoadError(CLI 打印后退出)。 */
   report?: { path: string; cwd: string };
   /** --page:多页报告的初始页 id;未命中任何页按用法错误退出并列出可用页 id。 */
@@ -219,7 +221,7 @@ export async function loadViewScan(input?: string, opts: ViewScanOptions = {}): 
   ) {
     throw new ViewInputError(
       t("cli.show.noExperimentMatch", {
-        arg: opts.experiment,
+        arg: Array.isArray(opts.experiment) ? opts.experiment.join(", ") : opts.experiment,
         experiments: results.experiments.map((e) => e.id).join(", "),
       }).trimEnd(),
     );

@@ -127,7 +127,9 @@ export function reportTitleText(definition: ReportDefinition, scope: Scope, loca
 export interface HostCommandContext {
   patterns: string[];
   results?: string;
-  experiment?: string;
+  /** `--exp`;可重复,顺序即用户输入顺序(对照条件顺序)。组索引命令按单个 experiment id
+   *  前缀拼 `--exp`(experimentCommandFor),不读这个字段——它只用于跨宿主边界的结构透传。 */
+  experiment?: string | string[];
   report?: string;
   page?: string;
 }

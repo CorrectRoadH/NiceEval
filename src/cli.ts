@@ -109,7 +109,8 @@ interface Flags {
   sandboxPath?: string;
   leaveRunning: boolean;
   history: boolean;
-  experiment?: string;
+  /** `show` / `view` 命令专用:`--exp` 可重复出现;每次出现是一个数组元素,顺序即用户输入顺序。 */
+  experiment?: string[];
   results?: string;
   snapshot?: string;
   report?: string;
@@ -177,8 +178,8 @@ const FLAG_OPTIONS = {
   diff: { type: "boolean" },
   /** `show` 命令专用:执行时间轴——对匹配的每个 experiment × eval 分节,逐 attempt 列时间 / verdict / 摘要 / 耗时 / 成本 / locator;与 `--report` 互斥。 */
   history: { type: "boolean" },
-  /** `show` / `view` 命令专用:按路径段前缀收窄 experiment(与 `niceeval exp` 位置参数同一套匹配);目录路径会选中其下全部配置。`view --out` 时同一收窄决定出站内容。 */
-  exp: { type: "string" },
+  /** `show` / `view` 命令专用:按路径段前缀收窄 experiment(与 `niceeval exp` 位置参数同一套匹配);目录路径会选中其下全部配置。可重复;出现两次以上进入对照语义——每次出现必须恰好解析到一个 experiment,顺序即对照条件顺序、首个是基准,`@<locator>` 与重复 `--exp` 互斥。`view --out` 时同一收窄决定出站内容。 */
+  exp: { type: "string", multiple: true },
   /** `show` / `view` / `sandbox enter|list|stop` 共用:结果根目录(`.niceeval` 之外的另一个根,如 `copySnapshots` 产出的发布根)。 */
   results: { type: "string" },
   /** `view` 命令专用:只打开这一份快照文件(`snapshot.json`);文件不可读时命令失败(扫描模式只跳过)。 */
@@ -316,7 +317,7 @@ function parseArgs(argv: string[]): { command: string; positionals: string[]; fl
     sandboxPath: values.path as string | undefined,
     leaveRunning: values["leave-running"] === true,
     history: values.history === true,
-    experiment: values.exp as string | undefined,
+    experiment: values.exp as string[] | undefined,
     results: values.results as string | undefined,
     snapshot: values.snapshot as string | undefined,
     report: values.report as string | undefined,

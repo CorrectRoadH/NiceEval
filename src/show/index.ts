@@ -1,16 +1,18 @@
 // niceeval show —— 终端宿主(行为规范:docs/feature/reports/show.md 与分篇;
 // 宿主组合语义:docs/feature/reports/architecture.md「Scope 是计算入口」)。
 //
-// 位置参数 = eval id 前缀,或 `@<locator>`(精确指名单个 attempt,见 results/locator.ts):
-//   裸跑 / 多 eval 前缀  内建报告(niceeval/report/built-in 默认导出)的 text 面(单 eval 前缀仍进入详情)
-//   恰好一个 eval     单 eval 详情(attempt / 断言明细,宿主本体)
-//   @<locator>        精确 attempt:无证据 flag → 当前 report 的 attempt-input page(内建 standard
-//                     或 --report 自定义);带 flag → 对应证据切面(宿主本体,不经报告管线)
-//   --source / --execution / --diff[=路径]   证据切面(宿主本体):出现即走证据室,不渲染报告槽
+// 一次调用 = 范围 × 切片 × 形态(docs/feature/reports/show.md)。范围:eval id 前缀位置参数、
+// `@<locator>`(单元素范围)、`--exp`(可重复,>=2 进入对照语义)、`--results`、`--fresh`。
+// 切片(每个切片解析成一次报告组件装配,见 architecture.md「show 的切片是组件选择」):
+//   无证据 flag 且 --exp < 2   默认榜单(内建报告的 text 面;裸 show / eval 前缀 / 单个 --exp 都落在这里)
+//   无证据 flag 且 --exp >= 2  对照矩阵(DeltaTable,接线点见 renderCompareSlice)
+//   @<locator> 且无证据 flag   失败诊断首页(当前 report 的 attempt-input page)
+//   --source / --execution / --timing / --diff[=路径]   证据切面(宿主本体,不渲染报告槽);
+//     接受任意范围,范围含多个 attempt 时按 experimentId、evalId、attempt 序逐 attempt 分节
+//     (renderEvidenceSections),单 attempt 范围只是省掉分节
 //   --history        执行时间轴(逐 experimentId + evalId 分节),与 --report 互斥
 //   --report <文件>  整槽换成用户报告;位置前缀 / --results / --exp 先收窄 Scope 再注入
 //   --page <id>      多页报告选页;未命中列出可用页 id 按用法错误退出
-//   --results <目录>  结果根换成该目录;--exp 让 Scope 只留该实验
 //
 // 数据全部走 niceeval/results 的读取面(openResults + 合成 Scope + loadAttemptEvidence),
 // 不自己爬目录;证据可用性只由 loadAttemptEvidence 在单 Attempt 页面计算。
@@ -32,9 +34,8 @@ import {
 // loading/rendering goes through ../report/runtime/host.ts (the shared contact surface).
 import { ReportLoadError } from "../../dist/report/runtime/load.js";
 import { detectLocale, t } from "../i18n/index.ts";
-import { foldEvalVerdict } from "../shared/verdict.ts";
 import { selectCurrentResults, filterExperiments } from "../results/select.ts";
-import { evalPrefixPredicate } from "../shared/aggregate.ts";
+import { evalPrefixPredicate, matchExperimentSelector } from "../shared/aggregate.ts";
 import { panelCapabilityOf } from "../report/model/panel.ts";
 import { attemptHistory } from "./compose.ts";
 import {
@@ -48,18 +49,14 @@ import {
   attemptArtifactsPath,
   attemptEvidenceHeader,
   attemptHistoryText,
-  attemptIndexLine,
-  attemptsOfEval,
   diffText,
-  evalDetailText,
   evalSourceText,
   executionText,
   otherPagesText,
   timingText,
-  pickDetailAttempt,
   skippedRunsText,
-  verdictReasonLine,
 } from "./render.ts";
+import type { AttemptHandle } from "../results/index.ts";
 
 export interface ShowFlags {
   /** --source:该 attempt 运行时保存的 Eval 源码,断言标回源码行(证据切面)。 */
@@ -73,7 +70,12 @@ export interface ShowFlags {
   /** --diff=<路径>(单个文件的完整改动;路径必须 = 连写,位置参数永远留给 eval id 前缀)。 */
   diffPath?: string;
   history?: boolean;
-  experiment?: string;
+  /**
+   * --exp(可重复):0/1 个沿用前缀收窄语义(可能匹配多个 experiment);2 个以上进入对照语义——
+   * 每个必须恰好解析到一个 experiment,顺序即对照条件顺序、首个是基准
+   * (docs/feature/reports/show.md「选择结果范围」)。
+   */
+  experiment?: string[];
   /** --results:结果根目录(某次快照根或 `copySnapshots` 产物)。 */
   results?: string;
   report?: string;
@@ -110,6 +112,85 @@ function clampWidth(columns: number | undefined): number {
 // --report 的装载住在 ../report/runtime/host.ts(两个宿主共用的中性联系面);规范化本身是
 // `defineReport` 自己的职责,不在宿主层重复。
 export { loadHostReport, localizeText } from "../report/runtime/host.ts";
+
+/**
+ * 证据切面(--source/--execution/--timing/--diff)的范围排序:按 experimentId、evalId、
+ * attempt 序(docs/feature/reports/show/execution.md「--execution 接受任意范围」)。单元素
+ * 范围(`@<locator>`)排序是恒等操作——locator 与范围通用实现走同一条代码路径,不另立
+ * 「locator 专属」分支。
+ */
+export function sortAttemptsForSections(attempts: readonly AttemptHandle[]): AttemptHandle[] {
+  return [...attempts].sort(
+    (a, b) =>
+      a.experimentId.localeCompare(b.experimentId) ||
+      a.evalId.localeCompare(b.evalId) ||
+      a.result.attempt - b.result.attempt,
+  );
+}
+
+/**
+ * 证据切面的范围通用渲染:对排序后的每个 attempt 装配 flags 选中的区块并拼成一节;范围含
+ * 多个 attempt 时天然分节(节头是每节 block 自带的 `attemptEvidenceHeader` 定位行),单
+ * attempt 范围只是省掉了分节——两种输入量走同一份实现(docs/feature/reports/show.md
+ * 「一次调用 = 范围 × 切片 × 形态」)。
+ */
+async function renderEvidenceSections(
+  attempts: readonly AttemptHandle[],
+  flags: Pick<ShowFlags, "source" | "execution" | "timing" | "diff" | "diffPath">,
+  cwd: string,
+  width: number,
+): Promise<string> {
+  const ordered = sortAttemptsForSections(attempts);
+  const sections: string[] = [];
+  for (const attempt of ordered) {
+    const attemptEvidence = await loadAttemptEvidence(attempt);
+    const header = attemptEvidenceHeader(attemptEvidence);
+    const artifactPath = attemptArtifactsPath(attempt, cwd);
+    const blocks: string[] = [];
+    if (flags.source) blocks.push(evalSourceText(attemptEvidence, { header, artifactPath, width }));
+    if (flags.execution) blocks.push(executionText(attemptEvidence, { header, artifactPath, width }));
+    if (flags.timing !== undefined && flags.timing !== false) {
+      blocks.push(
+        timingText(attemptEvidence, { header, artifactPath, width, mode: flags.timing === "full" ? "full" : "summary" }),
+      );
+    }
+    if (flags.diff || flags.diffPath !== undefined) {
+      blocks.push(diffText({ header, diff: attemptEvidence.diff, artifactPath, file: flags.diffPath }));
+    }
+    sections.push(blocks.join("\n\n"));
+  }
+  return sections.join("\n\n");
+}
+
+/**
+ * 缺省切片选择表第二行(`--exp` 出现两次以上 → 对照矩阵)的接线点:`DeltaTable` 组件与
+ * `deltaTableData` 计算函数由并行节点实现(plan/show-scope-slice-json.md 节点 C1,
+ * docs/feature/reports/show/compare.md);本节点只完成范围解析与校验,渲染入口先给诚实的
+ * 占位错误,不假装已经装好。DeltaTable 落地后,这个函数体替换成组件装配 + text 面渲染,
+ * 调用点(show() 里对 renderCompareSlice 的调用)不用改。
+ */
+function renderCompareSlice(conditions: readonly string[]): never {
+  throw new ShowError(t("cli.show.compareNotWired", { conditions: conditions.join(", "), first: conditions[0] ?? "" }));
+}
+
+/**
+ * `--exp` 的范围校验(docs/feature/reports/show.md「选择结果范围」):0/1 个沿用前缀收窄
+ * (可能匹配多个 experiment,如目录前缀);2 个以上进入对照语义,每个必须恰好解析到一个
+ * experiment——零命中按现有的 noExperimentMatch 报,命中多个列出全部候选 id,不猜测意图。
+ */
+function assertExperimentSelectors(experimentIds: readonly string[], selectors: readonly string[]): void {
+  if (selectors.length < 2) return;
+  for (const raw of selectors) {
+    const selector = raw.replace(/\/+$/, "");
+    const matches = matchExperimentSelector(experimentIds, selector);
+    if (matches.length === 0) {
+      throw new ShowError(t("cli.show.noExperimentMatch", { arg: raw, experiments: experimentIds.join(", ") }));
+    }
+    if (matches.length > 1) {
+      throw new ShowError(t("cli.show.expAmbiguous", { arg: raw, matched: matches.length, candidates: matches.join(", ") }));
+    }
+  }
+}
 
 export async function runShow(
   cwd: string,
@@ -162,6 +243,16 @@ async function show(
     );
   }
 
+  // `@<locator>` 与重复 `--exp` 互斥:locator 已经唯一确定了 experiment,再给对照条件没有
+  // 可执行的语义(docs/feature/reports/show.md「选择结果范围」),先于任何 IO 报出来。
+  const expSelectors = flags.experiment ?? [];
+  const locatorArgForMutex = patterns.find((p) => p.startsWith(ATTEMPT_LOCATOR_PREFIX));
+  if (locatorArgForMutex !== undefined && expSelectors.length >= 2) {
+    throw new ShowError(
+      t("cli.show.locatorExpConflict", { locator: locatorArgForMutex, exp: expSelectors.join(", ") }),
+    );
+  }
+
   const root = flags.results !== undefined ? resolve(cwd, flags.results) : join(cwd, ".niceeval");
   if (flags.results !== undefined && !existsSync(root)) {
     throw new ShowError(t("cli.show.runDirMissing", { dir: root }));
@@ -176,8 +267,8 @@ async function show(
   // `@<locator>` 位置参数:身份直达单个 attempt,与 eval id 前缀匹配完全不同的语义
   // (`@` 打头对 eval id 天然无歧义,见 locator.ts),必须在下面的前缀匹配逻辑之前分流掉,
   // 不然 "@1x7f3q" 会被当成一个谁都匹配不到的 eval id 前缀,报「no eval match」这种文不对题的
-  // 错误。
-  const locatorArg = patterns.find((p) => p.startsWith(ATTEMPT_LOCATOR_PREFIX));
+  // 错误。(mutex 校验已在 openResults 之前用 locatorArgForMutex 做过,这里复用同一个值。)
+  const locatorArg = locatorArgForMutex;
   if (locatorArg !== undefined) {
     if (patterns.length !== 1) {
       throw new ShowError(
@@ -192,25 +283,13 @@ async function show(
       if (e instanceof LocatorNotFoundError) throw new ShowError(t("cli.show.locatorNotFound", { message: e.message }));
       throw e;
     }
-    const attemptEvidence = await loadAttemptEvidence(attempt);
-    const header = attemptEvidenceHeader(attemptEvidence);
-    const artifactPath = attemptArtifactsPath(attempt, cwd);
     if (evidence) {
-      const blocks: string[] = [];
-      if (flags.source) blocks.push(evalSourceText(attemptEvidence, { header, artifactPath, width: io.width }));
-      if (flags.execution) blocks.push(executionText(attemptEvidence, { header, artifactPath, width: io.width }));
-      if (flags.timing) blocks.push(timingText(attemptEvidence, {
-        header,
-        artifactPath,
-        width: io.width,
-        mode: flags.timing === "full" ? "full" : "summary",
-      }));
-      if (flags.diff || flags.diffPath !== undefined) {
-        blocks.push(diffText({ header, diff: attemptEvidence.diff, artifactPath, file: flags.diffPath }));
-      }
-      io.out(blocks.join("\n\n") + "\n");
+      // locator = 单元素范围:与下面「证据切面是宿主本体」分支共用同一个范围通用实现
+      // (renderEvidenceSections),不另立「locator 专属」代码路径。
+      io.out((await renderEvidenceSections([attempt], flags, cwd, io.width)) + "\n");
       return;
     }
+    const attemptEvidence = await loadAttemptEvidence(attempt);
     // 无证据 flag:选中当前 report definition 里唯一的 attempt-input page,注入这份 evidence,
     // 走与其它 page 完全相同的 resolve → validate → render 管线(docs/feature/reports/show/attempt.md;
     // docs/feature/reports/library/attempt-detail.md「在 show 与 view 怎样渲染」)。不带 --report
@@ -243,75 +322,41 @@ async function show(
     return;
   }
 
-  if (flags.experiment !== undefined && filterExperiments(results.experiments, flags.experiment).length === 0) {
-    throw new ShowError(
-      t("cli.show.noExperimentMatch", {
-        arg: flags.experiment,
-        experiments: results.experiments.map((e) => e.id).join(", "),
-      }),
-    );
+  // `--exp` 的范围校验(docs/feature/reports/show.md「选择结果范围」):0/1 个沿用前缀收窄
+  // (可能匹配多个 experiment);2 个以上进入对照语义,每个必须恰好解析到一个 experiment。
+  const experimentIds = results.experiments.map((e) => e.id);
+  assertExperimentSelectors(experimentIds, expSelectors);
+  if (expSelectors.length === 1 && filterExperiments(results.experiments, expSelectors).length === 0) {
+    throw new ShowError(t("cli.show.noExperimentMatch", { arg: expSelectors[0], experiments: experimentIds.join(", ") }));
   }
 
-  const selection = selectCurrentResults(results, { experiment: flags.experiment, patterns, fresh: flags.fresh });
+  const experimentFilter = expSelectors.length > 0 ? expSelectors : undefined;
+  const selection = selectCurrentResults(results, { experiment: experimentFilter, patterns, fresh: flags.fresh });
   const matchedEvalIds = [...new Set(selection.attempts.map((a) => a.evalId))].sort();
 
   if (patterns.length > 0 && matchedEvalIds.length === 0) {
     const known = [
-      ...new Set(filterExperiments(results.experiments, flags.experiment).flatMap((e) => e.evalIds)),
+      ...new Set(filterExperiments(results.experiments, experimentFilter).flatMap((e) => e.evalIds)),
     ].sort();
     throw new ShowError(
       t("cli.show.noEvalMatch", { patterns: patterns.join(", "), evals: known.join(", ") || "(none)" }),
     );
   }
 
-  // 证据切面是宿主本体:出现即走证据室,不渲染报告槽(与默认报告同规则)。
+  // 证据切面是宿主本体:出现即走证据室,不渲染报告槽(与默认报告同规则)。每个切片接受任意
+  // 范围——范围含多个 attempt 时按 experimentId、evalId、attempt 序逐 attempt 分节
+  // (renderEvidenceSections,与上面 `@<locator>` 单元素范围共用同一份实现)。
   if (evidence) {
-    if (matchedEvalIds.length !== 1) {
-      // 撞多个 eval 时不止说「有几个」,直接给紧凑索引(locator + 失败原因)
-      // 让 agent 一步摘到 `@<locator>`,不必再跑一轮 `show <eval id>` 才知道选谁。
-      const index = matchedEvalIds
-        .map((evalId) => {
-          const attempts = attemptsOfEval(selection.attempts, evalId);
-          const rep = pickDetailAttempt(attempts);
-          const verdict = foldEvalVerdict(attempts.map((a) => a.result));
-          return attemptIndexLine({
-            evalId,
-            verdict,
-            locator: rep?.locator,
-            reason: rep ? verdictReasonLine(rep.result) : undefined,
-          });
-        })
-        .join("\n");
-      throw new ShowError(t("cli.show.evidenceNeedsEval", { matched: matchedEvalIds.length, index }));
-    }
-    const evalId = matchedEvalIds[0];
-    const attempts = attemptsOfEval(selection.attempts, evalId);
-    const picked = pickDetailAttempt(attempts);
-    if (!picked) throw new Error(`internal error: eval "${evalId}" matched by selection but has no attempts`);
-    const attemptEvidence = await loadAttemptEvidence(picked);
-    const header = attemptEvidenceHeader(attemptEvidence);
-    const artifactPath = attemptArtifactsPath(picked, cwd);
-    const blocks: string[] = [];
-    if (flags.source) blocks.push(evalSourceText(attemptEvidence, { header, artifactPath, width: io.width }));
-    if (flags.execution) blocks.push(executionText(attemptEvidence, { header, artifactPath, width: io.width }));
-    if (flags.timing) blocks.push(timingText(attemptEvidence, {
-      header,
-      artifactPath,
-      width: io.width,
-      mode: flags.timing === "full" ? "full" : "summary",
-    }));
-    if (flags.diff || flags.diffPath !== undefined) {
-      blocks.push(diffText({ header, diff: attemptEvidence.diff, artifactPath, file: flags.diffPath }));
-    }
-    io.out(blocks.join("\n\n") + "\n");
+    io.out((await renderEvidenceSections(selection.attempts, flags, cwd, io.width)) + "\n");
     return;
   }
 
   // --history:执行时间轴(docs/feature/reports/show.md「--history:一个 eval 的执行时间轴」)。
   // 对 Scope 中匹配的每个 experimentId + evalId 分节,逐 attempt 而非逐快照;时间轴只列
-  // 真实执行 —— resume 携带的复印件按 attempt 身份键去重后不占行。
+  // 真实执行 —— resume 携带的复印件按 attempt 身份键去重后不占行。与重复 `--exp` 正交且不
+  // 变形:时间轴本来就按 experimentId 分节,条件只是收窄节集合。
   if (flags.history) {
-    const experiments = filterExperiments(results.experiments, flags.experiment);
+    const experiments = filterExperiments(results.experiments, experimentFilter);
     // eval 位置参数与 Scope 选择用同一个前缀谓词(单点在 shared/aggregate.ts),不另立口径。
     const matchesPattern = patterns.length > 0 ? evalPrefixPredicate(patterns) : () => true;
     const blocks: string[] = [];
@@ -327,27 +372,15 @@ async function show(
     return;
   }
 
-  // 单 eval 详情(宿主本体);--report / --page 在场时报告槽优先,前缀只用来收窄 Scope。
-  // 挑哪个 attempt 展开明细不再收数字 --attempt——pickDetailAttempt 的默认启发式
-  // (最新一次失败,没有失败挑最新一次)是唯一路径;精确选某一次走 `@<locator>`。
-  if (flags.report === undefined && flags.page === undefined && patterns.length > 0 && matchedEvalIds.length === 1) {
-    const evalId = matchedEvalIds[0];
-    const attempts = attemptsOfEval(selection.attempts, evalId);
-    const detail = pickDetailAttempt(attempts);
-    io.out(
-      evalDetailText({
-        evalId,
-        attempts,
-        ...(detail ? { detail } : {}),
-        cwd,
-        now: io.now,
-        width: io.width,
-      }) + "\n",
-    );
-    return;
+  // 缺省切片选择表(docs/feature/reports/show.md「缺省切片的选择规则」):`--exp` 出现两次以上
+  // 且没有被 `--report` 接管时是对照矩阵,不是报告槽的裸榜单——与 `--report` 互斥(缺省切片被
+  // 报告树替换时对照矩阵不再适用)。DeltaTable 组件接线前先给诚实占位错误(renderCompareSlice)。
+  if (flags.report === undefined && expSelectors.length >= 2) {
+    renderCompareSlice(expSelectors);
   }
 
-  // 报告槽:裸 show 装载 `niceeval/report/built-in` 的默认导出,--report 整槽替换——同一条
+  // 报告槽:裸 show / eval id 前缀 / 单个 `--exp` 都落在这里,装载 `niceeval/report/built-in`
+  // 的默认导出,--report 整槽替换——同一条
   // 「装载 → 规范化(外壳 + 非空页列表)→ 逐页渲染」管线(docs/feature/reports/library/shell.md)。
   // locale = CLI 界面语言(NICEEVAL_LANG / LC_* / LANG 检测):报告 chrome 文案跟随终端语言。
   const report = await loadHostReport(cwd, flags.report);

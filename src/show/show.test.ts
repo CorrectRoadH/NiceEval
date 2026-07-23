@@ -1,12 +1,18 @@
 // cases: docs/engineering/testing/unit/reports.md
-// niceeval show 终端宿主的选择与错误反馈(「show 终端宿主的选择、时间轴与文案」类别)。渲染产物——
-// 榜单/详情/证据切面的终端排版与结构——归 docs/engineering/testing/e2e/report.md §4/§5 对真实
-// 运行产物验收,不在本文件重复。覆盖:
+// niceeval show 终端宿主的选择与错误反馈(「show 终端宿主的选择、时间轴与文案」与
+// 「show 的范围 × 切片正交」两个类别)。渲染产物——榜单/详情/证据切面的终端排版与结构——归
+// docs/engineering/testing/e2e/report.md §4/§5 对真实运行产物验收,不在本文件重复。覆盖:
 // - --history 时间轴计算(attemptHistory):按 experimentId + evalId 分节、跨快照按身份键去重
 //   (resume 携带的复印件不占行)、startedAt 升序、单行摘要与成本派生;
 // - eval id 前缀无匹配、--history/--report/--page 的互斥与用法冲突、@<locator> 语法错误与
-//   索引未命中、证据切面撞多个 eval 时的紧凑索引——全部以 CLI 抛出的错误对象/文案为断言面;
-// - --report 装载校验(非法默认导出、文件缺失、页未命中、缺 attempt-input page)的错误反馈。
+//   索引未命中——全部以 CLI 抛出的错误对象/文案为断言面;
+// - --report 装载校验(非法默认导出、文件缺失、页未命中、缺 attempt-input page)的错误反馈;
+// - 证据切面(--source/--execution/--timing/--diff)接受任意范围:命中多个 eval 时逐 attempt
+//   分节,不再是「撞多个 eval 就报错」;单元素范围(@<locator>)与范围通用实现
+//   (renderEvidenceSections)是同一条代码路径,不是两份实现;
+// - 多 `--exp` 的范围校验(每个必须恰好解析到一个 experiment、命中多个按用法错误列出候选)、
+//   `@<locator>` 与重复 `--exp` 互斥、缺省切片对照矩阵的占位接线点(renderCompareSlice)错误
+//   反馈;eval id 前缀命中单个 eval 时并入范围收窄后的默认榜单,不再有独立的单 eval 详情分支。
 //
 // 跨快照合成 Selection 与去重的结构化语义(selectCurrentResults/现刻水位)已在
 // src/results/host-equivalence.test.ts 直接对 Selection 对象断言,不在本文件重复覆盖。
@@ -97,6 +103,38 @@ async function writeSnapshot(
     await writeFile(join(attemptDir, "result.json"), JSON.stringify(r, null, 2), "utf-8");
   }
   return dir;
+}
+
+/**
+ * 不经 niceeval 包也能造出合法报告:判别锚在 Symbol.for 上
+ * (docs/feature/reports/library/shell.md「defineReport 产物」)。只用来触发装载路径上的
+ * 校验分支、或在不依赖内建报告(dist/report/built-in,由并行节点在改的 report 组件树间接
+ * 拉入,可能处于不可编译的中间状态)的前提下证明「确实走进了报告槽」,不需要真正渲染出
+ * 可读内容。
+ */
+async function writeMinimalReport(dir: string, filename = "report.mjs"): Promise<string> {
+  const path = join(dir, filename);
+  await writeFile(
+    path,
+    [
+      'const FACES = Symbol.for("niceeval.report.faces");',
+      'const DEFINITION = Symbol.for("niceeval.report.definition");',
+      "const Custom = () => null;",
+      "Custom[FACES] = { web: () => null, text: () => \"CUSTOM\" };",
+      "const definition = {",
+      '  kind: "report",',
+      "  links: [],",
+      "  scripts: [],",
+      "  styles: [],",
+      '  pages: [{ id: "report", title: "Report", input: "scope", navigation: true, content: { type: Custom, props: {} } }],',
+      "};",
+      "Object.defineProperty(definition, DEFINITION, { value: true });",
+      "export default definition;",
+      "",
+    ].join("\n"),
+    "utf-8",
+  );
+  return path;
 }
 
 interface Captured {
@@ -211,35 +249,7 @@ describe("--history 时间轴", () => {
 // ───────────────────────── --report 装载:错误反馈与用法校验 ─────────────────────────
 
 describe("--report 装载", () => {
-  /**
-   * 不经 niceeval 包也能造出合法报告:判别锚在 Symbol.for 上
-   * (docs/feature/reports/library/shell.md「defineReport 产物」)。只用来触发装载路径上的
-   * 校验分支,不需要真正渲染出可读内容。
-   */
-  async function writeReportFile(dir: string): Promise<string> {
-    const path = join(dir, "report.mjs");
-    await writeFile(
-      path,
-      [
-        'const FACES = Symbol.for("niceeval.report.faces");',
-        'const DEFINITION = Symbol.for("niceeval.report.definition");',
-        "const Custom = () => null;",
-        "Custom[FACES] = { web: () => null, text: () => \"CUSTOM\" };",
-        "const definition = {",
-        '  kind: "report",',
-        "  links: [],",
-        "  scripts: [],",
-        "  styles: [],",
-        '  pages: [{ id: "report", title: "Report", input: "scope", navigation: true, content: { type: Custom, props: {} } }],',
-        "};",
-        "Object.defineProperty(definition, DEFINITION, { value: true });",
-        "export default definition;",
-        "",
-      ].join("\n"),
-      "utf-8",
-    );
-    return path;
-  }
+  const writeReportFile = writeMinimalReport;
 
   /** 只有一张 scope-input page,没有声明 attempt-input page。 */
   async function writeReportFileNoAttemptPage(dir: string): Promise<string> {
@@ -323,16 +333,47 @@ describe("--report 装载", () => {
   });
 });
 
-// ───────────────────────── 证据切面:撞多个 eval 时的紧凑索引 ─────────────────────────
+// ───────────────────────── 证据切面:接受任意范围,逐 attempt 分节 ─────────────────────────
+// cases: docs/engineering/testing/unit/reports.md「show 的范围 × 切片正交」——
+// 切片(source/execution/timing/diff)接受任意范围;单 locator 是单元素范围的特例,不走
+// 第二条代码路径。
 
-describe("证据切面:多 eval 匹配", () => {
-  it("多个 eval 匹配时证据切面报错:给紧凑索引(locator + 失败原因)而不是只报个数", async () => {
+describe("证据切面:范围 × 分节", () => {
+  it("命中多个 eval 时不再报错,按 experimentId、evalId 逐 attempt 分节,节头带 locator/evalId/experimentId/verdict", async () => {
     const root = await seedComposedRoot();
-    const { err, code } = await show(root, [], { execution: true });
-    expect(code).toBe(1);
-    expect(err).toContain("matched 2 evals");
-    expect(err).toMatch(/✗ fixtures\/button\s+@1[0-9a-z]{7}/);
-    expect(err).toContain('gate fileChanged("src/components/Button.tsx")');
+    const { out, code } = await show(root, [], { execution: true });
+    expect(code).toBe(0);
+    // evalId 字典序:fixtures/button < weather/brooklyn,分节顺序随之。
+    const fixturesAt = out.indexOf("fixtures/button");
+    const weatherAt = out.indexOf("weather/brooklyn");
+    expect(fixturesAt).toBeGreaterThan(-1);
+    expect(weatherAt).toBeGreaterThan(fixturesAt);
+    expect(out).toMatch(/@\S+ · fixtures\/button · compare\/bub · failed/);
+    expect(out).toMatch(/@\S+ · weather\/brooklyn · compare\/bub · passed/);
+  });
+
+  it("单元素范围(eval 前缀收窄到一个 eval)与多 attempt 范围里对应那一节字节相同——同一份 renderEvidenceSections,不是「locator 专属」再实现一遍", async () => {
+    const root = await seedComposedRoot();
+    const single = await show(root, ["weather/brooklyn"], { execution: true });
+    expect(single.code).toBe(0);
+    const multi = await show(root, [], { execution: true });
+    expect(multi.code).toBe(0);
+    // single 输出只有末尾一个换行(renderEvidenceSections 的返回值 + "\n"),去掉它应该整段
+    // 原样出现在 multi 输出里(multi 只是把它和另一个 eval 的同款分节用 "\n\n" 接起来)。
+    expect(multi.out).toContain(single.out.replace(/\n$/, ""));
+  });
+
+  it("@<locator> 单 attempt 范围只是省掉分节,内容与范围通用实现完全一致", async () => {
+    const root = await makeRoot();
+    await writeSnapshot(root, "2026-07-08T10-00-00-000Z", { experimentId: "compare/bub", startedAt: "2026-07-08T10:00:00.000Z" }, [
+      res("weather/brooklyn", "passed"),
+    ]);
+    const results = await openResults(root);
+    const locator = results.experiments[0]!.latest.evals[0]!.attempts[0]!.locator!;
+    const byLocator = await show(root, [locator], { execution: true });
+    const byPrefix = await show(root, ["weather/brooklyn"], { execution: true });
+    expect(byLocator.code).toBe(0);
+    expect(byLocator.out).toBe(byPrefix.out);
   });
 });
 
@@ -370,5 +411,110 @@ describe("show @<locator>", () => {
     const { err, code } = await show(root, [locator, "weather/brooklyn"]);
     expect(code).toBe(1);
     expect(err).toContain("must be the only positional argument");
+  });
+});
+
+// ───────────────────────── eval 前缀:并入默认榜单,不再有独立的单 eval 详情分支 ─────────────────────────
+// cases: docs/engineering/testing/unit/reports.md「show 的范围 × 切片正交」——
+// docs/feature/reports/show.md「缺省切片的选择规则」三行表:eval 前缀落在「其余」桶,与裸
+// show / 单个 --exp 共用默认榜单切片,不是专属的单 eval 详情特判。
+
+describe("eval 前缀:默认榜单", () => {
+  it("前缀恰好命中一个 eval 时仍走内建报告的默认榜单(不是被删除的 legacy 单 eval 详情文本)", async () => {
+    const root = await seedComposedRoot();
+    const { out, code } = await show(root, ["weather/brooklyn"]);
+    expect(code).toBe(0);
+    // 内建报告首页的标志性文案(与「非法报告文件」测试里 `not.toContain("Eval Results")`
+    // 断言的是同一个字符串,那边用它证明「没有回退到内建详情」,这里用它证明「确实进了报告槽」)。
+    expect(out).toContain("Eval Results");
+    // legacy evalDetailText 特有的下钻提示行,新行为不应该再出现。
+    expect(out).not.toContain("[--source|--execution|--diff]");
+  });
+});
+
+// ───────────────────────── 多 --exp:范围校验、互斥与对照占位 ─────────────────────────
+// cases: docs/engineering/testing/unit/reports.md「show 的范围 × 切片正交」——
+// docs/feature/reports/show.md「选择结果范围」:0/1 个 --exp 沿用前缀收窄;2 个以上进入对照
+// 语义,每个必须恰好解析到一个 experiment,命中多个按用法错误列出候选;`@<locator>` 与重复
+// `--exp` 互斥。DeltaTable 组件由并行节点接线,这里只验证占位错误诚实可执行。
+
+describe("多 --exp:范围校验与用法冲突", () => {
+  async function seedTwoExperimentsRoot(): Promise<string> {
+    const root = await makeRoot();
+    await writeSnapshot(root, "2026-07-08T10-00-00-000Z", { experimentId: "compare/bub-baseline", startedAt: "2026-07-08T10:00:00.000Z" }, [
+      res("weather/brooklyn", "passed"),
+    ]);
+    await writeSnapshot(root, "2026-07-08T10-00-00-000Z", { experimentId: "compare/bub-mempal", startedAt: "2026-07-08T10:00:00.000Z" }, [
+      res("weather/brooklyn", "passed"),
+    ]);
+    return root;
+  }
+
+  it("单个 --exp 沿用前缀收窄,目录前缀命中多个 experiment 不是错误(与对照语义的「必须恰好一个」不同规则)", async () => {
+    const root = await seedTwoExperimentsRoot();
+    // 用最小自定义报告渲染,不依赖内建报告(dist/report/built-in 由并行节点在改,可能处于不可
+    // 编译的中间状态);这里只关心「单个 --exp 目录前缀不触发范围校验错误」,不关心报告内容。
+    const report = await writeMinimalReport(root);
+    const { out, code } = await show(root, [], { experiment: ["compare"], report });
+    expect(code).toBe(0);
+    expect(out).toContain("CUSTOM");
+  });
+
+  it("对照语义(--exp 出现两次以上)下,某个 --exp 前缀命中多个 experiment 时按用法错误退出,列出全部候选 id", async () => {
+    const root = await seedTwoExperimentsRoot();
+    const { err, code } = await show(root, [], { experiment: ["compare", "compare/bub-mempal"] });
+    expect(code).toBe(1);
+    expect(err).toContain("error:");
+    expect(err).toContain("fix:");
+    expect(err).toContain("--exp compare matched 2 experiments");
+    expect(err).toContain("compare/bub-baseline");
+    expect(err).toContain("compare/bub-mempal");
+  });
+
+  it("对照语义下,某个 --exp 一个都命不中时按现有 noExperimentMatch 报错", async () => {
+    const root = await seedTwoExperimentsRoot();
+    const { err, code } = await show(root, [], { experiment: ["compare/bub-baseline", "nosuch"] });
+    expect(code).toBe(1);
+    expect(err).toContain("No experiment matched --exp nosuch");
+  });
+
+  it("每个 --exp 都恰好解析到一个 experiment 时,缺省切片是对照矩阵——组件接线前给诚实的占位错误,不是静默渲染榜单", async () => {
+    const root = await seedTwoExperimentsRoot();
+    const { err, code } = await show(root, [], { experiment: ["compare/bub-baseline", "compare/bub-mempal"] });
+    expect(code).toBe(1);
+    expect(err).toContain("error:");
+    expect(err).toContain("fix:");
+    expect(err).toContain("compare/bub-baseline, compare/bub-mempal");
+    expect(err).toContain("niceeval show --exp compare/bub-baseline");
+  });
+
+  it("--exp >= 2 与 --report 组合时不进对照占位,照常渲染自定义报告(对照与 --report 互斥,--report 接管缺省切片)", async () => {
+    const root = await seedTwoExperimentsRoot();
+    const report = await writeMinimalReport(root);
+    const { out, code } = await show(root, [], { experiment: ["compare/bub-baseline", "compare/bub-mempal"], report });
+    expect(code).toBe(0);
+    expect(out).toContain("CUSTOM");
+  });
+
+  it("@<locator> 与重复 --exp 互斥:先于任何 IO 报错,不去读结果根", async () => {
+    const root = await seedTwoExperimentsRoot();
+    const results = await openResults(root);
+    const locator = results.experiments[0]!.latest.evals[0]!.attempts[0]!.locator!;
+    const { err, code } = await show(root, [locator], { experiment: ["compare/bub-baseline", "compare/bub-mempal"] });
+    expect(code).toBe(1);
+    expect(err).toContain("error:");
+    expect(err).toContain("fix:");
+    expect(err).toContain(locator);
+    expect(err).toContain("cannot combine with repeated --exp");
+  });
+
+  it("locator 与单个 --exp 不互斥(只有重复 --exp 才冲突)", async () => {
+    const root = await seedTwoExperimentsRoot();
+    const results = await openResults(root);
+    const locator = results.experiments[0]!.latest.evals[0]!.attempts[0]!.locator!;
+    // 无证据 flag 的 @<locator> 走 attempt-input page(内建 standard),同样间接依赖
+    // dist/report/built-in;带一个证据 flag 绕开报告槽,只验证 mutex 没有误伤单个 --exp。
+    const { code } = await show(root, [locator], { experiment: ["compare/bub-baseline"], execution: true });
+    expect(code).toBe(0);
   });
 });

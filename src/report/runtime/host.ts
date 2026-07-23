@@ -90,7 +90,8 @@ export function localizeText(text: LocalizedText | undefined, locale: string): s
 export interface HostCommandContext {
   patterns: string[];
   results?: string;
-  experiment?: string;
+  /** `--exp`;可重复,顺序即用户输入顺序(对照条件顺序)。 */
+  experiment?: string | string[];
   report?: string;
   page?: string;
 }
