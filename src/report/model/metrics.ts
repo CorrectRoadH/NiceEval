@@ -10,7 +10,7 @@
 //   endToEndPassRate(end-to-end-pass-rate)         null     0                0       1             higher
 //   examScore(exam-score)                          null     0                0       soft 均分      higher
 //   totalScore(total-score)                        null     null             Σpoints Σpoints       higher(通过制 eval 恒 null,不参与聚合)
-//   durationMs(duration)                           null     实测             实测     实测          lower
+//   durationMs(duration)                           null     实测;timeout→null 同左   实测     实测          lower
 //   tokens(tokens)                                 null     实测;无 usage→null 同左   同左          lower
 //   costUSD(cost)                                  null     同上             同左     同左          lower
 //   assistantTurns(assistant-turns)                null     实测;o11y 缺失→null 同左  同左          lower
@@ -167,11 +167,18 @@ export const totalScore = defineMetric({
 export const durationMs = defineMetric({
   name: "duration",
   label: { en: "Duration", "zh-CN": "平均耗时" },
-  description: "Wall-clock duration of the attempt.",
+  description: "Wall-clock duration of the attempt. Timeout-truncated attempts (error.code = \"timeout\") return null: the timeout line is a right-censoring point, not an observed completion time.",
   better: "lower",
   unit: "ms",
   bounds: { min: 0 },
-  value: (a) => (a.result.verdict === "skipped" ? null : a.result.durationMs),
+  value(a) {
+    if (a.result.verdict === "skipped") return null;
+    // 超时删失:线值不是「跑了这么久」,是「被砍在这里」——计入聚合会把截断当实测,
+    // 排除又制造幸存者偏差(慢条件因为被截断反而显得快)。唯一诚实做法是 null,
+    // 让 MetricCell 的 samples < total 把删失显式呈现出来(docs/feature/reports/library/metrics.md「内置指标」)。
+    if (a.result.verdict === "errored" && a.result.error?.code === "timeout") return null;
+    return a.result.durationMs;
+  },
 });
 
 export const tokens = defineMetric({

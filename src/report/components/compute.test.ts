@@ -3,7 +3,7 @@
 // niceeval/results 的读取契约手工构造)。覆盖登记行:两级聚合 vs 平铺、errored=0 口径、
 // skipped=null、null≠0、Scoreboard 固定分母(notRun/unscorable 分开)、权重最长前缀、
 // 身份键去重、现刻水位、自定义指标 where/aggregate、evalGroup 完整父路径、verdict 权威、
-// MetricCell 诚实、缺 artifact 指标、repeatedFailedCommands、实体列表 failureSummary、
+// MetricCell 诚实、durationMs 超时删失(线值不进均值、samples<total 覆盖率缺口)、缺 artifact 指标、repeatedFailedCommands、实体列表 failureSummary、
 // scopeSummaryData 两级计票、experimentListData/scopeSummaryData 的 selectedEvalIds 投影、pairsByFlag、
 // MetricLine 点身份、空数组反馈、metricTableData sort、series 配色的确定性索引计算(colorIndexForKey /
 // colorIndicesForKeys,纯函数,不断言渲染出的颜色值)。MetricScatter 的 text 面(`scatterText`)本身是
@@ -338,6 +338,38 @@ describe("MetricCell 诚实契约", () => {
     expect(cells[assistantTurns.name]!.value).toBeNull();
     expect(cells[repeatedFailedCommands.name]!.value).toBeNull();
     expect(cells[durationMs.name]!.value).toBe(1234);
+  });
+
+  it("durationMs 对 timeout attempt 删失:线值不进均值,cell.samples < cell.total 如实呈现覆盖率缺口", async () => {
+    const s = snap({
+      experimentId: "exp/censor",
+      results: [
+        res("a", "passed", { durationMs: 100 }),
+        res("b", "passed", { durationMs: 300 }),
+        // 撞 1200000ms(20m)硬线被砍断:durationMs 是右删失点,不是「跑了这么久」
+        res("c", "errored", { durationMs: 1200000, error: { code: "timeout", message: "timed out", phase: "eval.run" } }),
+      ],
+    });
+    const table = await metricTableData([s], { rows: "experiment", columns: [durationMs] });
+    const cell = table.rows[0]!.cells[durationMs.name]!;
+    // 均值只在 a/b 上算:(100+300)/2 = 200;若线值 1200000 混进来均值会失真到 400100
+    expect(cell.value).toBe(200);
+    expect(cell.samples).toBe(2);
+    expect(cell.total).toBe(3);
+    // 覆盖范围仍含被删失的 attempt(可下钻到「为什么测不了」),不是从格子里静默消失
+    expect(cell.refs).toHaveLength(3);
+  });
+
+  it("durationMs 只删失 timeout:其它 error.code 的 errored attempt 仍实测计入", async () => {
+    const s = snap({
+      experimentId: "exp/other-error",
+      results: [res("a", "errored", { durationMs: 500, error: erroredWith("boom") })],
+    });
+    const table = await metricTableData([s], { rows: "experiment", columns: [durationMs] });
+    const cell = table.rows[0]!.cells[durationMs.name]!;
+    expect(cell.value).toBe(500);
+    expect(cell.samples).toBe(1);
+    expect(cell.total).toBe(1);
   });
 
   it("repeatedFailedCommands:同命令失败 3 次记 2;两条不同命令各失败 1 次记 0", async () => {
