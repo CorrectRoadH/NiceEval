@@ -102,6 +102,8 @@ export const zhCN = {
     "      --usage     范围内逐 attempt 的用量表,按 experiment 分节各自合计\n" +
     "      --stats     eval × experiment 的历史全执行稳定性矩阵\n" +
     "        (与 @<locator>、--report 互斥)\n" +
+    "      --json      任何切片的结构化形态:一个 JSON 文档到 stdout,选择与 text 面同一批\n" +
+    "        (与 --report、--expand 互斥)\n" +
     "      --results <目录> 钉死结果根   --exp <id> 可重复,两个以上进入对照\n" +
     "      --report <文件> 自定义报告   --page <id> 定初始页(多页报告渲染该页,\n" +
     "        尾部再附其余页索引)\n" +
@@ -152,6 +154,12 @@ export const zhCN = {
   "cli.show.expandNotFound": "error: {{message}}\n  fix: use a handle from a truncated card's own hint (t<turn>.c<card> or cmd<n>), or drop --expand to see the whole attempt\n",
   "cli.show.historyReportConflict":
     "`--history` and `--report` are mutually exclusive: both take over the main output. --history is the host's per-attempt execution timeline; for snapshot-level trends, compose exp.snapshots inside your report file instead.\n",
+  "cli.show.jsonReportConflict":
+    "error: --json cannot combine with --report ({{report}}) — a report tree says how to look at the data, --json says what the data is\n  fix: drop --report to use --json, or drop --json and read the report tree as text/HTML\n",
+  "cli.show.jsonExpandConflict":
+    "error: --json cannot combine with --expand — JSON never truncates cards, there is nothing to expand\n  fix: drop --expand; --json already returns the full untruncated value\n",
+  "cli.show.jsonMultiEvidenceConflict":
+    "error: --json requires exactly one of --source/--execution/--timing/--diff at a time — the envelope's \"view\" is a single value, there is no combined shape for more than one\n  fix: drop the extra evidence flags, or make one --json call per flag\n",
   "cli.show.locatorMalformed": "{{message}}\n",
   "cli.show.locatorNotFound": "{{message}}\n",
   "cli.eval.noMatch": "没有匹配的 eval:{{patterns}}。\n",

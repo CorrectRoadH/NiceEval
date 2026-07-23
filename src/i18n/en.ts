@@ -108,6 +108,8 @@ export const en = {
     "      --usage     UsageTable per attempt in range, sectioned by experiment with totals\n" +
     "      --stats     eval x experiment stability matrix over all historical executions\n" +
     "        (mutually exclusive with @<locator> and --report)\n" +
+    "      --json      structured form of any slice: one JSON document on stdout, same\n" +
+    "        selection as the text form (mutually exclusive with --report and --expand)\n" +
     "      --results <dir>   pin a results root    --exp <id>   repeatable; 2+ compares conditions\n" +
     "      --report <file>   custom report    --page <id>   pick the initial page (multi-page\n" +
     "        reports render it, then list the rest as a page index with copyable commands)\n" +
@@ -159,6 +161,12 @@ export const en = {
   "cli.show.expandNotFound": "error: {{message}}\n  fix: use a handle from a truncated card's own hint (t<turn>.c<card> or cmd<n>), or drop --expand to see the whole attempt\n",
   "cli.show.historyReportConflict":
     "`--history` and `--report` are mutually exclusive: both take over the main output. --history is the host's per-attempt execution timeline; for snapshot-level trends, compose exp.snapshots inside your report file instead.\n",
+  "cli.show.jsonReportConflict":
+    "error: --json cannot combine with --report ({{report}}) — a report tree says how to look at the data, --json says what the data is\n  fix: drop --report to use --json, or drop --json and read the report tree as text/HTML\n",
+  "cli.show.jsonExpandConflict":
+    "error: --json cannot combine with --expand — JSON never truncates cards, there is nothing to expand\n  fix: drop --expand; --json already returns the full untruncated value\n",
+  "cli.show.jsonMultiEvidenceConflict":
+    "error: --json requires exactly one of --source/--execution/--timing/--diff at a time — the envelope's \"view\" is a single value, there is no combined shape for more than one\n  fix: drop the extra evidence flags, or make one --json call per flag\n",
   "cli.show.locatorMalformed": "{{message}}\n",
   "cli.show.locatorNotFound": "{{message}}\n",
   "cli.eval.noMatch": "No eval matched: {{patterns}}.\n",

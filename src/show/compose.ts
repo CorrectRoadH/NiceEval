@@ -43,13 +43,15 @@ function rowSummary(result: EvalResult): string | undefined {
 }
 
 /**
- * 一个 experimentId + evalId 的执行时间轴:跨快照收集全部 attempt,按身份键去重
- * (--resume 携带的复印件不占行),startedAt 升序;缺 startedAt 的行按发现顺序沉底。
+ * 一个 experimentId + evalId 的执行时间轴,去重 + 排序后的 attempt handle 全集(跨快照按身份键
+ * 去重——`--resume` 携带的复印件不占行,startedAt 升序,缺 startedAt 的按发现顺序沉底)。
+ * `attemptHistory` 与 `--json` 的 `history` 视图共用这份口径——前者派生单行摘要(文本渲染),
+ * 后者(`attemptJsonOf`,见 `./json.ts`)投影完整落盘字段,两者不各自重新实现一遍去重 / 排序。
  */
-export function attemptHistory(exp: Experiment, evalId: string): AttemptHistoryRow[] {
+export function attemptHistoryHandles(exp: Experiment, evalId: string): AttemptHandle[] {
   const seen = new Set<string>();
-  const dated: AttemptHistoryRow[] = [];
-  const undated: AttemptHistoryRow[] = [];
+  const dated: AttemptHandle[] = [];
+  const undated: AttemptHandle[] = [];
   // 新→旧扫描(exp.snapshots 已按新→旧排序):同一身份键保留最新落盘里的那份
   // (locator 在携带条目上原样复制,取哪份行内容相同;取最新与 dedupeAttempts 口径一致)。
   for (const snapshot of exp.snapshots) {
@@ -61,18 +63,27 @@ export function attemptHistory(exp: Experiment, evalId: string): AttemptHistoryR
         if (seen.has(key)) continue;
         seen.add(key);
       }
-      const r = attempt.result;
-      const row: AttemptHistoryRow = {
-        ...(r.startedAt !== undefined ? { startedAt: r.startedAt } : {}),
-        verdict: r.verdict,
-        ...(rowSummary(r) !== undefined ? { summary: rowSummary(r) } : {}),
-        durationMs: r.durationMs,
-        costUSD: attemptCostUSD(r),
-        ...(attempt.locator !== undefined ? { locator: attempt.locator } : {}),
-      };
-      (row.startedAt === undefined ? undated : dated).push(row);
+      (attempt.result.startedAt === undefined ? undated : dated).push(attempt);
     }
   }
-  dated.sort((a, b) => (a.startedAt! < b.startedAt! ? -1 : a.startedAt! > b.startedAt! ? 1 : 0));
+  dated.sort((a, b) => (a.result.startedAt! < b.result.startedAt! ? -1 : a.result.startedAt! > b.result.startedAt! ? 1 : 0));
   return [...dated, ...undated.reverse()];
+}
+
+/**
+ * 一个 experimentId + evalId 的执行时间轴:开始时间、verdict、单行结果摘要、耗时、成本与
+ * locator(`--history` 的文本行);去重 / 排序口径见 `attemptHistoryHandles`。
+ */
+export function attemptHistory(exp: Experiment, evalId: string): AttemptHistoryRow[] {
+  return attemptHistoryHandles(exp, evalId).map((attempt) => {
+    const r = attempt.result;
+    return {
+      ...(r.startedAt !== undefined ? { startedAt: r.startedAt } : {}),
+      verdict: r.verdict,
+      ...(rowSummary(r) !== undefined ? { summary: rowSummary(r) } : {}),
+      durationMs: r.durationMs,
+      costUSD: attemptCostUSD(r),
+      ...(attempt.locator !== undefined ? { locator: attempt.locator } : {}),
+    };
+  });
 }

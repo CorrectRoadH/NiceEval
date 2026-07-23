@@ -163,7 +163,7 @@ const FLAG_OPTIONS = {
   tag: { type: "string" },
   /** 额外写一份 JUnit XML 报告到指定路径,供 CI 消费。 */
   junit: { type: "string" },
-  /** `exp` 命令专用:机器面——stdout 上单一有序的 NDJSON 事件流(一行一个 JSON 对象),供 coding agent、CI annotation adapter 或脚本消费;`--dry --json` 输出单个 JSON 计划文档而不是流。省略即人读文本(TTY live 面板 / 非 TTY 追加流)。 */
+  /** `exp` 命令专用:机器面——stdout 上单一有序的 NDJSON 事件流(一行一个 JSON 对象),供 coding agent、CI annotation adapter 或脚本消费;`--dry --json` 输出单个 JSON 计划文档而不是流。省略即人读文本(TTY live 面板 / 非 TTY 追加流)。`show` 命令专用:任何切片的结构化形态——同一范围、同一切片选出的同一批实体,输出成一个 JSON 文档到 stdout;与 `--report`、`--expand` 互斥,多个证据 flag(`--source`/`--execution`/`--timing`/`--diff`)只能选一个。 */
   json: { type: "boolean" },
   /** `view` 命令专用:把结果查看器静态导出到指定目录。 */
   out: { type: "string" },
@@ -653,6 +653,7 @@ async function main(): Promise<void> {
       report: flags.report,
       page: flags.page,
       fresh: flags.fresh,
+      json: flags.json,
     });
     process.exit(code);
   }

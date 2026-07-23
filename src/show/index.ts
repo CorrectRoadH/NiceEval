@@ -39,7 +39,8 @@ import { evalPrefixPredicate, matchExperimentSelector } from "../shared/aggregat
 import { panelCapabilityOf } from "../report/model/panel.ts";
 import { formatMetricValue, formatUSD, verdictMark } from "../report/model/format.ts";
 import { renderAlignedRows, type ColumnAlign } from "../report/model/text-layout.ts";
-import { attemptHistory } from "./compose.ts";
+import { attemptHistory, attemptHistoryHandles } from "./compose.ts";
+import { attemptJsonOf, buildShowScope, renderShowJson, type ShowJsonView } from "./json.ts";
 import {
   buildHostReportMeta,
   HostReportError,
@@ -59,7 +60,7 @@ import {
   timingText,
   skippedRunsText,
 } from "./render.ts";
-import type { AttemptHandle, Results, Scope } from "../results/index.ts";
+import type { AttemptEvidence, AttemptHandle, Results, Scope } from "../results/index.ts";
 import type { DeltaData, StabilityMatrixData, UsageTableData } from "../report/model/types.ts";
 
 export interface ShowFlags {
@@ -110,6 +111,13 @@ export interface ShowFlags {
    * 计数矩阵(docs/feature/reports/show/stats.md)。与 `@<locator>`、`--report` 互斥。
    */
   stats?: boolean;
+  /**
+   * --json:任何切片的结构化形态(docs/feature/reports/show/json.md)——同一范围、同一切片
+   * 选出的同一批实体,输出成一个 `ShowJson` 文档到 stdout。text 面消费什么组件产物,`data`
+   * 字段就原样携带那份产物,两面同值由构造保证。与 `--report`(报告树表达「怎么看」,
+   * `--json` 表达「是什么」)、`--expand`(JSON 不截断卡片,没有可展开的东西)互斥。
+   */
+  json?: boolean;
 }
 
 /** 注入 IO 供测试;默认写 stdout/stderr、宽度取终端列数。 */
@@ -169,6 +177,37 @@ function grepSummaryText(matches: number, attempts: number, zeroMatchAttempts: n
   if (matches === 0) return `0 matches in ${attemptCountLabel(attempts)}`;
   const suffix = zeroMatchAttempts > 0 ? ` (${attemptCountLabel(zeroMatchAttempts)} with 0 matches)` : "";
   return `${matches} matches in ${attemptCountLabel(attempts)}${suffix}`;
+}
+
+/**
+ * 证据切面(--source/--execution/--timing/--diff)只能选一个当 `--json` 的 view——见 show()
+ * 顶层的 evidenceFlagCount 校验,调用这个函数前已保证恰好一个为真。
+ */
+function evidenceViewOf(flags: Pick<ShowFlags, "source" | "execution" | "timing" | "diff" | "diffPath">): ShowJsonView {
+  if (flags.source === true) return "source";
+  if (flags.execution === true) return "execution";
+  if (flags.timing !== undefined && flags.timing !== false) return "timing";
+  return "diff";
+}
+
+/**
+ * 证据切面单个 attempt 的 `--json` `data`:直接调用该 view 对应的组件 `*Data` 函数
+ * (docs/feature/reports/show/json.md「data:按 view 找组件声明」),不重算一遍——与 text 面
+ * 消费同一份产物。`--diff=<路径>` 的单文件逐窗口 patch 不进 `AttemptDiffData`(该类型只有
+ * 文件级摘要),`--json` 对 `diff` view 恒输出文件级摘要,忽略 `diffPath`。
+ */
+async function evidenceJsonDataOf(view: ShowJsonView, evidence: AttemptEvidence): Promise<unknown> {
+  const mod = await import("../../dist/report/index.js");
+  switch (view) {
+    case "source":
+      return mod.attemptSourceData(evidence);
+    case "execution":
+      return mod.attemptConversationData(evidence);
+    case "timing":
+      return mod.attemptTimelineData(evidence);
+    default:
+      return mod.attemptDiffData(evidence);
+  }
 }
 
 /**
@@ -239,6 +278,21 @@ async function renderEvidenceSections(
   const body = grep !== undefined ? sections.filter((section) => section.length > 0) : sections;
   if (grep !== undefined) body.push(grepSummaryText(grepMatches, grepAttempts, grepZeroMatchAttempts));
   return body.join("\n\n");
+}
+
+/**
+ * 证据切面(--source/--execution/--timing/--diff)的 `--json` `data`:排序与 text 面分节同序
+ * (`sortAttemptsForSections`)。范围恰好一个 attempt 时 `data` 是该组件 `*Data` 产物本身;
+ * 多个 attempt 时是产物数组(docs/feature/reports/show/json.md「输出是一个顶层 JSON 文档」)——
+ * `--grep`/`--expand` 是 text 渲染面的注意力预算选项,不影响这份完整 resolve 产物
+ * (docs/feature/reports/architecture.md「show 的切片是组件选择」)。
+ */
+async function evidenceJsonOf(view: ShowJsonView, attempts: readonly AttemptHandle[]): Promise<unknown> {
+  const ordered = sortAttemptsForSections(attempts);
+  const perAttempt = await Promise.all(
+    ordered.map(async (attempt) => evidenceJsonDataOf(view, await loadAttemptEvidence(attempt))),
+  );
+  return perAttempt.length === 1 ? perAttempt[0] : perAttempt;
 }
 
 /**
@@ -396,7 +450,7 @@ function usageSectionText(experimentId: string, rows: readonly UsageTableData[])
  * 「范围内每个 attempt 逐条映射成一行」——即便某个 attempt 没有任何用量事实,行本身仍要
  * 出现,数值格全部落 `—`,所以 null 时在这里现场兜底出一行只有身份字段的 `UsageTableData`。
  */
-async function renderUsageSlice(attempts: readonly AttemptHandle[]): Promise<string> {
+async function usageRowsOf(attempts: readonly AttemptHandle[]): Promise<UsageTableData[]> {
   const { usageTableData } = await import("../../dist/report/index.js");
   const ordered = sortAttemptsForSections(attempts);
   const rows: UsageTableData[] = [];
@@ -412,6 +466,11 @@ async function renderUsageSlice(attempts: readonly AttemptHandle[]): Promise<str
       },
     );
   }
+  return rows;
+}
+
+async function renderUsageSlice(attempts: readonly AttemptHandle[]): Promise<string> {
+  const rows = await usageRowsOf(attempts);
   const byExperiment = new Map<string, UsageTableData[]>();
   for (const row of rows) {
     const list = byExperiment.get(row.experimentId);
@@ -555,6 +614,28 @@ async function show(
     }
   }
 
+  // `--json` 的用法冲突(docs/feature/reports/show/json.md「边界」):与 `--report` 互斥(报告树
+  // 表达「怎么看」,`--json` 表达「是什么」);与 `--expand` 互斥(JSON 不截断卡片,没有可展开的
+  // 东西)。先于任何 IO 报出来。
+  if (flags.json && flags.report !== undefined) {
+    throw new ShowError(t("cli.show.jsonReportConflict", { report: flags.report }));
+  }
+  if (flags.json && flags.expand !== undefined) {
+    throw new ShowError(t("cli.show.jsonExpandConflict"));
+  }
+  // 信封的 `view` 是单一枚举值(docs/feature/reports/show/json.md「信封」);证据切面在 text 面
+  // 允许同时点多个 flag(逐 attempt 拼成一个块),但 `--json` 一次调用只能落在一个 view 上——
+  // 同时点多个证据 flag 时没有「合并成一个 view」的字段形状,按用法错误退出,不猜合并成哪种。
+  const evidenceFlagCount = [
+    flags.source === true,
+    flags.execution === true,
+    flags.timing !== undefined && flags.timing !== false,
+    flags.diff === true || flags.diffPath !== undefined,
+  ].filter(Boolean).length;
+  if (flags.json && evidenceFlagCount > 1) {
+    throw new ShowError(t("cli.show.jsonMultiEvidenceConflict"));
+  }
+
   const root = flags.results !== undefined ? resolve(cwd, flags.results) : join(cwd, ".niceeval");
   if (flags.results !== undefined && !existsSync(root)) {
     throw new ShowError(t("cli.show.runDirMissing", { dir: root }));
@@ -586,18 +667,79 @@ async function show(
       throw e;
     }
     if (flags.usage) {
+      if (flags.json) {
+        // `--usage` 的 `data` 恒为数组(与「范围含多个 attempt 才是数组」的一般规则不同——
+        // usage 表的实体本来就是逐 attempt 一行,单 attempt 范围只是退化成 1 元素数组,不塌成
+        // 单个对象,与 text 面「一行一个 attempt」的表格语义对齐)。
+        const rows = await usageRowsOf([attempt]);
+        io.out(
+          renderShowJson({
+            format: "niceeval.show",
+            schemaVersion: 1,
+            view: "usage",
+            scope: buildShowScope({ resultsRoot: root, patterns: [], experiments: [attempt.experimentId], fresh: flags.fresh === true }),
+            data: rows,
+          }),
+        );
+        return;
+      }
       // `@<locator> --usage`:UsageTable 的单行装配,与下面「范围含多个 attempt」的表格
       // 分节共用同一个实现(renderUsageSlice)——单元素范围只是退化成一个 1 行的表。
       io.out((await renderUsageSlice([attempt])) + "\n");
       return;
     }
     if (evidence) {
+      if (flags.json) {
+        const view = evidenceViewOf(flags);
+        const data = await evidenceJsonOf(view, [attempt]);
+        io.out(
+          renderShowJson({
+            format: "niceeval.show",
+            schemaVersion: 1,
+            view,
+            scope: buildShowScope({ resultsRoot: root, patterns: [], experiments: [attempt.experimentId], fresh: flags.fresh === true }),
+            data,
+          }),
+        );
+        return;
+      }
       // locator = 单元素范围:与下面「证据切面是宿主本体」分支共用同一个范围通用实现
       // (renderEvidenceSections),不另立「locator 专属」代码路径。
       io.out((await renderEvidenceSections([attempt], flags, grep, cwd, io.width)) + "\n");
       return;
     }
     const attemptEvidence = await loadAttemptEvidence(attempt);
+    if (flags.json) {
+      // 默认 attempt 首页(view "attempt"):`AttemptDetail` 装配的区块 `*Data` 全集
+      // (docs/feature/reports/show/json.md「data:按 view 找组件声明」)——JSON 面恒为完整
+      // resolve 产物,因此全部 11 个叶子区块都计算,不因 text 面「有 source 时不重复
+      // AttemptConversation」这条渲染面去重规则而省略 conversation。`--report` 已经与
+      // `--json` 互斥(见 show() 顶层),这里不需要装载报告就能直接算数据。
+      const mod = await import("../../dist/report/index.js");
+      const data = {
+        summary: mod.attemptSummaryData(attemptEvidence),
+        error: mod.attemptErrorData(attemptEvidence),
+        assertions: mod.attemptAssertionsData(attemptEvidence),
+        source: mod.attemptSourceData(attemptEvidence),
+        fixPrompt: mod.attemptFixPromptData(attemptEvidence),
+        timeline: mod.attemptTimelineData(attemptEvidence),
+        conversation: mod.attemptConversationData(attemptEvidence),
+        diagnostics: mod.attemptDiagnosticsData(attemptEvidence),
+        usage: mod.usageTableData(attemptEvidence),
+        trace: mod.attemptTraceData(attemptEvidence),
+        diff: mod.attemptDiffData(attemptEvidence),
+      };
+      io.out(
+        renderShowJson({
+          format: "niceeval.show",
+          schemaVersion: 1,
+          view: "attempt",
+          scope: buildShowScope({ resultsRoot: root, patterns: [], experiments: [attempt.experimentId], fresh: flags.fresh === true }),
+          data,
+        }),
+      );
+      return;
+    }
     // 无证据 flag:选中当前 report definition 里唯一的 attempt-input page,注入这份 evidence,
     // 走与其它 page 完全相同的 resolve → validate → render 管线(docs/feature/reports/show/attempt.md;
     // docs/feature/reports/library/attempt-detail.md「在 show 与 view 怎样渲染」)。不带 --report
@@ -639,11 +781,35 @@ async function show(
   }
 
   const experimentFilter = expSelectors.length > 0 ? expSelectors : undefined;
+  // 「本次调用解析后的 experiment id 全集」(docs/feature/reports/show/json.md「信封」):非对照
+  // 视图的 `--json` `scope.experiments` 统一取这份——范围收窄之后、不局限于「有 attempt 命中」
+  // 的子集(与 `--stats`/`--usage`/证据切面/`--history`/leaderboard 各自的现有 experiment 过滤
+  // 逻辑同源,不重新发明一套)。
+  const resolvedExperimentIds = filterExperiments(results.experiments, experimentFilter).map((e) => e.id);
 
   // `--stats`:历史全执行的稳定性矩阵(docs/feature/reports/show/stats.md)。证据面与
   // `--history` 相同——不是 `current()` 现刻水位,所以在下面的 `selection`/`matchedEvalIds`
   // (现刻水位专属)计算与 noEvalMatch 校验之前分流掉,不借用那份口径。
   if (flags.stats) {
+    if (flags.json) {
+      const experiments = filterExperiments(results.experiments, experimentFilter);
+      const snapshots = experiments.flatMap((exp) => exp.snapshots);
+      const { stabilityMatrixData } = await import("../../dist/report/index.js");
+      const data = await stabilityMatrixData(snapshots, {
+        by: "experiment",
+        ...(patterns.length > 0 ? { evals: [...patterns] } : {}),
+      });
+      io.out(
+        renderShowJson({
+          format: "niceeval.show",
+          schemaVersion: 1,
+          view: "stats",
+          scope: buildShowScope({ resultsRoot: root, patterns, experiments: resolvedExperimentIds, fresh: flags.fresh === true }),
+          data,
+        }),
+      );
+      return;
+    }
     io.out(
       (await renderStatsSlice(cwd, results, experimentFilter, patterns, {
         width: io.width,
@@ -671,6 +837,19 @@ async function show(
   // 逐 eval 用量矩阵那个特化版式——那个版式是明确的后续接线点,这里先给正确但更朴素的输出,
   // 不拿一个占位错误挡住 --usage 本身。
   if (flags.usage) {
+    if (flags.json) {
+      const rows = await usageRowsOf(selection.attempts);
+      io.out(
+        renderShowJson({
+          format: "niceeval.show",
+          schemaVersion: 1,
+          view: "usage",
+          scope: buildShowScope({ resultsRoot: root, patterns, experiments: resolvedExperimentIds, fresh: flags.fresh === true }),
+          data: rows,
+        }),
+      );
+      return;
+    }
     io.out((await renderUsageSlice(selection.attempts)) + "\n");
     return;
   }
@@ -679,6 +858,20 @@ async function show(
   // 范围——范围含多个 attempt 时按 experimentId、evalId、attempt 序逐 attempt 分节
   // (renderEvidenceSections,与上面 `@<locator>` 单元素范围共用同一份实现)。
   if (evidence) {
+    if (flags.json) {
+      const view = evidenceViewOf(flags);
+      const data = await evidenceJsonOf(view, selection.attempts);
+      io.out(
+        renderShowJson({
+          format: "niceeval.show",
+          schemaVersion: 1,
+          view,
+          scope: buildShowScope({ resultsRoot: root, patterns, experiments: resolvedExperimentIds, fresh: flags.fresh === true }),
+          data,
+        }),
+      );
+      return;
+    }
     io.out((await renderEvidenceSections(selection.attempts, flags, grep, cwd, io.width)) + "\n");
     return;
   }
@@ -691,6 +884,30 @@ async function show(
     const experiments = filterExperiments(results.experiments, experimentFilter);
     // eval 位置参数与 Scope 选择用同一个前缀谓词(单点在 shared/aggregate.ts),不另立口径。
     const matchesPattern = patterns.length > 0 ? evalPrefixPredicate(patterns) : () => true;
+    if (flags.json) {
+      // `history` 不进组件模型,直接投影 Results evidence(docs/feature/reports/show/json.md
+      // 「data:按 view 找组件声明」)——每节携带 `AttemptJson`(完整落盘字段 + 归属身份),
+      // 不是 text 面的单行摘要。
+      const sections: { experimentId: string; evalId: string; attempts: unknown[] }[] = [];
+      for (const exp of experiments) {
+        const evalIds = [...exp.evalIds].filter(matchesPattern).sort();
+        for (const evalId of evalIds) {
+          const handles = attemptHistoryHandles(exp, evalId);
+          if (handles.length === 0) continue;
+          sections.push({ experimentId: exp.id, evalId, attempts: handles.map(attemptJsonOf) });
+        }
+      }
+      io.out(
+        renderShowJson({
+          format: "niceeval.show",
+          schemaVersion: 1,
+          view: "history",
+          scope: buildShowScope({ resultsRoot: root, patterns, experiments: resolvedExperimentIds, fresh: flags.fresh === true }),
+          data: sections,
+        }),
+      );
+      return;
+    }
     const blocks: string[] = [];
     for (const exp of experiments) {
       const evalIds = [...exp.evalIds].filter(matchesPattern).sort();
@@ -713,12 +930,44 @@ async function show(
       string,
       ...string[],
     ];
+    if (flags.json) {
+      const { deltaTableData } = await import("../../dist/report/index.js");
+      const data = await deltaTableData(selection, { by: "experiment", conditions });
+      io.out(
+        renderShowJson({
+          format: "niceeval.show",
+          schemaVersion: 1,
+          view: "compare",
+          scope: buildShowScope({ resultsRoot: root, patterns, experiments: conditions, fresh: flags.fresh === true }),
+          data,
+        }),
+      );
+      return;
+    }
     io.out(
       (await renderCompareSlice(cwd, results, selection, conditions, {
         width: io.width,
         locale: detectLocale(),
         panelMode: io.panelMode,
       })) + "\n",
+    );
+    return;
+  }
+
+  if (flags.json) {
+    // 缺省切片(leaderboard):内建报告首页的 `ExperimentComparison`/`ExperimentList` 对应的两个
+    // 计算函数(docs/feature/reports/show/json.md「data:按 view 找组件声明」)。`--report` 已经
+    // 与 `--json` 互斥,不需要装载报告就能直接算数据。
+    const { experimentListData, scopeSummaryData } = await import("../../dist/report/index.js");
+    const data = { experiments: await experimentListData(selection), summary: await scopeSummaryData(selection) };
+    io.out(
+      renderShowJson({
+        format: "niceeval.show",
+        schemaVersion: 1,
+        view: "leaderboard",
+        scope: buildShowScope({ resultsRoot: root, patterns, experiments: resolvedExperimentIds, fresh: flags.fresh === true }),
+        data,
+      }),
     );
     return;
   }
