@@ -70,9 +70,9 @@
     - [x] 新增 `SnapshotDiagnostics` web/text 面、data validate、locale 与样式；web 原生 `<details>` 默认折叠且 summary 恒可见，text 全展开，空集零输出
     - [x] 单快照单记录不造空壳层级；汇总计数按 count，最高严重度有文字区别；command 逐记录呈现
     - [x] 从 `niceeval/report`、`niceeval/report/react` 与相关类型入口公开导出，`pnpm run build:report` 后验证真实 dist 导出
-  - [ ] C.4 **内建报告接线**（依赖 C.3）
-    - [ ] `standard.tsx` 的 report / attempts / traces 三张 scope-input page 均按 `ScopeWarnings` → `SnapshotDiagnostics` 相邻放置；attempt-input page 不放
-    - [ ] 单元层只断言 data 与展开树；折叠、HTML/text 结构、相邻顺序和真实命令归 `e2e/report` 验收
+  - [x] C.4 **内建报告接线**（依赖 C.3）
+    - [x] `standard.tsx` 的 report / attempts / traces 三张 scope-input page 均按 `ScopeWarnings` → `SnapshotDiagnostics` 相邻放置；attempt-input page 不放
+    - [x] 单元层只断言 data 与展开树；折叠、HTML/text 结构、相邻顺序和真实命令归 `e2e/report` 验收
 
 - [ ] **D. agent/ci 的 Eval 级结论行**（依赖 A；可与 B、C、F、G 并行）
   - [ ] D.1 从同一份结构化终局数据派生逐 `(experiment, eval)` 聚合，不让 agent/ci renderer 各算第二份口径

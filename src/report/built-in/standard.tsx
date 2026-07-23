@@ -18,6 +18,7 @@ import {
   ExperimentComparison,
   Hero,
   ScopeWarnings,
+  SnapshotDiagnostics,
   TraceWaterfall,
   defineReport,
 } from "../index.ts";
@@ -39,6 +40,7 @@ export const standard = defineReport({
         <Col>
           <Hero />
           <ScopeWarnings />
+          <SnapshotDiagnostics />
           <CopyFixPrompt />
           <ExperimentComparison />
         </Col>
@@ -51,6 +53,7 @@ export const standard = defineReport({
         <Col>
           <Hero />
           <ScopeWarnings />
+          <SnapshotDiagnostics />
           <AttemptList filter />
         </Col>
       ),
@@ -62,6 +65,7 @@ export const standard = defineReport({
         <Col>
           <Hero />
           <ScopeWarnings />
+          <SnapshotDiagnostics />
           <TraceWaterfall />
         </Col>
       ),

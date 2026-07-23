@@ -28,7 +28,7 @@ import {
 import { buildReportMeta, defineReport, FALLBACK_REPORT_TITLE, resolveReportTitle } from "../definition/report.ts";
 import { pickReportPage, ReportPageNeedsLocatorError, ReportPageNotFoundError } from "./text.ts";
 import { AttemptList, ExperimentList, FailureList } from "../components/entity-lists/index.tsx";
-import { CopyFixPrompt, Hero, ScopeWarnings, TraceWaterfall } from "../components/site-components/index.tsx";
+import { CopyFixPrompt, Hero, ScopeWarnings, SnapshotDiagnostics, TraceWaterfall } from "../components/site-components/index.tsx";
 import { ExperimentComparison, ScopeSummary } from "../components/summaries/index.tsx";
 import { MetricBars, MetricMatrix, MetricScatter, MetricTable } from "../components/metric-views/index.tsx";
 import { AttemptDetail } from "../components/attempt-detail/index.tsx";
@@ -695,13 +695,14 @@ describe("内建报告", () => {
     expect(childTypes(reportPage!.content).map((c) => c.type)).toEqual([
       Hero,
       ScopeWarnings,
+      SnapshotDiagnostics,
       CopyFixPrompt,
       ExperimentComparison,
     ]);
     const attemptsChildren = childTypes(attemptsPage!.content);
-    expect(attemptsChildren.map((c) => c.type)).toEqual([Hero, ScopeWarnings, AttemptList]);
-    expect(attemptsChildren[2]!.props.filter).toBe(true);
-    expect(childTypes(tracesPage!.content).map((c) => c.type)).toEqual([Hero, ScopeWarnings, TraceWaterfall]);
+    expect(attemptsChildren.map((c) => c.type)).toEqual([Hero, ScopeWarnings, SnapshotDiagnostics, AttemptList]);
+    expect(attemptsChildren[3]!.props.filter).toBe(true);
+    expect(childTypes(tracesPage!.content).map((c) => c.type)).toEqual([Hero, ScopeWarnings, SnapshotDiagnostics, TraceWaterfall]);
     // 第四页是参数化详情页:content 就是裸 AttemptDetail(不套 Col),input/navigation 与文档一致。
     // defineReport 规范化会重建页对象(id/title/content 逐字段拷贝),所以整页对象不可能与
     // 具名导出 standardAttemptPage 保持引用相等;但 content 字段是原样透传,同引用证明
