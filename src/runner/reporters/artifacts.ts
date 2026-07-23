@@ -7,7 +7,7 @@
 // 重数据分文件,snapshot.json 只留快照元数据,view 展开某条 trace 时再按需 fetch 它的 trace.json。
 
 import { readFile } from "node:fs/promises";
-import type { InvocationShape, Reporter } from "../../types.ts";
+import type { InvocationShape, Reporter, ReporterEvent } from "../../types.ts";
 import { createResultsWriter, type ResultsWriter } from "../../results/writer.ts";
 
 /** niceeval 自身的 npm 版本,写进 producer.version;版本不匹配时读取器靠它拼 npx 提示。 */
@@ -24,6 +24,8 @@ export type ArtifactsReporter = Reporter & { outputDirs(): { experimentId: strin
 
 export function Artifacts(root = ".niceeval"): ArtifactsReporter {
   let writer: ResultsWriter | undefined;
+  // 已经通过 experiment:complete 封口过的 experimentId——onInvocationComplete 的兜底不重复封它们。
+  const finishedByEvent = new Set<string>();
 
   return {
     outputDirs: () => writer?.snapshotDirs() ?? [],
@@ -40,29 +42,50 @@ export function Artifacts(root = ".niceeval"): ArtifactsReporter {
         producer: { name: "niceeval", version: await producerVersion() },
         snapshotStartedAt: shape?.snapshotStartedAt,
       });
+      finishedByEvent.clear();
     },
 
     // 每条结果一出来就按它的 experimentId 路由落盘(增量、互不影响)。fresh 条目在这里
-    // 一次写成;--resume 携带合入的条目(带 artifactBase)不经这里,onInvocationComplete 补写。
+    // 一次写成;--resume 携带合入的条目(带 artifactBase)不经这里,由 experiment:complete
+    // 携带的 carriedResults(或兜底的 onInvocationComplete)补写。
     async onEvalComplete(result) {
       await writer?.writeAttemptFor(result);
     },
 
-    // run 结束:先把携带条目(--resume 合入,summary.results 里带 artifactBase 的那些)
-    // 逐条落盘——它们没有触发过 onEvalComplete,只会原样写 result.json,不写 artifact
-    // (artifact 仍在原快照里,靠 artifactBase 懒加载回退)。再给每个快照各自封口。
-    //
-    // 这里仍是「Invocation 收尾时一次性封口全部快照」——与 docs/runner.md「Experiment 收尾
-    // 协议」描述的目标(每个 Experiment 在自己的 teardown 之后立即封口、携带该 Experiment
-    // 的诊断)不同,那条协议依赖 `experiment:complete` 事件与 runner 侧的诊断累积器,由
-    // 计划里单独的节点接线;这里只是把封口 API 迁到 SnapshotWriter.finish() 后的行为等价适配。
+    // Experiment 收尾协议(docs/runner.md):每个 experiment:complete 各自对应一个 Snapshot 的
+    // 一次原子封口——携带的 carriedResults 先补写(它们没有触发过 onEvalComplete),再用事件
+    // 自带的 completedAt 与 diagnostics 调用该 Snapshot 自己的 finish()。跨 Experiment 的
+    // Invocation 级事实(interrupted、reporter error)不走这条事件,不会误落进任一 Snapshot。
+    async onEvent(event: ReporterEvent) {
+      if (event.type !== "experiment:complete" || !writer) return;
+      for (const result of event.carriedResults) {
+        if (result.artifactBase !== undefined) await writer.writeAttemptFor(result);
+      }
+      const snapshots = await writer.snapshotWriters();
+      const target = snapshots.find((s) => s.experimentId === event.experimentId);
+      if (!target) return; // 该 experimentId 从未真正落过任何 attempt,没有 Snapshot 可封
+      finishedByEvent.add(event.experimentId);
+      await target.writer.finish({
+        completedAt: event.completedAt,
+        diagnostics: [...event.diagnostics],
+        name: event.name,
+      });
+    },
+
+    // 兜底:任何没有经 experiment:complete 走到封口的 Snapshot 在这里补齐(如没有 experimentId
+    // 的直调测试场景、或第三方手写 Reporter 调用绕开了 runner 的事件流)——保证不留下永远停在
+    // 「未收尾」状态的 Snapshot。先补写携带条目(summary.results 里带 artifactBase 的那些)。
     async onInvocationComplete(summary) {
       if (!writer) return;
       for (const result of summary.results) {
         if (result.artifactBase !== undefined) await writer.writeAttemptFor(result);
       }
       const snapshots = await writer.snapshotWriters();
-      await Promise.all(snapshots.map(({ writer: snap }) => snap.finish({ name: summary.name })));
+      await Promise.all(
+        snapshots
+          .filter(({ experimentId }) => !finishedByEvent.has(experimentId))
+          .map(({ writer: snap }) => snap.finish({ name: summary.name })),
+      );
     },
   };
 }

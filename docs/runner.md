@@ -204,7 +204,7 @@ invocation:earlyExit        { evalId, experimentId }
 invocation:budgetExceeded   { experimentId, budget, spent }
 invocation:saved            { summary }
 invocation:summary          { summary }
-experiment:complete         { experimentId, completedAt, carriedResults, diagnostics }   # 见下节「Experiment 收尾协议」
+experiment:complete         { experimentId, completedAt, carriedResults, diagnostics, name? }   # 见下节「Experiment 收尾协议」
 ```
 
 判别式联合逐条对应上表(`eval:start` 仍带单一 `agent`——它是单个 eval 这一次派发实际用的那份配置,不是跨配置汇总,不受上面顶层单值裁决约束):
@@ -224,6 +224,8 @@ type ReporterEvent =
       completedAt: string;
       carriedResults: EvalResult[];
       diagnostics: readonly DiagnosticRecord[];
+      /** 项目名(来自 config.name),同一 Invocation 内所有 Experiment 共享同一个值。 */
+      name?: LocalizedText;
     };
 ```
 
@@ -235,7 +237,7 @@ type ReporterEvent =
 
 一次 Invocation 可以横跨多个 Experiment,但落盘的完整性单位是 Snapshot——每个 Experiment 一份、各自独立收尾(见 [Results · snapshot.json](feature/results/architecture.md#snapshotjson))。`experiment:complete` 是比 `invocation:summary` 更早、比单个 `eval:complete` 更粗的事件,标记"这一个 Experiment 已经彻底跑完",供内建 Artifacts 精确地在那一刻封口对应的 Snapshot,而不是等整个 Invocation 结束才一次性封全部 Snapshot。
 
-`experiment:complete` 在该 Experiment 的 `ExperimentDef.teardown`(若声明)完成之后、`invocation:summary` 之前触发。内建 `Artifacts` reporter 订阅这条事件,对每个 experimentId 各自调用它自己 Snapshot 的 `snap.finish({ completedAt, diagnostics })`(见 [Results · Library](feature/results/library.md))——不再在 `onInvocationComplete` 里一次性封全部快照。`carriedResults` 携带该 Experiment 本次携带合入(fingerprint 命中、未真实执行)的历史终态结果,随收尾一并落盘。跨 Experiment 共享的事实(用户中断、reporter 写失败、provider 级并发提示)不属于任何单个 Experiment,不通过这条事件传递,只出现在 `InvocationCompletion.reporterErrors` 或反馈流的运行级 diagnostic 里。
+`experiment:complete` 在该 Experiment 的 `ExperimentDef.teardown`(若声明)完成之后、`invocation:summary` 之前触发。内建 `Artifacts` reporter 订阅这条事件,对每个 experimentId 各自调用它自己 Snapshot 的 `snap.finish({ completedAt, diagnostics, name })`(见 [Results · Library](feature/results/library.md))——不再在 `onInvocationComplete` 里一次性封全部快照。`name` 是整次 Invocation 共享的项目名(来自 `config.name`),随每个 Experiment 各自的收尾一并落盘,不必等到 `invocation:summary` 才补写。`carriedResults` 携带该 Experiment 本次携带合入(fingerprint 命中、未真实执行)的历史终态结果,随收尾一并落盘。跨 Experiment 共享的事实(用户中断、reporter 写失败、provider 级并发提示)不属于任何单个 Experiment,不通过这条事件传递,只出现在 `InvocationCompletion.reporterErrors` 或反馈流的运行级 diagnostic 里。
 
 ## 实验域诊断持久化
 

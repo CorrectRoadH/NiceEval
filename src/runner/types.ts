@@ -334,7 +334,24 @@ export type ReporterEvent =
   | { type: "invocation:earlyExit"; evalId: string; experimentId?: string }
   | { type: "invocation:budgetExceeded"; budget: number; spent: number }
   | { type: "invocation:saved"; summary: InvocationSummary }
-  | { type: "invocation:summary"; summary: InvocationSummary };
+  | { type: "invocation:summary"; summary: InvocationSummary }
+  | {
+      /**
+       * 该 Experiment 的 teardown(若声明)完成之后、invocation:summary 之前触发,标记它
+       * 已经彻底跑完;供内建 Artifacts 精确地在这一刻封口对应的 Snapshot,不必等到整个
+       * Invocation 结束才一次性封全部快照(见 docs/runner.md「Experiment 收尾协议」)。
+       */
+      type: "experiment:complete";
+      experimentId: string;
+      /** 该 Experiment 封口时刻,即它的 Snapshot completedAt。 */
+      completedAt: string;
+      /** 本次携带合入(fingerprint 命中、未真实执行)的历史终态结果,收尾时一并落盘。 */
+      carriedResults: EvalResult[];
+      /** 该 Experiment 域产生的全部诊断;空集合传空数组,不省略字段。 */
+      diagnostics: readonly DiagnosticRecord[];
+      /** 项目名(来自 config.name),整次 Invocation 内所有 Experiment 共享同一个值。 */
+      name?: LocalizedText;
+    };
 
 // ───────────────────────── eval / experiment / config 定义 ─────────────────────────
 

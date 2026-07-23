@@ -37,7 +37,17 @@ import {
   teardownEntryId,
   writeTeardownRegistration,
 } from "./teardown-registry.ts";
-import type { EvalResult, InvocationShape, InvocationSummary, JudgeConfig, Reporter, ReporterRegistration, SandboxOption } from "../types.ts";
+import type {
+  DiagnosticRecord,
+  EvalResult,
+  InvocationShape,
+  InvocationSummary,
+  JsonValue,
+  JudgeConfig,
+  Reporter,
+  ReporterRegistration,
+  SandboxOption,
+} from "../types.ts";
 import type { AgentRun, Attempt, ExperimentHookContext, LifecyclePhase, AttemptRef, RunOptions } from "./types.ts";
 
 /** 反馈层的 attempt 身份 + 展示 label,两个 sink.ts lifecycle 调用点共用,避免各自手写
@@ -395,12 +405,55 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
       expLifecycles.set(a.run, (lc = { triggered: false, setupFailed: false, remaining: 0, tornDown: false }));
     lc.remaining += 1;
   }
+
+  // 实验域诊断累积器(docs/runner.md「实验域诊断持久化」):只接无法归属单 Attempt 的实验
+  // 事实——ctx.diagnostic、teardown failed/late、budget-unenforceable。相同 dedupeKey 只在
+  // 同一个 experimentId 桶内折叠 count;不同 Experiment 各自独立累计,不跨来源合并。裸 run
+  // (没有 experimentId)没有 Snapshot 可挂,直接丢弃不进这个累积器——只留 reportDiagnostic
+  // 的运行期反馈。与之配套的收尾时刻(捕捉每个 Experiment 真正完成的那一刻,不是整个
+  // Invocation 收尾的那一刻,才诚实)。
+  const experimentDiagnostics = new Map<string, DiagnosticRecord[]>();
+  const experimentDedupeIndex = new Map<string, Map<string, DiagnosticRecord>>();
+  const experimentCompletedAt = new Map<string, string>();
+  const recordExperimentDiagnostic = (input: {
+    experimentId: string | undefined;
+    code: string;
+    level: "warning" | "error";
+    message: string;
+    phase: LifecyclePhase;
+    data?: Readonly<Record<string, JsonValue>>;
+    command?: string;
+    dedupeKey?: string;
+  }): void => {
+    if (!input.experimentId) return;
+    const dedupeIndex = experimentDedupeIndex.get(input.experimentId) ?? new Map<string, DiagnosticRecord>();
+    experimentDedupeIndex.set(input.experimentId, dedupeIndex);
+    if (input.dedupeKey !== undefined) {
+      const existing = dedupeIndex.get(input.dedupeKey);
+      if (existing) {
+        existing.count = (existing.count ?? 1) + 1;
+        return;
+      }
+    }
+    const record: DiagnosticRecord = {
+      code: input.code,
+      level: input.level,
+      message: input.message,
+      phase: input.phase,
+      ...(input.data !== undefined ? { data: input.data } : {}),
+      ...(input.command !== undefined ? { command: input.command } : {}),
+    };
+    if (input.dedupeKey !== undefined) dedupeIndex.set(input.dedupeKey, record);
+    const list = experimentDiagnostics.get(input.experimentId) ?? [];
+    list.push(record);
+    experimentDiagnostics.set(input.experimentId, list);
+  };
   // 强杀后的收尾兜底(docs/feature/experiments/architecture.md「强杀后的收尾兜底」)的磁盘登记
   // 挂在结果根下,与留存注册表 `.niceeval/sandboxes/` 同一个根(省略时退回 cwd/.niceeval,
   // 与 attempt.ts 的 niceevalRoot 兜底同一口径)。
   const niceevalRoot = opts.niceevalRoot ?? `${process.cwd()}/.niceeval`;
   const currentHost = hostname();
-  const makeExperimentHookContext = (run: AgentRun): ExperimentHookContext => {
+  const makeExperimentHookContext = (run: AgentRun, phase: LifecyclePhase): ExperimentHookContext => {
     const experimentId = run.experimentId ?? run.agent.name;
     return {
       experimentId: run.experimentId ?? "",
@@ -411,14 +464,27 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
         const suffix = u.current !== undefined && u.total !== undefined ? ` (${u.current}/${u.total})` : "";
         reportExperimentProgress({ experimentId, detail: `${u.message}${suffix}` });
       },
-      // diagnostic 进运行级永久事件流;实验级钩子不属于任何单个 attempt,不落 result.json。
-      diagnostic: (input) =>
+      // diagnostic 双落:运行级永久事件流(即时反馈,人/agent/ci 都能看到)+ 实验域诊断累积器
+      // (持久化,该 Experiment 的 Snapshot 封口时一次写入)——两条通路相互独立,互不派生
+      // (docs/runner.md「实验域诊断持久化」)。实验级钩子的事实不属于任何单个 Attempt,不落
+      // result.json。
+      diagnostic: (input) => {
         reportDiagnostic({
           key: input.dedupeKey ?? `${input.code}:experiment:${experimentId}`,
           severity: input.level,
           message: input.message,
           data: { experimentId, ...(input.data ?? {}) },
-        }),
+        });
+        recordExperimentDiagnostic({
+          experimentId: run.experimentId,
+          code: input.code,
+          level: input.level,
+          message: input.message,
+          phase,
+          ...(input.data !== undefined ? { data: input.data } : {}),
+          ...(input.dedupeKey !== undefined ? { dedupeKey: input.dedupeKey } : {}),
+        });
+      },
     };
   };
   const runExperimentTeardown = (run: AgentRun, lc: ExperimentLifecycle): Promise<void> => {
@@ -440,23 +506,30 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
         try {
           // 有界执行(docs/cli.md 的有界性前提):挂起的 teardown 到点按失败收束,不能无限拖住
           // 退出;超时后遗留的 promise 悬空,随进程退出消亡。
-          const ctx = makeExperimentHookContext(run);
+          const ctx = makeExperimentHookContext(run, "experiment.teardown");
           await withCleanupTimeout(() => run.teardown!(ctx));
           reportExperimentHook({ experimentId, hook: "teardown", status: "done", durationMs: Date.now() - startedAt });
         } catch (e) {
           reportExperimentHook({ experimentId, hook: "teardown", status: "failed", durationMs: Date.now() - startedAt });
           // teardown 失败只作运行级诊断,不改任何已产出的 verdict(与 sandbox.teardown 的
-          // teardown-failed 同一语义);资源可能泄漏,所以要说出来。
-          reportDiagnostic({
-            key: `experiment-teardown-failed:${experimentId}`,
-            severity: "warning",
-            message: t("runner.experimentTeardownFailed", {
-              experimentId,
-              message: e instanceof Error ? e.message : String(e),
-            }).trimEnd(),
-            data: { experimentId },
+          // teardown-failed 同一语义);资源可能泄漏,所以要说出来。同时进实验域诊断累积器,
+          // 供该 Experiment 的 Snapshot 封口时持久化(docs/runner.md「实验域诊断持久化」)。
+          const message = t("runner.experimentTeardownFailed", {
+            experimentId,
+            message: e instanceof Error ? e.message : String(e),
+          }).trimEnd();
+          reportDiagnostic({ key: `experiment-teardown-failed:${experimentId}`, severity: "warning", message, data: { experimentId } });
+          recordExperimentDiagnostic({
+            experimentId: run.experimentId,
+            code: "experiment-teardown-failed",
+            level: "warning",
+            message,
+            phase: "experiment.teardown",
           });
         }
+        // 这个 Experiment 真正走完了 teardown(不论成败)的时刻——诚实的 Snapshot completedAt,
+        // 不是整个 Invocation 收尾那一刻(见下方 experiment:complete 事件的发送处)。
+        experimentCompletedAt.set(experimentId, new Date().toISOString());
       } finally {
         // settle 后才注销:drain 的「启动全部未启动 + 等待全部未 settle」依赖条目在飞期间仍可见。
         unregisterExperimentTeardown(experimentId);
@@ -503,13 +576,23 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
           const suffix = u.current !== undefined && u.total !== undefined ? ` (${u.current}/${u.total})` : "";
           reportExperimentProgress({ experimentId, detail: `${u.message}${suffix}` });
         },
-        diagnostic: (input) =>
+        diagnostic: (input) => {
           reportDiagnostic({
             key: input.dedupeKey ?? `${input.code}:experiment:${experimentId}`,
             severity: input.level,
             message: input.message,
             data: { experimentId, ...(input.data ?? {}) },
-          }),
+          });
+          recordExperimentDiagnostic({
+            experimentId: run.experimentId,
+            code: input.code,
+            level: input.level,
+            message: input.message,
+            phase: "experiment.teardown",
+            ...(input.data !== undefined ? { data: input.data } : {}),
+            ...(input.dedupeKey !== undefined ? { dedupeKey: input.dedupeKey } : {}),
+          });
+        },
       };
       try {
         await withCleanupTimeout(() => run.teardown!(recoveryCtx));
@@ -528,14 +611,17 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
           durationMs: Date.now() - startedAt,
           recovery: true,
         });
-        reportDiagnostic({
-          key: `experiment-teardown-failed:${experimentId}`,
-          severity: "warning",
-          message: t("runner.experimentTeardownFailed", {
-            experimentId,
-            message: e instanceof Error ? e.message : String(e),
-          }).trimEnd(),
-          data: { experimentId },
+        const message = t("runner.experimentTeardownFailed", {
+          experimentId,
+          message: e instanceof Error ? e.message : String(e),
+        }).trimEnd();
+        reportDiagnostic({ key: `experiment-teardown-failed:${experimentId}`, severity: "warning", message, data: { experimentId } });
+        recordExperimentDiagnostic({
+          experimentId: run.experimentId,
+          code: "experiment-teardown-failed",
+          level: "warning",
+          message,
+          phase: "experiment.teardown",
         });
       }
     }
@@ -550,7 +636,7 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
       // 丢收尾——强清退出(二次中断/看门狗/崩溃路径)时 cli 由此排空未被运行路径消费的
       // teardown(docs/cli.md「中断:三级响应」)。
       if (run.teardown) registerExperimentTeardown(experimentId, () => runExperimentTeardown(run, lc));
-      const ctx = run.setup ? makeExperimentHookContext(run) : undefined;
+      const ctx = run.setup ? makeExperimentHookContext(run, "experiment.setup") : undefined;
       lc.setupPromise = (async () => {
         // 强杀后的收尾兜底(docs/feature/experiments/architecture.md「强杀后的收尾兜底」):
         // 先核对并补执行本实验自己的遗留登记,再原子写入本次的登记——两步都先于 setup。
@@ -563,14 +649,17 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
             host: currentHost,
             startedAt: new Date().toISOString(),
           }).catch((e) => {
-            reportDiagnostic({
-              key: `teardown-registration-write-failed:${experimentId}`,
-              severity: "warning",
-              message: t("runner.teardownRegistrationWriteFailed", {
-                experimentId,
-                message: e instanceof Error ? e.message : String(e),
-              }).trimEnd(),
-              data: { experimentId },
+            const message = t("runner.teardownRegistrationWriteFailed", {
+              experimentId,
+              message: e instanceof Error ? e.message : String(e),
+            }).trimEnd();
+            reportDiagnostic({ key: `teardown-registration-write-failed:${experimentId}`, severity: "warning", message, data: { experimentId } });
+            recordExperimentDiagnostic({
+              experimentId: run.experimentId,
+              code: "teardown-registration-write-failed",
+              level: "warning",
+              message,
+              phase: "experiment.setup",
             });
           });
         }
@@ -850,12 +939,18 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
                   // s.unenforceableWarned 已经是 per-budgetKey 的一次性闸门;稳定 key 上的
                   // reportDiagnostic 去重是双保险,不依赖它单独生效。
                   s.unenforceableWarned = true;
-                  reportDiagnostic({
-                    key: `budget-unenforceable:${budgetKey}`,
-                    severity: "warning",
-                    message: t("runner.budgetUnenforceable", { budgetKey }).trimEnd(),
-                    data: { budgetKey },
-                  });
+                  {
+                    const message = t("runner.budgetUnenforceable", { budgetKey }).trimEnd();
+                    reportDiagnostic({ key: `budget-unenforceable:${budgetKey}`, severity: "warning", message, data: { budgetKey } });
+                    recordExperimentDiagnostic({
+                      experimentId: a.run.experimentId,
+                      code: "budget-unenforceable",
+                      level: "warning",
+                      message,
+                      phase: "eval.run",
+                      data: { budgetKey },
+                    });
+                  }
                 }
               }
             }
@@ -977,11 +1072,15 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
       // 只有扫尾是启动者时才报「late」诊断;已在飞的(如强清 drain 先到)只等 settle,不算漏。
       if (!lc.teardownPromise) {
         const experimentId = run.experimentId ?? run.agent.name;
-        reportDiagnostic({
-          key: `experiment-teardown-late:${experimentId}`,
-          severity: "warning",
-          message: t("runner.experimentTeardownLate", { experimentId }).trimEnd(),
-          data: { experimentId, remaining: lc.remaining },
+        const message = t("runner.experimentTeardownLate", { experimentId }).trimEnd();
+        reportDiagnostic({ key: `experiment-teardown-late:${experimentId}`, severity: "warning", message, data: { experimentId, remaining: lc.remaining } });
+        recordExperimentDiagnostic({
+          experimentId: run.experimentId,
+          code: "experiment-teardown-late",
+          level: "warning",
+          message,
+          phase: "experiment.teardown",
+          data: { remaining: lc.remaining },
         });
       }
       await runExperimentTeardown(run, lc);
@@ -998,6 +1097,27 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
   }
   if (interrupted) reportInterrupted();
   await sweepExperimentTeardowns();
+
+  // Experiment 收尾协议(docs/runner.md):每个真正出现在这次 Invocation 里的 experimentId
+  // 各发一次 experiment:complete,携带它自己的 completedAt(真实 teardown 完成时刻,没有
+  // teardown 或未触发时退回当前时刻)与实验域诊断累积器里attribute 给它的记录。全部
+  // Experiment 此刻都已经收尾(sweepExperimentTeardowns 已经等过),严格早于下面的
+  // invocation:summary——供 Artifacts 据此对每个 Snapshot 原子封口,不用等到整个 Invocation
+  // 结束才一次性全部封口(interrupted、reporter error 等 Invocation 级事实不在这条通道里,
+  // 不会误落进任一 Snapshot)。
+  const invocationExperimentIds = new Set(
+    opts.agentRuns.map((r) => r.experimentId).filter((id): id is string => id !== undefined),
+  );
+  for (const experimentId of invocationExperimentIds) {
+    await emitReporterEvent(reporters, {
+      type: "experiment:complete",
+      experimentId,
+      completedAt: experimentCompletedAt.get(experimentId) ?? new Date().toISOString(),
+      carriedResults: carriedResults.filter((r) => r.experimentId === experimentId),
+      diagnostics: experimentDiagnostics.get(experimentId) ?? [],
+      name: opts.config.name,
+    });
+  }
 
   // 稳定排序:按发现顺序 + attempt;携带结果并入后一起排
   const order = new Map(opts.evals.map((e, i) => [e.id, i]));

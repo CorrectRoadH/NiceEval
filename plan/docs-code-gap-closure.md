@@ -60,11 +60,11 @@
     - [x] 把封口 API 放到 `SnapshotWriter.finish({ diagnostics?, completedAt?, name? })`；每个 Snapshot 只能封一次，空 diagnostics 省略字段，开始写的 meta 不提前带封口字段
     - [x] reader 从 `snapshot.json` 原样读回 diagnostics；`copySnapshots` 与其它格式感知复制保留该字段
     - [x] 单测证明开始态、封口态、重复封口、两个 Experiment 不同完成时点/诊断、result.json 不出现快照字段
-  - [ ] C.2 **Runner 归属与交付**（依赖 A、C.1、0.5、0.6）
-    - [ ] 建 per-experiment 的有界 diagnostic accumulator；只接无法归属单 Attempt 的实验事实
-    - [ ] Experiment hook `ctx.diagnostic`、teardown failed/timeout/late、`budget-unenforceable` 等在产生处直接构造结构化记录；interrupted、provider 全局并发提示、reporter error 等 Invocation 事实不得误落任一 Snapshot
-    - [ ] 相同 dedupeKey 只在同一 Snapshot 内折叠 count；不同 Experiment、不同 Snapshot 不跨来源合并
-    - [ ] 通过 0.5 的事件把 carriedResults 与 diagnostics 交给 Artifacts，并在对应 Experiment 收尾后调用该 Snapshot 的 `finish`
+  - [x] C.2 **Runner 归属与交付**（依赖 A、C.1、0.5、0.6）
+    - [x] 建 per-experiment 的有界 diagnostic accumulator；只接无法归属单 Attempt 的实验事实
+    - [x] Experiment hook `ctx.diagnostic`、teardown failed/timeout/late、`budget-unenforceable` 等在产生处直接构造结构化记录；interrupted、provider 全局并发提示、reporter error 等 Invocation 事实不得误落任一 Snapshot
+    - [x] 相同 dedupeKey 只在同一 Snapshot 内折叠 count；不同 Experiment、不同 Snapshot 不跨来源合并
+    - [x] 通过 0.5 的事件把 carriedResults 与 diagnostics 交给 Artifacts，并在对应 Experiment 收尾后调用该 Snapshot 的 `finish`
   - [ ] C.3 **Reports 数据与两面组件**（依赖 B、C.1；可与 C.2 并行）
     - [ ] 新增 `snapshotDiagnosticsData`，输入 `Scope | readonly Snapshot[]`，仅投影非空真实 Snapshot；experiment 字典序、同实验 startedAt 新到旧、不跨来源合并、开放 code 原样保留
     - [ ] 新增 `SnapshotDiagnostics` web/text 面、data validate、locale 与样式；web 原生 `<details>` 默认折叠且 summary 恒可见，text 全展开，空集零输出

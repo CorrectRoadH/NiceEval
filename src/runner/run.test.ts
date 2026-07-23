@@ -1275,6 +1275,63 @@ describe("runEvals · 实验级 teardown 失败只作运行级诊断", () => {
   });
 });
 
+// cases: docs/engineering/testing/unit/experiments-runner.md「实验域诊断持久化」
+// docs/runner.md「实验域诊断持久化」的折叠不变量:相同 dedupeKey 只在同一个 Snapshot(即同一个
+// experimentId)内折叠 count;不同 Experiment 各自独立累计,不跨来源合并。live 反馈流(coordinator)
+// 已有覆盖(见上面 budget-unenforceable / teardown-failed 两个 describe),这里单独守持久化
+// 到 snapshot.json 的那份累积器——它是独立状态,不能只测 live 反馈就当作两条通路都验证过了。
+describe("runEvals · 实验域诊断持久化到 Snapshot", () => {
+  it("相同 dedupeKey 在同一 Experiment 内折叠 count,不同 Experiment 各自独立、不跨来源合并", async () => {
+    const evalA = makeEval("a", () => {});
+    const evalB = makeEval("b", () => {});
+    const agentA: AgentRun = {
+      agent: makeAgent("agent-diag-a"),
+      flags: {},
+      runs: 1,
+      earlyExit: true,
+      sandbox: fakeSandboxSpec(),
+      timeoutMs: 5_000,
+      selectedEvalIds: ["a"],
+      experimentId: "diag-exp-a",
+      setup: (ctx) => {
+        ctx.diagnostic({ code: "tunnel-flaky", level: "warning", message: "retry 1", dedupeKey: "tunnel" });
+        ctx.diagnostic({ code: "tunnel-flaky", level: "warning", message: "retry 2", dedupeKey: "tunnel" });
+      },
+    };
+    const agentB: AgentRun = {
+      agent: makeAgent("agent-diag-b"),
+      flags: {},
+      runs: 1,
+      earlyExit: true,
+      sandbox: fakeSandboxSpec(),
+      timeoutMs: 5_000,
+      selectedEvalIds: ["b"],
+      experimentId: "diag-exp-b",
+      setup: (ctx) => {
+        ctx.diagnostic({ code: "tunnel-flaky", level: "warning", message: "retry 1", dedupeKey: "tunnel" });
+      },
+    };
+
+    const { root } = await run([evalA, evalB], [agentA, agentB], { maxConcurrency: 4 });
+
+    const results = await openResults(root);
+    const expA = results.experiments.find((e) => e.id === "diag-exp-a");
+    const expB = results.experiments.find((e) => e.id === "diag-exp-b");
+    expect(expA).toBeDefined();
+    expect(expB).toBeDefined();
+
+    // 同一个 Experiment 内两次相同 dedupeKey 折叠成一条,count 累计到 2。
+    expect(expA!.latest.diagnostics).toHaveLength(1);
+    expect(expA!.latest.diagnostics![0]).toMatchObject({ code: "tunnel-flaky", count: 2 });
+
+    // 另一个 Experiment 独立计数:同样的 dedupeKey/code 只出现过一次,不从 exp-a 借位、
+    // 也不把两边加总。
+    expect(expB!.latest.diagnostics).toHaveLength(1);
+    expect(expB!.latest.diagnostics![0]).toMatchObject({ code: "tunnel-flaky" });
+    expect(expB!.latest.diagnostics![0]!.count).toBeUndefined();
+  });
+});
+
 // 强杀后的收尾兜底(docs/feature/experiments/architecture.md「强杀后的收尾兜底」):受控模拟
 // 代替真实 kill -9——直接在临时目录构造一份 .niceeval/teardowns/<entry>.json 登记文件(模拟"上
 // 一次进程被强杀,来不及删登记"的状态),手工填入确定不存在的 pid / 当前宿主机名 / 一组
