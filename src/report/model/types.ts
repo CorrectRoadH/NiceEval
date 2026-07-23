@@ -678,6 +678,8 @@ export interface AttemptTimelineData {
   locator: AttemptLocator;
   phases: PhaseTiming[];
   trace: TraceSpan[] | null;
+  /** 超时 attempt 的 workspace.diff 是收尾段补折叠(不入主链口径),渲染面据此归类;非超时省略。 */
+  timedOut?: true;
 }
 
 /** `AttemptConversation` 一轮:由带 `loc` 的 user 消息开启;`loc` 缺省表示流首无位置信息的兜底轮(旧 artifact)。 */

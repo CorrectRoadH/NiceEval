@@ -1043,8 +1043,15 @@ export function timingText(
     return `${opts.header}\n\nphase timing unavailable (this result was not produced by a runner with phase timing)`;
   }
   const spans = evidence.trace;
-  const main = r.phases.filter((p) => !CLOSING_PHASE_NAMES.has(p.name));
-  const closing = r.phases.filter((p) => CLOSING_PHASE_NAMES.has(p.name));
+  // 超时 attempt 的 workspace.diff 条目是收尾段补折叠的(docs/runner.md「超时:双层保护」超时
+  // 不丢证据),不计入 durationMs——与正常完成路径里 workspace.diff 属于主链、计入 durationMs
+  // 是两回事,但两者共用同一个 phase 名字(同一件事:折叠 workspace diff,只是时点不同)。
+  // `error.code === "timeout"` 是唯二真正把它归为收尾段的场景(非超时 attempt 的 error.code
+  // 永远不是 "timeout"),用它做判别,不新增 LifecyclePhase 成员。
+  const isTimeoutClosingDiff = (p: NonNullable<EvalResult["phases"]>[number]) =>
+    p.name === "workspace.diff" && r.error?.code === "timeout";
+  const main = r.phases.filter((p) => !CLOSING_PHASE_NAMES.has(p.name) && !isTimeoutClosingDiff(p));
+  const closing = r.phases.filter((p) => CLOSING_PHASE_NAMES.has(p.name) || isTimeoutClosingDiff(p));
   const traceCounts = new Map<string, number>();
   for (const phase of r.phases) traceReferenceCounts(phase.children ?? [], traceCounts);
   const uniqueTraceIds = new Set([...traceCounts].filter(([, count]) => count === 1).map(([traceId]) => traceId));

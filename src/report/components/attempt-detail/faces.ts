@@ -192,8 +192,10 @@ function countTimingNodes(nodes: readonly TimingNode[]): number {
 
 export function attemptTimelineText(data: AttemptTimelineData | null, ctx: TextContext): string {
   if (data === null) return "";
-  const main = data.phases.filter((p) => !TIMELINE_CLOSING_PHASES.has(p.name));
-  const closing = data.phases.filter((p) => TIMELINE_CLOSING_PHASES.has(p.name));
+  // 超时 attempt 的 workspace.diff 是收尾段补折叠(证据保全),不入主链口径——与 show --timing 同一条归类。
+  const isClosing = (name: string) => TIMELINE_CLOSING_PHASES.has(name) || (data.timedOut === true && name === "workspace.diff");
+  const main = data.phases.filter((p) => !isClosing(p.name));
+  const closing = data.phases.filter((p) => isClosing(p.name));
   const total = main.reduce((sum, p) => sum + p.durationMs, 0);
   const anyFailed = data.phases.some((p) => p.failed);
   const command = evidenceCommand(ctx, data.locator, "--timing");

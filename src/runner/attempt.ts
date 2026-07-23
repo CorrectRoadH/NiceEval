@@ -48,6 +48,7 @@ import type {
   StreamEvent,
   Telemetry,
   TraceSpan,
+  Usage,
 } from "../types.ts";
 import { reportAttemptLifecycle, reportDiagnostic, reportKept } from "./feedback/sink.ts";
 import { encodeAttemptKey, runWho } from "./types.ts";
@@ -132,6 +133,20 @@ export function runAttemptEffect(
   const recorder = createTimingRecorder(() => Date.now());
   // adapter send 在飞时,错误/诊断归因到嵌套的 `agent.run`(eval.run 内打开,不单列计时条目)。
   let sendActive = false;
+  // 超时证据保全的外层句柄:与 recorder 同一模式,runAttemptBody 内部一建好 SessionManager /
+  // ChangeLedger 就经 AttemptResources.registerEvidence/registerLedger 登记回这里——中断后由
+  // Scope 外层直接读它们组装结果,不随被 Effect 中断放弃的 body fiber 一起消失(见
+  // docs/runner.md「超时:双层保护」超时不丢证据)。
+  let liveEvents: (() => readonly StreamEvent[]) | undefined;
+  let liveUsage: (() => Usage) | undefined;
+  let liveLedger: ChangeLedger | undefined;
+  // Effect.timeoutTo 的 onTimeout 是同步回调,在中断真正下发给 body fiber(从而触发下面的
+  // finalizer 链)之前就已经跑完并同步置位这个标记——下面新增的 finalizer 靠它判断本次 Scope
+  // release 是不是超时触发的,只在超时路径补折叠证据,正常收尾路径不重复做(见文件顶部
+  // Effect.timeoutTo 调用点的注释)。
+  let timedOut = false;
+  let timeoutDiff: DiffArtifact | undefined;
+  let timeoutSources: SourceArtifact[] | undefined;
   const enterPhase = (phase: LifecyclePhase) => {
     lastPhase = phase;
     recorder.enter(phase);
@@ -347,6 +362,35 @@ export function runAttemptEffect(
         );
       }
 
+      // 超时收尾段的证据保全(docs/runner.md「超时:双层保护」超时不丢证据)。注册在这里,
+      // LIFO 意味着 release 时它先于上面已注册的 sandbox stop/suspend finalizer 跑——此刻沙箱
+      // (若有)仍然存活,赶在停之前抢一次 workspace.diff 折叠;`timedOut` 由 Effect.timeoutTo
+      // 的 onTimeout 同步置位,正常收尾(body 走完)时这里直接跳过,不重复采一次已经采过的证据。
+      // 沙箱此刻可能已经被 agent 搞挂——withCleanupTimeout 有界执行,导出挂起也不能拖住收尾,
+      // 到点如实缺失。计时单独记一条 phases 条目,不入 durationMs(durationMs 已在 onTimeout
+      // 按中断时刻定格)。sources 折叠是本地文件读取,与沙箱是否存活无关,一并在这里补。
+      yield* Effect.addFinalizer(() =>
+        Effect.promise(async () => {
+          if (!timedOut) return;
+          const events = liveEvents?.() ?? [];
+          if (run.agent.kind === "sandbox" && liveLedger) {
+            const startedAt = Date.now();
+            try {
+              timeoutDiff = await withCleanupTimeout(() => liveLedger!.exportWindows());
+            } catch {
+              // 沙箱不可用 / 导出挂起到点:如实缺失,不阻塞收尾。
+            } finally {
+              recorder.record("workspace.diff", Date.now() - startedAt);
+            }
+          }
+          try {
+            timeoutSources = await withCleanupTimeout(() => collectSources(events, [], evalDef.source));
+          } catch {
+            // 源码读不到:如实缺失,不阻塞收尾。
+          }
+        }),
+      );
+
       // body 是 Promise(adapter 边界)。Effect.promise 给的 AbortSignal 在本 fiber 被中断
       //(用户 Ctrl+C / 下面 timeoutTo 到点)时 abort —— 并进 signal,让真正观察 signal 的
       // adapter / docker 命令随中断一起停,而不只靠 Scope release 兜底。
@@ -371,6 +415,13 @@ export function runAttemptEffect(
           feedback: scopedFeedback,
           diagnostics,
           concurrencySlot,
+          registerEvidence: (getEvents, getUsage) => {
+            liveEvents = getEvents;
+            liveUsage = getUsage;
+          },
+          registerLedger: (ledger) => {
+            liveLedger = ledger;
+          },
         }),
       );
 
@@ -453,7 +504,20 @@ export function runAttemptEffect(
           ...(rest.trim() !== "" ? { stack: rest } : {}),
         };
         recorder.failCurrent();
-        return { ...base, durationMs: Date.now() - t0, error };
+        // 置位给下面新增的 finalizer 用(它在 Scope release 里跑,LIFO 早于 sandbox stop,
+        // 补折叠 workspace.diff / sources——见该 finalizer 的注释)。events/usage 不必等它:
+        // SessionManager 是外层已经登记过的活引用(见 liveEvents/liveUsage),截至这一刻已经
+        // 归一化的事件与已累计的用量此刻就能直接读出,不随放弃的 body fiber 一起消失。
+        timedOut = true;
+        const events = liveEvents?.();
+        const usage = liveUsage?.();
+        return {
+          ...base,
+          durationMs: Date.now() - t0,
+          error,
+          ...(events !== undefined ? { events: [...events], o11y: buildO11ySummary(events) } : {}),
+          ...(usage !== undefined ? { usage: { ...usage } } : {}),
+        };
       },
     }),
     // body 自己已兜了 agent 执行错;这里兜的是资源获取 / Scope 层的意外(起沙箱失败等)。
@@ -469,10 +533,19 @@ export function runAttemptEffect(
           }),
     ),
     // 结果封口在 Scope release 完成之后:sandbox.stop 已由 finalizer 写进 recorder,
-    // 这里把完整的阶段计时挂到即将交还的结果上(timeout / scope 兜底分支同样带上)。
+    // 这里把完整的阶段计时挂到即将交还的结果上(timeout / scope 兜底分支同样带上)。超时路径
+    // 额外把上面那个 finalizer 折叠出的 workspace.diff / sources 并进来——它俩是异步产出,
+    // 必须等 Scope release(本 map 之前的所有 finalizer)跑完才有值,不能在 onTimeout 的同步
+    // 回调里就地给,原理与 phases 完全一致(见该 finalizer 与 onTimeout 的注释)。
     Effect.map((r: EvalResult): EvalResult => {
       const phases = recorder.finalize();
-      return phases ? { ...r, phases } : r;
+      const withPhases = phases ? { ...r, phases } : r;
+      if (!timedOut) return withPhases;
+      return {
+        ...withPhases,
+        ...(timeoutDiff !== undefined ? { diff: timeoutDiff } : {}),
+        sources: timeoutSources ?? [],
+      };
     }),
   );
 }
@@ -521,6 +594,11 @@ interface AttemptResources {
   diagnostics: DiagnosticRecord[];
   /** turn 级重试退避期间释放/收回的全局并发槽位;透传给 createEvalContext。 */
   concurrencySlot?: ConcurrencySlot;
+  /** SessionManager 一建好就登记事件/用量的读取句柄回外层(超时证据保全用,见
+   *  runAttemptEffect 顶部 liveEvents/liveUsage 的注释与 docs/runner.md「超时:双层保护」)。 */
+  registerEvidence: (getEvents: () => readonly StreamEvent[], getUsage: () => Usage) => void;
+  /** 变更分类账一建好(workspace.baseline 阶段)就登记回外层(超时收尾段折叠 workspace.diff 用)。 */
+  registerLedger: (ledger: ChangeLedger) => void;
 }
 
 // attempt 的固定段(上传→基线→setup→驱动 agent→采 diff→脚本→评分→判定)。
@@ -550,6 +628,8 @@ async function runAttemptBody(
     feedback,
     diagnostics,
     concurrencySlot,
+    registerEvidence,
+    registerLedger,
   } = res;
   const usesSandbox = run.agent.kind === "sandbox";
   // 命令时间树:所有经这个包装 sandbox 发出的 runCommand/runShell 都挂成当前阶段(或当前 hook
@@ -635,6 +715,8 @@ async function runAttemptBody(
       // 变更分类账锚点:私有 git ledger(git 目录在 workdir 外),排除清单在此冻结。
       enterPhase("workspace.baseline");
       ledger = await createChangeLedger(sandbox, evalDef.diff);
+      // 登记回外层:超时收尾段折叠 workspace.diff 要用同一份 ledger(见 registerLedger 注释)。
+      registerLedger(ledger);
 
       // eval 级 setup(starter prep:npm install / 装系统依赖等)。命令默认非 root;
       // setup 里需要 root 的(apt/pip)自己传 { root: true }。时点在此走到——
@@ -733,6 +815,9 @@ async function runAttemptBody(
           ...(info.traceAttribution !== undefined ? { traceAttribution: info.traceAttribution } : {}),
         }),
     });
+    // 登记回外层:超时中断后由 onTimeout 直接读这两个句柄组装 events/usage(见
+    // registerEvidence 注释、docs/runner.md「超时:双层保护」超时不丢证据)。
+    registerEvidence(() => state.manager.allEvents, () => state.manager.usage);
 
     let error: AttemptError | undefined;
     let skipReason: string | undefined;

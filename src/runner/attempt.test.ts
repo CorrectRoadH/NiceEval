@@ -6,7 +6,7 @@
 // 怎么办」这段编排逻辑,不是 adapter 侧的 manifest 构造规则(那部分已在 agents/skills.test.ts
 // 覆盖)。
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Effect } from "effect";
 import { runAttemptEffect } from "./attempt.ts";
 import { defineSandboxAgent, defineSandbox } from "../define.ts";
@@ -78,11 +78,16 @@ const source: CapturedEvalSource = { path: "fake.eval.ts", content: "", sha256: 
 /** 跑一次 attempt:给定 agent,返回 EvalResult。沙箱用内存 fake,不起容器/不联网。
  *  可选 `evalDefOverrides` 覆盖默认 evalDef 的字段(如挂一个 `setup`);可选 `onPhase` 透传给
  *  `runAttemptEffect` 的第五个参数,原样转发 attempt.ts 的 enterPhase 边界(见下方
- *  onPhase 回调专用的 describe 块)。 */
+ *  onPhase 回调专用的 describe 块);可选 `timeoutMs` 覆盖默认的 5s 外层超时(超时证据保全
+ *  测试专用,见下方专用 describe 块)。 */
 async function runOnce(
   agent: Agent,
   box: FakeSandbox,
-  opts: { evalDefOverrides?: Partial<DiscoveredEval>; onPhase?: (phase: LifecyclePhase) => void } = {},
+  opts: {
+    evalDefOverrides?: Partial<DiscoveredEval>;
+    onPhase?: (phase: LifecyclePhase) => void;
+    timeoutMs?: number;
+  } = {},
 ): Promise<import("../types.ts").EvalResult> {
   const evalDef: DiscoveredEval = {
     id: "fake/eval",
@@ -99,7 +104,7 @@ async function runOnce(
     earlyExit: true,
     // 自定义 provider:create() 直接返回内存 fake,绕开真实沙箱 provider。
     sandbox: defineSandbox({ name: "fake-provider", create: async () => asSandbox(box) }),
-    timeoutMs: 5_000,
+    timeoutMs: opts.timeoutMs ?? 5_000,
     selectedEvalIds: [evalDef.id],
   };
   const attempt: Attempt = { evalDef, run, attempt: 0, key: "fake/eval", fingerprint: "" };
@@ -452,5 +457,165 @@ describe("runAttemptEffect · 计分制(scoring:\"points\")的挣分落盘", () 
     expect(result.verdict).toBe("passed");
     expect(result.assertions.map((a) => a.severity)).toEqual(["soft", "soft"]);
     expect(result.assertions[0]).toMatchObject({ outcome: "failed", points: 0 });
+  });
+});
+
+// cases: docs/engineering/testing/unit/experiments-runner.md「超时、缓存与指纹」超时证据保全
+// bug: memory/timeout-evidence-carry-censoring-ruling.md
+// 契约: docs/runner.md「超时:双层保护」超时不丢证据 —— 中断终止的是「继续执行」,不撤销
+// 「已经观察到的事实」。fixture 让第一轮 send 正常完成(留下真实事件/usage),第二轮永远挂起
+// (never-resolving promise),外层 timeoutMs 到点后 Effect 中断整段 body:下面分别验证
+// events/usage/diff/error.phase 取的是「中断前已收的证据」,而不是从 attempt 开始时的空壳
+// base 重建(区分「空壳重建」与「真保全」的关键在于第一轮的事件/usage 是否被观测到)。
+describe("runAttemptEffect · 超时证据保全(超时不丢证据,不是从空壳重建)", () => {
+  it("中断前已发生的 events/usage 保留;usage 是部分累计值;error.phase 是中断时打开的阶段", async () => {
+    vi.useFakeTimers();
+    try {
+      let sendCalls = 0;
+      const agent = defineSandboxAgent({
+        name: "fake-agent-timeout",
+        send: async () => {
+          sendCalls += 1;
+          if (sendCalls === 1) {
+            return {
+              status: "completed" as const,
+              events: [{ type: "message" as const, role: "assistant" as const, text: "first turn done" }],
+              usage: { inputTokens: 10, outputTokens: 5 },
+            };
+          }
+          // 第二轮永远不返回:模拟 agent 卡死,只能靠外层 timeoutMs 中断。
+          return await new Promise<never>(() => {});
+        },
+      });
+
+      const box = new FakeSandbox();
+      const resultPromise = runOnce(agent, box, {
+        timeoutMs: 5_000,
+        evalDefOverrides: {
+          test: async (t) => {
+            await t.send("go");
+            await t.send("go again"); // 挂起在这里,直到外层超时打断
+          },
+        },
+      });
+
+      // 等第二轮真正发起(第一轮已完成、事件已经进了 SessionManager)再推进虚拟时钟,
+      // 确保断言的是「中断前已收到的证据」,不是撞上一个还没来得及产生任何事件的空 attempt。
+      await vi.waitFor(() => expect(sendCalls).toBe(2));
+      await vi.advanceTimersByTimeAsync(5_100);
+      const result = await resultPromise;
+
+      expect(result.verdict).toBe("errored");
+      expect(result.error?.code).toBe("timeout");
+      // 中断发生在第二轮 send 在飞时,phase 归因到嵌套的 agent.run(不是顶层 eval.run)。
+      expect(result.error?.phase).toBe("agent.run");
+
+      // 核心断言:events 非空且确实是第一轮的真实事件,不是空壳重建(base 从不带 events)。
+      expect(result.events).toBeDefined();
+      expect(result.events!.length).toBeGreaterThan(0);
+      expect(result.events!.some((e) => e.type === "message" && e.role === "assistant" && e.text === "first turn done")).toBe(
+        true,
+      );
+
+      // usage 是已累计轮次的如实值(第一轮的 10/5,不是 0,也不是被后续未完成轮次污染)。
+      expect(result.usage).toEqual({ inputTokens: 10, outputTokens: 5 });
+
+      // sources 照常折叠(即使这份 fixture 的事件不带 loc,字段本身也不能被超时路径漏掉)。
+      expect(result.sources).toBeDefined();
+      expect(Array.isArray(result.sources)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("沙箱型 attempt 超时:收尾段在 teardown 链前补折叠一次 workspace.diff(diff 字段存在)", async () => {
+    vi.useFakeTimers();
+    try {
+      let sendCalls = 0;
+      const agent = defineSandboxAgent({
+        name: "fake-agent-timeout-diff",
+        send: async () => {
+          sendCalls += 1;
+          if (sendCalls === 1) {
+            return { status: "completed" as const, events: [], usage: { inputTokens: 1, outputTokens: 1 } };
+          }
+          return await new Promise<never>(() => {});
+        },
+      });
+
+      const box = new FakeSandbox();
+      const resultPromise = runOnce(agent, box, {
+        timeoutMs: 5_000,
+        evalDefOverrides: {
+          test: async (t) => {
+            await t.send("go");
+            await t.send("go again");
+          },
+        },
+      });
+
+      await vi.waitFor(() => expect(sendCalls).toBe(2));
+      await vi.advanceTimersByTimeAsync(5_100);
+      const result = await resultPromise;
+
+      expect(result.error?.code).toBe("timeout");
+      // diff 字段存在(数组,即便当前 fake 沙箱没有真实 git 状态导致内容为空)——「存在」
+      // 而非 undefined 是关键:undefined 才是「沙箱不可用/没走到 workspace.baseline」的如实缺失。
+      expect(result.diff).toBeDefined();
+      expect(Array.isArray(result.diff)).toBe(true);
+      // 补折叠的耗时进了收尾段 phases,不计入主链 durationMs 口径。
+      expect(result.phases?.some((p) => p.name === "workspace.diff")).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("超时发生在 SandboxSpec.setup 钩子挂起时(从未建立 ledger/session):events/usage/diff 如实缺失,不是伪造空值", async () => {
+    vi.useFakeTimers();
+    try {
+      const agent = defineSandboxAgent({
+        name: "fake-agent-early-timeout",
+        send: async () => await new Promise<never>(() => {}),
+      });
+
+      const box = new FakeSandbox();
+      // sandbox.create() 立即成功(内存 fake),但 SandboxSpec.setup 钩子永远不返回:
+      // 超时发生在 workspace.baseline 之前,SessionManager/ledger 都还没建立,
+      // liveEvents/liveLedger 从未登记过(registerEvidence/registerLedger 都没被调用)。
+      const sandboxSpec = defineSandbox({ name: "fake-provider-hang-setup", create: async () => asSandbox(box) }).setup(
+        async () => await new Promise<never>(() => {}),
+      );
+      const run: AgentRun = {
+        agent,
+        flags: {},
+        runs: 1,
+        earlyExit: true,
+        sandbox: sandboxSpec,
+        timeoutMs: 5_000,
+        selectedEvalIds: ["fake/eval"],
+      };
+      const evalDef: DiscoveredEval = {
+        id: "fake/eval",
+        baseDir: "/project",
+        sourcePath: "/project/fake.eval.ts",
+        source,
+        test: () => {},
+      };
+      const attempt: Attempt = { evalDef, run, attempt: 0, key: "fake/eval", fingerprint: "" };
+      const config: Config = {};
+      const runOpts: RunOptions = { config, evals: [evalDef], agentRuns: [run], reporters: [], maxConcurrency: 1 };
+      const sandboxSem = Effect.runSync(Effect.makeSemaphore(1));
+
+      const resultPromise = Effect.runPromise(runAttemptEffect(attempt, runOpts, sandboxSem, {}));
+      await vi.advanceTimersByTimeAsync(5_100);
+      const result = await resultPromise;
+
+      expect(result.error?.code).toBe("timeout");
+      expect(result.events).toBeUndefined();
+      expect(result.usage).toBeUndefined();
+      expect(result.diff).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

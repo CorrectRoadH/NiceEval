@@ -289,7 +289,8 @@ export const TIMELINE_CLOSING_PHASES: ReadonlySet<string> = new Set([
 export function attemptTimelineData(evidence: AttemptEvidence): AttemptTimelineData | null {
   const phases = evidence.result.phases;
   if (!phases || phases.length === 0) return null;
-  return { locator: evidence.locator, phases, trace: evidence.trace };
+  const timedOut = evidence.result.error?.code === "timeout";
+  return { locator: evidence.locator, phases, trace: evidence.trace, ...(timedOut ? { timedOut: true as const } : {}) };
 }
 
 // ───────────────────────── AttemptConversation ─────────────────────────
