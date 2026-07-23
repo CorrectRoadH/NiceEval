@@ -19,7 +19,12 @@
 
 ## 调度:有界并发
 
-核心调度用 `Effect.forEach({ concurrency: "unbounded" })` + **两级并发闸**实现:每个 attempt 立刻有自己的 fiber,但执行体要先过实验级闸(`ExperimentDef.maxConcurrency`,可选,先来后到)、再拿到全局并发位(全局 `maxConcurrency`,空位按瓶颈优先分配,纪律见[下一节](#派发顺序瓶颈优先追求最小总墙钟时间))才真正开跑。实验级闸只让该实验自己的 attempt 排队,同批其它实验照常并发——串行化有共享状态的实验(如跨 eval 累积记忆,`maxConcurrency: 1`)不再拖慢整批基线。报告回调走 **permit=1 的信号量串行化**,不阻塞执行 fiber。结果最后按**发现顺序**排序(而非完成顺序),让输出稳定可 diff。
+核心调度用 `Effect.forEach({ concurrency: "unbounded" })` + **两级并发闸**实现:每个 attempt 立刻有自己的 fiber,但执行体要先过实验级闸(`ExperimentDef.maxConcurrency`,可选,先来后到)、再拿到全局并发位(全局 `maxConcurrency`,空位按瓶颈优先分配,纪律见[下一节](#派发顺序瓶颈优先追求最小总墙钟时间))才真正开跑。两级闸按**持有期**分工,这也是各自的用途边界:
+
+- **全局并发位管吞吐**:只在 attempt 真正执行时占用,内部等待——turn 重试的退避睡眠(见[执行错误分类 · 退避与槽位](feature/error-classification/architecture.md#退避与槽位))、等待实验级 `setup`——都把名额让给别的 attempt。它是纯调度参数,不承诺任何互斥语义。
+- **实验级闸管正确性与本实验自己的节奏**:名额与 attempt **同生命周期**——从进入 attempt(先于沙箱创建与 `sandbox.setup` 链)持有到收尾完成(`teardown` 链、沙箱销毁)之后才归还,中途任何等待都不释放。实验级闸只让该实验自己的 attempt 排队,同批其它实验照常并发——串行化有共享状态的实验(如跨 eval 累积记忆)不拖慢整批基线,而 `maxConcurrency: 1` 是严格的临界区保证:上一个 attempt 的回存收尾没跑完,下一个 attempt 的载入不会开始。
+
+报告回调走 **permit=1 的信号量串行化**,不阻塞执行 fiber。结果最后按**发现顺序**排序(而非完成顺序),让输出稳定可 diff。
 
 全局并发上限来源:`--max-concurrency` → 配置 `maxConcurrency` → **该沙箱 provider 的推荐默认值**。推荐值反映的是 **provider 侧**约束(daemon 容量、API 配额、session 池大小),不是你的 agent API 限速——后者自己用 `--max-concurrency` 压。「云的就能开大」这个直觉是错的:`docker` 10(本地 daemon 建容器有开销)、`e2b` 20(账户配额的保守估计)、**`vercel` 1**(sandbox session 并发限制严,再高就 429)、`local` 1,自定义 provider 取它自己声明的 `recommendedConcurrency`(省略则 5)。实验文件里的 `maxConcurrency` 不参与这条全局解析,只在该实验内部限流。
 

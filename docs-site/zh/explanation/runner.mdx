@@ -58,7 +58,7 @@ npx niceeval exp local fixtures/button --runs 5 --early-exit
 
 ## Turn 瞬时错误重试
 
-限流、连接建立失败这类瞬时错误，NiceEval 会在同一个 Turn 里自动做有限次数的指数退避重试，不需要你重跑整个实验；等待重试的 Attempt 会让出并发名额给别的 Attempt。只有能确认 Agent 还没开始处理这次输入的错误才会重试——请求已经开始、中途断流的情况不重试，直接记为 `errored`，避免 Agent 把已经做过的操作再做一遍。重试用尽仍失败时，该 Attempt 记为 `errored`，下次运行照常重试（见上面的缓存规则）。
+限流、连接建立失败这类瞬时错误，NiceEval 会在同一个 Turn 里自动做有限次数的指数退避重试，不需要你重跑整个实验；等待重试的 Attempt 会把全局并发名额让给别的 Attempt，但实验自己的 `maxConcurrency` 名额不让——声明了 `maxConcurrency: 1` 的串行实验在退避期间也不会有第二个 Attempt 提前进场。只有能确认 Agent 还没开始处理这次输入的错误才会重试——请求已经开始、中途断流的情况不重试，直接记为 `errored`，避免 Agent 把已经做过的操作再做一遍。重试用尽仍失败时，该 Attempt 记为 `errored`，下次运行照常重试（见上面的缓存规则）。
 
 ## 超时和预算
 

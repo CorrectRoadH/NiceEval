@@ -28,7 +28,7 @@ ExperimentDef(运行配置 + 实验级 setup 钩子,experiments/ 下一文件一
 
 experiment 影响调度的字段就四个，语义单点在 [Runner](../../runner.md)：
 
-- `maxConcurrency` —— 实验私有信号量，先过它再占全局并发位；串行化共享状态实验或给撞限额的实验单独降速。
+- `maxConcurrency` —— 实验私有信号量，先过它再占全局并发位；名额与 attempt 同生命周期（沙箱创建到销毁全程持有，turn 退避等内部等待不释放），串行化共享状态实验或给撞限额的实验单独降速。
 - `earlyExit` —— 只由 `passed` 触发的首过即停；`errored` 不中止其余样本，确定性错误走 run 级 fail-fast（见 [Runner · 首过即停](../../runner.md#首过即停earlyexit)）。
 - `budget` —— 按已完成 attempt 实测花费停止派发的安全网。
 - `timeoutMs` —— 单 attempt 外层超时。
