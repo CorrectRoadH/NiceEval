@@ -322,8 +322,8 @@ interface ScopedFeedback {
 }
 ```
 
-- `progress(...)` 表达**此刻正在做什么**,例如下载 3/8、恢复缓存或等待 agent 完成一轮。它是短命状态:Human profile 更新 active 行的次要文本(attempt 级回调更新该 attempt 的行,实验级钩子更新该实验的运行级行,见 [CLI · 实验级钩子的显示](cli.md#实验级钩子的显示)),Agent/CI profile 不逐条打印,也不进入最终结果。
-- `diagnostic(...)` 表达**运行结束后仍应保留的问题**,例如退化到备用缓存、provider 返回异常响应或 transcript 不完整。它进入 Human、Agent、CI 的永久事件流;`dedupeKey` 用于并发 attempt 产生同一问题时去重。
+- `progress(...)` 表达**此刻正在做什么**,例如下载 3/8、恢复缓存或等待 agent 完成一轮。它是短命状态:人读文本的 live 面板更新 active 行的次要文本(attempt 级回调更新该 attempt 的行,实验级钩子更新该实验的运行级行,见 [CLI · 实验级钩子的显示](cli.md#实验级钩子的显示)),非 TTY 文本与 `--json` 不逐条打印,也不进入最终结果。
+- `diagnostic(...)` 表达**运行结束后仍应保留的问题**,例如退化到备用缓存、provider 返回异常响应或 transcript 不完整。它进入两种输出形态的永久事件流;`dedupeKey` 用于并发 attempt 产生同一问题时去重。
 - 两个方法都不接受 `phase`、`scope`、颜色、输出流或 ANSI。runner 已经知道当前回调属于 `sandbox.setup`、`eval.run` 还是 `agent.run`,并据此决定 Human active 行显示的正式阶段。
 - 两个方法都不改变执行结论。要让 setup/attempt 进入 `errored`,抛出异常;要让 eval 判定失败,使用 `t.check` / `t.require` / gate 断言。`diagnostic({ level: "error" })` 只表示一条需要永久保留的错误诊断。
 

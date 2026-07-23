@@ -53,7 +53,7 @@ export default defineAgent({
 
 `progress` 是可覆盖的短期 activity,适合 turn、tool 或安装进度;不要每个 token/delta 都调用。`diagnostic` 是永久 warning/error,适合协议降级、数据不完整和 cleanup 问题。两者都不能指定 phase、输出流或 ANSI,也不会改变 `Turn.status`/verdict。无法继续时抛异常;被测 agent 正常返回失败时通过 `Turn.status: "failed"` 表达。
 
-不要在 run 期间直接调用 `console.log/error` 或写 `process.stdout/stderr`:这会打散 Human dashboard,也会破坏 CI 的单一有序事件流。终端 profile 如何消费反馈见 [Experiments · 生命周期代码怎样向这次运行反馈](../experiments/library.md#生命周期代码怎样向这次运行反馈)。
+不要在 run 期间直接调用 `console.log/error` 或写 `process.stdout/stderr`:这会打散 Human dashboard,也会破坏非交互输出(非 TTY 人读文本与 `--json`)的单一有序流。反馈怎样被两种输出形态消费见 [Experiments · 生命周期代码怎样向这次运行反馈](../experiments/library.md#生命周期代码怎样向这次运行反馈)。
 
 ## Sandbox Agent
 

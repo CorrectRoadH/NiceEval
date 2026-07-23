@@ -13,3 +13,5 @@
 - `--json` 同时保留 `<path>` 取值(布尔/路径双形态)——否决:`--json foo` 与 eval 前缀位置参数歧义;聚合文件本身冗余——`show --json` 或流重定向信息都更全,唯一的运行期独占事实(completion)已进 `result` 事件。
 - auto 档 / CI 环境变量嗅探——随三档一起消失:非交互只有一个人读降级形态,没有第二档可供环境标记区分;机器面永远显式 opt-in,不靠环境猜。
 - 失败风暴 suppression 应用到机器面——否决:上限是人的注意力保护,机器逐事件消费,截断反而是信息损失。
+
+**补充裁决(2026-07-23,同日评审)**:非 TTY 人读文本与 `--json` 同规则走单一 stdout 有序流,stderr 只留启动期用法/配置错误;TTY 人读保持 stderr live 面板 + stdout 最终摘要(同一终端设备按写入序交错,无跨流乱序问题)。起因=三档删除稿把「两个 OS stream 被 CI runner 分开缓冲会乱序」的论据只留给了 `--json`,而 CI 日志页(非 TTY 人读)沿用「永久事件走 stderr、摘要走 stdout」的 TTY 边界,回到了旧 ci 档明文要避免的双流乱序;论据保留、结论丢失。同批修掉的还有:observability.md 的 `Json(path)` 仍挂着已删除的 `--json <path>` 接线、early-exit.md 残留 `NICEEVAL` 方言示例、五处 profile 术语残留、exp cli.md 机器面示例 `error` 事件与 `errored:0` 计数矛盾。

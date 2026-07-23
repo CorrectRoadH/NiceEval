@@ -46,7 +46,7 @@ interface LeaderboardJson {
     experimentId: string;
     agent: string;
     model?: string;
-    /** SnapshotMeta.facts 的原样转发。 */
+    /** 该 experiment 现刻水位来源快照(去重「保留最新快照」同一口径)的 SnapshotMeta.facts 原样转发。 */
     facts?: Record<string, string | number | boolean>;
     summary: {
       selectedEvalIds: string[];

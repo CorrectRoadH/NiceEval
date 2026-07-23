@@ -302,7 +302,7 @@ CI 的最终结论(退出码、`result` 事件)必须读当场的 `InvocationCom
 ## 相关阅读
 
 - [Architecture](architecture.md) —— 运行器在四段数据流里的位置与端到端时序。
-- [Experiments · CLI 反馈模型](feature/experiments/cli.md) —— human / log 两种 profile 怎样展示这篇讲的调度、预算与完成状态。
+- [Experiments · CLI 反馈模型](feature/experiments/cli.md) —— 人读文本与 `--json` 两种输出形态怎样展示这篇讲的调度、预算与完成状态。
 - [CLI](cli.md) —— `exp` 怎么把这些调度行为接进 Effect 核心与反馈 coordinator。
 - [Sandbox](feature/sandbox/README.md) —— 预热与复用的 provider 支持,以及环境预置放哪。
 - [Observability](observability.md) —— 运行器产出的 artifact 与报告。

@@ -145,10 +145,11 @@ phase 是 runner 对真实 lifecycle 的单方面投影,不是 adapter、sandbox
 
 | 形态 | `stderr` | `stdout` |
 |---|---|---|
-| 人读文本 | 计划、永久事件、live 面板 | 最终摘要与结果路径 |
-| `--json` | 仅 CLI 无法启动时的用法/配置错误 | 从 `start` 到 `result` 的单一有序事件流 |
+| 人读文本(TTY) | 计划、永久事件、live 面板 | 最终摘要与结果路径 |
+| 人读文本(非 TTY) | 仅启动期用法/配置错误 | 从 start 行到结束摘要的单一有序追加流 |
+| `--json` | 仅启动期用法/配置错误 | 从 `start` 到 `result` 的单一有序事件流 |
 
-`--json` 不把普通 failure 分流到 `stderr`:两个 OS stream 被 CI runner 或 agent 工具层分开缓冲时会打乱顺序,单流才能保证事件序就是发生序。只有连形态都没能确定的 argv、配置加载错误走 `stderr`(恒为人读的 `error:` + `fix:` 两行,见[错误与警告反馈](../../error-feedback.md);机器此时靠非零退出码)。
+非交互流(非 TTY 人读文本与 `--json`)不把普通 failure 分流到 `stderr`:两个 OS stream 被 CI runner 或 agent 工具层分开缓冲时会打乱顺序,单流才能保证事件序就是发生序——CI 日志页上失败行与结束摘要因此永远按发生序出现。TTY 人读不受此约束:同一终端设备按写入序交错呈现两个流,live 面板留在 `stderr`,`stdout` 被重定向时仍只拿到最终摘要。只有连形态都没能确定的 argv、配置加载错误走 `stderr`(恒为人读的 `error:` + `fix:` 两行,见[错误与警告反馈](../../error-feedback.md);机器此时靠非零退出码)。
 
 非 TTY 的人读文本使用 human 文案和 human 最终摘要,但运行中退化为“start 一次 + 永久事件 + 空闲 30 秒心跳”的追加流。它不输出 active attempt 的每次阶段变化。
 
@@ -384,7 +385,7 @@ niceeval show @17m2k9pq --execution --diff
 一切非交互解析者——coding agent、CI annotation adapter、脚本——共用 `--json`:stdout 上单一有序的 NDJSON 事件流,一行一个 JSON 对象。词法就是 JSON,没有自造 envelope 语法要学;权威接口是退出码、事件里的 locator 与快照,运行结束后的深读一律走 [`niceeval show`](../reports/show.md)(text 或 `--json`)。
 
 ```sh
-niceeval exp compare memory/commit0 --json
+niceeval exp compare --json
 ```
 
 首行是携带流身份的 `start` 事件;之后只有失败、错误或去重后的 warning 立即追加;若连续 30 秒没有这些永久事件,才追加一条 `progress` 心跳。普通状态变化和 attempt 日志不产生事件:
@@ -395,7 +396,7 @@ niceeval exp compare memory/commit0 --json
 {"event":"failure","locator":"@1bwcxxiy","evalId":"memory/swelancer-manager-15193","experimentId":"compare/claude","severity":"gate","assertion":"Issue 15193: selected proposal matches the accepted proposal","matcher":"equals(4)","expected":4,"received":3}
 {"event":"error","locator":"@12h8m4k1","evalId":"memory/agent-029-use-cache","experimentId":"compare/claude-e2b","phase":"sandbox.create","reason":"E2B sandbox allocation failed after 5 attempts"}
 {"event":"eval","locator":"@12p9k4mz","evalId":"memory/commit0-cachetool","experimentId":"compare/bub-e2b","verdict":"passed","attempts":3,"passed":2}
-{"event":"result","status":"failed","passed":23,"failed":1,"errored":0,"reused":18,"completion":"complete","snapshots":[".niceeval/compare/bub-e2b/<snapshot>"],"junit":".niceeval/junit.xml"}
+{"event":"result","status":"failed","passed":22,"failed":1,"errored":1,"reused":18,"completion":"complete","snapshots":[".niceeval/compare/bub-e2b/<snapshot>",".niceeval/compare/claude/<snapshot>",".niceeval/compare/claude-e2b/<snapshot>"]}
 ```
 
 事件词表:`start` / `progress` / `failure` / `error` / `eval` / `kept` / `warning` / `budget_exhausted` / `reporter_error` / `interrupted` / `experiment_setup` / `experiment_teardown` / `result`。消费方按 `event` 字段分发,忽略未知事件与未知字段;`schemaVersion` 只在破坏性形状变更时递增。
@@ -409,16 +410,9 @@ niceeval exp compare memory/commit0 --json
 - reporter 写失败必须判红,因为消费方要求的结果文件缺失不能降级成普通 warning。
 - 进程退出码仍是第一层红绿信号,消费方不靠自然语言猜成功。
 
-配合 `--dry` 时输出单个 JSON 文档(计划是一次完成的读取,不是流):选中的 experiment × eval 矩阵与复用预测,形状同样复用 Results 词表。
+配合 `--dry` 时输出单个 JSON 文档(计划是一次完成的读取,不是流):选中的 experiment × eval 矩阵与复用预测,形状同样复用 Results 词表,顶层同样携带身份字段(`format: "niceeval.exp-plan"`、`schemaVersion`),与事件流的 `start` 事件可区分。
 
-退出码按 `(experiment, eval)` 的最终 verdict 折叠,两种形态同一套:
-
-```text
-0    所有组合通过,且运行完整覆盖了计划(complete)
-1    至少一个组合 failed / errored;或 budget 未覆盖全部计划(incomplete);或要求的 reporter 写失败
-2    CLI / runner 未捕获崩溃
-130  用户或平台中断(interrupted)
-```
+退出码按 `(experiment, eval)` 的最终 verdict 折叠,两种形态同一套——`0` 全部通过且覆盖完整(complete)、`1` 有 failed / errored 或 incomplete 或 required reporter 写失败、`2` 未捕获崩溃、`130` 中断;语义单源在 [Runner · 退出码](../../runner.md#退出码)。
 
 ### AI 常见循环
 

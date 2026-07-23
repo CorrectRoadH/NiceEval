@@ -36,9 +36,9 @@ process.argv
       exp   → loadConfig + discoverEvals + discoverExperiments
               → 展开成 AgentRun[](每个 experiment 一条,--agent/--model 在此处直接拒绝)
               → 解析输出形态(resolveOutputForm:`--json` 即机器面;否则人读文本,stderr TTY 决定 live 面板还是追加流)
-              → --dry 时按解析出的 profile 调对应 plan renderer 打印预览,不调用 agent、不建 reporters
+              → --dry 时按解析出的形态调对应 plan renderer 打印预览(人读文本或 `--json` 单文档),不调用 agent、不建 reporters
               → 规划携带(planCarry,读上次结果决定哪些 (experiment, eval) 可跳过;算出的 reusedByExperiment
-                同时喂给 RunFeedbackPlan 与 runEvals,dashboard/envelope 的"携入"展示与真实调度共用同一次判断)
+                同时喂给 RunFeedbackPlan 与 runEvals,dashboard/事件流的"携入"展示与真实调度共用同一次判断)
               → 建对应形态的 renderer(human / json 二选一)+ 一个 FeedbackCoordinator,
                 coordinator.start(plan) —— run 激活后终端只有这一个协调者(见下「反馈 coordinator」)
               → 建 reporters(ReporterRegistration[]):默认 Artifacts 与显式 --json/--junit 标 required,

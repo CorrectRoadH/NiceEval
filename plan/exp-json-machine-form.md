@@ -18,7 +18,7 @@
   - [ ] A3. exp 的 JSON 聚合文件出口移除(`Json(path)` 保留为库 reporter);`--junit` 不动
 - [ ] **B. renderer 合并**(依赖 A)
   - [ ] B1. `src/runner/feedback/{agent,ci}.ts` 合并为 `json.ts`:NDJSON 单 stdout 流、首行 `start` 带 `format`/`schemaVersion`、字段名复用 Results 词表、失败无 suppression、心跳 30s、`result` 收尾(completion/快照/junit 路径);`computeCiExitCode` 更名 `computeExitCode`
-  - [ ] B2. 非 TTY human 追加流成为无 flag 默认的机检确认(既有行为,补断言);人读失败展开上限 10
+  - [ ] B2. 非 TTY human 追加流成为无 flag 默认;流路由按补充裁决改为单一 stdout(stderr 只留启动期错误,新行为,补实现与断言);人读失败展开上限 10
   - [ ] B3. kept / experiment_setup / eval 等事件按词表逐个接线;`--dry --json` 单文档
 - [ ] **C. 单测 + E2E**(依赖 B;只为已声明类别写测)
 - [ ] **D. 同步义务**

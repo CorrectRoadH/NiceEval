@@ -74,7 +74,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 
 ### 裁决
 
-- [exp-output-two-forms-ruling](exp-output-two-forms-ruling.md) — 裁决(2026-07-23):`--output` 三档删除,exp 对齐「人读文本 + --json」全 CLI 原则(非 TTY 人读降级流即 CI 日志,--json=NDJSON,自造 NICEEVAL/niceeval: 方言与 --json <path> 聚合文件一并删);否决中间稿 human/log 两档(半人半机才需要自造词法);起因=show --json 定稿后 agent 档只剩参数差
+- [exp-output-two-forms-ruling](exp-output-two-forms-ruling.md) — 裁决(2026-07-23):`--output` 三档删除,exp 对齐「人读文本 + --json」全 CLI 原则(非 TTY 人读降级流即 CI 日志,--json=NDJSON,自造 NICEEVAL/niceeval: 方言与 --json <path> 聚合文件一并删);否决中间稿 human/log 两档(半人半机才需要自造词法);起因=show --json 定稿后 agent 档只剩参数差;补充裁决同日:非 TTY 人读整流单一 stdout 保序,CI 日志不回双流乱序
 - [turn-error-binary-retryable-open-reason](turn-error-binary-retryable-open-reason.md) — 裁决(2026-07-22):turn 失败分类改判别联合 `{retryable, reason?}`——二分决策轴 + 开放 reason 词表,推翻同日封闭三词枚举 `rate_limit|network|unknown`;同场加 attempt 级总重试上限(8 次)与 send 级封顶(4 次)叠成两层预算
 - [external-review-round2-rulings](external-review-round2-rulings.md) — 设计裁决:第二轮外部评审翻案清单(2026-07-14)——coverage 省略=unknown、AssertionResult 判别联合、redact 必填、earlyExit 只认 passed、keep=failed|all、passRate 三拆、Selection 物化 attempts、ExperimentRunInfo 存 resolved
 - [dispatch-priority-binds-to-slot-grant](dispatch-priority-binds-to-slot-grant.md) — 裁决(2026-07-20):瓶颈优先绑在「全局并发位分配时刻」而非 fiber 创建顺序,空位给等待集中轮次最高者、不看谁先等;否决为 setup 中的瓶颈 run 预留名额(容量空转)、抢占在飞 attempt(成本不可回收)、削弱承诺(在最该生效的场景失效);根因是承诺句与「setup 不占并发位」组合不自洽的设计 bug,实现未走样

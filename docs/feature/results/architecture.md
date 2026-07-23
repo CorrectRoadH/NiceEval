@@ -222,7 +222,7 @@ interface AttemptRecord {
 /**
  * 生命周期词表——全仓唯一一套。
  * 计时(`phases[].name`)、错误归因(`error.phase`)、诊断归属(`diagnostics[].phase`)、
- * live 展示与 agent/ci envelope 的 `phase=` 都使用这同一个闭集,不存在第二套词表。
+ * live 展示与 `--json` 事件的 `phase` 字段都使用这同一个闭集,不存在第二套词表。
  * 实验级两员只用于归因(不属于任何单个 attempt,永不出现在 `phases[]` 计时里)。
  */
 type LifecyclePhase =

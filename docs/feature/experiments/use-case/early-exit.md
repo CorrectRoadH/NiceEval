@@ -13,10 +13,10 @@
    ```
 
 2. 语义只有一条:**`passed` 触发**。某条 eval 的一个 attempt 通过后,同 eval 还没开跑的其余轮次被中止,不计入分母;已经在飞的照常跑完、照常计入(契约见 [Runner · 首过即停](../../../runner.md#首过即停earlyexit))。
-3. `human` 下被省略的轮次直接从 `queued` 进 `completed`,live 面板计数始终自洽,不留永久 running;`agent` / `ci` 不伪造 skipped attempt,在 eval 级聚合行里给计数(见 [CLI · runs 与首过即停怎样展示](../cli.md#runs-与首过即停怎样展示)):
+3. 人读文本下被省略的轮次直接从 `queued` 进 `completed`,live 面板计数始终自洽,不留永久 running;`--json` 不伪造 skipped attempt,在题目级 `eval` 事件里给计数(见 [CLI · runs 与首过即停怎样展示](../cli.md#runs-与首过即停怎样展示)):
 
-   ```text
-   NICEEVAL eval locator=@12p9k4mz verdict=passed attempts=1 planned=3 unstarted=2 reason=early_exit
+   ```json
+   {"event":"eval","locator":"@12p9k4mz","evalId":"memory/commit0-cachetool","experimentId":"compare/bub-e2b","verdict":"passed","attempts":1,"planned":3,"unstarted":2,"reason":"early_exit"}
    ```
 
 4. 被省略的轮次计入完成状态的 `earlyExitUnstarted`,不进 `unstarted`——它是已知 verdict 下主动省下的成本,不是遗漏,不把结论拖成 `incomplete`(见 [Runner · 完成状态](../../../runner.md#完成状态))。
