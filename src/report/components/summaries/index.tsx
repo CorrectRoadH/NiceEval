@@ -6,9 +6,11 @@
 import { defineComponent, type ReportComponent } from "../../definition/tree.ts";
 import { Col } from "../../definition/primitives.tsx";
 import type { ReportInput, ScopeSummaryData, SeriesInput } from "../../model/types.ts";
+import type { Scope, Snapshot } from "../../../results/types.ts";
 import { resolveInput, seriesName } from "../../model/aggregate.ts";
 import { label } from "../../model/flag.ts";
-import { costUSD, endToEndPassRate } from "../../model/metrics.ts";
+import { costUSD, endToEndPassRate, totalScore } from "../../model/metrics.ts";
+import { scoringComposition } from "../../model/scoring.ts";
 import {
   cellProblem,
   isObject,
@@ -100,27 +102,88 @@ function resolveComparisonSeries(
 }
 
 /**
- * 内建报告的默认组合件:把同一个 input(缺省 ctx.scope)原样透传给 ScopeSummary、
- * 成本 × 端到端通过率的 MetricScatter 与 ExperimentList——组合本身不二次计算或过滤,
- * 也不导出自己的 data 形态;每个叶子组件按自己的公开契约取数,共享计算由 resolve 的
- * 「同引用 input + 深相等 spec」记忆化保证。
+ * 单个快照的题型:题型只在单个 experiment 内被强制统一,任一 attempt 就能代表整个快照;
+ * 零 attempt 的快照(或没有一个是 "points" 的)记 "pass",与「省略即通过制」的定义期默认一致。
  */
-export const ExperimentComparison = defineComponent<ExperimentComparisonProps>((props, ctx) => {
+function snapshotScoring(snapshot: Snapshot): "pass" | "points" {
+  return snapshot.attempts.some((a) => a.result.scoring === "points") ? "points" : "pass";
+}
+
+/**
+ * 按快照谓词筛 input,产出与原 input 同一"形状族"的 ReportInput:Scope 走它自己的
+ * filter(snapshots/attempts/coverage/warnings 一并同步收窄),裸 Snapshot[] 走
+ * Array.prototype.filter——两条分支的结果都可以原样喂给 MetricScatter / ExperimentList。
+ */
+function filterInputBySnapshot(input: ReportInput, predicate: (snapshot: Snapshot) => boolean): ReportInput {
+  if (Array.isArray(input)) return (input as readonly Snapshot[]).filter(predicate);
+  const scope = input as Scope;
+  return scope.filter(predicate);
+}
+
+/**
+ * 内建报告的默认组合件:把同一个 input(缺省 ctx.scope)原样透传给 ScopeSummary、
+ * 成本 × 主读数的 MetricScatter 与 ExperimentList——组合本身不二次计算或过滤,
+ * 也不导出自己的 data 形态;每个叶子组件按自己的公开契约取数,共享计算由 resolve 的
+ * 「同引用 input + 深相等 spec」记忆化保证。主读数按 scoringComposition(input) 切换:
+ * "pass" 用 endToEndPassRate、"points" 用 totalScore;"mixed" 按题型把 input 拆成两个
+ * 子 Scope,散点与 ExperimentList 每组各一份、各用各的主读数,ScopeSummary 始终是整个
+ * input 一份(docs/feature/reports/library/summaries.md「ExperimentComparison」)。
+ */
+export const ExperimentComparison = defineComponent<ExperimentComparisonProps>(async (props, ctx) => {
   const input = props.input ?? ctx.scope;
   const { series, connect } = resolveComparisonSeries(input, props);
+  const composition = await scoringComposition(input);
+
+  if (composition !== "mixed") {
+    const primary = composition === "points" ? totalScore : endToEndPassRate;
+    return (
+      <Col className={props.className}>
+        <ScopeSummary input={input} locale={props.locale} />
+        <MetricScatter
+          input={input}
+          points="experiment"
+          series={series}
+          connect={connect}
+          x={costUSD}
+          y={primary}
+          locale={props.locale}
+        />
+        <ExperimentList input={input} filter locale={props.locale} />
+      </Col>
+    );
+  }
+
+  // mixed:按题型拆成两个子 Scope,散点 + ExperimentList 各一份、各用各的主读数;
+  // series/connect 只从整个 input 解析一次,题型拆分与 series 归类正交,两组共用。
+  const passInput = filterInputBySnapshot(input, (snapshot) => snapshotScoring(snapshot) === "pass");
+  const pointsInput = filterInputBySnapshot(input, (snapshot) => snapshotScoring(snapshot) === "points");
   return (
     <Col className={props.className}>
       <ScopeSummary input={input} locale={props.locale} />
-      <MetricScatter
-        input={input}
-        points="experiment"
-        series={series}
-        connect={connect}
-        x={costUSD}
-        y={endToEndPassRate}
-        locale={props.locale}
-      />
-      <ExperimentList input={input} filter locale={props.locale} />
+      <Col>
+        <MetricScatter
+          input={passInput}
+          points="experiment"
+          series={series}
+          connect={connect}
+          x={costUSD}
+          y={endToEndPassRate}
+          locale={props.locale}
+        />
+        <ExperimentList input={passInput} filter locale={props.locale} />
+      </Col>
+      <Col>
+        <MetricScatter
+          input={pointsInput}
+          points="experiment"
+          series={series}
+          connect={connect}
+          x={costUSD}
+          y={totalScore}
+          locale={props.locale}
+        />
+        <ExperimentList input={pointsInput} filter locale={props.locale} />
+      </Col>
     </Col>
   );
 });
