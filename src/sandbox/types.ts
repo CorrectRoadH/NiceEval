@@ -75,6 +75,13 @@ export interface SandboxHookContext extends ScopedFeedback {
   readonly experimentId?: string;
   /** 本次 attempt 的中止信号。 */
   readonly signal: AbortSignal;
+  /**
+   * 第三条反馈通道:上报本次运行的中性环境观测,落进 `AttemptRecord.facts`。key 匹配
+   * `[a-z0-9._-]{1,64}`,value 是标量;同 key 后写覆盖先写,非法 key 或非标量 value 抛错。
+   * 不影响判定,不参与 verdict / 评分 / 指纹。形状与归属语义见
+   * docs/feature/results/architecture.md#facts运行事实。
+   */
+  fact(key: string, value: string | number | boolean): void;
 }
 
 /** 沙箱级生命周期钩子(`.setup()` / `.teardown()` 链式挂载);`setup` 不返回值——要把 `setup`

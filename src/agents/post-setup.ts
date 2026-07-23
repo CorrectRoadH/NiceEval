@@ -16,6 +16,7 @@ function narrowHookContext(ctx: AgentContext): SandboxHookContext {
     signal: ctx.signal,
     progress: (update) => ctx.progress(update),
     diagnostic: (input) => ctx.diagnostic(input),
+    fact: (key, value) => ctx.fact(key, value),
   };
 }
 

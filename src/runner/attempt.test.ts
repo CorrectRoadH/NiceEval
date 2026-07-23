@@ -1,4 +1,10 @@
 // cases: docs/engineering/testing/unit/experiments-runner.md
+//
+// ctx.fact() 的作用域归属单测在本文件末尾单独一个 describe 块:sandbox hook / eval.setup /
+// agent setup·send·teardown 上报的 fact 是否真的落进同一个 attempt 的 EvalResult.facts、
+// 同 key 后写覆盖先写、非法 key / 非标量 value 是否完整报错(见
+// docs/feature/results/architecture.md#facts运行事实)。
+//
 // 路径提升单测:agent.setup 写进沙箱 `__niceeval__/agent-setup.json` 的安装 manifest,
 // runAttemptEffect 在 setup 之后把它读出来、原样挂到 EvalResult.agentSetup(见
 // docs/feature/results/architecture.md「agent-setup.json」、src/agents/manifest.ts 的注释)。
@@ -617,5 +623,119 @@ describe("runAttemptEffect · 超时证据保全(超时不丢证据,不是从空
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+// cases: docs/engineering/testing/unit/experiments-runner.md「ctx.fact() 的作用域归属」
+describe("runAttemptEffect · ctx.fact() 的作用域归属落进 EvalResult.facts", () => {
+  it("sandbox hook / eval.setup / agent setup·send·teardown 上报的 fact 都落进同一个 attempt 的 facts;同一作用域内同 key 后写覆盖先写", async () => {
+    const box = new FakeSandbox();
+    const sandboxSpec = defineSandbox({ name: "fake-provider-facts", create: async () => asSandbox(box) })
+      .setup(async (_sandbox, ctx) => {
+        ctx.fact("sandbox.setup_ran", true);
+        ctx.fact("shared.key", "from-sandbox-hook");
+      })
+      .teardown(async (_sandbox, ctx) => {
+        ctx.fact("sandbox.teardown_ran", true);
+      });
+
+    const agent = defineSandboxAgent({
+      name: "fake-agent-facts",
+      setup: async (_sandbox, ctx) => {
+        ctx.fact("agent.setup_ran", true);
+        ctx.fact("shared.key", "from-agent-setup"); // 覆盖 sandbox hook 写的同 key(同一 attempt 作用域)
+      },
+      send: async (_input, ctx) => {
+        ctx.fact("shared.key", "from-send"); // 再次覆盖:最终值来自最后一次写
+        return { events: [], status: "completed" };
+      },
+      teardown: async (_sandbox, ctx) => {
+        ctx.fact("agent.teardown_ran", true);
+      },
+    });
+
+    const evalDef: DiscoveredEval = {
+      id: "fake/eval",
+      baseDir: "/project",
+      sourcePath: "/project/fake.eval.ts",
+      source,
+      setup: async (_sandbox, ctx) => {
+        ctx.fact("eval.setup_ran", true);
+      },
+      test: async (t) => {
+        await t.send("go");
+      },
+    };
+    const run: AgentRun = {
+      agent,
+      flags: {},
+      runs: 1,
+      earlyExit: true,
+      sandbox: sandboxSpec,
+      timeoutMs: 5_000,
+      selectedEvalIds: [evalDef.id],
+    };
+    const attempt: Attempt = { evalDef, run, attempt: 0, key: "fake/eval", fingerprint: "" };
+    const config: Config = {};
+    const runOpts: RunOptions = { config, evals: [evalDef], agentRuns: [run], reporters: [], maxConcurrency: 1 };
+    const sandboxSem = Effect.runSync(Effect.makeSemaphore(1));
+
+    const result = await Effect.runPromise(runAttemptEffect(attempt, runOpts, sandboxSem, {}));
+
+    expect(result.error).toBeUndefined();
+    expect(result.facts).toEqual({
+      "sandbox.setup_ran": true,
+      "eval.setup_ran": true,
+      "agent.setup_ran": true,
+      "shared.key": "from-send",
+      "agent.teardown_ran": true,
+      "sandbox.teardown_ran": true,
+    });
+  });
+
+  it("没有任何 ctx.fact() 调用时,EvalResult.facts 整个不出现(不是空对象)", async () => {
+    const agent = defineSandboxAgent({
+      name: "fake-agent-no-facts",
+      send: async () => ({ events: [], status: "completed" }),
+    });
+    const result = await runOnce(agent, new FakeSandbox());
+    expect(result.error).toBeUndefined();
+    expect(result.facts).toBeUndefined();
+  });
+
+  it("非法 key(不匹配 [a-z0-9._-]{1,64})抛错:attempt errored,错误信息带上具体 key", async () => {
+    const agent = defineSandboxAgent({
+      name: "fake-agent-bad-fact-key",
+      send: async () => ({ events: [], status: "completed" }),
+    });
+    const box = new FakeSandbox();
+    const result = await runOnce(agent, box, {
+      evalDefOverrides: {
+        setup: async (_sandbox, ctx) => {
+          ctx.fact("Not A Valid Key!", "x");
+        },
+      },
+    });
+    expect(result.verdict).toBe("errored");
+    expect(result.error?.phase).toBe("eval.setup");
+    expect(result.error?.message).toContain("Not A Valid Key!");
+  });
+
+  it("非标量 value(对象)抛错:attempt errored,错误信息带上实际类型", async () => {
+    const agent = defineSandboxAgent({
+      name: "fake-agent-bad-fact-value",
+      send: async () => ({ events: [], status: "completed" }),
+    });
+    const box = new FakeSandbox();
+    const result = await runOnce(agent, box, {
+      evalDefOverrides: {
+        setup: async (_sandbox, ctx) => {
+          ctx.fact("service.config", { nested: true } as unknown as string);
+        },
+      },
+    });
+    expect(result.verdict).toBe("errored");
+    expect(result.error?.phase).toBe("eval.setup");
+    expect(result.error?.message).toContain("object");
   });
 });

@@ -138,6 +138,7 @@ async function planOneSnapshot(
     startedAt: snapshot.startedAt,
     ...(snapshot.completedAt !== undefined ? { completedAt: snapshot.completedAt } : {}),
     ...(snapshot.diagnostics?.length ? { diagnostics: snapshot.diagnostics } : {}),
+    ...(snapshot.facts && Object.keys(snapshot.facts).length ? { facts: snapshot.facts } : {}),
     ...(knownEvalIds.length ? { knownEvalIds } : {}),
     ...(snapshot.name !== undefined ? { name: snapshot.name } : {}),
   };

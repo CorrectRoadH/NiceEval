@@ -80,6 +80,9 @@ export interface ContextDeps {
   /** runner 绑定的作用域反馈(t.progress / t.diagnostic 与 adapter ctx 共用实现);
    *  省略时(测试直调)progress 退回 log、diagnostic 静默丢弃。 */
   feedback?: import("../types.ts").ScopedFeedback;
+  /** attempt 作用域 ctx.fact() 的落点(runner 传入 attempt 级累加器写入函数);经 send ctx 透给
+   *  adapter(AgentContext.fact)。省略时(测试直调)仍校验 key/value,只是无处落盘。 */
+  fact?: (key: string, value: string | number | boolean) => void;
   /** adapter send 在飞时的通知(errored 归因到嵌套的 `agent.run` 阶段用);透传给 SessionManager。 */
   onSendActive?: (active: boolean) => void;
   /** 变更分类账的 send 窗口钩子(仅沙箱型);透传给 SessionManager(见 SessionDeps.ledgerHooks)。 */
@@ -123,6 +126,7 @@ export function createEvalContext(deps: ContextDeps): { context: TestContext; st
     telemetry: deps.telemetry,
     otel: deps.otel,
     feedback: deps.feedback,
+    fact: deps.fact,
     onSendActive: deps.onSendActive,
     onTurn: deps.onTurn,
     ledgerHooks: deps.ledgerHooks,

@@ -90,12 +90,18 @@ export interface SnapshotWriter {
   /** 增量落盘一条 attempt:拆 artifact 文件、回填 has* 引用、写 result.json;空数据不落文件。 */
   writeAttempt(entry: AttemptEntry, artifacts?: AttemptArtifacts): Promise<void>;
   /**
-   * 封口这一个 Snapshot:唯一一次补 `completedAt`(省略则取当前时刻)与快照级 `diagnostics`
-   * (省略则不写该字段,不摆空数组);`name` 未在 `snapshot()` 声明过时可以在这里补。每个
+   * 封口这一个 Snapshot:唯一一次补 `completedAt`(省略则取当前时刻)、快照级 `diagnostics`
+   * (省略则不写该字段,不摆空数组)与快照级 `facts`(experiment 作用域 `ctx.fact()` 累计的
+   * 运行事实,同样省略则不写该字段);`name` 未在 `snapshot()` 声明过时可以在这里补。每个
    * Snapshot 只能封一次,重复调用抛错。不做跨 Experiment 聚合——一次 Invocation 里的每个
    * Snapshot 各自独立封口,不必等其它 Snapshot(见 docs/runner.md「Experiment 收尾协议」)。
    */
-  finish(opts?: { diagnostics?: DiagnosticRecord[]; completedAt?: string; name?: LocalizedText }): Promise<void>;
+  finish(opts?: {
+    diagnostics?: DiagnosticRecord[];
+    completedAt?: string;
+    facts?: Record<string, string | number | boolean>;
+    name?: LocalizedText;
+  }): Promise<void>;
 }
 
 export interface ResultsWriter {
@@ -185,6 +191,7 @@ export function createResultsWriter(root: string, opts: ResultsWriterOptions): R
           startedAt: state.meta.startedAt,
           completedAt,
           ...(finishOpts?.diagnostics?.length ? { diagnostics: finishOpts.diagnostics } : {}),
+          ...(finishOpts?.facts && Object.keys(finishOpts.facts).length ? { facts: finishOpts.facts } : {}),
           ...(state.meta.knownEvalIds?.length ? { knownEvalIds: state.meta.knownEvalIds } : {}),
           ...(name !== undefined ? { name } : {}),
         };

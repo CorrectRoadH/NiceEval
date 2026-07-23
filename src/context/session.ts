@@ -12,6 +12,7 @@ import {
   type AttemptRetryBudget,
   type ConcurrencySlot,
 } from "./send-retry.ts";
+import { recordFact } from "../shared/facts.ts";
 
 /**
  * 一条会话线的存取器实现(见 docs-site/zh/explanation/adapter.mdx 的 AgentSession 契约)。
@@ -104,6 +105,9 @@ export interface SessionDeps {
   log(msg: string): void;
   /** runner 绑定的作用域反馈(adapter ctx.progress/diagnostic);省略时 progress 退回 log。 */
   feedback?: import("../types.ts").ScopedFeedback;
+  /** attempt 作用域 ctx.fact() 的落点(经 send ctx 透给 adapter,见 AgentContext.fact);省略时
+   *  (测试直调)仍校验 key/value,只是无处落盘。 */
+  fact?: (key: string, value: string | number | boolean) => void;
   /** adapter send 在飞时通知 runner(errored 归因到嵌套的 `agent.run` 阶段用)。 */
   onSendActive?: (active: boolean) => void;
   /**
@@ -225,6 +229,12 @@ export class SessionManager {
           ? this.deps.feedback.progress(u)
           : this.deps.log(u.current !== undefined && u.total !== undefined ? `${u.message} (${u.current}/${u.total})` : u.message),
       diagnostic: (d) => this.deps.feedback?.diagnostic(d),
+      fact: (key, value) => {
+        // 没有 runner 绑定的落点时(测试直调 SessionManager)仍要校验,只是无处落盘——
+        // 与 progress 退回 log、diagnostic 静默丢弃是同一种「测试直调降级」纪律。
+        if (this.deps.fact) this.deps.fact(key, value);
+        else recordFact({}, key, value);
+      },
       // log 是 progress({ message }) 的别名(见 AgentContext.log)。
       log: this.deps.log,
     };

@@ -1332,6 +1332,51 @@ describe("runEvals · 实验域诊断持久化到 Snapshot", () => {
   });
 });
 
+// cases: docs/engineering/testing/unit/experiments-runner.md「ctx.fact() 的作用域归属」
+describe("runEvals · experiment.setup/.teardown 的 ctx.fact() 累积进 Snapshot.facts", () => {
+  it("同一 Experiment 内 setup 与 teardown 上报的 fact 合并,同 key 后写覆盖先写;不同 Experiment 各自独立、不串桶", async () => {
+    const evalA = makeEval("a", () => {});
+    const evalB = makeEval("b", () => {});
+    const agentA: AgentRun = {
+      agent: makeAgent("agent-fact-a"),
+      flags: {},
+      runs: 1,
+      earlyExit: true,
+      sandbox: fakeSandboxSpec(),
+      timeoutMs: 5_000,
+      selectedEvalIds: ["a"],
+      experimentId: "fact-exp-a",
+      setup: (ctx) => {
+        ctx.fact?.("service.version", "2026.7.0");
+        ctx.fact?.("shared.key", "from-setup");
+      },
+      teardown: (ctx) => {
+        ctx.fact?.("shared.key", "from-teardown"); // 后写覆盖先写
+      },
+    };
+    const agentB: AgentRun = {
+      agent: makeAgent("agent-fact-b"),
+      flags: {},
+      runs: 1,
+      earlyExit: true,
+      sandbox: fakeSandboxSpec(),
+      timeoutMs: 5_000,
+      selectedEvalIds: ["b"],
+      experimentId: "fact-exp-b",
+      // 没有任何 ctx.fact() 调用——facts 字段整个不出现,不是空对象。
+    };
+
+    const { root } = await run([evalA, evalB], [agentA, agentB], { maxConcurrency: 4 });
+
+    const results = await openResults(root);
+    const expA = results.experiments.find((e) => e.id === "fact-exp-a");
+    const expB = results.experiments.find((e) => e.id === "fact-exp-b");
+
+    expect(expA!.latest.facts).toEqual({ "service.version": "2026.7.0", "shared.key": "from-teardown" });
+    expect(expB!.latest.facts).toBeUndefined();
+  });
+});
+
 // 强杀后的收尾兜底(docs/feature/experiments/architecture.md「强杀后的收尾兜底」):受控模拟
 // 代替真实 kill -9——直接在临时目录构造一份 .niceeval/teardowns/<entry>.json 登记文件(模拟"上
 // 一次进程被强杀,来不及删登记"的状态),手工填入确定不存在的 pid / 当前宿主机名 / 一组

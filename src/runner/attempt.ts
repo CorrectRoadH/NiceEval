@@ -29,6 +29,7 @@ import { describeError, firstLine, formatThrown } from "../util.ts";
 import { createChangeLedger, type ChangeLedger } from "./ledger.ts";
 import { deriveDiffData, emptyDiffData } from "../scoring/diff.ts";
 import { createRemoteSandbox, withEvalLocalPaths } from "./remote-sandbox.ts";
+import { recordFact, type FactValue } from "../shared/facts.ts";
 import type { CapturedEvalSource } from "./eval-source.ts";
 import type {
   AgentContext,
@@ -153,6 +154,10 @@ export function runAttemptEffect(
     onPhase?.(phase);
     reportAttemptLifecycle({ type: "attempt:phase", at: Date.now(), identity, phase });
   };
+  // 本 attempt 累计的运行事实(与 verdict/diagnostics 独立):sandbox hook / eval.setup·teardown /
+  // agent setup·send·teardown 经 ctx.fact() 上报的都落这里(同一 attempt 内后写覆盖先写),
+  // 收尾时并入结果的 facts 字段(见 finally 末尾,与 diagnostics 同一种「累加器 + finally 并入」模式)。
+  const facts: Record<string, FactValue> = {};
   // 本 attempt 累计的诊断(与 verdict 独立):ScopedFeedback.diagnostic 与 teardown 失败都落这里,
   // 收尾时并入结果;dedupeKey 相同的并发诊断折叠成一条并累计 count。
   const diagnostics: DiagnosticRecord[] = [];
@@ -414,6 +419,7 @@ export function runAttemptEffect(
           attemptEpoch: t0,
           feedback: scopedFeedback,
           diagnostics,
+          facts,
           concurrencySlot,
           registerEvidence: (getEvents, getUsage) => {
             liveEvents = getEvents;
@@ -592,6 +598,12 @@ interface AttemptResources {
   feedback: ScopedFeedback;
   /** attempt 级诊断累计(runAttemptEffect 持有,含 sandbox.create 期间的诊断)。 */
   diagnostics: DiagnosticRecord[];
+  /**
+   * attempt 级运行事实累计(runAttemptEffect 持有的同一个 Record 引用,与 diagnostics 同一种
+   * 「共享可变容器」模式):runAttemptBody 用它构造 ctx.fact() 闭包,并在 finally 里原样
+   * 挂到即将返回的结果上(见 diagnostics 的并入点)。
+   */
+  facts: Record<string, FactValue>;
   /** turn 级重试退避期间释放/收回的全局并发槽位;透传给 createEvalContext。 */
   concurrencySlot?: ConcurrencySlot;
   /** SessionManager 一建好就登记事件/用量的读取句柄回外层(超时证据保全用,见
@@ -627,10 +639,14 @@ async function runAttemptBody(
     attemptEpoch,
     feedback,
     diagnostics,
+    facts,
     concurrencySlot,
     registerEvidence,
     registerLedger,
   } = res;
+  // ctx.fact() 闭包:校验后写进 res.facts(与 runAttemptEffect 共享的同一个 Record 引用),
+  // finally 把它原样挂到即将返回的结果上(与 diagnostics 同一种「共享容器 + finally 并入」模式)。
+  const fact = (key: string, value: FactValue) => recordFact(facts, key, value);
   const usesSandbox = run.agent.kind === "sandbox";
   // 命令时间树:所有经这个包装 sandbox 发出的 runCommand/runShell 都挂成当前阶段(或当前 hook
   // 节点)下的 command 子节点。包装只在最外层公开调用记录一次——provider 内部转调不经过它。
@@ -649,6 +665,7 @@ async function runAttemptBody(
     telemetry,
     progress: feedback.progress,
     diagnostic: feedback.diagnostic,
+    fact,
     // log 是 progress({ message }) 的别名,不是第二条通道(见 AgentContext.log 注释)。
     log,
   };
@@ -659,6 +676,7 @@ async function runAttemptBody(
     signal,
     progress: feedback.progress,
     diagnostic: feedback.diagnostic,
+    fact,
   };
   let agentDidSetup = false;
   /** agent.setup 时点已走到(未声明 setup 也置位)——agent.teardown 的触发条件(成对触发规则)。 */
@@ -787,6 +805,7 @@ async function runAttemptBody(
       otel,
       evalBaseDir: evalDef.baseDir,
       feedback,
+      fact,
       concurrencySlot,
       // 题型:计分制下句柄上的 .gate() 是前置(就地求值 + 挂了中止 test()),见 collector。
       scoring: evalDef.scoring ?? "pass",
@@ -1072,6 +1091,7 @@ async function runAttemptBody(
     // 变异语义)。result 恒已赋值(两个 return 分支都先赋值再 return);极端情况下(finally 之前就
     // 抛了、result 还没赋值)静默跳过,不掩盖原始异常。
     if (diagnostics.length > 0 && result) result.diagnostics = diagnostics;
+    if (Object.keys(facts).length > 0 && result) result.facts = facts;
   }
 }
 

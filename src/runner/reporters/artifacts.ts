@@ -68,6 +68,7 @@ export function Artifacts(root = ".niceeval"): ArtifactsReporter {
       await target.writer.finish({
         completedAt: event.completedAt,
         diagnostics: [...event.diagnostics],
+        ...(event.facts ? { facts: { ...event.facts } } : {}),
         name: event.name,
       });
     },

@@ -319,6 +319,13 @@ export interface AgentContext {
    */
   diagnostic(input: DiagnosticInput): void;
   /**
+   * 第三条反馈通道:上报本次运行的中性环境观测(如实际生效的 agent 配置、缓存命中状态)。
+   * 落进 `AttemptRecord.facts` 成为一等观测量;不影响 Turn status 或 verdict,不参与
+   * verdict / 评分 / 指纹。key 匹配 `[a-z0-9._-]{1,64}`,value 是标量;同 key 后写覆盖先写,
+   * 非法 key 或非标量 value 抛错。形状与归属语义见 docs/feature/results/architecture.md#facts运行事实。
+   */
+  fact(key: string, value: string | number | boolean): void;
+  /**
    * `progress({ message: msg })` 的别名,不是第二条通道(见 docs/feature/experiments/cli.md
    * 「Attempt 阶段」)。超时失败时最近若干行会并入结果的 error 信息,方便定位卡在哪一步。
    */

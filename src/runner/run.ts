@@ -10,6 +10,7 @@ import { cacheKey, planCarry } from "./fingerprint.ts";
 import { OtelReceiverPool } from "../o11y/otlp/turn-otel.ts";
 import { errorFromThrown, experimentRunInfo, runAttemptEffect } from "./attempt.ts";
 import { resolveSandbox } from "../sandbox/resolve.ts";
+import { recordFact, type FactValue } from "../shared/facts.ts";
 import type { ConcurrencySlot } from "../context/send-retry.ts";
 import { runReporter, emitReporterEvent, scopeReporter, summarize } from "./report.ts";
 import {
@@ -416,6 +417,17 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
   const experimentDiagnostics = new Map<string, DiagnosticRecord[]>();
   const experimentDedupeIndex = new Map<string, Map<string, DiagnosticRecord>>();
   const experimentCompletedAt = new Map<string, string>();
+  // experiment 作用域 ctx.fact() 的累加器(与 experimentDiagnostics 同一种「按 experimentId 分桶」
+  // 模式):同一实验内后写覆盖先写,与 completedAt 同批在快照封口补写进 SnapshotMeta.facts
+  // (见 docs/feature/results/architecture.md#facts运行事实)。没有 experimentId 的裸 run 没有
+  // Snapshot 可挂,调用直接丢弃(与 recordExperimentDiagnostic 同一条纪律)。
+  const experimentFacts = new Map<string, Record<string, FactValue>>();
+  const recordExperimentFact = (experimentId: string | undefined, key: string, value: FactValue): void => {
+    if (!experimentId) return;
+    const facts = experimentFacts.get(experimentId) ?? {};
+    recordFact(facts, key, value);
+    experimentFacts.set(experimentId, facts);
+  };
   const recordExperimentDiagnostic = (input: {
     experimentId: string | undefined;
     code: string;
@@ -486,6 +498,7 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
           ...(input.dedupeKey !== undefined ? { dedupeKey: input.dedupeKey } : {}),
         });
       },
+      fact: (key, value) => recordExperimentFact(run.experimentId, key, value),
     };
   };
   const runExperimentTeardown = (run: AgentRun, lc: ExperimentLifecycle): Promise<void> => {
@@ -594,6 +607,7 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
             ...(input.dedupeKey !== undefined ? { dedupeKey: input.dedupeKey } : {}),
           });
         },
+        fact: (key, value) => recordExperimentFact(run.experimentId, key, value),
       };
       try {
         await withCleanupTimeout(() => run.teardown!(recoveryCtx));
@@ -1116,6 +1130,7 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
       completedAt: experimentCompletedAt.get(experimentId) ?? new Date().toISOString(),
       carriedResults: carriedResults.filter((r) => r.experimentId === experimentId),
       diagnostics: experimentDiagnostics.get(experimentId) ?? [],
+      ...(experimentFacts.has(experimentId) ? { facts: experimentFacts.get(experimentId) } : {}),
       name: opts.config.name,
     });
   }

@@ -99,7 +99,7 @@ export interface ComparabilityConfig {
   sandbox?: ExperimentRunInfo["sandbox"];
 }
 
-/** 一个快照的可比性配置投影;pairsByFlag 与 experimentListData 复用同一字段集。 */
+/** 一个快照的可比性配置投影;conditionsByFlag 与 experimentListData 复用同一字段集。 */
 export function comparabilityConfigOf(snapshot: Snapshot): ComparabilityConfig {
   const info = snapshot.experiment;
   return {

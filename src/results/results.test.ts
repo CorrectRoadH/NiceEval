@@ -813,6 +813,62 @@ describe("createResultsWriter", () => {
     expect(b.diagnostics).toBeUndefined();
   });
 
+  it("facts:attempt 级随 writeAttempt 落进 result.json、experiment 级随 finish() 落进 snapshot.json,两级原样读回不合并,空 facts 省略字段", async () => {
+    // cases: docs/engineering/testing/unit/results.md「Usage、facts 与失败命令证据落盘」——
+    // 两级 facts 各自独立落盘与读回,读取面不把 attempt facts 与 snapshot facts 混在一起。
+    const root = await makeRoot();
+    const writer = createResultsWriter(root, { producer: { name: "niceeval", version: "1.0.0" } });
+
+    const snapA = await writer.snapshot({ experimentId: "compare/a", agent: "bub", startedAt: "2026-07-01T08:00:00.000Z" });
+    await snapA.writeAttempt({
+      id: "q1",
+      verdict: "passed",
+      attempt: 0,
+      durationMs: 1,
+      assertions: [],
+      facts: { "memory.startup_notes": 12, "memory.source": "checkpoint-9" },
+    });
+    // 没有上报过 fact 的 attempt:字段整个不落盘,不是空对象。
+    await snapA.writeAttempt({ id: "q2", verdict: "passed", attempt: 0, durationMs: 1, assertions: [] });
+    await snapA.finish({ facts: { "service.version": "2026.7.1", "cache.warm": true } });
+
+    const snapB = await writer.snapshot({ experimentId: "compare/b", agent: "codex", startedAt: "2026-07-01T09:00:00.000Z" });
+    await snapB.writeAttempt({ id: "q1", verdict: "passed", attempt: 0, durationMs: 1, assertions: [] });
+    // experiment 级没有上报过 fact 的快照:同样整个省略字段,不摆空对象。
+    await snapB.finish();
+
+    const recordQ1 = JSON.parse(await readFile(join(snapA.dir, "q1/a0/result.json"), "utf-8"));
+    expect(recordQ1.facts).toEqual({ "memory.startup_notes": 12, "memory.source": "checkpoint-9" });
+    const recordQ2 = JSON.parse(await readFile(join(snapA.dir, "q2/a0/result.json"), "utf-8"));
+    expect(recordQ2).not.toHaveProperty("facts");
+    const metaA = JSON.parse(await readFile(join(snapA.dir, "snapshot.json"), "utf-8"));
+    expect(metaA.facts).toEqual({ "service.version": "2026.7.1", "cache.warm": true });
+    const metaB = JSON.parse(await readFile(join(snapB.dir, "snapshot.json"), "utf-8"));
+    expect(metaB).not.toHaveProperty("facts");
+
+    // reader:两级原样读回,不合并——q1 的 attempt facts 与它所属快照的 experiment facts 分居两处。
+    const results = await openResults(root);
+    const a = results.experiments.find((e) => e.id === "compare/a")!.latest;
+    const q1 = a.evals.find((e) => e.id === "q1")!.attempts[0];
+    const q2 = a.evals.find((e) => e.id === "q2")!.attempts[0];
+    expect(q1.result.facts).toEqual({ "memory.startup_notes": 12, "memory.source": "checkpoint-9" });
+    expect(q1.result.facts).not.toHaveProperty("service.version"); // 不把快照级 facts 并进 attempt
+    expect(q2.result.facts).toBeUndefined();
+    expect(a.facts).toEqual({ "service.version": "2026.7.1", "cache.warm": true });
+    expect(a.facts).not.toHaveProperty("memory.startup_notes"); // 不把 attempt 级 facts 并进快照
+
+    const b = results.experiments.find((e) => e.id === "compare/b")!.latest;
+    expect(b.facts).toBeUndefined();
+
+    // copySnapshots 发布拷贝原样保留两级 facts。
+    const dest = join(await makeRoot(), "published");
+    await copySnapshots(results.latest(), dest);
+    const publishedMeta = JSON.parse(await readFile(join(dest, "compare_a", basename(snapA.dir), "snapshot.json"), "utf-8"));
+    expect(publishedMeta.facts).toEqual({ "service.version": "2026.7.1", "cache.warm": true });
+    const publishedRecord = JSON.parse(await readFile(join(dest, "compare_a", basename(snapA.dir), "q1/a0/result.json"), "utf-8"));
+    expect(publishedRecord.facts).toEqual({ "memory.startup_notes": 12, "memory.source": "checkpoint-9" });
+  });
+
   it("重复 finish() 同一个 Snapshot 抛可执行错误(每个 Snapshot 只能封一次)", async () => {
     const root = await makeRoot();
     const writer = createResultsWriter(root, { producer: { name: "x" } });

@@ -204,6 +204,12 @@ export interface EvalResult {
   error?: AttemptError;
   /** 本 attempt 的诊断(与 verdict 独立);teardown / cleanup 失败等挂在这里,不改判定。 */
   diagnostics?: readonly DiagnosticRecord[];
+  /**
+   * sandbox hook / agent setup·send·teardown 经 `ctx.fact()` 上报的运行事实(同 attempt 内
+   * 后写覆盖先写)。中性环境观测,不参与 verdict / 评分 / 指纹。见
+   * docs/feature/results/architecture.md#facts运行事实。
+   */
+  facts?: Record<string, string | number | boolean>;
   /** Runner 阶段计时,按执行顺序;只记录实际发生的阶段(见 docs/feature/results/architecture.md)。 */
   phases?: PhaseTiming[];
   skipReason?: string;
@@ -357,6 +363,8 @@ export type ReporterEvent =
       carriedResults: EvalResult[];
       /** 该 Experiment 域产生的全部诊断;空集合传空数组,不省略字段。 */
       diagnostics: readonly DiagnosticRecord[];
+      /** 该 Experiment 域经 `ctx.fact()` 累计的运行事实(experiment.setup / .teardown,含收尾自愈路径);省略 = 没有上报过。 */
+      facts?: Readonly<Record<string, string | number | boolean>>;
       /** 项目名(来自 config.name),整次 Invocation 内所有 Experiment 共享同一个值。 */
       name?: LocalizedText;
     };
@@ -457,6 +465,14 @@ export interface ExperimentHookContext extends ScopedFeedback {
   readonly selectedEvalIds: readonly string[];
   /** 用户中断(Ctrl+C / kill)时 abort;长启动的 setup 应观察它提前退出。 */
   readonly signal?: AbortSignal;
+  /**
+   * 第三条反馈通道:上报整场实验的环境观测,与 `completedAt` 同批在快照封口补写进
+   * `SnapshotMeta.facts`。key 匹配 `[a-z0-9._-]{1,64}`,value 是标量;同 key 后写覆盖先写,
+   * 非法 key 或非标量 value 抛错。不影响判定,不参与 verdict / 评分 / 指纹。形状与归属语义见
+   * docs/feature/results/architecture.md#facts运行事实。可选:`niceeval exp --teardown` 的
+   * 独立收尾路径不落任何 Snapshot,该入口暂不提供此方法(见 runner/run.ts 的构造点)。
+   */
+  fact?(key: string, value: string | number | boolean): void;
 }
 
 export interface ExperimentDef {

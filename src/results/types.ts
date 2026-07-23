@@ -48,6 +48,11 @@ export interface SnapshotMeta {
    * diagnostics 混合,不得放入跨 Experiment 的 Invocation 汇总(见 docs/runner.md「实验域诊断持久化」)。
    */
   diagnostics?: DiagnosticRecord[];
+  /**
+   * experiment 作用域生命周期代码经 `ctx.fact()` 上报的运行事实;与 completedAt 同批在快照
+   * 封口补写。字段契约见 result.json 的 facts 小节(docs/feature/results/architecture.md#facts运行事实)。
+   */
+  facts?: Record<string, string | number | boolean>;
   /** 写入时刻该实验已知的 eval 并集 —— 残缺检测的分母随数据走(copySnapshots 自动补记,writer 可声明)。 */
   knownEvalIds?: string[];
   /** 项目名(来自 config.name),透传给 `niceeval view` 顶部 hero 显示。 */
@@ -120,6 +125,8 @@ export interface Snapshot {
   completedAt?: string;
   /** 快照级诊断;不与 attempt diagnostics 混合(见 SnapshotMeta.diagnostics)。 */
   diagnostics?: DiagnosticRecord[];
+  /** experiment 作用域上报的运行事实;不与 attempt 级 facts(attempt.result.facts)合并(见 SnapshotMeta.facts)。 */
+  facts?: Record<string, string | number | boolean>;
   /** 本快照自己的 agent。 */
   agent: string;
   model?: string;
