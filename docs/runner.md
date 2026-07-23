@@ -136,23 +136,131 @@ budget 按**域**计,不是全局总闸:每个 experimentId 一个域(没有 exp
 
 **下游分析**(二次评分、自定义指标)走 [reporter](observability.md#reporters),不另设运行钩子——这是从 agent-eval 的 `onRunComplete` 收敛过来的(见 [Experiments 砍字段](feature/experiments/architecture.md#从-agent-eval-砍掉了什么以及为什么));NiceEval 自己的对应回调名是 `onInvocationComplete`。
 
-## 运行器事件
+## Reporter 与运行器事件
 
-`Reporter.onEvent` 收到一串结构化事件,把结果同步到 artifact、CI 报告或外部平台。跨 Experiment 的边界是当次 Invocation,不是持久化 Run:
+`Reporter` 是运行器与外部系统之间唯一的公开回调面:三个生命周期钩子加一条结构化事件流,跨 Experiment 的边界是当次 Invocation,不是持久化 Run。
+
+```ts
+interface Reporter {
+  onEvent?(event: ReporterEvent): void | Promise<void>;
+  onInvocationStart?(evals: { id: string }[], shape?: InvocationShape): void | Promise<void>;
+  onEvalComplete?(result: EvalResult): void | Promise<void>;
+  onInvocationComplete?(summary: InvocationSummary): void | Promise<void>;
+}
+```
+
+`onInvocationStart` 只接收 `evals` 与 `shape`,不接收单一 `agent`——一次 Invocation 可能横跨多个 `(agent, model, flags)` 配置(`compare` 多 agent、一次运行选中多个实验文件),塞一个顶层 `agent` 参数只能代表其中一份配置,对其余配置是谎言。需要知道这次 Invocation 涉及哪些 agent 时,从陆续到达的逐条 `EvalResult.agent` 去重派生,不读启动参数里的单值。
+
+```ts
+/** onInvocationStart 的运行规模:去重后 eval 数 × 配置(agent×model×flags)数 → 总 attempt 数。 */
+interface InvocationShape {
+  /** 去重后实际要跑的 eval 数(= evals.length)。 */
+  evals: number;
+  /** (agent, model, flags) 配置组合数;compare 多 agent 时 > 1。 */
+  configs: number;
+  /** 总 attempt 数(evals × configs × runs);逐行输出与汇总计数都按它。 */
+  totalAttempts: number;
+  /** 本次运行实际生效的全局并发数(flag/env/config/sandbox 默认值解析后的结果);
+   *  实验级 maxConcurrency 只在该实验内部限流,不改这个全局值。 */
+  maxConcurrency: number;
+  /**
+   * 本次 Invocation 的快照身份锚点(ISO 时间戳),在调度任何 attempt 前确定。fresh
+   * `EvalResult.locator` 编码进去的 `snapshotStartedAt` 与 Artifacts writer 写进
+   * `snapshot.json` 的 `startedAt` 共用同一个值——不同 experiment 在同一次 Invocation
+   * 内共享它也不会碰撞(locator 身份还含 experimentId)。省略只出现在测试/第三方手写
+   * `InvocationShape` 的直调场景。
+   */
+  snapshotStartedAt?: string;
+}
+
+/** 一次 Invocation 的纯运行时内存聚合(reporter 契约用);落盘格式契约在 niceeval/results 的 SnapshotMeta / AttemptRecord,见 [Results · Architecture](feature/results/architecture.md)。 */
+interface InvocationSummary {
+  /** 项目名(来自 config.name),透传给 `niceeval view` 顶部 hero 显示。 */
+  name?: LocalizedText;
+  startedAt: string;
+  completedAt: string;
+  passed: number;
+  /** 断言不通过的数量;不包含 errored。 */
+  failed: number;
+  skipped: number;
+  /** 环境、超时、adapter、agent runtime 等执行错误数量;与 failed 互斥。 */
+  errored: number;
+  durationMs: number;
+  usage?: Usage;
+  estimatedCostUSD?: number;
+  results: EvalResult[];
+}
+```
+
+`InvocationSummary` 同样不携带顶层 `agent` / `model`:跨配置的一次 Invocation 没有单一身份可填,每条 `EvalResult` 自带 `agent` / `model`,需要按 agent 分组或统计时从 `results` 派生,不读一个必然对某些行撒谎的顶层值。这条裁决对内建与自定义 reporter 一视同仁——例如 Braintrust reporter 的 experiment 级 metadata 不能再从启动参数读单一 agent,只能从收到的逐条 `EvalResult` 去重得到当次涉及的 agent 集合。
+
+`onEvent` 收到的结构化事件流:
 
 ```text
-invocation:start    { evals, shape }          # shape = { evals, configs, totalAttempts, maxConcurrency }
-eval:start          { eval, agent, model, attempt, experimentId }
-eval:complete       { result }                # EvalResult,fresh 结果此时已带最终 locator(见下)
-invocation:earlyExit       { evalId, experimentId }
-invocation:budgetExceeded  { experimentId, budget, spent }
-invocation:saved           { summary }
-invocation:summary         { summary }
+invocation:start           { evals, shape }
+eval:start                 { eval, agent, model, attempt, experimentId }
+eval:complete               { result }                # EvalResult,fresh 结果此时已带最终 locator(见下)
+invocation:earlyExit        { evalId, experimentId }
+invocation:budgetExceeded   { experimentId, budget, spent }
+invocation:saved            { summary }
+invocation:summary          { summary }
+experiment:complete         { experimentId, completedAt, carriedResults, diagnostics }   # 见下节「Experiment 收尾协议」
+```
+
+判别式联合逐条对应上表(`eval:start` 仍带单一 `agent`——它是单个 eval 这一次派发实际用的那份配置,不是跨配置汇总,不受上面顶层单值裁决约束):
+
+```ts
+type ReporterEvent =
+  | { type: "invocation:start"; evals: { id: string }[]; shape: InvocationShape }
+  | { type: "eval:start"; eval: { id: string }; agent: Agent; model?: string; attempt: number; experimentId?: string }
+  | { type: "eval:complete"; result: EvalResult }
+  | { type: "invocation:earlyExit"; evalId: string; experimentId?: string }
+  | { type: "invocation:budgetExceeded"; budget: number; spent: number }
+  | { type: "invocation:saved"; summary: InvocationSummary }
+  | { type: "invocation:summary"; summary: InvocationSummary }
+  | {
+      type: "experiment:complete";
+      experimentId: string;
+      completedAt: string;
+      carriedResults: EvalResult[];
+      diagnostics: readonly DiagnosticRecord[];
+    };
 ```
 
 `verdict` 是互斥的判定分类:`passed` / `failed` / `errored` / `skipped`,没有 `scored` 中间态。`invocation:summary.failed` 只统计断言/评分不通过,环境、超时、adapter 或 agent runtime 问题统计到 `errored`。fresh attempt 的最终 `locator` 在构造调度计划时就由预先确定的 `snapshotStartedAt` 与 attempt 身份算好并传入执行体,所以留存注册表、feedback、`eval:complete` 与落盘 `result.json` 从第一次观察起就是同一个值;reporter 不需要等 artifact 落盘。
 
 终端反馈(human dashboard、agent envelope、CI 的单一 stdout 事件流)不消费这条 `Reporter` 事件流——它们由一个独立的反馈 coordinator 消费另一条内部事件通道,只服务 `--output` 选出的 profile,不对外暴露,详见 [CLI · 反馈 coordinator](cli.md#反馈-coordinator一个-run-只有一个终端协调者)。
+
+## Experiment 收尾协议
+
+一次 Invocation 可以横跨多个 Experiment,但落盘的完整性单位是 Snapshot——每个 Experiment 一份、各自独立收尾(见 [Results · snapshot.json](feature/results/architecture.md#snapshotjson))。`experiment:complete` 是比 `invocation:summary` 更早、比单个 `eval:complete` 更粗的事件,标记"这一个 Experiment 已经彻底跑完",供内建 Artifacts 精确地在那一刻封口对应的 Snapshot,而不是等整个 Invocation 结束才一次性封全部 Snapshot。
+
+`experiment:complete` 在该 Experiment 的 `ExperimentDef.teardown`(若声明)完成之后、`invocation:summary` 之前触发。内建 `Artifacts` reporter 订阅这条事件,对每个 experimentId 各自调用它自己 Snapshot 的 `snap.finish({ completedAt, diagnostics })`(见 [Results · Library](feature/results/library.md))——不再在 `onInvocationComplete` 里一次性封全部快照。`carriedResults` 携带该 Experiment 本次携带合入(fingerprint 命中、未真实执行)的历史终态结果,随收尾一并落盘。跨 Experiment 共享的事实(用户中断、reporter 写失败、provider 级并发提示)不属于任何单个 Experiment,不通过这条事件传递,只出现在 `InvocationCompletion.reporterErrors` 或反馈流的运行级 diagnostic 里。
+
+## 实验域诊断持久化
+
+有一类操作性事实**属于某次 Snapshot 整体、但定位不到单个 Attempt**——teardown 失败、budget 不可执行、实验级钩子超时。这类事实必须落进对应 Snapshot 的 `diagnostics`(见 [Results · snapshot.json](feature/results/architecture.md#snapshotjson)),不能只出现在运行期的终端反馈里就算完——反馈是这一次运行的即时通知,`snapshot.json` 才是这次运行"发生过什么"的永久记录。
+
+产生处必须显式给出:
+
+```ts
+interface ExperimentDiagnosticInput {
+  experimentId: string;
+  code: string;
+  level: "warning" | "error";
+  message: string;
+  /** 只能是产生处真实打开的生命周期阶段,实验域诊断通常是 "experiment.setup" / "experiment.teardown"。 */
+  phase: LifecyclePhase;
+  data?: Readonly<Record<string, JsonValue>>;
+  command?: string;
+  /** 同一 Snapshot 内的折叠键;省略时以 code 折叠。 */
+  dedupeKey?: string;
+}
+```
+
+`experimentId` 只用于把这条诊断路由到正确的 Snapshot,不进入持久化的 `DiagnosticRecord`——持久化形状与 attempt 级 `DiagnosticRecord` 完全一致(见 [Results · snapshot.json](feature/results/architecture.md#snapshotjson)),因为归属已经隐含在该记录所属的 `snapshot.json` 身份里,不重复存。相同 `dedupeKey`(或省略时的 `code`)只在同一个 Snapshot 内折叠、`count` 递增;不同 Experiment、不同 Snapshot 各自独立计数,不跨来源合并。
+
+这条持久化通路与运行期的即时反馈通路(`ctx.diagnostic` → 反馈流 → human/agent/ci 展示)相互独立、互不派生:运行期反馈让操作者第一时间看到问题,持久化让读者事后从 `snapshot.json` 回顾。消费方(内建 Artifacts reporter、自定义 reporter)不得靠解析反馈流通知的 key 或 message 反推该往哪个 Snapshot 写——每个产生处直接构造上面的 `ExperimentDiagnosticInput`,由运行器在该 Experiment 域内按 Snapshot 累计,再通过 [`experiment:complete`](#experiment-收尾协议) 事件整批交给 Artifacts,由它在对应 Snapshot 封口时一次写入。
 
 ## 完成状态
 

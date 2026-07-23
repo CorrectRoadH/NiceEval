@@ -93,6 +93,8 @@ Results 保存事实：判定、断言、runner 时间树、事件、trace、dif
 
 所有官方 `*Data(input, options?)` 计算函数接受 `ReportInput = Scope | readonly Snapshot[]`。Scope 同时携带真实快照、覆盖事实（coverage）和选择警告，避免报告把数据与“这批数据是否完整”的信息拆开。warning 的呈现件是 [`ScopeWarnings`](library/site-components.md#scopewarnings)，快照实体上开放词表 diagnostics 的呈现件是 [`SnapshotDiagnostics`](library/site-components.md#snapshotdiagnostics)；宿主不在报告树外另设通道，[内建报告](library/built-in.md)的三张 scope-input page 都相邻放置两者（attempt-input page 不重复站点范围信息），自定义报告放不放是作者义务。`SnapshotDiagnostics` 对 Scope 只投影 `scope.snapshots`，对裸 `Snapshot[]` 同样工作；它的 data 形态只携带 experimentId、startedAt 与 DiagnosticRecord[]，不把 Snapshot 拖进浏览器。覆盖缺口由 `experimentListData` 消费成占位行、时效由 attempt 行的时效标注呈现（见[实体列表](library/entity-lists.md)），指标与列表组件的数据不复制 warning 或 diagnostic。
 
+指标与列表组件的数据样本一律来自 `Scope.attempts`——按 `current()` / `latest()` 口径挑好的 attempt 全集，组件不各自 `flatMap` `snapshots` 重新展开，避免同一道题的历史 attempt 被不同组件用不同口径重复计入或漏算。配置（agent / model / flags / sandbox 等）、diagnostics 与快照目录这类**快照级**信息来自真实 `Scope.snapshots`。`current()` 下同一个 experiment 可能有多个贡献 Snapshot（不同 eval 取自不同历史快照，见 [Results · 官方现刻水位](../results/library.md#官方现刻水位resultscurrent)）；此时该 experiment 展示用的“水位基准 Snapshot”是这些贡献来源里 `startedAt` 最新的一个——表头、hero 与 `config()` 桥接读取的 agent / model / flags 都以这一个为准，不是任取某个来源或合并多个来源的字段。
+
 `show` 与 `view` 对命令行范围使用同一套选择规则：
 
 1. `--results` 确定结果根。
@@ -105,7 +107,7 @@ Results 保存事实：判定、断言、runner 时间树、事件、trace、dif
 
 ## Scope 是默认报告的比较边界
 
-`experimentListData`、`scopeSummaryData` 与 `metricScatterData` 不推导第二层实验组，直接消费宿主已经收窄并完成现刻水位选择的 Scope；每个 experiment 的 eval 集以快照里的 `ExperimentRunInfo.selectedEvalIds` 为准——未选择的 eval 不进入分母，也不补成失败。这是三个函数自己的契约：直接调用与经 `ExperimentComparison` 展开后走到的调用深相等。
+`experimentListData`、`scopeSummaryData` 与 `metricScatterData` 不推导第二层实验组，直接消费宿主已经收窄并完成现刻水位选择的 Scope；每个 experiment 当前有效的 eval 集从 `Scope.coverage` 读取——该 experiment 的 `knownEvalIds` 去掉 `missingEvalIds` 就是当前口径下真正有判定的分母（已经过 `--exp` / 位置参数范围收窄）；`missingEvalIds` 本身进入榜单占位行，不进分母也不补成失败。这条读法不依赖任何单一快照的 `ExperimentRunInfo.selectedEvalIds`——`current()` 下一个 experiment 的有效题集由多个贡献 Snapshot 共同撑起，没有哪一个来源的 `selectedEvalIds` 能单独代表它。这是三个函数自己的契约：直接调用与经 `ExperimentComparison` 展开后走到的调用深相等。
 
 `ScopeSummary`、`MetricScatter` 与 `ExperimentList` 都消费同一份 Scope。用户用 `--exp` 按 experiment id 路径收窄，或在自定义报告里显式 `filter`；组件不从路径、文件名、agent、model、flags 或 labels 猜比较边界。
 
