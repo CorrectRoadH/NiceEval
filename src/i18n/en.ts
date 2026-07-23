@@ -52,9 +52,13 @@ export const en = {
     "  - [cd] Run from the project root that contains niceeval.config.ts\n" +
     "  Docs: node_modules/niceeval/docs-site/zh/tutorials/quickstart.mdx",
   "cli.config.noDefault": "niceeval.config.ts must default export defineConfig(...).",
-  "cli.dry.header": "\n[dry] {{evals}} evals × {{configs}} run configs:\n",
-  "cli.dry.noMatches": "(no matches)",
-  "cli.dry.row": "  {{who}}{{experiment}}: {{evals}}  ×{{runs}}\n",
+  "cli.dry.header": "plan: {{attempts}} · {{evals}} × {{configs}} · runs {{runs}}",
+  "cli.dry.unit.attempt": "attempt",
+  "cli.dry.unit.attempts": "attempts",
+  "cli.dry.unit.eval": "eval",
+  "cli.dry.unit.evals": "evals",
+  "cli.dry.unit.config": "config",
+  "cli.dry.unit.configs": "configs",
   "cli.error": "niceeval error: {{error}}\n",
   "cli.flag.invalidNumber": "Flag --{{flag}} expects a number, got \"{{value}}\".\n",
   "cli.flag.outputRemoved":

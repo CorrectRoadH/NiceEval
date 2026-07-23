@@ -13,18 +13,18 @@
 
 ## TODO
 
-- [ ] **A. 形态解析**(单点)
-  - [ ] A1. `src/cli.ts` + `src/runner/feedback/profile.ts`:`--output` flag 删除,`resolveOutputForm` 收敛为 `--json` 布尔 + TTY 版式判断,删 CI 环境变量嗅探;`FLAG_OPTIONS` 增 `--json` 布尔项(JSDoc 为参考页文案单源)、删 `--output` 与 `--json <path>`、`--quiet` 确认不存在
-  - [ ] A2. 传 `--output …` 按用法错误退出,`fix:` 给「人读文本直接运行;机器面用 --json」——beta 不留别名
-  - [ ] A3. exp 的 JSON 聚合文件出口移除(`Json(path)` 保留为库 reporter);`--junit` 不动
-- [ ] **B. renderer 合并**(依赖 A)
-  - [ ] B1. `src/runner/feedback/{agent,ci}.ts` 合并为 `json.ts`:NDJSON 单 stdout 流、首行 `start` 带 `format`/`schemaVersion`、字段名复用 Results 词表、失败无 suppression、心跳 30s、`result` 收尾(completion/快照/junit 路径);`computeCiExitCode` 更名 `computeExitCode`;事件形状按 `ExpEvent` 判别联合(判别字段 `event`)逐个实现,`--dry --json` 输出单个 `ExpPlanDocument`(`format: "niceeval.exp-plan"`),两处类型单源见上「事件与计划文档的 TypeScript 形状」
-  - [ ] B2. 非 TTY human 追加流成为无 flag 默认;流路由按补充裁决改为单一 stdout(stderr 只留启动期错误,新行为,补实现与断言);人读失败展开上限 10
-  - [ ] B3. kept / experiment_setup / eval 等事件按词表逐个接线;`--dry --json` 单文档
-- [ ] **C. 单测 + E2E**(依赖 B;只为已声明类别写测)
+- [x] **A. 形态解析**(单点)
+  - [x] A1. `src/cli.ts` + `src/runner/feedback/profile.ts`:`--output` flag 删除,`resolveOutputForm` 收敛为 `--json` 布尔 + TTY 版式判断,删 CI 环境变量嗅探;`FLAG_OPTIONS` 增 `--json` 布尔项(JSDoc 为参考页文案单源)、删 `--output` 与 `--json <path>`、`--quiet` 确认不存在
+  - [x] A2. 传 `--output …` 按用法错误退出,`fix:` 给「人读文本直接运行;机器面用 --json」——beta 不留别名
+  - [x] A3. exp 的 JSON 聚合文件出口移除(`Json(path)` 保留为库 reporter);`--junit` 不动
+- [x] **B. renderer 合并**(依赖 A)
+  - [x] B1. `src/runner/feedback/{agent,ci}.ts` 合并为 `json.ts`:NDJSON 单 stdout 流、首行 `start` 带 `format`/`schemaVersion`、字段名复用 Results 词表、失败无 suppression、心跳 30s、`result` 收尾(completion/快照/junit 路径);`computeCiExitCode` 更名 `computeExitCode`;事件形状按 `ExpEvent` 判别联合(判别字段 `event`)逐个实现,`--dry --json` 输出单个 `ExpPlanDocument`(`format: "niceeval.exp-plan"`),两处类型单源见上「事件与计划文档的 TypeScript 形状」
+  - [x] B2. 非 TTY human 追加流成为无 flag 默认;流路由按补充裁决改为单一 stdout(stderr 只留启动期错误,新行为,补实现与断言);人读失败展开上限 10
+  - [x] B3. kept / experiment_setup / eval 等事件按词表逐个接线;`--dry --json` 单文档
+- [x] **C. 单测 + E2E**(依赖 B;只为已声明类别写测)
 - [ ] **D. 同步义务**
-  - [ ] D1. `pnpm docs:reference` 再生 `docs-site/zh/reference/cli.mdx` GENERATED 区块;核对 `src/i18n/` 两份 `--help` 速查
-  - [ ] D2. `pnpm run typecheck` → `pnpm test`;真机 `pnpm run niceeval -- exp <某实验> --dry --json` 冒烟
+  - [x] D1. `pnpm docs:reference` 再生 `docs-site/zh/reference/cli.mdx` GENERATED 区块;核对 `src/i18n/` 两份 `--help` 速查
+  - [x] D2. `pnpm run typecheck` → `pnpm test`;真机 `pnpm run niceeval -- exp <某实验> --dry --json` 冒烟
   - [ ] D3. e2e 消费仓(NiceEval-Eval / MemoryBench)脚本里 `--output ci|agent` 与 `--json <path>` 用法迁移
 
 ## 验收

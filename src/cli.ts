@@ -864,49 +864,44 @@ async function main(): Promise<void> {
   // 提前算好携入计划:coordinator 的 plan 事件与 runEvals 内部实际调度必须共用同一份
   // planCarry() 判断,否则两边各自算一遍,一旦不一致,dashboard/事件流展示的"携入"就会和
   // run.ts 真实调度的"携入"对不上(见 memory 的 live-carry-row-shows-waiting-forever)。
-  // `--dry` 本身不派发、不需要这份计算——除非是 `--dry --json`:ExpPlanDocument 的
-  // `matrix[].reused` 需要同一口径的复用预测(见 docs/feature/experiments/cli.md
-  // 「事件与计划文档的 TypeScript 形状」),这里按需提前算,不为 human --dry 的既有零 I/O
-  // 行为多付一次 fingerprint 计算。
-  let priorResults: Awaited<ReturnType<typeof loadLatestResultsPerEval>> | undefined;
-  let carryPlan: Awaited<ReturnType<typeof planCarry>> | undefined;
-  if (!flags.dry || outputForm === "json") {
-    priorResults = flags.force ? undefined : await loadLatestResultsPerEval(join(cwd, ".niceeval"));
-    carryPlan = priorResults?.length ? await planCarry(evals, agentRuns, priorResults, config.sandbox) : undefined;
-  }
+  // `--dry`(两种形态)都需要这份计算:`--dry --json` 的 `ExpPlanDocument.matrix[].reused`,
+  // 人读 `--dry` 首行的携入摘要(见 docs/feature/experiments/cli.md 开头示例与「事件与计划
+  // 文档的 TypeScript 形状」),口径必须与真正开跑时一致。
+  const priorResults = flags.force ? undefined : await loadLatestResultsPerEval(join(cwd, ".niceeval"));
+  const carryPlan = priorResults?.length ? await planCarry(evals, agentRuns, priorResults, config.sandbox) : undefined;
 
   if (flags.dry) {
     // --dry 只按所选形态打印计划,不运行、不落盘——一次完成的读取,不是事件流
-    // (见 docs/feature/experiments/cli.md「机器怎么读:--json」)。
-    if (outputForm === "json") {
-      const matrix: JsonPlanRow[] = [];
-      for (let i = 0; i < agentRuns.length; i++) {
-        const run = agentRuns[i]!;
-        for (const e of matchedByRun[i]!) {
-          const carriedCount = carryPlan?.carriedAttemptsByKey.get(cacheKey(run, e.id))?.size ?? 0;
-          matrix.push({ experimentId: run.experimentId ?? "", evalId: e.id, reused: carriedCount >= run.runs });
-        }
+    // (见 docs/feature/experiments/cli.md「机器怎么读:--json」)。两种形态共用同一份摊平
+    // 矩阵——(experimentId, evalId) 逐行,携带同一口径的 reused 预测——不是各自重算一遍。
+    const dryRuns = Math.max(1, ...agentRuns.map((r) => r.runs));
+    const matrix: JsonPlanRow[] = [];
+    for (let i = 0; i < agentRuns.length; i++) {
+      const run = agentRuns[i]!;
+      for (const e of matchedByRun[i]!) {
+        const carriedCount = carryPlan?.carriedAttemptsByKey.get(cacheKey(run, e.id))?.size ?? 0;
+        matrix.push({ experimentId: run.experimentId ?? "", evalId: e.id, reused: carriedCount >= run.runs });
       }
+    }
+    if (outputForm === "json") {
       process.stdout.write(
         renderJsonPlanDocument({
           total: totalAttempts,
           evals: uniqueEvalIds.size,
           configs: agentRuns.length,
-          runs: Math.max(1, ...agentRuns.map((r) => r.runs)),
+          runs: dryRuns,
           matrix,
         }),
       );
     } else {
       process.stdout.write(
         renderHumanDryPlan({
-          evals: evals.length,
+          totalAttempts,
+          evals: uniqueEvalIds.size,
           configs: agentRuns.length,
-          rows: agentRuns.map((run, i) => ({
-            who: run.model ? `${run.agent.name}/${run.model}` : run.agent.name,
-            experimentSuffix: run.experimentId ? ` (exp ${run.experimentId})` : "",
-            evalIds: matchedByRun[i]!.map((e) => e.id),
-            runs: run.runs,
-          })),
+          runs: dryRuns,
+          reused: carryPlan?.carriedResults.length ?? 0,
+          rows: matrix.map((row) => ({ experimentId: row.experimentId, evalId: row.evalId })),
         }),
       );
     }

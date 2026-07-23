@@ -694,41 +694,64 @@ function createPlainRenderer(io: FeedbackIO): FeedbackRenderer {
 
 // ───────────────────────── `--dry`(human profile):稳定预览,不经 coordinator ─────────────────────────
 
-/** 一个 (config, eval) 组合在 `--dry` 预览里的一行;字段形状与 cli.ts 里已有的 dry 数据一一对应,
- *  只是把 `t("cli.dry.row", ...)` 的拼装从 CLI 分支搬进这里 —— dry 预览同样是「展示」,
- *  不该留在 cli.ts(见 docs/feature/experiments/cli.md 与 plan 对「CLI 只负责解析/构造/退出」的
- *  要求)。dry run 不派发 attempt,没有 `RunFeedbackState` 可言,所以这是独立于
- *  `FeedbackRenderer`/coordinator 的纯函数,与 `renderAgentPlanEnvelope`(agent.ts)同一定位。 */
+/** 一个 (experimentId, evalId) 组合在 `--dry` 预览里的一行,与 cli.ts 里 `matchedByRun` 摊平后
+ *  的矩阵、以及 `--dry --json` 的 `ExpPlanRow`(去掉 `reused` 字段)三处同一份数据一一对应——
+ *  dry 预览同样是「展示」,不该留在 cli.ts(见 docs/feature/experiments/cli.md 与 plan 对
+ *  「CLI 只负责解析/构造/退出」的要求)。dry run 不派发 attempt,没有 `RunFeedbackState` 可言,
+ *  所以这是独立于 `FeedbackRenderer`/coordinator 的纯函数,与 `renderAgentPlanEnvelope`
+ *  (agent.ts)同一定位。 */
 export interface HumanDryPlanRow {
-  who: string;
-  /** `run.experimentId` 存在时的后缀,如 `" (exp compare/bub-e2b)"`;否则空串。 */
-  experimentSuffix: string;
-  evalIds: readonly string[];
-  runs: number;
+  experimentId: string;
+  evalId: string;
 }
 
 export interface HumanDryPlanInput {
-  /** 去重前的候选 eval 数(= discover 到、按 `--tag` 过滤后的 eval 总数,与 `cli.dry.header`
-   *  历来的口径一致 —— 不是「实际会跑」的去重数,那个概念属于真正开跑时的 `RunFeedbackPlan`)。 */
+  /** 矩阵行数 × runs,与 `--dry --json` 的 `ExpPlanDocument.total` 同口径。 */
+  totalAttempts: number;
+  /** 去重后的候选 eval 数,与 `ExpPlanDocument.evals` 同口径(即 `rows` 里 `evalId` 的去重数,
+   *  不是 discover 到的 eval 总数)。 */
   evals: number;
   configs: number;
+  runs: number;
+  /** 携带预测的复用 attempt 数;省略或 `0` 时不追加复用摘要行(docs 契约首行示例展示的是
+   *  全新派发场景,没有第二行)。 */
+  reused?: number;
   rows: readonly HumanDryPlanRow[];
 }
 
-/** 沿用既有 `cli.dry.header`/`cli.dry.row` 文案(见 src/i18n/{en,zh-CN}.ts),逐行列出每个
- *  (config, eval) 组合会匹配到哪些 eval —— 与 CI/agent 的 dry 预览不同,human 不折叠、不设行数
- *  上限:这条路径历来就是给人逐行读的完整清单。 */
+/** 契约首行(docs/feature/experiments/cli.md 开头的 `--dry` 示例):
+ *  `plan: <total> attempts · <N> eval[s] × <M> config[s] · runs <R>`,单复数随计数变化。
+ *  有携带预测时紧跟一行,沿用 `PLAN` 面板缓存摘要既有的 `feedback.human.reuse` 文案(见
+ *  `buildPlanLines`)而不是为 `--dry` 另造一套词。逐行按 `experimentId`/`evalId` 两列对齐,
+ *  第一列按实际出现过的最长值定宽——与 CI/agent 的 dry 预览不同,human 不折叠、不设行数上限:
+ *  这条路径历来就是给人逐行读的完整清单。 */
 export function renderHumanDryPlan(input: HumanDryPlanInput): string {
-  const lines = [t("cli.dry.header", { evals: input.evals, configs: input.configs })];
-  for (const row of input.rows) {
+  const lines = [
+    t("cli.dry.header", {
+      attempts: pluralUnit(input.totalAttempts, "cli.dry.unit.attempt", "cli.dry.unit.attempts"),
+      evals: pluralUnit(input.evals, "cli.dry.unit.eval", "cli.dry.unit.evals"),
+      configs: pluralUnit(input.configs, "cli.dry.unit.config", "cli.dry.unit.configs"),
+      runs: input.runs,
+    }),
+  ];
+  if (input.reused) {
     lines.push(
-      t("cli.dry.row", {
-        who: row.who,
-        experiment: row.experimentSuffix,
-        evals: row.evalIds.join(", ") || t("cli.dry.noMatches"),
-        runs: row.runs,
+      t("feedback.human.reuse", {
+        reused: input.reused,
+        total: input.totalAttempts,
+        toRun: Math.max(0, input.totalAttempts - input.reused),
       }),
     );
   }
-  return lines.join("");
+  const idWidth = Math.max(0, ...input.rows.map((row) => stringWidth(row.experimentId)));
+  for (const row of input.rows) {
+    lines.push(`${row.experimentId}${" ".repeat(idWidth - stringWidth(row.experimentId) + 2)}${row.evalId}`);
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+/** `${n} ${unit}` 的单复数投影;zh 的 singular/plural key 值相同(中文不做语法数变化),
+ *  实现照旧走同一条路径,不需要按 locale 分支。 */
+function pluralUnit(n: number, singularKey: Parameters<typeof t>[0], pluralKey: Parameters<typeof t>[0]): string {
+  return `${n} ${t(n === 1 ? singularKey : pluralKey)}`;
 }
