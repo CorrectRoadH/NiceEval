@@ -35,6 +35,22 @@ function fakePaginator(items: unknown[]) {
   return { get hasNext() { return !done; }, nextItems: async () => { done = true; return items; } };
 }
 
+/** 多页分页器:每次 `nextItems()` 只吐出一页,直到 `pages` 耗尽——用于证明翻页真的逐页推进,
+ *  不是只看第一页。 */
+function fakeMultiPagePaginator(pages: unknown[][]) {
+  let cursor = 0;
+  return {
+    get hasNext() {
+      return cursor < pages.length;
+    },
+    nextItems: async () => {
+      const page = pages[cursor] ?? [];
+      cursor += 1;
+      return page;
+    },
+  };
+}
+
 // ---- @vercel/sandbox ----
 const vercelGetMock = vi.fn();
 vi.mock("@vercel/sandbox", () => ({
@@ -294,6 +310,17 @@ describe("inspectDetached", () => {
         throw new Error("boom");
       });
       expect(await inspectDetached("e2b", "sbx-1")).toBe("unknown");
+    });
+
+    it("目标只在第二页 -> 完整翻页找到,不因第一页没命中就判 expired", async () => {
+      // bug: memory/e2b-list-returns-paginator-not-array.md
+      e2bListMock.mockReturnValue(
+        fakeMultiPagePaginator([
+          [{ sandboxId: "sbx-other-1", state: "running" }],
+          [{ sandboxId: "sbx-1", state: "paused" }],
+        ]),
+      );
+      expect(await inspectDetached("e2b", "sbx-1")).toBe("dormant");
     });
   });
 

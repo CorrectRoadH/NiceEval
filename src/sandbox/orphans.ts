@@ -20,9 +20,17 @@ export interface OrphanCandidate {
   state: OrphanState;
 }
 
+/** 孤儿三条件的裁决判据;默认走真实系统探测(`classifyRunIdentity`),测试注入窄判据以
+ *  摆脱对当前进程真实启动时刻与 `ps` 可用性的依赖(见 docs/engineering/testing/unit/sandbox.md
+ *  「孤儿核对与 prune」)。 */
+export type OrphanClassifier = (identity: RunIdentity) => "alive" | OrphanState;
+
 /** docker 候选:按 `niceeval.host` label 存在性查询本地 daemon(含已停止容器)。daemon 不可用
  *  (未装 docker / 未启动)时静默返回空集合——只读核对不能因为本机没有 docker 就整体报错。 */
-async function dockerOrphanCandidates(keptIds: ReadonlySet<string>): Promise<OrphanCandidate[]> {
+async function dockerOrphanCandidates(
+  keptIds: ReadonlySet<string>,
+  classify: OrphanClassifier,
+): Promise<OrphanCandidate[]> {
   let containers: { Id: string; Labels: Record<string, string> }[];
   try {
     const { default: Docker } = await import("dockerode");
@@ -36,7 +44,7 @@ async function dockerOrphanCandidates(keptIds: ReadonlySet<string>): Promise<Orp
     if (keptIds.has(id)) continue; // 留存注册表已登记的现场是被管理的,不是孤儿
     const identity = parseDockerRunIdentity(info.Labels);
     if (!identity) continue;
-    const state = classifyRunIdentity(identity);
+    const state = classify(identity);
     if (state === "alive") continue; // 属主 run 还活着,属于并发运行中的另一次 run,不出现在列表里
     out.push({ provider: "docker", sandboxId: id, identity, state });
   }
@@ -45,7 +53,10 @@ async function dockerOrphanCandidates(keptIds: ReadonlySet<string>): Promise<Orp
 
 /** e2b 候选:走 SDK 实例列表,client 侧按 metadata 是否带运行标识过滤。凭据缺失/网络失败时
  *  静默返回空集合(同 docker 的宽容降级)。 */
-async function e2bOrphanCandidates(keptIds: ReadonlySet<string>): Promise<OrphanCandidate[]> {
+async function e2bOrphanCandidates(
+  keptIds: ReadonlySet<string>,
+  classify: OrphanClassifier,
+): Promise<OrphanCandidate[]> {
   const out: OrphanCandidate[] = [];
   try {
     const { Sandbox: E2BSdkSandbox } = await import("e2b");
@@ -56,7 +67,7 @@ async function e2bOrphanCandidates(keptIds: ReadonlySet<string>): Promise<Orphan
         if (keptIds.has(info.sandboxId)) continue;
         const identity = parseE2BRunIdentity(info.metadata);
         if (!identity) continue;
-        const state = classifyRunIdentity(identity);
+        const state = classify(identity);
         if (state === "alive") continue;
         out.push({ provider: "e2b", sandboxId: info.sandboxId, identity, state });
       }
@@ -67,15 +78,23 @@ async function e2bOrphanCandidates(keptIds: ReadonlySet<string>): Promise<Orphan
   return out;
 }
 
-/** `sandbox list --orphans` 的数据源:docker + e2b 并发查询,已排除留存注册表条目。 */
-export async function listOrphanCandidates(keptIds: ReadonlySet<string>): Promise<OrphanCandidate[]> {
-  const [docker, e2b] = await Promise.all([dockerOrphanCandidates(keptIds), e2bOrphanCandidates(keptIds)]);
+/** `sandbox list --orphans` 的数据源:docker + e2b 并发查询,已排除留存注册表条目。
+ *  `classify` 省略时用真实系统探测(`classifyRunIdentity`);测试注入窄判据换取确定性,
+ *  不依赖 `ps` 是否可用或当前进程的真实启动时刻。 */
+export async function listOrphanCandidates(
+  keptIds: ReadonlySet<string>,
+  classify: OrphanClassifier = classifyRunIdentity,
+): Promise<OrphanCandidate[]> {
+  const [docker, e2b] = await Promise.all([
+    dockerOrphanCandidates(keptIds, classify),
+    e2bOrphanCandidates(keptIds, classify),
+  ]);
   return [...docker, ...e2b];
 }
 
 /** `niceeval exp` 启动残留提醒专用:只做 docker 零成本核对,云 provider 不在启动期探测。 */
 export async function dockerOrphanCount(keptIds: ReadonlySet<string>): Promise<number> {
-  return (await dockerOrphanCandidates(keptIds)).length;
+  return (await dockerOrphanCandidates(keptIds, classifyRunIdentity)).length;
 }
 
 export interface PruneOutcome {

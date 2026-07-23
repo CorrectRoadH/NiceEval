@@ -114,34 +114,45 @@ function deadPid(): number {
 }
 
 describe("listOrphanCandidates: 孤儿核对(docker + e2b)", () => {
-  it("docker:排除留存注册表已登记条目,只保留带运行标识且非 alive 的容器", async () => {
+  it("docker:排除留存注册表已登记条目,按注入判据保留 orphan 与 unverified,alive 完全不进列表", async () => {
+    const ORPHAN_PID = 1;
+    const ALIVE_PID = 2;
+    const UNVERIFIED_PID = 3;
     dockerListContainersMock.mockResolvedValue([
       {
         Id: "aaaaaaaaaaaa1111",
-        Labels: { "niceeval.host": hostname(), "niceeval.pid": String(deadPid()), "niceeval.started-at": "2026-07-20T14:02:00.000Z" },
+        Labels: { "niceeval.host": hostname(), "niceeval.pid": String(ORPHAN_PID), "niceeval.started-at": "2026-07-20T14:02:00.000Z" },
       },
       {
-        // 留存注册表已登记的条目:即使带运行标识也不是孤儿。
+        // 留存注册表已登记的条目:即使带运行标识也不是孤儿,连判据都不会被调用。
         Id: "bbbbbbbbbbbb2222",
-        Labels: { "niceeval.host": hostname(), "niceeval.pid": String(deadPid()), "niceeval.started-at": "t" },
+        Labels: { "niceeval.host": hostname(), "niceeval.pid": String(ORPHAN_PID), "niceeval.started-at": "t" },
       },
       {
         // 属主还活着:完全不出现在孤儿列表里(不是 unverified)。
         Id: "cccccccccccc3333",
-        Labels: { "niceeval.host": hostname(), "niceeval.pid": String(process.pid), "niceeval.started-at": new Date().toISOString() },
+        Labels: { "niceeval.host": hostname(), "niceeval.pid": String(ALIVE_PID), "niceeval.started-at": "t" },
+      },
+      {
+        // 判据给不出确定结论:同样出现在列表里,但状态是 unverified 不是 orphan。
+        Id: "dddddddddddd4444",
+        Labels: { "niceeval.host": hostname(), "niceeval.pid": String(UNVERIFIED_PID), "niceeval.started-at": "t" },
       },
     ]);
     e2bListMock.mockReturnValue(fakePaginator([]));
 
     const { listOrphanCandidates } = await import("./orphans.ts");
     const keptIds = new Set(["bbbbbbbbbbbb"]); // 12 位短 id,与 sandboxId 截断口径一致
-    const candidates = await listOrphanCandidates(keptIds);
+    // 注入窄判据,按 pid 直接裁决三种状态——不经真实 ps 探测或当前进程真实启动时刻,结果
+    // 在任意环境(含禁止 ps 的受限容器)下确定性一致;classifyRunIdentity 自身的
+    // host/pid/启动时刻裁决语义由下面独立的「classifyRunIdentity」用例组覆盖。
+    const classify = (identity: { pid: number }) =>
+      identity.pid === ALIVE_PID ? ("alive" as const) : identity.pid === ORPHAN_PID ? ("orphan" as const) : ("unverified" as const);
+    const candidates = await listOrphanCandidates(keptIds, classify);
 
-    // 受限测试容器禁止 ps，真实运行时的进程启动时间探测会保守降为 unverified；
-    // 精确的 alive / pid 复用语义由上面的注入式 classifyRunIdentity 用例覆盖。
     expect(candidates).toHaveLength(2);
     expect(candidates[0]).toMatchObject({ provider: "docker", sandboxId: "aaaaaaaaaaaa", state: "orphan" });
-    expect(candidates[1]).toMatchObject({ provider: "docker", sandboxId: "cccccccccccc", state: "unverified" });
+    expect(candidates[1]).toMatchObject({ provider: "docker", sandboxId: "dddddddddddd", state: "unverified" });
   });
 
   it("e2b:异宿主标识判定 unverified,与 docker 的 orphan 一起返回", async () => {
