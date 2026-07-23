@@ -13,7 +13,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { EvalResult, Verdict } from "../../types.ts";
+import type { AssertionResult, EvalResult, Verdict } from "../../types.ts";
 import type { AttemptHandle, Results, Scope, Snapshot } from "../../results/index.ts";
 import { makeScope } from "../../results/select.ts";
 import {
@@ -27,7 +27,7 @@ import {
 } from "../definition/tree.ts";
 import { buildReportMeta, defineReport, FALLBACK_REPORT_TITLE, resolveReportTitle } from "../definition/report.ts";
 import { pickReportPage, ReportPageNeedsLocatorError, ReportPageNotFoundError } from "./text.ts";
-import { AttemptList, FailureList } from "../components/entity-lists/index.tsx";
+import { AttemptList, ExperimentList, FailureList } from "../components/entity-lists/index.tsx";
 import { CopyFixPrompt, Hero, ScopeWarnings, TraceWaterfall } from "../components/site-components/index.tsx";
 import { ExperimentComparison, ScopeSummary } from "../components/summaries/index.tsx";
 import { MetricBars, MetricMatrix, MetricScatter, MetricTable } from "../components/metric-views/index.tsx";
@@ -36,7 +36,7 @@ import { Col, Section, Tab, Table, Tabs, Text } from "../definition/primitives.t
 import { attemptListData, experimentListData } from "../components/entity-lists/compute.ts";
 import { metricScatterData } from "../components/metric-views/compute.ts";
 import { scopeSummaryData } from "../components/summaries/compute.ts";
-import { costUSD, defineMetric, endToEndPassRate } from "../model/metrics.ts";
+import { costUSD, defineMetric, endToEndPassRate, totalScore } from "../model/metrics.ts";
 import { label } from "../model/flag.ts";
 import builtInReport, { standard, standardAttemptPage } from "../built-in/index.tsx";
 
@@ -736,6 +736,31 @@ describe("ExperimentComparison(组合组件)", () => {
     return resolved.props.children;
   }
 
+  /** 计分制 fixture 用的最小断言记录:一条 gate 断言,`points` 挣分。 */
+  function scoreAssertion(points: number): AssertionResult {
+    return { name: "x", severity: "gate", outcome: "passed", score: 1, points } as AssertionResult;
+  }
+
+  /**
+   * 递归收集展开树里 `.type === target` 的全部已解析元素;不假设固定的嵌套形状——
+   * mixed 分支具体套几层 <Col> 是实现细节,这里只认组件类型,不认树里的位置。
+   */
+  function collectElementsByType(
+    node: unknown,
+    target: unknown,
+    out: Array<{ props: Record<string, unknown> }> = [],
+  ): Array<{ props: Record<string, unknown> }> {
+    if (node === null || node === undefined || typeof node !== "object") return out;
+    if (Array.isArray(node)) {
+      for (const child of node) collectElementsByType(child, target, out);
+      return out;
+    }
+    const el = node as { type?: unknown; props?: { children?: unknown } };
+    if (el.type === target) out.push(el as { props: Record<string, unknown> });
+    if (el.props && "children" in el.props) collectElementsByType(el.props.children, target, out);
+    return out;
+  }
+
   it("不同深度目录的 experiments 一律进同一份 data;展开树里 ScopeSummary / MetricScatter / ExperimentList 的解析结果与直接调用三个函数深等", async () => {
     const g1a = snap({ experimentId: "compare/a", agent: "bub", results: [res("q", "passed")] });
     const g1b = snap({ experimentId: "compare/b", agent: "codex", results: [res("q", "failed")] });
@@ -798,6 +823,58 @@ describe("ExperimentComparison(组合组件)", () => {
 
     const [, explicitScatterEl] = await resolveComparisonChildren(<ExperimentComparison series={label("memory")} />, all);
     expect((explicitScatterEl.props.data as { seriesDimension?: string }).seriesDimension).toBe("memory");
+  });
+
+  it("纯计分制 Scope:展开树仍是扁平三元素形状,散点 y 与列表预排序引用 totalScore 同一实例(不是 endToEndPassRate)", async () => {
+    const g1a = snap({
+      experimentId: "score/a",
+      agent: "bub",
+      results: [res("q", "passed", { scoring: "points", assertions: [scoreAssertion(3)] })],
+    });
+    const g1b = snap({
+      experimentId: "score/b",
+      agent: "codex",
+      results: [res("q", "passed", { scoring: "points", assertions: [scoreAssertion(2)] })],
+    });
+    const all = [g1a, g1b];
+    const [summaryEl, scatterEl, listEl] = await resolveComparisonChildren(<ExperimentComparison />, all);
+    expect(summaryEl.props.data).toEqual(await scopeSummaryData(all));
+    expect(listEl.props.data).toEqual(await experimentListData(all));
+    expect(scatterEl.props.data).toEqual(
+      await metricScatterData(all, { points: "experiment", series: "agent", x: costUSD, y: totalScore }),
+    );
+  });
+
+  it("mixed:按题型拆成两组;ScopeSummary 只有一份读整个 input,散点与 ExperimentList 各题型一对、各用各的主读数", async () => {
+    const passSnap = snap({ experimentId: "mixed/pass", agent: "bub", results: [res("p", "passed")] });
+    const pointsSnap = snap({
+      experimentId: "mixed/points",
+      agent: "codex",
+      results: [res("q", "passed", { scoring: "points", assertions: [scoreAssertion(4)] })],
+    });
+    const scope = scopeOf([passSnap, pointsSnap]);
+    const resolved = await resolveTree(<ExperimentComparison />, scope);
+
+    const summaries = collectElementsByType(resolved, ScopeSummary);
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]!.props.data).toEqual(await scopeSummaryData([passSnap, pointsSnap]));
+
+    const scatters = collectElementsByType(resolved, MetricScatter);
+    const lists = collectElementsByType(resolved, ExperimentList);
+    expect(scatters).toHaveLength(2);
+    expect(lists).toHaveLength(2);
+
+    const scatterByY = new Map(scatters.map((el) => [(el.props.data as { y: { key: string } }).y.key, el]));
+    expect(scatterByY.get(endToEndPassRate.name)?.props.data).toEqual(
+      await metricScatterData([passSnap], { points: "experiment", series: "agent", x: costUSD, y: endToEndPassRate }),
+    );
+    expect(scatterByY.get(totalScore.name)?.props.data).toEqual(
+      await metricScatterData([pointsSnap], { points: "experiment", series: "agent", x: costUSD, y: totalScore }),
+    );
+
+    const listByScoring = new Map(lists.map((el) => [(el.props.data as Array<{ scoring: string }>)[0]?.scoring, el]));
+    expect(listByScoring.get("pass")?.props.data).toEqual(await experimentListData([passSnap]));
+    expect(listByScoring.get("points")?.props.data).toEqual(await experimentListData([pointsSnap]));
   });
 });
 
