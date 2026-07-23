@@ -53,7 +53,7 @@ description: "用 niceeval show 在终端按 @<locator> 查看 Attempt 的评估
 ```bash
 niceeval show                       # 默认报告：比较当前 Scope 并下钻到 Attempt
 niceeval show weather               # 前缀过滤：weather/* 下每个 eval 的判定
-niceeval show weather/brooklyn      # 单个 eval：各 experiment 的 attempt 行(含 @<locator>)、默认 attempt 的断言明细
+niceeval show weather/brooklyn      # 收窄到一个 eval：同一份榜单，只保留它的 experiment × Attempt 展开
 niceeval show @1k2m9qrs             # 精确到一次 Attempt：断言、执行、diff 与可用证据摘要
 niceeval show @1k2m9qrs --source      # 该 Attempt 运行时保存的 Eval 源码,断言标回源码行
 niceeval show @1k2m9qrs --execution # 该 Attempt 的消息、thinking、Skill 加载、工具调用,有 OTel 时补时间
@@ -69,14 +69,14 @@ Sandbox 创建、setup 或 teardown 错误不依赖 trace。`result.json` 保存
 
 同一个 Experiment 多次运行会留下多份结果。不带 `@<locator>` 的默认视图显示每个 Experiment × 评估用例最新的判定，并可能从同一个 Experiment 的多次运行中组合结果。按前缀只重跑部分评估用例时，其余评估用例的判定从更早的运行补齐。每份判定都带有生成时间，因此可以识别组合结果的来源。组合结果可能包含不同版本的被测代码，最终判定应以 `--force` 全量重跑为准。
 
-单个评估用例视图里，多 experiment、多 Attempt 时默认展开最新一次失败的 Attempt；需要精确查看就复制该行的 `@<locator>`。`--exp agents/codex` 按 experiment id 路径收窄；`--results` 换结果根，`--snapshot` 只看某一次快照。
+用 eval id 前缀收窄范围时，同一个评估用例的多次 Attempt 全部按顺序列出，不做默认展开；需要精确查看就复制该行的 `@<locator>`。`--exp agents/codex` 按 experiment id 路径收窄；`--results` 换结果根，`--snapshot` 只看某一次快照。
 
 `niceeval view` 的每个视图都有 CLI 对应物：
 
 | `niceeval view` 里的视图 | 终端对应 |
 | --- | --- |
 | 当前结果的分组比较报告 | `niceeval show` |
-| 该评估用例各 experiment 的判定行 + 默认 attempt 的断言明细 | `niceeval show <eval id>` |
+| 收窄到该 eval 前缀的榜单：各 experiment × Attempt 的判定与摘要 | `niceeval show <eval id>` |
 | 单次 Attempt 摘要（断言、执行、diff 与证据可用性） | `niceeval show @<locator>` |
 | 评估用例源码标注（断言标回源码行） | `niceeval show @<locator> --source` |
 | AI 对话、thinking、Skill 加载与工具调用（有 OTel 时补时间） | `niceeval show @<locator> --execution` |
@@ -90,26 +90,57 @@ Sandbox 创建、setup 或 teardown 错误不依赖 trace。`result.json` 保存
 
 实验列表先给固定列汇总，再按 experiment → 评估用例 → Attempt 展开。locator 只保留 `@<id>`；完整断言和 evidence 留在 `niceeval show @<locator>`。只有一个 experiment 时散点仍显示单点。
 
-### 单个评估用例
+### 用 eval 前缀收窄榜单
+
+eval id 前缀不是另一套视图——它只是把当前 Scope 收窄到匹配的评估用例，渲染的仍是和裸 `niceeval show` 同一份默认榜单：散点图、固定列汇总，再按 experiment → 评估用例 → Attempt 展开，只是这里的评估用例只剩下匹配前缀的那些。同一个评估用例的多次 Attempt 全部按顺序逐条列出，不做「默认展开某一次」的取舍：
 
 ```text
 $ niceeval show weather/brooklyn
-weather/brooklyn — 布鲁克林天气查询
+Eval Results
+Last run 2026-07-09 18:00 · composed from 2 snapshots
 
-compare/bub-gpt-5.4     ✓ passed   1 attempt    38.0s   $0.03   (2h ago)    @1xqur9kx
-compare/codex-gpt-5.4   ✗ failed   3 attempts   41.2s   $0.12   (40s ago)   @1k2m9qrs   calledTool("get_weather") · received 0 tool calls
+Pass rate 50% · 2 experiments · 2 evals · 4 attempts · 1 passed · 1 failed · Total cost $0.15
+Run range · Jul 9, 2026, 16:00 – 18:00
 
-attempt 3 · compare/codex-gpt-5.4 · failed · 41.2s · 12.3k tokens · $0.04
-  ✗ gate · calledTool("get_weather") · received 0 tool calls
-  ✓ gate succeeded()
-  ✗ soft · judge("回答基于实时数据")   0.2 / 1 · reply invents a temperature without any tool call
+Cost(lower is better) × Pass rate(higher is better) · grouped by agent
+     Pass rate ↑
+ 100%│                                                                           A
+     │
+   0%│            B
+     └────────────────────────────────────────────────────────────────────────────────────────→ Cost
+      $0.042                                                                            $0.028
 
-artifacts: .niceeval/compare_codex-gpt-5.4/2026-07-09T10-00-00-000Z-x1f2/weather/brooklyn/a2/
-attempt locator: @1k2m9qrs
-next: niceeval show @1k2m9qrs [--source|--execution]
+better → upper right
+bub    A compare/bub-gpt-5.4
+codex  B compare/codex-gpt-5.4
+
+Exp.            Model     Agent     Avg   Pass   Results          Tokens    Cost
+bub-gpt-5.4     gpt-5.4   bub       38s   100%   1 passed      9k tokens   $0.03
+codex-gpt-5.4   gpt-5.4   codex   40.2s     0%   1 failed   12.9k tokens   $0.04
+  bub-gpt-5.4: 1 evals · 1 attempts · 2026-07-09T08:00:00.000Z
+  codex-gpt-5.4: 1 evals · 3 attempts · 2026-07-09T10:00:00.000Z
+
+bub-gpt-5.4
+Status     Eval / Attempt     Results   Duration        Cost
+✓ passed   weather/brooklyn              38s avg   $0.03 avg
+  ✓        └─ @14617z2e       —            38.0s       $0.03
+
+codex-gpt-5.4
+Status     Eval / Attempt     Results                                  Duration        Cost
+✗ failed   weather/brooklyn                                           40.2s avg   $0.04 avg
+  ✗        ├─ @14m0duci       gate: calls the weather tool ·              39.4s       $0.04
+                              calledTool("get_weather") · expected…
+  ✗        ├─ @1rxhuidh       gate: calls the weather tool ·              40.1s       $0.04
+                              calledTool("get_weather") · expected…
+  ✗        └─ @1jwsgp2j       gate: calls the weather tool ·              41.2s       $0.04
+                              calledTool("get_weather") · expected…
+
+Other pages:
+  attempts   Attempts   niceeval show weather/brooklyn --page attempts
+  traces     Traces     niceeval show weather/brooklyn --page traces
 ```
 
-每个 experiment 一行的紧凑索引末尾就带着代表 attempt 的 `@<locator>`（`compare/bub-gpt-5.4` 只有一次 attempt 就代表它自己，`compare/codex-gpt-5.4` 代表的是默认展开的那一次失败）；展开的明细块结尾再重复一次精确的 `attempt locator:`，两处给的是同一个值。想看别的 attempt（比如 `compare/codex-gpt-5.4` 更早失败的那次），去 `--history` 或 artifact 目录里找到它的 locator，`niceeval show @<locator>` 直接跳过去，不需要先回到这张列表。
+`compare/bub-gpt-5.4` 下只有一次 Attempt（`@14617z2e`）；`compare/codex-gpt-5.4` 下三次 Attempt 全部展开（`@14m0duci`、`@1rxhuidh`、`@1jwsgp2j`），逐行给出各自的判定、耗时、成本与失败摘要，被截断的 `received` 值末尾带 `…`。复制其中任意一行的 `@<locator>` 继续 `niceeval show @<locator>`，就能打开那一次 Attempt 的诊断首页看完整断言与证据。
 
 ### `@<locator>`：一次 Attempt 的摘要
 
@@ -145,7 +176,7 @@ available:
 
 ### `--source`、`--execution`、`--timing`、`--diff`：四个证据切面
 
-四个证据 flag 既可以加在 `@<locator>` 后面（精确到一次 Attempt），也可以加在能唯一收窄到一个评估用例的前缀后面（挑同一套默认启发式选中的 attempt——最新一次失败，没有失败就挑最新一次，与单个评估用例详情块展开的是同一次）；前缀撞到不止一个评估用例时会报错，报错正文直接给出每个候选评估用例的 `@<locator>`，照抄一个继续即可。可以同时传多个证据 flag，一次输出全部要看的切面。
+四个证据 flag 既可以加在 `@<locator>` 后面（精确到一次 Attempt），也可以加在任意收窄出结果的范围后面——eval id 前缀、`--exp` 都可以。范围里有不止一次 Attempt 时，输出按 Attempt 逐条分节，每节开头一行 `@<locator> · <评估用例 id> · <experiment id> · <判定>` 标出这一节是哪次 Attempt。可以同时传多个证据 flag，一次输出全部要看的切面。
 
 `--source` 是运行时保存的评估用例源码，按行标注每条断言、gate 失败与 soft 分数直接排在对应源码行下面，源码里没能对应到具体行的断言（没有位置信息，或位置指向另一个文件）单独成一段，永不丢弃：
 
@@ -308,7 +339,7 @@ $ niceeval show @1c3h6twx --diff=src/components/Button.tsx
 
 ### 历史与抖动：`--history`
 
-默认报告和单个评估用例视图显示最新判定。`--history` 把一道评估用例的历次执行摊开成时间轴：每个 experiment × 评估用例一个框，框内按开始时间从早到晚一行一次执行——时间、判定、失败摘要、耗时、成本，行尾是这次执行的 `@<locator>`：
+不带 `--history` 时，`niceeval show` 只显示每个 experiment × 评估用例的最新判定；`--history` 把一道评估用例的历次执行摊开成时间轴：每个 experiment × 评估用例一个框，框内按开始时间从早到晚一行一次执行——时间、判定、失败摘要、耗时、成本，行尾是这次执行的 `@<locator>`：
 
 ```text
 $ niceeval show weather/brooklyn --history

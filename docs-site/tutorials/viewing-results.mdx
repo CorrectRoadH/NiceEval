@@ -53,7 +53,7 @@ The unit of storage is a **result snapshot** — one run of one experiment. The 
 ```bash
 niceeval show                       # Default report: split into experiment groups, compare configs within a group, drill into an attempt
 niceeval show weather               # Prefix filter: verdicts for every eval under weather/*
-niceeval show weather/brooklyn      # Single eval: each experiment's attempt row (with @<locator>), assertion detail for the default attempt
+niceeval show weather/brooklyn      # Narrow to one eval: the same report, restricted to its experiment × attempt breakdown
 niceeval show @1k2m9qrs             # Pinpoint one attempt: assertions, execution, diff, and a summary of available evidence
 niceeval show @1k2m9qrs --source      # The eval source saved when this attempt ran, with assertions annotated back onto it
 niceeval show @1k2m9qrs --execution # This attempt's messages, thinking, skill loads, and tool calls, with timing added when OTel is available
@@ -69,14 +69,14 @@ Sandbox creation, setup, and teardown errors don't depend on a trace. `result.js
 
 Running the same experiment more than once leaves multiple results behind. The default view — without an `@<locator>` — shows the latest verdict for each experiment × eval pair, and may compose results across multiple runs of the same experiment. When a prefix rerun only touches part of the evals, the rest of the evals' verdicts are backfilled from earlier runs. Every verdict carries the time it was produced, so you can tell where a composed result came from. A composed result can mix different versions of the system under test, so treat a `--force` full rerun as the final word.
 
-In the single-eval view, when there are multiple experiments or multiple attempts, the assertion-detail block defaults to expanding the latest failing attempt, or the latest attempt if none failed. That's just a default-expansion heuristic, not a precise selection — to look at one specific attempt, copy that row's `@<locator>` and `show` it directly. `--exp compare` narrows the selection by path-segment prefix to the whole `compare` group, `--exp compare/bub` keeps just one experiment; `--results <dir>` swaps the results root, `--snapshot <snapshot.json>` looks at one specific stored snapshot, and `--history` shows the cross-run trend. `--report <file>` replaces the default report for both `show` and `view`. Positional prefixes, `--results`, and `--exp` all apply to custom reports too; `--history` and `--report` are mutually exclusive.
+When narrowing by eval id prefix, every attempt of a matching eval is listed in order — there's no default expansion of just one of them. To look at one specific attempt, copy that row's `@<locator>` and `show` it directly. `--exp compare` narrows the selection by path-segment prefix to the whole `compare` group, `--exp compare/bub` keeps just one experiment; `--results <dir>` swaps the results root, `--snapshot <snapshot.json>` looks at one specific stored snapshot, and `--history` shows the cross-run trend. `--report <file>` replaces the default report for both `show` and `view`. Positional prefixes, `--results`, and `--exp` all apply to custom reports too; `--history` and `--report` are mutually exclusive.
 
 Every view in `niceeval view` has a terminal equivalent:
 
 | View in `niceeval view` | Terminal equivalent |
 | --- | --- |
 | The default grouped comparison report for the current results | `niceeval show` |
-| That eval's verdict row per experiment + assertion detail for the default attempt | `niceeval show <eval id>` |
+| The report narrowed to that eval prefix: verdicts and summaries per experiment × attempt | `niceeval show <eval id>` |
 | One attempt's summary (assertions, execution, diff, and evidence availability) | `niceeval show @<locator>` |
 | Eval source annotated with assertions (mapped back to source lines) | `niceeval show @<locator> --source` |
 | The AI's conversation, thinking, skill loads, and tool calls (with timing when OTel is available) | `niceeval show @<locator> --execution` |
@@ -86,30 +86,61 @@ Every view in `niceeval view` has a terminal equivalent:
 
 ### Default grouped comparison report
 
-Bare `niceeval show`, when it hits multiple comparable groups, lists only the group index and a directly runnable `niceeval show --exp <group>` command; only once the selection narrows to a single group does it print that group's cost × end-to-end pass-rate chart and experiment list. Group boundaries come from the experiment id's full parent directory: `compare/*` and `dev-e2b/*` never share a coordinate system, connecting lines, sort order, or summary numbers; a top-level experiment forms a group of one.
+Bare `niceeval show`, with no flags, prints the current Scope's cost × end-to-end pass-rate chart and experiment list directly. Each experiment's eval count and metric denominator come from its snapshot's `selectedEvalIds`; evals that weren't selected are not backfilled as failures.
 
-Within a group, the experiment list gives a fixed-column summary first, then expands by experiment → eval → attempt. The locator column keeps only `@<id>`, and a failure reason prefers the expected/received values or the command's exit code. Full assertions and evidence stay behind `niceeval show @<locator>`. A group with only one experiment still shows a single point on the scatter plot — there's no irrelevant "need at least two experiments to compare" empty state. Warnings about an unfinished, stale, or under-covered snapshot sit ahead of the group index, and the same warning is never shown twice.
+The experiment list gives a fixed-column summary first, then expands by experiment → eval → attempt. The locator column keeps only `@<id>`; full assertions and evidence stay behind `niceeval show @<locator>`. A single experiment still shows a single point on the scatter plot.
 
-### Single eval
+### Narrowing by eval prefix
+
+An eval id prefix isn't a different view — it just narrows the current Scope to the matching evals and renders the same default report as bare `niceeval show`: the scatter plot, the fixed-column summary, then experiment → eval → attempt. The evals left in that report are only the ones matching the prefix. Every attempt of a matching eval is listed in order — there's no "expand just one of them" default:
 
 ```text
 $ niceeval show weather/brooklyn
-weather/brooklyn — Brooklyn weather lookup
+Eval Results
+Last run 2026-07-09 18:00 · composed from 2 snapshots
 
-compare/bub-gpt-5.4     ✓ passed   1 attempt    38.0s   $0.03   (2h ago)    @1xqur9kx
-compare/codex-gpt-5.4   ✗ failed   3 attempts   41.2s   $0.12   (40s ago)   @1k2m9qrs   calledTool("get_weather") · received 0 tool calls
+Pass rate 50% · 2 experiments · 2 evals · 4 attempts · 1 passed · 1 failed · Total cost $0.15
+Run range · Jul 9, 2026, 16:00 – 18:00
 
-attempt 3 · compare/codex-gpt-5.4 · failed · 41.2s · 12.3k tokens · $0.04
-  ✗ gate · calledTool("get_weather") · received 0 tool calls
-  ✓ gate succeeded()
-  ✗ soft · judge("the answer is based on real-time data")   0.2 / 1 · reply invents a temperature without any tool call
+Cost(lower is better) × Pass rate(higher is better) · grouped by agent
+     Pass rate ↑
+ 100%│                                                                           A
+     │
+   0%│            B
+     └────────────────────────────────────────────────────────────────────────────────────────→ Cost
+      $0.042                                                                            $0.028
 
-artifacts: .niceeval/compare_codex-gpt-5.4/2026-07-09T10-00-00-000Z-x1f2/weather/brooklyn/a2/
-attempt locator: @1k2m9qrs
-next: niceeval show @1k2m9qrs [--source|--execution]
+better → upper right
+bub    A compare/bub-gpt-5.4
+codex  B compare/codex-gpt-5.4
+
+Exp.            Model     Agent     Avg   Pass   Results          Tokens    Cost
+bub-gpt-5.4     gpt-5.4   bub       38s   100%   1 passed      9k tokens   $0.03
+codex-gpt-5.4   gpt-5.4   codex   40.2s     0%   1 failed   12.9k tokens   $0.04
+  bub-gpt-5.4: 1 evals · 1 attempts · 2026-07-09T08:00:00.000Z
+  codex-gpt-5.4: 1 evals · 3 attempts · 2026-07-09T10:00:00.000Z
+
+bub-gpt-5.4
+Status     Eval / Attempt     Results   Duration        Cost
+✓ passed   weather/brooklyn              38s avg   $0.03 avg
+  ✓        └─ @14617z2e       —            38.0s       $0.03
+
+codex-gpt-5.4
+Status     Eval / Attempt     Results                                  Duration        Cost
+✗ failed   weather/brooklyn                                           40.2s avg   $0.04 avg
+  ✗        ├─ @14m0duci       gate: calls the weather tool ·              39.4s       $0.04
+                              calledTool("get_weather") · expected…
+  ✗        ├─ @1rxhuidh       gate: calls the weather tool ·              40.1s       $0.04
+                              calledTool("get_weather") · expected…
+  ✗        └─ @1jwsgp2j       gate: calls the weather tool ·              41.2s       $0.04
+                              calledTool("get_weather") · expected…
+
+Other pages:
+  attempts   Attempts   niceeval show weather/brooklyn --page attempts
+  traces     Traces     niceeval show weather/brooklyn --page traces
 ```
 
-Each experiment's row in the compact index ends with the `@<locator>` for the attempt it represents (`compare/bub-gpt-5.4` has just one attempt, so it represents itself; `compare/codex-gpt-5.4` represents the failing attempt expanded by default); the expanded detail block repeats the exact `attempt locator:` again at the end, and both places give the same value. To look at a different attempt — say, an earlier failure of `compare/codex-gpt-5.4` — find its locator via `--history` or the artifact directory, and `niceeval show @<locator>` jumps straight to it, no need to come back through this list first.
+`compare/bub-gpt-5.4` has just one attempt (`@14617z2e`); `compare/codex-gpt-5.4` expands all three attempts (`@14m0duci`, `@1rxhuidh`, `@1jwsgp2j`), each on its own line with its own verdict, duration, cost, and failure summary — a truncated `received` value ends with `…`. Copy any row's `@<locator>` and `niceeval show @<locator>` opens that attempt's diagnosis page with the full assertions and evidence.
 
 ### `@<locator>`: one attempt's overview
 
@@ -145,7 +176,7 @@ This overview only gives a summary — it never reproduces a facet's full conten
 
 ### `--source`, `--execution`, `--timing`, `--diff`: four evidence facets
 
-All four evidence flags work either right after `@<locator>` (pinpointing one attempt) or after a prefix that narrows uniquely to a single eval (picking the attempt chosen by the same default heuristic — the latest failure, or the latest attempt if none failed, the same one the single-eval detail block expands). If the prefix matches more than one eval, it errors out, and the error body gives you the `@<locator>` for every candidate eval right there — copy one and continue. You can pass multiple evidence flags at once to print every facet you want in one go.
+All four evidence flags work either right after `@<locator>` (pinpointing one attempt) or after any range that resolves to results — an eval id prefix, `--exp`, either one. When the range covers more than one attempt, the output is split into one section per attempt, each opening with a `@<locator> · <eval id> · <experiment id> · <verdict>` header line naming which attempt that section is. You can pass multiple evidence flags at once to print every facet you want in one go.
 
 `--source` is the eval source saved at run time, annotated line by line: gate failures and soft scores print directly under their matching source line, and an assertion that couldn't be pinned to a specific line (no position info, or the position points to another file) gets its own section instead of being dropped:
 
@@ -311,7 +342,7 @@ Hand a coding agent this exact loop. Each step continues only when the previous 
 
 ### History and Flakiness: `--history`
 
-The default report and single-eval view show the latest verdict. `--history` uses a cross-run timeline to show stability and where a regression started, one line per real execution:
+Without `--history`, `niceeval show` only shows each experiment × eval's latest verdict. `--history` uses a cross-run timeline to show stability and where a regression started, one line per real execution:
 
 ```text
 $ niceeval show weather/brooklyn --history

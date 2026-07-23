@@ -173,6 +173,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 
 ### 台账
 
+- [non-tty-pipe-narrow-table-width-fallback](non-tty-pipe-narrow-table-width-fallback.md) — 非 TTY 管道下 show 表格窄折行是 stdout.columns 缺失的宽度回退,不是渲染缺陷;取样用 script+stty cols 给宽度再比对 docs 示例
 - 已修 [report-test-scope-fixture-duplication-tax](report-test-scope-fixture-duplication-tax.md) — report 四个测试文件各复制一份 `scopeOf`/`resultsOf`,makeScope 两天两次改签名每次连改四处;修为收敛进 `src/report/components/scope.harness.ts`(`*.harness.ts` 不进 vitest 收集与 dist/report)
 - 已修 [attempt-source-unlocated-conversation-unstyled-and-escape-leak](attempt-source-unlocated-conversation-unstyled-and-escape-leak.md) — AttemptSource「Other conversation」兜底区文字墙 + 工具结果 `\n` 字面直出:`.nre-conv-*` 按容器限定没盖到第三容器、`compact()` 在 stringify 之后才收口;修为第三容器补 CSS + 先收口后字符串化;教训=共享 renderer 进新容器 CSS 不自动跟、自由文本收口必须在序列化前
 - 已修 [eval-header-historical-mark-shifts-grid-columns](eval-header-historical-mark-shifts-grid-columns.md) — ExperimentList Eval 父行的 `↩` 时效标注曾裸插进按位置取列的 4 轨 grid 当第 5 个子元素,全携带的题整行错位、rollup 挤进 20px 列逐字竖排;修为嵌进题目名格内(`ExperimentList.tsx` EvalAttempts);教训=固定轨数 grid 不能裸插条件子元素
