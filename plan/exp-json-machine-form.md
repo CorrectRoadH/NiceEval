@@ -4,6 +4,7 @@
 
 - 两形态原则、逐信息规则表、流边界:`docs/feature/experiments/cli.md`(开头「每条命令一个人读 text 面,`--json` 是机器面」与「什么动态更新,什么逐条追加」)
 - NDJSON 事件词表、`start`/`result` 事件形状、`--dry --json` 单文档:`docs/feature/experiments/cli.md#机器怎么读--json`
+- 事件与计划文档的 TypeScript 判别联合(`ExpEvent`)与 `ExpPlanDocument` 形状,renderer 实现的类型单源:`docs/feature/experiments/cli.md#事件与计划文档的-typescript-形状`
 - 用例:`docs/feature/experiments/use-case/json-agent-loop.md`、`json-ci-gate.md`
 - kept sandbox 的 `kept` 事件:`docs/feature/sandbox/cli.md`
 - 失败摘要在 `failure` 事件的结构化字段:`docs/feature/scoring/library/display.md`
@@ -17,7 +18,7 @@
   - [ ] A2. 传 `--output …` 按用法错误退出,`fix:` 给「人读文本直接运行;机器面用 --json」——beta 不留别名
   - [ ] A3. exp 的 JSON 聚合文件出口移除(`Json(path)` 保留为库 reporter);`--junit` 不动
 - [ ] **B. renderer 合并**(依赖 A)
-  - [ ] B1. `src/runner/feedback/{agent,ci}.ts` 合并为 `json.ts`:NDJSON 单 stdout 流、首行 `start` 带 `format`/`schemaVersion`、字段名复用 Results 词表、失败无 suppression、心跳 30s、`result` 收尾(completion/快照/junit 路径);`computeCiExitCode` 更名 `computeExitCode`
+  - [ ] B1. `src/runner/feedback/{agent,ci}.ts` 合并为 `json.ts`:NDJSON 单 stdout 流、首行 `start` 带 `format`/`schemaVersion`、字段名复用 Results 词表、失败无 suppression、心跳 30s、`result` 收尾(completion/快照/junit 路径);`computeCiExitCode` 更名 `computeExitCode`;事件形状按 `ExpEvent` 判别联合(判别字段 `event`)逐个实现,`--dry --json` 输出单个 `ExpPlanDocument`(`format: "niceeval.exp-plan"`),两处类型单源见上「事件与计划文档的 TypeScript 形状」
   - [ ] B2. 非 TTY human 追加流成为无 flag 默认;流路由按补充裁决改为单一 stdout(stderr 只留启动期错误,新行为,补实现与断言);人读失败展开上限 10
   - [ ] B3. kept / experiment_setup / eval 等事件按词表逐个接线;`--dry --json` 单文档
 - [ ] **C. 单测 + E2E**(依赖 B;只为已声明类别写测)

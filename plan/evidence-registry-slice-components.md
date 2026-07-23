@@ -27,8 +27,8 @@ R 传播(核心裁决已落架构,见上)
 ├─ [x] W5 show 总纲与 json 信封重写                         ── 并行(已验收;--history 明确留在组件模型之外,与 architecture 切片表一致)
 ├─ [x] W6 证据切片归属重写(execution/timing/diff/source)   ── 并行(已验收;行为契约数值/语法逐字未动,planner 补 attempt.md 口径指针化)
 ├─ [ ] W7a plan/show-scope-slice-json.md 波及同步            ── 串行,等 W3+W6
-├─ [ ] W7b plan/failed-command-evidence.md 波及同步          ── 并行(依赖 registry,已定稿)
-├─ [ ] W7c plan/exp-json-machine-form.md 波及同步            ── 串行,等 W1
+├─ [x] W7b plan/failed-command-evidence.md 波及同步          ── 并行(已验收;顺带裁决 execution JSON 的失败命令卡归 AttemptConversationData.failedCommands,attempt-detail.md 已补声明)
+├─ [x] W7c plan/exp-json-machine-form.md 波及同步            ── 已验收(锚点全核对,B2 与流路由补充裁决一致)
 ├─ [ ] W8 测试覆盖规范同步(engineering/testing/unit/reports.md)── 并行
 └─ [ ] V1 已合并节点对抗性校验(只读,报告不改文件)          ── 并行,滚动执行
 ```
