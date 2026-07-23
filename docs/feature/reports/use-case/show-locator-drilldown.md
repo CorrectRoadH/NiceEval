@@ -31,7 +31,7 @@
 
 - locator 必须带 `@`,既不是数组下标也不是文件路径。漏写 `@` 时输入按 eval id 前缀处理并明确报无匹配,不做模糊猜测([契约](../show.md#无匹配与不可读结果))。
 - `--diff=<path>` 必须用 `=` 连写,空格后的 token 会按 eval id 位置参数解析。
-- 四个证据 flag 是直接读取同一份 Results evidence 的专用终端投影,不经报告 page;带 `--report` 时它们照常可用([契约](../show.md#选择结果范围))。
+- 四个证据 flag 装配 attempt-detail 组件族对应区块并渲染其 text 面,不经 `--report` 传入的 page 声明;带 `--report` 时它们照常可用([契约](../show.md#选择结果范围))。
 - `--timing=<mode>` 只接受 `summary` 与 `full`,其它值按用法错误退出非零,不静默回退。
 
 ## 相关阅读

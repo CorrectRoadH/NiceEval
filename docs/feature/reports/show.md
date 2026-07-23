@@ -7,7 +7,7 @@
 show 的输入沿三条正交轴组合。三条轴各自独立取值，组合语义由各轴自己的规则决定，不为特定组合发明特例命令：
 
 - **范围**选出一批 attempt。eval id 前缀位置参数、`@<locator>` 位置参数、`--exp`（可重复）、`--fresh` 与 `--results` 都是范围输入；`@<locator>` 是恰好命中一个 attempt 的最小范围，不是某些切片的专属入口。
-- **切片**选择看哪个证据面：缺省切片（榜单 / 诊断首页 / 对照矩阵，选择规则见下）、[`--source`](show/eval-source.md)、[`--execution`](show/execution.md)、[`--timing`](show/timing.md)、[`--usage`](show/usage.md)、[`--diff`](show/diff.md)、[`--history`](show/history.md)、[`--stats`](show/stats.md)。**每个切片接受任意范围**：范围含多个 attempt 时，切片按 experimentId、evalId、attempt 序逐 attempt 分节输出，节头带 locator；单 attempt 范围只是省掉了分节。
+- **切片**选择装配哪个报告组件：每个切片解析为一次报告组件的装配（[「show 的切片是组件选择」](architecture.md#show-的切片是组件选择)）。缺省切片按范围形态选择（规则见下）：[默认榜单](show/default-report.md) 装配内建报告首页，[对照矩阵](show/compare.md) 装配 `DeltaTable`，[失败诊断首页](show/attempt.md) 装配 `AttemptDetail`；显式 flag 里 [`--source`](show/eval-source.md)、[`--execution`](show/execution.md)、[`--timing`](show/timing.md)、[`--diff`](show/diff.md) 各装配 attempt-detail 组件族的一处区块，[`--usage`](show/usage.md) 装配 `UsageTable`，[`--stats`](show/stats.md) 装配 `StabilityMatrix`；[`--history`](show/history.md) 直接投影 Results evidence，不经组件模型。**每个切片接受任意范围**：范围含多个 attempt 时，宿主机器把同一组件逐 attempt 分节映射，节头带 locator——分节是宿主机器，节内内容仍由组件拥有；单 attempt 范围只是省掉了分节。
 - **形态**选择输出给谁：缺省 text 面给人和终端里的 agent；[`--json`](show/json.md) 把同一范围、同一切片选出的实体输出成结构化文档给脚本。两个形态消费同一套选择、去重与聚合规则，共有派生字段同值；JSON 可保留 text 注意力预算省略的字段，是数据超集。
 
 ```sh
@@ -79,7 +79,7 @@ niceeval show --report reports/site.tsx --page exam
 
 `--exp` 出现两次以上时进入对照语义：每个 `--exp` 是一个对照条件，必须恰好解析到一个 experiment；某个 `--exp` 前缀匹配到多个 experiment 时按用法错误退出并列出全部候选 id，不猜测意图（契约见[对照矩阵](show/compare.md)）。`@<locator>` 位置参数与重复 `--exp` 互斥——locator 已经唯一确定了 experiment，再给对照条件没有可执行的语义。
 
-`--report` 替换整份 pages：无证据 flag 的 `show @<locator> --report <file>` 选择其中唯一的 attempt-input page，注入 locator 对应的 evidence 并渲染 text 面；`--source`、`--execution`、`--timing`、`--usage`、`--diff` 仍是直接读取同一份 Results evidence 的专用终端投影。`--report` 与 `--json` 互斥：报告树表达「怎么看」，`--json` 输出「是什么」；要自定义结构，先 `--json` 拿事实再自己加工，或直接消费 [`niceeval/results` 读取面](../results/library.md)。
+`--report` 替换整份 pages：无证据 flag 的 `show @<locator> --report <file>` 选择其中唯一的 attempt-input page，注入 locator 对应的 evidence 并渲染 text 面；`--source`、`--execution`、`--timing`、`--usage`、`--diff` 仍各自装配对应的报告组件区块并渲染其 text 面，不经 `--report` 传入的 page 声明（[组件归属](architecture.md#show-的切片是组件选择)）。`--report` 与 `--json` 互斥：报告树表达「怎么看」，`--json` 输出「是什么」；要自定义结构，先 `--json` 拿事实再自己加工，或直接消费 [`niceeval/results` 读取面](../results/library.md)。
 
 ## 无匹配与不可读结果
 

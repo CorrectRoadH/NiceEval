@@ -365,7 +365,7 @@ interface Usage {
 }
 ```
 
-「未缓存输入」(`inputTokens − cacheReadTokens`)是消费端派生量,只在两个输入都存在时计算,不落盘。轮数与工具调用数不属于 `Usage`——它们是 `events.json` 的行为派生(与 `o11y.json` 同源),show 的 usage 展示从两处组装(口径单源见 [Show `--usage`](../reports/show/usage.md#usage-行的组装口径单源))。
+「未缓存输入」(`inputTokens − cacheReadTokens`)是消费端派生量,只在两个输入都存在时计算,不落盘。轮数与工具调用数不属于 `Usage`——它们是 `events.json` 的行为派生(与 `o11y.json` 同源),show 的 usage 展示从两处组装(口径单源见 [`UsageTable` 组装口径](../reports/library/attempt-detail.md#usagetable-组装口径单源))。
 
 ### facts：运行事实
 

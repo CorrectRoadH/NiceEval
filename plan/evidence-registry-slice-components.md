@@ -23,8 +23,8 @@ R 传播(核心裁决已落架构,见上)
 ├─ [ ] W1 exp `--json` 事件流 typed 单源                    ── 并行
 ├─ [x] W2 results 库文档与词表贯通                          ── 并行(已验收;planner 顺手清掉 observability/testing-results/source-map 三处清单外 has* 残留)
 ├─ [ ] W3 对照与稳定性组件(DeltaTable 多条件 + StabilityMatrix)── 并行
-├─ [ ] W4 usage 组件化(UsageTable + 组装口径归位)          ── 并行
-├─ [ ] W5 show 总纲与 json 信封重写                         ── 并行
+├─ [x] W4 usage 组件化(UsageTable + 组装口径归位)          ── 并行(已验收;口径单源锚点 attempt-detail.md#usagetable-组装口径单源)
+├─ [x] W5 show 总纲与 json 信封重写                         ── 并行(已验收;--history 明确留在组件模型之外,与 architecture 切片表一致)
 ├─ [ ] W6 证据切片归属重写(execution/timing/diff/source)   ── 并行
 └─ [ ] W7 既有 plan 波及同步                                ── 串行,等 W1–W6 全部验收后
 ```

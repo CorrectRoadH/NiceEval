@@ -36,7 +36,7 @@ export default defineReport({
 | `AttemptTimeline` | runner phases、hook / command / session / turn，以及按 `traceId` 关联的 agent / model / tool spans | 没有 phase 时零输出 |
 | `AttemptConversation` | 标准事件流按轮组织的 user / assistant / thinking / tool / Skill / HITL / error 条目 | 没有 events 时零输出 |
 | `AttemptDiagnostics` | lifecycle 分组的 diagnostics(warning/error 级别的 code + message + 出现次数) | 没有 diagnostics 时零输出 |
-| `AttemptUsage` | token、cache token、成本及 provider usage 明细 | 没有 usage 时零输出 |
+| `UsageTable` | 判定、轮数、工具调用数、token 拆分与成本摊成的单行用量摘要；组装口径见 [`UsageTable` 组装口径（单源）](#usagetable-组装口径单源) | 没有 usage 时零输出 |
 | `AttemptTrace` | 不混入 runner 节点的原始 OTel span 树 / 瀑布 | 没有 trace 时零输出 |
 | `AttemptDiff` | generated / modified / deleted 文件摘要与 patch | 没有变更时零输出 |
 | `AttemptDetail` | 按内建顺序装配以上区块；有 source 时回复已在 `AttemptSource` 行内展开，不再重复 `AttemptConversation`，无 source 时保留独立分轮视图 | 随子组件 |
@@ -59,6 +59,41 @@ export default defineReport({
 - **交互载体**：展开一律是原生 `<details>`，静态文档零 JS 成立。
 
 这份规范与官方 stylesheet 组合后的实际观感（染色、布局、滚动、展开交互）由 [E2E 报告域](../../../engineering/testing/e2e/report.md)在真实浏览器里验收，单元层只覆盖数据投影与 DOM 结构事实。
+
+## `UsageTable` 组装口径（单源）
+
+`UsageTable` 把一个 attempt 的用量摊成一行：判定、轮数、工具调用数、token 拆分与成本。它是 show 与 view 里凡出现 usage 数字的地方——attempt 详情首页的单行 `usage:` 摘要、`--usage` 表的每一行、对照矩阵的用量列、`--execution` turn 头行——共同的组装口径与数据来源，事实来自两处、不混淆：
+
+- **行为计数来自标准事件流**：轮数（`turns`）与工具调用数（`toolCalls`）从 `events.json` 派生，与 [`o11y.json` 行为摘要](../../results/architecture.md#o11yjson)同源。
+- **token 与请求计数来自落盘 `Usage`**：字段契约见 [Results · Usage](../../results/architecture.md#usage)。每个字段只在协议真实提供时存在；`requests` 是真实发生的模型请求数，协议不提供就整个不显示——绝不显示一个凑数的 1。
+- **`uncachedInputTokens` 是派生量**：`inputTokens − cacheReadTokens`，仅当两个输入都存在时派生并显示；缺任何一个就回退显示原始 `inputTokens`，不猜 0。缓存命中的输入同样计费，效率对比必须能看到这层拆分。
+
+text 面的单行装配形态——attempt 详情首页的 `usage:` 行就是这一形态本身，不是它的近似摘要：
+
+```text
+usage: 6 turns · 21 tool calls · 62.3k uncached in + 942.6k cache read / 6.7k out · 24 requests · $1.14
+```
+
+某段事实缺失时对应片段整段省略，剩余片段保持顺序；全部缺失时整行不出现，与组件表「没有 usage 时零输出」同一条规则。
+
+`usageTableData` 的可序列化形状，字段名与落盘 `Usage`、事件派生量、attempt 身份字段保持一致，不为展示发明第二套命名：
+
+```ts
+interface UsageTableData {
+  locator: string;
+  experimentId: string;
+  evalId: string;
+  attempt: number;
+  verdict: AttemptRecord["verdict"];
+  turns?: number;                // 事件流派生；无 events 时省略
+  toolCalls?: number;
+  usage?: Usage;                 // 落盘原样，字段契约见 Results · Usage
+  uncachedInputTokens?: number;  // 派生：两个输入都在才出现
+  estimatedCostUSD?: number;
+}
+```
+
+`show --usage` 的多行用量表是同一组件按 attempt 逐条映射后的宿主装配：范围内每个 attempt 各贡献一份 `UsageTableData`，分节、排序、合计行与占位规则属于宿主机器，装配细节见 [`--usage`](../show/usage.md)。
 
 ## page 输入与 spec / data 形态
 
@@ -104,7 +139,7 @@ attemptFixPromptData(evidence: AttemptEvidence): AttemptFixPromptData | null;
 attemptTimelineData(evidence: AttemptEvidence): AttemptTimelineData | null;
 attemptConversationData(evidence: AttemptEvidence): AttemptConversationData | null;
 attemptDiagnosticsData(evidence: AttemptEvidence): AttemptDiagnosticsData | null;
-attemptUsageData(evidence: AttemptEvidence): AttemptUsageData | null;
+usageTableData(evidence: AttemptEvidence): UsageTableData | null;
 attemptTraceData(evidence: AttemptEvidence): AttemptTraceData | null;
 attemptDiffData(evidence: AttemptEvidence): AttemptDiffData | null;
 ```
@@ -146,7 +181,7 @@ export const AttemptDetail = defineComponent((_props, ctx) => {
       <AttemptFixPrompt />
       <AttemptTimeline />
       <AttemptDiagnostics />
-      <AttemptUsage />
+      <UsageTable />
       {conversationLivesInSource ? null : <AttemptConversation />}
       <AttemptTrace />
       <AttemptDiff />
@@ -188,7 +223,8 @@ export const AttemptDetail = defineComponent((_props, ctx) => {
 | `AttemptFixPrompt` | 零输出；终端已有可直接交给 agent 的 evidence 命令 | 单条失败的复制按钮与完整 prompt |
 | `AttemptTimeline` | phase 摘要与 `--timing` 命令 | 可逐层展开的 runner + correlated spans 时间树 |
 | `AttemptConversation` | 轮次摘要与 `--execution` 命令 | 完整分轮事件卡 |
-| `AttemptDiagnostics` / `AttemptUsage` | 紧凑分组列表 / 数值表 | 分组 details / usage 表 |
+| `AttemptDiagnostics` | 紧凑分组列表 | 分组 details |
+| `UsageTable` | 单行 `usage:` 摘要（组装口径见 [`UsageTable` 组装口径（单源）](#usagetable-组装口径单源)） | 同一口径的数值表 |
 | `AttemptTrace` | span 摘要与 `--timing` 命令 | 原始 span 瀑布与树 |
 | `AttemptDiff` | 文件摘要与 `--diff` 命令 | 文件列表与可展开 patch |
 
