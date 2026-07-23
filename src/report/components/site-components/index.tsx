@@ -3,7 +3,7 @@
 // 不产生自己的 data;PoweredBy 无 props,没有对应的计算函数或 validate。
 
 import { defineComponent, type ReportComponent } from "../../definition/tree.ts";
-import type { CopyFixPromptData, HeroData, ScopeWarning, TraceWaterfallRow } from "../../model/types.ts";
+import type { CopyFixPromptData, HeroData, ScopeWarning, SnapshotDiagnosticsData, TraceWaterfallRow } from "../../model/types.ts";
 import type { LocalizedText } from "../../model/locale.ts";
 import type { AttemptLocator } from "../../../results/locator.ts";
 import {
@@ -16,11 +16,12 @@ import {
   type DataProps,
   type Validator,
 } from "../shared.ts";
-import { copyFixPromptData, heroData, scopeWarningsData, traceWaterfallData } from "./compute.ts";
-import { heroCardText, scopeWarningsText, traceWaterfallText } from "./faces.ts";
+import { copyFixPromptData, heroData, scopeWarningsData, snapshotDiagnosticsData, traceWaterfallData } from "./compute.ts";
+import { heroCardText, scopeWarningsText, snapshotDiagnosticsText, traceWaterfallText } from "./faces.ts";
 import { HeroCard as HeroCardWeb } from "./HeroCard.tsx";
 import { PoweredBy as PoweredByWeb } from "./PoweredBy.tsx";
 import { ScopeWarnings as ScopeWarningsWeb } from "./ScopeWarnings.tsx";
+import { SnapshotDiagnostics as SnapshotDiagnosticsWeb } from "./SnapshotDiagnostics.tsx";
 import { CopyFixPrompt as CopyFixPromptWeb } from "./CopyFixPrompt.tsx";
 import { TraceWaterfall as TraceWaterfallWeb } from "./TraceWaterfall.tsx";
 
@@ -74,6 +75,27 @@ function scopeWarningProblem(value: unknown, path: string): string | null {
 }
 
 export const validateScopeWarningsData: Validator = (data) => arrayProblem(data, "data", scopeWarningProblem);
+
+/** DiagnosticRecord(src/runner/types.ts):`level` 是消息严重度,不是 verdict 的别名。 */
+function diagnosticRecordProblem(value: unknown, path: string): string | null {
+  if (!isObject(value)) return `"${path}" must be a DiagnosticRecord { code, level, message, phase }`;
+  if (typeof value.code !== "string") return `"${path}.code" must be a string`;
+  if (value.level !== "warning" && value.level !== "error") return `"${path}.level" must be "warning" or "error"`;
+  if (typeof value.message !== "string") return `"${path}.message" must be a string`;
+  if (typeof value.phase !== "string") return `"${path}.phase" must be a string`;
+  return null;
+}
+
+/** SnapshotDiagnosticsItem(src/report/model/types.ts):只携带 experimentId / startedAt / diagnostics。 */
+function snapshotDiagnosticsItemProblem(value: unknown, path: string): string | null {
+  if (!isObject(value)) return `"${path}" must be a SnapshotDiagnosticsItem { experimentId, startedAt, diagnostics }`;
+  if (typeof value.experimentId !== "string") return `"${path}.experimentId" must be a string`;
+  if (typeof value.startedAt !== "string") return `"${path}.startedAt" must be a string`;
+  return arrayProblem(value.diagnostics, `${path}.diagnostics`, diagnosticRecordProblem);
+}
+
+export const validateSnapshotDiagnosticsData: Validator = (data) =>
+  arrayProblem(data, "data", snapshotDiagnosticsItemProblem);
 
 export const validateCopyFixPromptData: Validator = (data) => {
   if (!isObject(data)) return "expected an object";
@@ -197,6 +219,31 @@ export const ScopeWarnings = makeDataComponent<readonly ScopeWarning[], Record<n
     ),
   text: (props, ctx) => scopeWarningsText(props.data, ctx),
 }) as unknown as ReportComponent<ScopeWarningsProps>;
+
+/** `SnapshotDiagnostics` 的 props:spec 形态从宿主 `Scope | Snapshot[]` 投影,data 形态收 `SnapshotDiagnosticsData`。 */
+export type SnapshotDiagnosticsProps = DataProps<SnapshotDiagnosticsData, Record<never, never>, ChromeProps>;
+
+/**
+ * `SnapshotDiagnostics`:快照诊断区,`Snapshot.diagnostics` 的唯一呈现组件。按来源
+ * experiment → Snapshot 分组(实验 id 字典序、同实验内 startedAt 新到旧,不跨快照合并);
+ * web 面整个区域是默认折叠的原生 `<details>`,`<summary>` 恒可见汇总涉及的 experiment 数、
+ * Snapshot 数、记录数(按 count 计数)与最高严重度;单诊断快照退化成一行,不摆空壳层级;
+ * text 面同构但不折叠。空诊断集两面零输出
+ * (docs/feature/reports/library/site-components.md「SnapshotDiagnostics」)。
+ */
+export const SnapshotDiagnostics = makeDataComponent<SnapshotDiagnosticsData, Record<never, never>, ChromeProps>({
+  name: "SnapshotDiagnostics",
+  dataFnName: "snapshotDiagnosticsData",
+  shapeName: "SnapshotDiagnosticsData",
+  dataFn: (input) => snapshotDiagnosticsData(input),
+  specKeys: [],
+  validate: validateSnapshotDiagnosticsData,
+  web: (props, ctx) =>
+    props.data.length === 0 ? null : (
+      <SnapshotDiagnosticsWeb data={props.data} locale={props.locale ?? ctx.locale} className={props.className} />
+    ),
+  text: (props, ctx) => snapshotDiagnosticsText(props.data, ctx),
+}) as unknown as ReportComponent<SnapshotDiagnosticsProps>;
 
 /** `CopyFixPrompt` 的 props:spec 形态无选项,data 形态收 `copyFixPromptData()` 的产物。 */
 export type CopyFixPromptProps = DataProps<CopyFixPromptData, Record<never, never>, ChromeProps>;

@@ -363,6 +363,23 @@ export interface HeroData {
 }
 
 /**
+ * `SnapshotDiagnostics` 一条来源快照的诊断投影(docs/feature/reports/library/site-components.md):
+ * 只携带 experimentId / startedAt / DiagnosticRecord,不带 Snapshot 本体、`evals` 或
+ * `AttemptHandle`,避免把文件读取能力拖进浏览器边界。
+ */
+export interface SnapshotDiagnosticsItem {
+  experimentId: string;
+  startedAt: string;
+  diagnostics: readonly DiagnosticRecord[];
+}
+
+/**
+ * `SnapshotDiagnostics` 的数据:只投影 diagnostics 非空的真实 Snapshot,按 experiment id
+ * 字典序排列,同一实验内按 startedAt 从新到旧排列;不跨快照合并 DiagnosticRecord。
+ */
+export type SnapshotDiagnosticsData = readonly SnapshotDiagnosticsItem[];
+
+/**
  * `CopyFixPrompt` 的数据:resolve 期算好的修复 prompt 全文与参与的失败数
  * (docs/feature/reports/library/site-components.md)。
  */

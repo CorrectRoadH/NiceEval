@@ -149,6 +149,7 @@ export {
   HeroCard,
   PoweredBy,
   ScopeWarnings,
+  SnapshotDiagnostics,
   TraceWaterfall,
 } from "./components/site-components/index.tsx";
 export type {
@@ -156,6 +157,7 @@ export type {
   HeroCardProps,
   HeroProps,
   ScopeWarningsProps,
+  SnapshotDiagnosticsProps,
   TraceWaterfallProps,
 } from "./components/site-components/index.tsx";
 
@@ -203,6 +205,7 @@ export {
   copyFixPromptData,
   heroData,
   scopeWarningsData,
+  snapshotDiagnosticsData,
   traceWaterfallData,
 } from "./components/site-components/compute.ts";
 
@@ -256,6 +259,8 @@ export type {
   ScoreboardData,
   ScoringComposition,
   SeriesInput,
+  SnapshotDiagnosticsData,
+  SnapshotDiagnosticsItem,
   TableData,
   TraceSpanSummary,
   TraceWaterfallRow,

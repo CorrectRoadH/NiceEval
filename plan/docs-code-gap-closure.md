@@ -65,11 +65,11 @@
     - [x] Experiment hook `ctx.diagnostic`、teardown failed/timeout/late、`budget-unenforceable` 等在产生处直接构造结构化记录；interrupted、provider 全局并发提示、reporter error 等 Invocation 事实不得误落任一 Snapshot
     - [x] 相同 dedupeKey 只在同一 Snapshot 内折叠 count；不同 Experiment、不同 Snapshot 不跨来源合并
     - [x] 通过 0.5 的事件把 carriedResults 与 diagnostics 交给 Artifacts，并在对应 Experiment 收尾后调用该 Snapshot 的 `finish`
-  - [ ] C.3 **Reports 数据与两面组件**（依赖 B、C.1；可与 C.2 并行）
-    - [ ] 新增 `snapshotDiagnosticsData`，输入 `Scope | readonly Snapshot[]`，仅投影非空真实 Snapshot；experiment 字典序、同实验 startedAt 新到旧、不跨来源合并、开放 code 原样保留
-    - [ ] 新增 `SnapshotDiagnostics` web/text 面、data validate、locale 与样式；web 原生 `<details>` 默认折叠且 summary 恒可见，text 全展开，空集零输出
-    - [ ] 单快照单记录不造空壳层级；汇总计数按 count，最高严重度有文字区别；command 逐记录呈现
-    - [ ] 从 `niceeval/report`、`niceeval/report/react` 与相关类型入口公开导出，`pnpm run build:report` 后验证真实 dist 导出
+  - [x] C.3 **Reports 数据与两面组件**（依赖 B、C.1；可与 C.2 并行）
+    - [x] 新增 `snapshotDiagnosticsData`，输入 `Scope | readonly Snapshot[]`，仅投影非空真实 Snapshot；experiment 字典序、同实验 startedAt 新到旧、不跨来源合并、开放 code 原样保留
+    - [x] 新增 `SnapshotDiagnostics` web/text 面、data validate、locale 与样式；web 原生 `<details>` 默认折叠且 summary 恒可见，text 全展开，空集零输出
+    - [x] 单快照单记录不造空壳层级；汇总计数按 count，最高严重度有文字区别；command 逐记录呈现
+    - [x] 从 `niceeval/report`、`niceeval/report/react` 与相关类型入口公开导出，`pnpm run build:report` 后验证真实 dist 导出
   - [ ] C.4 **内建报告接线**（依赖 C.3）
     - [ ] `standard.tsx` 的 report / attempts / traces 三张 scope-input page 均按 `ScopeWarnings` → `SnapshotDiagnostics` 相邻放置；attempt-input page 不放
     - [ ] 单元层只断言 data 与展开树；折叠、HTML/text 结构、相邻顺序和真实命令归 `e2e/report` 验收

@@ -6,7 +6,15 @@
 // - 第一参收 ReportInput = Scope | readonly Snapshot[];warnings 不进组件数据(宿主统一显示);
 // - null ≠ 0:缺数据不编数。
 
-import type { CopyFixPromptData, HeroData, ReportInput, ScopeWarning, TraceSpanSummary, TraceWaterfallRow } from "../../model/types.ts";
+import type {
+  CopyFixPromptData,
+  HeroData,
+  ReportInput,
+  ScopeWarning,
+  SnapshotDiagnosticsData,
+  TraceSpanSummary,
+  TraceWaterfallRow,
+} from "../../model/types.ts";
 import type { TraceSpan } from "../../../types.ts";
 import { collectItems, evalIdOf, experimentIdOf, locatorOf, resolveInput } from "../../model/aggregate.ts";
 import { attemptListData } from "../entity-lists/compute.ts";
@@ -34,6 +42,19 @@ export async function heroData(input: ReportInput): Promise<HeroData> {
  */
 export async function scopeWarningsData(input: ReportInput): Promise<readonly ScopeWarning[]> {
   return resolveInput(input).warnings;
+}
+
+/**
+ * `snapshotDiagnosticsData(input)`:只投影 diagnostics 非空的真实 Snapshot,不携带 `evals` 或
+ * `AttemptHandle`,不跨快照合并;按 experiment id 字典序排列,同一实验内按 startedAt 从新到旧
+ * (docs/feature/reports/library/site-components.md「SnapshotDiagnostics」)。
+ */
+export async function snapshotDiagnosticsData(input: ReportInput): Promise<SnapshotDiagnosticsData> {
+  const { snapshots } = resolveInput(input);
+  return snapshots
+    .filter((s) => s.diagnostics !== undefined && s.diagnostics.length > 0)
+    .map((s) => ({ experimentId: s.experimentId, startedAt: s.startedAt, diagnostics: s.diagnostics! }))
+    .sort((a, b) => a.experimentId.localeCompare(b.experimentId) || b.startedAt.localeCompare(a.startedAt));
 }
 
 /**

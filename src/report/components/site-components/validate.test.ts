@@ -1,10 +1,16 @@
 // cases: docs/engineering/testing/unit/reports.md
-// "validate*Data 递归覆盖到嵌套字段" 行:site-components 四个 validate*Data 的表驱动字段突变覆盖,重点是 ScopeWarning 三个已登记
+// "validate*Data 递归覆盖到嵌套字段" 行:site-components 五个 validate*Data 的表驱动字段突变覆盖,重点是 ScopeWarning 三个已登记
 // kind(unfinished-snapshot / missing-startedAt / unreadable-snapshot)各自的必填字段,以及未登记 kind 的前向兼容放行路径(与 ScopeWarnings 组件的「未知 kind
-// 单独成组」渲染回退是同一条契约,结构校验不能比渲染逻辑更严)。
+// 单独成组」渲染回退是同一条契约,结构校验不能比渲染逻辑更严);以及 SnapshotDiagnostics 的 SnapshotDiagnosticsItem/DiagnosticRecord 嵌套字段。
 
 import { describe, expect, it } from "vitest";
-import { validateCopyFixPromptData, validateHeroData, validateScopeWarningsData, validateTraceWaterfallData } from "./index.tsx";
+import {
+  validateCopyFixPromptData,
+  validateHeroData,
+  validateScopeWarningsData,
+  validateSnapshotDiagnosticsData,
+  validateTraceWaterfallData,
+} from "./index.tsx";
 
 describe("validateHeroData", () => {
   it("合规 literal 通过,latestStartedAt 为 null 合法(空范围不编造当前时间)", () => {
@@ -49,6 +55,41 @@ describe("validateScopeWarningsData — ScopeWarning 判别联合", () => {
   it("未登记的 kind 缺 message 仍报错(两族共用的最小形状)", () => {
     const bad = [{ kind: "future-kind" }];
     expect(validateScopeWarningsData(bad)).toMatch(/"data\[0\]\.message"/);
+  });
+});
+
+describe("validateSnapshotDiagnosticsData", () => {
+  const validRecord = { code: "experiment-teardown-failed", level: "warning", message: "m", phase: "experiment.teardown" };
+  const valid = [{ experimentId: "exp/a", startedAt: "2026-07-01T00:00:00Z", diagnostics: [validRecord] }];
+
+  it("合规 literal 通过", () => {
+    expect(validateSnapshotDiagnosticsData(valid)).toBeNull();
+  });
+
+  it("缺 experimentId 报错", () => {
+    const bad = [{ startedAt: "2026-07-01T00:00:00Z", diagnostics: [validRecord] }];
+    expect(validateSnapshotDiagnosticsData(bad)).toMatch(/"data\[0\]\.experimentId"/);
+  });
+
+  it("缺 startedAt 报错", () => {
+    const bad = [{ experimentId: "exp/a", diagnostics: [validRecord] }];
+    expect(validateSnapshotDiagnosticsData(bad)).toMatch(/"data\[0\]\.startedAt"/);
+  });
+
+  it("diagnostics[i].level 不在 warning/error 二态内报错(不是 verdict 的别名)", () => {
+    const bad = [{ ...valid[0], diagnostics: [{ ...validRecord, level: "info" }] }];
+    expect(validateSnapshotDiagnosticsData(bad)).toMatch(/"data\[0\]\.diagnostics\[0\]\.level"/);
+  });
+
+  it("diagnostics[i] 缺 phase 报错;开放 code 不限枚举,任意字符串都合法", () => {
+    const bad = [{ ...valid[0], diagnostics: [{ code: "x", level: "warning", message: "m" }] }];
+    expect(validateSnapshotDiagnosticsData(bad)).toMatch(/"data\[0\]\.diagnostics\[0\]\.phase"/);
+    const okFutureCode = [{ ...valid[0], diagnostics: [{ ...validRecord, code: "future-code-not-yet-registered" }] }];
+    expect(validateSnapshotDiagnosticsData(okFutureCode)).toBeNull();
+  });
+
+  it("diagnostics 为空数组合法(投影阶段已过滤,但 data 结构本身不禁止空数组)", () => {
+    expect(validateSnapshotDiagnosticsData([{ experimentId: "exp/a", startedAt: "2026-07-01T00:00:00Z", diagnostics: [] }])).toBeNull();
   });
 });
 

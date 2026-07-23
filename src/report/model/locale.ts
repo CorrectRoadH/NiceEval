@@ -188,6 +188,16 @@ const en = {
   "traceWaterfall.failedSpans.one": "{n} failed",
   "traceWaterfall.failedSpans.other": "{n} failed",
 
+  /** SnapshotDiagnostics 聚合层的 chrome:汇总行三段计数与最高严重度;message/command 本体不经字典。 */
+  "snapshotDiagnostics.summary.experiments.one": "{n} experiment",
+  "snapshotDiagnostics.summary.experiments.other": "{n} experiments",
+  "snapshotDiagnostics.summary.snapshots.one": "{n} snapshot",
+  "snapshotDiagnostics.summary.snapshots.other": "{n} snapshots",
+  "snapshotDiagnostics.summary.records.one": "{n} record",
+  "snapshotDiagnostics.summary.records.other": "{n} records",
+  "snapshotDiagnostics.severity.warning": "warnings only",
+  "snapshotDiagnostics.severity.error": "errors present",
+
   /** AttemptList 的 web 面过滤框占位符(filter 渐进增强)。 */
   "attemptList.filterPlaceholder": "Filter attempts…",
 
@@ -325,6 +335,15 @@ const zhCN: Record<ReportMessageKey, string> = {
   "traceWaterfall.spans.other": "{n} 个 span",
   "traceWaterfall.failedSpans.one": "{n} 个失败",
   "traceWaterfall.failedSpans.other": "{n} 个失败",
+
+  "snapshotDiagnostics.summary.experiments.one": "{n} 个实验",
+  "snapshotDiagnostics.summary.experiments.other": "{n} 个实验",
+  "snapshotDiagnostics.summary.snapshots.one": "{n} 个快照",
+  "snapshotDiagnostics.summary.snapshots.other": "{n} 个快照",
+  "snapshotDiagnostics.summary.records.one": "{n} 条记录",
+  "snapshotDiagnostics.summary.records.other": "{n} 条记录",
+  "snapshotDiagnostics.severity.warning": "仅警告",
+  "snapshotDiagnostics.severity.error": "含错误",
 
   "attemptList.filterPlaceholder": "筛选 attempt…",
 

@@ -441,6 +441,78 @@ table.nre,
   color: var(--good);
 }
 
+/* ---- 快照诊断区:.nre-snap-diag 是默认折叠的 <details>,<summary> 汇总行恒可见,
+   最高严重度含 error 时汇总行换色区别于纯 warning。来源分组按 experiment → Snapshot 两层,
+   单诊断快照退化成一行(不摆只有一个孩子的空壳层级)。 ---- */
+.nre .nre-snap-diag {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+}
+.nre .nre-snap-diag > .nre-snap-diag-summary {
+  font-weight: 650;
+  color: var(--warn);
+  cursor: pointer;
+}
+.nre .nre-snap-diag > .nre-snap-diag-summary[data-severity="error"] { color: var(--bad); }
+.nre .nre-snap-diag-groups {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+.nre .nre-snap-diag-group + .nre-snap-diag-group {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.nre .nre-snap-diag-exp { font-weight: 650; }
+.nre .nre-snap-diag-snapshots {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0 0 0 12px;
+  border-left: 2px solid var(--line);
+}
+.nre .nre-snap-diag-snapshot + .nre-snap-diag-snapshot { margin-top: 8px; }
+.nre .nre-snap-diag-time {
+  display: block;
+  color: var(--soft);
+  font-size: 0.9em;
+}
+.nre .nre-snap-diag-records {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+}
+.nre .nre-snap-diag-record + .nre-snap-diag-record { margin-top: 6px; }
+.nre .nre-snap-diag-meta {
+  font-size: 0.85em;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.nre .nre-snap-diag-message { margin-top: 2px; }
+.nre .nre-snap-diag-collapsed .nre-snap-diag-message { display: inline; margin-left: 6px; }
+/* 诊断携带的下一步命令:等宽块,无 JS 时点击即全选;enhance.js 在场时点击复制 */
+.nre .nre-snap-diag-command {
+  display: block;
+  margin-top: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+:root.nre-js .nre .nre-snap-diag-command { cursor: copy; }
+:root.nre-js .nre .nre-snap-diag-command:hover { border-color: var(--line-strong); }
+.nre .nre-snap-diag-command[data-nre-copied]::after {
+  content: "✓";
+  margin-left: 0.6em;
+  color: var(--good);
+}
+
 /* ---- Hero / PoweredBy(站点标题区与品牌行) ---- */
 /* 居中大标题:hero 是页首的门面块,整块占满内容列宽、文本水平居中,标题随视口 clamp 放大,
    meta 与品牌行居中跟随。不设 max-width——窄框居中在宽内容列里会读成左偏,占满列宽才真居中。 */

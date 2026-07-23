@@ -1,12 +1,13 @@
 // 站点组件族(HeroCard / ScopeWarnings / TraceWaterfall)的 text 面:同一份算好的数据,
 // 渲染成终端字符(niceeval show 的形态)。零 react、零 IO、纯同步。
 
-import type { HeroData, ScopeWarning, TraceWaterfallRow } from "../../model/types.ts";
+import type { HeroData, ScopeWarning, SnapshotDiagnosticsData, TraceWaterfallRow } from "../../model/types.ts";
 import type { LocalizedText } from "../../model/locale.ts";
 import type { TextContext } from "../../definition/tree.ts";
 import { countText, localeText, resolveLocalizedText } from "../../model/locale.ts";
-import { formatDurationMs } from "../../model/format.ts";
+import { formatDurationMs, formatHistoricalGap, formatReportDateTime } from "../../model/format.ts";
 import { groupScopeWarnings } from "./scope-warnings.ts";
+import { groupSnapshotDiagnostics, occurrencesOf } from "./snapshot-diagnostics.ts";
 
 /** ISO 时间 → "YYYY-MM-DD HH:mm"(本地时区);不可解析原样返回。 */
 function formatDateTimeMinute(iso: string): string {
@@ -50,6 +51,33 @@ export function scopeWarningsText(warnings: readonly ScopeWarning[], ctx: TextCo
     const command = group.headCommand !== null ? ` → ${group.headCommand}` : "";
     lines.push(`! ${group.title}${badges}${command}`);
     for (const w of group.warnings) lines.push(`!   ${w.message}`);
+  }
+  return lines.join("\n");
+}
+
+/**
+ * SnapshotDiagnostics 的 text 面:按来源分组(../snapshot-diagnostics.ts,与 web 面共用),
+ * 同构但不折叠——先打印汇总,再按 experiment → Snapshot 打印来源、时距、每条记录的 level、
+ * message、count 与 command。单诊断快照退化成一行,与 web 面同一份聚合层保证行为一致。
+ * 空诊断集零输出。
+ */
+export function snapshotDiagnosticsText(data: SnapshotDiagnosticsData, ctx: TextContext): string {
+  if (data.length === 0) return "";
+  const locale = ctx.locale;
+  const { summary, groups } = groupSnapshotDiagnostics(data, locale);
+  const lines: string[] = [`! ${summary}`];
+  for (const group of groups) {
+    lines.push(`! ${group.experimentId}`);
+    for (const item of group.items) {
+      const time = `${formatReportDateTime(item.startedAt, locale)} (↩ ${formatHistoricalGap(item.startedAt)})`;
+      lines.push(`!   ${time}`);
+      for (const record of item.diagnostics) {
+        const n = occurrencesOf(record);
+        lines.push(`!     ${record.level} · ${record.code}${n > 1 ? ` ×${n}` : ""}`);
+        lines.push(`!       ${record.message}`);
+        if (record.command !== undefined) lines.push(`!       → ${record.command}`);
+      }
+    }
   }
   return lines.join("\n");
 }

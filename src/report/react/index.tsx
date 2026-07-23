@@ -24,6 +24,7 @@ export { Scoreboard } from "../components/metric-views/Scoreboard.tsx";
 export { HeroCard } from "../components/site-components/HeroCard.tsx";
 export { PoweredBy } from "../components/site-components/PoweredBy.tsx";
 export { ScopeWarnings } from "../components/site-components/ScopeWarnings.tsx";
+export { SnapshotDiagnostics } from "../components/site-components/SnapshotDiagnostics.tsx";
 export { CopyFixPrompt } from "../components/site-components/CopyFixPrompt.tsx";
 export { TraceWaterfall } from "../components/site-components/TraceWaterfall.tsx";
 
@@ -75,6 +76,8 @@ export type {
   ScopeSummaryData,
   ScopeWarning,
   ScoreboardData,
+  SnapshotDiagnosticsData,
+  SnapshotDiagnosticsItem,
   TableData,
   TraceSpanSummary,
   TraceWaterfallRow,
