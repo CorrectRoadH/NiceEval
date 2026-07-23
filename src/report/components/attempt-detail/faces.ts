@@ -160,8 +160,16 @@ export function attemptSourceText(data: AttemptSourceData | null, ctx: TextConte
   // 要展开的条目——得分点(带 .points)豁免 passed 收纳,即使 passed 也逐条列出(与
   // attemptAssertionsData 同一条规则,docs/feature/scoring/library/display.md「得分点不参与
   // passed 收纳」)。
-  const attention = data.lines.flatMap((line) => line.assertions.filter((a) => a.outcome !== "passed" || a.points !== undefined));
-  const lines = attention.map((a) => `  ${assertionLine(a, ctx)}`);
+  const isAttention = (a: AssertionResult & { aborted?: true }) => a.outcome !== "passed" || a.points !== undefined;
+  const attention = data.lines.flatMap((line) => line.assertions.filter(isAttention));
+  // 全通过折叠只在真的没有失败可看时触发:unmapped 区(没有 loc、指向别的文件或越界)同样要检查
+  // 是否藏着非 passed 条目,否则会把「unmapped 里有一条真实失败,但行内 attention 恰好是空」的
+  // attempt 错误地折成一条「✓ passed」(docs/feature/reports/show/attempt.md「全通过折叠」)。
+  const hasUnmappedAttention = data.unmapped.some(isAttention);
+  const lines =
+    attention.length > 0 || hasUnmappedAttention
+      ? attention.map((a) => `  ${assertionLine(a, ctx)}`)
+      : data.passedGroups.map(({ group, items }) => `  ✓ passed · ${group || "(ungrouped)"} · ${items.length}`);
   // t.score(...) 给分记录:行内映射的按行序收集,unmapped 的按既有分组顺序接在后面
   // (docs/feature/scoring/library/display.md「源码面同样承载给分证据」)。
   const scoreEntries: { group: string; entry: ScoreEntry }[] = [

@@ -161,6 +161,10 @@ export function attemptSourceData(evidence: AttemptEvidence): AttemptSourceData 
   const { sourcePath, lines, unmapped, summary } = evidence.evalSource;
   const { result } = evidence;
   const scorePointsEarned = scorePointsEarnedOf(result.assertions);
+  // 全通过折叠:同一份输入(result.assertions)、同一套算法(groupByPath)、同一条过滤规则
+  // (得分点豁免 passed 收纳)——与 attemptAssertionsData 的 passedGroups 保持一致;`lines` 与
+  // `unmapped` 是 result.assertions 的一个划分,这里不需要分别过滤两处再合并。
+  const passedGroups = groupByPath(result.assertions.filter((a) => a.outcome === "passed" && a.points === undefined));
 
   // t.score(...) 给分记录按 loc 投影到源码行,原位标注给分;不在展示源码内的落
   // unmappedScoreEntries——与断言的 unmapped 桶同一条「不映射就进末尾分组」规则
@@ -245,6 +249,7 @@ export function attemptSourceData(evidence: AttemptEvidence): AttemptSourceData 
     sourcePath,
     lines: projectedLines,
     unmapped: markAborted(unmapped, abortAssertion),
+    passedGroups,
     ...(unmappedScoreEntries.length > 0 ? { unmappedScoreEntries: groupByPath(unmappedScoreEntries) } : {}),
     unlocatedTurns,
     summary,

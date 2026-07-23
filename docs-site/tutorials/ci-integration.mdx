@@ -59,15 +59,33 @@ jobs:
 
 ## JSON, JUnit, and structured errors
 
-The default human-text log appends lines in the order things happen:
+Without `--json`, `niceeval exp` prints human text. On a non-TTY — exactly what a CI log page is — that automatically degrades to an append-only, frameless stream: `PLAN` and the closing verdict / `FAILURES` / `NEXT` are still complete information panels, just without box-drawing characters — the title stands alone on its own line, the body is indented two columns. Failures and errors each append one unindented stream line as they happen, then get collected and restated inside the `FAILURES` panel at wrap-up. Real non-TTY output from a failed gate assertion:
 
 ```text
-niceeval: start total=24 configs=3 concurrency=10 reused=18
-niceeval: errored locator=@12h8m4k1 eval=fixtures/button experiment=ci/codex phase=sandbox.create reason="E2B sandbox allocation failed after 5 attempts"
-niceeval: result=failed passed=23 failed=0 errored=1 reused=18 duration=128s
+PLAN
+  1 attempts · 1 evals × 1 configs · concurrency 2
+✗ @1v9b841a basic [mock]
+    gate: equals("definitely-not-ok")
+        expected "definitely-not-ok" · received ok
+FAILED                                                                                            0s
+  0 passed · 1 failed · 0 errored  (0 reused)
+  2 new tok
+
+FAILURES
+  ✗ @1v9b841a basic [mock]
+      gate: equals("definitely-not-ok")
+          expected "definitely-not-ok" · received ok
+NEXT
+  Inspect: niceeval show @1v9b841a
+  Eval:    niceeval show @1v9b841a --source
+  Trace:   niceeval show @1v9b841a --execution
+  Diff:    niceeval show @1v9b841a --diff
+  Compare: niceeval view
+  RESULTS
+  .niceeval/basic_mock/<snapshot>
 ```
 
-The exit code is the first-line red/green signal; JUnit and the results snapshot are the complete machine interface — log lines are only for searching and annotation. An `errored` line carries a locator, the eval/experiment identity, the formal phase when known, and a one-line `reason` summary. The full cause, stack, and diagnostics live in the attempt's `result.json` — keep the artifacts and run `niceeval show @<locator>` to review them.
+The exit code is the first-line red/green signal; JUnit and the results snapshot are the complete machine interface — this log is only for people to read, search, and locate. An `errored` attempt (an execution error, not a failed assertion) is the same kind of unindented stream line, carrying a locator, the eval/experiment identity, the formal phase when known, and a one-line `reason` summary — for example `✗ @12h8m4k1 fixtures/button [ci/codex] errored · sandbox.create` followed by `sandbox-rate-limit: E2B sandbox allocation failed after 5 attempts`. The full cause, stack, and diagnostics live in the attempt's `result.json` — keep the artifacts and run `niceeval show @<locator>` to review them.
 
 When something needs to parse run events programmatically (a custom annotation adapter, a live dashboard), add `--json` to that same command to get the same facts as an NDJSON event stream, starting with `start` and ending with `result`:
 

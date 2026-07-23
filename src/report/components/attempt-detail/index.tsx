@@ -259,6 +259,17 @@ function scoreEntryGroupsProblem(value: unknown, path: string): string | null {
   });
 }
 
+/** `{ group, items: AssertionResult[] }[]` 分组结构;AttemptAssertionsData.passedGroups 与
+ *  AttemptSourceData.passedGroups 共用同一套算法(groupByPath)与同一份校验。 */
+function assertionGroupsProblem(value: unknown, path: string): string | null {
+  return arrayProblem(value, path, (group, groupPath) => {
+    if (!isObject(group) || typeof group.group !== "string") {
+      return `"${groupPath}" must be an object with a string "group"`;
+    }
+    return arrayProblem(group.items, `${groupPath}.items`, assertionResultProblem);
+  });
+}
+
 /** 得分点挣满计数;AttemptAssertionsData 与 AttemptSourceData 共用同一条判据(源码不可用时
  *  换成 AttemptAssertions「规则完全一致」,见 docs/feature/reports/show/attempt.md)。 */
 function scorePointsEarnedProblem(value: unknown, path: string): string | null {
@@ -272,12 +283,7 @@ export function validateAssertionsData(data: unknown): string | null {
   if (!isObject(data)) return "expected an object";
   const attentionProblem = arrayProblem(data.attention, "attention", assertionResultProblem);
   if (attentionProblem !== null) return attentionProblem;
-  const passedGroupsProblem = arrayProblem(data.passedGroups, "passedGroups", (group, path) => {
-    if (!isObject(group) || typeof group.group !== "string") {
-      return `"${path}" must be an object with a string "group"`;
-    }
-    return arrayProblem(group.items, `${path}.items`, assertionResultProblem);
-  });
+  const passedGroupsProblem = assertionGroupsProblem(data.passedGroups, "passedGroups");
   if (passedGroupsProblem !== null) return passedGroupsProblem;
   if (data.scoreEntries !== undefined) {
     const scoreEntriesProblem = scoreEntryGroupsProblem(data.scoreEntries, "scoreEntries");
@@ -354,6 +360,8 @@ export function validateSourceData(data: unknown): string | null {
   if (linesProblem !== null) return linesProblem;
   const unmappedProblem = arrayProblem(data.unmapped, "unmapped", assertionResultProblem);
   if (unmappedProblem !== null) return unmappedProblem;
+  const passedGroupsProblem = assertionGroupsProblem(data.passedGroups, "passedGroups");
+  if (passedGroupsProblem !== null) return passedGroupsProblem;
   if (data.unmappedScoreEntries !== undefined) {
     const unmappedScoreEntriesProblem = scoreEntryGroupsProblem(data.unmappedScoreEntries, "unmappedScoreEntries");
     if (unmappedScoreEntriesProblem !== null) return unmappedScoreEntriesProblem;

@@ -14,8 +14,9 @@ import { emptyScopeAndResults } from "../scope.harness.ts";
 import type { AttemptEvidence, AttemptEvidenceCapabilities } from "../../../results/attempt-evidence.ts";
 import { encodeAttemptLocator, type AttemptIdentity } from "../../../results/locator.ts";
 import { buildAnnotatedEvalSource } from "../../../results/annotated-source.ts";
-import { composeOf, resolveReportTree, ResolveMemo, type ReportNode } from "../../definition/tree.ts";
+import { composeOf, createTextContext, resolveReportTree, ResolveMemo, type ReportNode } from "../../definition/tree.ts";
 import { buildReportMeta, defineReport } from "../../definition/report.ts";
+import { attemptSourceText } from "./faces.ts";
 import {
   attemptAssertionsData,
   attemptConversationData,
@@ -893,5 +894,51 @@ describe("attemptSourceData:标准事件流按 loc 投影回 send 行", () => {
       }),
     )!;
     expect(scoredPassed.lines.some((l) => l.aborted || l.unreached)).toBe(false);
+  });
+
+  it("attemptSourceText:全通过时折成按 group 计数的一行,不逐条展开(docs/feature/reports/show/attempt.md「全通过折叠」)", () => {
+    const assertions: AssertionResult[] = [
+      { name: "a", severity: "gate", outcome: "passed", score: 1, loc: { file: sourcePath, line: 1 }, groupPath: ["组A"] },
+      { name: "b", severity: "gate", outcome: "passed", score: 1, loc: { file: sourcePath, line: 2 }, groupPath: ["组A"] },
+      { name: "c", severity: "soft", outcome: "passed", score: 1, loc: { file: sourcePath, line: 3 } },
+    ];
+    const data = attemptSourceData(
+      evidenceOf({
+        capabilities: { ...NO_CAPS, source: true },
+        evalSource: evalSourceOf(3, assertions),
+        result: resultOf({ verdict: "passed", assertions }),
+      }),
+    )!;
+    // 数据层:全部按 group 折叠计数,与 attemptAssertionsData.passedGroups 同一份算法。
+    expect(data.passedGroups).toEqual([
+      { group: "组A", items: [assertions[0], assertions[1]] },
+      { group: "", items: [assertions[2]] },
+    ]);
+    // text 面:没有失败可看,折成两行(按 group),不逐条展开成三条断言行。
+    const text = attemptSourceText(data, createTextContext({ width: 100 }));
+    expect(text).toContain("✓ passed · 组A · 2");
+    expect(text).toContain("✓ passed · (ungrouped) · 1");
+    expect(text.split("\n")).toHaveLength(3); // 头行 + 两条折叠行
+  });
+
+  it("attemptSourceText:有失败可看时不出现折叠行,通过的断言也不逐条列出(只列失败)", () => {
+    const assertions: AssertionResult[] = [
+      { name: "ok", severity: "soft", outcome: "passed", score: 1, loc: { file: sourcePath, line: 1 } },
+      { name: "broken", severity: "gate", outcome: "failed", score: 0, loc: { file: sourcePath, line: 2 } },
+    ];
+    const data = attemptSourceData(
+      evidenceOf({
+        capabilities: { ...NO_CAPS, source: true },
+        evalSource: evalSourceOf(2, assertions),
+        result: resultOf({ verdict: "failed", assertions }),
+      }),
+    )!;
+    // 数据层照常算出 passedGroups——折不折是 text 面的呈现选择,不是数据层的存在性判断。
+    expect(data.passedGroups).toEqual([{ group: "", items: [assertions[0]] }]);
+    const text = attemptSourceText(data, createTextContext({ width: 100 }));
+    expect(text).toContain("gate · broken");
+    expect(text).not.toContain("✓ passed");
+    // 通过的那条完全不出现,不是被折叠成计数,是压根不展开:头行 + 唯一一条失败行,没有第三行。
+    expect(text.split("\n")).toHaveLength(2);
   });
 });

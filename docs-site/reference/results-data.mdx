@@ -46,6 +46,7 @@ snap.agent;                    // this snapshot's own agent
 snap.model;
 snap.startedAt;                // when this run happened
 snap.completedAt;              // written back at wrap-up; missing = the process was interrupted, completed attempts still read fine
+snap.diagnostics;              // written back alongside completedAt: things that went wrong during this run but can't be pinned to one eval
 snap.dir;                      // the snapshot directory's absolute path — the on-disk snapshot itself, there is no lower layer
 snap.producer;                 // { name: "niceeval", version: "0.4.6" } — who wrote this result
 snap.schemaVersion;            // the result format version
@@ -134,7 +135,7 @@ An old version's results are never lost: they remain on disk as-is, viewable wit
 
 ## Selecting snapshots: `results.latest()`
 
-Most scenarios first answer "what's the current level" — the selector picks "the latest per experiment" for you, the same policy as the default report. It returns a **Selection**, with snapshots and warnings traveling together:
+Most scenarios first answer "what's the latest result for each experiment right now" — the selector picks "the latest per experiment" for you, the same policy as the default report. It returns a **Scope**: snapshots, coverage facts, and warnings travel together:
 
 ```typescript
 const latest = results.latest({
@@ -142,25 +143,30 @@ const latest = results.latest({
 });
 
 latest.snapshots;              // Snapshot[]: the latest per experiment
+latest.coverage;               // ScopeCoverage[]: per-experiment coverage facts
 latest.warnings;               // structured warnings, not pre-rendered text
 ```
 
-"Latest" can be incomplete: rerunning just one question is a normal debugging move, and the latest snapshot it produces covers only that one question. The selector compares each selected snapshot's coverage against that experiment's historical union (`exp.evalIds`), and any shrinkage goes into `warnings`:
+"Latest" can be incomplete: rerunning just one question is a normal debugging move, and the latest snapshot it produces covers only that one question. The selector compares each selected snapshot's coverage against that experiment's historical union (`exp.evalIds`) and records the gap on `coverage`:
 
 ```typescript
-latest.warnings[0];
+latest.coverage[0];
 // {
-//   kind: "partial-coverage",
 //   experimentId: "midterm/bub-gpt-5.4",
-//   covered: 1,
-//   total: 50,
-//   message: "snapshot covers 1 of 50 evals seen in history; re-run `niceeval exp midterm/bub-gpt-5.4` for a full snapshot",
+//   knownEvalIds: ["algebra/quadratic", …],   // denominator: every eval this experiment has ever seen
+//   missingEvalIds: ["geometry/area", …],     // evals with no attempt under the current selection
 // }
 ```
 
-The fields are for programmatic judgment — a CI check like "fail if coverage shrinks" tests `covered < total` directly, no text parsing needed; `message` is a pre-rendered English sentence, printable as-is if you want to display it. Whether to render is up to you; the gap is always computed. This is not the only kind of warning — a snapshot lagging behind the latest stored result in the selection goes into `stale-snapshot`, and a selected snapshot that never wrapped up (interrupted process) goes into `unfinished-snapshot`, each carrying a `kind`, structured judgable fields, and a pre-rendered `message`.
+The gap is a per-eval fact, so it's rendered at the eval's own row: `niceeval show` / `view` turn a missing eval into a "no result under the current config" placeholder row in the leaderboard, next to a copy-pasteable rerun command — you see the denominator gap right in the table you're already looking at. Programmatic checks are just as direct: a CI check like "fail if coverage shrinks" tests `coverage.some((c) => c.missingEvalIds.length > 0)`, no text parsing needed. The gap is always computed, never silent.
 
-A selection is the common input for both the [report building blocks](/tutorials/custom-reports) and `copySnapshots` below: when they receive a `Selection`, warnings ride along (components like `RunOverview` display them faithfully); a hand-picked `Snapshot[]` array is accepted just the same. Fine-tuning the official policy does not require downgrading to a plain array: `latest.filter((s) => s.experimentId !== "compare/broken")` returns a new selection — snapshots are trimmed, warnings are pruned down to the surviving experiments, and provenance is not lost. `filter` only ever trims down; **replacing** a pick ("swap in this experiment's previous complete snapshot instead") is not its job — go back to `exp.snapshots` and pick it yourself; a hand-picked array has no picking process, so naturally it carries no warnings, which is also honest.
+`warnings` holds completeness problems that can't be pinned to a single eval: a selected snapshot that never wrapped up (interrupted process) goes into `unfinished-snapshot`, and an unreadable snapshot found while scanning the results root goes into `unreadable-snapshot`. Each carries a `kind`, judgable structured fields, and a pre-rendered English `message` — print it as-is if you want to display it.
+
+`snap.diagnostics` and `warnings` answer different questions: warnings describe how this batch of data got picked, while `diagnostics` describes what went wrong during one particular experiment run — an experiment-level teardown failure, an unenforceable budget — things that can't be pinned to a single eval, so they get written out with the snapshot they actually belong to at wrap-up. Both stay anchored to their own `experimentId` and `startedAt`; they are never merged into a Scope-wide conclusion, nor copied onto every attempt. Display them with the `SnapshotDiagnostics` component, which keeps each entry's source snapshot identity and age intact.
+
+Every attempt also carries **staleness**: a carried entry (a cache hit — last round's result folded forward into this snapshot) has `attempt.carried === true`, and the leaderboard marks those rows with `↩` plus a human time distance (e.g. `↩ 3d`) — old but valid, since the fingerprint guaranteed nothing changed, so it's a row-level annotation, not a warning. To see only what was actually run just now, use `results.latest({ fresh: true })` or the CLI's `--fresh`; excluded evals turn into placeholder rows instead of silently disappearing.
+
+Scope is the common input for both the [report building blocks](/tutorials/custom-reports) and `copySnapshots` below: pass in a `Scope` and coverage and warnings ride along (placeholder rows and the `ScopeWarnings` component render them faithfully); a hand-picked `Snapshot[]` array is accepted just the same. Every entry in `scope.snapshots` is the real, persisted snapshot on disk, and `diagnostics` travels with it, so either input can render snapshot diagnostics. Fine-tuning the official policy does not require downgrading to a plain array: `latest.filter((s) => s.experimentId !== "compare/broken")` returns a new Scope — snapshots are trimmed, coverage and warnings are pruned down to the surviving experiments, and provenance is not lost. `filter` only ever trims down; **replacing** a pick ("swap in this experiment's previous complete snapshot instead") is not its job — go back to `exp.snapshots` and pick it yourself; a hand-picked array has no picking process, so naturally it carries no coverage facts or warnings, which is also honest.
 
 ## A real script: distributions aren't folding
 
@@ -240,11 +246,11 @@ await copySnapshots(results.latest(), "site-data/run", {
                                                         // o11y (turns, for example), bring it along, or they render as "—"
 ```
 
-The first argument accepts a `Selection` or a hand-picked `Snapshot[]` — the same input convention as the report building blocks. The legal values for `artifacts` are `"events" | "trace" | "o11y" | "agentSetup" | "diff" | "sources"`; by default it carries the five kinds other than `diff`. It errors rather than silently overwriting when the target directory already exists and is non-empty — if a publish script needs to be idempotent, clear the target directory first yourself.
+The first argument accepts a `Scope` or a hand-picked `Snapshot[]` — the same input convention as the report building blocks. The legal values for `artifacts` are `"events" | "trace" | "o11y" | "agentSetup" | "diff" | "sources"`; by default it carries the five kinds other than `diff`. It errors rather than silently overwriting when the target directory already exists and is non-empty — if a publish script needs to be idempotent, clear the target directory first yourself.
 
 Before copying starts, NiceEval plans every target file and checks its serialized size. If any single file exceeds the fixed 50 MiB limit, the whole copy fails before the target directory is created, and the error lists the path, the actual size, and what to do about it. You can exclude that class of evidence from `artifacts`; if the oversized events / trace were left behind by an older version, rerun with the current version and then publish. This check covers both source code / diffs, which have no per-value truncation, and JSON whose individual values are all fine but whose total is too large — so you don't discover a Git host's single-file limit only at `git push` time.
 
-The size precheck only decides whether the whole copy succeeds or fails; it never deletes content out of the middle of an oversized file. Copying is faithful to the source: artifacts are copied byte-for-byte, never re-serialized or rewritten. The one thing automatically backfilled along the way is the **coverage fact at pick time**: the denominator of a `partial-coverage` warning is an experiment's historical union, and a publish directory has no history — so every copied snapshot carries `knownEvalIds` (the union of evals known for that experiment at copy time), and the reader folds it into the computation of `exp.evalIds` (taking the union of local history and the value carried by the snapshot). Running `openResults().latest()` again on the publish directory recomputes coverage warnings through the same mechanism, without relying on the publisher's own account. The copied directory is a standard results directory — `niceeval view --results <dir>` views it directly; for wiring up the report site to update automatically on push, see [Publish a Report Through CI](/tutorials/publish-report).
+The size precheck only decides whether the whole copy succeeds or fails; it never deletes content out of the middle of an oversized file. Copying is faithful to the source: artifacts are copied byte-for-byte, never re-serialized or rewritten. The one thing automatically backfilled along the way is the **coverage fact at pick time**: the denominator of a coverage gap is an experiment's historical union, and a publish directory has no history — so every copied snapshot carries `knownEvalIds` (the union of evals known for that experiment at copy time), and the reader folds it into the computation of `exp.evalIds` (taking the union of local history and the value carried by the snapshot). Running `openResults().latest()` again on the publish directory recomputes the coverage gap through the same mechanism, without relying on the publisher's own account. The copied directory is a standard results directory — `niceeval view --results <dir>` views it directly; for wiring up the report site to update automatically on push, see [Publish a Report Through CI](/tutorials/publish-report).
 
 ## Layer overview
 

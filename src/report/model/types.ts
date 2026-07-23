@@ -719,6 +719,15 @@ export interface AttemptSourceData {
   lines: AttemptSourceLineData[];
   unmapped: (AssertionResult & { aborted?: true })[];
   /**
+   * 全通过、不带 `.points` 的观测断言按 `groupPath.join(" > ")` 分组(无分组键为 ""),组内保持
+   * 原始顺序——`lines` 与 `unmapped` 两处的 passed 条目都算在内,与 `AttemptAssertionsData.
+   * passedGroups` 同一份算法同一份输入(`result.assertions`;行内 assertions 与 `unmapped` 是它
+   * 的一个划分,见 `results/annotated-source.ts`)。text 面只在没有失败可看(`attention` 与
+   * `unmapped` 的非 passed 条目都为空)时用它折成 `✓ passed · <group> · <count>` 一行;web 面本就
+   * 逐行铺开完整源码,不需要折叠(docs/feature/reports/show/attempt.md「全通过折叠」)。
+   */
+  passedGroups: { group: string; items: AssertionResult[] }[];
+  /**
    * `t.score(...)` 给分记录里 `loc` 不在展示源码内的部分,按 groupPath.join(" > ") 分组
    * (无分组键为 "",与 `AttemptAssertionsData.scoreEntries` 同一套算法)。只在存在给分记录时
    * 出现。

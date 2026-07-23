@@ -59,15 +59,33 @@ jobs:
 
 ## JSON、JUnit 和结构化错误
 
-默认人读文本的日志行按发生顺序追加：
+不加 `--json` 时 `niceeval exp` 输出人读文本；在非 TTY（CI 日志页正是这种环境）下自动降级成只追加、不画框的纯文本流——`PLAN` 与收尾的结论、`FAILURES`、`NEXT` 仍是完整的信息面板，只是不再画边框：标题单独成行，正文缩进两列。失败与错误发生时先各自追加一条不缩进的流事件行，收尾时再被 `FAILURES` 面板收拢复述一遍。一次门禁断言失败的真实非 TTY 输出：
 
 ```text
-niceeval: start total=24 configs=3 concurrency=10 reused=18
-niceeval: errored locator=@12h8m4k1 eval=fixtures/button experiment=ci/codex phase=sandbox.create reason="E2B sandbox allocation failed after 5 attempts"
-niceeval: result=failed passed=23 failed=0 errored=1 reused=18 duration=128s
+PLAN
+  1 attempts · 1 evals × 1 configs · concurrency 2
+✗ @1v9b841a basic [mock]
+    gate: equals("definitely-not-ok")
+        expected "definitely-not-ok" · received ok
+FAILED                                                                                            0s
+  0 passed · 1 failed · 0 errored  (0 reused)
+  2 new tok
+
+FAILURES
+  ✗ @1v9b841a basic [mock]
+      gate: equals("definitely-not-ok")
+          expected "definitely-not-ok" · received ok
+NEXT
+  Inspect: niceeval show @1v9b841a
+  Eval:    niceeval show @1v9b841a --source
+  Trace:   niceeval show @1v9b841a --execution
+  Diff:    niceeval show @1v9b841a --diff
+  Compare: niceeval view
+  RESULTS
+  .niceeval/basic_mock/<snapshot>
 ```
 
-退出码是第一层红绿信号；JUnit 和结果快照是完整机器接口，日志行只用于搜索和 annotation。`errored` 行带 locator、eval/experiment 身份、已知时的正式 phase，以及一层 `reason` 摘要。详细 cause、stack 和 diagnostics 保存在 Attempt 的 `result.json`，可在保留 artifact 后运行 `niceeval show @<locator>` 回顾。
+退出码是第一层红绿信号；JUnit 和结果快照是完整机器接口，这份日志只给人读，用于搜索和定位。`errored`（执行错误，不是断言不过）的流事件同样是一条不缩进的行，带 locator、eval/experiment 身份、已知时的正式 phase 和一层 reason 摘要，例如 `✗ @12h8m4k1 fixtures/button [ci/codex] errored · sandbox.create` 后接 `sandbox-rate-limit: E2B sandbox allocation failed after 5 attempts`。详细 cause、stack 和 diagnostics 保存在 Attempt 的 `result.json`，可在保留 artifact 后运行 `niceeval show @<locator>` 回顾。
 
 需要机器解析运行事件（自建 annotation adapter、实时看板）时把这条命令加上 `--json`，得到同一套事实的 NDJSON 事件流，`start` 打头、`result` 收尾：
 

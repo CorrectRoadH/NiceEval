@@ -134,6 +134,7 @@ describe("validateSourceData", () => {
     sourcePath: "eval.ts",
     lines: [{ line: 1, text: "t.send(...)", assertions: [], sends: [], turns: [], scoreEntries: [] }],
     unmapped: [],
+    passedGroups: [],
     unlocatedTurns: [],
     summary: validSummary,
   };
