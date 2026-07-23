@@ -28,20 +28,37 @@ import { evalPrefixPredicate } from "../../shared/aggregate.ts";
 // 复合键分隔符:NUL 不会出现在 eval id / experimentId / ISO 时间里,拼接键不会串味
 const KEY_SEP = "\u0000";
 
+/**
+ * `ReportInput` 归一化:Scope 分支直接消费它已经按口径物化好的 `attempts`(不再重新
+ * flatten `snapshots`——真实 Snapshot 各自持有完整、未按 Scope 口径收窄的 evals/attempts,
+ * 只有 `Scope.attempts` 才是这次选择的真正结果);裸 `Snapshot[]` 分支没有挑选过程,取全部
+ * (docs/feature/results/library.md「官方现刻水位」)。
+ */
 export function resolveInput(input: ReportInput): {
   snapshots: readonly Snapshot[];
+  attempts: readonly AttemptHandle[];
   warnings: readonly ScopeWarning[];
   coverage: readonly ScopeCoverage[];
 } {
-  if (Array.isArray(input)) return { snapshots: input as readonly Snapshot[], warnings: [], coverage: [] };
+  if (Array.isArray(input)) {
+    const snapshots = input as readonly Snapshot[];
+    return { snapshots, attempts: snapshots.flatMap((s) => s.attempts), warnings: [], coverage: [] };
+  }
   const scope = input as Scope;
-  return { snapshots: scope.snapshots, warnings: scope.warnings, coverage: scope.coverage };
+  return { snapshots: scope.snapshots, attempts: scope.attempts, warnings: scope.warnings, coverage: scope.coverage };
 }
 
-/** 展平后的一条样本:attempt + 它所属的快照(维度解析与题级折叠都需要快照身份)。 */
+/**
+ * 展平后的一条样本:`snapshot` 始终是 attempt 的真实来源(= `attempt.snapshot`,快照维度/
+ * refs/locator 都读它);`watermark` 是该 attempt 所属 experiment 在这份输入里的水位基准
+ * Snapshot(贡献来源中 startedAt 最新者,latest() 口径下与 `snapshot` 是同一个对象)——
+ * `historicalOf` 拿它跟真实来源比较,读取「这一行该显示哪个 agent/model/flags」等整组
+ * 代表性字段时也读它(docs/feature/reports/architecture.md「Scope 是计算入口」)。
+ */
 export interface Item {
   snapshot: Snapshot;
   attempt: AttemptHandle;
+  watermark: Snapshot;
 }
 
 export function experimentIdOf(item: Item): string {
@@ -54,12 +71,12 @@ export function evalIdOf(item: Item): string {
 
 /**
  * 历史执行判定(docs/feature/results/library.md「时效:新执行与历史执行」):携带条目,或
- * 所属快照(`attempt.snapshot`,attempt 自己的反向引用,真实落盘)早于该实验在 Scope 中
- * 最新快照(`item.snapshot`,`collectItems` 归属的容器快照——latest() 口径下二者是同一个
- * 对象,比较恒假,只剩 carried 生效;current() 口径下容器快照是合成的最新水位)。
+ * 真实来源(`item.snapshot`)早于该实验在这份输入里的水位基准(`item.watermark`)——
+ * latest() 口径下二者是同一个对象,比较恒假,只剩 carried 生效;current() 口径下贡献
+ * 来源可能有多个,水位基准是其中 startedAt 最新的一个。
  */
 export function historicalOf(item: Item): boolean {
-  return item.attempt.carried || item.attempt.snapshot.startedAt < item.snapshot.startedAt;
+  return item.attempt.carried || item.snapshot.startedAt < item.watermark.startedAt;
 }
 
 /** 快照键:"<experimentId> @ <startedAt>"("snapshot" 维度与手挑快照数组的对比用)。 */
@@ -89,22 +106,24 @@ export function locatorOf(item: Item): AttemptLocator {
 }
 
 /**
- * 展平 + 聚合前去重(niceeval/results 的 dedupeAttempts,身份键
- * (experimentId, evalId, attempt, startedAt))。missing-startedAt 的警告不透出:
- * 官方产出永不缺 startedAt,缺失只可能来自 legacy 落盘,「不去重、如实保留重复」即终稿。
+ * 聚合前去重(niceeval/results 的 dedupeAttempts,身份键
+ * (experimentId, evalId, attempt, startedAt))并按 experiment 补上水位基准。
+ * missing-startedAt 的警告不透出:官方产出永不缺 startedAt,缺失只可能来自 legacy 落盘,
+ * 「不去重、如实保留重复」即终稿。`attempts` 是 `resolveInput(input).attempts`(已经按口径
+ * 物化好,不是从 `snapshots` 反推 flatten);`snapshots` 只用来算每个 experiment 的水位基准。
  */
-export function collectItems(snapshots: readonly Snapshot[]): Item[] {
-  const snapshotByAttempt = new Map<AttemptHandle, Snapshot>();
-  const flattened: AttemptHandle[] = [];
+export function collectItems(snapshots: readonly Snapshot[], attempts: readonly AttemptHandle[]): Item[] {
+  const watermarkByExperiment = new Map<string, Snapshot>();
   for (const snapshot of snapshots) {
-    for (const attempt of snapshot.attempts) {
-      // 同一 handle 对象出现在两个快照里时以首次归属为准(手工挑重叠快照的极端场景)
-      if (!snapshotByAttempt.has(attempt)) snapshotByAttempt.set(attempt, snapshot);
-      flattened.push(attempt);
-    }
+    const current = watermarkByExperiment.get(snapshot.experimentId);
+    if (!current || snapshot.startedAt > current.startedAt) watermarkByExperiment.set(snapshot.experimentId, snapshot);
   }
-  const { attempts } = dedupeAttempts(flattened);
-  return attempts.map((attempt) => ({ attempt, snapshot: snapshotByAttempt.get(attempt)! }));
+  const { attempts: deduped } = dedupeAttempts([...attempts]);
+  return deduped.map((attempt) => ({
+    attempt,
+    snapshot: attempt.snapshot,
+    watermark: watermarkByExperiment.get(attempt.experimentId) ?? attempt.snapshot,
+  }));
 }
 
 export { evalPrefixPredicate };

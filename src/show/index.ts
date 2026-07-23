@@ -253,9 +253,7 @@ async function show(
   }
 
   const selection = selectCurrentResults(results, { experiment: flags.experiment, patterns, fresh: flags.fresh });
-  const matchedEvalIds = [
-    ...new Set(selection.snapshots.flatMap((s) => s.evals.map((e) => e.id))),
-  ].sort();
+  const matchedEvalIds = [...new Set(selection.attempts.map((a) => a.evalId))].sort();
 
   if (patterns.length > 0 && matchedEvalIds.length === 0) {
     const known = [
@@ -273,7 +271,7 @@ async function show(
       // 让 agent 一步摘到 `@<locator>`,不必再跑一轮 `show <eval id>` 才知道选谁。
       const index = matchedEvalIds
         .map((evalId) => {
-          const attempts = attemptsOfEval(selection.snapshots, evalId);
+          const attempts = attemptsOfEval(selection.attempts, evalId);
           const rep = pickDetailAttempt(attempts);
           const verdict = foldEvalVerdict(attempts.map((a) => a.result));
           return attemptIndexLine({
@@ -287,7 +285,7 @@ async function show(
       throw new ShowError(t("cli.show.evidenceNeedsEval", { matched: matchedEvalIds.length, index }));
     }
     const evalId = matchedEvalIds[0];
-    const attempts = attemptsOfEval(selection.snapshots, evalId);
+    const attempts = attemptsOfEval(selection.attempts, evalId);
     const picked = pickDetailAttempt(attempts);
     if (!picked) throw new Error(`internal error: eval "${evalId}" matched by selection but has no attempts`);
     const attemptEvidence = await loadAttemptEvidence(picked);
@@ -334,12 +332,12 @@ async function show(
   // (最新一次失败,没有失败挑最新一次)是唯一路径;精确选某一次走 `@<locator>`。
   if (flags.report === undefined && flags.page === undefined && patterns.length > 0 && matchedEvalIds.length === 1) {
     const evalId = matchedEvalIds[0];
-    const attempts = attemptsOfEval(selection.snapshots, evalId);
+    const attempts = attemptsOfEval(selection.attempts, evalId);
     const detail = pickDetailAttempt(attempts);
     io.out(
       evalDetailText({
         evalId,
-        snapshots: selection.snapshots,
+        attempts,
         ...(detail ? { detail } : {}),
         cwd,
         now: io.now,

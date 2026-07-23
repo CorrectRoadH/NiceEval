@@ -160,7 +160,7 @@ function snap(spec: SnapSpec): Snapshot {
 }
 
 function scopeOf(snapshots: Snapshot[], warnings: ScopeWarning[] = [], coverage: import("../../results/types.ts").ScopeCoverage[] = []): Scope {
-  return makeScope("current-evals", snapshots, warnings, coverage);
+  return makeScope("current-evals", snapshots, snapshots.flatMap((s) => s.attempts), warnings, coverage);
 }
 
 // ───────────────────────── 指标聚合口径 ─────────────────────────
@@ -382,7 +382,7 @@ describe("宿主现刻水位(selectCurrentResults)", () => {
       experiment: { runs: 1, earlyExit: false, selectedEvalIds: ["a"], description: "new" },
     });
     const scope = selectCurrentResults(resultsOf([older, newer]));
-    expect(scope.snapshots[0]!.evals.map((e) => e.id)).toEqual(["a", "b"]);
+    expect(scope.attempts.map((a) => a.evalId).sort()).toEqual(["a", "b"]);
     expect(scope.coverage.find((c) => c.experimentId === "exp/orch")?.missingEvalIds).toEqual([]);
   });
 });
@@ -687,6 +687,29 @@ describe("实体列表 data", () => {
     const items = await experimentListData([s]);
     expect(items[0]!.historicalAttempts).toBe(1);
     expect(items[0]!.attempts).toBe(2); // historicalAttempts 是子集,不改变 attempts 总数口径
+  });
+
+  it("current() 下跨快照拼入的历史执行(非携带)以水位基准比较标 historical;snapshot 维度按真实来源分组、显示真实 startedAt", async () => {
+    // 两个真实贡献 Snapshot:周一(旧,贡献 q2)与周二(新,贡献 q1)——不用 artifactBase/carried,
+    // 单纯是「所属快照早于该 experiment 的水位基准」这条 historicalOf 的第二个分支。
+    const monday = snap({ experimentId: "exp/multi", results: [res("q2", "passed")], runStartedAt: "2026-07-01T08:00:00.000Z" });
+    const tuesday = snap({ experimentId: "exp/multi", results: [res("q1", "passed")], runStartedAt: "2026-07-02T08:00:00.000Z" });
+    const scope = scopeOf([monday, tuesday]);
+
+    const attempts = await attemptListData(scope);
+    expect(attempts.find((item) => item.evalId === "q2")!.historical).toBe(true); // 来自旧快照,非携带
+    expect(attempts.find((item) => item.evalId === "q1")!.historical).toBe(false); // 来自水位基准本身
+
+    const items = await experimentListData(scope);
+    expect(items[0]!.historicalAttempts).toBe(1);
+    expect(items[0]!.attempts).toBe(2);
+
+    // snapshot 维度按真实来源分组:两条 attempt 各自的真实 startedAt 不同,不被合并成一个键。
+    const table = await metricTableData(scope, { rows: "snapshot", columns: [endToEndPassRate] });
+    expect(table.rows.map((r) => r.key).sort()).toEqual([
+      "exp/multi @ 2026-07-01T08:00:00.000Z",
+      "exp/multi @ 2026-07-02T08:00:00.000Z",
+    ]);
   });
 
   it("占位行数据:missingEvalIds 来自 scope.coverage,不参与 evals/attempts 计数或任何指标聚合", async () => {

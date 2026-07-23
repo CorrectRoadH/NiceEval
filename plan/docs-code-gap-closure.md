@@ -44,15 +44,15 @@
   - [x] A.6 从源码 TSDoc 生成公开参考：`pnpm docs:reference`；确认 `docs-site/zh/reference/cli.mdx` 的 `--json` 已显示 `InvocationSummary`
   - [x] A.7 类型与运行时测试同时证明：用户 reporter 按两个参数实现 `onInvocationStart` 能编译，tsx 直接执行时 start/complete 回调各真实触发一次，不能只靠类型重命名
 
-- [ ] **B. `current()` 保留真实 Snapshot**（依赖 0.3；可与 A、F、G 并行）
-  - [ ] B.1 重构 `makeScope`，让 `attempts` 成为显式入参；`latest()` 可从真实快照平铺，`current()` 必须传逐题选择后的独立 attempt 集
-  - [ ] B.2 `selectCurrentResults` 删除第 209 行附近的合成 Snapshot；收集所有真正贡献至少一道题的来源 Snapshot，按稳定顺序去重，原对象身份、diagnostics、dir、配置与反向引用全部保留
-  - [ ] B.3 `fresh` 只过滤显式 attempt 集，不克隆/改写 Snapshot 的 `evals`；被排除的题进入 coverage
-  - [ ] B.4 `Scope.filter()` 按 0.3 重算 attempts / coverage / warnings；同一 experiment 有两个贡献 Snapshot 时，删除其中一个必须只删除该来源的水位，不得整实验全留或全删
-  - [ ] B.5 重构 Reports 的 `resolveInput/collectItems`：Scope 分支消费显式 attempts，裸 Snapshot[] 分支才 flatten；`Item` 同时保留真实 source Snapshot 与 experiment 水位基准，`historicalOf` 比较两者，snapshot 维度/refs/locator 始终读真实来源
-  - [ ] B.6 `scoringComposition`、指标、实体列表、摘要、site data 等全部计算入口审计为走 B.5；experiment 行的有效题集读 coverage，配置/labels 读水位基准 Snapshot，不得再次从真实 snapshots 全量 flatten 或任取旧配置
-  - [ ] B.7 Results 单测覆盖：两个来源快照分别贡献不同 eval、旧快照含 diagnostics、同 eval 的旧历史不得混入、对象引用与 `attempt.snapshot` 原样、fresh/filter 后 coverage 精确
-  - [ ] B.8 Reports 单测覆盖：同一旧来源 Snapshot 还含已被更新 eval 的历史 attempt，所有指标只算 `Scope.attempts`；历史标记以水位基准比较；snapshot 维度仍显示真实 startedAt；experiment 有效题集不因最新快照局部选择而缩小
+- [x] **B. `current()` 保留真实 Snapshot**（依赖 0.3；可与 A、F、G 并行）
+  - [x] B.1 重构 `makeScope`，让 `attempts` 成为显式入参；`latest()` 可从真实快照平铺，`current()` 必须传逐题选择后的独立 attempt 集
+  - [x] B.2 `selectCurrentResults` 删除第 209 行附近的合成 Snapshot；收集所有真正贡献至少一道题的来源 Snapshot，按稳定顺序去重，原对象身份、diagnostics、dir、配置与反向引用全部保留
+  - [x] B.3 `fresh` 只过滤显式 attempt 集，不克隆/改写 Snapshot 的 `evals`；被排除的题进入 coverage
+  - [x] B.4 `Scope.filter()` 按 0.3 重算 attempts / coverage / warnings；同一 experiment 有两个贡献 Snapshot 时，删除其中一个必须只删除该来源的水位，不得整实验全留或全删
+  - [x] B.5 重构 Reports 的 `resolveInput/collectItems`：Scope 分支消费显式 attempts，裸 Snapshot[] 分支才 flatten；`Item` 同时保留真实 source Snapshot 与 experiment 水位基准，`historicalOf` 比较两者，snapshot 维度/refs/locator 始终读真实来源
+  - [x] B.6 `scoringComposition`、指标、实体列表、摘要、site data 等全部计算入口审计为走 B.5；experiment 行的有效题集读 coverage，配置/labels 读水位基准 Snapshot，不得再次从真实 snapshots 全量 flatten 或任取旧配置
+  - [x] B.7 Results 单测覆盖：两个来源快照分别贡献不同 eval、旧快照含 diagnostics、同 eval 的旧历史不得混入、对象引用与 `attempt.snapshot` 原样、fresh/filter 后 coverage 精确
+  - [x] B.8 Reports 单测覆盖：同一旧来源 Snapshot 还含已被更新 eval 的历史 attempt，所有指标只算 `Scope.attempts`；历史标记以水位基准比较；snapshot 维度仍显示真实 startedAt；experiment 有效题集不因最新快照局部选择而缩小
 
 - [ ] **C. Snapshot diagnostics 持久化链**（子树按各自依赖启动，不把整条链错误串行化）
   - [ ] C.1 **Results 写读面**（依赖 0.6；可与 A、B 并行）

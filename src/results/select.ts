@@ -34,20 +34,23 @@ export function selectLatest(
   const warnings: ScopeWarning[] = [];
   const coverage: ScopeCoverage[] = [];
   const snapshots: Snapshot[] = [];
+  const attempts: AttemptHandle[] = [];
 
   for (const exp of selected) {
     const raw = exp.latest;
+    snapshots.push(raw); // 真实 Snapshot,原样保留,不重建
     // fresh: true 只保留新执行的 attempt——在 latest() 口径下,选中集合永远只有这一份
     // 快照,「所属快照早于该实验在 Scope 中最新快照」这条历史出身天生不成立(只有它自己),
-    // 唯一的历史出身是携带条目(attempt.carried)。
-    const snapshot = fresh ? withFreshEvals(raw, raw.startedAt) : raw;
-    snapshots.push(snapshot);
+    // 唯一的历史出身是携带条目(attempt.carried)。只过滤显式物化的 attempts 集,不克隆/
+    // 改写来源 Snapshot 的 evals(见 docs/feature/results/library.md「选择快照」)。
+    const picked = fresh ? raw.attempts.filter((a) => !a.carried) : raw.attempts;
+    attempts.push(...picked);
 
     // 覆盖事实:分母 = 该实验已知 eval 并集(本地历史 ∪ 各快照携带的 knownEvalIds),
     // 分子 = 当前口径(可能已被 fresh 收窄)下有 attempt 的题。位置参数允许只重跑一道题、
     // fresh 允许全部结果都是携带 —— 两种情况都不能安静吞下,统一进 missingEvalIds。
     const knownEvalIds = exp.evalIds;
-    const coveredIds = new Set(snapshot.evals.map((ev) => ev.id));
+    const coveredIds = new Set(picked.map((a) => a.evalId));
     coverage.push({
       experimentId: exp.id,
       knownEvalIds: [...knownEvalIds],
@@ -66,7 +69,7 @@ export function selectLatest(
     }
   }
   warnings.push(...unreadableSnapshotWarnings(results.skipped, results.root));
-  return makeScope("latest-snapshots", snapshots, warnings, coverage);
+  return makeScope("latest-snapshots", snapshots, attempts, warnings, coverage);
 }
 
 /** selectCurrentResults 的范围输入:experiment id 前缀与 eval id 前缀,都可缺省。 */
@@ -139,9 +142,11 @@ export function selectedEvalIdsOf(snapshot: Snapshot): readonly string[] {
 
 /**
  * 两个宿主(show / view)共用的现刻水位选择器:每个 experiment × eval 取「包含该 eval 的
- * 最新快照」里的全部 attempt,跨 run 合成。results.latest() 只挑「每实验最新快照」,带 eval
- * 前缀的局部重跑会产出残缺快照;现刻水位承诺「不会因为一次局部重跑变残缺」,所以在实验的
- * 历史快照上逐 eval 向更早的 run 补齐,再把合成好的 Scope 交给宿主注入报告槽。
+ * 最新快照」里的全部 attempt,跨 run 拼出当前判定水位。results.latest() 只挑「每实验最新
+ * 快照」,带 eval 前缀的局部重跑会产出残缺快照;现刻水位承诺「不会因为一次局部重跑变残缺」,
+ * 所以在实验的历史快照上逐 eval 向更早的 run 补齐——但补齐只发生在 `Scope.attempts` 这份
+ * 物化选择上,真正贡献过至少一道题的来源 Snapshot 原样进 `Scope.snapshots`,不重建、不
+ * 合并成报告专用对象(见 docs/feature/results/library.md「官方现刻水位」)。
  *
  * **可比性前提**:每个 experiment 以最新快照的可比性配置(agent / model / reasoningEffort /
  * flags / budget / timeoutMs / sandbox)为基准,只有配置与基准深相等的历史快照才参与补齐;
@@ -149,8 +154,7 @@ export function selectedEvalIdsOf(snapshot: Snapshot): readonly string[] {
  * `coverage.missingEvalIds` 如实呈现。这保证 current() 产出的每个 experiment 只对应一套配置。
  *
  * 同一 eval 的全部 attempts 必须整批取自包含它的最新快照,不把历史快照的 attempts 平铺后
- * 按 eval 聚合——否则会把不同运行的重试混成一次虚构运行。合成快照的 dir/元数据只服务报告
- * 分组与来源展示,证据身份一律来自 attempt 自己的 ref。
+ * 按 eval 聚合——否则会把不同运行的重试混成一次虚构运行。
  */
 export function selectCurrentResults(results: Results, scope: ResultScope = {}): Scope {
   const match =
@@ -159,6 +163,7 @@ export function selectCurrentResults(results: Results, scope: ResultScope = {}):
   const fresh = scope.fresh === true;
 
   const snapshots: Snapshot[] = [];
+  const attempts: AttemptHandle[] = [];
   const warnings: ScopeWarning[] = [];
   const coverage: ScopeCoverage[] = [];
 
@@ -170,7 +175,7 @@ export function selectCurrentResults(results: Results, scope: ResultScope = {}):
     for (const snapshot of exp.snapshots) {
       if (!deepEqualJson(comparabilityConfigOf(snapshot), baseline)) continue;
       // 一个来源快照只贡献它自己选中的 eval——不在其 selectedEvalIds(或第三方退化后的实际
-      // evals)内的历史 attempt 不进入合成结果,即使它恰好出现在 snapshot.evals 里。第三方
+      // evals)内的历史 attempt 不进入现刻水位,即使它恰好出现在 snapshot.evals 里。第三方
       // 无该字段时 selectedEvalIdsOf 退化为快照实际 evals,这里的过滤天然是 no-op。
       const selectedIds = new Set(selectedEvalIdsOf(snapshot));
       for (const ev of snapshot.evals) {
@@ -187,87 +192,57 @@ export function selectCurrentResults(results: Results, scope: ResultScope = {}):
       continue;
     }
 
+    // attempts 按 eval id 字典序物化(与旧 evals 顺序同一口径),不随贡献来源的快照分布而变。
     const picks = [...taken.values()].sort((a, b) => a.ev.id.localeCompare(b.ev.id));
-    let startedAt = "";
-    let newest: Snapshot = picks[0].snapshot;
+
+    // 水位基准:贡献来源(fresh 过滤前)里 startedAt 最新的一个——用于判断"新执行"阈值与
+    // 该实验现刻是否收尾,不受 fresh 是否连它自己的数据都排除影响。
+    let watermark: Snapshot = picks[0]!.snapshot;
     for (const pick of picks) {
-      if (pick.snapshot.startedAt > startedAt) {
-        startedAt = pick.snapshot.startedAt;
-        newest = pick.snapshot;
-      }
+      if (pick.snapshot.startedAt > watermark.startedAt) watermark = pick.snapshot;
     }
-    // fresh: true 只保留该实验「新执行」的 attempt——属于最新贡献快照(startedAt 就是它的
-    // startedAt)且非携带的 attempt;历史执行整条排除,题内全部历史执行时整道题被排除。
-    // startedAt/newest 的计算不受 fresh 影响(取自全部 picks,不是过滤后的子集)。
-    const evals = fresh ? freshEvals(picks.map((p) => p.ev), startedAt) : picks.map((p) => p.ev);
-    const base = exp.latest;
-    // 合成快照的 selectedEvalIds 重建为最终 picks 的有序 id 列表——不是照抄某一来源快照
-    // (通常是最新快照)的局部选择。base.experiment 缺失(第三方无 ExperimentRunInfo)时不
-    // 伪造一份不完整投影,继续靠 report 侧 fallback(见 selectedEvalIdsOf)。
-    const experiment =
-      base.experiment !== undefined ? { ...base.experiment, selectedEvalIds: evals.map((ev) => ev.id) } : undefined;
-    snapshots.push({
-      experimentId: exp.id,
-      startedAt,
-      agent: base.agent,
-      ...(base.model !== undefined ? { model: base.model } : {}),
-      ...(experiment !== undefined ? { experiment } : {}),
-      ...(base.name !== undefined ? { name: base.name } : {}),
-      producer: base.producer,
-      schemaVersion: base.schemaVersion,
-      evals,
-      attempts: evals.flatMap((ev) => ev.attempts),
-      dir: newest.dir,
-      ...(newest.completedAt !== undefined ? { completedAt: newest.completedAt } : {}),
-      ...(base.knownEvalIds ? { knownEvalIds: [...base.knownEvalIds] } : {}),
-    });
+
+    // fresh 只过滤显式物化的 attempts 集,不克隆/改写来源 Snapshot 的 evals——真实 Snapshot
+    // 原样留在 `snapshots` 里。保留该实验「新执行」的 attempt:属于水位基准快照
+    // (startedAt 就是它的 startedAt)且非携带;历史执行整条排除,题内全部历史执行时该题
+    // 在 `attempts` 里自然消失,由下面的覆盖事实计算转入 missingEvalIds。
+    const pickedAttempts = fresh
+      ? picks.flatMap((pick) => pick.ev.attempts.filter((a) => !a.carried && a.snapshot.startedAt >= watermark.startedAt))
+      : picks.flatMap((pick) => pick.ev.attempts);
+    attempts.push(...pickedAttempts);
+
+    // 真实贡献 Snapshot:只收物化进 `pickedAttempts` 的来源——fresh 排除掉的来源不再列入,
+    // `Scope.snapshots` 里每个成员都真正 backs 至少一条 `Scope.attempts`。按 exp.snapshots
+    // 既有的最新在前顺序去重,原对象身份保留。
+    const usedSnapshots = new Set(pickedAttempts.map((a) => a.snapshot));
+    const contributing = exp.snapshots.filter((s) => usedSnapshots.has(s));
+    snapshots.push(...contributing);
 
     // 覆盖事实:分母收窄到范围内(--exp / 位置参数),不让范围外的缺口刷屏;跨快照补齐后
     // 仍缺的题——「历史上见过却从未在可比配置的可读落盘里出现」(含改配置后未补跑的题)、
     // 或被 fresh 排除的题——统一进 missingEvalIds,不静默。
     const knownEvalIds = exp.evalIds.filter(match);
-    const coveredIds = new Set(evals.map((ev) => ev.id));
+    const coveredIds = new Set(pickedAttempts.map((a) => a.evalId));
     coverage.push({
       experimentId: exp.id,
       knownEvalIds,
       missingEvalIds: knownEvalIds.filter((id) => !coveredIds.has(id)),
     });
 
-    if (newest.completedAt === undefined) {
+    if (watermark.completedAt === undefined) {
       warnings.push({
         kind: "unfinished-snapshot",
         experimentId: exp.id,
-        startedAt,
-        dir: newest.dir,
-        message: `snapshot "${exp.id}" (${startedAt}) is unfinished (the process was interrupted); completed attempts are read as-is, but the set may be incomplete — re-run \`niceeval exp ${exp.id}\` for a complete snapshot`,
+        startedAt: watermark.startedAt,
+        dir: watermark.dir,
+        message: `snapshot "${exp.id}" (${watermark.startedAt}) is unfinished (the process was interrupted); completed attempts are read as-is, but the set may be incomplete — re-run \`niceeval exp ${exp.id}\` for a complete snapshot`,
         command: `niceeval exp ${exp.id}`,
       });
     }
   }
 
   warnings.push(...unreadableSnapshotWarnings(results.skipped, results.root));
-  return makeScope("current-evals", snapshots, warnings, coverage);
-}
-
-/**
- * 保留一组 Eval 里的新执行 attempt:非携带、且所属快照的 startedAt = 该实验在 Scope 中最新
- * 快照的 startedAt(latest() 口径下恒真,只剩 carried 过滤;current() 口径下额外排除跨快照
- * 拼入的历史执行)。题内全部 attempt 被排除时整道题丢弃——覆盖事实随后据此把它计入
- * missingEvalIds,不伪造一道没有新执行的空题。
- */
-function freshEvals(evals: readonly Eval[], scopeStartedAt: string): Eval[] {
-  const out: Eval[] = [];
-  for (const ev of evals) {
-    const attempts = ev.attempts.filter((a) => !a.carried && a.snapshot.startedAt >= scopeStartedAt);
-    if (attempts.length > 0) out.push({ id: ev.id, attempts });
-  }
-  return out;
-}
-
-/** `withFreshEvals`:selectLatest() 用——对单个快照应用 `freshEvals`,产出新的 Snapshot 对象。 */
-function withFreshEvals(snapshot: Snapshot, scopeStartedAt: string): Snapshot {
-  const evals = freshEvals(snapshot.evals, scopeStartedAt);
-  return { ...snapshot, evals, attempts: evals.flatMap((ev) => ev.attempts) };
+  return makeScope("current-evals", snapshots, attempts, warnings, coverage);
 }
 
 /**
@@ -324,38 +299,51 @@ function unreadableSnapshotWarnings(skipped: readonly SkippedDir[], root: string
 }
 
 /**
- * Scope 构造:attempts 按口径物化(快照 attempts 的平铺);filter 只删不换 —— 快照删减,
- * attempts、coverage 与 warnings 随之同步修剪,修剪规则是「experimentId 不在幸存快照中的
- * 条目丢弃,非实验作用域的警告保留」(为将来非 per-experiment 的 kind 留位置)。`coverage`
+ * Scope 构造:`attempts` 由调用方按口径显式给出——`latest()` 的全量平铺与 `current()` 的
+ * 逐题选择构造它的方式不同,`makeScope` 自己不猜(不再从 `snapshots` 反推 flatten,因为
+ * `current()` 下一个贡献 Snapshot 的 `attempts` 可能只有一部分真正进入这份 Scope)。
+ *
+ * `filter` 只删不换:按快照删减,`attempts` 只保留 `attempt.snapshot` 仍属于幸存快照的
+ * 条目;`coverage` 逐 experiment 用原始 `knownEvalIds`(删减前的分母不变)与幸存 `attempts`
+ * 重新计算 `missingEvalIds`——同一 experiment 删掉部分贡献来源、保留其它来源时,只有被删
+ * 来源独占贡献的 eval 转入缺口,不是连带清空或保留整个 experiment;该 experiment 全部来源
+ * 都被删除时连同 coverage 项一并丢弃,不留一条「100% 缺失」的假账,但没有快照可依附的
+ * coverage 项(如 current() 里全无可比配置贡献的实验)不受快照删减影响,原样保留。
+ * `warnings` 按「非实验作用域的警告保留,其余随所属 experiment 是否存活」修剪。`coverage`
  * 缺省为 `[]`(测试里手工构造 Scope、不关心覆盖事实时不用逐处补参数)。
  */
 export function makeScope(
   mode: Scope["mode"],
   snapshots: Snapshot[],
+  attempts: AttemptHandle[],
   warnings: ScopeWarning[],
   coverage: ScopeCoverage[] = [],
 ): Scope {
   return {
     mode,
     snapshots,
-    attempts: snapshots.flatMap((s) => s.attempts),
+    attempts,
     coverage,
     warnings,
     filter(predicate: (snapshot: Snapshot) => boolean): Scope {
       const kept = snapshots.filter(predicate);
+      const keptSet = new Set(kept);
       const survivors = new Set(kept.map((s) => s.experimentId));
+      const keptAttempts = attempts.filter((a) => keptSet.has(a.snapshot));
       const keptWarnings = warnings.filter((w) => {
         const scope = (w as { experimentId?: unknown }).experimentId;
         return typeof scope !== "string" || survivors.has(scope);
       });
-      // coverage 是独立于 attempt 快照的事实。`current()` 在一个实验完全没有可用 attempt
-      // 时仍会留下 coverage 项；不能因为没有幸存快照就把这个缺口静默抹掉。对原本有快照
-      // 的实验仍随该实验的快照存续而修剪，只有 snapshot-less coverage 自己保留。
       const experimentIdsWithSnapshots = new Set(snapshots.map((s) => s.experimentId));
-      const keptCoverage = coverage.filter(
-        (c) => !experimentIdsWithSnapshots.has(c.experimentId) || survivors.has(c.experimentId),
-      );
-      return makeScope(mode, kept, keptWarnings, keptCoverage);
+      const keptCoverage = coverage.flatMap((c) => {
+        if (!experimentIdsWithSnapshots.has(c.experimentId)) return [c]; // snapshot-less,不受删减影响
+        if (!survivors.has(c.experimentId)) return []; // 全部来源已删除,连同缺口一起丢弃
+        const coveredIds = new Set(
+          keptAttempts.filter((a) => a.experimentId === c.experimentId).map((a) => a.evalId),
+        );
+        return [{ ...c, missingEvalIds: c.knownEvalIds.filter((id) => !coveredIds.has(id)) }];
+      });
+      return makeScope(mode, kept, keptAttempts, keptWarnings, keptCoverage);
     },
   };
 }

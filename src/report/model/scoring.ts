@@ -7,7 +7,7 @@
 
 import { collectItems, resolveInput } from "./aggregate.ts";
 import type { ReportInput, ScoringComposition } from "./types.ts";
-import { selectedEvalsOnly } from "../components/shared-compute.ts";
+import { selectedAttemptsOnly } from "../components/shared-compute.ts";
 
 /**
  * `input` 内出现的题型构成,取自快照记录的定义期 `scoring` 事实(`EvalDescriptor.scoring`,
@@ -28,8 +28,8 @@ import { selectedEvalsOnly } from "../components/shared-compute.ts";
  *   「横截面聚合」)。
  */
 export async function scoringComposition(input: ReportInput): Promise<ScoringComposition> {
-  const snapshots = selectedEvalsOnly(resolveInput(input).snapshots);
-  const items = collectItems(snapshots);
+  const { snapshots, attempts } = resolveInput(input);
+  const items = collectItems(snapshots, selectedAttemptsOnly(attempts));
   const hasPoints = items.some((item) => item.attempt.result.scoring === "points");
   const hasPass = items.some((item) => item.attempt.result.scoring !== "points");
   return hasPoints && hasPass ? "mixed" : hasPoints ? "points" : "pass";

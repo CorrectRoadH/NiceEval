@@ -94,7 +94,7 @@ function evidenceOf(overrides: Partial<AttemptEvidence> = {}): AttemptEvidence {
 }
 
 function scopeAndResults(): { scope: Scope; results: Results } {
-  const scope = makeScope("current-evals", [], []);
+  const scope = makeScope("current-evals", [], [], []);
   const results = { experiments: [], skipped: [], latest: () => scope, current: () => scope } as unknown as Results;
   return { scope, results };
 }

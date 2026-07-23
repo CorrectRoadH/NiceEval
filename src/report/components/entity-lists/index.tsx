@@ -229,7 +229,8 @@ export const FailureList = defineComponent<FailureListProps>(async (props, ctx) 
   const all = await attemptListData(input);
   // attempt 开始时间不在列表条目里(它不是列表展示字段);从同一 input 的读取面按 locator 对回。
   const startedAtByLocator = new Map<string, string>();
-  for (const item of collectItems(resolveInput(input).snapshots)) {
+  const { snapshots, attempts } = resolveInput(input);
+  for (const item of collectItems(snapshots, attempts)) {
     startedAtByLocator.set(locatorOf(item), item.attempt.result.startedAt ?? "");
   }
   const failures = all

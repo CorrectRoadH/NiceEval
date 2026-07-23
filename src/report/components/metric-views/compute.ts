@@ -55,7 +55,7 @@ import {
 import { examScore } from "../../model/metrics.ts";
 import { formatMetricValue, formatPlainNumber, localizedDisplay } from "../../model/format.ts";
 import type { LocalizedText } from "../../model/locale.ts";
-import { selectedEvalsOnly } from "../shared-compute.ts";
+import { selectedAttemptsOnly } from "../shared-compute.ts";
 
 // ───────────────────────── metricTableData ─────────────────────────
 
@@ -89,8 +89,8 @@ export async function metricTableData(input: ReportInput, options: MetricTableOp
       );
     }
   }
-  const { snapshots } = resolveInput(input);
-  const items = filterItems(collectItems(snapshots), options.evals);
+  const { snapshots, attempts } = resolveInput(input);
+  const items = filterItems(collectItems(snapshots, attempts), options.evals);
   const groups = groupItems(items, options.rows);
   const rows: TableData["rows"] = [];
   for (const [key, group] of groups) {
@@ -130,8 +130,8 @@ export interface MetricMatrixOptions {
 }
 
 export async function metricMatrixData(input: ReportInput, options: MetricMatrixOptions): Promise<MatrixData> {
-  const { snapshots } = resolveInput(input);
-  const items = filterItems(collectItems(snapshots), options.evals);
+  const { snapshots, attempts } = resolveInput(input);
+  const items = filterItems(collectItems(snapshots, attempts), options.evals);
   // 稀疏分组:只有真有 attempt 的 (row, column) 组合成格;没有样本的格子不出现
   const groups = new Map<string, { row: string; column: string; items: Item[] }>();
   for (const item of items) {
@@ -209,8 +209,8 @@ export async function scoreboardData(input: ReportInput, options: ScoreboardOpti
   const scoreMetric = options.score ?? examScore;
   const subjectOf = options.subject ?? evalGroupOf;
 
-  const { snapshots } = resolveInput(input);
-  const allItems = collectItems(snapshots);
+  const { snapshots, attempts } = resolveInput(input);
+  const allItems = collectItems(snapshots, attempts);
   const questionSet = new Set(questions);
   const items = allItems.filter((item) => questionSet.has(evalIdOf(item)));
   const ignored = new Set<string>();
@@ -356,8 +356,8 @@ export interface MetricScatterOptions {
 }
 
 export async function metricScatterData(input: ReportInput, options: MetricScatterOptions): Promise<ScatterData> {
-  const snapshots = selectedEvalsOnly(resolveInput(input).snapshots);
-  const items = filterItems(collectItems(snapshots), options.evals);
+  const { snapshots, attempts } = resolveInput(input);
+  const items = filterItems(collectItems(snapshots, selectedAttemptsOnly(attempts)), options.evals);
   const groups = groupItems(items, options.points);
   const rows: ScatterData["rows"] = [];
   for (const [key, group] of groups) {
@@ -396,8 +396,8 @@ export interface MetricLineOptions {
  * x 为 null 的 attempt 不伪造 x 值,归入该 series 的未绘制行,组件报告未绘制数量。
  */
 export async function metricLineData(input: ReportInput, options: MetricLineOptions): Promise<LineData> {
-  const { snapshots } = resolveInput(input);
-  const items = filterItems(collectItems(snapshots), options.evals);
+  const { snapshots, attempts } = resolveInput(input);
+  const items = filterItems(collectItems(snapshots, attempts), options.evals);
 
   // x 恒定性检查:同一 experiment × eval 内的全部 attempt 必须得到同一个 x。
   const xByEvalKey = new Map<string, { x: number | null; item: Item }>();
@@ -582,7 +582,7 @@ export async function deltaTableData(input: ReportInput, options: DeltaTableOpti
   if (!Array.isArray(options.metrics) || options.metrics.length === 0) {
     throw new Error("deltaTableData metrics must be a non-empty tuple of Metric instances.");
   }
-  const { snapshots } = resolveInput(input);
+  const { snapshots, attempts } = resolveInput(input);
 
   let pairs: readonly DeltaPair[];
   let experiments: number | undefined;
@@ -624,7 +624,7 @@ export async function deltaTableData(input: ReportInput, options: DeltaTableOpti
     pairs = options.pairs;
   }
 
-  const items = filterItems(collectItems(snapshots), options.evals);
+  const items = filterItems(collectItems(snapshots, attempts), options.evals);
   const groups = groupItems(items, options.by);
   const rows: DeltaData["rows"] = [];
   for (const pair of pairs) {

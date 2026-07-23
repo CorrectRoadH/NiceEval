@@ -102,14 +102,13 @@ export function skippedRunsText(skipped: readonly SkippedDir[], root: string, cw
 
 // ───────────────────────── attempt 挑选 ─────────────────────────
 
-/** Selection 内某道题的全部 attempt(合成 Selection 里每实验只剩最新判定)。 */
-export function attemptsOfEval(snapshots: Snapshot[], evalId: string): AttemptHandle[] {
-  const out: AttemptHandle[] = [];
-  for (const snapshot of snapshots) {
-    const ev = snapshot.evals.find((e) => e.id === evalId);
-    if (ev) out.push(...ev.attempts);
-  }
-  return out;
+/**
+ * Scope 内某道题的全部 attempt。从 `Scope.attempts` 筛选,不扫 `Snapshot.evals`——真实
+ * Snapshot 各自持有完整(未按现刻水位收窄的)evals,只有物化的 `Scope.attempts` 才是这次
+ * 选择的真正结果(docs/feature/results/library.md「官方现刻水位」)。
+ */
+export function attemptsOfEval(attempts: readonly AttemptHandle[], evalId: string): AttemptHandle[] {
+  return attempts.filter((a) => a.evalId === evalId);
 }
 
 /**
@@ -243,7 +242,8 @@ export function assertionSummaryLine(assertions: AssertionResult[]): string {
 
 export interface EvalDetailOptions {
   evalId: string;
-  snapshots: Snapshot[];
+  /** 该题在当前 Scope 里物化的全部 attempt(跨 experiment),不是某个 Snapshot 的原始 evals。 */
+  attempts: readonly AttemptHandle[];
   /** 详情块展示的 attempt(pickDetailAttempt 的产物);无 attempt 时省略详情块。 */
   detail?: AttemptHandle;
   cwd: string;
@@ -253,40 +253,41 @@ export interface EvalDetailOptions {
 
 /** `niceeval show <eval id>`:各 experiment 的判定行 + 默认 attempt 的断言明细。 */
 export function evalDetailText(opts: EvalDetailOptions): string {
-  const { evalId, snapshots, detail, cwd, now, width } = opts;
+  const { evalId, attempts, detail, cwd, now, width } = opts;
   const blocks: string[] = [];
 
-  const description = snapshots
-    .flatMap((s) => s.evals.filter((e) => e.id === evalId))
-    .flatMap((e) => e.attempts)
-    .map((a) => a.result.description)
-    .find((d) => d !== undefined);
+  const description = attempts.map((a) => a.result.description).find((d) => d !== undefined);
   blocks.push(description ? `${evalId} — ${description}` : evalId);
 
   // 每 experiment 一行:折叠判定、attempt 数、最新 attempt 的耗时、总成本、判定时间、
   // 代表 attempt 的紧凑索引(locator + 失败原因)——agent 从这张榜单
   // 就能直接摘到一个 `@<locator>` 下钻,不必先跑一遍 `--eval`/`--execution` 才知道选谁。
+  const byExperiment = new Map<string, AttemptHandle[]>();
+  for (const a of attempts) {
+    const list = byExperiment.get(a.experimentId);
+    if (list) list.push(a);
+    else byExperiment.set(a.experimentId, [a]);
+  }
   const rows: string[][] = [];
-  for (const snapshot of snapshots) {
-    const ev = snapshot.evals.find((e) => e.id === evalId);
-    if (!ev || ev.attempts.length === 0) continue;
-    const verdict = foldEvalVerdict(ev.attempts.map((a) => a.result));
-    const latest = ev.attempts.reduce((a, b) => (b.result.attempt >= a.result.attempt ? b : a));
+  for (const [experimentId, evAttempts] of byExperiment) {
+    if (evAttempts.length === 0) continue;
+    const verdict = foldEvalVerdict(evAttempts.map((a) => a.result));
+    const latest = evAttempts.reduce((a, b) => (b.result.attempt >= a.result.attempt ? b : a));
     let cost: number | null = null;
-    for (const attempt of ev.attempts) {
+    for (const attempt of evAttempts) {
       const c = attemptCostUSD(attempt.result);
       if (c !== null) cost = (cost ?? 0) + c;
     }
-    const rep = pickDetailAttempt(ev.attempts);
+    const rep = pickDetailAttempt(evAttempts);
     const locatorCell = rep?.locator ?? MISSING;
     const reasonCell = rep ? (verdictReasonLine(rep.result) ?? "") : "";
     rows.push([
-      snapshot.experimentId,
+      experimentId,
       `${verdictMark(verdict)} ${verdict}`,
-      attemptsLabel(ev.attempts.length),
+      attemptsLabel(evAttempts.length),
       formatDurationMs(latest.result.durationMs),
       cost === null ? MISSING : formatUSD(cost),
-      `(${relativeAgo(latest.result.startedAt ?? snapshot.startedAt, now)})`,
+      `(${relativeAgo(latest.result.startedAt ?? latest.snapshot.startedAt, now)})`,
       locatorCell,
       reasonCell,
     ]);

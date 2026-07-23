@@ -103,8 +103,8 @@ function waterfallKindOf(kind: TraceSpan["kind"]): TraceSpanSummary["kind"] {
  * (docs/feature/reports/library/site-components.md「TraceWaterfall」)。
  */
 export async function traceWaterfallData(input: ReportInput): Promise<readonly TraceWaterfallRow[]> {
-  const { snapshots } = resolveInput(input);
-  const items = collectItems(snapshots);
+  const { snapshots, attempts } = resolveInput(input);
+  const items = collectItems(snapshots, attempts);
   return Promise.all(
     items.map(async (item): Promise<TraceWaterfallRow> => {
       const spans = await item.attempt.trace();

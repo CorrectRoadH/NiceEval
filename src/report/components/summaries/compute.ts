@@ -11,7 +11,7 @@ import type { ReportInput, ScopeSummaryData } from "../../model/types.ts";
 import { collectItems, computeCell, resolveInput } from "../../model/aggregate.ts";
 import { costUSD, defineMetric, endToEndPassRate, totalScore } from "../../model/metrics.ts";
 import { scoringComposition } from "../../model/scoring.ts";
-import { selectedEvalsOnly, summarizeItems, tallyOf } from "../shared-compute.ts";
+import { selectedAttemptsOnly, summarizeItems, tallyOf } from "../shared-compute.ts";
 
 // ───────────────────────── scopeSummaryData ─────────────────────────
 
@@ -30,8 +30,8 @@ const totalCostMetric = defineMetric({
  * data 恒携带两级计票;通过率来自官方两级指标引擎,不从任一计票重算。
  */
 export async function scopeSummaryData(input: ReportInput): Promise<ScopeSummaryData> {
-  const snapshots = selectedEvalsOnly(resolveInput(input).snapshots);
-  const items = collectItems(snapshots);
+  const { snapshots, attempts: scopeAttempts } = resolveInput(input);
+  const items = collectItems(snapshots, selectedAttemptsOnly(scopeAttempts));
 
   let earliest: string | null = null;
   let latest: string | null = null;

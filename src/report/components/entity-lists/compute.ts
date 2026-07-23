@@ -33,7 +33,7 @@ import {
 import { attemptCostUSD, costUSD, durationMs, endToEndPassRate, examScore, tokens, totalScore } from "../../model/metrics.ts";
 import { compactAssertionSummary, primaryAssertionSummary, summaryText } from "../../../scoring/display.ts";
 import { firstLine } from "../../../util.ts";
-import { selectedEvalsOnly, summarizeItems } from "../shared-compute.ts";
+import { selectedAttemptsOnly, summarizeItems } from "../shared-compute.ts";
 
 /**
  * 一次 attempt 的单行结果摘要(Scoring display 契约):failed 取主失败断言摘要(不含
@@ -95,15 +95,15 @@ async function attemptListItemOf(item: Item): Promise<AttemptListItem> {
 
 /** `attemptListData(input)`:每个 Attempt 一项,顺序取自 Scope 展平顺序(不重排)。 */
 export async function attemptListData(input: ReportInput): Promise<AttemptListItem[]> {
-  const { snapshots } = resolveInput(input);
-  const items = collectItems(snapshots);
+  const { snapshots, attempts } = resolveInput(input);
+  const items = collectItems(snapshots, attempts);
   return Promise.all(items.map((item) => attemptListItemOf(item)));
 }
 
 /** `evalListData(input)`:每个 `experimentId + evalId` 一项,按 evalId 再按 experimentId 升序。 */
 export async function evalListData(input: ReportInput): Promise<EvalListItem[]> {
-  const { snapshots } = resolveInput(input);
-  const items = collectItems(snapshots);
+  const { snapshots, attempts } = resolveInput(input);
+  const items = collectItems(snapshots, attempts);
   const groups = new Map<string, Item[]>();
   for (const item of items) {
     const key = fullEvalKey(item);
@@ -178,8 +178,7 @@ function byMetricDescThenId(
  * 看跨配置演化用 snapshot 维度或 MetricLine,不把两套配置拼成一行冒充单一配置。
  */
 export async function experimentListData(input: ReportInput): Promise<ExperimentListItem[]> {
-  const { snapshots: rawSnapshots, coverage } = resolveInput(input);
-  const snapshots = selectedEvalsOnly(rawSnapshots);
+  const { snapshots, attempts, coverage } = resolveInput(input);
   const coverageByExperiment = new Map(coverage.map((c) => [c.experimentId, c]));
 
   // 可比性配置单义检查:同一 experiment 的输入快照必须共享一套可比性配置。
@@ -199,12 +198,17 @@ export async function experimentListData(input: ReportInput): Promise<Experiment
     }
   }
 
-  const items = collectItems(snapshots);
+  const items = collectItems(snapshots, selectedAttemptsOnly(attempts));
   const groups = groupItems(items, "experiment");
   const out: ExperimentListItem[] = [];
   for (const [experimentId, group] of groups) {
     const stats = summarizeItems(group);
-    const newest = [...group].sort((a, b) => b.snapshot.startedAt.localeCompare(a.snapshot.startedAt))[0]!;
+    // 这一行显示的 agent/model/flags 读水位基准 Snapshot(贡献来源中 startedAt 最新者),
+    // 不是任取某个真实来源(docs/feature/reports/architecture.md「Scope 是计算入口」)——
+    // 组内每个 item 的 watermark 是同一个对象,取任一个即可;优先找真实来源恰好等于水位
+    // 基准的 item,好让下面混读的 attempt 级字段(model/scoring 等)也来自同一份数据。
+    const watermark = group[0]!.watermark;
+    const newest = group.find((item) => item.snapshot === watermark) ?? group[0]!;
     const evalGroups = groupItems(group, "eval");
     const evalRows: ExperimentListEvalRow[] = [];
     for (const [evalId, evalItems] of evalGroups) {

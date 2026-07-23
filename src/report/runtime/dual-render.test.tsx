@@ -102,7 +102,7 @@ function snap(spec: {
 }
 
 function scopeOf(snapshots: Snapshot[]): Scope {
-  return makeScope("current-evals", snapshots, []);
+  return makeScope("current-evals", snapshots, snapshots.flatMap((s) => s.attempts), []);
 }
 
 function resultsOf(snapshots: Snapshot[]): Results {
@@ -120,8 +120,8 @@ function resultsOf(snapshots: Snapshot[]): Results {
   return {
     experiments,
     skipped: [],
-    latest: () => makeScope("latest-snapshots", experiments.map((e) => e.latest), []),
-    current: () => makeScope("current-evals", experiments.map((e) => e.latest), []),
+    latest: () => makeScope("latest-snapshots", experiments.map((e) => e.latest), experiments.flatMap((e) => e.latest.attempts), []),
+    current: () => makeScope("current-evals", experiments.map((e) => e.latest), experiments.flatMap((e) => e.latest.attempts), []),
   } as unknown as Results;
 }
 

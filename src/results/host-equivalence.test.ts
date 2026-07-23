@@ -138,22 +138,30 @@ function normalizeWarning(w: ScopeWarning): NormWarning {
   }
 }
 
+/**
+ * Selection 的「按 experiment × eval」视图现在从 `selection.attempts` 分组重建,不再读
+ * `snapshot.evals`——真实 Snapshot 各自持有完整(未按现刻水位收窄的)evals,只有物化的
+ * `Scope.attempts` 才是这次选择的真正结果(docs/feature/results/library.md「官方现刻水位」)。
+ */
 function normalizeSelection(selection: Scope): NormSelection {
+  const byExperiment = new Map<string, Map<string, NormAttempt[]>>();
+  for (const experimentId of [...new Set(selection.attempts.map((a) => a.experimentId))]) {
+    byExperiment.set(experimentId, new Map());
+  }
+  for (const a of selection.attempts) {
+    const evals = byExperiment.get(a.experimentId)!;
+    const list = evals.get(a.evalId) ?? [];
+    list.push({ snapshot: a.ref.snapshot, attempt: a.ref.attempt, verdict: a.result.verdict });
+    evals.set(a.evalId, list);
+  }
   return {
     warnings: selection.warnings.map(normalizeWarning),
     coverage: selection.coverage
       .map((c) => ({ experimentId: c.experimentId, knownEvalIds: c.knownEvalIds, missingEvalIds: c.missingEvalIds }))
       .sort((a, b) => a.experimentId.localeCompare(b.experimentId)),
-    experiments: selection.snapshots.map((snapshot) => ({
-      experimentId: snapshot.experimentId,
-      evals: snapshot.evals.map((ev) => ({
-        evalId: ev.id,
-        attempts: ev.attempts.map((a) => ({
-          snapshot: a.ref.snapshot,
-          attempt: a.ref.attempt,
-          verdict: a.result.verdict,
-        })),
-      })),
+    experiments: [...byExperiment.entries()].map(([experimentId, evals]) => ({
+      experimentId,
+      evals: [...evals.entries()].map(([evalId, attempts]) => ({ evalId, attempts })),
     })),
   };
 }
@@ -229,11 +237,13 @@ describe("selectCurrentResults · 现刻水位结构化身份", () => {
     // view/data.ts 都把各自的 --fresh flag 原样透传成这个字段,不做任何宿主特有的加工)。
     const fresh = selectCurrentResults(results, hostScope([], undefined, true));
     // q1 来自周二(新执行),q2 只在周一跑过、被周二"补齐"进来——是跨快照拼入的历史执行,fresh 排除它。
-    expect(fresh.snapshots[0]!.evals.map((e) => e.id)).toEqual(["q1"]);
+    expect(fresh.attempts.map((a) => a.evalId)).toEqual(["q1"]);
     expect(fresh.coverage.find((c) => c.experimentId === "compare/bub")!.missingEvalIds).toEqual(["q2"]);
+    // q2 唯一的来源(周一快照)不再贡献任何 attempts,不该继续出现在 snapshots 里。
+    expect(fresh.snapshots.map((s) => s.startedAt)).toEqual(["2026-07-02T08:00:00.000Z"]);
   });
 
-  it("合成快照的 selectedEvalIds 重建为最终 picks(q1 新快照 + q2 旧快照补齐),不是照抄某一来源的局部选择", async () => {
+  it("两个真实贡献 Snapshot 各自保留对象身份,不合并成一个带重建 selectedEvalIds 的对象(q1 新快照 + q2 旧快照补齐)", async () => {
     const root = await makeRoot();
     await writeSnapshot(
       root,
@@ -249,10 +259,19 @@ describe("selectCurrentResults · 现刻水位结构化身份", () => {
     );
     const results = await openResults(root);
     const scope = selectCurrentResults(results);
-    expect(scope.snapshots[0]!.experiment!.selectedEvalIds).toEqual(["q1", "q2"]);
+    // 两个来源各自原样保留:各自的 selectedEvalIds 是它自己落盘的那份,不是合并/重建的产物。
+    expect(scope.snapshots).toHaveLength(2);
+    const byStartedAt = new Map(scope.snapshots.map((s) => [s.startedAt, s]));
+    expect(byStartedAt.get("2026-07-01T08:00:00.000Z")!.experiment!.selectedEvalIds).toEqual(["q1", "q2"]);
+    expect(byStartedAt.get("2026-07-02T08:00:00.000Z")!.experiment!.selectedEvalIds).toEqual(["q1"]);
+    // 但物化的 attempts 只取现刻水位实际选中的那份:q1 来自周二,q2 来自周一补齐。
+    expect(scope.attempts.map((a) => `${a.evalId}@${a.snapshot.startedAt}`).sort()).toEqual([
+      "q1@2026-07-02T08:00:00.000Z",
+      "q2@2026-07-01T08:00:00.000Z",
+    ]);
   });
 
-  it("来源快照声明 selectedEvalIds:[q1] 却夹带 q2 的历史 attempt,合成结果不含该 q2", async () => {
+  it("来源快照声明 selectedEvalIds:[q1] 却夹带 q2 的历史 attempt,现刻水位不含该 q2(真实 Snapshot 的 evals 原样保留 q2,只是不物化进 attempts)", async () => {
     const root = await makeRoot();
     await writeSnapshot(
       root,
@@ -262,7 +281,9 @@ describe("selectCurrentResults · 现刻水位结构化身份", () => {
     );
     const results = await openResults(root);
     const scope = selectCurrentResults(results);
-    expect(scope.snapshots[0]!.evals.map((ev) => ev.id)).toEqual(["q1"]);
+    expect(scope.attempts.map((a) => a.evalId)).toEqual(["q1"]);
+    // 真实 Snapshot 原样保留:q2 仍在它自己的 evals 里,select.ts 没有克隆/裁剪来源对象。
+    expect(scope.snapshots[0]!.evals.map((ev) => ev.id).sort()).toEqual(["q1", "q2"]);
   });
 
   it("第三方快照缺 experiment.selectedEvalIds 时按其实际 evals 退化,不整份排除;与本方快照混合时各自按自己口径收窄", async () => {
@@ -275,7 +296,7 @@ describe("selectCurrentResults · 现刻水位结构化身份", () => {
     );
     const results = await openResults(root);
     const scope = selectCurrentResults(results);
-    expect(scope.snapshots[0]!.evals.map((ev) => ev.id).sort()).toEqual(["q1", "q2"]);
+    expect(scope.attempts.map((a) => a.evalId).sort()).toEqual(["q1", "q2"]);
   });
 
   it("场景3 同一 eval 多 attempts:最新快照整批替换旧 attempts,不跨快照混装", async () => {

@@ -373,6 +373,45 @@ describe("results.latest() · Selection", () => {
     expect(latest.coverage).toHaveLength(2);
     expect(latest.warnings).toHaveLength(2);
   });
+
+  it("current() 下同一 experiment 有两个贡献 Snapshot 时,filter 删除其中一个只删该来源的水位,不整实验全留或全删", async () => {
+    const root = await makeRoot();
+    // 周一:q1、q2 真实执行。
+    const mondayDir = await writeSnapshot(root, "multi_e", "2026-07-01T08-00-00-000Z", meta({ experimentId: "multi/e", agent: "bub", startedAt: "2026-07-01T08:00:00.000Z", completedAt: "2026-07-01T08:10:00.000Z" }));
+    await writeResultFile(mondayDir, "q1/a1", record({ id: "q1", attempt: 1 }));
+    await writeResultFile(mondayDir, "q2/a1", record({ id: "q2", attempt: 1 }));
+    // 周二:只重跑 q1;current() 从周一补齐 q2,两个真实快照都进 Scope.snapshots。
+    const tuesdayDir = await writeSnapshot(root, "multi_e", "2026-07-02T08-00-00-000Z", meta({ experimentId: "multi/e", agent: "bub", startedAt: "2026-07-02T08:00:00.000Z", completedAt: "2026-07-02T08:10:00.000Z" }));
+    await writeResultFile(tuesdayDir, "q1/a1", record({ id: "q1", attempt: 1 }));
+
+    const current = (await openResults(root)).current();
+    expect(current.snapshots.map((s) => s.startedAt).sort()).toEqual(["2026-07-01T08:00:00.000Z", "2026-07-02T08:00:00.000Z"]);
+    expect(current.attempts.map((a) => a.evalId).sort()).toEqual(["q1", "q2"]);
+    expect(current.coverage.find((c) => c.experimentId === "multi/e")!.missingEvalIds).toEqual([]);
+
+    // 删掉周一(q2 唯一来源),周二(q1 来源)保留:不是整实验全留或全删。
+    const filtered = current.filter((s) => s.startedAt !== "2026-07-01T08:00:00.000Z");
+    expect(filtered.snapshots.map((s) => s.startedAt)).toEqual(["2026-07-02T08:00:00.000Z"]);
+    expect(filtered.attempts.map((a) => a.evalId)).toEqual(["q1"]);
+    // knownEvalIds(分母)不变,只有被删来源独占贡献的 q2 转入 missingEvalIds。
+    const filteredCoverage = filtered.coverage.find((c) => c.experimentId === "multi/e")!;
+    expect(filteredCoverage.knownEvalIds).toEqual(["q1", "q2"]);
+    expect(filteredCoverage.missingEvalIds).toEqual(["q2"]);
+    // 原 Scope 不被改动。
+    expect(current.snapshots).toHaveLength(2);
+    expect(current.attempts).toHaveLength(2);
+
+    // 反过来删掉周二(q1 唯一来源),周一(q2 来源)保留。
+    const otherWay = current.filter((s) => s.startedAt !== "2026-07-02T08:00:00.000Z");
+    expect(otherWay.snapshots.map((s) => s.startedAt)).toEqual(["2026-07-01T08:00:00.000Z"]);
+    expect(otherWay.attempts.map((a) => a.evalId)).toEqual(["q2"]);
+    expect(otherWay.coverage.find((c) => c.experimentId === "multi/e")!.missingEvalIds).toEqual(["q1"]);
+
+    // attempt.snapshot 原样指回真实来源(不是过滤时重建的新对象)。
+    for (const attempt of filtered.attempts) {
+      expect(filtered.snapshots).toContain(attempt.snapshot);
+    }
+  });
 });
 
 // ───────────────────────── unreadable-snapshot 警告 ─────────────────────────
@@ -498,8 +537,10 @@ describe("时效:carried 投影与 fresh 口径", () => {
     expect(notFresh.coverage.find((c) => c.experimentId === "e")!.missingEvalIds).toEqual([]);
 
     const fresh = results.latest({ fresh: true });
-    expect(fresh.snapshots[0]!.evals.map((e) => e.id)).toEqual(["q2"]); // q1 是携带条目,被排除
+    expect(fresh.attempts.map((a) => a.evalId)).toEqual(["q2"]); // q1 是携带条目,被排除
     expect(fresh.coverage.find((c) => c.experimentId === "e")!.missingEvalIds).toEqual(["q1"]);
+    // 真实 Snapshot 原样保留:q1 仍在它自己的 evals 里,fresh 没有克隆/裁剪来源对象。
+    expect(fresh.snapshots[0]!.evals.map((e) => e.id).sort()).toEqual(["q1", "q2"]);
   });
 
   it("current({ fresh: true }):同时排除携带条目与跨快照拼入的历史执行,区分力 fixture ——「只排携带 / 只排旧快照 / 两者都排」三种候选算法各给出不同答案", async () => {
@@ -518,13 +559,19 @@ describe("时效:carried 投影与 fresh 口径", () => {
 
     const results = await openResults(root);
     const notFresh = results.current();
-    expect(notFresh.snapshots[0]!.evals.map((e) => e.id).sort()).toEqual(["q1", "q2", "q3"]);
+    expect(notFresh.attempts.map((a) => a.evalId).sort()).toEqual(["q1", "q2", "q3"]);
     expect(notFresh.coverage.find((c) => c.experimentId === "e")!.missingEvalIds).toEqual([]);
+    // 两个真实来源都在场:q2 唯一来自周一,q1/q3 来自周二——不是一个合并对象。
+    expect(notFresh.snapshots.map((s) => s.startedAt).sort()).toEqual(["2026-07-01T08:00:00.000Z", "2026-07-02T08:00:00.000Z"]);
 
     const fresh = results.current({ fresh: true });
     // 只有 q3(本次快照真实执行、非携带)是新执行;q1(携带)与 q2(跨快照拼入)都被排除。
-    expect(fresh.snapshots[0]!.evals.map((e) => e.id)).toEqual(["q3"]);
+    expect(fresh.attempts.map((a) => a.evalId)).toEqual(["q3"]);
     expect(fresh.coverage.find((c) => c.experimentId === "e")!.missingEvalIds.sort()).toEqual(["q1", "q2"]);
+    // 周一(q2 唯一来源)不再贡献任何 fresh attempt,退出 snapshots;周二仍在,即便它自己的
+    // evals 里仍然原样带着被排除的 q1(真实 Snapshot 不被裁剪)。
+    expect(fresh.snapshots.map((s) => s.startedAt)).toEqual(["2026-07-02T08:00:00.000Z"]);
+    expect(fresh.snapshots[0]!.evals.map((e) => e.id).sort()).toEqual(["q1", "q3"]);
   });
 });
 
