@@ -54,7 +54,7 @@
   - [x] B.7 Results 单测覆盖：两个来源快照分别贡献不同 eval、旧快照含 diagnostics、同 eval 的旧历史不得混入、对象引用与 `attempt.snapshot` 原样、fresh/filter 后 coverage 精确
   - [x] B.8 Reports 单测覆盖：同一旧来源 Snapshot 还含已被更新 eval 的历史 attempt，所有指标只算 `Scope.attempts`；历史标记以水位基准比较；snapshot 维度仍显示真实 startedAt；experiment 有效题集不因最新快照局部选择而缩小
 
-- [ ] **C. Snapshot diagnostics 持久化链**（子树按各自依赖启动，不把整条链错误串行化）
+- [x] **C. Snapshot diagnostics 持久化链**（子树按各自依赖启动，不把整条链错误串行化）
   - [x] C.1 **Results 写读面**（依赖 0.6；可与 A、B 并行）
     - [x] `SnapshotMeta` / `Snapshot` 增 `diagnostics?: DiagnosticRecord[]`，补齐代码里缺失的 `DiagnosticRecord.command?: string`
     - [x] 把封口 API 放到 `SnapshotWriter.finish({ diagnostics?, completedAt?, name? })`；每个 Snapshot 只能封一次，空 diagnostics 省略字段，开始写的 meta 不提前带封口字段
