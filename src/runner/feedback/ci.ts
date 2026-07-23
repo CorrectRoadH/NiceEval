@@ -60,7 +60,7 @@
 
 import type { FeedbackRenderer } from "./renderer.ts";
 import type { FeedbackIO } from "./io.ts";
-import type { DurableFeedbackEvent, RunCompletion, RunFeedbackState, RunSummary } from "../types.ts";
+import type { DurableFeedbackEvent, InvocationCompletion, InvocationSummary, RunFeedbackState } from "../types.ts";
 
 /** failed/errored 立即展开上限(cli.md「'立即追加'也必须有上限」表:ci 前 50 条;完整清单
  *  由 JSON/JUnit 保存,checklist 第四条)。 */
@@ -87,7 +87,7 @@ export function createCiRenderer(options: CiRendererOptions): FeedbackRenderer {
   // "summary" 与 "saved" 是 coordinator.finish() 里连续 emit 的两个独立永久事件(见
   // coordinator.ts 的 finish() 实现,中间不会插入其它事件)——result 收尾需要两者合并,所以
   // "summary" 到达时先记下来,"saved" 到达时才真正写出 result/json/junit/snapshots 几行。
-  let pendingSummary: { summary: RunSummary; completion: RunCompletion; reused: number } | undefined;
+  let pendingSummary: { summary: InvocationSummary; completion: InvocationCompletion; reused: number } | undefined;
 
   function noteCheckpoint(atMs: number): void {
     lastCheckpointAtMs = atMs;
@@ -100,7 +100,7 @@ export function createCiRenderer(options: CiRendererOptions): FeedbackRenderer {
           noteCheckpoint(event.at);
           const { shape, reused } = event.plan;
           io.stdout.write(
-            `niceeval: start ${kv("total", shape.totalRuns)} ${kv("configs", shape.configs)} ${kv(
+            `niceeval: start ${kv("total", shape.totalAttempts)} ${kv("configs", shape.configs)} ${kv(
               "concurrency",
               shape.maxConcurrency,
             )} ${kv("reused", reused)}\n`,
@@ -170,7 +170,7 @@ export function createCiRenderer(options: CiRendererOptions): FeedbackRenderer {
 
         case "summary":
           // 只记录,不写——见上方 pendingSummary 注释。reused 只在 RunFeedbackState 上,
-          // RunSummary 本身没有这个字段,所以在这里(还能读到最新 state)一并存下来。
+          // InvocationSummary 本身没有这个字段,所以在这里(还能读到最新 state)一并存下来。
           pendingSummary = { summary: event.summary, completion: event.completion, reused: state.reused };
           return;
 
@@ -288,14 +288,14 @@ function writeFailureCheckpoint(io: FeedbackIO, event: DurableFeedbackEvent & { 
  *  只有 complete/incomplete/interrupted 三态,见 ../types.ts 的 `CompletionStatus` 注释),
  *  但「要求的 reporter 写失败」必须让退出码非零(见 `computeCiExitCode`),状态词也不能显示
  *  一个会被误读成「全绿」的 "passed"。 */
-function resultStatusWord(summary: RunSummary, completion: RunCompletion): "passed" | "failed" | "incomplete" | "interrupted" {
+function resultStatusWord(summary: InvocationSummary, completion: InvocationCompletion): "passed" | "failed" | "incomplete" | "interrupted" {
   if (completion.status === "interrupted") return "interrupted";
   if (completion.status === "incomplete") return "incomplete";
   if (completion.reporterErrors.some((e) => e.required)) return "failed";
   return summary.failed > 0 || summary.errored > 0 ? "failed" : "passed";
 }
 
-function resultLine(summary: RunSummary, completion: RunCompletion, reused: number): string {
+function resultLine(summary: InvocationSummary, completion: InvocationCompletion, reused: number): string {
   const parts = [
     `niceeval: result=${resultStatusWord(summary, completion)}`,
     kv("passed", summary.passed),
@@ -322,7 +322,7 @@ function snapshotsValue(paths: readonly string[]): string {
 
 function writeResultBlock(
   io: FeedbackIO,
-  pending: { summary: RunSummary; completion: RunCompletion; reused: number } | undefined,
+  pending: { summary: InvocationSummary; completion: InvocationCompletion; reused: number } | undefined,
   event: DurableFeedbackEvent & { type: "saved" },
 ): void {
   if (!pending) return; // 不应发生:coordinator.finish() 恒先 emit "summary" 再 emit "saved"。
@@ -338,7 +338,7 @@ function writeResultBlock(
 // ───────────────────────── 退出码(CompletionStatus 驱动,checklist 第六条) ─────────────────────────
 
 /**
- * 把 `RunSummary` + `RunCompletion` 折成 CLI 退出码——checklist:「budget unstarted →
+ * 把 `InvocationSummary` + `InvocationCompletion` 折成 CLI 退出码——checklist:「budget unstarted →
  * incomplete + 非零；required reporter 失败 → 非零；用户中断 → 130」。这是这个 stage 承担的
  * 「CompletionStatus 驱动的退出码语义」交付物(见 docs/feature/experiments/cli.md「CI 怎么用」
  * 的退出码表):不看 CLI flag、不读 process.env,是纯函数,后续 CLI 接线阶段(plan section G)
@@ -352,7 +352,7 @@ function writeResultBlock(
  * 不在这里处理「2 = CLI/runner 未捕获崩溃」——那是进程级 uncaught exception/rejection 处理器
  * 的职责,不是「一次 run 正常收尾后该给什么退出码」的问题,不应该由 completion 驱动。
  */
-export function computeCiExitCode(summary: RunSummary, completion: RunCompletion): number {
+export function computeCiExitCode(summary: InvocationSummary, completion: InvocationCompletion): number {
   if (completion.status === "interrupted") return 130;
   if (completion.status === "incomplete") return 1;
   if (completion.reporterErrors.some((e) => e.required)) return 1;

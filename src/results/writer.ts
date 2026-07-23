@@ -21,7 +21,7 @@ export interface ResultsWriterOptions {
   /** 谁在写这份结果:niceeval 自己,或第三方 harness(name 如实写,别冒充 "niceeval")。 */
   producer: Producer;
   /**
-   * 本次 invocation 的快照身份锚点(ISO 时间戳,即 runner 的 `RunShape.snapshotStartedAt`)。
+   * 本次 invocation 的快照身份锚点(ISO 时间戳,即 runner 的 `InvocationShape.snapshotStartedAt`)。
    * `writeAttemptFor()` 的隐式 snapshot 声明统一用它做 `startedAt`,不再按「该 experiment
    * 第一条落盘 result 的 attempt startedAt」猜 —— 那个锚点依赖并发完成顺序,不确定;
    * 同一 writer 处理多个 experiment 时也共享这同一个值(locator 身份还含 experimentId,

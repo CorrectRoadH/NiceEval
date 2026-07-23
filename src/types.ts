@@ -8,7 +8,7 @@
 //   · agents/types.ts   Agent / Adapter 契约 / 会话 / tracing 导出
 //   · scoring/types.ts  断言(值 / 记录 / 结果)/ ScoringContext / JudgeConfig
 //   · context/types.ts  TestContext(t)与子句柄(turn / session / sandbox 视图)
-//   · runner/types.ts   EvalResult / RunSummary / Reporter / eval・experiment・config 定义 / 调度编排
+//   · runner/types.ts   EvalResult / InvocationSummary / Reporter / eval・experiment・config 定义 / 调度编排
 //
 // 架构规矩不变:所有模块对着这里编程;agents/ 与 sandbox/ 之外不出现
 // agent 名 / sandbox 名的行为分支(见 docs/architecture.md)。

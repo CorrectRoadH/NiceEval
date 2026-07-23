@@ -3,12 +3,12 @@
 
 import type {
   EvalResult,
+  InvocationShape,
+  InvocationSummary,
   LocalizedText,
   Reporter,
   ReporterEvent,
   ReporterRegistration,
-  RunShape,
-  RunSummary,
 } from "../types.ts";
 import { firstLine, formatThrown } from "../util.ts";
 import { reportReporterError } from "./feedback/sink.ts";
@@ -19,7 +19,7 @@ import { reportReporterError } from "./feedback/sink.ts";
  * `reportReporterError()` 收到的诊断身份与判定权重(见 `ReporterRegistration` 的字段注释:
  * 同一个 reporter 反复失败按 `name` 去重折叠,`required` 决定它是否让 completion/CI 退出码
  * 判红)。`stage` 只是这次失败发生在哪个回调阶段的次要上下文,拼进 message,不参与去重身份——
- * 同一 reporter 在 onEvalComplete 与 onRunComplete 两个阶段各失败一次,仍然折成同一条诊断、
+ * 同一 reporter 在 onEvalComplete 与 onInvocationComplete 两个阶段各失败一次,仍然折成同一条诊断、
  * count 累加到 2,而不是拆成两条互不相关的诊断。message 只取 `formatThrown()` 的第一行(与
  * run.ts 的 `describeFailureReason` 同一原则)——reporter 抛出的 Error 完整 `.stack` 含本地
  * 绝对文件路径和调用帧,不适合塞进 agent/ci 那种单行、稳定、机器消费的 envelope;这里没有
@@ -43,10 +43,10 @@ export async function emitReporterEvent(
   );
 }
 
-/** 按 eval id 过滤 RunSummary 并重新计数 —— eval 级 reporter 只看它观测的那部分。 */
-export function filterSummary(summary: RunSummary, ids: ReadonlySet<string>): RunSummary {
+/** 按 eval id 过滤 InvocationSummary 并重新计数 —— eval 级 reporter 只看它观测的那部分。 */
+export function filterSummary(summary: InvocationSummary, ids: ReadonlySet<string>): InvocationSummary {
   const results = summary.results.filter((r) => ids.has(r.id));
-  const sub = summarize(results, summary.agent, summary.startedAt, summary.durationMs, summary.name, summary.model);
+  const sub = summarize(results, summary.startedAt, summary.durationMs, summary.name);
   // completedAt 用原值(summarize 会重新取 now);name 等其余字段原样保留。
   return { ...summary, ...sub, completedAt: summary.completedAt };
 }
@@ -56,22 +56,22 @@ export function filterSummary(summary: RunSummary, ids: ReadonlySet<string>): Ru
  * 结果类回调按 eval id 过滤,汇总类回调收到重新计数的子集汇总;
  * shape 由调用方按作用域预先算好(包装器自己看不到 attempts)。
  */
-export function scopeReporter(r: Reporter, ids: ReadonlySet<string>, shape?: RunShape): Reporter {
+export function scopeReporter(r: Reporter, ids: ReadonlySet<string>, shape?: InvocationShape): Reporter {
   const scoped: Reporter = {};
-  if (r.onRunStart) {
-    scoped.onRunStart = (evals, agent, fullShape) =>
-      r.onRunStart!(evals.filter((e) => ids.has(e.id)), agent, shape ?? fullShape);
+  if (r.onInvocationStart) {
+    scoped.onInvocationStart = (evals, fullShape) =>
+      r.onInvocationStart!(evals.filter((e) => ids.has(e.id)), shape ?? fullShape);
   }
   if (r.onEvalComplete) {
     scoped.onEvalComplete = (result) => (ids.has(result.id) ? r.onEvalComplete!(result) : undefined);
   }
-  if (r.onRunComplete) {
-    scoped.onRunComplete = (summary) => r.onRunComplete!(filterSummary(summary, ids));
+  if (r.onInvocationComplete) {
+    scoped.onInvocationComplete = (summary) => r.onInvocationComplete!(filterSummary(summary, ids));
   }
   if (r.onEvent) {
     scoped.onEvent = (event) => {
       switch (event.type) {
-        case "run:start":
+        case "invocation:start":
           return r.onEvent!({
             ...event,
             evals: event.evals.filter((e) => ids.has(e.id)),
@@ -81,10 +81,10 @@ export function scopeReporter(r: Reporter, ids: ReadonlySet<string>, shape?: Run
           return ids.has(event.eval.id) ? r.onEvent!(event) : undefined;
         case "eval:complete":
           return ids.has(event.result.id) ? r.onEvent!(event) : undefined;
-        case "run:earlyExit":
+        case "invocation:earlyExit":
           return ids.has(event.evalId) ? r.onEvent!(event) : undefined;
-        case "run:summary":
-        case "run:saved":
+        case "invocation:summary":
+        case "invocation:saved":
           return r.onEvent!({ ...event, summary: filterSummary(event.summary, ids) });
         default:
           return r.onEvent!(event);
@@ -94,15 +94,13 @@ export function scopeReporter(r: Reporter, ids: ReadonlySet<string>, shape?: Run
   return scoped;
 }
 
-/** 全局汇总:verdict 计数 + token / cost 折叠。按 attempt 计(eval 级折叠见 shared/verdict.ts)。 */
+/** 全局汇总:verdict 计数 + token / cost 折叠。按 attempt 计(eval 级折叠见 shared/verdict.ts)。不接收 agent/model —— 一次 Invocation 可能横跨多个配置,身份从逐条 `EvalResult` 读取。 */
 export function summarize(
   results: EvalResult[],
-  agent: string,
   startedAt: string,
   durationMs: number,
   name?: LocalizedText,
-  model?: string,
-): RunSummary {
+): InvocationSummary {
   const counts = { passed: 0, failed: 0, skipped: 0, errored: 0 };
   let inTok = 0;
   let outTok = 0;
@@ -115,8 +113,6 @@ export function summarize(
   }
   return {
     name,
-    agent,
-    model,
     startedAt,
     completedAt: new Date().toISOString(),
     passed: counts.passed,

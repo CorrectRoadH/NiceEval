@@ -59,12 +59,12 @@ import { formatThrown, upsertManagedBlock } from "./util.ts";
 import type {
   CompletionStatus,
   Config,
+  InvocationCompletion,
+  InvocationSummary,
   ReporterError,
   ReporterRegistration,
-  RunCompletion,
   RunFeedbackPlan,
   RunFeedbackState,
-  RunSummary,
 } from "./types.ts";
 
 /**
@@ -160,7 +160,7 @@ const FLAG_OPTIONS = {
   tag: { type: "string" },
   /** 额外写一份 JUnit XML 报告到指定路径,供 CI 消费。 */
   junit: { type: "string" },
-  /** 额外写一份 JSON 结果(`RunSummary` 原样序列化)到指定路径,供 CI 或下游脚本消费。 */
+  /** 额外写一份 JSON 结果(`InvocationSummary` 原样序列化)到指定路径,供 CI 或下游脚本消费。 */
   json: { type: "string" },
   /** `view` 命令专用:把结果查看器静态导出到指定目录。 */
   out: { type: "string" },
@@ -489,7 +489,7 @@ async function openBrowser(url: string): Promise<boolean> {
 }
 
 /**
- * run 结束后把 coordinator 累计的诊断折成 `RunCompletion`(见 docs/feature/experiments/cli.md
+ * run 结束后把 coordinator 累计的诊断折成 `InvocationCompletion`(见 docs/feature/experiments/cli.md
  * 「运行完成状态不只看 verdict 计数」)。只读已经真实发生过的诊断,不额外发明信号:
  * - `"interrupted"` 诊断只在 run.ts 判定为真·中断(Effect exit 真实标记中断,不是「signal 被
  *   abort 过」这种更弱的信号)时才会出现,见 `runner/run.ts` 的 `reportInterrupted()` 调用点。
@@ -503,7 +503,7 @@ async function openBrowser(url: string): Promise<boolean> {
  * - `earlyExitUnstarted` 从反馈状态的 attempt:early-exit 计数派生(减去 fail-fast 的那部分——
  *   那是「未完整覆盖」,进 unstarted,不是「省下的重复验证」)。
  */
-function assembleRunCompletion(state: RunFeedbackState): RunCompletion {
+function assembleInvocationCompletion(state: RunFeedbackState): InvocationCompletion {
   let unstarted = 0;
   let failFastSkipped = 0;
   let interrupted = false;
@@ -519,7 +519,7 @@ function assembleRunCompletion(state: RunFeedbackState): RunCompletion {
       unstarted += d.count;
       failFastSkipped += d.count;
     } else if (d.key.startsWith("reporter-error:")) {
-      // required 决定这条错误是否写进 RunCompletion.reporterErrors 并让 completion 非 complete
+      // required 决定这条错误是否写进 InvocationCompletion.reporterErrors 并让 completion 非 complete
       // (见 docs/cli.md「required reporter」);best-effort reporter 的失败只保留为 diagnostic。
       if (d.data?.required !== true) continue;
       reporterErrors.push({
@@ -859,10 +859,10 @@ async function main(): Promise<void> {
   // matchedByRun[i] 对应 agentRuns[i] 匹配到的 eval 集合;--dry 预览与真正开跑时的
   // RunFeedbackPlan(总量、去重 eval 数)共用同一份计算,不重复过滤一遍。
   const matchedByRun = agentRuns.map((run) => selectedEvalsForRun(evals, run));
-  const totalRuns = agentRuns.reduce((sum, run, i) => sum + matchedByRun[i]!.length * run.runs, 0);
+  const totalAttempts = agentRuns.reduce((sum, run, i) => sum + matchedByRun[i]!.length * run.runs, 0);
   const uniqueEvalIds = new Set(matchedByRun.flat().map((e) => e.id));
 
-  if (totalRuns === 0) {
+  if (totalAttempts === 0) {
     process.stderr.write(t("cli.experiment.noEvalsSelected", {
       selection: experimentSelection,
       experiments: availableExperimentPaths,
@@ -885,7 +885,7 @@ async function main(): Promise<void> {
       }
       process.stdout.write(
         renderAgentPlanEnvelope({
-          total: totalRuns,
+          total: totalAttempts,
           evals: uniqueEvalIds.size,
           configs: agentRuns.length,
           runs: Math.max(1, ...agentRuns.map((r) => r.runs)),
@@ -895,7 +895,7 @@ async function main(): Promise<void> {
     } else if (outputProfile === "ci") {
       process.stdout.write(
         renderCiDryPlan({
-          total: totalRuns,
+          total: totalAttempts,
           evals: uniqueEvalIds.size,
           configs: agentRuns.length,
           rows: agentRuns.map((run, i) => ({
@@ -944,14 +944,14 @@ async function main(): Promise<void> {
     sandboxDefaultConcurrency;
 
   const plan: RunFeedbackPlan = {
-    shape: { evals: uniqueEvalIds.size, configs: agentRuns.length, totalRuns, maxConcurrency },
+    shape: { evals: uniqueEvalIds.size, configs: agentRuns.length, totalAttempts, maxConcurrency },
     reused: carryPlan?.carriedResults.length ?? 0,
     reusedFailures,
   };
 
   // 一个 run 内只有一个终端协调者(见 docs/feature/experiments/cli.md「输出流和落盘节奏」):
   // 三种 profile 各自的展示逻辑全部在 renderer 里,这里只按解析出的 profile 选一个构造好、
-  // 交给 coordinator。run:start 前(coordinator.start(plan) 之前)的一切都还没有活跃 sink,
+  // 交给 coordinator。invocation:start 前(coordinator.start(plan) 之前)的一切都还没有活跃 sink,
   // 出错走 bootstrap stderr;之后所有诊断都经它。
   const io = createNodeFeedbackIO();
   const commandLabel = ["niceeval", command, ...positionals].join(" ").trim();
@@ -1043,7 +1043,7 @@ async function main(): Promise<void> {
     reporters.push({ reporter, name: `config-reporter-${i}`, required: false });
   });
 
-  let summary: RunSummary;
+  let summary: InvocationSummary;
   try {
     const inFlight = runEvals({
       config,
@@ -1073,7 +1073,7 @@ async function main(): Promise<void> {
   await drainExperimentTeardowns();
 
   // completion 要先算好,--json/--junit 是否"这次真的写出"才有依据(见下)。
-  const completion = assembleRunCompletion(coordinator.state);
+  const completion = assembleInvocationCompletion(coordinator.state);
 
   // --json/--junit 是正交机器出口,只在这次运行真的写出对应文件时才把路径交给 coordinator
   // (它转发给 ci renderer 打印独立的 json=/junit= 行,见 docs「CI 怎么用」)。判据是
@@ -1097,7 +1097,7 @@ async function main(): Promise<void> {
 
   // 退出码统一走 CompletionStatus 驱动的语义(interrupted → 130、incomplete/required reporter
   // 失败 → 1),不再只看 verdict 计数;三种 profile 共用同一套退出码,不是 ci 专属。failed/errored
-  // 先按 (experiment, eval) 折叠再喂给 computeCiExitCode——它只认 RunSummary 原始字段,不知道
+  // 先按 (experiment, eval) 折叠再喂给 computeCiExitCode——它只认 InvocationSummary 原始字段,不知道
   // 「同一 eval 的重试轮不该重复计红」这条 eval 级判定规则(被 runs+earlyExit 重试吸收的失败,
   // 先挂一次、后来过了,不该把进程判红,否则 CI 判定与 evalLevelStats 报表口径不一致;
   // 见 memory 的 cli-exit-code-attempt-level-not-eval-level)。

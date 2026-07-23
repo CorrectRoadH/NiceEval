@@ -39,7 +39,7 @@
 
 import type { FeedbackRenderer } from "./renderer.ts";
 import type { FeedbackIO } from "./io.ts";
-import type { DurableFeedbackEvent, FailureNotice, RunCompletion, RunFeedbackState, RunSummary } from "../types.ts";
+import type { DurableFeedbackEvent, FailureNotice, InvocationCompletion, InvocationSummary, RunFeedbackState } from "../types.ts";
 import { assertionSummaryLines } from "../../scoring/display.ts";
 
 /** 失败/errored checkpoint 与最终 handoff 共用同一个展开上限(cli.md「'立即追加'也必须有
@@ -79,7 +79,7 @@ export function createAgentRenderer(options: AgentRendererOptions): FeedbackRend
   // "summary" 与 "saved" 是 coordinator.finish() 里连续 emit 的两个独立永久事件(见
   // coordinator.ts 的 finish() 实现,中间不会插入其它事件)——handoff 需要两者合并成一个
   // stdout block,所以在 "summary" 到达时先记下来,"saved" 到达时才真正拼出并写一次。
-  let pendingSummary: { summary: RunSummary; completion: RunCompletion; reused: number } | undefined;
+  let pendingSummary: { summary: InvocationSummary; completion: InvocationCompletion; reused: number } | undefined;
 
   function noteCheckpoint(atMs: number): void {
     lastCheckpointAtMs = atMs;
@@ -159,7 +159,7 @@ export function createAgentRenderer(options: AgentRendererOptions): FeedbackRend
 
         case "summary":
           // 只记录,不写——见上方 pendingSummary 注释。reused 只在 RunFeedbackState 上,
-          // RunSummary 本身没有这个字段,所以在这里(还能读到最新 state)一并存下来。
+          // InvocationSummary 本身没有这个字段,所以在这里(还能读到最新 state)一并存下来。
           pendingSummary = { summary: event.summary, completion: event.completion, reused: state.reused };
           return;
 
@@ -286,14 +286,14 @@ function writeFailureCheckpoint(io: FeedbackIO, event: DurableFeedbackEvent & { 
  *  complete/incomplete/interrupted 三态),但和 ci.ts 的 resultStatusWord() 同一条判断:
  *  退出码已经因它非零(见 computeCiExitCode),handoff 不能反过来印一个会被误读成
  *  "全绿"的 passed。 */
-function resultStatusWord(completion: RunCompletion, summary: RunSummary): string {
+function resultStatusWord(completion: InvocationCompletion, summary: InvocationSummary): string {
   if (completion.status === "interrupted") return "interrupted";
   if (completion.status === "incomplete") return "incomplete";
   if (completion.reporterErrors.some((e) => e.required)) return "failed";
   return summary.failed > 0 || summary.errored > 0 ? "failed" : "passed";
 }
 
-function summaryLine(summary: RunSummary, completion: RunCompletion, reused: number): string {
+function summaryLine(summary: InvocationSummary, completion: InvocationCompletion, reused: number): string {
   const paren = [`${reused} reused`];
   if (completion.unstarted > 0) paren.push(`${completion.unstarted} unstarted`);
   return `summary: ${summary.passed} passed, ${summary.failed} failed, ${summary.errored} errored (${paren.join(", ")})`;
@@ -301,7 +301,7 @@ function summaryLine(summary: RunSummary, completion: RunCompletion, reused: num
 
 function writeHandoff(
   io: FeedbackIO,
-  pending: { summary: RunSummary; completion: RunCompletion; reused: number } | undefined,
+  pending: { summary: InvocationSummary; completion: InvocationCompletion; reused: number } | undefined,
   paths: readonly string[],
   failures: readonly FailureNotice[],
   hasKept = false,

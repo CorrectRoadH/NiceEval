@@ -7,7 +7,7 @@
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
-import type { Reporter, RunSummary } from "../../types.ts";
+import type { InvocationSummary, Reporter } from "../../types.ts";
 
 /**
  * 同目录 temp → write → rename 的原子替换:内容先整体写进同目录下的临时文件,写完才
@@ -35,7 +35,7 @@ async function atomicWriteFile(path: string, content: string): Promise<void> {
 
 export function Json(path: string): Reporter {
   return {
-    async onRunComplete(summary: RunSummary) {
+    async onInvocationComplete(summary: InvocationSummary) {
       await atomicWriteFile(path, JSON.stringify(summary, null, 2));
     },
   };
@@ -43,7 +43,7 @@ export function Json(path: string): Reporter {
 
 export function JUnit(path: string): Reporter {
   return {
-    async onRunComplete(summary: RunSummary) {
+    async onInvocationComplete(summary: InvocationSummary) {
       const cases = summary.results
         .map((r) => {
           const name = xmlAttr(`${r.id} [${r.agent}${r.model ? "/" + r.model : ""}]`);

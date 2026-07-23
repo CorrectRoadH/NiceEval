@@ -1,6 +1,6 @@
 // Braintrust 报告器:把一次 niceeval 运行作为一个 Braintrust experiment 上报,
 // 每个 attempt 一行(scores = 断言,metrics = 时长/token/成本),跨提交比较与团队共享。
-// `braintrust` 是可选依赖:动态 import,装了才用得上,没装在 onRunStart 报错
+// `braintrust` 是可选依赖:动态 import,装了才用得上,没装在 onInvocationStart 报错
 // (reporter 错误按框架约定只记 diagnostic,不会让运行崩)。
 
 import type { EvalResult, Reporter } from "../../types.ts";
@@ -69,7 +69,7 @@ export function Braintrust(config: BraintrustConfig = {}): Reporter {
   let experiment: BraintrustExperiment | undefined;
 
   return {
-    async onRunStart(evals, agent) {
+    async onInvocationStart(evals) {
       sdk = await loadBraintrustSdk();
       experiment = await sdk.init({
         project: config.projectId ? undefined : (config.project ?? "niceeval"),
@@ -79,8 +79,12 @@ export function Braintrust(config: BraintrustConfig = {}): Reporter {
         baseExperimentId: config.baseExperimentId,
         update: config.update,
         apiKey: config.apiKey,
+        // 不再写顶层单一 agent:一次 Invocation 可能横跨多个 (agent, model, flags) 配置,
+        // 启动时还没有任何结果,写一个必然只代表其中一份配置的值就是撒谎(见
+        // docs/runner.md「Reporter 与运行器事件」)。每行自己的 agent 身份仍在
+        // toBraintrustEvent() 的 metadata.agent 里,逐 attempt 精确;跨行的 agent 集合可以
+        // 从 Braintrust 自己按 metadata.agent 分组得到,不需要实验级再存一份。
         metadata: {
-          agent: agent?.name,
           evals: evals.map((e) => e.id),
           ...config.metadata,
         },
@@ -93,7 +97,7 @@ export function Braintrust(config: BraintrustConfig = {}): Reporter {
       experiment?.log(toBraintrustEvent(result));
     },
 
-    async onRunComplete() {
+    async onInvocationComplete() {
       if (!experiment) return;
       try {
         await sdk?.flush();

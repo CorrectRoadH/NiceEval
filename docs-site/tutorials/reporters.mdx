@@ -84,7 +84,7 @@ Prerequisites: install the optional `braintrust` package (`npm install braintrus
 
 ## JUnit and JSON
 
-`JUnit(path)` writes JUnit XML so failures appear in CI test report UIs. For temporary output, use the CLI flag `--junit <path>` without changing config. `Json(path)` writes the full `RunSummary` as JSON for downstream scripts or dashboards. See [CI Integration](./ci-integration) for a complete CI setup.
+`JUnit(path)` writes JUnit XML so failures appear in CI test report UIs. For temporary output, use the CLI flag `--junit <path>` without changing config. `Json(path)` writes the full `InvocationSummary` as JSON for downstream scripts or dashboards. See [CI Integration](./ci-integration) for a complete CI setup.
 
 ## Custom Reporters
 
@@ -105,9 +105,9 @@ const notify: Reporter = {
 };
 ```
 
-- `onRunStart(evals, agent, shape)`: run start, with the eval list that will actually run and the run shape.
+- `onInvocationStart(evals, shape)`: invocation start, with the eval list that will actually run and the run shape.
 - `onEvalComplete(result)`: fires as soon as each attempt completes. Callbacks are serialized and do not interleave.
-- `onRunComplete(summary)`: run complete, with the aggregate summary.
-- `onEvent(event)`: lower-level event stream, such as `eval:start` and `run:budgetExceeded`.
+- `onInvocationComplete(summary)`: invocation complete, with the aggregate summary.
+- `onEvent(event)`: lower-level event stream, such as `eval:start` and `invocation:budgetExceeded`.
 
 Reporters mounted on config/eval are best-effort by default: an error becomes a permanent diagnostic but never interrupts an in-flight attempt. The CLI's explicit `--json` / `--junit` and the default results artifacts are required outputs — a write failure turns the whole run red. Custom reporters are only needed for destinations not covered by built-ins. `.niceeval/` artifacts already record all results, so post-run analysis can read them directly. See [Viewing Results](./viewing-results).

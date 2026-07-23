@@ -37,7 +37,7 @@ import {
   teardownEntryId,
   writeTeardownRegistration,
 } from "./teardown-registry.ts";
-import type { Agent, EvalResult, JudgeConfig, Reporter, ReporterRegistration, RunShape, RunSummary, SandboxOption } from "../types.ts";
+import type { EvalResult, InvocationShape, InvocationSummary, JudgeConfig, Reporter, ReporterRegistration, SandboxOption } from "../types.ts";
 import type { AgentRun, Attempt, ExperimentHookContext, LifecyclePhase, AttemptRef, RunOptions } from "./types.ts";
 
 /** 反馈层的 attempt 身份 + 展示 label,两个 sink.ts lifecycle 调用点共用,避免各自手写
@@ -74,13 +74,13 @@ export function judgeProbeTargets(
   return toProbe;
 }
 
-export async function runEvals(opts: RunOptions): Promise<RunSummary> {
+export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
   const startedAt = new Date().toISOString();
   // 本次 invocation 的快照身份锚点:在展开/调度任何 attempt 之前确定一次,不同 experiment
   // 共享它(locator 身份还含 experimentId,不会碰撞)。fresh EvalResult 的 locator(见下方
   // attempt 完成处)与 Artifacts writer 写进 snapshot.json 的 startedAt 必须用同一个值——
   // 复用刚建立的 startedAt,不是另起一次 new Date(),避免两者出现毫秒级漂移
-  // (docs/feature/experiments/cli.md「Locator 必须在 result 发布前确定」)。经 RunShape
+  // (docs/feature/experiments/cli.md「Locator 必须在 result 发布前确定」)。经 InvocationShape
   // 传给 reporter(见下方 shape 构造),run.ts 之外没有第二个入口能改这份身份。
   const snapshotStartedAt = startedAt;
   const t0 = Date.now();
@@ -199,15 +199,13 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
   // 缓存携入只在 plan 的 Reuse 行给数量,不逐条铺 eval id 清单(见 cli.md「人在终端里怎么用」:
   // 哪些 eval 复用、哪些重跑属于 --dry 与 niceeval view,不占 human 的 scrollback)。
 
-  // onRunStart 报「本次实际要跑的 eval」(过滤 + 去重),不是发现到的全部 —— 否则计数误导。
+  // onInvocationStart 报「本次实际要跑的 eval」(过滤 + 去重),不是发现到的全部 —— 否则计数误导。
   const runningIds = new Set(attempts.map((a) => a.evalDef.id));
   const runningEvals = [...runningIds].map((id) => ({ id }));
-  const firstAgent = opts.agentRuns[0]?.agent;
-  const firstModel = opts.agentRuns[0]?.model;
-  const shape: RunShape = {
+  const shape: InvocationShape = {
     evals: runningEvals.length,
     configs: opts.agentRuns.length,
-    totalRuns: attempts.length,
+    totalAttempts: attempts.length,
     maxConcurrency: opts.maxConcurrency,
     snapshotStartedAt,
   };
@@ -237,7 +235,7 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
       reporter: scopeReporter(r, ids, {
         evals: [...ids].filter((id) => runningIds.has(id)).length,
         configs: opts.agentRuns.length,
-        totalRuns: scopedRuns,
+        totalAttempts: scopedRuns,
         maxConcurrency: opts.maxConcurrency,
         snapshotStartedAt,
       }),
@@ -249,12 +247,11 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
   for (const reg of reporters) {
     // reporter 只是结果消费方:单个 reporter 抛错记 diagnostic,不能让整次调度崩,也不阻断
     // 其它 reporter 的必要收尾(required/best-effort 的判定权重在 runReporter 内部处理)。
-    await runReporter(reg, "onRunStart", () => reg.reporter.onRunStart?.(runningEvals, firstAgent as Agent, shape));
+    await runReporter(reg, "onInvocationStart", () => reg.reporter.onInvocationStart?.(runningEvals, shape));
   }
   await emitReporterEvent(reporters, {
-    type: "run:start",
+    type: "invocation:start",
     evals: runningEvals,
-    agent: firstAgent as Agent,
     shape,
   });
 
@@ -663,7 +660,7 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
               yield* reportMutex.withPermits(1)(
                 Effect.promise(() =>
                   emitReporterEvent(reporters, {
-                    type: "run:earlyExit",
+                    type: "invocation:earlyExit",
                     evalId: a.evalDef.id,
                     experimentId: a.run.experimentId,
                   }),
@@ -709,14 +706,14 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
                   budgetReported.add(budgetKey);
                   yield* reportMutex.withPermits(1)(
                     Effect.promise(() =>
-                      emitReporterEvent(reporters, { type: "run:budgetExceeded", budget, spent: s.spent }),
+                      emitReporterEvent(reporters, { type: "invocation:budgetExceeded", budget, spent: s.spent }),
                     ),
                   );
                 }
                 // 反馈层:对每一个因预算到顶而不派发的 attempt 各发一次(与上面的
                 // attempt:early-exit 同构),让 RunFeedbackState 的 queued/completed 计数与
                 // cli.ts 的 assembleRunCompletion() 都能感知到「有 attempt 因预算未派发」——
-                // 上面 emitReporterEvent 的 run:budgetExceeded 只对旧版 Reporter 接口每
+                // 上面 emitReporterEvent 的 invocation:budgetExceeded 只对旧版 Reporter 接口每
                 // budgetKey 报一次,不满足反馈层「每个未派发 attempt 各一条」的计数契约,两者
                 // 独立并存。只在挂靠 experiment 时报(budget-exhausted 事件要求真实
                 // experimentId;裸 run 不产出这类永久事件,与 locator 的省略规则一致)。
@@ -951,7 +948,7 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
       { concurrency: "unbounded", discard: true },
     ).pipe(
       // 中断(用户 Ctrl+C):finalizer 已在中断过程中跑完(容器已停),这里只是把它咽下,
-      // 好让流程走到 summarize / onRunComplete,用已完成的 results 出一份部分汇总,而不是抛栈。
+      // 好让流程走到 summarize / onInvocationComplete,用已完成的 results 出一份部分汇总,而不是抛栈。
       Effect.catchAllCause((cause) => {
         if (Cause.isInterrupted(cause)) {
           interrupted = true;
@@ -1012,16 +1009,16 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
       a.attempt - b.attempt,
   );
 
-  const summary = summarize(allResults, firstAgent?.name ?? "", startedAt, Date.now() - t0, opts.config.name, firstModel);
-  await emitReporterEvent(reporters, { type: "run:summary", summary });
+  const summary = summarize(allResults, startedAt, Date.now() - t0, opts.config.name);
+  await emitReporterEvent(reporters, { type: "invocation:summary", summary });
   for (const reg of reporters) {
     // required reporter(默认 artifacts、显式 --json/--junit)在这一步失败,不能中断其它
-    // reporter 的收尾——继续跑完剩下的循环,让每个 reporter 都拿到 onRunComplete 的机会;
+    // reporter 的收尾——继续跑完剩下的循环,让每个 reporter 都拿到 onInvocationComplete 的机会;
     // 失败本身经 runReporter → reportReporterError 折成诊断,由调用方(cli.ts)读取
-    // RunFeedbackState 组装成 RunCompletion,让最终 completion/退出码判红(见
+    // RunFeedbackState 组装成 InvocationCompletion,让最终 completion/退出码判红(见
     // docs/feature/experiments/cli.md「运行完成状态不只看 verdict 计数」)。
-    await runReporter(reg, "onRunComplete", () => reg.reporter.onRunComplete?.(summary));
+    await runReporter(reg, "onInvocationComplete", () => reg.reporter.onInvocationComplete?.(summary));
   }
-  await emitReporterEvent(reporters, { type: "run:saved", summary });
+  await emitReporterEvent(reporters, { type: "invocation:saved", summary });
   return summary;
 }

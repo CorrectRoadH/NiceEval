@@ -100,7 +100,7 @@ export interface FeedbackSink {
    *  「只服务正在画着的 dashboard」信号,没有活跃 coordinator 时静默丢弃是安全的。 */
   experimentProgress(input: ExperimentProgressInput): void;
   /** attempt 生命周期事件(queued/start/phase/progress/complete/early-exit),见
-   *  `AttemptLifecycleEvent`。只驱动 human dashboard 的 active slot,不落 RunSummary/结果文件,
+   *  `AttemptLifecycleEvent`。只驱动 human dashboard 的 active slot,不落 InvocationSummary/结果文件,
    *  所以没有活跃 coordinator 时(见 `reportAttemptLifecycle`)静默丢弃是安全的 —— 这类信息
    *  本身就只服务「正在画着的 dashboard」,不是必须留痕的诊断。 */
   lifecycle(event: AttemptLifecycleEvent): void;
@@ -232,8 +232,8 @@ export function reportAttemptLifecycle(event: AttemptLifecycleEvent): void {
  *  来自调用方注册这个 reporter 时的 `ReporterRegistration`(见其字段注释)——默认 artifacts、
  *  显式 `--json`/`--junit` 传 `required: true`,用户 `config.reporters`/`EvalDef.reporters`
  *  传 `required: false`。coordinator 把它折进 `RunFeedbackState.diagnostics`(reducer 按
- *  `reporter-error:<reporter>` 去重),调用方(`cli.ts` 的 `assembleRunCompletion`)据此把
- *  `required` 为真的失败折进 `RunCompletion.reporterErrors`,让 completion/CI 退出码判红。 */
+ *  `reporter-error:<reporter>` 去重),调用方(`cli.ts` 的 `assembleInvocationCompletion`)据此把
+ *  `required` 为真的失败折进 `InvocationCompletion.reporterErrors`,让 completion/CI 退出码判红。 */
 export function reportReporterError(input: { reporter: string; required: boolean; message: string }): void {
   const sink = current();
   if (sink) {

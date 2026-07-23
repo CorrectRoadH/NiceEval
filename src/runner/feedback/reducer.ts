@@ -34,7 +34,7 @@ export function createInitialRunFeedbackState(): RunFeedbackState {
 export function reduceRunFeedback(state: RunFeedbackState, event: RunFeedbackEvent): RunFeedbackState {
   switch (event.type) {
     case "plan": {
-      const total = event.plan.shape.totalRuns;
+      const total = event.plan.shape.totalAttempts;
       const reused = event.plan.reused;
       // plan 是一次 run 的起点:重置 active/failures/diagnostics,即便 reducer 被复用于
       // 多次 run 也不会把上一次的残留状态带进新 run(正常用法下 plan 本来就应是第一个事件)。

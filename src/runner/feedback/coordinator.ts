@@ -39,12 +39,12 @@ import type {
   AttemptLifecycleEvent,
   DurableFeedbackEvent,
   FeedbackTickEvent,
+  InvocationCompletion,
+  InvocationSummary,
   OutputProfile,
-  RunCompletion,
   RunFeedbackEvent,
   RunFeedbackPlan,
   RunFeedbackState,
-  RunSummary,
 } from "../types.ts";
 
 /** 默认 tick 周期:250ms(每秒最多 4 次重画机会),对应 docs 里 human dashboard「最多每秒
@@ -66,7 +66,7 @@ export interface FeedbackCoordinator extends FeedbackSink {
    *  emit() 调用那一刻算出的最新值)。 */
   readonly state: RunFeedbackState;
   /**
-   * run:start 等价物:emit 一次 "plan" 永久事件、把自己注册为 sink.ts 的活跃目的地(此后
+   * invocation:start 等价物:emit 一次 "plan" 永久事件、把自己注册为 sink.ts 的活跃目的地(此后
    * `reportActivity`/`reportDiagnostic`/… 转发给它)、启动 tick 定时器。只能调用一次 ——
    * 重复调用是编程错误(意味着同一个 coordinator 实例被跨 run 复用),直接抛错。
    */
@@ -90,12 +90,12 @@ export interface FeedbackCoordinator extends FeedbackSink {
    * 排空内部队列,通知 `renderer.close()`,并把自己从 sink.ts 的活跃栈里摘下(之后
    * `reportActivity()` 等调用会落回 bootstrap 兜底)。resolve 后保证不会再有任何 timer 或
    * 排队任务写终端 —— 调用方(CLI 接线阶段)应在这一步之前完成全部 reporter 收尾
-   * (`onRunComplete` 等),让 reporter 收尾期间产生的诊断仍能走 stopDynamic() 之后的
+   * (`onInvocationComplete` 等),让 reporter 收尾期间产生的诊断仍能走 stopDynamic() 之后的
    * 纯追加路径,而不是彻底没有出口。
    */
   finish(input: {
-    summary: RunSummary;
-    completion: RunCompletion;
+    summary: InvocationSummary;
+    completion: InvocationCompletion;
     paths: readonly string[];
     /** 实际写出的 `--json` 聚合报告路径;省略表示没有写出(未传 `--json` 或写入失败),
      *  转发进 "saved" 永久事件的同名字段,供 ci renderer 打印独立的 `json=` 行(见
@@ -332,8 +332,8 @@ export function createFeedbackCoordinator(options: FeedbackCoordinatorOptions): 
   }
 
   async function finish(input: {
-    summary: RunSummary;
-    completion: RunCompletion;
+    summary: InvocationSummary;
+    completion: InvocationCompletion;
     paths: readonly string[];
     json?: string;
     junit?: string;

@@ -89,7 +89,7 @@ npx niceeval exp models weather
 | `--orphans` | boolean | `sandbox list` 专用:核对强杀(`SIGKILL` / 断电)路径留下的无主沙箱实例(docker + e2b;vercel 无按元数据检索实例的通道,不参与)。只读,不清理;销毁走 `niceeval sandbox prune`。 |
 | `--tag` | string | 只运行带有该 tag 的 eval(见 `defineEval` 的 `tags`)。 |
 | `--junit` | string | 额外写一份 JUnit XML 报告到指定路径,供 CI 消费。 |
-| `--json` | string | 额外写一份 JSON 结果(`RunSummary` 原样序列化)到指定路径,供 CI 或下游脚本消费。 |
+| `--json` | string | 额外写一份 JSON 结果(`InvocationSummary` 原样序列化)到指定路径,供 CI 或下游脚本消费。 |
 | `--out` | string | `view` 命令专用:把结果查看器静态导出到指定目录。 |
 | `--port` | number | `view` 命令专用:指定本地服务器监听端口。 |
 | `--source` | boolean | `show` 命令专用:该 attempt 运行时保存的 Eval 源码,gate/soft 断言标回源码行(证据切面)。 |

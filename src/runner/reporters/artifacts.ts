@@ -7,7 +7,7 @@
 // 重数据分文件,snapshot.json 只留快照元数据,view 展开某条 trace 时再按需 fetch 它的 trace.json。
 
 import { readFile } from "node:fs/promises";
-import type { Reporter, RunShape } from "../../types.ts";
+import type { InvocationShape, Reporter } from "../../types.ts";
 import { createResultsWriter, type ResultsWriter } from "../../results/writer.ts";
 
 /** niceeval 自身的 npm 版本,写进 producer.version;版本不匹配时读取器靠它拼 npx 提示。 */
@@ -28,10 +28,10 @@ export function Artifacts(root = ".niceeval"): ArtifactsReporter {
   return {
     outputDirs: () => writer?.snapshotDirs() ?? [],
 
-    async onRunStart(_evals, _agent, shape?: RunShape) {
+    async onInvocationStart(_evals, shape?: InvocationShape) {
       // 每次 run 换一个新 writer(同一个 reporter 实例可能被复用):writer 内部按
       // experimentId 懒建各自的快照目录,这里只重置引用。
-      // snapshotStartedAt 显式接收自 runner(shape.snapshotStartedAt,见 RunShape 的注释)——
+      // snapshotStartedAt 显式接收自 runner(shape.snapshotStartedAt,见 InvocationShape 的注释)——
       // 不再各自按「该 experiment 第一条落盘 result 的 attempt startedAt」猜,与 runner
       // 在 result.locator 里编码的身份锚点是同一个值。省略只出现在没有真实 shape 的
       // 直调场景(如测试手写 Reporter 调用),此时退回 createResultsWriter 自己的兜底
@@ -43,7 +43,7 @@ export function Artifacts(root = ".niceeval"): ArtifactsReporter {
     },
 
     // 每条结果一出来就按它的 experimentId 路由落盘(增量、互不影响)。fresh 条目在这里
-    // 一次写成;--resume 携带合入的条目(带 artifactBase)不经这里,onRunComplete 补写。
+    // 一次写成;--resume 携带合入的条目(带 artifactBase)不经这里,onInvocationComplete 补写。
     async onEvalComplete(result) {
       await writer?.writeAttemptFor(result);
     },
@@ -51,7 +51,7 @@ export function Artifacts(root = ".niceeval"): ArtifactsReporter {
     // run 结束:先把携带条目(--resume 合入,summary.results 里带 artifactBase 的那些)
     // 逐条落盘——它们没有触发过 onEvalComplete,只会原样写 result.json,不写 artifact
     // (artifact 仍在原快照里,靠 artifactBase 懒加载回退)。再给每个快照补 completedAt。
-    async onRunComplete(summary) {
+    async onInvocationComplete(summary) {
       if (!writer) return;
       for (const result of summary.results) {
         if (result.artifactBase !== undefined) await writer.writeAttemptFor(result);

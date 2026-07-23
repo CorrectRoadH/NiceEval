@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { emitReporterEvent, filterSummary, runReporter, scopeReporter } from "./report.ts";
 import { activateFeedbackSink, activeFeedbackSinkCount } from "./feedback/sink.ts";
-import type { Agent, EvalResult, Reporter, ReporterRegistration, RunShape, RunSummary } from "../types.ts";
+import type { Agent, EvalResult, InvocationShape, InvocationSummary, Reporter, ReporterRegistration } from "../types.ts";
 
 function result(id: string, overrides: Partial<EvalResult> = {}): EvalResult {
   return {
@@ -16,9 +16,8 @@ function result(id: string, overrides: Partial<EvalResult> = {}): EvalResult {
   };
 }
 
-function summary(results: EvalResult[]): RunSummary {
+function summary(results: EvalResult[]): InvocationSummary {
   return {
-    agent: "codex",
     startedAt: "2026-07-07T00:00:00.000Z",
     completedAt: "2026-07-07T00:01:00.000Z",
     passed: results.filter((r) => r.verdict === "passed").length,
@@ -45,40 +44,28 @@ describe("filterSummary", () => {
     expect(sub.estimatedCostUSD).toBe(0.1);
     expect(sub.completedAt).toBe("2026-07-07T00:01:00.000Z");
   });
-
-  it("保留原 summary 的 model 字段(docs/engineering/testing/unit/experiments-runner.md「汇总判定与退出码」)", () => {
-    const s = { ...summary([result("a/1")]), model: "deepseek-chat" };
-    const sub = filterSummary(s, new Set(["a/1"]));
-    expect(sub.model).toBe("deepseek-chat");
-  });
-
-  it("未声明 model 时该字段省略,不伪造成空字符串或 undefined 字面量", () => {
-    const s = summary([result("a/1")]);
-    const sub = filterSummary(s, new Set(["a/1"]));
-    expect(sub.model).toBeUndefined();
-  });
 });
 
 describe("scopeReporter", () => {
   const agent = { name: "codex" } as Agent;
-  const scopedShape: RunShape = { evals: 1, configs: 1, totalRuns: 2, maxConcurrency: 4 };
+  const scopedShape: InvocationShape = { evals: 1, configs: 1, totalAttempts: 2, maxConcurrency: 4 };
 
   function recordingReporter() {
     const calls: { method: string; args: unknown[] }[] = [];
     const reporter: Reporter = {
-      onRunStart: (...args) => void calls.push({ method: "onRunStart", args }),
+      onInvocationStart: (...args) => void calls.push({ method: "onInvocationStart", args }),
       onEvalComplete: (...args) => void calls.push({ method: "onEvalComplete", args }),
-      onRunComplete: (...args) => void calls.push({ method: "onRunComplete", args }),
+      onInvocationComplete: (...args) => void calls.push({ method: "onInvocationComplete", args }),
       onEvent: (...args) => void calls.push({ method: "onEvent", args }),
     };
     return { calls, reporter };
   }
 
-  it("onRunStart 收到过滤后的 eval 列表和作用域 shape", async () => {
+  it("onInvocationStart 收到过滤后的 eval 列表和作用域 shape", async () => {
     const { calls, reporter } = recordingReporter();
     const scoped = scopeReporter(reporter, new Set(["a/1"]), scopedShape);
-    await scoped.onRunStart?.([{ id: "a/1" }, { id: "b/1" }], agent, { evals: 2, configs: 1, totalRuns: 4, maxConcurrency: 4 });
-    expect(calls[0]?.args).toEqual([[{ id: "a/1" }], agent, scopedShape]);
+    await scoped.onInvocationStart?.([{ id: "a/1" }, { id: "b/1" }], { evals: 2, configs: 1, totalAttempts: 4, maxConcurrency: 4 });
+    expect(calls[0]?.args).toEqual([[{ id: "a/1" }], scopedShape]);
   });
 
   it("onEvalComplete 只转发被观测 eval 的结果", async () => {
@@ -90,11 +77,11 @@ describe("scopeReporter", () => {
     expect((calls[0]?.args[0] as EvalResult).id).toBe("a/1");
   });
 
-  it("onRunComplete 收到重新计数的子集汇总", async () => {
+  it("onInvocationComplete 收到重新计数的子集汇总", async () => {
     const { calls, reporter } = recordingReporter();
     const scoped = scopeReporter(reporter, new Set(["a/1"]));
-    await scoped.onRunComplete?.(summary([result("a/1"), result("b/1", { verdict: "failed" })]));
-    const got = calls[0]?.args[0] as RunSummary;
+    await scoped.onInvocationComplete?.(summary([result("a/1"), result("b/1", { verdict: "failed" })]));
+    const got = calls[0]?.args[0] as InvocationSummary;
     expect(got.results.map((r) => r.id)).toEqual(["a/1"]);
     expect(got.passed).toBe(1);
     expect(got.failed).toBe(0);
@@ -105,19 +92,19 @@ describe("scopeReporter", () => {
     const scoped = scopeReporter(reporter, new Set(["a/1"]), scopedShape);
     await scoped.onEvent?.({ type: "eval:start", eval: { id: "b/1" }, agent, attempt: 0 });
     await scoped.onEvent?.({ type: "eval:start", eval: { id: "a/1" }, agent, attempt: 0 });
-    await scoped.onEvent?.({ type: "run:summary", summary: summary([result("a/1"), result("b/1")]) });
+    await scoped.onEvent?.({ type: "invocation:summary", summary: summary([result("a/1"), result("b/1")]) });
     expect(calls).toHaveLength(2);
     expect(calls[0]?.args[0]).toMatchObject({ type: "eval:start", eval: { id: "a/1" } });
-    const summaryEvent = calls[1]?.args[0] as { type: string; summary: RunSummary };
-    expect(summaryEvent.type).toBe("run:summary");
+    const summaryEvent = calls[1]?.args[0] as { type: string; summary: InvocationSummary };
+    expect(summaryEvent.type).toBe("invocation:summary");
     expect(summaryEvent.summary.results.map((r) => r.id)).toEqual(["a/1"]);
   });
 
   it("底层 reporter 未实现的回调不会被包装出来", () => {
     const scoped = scopeReporter({}, new Set(["a/1"]));
-    expect(scoped.onRunStart).toBeUndefined();
+    expect(scoped.onInvocationStart).toBeUndefined();
     expect(scoped.onEvalComplete).toBeUndefined();
-    expect(scoped.onRunComplete).toBeUndefined();
+    expect(scoped.onInvocationComplete).toBeUndefined();
     expect(scoped.onEvent).toBeUndefined();
   });
 });
@@ -125,7 +112,7 @@ describe("scopeReporter", () => {
 // runReporter()/emitReporterEvent() 是「required/best-effort」判定实际生效的地方(见
 // `ReporterRegistration` 的字段注释):它们只负责把 reg.name/reg.required 原样转发进
 // `reportReporterError()`,不做判定本身——判定(是否让 completion/CI 退出码判红)在下游
-// (coordinator → reducer → cli.ts 的 assembleRunCompletion)。这里用一个假 FeedbackSink
+// (coordinator → reducer → cli.ts 的 assembleInvocationCompletion)。这里用一个假 FeedbackSink
 // 直接断言转发的字段,不需要拉起整个 coordinator。
 describe("runReporter / emitReporterEvent · required/best-effort 原样转发,不吞错也不中断其它 reporter", () => {
   afterEach(() => {
@@ -171,7 +158,7 @@ describe("runReporter / emitReporterEvent · required/best-effort 原样转发,�
   it("message 只含 formatThrown() 的第一行,不把完整 .stack(本地绝对路径 + 调用帧)灌进机器 envelope", () =>
     withFakeSink(async (calls) => {
       const reg: ReporterRegistration = { reporter: {}, name: "json", required: true };
-      await runReporter(reg, "onRunComplete", () => {
+      await runReporter(reg, "onInvocationComplete", () => {
         // 真实 Error 的 .stack 恒为多行:第一行 "Error: message",之后每行一个 "    at ..." 调用帧
         // (含本地绝对文件路径)。reportReporterError 的 message 是喂给 agent/ci 的单行 key=value
         // envelope 里的一个字段值,不是 EvalResult.error 那种有专门落盘位置的完整记录——必须只取
@@ -180,7 +167,7 @@ describe("runReporter / emitReporterEvent · required/best-effort 原样转发,�
       });
       expect(calls).toHaveLength(1);
       const { message } = calls[0]!;
-      expect(message).toBe("onRunComplete: Error: EISDIR: illegal operation on a directory, rename");
+      expect(message).toBe("onInvocationComplete: Error: EISDIR: illegal operation on a directory, rename");
       expect(message).not.toContain("\n");
       expect(message).not.toContain("    at ");
       expect(message).not.toContain(import.meta.url.replace("file://", "")); // 本文件自己的绝对路径不出现在调用帧里
@@ -189,7 +176,7 @@ describe("runReporter / emitReporterEvent · required/best-effort 原样转发,�
   it("best-effort reporter(如 config.reporters)抛错同样上报,但 required=false", () =>
     withFakeSink(async (calls) => {
       const reg: ReporterRegistration = { reporter: {}, name: "config-reporter-0", required: false };
-      await runReporter(reg, "onRunComplete", () => {
+      await runReporter(reg, "onInvocationComplete", () => {
         throw new Error("network blip");
       });
       expect(calls[0]).toMatchObject({ reporter: "config-reporter-0", required: false });
@@ -198,7 +185,7 @@ describe("runReporter / emitReporterEvent · required/best-effort 原样转发,�
   it("runReporter 永不 reject——即便 reporter 抛错,调用方(Promise.all 聚合)仍能等到它 resolve", () =>
     withFakeSink(async () => {
       await expect(
-        runReporter({ reporter: {}, name: "x", required: true }, "onRunStart", () => {
+        runReporter({ reporter: {}, name: "x", required: true }, "onInvocationStart", () => {
           throw new Error("boom");
         }),
       ).resolves.toBeUndefined();
@@ -221,8 +208,8 @@ describe("runReporter / emitReporterEvent · required/best-effort 原样转发,�
         name: "ok",
         required: false,
       };
-      await emitReporterEvent([throwing, ok], { type: "run:earlyExit", evalId: "e/1" });
-      expect(seen).toEqual(["run:earlyExit"]); // ok reporter 仍然收到了同一个事件
+      await emitReporterEvent([throwing, ok], { type: "invocation:earlyExit", evalId: "e/1" });
+      expect(seen).toEqual(["invocation:earlyExit"]); // ok reporter 仍然收到了同一个事件
       expect(calls).toHaveLength(1);
       expect(calls[0]).toMatchObject({ reporter: "throwing", required: false });
     }));
@@ -232,7 +219,7 @@ describe("runReporter / emitReporterEvent · required/best-effort 原样转发,�
     const spy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     try {
       await expect(
-        runReporter({ reporter: {}, name: "artifacts", required: true }, "onRunStart", () => {
+        runReporter({ reporter: {}, name: "artifacts", required: true }, "onInvocationStart", () => {
           throw new Error("disk full");
         }),
       ).resolves.toBeUndefined();

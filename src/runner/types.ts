@@ -251,12 +251,10 @@ export const RESULTS_FORMAT = "niceeval.results";
  */
 export const RESULTS_SCHEMA_VERSION = 8;
 
-/** 一次运行的纯运行时内存聚合(reporter 契约用);落盘格式契约在 niceeval/results 的 SnapshotMeta / AttemptRecord,见 docs/feature/results/architecture.md。 */
-export interface RunSummary {
+/** 一次 Invocation 的纯运行时内存聚合(reporter 契约用);落盘格式契约在 niceeval/results 的 SnapshotMeta / AttemptRecord,见 docs/feature/results/architecture.md。不携带顶层 `agent`/`model`——一次 Invocation 可能横跨多个 `(agent, model, flags)` 配置,塞一个顶层单值只能代表其中一份配置;需要时从 `results` 里逐条 `EvalResult.agent`/`.model` 去重派生。 */
+export interface InvocationSummary {
   /** 项目名(来自 config.name),透传给 `niceeval view` 顶部 hero 显示。 */
   name?: LocalizedText;
-  agent: string;
-  model?: string;
   startedAt: string;
   completedAt: string;
   passed: number;
@@ -271,25 +269,25 @@ export interface RunSummary {
   results: EvalResult[];
 }
 
-/** onRunStart 的运行规模:去重后 eval 数 × 配置(agent×model×flags)数 → 总运行(attempt)数。 */
-export interface RunShape {
+/** onInvocationStart 的运行规模:去重后 eval 数 × 配置(agent×model×flags)数 → 总 attempt 数。 */
+export interface InvocationShape {
   /** 去重后实际要跑的 eval 数(= evals.length)。 */
   evals: number;
   /** (agent, model, flags) 配置组合数;compare 多 agent 时 > 1。 */
   configs: number;
   /** 总 attempt 数(evals × configs × runs);逐行输出与汇总计数都按它。 */
-  totalRuns: number;
+  totalAttempts: number;
   /** 本次运行实际生效的全局并发数(flag/env/config/sandbox 默认值解析后的结果);
    *  实验级 maxConcurrency 只在该实验内部限流,不改这个全局值。 */
   maxConcurrency: number;
   /**
-   * 本次 invocation 的快照身份锚点(ISO 时间戳),在调度任何 attempt 前确定。fresh
+   * 本次 Invocation 的快照身份锚点(ISO 时间戳),在调度任何 attempt 前确定。fresh
    * `EvalResult.locator` 编码进去的 `snapshotStartedAt`(见 `results/locator.ts` 的
    * `AttemptIdentity`)与 Artifacts writer 写进 `snapshot.json` 的 `startedAt` 共用
-   * 同一个值 —— 不同 experiment 在同一次 invocation 内共享它也不会碰撞(locator 身份
-   * 还含 experimentId)。`runEvals()` 恒在 `onRunStart` 触发前把它填进这里,这是它
+   * 同一个值 —— 不同 experiment 在同一次 Invocation 内共享它也不会碰撞(locator 身份
+   * 还含 experimentId)。`runEvals()` 恒在 `onInvocationStart` 触发前把它填进这里,这是它
    * 从 run.ts 传给 Artifacts 等 reporter 的唯一途径;省略只出现在测试/第三方手写
-   * `RunShape` 的直调场景。见 docs/feature/experiments/cli.md「Locator 必须在
+   * `InvocationShape` 的直调场景。见 docs/feature/experiments/cli.md「Locator 必须在
    * result 发布前确定」。
    */
   snapshotStartedAt?: string;
@@ -297,9 +295,9 @@ export interface RunShape {
 
 export interface Reporter {
   onEvent?(event: ReporterEvent): void | Promise<void>;
-  onRunStart?(evals: { id: string }[], agent: Agent, shape?: RunShape): void | Promise<void>;
+  onInvocationStart?(evals: { id: string }[], shape?: InvocationShape): void | Promise<void>;
   onEvalComplete?(result: EvalResult): void | Promise<void>;
-  onRunComplete?(summary: RunSummary): void | Promise<void>;
+  onInvocationComplete?(summary: InvocationSummary): void | Promise<void>;
 }
 
 /**
@@ -308,12 +306,12 @@ export interface Reporter {
  * 上面那四个回调,从不需要知道 `ReporterRegistration` 的存在。`name` 是
  * `reportReporterError()` / `DiagnosticNotice.key` 里 `reporter-error:<name>` 的稳定标识:
  * 同一个 reporter 反复失败折叠成一条诊断、`count` 递增,不同 reporter 各自一条,由这个字段的
- * 取值决定,不是「在哪个回调阶段失败」(onRunStart/onEvalComplete/…)决定——后者只作为
+ * 取值决定,不是「在哪个回调阶段失败」(onInvocationStart/onEvalComplete/…)决定——后者只作为
  * 诊断消息里的次要上下文,不参与去重身份。
  *
  * `required` 语义(见 docs/feature/experiments/cli.md「运行完成状态不只看 verdict 计数」):
  * - 默认 Artifacts reporter、CLI 显式 `--json` / `--junit`:`required: true`——它们的产物是
- *   agent/CI 读取权威结果的唯一入口,写失败必须让 `RunCompletion` 判红、CI 退出码非零。
+ *   agent/CI 读取权威结果的唯一入口,写失败必须让 `InvocationCompletion` 判红、CI 退出码非零。
  * - 用户 `Config.reporters` / `EvalDef.reporters`:`required: false`——失败只折成一条
  *   diagnostic,不影响 completion,也不阻断其它 reporter 收尾或后续 attempt。
  *
@@ -327,13 +325,13 @@ export interface ReporterRegistration {
 }
 
 export type ReporterEvent =
-  | { type: "run:start"; evals: { id: string }[]; agent: Agent; shape: RunShape }
+  | { type: "invocation:start"; evals: { id: string }[]; shape: InvocationShape }
   | { type: "eval:start"; eval: { id: string }; agent: Agent; model?: string; attempt: number; experimentId?: string }
   | { type: "eval:complete"; result: EvalResult }
-  | { type: "run:earlyExit"; evalId: string; experimentId?: string }
-  | { type: "run:budgetExceeded"; budget: number; spent: number }
-  | { type: "run:saved"; summary: RunSummary }
-  | { type: "run:summary"; summary: RunSummary };
+  | { type: "invocation:earlyExit"; evalId: string; experimentId?: string }
+  | { type: "invocation:budgetExceeded"; budget: number; spent: number }
+  | { type: "invocation:saved"; summary: InvocationSummary }
+  | { type: "invocation:summary"; summary: InvocationSummary };
 
 // ───────────────────────── eval / experiment / config 定义 ─────────────────────────
 
@@ -830,7 +828,7 @@ export interface ReporterError {
   message: string;
 }
 
-export interface RunCompletion {
+export interface InvocationCompletion {
   status: CompletionStatus;
   /** budget 耗尽导致未派发的 attempt 数;不含首过即停省略的次数(见 `earlyExitUnstarted`)。 */
   unstarted: number;
@@ -886,7 +884,7 @@ export interface KeptNotice {
 
 /** 一次 run 的初始计划。复用只暴露数量；失败明细仅用于静态初始化终局清单。 */
 export interface RunFeedbackPlan {
-  shape: RunShape;
+  shape: InvocationShape;
   /** 携入(carry)结果数,直接计入 `RunFeedbackState.reused`,不需要重新调度。 */
   reused: number;
   /** 复用结果中的失败；plan 时静态注入，不产生“刚发生”的失败事件。 */
@@ -1007,7 +1005,7 @@ export type DurableFeedbackEvent =
     }
   | { type: "interrupted"; at: number }
   | { type: "reporter-error"; at: number; reporter: string; required: boolean; message: string }
-  | { type: "summary"; at: number; summary: RunSummary; completion: RunCompletion }
+  | { type: "summary"; at: number; summary: InvocationSummary; completion: InvocationCompletion }
   | {
       type: "saved";
       at: number;

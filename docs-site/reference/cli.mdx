@@ -88,7 +88,7 @@ The table below is generated from the CLI's flag-parsing table; any flag outside
 | `--leave-running` | boolean | `sandbox enter` only: keep the environment running after the shell exits, instead of sending it back to sleep. |
 | `--tag` | string | Only run evals that carry this tag (see `tags` on `defineEval`). |
 | `--junit` | string | Additionally write a JUnit XML report to the given path, for CI consumption. |
-| `--json` | string | Additionally write a JSON result (the `RunSummary` serialized as-is) to the given path, for CI or downstream scripts. |
+| `--json` | string | Additionally write a JSON result (the `InvocationSummary` serialized as-is) to the given path, for CI or downstream scripts. |
 | `--out` | string | `view` command only: statically export the result viewer to the given directory. |
 | `--port` | number | `view` command only: set the port the local server listens on. |
 | `--source` | boolean | `show` command only: the Eval source captured when this attempt ran, with gate/soft assertions mapped back to source lines (an evidence facet). |

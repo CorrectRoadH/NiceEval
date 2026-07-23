@@ -10,7 +10,7 @@ import { createFakeFeedbackIO } from "./testing.ts";
 import { createInitialRunFeedbackState } from "./reducer.ts";
 import { encodeAttemptKey } from "../types.ts";
 import { stringWidth } from "../../report/model/text-layout.ts";
-import type { DurableFeedbackEvent, RunCompletion, RunFeedbackPlan, RunFeedbackState, RunSummary } from "../types.ts";
+import type { DurableFeedbackEvent, InvocationCompletion, InvocationSummary, RunFeedbackPlan, RunFeedbackState } from "../types.ts";
 import type { AttemptLocator } from "../../results/locator.ts";
 
 function locator(raw: string): AttemptLocator {
@@ -19,16 +19,15 @@ function locator(raw: string): AttemptLocator {
 
 function plan(overrides: Partial<RunFeedbackPlan> = {}): RunFeedbackPlan {
   return {
-    shape: { evals: 9, configs: 5, totalRuns: 45, maxConcurrency: 19 },
+    shape: { evals: 9, configs: 5, totalAttempts: 45, maxConcurrency: 19 },
     reused: 6,
     reusedFailures: [],
     ...overrides,
   };
 }
 
-function summary(overrides: Partial<RunSummary> = {}): RunSummary {
+function summary(overrides: Partial<InvocationSummary> = {}): InvocationSummary {
   return {
-    agent: "codex",
     startedAt: "2026-07-13T00:00:00.000Z",
     completedAt: "2026-07-13T00:03:48.000Z",
     passed: 44,
@@ -41,7 +40,7 @@ function summary(overrides: Partial<RunSummary> = {}): RunSummary {
   };
 }
 
-function completion(overrides: Partial<RunCompletion> = {}): RunCompletion {
+function completion(overrides: Partial<InvocationCompletion> = {}): InvocationCompletion {
   return { status: "complete", unstarted: 0, earlyExitUnstarted: 0, reporterErrors: [], ...overrides };
 }
 

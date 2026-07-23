@@ -163,7 +163,7 @@ function buildPlanLines(plan: RunFeedbackPlan, panel: { mode: PanelMode; width: 
     {
       kind: "line",
       text: t("feedback.human.plan", {
-        total: plan.shape.totalRuns,
+        total: plan.shape.totalAttempts,
         evals: plan.shape.evals,
         configs: plan.shape.configs,
         concurrency: plan.shape.maxConcurrency,
@@ -175,8 +175,8 @@ function buildPlanLines(plan: RunFeedbackPlan, panel: { mode: PanelMode; width: 
       kind: "line",
       text: t("feedback.human.reuse", {
         reused: plan.reused,
-        total: plan.shape.totalRuns,
-        toRun: Math.max(0, plan.shape.totalRuns - plan.reused),
+        total: plan.shape.totalAttempts,
+        toRun: Math.max(0, plan.shape.totalAttempts - plan.reused),
       }),
     });
   }
@@ -239,7 +239,7 @@ function buildSummaryLines(
   ];
 
   // 全通过时(state.failures 为空)不留空 FAILURES 面板。fresh 失败来自 durable event，carry
-  // 失败由 plan 静态注入；reducer 把两者按 locator 收进同一清单，这里不从 RunSummary 再造。
+  // 失败由 plan 静态注入；reducer 把两者按 locator 收进同一清单，这里不从 InvocationSummary 再造。
   if (state.failures.length > 0) {
     const shown = state.failures.slice(0, HUMAN_FAILURE_CAP);
     const failureRows: PanelRow[] = [

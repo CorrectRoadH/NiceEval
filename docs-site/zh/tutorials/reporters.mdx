@@ -108,6 +108,6 @@ const notify: Reporter = {
 - `onInvocationStart(evals, shape)`：运行开始，收到本次实际要跑的评估用例列表和运行规模。
 - `onEvalComplete(result)`：每个 attempt 完成即时触发，回调串行化，不会交错。
 - `onInvocationComplete(summary)`：运行结束，收到聚合汇总。
-- `onEvent(event)`：更细粒度的事件流（`eval:start`、`run:budgetExceeded` 等）。
+- `onEvent(event)`：更细粒度的事件流（`eval:start`、`invocation:budgetExceeded` 等）。
 
 用户在 config/评估用例中挂载的 Reporter 默认是 best-effort：抛错会形成永久 diagnostic，但不会中断在飞 Attempt。CLI 显式要求的 `--json` / `--junit` 与默认 results artifacts 是 required 输出，写失败会让最终运行判红。只有目的地没被内置覆盖时才需要自定义——`.niceeval/` 的 artifacts 已经记录了完整结果，事后分析直接读它（见[查看结果](./viewing-results)）。

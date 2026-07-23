@@ -12,7 +12,7 @@ import { mkdtemp, readdir, readFile, rm, writeFile as realWriteFile } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Json, JUnit } from "./json.ts";
-import type { RunSummary } from "../../types.ts";
+import type { InvocationSummary } from "../../types.ts";
 
 const failureState = vi.hoisted(() => ({
   renameError: undefined as Error | undefined,
@@ -42,9 +42,8 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   };
 });
 
-function summary(overrides: Partial<RunSummary> = {}): RunSummary {
+function summary(overrides: Partial<InvocationSummary> = {}): InvocationSummary {
   return {
-    agent: "codex",
     startedAt: "2026-07-07T00:00:00.000Z",
     completedAt: "2026-07-07T00:01:00.000Z",
     passed: 1,
@@ -79,7 +78,7 @@ describe("Json · 原子替换", () => {
     const root = await makeRoot();
     const path = join(root, "out.json");
 
-    await Json(path).onRunComplete!(summary({ passed: 3 }));
+    await Json(path).onInvocationComplete!(summary({ passed: 3 }));
 
     const parsed = JSON.parse(await readFile(path, "utf-8"));
     expect(parsed.passed).toBe(3);
@@ -92,7 +91,7 @@ describe("Json · 原子替换", () => {
     await realWriteFile(path, '{"old":"content"}', "utf-8"); // 上一轮已经成功写过一份
 
     failureState.renameError = new Error("simulated rename failure");
-    await expect(Json(path).onRunComplete!(summary({ passed: 99 }))).rejects.toThrow("simulated rename failure");
+    await expect(Json(path).onInvocationComplete!(summary({ passed: 99 }))).rejects.toThrow("simulated rename failure");
 
     // 旧内容原封不动——没有被替换成半成品,也没有被新内容(passed: 99)覆盖。
     expect(await readFile(path, "utf-8")).toBe('{"old":"content"}');
@@ -104,7 +103,7 @@ describe("Json · 原子替换", () => {
     const path = join(root, "out.json"); // 目标此前不存在
 
     failureState.writeFileError = new Error("simulated write failure");
-    await expect(Json(path).onRunComplete!(summary())).rejects.toThrow("simulated write failure");
+    await expect(Json(path).onInvocationComplete!(summary())).rejects.toThrow("simulated write failure");
 
     expect(await readdir(root)).toEqual([]); // 没有凭空出现半成品目标文件
   });
@@ -115,7 +114,7 @@ describe("Json · 原子替换", () => {
     const { mkdir } = await import("node:fs/promises");
     await mkdir(path); // 占用目标路径的不是文件而是目录——rename 一个文件覆盖已存在目录恒失败
 
-    await expect(Json(path).onRunComplete!(summary())).rejects.toThrow();
+    await expect(Json(path).onInvocationComplete!(summary())).rejects.toThrow();
 
     const entries = await readdir(root);
     expect(entries).toEqual(["out.json"]); // 目录还在,没有被替换、也没有多出 temp 文件残留
@@ -127,7 +126,7 @@ describe("JUnit · 原子替换", () => {
     const root = await makeRoot();
     const path = join(root, "out.xml");
 
-    await JUnit(path).onRunComplete!(
+    await JUnit(path).onInvocationComplete!(
       summary({
         results: [
           {
@@ -154,7 +153,7 @@ describe("JUnit · 原子替换", () => {
     await realWriteFile(path, "<old/>", "utf-8");
 
     failureState.renameError = new Error("simulated rename failure");
-    await expect(JUnit(path).onRunComplete!(summary())).rejects.toThrow("simulated rename failure");
+    await expect(JUnit(path).onInvocationComplete!(summary())).rejects.toThrow("simulated rename failure");
 
     expect(await readFile(path, "utf-8")).toBe("<old/>");
     expect(await tmpFilesIn(root)).toEqual([]);

@@ -35,14 +35,14 @@
   - [x] 0.7 同步 `docs/engineering/testing/unit/{results,experiments-runner,reports}.md` 的覆盖类别；只补本计划新增的可区分场景，不列实现细节
   - [x] 0.8 运行 `pnpm test test/docs-consistency.test.ts`，确认入口、链接与差异台账一致
 
-- [ ] **A. Invocation 公共模型正名**（依赖 0.4；可与 B、F、G 并行）
-  - [ ] A.1 在 `src/runner/types.ts` 一次性改为 `InvocationSummary`、`InvocationShape`、`InvocationCompletion`；`totalRuns` 改为契约名 `totalAttempts`；不留 deprecated alias（beta 契约）
-  - [ ] A.2 `Reporter` 改为 `onInvocationStart(evals, shape)` / `onEvalComplete(result)` / `onInvocationComplete(summary)`；删除 start 回调的 `agent` 参数
-  - [ ] A.3 `ReporterEvent` 全量改为 `invocation:*`，同步 runner 发送、`scopeReporter` 过滤、内建 Artifacts/Json/JUnit/Braintrust 和用户导出
-  - [ ] A.4 Braintrust 不再从 Invocation start 接收一个虚假的单 agent；逐 attempt 身份写入行 metadata，需要 Invocation 级 agent 集时从结果去重派生
-  - [ ] A.5 同步 `src/{index,types}.ts`、`src/results/index.ts` 与全部测试/fixture；全仓 grep 旧名应只命中明确讨论第三方旧术语的历史文字
-  - [ ] A.6 从源码 TSDoc 生成公开参考：`pnpm docs:reference`；确认 `docs-site/zh/reference/cli.mdx` 的 `--json` 已显示 `InvocationSummary`
-  - [ ] A.7 类型与运行时测试同时证明：用户 reporter 按两个参数实现 `onInvocationStart` 能编译，tsx 直接执行时 start/complete 回调各真实触发一次，不能只靠类型重命名
+- [x] **A. Invocation 公共模型正名**（依赖 0.4；可与 B、F、G 并行）
+  - [x] A.1 在 `src/runner/types.ts` 一次性改为 `InvocationSummary`、`InvocationShape`、`InvocationCompletion`；`totalRuns` 改为契约名 `totalAttempts`；不留 deprecated alias（beta 契约）
+  - [x] A.2 `Reporter` 改为 `onInvocationStart(evals, shape)` / `onEvalComplete(result)` / `onInvocationComplete(summary)`；删除 start 回调的 `agent` 参数
+  - [x] A.3 `ReporterEvent` 全量改为 `invocation:*`，同步 runner 发送、`scopeReporter` 过滤、内建 Artifacts/Json/JUnit/Braintrust 和用户导出
+  - [x] A.4 Braintrust 不再从 Invocation start 接收一个虚假的单 agent；逐 attempt 身份写入行 metadata，需要 Invocation 级 agent 集时从结果去重派生
+  - [x] A.5 同步 `src/{index,types}.ts`、`src/results/index.ts` 与全部测试/fixture；全仓 grep 旧名应只命中明确讨论第三方旧术语的历史文字
+  - [x] A.6 从源码 TSDoc 生成公开参考：`pnpm docs:reference`；确认 `docs-site/zh/reference/cli.mdx` 的 `--json` 已显示 `InvocationSummary`
+  - [x] A.7 类型与运行时测试同时证明：用户 reporter 按两个参数实现 `onInvocationStart` 能编译，tsx 直接执行时 start/complete 回调各真实触发一次，不能只靠类型重命名
 
 - [ ] **B. `current()` 保留真实 Snapshot**（依赖 0.3；可与 A、F、G 并行）
   - [ ] B.1 重构 `makeScope`，让 `attempts` 成为显式入参；`latest()` 可从真实快照平铺，`current()` 必须传逐题选择后的独立 attempt 集

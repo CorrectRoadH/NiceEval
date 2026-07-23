@@ -1,16 +1,15 @@
 // cases: docs/engineering/testing/unit/experiments-runner.md
-// computeCiExitCode 是 CompletionStatus 驱动退出码折叠的纯函数(RunSummary + RunCompletion →
+// computeCiExitCode 是 CompletionStatus 驱动退出码折叠的纯函数(InvocationSummary + InvocationCompletion →
 // 数字),直接单测。ci renderer 写出的具体行文本(envelope 字段、心跳节奏、失败展开上限、
 // stdout/stderr 流边界……)不是数据语义,由 docs/engineering/testing/e2e/cli.md「反馈输出格式」
 // 在真实进程输出上验收。
 
 import { describe, expect, it } from "vitest";
 import { computeCiExitCode } from "./ci.ts";
-import type { RunCompletion, RunSummary } from "../types.ts";
+import type { InvocationCompletion, InvocationSummary } from "../types.ts";
 
-function summary(overrides: Partial<RunSummary> = {}): RunSummary {
+function summary(overrides: Partial<InvocationSummary> = {}): InvocationSummary {
   return {
-    agent: "codex",
     startedAt: "2026-07-13T00:00:00.000Z",
     completedAt: "2026-07-13T00:03:21.000Z",
     passed: 1,
@@ -23,7 +22,7 @@ function summary(overrides: Partial<RunSummary> = {}): RunSummary {
   };
 }
 
-function completion(overrides: Partial<RunCompletion> = {}): RunCompletion {
+function completion(overrides: Partial<InvocationCompletion> = {}): InvocationCompletion {
   return { status: "complete", unstarted: 0, earlyExitUnstarted: 0, reporterErrors: [], ...overrides };
 }
 
