@@ -22,11 +22,12 @@ import type {
   AttemptSummaryData,
   AttemptTimelineData,
   AttemptTraceData,
-  AttemptUsageData,
+  UsageTableData,
 } from "../../model/types.ts";
 import type { AssertionResult, DiagnosticRecord, EvalResult, JsonValue, ScoreEntry, StreamEvent } from "../../../types.ts";
 import { attemptCostUSD } from "../../model/metrics.ts";
 import { failureSummaryOf } from "../entity-lists/compute.ts";
+import { buildO11ySummary } from "../../../o11y/derive.ts";
 
 // ───────────────────────── AttemptSummary(恒非空) ─────────────────────────
 
@@ -416,12 +417,43 @@ export function attemptDiagnosticsData(evidence: AttemptEvidence): AttemptDiagno
   return { groups: [...groups.entries()].map(([phase, items]) => ({ phase, items })) };
 }
 
-// ───────────────────────── AttemptUsage ─────────────────────────
+// ───────────────────────── UsageTable ─────────────────────────
 
-export function attemptUsageData(evidence: AttemptEvidence): AttemptUsageData | null {
-  const usage = evidence.result.usage;
-  if (!usage) return null;
-  return { usage, costUSD: attemptCostUSD(evidence.result) };
+/**
+ * 组装口径单源:docs/feature/reports/library/attempt-detail.md#usagetable-组装口径单源。
+ * identity 字段(locator/experimentId/evalId/attempt/verdict)恒有;turns/toolCalls 是 events
+ * 派生(与 o11y.json 行为摘要同源,buildO11ySummary 与 o11y.json 落盘走同一份纯函数),没有
+ * events 就整对省略——不因为其中一个恰好是 0 就当作"缺失"处理,0 是观测到的事实。
+ * uncachedInputTokens 只在 inputTokens 与 cacheReadTokens 都存在时派生,缺任一个不猜 0
+ * (text 面回退显示原始 inputTokens)。turns/toolCalls/usage 三者全部缺失时返回 null——
+ * 没有任何用量事实可摆,与其余叶子同一条"没有 usage 时零输出"规则。
+ */
+export function usageTableData(evidence: AttemptEvidence): UsageTableData | null {
+  const { result, identity } = evidence;
+  const o11y = evidence.events ? buildO11ySummary(evidence.events) : null;
+  const turns = o11y ? o11y.totalTurns : undefined;
+  const toolCalls = o11y ? o11y.totalToolCalls : undefined;
+  const usage = result.usage;
+  if (turns === undefined && toolCalls === undefined && usage === undefined) return null;
+
+  const uncachedInputTokens =
+    usage && typeof usage.inputTokens === "number" && typeof usage.cacheReadTokens === "number"
+      ? usage.inputTokens - usage.cacheReadTokens
+      : undefined;
+  const estimatedCostUSD = attemptCostUSD(result);
+
+  return {
+    locator: evidence.locator,
+    experimentId: identity.experimentId,
+    evalId: identity.evalId,
+    attempt: identity.attempt,
+    verdict: result.verdict,
+    ...(turns !== undefined ? { turns } : {}),
+    ...(toolCalls !== undefined ? { toolCalls } : {}),
+    ...(usage !== undefined ? { usage } : {}),
+    ...(uncachedInputTokens !== undefined ? { uncachedInputTokens } : {}),
+    ...(estimatedCostUSD !== null ? { estimatedCostUSD } : {}),
+  };
 }
 
 // ───────────────────────── AttemptTrace ─────────────────────────

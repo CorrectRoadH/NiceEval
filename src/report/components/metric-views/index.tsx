@@ -10,6 +10,7 @@ import type {
   MatrixData,
   ScatterData,
   ScoreboardData,
+  StabilityMatrixData,
   TableData,
 } from "../../model/types.ts";
 import type { AttemptLocator } from "../../../results/locator.ts";
@@ -32,6 +33,7 @@ import {
   metricScatterData,
   metricTableData,
   scoreboardData,
+  stabilityMatrixData,
   type DeltaTableOptions,
   type GroupMatrixOptions,
   type MetricLineOptions,
@@ -39,8 +41,19 @@ import {
   type MetricScatterOptions,
   type MetricTableOptions,
   type ScoreboardOptions,
+  type StabilityMatrixOptions,
 } from "./compute.ts";
-import { barsText, deltaText, groupMatrixText, lineText, matrixText, scatterText, scoreboardText, tableText } from "./faces.ts";
+import {
+  barsText,
+  deltaText,
+  groupMatrixText,
+  lineText,
+  matrixText,
+  scatterText,
+  scoreboardText,
+  stabilityMatrixText,
+  tableText,
+} from "./faces.ts";
 import { MetricTable as MetricTableWeb } from "./MetricTable.tsx";
 import { MetricMatrix as MetricMatrixWeb } from "./MetricMatrix.tsx";
 import { MetricBars as MetricBarsWeb } from "./MetricBars.tsx";
@@ -49,6 +62,7 @@ import { Scoreboard as ScoreboardWeb } from "./Scoreboard.tsx";
 import { MetricScatter as MetricScatterWeb } from "./MetricScatter.tsx";
 import { MetricLine as MetricLineWeb } from "./MetricLine.tsx";
 import { DeltaTable as DeltaTableWeb } from "./DeltaTable.tsx";
+import { StabilityMatrix as StabilityMatrixWeb } from "./StabilityMatrix.tsx";
 
 /** columns / metric / x / y 共用的 MetricColumn 形状(src/report/model/types.ts)。 */
 function metricColumnProblem(value: unknown, path: string): string | null {
@@ -191,33 +205,127 @@ export const validateScoreboardData: Validator = (data) => {
     });
   });
 };
-const DELTA_OUTCOMES = ["improved", "regressed", "unchanged", "unavailable"];
+const VERDICTS = ["passed", "failed", "errored", "skipped"];
+/** DeltaCell:同 MetricCell 家族但字段不同(verdict/totalScore/attempts/totalTokens/totalCostUSD/historical)。 */
+function deltaCellProblem(value: unknown, path: string): string | null {
+  if (!isObject(value)) return `"${path}" must be an object { scoring, verdict, attempts, historical }`;
+  if (value.scoring !== "pass" && value.scoring !== "points") return `"${path}.scoring" must be "pass" or "points"`;
+  if (typeof value.verdict !== "string" || !VERDICTS.includes(value.verdict)) {
+    return `"${path}.verdict" must be one of ${JSON.stringify(VERDICTS)}`;
+  }
+  if (value.totalScore !== undefined && typeof value.totalScore !== "number") return `"${path}.totalScore" must be a number`;
+  if (!Array.isArray(value.attempts) || !value.attempts.every((a) => typeof a === "string")) {
+    return `"${path}.attempts" must be an array of locator strings`;
+  }
+  if (value.totalTokens !== undefined && typeof value.totalTokens !== "number") return `"${path}.totalTokens" must be a number`;
+  if (value.totalCostUSD !== undefined && typeof value.totalCostUSD !== "number") return `"${path}.totalCostUSD" must be a number`;
+  if (typeof value.historical !== "boolean") return `"${path}.historical" must be a boolean`;
+  return null;
+}
+function deltaTotalsProblem(value: unknown, path: string): string | null {
+  if (!isObject(value)) return `"${path}" must be an object { scoringComposition }`;
+  const composition = value.scoringComposition;
+  if (composition !== "pass" && composition !== "points" && composition !== "mixed") {
+    return `"${path}.scoringComposition" must be one of ["pass","points","mixed"]`;
+  }
+  if (value.passed !== undefined && typeof value.passed !== "number") return `"${path}.passed" must be a number`;
+  if (value.denominator !== undefined && typeof value.denominator !== "number") return `"${path}.denominator" must be a number`;
+  if (value.totalScore !== undefined && typeof value.totalScore !== "number") return `"${path}.totalScore" must be a number`;
+  if (value.totalTokens !== undefined && typeof value.totalTokens !== "number") return `"${path}.totalTokens" must be a number`;
+  if (value.totalCostUSD !== undefined && typeof value.totalCostUSD !== "number") return `"${path}.totalCostUSD" must be a number`;
+  return null;
+}
+function pairedDeltaProblem(value: unknown, path: string): string | null {
+  if (!isObject(value)) return `"${path}" must be an object { commonEvalIds }`;
+  if (!Array.isArray(value.commonEvalIds) || !value.commonEvalIds.every((id) => typeof id === "string")) {
+    return `"${path}.commonEvalIds" must be an array of strings`;
+  }
+  if (value.pass !== undefined) {
+    if (!isObject(value.pass) || !Array.isArray(value.pass.evalIds) || typeof value.pass.passRatePoints !== "number") {
+      return `"${path}.pass" must be an object { evalIds, passRatePoints }`;
+    }
+  }
+  if (value.points !== undefined) {
+    if (!isObject(value.points) || !Array.isArray(value.points.evalIds) || typeof value.points.totalScore !== "number") {
+      return `"${path}.points" must be an object { evalIds, totalScore }`;
+    }
+  }
+  if (value.tokens !== undefined && typeof value.tokens !== "number") return `"${path}.tokens" must be a number`;
+  if (value.costUSD !== undefined && typeof value.costUSD !== "number") return `"${path}.costUSD" must be a number`;
+  return null;
+}
 export const validateDeltaData: Validator = (data) => {
   if (!isObject(data)) return "expected an object";
   if (typeof data.byDimension !== "string") return 'missing "byDimension" (string)';
-  const columnsProblem = arrayProblem(data.columns, "columns", metricColumnProblem);
-  if (columnsProblem !== null) return columnsProblem;
-  return arrayProblem(data.rows, "rows", (row, path) => {
+  if (!Array.isArray(data.conditions) || !data.conditions.every((c) => typeof c === "string")) {
+    return '"conditions" must be an array of strings';
+  }
+  const rowsProblem = arrayProblem(data.rows, "rows", (row, path) => {
     if (!isObject(row) || typeof row.key !== "string") return `"${path}" must be an object with a string "key"`;
-    if (!isLocalizedText(row.label)) return `"${path}.label" must be a LocalizedText`;
-    if (!isObject(row.a) || typeof row.a.key !== "string") return `"${path}.a" must be an object with a string "key"`;
-    if (!isObject(row.b) || typeof row.b.key !== "string") return `"${path}.b" must be an object with a string "key"`;
+    if (typeof row.flipped !== "boolean") return `"${path}.flipped" must be a boolean`;
     if (!isObject(row.cells)) return `"${path}.cells" must be an object`;
-    for (const [metricKey, cell] of Object.entries(row.cells)) {
-      const cellPath = `${path}.cells.${metricKey}`;
-      if (!isObject(cell)) return `"${cellPath}" must be an object { a, b, delta, display, outcome }`;
-      const aProblem = cellProblem(cell.a, `${cellPath}.a`);
-      if (aProblem !== null) return aProblem;
-      const bProblem = cellProblem(cell.b, `${cellPath}.b`);
-      if (bProblem !== null) return bProblem;
-      if (!(cell.delta === null || typeof cell.delta === "number")) return `"${cellPath}.delta" must be a number or null`;
-      if (!isLocalizedText(cell.display)) return `"${cellPath}.display" must be a LocalizedText`;
-      if (typeof cell.outcome !== "string" || !DELTA_OUTCOMES.includes(cell.outcome)) {
-        return `"${cellPath}.outcome" must be one of ${JSON.stringify(DELTA_OUTCOMES)}`;
+    for (const [condition, cell] of Object.entries(row.cells)) {
+      const problem = deltaCellProblem(cell, `${path}.cells.${condition}`);
+      if (problem !== null) return problem;
+    }
+    if (row.delta !== undefined) {
+      if (!isObject(row.delta)) return `"${path}.delta" must be an object`;
+      for (const [condition, d] of Object.entries(row.delta)) {
+        if (!isObject(d)) return `"${path}.delta.${condition}" must be an object`;
+        if (d.score !== undefined && typeof d.score !== "number") return `"${path}.delta.${condition}.score" must be a number`;
+        if (d.tokens !== undefined && typeof d.tokens !== "number") return `"${path}.delta.${condition}.tokens" must be a number`;
+        if (d.costUSD !== undefined && typeof d.costUSD !== "number") return `"${path}.delta.${condition}.costUSD" must be a number`;
       }
     }
     return null;
   });
+  if (rowsProblem !== null) return rowsProblem;
+  if (!isObject(data.totals)) return '"totals" must be an object';
+  for (const [condition, totals] of Object.entries(data.totals)) {
+    const problem = deltaTotalsProblem(totals, `totals.${condition}`);
+    if (problem !== null) return problem;
+  }
+  if (!isObject(data.pairedDelta)) return '"pairedDelta" must be an object';
+  for (const [condition, pd] of Object.entries(data.pairedDelta)) {
+    const problem = pairedDeltaProblem(pd, `pairedDelta.${condition}`);
+    if (problem !== null) return problem;
+  }
+  return null;
+};
+
+function stabilityCellProblem(value: unknown, path: string): string | null {
+  if (!isObject(value)) return `"${path}" must be an object { passed, failed, errored, executions }`;
+  for (const key of ["passed", "failed", "errored", "executions"] as const) {
+    if (typeof value[key] !== "number") return `"${path}.${key}" must be a number`;
+  }
+  return null;
+}
+export const validateStabilityMatrixData: Validator = (data) => {
+  if (!isObject(data)) return "expected an object";
+  if (typeof data.rowDimension !== "string" || typeof data.columnDimension !== "string") {
+    return 'missing "rowDimension" / "columnDimension" (string)';
+  }
+  const rowsProblem = arrayProblem(data.rows, "rows", (row, path) => {
+    if (!isObject(row) || typeof row.evalId !== "string") return `"${path}" must be an object with a string "evalId"`;
+    if (typeof row.neverPassed !== "boolean") return `"${path}.neverPassed" must be a boolean`;
+    return null;
+  });
+  if (rowsProblem !== null) return rowsProblem;
+  if (!Array.isArray(data.columns) || !data.columns.every((c) => typeof c === "string")) {
+    return '"columns" must be an array of strings';
+  }
+  const cellsProblem = arrayProblem(data.cells, "cells", (item, path) => {
+    if (!isObject(item)) return `"${path}" must be an object`;
+    if (typeof item.row !== "string" || typeof item.column !== "string") return `"${path}.row" / "${path}.column" must be strings`;
+    return stabilityCellProblem(item.cell, `${path}.cell`);
+  });
+  if (cellsProblem !== null) return cellsProblem;
+  if (!isObject(data.totals)) return '"totals" must be an object';
+  for (const [column, cell] of Object.entries(data.totals)) {
+    const problem = stabilityCellProblem(cell, `totals.${column}`);
+    if (problem !== null) return problem;
+  }
+  return null;
 };
 
 // ───────────────────────── 指标组件 ─────────────────────────
@@ -406,7 +514,7 @@ export type DeltaTableProps = DataProps<
   ChromeProps & { attemptHref?: (locator: AttemptLocator) => string }
 >;
 
-/** 成对对比:每行一对(字面声明或 pairsByFlag 派生),格子里 A、B、Δ 三个值。 */
+/** 对照矩阵:每行一道 eval,每组列一个条件(字面声明或 conditionsByFlag 派生),首个条件是基准。 */
 export const DeltaTable = makeDataComponent<
   DeltaData,
   DeltaTableOptions,
@@ -416,8 +524,40 @@ export const DeltaTable = makeDataComponent<
   dataFnName: "deltaTableData",
   shapeName: "DeltaData",
   dataFn: deltaTableData,
-  specKeys: ["by", "pairs", "metrics", "evals"],
+  specKeys: ["by", "conditions", "evals"],
   validate: validateDeltaData,
-  web: (props, ctx) => <DeltaTableWeb data={props.data} locale={props.locale ?? ctx.locale} className={props.className} />,
+  web: (props, ctx) => (
+    <DeltaTableWeb data={props.data} attemptHref={hrefOf(props, ctx)} locale={props.locale ?? ctx.locale} className={props.className} />
+  ),
   text: (props, ctx) => deltaText(props.data, ctx),
 }) as unknown as ReportComponent<DeltaTableProps>;
+
+export type StabilityMatrixProps = DataProps<
+  StabilityMatrixData,
+  StabilityMatrixOptions,
+  ChromeProps & { attemptHref?: (locator: AttemptLocator) => string }
+>;
+
+/** 稳定性矩阵:行 = eval,列 = by 维度取值,格 = 全部历史执行的判定计数;回答「哪些题从来没通过过」。 */
+export const StabilityMatrix = makeDataComponent<
+  StabilityMatrixData,
+  StabilityMatrixOptions,
+  ChromeProps & { attemptHref?: (locator: AttemptLocator) => string }
+>({
+  name: "StabilityMatrix",
+  dataFnName: "stabilityMatrixData",
+  shapeName: "StabilityMatrixData",
+  dataFn: (input, options) => stabilityMatrixData(input, options),
+  specKeys: ["by", "evals"],
+  validate: validateStabilityMatrixData,
+  web: (props, ctx) =>
+    props.data.rows.length === 0 ? null : (
+      <StabilityMatrixWeb
+        data={props.data}
+        attemptHref={hrefOf(props, ctx)}
+        locale={props.locale ?? ctx.locale}
+        className={props.className}
+      />
+    ),
+  text: (props, ctx) => stabilityMatrixText(props.data, ctx),
+}) as unknown as ReportComponent<StabilityMatrixProps>;

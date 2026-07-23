@@ -27,7 +27,7 @@ import {
   attemptSummaryData,
   attemptTimelineData,
   attemptTraceData,
-  attemptUsageData,
+  usageTableData,
 } from "./compute.ts";
 import {
   AttemptAssertions,
@@ -42,7 +42,7 @@ import {
   AttemptSummary,
   AttemptTimeline,
   AttemptTrace,
-  AttemptUsage,
+  UsageTable,
   validateAssertionsData,
   validateConversationData,
   validateDiagnosticsData,
@@ -352,12 +352,77 @@ describe("Attempt 详情组件族:非空/空证据矩阵", () => {
     expect(validateDiagnosticsData(data)).toBeNull();
   });
 
-  it("AttemptUsage:没有 usage 时 null", () => {
-    expect(attemptUsageData(evidenceOf())).toBeNull();
-    const withUsage = evidenceOf({ result: resultOf({ usage: { inputTokens: 10, outputTokens: 5 } }) });
-    const data = attemptUsageData(withUsage);
-    expect(data?.usage.inputTokens).toBe(10);
+  it("UsageTable:没有 turns/toolCalls/usage 时 null", () => {
+    expect(usageTableData(evidenceOf())).toBeNull();
+  });
+
+  it("UsageTable:身份字段恒有(locator/experimentId/evalId/attempt/verdict),usage 有即非 null", () => {
+    const evidence = evidenceOf({ result: resultOf({ verdict: "failed", usage: { inputTokens: 10, outputTokens: 5 } }) });
+    const data = usageTableData(evidence)!;
+    expect(data.locator).toBe(evidence.locator);
+    expect(data.experimentId).toBe(evidence.identity.experimentId);
+    expect(data.evalId).toBe(evidence.identity.evalId);
+    expect(data.attempt).toBe(evidence.identity.attempt);
+    expect(data.verdict).toBe("failed");
+    expect(data.usage).toEqual({ inputTokens: 10, outputTokens: 5 });
     expect(validateUsageData(data)).toBeNull();
+  });
+
+  it("UsageTable:turns/toolCalls 来自事件流(与 usage 独立),没有 events 时省略而不是 0", () => {
+    const events: StreamEvent[] = [
+      { type: "message", role: "user", text: "go" },
+      { type: "message", role: "assistant", text: "ok" },
+      { type: "action.called", callId: "c1", name: "read", tool: "file_read", input: {} },
+      { type: "action.called", callId: "c2", name: "read", tool: "file_read", input: {} },
+    ];
+    const withEvents = usageTableData(evidenceOf({ events }))!;
+    expect(withEvents.turns).toBe(1); // 只数 assistant message
+    expect(withEvents.toolCalls).toBe(2);
+    expect(withEvents.usage).toBeUndefined(); // 没有落盘 usage 时该字段省略,不是空对象
+
+    // 有 usage 但没有 events:turns/toolCalls 整对省略(不是 0——0 是"有 events 但零轮"的事实,
+    // 这里是"压根没有事件骨架")。
+    const withoutEvents = usageTableData(evidenceOf({ result: resultOf({ usage: { inputTokens: 1, outputTokens: 1 } }) }))!;
+    expect(withoutEvents.turns).toBeUndefined();
+    expect(withoutEvents.toolCalls).toBeUndefined();
+    expect("turns" in withoutEvents).toBe(false);
+  });
+
+  it("UsageTable:events 存在但零轮/零工具调用时,turns/toolCalls 如实为 0(观测事实,不是缺失)", () => {
+    const events: StreamEvent[] = [{ type: "message", role: "user", text: "go" }];
+    const data = usageTableData(evidenceOf({ events }))!;
+    expect(data.turns).toBe(0);
+    expect(data.toolCalls).toBe(0);
+    expect("turns" in data).toBe(true);
+  });
+
+  it("UsageTable:uncachedInputTokens 只在 inputTokens 与 cacheReadTokens 都存在时派生,缺任一不猜 0", () => {
+    const both = usageTableData(evidenceOf({ result: resultOf({ usage: { inputTokens: 100, outputTokens: 1, cacheReadTokens: 40 } }) }))!;
+    expect(both.uncachedInputTokens).toBe(60);
+
+    // 只缺 cacheReadTokens(该 agent 不上报缓存命中):不派生,整字段省略(不回退猜 0)——
+    // text 面此时回退显示原始 inputTokens,见 faces.ts::usageTableText。
+    const noCacheRead = usageTableData(evidenceOf({ result: resultOf({ usage: { inputTokens: 100, outputTokens: 1 } }) }))!;
+    expect(noCacheRead.uncachedInputTokens).toBeUndefined();
+    expect("uncachedInputTokens" in noCacheRead).toBe(false);
+  });
+
+  it("UsageTable:requests 缺失时不出现在 usage 对象里(落盘原样透传,不由 usageTableData 凑值)", () => {
+    const withoutRequests = usageTableData(evidenceOf({ result: resultOf({ usage: { inputTokens: 1, outputTokens: 1 } }) }))!;
+    expect(withoutRequests.usage?.requests).toBeUndefined();
+    expect(withoutRequests.usage && "requests" in withoutRequests.usage).toBe(false);
+
+    const withRequests = usageTableData(evidenceOf({ result: resultOf({ usage: { inputTokens: 1, outputTokens: 1, requests: 4 } }) }))!;
+    expect(withRequests.usage?.requests).toBe(4);
+  });
+
+  it("UsageTable:estimatedCostUSD 能算出成本时才出现,算不出时整字段省略(不是 null)", () => {
+    const withCost = usageTableData(evidenceOf({ result: resultOf({ usage: { inputTokens: 1, outputTokens: 1 }, estimatedCostUSD: 0.5 }) }))!;
+    expect(withCost.estimatedCostUSD).toBe(0.5);
+
+    const withoutCost = usageTableData(evidenceOf({ result: resultOf({ usage: { inputTokens: 1, outputTokens: 1 } }) }))!;
+    expect(withoutCost.estimatedCostUSD).toBeUndefined();
+    expect("estimatedCostUSD" in withoutCost).toBe(false);
   });
 
   it("AttemptTrace:没有 trace 时 null", () => {
@@ -433,7 +498,7 @@ describe("AttemptAssessment / AttemptDetail(组合组件)", () => {
       AttemptFixPrompt,
       AttemptTimeline,
       AttemptDiagnostics,
-      AttemptUsage,
+      UsageTable,
       AttemptConversation,
       AttemptTrace,
       AttemptDiff,

@@ -1,6 +1,6 @@
 # 失败诊断首页
 
-不带 `--report` 且无证据 flag 打开 attempt 时，选择内建 `standard` 中的 [attempt-input page](../library/attempt-detail.md)，注入 locator 并渲染其 `<AttemptDetail />` text 面；这张普通 page 就是本页所说的“诊断首页”，不是 show 宿主另藏的一套 renderer。区块按内建顺序堆叠——`AttemptSummary`（身份与判定，恒非空）、`AttemptAssessment`（`AttemptError` 加 `AttemptSource`，源码不可用时换成 `AttemptAssertions`）、`AttemptFixPrompt`（文本面零输出）、`AttemptTimeline`、`AttemptDiagnostics`、`AttemptUsage`、`AttemptConversation`、`AttemptTrace`、`AttemptDiff`——每个区块各自决定是否有内容：没有对应证据时那一块直接不出现，不留空标题。带 `--report <file>` 时，选择该定义自己的 attempt-input page，content 与顺序可以不同：
+不带 `--report` 且无证据 flag 打开 attempt 时，选择内建 `standard` 中的 [attempt-input page](../library/attempt-detail.md)，注入 locator 并渲染其 `<AttemptDetail />` text 面；这张普通 page 就是本页所说的“诊断首页”，不是 show 宿主另藏的一套 renderer。区块按内建顺序堆叠——`AttemptSummary`（身份与判定，恒非空）、`AttemptAssessment`（`AttemptError` 加 `AttemptSource`，源码不可用时换成 `AttemptAssertions`）、`AttemptFixPrompt`（文本面零输出）、`AttemptTimeline`、`AttemptDiagnostics`、`UsageTable`、`AttemptConversation`、`AttemptTrace`、`AttemptDiff`——每个区块各自决定是否有内容：没有对应证据时那一块直接不出现，不留空标题。带 `--report <file>` 时，选择该定义自己的 attempt-input page，content 与顺序可以不同：
 
 ```text
 $ niceeval show @1qrdcfq8

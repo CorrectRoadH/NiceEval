@@ -150,8 +150,14 @@ const en = {
   "scoreboard.othersWeight": "others ×1",
   "scoreboard.subjectTitle": "{questions} evals, weighted {earned} of {possible}",
 
-  "delta.pairHeader": "pair (A → B)",
-  "delta.empty": "{experiments} experiments, 0 comparable pairs",
+  "delta.empty": "{experiments} experiments, 0 comparable conditions",
+  "delta.totalsRow": "totals",
+  "delta.passRate": "pass rate",
+  "delta.totalScore": "total score",
+  "delta.cost": "cost",
+  "delta.commonVsBaseline": "{n} common vs baseline",
+
+  "stability.neverPassed": "never passed",
 
   /** ScopeWarnings 聚合层的 chrome:汇总行、kind 徽标、组头与明细折叠标签;message 本体不经字典。 */
   "warnings.summary.experiments.one": "{n} experiment flagged",
@@ -305,8 +311,14 @@ const zhCN: Record<ReportMessageKey, string> = {
   "scoreboard.othersWeight": "其余 ×1",
   "scoreboard.subjectTitle": "{questions} 道题,加权得分 {earned}/{possible}",
 
-  "delta.pairHeader": "对比 (A → B)",
-  "delta.empty": "{experiments} 个实验、0 个可配对",
+  "delta.empty": "{experiments} 个实验、0 个可配对条件",
+  "delta.totalsRow": "汇总",
+  "delta.passRate": "通过率",
+  "delta.totalScore": "总分",
+  "delta.cost": "成本",
+  "delta.commonVsBaseline": "共同 {n} 题对基准",
+
+  "stability.neverPassed": "从未通过",
 
   "warnings.summary.experiments.one": "{n} 个实验的数字带警告",
   "warnings.summary.experiments.other": "{n} 个实验的数字带警告",

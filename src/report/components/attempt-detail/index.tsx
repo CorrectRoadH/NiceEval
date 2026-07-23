@@ -20,7 +20,7 @@ import type {
   AttemptSummaryData,
   AttemptTimelineData,
   AttemptTraceData,
-  AttemptUsageData,
+  UsageTableData,
 } from "../../model/types.ts";
 import {
   attemptAssertionsData,
@@ -33,7 +33,7 @@ import {
   attemptSummaryData,
   attemptTimelineData,
   attemptTraceData,
-  attemptUsageData,
+  usageTableData,
 } from "./compute.ts";
 import {
   attemptAssertionsText,
@@ -46,7 +46,7 @@ import {
   attemptSummaryText,
   attemptTimelineText,
   attemptTraceText,
-  attemptUsageText,
+  usageTableText,
 } from "./faces.ts";
 import { AttemptSummary as AttemptSummaryWeb } from "./AttemptSummary.tsx";
 import { AttemptError as AttemptErrorWeb } from "./AttemptError.tsx";
@@ -56,7 +56,7 @@ import { AttemptFixPrompt as AttemptFixPromptWeb } from "./AttemptFixPrompt.tsx"
 import { AttemptTimeline as AttemptTimelineWeb } from "./AttemptTimeline.tsx";
 import { AttemptConversation as AttemptConversationWeb } from "./AttemptConversation.tsx";
 import { AttemptDiagnostics as AttemptDiagnosticsWeb } from "./AttemptDiagnostics.tsx";
-import { AttemptUsage as AttemptUsageWeb } from "./AttemptUsage.tsx";
+import { UsageTable as UsageTableWeb } from "./UsageTable.tsx";
 import { AttemptTrace as AttemptTraceWeb } from "./AttemptTrace.tsx";
 import { AttemptDiff as AttemptDiffWeb } from "./AttemptDiff.tsx";
 
@@ -535,32 +535,47 @@ export const AttemptDiagnostics = makeAttemptComponent<AttemptDiagnosticsData>({
   text: (props, ctx) => attemptDiagnosticsText(props.data, ctx),
 });
 
-// ───────────────────────── AttemptUsage ─────────────────────────
+// ───────────────────────── UsageTable ─────────────────────────
 
-/** Usage(src/o11y/types.ts):cacheReadTokens / cacheWriteTokens / requests / costUSD 均可选。 */
+/** Usage(落盘形状,src/types.ts):每个字段只在协议真实提供时存在,不校验必填。 */
 function usageProblem(value: unknown, path: string): string | null {
-  if (!isObject(value)) return `"${path}" must be a Usage { inputTokens, outputTokens }`;
-  if (typeof value.inputTokens !== "number") return `"${path}.inputTokens" must be a number`;
-  if (typeof value.outputTokens !== "number") return `"${path}.outputTokens" must be a number`;
+  if (!isObject(value)) return `"${path}" must be a Usage object`;
+  for (const key of ["inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "requests"] as const) {
+    if (value[key] !== undefined && typeof value[key] !== "number") return `"${path}.${key}" must be a number`;
+  }
   return null;
 }
 
 export function validateUsageData(data: unknown): string | null {
   if (!isObject(data)) return "expected an object";
-  const usageProb = usageProblem(data.usage, "usage");
-  if (usageProb !== null) return usageProb;
-  if (!(data.costUSD === null || typeof data.costUSD === "number")) return '"costUSD" must be a number or null';
+  if (typeof data.locator !== "string") return 'missing "locator" (string)';
+  if (typeof data.experimentId !== "string") return 'missing "experimentId" (string)';
+  if (typeof data.evalId !== "string") return 'missing "evalId" (string)';
+  if (typeof data.attempt !== "number") return '"attempt" must be a number';
+  if (typeof data.verdict !== "string") return 'missing "verdict" (string)';
+  if (data.turns !== undefined && typeof data.turns !== "number") return '"turns" must be a number';
+  if (data.toolCalls !== undefined && typeof data.toolCalls !== "number") return '"toolCalls" must be a number';
+  if (data.usage !== undefined) {
+    const usageProb = usageProblem(data.usage, "usage");
+    if (usageProb !== null) return usageProb;
+  }
+  if (data.uncachedInputTokens !== undefined && typeof data.uncachedInputTokens !== "number") {
+    return '"uncachedInputTokens" must be a number';
+  }
+  if (data.estimatedCostUSD !== undefined && typeof data.estimatedCostUSD !== "number") {
+    return '"estimatedCostUSD" must be a number';
+  }
   return null;
 }
 
-export const AttemptUsage = makeAttemptComponent<AttemptUsageData>({
-  name: "AttemptUsage",
-  dataFnName: "attemptUsageData",
-  shapeName: "AttemptUsageData",
-  dataFn: attemptUsageData,
+export const UsageTable = makeAttemptComponent<UsageTableData>({
+  name: "UsageTable",
+  dataFnName: "usageTableData",
+  shapeName: "UsageTableData",
+  dataFn: usageTableData,
   validate: validateUsageData,
-  web: (props, ctx) => <AttemptUsageWeb data={props.data} className={props.className} />,
-  text: (props, ctx) => attemptUsageText(props.data, ctx),
+  web: (props, ctx) => <UsageTableWeb data={props.data} className={props.className} />,
+  text: (props, ctx) => usageTableText(props.data, ctx),
 });
 
 // ───────────────────────── AttemptTrace ─────────────────────────
@@ -644,7 +659,7 @@ export const AttemptDetail = defineComponent((_props: Record<string, never>, ctx
       <AttemptFixPrompt />
       <AttemptTimeline />
       <AttemptDiagnostics />
-      <AttemptUsage />
+      <UsageTable />
       {conversationLivesInSource ? null : <AttemptConversation />}
       <AttemptTrace />
       <AttemptDiff />

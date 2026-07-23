@@ -12,11 +12,13 @@ import type {
   MetricColumn,
   ScatterData,
   ScoreboardData,
+  StabilityMatrixCell,
+  StabilityMatrixData,
   TableData,
 } from "../../model/types.ts";
 import type { TextContext } from "../../definition/tree.ts";
 import type { TableColumn, TableRow } from "../../definition/primitives.tsx";
-import { formatMetricValue, formatPlainNumber } from "../../model/format.ts";
+import { formatMetricValue, formatPlainNumber, formatPoints, verdictMark } from "../../model/format.ts";
 import { countText, localeText, resolveLocalizedText, resolveMetricLabel, type ReportLocale } from "../../model/locale.ts";
 import { padDisplay, stringWidth, textBar } from "../../model/text-layout.ts";
 import { renderTableText } from "../../definition/table-text.ts";
@@ -430,29 +432,141 @@ export function lineText(data: LineData, ctx: TextContext): string {
 
 // ───────────────────────── DeltaTable ─────────────────────────
 
+/** 带符号的差值文案:正数补 `+`,负数由 formatMetricValue 自带 `-`。 */
+function signedMetricText(value: number, unit?: string): string {
+  const text = formatMetricValue(Math.abs(value), unit);
+  return value >= 0 ? `+${text}` : `-${text}`;
+}
+
+type DeltaEntry = NonNullable<DeltaData["rows"][number]["delta"]>[string];
+
+/** 一格的摘要:通过制显示 verdict,计分制在同一位置显示挣分;随后 tokens、成本;历史执行叠加 ↩。 */
+function deltaConditionCellText(cell: DeltaData["rows"][number]["cells"][string] | undefined, locale: ReportLocale): string {
+  if (!cell) return MISSING_MARK;
+  const parts: string[] = [
+    cell.scoring === "points"
+      ? cell.totalScore !== undefined
+        ? formatPoints(cell.totalScore)
+        : MISSING_MARK
+      : `${verdictMark(cell.verdict)} ${localeText(locale, `verdict.${cell.verdict}`)}`,
+    cell.totalTokens !== undefined ? formatMetricValue(cell.totalTokens) : MISSING_MARK,
+    cell.totalCostUSD !== undefined ? formatMetricValue(cell.totalCostUSD, "$") : MISSING_MARK,
+  ];
+  if (cell.historical) parts.push("↩");
+  return parts.join("   ");
+}
+
+/** 对基准的 Δ:任一侧缺数据的分量各自显示缺,不把缺失当 0。 */
+function deltaEntryText(entry: DeltaEntry | undefined, hasScore: boolean): string {
+  const parts: string[] = [];
+  if (hasScore) parts.push(entry?.score !== undefined ? signedMetricText(entry.score) : MISSING_MARK);
+  parts.push(entry?.tokens !== undefined ? signedMetricText(entry.tokens) : MISSING_MARK);
+  parts.push(entry?.costUSD !== undefined ? signedMetricText(entry.costUSD, "$") : MISSING_MARK);
+  return parts.join("   ");
+}
+
+function deltaTotalsCellText(totals: DeltaData["totals"][string] | undefined, locale: ReportLocale): string {
+  if (!totals) return MISSING_MARK;
+  const parts: string[] = [];
+  if (totals.passed !== undefined && totals.denominator !== undefined) {
+    parts.push(`${totals.passed}/${totals.denominator} ${localeText(locale, "verdict.passed")}`);
+  }
+  if (totals.totalScore !== undefined) parts.push(formatPoints(totals.totalScore));
+  if (totals.totalTokens !== undefined) parts.push(formatMetricValue(totals.totalTokens));
+  if (totals.totalCostUSD !== undefined) parts.push(formatMetricValue(totals.totalCostUSD, "$"));
+  return parts.length > 0 ? parts.join("   ") : MISSING_MARK;
+}
+
 export function deltaText(data: DeltaData, ctx: TextContext): string {
   const locale = ctx.locale;
   // 0 对不是错误:明确空态并报告配对域实验数(派生形态携带;字面形态缺省按 0)。
   if (data.rows.length === 0) {
     return localeText(locale, "delta.empty", { experiments: data.experiments ?? 0 });
   }
+  const baseline = data.conditions[0];
+  const nonBaseline = data.conditions.slice(1);
+  const hasScore = data.rows.some((row) => Object.values(row.cells).some((cell) => cell.scoring === "points"));
+
   const columns: TableColumn[] = [
-    { key: "pair", header: localeText(locale, "delta.pairHeader") },
-    ...data.columns.map((c, i) => ({ key: `metric${i}`, header: resolveMetricLabel(c.label, locale, c.key) })),
+    { key: "eval", header: localeText(locale, "table.eval") },
+    ...data.conditions.map((condition, i) => ({ key: `cond${i}`, header: condition })),
+    ...nonBaseline.map((condition, i) => ({ key: `delta${i}`, header: `Δ ${condition}` })),
   ];
+
   const rows: TableRow[] = data.rows.map((row) => {
-    const cells: Record<string, string | null> = { pair: resolveLocalizedText(row.label, locale) };
-    data.columns.forEach((col, i) => {
-      const cell = row.cells[col.key];
-      if (!cell) {
-        cells[`metric${i}`] = null;
-        return;
-      }
-      const a = cell.a.value === null ? MISSING_MARK : resolveLocalizedText(cell.a.display, locale);
-      const b = cell.b.value === null ? MISSING_MARK : resolveLocalizedText(cell.b.display, locale);
-      cells[`metric${i}`] = `${a} → ${b}   ${resolveLocalizedText(cell.display, locale)}`;
+    const cells: Record<string, string | null> = { eval: row.flipped ? `${row.key}  ⇄` : row.key };
+    data.conditions.forEach((condition, i) => {
+      cells[`cond${i}`] = deltaConditionCellText(row.cells[condition], locale);
+    });
+    nonBaseline.forEach((condition, i) => {
+      cells[`delta${i}`] = deltaEntryText(row.delta?.[condition], hasScore);
     });
     return { key: row.key, cells };
   });
+
+  const totalsCells: Record<string, string | null> = { eval: localeText(locale, "delta.totalsRow") };
+  data.conditions.forEach((condition, i) => {
+    totalsCells[`cond${i}`] = deltaTotalsCellText(data.totals[condition], locale);
+  });
+  nonBaseline.forEach((condition, i) => {
+    totalsCells[`delta${i}`] = null;
+  });
+  rows.push({ key: "__totals__", cells: totalsCells });
+
+  const table = renderTableText({ columns: columns as unknown as [TableColumn, ...TableColumn[]], rows, locale }, ctx);
+
+  // 共同题 paired delta:每个非基准条件一行,只在与基准的共同 eval 交集上归因——
+  // 与「汇总」(各条件自身覆盖面)是两个互不替代的口径,分开呈现。
+  const footnotes = nonBaseline
+    .map((condition) => {
+      const pd = data.pairedDelta[condition];
+      if (!pd || pd.commonEvalIds.length === 0) return null;
+      const parts: string[] = [];
+      if (pd.pass) parts.push(`${localeText(locale, "delta.passRate")} ${signedMetricText(pd.pass.passRatePoints)}pt`);
+      if (pd.points) parts.push(`${localeText(locale, "delta.totalScore")} ${signedMetricText(pd.points.totalScore)}`);
+      if (pd.tokens !== undefined) parts.push(`tokens ${signedMetricText(pd.tokens)}`);
+      if (pd.costUSD !== undefined) parts.push(`${localeText(locale, "delta.cost")} ${signedMetricText(pd.costUSD, "$")}`);
+      return `${localeText(locale, "delta.commonVsBaseline", { n: pd.commonEvalIds.length })} · ${baseline} → ${condition}: ${parts.join(" · ")}`;
+    })
+    .filter((line): line is string => line !== null);
+
+  return footnotes.length > 0 ? `${table}\n${footnotes.join("\n")}` : table;
+}
+
+// ───────────────────────── StabilityMatrix ─────────────────────────
+
+function stabilityCellText(cell: StabilityMatrixCell): string {
+  return `✓${cell.passed} ✗${cell.failed} !${cell.errored}`;
+}
+
+export function stabilityMatrixText(data: StabilityMatrixData, ctx: TextContext): string {
+  if (data.rows.length === 0) return "";
+  const locale = ctx.locale;
+  const byPosition = new Map<string, StabilityMatrixCell>();
+  for (const entry of data.cells) byPosition.set(JSON.stringify([entry.row, entry.column]), entry.cell);
+
+  const columns: TableColumn[] = [
+    { key: "eval", header: localeText(locale, "table.eval") },
+    ...data.columns.map((column, i) => ({ key: `col${i}`, header: column })),
+  ];
+  const rows: TableRow[] = data.rows.map((row) => {
+    const cells: Record<string, string | null> = {
+      eval: row.neverPassed ? `${row.evalId}   ${localeText(locale, "stability.neverPassed")}` : row.evalId,
+    };
+    data.columns.forEach((column, i) => {
+      const cell = byPosition.get(JSON.stringify([row.evalId, column]));
+      // 稀疏格子:没有任何历史执行的组合在文本里以 — 呈现,不编三个 0 冒充跑过。
+      cells[`col${i}`] = cell ? stabilityCellText(cell) : null;
+    });
+    return { key: row.evalId, cells };
+  });
+
+  const totalsCells: Record<string, string | null> = { eval: localeText(locale, "delta.totalsRow") };
+  data.columns.forEach((column, i) => {
+    const total = data.totals[column];
+    totalsCells[`col${i}`] = total ? stabilityCellText(total) : null;
+  });
+  rows.push({ key: "__totals__", cells: totalsCells });
+
   return renderTableText({ columns: columns as unknown as [TableColumn, ...TableColumn[]], rows, locale }, ctx);
 }

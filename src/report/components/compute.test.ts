@@ -4,7 +4,7 @@
 // skipped=null、null≠0、Scoreboard 固定分母(notRun/unscorable 分开)、权重最长前缀、
 // 身份键去重、现刻水位、自定义指标 where/aggregate、evalGroup 完整父路径、verdict 权威、
 // MetricCell 诚实、durationMs 超时删失(线值不进均值、samples<total 覆盖率缺口)、缺 artifact 指标、repeatedFailedCommands、实体列表 failureSummary、
-// scopeSummaryData 两级计票、experimentListData/scopeSummaryData 的 selectedEvalIds 投影、pairsByFlag、
+// scopeSummaryData 两级计票、experimentListData/scopeSummaryData 的 selectedEvalIds 投影、conditionsByFlag、
 // MetricLine 点身份、空数组反馈、metricTableData sort、series 配色的确定性索引计算(colorIndexForKey /
 // colorIndicesForKeys,纯函数,不断言渲染出的颜色值)。MetricScatter 的 text 面(`scatterText`)本身是
 // 终端排版渲染——图例分配、connect 位移摘要的字符串产物归 E2E 报告域(docs/engineering/testing/e2e/
@@ -33,13 +33,14 @@ import { colorIndexForKey, colorIndicesForKeys } from "../assets/colors.ts";
 import { attemptListData, evalListData, experimentListData } from "./entity-lists/compute.ts";
 import { validateAttemptListData, validateEvalListData, validateExperimentListData } from "./entity-lists/index.tsx";
 import {
+  conditionsByFlag,
   deltaTableData,
   metricLineData,
   metricMatrixData,
   metricScatterData,
   metricTableData,
-  pairsByFlag,
   scoreboardData,
+  stabilityMatrixData,
 } from "./metric-views/compute.ts";
 import {
   validateDeltaData,
@@ -47,6 +48,7 @@ import {
   validateMatrixData,
   validateScatterData,
   validateScoreboardData,
+  validateStabilityMatrixData,
   validateTableData,
 } from "./metric-views/index.tsx";
 import { scopeSummaryData } from "./summaries/compute.ts";
@@ -1047,223 +1049,9 @@ describe("metricLineData", () => {
   });
 });
 
-// ───────────────────────── deltaTableData 与 pairsByFlag ─────────────────────────
-
-describe("deltaTableData", () => {
-  it("任一侧缺数据时 delta 保持缺失;方向按指标 better 判断改善/退化", async () => {
-    const a = snap({
-      experimentId: "d/base",
-      results: [res("q", "passed", { usage: { inputTokens: 1, outputTokens: 1, costUSD: 0.4 } })],
-    });
-    const b = snap({
-      experimentId: "d/next",
-      results: [res("q", "passed", { usage: { inputTokens: 1, outputTokens: 1, costUSD: 0.2 } })],
-    });
-    const data = await deltaTableData([a, b], {
-      by: "experiment",
-      pairs: [{ label: "next vs base", a: "d/base", b: "d/next" }],
-      metrics: [costUSD, assistantTurns],
-    });
-    expect(data.byDimension).toBe("experiment");
-    const row = data.rows[0]!;
-    expect(row.label).toBe("next vs base");
-    // costUSD 下降且 better: "lower" → improved
-    expect(row.cells[costUSD.name]).toMatchObject({ delta: expect.closeTo(-0.2, 5), outcome: "improved" });
-    // assistantTurns 两侧都缺 o11y → delta null → unavailable
-    expect(row.cells[assistantTurns.name]).toMatchObject({ delta: null, outcome: "unavailable" });
-  });
-
-  it("pairs 空数组在计算时按完整用户反馈报错;运行期构造的非空 pairs 直接可用", async () => {
-    const s = snap({ experimentId: "d/x", results: [res("q", "passed")] });
-    await expect(
-      deltaTableData([s], { by: "experiment", pairs: [] as { label: string; a: string; b: string }[], metrics: [costUSD] }),
-    ).rejects.toThrow(/empty/);
-    const dynamic = [{ label: "run", a: "d/x", b: "d/y" }].filter(() => true);
-    await expect(
-      deltaTableData([s], { by: "experiment", pairs: dynamic, metrics: [costUSD] }),
-    ).resolves.toMatchObject({ rows: [{ label: "run" }] });
-  });
-
-  it("字面 pair 校验:label 空/重复、a === b 报错;a/b 精确匹配维度 key,未命中保留 pair、对应侧缺失", async () => {
-    const s = snap({ experimentId: "d/only", results: [res("q", "passed")] });
-    await expect(
-      deltaTableData([s], {
-        by: "experiment",
-        pairs: [
-          { label: "dup", a: "d/only", b: "d/gone" },
-          { label: "dup", a: "d/gone", b: "d/only" },
-        ],
-        metrics: [endToEndPassRate],
-      }),
-    ).rejects.toThrow(/twice/);
-    await expect(
-      deltaTableData([s], { by: "experiment", pairs: [{ label: "self", a: "d/only", b: "d/only" }], metrics: [endToEndPassRate] }),
-    ).rejects.toThrow(/itself/);
-    const data = await deltaTableData([s], {
-      by: "experiment",
-      pairs: [{ label: "half", a: "d/only", b: "d/gone" }],
-      metrics: [endToEndPassRate],
-    });
-    const cell = data.rows[0]!.cells[endToEndPassRate.name]!;
-    expect(cell.a.value).toBe(1);
-    expect(cell.b.value).toBeNull();
-    expect(cell.delta).toBeNull();
-  });
-
-  describe("pairsByFlag", () => {
-    /** 三 agent × baseline / agents-md / mempal 矩阵;bub 无 mempal,如实少一对。 */
-    const matrixSnaps = () => {
-      const mk = (agent: string, memory?: string) =>
-        snap({
-          experimentId: `mem/${agent}${memory ? `--${memory}` : ""}`,
-          agent,
-          results: [res("q", "passed")],
-          experiment: {
-            runs: 1,
-            earlyExit: false,
-            selectedEvalIds: [],
-            ...(memory !== undefined ? { flags: { memory } } : {}),
-          },
-        });
-      return [
-        mk("bub"),
-        mk("bub", "agents-md"),
-        mk("codex"),
-        mk("codex", "agents-md"),
-        mk("codex", "mempal"),
-        mk("gemini"),
-        mk("gemini", "agents-md"),
-        mk("gemini", "mempal"),
-      ];
-    };
-
-    it("input Scope 内删除该 flag 后配置深相等才配对;a 取 baseline(缺省=未声明),label 用完整 a experiment id,按 (a 末段, 显示键) 字典序", async () => {
-      const data = await deltaTableData(matrixSnaps(), {
-        by: "experiment",
-        pairs: pairsByFlag("memory"),
-        metrics: [endToEndPassRate],
-      });
-      expect(data.rows.map((r) => r.label)).toEqual([
-        "mem/bub · memory=agents-md",
-        "mem/codex · memory=agents-md",
-        "mem/codex · memory=mempal",
-        "mem/gemini · memory=agents-md",
-        "mem/gemini · memory=mempal",
-      ]);
-      expect(data.experiments).toBe(8);
-    });
-
-    it("配对边界只是 input Scope,不额外按 experiment id 的目录前缀分组:不同前缀但可比性配置相同就配对", async () => {
-      const mk = (id: string, memory?: string) =>
-        snap({
-          experimentId: id,
-          agent: "bub",
-          results: [res("q", "passed")],
-          experiment: {
-            runs: 1,
-            earlyExit: false,
-            selectedEvalIds: [],
-            ...(memory !== undefined ? { flags: { memory } } : {}),
-          },
-        });
-      const data = await deltaTableData([mk("compare/codex"), mk("bench/codex", "agents-md")], {
-        by: "experiment",
-        pairs: pairsByFlag("memory"),
-        metrics: [endToEndPassRate],
-      });
-      expect(data.rows.map((r) => r.label)).toEqual(["compare/codex · memory=agents-md"]);
-      expect(data.rows[0]!.a.key).toBe("compare/codex");
-      expect(data.rows[0]!.b.key).toBe("bench/codex");
-    });
-
-    it("排序只看 a 末段与 flag 显示键,不看完整 label 字符串:a 末段相同、完整 id 不同的两个 bucket 不因目录前缀打乱顺序", async () => {
-      const mk = (id: string, model: string, memory?: string) =>
-        snap({
-          experimentId: id,
-          model,
-          agent: "bub",
-          results: [res("q", "passed")],
-          experiment: {
-            runs: 1,
-            earlyExit: false,
-            selectedEvalIds: [],
-            ...(memory !== undefined ? { flags: { memory } } : {}),
-          },
-        });
-      // 两个 bucket 因 model 不同而彼此不可比(不会互相配对),但都各自派生一对;
-      // 两对的 a 末段都是 "codex",flagKey 分别是 "z-value" 与 "a-value"。
-      const data = await deltaTableData(
-        [
-          mk("alpha/codex", "m1"), // bucket 1 baseline
-          mk("alpha/codex-variant", "m1", "z-value"), // bucket 1 b 侧
-          mk("zeta/codex", "m2"), // bucket 2 baseline
-          mk("zeta/codex-variant", "m2", "a-value"), // bucket 2 b 侧
-        ],
-        { by: "experiment", pairs: pairsByFlag("memory"), metrics: [endToEndPassRate] },
-      );
-      // 只看 a 末段("codex",两对相同)与 flag 显示键("a-value" < "z-value")排序:
-      // zeta 那对(flagKey "a-value")排在 alpha 那对(flagKey "z-value")之前——若误按完整
-      // label 字符串排序,"alpha/codex..." 会先于 "zeta/codex...",顺序会相反。
-      expect(data.rows.map((r) => r.label)).toEqual([
-        "zeta/codex · memory=a-value",
-        "alpha/codex · memory=z-value",
-      ]);
-    });
-
-    it("可比性配置不同(model 不同)的两实验不配对", async () => {
-      const base = snap({
-        experimentId: "mm/a",
-        model: "gpt-a",
-        results: [res("q", "passed")],
-        experiment: { runs: 1, earlyExit: false, selectedEvalIds: [] },
-      });
-      const other = snap({
-        experimentId: "mm/b",
-        model: "gpt-b",
-        results: [res("q", "passed")],
-        experiment: { runs: 1, earlyExit: false, selectedEvalIds: [], flags: { memory: "on" } },
-      });
-      const data = await deltaTableData([base, other], {
-        by: "experiment",
-        pairs: pairsByFlag("memory"),
-        metrics: [endToEndPassRate],
-      });
-      expect(data.rows).toHaveLength(0);
-      expect(data.experiments).toBe(2);
-    });
-
-    it("收窄到单实验时 0 对不是错误:空 rows + 配对域实验数;by 非 experiment 报完整用户反馈", async () => {
-      const single = snap({ experimentId: "solo/x", results: [res("q", "passed")] });
-      const data = await deltaTableData([single], {
-        by: "experiment",
-        pairs: pairsByFlag("memory"),
-        metrics: [endToEndPassRate],
-      });
-      expect(data.rows).toHaveLength(0);
-      expect(data.experiments).toBe(1);
-
-      await expect(
-        deltaTableData([single], { by: "agent", pairs: pairsByFlag("memory"), metrics: [endToEndPassRate] }),
-      ).rejects.toThrow(/by: "experiment"/);
-    });
-
-    it("baseline 显式声明时 a 侧取该 flag 值", async () => {
-      const data = await deltaTableData(matrixSnaps(), {
-        by: "experiment",
-        pairs: pairsByFlag("memory", { baseline: "agents-md" }),
-        metrics: [endToEndPassRate],
-      });
-      // a = *--agents-md;b = 未声明(显示键 (missing))与 mempal;label 用完整 a experiment id。
-      expect(data.rows.map((r) => r.label)).toEqual([
-        "mem/bub--agents-md · memory=(missing)",
-        "mem/codex--agents-md · memory=(missing)",
-        "mem/codex--agents-md · memory=mempal",
-        "mem/gemini--agents-md · memory=(missing)",
-        "mem/gemini--agents-md · memory=mempal",
-      ]);
-    });
-  });
-});
+// deltaTableData(对照矩阵)与 stabilityMatrixData(稳定性矩阵)的测试住
+// src/report/components/metric-views/delta-table.test.ts 与 stability-matrix.test.ts
+// (与 groupMatrixData 同一个惯例:专用组件测试文件,不挤共享 compute.test.ts)。
 
 // ───────────────────────── examScore ─────────────────────────
 
@@ -1490,7 +1278,7 @@ describe("validate*Data 接受真实计算产物(不是只接受手写 literal)"
     expect(validateScoreboardData(board)).toBeNull();
   });
 
-  it("deltaTableData(含 pairsByFlag 派生 pair)", async () => {
+  it("deltaTableData(含 conditionsByFlag 派生条件)", async () => {
     const withFlag = snap({
       experimentId: "compare/withflag",
       results: [res("q1", "passed")],
@@ -1498,8 +1286,13 @@ describe("validate*Data 接受真实计算产物(不是只接受手写 literal)"
     });
     const withoutFlag = snap({ experimentId: "compare/noflag", results: [res("q1", "failed")] });
     const deltaScope = scopeOf([withFlag, withoutFlag]);
-    const delta = await deltaTableData(deltaScope, { by: "experiment", pairs: pairsByFlag("memory"), metrics: [costUSD] });
+    const delta = await deltaTableData(deltaScope, { by: "experiment", conditions: conditionsByFlag("memory") });
     expect(validateDeltaData(delta)).toBeNull();
+  });
+
+  it("stabilityMatrixData", async () => {
+    const stability = await stabilityMatrixData(scope, { by: "experiment" });
+    expect(validateStabilityMatrixData(stability)).toBeNull();
   });
 
   it("scopeSummaryData", async () => {

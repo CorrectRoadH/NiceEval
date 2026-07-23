@@ -15,7 +15,7 @@ import type {
   AttemptSummaryData,
   AttemptTimelineData,
   AttemptTraceData,
-  AttemptUsageData,
+  UsageTableData,
 } from "../../model/types.ts";
 import type { AssertionResult, ScoreEntry, TimingNode } from "../../../types.ts";
 import type { AttemptLocator } from "../../../results/locator.ts";
@@ -274,18 +274,42 @@ export function attemptDiagnosticsText(data: AttemptDiagnosticsData | null, _ctx
   return lines.join("\n");
 }
 
-// ───────────────────────── AttemptUsage ─────────────────────────
+// ───────────────────────── UsageTable ─────────────────────────
 
-export function attemptUsageText(data: AttemptUsageData | null, _ctx: TextContext): string {
+/**
+ * 单行装配形态,与 docs/feature/reports/library/attempt-detail.md#usagetable-组装口径单源
+ * 的示例行文案是同一形态本身,不是它的近似摘要:
+ *   `usage: 6 turns · 21 tool calls · 62.3k uncached in + 942.6k cache read / 6.7k out · 24 requests · $1.14`
+ * 每个片段独立地只在对应事实存在时出现,顺序保持不变;全部缺失时整行不出现(返回 ""),
+ * 与「没有 usage 时零输出」同一条规则。
+ */
+export function usageTableText(data: UsageTableData | null, _ctx: TextContext): string {
   if (data === null) return "";
-  const { usage } = data;
-  const total = usage.inputTokens + usage.outputTokens;
-  const parts = [`usage: ${formatMetricValue(total)} tokens (${formatMetricValue(usage.inputTokens)} in / ${formatMetricValue(usage.outputTokens)} out)`];
-  if (usage.cacheReadTokens !== undefined) parts.push(`cache read ${formatMetricValue(usage.cacheReadTokens)}`);
-  if (usage.cacheWriteTokens !== undefined) parts.push(`cache write ${formatMetricValue(usage.cacheWriteTokens)}`);
-  if (usage.requests !== undefined) parts.push(`${usage.requests} requests`);
-  if (data.costUSD !== null) parts.push(formatUSD(data.costUSD));
-  return parts.join(" · ");
+  const usage = data.usage;
+
+  // 未缓存输入是消费端派生量,只在两个输入都在场时显示;缺任一个回退显示原始 inputTokens
+  // (不猜 0),这里用 label 区分"派生值"与"原始值",不假装两者是同一件事。
+  const inFragment =
+    data.uncachedInputTokens !== undefined
+      ? `${formatMetricValue(data.uncachedInputTokens)} uncached in`
+      : usage?.inputTokens !== undefined
+        ? `${formatMetricValue(usage.inputTokens)} in`
+        : undefined;
+  const cacheFragment = usage?.cacheReadTokens !== undefined ? `${formatMetricValue(usage.cacheReadTokens)} cache read` : undefined;
+  const outFragment = usage?.outputTokens !== undefined ? `${formatMetricValue(usage.outputTokens)} out` : undefined;
+  const inCache = [inFragment, cacheFragment].filter((s): s is string => s !== undefined).join(" + ");
+  const tokenSegment = [inCache || undefined, outFragment].filter((s): s is string => s !== undefined).join(" / ");
+
+  const parts = [
+    data.turns !== undefined ? `${data.turns} turn${data.turns === 1 ? "" : "s"}` : undefined,
+    data.toolCalls !== undefined ? `${data.toolCalls} tool call${data.toolCalls === 1 ? "" : "s"}` : undefined,
+    tokenSegment || undefined,
+    // requests 只在协议真实提供时显示——协议不提供就整段省略,绝不凑一个 1
+    // (docs/feature/reports/library/attempt-detail.md#usagetable-组装口径单源)。
+    usage?.requests !== undefined ? `${usage.requests} requests` : undefined,
+    data.estimatedCostUSD !== undefined ? formatUSD(data.estimatedCostUSD) : undefined,
+  ].filter((s): s is string => s !== undefined);
+  return parts.length > 0 ? `usage: ${parts.join(" · ")}` : "";
 }
 
 // ───────────────────────── AttemptTrace ─────────────────────────

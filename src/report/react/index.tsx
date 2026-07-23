@@ -19,6 +19,7 @@ export { GroupMatrix } from "../components/metric-views/GroupMatrix.tsx";
 export { MetricScatter } from "../components/metric-views/MetricScatter.tsx";
 export { MetricLine } from "../components/metric-views/MetricLine.tsx";
 export { DeltaTable } from "../components/metric-views/DeltaTable.tsx";
+export { StabilityMatrix } from "../components/metric-views/StabilityMatrix.tsx";
 export { Scoreboard } from "../components/metric-views/Scoreboard.tsx";
 
 // 站点组件的纯 web 面(data 形态;Hero 是组合组件,只住 niceeval/report)
@@ -39,7 +40,7 @@ export { AttemptFixPrompt } from "../components/attempt-detail/AttemptFixPrompt.
 export { AttemptTimeline } from "../components/attempt-detail/AttemptTimeline.tsx";
 export { AttemptConversation } from "../components/attempt-detail/AttemptConversation.tsx";
 export { AttemptDiagnostics } from "../components/attempt-detail/AttemptDiagnostics.tsx";
-export { AttemptUsage } from "../components/attempt-detail/AttemptUsage.tsx";
+export { UsageTable } from "../components/attempt-detail/UsageTable.tsx";
 export { AttemptTrace } from "../components/attempt-detail/AttemptTrace.tsx";
 export { AttemptDiff } from "../components/attempt-detail/AttemptDiff.tsx";
 
@@ -62,7 +63,6 @@ export type {
   AttemptSummaryData,
   AttemptTimelineData,
   AttemptTraceData,
-  AttemptUsageData,
   CopyFixPromptData,
   DeltaData,
   EvalListItem,
@@ -82,9 +82,12 @@ export type {
   ScoreboardData,
   SnapshotDiagnosticsData,
   SnapshotDiagnosticsItem,
+  StabilityMatrixCell,
+  StabilityMatrixData,
   TableData,
   TraceSpanSummary,
   TraceWaterfallRow,
+  UsageTableData,
   VerdictTally,
 } from "../model/types.ts";
 export type { AttemptEvidence, AttemptEvidenceCapabilities } from "../../results/attempt-evidence.ts";

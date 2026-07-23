@@ -298,43 +298,100 @@ export interface ScoreboardData {
   }>;
 }
 
+/**
+ * `DeltaTable` 的一格:同一条件值 × eval 的折叠(docs/feature/reports/library/metric-views.md
+ * 「DeltaTable」)。`verdict` / `totalScore` 用与榜单同一套题目级判定口径(`totalScore` 取各
+ * attempt 的均值);`totalTokens` / `totalCostUSD` 是该题在该条件下全部 attempt 的**合计**,
+ * 不是均值。
+ */
+export interface DeltaCell {
+  scoring: "pass" | "points";
+  /** 复用 Results 的判定枚举,不为组件发明第二套。 */
+  verdict: Verdict;
+  /** 计分制的题目级挣分;通过制省略——计分制没有满分分母。 */
+  totalScore?: number;
+  attempts: readonly AttemptLocator[];
+  totalTokens?: number;
+  totalCostUSD?: number;
+  /** true 时该格来自跨快照携带的历史执行,渲染为 ↩ 时效标注。 */
+  historical: boolean;
+}
+
 export interface DeltaData {
   byDimension: string;
-  columns: MetricColumn[];
-  /** FlagPairs 派生形态下的配对域实验数;字面 pairs 不携带(空态文案用)。 */
+  /** 有序条件值,首个是基准。 */
+  conditions: string[];
+  /** conditionsByFlag 派生形态下的候选实验数;0 候选时空态据此报「N 个实验、0 个可配对条件」,字面 conditions 不携带。 */
   experiments?: number;
   rows: Array<{
+    /** 行的配对身份:eval id。 */
     key: string;
-    /** 作者在 DeltaPair 里声明(或派生规则生成)的 label,原样透传;renderer 据此显示行名。 */
-    label: LocalizedText;
-    a: { key: string };
-    b: { key: string };
-    cells: Record<
-      string,
-      {
-        a: MetricCell;
-        b: MetricCell;
-        /** b.value - a.value;任一侧缺失则为 null。 */
-        delta: number | null;
-        display: LocalizedText;
-        outcome: "improved" | "regressed" | "unchanged" | "unavailable";
-      }
-    >;
+    /** 各条件判定不一致时 true——翻转标记 ⇄ 的数据面。 */
+    flipped: boolean;
+    /** 键是条件值;该条件没有这道题的结果时无键,渲染为占位 —。 */
+    cells: Record<string, DeltaCell>;
+    /** 键是非基准条件值;任一侧缺数据时无键——delta 不把缺失当 0。 */
+    delta?: Record<string, { score?: number; tokens?: number; costUSD?: number }>;
   }>;
+  /** 各条件自身覆盖面的描述,分母是该条件有结果的 eval 数;不用于跨条件直接归因。 */
+  totals: Record<
+    string,
+    {
+      scoringComposition: "pass" | "points" | "mixed";
+      passed?: number;
+      denominator?: number; // pass / mixed
+      totalScore?: number; // points / mixed
+      totalTokens?: number;
+      totalCostUSD?: number;
+    }
+  >;
+  /** 只在每个条件与基准的共同 eval 集上计算;键是非基准条件值。 */
+  pairedDelta: Record<
+    string,
+    {
+      commonEvalIds: string[];
+      /** mixed 时各自在对应题型子集配对,不共用一个含混分母。 */
+      pass?: { evalIds: string[]; passRatePoints: number };
+      points?: { evalIds: string[]; totalScore: number };
+      tokens?: number;
+      costUSD?: number;
+    }
+  >;
 }
 
-export interface DeltaPair {
-  label: LocalizedText;
-  a: string;
-  b: string;
-}
-
-/** pairsByFlag() 的产物:按一个 flag 机械导出全部 A/B 对;只在 by 为 "experiment" 时成立。 */
-export interface FlagPairs {
-  readonly kind: "flagPairs";
+/** conditionsByFlag() 的产物:按一个 flag 机械导出全部有序条件;只在 by 为 "experiment" 时成立。 */
+export interface FlagConditions {
+  readonly kind: "flagConditions";
   readonly flag: string;
-  /** a 侧的 flag 取值;缺省表示「未声明该 flag」的实验作 a。 */
+  /** 基准侧的 flag 取值;缺省表示「未声明该 flag」的实验作基准。 */
   readonly baseline?: JsonValue;
+}
+
+// ───────────────────────── StabilityMatrix ─────────────────────────
+
+/** `StabilityMatrix` 的一格:全部历史执行(跨快照按身份键去重,不设可比性门槛)的判定计数。 */
+export interface StabilityMatrixCell {
+  passed: number;
+  failed: number;
+  errored: number;
+  /** passed + failed + errored 之和;skipped 不计。 */
+  executions: number;
+}
+
+export interface StabilityMatrixData {
+  rowDimension: string;
+  columnDimension: string;
+  rows: Array<{
+    evalId: string;
+    /** 全部条件历史执行中通过次数为 0 且执行数 > 0。 */
+    neverPassed: boolean;
+  }>;
+  /** 贡献了至少一格的列值,字典序。 */
+  columns: readonly string[];
+  /** 稀疏格子:该 (eval, column) 组合没有任何历史执行时不生成格子,渲染面显示占位 —,不编三个 0 冒充跑过。 */
+  cells: ReadonlyArray<{ row: string; column: string; cell: StabilityMatrixCell }>;
+  /** 各列的合计。 */
+  totals: Record<string, StabilityMatrixCell>;
 }
 
 // ───────────────────────── 概览(ScopeSummary / ExperimentComparison)─────────────────────────
@@ -712,10 +769,33 @@ export interface AttemptDiagnosticsData {
   groups: { phase: string; items: DiagnosticRecord[] }[];
 }
 
-/** `AttemptUsage` 的 data:token / cache token / provider usage 明细;没有 usage 时 null。 */
-export interface AttemptUsageData {
-  usage: Usage;
-  costUSD: number | null;
+/**
+ * `UsageTable` 的 data:判定、轮数、工具调用数、token 拆分与成本摊成的单行用量摘要;组装口径单源
+ * 见 docs/feature/reports/library/attempt-detail.md#usagetable-组装口径单源。identity 字段
+ * (`locator`/`experimentId`/`evalId`/`attempt`/`verdict`)恒有——它们不是「usage 有没有」的一部分,
+ * 是这一行归属哪个 attempt 的身份。其余字段各自独立地只在事实真实存在时出现:
+ *
+ * - `turns`/`toolCalls`:events 派生(与 `o11y.json` 行为摘要同源),只在有非空 events 时出现,
+ *   哪怕派生值恰好是 0(有 events 但零轮/零工具调用是观测到的事实,不是缺失)。
+ * - `usage`:落盘 `Usage` 原样,只在 `result.usage` 存在时出现。
+ * - `uncachedInputTokens`:`usage.inputTokens − usage.cacheReadTokens`,只在两个输入都存在时派生;
+ *   缺任一个不回退猜 0,整字段省略(text 面回退显示原始 `inputTokens`)。
+ * - `estimatedCostUSD`:能算出成本(`usage.costUSD` 或 `result.estimatedCostUSD`)时才出现。
+ *
+ * `turns`/`toolCalls`/`usage` 三者全部缺失时(没有 events 也没有落盘 usage)整个 data 为
+ * null——「没有 usage 时零输出」,与其余 10 个叶子同一条空证据规则。
+ */
+export interface UsageTableData {
+  locator: AttemptLocator;
+  experimentId: string;
+  evalId: string;
+  attempt: number;
+  verdict: Verdict;
+  turns?: number;
+  toolCalls?: number;
+  usage?: Usage;
+  uncachedInputTokens?: number;
+  estimatedCostUSD?: number;
 }
 
 /** `AttemptTrace` 的 data:不与 runner 节点合并的原始 OTel span 列表;没有 trace 时 null。 */

@@ -209,56 +209,84 @@ export const lineData: LineData = {
 
 export const deltaData: DeltaData = {
   byDimension: "experiment",
-  columns: [passRateColumn, costColumn],
+  conditions: ["compare/baseline", "compare/agents-md"],
   rows: [
     {
-      key: "compare/bub → compare/bub--agents-md",
-      label: "bub",
-      a: { key: "compare/bub" },
-      b: { key: "compare/bub--agents-md" },
+      // 两条件判定一致:通过、tokens/成本下降(改善)
+      key: "algebra/quadratic",
+      flipped: false,
       cells: {
-        // 通过率 +12pp:better higher → improved(绿)
-        "task-pass-rate": {
-          a: { value: 0.5, display: "50%", samples: 6, total: 6, refs: [] },
-          b: { value: 0.62, display: "62%", samples: 6, total: 6, refs: [] },
-          delta: 0.12,
-          display: "+12pp",
-          outcome: "improved",
+        "compare/baseline": {
+          scoring: "pass",
+          verdict: "passed",
+          attempts: [locator("@1abcdef2")],
+          totalTokens: 512300,
+          totalCostUSD: 0.71,
+          historical: false,
         },
-        // 成本 +$0.15:better lower → regressed(红)
-        cost: {
-          a: { value: 0.2, display: "$0.20", samples: 6, total: 6, refs: [] },
-          b: { value: 0.35, display: "$0.35", samples: 6, total: 6, refs: [] },
-          delta: 0.15,
-          display: "+$0.15",
-          outcome: "regressed",
+        "compare/agents-md": {
+          scoring: "pass",
+          verdict: "passed",
+          attempts: [locator("@1abcdef3")],
+          totalTokens: 305100,
+          totalCostUSD: 0.44,
+          historical: false,
         },
       },
+      delta: { "compare/agents-md": { tokens: -207200, costUSD: -0.27 } },
     },
     {
-      key: "compare/codex → compare/codex--agents-md",
-      label: "codex",
-      a: { key: "compare/codex" },
-      b: { key: "compare/codex--agents-md" },
+      // 翻转:baseline 失败、agents-md 通过
+      key: "algebra/systems",
+      flipped: true,
       cells: {
-        "task-pass-rate": {
-          a: { value: 0.4, display: "40%", samples: 6, total: 6, refs: [] },
-          b: { value: 0.4, display: "40%", samples: 6, total: 6, refs: [] },
-          delta: 0,
-          display: "±0",
-          outcome: "unchanged",
+        "compare/baseline": {
+          scoring: "pass",
+          verdict: "failed",
+          attempts: [locator("@2abcdef2")],
+          totalTokens: 621000,
+          totalCostUSD: 0.83,
+          historical: false,
         },
-        // A 侧缺数据 → delta null:显示缺,不硬算
-        cost: {
-          a: { value: null, display: "—", samples: 0, total: 6, refs: [] },
-          b: { value: 0.3, display: "$0.30", samples: 6, total: 6, refs: [] },
-          delta: null,
-          display: "—",
-          outcome: "unavailable",
+        "compare/agents-md": {
+          scoring: "pass",
+          verdict: "passed",
+          attempts: [locator("@2abcdef3")],
+          totalTokens: 298400,
+          totalCostUSD: 0.41,
+          historical: false,
+        },
+      },
+      delta: { "compare/agents-md": { tokens: -322600, costUSD: -0.42 } },
+    },
+    {
+      // 只有 agents-md 有结果:baseline 侧缺数据,delta 不硬算成 0(整行没有 delta 键)
+      key: "algebra/uv-lock",
+      flipped: false,
+      cells: {
+        "compare/agents-md": {
+          scoring: "pass",
+          verdict: "passed",
+          attempts: [locator("@3abcdef3")],
+          totalTokens: 511800,
+          totalCostUSD: 0.7,
+          historical: false,
         },
       },
     },
   ],
+  totals: {
+    "compare/baseline": { scoringComposition: "pass", passed: 1, denominator: 2, totalTokens: 1133300, totalCostUSD: 1.54 },
+    "compare/agents-md": { scoringComposition: "pass", passed: 3, denominator: 3, totalTokens: 1115300, totalCostUSD: 1.55 },
+  },
+  pairedDelta: {
+    "compare/agents-md": {
+      commonEvalIds: ["algebra/quadratic", "algebra/systems"],
+      pass: { evalIds: ["algebra/quadratic", "algebra/systems"], passRatePoints: 50 },
+      tokens: -529800,
+      costUSD: -0.69,
+    },
+  },
 };
 
 // ───────────────────────── 实体列表(ExperimentList / AttemptList)─────────────────────────

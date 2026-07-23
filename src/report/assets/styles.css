@@ -828,28 +828,50 @@ table.nre,
 .nre .nre-tooltip b { font-size: 13px; display: block; }
 .nre .nre-tooltip .nre-tooltip-meta { color: var(--muted); margin-top: 2px; }
 
-/* ---- DeltaTable ---- */
-.nre-delta-table .nre-pair-ids {
-  display: block;
-  color: var(--soft);
-  font-size: 0.8em;
-  font-weight: 400;
-}
-.nre-delta-table .nre-delta-side {
-  display: block;
+/* ---- DeltaTable:每格 verdict/挣分 + tokens + 成本三段,Δ 列同structure ---- */
+.nre-delta-table .nre-delta-condition,
+.nre-delta-table .nre-delta-condition-link,
+.nre-delta-table .nre-delta-d {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
   white-space: nowrap;
 }
-.nre-delta-table .nre-delta-tag {
-  display: inline-block;
-  width: 1.2em;
+.nre-delta-table a.nre-delta-condition-link {
+  color: inherit;
+  text-decoration: none;
+}
+.nre-delta-table a.nre-delta-condition-link:hover { text-decoration: underline; }
+.nre-delta-table .nre-delta-verdict { font-weight: 610; }
+.nre-delta-table .nre-delta-tokens,
+.nre-delta-table .nre-delta-cost {
+  color: var(--muted);
+  font-size: 0.85em;
+}
+.nre-delta-table .nre-delta-historical {
   color: var(--soft);
   font-size: 0.8em;
 }
-/* Δ 行按数据侧算好的 outcome 着色:涨跌好坏不由正负号决定 */
-.nre .nre-delta-d[data-outcome="improved"] { color: var(--good); }
-.nre .nre-delta-d[data-outcome="regressed"] { color: var(--bad); }
-.nre .nre-delta-d[data-outcome="unchanged"] { color: var(--muted); }
-.nre .nre-delta-d[data-outcome="unavailable"] { color: var(--soft); }
+.nre-delta-table .nre-delta-count {
+  margin-left: 0.35em;
+  color: var(--soft);
+  font-size: 0.8em;
+}
+.nre-delta-table tr.nre-delta-flipped .nre-row-key { box-shadow: inset 3px 0 0 var(--warn); }
+.nre-delta-table .nre-delta-flip-mark {
+  margin-left: 0.4em;
+  color: var(--warn);
+}
+.nre-delta-table .nre-delta-totals th,
+.nre-delta-table .nre-delta-totals td { font-weight: 610; border-top: 1px solid var(--line-strong); }
+.nre-delta-table .nre-delta-paired {
+  list-style: none;
+  margin: 0.6rem 0 0;
+  padding: 0;
+  color: var(--muted);
+  font-size: 0.88em;
+}
+.nre-delta-table .nre-delta-paired li + li { margin-top: 0.2rem; }
 /* 0 对不是错误:明确空态,与各列表 empty 同一姿势 */
 .nre-delta-table-empty {
   border: 1px dashed var(--line-strong);
@@ -860,6 +882,25 @@ table.nre,
   background: var(--panel);
 }
 .nre-delta-table-empty .nre-missing { margin: 0; }
+
+/* ---- StabilityMatrix:全部历史执行的三计数(✓ ✗ !);零通过题标 never passed ---- */
+.nre-stability-matrix .nre-stability-counts {
+  display: inline-flex;
+  gap: 0.5em;
+  white-space: nowrap;
+}
+.nre-stability-matrix .nre-stability-passed { color: var(--good); }
+.nre-stability-matrix .nre-stability-failed { color: var(--bad); }
+.nre-stability-matrix .nre-stability-errored { color: var(--warn); }
+.nre-stability-matrix .nre-stability-never-passed {
+  display: inline-block;
+  margin-left: 0.5em;
+  color: var(--bad);
+  font-size: 0.8em;
+  font-weight: 600;
+}
+.nre-stability-matrix .nre-stability-totals th,
+.nre-stability-matrix .nre-stability-totals td { font-weight: 610; border-top: 1px solid var(--line-strong); }
 
 /* ---- Attempt 详情组件族 ---------------------------------------------------
    这些规则属于 report web face，不属于 view dialog chrome：同一份 AttemptDetail
@@ -901,7 +942,7 @@ table.nre,
   border-bottom: 1px solid var(--line);
 }
 .nre-attempt-summary .nre-attempt-summary-kpis dt,
-.nre-attempt-usage dt {
+.nre-usage-table dt {
   color: var(--soft);
   font-size: 11px;
   font-weight: 560;
@@ -909,7 +950,7 @@ table.nre,
   text-transform: uppercase;
 }
 .nre-attempt-summary .nre-attempt-summary-kpis dd,
-.nre-attempt-usage dd {
+.nre-usage-table dd {
   margin: 5px 0 0;
   color: var(--text);
   font-size: 13px;
@@ -1612,7 +1653,7 @@ table.nre,
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
-.nre-attempt-usage {
+.nre-usage-table {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(130px, 100%), 1fr));
   overflow: hidden;
@@ -1621,7 +1662,7 @@ table.nre,
   border-radius: 9px;
   background: var(--panel);
 }
-.nre-attempt-usage .nre-attempt-usage-row {
+.nre-usage-table .nre-usage-table-row {
   min-width: 0;
   padding: 11px 13px;
   border-right: 1px solid var(--line);
@@ -1796,7 +1837,7 @@ table.nre,
   .nre-attempt-summary .nre-attempt-summary-kpis { grid-template-columns: 1fr; }
   .nre-attempt-summary .nre-attempt-summary-kpis > div { border-right: 0; }
   .nre-attempt-error .nre-attempt-error-fields { grid-template-columns: 1fr; gap: 2px; }
-  .nre-attempt-usage { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .nre-usage-table { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .nre-attempt-trace .nre-trace-span { grid-template-columns: max-content minmax(0, 1fr) max-content; }
   .nre-attempt-diff .nre-diff-file { grid-template-columns: 1fr max-content; }
   .nre-attempt-diff .nre-diff-net { grid-column: 1 / -1; }

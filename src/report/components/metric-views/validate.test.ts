@@ -11,6 +11,7 @@ import {
   validateMatrixData,
   validateScatterData,
   validateScoreboardData,
+  validateStabilityMatrixData,
   validateTableData,
 } from "./index.tsx";
 
@@ -174,35 +175,92 @@ describe("validateScoreboardData", () => {
 });
 
 describe("validateDeltaData", () => {
-  const validDeltaCell = { a: validCell, b: validCell, delta: 0, display: "±0", outcome: "unchanged" };
+  const validDeltaCell = {
+    scoring: "pass",
+    verdict: "passed",
+    attempts: ["@1abcdef2"],
+    totalTokens: 1000,
+    totalCostUSD: 0.1,
+    historical: false,
+  };
   const valid = {
-    byDimension: "flag",
-    columns: [validColumn],
-    rows: [{ key: "codex", label: "codex", a: { key: "baseline" }, b: { key: "agents-md" }, cells: { costUSD: validDeltaCell } }],
+    byDimension: "experiment",
+    conditions: ["baseline", "agents-md"],
+    rows: [
+      {
+        key: "coding/a",
+        flipped: false,
+        cells: { baseline: validDeltaCell, "agents-md": validDeltaCell },
+        delta: { "agents-md": { tokens: 0, costUSD: 0 } },
+      },
+    ],
+    totals: { baseline: { scoringComposition: "pass", passed: 1, denominator: 1 } },
+    pairedDelta: { "agents-md": { commonEvalIds: ["coding/a"], pass: { evalIds: ["coding/a"], passRatePoints: 0 } } },
   };
 
   it("合规 literal 通过", () => {
     expect(validateDeltaData(valid)).toBeNull();
   });
 
-  it("cells.<metric>.outcome 不在枚举内报错", () => {
+  it("cells.<condition>.verdict 不在枚举内报错", () => {
     const bad = {
       ...valid,
-      rows: [{ ...valid.rows[0], cells: { costUSD: { ...validDeltaCell, outcome: "flat" } } }],
+      rows: [{ ...valid.rows[0], cells: { ...valid.rows[0].cells, baseline: { ...validDeltaCell, verdict: "flaky" } } }],
     };
-    expect(validateDeltaData(bad)).toMatch(/"rows\[0\]\.cells\.costUSD\.outcome"/);
+    expect(validateDeltaData(bad)).toMatch(/"rows\[0\]\.cells\.baseline\.verdict"/);
   });
 
-  it("cells.<metric>.a 结构错误定位到该侧", () => {
+  it("cells.<condition>.attempts 结构错误定位到该条件", () => {
     const bad = {
       ...valid,
-      rows: [{ ...valid.rows[0], cells: { costUSD: { ...validDeltaCell, a: { value: 1 } } } }],
+      rows: [{ ...valid.rows[0], cells: { ...valid.rows[0].cells, baseline: { ...validDeltaCell, attempts: "@1abcdef2" } } }],
     };
-    expect(validateDeltaData(bad)).toMatch(/"rows\[0\]\.cells\.costUSD\.a/);
+    expect(validateDeltaData(bad)).toMatch(/"rows\[0\]\.cells\.baseline\.attempts"/);
   });
 
-  it("rows[i].label 缺失报错", () => {
-    const bad = { ...valid, rows: [{ key: "codex", a: { key: "baseline" }, b: { key: "agents-md" }, cells: {} }] };
-    expect(validateDeltaData(bad)).toMatch(/"rows\[0\]\.label"/);
+  it("rows[i].flipped 缺失报错", () => {
+    const bad = { ...valid, rows: [{ key: "coding/a", cells: valid.rows[0].cells }] };
+    expect(validateDeltaData(bad)).toMatch(/"rows\[0\]\.flipped"/);
+  });
+
+  it("totals.<condition>.scoringComposition 不在三态内报错", () => {
+    const bad = { ...valid, totals: { baseline: { scoringComposition: "half" } } };
+    expect(validateDeltaData(bad)).toMatch(/"totals\.baseline\.scoringComposition"/);
+  });
+
+  it("pairedDelta.<condition>.commonEvalIds 非字符串数组报错", () => {
+    const bad = { ...valid, pairedDelta: { "agents-md": { commonEvalIds: "coding/a" } } };
+    expect(validateDeltaData(bad)).toMatch(/"pairedDelta\.agents-md\.commonEvalIds"/);
+  });
+});
+
+describe("validateStabilityMatrixData", () => {
+  const validStabilityCell = { passed: 1, failed: 0, errored: 0, executions: 1 };
+  const valid = {
+    rowDimension: "eval",
+    columnDimension: "experiment",
+    rows: [{ evalId: "coding/a", neverPassed: false }],
+    columns: ["exp-a"],
+    cells: [{ row: "coding/a", column: "exp-a", cell: validStabilityCell }],
+    totals: { "exp-a": validStabilityCell },
+  };
+
+  it("合规 literal 通过", () => {
+    expect(validateStabilityMatrixData(valid)).toBeNull();
+  });
+
+  it("rows[i].neverPassed 非布尔报错", () => {
+    const bad = { ...valid, rows: [{ evalId: "coding/a", neverPassed: "no" }] };
+    expect(validateStabilityMatrixData(bad)).toMatch(/"rows\[0\]\.neverPassed"/);
+  });
+
+  it("cells[i].cell 结构错误定位到该格", () => {
+    const bad = { ...valid, cells: [{ row: "coding/a", column: "exp-a", cell: { passed: 1 } }] };
+    expect(validateStabilityMatrixData(bad)).toMatch(/"cells\[0\]\.cell/);
+  });
+
+  it("totals.<column> 缺字段报错", () => {
+    const bad = { ...valid, totals: { "exp-a": { passed: 1, failed: 0, errored: 0 } } };
+    expect(validateStabilityMatrixData(bad)).toMatch(/"totals\.exp-a\.executions"/);
   });
 });

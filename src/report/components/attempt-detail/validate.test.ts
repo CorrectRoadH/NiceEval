@@ -251,12 +251,39 @@ describe("validateDiagnosticsData", () => {
 });
 
 describe("validateUsageData", () => {
-  it("合规 literal 通过,costUSD 为 null 合法", () => {
-    expect(validateUsageData({ usage: { inputTokens: 1, outputTokens: 2 }, costUSD: null })).toBeNull();
+  const validUsage = {
+    locator: "@1abcdef2",
+    experimentId: "compare/codex",
+    evalId: "q1",
+    attempt: 0,
+    verdict: "passed",
+  };
+
+  it("身份字段齐全、其余字段全省略时合规(没有 events/usage 时的最小合法形态)", () => {
+    expect(validateUsageData(validUsage)).toBeNull();
   });
 
-  it("usage 缺 outputTokens 报错", () => {
-    expect(validateUsageData({ usage: { inputTokens: 1 }, costUSD: null })).toMatch(/"usage\.outputTokens"/);
+  it("缺 experimentId 报错", () => {
+    const bad = { ...validUsage, experimentId: undefined };
+    expect(validateUsageData(bad)).toMatch(/"experimentId"/);
+  });
+
+  it("turns 非数字报错;省略合法", () => {
+    expect(validateUsageData({ ...validUsage, turns: 3 })).toBeNull();
+    expect(validateUsageData({ ...validUsage, turns: "3" })).toMatch(/"turns"/);
+  });
+
+  it("usage 存在时逐字段校验(均可选),某字段非数字报错", () => {
+    expect(validateUsageData({ ...validUsage, usage: { inputTokens: 1, outputTokens: 2 } })).toBeNull();
+    expect(validateUsageData({ ...validUsage, usage: { requests: 4 } })).toBeNull(); // 只有 requests 也合法
+    const bad = { ...validUsage, usage: { inputTokens: "1" } };
+    expect(validateUsageData(bad)).toMatch(/"usage\.inputTokens"/);
+  });
+
+  it("uncachedInputTokens / estimatedCostUSD 非数字报错;省略合法", () => {
+    expect(validateUsageData({ ...validUsage, uncachedInputTokens: 60, estimatedCostUSD: 0.5 })).toBeNull();
+    expect(validateUsageData({ ...validUsage, uncachedInputTokens: "60" })).toMatch(/"uncachedInputTokens"/);
+    expect(validateUsageData({ ...validUsage, estimatedCostUSD: "0.5" })).toMatch(/"estimatedCostUSD"/);
   });
 });
 

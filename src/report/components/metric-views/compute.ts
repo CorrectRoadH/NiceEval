@@ -12,10 +12,10 @@
 // - core 中立:只认 Metric / Dimension 接口,不出现具体 agent 名的分支。
 
 import type {
+  DeltaCell,
   DeltaData,
-  DeltaPair,
   DimensionInput,
-  FlagPairs,
+  FlagConditions,
   GroupMatrixData,
   GroupMatrixRow,
   LineData,
@@ -27,12 +27,14 @@ import type {
   ScatterData,
   ScoreboardData,
   SeriesInput,
+  StabilityMatrixData,
   TableData,
 } from "../../model/types.ts";
-import type { JsonValue } from "../../../types.ts";
+import type { JsonValue, Verdict } from "../../../types.ts";
 import type { AttemptLocator } from "../../../results/locator.ts";
 import type { Snapshot } from "../../../results/types.ts";
 import { comparabilityConfigOf, deepEqualJson } from "../../../results/select.ts";
+import { foldEvalVerdict } from "../../../shared/verdict.ts";
 import {
   assertUniqueMetricNames,
   axisValueOf,
@@ -42,10 +44,12 @@ import {
   dimensionName,
   evalGroupOf,
   evalIdOf,
+  evaluateMetric,
   experimentIdOf,
   filterItems,
   fullEvalKey,
   groupItems,
+  historicalOf,
   locatorOf,
   refDisplayKey,
   resolveInput,
@@ -54,8 +58,8 @@ import {
   toColumn,
   type Item,
 } from "../../model/aggregate.ts";
-import { examScore } from "../../model/metrics.ts";
-import { formatMetricValue, formatPercent, formatPlainNumber, formatPoints, localizedDisplay, MISSING_TEXT } from "../../model/format.ts";
+import { costUSD as costUSDMetric, examScore, tokens as tokensMetric, totalScore as totalScoreMetric } from "../../model/metrics.ts";
+import { formatMetricValue, formatPercent, formatPlainNumber, formatPoints, MISSING_TEXT } from "../../model/format.ts";
 import type { LocalizedText } from "../../model/locale.ts";
 import { selectedAttemptsOnly } from "../shared-compute.ts";
 
@@ -606,21 +610,21 @@ export async function metricLineData(input: ReportInput, options: MetricLineOpti
   };
 }
 
-// ───────────────────────── deltaTableData 与 pairsByFlag ─────────────────────────
+// ───────────────────────── deltaTableData 与 conditionsByFlag ─────────────────────────
 
 /**
- * 按 flag 派生 A/B 对(docs/feature/reports/library/metric-views.md「DeltaTable」):
- * 配对域 = input Scope 内删除该 flag 后可比性配置深相等(不额外按 experiment id 的目录前缀分组
- * ——architecture.md「Scope 是默认报告的比较边界」同一条契约);a 取 baseline(缺省 = 未声明该
- * flag),b 侧该 flag 的每个其它取值各成一对;label 自动 `<完整 a experiment id> · <flag>=<显示键>`,
- * 排序仍按 a 的末段、再按 flag 显示键(不受完整 id 的字符串差异影响)。
+ * 按 flag 机械导出全部有序条件(docs/feature/reports/library/metric-views.md「DeltaTable」):
+ * 条件域 = input Scope 内 `by: "experiment"` 的全部取值,删除该 flag 后必须可比性配置深相等
+ * (不额外按 experiment id 的目录前缀分组——architecture.md「Scope 是默认报告的比较边界」同一条
+ * 契约);基准取 `baseline` 声明的值(缺省 = 未声明该 flag),候选是该 flag 每个其它取值各一个
+ * 条件,按显示键字典序排在基准之后。
  */
-export function pairsByFlag(name: string, options?: { baseline?: JsonValue }): FlagPairs {
+export function conditionsByFlag(name: string, options?: { baseline?: JsonValue }): FlagConditions {
   if (typeof name !== "string" || name.length === 0) {
-    throw new Error("pairsByFlag: name must be a non-empty string (the key declared in the experiment's flags).");
+    throw new Error("conditionsByFlag: name must be a non-empty string (the key declared in the experiment's flags).");
   }
   return {
-    kind: "flagPairs",
+    kind: "flagConditions",
     flag: name,
     ...(options?.baseline !== undefined ? { baseline: options.baseline } : {}),
   };
@@ -629,92 +633,22 @@ export function pairsByFlag(name: string, options?: { baseline?: JsonValue }): F
 export interface DeltaTableOptions {
   /** 显式维度,必填——"baseline" 不会被猜成 experiment、agent、flag 或 snapshot 中的某一种。 */
   by: DimensionInput;
-  /** 字面 pair 数组(自定义 label),或 pairsByFlag() 的派生声明;空数组在计算时报错。 */
-  pairs: readonly DeltaPair[] | FlagPairs;
-  metrics: readonly [Metric, ...Metric[]];
+  /** 有序条件值,取自 by 维度;长度 ≥ 2,首个是基准。空数组、单元素或重复值在计算时按完整用户反馈报错。 */
+  conditions: readonly [string, string, ...string[]] | FlagConditions;
   /** eval id 前缀过滤,同 CLI 位置参数语义。 */
   evals?: string | readonly string[];
 }
 
-function isFlagPairs(pairs: DeltaTableOptions["pairs"]): pairs is FlagPairs {
-  return typeof pairs === "object" && pairs !== null && !Array.isArray(pairs) && (pairs as FlagPairs).kind === "flagPairs";
+function isFlagConditions(conditions: DeltaTableOptions["conditions"]): conditions is FlagConditions {
+  return (
+    typeof conditions === "object" &&
+    conditions !== null &&
+    !Array.isArray(conditions) &&
+    (conditions as FlagConditions).kind === "flagConditions"
+  );
 }
 
-/** experiment id 的末段(最后一个 `/` 之后;无 `/` 时是完整 id)。 */
-function experimentTail(experimentId: string): string {
-  const slash = experimentId.lastIndexOf("/");
-  return slash === -1 ? experimentId : experimentId.slice(slash + 1);
-}
-
-/** 派生配对:input Scope 内删除该 flag 后可比性配置深相等。返回 pair 列表与配对域实验数。 */
-function derivePairsByFlag(
-  snapshots: readonly Snapshot[],
-  spec: FlagPairs,
-): { pairs: DeltaPair[]; experiments: number } {
-  // 每个 experiment 取最新快照的配置(current() Scope 天然一实验一快照)。
-  const byExperiment = new Map<string, Snapshot>();
-  for (const snapshot of snapshots) {
-    const existing = byExperiment.get(snapshot.experimentId);
-    if (existing === undefined || snapshot.startedAt > existing.startedAt) {
-      byExperiment.set(snapshot.experimentId, snapshot);
-    }
-  }
-  interface Entry {
-    id: string;
-    flagValue: JsonValue | undefined;
-    bucket: string;
-  }
-  const entries: Entry[] = [];
-  for (const [id, snapshot] of byExperiment) {
-    const config = comparabilityConfigOf(snapshot) as { flags?: Record<string, JsonValue> };
-    const flagValue = config.flags?.[spec.flag];
-    const reduced = { ...config, flags: { ...config.flags } };
-    delete reduced.flags[spec.flag];
-    // 配对域只是 input Scope + 删除该 flag 后的可比性配置深相等;不额外按 experiment id 的
-    // 目录前缀分组——组件不从路径猜比较边界(architecture.md「Scope 是默认报告的比较边界」)。
-    entries.push({ id, flagValue, bucket: JSON.stringify(sortedJson(reduced)) });
-  }
-
-  const baseline = spec.baseline; // undefined = 未声明该 flag 的实验作 a
-  const buckets = new Map<string, Entry[]>();
-  for (const entry of entries) {
-    const list = buckets.get(entry.bucket);
-    if (list) list.push(entry);
-    else buckets.set(entry.bucket, [entry]);
-  }
-
-  interface DerivedPair {
-    a: string;
-    b: string;
-    label: string;
-    flagKey: string;
-  }
-  const derived: DerivedPair[] = [];
-  for (const bucket of buckets.values()) {
-    const aSide = bucket.filter((e) => deepEqualJson(e.flagValue, baseline));
-    const bSide = bucket.filter((e) => !deepEqualJson(e.flagValue, baseline));
-    for (const a of aSide) {
-      for (const b of bSide) {
-        const flagKey = refDisplayKey(b.flagValue)[0]!;
-        // label 用完整 a experiment id 自动命名,不截断成末段——目录前缀不同的两个实验
-        // 配成一对时,末段可能撞名,完整 id 才能唯一标识这一对来自哪个实验。
-        derived.push({ a: a.id, b: b.id, label: `${a.id} · ${spec.flag}=${flagKey}`, flagKey });
-      }
-    }
-  }
-  // 排序只看 a 的末段与 flag 显示键,不看完整 label 字符串——完整 a id 只服务显示,
-  // 不该让目录前缀的字符串差异打乱本该相邻的 a 末段分组。
-  derived.sort((p, q) => {
-    const ta = experimentTail(p.a);
-    const tb = experimentTail(q.a);
-    if (ta !== tb) return ta < tb ? -1 : 1;
-    return p.flagKey < q.flagKey ? -1 : p.flagKey > q.flagKey ? 1 : 0;
-  });
-  const pairs: DeltaPair[] = derived.map(({ a, b, label }) => ({ a, b, label }));
-  return { pairs, experiments: byExperiment.size };
-}
-
-/** 对象键递归排序(派生配对的 bucket 键用;undefined 字段剔除)。 */
+/** 对象键递归排序(派生条件的可比性配置比较键用;undefined 字段剔除)。 */
 function sortedJson(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(sortedJson);
   if (typeof value === "object" && value !== null) {
@@ -728,106 +662,418 @@ function sortedJson(value: unknown): unknown {
   return value;
 }
 
-export async function deltaTableData(input: ReportInput, options: DeltaTableOptions): Promise<DeltaData> {
-  assertUniqueMetricNames(options.metrics, "deltaTableData metrics");
-  if (!Array.isArray(options.metrics) || options.metrics.length === 0) {
-    throw new Error("deltaTableData metrics must be a non-empty tuple of Metric instances.");
+/**
+ * 派生有序条件:input Scope 内全部实验删除该 flag 后必须落在同一个可比性配置桶——它们是同一组
+ * 配置的不同 flag 取值,不是互不相关的两批实验;不满足时按完整用户反馈报错,提示按 evals 或
+ * 输入范围收窄成单一组。返回条件值列表(首个是基准)、配对域实验数,与 experimentId → 条件值
+ * 的映射(供 deltaTableData 按 experiment 成员关系而非字面维度键取回 items——同一条件值可能
+ * 对应多个 experiment)。
+ */
+function deriveConditionsByFlag(
+  snapshots: readonly Snapshot[],
+  spec: FlagConditions,
+): { conditions: string[]; experiments: number; experimentToCondition: Map<string, string> } {
+  // 每个 experiment 取最新快照的配置(current() Scope 天然一实验一快照)。
+  const byExperiment = new Map<string, Snapshot>();
+  for (const snapshot of snapshots) {
+    const existing = byExperiment.get(snapshot.experimentId);
+    if (existing === undefined || snapshot.startedAt > existing.startedAt) {
+      byExperiment.set(snapshot.experimentId, snapshot);
+    }
   }
-  const { snapshots, attempts } = resolveInput(input);
-
-  let pairs: readonly DeltaPair[];
-  let experiments: number | undefined;
-  if (isFlagPairs(options.pairs)) {
-    if (options.by !== "experiment") {
-      throw new Error(
-        `deltaTableData pairs came from pairsByFlag("${options.pairs.flag}"), which derives experiment A/B pairs — it only works with by: "experiment" (got by: ${JSON.stringify(
-          dimensionName(options.by),
-        )}). Set by: "experiment", or write literal pairs for other dimensions.`,
-      );
-    }
-    const derived = derivePairsByFlag(snapshots, options.pairs);
-    pairs = derived.pairs;
-    experiments = derived.experiments;
-  } else {
-    if (!Array.isArray(options.pairs)) {
-      throw new Error("deltaTableData pairs must be an array of { label, a, b } or a pairsByFlag(...) declaration.");
-    }
-    if (options.pairs.length === 0) {
-      throw new Error(
-        "deltaTableData pairs is empty — a delta table with no pairs has nothing to compare. " +
-          "Declare at least one { label, a, b } pair, or use pairsByFlag(name) to derive pairs from experiment flags.",
-      );
-    }
-    const seenLabels = new Set<string>();
-    for (const pair of options.pairs) {
-      const labelKey = JSON.stringify(sortedJson(pair.label));
-      if (pair.label === undefined || pair.label === "" || labelKey === "{}") {
-        throw new Error(`deltaTableData pair (${pair.a} vs ${pair.b}) has an empty label; every pair needs a display label.`);
-      }
-      if (seenLabels.has(labelKey)) {
-        throw new Error(`deltaTableData pair label ${labelKey} is used twice — labels must be unique within one table.`);
-      }
-      seenLabels.add(labelKey);
-      if (pair.a === pair.b) {
-        throw new Error(`deltaTableData pair "${labelKey}" compares "${pair.a}" with itself; a and b must differ.`);
-      }
-    }
-    pairs = options.pairs;
+  interface Entry {
+    id: string;
+    flagValue: JsonValue | undefined;
+    reducedKey: string;
+    displayKey: string;
+  }
+  const entries: Entry[] = [];
+  for (const [id, snapshot] of byExperiment) {
+    const config = comparabilityConfigOf(snapshot) as { flags?: Record<string, JsonValue> };
+    const flagValue = config.flags?.[spec.flag];
+    const reduced = { ...config, flags: { ...config.flags } };
+    delete reduced.flags[spec.flag];
+    entries.push({ id, flagValue, reducedKey: JSON.stringify(sortedJson(reduced)), displayKey: refDisplayKey(flagValue)[0] });
   }
 
-  const items = filterItems(collectItems(snapshots, attempts), options.evals);
-  const groups = groupItems(items, options.by);
-  const rows: DeltaData["rows"] = [];
-  for (const pair of pairs) {
-    // 精确匹配分组后的维度 key,不做前缀或模糊匹配;未命中保留 pair,对应侧格子为缺失。
-    const aItems = groups.get(pair.a) ?? [];
-    const bItems = groups.get(pair.b) ?? [];
-    const cells: DeltaData["rows"][number]["cells"] = {};
-    for (const metric of options.metrics) {
-      const a = await computeCell(metric, aItems);
-      const b = await computeCell(metric, bItems);
-      const delta = a.value === null || b.value === null ? null : b.value - a.value;
-      cells[metric.name] = {
-        a,
-        b,
-        delta,
-        display: deltaDisplay(metric, delta),
-        outcome: deltaOutcome(metric, delta),
-      };
+  const reducedKeys = new Set(entries.map((e) => e.reducedKey));
+  if (entries.length > 0 && reducedKeys.size > 1) {
+    throw new Error(
+      `deltaTableData conditionsByFlag("${spec.flag}") found experiments whose configuration differs beyond "${spec.flag}" — ` +
+        "derived conditions only make sense when every candidate experiment shares the same configuration with just this flag toggled. " +
+        "Narrow to a single configuration group with `evals` or the input Scope, or write literal conditions instead.",
+    );
+  }
+
+  const baselineDisplayKey = refDisplayKey(spec.baseline)[0];
+  const experimentToCondition = new Map<string, string>();
+  const candidateKeys = new Set<string>();
+  for (const entry of entries) {
+    const isBaseline = deepEqualJson(entry.flagValue, spec.baseline);
+    experimentToCondition.set(entry.id, isBaseline ? baselineDisplayKey : entry.displayKey);
+    if (!isBaseline) candidateKeys.add(entry.displayKey);
+  }
+  // 候选按显示键字典序排在基准之后;0 候选不是错误(空态由调用方按 experiments 报数)。
+  const conditions = [baselineDisplayKey, ...[...candidateKeys].sort()];
+  return { conditions, experiments: byExperiment.size, experimentToCondition };
+}
+
+/** 单格折叠:同一条件值 × eval 的全部 attempt 折成一个 DeltaCell。 */
+async function buildDeltaCell(items: readonly Item[]): Promise<DeltaCell> {
+  const scoring: "pass" | "points" = items[0]!.attempt.result.scoring === "points" ? "points" : "pass";
+  const verdict: Verdict = foldEvalVerdict(items.map((item) => ({ verdict: item.attempt.result.verdict })));
+  const refs = new Set<AttemptLocator>();
+  let historical = false;
+  let scoreSum = 0;
+  let scoreCount = 0;
+  let tokensSum = 0;
+  let tokensCount = 0;
+  let costSum = 0;
+  let costCount = 0;
+  for (const item of items) {
+    refs.add(locatorOf(item));
+    if (historicalOf(item)) historical = true;
+    if (scoring === "points") {
+      const value = await evaluateMetric(totalScoreMetric, item.attempt);
+      if (value !== null) {
+        scoreSum += value;
+        scoreCount += 1;
+      }
     }
-    rows.push({
-      key: `${pair.a} → ${pair.b}`,
-      label: pair.label,
-      a: { key: pair.a },
-      b: { key: pair.b },
-      cells,
-    });
+    const tokensValue = await evaluateMetric(tokensMetric, item.attempt);
+    if (tokensValue !== null) {
+      tokensSum += tokensValue;
+      tokensCount += 1;
+    }
+    const costValue = await evaluateMetric(costUSDMetric, item.attempt);
+    if (costValue !== null) {
+      costSum += costValue;
+      costCount += 1;
+    }
   }
   return {
-    byDimension: dimensionName(options.by),
-    columns: options.metrics.map(toColumn),
-    ...(experiments !== undefined ? { experiments } : {}),
-    rows,
+    scoring,
+    verdict,
+    // totalScore 是题目级挣分(各 attempt 均值,与榜单 totalScore 指标同一套 perEval 聚合);
+    // totalTokens / totalCostUSD 是该题在该条件下全部 attempt 的合计,不是均值。
+    ...(scoreCount > 0 ? { totalScore: scoreSum / scoreCount } : {}),
+    attempts: [...refs].sort(),
+    ...(tokensCount > 0 ? { totalTokens: tokensSum } : {}),
+    ...(costCount > 0 ? { totalCostUSD: costSum } : {}),
+    historical,
   };
 }
 
-function deltaDisplay(metric: Metric, delta: number | null): LocalizedText {
-  if (delta === null) return "—"; // 任一侧缺数据:Δ 显示为缺,不硬算
-  if (delta === 0) return "±0";
-  if (metric.display) {
-    const display = metric.display;
-    return localizedDisplay((locale) => {
-      const text = display(Math.abs(delta), locale);
-      return delta > 0 ? `+${text}` : `-${text}`;
-    });
+export async function deltaTableData(input: ReportInput, options: DeltaTableOptions): Promise<DeltaData> {
+  const { snapshots, attempts } = resolveInput(input);
+  const items = filterItems(collectItems(snapshots, attempts), options.evals);
+
+  let conditions: string[];
+  let experiments: number | undefined;
+  let itemsByCondition: Map<string, Item[]>;
+
+  if (isFlagConditions(options.conditions)) {
+    if (options.by !== "experiment") {
+      throw new Error(
+        `deltaTableData conditions came from conditionsByFlag("${options.conditions.flag}"), which derives experiment conditions — ` +
+          `it only works with by: "experiment" (got by: ${JSON.stringify(dimensionName(options.by))}). ` +
+          'Set by: "experiment", or write literal conditions for other dimensions.',
+      );
+    }
+    const derived = deriveConditionsByFlag(snapshots, options.conditions);
+    conditions = derived.conditions;
+    experiments = derived.experiments;
+    if (derived.conditions.length < 2) {
+      // 0 候选不是错误:明确空态,experiments 报配对域实验数。
+      return { byDimension: dimensionName(options.by), conditions, experiments, rows: [], totals: {}, pairedDelta: {} };
+    }
+    itemsByCondition = new Map(conditions.map((c) => [c, [] as Item[]]));
+    for (const item of items) {
+      const condition = derived.experimentToCondition.get(experimentIdOf(item));
+      if (condition !== undefined) itemsByCondition.get(condition)!.push(item);
+    }
+  } else {
+    const literal = options.conditions;
+    if (!Array.isArray(literal) || literal.length < 2) {
+      throw new Error(
+        "deltaTableData conditions must be an ordered list of at least 2 values (the first is the baseline), " +
+          "or a conditionsByFlag(...) declaration.",
+      );
+    }
+    const seen = new Set<string>();
+    for (const condition of literal) {
+      if (typeof condition !== "string" || condition.length === 0) {
+        throw new Error(`deltaTableData conditions must be non-empty strings (got ${JSON.stringify(condition)}).`);
+      }
+      if (seen.has(condition)) {
+        throw new Error(`deltaTableData conditions contains "${condition}" twice — each condition is a distinct column group; remove the duplicate.`);
+      }
+      seen.add(condition);
+    }
+    conditions = [...literal];
+    // 精确匹配分组后的维度 key,不做前缀或模糊匹配;未命中的条件保留在 conditions 里,对应格子缺失。
+    const groups = groupItems(items, options.by);
+    itemsByCondition = new Map(conditions.map((c) => [c, groups.get(c) ?? []]));
   }
-  const text = formatMetricValue(Math.abs(delta), metric.unit);
-  return delta > 0 ? `+${text}` : `-${text}`;
+
+  // 配对身份是 eval id:同一 eval id 在各条件下的结果进同一行。
+  const byConditionByEval = new Map<string, Map<string, Item[]>>();
+  for (const condition of conditions) {
+    const byEval = new Map<string, Item[]>();
+    for (const item of itemsByCondition.get(condition) ?? []) {
+      const evalId = evalIdOf(item);
+      const list = byEval.get(evalId);
+      if (list) list.push(item);
+      else byEval.set(evalId, [item]);
+    }
+    byConditionByEval.set(condition, byEval);
+  }
+  const evalIdsSet = new Set<string>();
+  for (const byEval of byConditionByEval.values()) for (const evalId of byEval.keys()) evalIdsSet.add(evalId);
+  const evalIds = [...evalIdsSet].sort();
+
+  const baseline = conditions[0];
+  const rows: DeltaData["rows"] = [];
+  for (const evalId of evalIds) {
+    const cells: DeltaData["rows"][number]["cells"] = {};
+    for (const condition of conditions) {
+      const conditionItems = byConditionByEval.get(condition)?.get(evalId);
+      if (conditionItems && conditionItems.length > 0) cells[condition] = await buildDeltaCell(conditionItems);
+    }
+    const verdicts = new Set(conditions.map((c) => cells[c]?.verdict).filter((v): v is Verdict => v !== undefined));
+    // 翻转标记只在各条件判定不一致时为真;全部一致(含只有一个条件有结果)的行不加噪声。
+    const flipped = verdicts.size > 1;
+
+    let delta: DeltaData["rows"][number]["delta"] | undefined;
+    const baseCell = baseline !== undefined ? cells[baseline] : undefined;
+    if (baseCell) {
+      for (const condition of conditions.slice(1)) {
+        const cell = cells[condition];
+        if (!cell) continue; // 任一侧缺数据:delta 不把缺失当 0
+        const entry: { score?: number; tokens?: number; costUSD?: number } = {};
+        if (cell.totalScore !== undefined && baseCell.totalScore !== undefined) entry.score = cell.totalScore - baseCell.totalScore;
+        if (cell.totalTokens !== undefined && baseCell.totalTokens !== undefined) entry.tokens = cell.totalTokens - baseCell.totalTokens;
+        if (cell.totalCostUSD !== undefined && baseCell.totalCostUSD !== undefined) entry.costUSD = cell.totalCostUSD - baseCell.totalCostUSD;
+        if (Object.keys(entry).length > 0) {
+          delta ??= {};
+          delta[condition] = entry;
+        }
+      }
+    }
+    rows.push({ key: evalId, flipped, cells, ...(delta ? { delta } : {}) });
+  }
+
+  // 各条件自身覆盖面:分母是该条件有结果的 eval 数,不看其它条件是否也覆盖了这道题。
+  const totals: DeltaData["totals"] = {};
+  for (const condition of conditions) {
+    const coveredRows = rows.filter((r) => r.cells[condition] !== undefined);
+    const passRows = coveredRows.filter((r) => r.cells[condition]!.scoring === "pass");
+    const pointsRows = coveredRows.filter((r) => r.cells[condition]!.scoring === "points");
+    const scoringComposition: "pass" | "points" | "mixed" =
+      passRows.length > 0 && pointsRows.length > 0 ? "mixed" : pointsRows.length > 0 ? "points" : "pass";
+    const entry: DeltaData["totals"][string] = { scoringComposition };
+    if (passRows.length > 0) {
+      entry.passed = passRows.filter((r) => r.cells[condition]!.verdict === "passed").length;
+      entry.denominator = passRows.length;
+    }
+    if (pointsRows.length > 0) {
+      let sum = 0;
+      let count = 0;
+      for (const row of pointsRows) {
+        const score = row.cells[condition]!.totalScore;
+        if (score !== undefined) {
+          sum += score;
+          count += 1;
+        }
+      }
+      if (count > 0) entry.totalScore = sum;
+    }
+    let tokensSum = 0;
+    let tokensCount = 0;
+    let costSum = 0;
+    let costCount = 0;
+    for (const row of coveredRows) {
+      const cell = row.cells[condition]!;
+      if (cell.totalTokens !== undefined) {
+        tokensSum += cell.totalTokens;
+        tokensCount += 1;
+      }
+      if (cell.totalCostUSD !== undefined) {
+        costSum += cell.totalCostUSD;
+        costCount += 1;
+      }
+    }
+    if (tokensCount > 0) entry.totalTokens = tokensSum;
+    if (costCount > 0) entry.totalCostUSD = costSum;
+    totals[condition] = entry;
+  }
+
+  // 共同题 paired delta:只在该条件与基准都存在结果的 eval 交集上计算,先在同一题上配对,
+  // 再分别聚合判定与用量;totals 的分母不同,不能互相替代(见 metric-views.md「DeltaTable」)。
+  const pairedDelta: DeltaData["pairedDelta"] = {};
+  if (baseline !== undefined) {
+    for (const condition of conditions.slice(1)) {
+      const commonRows = rows.filter((r) => r.cells[baseline] !== undefined && r.cells[condition] !== undefined);
+      const entry: DeltaData["pairedDelta"][string] = { commonEvalIds: commonRows.map((r) => r.key) };
+
+      const passRows = commonRows.filter((r) => r.cells[baseline]!.scoring === "pass");
+      if (passRows.length > 0) {
+        const passedBase = passRows.filter((r) => r.cells[baseline]!.verdict === "passed").length;
+        const passedCond = passRows.filter((r) => r.cells[condition]!.verdict === "passed").length;
+        entry.pass = {
+          evalIds: passRows.map((r) => r.key),
+          passRatePoints: (passedCond / passRows.length - passedBase / passRows.length) * 100,
+        };
+      }
+
+      const pointsRows = commonRows.filter(
+        (r) =>
+          r.cells[baseline]!.scoring === "points" &&
+          r.cells[baseline]!.totalScore !== undefined &&
+          r.cells[condition]!.totalScore !== undefined,
+      );
+      if (pointsRows.length > 0) {
+        let sumBase = 0;
+        let sumCond = 0;
+        for (const row of pointsRows) {
+          sumBase += row.cells[baseline]!.totalScore!;
+          sumCond += row.cells[condition]!.totalScore!;
+        }
+        entry.points = { evalIds: pointsRows.map((r) => r.key), totalScore: sumCond - sumBase };
+      }
+
+      let tokensBase = 0;
+      let tokensCond = 0;
+      let tokensN = 0;
+      let costBase = 0;
+      let costCond = 0;
+      let costN = 0;
+      for (const row of commonRows) {
+        const b = row.cells[baseline]!;
+        const c = row.cells[condition]!;
+        if (b.totalTokens !== undefined && c.totalTokens !== undefined) {
+          tokensBase += b.totalTokens;
+          tokensCond += c.totalTokens;
+          tokensN += 1;
+        }
+        if (b.totalCostUSD !== undefined && c.totalCostUSD !== undefined) {
+          costBase += b.totalCostUSD;
+          costCond += c.totalCostUSD;
+          costN += 1;
+        }
+      }
+      if (tokensN > 0) entry.tokens = tokensCond - tokensBase;
+      if (costN > 0) entry.costUSD = costCond - costBase;
+
+      pairedDelta[condition] = entry;
+    }
+  }
+
+  return {
+    byDimension: dimensionName(options.by),
+    conditions,
+    ...(experiments !== undefined ? { experiments } : {}),
+    rows,
+    totals,
+    pairedDelta,
+  };
 }
 
-function deltaOutcome(metric: Metric, delta: number | null): "improved" | "regressed" | "unchanged" | "unavailable" {
-  if (delta === null) return "unavailable";
-  if (delta === 0) return "unchanged";
-  const better = metric.better ?? "higher";
-  return (delta > 0) === (better === "higher") ? "improved" : "regressed";
+// ───────────────────────── stabilityMatrixData ─────────────────────────
+
+export interface StabilityMatrixOptions {
+  /** 列维度(通常是 "experiment");必填。 */
+  by: DimensionInput;
+  /** eval id 前缀过滤,同 CLI 位置参数语义。 */
+  evals?: string | readonly string[];
+}
+
+/**
+ * 历史全执行的稳定性矩阵:行是 eval,列是 by 维度上的取值,格是该组合全部历史执行(跨快照按
+ * 身份键去重、不设可比性门槛)的判定计数(docs/feature/reports/library/metric-views.md
+ * 「StabilityMatrix」)。消费的是调用方传入的 input 本身——传 current() Scope 只看得到现刻
+ * 水位,要看完整历史需由调用方从 ctx.results 显式选择 Snapshot[] 传入。
+ */
+export async function stabilityMatrixData(
+  input: ReportInput,
+  options?: StabilityMatrixOptions,
+): Promise<StabilityMatrixData> {
+  if (!options || options.by === undefined) {
+    throw new Error('stabilityMatrixData requires options.by (the dimension whose values become matrix columns, e.g. "experiment").');
+  }
+  const { snapshots, attempts } = resolveInput(input);
+  const items = filterItems(collectItems(snapshots, attempts), options.evals);
+
+  const cellsByKey = new Map<string, { row: string; column: string; passed: number; failed: number; errored: number }>();
+  for (const item of items) {
+    const evalId = evalIdOf(item);
+    const column = dimensionKey(options.by, item);
+    const key = JSON.stringify([evalId, column]);
+    let cell = cellsByKey.get(key);
+    if (!cell) cellsByKey.set(key, (cell = { row: evalId, column, passed: 0, failed: 0, errored: 0 }));
+    const verdict = item.attempt.result.verdict;
+    if (verdict === "passed") cell.passed += 1;
+    else if (verdict === "failed") cell.failed += 1;
+    else if (verdict === "errored") cell.errored += 1;
+    // skipped 不计入任何列
+  }
+
+  // 稀疏格子:全 skipped(没有任何历史执行)的组合不生成格子,不编三个 0 冒充跑过。
+  const realCells = [...cellsByKey.values()].filter((c) => c.passed + c.failed + c.errored > 0);
+
+  const columnsSet = new Set<string>();
+  const statsByEval = new Map<string, { passed: number; total: number }>();
+  const bestRateByEval = new Map<string, number>();
+  for (const c of realCells) {
+    columnsSet.add(c.column);
+    const executions = c.passed + c.failed + c.errored;
+    const stats = statsByEval.get(c.row) ?? { passed: 0, total: 0 };
+    stats.passed += c.passed;
+    stats.total += executions;
+    statsByEval.set(c.row, stats);
+    const rate = c.passed / executions;
+    if (!bestRateByEval.has(c.row) || rate > bestRateByEval.get(c.row)!) bestRateByEval.set(c.row, rate);
+  }
+
+  // 行按历史最高通过率(各列分别算通过率,取最高值)升序排列,零通过的题排最前;
+  // 同序值再按 evalId 字典序收口。
+  const evalIds = [...statsByEval.keys()].sort((a, b) => {
+    const ra = bestRateByEval.get(a) ?? 0;
+    const rb = bestRateByEval.get(b) ?? 0;
+    if (ra !== rb) return ra - rb;
+    return a < b ? -1 : a > b ? 1 : 0;
+  });
+  const rows: StabilityMatrixData["rows"] = evalIds.map((evalId) => {
+    const stats = statsByEval.get(evalId)!;
+    return { evalId, neverPassed: stats.passed === 0 && stats.total > 0 };
+  });
+
+  const cells: StabilityMatrixData["cells"] = realCells.map((c) => ({
+    row: c.row,
+    column: c.column,
+    cell: { passed: c.passed, failed: c.failed, errored: c.errored, executions: c.passed + c.failed + c.errored },
+  }));
+
+  const totals: StabilityMatrixData["totals"] = {};
+  for (const column of columnsSet) {
+    let passed = 0;
+    let failed = 0;
+    let errored = 0;
+    for (const c of realCells) {
+      if (c.column !== column) continue;
+      passed += c.passed;
+      failed += c.failed;
+      errored += c.errored;
+    }
+    totals[column] = { passed, failed, errored, executions: passed + failed + errored };
+  }
+
+  return {
+    rowDimension: "eval",
+    columnDimension: dimensionName(options.by),
+    rows,
+    columns: [...columnsSet].sort(),
+    cells,
+    totals,
+  };
 }

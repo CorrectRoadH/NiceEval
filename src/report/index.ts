@@ -134,6 +134,7 @@ export {
   MetricScatter,
   MetricTable,
   Scoreboard,
+  StabilityMatrix,
 } from "./components/metric-views/index.tsx";
 export type {
   DeltaTableProps,
@@ -144,6 +145,7 @@ export type {
   MetricScatterProps,
   MetricTableProps,
   ScoreboardProps,
+  StabilityMatrixProps,
 } from "./components/metric-views/index.tsx";
 export {
   CopyFixPrompt,
@@ -178,7 +180,7 @@ export {
   AttemptSummary,
   AttemptTimeline,
   AttemptTrace,
-  AttemptUsage,
+  UsageTable,
 } from "./components/attempt-detail/index.tsx";
 export type { AttemptSectionProps } from "./components/attempt-detail/index.tsx";
 
@@ -187,14 +189,15 @@ export type { AttemptSectionProps } from "./components/attempt-detail/index.tsx"
 export { scopeSummaryData } from "./components/summaries/compute.ts";
 export { attemptListData, evalListData, experimentListData } from "./components/entity-lists/compute.ts";
 export {
+  conditionsByFlag,
   deltaTableData,
   groupMatrixData,
   metricLineData,
   metricMatrixData,
   metricScatterData,
   metricTableData,
-  pairsByFlag,
   scoreboardData,
+  stabilityMatrixData,
 } from "./components/metric-views/compute.ts";
 export type {
   DeltaTableOptions,
@@ -204,6 +207,7 @@ export type {
   MetricScatterOptions,
   MetricTableOptions,
   ScoreboardOptions,
+  StabilityMatrixOptions,
 } from "./components/metric-views/compute.ts";
 export {
   copyFixPromptData,
@@ -225,7 +229,7 @@ export {
   attemptSummaryData,
   attemptTimelineData,
   attemptTraceData,
-  attemptUsageData,
+  usageTableData,
 } from "./components/attempt-detail/compute.ts";
 
 // 数据契约(组件的 data)
@@ -236,15 +240,15 @@ export type {
   BuiltInDimension,
   CopyFixPromptData,
   CustomDimension,
+  DeltaCell,
   DeltaData,
-  DeltaPair,
   DimensionInput,
   DimensionOptions,
   DimensionRef,
   EvalListItem,
   ExperimentListEvalRow,
   ExperimentListItem,
-  FlagPairs,
+  FlagConditions,
   GroupMatrixCell,
   GroupMatrixData,
   GroupMatrixRow,
@@ -268,6 +272,8 @@ export type {
   SeriesInput,
   SnapshotDiagnosticsData,
   SnapshotDiagnosticsItem,
+  StabilityMatrixCell,
+  StabilityMatrixData,
   TableData,
   TraceSpanSummary,
   TraceWaterfallRow,
@@ -291,7 +297,7 @@ export type {
   AttemptSummaryData,
   AttemptTimelineData,
   AttemptTraceData,
-  AttemptUsageData,
+  UsageTableData,
 } from "./model/types.ts";
 
 // 数据层输入的类型(家在 niceeval/results,这里 re-export 方便写指标 / 报告)
