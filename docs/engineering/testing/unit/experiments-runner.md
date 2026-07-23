@@ -10,9 +10,9 @@
 |---|---|
 | runs 展开与过滤 | 计划中的 attempt 集合（`--dry` 语义层） |
 | 并发上限 | barrier 控制下的在飞计数峰值 |
-| early exit / budget | 启动过的 attempt 列表 + `run:earlyExit` / `run:budgetExceeded` 事件 |
+| early exit / budget | 启动过的 attempt 列表 + `invocation:earlyExit` / `invocation:budgetExceeded` 事件 |
 | 缓存与指纹 | 复用 vs 重跑的 attempt 集合 |
-| 退出码折叠 | `RunCompletion` 与退出码 |
+| 退出码折叠 | `InvocationCompletion` 与退出码 |
 | 资源生命周期 | fake Sandbox 的 created/stopped 集合、reporter queue 收尾 |
 | 实验级 setup/teardown | 钩子调用计数、收尾登记文件、运行级事件 |
 

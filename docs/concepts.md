@@ -58,7 +58,7 @@
 | 生命周期 Hook | Hook | 四层(实验级 / Sandbox 级 / eval 级 / agent 级)共用同一形态的成对 `setup` / `teardown` 回调;`SandboxHook` / `SandboxHookContext` 从 `niceeval/sandbox` 公开导出。中文正文写"生命周期"(泛指机制)或"生命周期 Hook"(指具体回调),不写"钩子" |
 | 实验 | Experiment | 可签入的运行配置:用哪个 agent / model / flags、跑几次、预算多少;不碰评分 |
 | 实验 flags | Flags | experiment 的 A/B 条件键(一组 feature flag 取值),经 `ctx.flags` 给 adapter、`t.flags` 给 eval;裸词 flags 专指它 |
-| Run | Run | 一次 `niceeval` 调用对一批 eval 的完整执行,产出一份 summary |
+| Invocation | Invocation | 一次 `niceeval` CLI 调用的瞬时编排边界;可同时调度多个 Experiment,但不是持久化领域实体 |
 | Attempt | Attempt | 同一个 eval 的第 i 次重复运行,也是作用域断言的聚合范围 |
 | Session | Session | 一条会话线;`t.newSession()` 开独立 session |
 | Turn | Turn | `t.send()` 的一次返回值,带该 Turn 的事件流片段和收窄到该 Turn 的作用域断言 |
@@ -80,7 +80,7 @@
 
 | 中文 | English | 含义 |
 |---|---|---|
-| 结果快照 | Snapshot | 结果读取面的单位:一个 experiment 在一次 run 里的结果(experiment × run,不是 run);与快照测试无关;沙箱侧的 microVM 快照一律写"沙箱快照(`snapshotId`)" |
+| 结果快照 | Snapshot | 持久化结果的单位:一个 Experiment 的一次执行水位;可由多次 Invocation 通过 carry 续成,不保留跨 Experiment 的 Invocation 成员关系;与快照测试无关;沙箱侧的 microVM 快照一律写"沙箱快照(`snapshotId`)" |
 | Scope(范围) | Scope | `results.latest()` / `results.current()` 的返回物:挑好的快照 + 结构化挑选警告;唯一方法 `filter`(只删不换) |
 | Attempt 定位符 | AttemptLocator | attempt 的稳定引用,由 `{experimentId, 快照 startedAt, evalId, attempt}` 不可变元组派生的带版本、`@` 前缀短确定性字符串;不是数组下标也不是目录路径。reader 打开结果根时建一份 locator → AttemptHandle 索引,缺失 / 损坏 / 碰撞一律结构化报错,不回退"最新失败";报告页与 attempt 详情路由(`#/attempt/@<locator>` / `show @<locator>`,单段格式)共用同一个 locator 身份契约,见 [View](feature/reports/view.md) |
 | Attempt 证据 | AttemptEvidence | 每个 Attempt 只装配一次的中性证据聚合:locator、身份、`EvalResult`、标准事件流(`events: StreamEvent[] \| null`)、`AnnotatedEvalSource`、`ExecutionTree`、diff、artifact 路径与能力位(`source` / `execution` / `timing` / `diff`);`show` / `view` / 静态导出 / 报告列表共用同一份,不各自重读 artifact,也不再各自调用 `events()` |
@@ -172,11 +172,11 @@
 
 **Experiment** / **实验** —— 一份可签入的**运行配置**,描述「怎么跑这批 eval」:用哪个 [Agent](#agent)、跑几次、过滤哪些、预算多少。由 `defineExperiment` 定义在 `experiments/` 下,id 从路径推导。**一文件 = 一个单一配置**；`evals` 遍历发现到的 eval 并选择这份配置要跑的集合，解析结果以 `selectedEvalIds` 落盘。它**不碰评分**——「怎么算对」是 eval 的事。详见 [Experiments](feature/experiments/README.md)。
 
-**Run** —— 一次 `niceeval` 调用对一批 eval 的完整执行,产出一份 **summary**。
+**Invocation** —— 一次 `niceeval` CLI 调用的瞬时编排边界。它可同时选中多个 Experiment,负责当场调度、反馈、退出码与 `InvocationCompletion`;不分配持久化 id,不在 `.niceeval/` 保存跨 Experiment 的成员关系。重跑可通过 carry 从旧 Snapshot 携入终态 Attempt,因此 Invocation 是可丢弃的传输与编排载体,不是 Results 实体。需要审计当次 Invocation 汇总时显式配置 `Json(path)` Reporter。
 
-**Attempt** —— 同一个 eval 的第 i 次重复运行(`runs > 1` 时取通过率用)。这是 runner/result 的执行单位,不是 author-facing API 层。`t` 上的作用域断言会在一个 Attempt 的范围内聚合(全部 session + 全部 turn),不跨 Attempt、也不是上面 Run 那么大的范围。
+**Attempt** —— 同一个 eval 的第 i 次重复运行(`runs > 1` 时取通过率用)。这是 runner/result 的执行单位,不是 author-facing API 层。`t` 上的作用域断言会在一个 Attempt 的范围内聚合(全部 session + 全部 turn),不跨 Attempt。
 
-**Session** —— 一条会话线。`t` 驱动主 session;`t.newSession()` 返回独立 session,用于并行或隔离的多会话测试。`session.*` 作用域断言只看这条 session 已经发生的事件;这些事件仍会汇入 `t.*` run 级断言。
+**Session** —— 一条会话线。`t` 驱动主 session;`t.newSession()` 返回独立 session,用于并行或隔离的多会话测试。`session.*` 作用域断言只看这条 session 已经发生的事件;这些事件仍会汇入 `t.*` Attempt 级断言。
 
 **Turn** —— `t.send()` 的一次返回值,对应该 Turn 的标准事件流片段。带 `message` / `data` / `toolCalls` / `status` / `usage` / `events` 等只读字段,以及一套与 `t` 同名的作用域断言(`turn.calledTool`/`turn.succeeded`/…),作用域收窄成只看这一个 Turn,详见 [Scoring · 作用域](feature/scoring/architecture/scopes.md)。
 
@@ -190,9 +190,9 @@
 
 **Usage** / **用量** —— 一次运行的 token 计数(`inputTokens` / `outputTokens` / 可选 cache 读写)。随结果带回:remote agent 由 `send` 返回,沙箱型由 transcript 解析器从 agent 的 JSONL 抠出累加。可经 `t.usage` 读、`t.maxTokens()` 断言。
 
-**Cost** / **成本** —— 用量经配置的价格表(模型 → 每百万 token 单价)换算的估算金额(`estimatedCostUSD`)。让跨 agent 对比从 pass-rate 升级为**质量 × 成本**。`--budget <usd>` 给整个 run 设上限。详见 [Observability](observability.md#用量与成本token--计费)。
+**Cost** / **成本** —— 用量经配置的价格表(模型 → 每百万 token 单价)换算的估算金额(`estimatedCostUSD`)。让跨 agent 对比从 pass-rate 升级为**质量 × 成本**。`--budget <usd>` 给每个选中 Experiment 的 budget 域各设一份上限,不是 Invocation 总闸。详见 [Observability](observability.md#用量与成本token--计费)。
 
-**Reporter** / **报告器** —— 消费运行结果的插件,可实现分阶段 `onEvent`(`run:start` / `eval:start` / `eval:complete` / `run:summary` 等),也兼容 `onRunStart` / `onEvalComplete` / `onRunComplete`。内置控制台、JUnit、JSON;可接第三方实验跟踪平台。报告器在独立的串行队列上回调,不阻塞执行池。详见 [Reporters](observability.md#reporters)。
+**Reporter** / **报告器** —— 消费 Invocation 中结果的插件,可实现分阶段 `onEvent`(`invocation:start` / `eval:start` / `eval:complete` / `invocation:summary` 等),也可实现 `onInvocationStart` / `onEvalComplete` / `onInvocationComplete`。内置控制台、JUnit、JSON;可接第三方实验跟踪平台。报告器在独立的串行队列上回调,不阻塞执行池。详见 [Reporters](observability.md#reporters)。
 
 **Artifact** / **artifact** —— 落盘的结构化产物。落盘单位是**结果快照**(一个 experiment 的一次运行):快照目录 `.niceeval/<experiment>/<snapshot>/` 下放快照级 `snapshot.json`(身份与版本元数据),每个 attempt 目录(`<evalId>/a<attempt>/`)下放判决、断言、结构化错误与 diagnostics 的权威记录 `result.json`,以及按需生成的 `events.json`、`sources.json`、`trace.json`、`o11y.json`、`diff.json`。瞬时 progress 不落盘。每个文件都是 JSON,不是 JSONL / NDJSON。attempt 目录路径是磁盘存储细节;report / CLI 层寻址同一个 Attempt 用的是 `AttemptLocator`(见「结果数据与报告」词表),不直接引用路径或数组下标。详见 [Results Format](feature/results/architecture.md)。
 

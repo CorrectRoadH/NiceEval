@@ -4,13 +4,13 @@
 
 ## 目录结构
 
-默认输出根目录是 `.niceeval/`。**落盘单位是快照**(snapshot = 一个 experiment 的一次运行):实验目录在外层,快照目录在实验目录下:
+默认输出根目录是 `.niceeval/`。**落盘单位是快照**(Snapshot = 一个 Experiment 的一次执行水位):实验目录在外层,快照目录在实验目录下。一次 CLI Invocation 可同时打开多个快照,但它不是持久化实体:格式不保存 `runId` / `invocationId` / Run Manifest,也不保存跨实验成员关系。
 
 ```text
 .niceeval/
   <experiment>/                      # 实验目录:experimentId 清洗后的名字
     <timestamp>-<suffix>/            # 快照目录:时间戳 + 随机后缀,独占创建
-      snapshot.json                  # 快照元数据(快照开始时写入,收尾补 completedAt)
+      snapshot.json                  # 快照元数据(快照开始时写入,收尾补 completedAt + 快照诊断)
       sources/                       # 快照级 eval 源码去重仓库,按内容 SHA-256 建档
         <sha256>.json                # { content }:一份源码文本,快照内多少 attempt 引用它都只存一份
       <evalId>/a<attempt>/           # 单个 eval attempt 的目录
@@ -31,7 +31,7 @@
 
 **唯一性由创建方式保证**:快照目录用独占 `mkdir` 创建(目录已存在即失败),撞名时换随机后缀重试。多个 niceeval 进程同时开跑——哪怕同一毫秒、同一个实验——各自拿到各自的快照目录,任何文件都不会被另一个进程触碰。
 
-**每个文件恰好写入一次**:`snapshot.json` 在快照开始时写入(收尾时补写 `completedAt` 是唯一的重写,且只有创建它的进程会做);`result.json` 与各 artifact 文件在对应 attempt 完成时写入。格式里不存在"跑完才聚合重写"的文件,所以进程 crash / 被 kill 只丢正在飞的 attempt——已完成 attempt 的判决和 artifact 都在盘上。某类数据为空就不生成对应 JSON 文件。
+**每个文件都只有一个封口时点**:`snapshot.json` 在快照开始时写入,收尾时由创建它的进程唯一一次补写 `completedAt` 与快照级 `diagnostics`;`result.json` 与各 artifact 文件在对应 attempt 完成时写入。格式里不存在跨 Experiment 聚合文件,所以进程 crash / 被 kill 只丢正在飞的 attempt 与尚未封口的快照级诊断——已完成 attempt 的判决和 artifact 都在盘上。某类数据为空就不生成对应 JSON 文件。
 
 ## 版本与升级设计
 
@@ -102,8 +102,14 @@ interface SnapshotMeta {
   agent: string;
   model?: string;
   startedAt: string;
-  /** 收尾时补写;缺失 = 快照未收尾(进程中断),已落盘的 attempt 照常可读。 */
+  /** 快照封口时补写;缺失 = 快照未收尾(进程中断),已落盘的 attempt 照常可读。 */
   completedAt?: string;
+  /**
+   * 属于整个 Experiment 快照、无法诚实挂到单个 Attempt 的操作性诊断。
+   * 与 completedAt 在同一次快照封口补写;例如 experiment-teardown-failed、
+   * budget-unenforceable。不得放入跨 Experiment 的 Invocation 汇总。
+   */
+  diagnostics?: DiagnosticRecord[];
   /** 写入时刻该实验已知的 eval 并集 —— 残缺检测的分母随数据走(copySnapshots 自动补记,writer 可声明)。 */
   knownEvalIds?: string[];
   /** 项目名(来自 config.name),透传给 `niceeval view` 顶部 hero 显示。 */
@@ -520,7 +526,7 @@ view 显示「输出过大,已截断(原始 51.5 MB)」靠的是它,不是正则
 
 ## 与其它 reporter 的边界
 
-这篇只描述默认 `Artifacts()` reporter 的本地目录格式。`Json(path)` reporter 写的是机器可读的全量运行汇总(`RunSummary`,含跨实验聚合),用途不同;第三方实验平台 reporter 可以把同一批 `EvalResult` 转成自己的格式。
+这篇只描述默认 `Artifacts()` reporter 的本地目录格式。`Json(path)` reporter 写的是机器可读的当次 Invocation 全量汇总(`InvocationSummary`,含跨实验聚合),用途不同;这是需要审计瞬时调用边界时的 opt-in 出口,不是 `.niceeval/` 持久化实体。第三方实验平台 reporter 可以把同一批 `EvalResult` 转成自己的格式。
 
 因此,不要在文档或工具里假设本地结果有 `results.jsonl`、transcript NDJSON 或固定测试输出文件。当前稳定契约是:
 

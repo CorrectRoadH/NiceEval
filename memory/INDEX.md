@@ -78,7 +78,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 - [end-to-end-pass-rate-is-default](end-to-end-pass-rate-is-default.md) — 裁决(2026-07-15):三指标拆分保留,但默认“成功率”从排除 errored 的 `taskPassRate` 改为 `endToEndPassRate`;`taskPassRate` 只作带限定名称的条件诊断指标,不能驱动默认排名;`2 passed / 5 errored` 默认显示 2/7 而非 100%
 - [experiment-level-lifecycle-hooks](experiment-level-lifecycle-hooks.md) — 翻案裁决(2026-07-17):`ExperimentDef.setup` 落地(整场一次、宿主机侧、返回 cleanup 即 teardown);动因是 nowledge 隧道被迫住在 wrapper 脚本里;setup 失败全 attempt 合成 errored 且绕过 fail-fast,词表新增 experiment.* 两员不递增 schemaVersion
 - [experiment-flags-naming-reversal](experiment-flags-naming-reversal.md) — 条件键定名 flags(A/B feature flag 语义,2026-07-10 params 同日翻案);字段改名=递增 schemaVersion,不做读取别名
-- [results-per-snapshot](results-per-snapshot.md) — 裁决(2026-07-11):落盘单位 run→快照,实验目录在外层、判决落 attempt 级 result.json,run 级 summary.json 废除;翻案 2026-07-10「判定 journal 不做」;schemaVersion 4
+- [results-per-snapshot](results-per-snapshot.md) — 裁决(2026-07-11/23):落盘单位是 Snapshot,判决落 attempt 级 result.json;CLI 调用正名 Invocation 且不持久化,实验域诊断随 Snapshot 封口落盘
 - [bench-direct-invocation-not-niceeval-project](bench-direct-invocation-not-niceeval-project.md) — 裁决(2026-07-11):phase-timings.md 的 bench/ 是直接调 runAttemptBody 的脚本,不是 niceeval 项目+Reports 报告页;曾选 show 对比/compare.mjs 均否决
 - [carry-includes-failed-verdict](carry-includes-failed-verdict.md) — 裁决(2026-07-11):resume/carry 携入条件从「只 passed」改为「passed 或 failed」,只有 errored 重跑;曾选「只 passed 携入」否决(failed 也是判定确定的终态,没理由白花成本重复验证)
 - [feedback-redraw-clock-to-state-change](feedback-redraw-clock-to-state-change.md) — 裁决(2026-07-13):human dashboard 重画从 80ms `setInterval` 驱动的 spinner 帧改为「reducer 真实状态变化 + coordinator tick 机会 + 同帧不写」驱动;旧模型是 live-overflow-redraw-appends-frames / live-raw-stderr-write-desyncs-redraw 两次滚屏 bug 的共同根因,根治靠拆开状态源与重画时机,不是再打一个 ANSI 光标补丁

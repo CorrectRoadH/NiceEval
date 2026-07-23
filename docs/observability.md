@@ -301,9 +301,9 @@ Runner 的 turn 包络与 OTel 子树不是两份互斥的计时:前者含 adapt
 
 ```typescript
 interface Reporter {
-  onRunStart?(evals: { id: string }[], agent: Agent, shape?: RunShape): void | Promise<void>;
+  onInvocationStart?(evals: { id: string }[], shape?: InvocationShape): void | Promise<void>;
   onEvalComplete?(result: EvalResult): void | Promise<void>;
-  onRunComplete?(summary: RunSummary): void | Promise<void>;
+  onInvocationComplete?(summary: InvocationSummary): void | Promise<void>;
   onEvent?(event: ReporterEvent): void | Promise<void>;
 }
 ```

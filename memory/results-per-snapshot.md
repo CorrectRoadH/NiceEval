@@ -12,3 +12,15 @@
 **代价与接受理由**:读侧扫描从每 run 一个文件变成每 attempt 一个文件,本地规模(几百 attempt)无感;旧落盘(≤3)按既有不兼容策略提示 npx 旧版查看,不迁移;旧版本 CLI 看新落盘会误报 incomplete(旧读取器找不到 summary.json),beta 阶段接受。
 
 定稿契约:docs/results-format.md、docs/results-lib.md。
+
+## 2026-07-23 领域模型收口:Invocation 不持久化
+
+**裁决**:一次 `niceeval` CLI 调用正名为 **Invocation**,只是瞬时编排、反馈、退出码和 `InvocationCompletion` 的边界;不分配持久化 id,不落 Run Manifest,不保存多 Experiment 在某次调用中的成员关系。持久化领域实体只保留 Snapshot(一个 Experiment 的一次执行水位)与 Attempt;文档和公开运行时词汇不再用 Run 同时指两种边界。
+
+**核心理由**:
+
+- carry 让后一次 Invocation 携入前一次的终态 Attempt、只补缺口;一份完整水位本来就可由多个进程续成,不存在能忠实对应它的单一调用。
+- 「和哪些 Experiment 同批」只影响调度竞争,不是改变数字含义的实验条件;按可比性边界应归瞬时编排。
+- 需要审计当次调用时,`Json(path)` reporter 已是 opt-in 的 `InvocationSummary` 落点;在 `.niceeval/` 再写一份 Manifest 会制造两个权威来源。
+
+**配套裁决**:无法归属单个 Attempt、但明确归属单个 Experiment 的诊断(如 `experiment-teardown-failed`、`budget-unenforceable`)落入 `snapshot.json.diagnostics`,由 Snapshot 在补 `completedAt` 的同一次封口写入。它们不再只存活于终端,也不借此引入 Invocation 实体。
