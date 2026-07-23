@@ -22,10 +22,10 @@
   - [x] B2. 非 TTY human 追加流成为无 flag 默认;流路由按补充裁决改为单一 stdout(stderr 只留启动期错误,新行为,补实现与断言);人读失败展开上限 10
   - [x] B3. kept / experiment_setup / eval 等事件按词表逐个接线;`--dry --json` 单文档
 - [x] **C. 单测 + E2E**(依赖 B;只为已声明类别写测)
-- [ ] **D. 同步义务**
+- [x] **D. 同步义务**
   - [x] D1. `pnpm docs:reference` 再生 `docs-site/zh/reference/cli.mdx` GENERATED 区块;核对 `src/i18n/` 两份 `--help` 速查
   - [x] D2. `pnpm run typecheck` → `pnpm test`;真机 `pnpm run niceeval -- exp <某实验> --dry --json` 冒烟
-  - [ ] D3. e2e 消费仓(NiceEval-Eval / MemoryBench)脚本里 `--output ci|agent` 与 `--json <path>` 用法迁移
+  - [x] D3. e2e 消费仓脚本迁移:NiceEval-Eval harness 三文件已迁两形态契约(工作树待仓主 review 提交);MemoryBench 经审计零用法无需迁移
 
 ## 验收
 
