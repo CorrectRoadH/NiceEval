@@ -87,7 +87,27 @@ export default defineExperiment({
 - **横切**:同一份声明换个轴,`series={label("memory")}` 让 baseline 们与 mempal 们各成一类,跨 agent 比较记忆机制本身;`series={["agent", label("memory")]}` 复合归类。
 - **参数进程**:数值坐标(`labels: { contextK: 32 }`)用 `numericLabel("contextK")` 直接当 `MetricLine` 的 x 轴。
 
-与 `flags` 的分界一句话:**这个值会改变 attempt 里发生的事吗?** 会(开关联网、注入 skill)→ `flags`,进 `ctx.flags` / `t.flags`、参与可比性配置;只是给报表归类 → `labels`。两边都落盘、报告都能分组(`flag()` / `label()`),区别只在运行时可见性与可比性——已经用 `flags` 表达且确实影响行为的变量不必迁移到 labels。
+与 `flags` 的分界一句话:**这个值会改变 attempt 里发生的事吗?** 会(开关联网、注入 skill)→ `flags`,进 `ctx.flags` / `t.flags`、参与可比性配置;只是给报表归类 → `labels`。两边都落盘、报告都能分组(`flag()` / `label()`),区别只在运行时可见性与可比性——已经用 `flags` 表达且确实影响行为的变量不必迁移到 labels。运行时要看得见、但值变了不该作废结果的坐标是第三种,见下一节。
+
+## provenanceFlags:只作出处记录的 flag
+
+有一类值必须留在 `flags` 里——eval 或 adapter 要读它,报告要按 `flag()` 看这轮连的是哪个——但它每次跑都可能换,换了却不改变 attempt 里发生什么:隧道 / 反向代理 URL、服务端实例地址、跑批时刻。按整袋 `flags` 算指纹会让这类坐标每轮换一次就作废全部已完成结果。`provenanceFlags` 列出这些键名,把它们摘出可比性配置:
+
+```typescript
+export default defineExperiment({
+  agent: codexAgent(),
+  model: "gpt-5.6-luna",
+  flags: { memory: "nowledge", nowledgeVersion: "0.10.39", nowledgeEndpoint: tunnelUrl() },
+  // 隧道 URL 每次重启就换一个,但连的是同一个实例、同一个库
+  provenanceFlags: ["nowledgeEndpoint"],
+});
+```
+
+- **只改可比性,不改别的。** 列出来的键照常落盘进 `ExperimentRunInfo.flags`、照常透给 `ctx.flags` / `t.flags`、照常能被 `flag()` 分组;唯一的区别是指纹按抹掉它们之后的 flags 算,值变了已跑完的结果照常携带。
+- **其余 flag 照旧一变即作废。** 只在这些键上不同才放行;`webResearch` 从 `true` 改成 `false` 这种真改变行为的照常重跑。
+- **声明之前跑出来的结果同样携带得到。** 携带判定对历史结果做一次反事实重算(机制见 [Runner · 缓存](../../runner.md#缓存指纹去重)),不需要重跑一轮来「洗」旧结果,也不需要动已落盘的文件。
+- **键不必存在于 `flags` 里。** 把一个键从 `flags` 移走(比如改用 `labels` 记录)时留着这条声明,历史结果照样不作废。
+- 完全不需要在运行时被看见的事实用 [`labels`](#labels声明归类坐标不进运行时):它本来就不进指纹,不必再声明一次。
 
 文件名与归类自此脱钩:`codex-gpt-5.4--mempal.ts` 的后缀只是给人看的命名习惯,报告不从 experiment id 字符串里猜任何语义,归类只认 `labels` 声明。
 

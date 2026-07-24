@@ -526,6 +526,21 @@ export interface ExperimentDef {
    *  t.flags 暴露给 eval,并原样进入结果快照的 ExperimentRunInfo.flags。 */
   flags?: Record<string, JsonValue>;
   /**
+   * `flags` 里只作为**出处记录**的键名:照常落盘、照常透给 `ctx.flags` / `t.flags`,但不参与
+   * 可比性配置——值变了不作废任何已有结果,已跑完的照常携带(carry)。
+   *
+   * 给的是「每次跑都可能换、但换了不改变 attempt 里发生什么」的坐标:隧道 / 反向代理 URL、
+   * 服务端实例地址、跑批时刻这类。它们要留在 `flags` 里(报告要按 `flag()` 看这轮连的是哪个,
+   * eval 或 adapter 也可能要读),又不该像 `webResearch: true → false` 那样让缓存全部失效。
+   *
+   * 声明前跑出来的结果同样携带得到:携带判定按快照记下的历史 flags 做一次反事实重算,
+   * 确认差异完全落在这些键上(见 `runner/fingerprint.ts` 的 `acceptableFingerprints`)。
+   * 键不必存在于 `flags` 里——把一个键从 `flags` 移走时留着这条声明,历史结果照样不作废。
+   *
+   * 完全不需要在运行时被看见的事实用 `labels`,那是报告侧坐标(本来就不进指纹)。
+   */
+  provenanceFlags?: readonly string[];
+  /**
    * 报告归类标注:实验在各对比轴上的坐标(如 `{ line: "codex", memory: "mempal" }`)。
    * 值域 string | number(解析时校验)。与 `flags` 的分界是「会不会改变 attempt 里发生的事」:
    * labels 不透传 ctx / t(agent 和 eval 看不见)、不参与可比性配置(改它不作废已有结果),
@@ -698,6 +713,8 @@ export interface AgentRun {
   model?: string;
   reasoningEffort?: string;
   flags: Record<string, JsonValue>;
+  /** 只作为出处记录、不进指纹的 flag 键(来自 ExperimentDef.provenanceFlags);见该字段说明。 */
+  provenanceFlags?: readonly string[];
   runs: number;
   earlyExit: boolean;
   sandbox?: SandboxOption;

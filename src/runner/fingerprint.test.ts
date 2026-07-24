@@ -238,3 +238,127 @@ describe("planCarry · timeoutMs 是携带资格判据,不进指纹哈希", () =
     expect(plan.carriedResults).toEqual([]);
   });
 });
+
+// 覆盖「缓存」分区的 provenanceFlags 行:声明为出处记录的 flag 不进指纹,只有这些键取值不同的
+// 历史终态照常携带。fixture 里的历史结果一律按**整袋 flags** 算指纹——那正是声明之前落盘的口径,
+// 这条通道要能把它们救回来(现实反例:隧道 URL 每次重启就换,换一次全部已完成结果作废重跑)。
+describe("planCarry · provenanceFlags 不进指纹", () => {
+  const OLD_FLAGS = { memory: "nowledge", endpoint: "https://old.example" };
+  const NEW_FLAGS = { memory: "nowledge", endpoint: "https://new.example" };
+
+  function runWith(flags: Record<string, string>, provenanceFlags?: string[]): AgentRun {
+    return {
+      ...makeRun("exp", ["e"], 1),
+      flags,
+      ...(provenanceFlags !== undefined ? { provenanceFlags } : {}),
+    };
+  }
+
+  /** 声明之前的落盘:指纹按整袋 flags 算,快照记下当时那袋 flags。 */
+  async function priorFrom(evalDef: DiscoveredEval, flags: Record<string, string>): Promise<EvalResult> {
+    return result({
+      id: "e",
+      attempt: 0,
+      verdict: "passed",
+      fingerprint: await computeFingerprint(evalDef, runWith(flags)),
+      experiment: { flags, runs: 1, earlyExit: false, selectedEvalIds: ["e"] },
+    });
+  }
+
+  it("只有 provenance flag 的取值不同时,历史终态照常携带", async () => {
+    const evals = [makeEval("e")];
+    const prior = await priorFrom(evals[0]!, OLD_FLAGS);
+
+    // 没声明:endpoint 变了就是配置变了,全部作废重跑(修改前的行为)。
+    const without = await planCarry(evals, [runWith(NEW_FLAGS)], [prior]);
+    expect(without.carriedAttemptsByKey.get("exp|e")).toBeUndefined();
+
+    // 声明之后:同一份历史结果照常携带,不需要重跑一轮来"洗"它,也不动已落盘的文件。
+    const with_ = await planCarry(evals, [runWith(NEW_FLAGS, ["endpoint"])], [prior]);
+    expect(with_.carriedAttemptsByKey.get("exp|e")).toEqual(new Set([0]));
+  });
+
+  it("其余 flag 有任一不同则照旧作废——放行只限声明过的键", async () => {
+    const evals = [makeEval("e")];
+    const prior = await priorFrom(evals[0]!, OLD_FLAGS);
+    // endpoint 声明为 provenance,但 memory 这个真影响行为的 flag 也变了:不能携带。
+    const run = runWith({ memory: "baseline", endpoint: "https://new.example" }, ["endpoint"]);
+
+    const plan = await planCarry(evals, [run], [prior]);
+
+    expect(plan.carriedAttemptsByKey.get("exp|e")).toBeUndefined();
+  });
+
+  it("声明之后落盘的结果(指纹已按抹掉 provenance 的口径算)在下一次换值后照常携带", async () => {
+    const evals = [makeEval("e")];
+    // 上一轮已经带着声明跑:落盘指纹 = 抹掉 endpoint 之后算的那个。
+    const prior = result({
+      id: "e",
+      attempt: 0,
+      verdict: "passed",
+      fingerprint: await computeFingerprint(evals[0]!, runWith(OLD_FLAGS, ["endpoint"])),
+      experiment: { flags: OLD_FLAGS, runs: 1, earlyExit: false, selectedEvalIds: ["e"] },
+    });
+
+    const plan = await planCarry(evals, [runWith(NEW_FLAGS, ["endpoint"])], [prior]);
+
+    expect(plan.carriedAttemptsByKey.get("exp|e")).toEqual(new Set([0]));
+  });
+
+  it("候选 flags 可以来自实验的历史快照——携带条目背着更早那轮的指纹,本轮快照的 flags 对不上它", async () => {
+    const evals = [makeEval("e")];
+    // 现实形态:上一轮把这条结果**携带**进了自己的快照,指纹还是更早那轮(OLD_FLAGS)算的,
+    // 而它所在快照记的 flags 已经是中间那轮(MID)的。只看结果自带的那袋永远对不上。
+    const MID_FLAGS = { memory: "nowledge", endpoint: "https://mid.example" };
+    const prior = result({
+      id: "e",
+      attempt: 0,
+      verdict: "passed",
+      fingerprint: await computeFingerprint(evals[0]!, runWith(OLD_FLAGS)),
+      experiment: { flags: MID_FLAGS, runs: 1, earlyExit: false, selectedEvalIds: ["e"] },
+    });
+    const run = runWith(NEW_FLAGS, ["endpoint"]);
+
+    const withoutHistory = await planCarry(evals, [run], [prior]);
+    expect(withoutHistory.carriedAttemptsByKey.get("exp|e")).toBeUndefined();
+
+    const withHistory = await planCarry(evals, [run], [prior], undefined, undefined, new Map([["exp", [OLD_FLAGS]]]));
+    expect(withHistory.carriedAttemptsByKey.get("exp|e")).toEqual(new Set([0]));
+  });
+
+  it("历史候选袋子同样只放行 provenance 键上的差异", async () => {
+    const evals = [makeEval("e")];
+    const prior = result({
+      id: "e",
+      attempt: 0,
+      verdict: "passed",
+      fingerprint: await computeFingerprint(evals[0]!, runWith({ memory: "baseline", endpoint: "https://old.example" })),
+      experiment: { flags: { memory: "baseline", endpoint: "https://old.example" }, runs: 1, earlyExit: false, selectedEvalIds: ["e"] },
+    });
+    // 历史袋子里 memory=baseline,本次 memory=nowledge:抹掉 endpoint 后仍不相等,不放行。
+    const plan = await planCarry(
+      evals,
+      [runWith(NEW_FLAGS, ["endpoint"])],
+      [prior],
+      undefined,
+      undefined,
+      new Map([["exp", [{ memory: "baseline", endpoint: "https://old.example" }]]]),
+    );
+
+    expect(plan.carriedAttemptsByKey.get("exp|e")).toBeUndefined();
+  });
+
+  it("落盘缺 ExperimentRunInfo.flags(第三方 harness)时无从反事实重算,保守不携带", async () => {
+    const evals = [makeEval("e")];
+    const prior = result({
+      id: "e",
+      attempt: 0,
+      verdict: "passed",
+      fingerprint: await computeFingerprint(evals[0]!, runWith(OLD_FLAGS)),
+    });
+
+    const plan = await planCarry(evals, [runWith(NEW_FLAGS, ["endpoint"])], [prior]);
+
+    expect(plan.carriedAttemptsByKey.get("exp|e")).toBeUndefined();
+  });
+});

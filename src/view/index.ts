@@ -16,6 +16,7 @@ export {
   ViewInputError,
   incompatibleHint,
   incompatibleViewCommand,
+  loadCarryInputs,
   loadLatestResultsPerEval,
   loadViewScan,
   type IncompatibleRun,

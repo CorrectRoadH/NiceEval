@@ -43,7 +43,7 @@ import {
 import {
   buildView,
   startViewServer,
-  loadLatestResultsPerEval,
+  loadCarryInputs,
   resolveViewInput,
   IncompatibleResultsError,
   ViewInputError,
@@ -874,6 +874,7 @@ async function main(): Promise<void> {
         model: exp.model,
         reasoningEffort: exp.reasoningEffort,
         flags: exp.flags ?? {},
+        ...(exp.provenanceFlags !== undefined ? { provenanceFlags: exp.provenanceFlags } : {}),
         runs: flags.runs ?? envNumber("NICEEVAL_RUNS") ?? exp.runs ?? 1,
         earlyExit: flags.earlyExit ?? exp.earlyExit ?? false,
         sandbox: exp.sandbox ?? config.sandbox,
@@ -943,9 +944,10 @@ async function main(): Promise<void> {
   // `--dry`(两种形态)都需要这份计算:`--dry --json` 的 `ExpPlanDocument.matrix[].reused`,
   // 人读 `--dry` 首行的携入摘要(见 docs/feature/experiments/cli.md 开头示例与「事件与计划
   // 文档的 TypeScript 形状」),口径必须与真正开跑时一致。
-  const priorResults = flags.force ? undefined : await loadLatestResultsPerEval(join(cwd, ".niceeval"));
+  const carryInputs = flags.force ? undefined : await loadCarryInputs(join(cwd, ".niceeval"));
+  const priorResults = carryInputs?.results;
   const carryPlan = priorResults?.length
-    ? await planCarry(evals, agentRuns, priorResults, config.sandbox, config.timeoutMs)
+    ? await planCarry(evals, agentRuns, priorResults, config.sandbox, config.timeoutMs, carryInputs?.flagBagsByExperiment)
     : undefined;
 
   if (flags.dry) {

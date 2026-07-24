@@ -103,6 +103,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 
 ### 台账
 
+- 已修 [rotating-flag-value-invalidates-whole-cache](rotating-flag-value-invalidates-whole-cache.md) — 隧道 URL 放进 `flags` 就整袋进指纹,换一次隧道全部已完成结果作废(实测 24/36 携带→0,且看起来像「中断的 run 不能 reuse」其实无关);修法=`ExperimentDef.provenanceFlags` 摘出可比性 + 对历史落盘做反事实重算救回,携带判定改「指纹 ∈ 可携带集合」
 - 已修 [backoff-slot-release-defeats-agent-user-concurrency-cap](backoff-slot-release-defeats-agent-user-concurrency-cap.md) — 退避让位使 ACTIVE running 行数可超 `--max-concurrency`(睡眠者不持位),且空位立喂新 attempt,agent 侧 per-user 并发限额恒饱和、重试预算白烧;调度机制无 bug,修在 docs(runner.md/error-classification architecture/两篇 use-case 补限额类型路由与面板读法);配置侧用实验级 maxConcurrency 或全局降档
 - 已修 [failure-class-carry-on-turn-failed-has-no-error](failure-class-carry-on-turn-failed-has-no-error.md) — 终局失败的 scope 要走出重试执行体:`turn-failed` 形态没有错误对象可挂(错误到 `expectOk()` 才铸造),且耗尽摘要会换出一个新的 Turn 对象——按 Turn 身份登记时登记错对象会让 scope 静默丢失、只在「重试耗尽」这条路径上错;修法=onFinalFailure 回执报浮出的那个 Turn + WeakMap 登记 + expectOk 附着;接线方注意 attempt.ts 转 AttemptError 时原错误即被丢弃
 - 已修 [turn-retry-backoff-releases-experiment-serial-lock](turn-retry-backoff-releases-experiment-serial-lock.md) — turn 级重试退避把实验级 runSem 一并释放,`maxConcurrency: 1` 的串行契约被击穿(下游 mempal 记忆回存竞态、running=2 实证);修法=退避只释放 globalSem,退避期间继续持有 runSem(裁决见 experiment-gate-tenure-ruling,commit `9d7b352`+`6953d51`);MemoryBench 真机回归三条判据全过

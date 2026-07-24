@@ -22,7 +22,7 @@ import {
 } from "../report/runtime/host.ts";
 import { selectCurrentResults, filterExperiments } from "../results/select.ts";
 import { evalPrefixPredicate } from "../shared/aggregate.ts";
-import type { EvalResult } from "../types.ts";
+import type { EvalResult, JsonValue } from "../types.ts";
 import type { SkippedRunNotice, ViewData, ViewReportMeta, ViewReportPageHtml } from "./shared/types.ts";
 import { t } from "../i18n/index.ts";
 import { RESULTS_SCHEMA_VERSION } from "../types.ts";
@@ -163,8 +163,39 @@ export function viewRoot(input?: string): string {
  * 携带条目要能被 view 找回 artifact,这里同时把 artifactBase(相对结果根)拼好(runner 依赖它)。
  */
 export async function loadLatestResultsPerEval(root = ".niceeval"): Promise<EvalResult[]> {
+  return (await loadCarryInputs(root)).results;
+}
+
+/**
+ * 携带规划要的两份输入,一次扫描出齐(`openResults` 会 parse 全根每一个 `result.json`,读两遍不划算):
+ *
+ * - `results` —— 每 `(experimentId, evalId)` 最新一份的 `EvalResult`,口径见 `loadLatestResultsPerEval`。
+ * - `flagBagsByExperiment` —— 该实验**全部历史快照**记下过的 `ExperimentRunInfo.flags`(按内容去重)。
+ *   [provenance flag](../../docs/feature/experiments/library.md) 的反事实重算拿它当候选假设:
+ *   「把 flags 换成这一袋,指纹还相等吗」。候选来自哪个快照不重要——重算相等本身就是证明。
+ *   必须扫全历史而不是只看结果所在的那一份:携带条目原样带着**产出它那一轮**的指纹合入新快照,
+ *   而新快照记的是**本轮**的 flags,两者在坐标轮换后天然对不上;产出那一轮的 flags 只在更早的
+ *   快照里留着。
+ */
+export async function loadCarryInputs(
+  root = ".niceeval",
+): Promise<{ results: EvalResult[]; flagBagsByExperiment: Map<string, Record<string, JsonValue>[]> }> {
   const results = await openResults(root);
   const out: EvalResult[] = [];
+  const flagBagsByExperiment = new Map<string, Record<string, JsonValue>[]>();
+  for (const exp of results.experiments) {
+    const bags: Record<string, JsonValue>[] = [];
+    const seenBags = new Set<string>();
+    for (const snapshot of exp.snapshots) {
+      const flags = snapshot.experiment?.flags;
+      if (flags === undefined) continue;
+      const key = JSON.stringify(Object.entries(flags).sort());
+      if (seenBags.has(key)) continue;
+      seenBags.add(key);
+      bags.push(flags);
+    }
+    if (bags.length > 0) flagBagsByExperiment.set(exp.id, bags);
+  }
   for (const exp of results.experiments) {
     // exp.snapshots 已按新→旧排序;同一快照内先收本轮的 eval id,收完再整体入 claimed,
     // 保证同 (experiment, eval) 的多 attempt 整批取自同一个快照。
@@ -179,7 +210,7 @@ export async function loadLatestResultsPerEval(root = ".niceeval"): Promise<Eval
       for (const id of takenThisSnapshot) claimed.add(id);
     }
   }
-  return out;
+  return { results: out, flagBagsByExperiment };
 }
 
 /**

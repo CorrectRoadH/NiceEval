@@ -133,9 +133,22 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
   // 等),判定本身不可信,必须重跑。跳过/fingerprint 不匹配同样重跑。--force 跳过此逻辑
   // (cli.ts 在 --force 时不传 priorResults,也不算 carryPlan)。
   // carryPlan 优先用调用方(cli.ts,为了 live 表格)已经算好的那份,不重算一遍。
-  const { plannedFingerprints, carriedAttemptsByKey, carriedResults } =
+  const { plannedFingerprints, acceptableFingerprints, carriedAttemptsByKey, carriedResults: planCarriedResults } =
     opts.carryPlan ??
     (await planCarry(opts.evals, opts.agentRuns, opts.priorResults, opts.config.sandbox, opts.config.timeoutMs));
+
+  /**
+   * 携带条目合入本次快照时,指纹按**本次**口径重新打戳。携带的含义就是「这条已落盘的结果对
+   * 本次规划的输入依然成立」,那它在新快照里就该带本次的指纹——否则携带条目会一直背着产出
+   * 它那一轮的指纹漂下去,而新快照记的是本轮的 `ExperimentRunInfo.flags`,两者对不上,
+   * 下一轮的反事实重算(见 fingerprint.ts 的 `acceptableFingerprints`)就得靠翻更早的快照
+   * 才能对上号。判定面不受影响:能走到这里,说明这条已经过了携带资格判据。
+   */
+  const restampCarried = (r: EvalResult): EvalResult => {
+    const fp = plannedFingerprints.get(`${r.experimentId ?? ""}|${r.id}`);
+    return fp === undefined || fp === r.fingerprint ? r : { ...r, fingerprint: fp };
+  };
+  const carriedResults = planCarriedResults.map(restampCarried);
 
   // 展开 attempts
   // 外层按「round」(run index)迭代,内层按 eval 迭代:同一 key 的第 i+1 次 attempt 排在
@@ -1053,9 +1066,9 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
    * + 用例锁的状态下做的,per-case 的问题("这条用例现在还缺哪些 attempt")不能用全根扫描去
    * 回答——实测 110 ms/条 vs 0.3 ms/条,后者才付得起「每次取锁都重查」。
    *
-   * 判据不重跑 `planCarry`:本次 Invocation 的 `plannedFingerprints` 整场是常量,重查只需要
-   * 逐条 attempt 过 `carriableAttempts`(终态 + 指纹相等 + durationMs ≤ resolved timeoutMs),
-   * 与静态规划共用同一个函数。
+   * 判据不重跑 `planCarry`:本次 Invocation 的 `acceptableFingerprints` 整场是常量,重查只需要
+   * 逐条 attempt 过 `carriableAttempts`(终态 + 指纹在可携带集合里 + durationMs ≤ resolved
+   * timeoutMs),与静态规划共用同一个函数。
    */
   const recheckCarry = async (
     st: CaseLockState,
@@ -1076,7 +1089,7 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
       const carried = carriableAttempts(
         freshPrior,
         key,
-        plannedFingerprints.get(key),
+        acceptableFingerprints.get(key),
         resolvedTimeoutMsForCarry(a0.run, a0.evalDef, opts.config.timeoutMs),
       );
       for (const r of carried) {
@@ -1084,7 +1097,7 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
         st.pending.delete(r.attempt);
         st.carried.add(r.attempt);
         newlyCarried.push(r.attempt);
-        lateCarriedResults.push(r);
+        lateCarriedResults.push(restampCarried(r));
         if (r.verdict === "passed") {
           passedKeys.add(`${experimentId}|${a0.run.agent.name}|${a0.run.model ?? ""}|${evalId}`);
         }

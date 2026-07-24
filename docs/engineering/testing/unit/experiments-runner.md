@@ -235,7 +235,7 @@ it.effect("全局同时在飞的 attempt 不超过 maxConcurrency", () =>
   是中断时已打开的阶段;`passed` 与 `failed` 都是可复用终态而 `errored`/`skipped`
   总是重跑；指纹变化只重跑受影响 eval；**`timeoutMs`
   不进指纹哈希、以携带判据参与**——提高上限旧终态全部携带、调低上限使 `durationMs`
-  超线的旧终态重跑(fixture 两个方向都要有区分力场景)；携带以 attempt 为粒度、未收尾快照是合法来源；执行模式 flag 的携带豁免——`--keep-sandbox`
+  超线的旧终态重跑(fixture 两个方向都要有区分力场景)；**`provenanceFlags` 声明的 flag 不进指纹**——只有这些键取值不同的历史终态照常携带、其余 flag 有任一不同则重跑(fixture 两个方向都要有区分力场景)，声明之前落盘的历史结果(指纹按整袋 flags 算)同样携带得到、反事实重算的候选 flags 取自该实验全部快照(fixture 要有「结果自带的那袋对不上、更早快照那袋才对得上」的区分力场景)、缺 `ExperimentRunInfo.flags` 的落盘不携带；**携带条目合入新快照时指纹按本次规划重新打戳**(其余字段原样)；携带以 attempt 为粒度、未收尾快照是合法来源；执行模式 flag 的携带豁免——`--keep-sandbox`
   下留存档内的历史终态不携带、照常派发（failed 档豁免 `failed`、all 档连 `passed`
   一起豁免），档外照常携带；`--force`/`--dry` 语义；计数恒等式
   `total = reused + running + elsewhere + queued + passed + failed + errored + skipped`。
