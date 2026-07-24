@@ -75,8 +75,44 @@ export interface CarryPlan {
  * (「当前未设上限 = 恒可携带」,见 docs/runner.md「缓存:指纹去重」)。10 分钟兜底是
  * attempt.ts 的执行期默认值,不是携带判据要遵守的线。
  */
-function resolvedTimeoutMsForCarry(run: AgentRun, evalDef: DiscoveredEval, configTimeoutMs?: number): number {
+export function resolvedTimeoutMsForCarry(run: AgentRun, evalDef: DiscoveredEval, configTimeoutMs?: number): number {
   return run.timeoutMs ?? evalDef.timeoutMs ?? configTimeoutMs ?? Infinity;
+}
+
+/**
+ * 携带资格判据的**唯一**实现:从 `priorResults` 里挑出 `key` 这条 `(experimentId, evalId)`
+ * 可以携入(跳过重跑)的 attempt。三条判据逐条 attempt 独立成立才算命中——
+ *
+ * 1. 该 attempt 自己是终态(`passed` / `failed`)。`errored` 是框架/环境层面的不确定失败,
+ *    判定本身不可信;`skipped` 根本没跑。同一 eval 的别的序号命中不能连带把它捎上
+ *    (反例与修法见 memory 的 carry-must-be-per-attempt-not-whole-eval-key)。
+ * 2. 该 attempt 落盘的 `fingerprint` 与本次规划的 `fingerprint` 相等。
+ * 3. 该 attempt 的 `durationMs` 不超过本次 resolved 的 `timeoutMs`——`timeoutMs` 是携带资格
+ *    判据、不进指纹哈希(docs/runner.md「缓存:指纹去重」)。
+ *
+ * `planCarry`(整场静态规划)与 run.ts 派发时刻的携带重查共用这一个函数:两条路径一旦把判据
+ * 各写一份就会分叉,重查会携入静态规划判过不可携带的条目(或反过来)。
+ */
+export function carriableAttempts(
+  priorResults: EvalResult[] | undefined,
+  key: string,
+  fingerprint: string | undefined,
+  timeoutMs: number,
+): EvalResult[] {
+  if (!priorResults?.length || fingerprint === undefined) return [];
+  const out: EvalResult[] = [];
+  for (const r of priorResults) {
+    if (!r.experimentId || `${r.experimentId}|${r.id}` !== key) continue;
+    const isTerminalVerdict = r.verdict === "passed" || r.verdict === "failed";
+    if (!isTerminalVerdict || r.fingerprint === undefined || r.fingerprint !== fingerprint) continue;
+    // `durationMs` 在 `EvalResult` 上是必填字段,正常落盘不会缺失;这里的 `typeof` 防御只处理
+    // 磁盘数据损坏等异常情形——保守地判不可携带,而不是当 0 处理(当 0 会让所有旧记录都通过
+    // 判据,把「数据缺失」悄悄伪装成「跑得很快」)。
+    const durationMs = typeof r.durationMs === "number" && Number.isFinite(r.durationMs) ? r.durationMs : undefined;
+    if (durationMs === undefined || durationMs > timeoutMs) continue;
+    out.push(r);
+  }
+  return out;
 }
 
 /**
@@ -122,28 +158,22 @@ export async function planCarry(
   }
   await Promise.all(jobs);
 
+  // 判据本身在 carriableAttempts 里,这里只按 key 逐组调它——静态规划与派发时刻的重查因此
+  // 不可能对「哪些携入」得出不同结论。
   const carriedAttemptsByKey = new Map<string, Set<number>>();
-  const carriedResults: EvalResult[] = [];
-  if (priorResults?.length) {
-    for (const r of priorResults) {
-      if (!r.experimentId) continue;
-      const key = `${r.experimentId}|${r.id}`;
-      // 逐条判断:这一条 attempt 自己是终态、且自己的指纹与本次规划一致才携入——errored /
-      // skipped 永不携带,即使同一 eval 的另一个 attempt 序号命中终态也不能连带把它捎上。
-      const isTerminalVerdict = r.verdict === "passed" || r.verdict === "failed";
-      if (!isTerminalVerdict || r.fingerprint === undefined || r.fingerprint !== plannedFingerprints.get(key)) continue;
-      // timeoutMs 携带资格判据:旧记录的 durationMs 必须不超过本次 resolved 的上限才能携入
-      // (docs/runner.md「缓存:指纹去重」)。`durationMs` 在 `EvalResult` 上是必填字段,正常
-      // 落盘不会缺失;这里的 `typeof` 防御只处理磁盘数据损坏等异常情形——保守地判不可携带,
-      // 而不是当 0 处理(当 0 会让所有旧记录都通过判据,把「数据缺失」悄悄伪装成「跑得很快」)。
-      const durationMs = typeof r.durationMs === "number" && Number.isFinite(r.durationMs) ? r.durationMs : undefined;
-      if (durationMs === undefined || durationMs > (plannedTimeoutMs.get(key) ?? Infinity)) continue;
-      let indices = carriedAttemptsByKey.get(key);
-      if (!indices) carriedAttemptsByKey.set(key, (indices = new Set()));
+  const hit = new Set<EvalResult>();
+  for (const [key, fingerprint] of plannedFingerprints) {
+    const carried = carriableAttempts(priorResults, key, fingerprint, plannedTimeoutMs.get(key) ?? Infinity);
+    if (carried.length === 0) continue;
+    const indices = new Set<number>();
+    for (const r of carried) {
       indices.add(r.attempt);
-      carriedResults.push(r);
+      hit.add(r);
     }
+    carriedAttemptsByKey.set(key, indices);
   }
+  // 按 priorResults 的原始顺序输出(调用方的展示顺序不因分组而抖动)。
+  const carriedResults = (priorResults ?? []).filter((r) => hit.has(r));
   return { plannedFingerprints, carriedAttemptsByKey, carriedResults };
 }
 

@@ -13,10 +13,17 @@ export const RESULT_FILE = "result.json";
 /** 快照元数据文件名。 */
 export const SNAPSHOT_FILE = "snapshot.json";
 
+/** eval 目录(相对快照根):evalId 里的 / 保留作目录层级,其余危险字符替换。 */
+export function evalDirOf(evalId: string): string {
+  return evalId.replace(/[^\w./@-]/g, "_");
+}
+
+/** attempt 目录名前缀:`a<attempt>`,同一 eval 目录下按序号并列。 */
+export const ATTEMPT_DIR_PREFIX = "a";
+
 /** attempt 目录(相对快照根):`<evalId>/a<attempt>`;evalId 里的 / 保留作目录层级,其余危险字符替换。 */
 export function attemptDirOf(r: Pick<EvalResult, "id" | "attempt">): string {
-  const id = r.id.replace(/[^\w./@-]/g, "_");
-  return `${id}/a${r.attempt}`;
+  return `${evalDirOf(r.id)}/${ATTEMPT_DIR_PREFIX}${r.attempt}`;
 }
 
 /** 实验目录名:experimentId 里的 / 与其它非 [\w.@-] 字符替换成 _。 */

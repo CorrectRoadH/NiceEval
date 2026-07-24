@@ -385,6 +385,18 @@ export function dedupeAttempts(attempts: AttemptHandle[]): { attempts: AttemptHa
 
 /** 快照新旧比较:startedAt 优先,同刻按快照目录名(时间戳 + 随机后缀,字典序即时序)。 */
 export function isNewerSnapshot(a: Snapshot, b: Snapshot): boolean {
+  return isNewerSnapshotPlacement(a, b);
+}
+
+/**
+ * isNewerSnapshot 的原始口径,供还没组装成 Snapshot 的读取面共用同一判定(收窄读
+ * `loadLatestResultsForCase` 只拿到目录名 + snapshot.json 的 startedAt)。同一份磁盘在两条
+ * 读取面上必须给出同一个「哪份最新」的答案,否则携带与报告会分叉。
+ */
+export function isNewerSnapshotPlacement(
+  a: Pick<Snapshot, "startedAt" | "dir">,
+  b: Pick<Snapshot, "startedAt" | "dir">,
+): boolean {
   const byStart = a.startedAt.localeCompare(b.startedAt);
   if (byStart !== 0) return byStart > 0;
   return a.dir.localeCompare(b.dir) > 0;

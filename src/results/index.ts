@@ -9,6 +9,8 @@
 
 export {
   openResults,
+  loadLatestResultsForCase,
+  withArtifactBase,
   experimentOfSnapshot,
   resolveLocator,
   LocatorNotFoundError,

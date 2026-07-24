@@ -8,7 +8,7 @@
 
 import { readFileSync, statSync } from "node:fs";
 import { dirname, extname, join, relative, resolve } from "node:path";
-import { dedupeAttempts, loadAttemptEvidence, openResults } from "../results/index.ts";
+import { dedupeAttempts, loadAttemptEvidence, openResults, withArtifactBase } from "../results/index.ts";
 import type { AttemptHandle, Results, Scope, Snapshot, SkippedDir } from "../results/index.ts";
 import type { AttemptLocator } from "../results/locator.ts";
 import {
@@ -153,13 +153,6 @@ export function viewRoot(input?: string): string {
   } catch {
     return target;
   }
-}
-
-/** 携带条目 / 新算的 artifactBase:`result.artifactBase ?? `${ref.snapshot}/${ref.attempt}``(posix 拼接)。 */
-function withArtifactBase(attempt: AttemptHandle): EvalResult {
-  const r = attempt.result;
-  if (r.artifactBase !== undefined) return r;
-  return { ...r, artifactBase: `${attempt.ref.snapshot}/${attempt.ref.attempt}` };
 }
 
 /**

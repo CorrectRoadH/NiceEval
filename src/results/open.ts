@@ -12,8 +12,16 @@ import type { EvalResult } from "../types.ts";
 import type { FailedCommandEvidence, O11ySummary, StreamEvent, TraceSpan } from "../types.ts";
 import type { AgentSetupManifest, DiffData, SourceArtifact } from "../types.ts";
 import { deriveDiffData } from "../scoring/diff.ts";
-import { RESULT_FILE, SNAPSHOT_FILE, artifactFileOf, classifySnapshot } from "./format.ts";
-import { isNewerSnapshot, selectCurrentResults, selectLatest } from "./select.ts";
+import {
+  ATTEMPT_DIR_PREFIX,
+  RESULT_FILE,
+  SNAPSHOT_FILE,
+  artifactFileOf,
+  classifySnapshot,
+  evalDirOf,
+  experimentDirOf,
+} from "./format.ts";
+import { isNewerSnapshot, isNewerSnapshotPlacement, selectCurrentResults, selectLatest } from "./select.ts";
 import {
   encodeAttemptLocator,
   resolveAttemptLocator,
@@ -267,9 +275,9 @@ async function handleMetaFile(path: string, state: ScanState): Promise<void> {
 
 // ───────────────────────── 快照读取 ─────────────────────────
 
-/** 快照目录:递归收集全部 result.json,组装成 evals / attempts;单个 result.json 坏 JSON 不拖垮快照。 */
-async function readSnapshotDir(dir: string, meta: SnapshotMeta, state: ScanState): Promise<Snapshot> {
-  const snapshot: Snapshot = {
+/** snapshot.json 的元数据 → 空壳 Snapshot(evals / attempts 待填);全量扫描与收窄读共用。 */
+function makeSnapshotShell(dir: string, meta: SnapshotMeta): Snapshot {
+  return {
     experimentId: meta.experimentId,
     startedAt: meta.startedAt,
     ...(meta.completedAt !== undefined ? { completedAt: meta.completedAt } : {}),
@@ -286,6 +294,124 @@ async function readSnapshotDir(dir: string, meta: SnapshotMeta, state: ScanState
     dir,
     ...(meta.knownEvalIds?.length ? { knownEvalIds: [...meta.knownEvalIds] } : {}),
   };
+}
+
+/**
+ * 快照级字段拼合:「缺才补」,条目自带的值(携带条目的 startedAt)优先。全量扫描与收窄读
+ * 共用这一份——收窄读若自己拼一遍,携入的条目会缺 experimentId / locator 一类字段。
+ */
+function applySnapshotDefaults(record: EvalResult, meta: SnapshotMeta): void {
+  record.experimentId ??= meta.experimentId;
+  record.agent ??= meta.agent;
+  if (record.model === undefined && meta.model !== undefined) record.model = meta.model;
+  record.startedAt ??= meta.startedAt;
+  if (record.experiment === undefined && meta.experiment !== undefined) record.experiment = meta.experiment;
+  // locator 同理「缺才补」:niceeval 自己的 writer(schemaVersion 5 起)恒会写这个字段,
+  // 携带条目原样携带上一轮的值——只有真缺失(第三方 harness 没实现 locator,或手工构造的
+  // 落盘)才按当前身份兜底算一份;这份兜底不保证跨未来的 --resume 稳定,但至少确定性、
+  // 可解析,不比完全没有 locator 差。
+  record.locator ??= encodeAttemptLocator({
+    experimentId: record.experimentId,
+    snapshotStartedAt: meta.startedAt,
+    evalId: record.id,
+    attempt: record.attempt,
+  });
+}
+
+/**
+ * 携带条目 / 新算的 artifactBase(相对结果根):条目自带值优先(`--resume` 携入的条目指向
+ * 原快照),缺则按所在 attempt 的 ref 现拼。携带条目要能被 view 找回 artifact,少了这一步
+ * 报告里的携带行会静默丢 artifact——所以全量扫描(view/data.ts)与收窄读共用这一份公式。
+ */
+export function withArtifactBase(attempt: AttemptHandle): EvalResult {
+  const r = attempt.result;
+  if (r.artifactBase !== undefined) return r;
+  return { ...r, artifactBase: `${attempt.ref.snapshot}/${attempt.ref.attempt}` };
+}
+
+/**
+ * 收窄读:只取某条 `(experimentId, evalId)` 的「当前可用」attempt,不扫全根。
+ *
+ * 口径与 `loadLatestResultsPerEval` 完全一致——整批取自**含它的最新快照**,不跨快照混装;
+ * 「哪份最新」走 `isNewerSnapshotPlacement`(snapshot.json 的 `startedAt` 优先、同刻按目录名),
+ * 目录名倒序只作为候选遍历顺序,不作判据。**不检查快照有没有 `completedAt`**:被中断或强杀的
+ * 未收尾快照里已落盘的终态照常可读(docs/runner.md「缓存:指纹去重」的「携带来源不要求快照收尾」)。
+ *
+ * 代价与该实验的历史快照数近似无关:没跑过这条 eval 的快照只付一次 readdir,不读任何文件;
+ * 只有命中的候选才读 `snapshot.json`。派发路径上的携带重查用它替代全树扫描
+ * (`openResults` 会读并 parse 全根每一个 `result.json`)。
+ */
+export async function loadLatestResultsForCase(
+  root: string,
+  experimentId: string,
+  evalId: string,
+): Promise<EvalResult[]> {
+  const experimentDir = join(resolve(root), experimentDirOf(experimentId));
+  let snapshotDirNames: string[];
+  try {
+    snapshotDirNames = (await readdir(experimentDir, { withFileTypes: true }))
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name);
+  } catch {
+    return []; // 这个实验还没跑过:不是错误
+  }
+  // 目录名带时间戳前缀,倒序 = 最可能命中的先试;权威判定仍在下面的 isNewerSnapshotPlacement。
+  snapshotDirNames.sort((a, b) => b.localeCompare(a));
+  const evalSegment = evalDirOf(evalId);
+
+  let best: { dir: string; meta: SnapshotMeta; attemptDirNames: string[] } | undefined;
+  for (const name of snapshotDirNames) {
+    const snapshotDir = join(experimentDir, name);
+    let attemptDirNames: string[];
+    try {
+      attemptDirNames = (await readdir(join(snapshotDir, evalSegment), { withFileTypes: true }))
+        .filter((e) => e.isDirectory() && ATTEMPT_DIR_RE.test(e.name))
+        .map((e) => e.name);
+    } catch {
+      continue; // 这份快照没跑过这条 eval:只付一次 readdir
+    }
+    if (attemptDirNames.length === 0) continue;
+    let meta: SnapshotMeta;
+    try {
+      const classified = classifySnapshot(JSON.parse(await readFile(join(snapshotDir, SNAPSHOT_FILE), "utf-8")));
+      if (classified.kind !== "ok") continue; // 坏 / 不兼容版本的快照:跳过,不拖垮这次读
+      meta = classified.meta;
+    } catch {
+      continue;
+    }
+    if (best === undefined || isNewerSnapshotPlacement({ startedAt: meta.startedAt, dir: snapshotDir }, { startedAt: best.meta.startedAt, dir: best.dir })) {
+      best = { dir: snapshotDir, meta, attemptDirNames };
+    }
+  }
+  if (best === undefined) return [];
+
+  const snapshot = makeSnapshotShell(best.dir, best.meta);
+  const out: EvalResult[] = [];
+  for (const attemptDirName of best.attemptDirNames.sort(byAttemptIndex)) {
+    const attemptDir = join(best.dir, evalSegment, attemptDirName);
+    let record: EvalResult;
+    try {
+      record = JSON.parse(await readFile(join(attemptDir, RESULT_FILE), "utf-8")) as EvalResult;
+    } catch {
+      continue; // 缺 result.json / 坏 JSON:如实跳过(与 openResults 的 skipped 同一「不拖垮整次读」精神)
+    }
+    // 目录名是被清洗过的 evalId,两条不同的 id 理论上可以洗成同一段;记录自报的 id 才是权威。
+    if (record.id !== evalId) continue;
+    applySnapshotDefaults(record, best.meta);
+    out.push(withArtifactBase(makeAttempt(snapshot, best.dir, attemptDir, record)));
+  }
+  return out;
+}
+
+const ATTEMPT_DIR_RE = new RegExp(`^${ATTEMPT_DIR_PREFIX}\\d+$`);
+
+function byAttemptIndex(a: string, b: string): number {
+  return Number(a.slice(ATTEMPT_DIR_PREFIX.length)) - Number(b.slice(ATTEMPT_DIR_PREFIX.length));
+}
+
+/** 快照目录:递归收集全部 result.json,组装成 evals / attempts;单个 result.json 坏 JSON 不拖垮快照。 */
+async function readSnapshotDir(dir: string, meta: SnapshotMeta, state: ScanState): Promise<Snapshot> {
+  const snapshot = makeSnapshotShell(dir, meta);
 
   const resultPaths = (await findResultFiles(dir)).sort();
   const evalsById = new Map<string, Eval>();
@@ -301,22 +427,7 @@ async function readSnapshotDir(dir: string, meta: SnapshotMeta, state: ScanState
       continue;
     }
 
-    // 快照级字段拼合:「缺才补」,条目自带的值(携带条目的 startedAt)优先。
-    record.experimentId ??= meta.experimentId;
-    record.agent ??= meta.agent;
-    if (record.model === undefined && meta.model !== undefined) record.model = meta.model;
-    record.startedAt ??= meta.startedAt;
-    if (record.experiment === undefined && meta.experiment !== undefined) record.experiment = meta.experiment;
-    // locator 同理「缺才补」:niceeval 自己的 writer(schemaVersion 5 起)恒会写这个字段,
-    // 携带条目原样携带上一轮的值——只有真缺失(第三方 harness 没实现 locator,或手工构造的
-    // 落盘)才按当前身份兜底算一份;这份兜底不保证跨未来的 --resume 稳定,但至少确定性、
-    // 可解析,不比完全没有 locator 差。
-    record.locator ??= encodeAttemptLocator({
-      experimentId: record.experimentId,
-      snapshotStartedAt: meta.startedAt,
-      evalId: record.id,
-      attempt: record.attempt,
-    });
+    applySnapshotDefaults(record, meta);
 
     const attempt = makeAttempt(snapshot, dir, attemptDir, record);
     let ev = evalsById.get(record.id);
