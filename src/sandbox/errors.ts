@@ -4,11 +4,11 @@
 // 做退避重试,不需要认识任何 provider 专属的错误类型——分类逻辑留在各 provider 自己的
 // 文件里(见 e2b.ts / vercel.ts / docker.ts 的 classifyProvisionError)。
 //
-// FailureScope / FailureClass 是 src/context/turn-errors.ts 落地的执行失败分类两轴词表
+// FailureScope / FailureClass 是 src/shared/failure-class.ts 落地的执行失败分类两轴词表
 // (见 docs/feature/error-classification/architecture.md);这里只 import 类型,不反向依赖
 // context 层的任何运行时代码——sandbox 内部两维分类(性质+后果)自治,只有下面
 // classifyProvisionConfigCause 识别出的三档可证明配置死因才向外浮出 FailureClass。
-import type { FailureClass, FailureScope } from "../context/turn-errors.ts";
+import type { FailureClass, FailureScope } from "../shared/failure-class.ts";
 
 /**
  * Provisioning 失败的两维分类(见 docs/feature/sandbox/architecture.md「Provisioning 失败与重试」):
