@@ -53,6 +53,7 @@ Scope fixture 必须让三个接收者得到**不同答案**，才能发现 sele
 - **Severity 与 Verdict**：`computeVerdict` 用决策表直接断言冲突输入的最终优先级（errored > failed > skipped > passed）；计分制 attempt 的 `failed` 只由前置中止产生——丢分（含全部得分点挂掉）仍是 `passed`，`errored` / `skipped` 与通过制同义；gate 与 strict 的正交；无阈值 soft 永不影响判定；`.atLeast` 的 strict 四象限与恰好达标边界；执行异常是 errored 不是 failed；skip 的优先级；`computePassed` 在 gate 省略阈值时的默认通过线是满分（`score >= 1`）——0/1 matcher（如 `equals`/`includes`，命中即 1、不命中即 0）不受这条默认线影响，连续打分的 gate 断言（省略阈值的 judge 类）未达满分即 fail、恰好满分才 pass。
 - **摘要投影（display）**：控制字节剥离的保留/去除边界、单值收口的折行与上限、宽度预算下的让位优先级、`+N more failures` 的独立尾行不变量、作用域前缀规则。全部是纯函数字符串语义，输入输出直接断言。
 - **judge**：缺模型/缺 key 记 `unavailable` 且非 optional 使 attempt errored、绝不静默消失；默认 soft 与链式提级；模型与端点/凭据的解析优先级逐层可区分且落在捕获请求的 URL 与头上；判卷材料随接收者分层、`{ on }` 覆盖；入口封闭。真实裁判模型的端到端行为归 E2E。
+- **`probeJudge` 派发前预检的错误分类**：缺 model / 缺 key 前置返回各自的可行动错误；探测有 20s 上限，网关「接受连接却不回」触发超时（`TimeoutError`）时报专门的「无响应」错误（指路 baseUrl / 网关），而不是把通用 abort 甩给用户，也不与其它探测失败（如连接被拒）混为一类；2xx 可达返回 `undefined`。三类各需一条区分力场景——超时错误与通用 `probeFailed` 必须给出不同文案。真实网关的慢/挂行为归 E2E。
 
 ## 不这样测
 

@@ -54,7 +54,12 @@ export interface JudgeDeps {
   signal?: AbortSignal;
 }
 
-/** 预检显式配置的 judge:验证 model + API key 存在,并发最小请求确认端点可达。
+/** 预检探测的有界等待:判分网关可能接受连接却迟迟不回(见 memory/
+ *  judge-precheck-run-level-line-not-transient),没有上限会让整次运行在派发前永久挂。
+ *  20s 足够慢但能用的网关回一个最小请求,又不至于让真挂死拖成无限等待。 */
+const PROBE_TIMEOUT_MS = 20_000;
+
+/** 预检显式配置的 judge:验证 model + API key 存在,并发最小请求确认端点可达(有 20s 上限)。
  *  返回错误描述字符串,可达则返回 undefined。*/
 export async function probeJudge(judge: JudgeConfig, signal?: AbortSignal): Promise<string | undefined> {
   const resolved = resolveJudge(judge);
@@ -63,6 +68,10 @@ export async function probeJudge(judge: JudgeConfig, signal?: AbortSignal): Prom
     const envHint = judge.apiKeyEnv ?? "NICEEVAL_JUDGE_KEY / OPENAI_API_KEY";
     return t("judge.probeMissingKey", { model: resolved.model, envHint });
   }
+  // 20s 超时与外层 signal(Ctrl+C)合流:任一触发都中断这次探测。超时源的 reason 是
+  // TimeoutError,下面据此把「网关不回」与其它失败分开报,给出可行动的下一步。
+  const timeoutSignal = AbortSignal.timeout(PROBE_TIMEOUT_MS);
+  const probeSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
   try {
     // 只确认可达 + 鉴权通过,不关心回复内容(真实评分走 autoevals)。
     // 不带 max_tokens 等采样参数:新款模型(o 系 / gpt-5.x)会 400 拒掉 max_tokens,
@@ -78,13 +87,18 @@ export async function probeJudge(judge: JudgeConfig, signal?: AbortSignal): Prom
         model: resolved.model,
         messages: [{ role: "user", content: "Reply with the single word: ok" }],
       }),
-      signal,
+      signal: probeSignal,
     });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       throw new Error(t("judge.httpError", { status: res.status, body: body.slice(0, 300) }));
     }
   } catch (e) {
+    // 网关接受连接却不回:超时源触发,报可行动的「无响应」错误(而不是一句 "aborted")。
+    // 外层 signal(用户中断)导致的 abort 不算网关问题,走通用 probeFailed。
+    if (e instanceof Error && e.name === "TimeoutError") {
+      return t("judge.probeTimeout", { model: resolved.model, seconds: PROBE_TIMEOUT_MS / 1000 });
+    }
     return t("judge.probeFailed", { model: resolved.model, error: e instanceof Error ? e.message : String(e) });
   }
   return undefined;

@@ -69,6 +69,14 @@ export interface ExperimentProgressInput {
   detail: string;
 }
 
+/** `sink.precheck()` 的输入 —— 与 `DurableFeedbackEvent` 的 "precheck" 变体字段一致,省略
+ *  `type`/`at`(由 coordinator 补上)。调用方(run.ts)在预检真正开始/结束时各调一次;
+ *  `durationMs` 只在 done 上给。 */
+export interface PrecheckInput {
+  status: "started" | "done";
+  durationMs?: number;
+}
+
 /** `sink.kept()` 的输入 —— 与 `DurableFeedbackEvent` 的 "kept" 变体字段一致,省略 type/at。 */
 export interface KeptInput {
   locator: AttemptLocator;
@@ -96,6 +104,8 @@ export interface FeedbackSink {
   kept(input: KeptInput): void;
   /** 实验级钩子(`ExperimentDef.setup` / teardown)的起止(见 `ExperimentHookInput`)。 */
   experimentHook(input: ExperimentHookInput): void;
+  /** judge 预检的起止(见 `PrecheckInput`)。整次运行至多一次,发生在任何 attempt 派发之前。 */
+  precheck(input: PrecheckInput): void;
   /** 实验级 `ctx.progress` 的短命投影:只更新运行级行的 detail。与 `lifecycle` 同级别的
    *  「只服务正在画着的 dashboard」信号,没有活跃 coordinator 时静默丢弃是安全的。 */
   experimentProgress(input: ExperimentProgressInput): void;
@@ -194,6 +204,22 @@ export function reportExperimentHook(input: ExperimentHookInput): void {
  *  dashboard,没有活跃 coordinator 时静默 no-op。 */
 export function reportExperimentProgress(input: ExperimentProgressInput): void {
   current()?.experimentProgress(input);
+}
+
+/** judge 预检的起止(见 `PrecheckInput`)。没有活跃 coordinator 时退回一行 stderr ——
+ *  慢预检的可见性正是这条通道存在的理由,不能像 lifecycle 那样静默丢弃。 */
+export function reportPrecheck(input: PrecheckInput): void {
+  const sink = current();
+  if (sink) {
+    sink.precheck(input);
+    return;
+  }
+  const duration = input.durationMs !== undefined ? ` (${Math.round(input.durationMs / 1000)}s)` : "";
+  writeStderrLine(
+    input.status === "started"
+      ? `${t("feedback.human.precheckJudge")}\n`
+      : `${t("feedback.human.precheckJudgeDone")}${duration}\n`,
+  );
 }
 
 export function reportBudgetExhausted(input: BudgetExhaustedInput): void {

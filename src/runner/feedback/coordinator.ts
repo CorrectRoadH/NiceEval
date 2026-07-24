@@ -27,6 +27,7 @@ import {
   type DiagnosticInput,
   type ExperimentHookInput,
   type ExperimentProgressInput,
+  type PrecheckInput,
   type FailureInput,
   type FeedbackSink,
   type KeptInput,
@@ -262,6 +263,15 @@ export function createFeedbackCoordinator(options: FeedbackCoordinatorOptions): 
     emit({ type: "experiment:progress", at: io.clock.now(), experimentId: input.experimentId, detail: input.detail });
   }
 
+  function precheck(input: PrecheckInput): void {
+    emit({
+      type: "precheck",
+      at: io.clock.now(),
+      status: input.status,
+      ...(input.durationMs !== undefined ? { durationMs: input.durationMs } : {}),
+    });
+  }
+
   function reporterError(input: { reporter: string; required: boolean; message: string }): void {
     emit({
       type: "reporter-error",
@@ -302,6 +312,7 @@ export function createFeedbackCoordinator(options: FeedbackCoordinatorOptions): 
       kept,
       experimentHook,
       experimentProgress,
+      precheck,
       lifecycle,
     });
     emit({ type: "plan", at: startedAtMs, plan });
@@ -366,6 +377,7 @@ export function createFeedbackCoordinator(options: FeedbackCoordinatorOptions): 
     kept,
     experimentHook,
     experimentProgress,
+    precheck,
     lifecycle,
     stopDynamic,
     finish,
@@ -391,8 +403,9 @@ function fallbackTextFor(event: DurableFeedbackEvent): string | undefined {
     case "summary":
     case "saved":
     case "experiment-hook":
-      // 钩子起止不是失败证据:setup 失败的每条 attempt 另有 "failure" 事件兜底,
-      // renderer 崩溃丢一行起止不丢数据。
+    case "precheck":
+      // 钩子/预检起止不是失败证据:setup 失败的每条 attempt 另有 "failure" 事件兜底,
+      // 预检失败以既有错误路径中止运行,renderer 崩溃丢一行起止不丢数据。
       return undefined;
   }
 }

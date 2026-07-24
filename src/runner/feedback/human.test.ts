@@ -283,6 +283,27 @@ describe("live dashboard — 宽终端下 ACTIVE 行与身份列分配", () => {
     expect(plain).toContain(longDetail);
   });
 
+  it("judge 预检期间显示运行级行:面板停在 0 running · 1 queued 时给出「在预检」的解释,而不是看起来卡死", () => {
+    const { io, stderr } = createFakeFeedbackIO({ stderr: { isTTY: true, columns: 100, rows: 30 } });
+    const renderer = createHumanRenderer({ io, command: "niceeval exp install/canary" });
+    // 复现用户报的场景:预检未返回时计数预置为 1 queued、0 running。运行级行是它停在
+    // queued 的解释(排在 ACTIVE 区),不加这行时面板只有一个冻在 queued 的计数,像调度卡死。
+    const state: RunFeedbackState = {
+      ...createInitialRunFeedbackState(),
+      total: 1,
+      running: 0,
+      queued: 1,
+      elapsedMs: 12_000,
+      activePrecheck: { startedAt: 0 },
+    };
+    renderer.redrawDynamic?.(state);
+
+    const plain = stripAnsi(stderr.writes.join(""));
+    expect(plain).toMatch(/├─ ACTIVE ─+┤/);
+    expect(plain).toContain("prechecking judge config");
+    expect(plain).toContain("0 running · 1 queued");
+  });
+
   it("短 id 不垫空格:身份列贴着实际内容定宽,不按比例预留大段空白", () => {
     const { io, stderr } = createFakeFeedbackIO({ stderr: { isTTY: true, columns: 200, rows: 30 } });
     const renderer = createHumanRenderer({ io, command: "niceeval exp compare" });

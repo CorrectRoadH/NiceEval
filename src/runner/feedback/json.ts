@@ -138,6 +138,16 @@ export function createJsonRenderer(options: JsonRendererOptions): FeedbackRender
           return;
         }
 
+        case "precheck": {
+          noteCheckpoint(event.at);
+          writeEvent(io, {
+            event: "judge_precheck",
+            status: event.status,
+            ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
+          });
+          return;
+        }
+
         case "interrupted": {
           noteCheckpoint(event.at);
           if (!isFirstOccurrence(state, "interrupted")) return;

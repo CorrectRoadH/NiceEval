@@ -50,6 +50,7 @@ export function reduceRunFeedback(state: RunFeedbackState, event: RunFeedbackEve
         running: 0,
         completed: 0,
         active: new Map(),
+        activePrecheck: undefined,
         experimentHooks: new Map(),
         failures: (event.plan.reusedFailures ?? []).map((failure) => ({ ...failure, at: event.at })),
         freshFailureCount: 0,
@@ -122,6 +123,16 @@ export function reduceRunFeedback(state: RunFeedbackState, event: RunFeedbackEve
         newTokenCount,
         estimatedCostUSD,
       };
+    }
+
+    case "precheck": {
+      // judge 预检运行级行的增删(见 cli.md「judge 预检的显示」):started 建行、done 清行。
+      // 不动 running/queued 计数——预检发生在派发之前,attempt 全程保持 queued,计数不变量不受影响。
+      if (event.status === "started") {
+        return { ...state, activePrecheck: { startedAt: event.at } };
+      }
+      const { activePrecheck: _cleared, ...rest } = state;
+      return rest;
     }
 
     case "experiment-hook": {

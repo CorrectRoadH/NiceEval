@@ -32,6 +32,7 @@ import { stringWidth } from "../../report/model/text-layout.ts";
 import type {
   ActiveAttempt,
   ActiveExperimentHook,
+  ActivePrecheck,
   AttemptKey,
   ExperimentHookName,
   LifecyclePhase,
@@ -131,6 +132,13 @@ export function renderDurableLines(
       const statusWord =
         event.status === "done" ? t("feedback.human.hookDone") : t("feedback.human.hookFailed");
       return [`${label} ${statusWord} · ${event.experimentId}${duration}`];
+    }
+    case "precheck": {
+      // 只服务非 TTY 退化流(TTY dashboard 的 appendDurable 对这个事件直接返回,运行级行
+      // 由 state.activePrecheck 驱动,不进 scrollback,见 cli.md「judge 预检的显示」)。
+      if (event.status === "started") return [t("feedback.human.precheckJudge")];
+      const duration = event.durationMs !== undefined ? ` (${formatElapsed(event.durationMs)})` : "";
+      return [`${t("feedback.human.precheckJudgeDone")}${duration}`];
     }
     case "summary":
       return buildSummaryLines(event, state, panel);
@@ -483,30 +491,35 @@ function createDashboardRenderer(io: FeedbackIO, command: string): FeedbackRende
         }),
       },
     ];
-    // 实验级钩子的运行级行排在 attempt 行前面(见 cli.md「实验级钩子的显示」):它解释了
-    // 为什么后面的 attempt 还停在 queued。Map 按插入序迭代,天然满足稳定 slot。
+    // 运行级行(judge 预检 + 实验钩子)排在 attempt 行前面(见 cli.md「judge 预检的显示」/
+    // 「实验级钩子的显示」):它们解释了为什么后面的 attempt 还停在 queued。预检又排在实验
+    // 钩子前面——它发生在最前(任何 attempt 派发之前)。Map 按插入序迭代,天然满足稳定 slot。
+    const precheck = state.activePrecheck;
     const hookRows = [...state.experimentHooks.values()];
-    if (activeOrder.length > 0 || hookRows.length > 0) {
+    if (activeOrder.length > 0 || hookRows.length > 0 || precheck) {
       rows.push({ kind: "divider", title: t("feedback.human.active") });
       // 固定开销:上边框 + counts 行 + ACTIVE 横隔 + 下边框(boxed);plain 时同样按 4 行估算,
       // 差一两行不影响「窄/矮终端先减 active slots」这条大方向。
       const rowBudget = Math.max(0, io.stderr.rows - 4 - DASHBOARD_ROW_RESERVE);
-      const total = hookRows.length + activeOrder.length;
+      const precheckCount = precheck ? 1 : 0;
+      const total = precheckCount + hookRows.length + activeOrder.length;
       // 窄/矮终端先减 active slots(减少行数),而不是先压缩单行内容 ——
       // 单行内容的截断在 formatActiveRow 里按 contentWidth 单独处理。
       const showCount = total <= rowBudget ? total : Math.max(0, rowBudget - 1);
 
-      // 先选出本帧真正会显示的行(hook 恒排在前面,与旧实现一致),再统一量测/定宽——
+      // 先选出本帧真正会显示的行(运行级行恒排在前面,与旧实现一致),再统一量测/定宽——
       // 同一帧内所有行必须共用同一套身份列宽度,不能让前面几行按旧宽度格式化、后面
       // 的行又观测到更长的值再推宽,导致同一帧内本该对齐的列错位。
-      const shownHooks = hookRows.slice(0, showCount);
+      const shownPrecheck = precheck && showCount > 0 ? precheck : undefined;
+      const shownHooks = hookRows.slice(0, Math.max(0, showCount - (shownPrecheck ? 1 : 0)));
+      const shownRunLevel = (shownPrecheck ? 1 : 0) + shownHooks.length;
       const shownActive: ActiveAttempt[] = [];
       for (const key of activeOrder) {
-        if (shownHooks.length + shownActive.length >= showCount) break;
+        if (shownRunLevel + shownActive.length >= showCount) break;
         const active = state.active.get(key);
         if (active) shownActive.push(active);
       }
-      // 身份列本次运行"实际出现过的最长值"只放宽不回缩:hook 行的 label 是拼好的一整块
+      // 身份列本次运行"实际出现过的最长值"只放宽不回缩:运行级行的 label 是拼好的一整块
       // 文本,不是 evalId/who 两个独立字段,不单独参与这里的放宽,只复用下面算出的宽度
       // (cli.md「active 行的列序」:「同一套算法」= 复用同一份结果,不是各自维护一份)。
       for (const active of shownActive) {
@@ -515,9 +528,11 @@ function createDashboardRenderer(io: FeedbackIO, command: string): FeedbackRende
       }
       const { evalWidth, whoWidth } = identityColumnWidths(contentWidth);
 
-      const activeLines: string[] = shownHooks.map((hookRow) =>
-        formatExperimentHookRow(hookRow, io, contentWidth, evalWidth, whoWidth),
-      );
+      const activeLines: string[] = [];
+      if (shownPrecheck) activeLines.push(formatPrecheckRow(shownPrecheck, io, contentWidth));
+      for (const hookRow of shownHooks) {
+        activeLines.push(formatExperimentHookRow(hookRow, io, contentWidth, evalWidth, whoWidth));
+      }
       for (const active of shownActive) {
         activeLines.push(formatActiveRow(active, io, contentWidth, evalWidth, whoWidth));
       }
@@ -568,7 +583,9 @@ function createDashboardRenderer(io: FeedbackIO, command: string): FeedbackRende
       // 实验级钩子起止在 TTY 下只驱动运行级 active 行(state.experimentHooks 已由 reducer
       // 更新,coordinator 紧接着的 redrawDynamic 会画出来);成功钩子不写 scrollback 永久行
       // (见 cli.md「实验级钩子的显示」)。非 TTY 退化流才逐行追加(见 renderDurableLines)。
-      if (event.type === "experiment-hook") return;
+      // judge 预检同理:TTY 下只驱动 state.activePrecheck 的运行级 active 行(coordinator 紧接着的
+      // redrawDynamic 会画出来),不写 scrollback 永久行(见 cli.md「judge 预检的显示」)。
+      if (event.type === "experiment-hook" || event.type === "precheck") return;
       writeDurable(io, event, state, false);
     },
     activity(text) {
@@ -637,6 +654,16 @@ function formatActiveRow(
  *  两列的合计宽度(不单独维护第三份"最长值"状态——label 是拼好的一整块文本,拆不出
  *  evalId/who 两个独立字段,所以只复用 attempt 行算出的宽度,而不是各自决定),elapsed 列
  *  因此与 attempt 行对齐;detail 来自实验级 `ctx.progress`,没有就只留标签行。 */
+/** judge 预检的运行级行:`● prechecking judge config   <elapsed>`。预检发生在任何 attempt 派发
+ *  之前,此刻没有 attempt 行、也没有实验钩子行(setup 在派发时才跑),它恒是单独一行——所以
+ *  label 不受身份列宽约束(那时列宽还压在初始最小值,会把标签截成 `p…`),直接用整行宽度。
+ *  没有 experimentId、没有 detail:预检只有「在跑」与「跑了多久」两个事实。 */
+function formatPrecheckRow(precheck: ActivePrecheck, io: FeedbackIO, columns: number): string {
+  const elapsed = formatElapsed(io.clock.now() - precheck.startedAt).padStart(6);
+  const sym = "● ";
+  return padTrunc(`${sym}${t("feedback.human.precheckJudge")}  ${elapsed}`, columns);
+}
+
 function formatExperimentHookRow(
   hook: ActiveExperimentHook,
   io: FeedbackIO,

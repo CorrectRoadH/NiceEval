@@ -137,6 +137,7 @@ describe("runReporter / emitReporterEvent · required/best-effort 原样转发,�
       kept() {},
       experimentHook() {},
       experimentProgress() {},
+      precheck() {},
       lifecycle() {},
     });
     return fn(calls).finally(deactivate);

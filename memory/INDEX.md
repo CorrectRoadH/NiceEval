@@ -95,6 +95,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 - [scoped-feedback-finalized](scoped-feedback-finalized.md) — 裁决(2026-07-14):ScopedFeedback(progress/diagnostic)定稿为 feature 契约、单一归属 experiments/library.md,roadmap 提案页删除;三个遗留分歧逐条裁决(ctx 注入签名、core 中立属实现纪律、`ctx.log` = progress 别名);07-13 的推迟裁决仍约束实现排期,不再约束文档定稿状态
 - [experiment-gate-tenure-ruling](experiment-gate-tenure-ruling.md) — 裁决(2026-07-23):两级并发闸按持有期分工——全局位吞吐(等待让位)、实验闸全程持有(退避不释放,maxConcurrency:1 即严格临界区);否决 serial:true 拆字段与全局位也不释放;同场裁定 docs 改用例手册体裁,统一归 docs/feature/experiments/use-case/
 - [live-dashboard-full-width-ruling](live-dashboard-full-width-ruling.md) — 裁决(2026-07-23):live 面板默认占满终端全宽(豁免 100 列上限,scrollback 面板照旧封顶),ACTIVE 身份列按实际最长值定宽只放宽不回缩、detail 拿走其余全部;否决固定比例分配与按计划集合预算列宽
+- [judge-precheck-run-level-line-not-transient](judge-precheck-run-level-line-not-transient.md) — 裁决(2026-07-24):judge 预检从「运行级瞬时通知」升格为运行级生命周期行(ACTIVE 区 `● prechecking judge config <elapsed>`,新增 `precheck` 事件+`activePrecheck` 状态,不复用 experiment-hook 伪造 id);起因=慢判分网关(x1api.top ~14s)让面板冻在 `1 queued` 像卡死;同批给 `probeJudge` fetch 加 20s 超时(TimeoutError→专门的「无响应」错误,根治「永久挂」)
 
 ### 台账
 

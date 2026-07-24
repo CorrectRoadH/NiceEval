@@ -844,6 +844,16 @@ export type ExperimentHookName = "setup" | "teardown";
  * attempt 保持 `queued`,这行就是「为什么它们还在排队」的解释。`detail` 来自实验级
  * `ctx.progress`,后一条覆盖前一条。
  */
+/**
+ * dashboard 当前可见的 judge 预检运行级行(见 docs/feature/experiments/cli.md「judge 预检的显示」)。
+ * 与 `ActiveExperimentHook` 分开建模:预检是 invocation 级、不挂任何 experimentId,只有一个在飞
+ * 实例(整次运行至多一次预检)。`startedAt` 用于渲染运行级行持续增长的耗时,证明它还活着。
+ */
+export interface ActivePrecheck {
+  /** 预检开始的墙钟时间(epoch ms),用于渲染运行级行的耗时。 */
+  startedAt: number;
+}
+
 export interface ActiveExperimentHook {
   experimentId: string;
   hook: ExperimentHookName;
@@ -944,6 +954,11 @@ export interface RunFeedbackState {
   newTokenCount?: number;
   estimatedCostUSD?: number;
   active: ReadonlyMap<AttemptKey, ActiveAttempt>;
+  /** 在飞的 judge 预检运行级行(见 `DurableFeedbackEvent` 的 "precheck" 变体):`started` 置位、
+   *  `done` 清空。预检发生在任何 attempt 派发之前、作用于整次 invocation,不属于任何 attempt,
+   *  也不参与 `total = reused + running + queued + completed` 计数——预检期间 attempt 保持 `queued`,
+   *  这行就是「为什么它们还在排队」的解释。undefined = 当前没有在飞的预检。 */
+  activePrecheck?: ActivePrecheck;
   /** 在飞的实验级钩子(experimentId → 运行级行状态),由 "experiment-hook" 事件增删、
    *  "experiment:progress" 更新 detail(见 docs/feature/experiments/cli.md「实验级钩子的显示」)。 */
   experimentHooks: ReadonlyMap<string, ActiveExperimentHook>;
@@ -1088,6 +1103,14 @@ export type DurableFeedbackEvent =
        */
       recovery?: boolean;
     }
+  /**
+   * judge 配置预检的起止,由 runner 在探测真正开始/结束时各发一次(见 docs/feature/experiments/
+   * cli.md「judge 预检的显示」)。预检作用于整次 invocation、发生在任何 attempt 派发之前,不属于
+   * 任何单个 attempt,也不触碰 `total = reused + running + queued + completed` 计数不变量。human
+   * TTY 用它维护一条运行级 active 行(不写 scrollback),append-only profile 起止各追加一行。
+   * 预检失败不走这个事件——它以既有错误路径中止本次运行。
+   */
+  | { type: "precheck"; at: number; status: "started" | "done"; durationMs?: number }
   | { type: "interrupted"; at: number }
   | { type: "reporter-error"; at: number; reporter: string; required: boolean; message: string }
   | { type: "summary"; at: number; summary: InvocationSummary; completion: InvocationCompletion }

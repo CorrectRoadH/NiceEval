@@ -7,7 +7,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AssertionCollector } from "./collector.ts";
-import { buildJudge } from "./judge.ts";
+import { buildJudge, probeJudge } from "./judge.ts";
 import { computeVerdict } from "./verdict.ts";
 import { resolveAgentCoverage, completeCoverage } from "./coverage.ts";
 import { emptyDiffData } from "./diff.ts";
@@ -138,5 +138,46 @@ describe("judge 端点/凭据/模型解析进入真实请求", () => {
     await collector.finalize(ctx());
 
     expect(captured[0]!.body.model).toBe("env-model");
+  });
+});
+
+// probeJudge(派发前的可达性预检)的错误分类:网关「接受连接但不回」是它自己一类,要报
+// 可行动的「无响应」而不是一句通用 aborted;其它探测失败仍走通用 probeFailed。有 key/model
+// 才会真正发探测,所以这里都给上 key。契约见 docs/feature/experiments/cli.md「judge 预检的显示」。
+describe("probeJudge 探测的错误分类", () => {
+  const judge: JudgeConfig = { model: "gpt-5.6-luna", baseUrl: "http://judge.fixture.internal/v1" };
+  // key 从环境解析(见 resolveJudge);有 model + key 才会真正发探测请求。
+  const withKey = (): void => {
+    vi.stubEnv("NICEEVAL_JUDGE_KEY", "fixture-key");
+  };
+
+  it("端点接受连接却不回时,超时(TimeoutError)报可行动的「无响应」错误,不是通用失败", async () => {
+    withKey();
+    // fetch 因 AbortSignal.timeout 触发而 reject:reason 是 name 为 TimeoutError 的错误。
+    vi.stubGlobal("fetch", async (): Promise<Response> => {
+      throw Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" });
+    });
+    const err = await probeJudge(judge);
+    expect(err).toBeDefined();
+    // 「无响应」这条要能指路到 baseUrl / 网关,而不是把 abort 原样甩给用户。
+    expect(err).toMatch(/20s|responded|无响应|不回/);
+    expect(err).toContain("gpt-5.6-luna");
+  });
+
+  it("非超时的探测失败仍走通用 probeFailed(带原始错误),不误报成超时", async () => {
+    withKey();
+    vi.stubGlobal("fetch", async (): Promise<Response> => {
+      throw new Error("ECONNREFUSED");
+    });
+    const err = await probeJudge(judge);
+    expect(err).toBeDefined();
+    expect(err).toContain("ECONNREFUSED");
+    expect(err).not.toMatch(/20s|timed out|超时/);
+  });
+
+  it("端点正常(2xx)时探测通过,返回 undefined", async () => {
+    withKey();
+    vi.stubGlobal("fetch", async (): Promise<Response> => new Response("{}", { status: 200 }));
+    expect(await probeJudge(judge)).toBeUndefined();
   });
 });

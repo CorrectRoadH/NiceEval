@@ -408,6 +408,38 @@ describe("reduceRunFeedback: 守恒公式", () => {
   });
 });
 
+describe("reduceRunFeedback: judge 预检运行级行", () => {
+  const plan: RunFeedbackEvent = {
+    type: "plan",
+    at: 0,
+    plan: { shape: { evals: 1, configs: 1, totalAttempts: 1, maxConcurrency: 20 }, reused: 0, reusedFailures: [] },
+  };
+
+  it("started 建行、done 清行;预检期间 attempt 全程保持 queued(计数不变量不受预检影响)", () => {
+    const afterStart = replay([plan, { type: "precheck", at: 1, status: "started" }]);
+    // 复现用户看到的「0 running · 1 queued」——预检不动计数,这行才是它停在 queued 的解释。
+    expect(afterStart).toMatchObject({ total: 1, running: 0, queued: 1, completed: 0 });
+    expect(afterStart.activePrecheck).toEqual({ startedAt: 1 });
+
+    const afterDone = replay([
+      plan,
+      { type: "precheck", at: 1, status: "started" },
+      { type: "precheck", at: 15, status: "done", durationMs: 14 },
+    ]);
+    expect(afterDone.activePrecheck).toBeUndefined();
+    expect(afterDone).toMatchObject({ total: 1, running: 0, queued: 1, completed: 0 });
+  });
+
+  it("plan 事件清空残留的预检行(reducer 复用于多次 run 时不带上一次的预检状态)", () => {
+    let state = createInitialRunFeedbackState();
+    state = reduceRunFeedback(state, plan);
+    state = reduceRunFeedback(state, { type: "precheck", at: 1, status: "started" });
+    expect(state.activePrecheck).toEqual({ startedAt: 1 });
+    state = reduceRunFeedback(state, plan);
+    expect(state.activePrecheck).toBeUndefined();
+  });
+});
+
 describe("reduceRunFeedback: 实验级钩子", () => {
   const plan: RunFeedbackEvent = {
     type: "plan",

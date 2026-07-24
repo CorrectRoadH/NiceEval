@@ -14,7 +14,6 @@ import { recordFact, type FactValue } from "../shared/facts.ts";
 import type { ConcurrencySlot } from "../context/send-retry.ts";
 import { runReporter, emitReporterEvent, scopeReporter, summarize } from "./report.ts";
 import {
-  reportActivity,
   reportAttemptLifecycle,
   reportBudgetExhausted,
   reportDiagnostic,
@@ -22,6 +21,7 @@ import {
   reportExperimentProgress,
   reportFailure,
   reportInterrupted,
+  reportPrecheck,
 } from "./feedback/sink.ts";
 import { failureDetailFromResult } from "./feedback/failure.ts";
 import { encodeAttemptLocator, type AttemptLocator } from "../results/locator.ts";
@@ -200,11 +200,17 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
       opts.config.judge,
     );
     if (toProbe.length > 0) {
-      reportActivity(t("runner.judgePrecheck").trimEnd());
+      // judge 预检是一次真实网络往返,可能慢甚至长时间不返回:发运行级行(started/done),
+      // 让 live 面板在预检期间显示「为什么还停在 0 running · N queued」,而不是看起来卡死
+      // (见 docs/feature/experiments/cli.md「judge 预检的显示」)。失败以既有错误路径中止,
+      // 不发 done——那条运行级行由 coordinator 收尾时随 dashboard 一起清掉。
+      reportPrecheck({ status: "started" });
+      const precheckStartedAt = Date.now();
       for (const jc of toProbe) {
         const err = await probeJudge(jc, opts.signal);
         if (err) throw new Error(err);
       }
+      reportPrecheck({ status: "done", durationMs: Date.now() - precheckStartedAt });
     }
   }
 

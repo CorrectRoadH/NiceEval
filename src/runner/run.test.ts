@@ -1167,6 +1167,7 @@ describe("runEvals · 实验级 setup/teardown", () => {
       experimentProgress(input) {
         progressEvents.push(input);
       },
+      precheck() {},
       lifecycle() {},
     });
     try {
@@ -1412,6 +1413,7 @@ describe("runEvals · 强杀后的启动自愈(收尾登记的补执行)", () =>
         hookEvents.push(input);
       },
       experimentProgress() {},
+      precheck() {},
       lifecycle() {},
     });
 
@@ -1535,6 +1537,7 @@ describe("runEvals · 强杀后的启动自愈(收尾登记的补执行)", () =>
         hookEvents.push(input);
       },
       experimentProgress() {},
+      precheck() {},
       lifecycle() {},
     });
 
@@ -1595,6 +1598,7 @@ describe("runEvals · 强杀后的启动自愈(收尾登记的补执行)", () =>
         hookEvents.push(input);
       },
       experimentProgress() {},
+      precheck() {},
       lifecycle() {},
     });
 
