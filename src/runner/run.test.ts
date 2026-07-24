@@ -2755,8 +2755,10 @@ describe("runEvals · 用例锁: 多开分工", () => {
       // 双跑当场可见:started 不去重(去重恰好会把双跑抹掉),长度必须正好是用例数。
       expect(all.started).toHaveLength(ids.length);
       expect([...all.started].sort()).toEqual([...ids]);
-      expect(sideA.started).toEqual(firstWave);
-      expect(sideB.started).toEqual(secondWave);
+      // 两边到收尾为止都没有再多派发一条:第二波全是携入(排序只为消掉进入 test() 的先后,
+      // 那是调度自由度;条数不排序,双跑会当场把长度顶上去)。
+      expect([...sideA.started].sort()).toEqual([...firstWave]);
+      expect([...sideB.started].sort()).toEqual([...secondWave]);
       // 两边各自结束时都拿到完整结果集,交集部分只花一份成本。
       expect(ra.summary.results).toHaveLength(4);
       expect(rb.summary.results).toHaveLength(4);
@@ -2829,6 +2831,65 @@ describe("runEvals · 用例锁: 多开分工", () => {
       // 没有等待窗口要关,携入的那条仍必须补一对瞬时的 started/resolved 才能从 queued 迁进
       // reused —— 少发这一对,五项恒等式当场破。
       expect(coordinator.state.reused).toBe(1);
+      expect(coordinator.state.elsewhere).toBe(0);
+      expectFiveCountIdentity(coordinator.state);
+      expect(await lockFilesRemaining(root)).toEqual([]);
+    });
+  }, SCHEDULING_TEST_TIMEOUT_MS);
+});
+
+describe("runEvals · 用例锁: 干净取锁下的执行模式组合", () => {
+  afterEach(() => {
+    expect(activeFeedbackSinkCount()).toBe(0);
+    expect(pendingHeldCaseLockCount()).toBe(0);
+  });
+
+  // 与「执行模式组合」那条(等待 / 接管后自跑)的区别只有取锁路径:这里是无条件重查刚接管的
+  // 那条干净取锁路径。重查变成无条件之后,`--force` 这道门就是携带与否的唯一判据 —— 漏掉它
+  // 就会在多开下把 force 明确要重跑的用例悄悄吞成携入。
+  it("--force(RunOptions.priorResults 为 undefined)下干净取到锁:对方刚跑完的那条照常自跑,窗口计数不留悬挂", async () => {
+    const root = await makeRoot();
+    const experimentId = "force-clean-exp";
+    const gatedId = "fc-1";
+    const sharedId = "fc-2";
+    const agent = makeAgent("agent-force-clean");
+    const sandbox = fakeSandboxSpec();
+    const { barrier, release } = makeBarrier();
+    const all = newDispatchProbe();
+
+    const evalsA = [gatedEval(gatedId, barrier, all), gatedEval(sharedId, barrier, all)];
+    const runA = probeRun(agent, experimentId, [gatedId, sharedId], { sandbox });
+    const evalsPeer = [gatedEval(sharedId, Promise.resolve(), all)];
+    const runPeer = probeRun(agent, experimentId, [sharedId], { sandbox });
+
+    const plan: RunFeedbackPlan = {
+      shape: { evals: 3, configs: 1, totalAttempts: 3, maxConcurrency: 1 },
+      reused: 0,
+      reusedFailures: [],
+    };
+
+    await withCoordinator(plan, async (coordinator) => {
+      // force 模式:cli.ts 在 --force 时整段不传 priorResults(不是传空数组)——这里同样省略。
+      const pa = runWithPriorResults(evalsA, [runA], { root, maxConcurrency: 1 });
+      try {
+        await waitForRealProgress(() => expect(all.inFlight).toBe(1));
+        const { summary: peer } = await runWithPriorResults(evalsPeer, [runPeer], {
+          priorResults: [],
+          root,
+          maxConcurrency: 1,
+        });
+        expect(peer.results[0]!.verdict).toBe("passed");
+      } finally {
+        release();
+      }
+
+      const { summary } = await pa;
+
+      // 对方跑过一次、A 又跑了一次:这里的两次是**预期**,force 关掉的就是缓存。
+      expect(all.started.filter((id) => id === sharedId)).toHaveLength(2);
+      expect(summary.results).toHaveLength(2);
+      expect(summary.results.every((r) => r.verdict === "passed")).toBe(true);
+      expect(coordinator.state.reused).toBe(0);
       expect(coordinator.state.elsewhere).toBe(0);
       expectFiveCountIdentity(coordinator.state);
       expect(await lockFilesRemaining(root)).toEqual([]);
@@ -3063,6 +3124,105 @@ describe("runEvals · 用例锁: 释放后重查携带逐 attempt 判定", () =>
     } finally {
       vi.useRealTimers();
     }
+  }, SCHEDULING_TEST_TIMEOUT_MS);
+
+  // 同一条逐 attempt 判定,换到干净取锁这条路径上再验一次:两条路径放走的错误类别不同。挂起
+  // 窗口那条错在「迁移数与报进 elsewhere 的条数对不上」;这条错在「补发的那对瞬时 lock_wait
+  // 报了整组而不是只报真正携入的那几条」——没携入的兄弟从没离开过 queued,连它们一起报会在
+  // 两条事件之间把 queued 扣穿(极端时序下兄弟已进 running,那一扣就是负数)。
+  it("干净取锁后只携入对方跑出来的序号 0:序号 1 照常自跑,补发的一对瞬时 lock_wait 只报携入的那一条", async () => {
+    const root = await makeRoot();
+    const experimentId = "clean-recheck-partial-exp";
+    const gatedId = "p-1";
+    const sharedId = "p-2";
+    const agent = makeAgent("agent-clean-recheck-partial");
+    const sandbox = fakeSandboxSpec();
+    const { barrier, release } = makeBarrier();
+    const all = newDispatchProbe();
+    const sideA = newDispatchProbe();
+
+    // A 要两轮;对方只跑了 p-2 的序号 0。
+    const evalsA = [gatedEval(gatedId, barrier, sideA, all), gatedEval(sharedId, barrier, sideA, all)];
+    const runA = probeRun(agent, experimentId, [gatedId, sharedId], { sandbox, runs: 2 });
+    const evalsPeer = [gatedEval(sharedId, Promise.resolve(), all)];
+    const runPeer = probeRun(agent, experimentId, [sharedId], { sandbox });
+
+    const plan: RunFeedbackPlan = {
+      shape: { evals: 3, configs: 1, totalAttempts: 5, maxConcurrency: 1 },
+      reused: 0,
+      reusedFailures: [],
+    };
+
+    await withCoordinator(plan, async (coordinator) => {
+      const pa = runWithPriorResults(evalsA, [runA], { priorResults: [], root, maxConcurrency: 1 });
+      try {
+        await waitForRealProgress(() => expect(all.inFlight).toBe(1));
+        expect(sideA.started).toEqual([gatedId]);
+        const { summary: peer } = await runWithPriorResults(evalsPeer, [runPeer], {
+          priorResults: [],
+          root,
+          maxConcurrency: 1,
+        });
+        expect(peer.results.map((r) => r.attempt)).toEqual([0]);
+      } finally {
+        release();
+      }
+
+      const { summary } = await pa;
+
+      // p-1 两轮都自跑;p-2 只补跑缺的那一轮 —— 判定逐 attempt,不按整条用例一刀切。
+      expect(sideA.started.filter((id) => id === sharedId)).toHaveLength(1);
+      expect(sideA.started.filter((id) => id === gatedId)).toHaveLength(2);
+      const shared = summary.results.filter((r) => r.id === sharedId);
+      expect(shared.map((r) => r.attempt).sort()).toEqual([0, 1]);
+      expect(summary.results).toHaveLength(4);
+      expect(summary.results.every((r) => r.verdict === "passed")).toBe(true);
+      expect(coordinator.state.reused).toBe(1); // 只有序号 0 迁进 reused
+      expect(coordinator.state.elsewhere).toBe(0);
+      expectFiveCountIdentity(coordinator.state);
+      expect(await lockFilesRemaining(root)).toEqual([]);
+    });
+  }, SCHEDULING_TEST_TIMEOUT_MS);
+});
+
+describe("runEvals · 用例锁: 取锁后重查携带的读取面", () => {
+  afterEach(() => {
+    expect(activeFeedbackSinkCount()).toBe(0);
+    expect(pendingHeldCaseLockCount()).toBe(0);
+  });
+
+  // 无条件重查的前提是这次读盘便宜:它压在「已经握着全局并发位 + 实验闸名额 + 用例锁」的关键
+  // 路径上,回答的是一个 per-case 的问题(这条用例现在还缺哪些 attempt)。用全根扫描回答它会
+  // 随 .niceeval 历史线性变慢且永不收敛,单开也照付——所以读取面的形状本身是契约的一部分:
+  // 按用例数各读一次收窄读取面,一次全树扫描都不做(runs 的兄弟共享同一次,不是按 attempt 数)。
+  it("三条用例 × runs 2:收窄读取面恰好被调用 3 次(按用例数,不按 attempt 数),全树扫描 0 次", async () => {
+    const root = await makeRoot();
+    const experimentId = "read-surface-exp";
+    const ids = ["r-1", "r-2", "r-3"];
+    const sandbox = fakeSandboxSpec();
+
+    // 先落一批历史结果(另一个 agent ⇒ 指纹不同,不会被携入):读取面要在"结果树非空"的前提
+    // 下计数,否则测不出"读了什么"与"读了多大一片"的区别。
+    const historyRun = probeRun(makeAgent("agent-read-surface-history"), experimentId, ids, { sandbox });
+    await run(ids.map((id) => makeEval(id, () => {})), [historyRun], { root });
+
+    let calls = 0;
+    const evals = ids.map((id) =>
+      makeEval(id, () => {
+        calls += 1;
+      }),
+    );
+    const subjectRun = probeRun(makeAgent("agent-read-surface"), experimentId, ids, { sandbox, runs: 2 });
+
+    readSurfaceCalls.forCase = 0;
+    readSurfaceCalls.perEval = 0;
+    const { summary } = await runWithPriorResults(evals, [subjectRun], { priorResults: [], root });
+
+    expect(calls).toBe(6); // 3 条用例 × 2 轮,历史结果指纹不同、一条都没被携入
+    expect(summary.results).toHaveLength(6);
+    expect(readSurfaceCalls.forCase).toBe(ids.length);
+    expect(readSurfaceCalls.perEval).toBe(0);
+    expect(await lockFilesRemaining(root)).toEqual([]);
   }, SCHEDULING_TEST_TIMEOUT_MS);
 });
 
