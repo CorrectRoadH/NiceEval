@@ -85,7 +85,13 @@ export function verifyPackageConsumer(evidence: Evidence): void {
       );
       assert.doesNotMatch(combined, /ReferenceError|React is not defined/);
       assert.match(stdout, /tool-call/, `built-in report did not render real evidence with ${scenario.name}`);
-      assert.match(stdout, /Cost × Pass rate/, `built-in report components were not evaluated with ${scenario.name}`);
+      // scatterHeading() 恒带 better 方向注解(src/report/components/metric-views/faces.ts),
+      // 实际标题是 "Cost(lower is better) × Pass rate(higher is better)",不是裸的 "Cost × Pass rate"。
+      assert.match(
+        stdout,
+        /Cost\(lower is better\) × Pass rate\(higher is better\)/,
+        `built-in report components were not evaluated with ${scenario.name}`,
+      );
     }
   } finally {
     rmSync(consumerRoot, { recursive: true, force: true });
