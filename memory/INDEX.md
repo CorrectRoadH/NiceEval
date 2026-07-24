@@ -98,6 +98,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 - [case-lock-wait-not-skip-ruling](case-lock-wait-not-skip-ruling.md) — 裁决(2026-07-24):并发 Invocation 用例锁((exp,eval) 粒度、.niceeval/locks/ 心跳 10s/过期 30s/rename 接管)撞新鲜锁=等待+锁释放后重查携带,等待计独立 `elsewhere` 状态;否决跳过记 incomplete 与计数混进 queued;取锁时机后被翻案,见下一条
 - [case-lock-dispatch-time-acquire-ruling](case-lock-dispatch-time-acquire-ruling.md) — 翻案裁决(2026-07-24):取锁从计划期全量囤锁改为派发时刻逐用例非阻塞取(真机实证囤锁把多开吞吐钉在持锁方上限、与非目标和粒度裁决自相矛盾),多开升级为水平扩展;实验级 maxConcurrency 配套升为跨 Invocation 租约名额域,`maxConcurrency: 1` 正确性声明跨进程成立;docs 已重写,代码待实现(plan/runner-dispatch-spine-refactor.md)
 - [failure-chain-experiment-before-adapter](failure-chain-experiment-before-adapter.md) — 裁决(2026-07-24):失败分类链实验分类器前移到 adapter 之前——先到先得的链序下 adapter 的纯时间轴答案会遮蔽实验的 scope 声明,证据门救不了空间轴,止损闸旗舰场景失效;按轴合并因复杂度未采纳
+- [json-warning-count-dropped-ruling](json-warning-count-dropped-ruling.md) — 裁决(2026-07-24):`--json` 的 `WarningEvent` 删 `count`——去重后只追加首次一条与「显示折叠次数」在 append-only 流里不可兼得,计数归 human 诊断行与 snapshot 诊断;否决「收尾补一条带终值 count 的 warning」(同 code 两种语义、消费方要维护状态机,且止损闸诊断本就没有终值);零代码改动,json renderer 从来没写过这个字段
 - [judge-precheck-run-level-line-not-transient](judge-precheck-run-level-line-not-transient.md) — 裁决(2026-07-24):judge 预检从「运行级瞬时通知」升格为运行级生命周期行(ACTIVE 区 `● prechecking judge config <elapsed>`,新增 `precheck` 事件+`activePrecheck` 状态,不复用 experiment-hook 伪造 id);起因=慢判分网关(x1api.top ~14s)让面板冻在 `1 queued` 像卡死;同批给 `probeJudge` fetch 加 20s 超时(TimeoutError→专门的「无响应」错误,根治「永久挂」)
 
 ### 台账

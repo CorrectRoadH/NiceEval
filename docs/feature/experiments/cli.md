@@ -77,7 +77,7 @@ Run `niceeval exp <path> --dry` to preview a plan.
 | passed attempt | 只增加动态计数 | 不输出(题目级结论走 `eval` 事件) |
 | failed / errored + locator | 撤下 live 面板后永久追加一次 | `failure` / `error` 事件立即一行 |
 | provisioning retry / backoff | 可见 active slot 内动态更新 | 不逐次输出 |
-| retry 耗尽、降级、budget 不可执行 | 去重后永久追加一次 | 去重后追加 `warning` 事件 |
+| retry 耗尽、降级、budget 不可执行、止损闸落闸 | 去重后永久追加一次 | 去重后追加 `warning` 事件 |
 | budget 耗尽、用户中断、reporter 写失败 | 永久追加一次 | 各自事件追加一次 |
 | 最终结论和结果路径 | 永久追加(结论、`FAILURES`、`NEXT` 面板) | `result` 事件 |
 
@@ -299,11 +299,17 @@ live 面板只展示当前状态,不保存历史帧:
     Inspect: niceeval show @12h8m4k1
 ```
 
-非致命 diagnostic 使用 warning/error 标记但不冒充 verdict;同一 `dedupeKey` 并发出现时只留一条并显示次数:
+非致命 diagnostic 使用 warning/error 标记但不冒充 verdict;行首那个稳定词是诊断的 `code`,同一 `dedupeKey` 并发出现时只留一条并显示次数——折叠到多细由 dedupeKey 决定(身份可以编进它),展示与分支用的稳定词法始终是 `code`:
 
 ```text
 ! sandbox setup · memory-warmup-degraded (12 attempts)
   Memory warmup failed; continuing with a cold index
+```
+
+止损闸落闸(见[执行失败分类 · 止损执行体](../error-classification/architecture.md#止损执行体))走同一条诊断通道,`code` 是 `dispatch-halted`、level 是 `error`。它的 message 自成完整一句话,所以按诊断体裁只给 error 符号加这一句,不另起标题行、也不带折叠计数——闸落下后每条被拦住的 attempt 都会刷新同一条诊断,逐次打印就会把 scrollback 刷满同一句话;被拦住的数量由结束反馈的 `unstarted` 回答。eval 闸同形,文案是 `✗ eval halted: <message>`:
+
+```text
+✗ experiment halted (dispatch-halted): shared tunnel is down; restart it and rerun
 ```
 
 `niceeval show @12h8m4k1` 展开结构化错误、cause、stack、发生过的阶段与 diagnostics;有 trace 时再用 `--execution` 看执行树。没有 trace 时直接说明 unavailable,不能因此丢失错误详情。
@@ -442,6 +448,7 @@ niceeval exp compare --json
 {"event":"progress","elapsedMs":30000,"total":24,"reused":18,"running":6,"elsewhere":0,"queued":0,"completed":0}
 {"event":"failure","locator":"@1bwcxxiy","evalId":"memory/swelancer-manager-15193","experimentId":"compare/claude","severity":"gate","assertion":"Issue 15193: selected proposal matches the accepted proposal","matcher":"equals(4)","expected":4,"received":3}
 {"event":"error","locator":"@12h8m4k1","evalId":"memory/agent-029-use-cache","experimentId":"compare/claude-e2b","phase":"sandbox.create","reason":"E2B sandbox allocation failed after 5 attempts"}
+{"event":"warning","code":"dispatch-halted","level":"error","message":"eval halted: fixture server refused the connection; start it and rerun","phase":"eval.setup","experimentId":"compare/claude-e2b","evalId":"memory/agent-041-fixture-server"}
 {"event":"eval","locator":"@12p9k4mz","evalId":"memory/commit0-cachetool","experimentId":"compare/bub-e2b","verdict":"passed","attempts":3,"passed":2}
 {"event":"result","status":"failed","passed":22,"failed":1,"errored":1,"reused":18,"completion":"complete","snapshots":[".niceeval/compare/bub-e2b/<snapshot>",".niceeval/compare/claude/<snapshot>",".niceeval/compare/claude-e2b/<snapshot>"]}
 ```
@@ -452,6 +459,8 @@ niceeval exp compare --json
 
 - 字段名复用 Results 词表(`locator` / `evalId` / `experimentId` / `phase` / `verdict`),不为事件流发明第二套命名;locator 是继续调查的主键,不能只给 eval id 或第几个 attempt。
 - 快照与 attempt artifacts 是权威数据,事件流不是另一份结果 schema——`failure` / `error` 事件只带主失败断言或结构化错误的有界字段,完整证据用 `show` 下钻,脚本消费用 [`show --json`](../reports/show/json.md)。
+- 诊断走 `warning` 事件,按 dedupeKey 去重后只在首次出现时追加一行,流里不带折叠次数:次数是会被后续出现改写的值,append-only 流承载的是「这件事发生过」,要终值读快照里的诊断(`show --json`)。`code` 是可以按值分支的稳定词法(`dispatch-halted`、`lock-taken-over`、`budget-unenforceable` 等),折叠身份不编进它——同一类诊断在任何一次运行里都是同一个字面量。
+- 诊断的归属由 `experimentId` / `evalId` 两个具名字段给出:attempt 级诊断取所属 attempt 的身份,不绑定单条 attempt 的运行级诊断(止损闸、fail-fast、budget、锁接管)取诊断自己声明的身份。消费方读同一对字段、不区分来源,也不会拿到被伪造出来的 attempt 归属。
 - `result` 是流的最后一个事件:结论、计数、完成态(`complete` / `incomplete` / `interrupted`)、快照路径与 JUnit 路径(传了 `--junit` 才出现)。逐条失败不在这里重复——流里已经逐事件给过。
 - progress 心跳只用于判断进程存活,不是结果数据源;失败或诊断刚写过就重新计时,不紧跟一条冗余心跳。
 - reporter 写失败必须判红,因为消费方要求的结果文件缺失不能降级成普通 warning。
@@ -546,13 +555,15 @@ interface KeptEvent {
 
 interface WarningEvent {
   event: "warning";
+  /** 稳定词法:同一类诊断恒是同一个字面量(`dispatch-halted` / `lock-taken-over` / …),消费方按值分支。折叠身份不编进它,折叠到多细由 dedupeKey 决定,dedupeKey 本身不出现在事件里。 */
   code: string;
   level: "warning" | "error";
   message: string;
   phase?: LifecyclePhase;
+  /** 这条诊断属于哪个实验。 */
   experimentId?: string;
-  /** 同一 dedupeKey 折叠后的出现次数;省略等于 1。 */
-  count?: number;
+  /** eval 级诊断(eval 止损闸、fail-fast 等)给出;实验级与全局诊断省略。 */
+  evalId?: string;
 }
 
 interface BudgetExhaustedEvent {
