@@ -39,7 +39,15 @@ import {
   teardownEntryId,
   writeTeardownRegistration,
 } from "./teardown-registry.ts";
-import { acquireCaseLock, readCaseLock, type CaseLockClaim } from "./lock.ts";
+import {
+  acquireCaseLock,
+  isCaseLockStale,
+  readCaseLock,
+  CASE_LOCK_HEARTBEAT_INTERVAL_MS,
+  type CaseLockClaim,
+  type CaseLockRecord,
+} from "./lock.ts";
+import { acquireGateSlot, type GateLeaseClaim } from "./gate-lease.ts";
 import { loadLatestResultsPerEval } from "../view/data.ts";
 import type {
   DiagnosticRecord,
@@ -341,14 +349,18 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
   const sandboxSem = Effect.runSync(Effect.makeSemaphore(opts.maxConcurrency));
 
   // 两级并发闸:全局(opts.maxConcurrency)+ 实验级(AgentRun.maxConcurrency,可选)。
-  // 实验级信号量让「有共享状态、必须串行」的实验(如跨 eval 累积记忆,maxConcurrency: 1)
-  // 只在自己内部排队,同批其它实验照常并发——旧行为是 CLI 取所有选中实验的最小值钳全局,
-  // 一个串行实验会把整批基线拖成串行。等于全局上限的实验级值不建闸(与全局闸重复)。
+  // 实验级闸让「有共享状态、必须串行」的实验(如跨 eval 累积记忆,maxConcurrency: 1)只在
+  // 自己内部排队,同批其它实验照常并发。它的名额域跨 Invocation 共用(见 gate-lease.ts 与
+  // docs/feature/experiments/architecture.md「并发 Invocation:用例锁」末条),所以名额不是
+  // 进程内信号量而是磁盘上的逐槽租约——多开不叠加 N,`maxConcurrency: 1` 的临界区声明在
+  // 多开下同样成立。全局位反过来是每条 Invocation 私有的吞吐旋钮,仍是进程内信号量。
   const globalSem = Effect.runSync(Effect.makeSemaphore(opts.maxConcurrency));
-  const runSems = new Map<AgentRun, Effect.Semaphore>();
+  // 租约按 experimentId 建键:裸 run(没有 experimentId)没有可共享的名额域,退回进程内
+  // 信号量——它不与任何别的 Invocation 协调,语义上就只剩「本进程内限流」这一半。
+  const gateFallbackSems = new Map<AgentRun, Effect.Semaphore>();
   for (const run of opts.agentRuns) {
-    if (run.maxConcurrency !== undefined && run.maxConcurrency < opts.maxConcurrency) {
-      runSems.set(run, Effect.runSync(Effect.makeSemaphore(Math.max(1, run.maxConcurrency))));
+    if (run.maxConcurrency !== undefined && run.experimentId === undefined) {
+      gateFallbackSems.set(run, Effect.runSync(Effect.makeSemaphore(Math.max(1, run.maxConcurrency))));
     }
   }
 
@@ -736,170 +748,391 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
     await recoverStaleTeardownRegistration(run, run.experimentId);
   }
 
+  // ─────────────────────── 派发许可链(docs/runner.md「调度:有界并发」) ───────────────────────
+  // 一条 attempt 要真正开跑,顺序通过四道许可,顺序本身是契约:
+  //   ① 止损闸(checkDispatchHalt)→ ② 实验闸(跨 Invocation 逐槽租约)→ ③ 全局并发位
+  //   → ④ 派发时刻非阻塞试锁(用例锁)→ preflight → body
+  // ②③ 是资源许可,④ 是「这条用例归谁跑」的仲裁。撞上别人持有的新鲜锁时,④ 立刻把 ③ 和 ②
+  // 都还回去(不还就会拿着实验闸名额干等持锁方——同一实验的名额域跨 Invocation 共用,
+  // maxConcurrency: 1 下这是必然死锁),该用例转 elsewhere 挂起,腾出的位子由排队中的下一条
+  // attempt 接手;锁释放/过期后重查携带,仍要自跑的那些从 ① 重新走一遍这条链。
+
+  /**
+   * 止损闸检查点 —— **C2 接入点**(plan/runner-dispatch-spine-refactor.md 节点 C2「止损执行体
+   * 接入」)。返回「这条 attempt 是否被作者声明的止损闸拦下」:落闸后本 eval / 本实验剩余
+   * attempt 不再派发,计入 `unstarted`、完成状态落 `incomplete`
+   * (契约见 docs/feature/error-classification/README.md「自愈阶梯与止损阶梯」)。
+   *
+   * 本节点(C1)只留桩:恒不落闸,派发行为与接入前完全一致。C2 把函数体换成真检查——读该
+   * eval 闸 / 该实验闸的 `Effect.makeLatch` 状态(闸在 attempt 封口读终局失败的 scope 时落下,
+   * 幂等、invocation 内不可逆、实验闸蕴含全部 eval 闸),并在下面唯一的调用点补上 `unstarted`
+   * 记账与 `dispatch-halted` 诊断。调用点每轮循环都会重新问一次:挂起在 elsewhere 的用例被
+   * 唤醒后同样先过这道闸,不会绕开已经落下的闸重新入场。
+   */
+  const checkDispatchHalt = (a: Attempt): { halted: false } | { halted: true; scope: "eval" | "experiment" } => {
+    void a;
+    return { halted: false };
+  };
+
+  const lockIdentity = { pid: process.pid, host: currentHost };
+  /** 调度整体收束(forEach 已结算)后置位:兜住被 Effect 抛下的挂起轮询,不让它无主空转。 */
+  let dispatchClosed = false;
+
+  /** 可被 abort 打断的定时等待;abort 或到点都以 resolve 收束(调用方自己复查中断状态),
+   *  不留悬挂的定时器——真实的用户 Ctrl+C 不能被别人的锁拖着无限期挂住。 */
+  const delayOrAbort = (ms: number, signal: AbortSignal | undefined): Promise<void> =>
+    new Promise<void>((resolve) => {
+      if (signal?.aborted) return resolve();
+      const done = (): void => {
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", done);
+        resolve();
+      };
+      const timer = setTimeout(done, ms);
+      signal?.addEventListener("abort", done, { once: true });
+    });
+
+  const combinedSignal = (extra: AbortSignal): AbortSignal =>
+    opts.signal ? AbortSignal.any([opts.signal, extra]) : extra;
+
   // 用例锁(docs/feature/experiments/architecture.md「并发 Invocation:用例锁」):按
   // (experimentId, evalId) 给这批已经确定要真实派发的 attempt 分组——被静态携带筛掉的组合
   // 从不出现在 attempts[] 里,天然满足「全携带用例不取锁」;裸 run(无 experimentId)不接入。
-  const caseLockGroups = new Map<string, Attempt[]>();
+  // 一组(runs > 1 的兄弟 attempt)共享同一把锁:谁先到派发时刻谁试,自己已持有的直接放行,
+  // 别人持有则全体挂在同一个等待窗口上,不重复试锁、不各自轮询。
+  /** 一次非阻塞试锁的结论。`busy` 直接带出这一条用例的挂起窗口——「发现撞锁」与「挂进哪个
+   *  窗口」必须是同一步:分成两步的话,兄弟 attempt 归还许可的那几个 microtask 里窗口可能
+   *  已经解决并重新取到锁,它再去建窗口就会读到**自己**的新鲜锁、永久等下去。 */
+  type CaseLockTry =
+    | { kind: "acquired" }
+    | { kind: "busy"; window: Promise<void> }
+    | { kind: "aborted" };
+  interface CaseLockState {
+    experimentId: string;
+    evalId: string;
+    /** 本用例这次计划的全部 attempt;持有者一次认领它们全部,不按 attempt 拆锁。 */
+    group: Attempt[];
+    /** 还没收尾、也还没被重查携带命中的 attempt 序号——`lock_wait` 的计数与「锁还留不留」都读它。 */
+    pending: Set<number>;
+    /** 重查携带命中的 attempt 序号(elsewhere → reused,不再派发)。 */
+    carried: Set<number>;
+    /** 本进程此刻持有的锁;undefined = 没持有(还没试 / 撞锁挂起中)。 */
+    claim?: CaseLockClaim;
+    /** 在飞的一次非阻塞试锁:同组兄弟共享同一次尝试的结论,不各自拍一遍磁盘。 */
+    trying?: Promise<CaseLockTry>;
+    /** 在飞的挂起窗口:撞锁的兄弟全体等同一个 promise。 */
+    suspension?: Promise<void>;
+  }
+  const caseLocks = new Map<string, CaseLockState>();
   for (const a of attempts) {
     if (!a.run.experimentId) continue;
     const key = cacheKey(a.run, a.evalDef.id);
-    let group = caseLockGroups.get(key);
-    if (!group) caseLockGroups.set(key, (group = []));
-    group.push(a);
-  }
-  // 每组第一个到达的 attempt 触发取锁/等待(memoized,同组其余 attempt 等同一个 promise),
-  // 严格早于该组任何 attempt 的 preflight / 实验级 setup 触发点——等锁的用例因此既不占全局
-  // 并发位,也不会让本实验的 setup 提前跑起来(见下方 gated 对 resolveCaseLockGate 的调用点)。
-  const caseLockGates = new Map<string, Promise<ReadonlySet<number>>>();
-  const caseLockClaims = new Map<string, CaseLockClaim>();
-  const caseLockRemaining = new Map<string, number>();
-  for (const [key, group] of caseLockGroups) caseLockRemaining.set(key, group.length);
-
-  // 取锁本身是真实磁盘 I/O(mkdir/open/write/fsync/rename),多个不同 key 并发发起时其完成
-  // 顺序不保证等于到达顺序——这会打乱「同一批到达的 attempt 应按瓶颈优先算出的静态顺序
-  // 排队拿全局并发位」这条既有不变量(见 docs/runner.md「派发顺序」):没有这道闸时,先完成
-  // 磁盘 I/O 的 key 抢先进入 preflight/globalSem,而不是数组序在前的 key。用一把 permit=1 的
-  // 互斥量把"一次非阻塞取锁尝试"串行化——只序列化这一步,不序列化真正的等待:一旦
-  // 判定为需要等待(onWaitStart 触发),立刻把互斥量交还,让下一个到达的 key 接着走它自己的
-  // 非阻塞尝试;不同 key 的真实等待可以完全并发,只有"抢着做非阻塞尝试"这一刻互斥。
-  const caseLockAcquireMutex = Effect.runSync(Effect.makeSemaphore(1));
-
-  const resolveCaseLockGate = (a: Attempt): Promise<ReadonlySet<number>> => {
-    const experimentId = a.run.experimentId!;
-    const evalId = a.evalDef.id;
-    const key = cacheKey(a.run, evalId);
-    const existing = caseLockGates.get(key);
-    if (existing) return existing;
-    const gate = (async (): Promise<ReadonlySet<number>> => {
-      await Effect.runPromise(caseLockAcquireMutex.take(1));
-      let mutexHeld = true;
-      const releaseMutexOnce = (): void => {
-        if (!mutexHeld) return;
-        mutexHeld = false;
-        void Effect.runPromise(caseLockAcquireMutex.release(1));
+    let st = caseLocks.get(key);
+    if (!st) {
+      st = {
+        experimentId: a.run.experimentId,
+        evalId: a.evalDef.id,
+        group: [],
+        pending: new Set<number>(),
+        carried: new Set<number>(),
       };
-      // 接管诊断要报"原持有者是谁",但 acquireCaseLock 只回传 takenOver 布尔值——取锁前先
-      // 无副作用地读一眼当前记录;若随后确实接管了,用这份快照填充诊断消息与(可能瞬时的)
-      // "started" 事件的持有方字段(纯尽力而为:极端时序下这份快照可能已经不是真正被接管的
-      // 那条记录,但诊断/展示本来就是人读提示,不是判定依据)。
-      const priorHolder = await readCaseLock(niceevalRoot, experimentId, evalId).catch(() => undefined);
-      let waitStartedAt: number | undefined;
-      let acquireResult;
-      try {
-        acquireResult = await acquireCaseLock(
-          niceevalRoot,
-          experimentId,
-          evalId,
-          { pid: process.pid, host: currentHost },
-          {
-            signal: opts.signal,
-            onWaitStart: (holder) => {
-              waitStartedAt = Date.now();
-              // 确认需要真的等待:交还互斥量,不拖住排在后面的其它 key 的非阻塞尝试。
-              releaseMutexOnce();
-              reportLockWait({
-                experimentId,
-                evalId,
-                status: "started",
-                holderPid: holder.pid,
-                holderHost: holder.host,
-                attempts: caseLockGroups.get(key)?.length ?? 1,
-              });
-            },
-          },
-        );
-      } finally {
-        // 非阻塞尝试直接命中(fresh acquire 或 solo takeover,onWaitStart 从未触发)时,互斥量
-        // 到这里才交还——这一刻之前,下一个 key 的非阻塞尝试不会开始,保证了完成顺序即到达顺序。
-        releaseMutexOnce();
-      }
-      const { claim, takenOver } = acquireResult;
-      caseLockClaims.set(key, claim);
+      caseLocks.set(key, st);
+    }
+    st.group.push(a);
+    st.pending.add(a.attempt);
+  }
+  const caseStateOf = (a: Attempt): CaseLockState | undefined =>
+    a.run.experimentId ? caseLocks.get(cacheKey(a.run, a.evalDef.id)) : undefined;
 
-      if (takenOver) {
-        const message = t("runner.lockTakenOver", {
-          experimentId,
-          evalId,
-          pid: priorHolder?.pid ?? "?",
-          host: priorHolder?.host ?? "?",
-        }).trimEnd();
-        reportDiagnostic({
-          key: `lock-taken-over:${key}`,
-          severity: "warning",
-          message,
-          data: { experimentId, evalId },
-        });
-        recordExperimentDiagnostic({
-          experimentId,
-          code: "lock-taken-over",
-          level: "warning",
-          message,
-          phase: "eval.run",
-          dedupeKey: `lock-taken-over:${key}`,
-          data: { experimentId, evalId },
-        });
-      }
+  /** 等待/接管之后值不值得重新读盘查携带。`--force` 下 opts.priorResults 恒为 undefined——
+   *  force 关掉的是缓存,等完同样全部自跑;中断路径同样不再读盘。注意这只关掉「重查」,
+   *  不关掉挂起窗口的 `resolved` 事件:少发一次 resolved,elsewhere 就永远挂着,五项恒等式
+   *  当场破(旧实现在 `--force` + 真实撞锁等待这条组合上就是这么漏的)。 */
+  const carryRecheckEnabled = (): boolean => opts.priorResults !== undefined && !opts.signal?.aborted;
 
-      // 只有真正撞过锁(等待过)或接管过期锁,才值得重新读盘查携带——无竞争的全新取锁场景
-      // 没有任何别的进程碰过这个 key,静态携带规划的结论不可能过时,不必再扫一遍磁盘(这是
-      // 最常见的单开场景,必须便宜)。`--force` 下 opts.priorResults 恒为 undefined,复用这个
-      // 信号短路重查——force 关掉的是缓存,等完同样全部自跑,不消费任何携带。
-      const needsRecheck = (takenOver || waitStartedAt !== undefined) && opts.priorResults !== undefined;
-      if (!needsRecheck) return new Set<number>();
-
-      // 接管一把无人等待的过期锁也算「需要重查」,但此刻还没有对应的 "started" 事件——这批
-      // attempt 此刻仍停在 queued(从没被标记过 elsewhere),必须先补一个瞬时的 "started"
-      // 才能让下面的 "resolved" 把它们正确迁走,否则会永远卡在 queued、打破五项恒等式。
-      if (waitStartedAt === undefined) {
-        waitStartedAt = Date.now();
-        reportLockWait({
-          experimentId,
-          evalId,
-          status: "started",
-          holderPid: priorHolder?.pid,
-          holderHost: priorHolder?.host,
-          attempts: caseLockGroups.get(key)?.length ?? 1,
-        });
-      }
-
-      const freshPrior = await loadLatestResultsPerEval(niceevalRoot).catch((): EvalResult[] => []);
-      const recheck = await planCarry([a.evalDef], [a.run], freshPrior, opts.config.sandbox, opts.config.timeoutMs);
-      const carriedIndices = recheck.carriedAttemptsByKey.get(key) ?? new Set<number>();
-
-      const group = caseLockGroups.get(key) ?? [];
-      const carriedInGroup = group.filter((ga) => carriedIndices.has(ga.attempt));
-      const dispatchedInGroup = group.filter((ga) => !carriedIndices.has(ga.attempt));
-      for (const r of recheck.carriedResults) {
-        lateCarriedResults.push(r);
-        if (r.verdict === "passed") {
-          passedKeys.add(`${experimentId}|${a.run.agent.name}|${a.run.model ?? ""}|${evalId}`);
-        }
-      }
-
+  /**
+   * 撞锁等待结束、或接管一把过期锁之后,对这个用例**重新做一次携带规划**:对方 Invocation
+   * 落盘的终态此刻已可读。判定逐 attempt 进行(见 memory 的
+   * carry-must-be-per-attempt-not-whole-eval-key —— 按整段 key 判定会让同 eval 里一个 attempt
+   * 的终态连带携入其它序号):命中的序号 elsewhere → reused 不再派发,仍缺的序号
+   * elsewhere → queued 自跑。`waitStartedAt` 省略表示这次重查没有对应的挂起窗口(接管路径),
+   * 补一个瞬时的 `started` 让计数迁移成立。
+   */
+  const recheckCarry = async (
+    st: CaseLockState,
+    waitStartedAt: number | undefined,
+    holder: CaseLockRecord | undefined,
+  ): Promise<void> => {
+    const { experimentId, evalId } = st;
+    let startedAt = waitStartedAt;
+    if (startedAt === undefined) {
+      // 接管一把无人等待的过期锁也要重查,但此刻还没有对应的 "started" 事件——这批 attempt
+      // 仍停在 queued(从没被标记过 elsewhere),必须先补一个瞬时的 "started" 才能让下面的
+      // "resolved" 把它们正确迁走,否则会永远卡在 queued、打破五项恒等式。
+      startedAt = Date.now();
       reportLockWait({
         experimentId,
         evalId,
-        status: "resolved",
-        carried: carriedInGroup.length,
-        dispatched: dispatchedInGroup.length,
-        waitedMs: Date.now() - waitStartedAt,
+        status: "started",
+        ...(holder?.pid !== undefined ? { holderPid: holder.pid } : {}),
+        ...(holder?.host !== undefined ? { holderHost: holder.host } : {}),
+        attempts: st.pending.size,
       });
-
-      return carriedIndices;
-    })();
-    caseLockGates.set(key, gate);
-    return gate;
+    }
+    const pendingBefore = st.pending.size;
+    const newlyCarried: number[] = [];
+    if (carryRecheckEnabled()) {
+      const a0 = st.group[0]!;
+      const key = cacheKey(a0.run, evalId);
+      const freshPrior = await loadLatestResultsPerEval(niceevalRoot).catch((): EvalResult[] => []);
+      const recheck = await planCarry([a0.evalDef], [a0.run], freshPrior, opts.config.sandbox, opts.config.timeoutMs);
+      const carriedIndices = recheck.carriedAttemptsByKey.get(key) ?? new Set<number>();
+      for (const idx of carriedIndices) {
+        if (!st.pending.has(idx)) continue; // 已经跑过 / 上一轮已经携入过的序号不重复计
+        st.pending.delete(idx);
+        st.carried.add(idx);
+        newlyCarried.push(idx);
+      }
+      for (const r of recheck.carriedResults) {
+        if (!newlyCarried.includes(r.attempt)) continue; // 只收本轮新命中的,跨窗口不重复入账
+        lateCarriedResults.push(r);
+        if (r.verdict === "passed") {
+          passedKeys.add(`${experimentId}|${a0.run.agent.name}|${a0.run.model ?? ""}|${evalId}`);
+        }
+      }
+    }
+    reportLockWait({
+      experimentId,
+      evalId,
+      status: "resolved",
+      carried: newlyCarried.length,
+      dispatched: pendingBefore - newlyCarried.length,
+      waitedMs: Date.now() - startedAt,
+    });
   };
 
-  /** 用例全部 attempt(不论真实派发还是被锁释放后重查携带命中而跳过)都 settle 后删锁;与
+  /**
+   * 派发时刻的一次**非阻塞**试锁。非阻塞语义借 `acquireCaseLock` 的 `onWaitStart` 实现:确认
+   * 要等待的那一刻立刻自我中断,只保留「一次尝试」的部分——这样仍然复用它的心跳续租与强清
+   * 登记(lock.ts 的 held 表),而 `tryAcquireCaseLockOnce` 两件都不做。撞上过期锁属于「一次
+   * 尝试」内部的 rename 接管,照常返回 acquired。
+   */
+  const tryAcquireCase = (st: CaseLockState): Promise<CaseLockTry> => {
+    // 同组兄弟:自己已持有,直接放行。
+    if (st.claim) return Promise.resolve<CaseLockTry>({ kind: "acquired" });
+    // 已经有兄弟挂在窗口上:全体等同一个窗口,不重复试锁。
+    if (st.suspension) return Promise.resolve<CaseLockTry>({ kind: "busy", window: st.suspension });
+    if (st.trying) return st.trying;
+    const attempt = (async (): Promise<CaseLockTry> => {
+      const { experimentId, evalId } = st;
+      // 接管诊断要报"原持有者是谁",但 acquireCaseLock 只回传 takenOver 布尔值——取锁前先
+      // 无副作用地读一眼当前记录(纯尽力而为:极端时序下这份快照可能已经不是真正被接管的
+      // 那条记录,但诊断本来就是人读提示,不是判定依据)。
+      const priorHolder = await readCaseLock(niceevalRoot, experimentId, evalId).catch(() => undefined);
+      const giveUp = new AbortController();
+      let busyWith: CaseLockRecord | undefined;
+      try {
+        const { claim, takenOver } = await acquireCaseLock(niceevalRoot, experimentId, evalId, lockIdentity, {
+          signal: combinedSignal(giveUp.signal),
+          onWaitStart: (h) => {
+            busyWith = h;
+            giveUp.abort(); // 撞上新鲜锁 = 这次尝试到此为止,不进入 acquireCaseLock 自己的轮询
+          },
+        });
+        st.claim = claim;
+        if (takenOver) {
+          const message = t("runner.lockTakenOver", {
+            experimentId,
+            evalId,
+            pid: priorHolder?.pid ?? "?",
+            host: priorHolder?.host ?? "?",
+          }).trimEnd();
+          reportDiagnostic({
+            key: `lock-taken-over:${experimentId}|${evalId}`,
+            severity: "warning",
+            message,
+            data: { experimentId, evalId },
+          });
+          recordExperimentDiagnostic({
+            experimentId,
+            code: "lock-taken-over",
+            level: "warning",
+            message,
+            phase: "eval.run",
+            dedupeKey: `lock-taken-over:${experimentId}|${evalId}`,
+            data: { experimentId, evalId },
+          });
+          // 接管说明上一个持有者死在半路:它可能已经落盘了一部分终态,重查一次携带。
+          // 无携带可消费(--force / 中断)时整段跳过——这条路径还没有对应的挂起窗口要关,
+          // 不必为一次注定空手而归的重查凭空造一对 elsewhere 进出。
+          if (carryRecheckEnabled()) await recheckCarry(st, undefined, priorHolder);
+        }
+        return { kind: "acquired" };
+      } catch (e) {
+        // 撞新鲜锁:就地开(或加入)挂起窗口,窗口对象随结论一起交给调用方。
+        if (busyWith) return { kind: "busy", window: suspendUntilCaseFree(st, busyWith) };
+        if (opts.signal?.aborted) return { kind: "aborted" };
+        throw e;
+      }
+    })();
+    st.trying = attempt;
+    return attempt.finally(() => {
+      st.trying = undefined;
+    });
+  };
+
+  /**
+   * 撞新鲜锁后的挂起窗口:这一条用例转 `elsewhere`(不占全局并发位、不占实验闸名额),每个
+   * 心跳周期重读一次锁文件;锁消失(正常释放)或过期(可接管)即结束等待并重查携带。等待没有
+   * 超时——心跳新鲜就一直等,用户中断照常退出。同组兄弟共享同一个窗口。
+   */
+  const suspendUntilCaseFree = (st: CaseLockState, holder: CaseLockRecord): Promise<void> => {
+    if (st.suspension) return st.suspension;
+    const startedAt = Date.now();
+    reportLockWait({
+      experimentId: st.experimentId,
+      evalId: st.evalId,
+      status: "started",
+      holderPid: holder.pid,
+      holderHost: holder.host,
+      attempts: st.pending.size,
+    });
+    const window = (async (): Promise<void> => {
+      for (;;) {
+        await delayOrAbort(CASE_LOCK_HEARTBEAT_INTERVAL_MS, opts.signal);
+        if (opts.signal?.aborted || dispatchClosed) break;
+        const record = await readCaseLock(niceevalRoot, st.experimentId, st.evalId).catch(() => undefined);
+        if (record === undefined || isCaseLockStale(record, Date.now())) break;
+      }
+      await recheckCarry(st, startedAt, holder);
+    })();
+    st.suspension = window.finally(() => {
+      st.suspension = undefined;
+    });
+    return st.suspension;
+  };
+
+  /** 用例全部 attempt(不论真实派发还是被重查携带命中而跳过)都 settle 后删锁;与
    *  expLifecycles.remaining 归零触发 teardown 同一种「逐 attempt 收尾时递减,归零触发」模式。 */
-  const releaseCaseLockIfDone = async (key: string): Promise<void> => {
-    const remaining = (caseLockRemaining.get(key) ?? 1) - 1;
-    caseLockRemaining.set(key, remaining);
-    if (remaining > 0) return;
-    const claim = caseLockClaims.get(key);
-    caseLockClaims.delete(key);
+  const releaseCaseLockIfDone = async (st: CaseLockState, attempt: number): Promise<void> => {
+    st.pending.delete(attempt);
+    if (st.pending.size > 0) return;
+    const claim = st.claim;
+    st.claim = undefined;
     if (claim) await claim.release().catch(() => {});
+  };
+
+  /**
+   * 实验闸的取位:声明了 `maxConcurrency` 的实验从**跨 Invocation 共用**的逐槽租约取名额
+   * (gate-lease.ts);未声明的实验不走租约、不产生任何跨进程协调。取位在全局位之前——等名额
+   * 的 attempt 不占别的实验的并发位。返回 undefined 表示等待期间被中断,这条 attempt 就此放弃。
+   */
+  const acquireGateLease = async (
+    experimentId: string,
+    maxConcurrency: number,
+    fiberSignal: AbortSignal,
+  ): Promise<GateLeaseClaim | undefined> => {
+    const signal = combinedSignal(fiberSignal);
+    try {
+      const { claim, takenOver, takenOverFrom } = await acquireGateSlot(
+        niceevalRoot,
+        experimentId,
+        maxConcurrency,
+        lockIdentity,
+        { signal },
+      );
+      if (takenOver) {
+        const message = t("runner.gateLeaseTakenOver", {
+          experimentId,
+          slot: claim.slot,
+          pid: takenOverFrom?.pid ?? "?",
+          host: takenOverFrom?.host ?? "?",
+        }).trimEnd();
+        const dedupeKey = `gate-lease-taken-over:${experimentId}`;
+        reportDiagnostic({ key: dedupeKey, severity: "warning", message, data: { experimentId } });
+        recordExperimentDiagnostic({
+          experimentId,
+          code: "gate-lease-taken-over",
+          level: "warning",
+          message,
+          phase: "eval.run",
+          dedupeKey,
+          data: { experimentId, slot: claim.slot },
+        });
+      }
+      return claim;
+    } catch (e) {
+      if (signal.aborted) return undefined; // 等名额期间被中断:立刻退出,不留悬挂
+      throw e;
+    }
+  };
+
+  /** 派发链一轮的结局:`done` = 这条 attempt 已经了结(跑完 / 被跳过 / 携入 / 中断),
+   *  `suspend` = 撞上别人持有的用例锁,许可全部归还、挂进 `window` 这个 elsewhere 窗口后重来。 */
+  type DispatchOutcome = { kind: "done" } | { kind: "suspend"; window: Promise<void> };
+
+  /** 全局并发位的显式持有句柄:`withPermits` 的作用域语义没法表达「中途让位、回来再拿」,
+   *  而实验级 setup 与 turn 退避都要求让位(docs/runner.md「调度:有界并发」)。两个成员都
+   *  幂等——让位后收尾 finalizer 不会重复归还,回来之后中断也只归还一次。 */
+  interface GlobalSlotHold {
+    readonly release: Effect.Effect<void>;
+    readonly reacquire: Effect.Effect<void>;
+  }
+
+  const withGlobalSlot = <A>(use: (slot: GlobalSlotHold) => Effect.Effect<A>): Effect.Effect<A> =>
+    Effect.uninterruptibleMask((restore) => {
+      const state = { held: false };
+      const release = Effect.suspend(() =>
+        state.held
+          ? globalSem.release(1).pipe(
+              Effect.map(() => {
+                state.held = false;
+              }),
+            )
+          : Effect.void,
+      );
+      const reacquire = Effect.suspend(() =>
+        state.held
+          ? Effect.void
+          : globalSem.take(1).pipe(
+              Effect.map(() => {
+                state.held = true;
+              }),
+            ),
+      );
+      // 取位本身可中断(restore):Ctrl+C 不该被「等一个全局位」拖住;拿到之后的执行体同样
+      // 可中断,只有归还挂在 ensuring 上,中断路径照样跑。
+      return restore(reacquire).pipe(
+        Effect.flatMap(() => restore(use({ release, reacquire })).pipe(Effect.ensuring(release))),
+      );
+    });
+
+  /**
+   * 实验闸(② 道许可)的持有作用域:名额与 attempt **同生命周期**——从这里持有到执行体收尾
+   * (teardown 链、沙箱销毁)之后才归还,turn 退避等内部等待一律不释放
+   * (docs/runner.md「调度:有界并发」)。撞用例锁挂起是唯一的例外:那时执行体以 `suspend`
+   * 正常返回,作用域退出、名额归还,挂起结束后重新取——挂起的用例不占名额,否则同实验的
+   * 持锁方(可能就在另一条 Invocation 里)会被自己的等待方饿死。
+   */
+  const withExperimentGate = (
+    a: Attempt,
+    use: Effect.Effect<DispatchOutcome>,
+  ): Effect.Effect<DispatchOutcome> => {
+    const { maxConcurrency, experimentId } = a.run;
+    if (maxConcurrency === undefined) return use;
+    const fallback = gateFallbackSems.get(a.run);
+    if (fallback) return fallback.withPermits(1)(use);
+    return Effect.uninterruptibleMask((restore) =>
+      restore(Effect.promise((sig) => acquireGateLease(experimentId!, maxConcurrency, sig))).pipe(
+        Effect.flatMap((claim) =>
+          claim === undefined
+            ? Effect.succeed<DispatchOutcome>({ kind: "done" })
+            : restore(use).pipe(
+                Effect.ensuring(Effect.promise(() => claim.release().catch(() => {}))),
+              ),
+        ),
+      ),
+    );
   };
 
   // earlyExit:为每个 key 各建一个 AbortController。某 attempt 通过或 errored 时 abort 它,
@@ -912,9 +1145,10 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
   }
 
   // 有界并发调度:forEach 本身 unbounded(每个 attempt 立刻有自己的 fiber),真正的
-  // 并发上限由上面两级信号量把守——执行体先过实验级闸(若有)再占全局 permit 才开跑。
-  // 获取定序恒为 runSem → globalSem,无环等待;实验级闸的持有者在等全局 permit 时
-  // 不占别的实验的并发位(并发位就是 globalSem 的 permit,不再是 forEach 的 fiber 槽)。
+  // 并发上限由上面那条许可链把守——执行体依次过止损闸、实验闸(若有)、全局 permit、
+  // 派发时刻试锁才开跑。获取定序恒为 实验闸 → globalSem → 用例锁,无环等待;实验闸的
+  // 持有者在等全局 permit 时不占别的实验的并发位(并发位就是 globalSem 的 permit,
+  // 不再是 forEach 的 fiber 槽)。
   // runAttemptEffect 只把「执行错误」收进 EvalResult.error(不 fail),
   // 但中断(Ctrl+C / kill)照常向上传播 —— 所以一条挂掉不会中断其它 attempt,而中断能停掉全部。
   //
@@ -932,11 +1166,11 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
       attempts,
       (a) => {
         const budgetKey = a.run.experimentId ?? a.run.agent.name;
+        const caseState = caseStateOf(a);
 
-        // preflight:「要不要开始跑」的许可判断(首过即停 + budget 上限检查),不持有
-        // globalSem——两类判断都是即时返回,不该占着全局并发槽位做无谓等待。runSem(实验自己的
-        // maxConcurrency)例外:它是实验私有资源,preflight 占着不影响别的实验,且和 mempal
-        // 那类「必须串行」的语义一致,所以仍然把 preflight 包在 runSem 里面(见下方)。
+        // preflight:「要不要开始跑」的许可判断(首过即停 + budget 上限检查)。两类判断都是
+        // 即时返回、不做任何等待,所以放在授位之后没有「占着全局并发槽位干等」的问题;放在
+        // 派发时刻(而不是排队时刻)判,读到的是这一刻最新的通过集与已花费。
         const preflight = Effect.gen(function* () {
             // 首过即停:只由 passed 触发(errored 不中止其余样本,见 docs/feature/experiments/
             // architecture.md「调度接口」)。
@@ -1015,8 +1249,9 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
             return true;
           });
 
-        // body:preflight 放行之后才跑,只有这一段真正占用全局并发槽位(globalSem)。
-        const body = Effect.gen(function* () {
+        // body:许可链全部通过之后才跑,真正的执行段。
+        const body = (slot: GlobalSlotHold) =>
+          Effect.gen(function* () {
             // 合并全局信号与本 eval 的首过即停信号:任一 abort → 本 attempt 的信号 abort。
             const evalAc = evalAbortControllers.get(a.key);
             const attemptSignal =
@@ -1027,18 +1262,19 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
             // turn 级重试退避期间释放/收回的并发槽位——两级闸按持有期分工的单点契约见
             // docs/runner.md「调度:有界并发」与 docs/feature/error-classification/
             // architecture.md「退避与槽位」:这里只释放/收回全局并发位(globalSem),它管
-            // 吞吐,内部等待一律让位。实验级闸(runSem,若本实验声明了 maxConcurrency)管
-            // 正确性,名额与 attempt 同生命周期、退避这类内部等待不释放——继续由外层
-            // runSem.withPermits(1)(见上方「获取定序恒为 runSem → globalSem」注释)全程持有,
-            // 这个槽位对象因此不接触 runSem,否则同实验的下一个 attempt 会趁退避窗口提前
-            // 进场,击穿 maxConcurrency: 1 的串行契约(bug 台账见
+            // 吞吐,内部等待一律让位。实验闸管正确性,名额与 attempt 同生命周期、退避这类
+            // 内部等待不释放——继续由外层的租约(或裸 run 的回退信号量)全程持有,这个槽位
+            // 对象因此不接触实验闸,否则同实验的下一个 attempt 会趁退避窗口提前进场,击穿
+            // maxConcurrency: 1 的串行契约(bug 台账见
             // memory/turn-retry-backoff-releases-experiment-serial-lock.md)。
+            // 走 slot 的显式持有对象(而不是直接 take/release 信号量):让「谁此刻还握着位子」
+            // 只有一份真相,退避期间被中断时收尾 finalizer 才不会重复归还一个已经让出的位。
             const concurrencySlot: ConcurrencySlot = {
               release: async () => {
-                await Effect.runPromise(globalSem.release(1));
+                await Effect.runPromise(slot.release);
               },
               reacquire: async () => {
-                await Effect.runPromise(globalSem.take(1));
+                await Effect.runPromise(slot.reacquire);
               },
             };
 
@@ -1203,36 +1439,62 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
               Effect.promise(() => emitReporterEvent(reporters, { type: "eval:complete", result })),
             );
           });
+        // ③ 全局并发位 → ④ 派发时刻试锁 → preflight → 实验级 setup → body。
         // 独占串行 provider(如 local):同一 provider 名的所有 attempt 共享一把 permit=1 的锁,
-        // 只包住「真正占用并发位执行」这一段——preflight 与等待实验级 setup 都在它之外,和
-        // globalSem 的「等待不占位」纪律保持一致(见上面 exclusiveSemFor 的注释)。
+        // 包在全局位之外(见上面 exclusiveSemFor 的注释)。
         const exclusiveSem = exclusiveSemFor(a.sandboxSpec);
-        const gated = Effect.gen(function* () {
-          // 用例锁:严格在 preflight / 实验级 setup 之前——等锁的用例既不占全局并发位,也不
-          // 触发本实验的 setup(见上方 resolveCaseLockGate 的分组注释)。等待期间对方已经跑完
-          // 这个具体 attempt 序号时(锁释放后重查携带命中),直接返回,不真的派发。
-          if (a.run.experimentId) {
-            const carriedIndices = yield* Effect.promise(() => resolveCaseLockGate(a));
-            if (carriedIndices.has(a.attempt)) return;
+        const dispatch = withGlobalSlot((slot) =>
+          Effect.gen(function* () {
+            // 派发时刻取锁:授位之后才试,非阻塞。撞上别人持有的新鲜锁就把这个位子连同实验闸
+            // 名额一起还回去(返回 "suspend"),由外层转入 elsewhere 挂起;位子当场空出来,
+            // 排队中的下一条没被锁的用例接手。
+            if (caseState) {
+              const outcome = yield* Effect.promise(() => tryAcquireCase(caseState));
+              if (outcome.kind === "aborted") return { kind: "done" } as const;
+              if (outcome.kind === "busy") return { kind: "suspend", window: outcome.window } as const;
+              // 接管过期锁时顺带重查过携带:这个序号已经被对方跑完,不重复派发。
+              if (caseState.carried.has(a.attempt)) return { kind: "done" } as const;
+            }
+            const proceed = yield* preflight;
+            if (!proceed) return { kind: "done" } as const;
+            if (a.run.setup || a.run.teardown) {
+              // 实验级 setup:第一个通过派发许可的 attempt 真正执行,其余等同一个 memoized
+              // promise(它从不 reject——失败收进 lc.setupFailed,由 body 合成 errored 结果)。
+              // 等它的时候让出全局并发位(docs/runner.md「调度:有界并发」——内部等待一律让位,
+              // 慢启动的 setup 不许饿死同批其它实验),回来再重新拿位。实验闸名额不让。
+              yield* slot.release;
+              yield* Effect.promise(() => ensureExperimentSetup(a));
+              yield* slot.reacquire;
+            }
+            yield* body(slot);
+            return { kind: "done" } as const;
+          }),
+        );
+        const guarded = exclusiveSem ? exclusiveSem.withPermits(1)(dispatch) : dispatch;
+
+        // 许可链的循环外壳:撞锁挂起的用例解决后从 ① 重新走一遍(实验闸名额与全局位都要
+        // 重新取,不能拿着别人在等的名额干等),携入的直接收工。
+        const pipeline = Effect.gen(function* () {
+          for (;;) {
+            // ① 止损闸(C1 桩:恒不落闸;C2 换真检查)。
+            if (checkDispatchHalt(a).halted) return;
+            // ② 实验闸 → ③ 全局位 → ④ 用例锁 → preflight → body
+            const outcome = yield* withExperimentGate(a, guarded);
+            if (outcome.kind === "done") return;
+            // ② ③ 已随作用域归还。挂起等锁:不占并发位、计入 elsewhere;锁释放或过期后重查
+            // 携带——携入的收工,仍要自跑的按原优先级回到派发队列(下一轮循环)。
+            yield* Effect.promise(() => outcome.window);
+            if (caseState!.carried.has(a.attempt)) return;
+            if (opts.signal?.aborted) return;
           }
-          const proceed = yield* preflight;
-          if (!proceed) return;
-          // 实验级 setup:第一个走到这里的 attempt 真正执行,其余等同一个 memoized promise
-          // (它从不 reject——失败收进 lc.setupFailed,由 body 合成 errored 结果);等待发生在
-          // globalSem 之外,慢启动的 setup 不占全局并发位。
-          if (a.run.setup || a.run.teardown) yield* Effect.promise(() => ensureExperimentSetup(a));
-          const scoped = globalSem.withPermits(1)(body);
-          yield* exclusiveSem ? exclusiveSem.withPermits(1)(scoped) : scoped;
         });
-        const runSem = runSems.get(a.run);
-        const withRunSem = runSem ? runSem.withPermits(1)(gated) : gated;
         // 实验级 teardown 计数:每个 attempt 收尾(含被 preflight 跳过、被中断的、被用例锁
         // late-carry 跳过的)都递减,归零触发 ExperimentDef.teardown。ensuring 在中断路径
         // 同样执行,teardown 因此必跑。
         const withExpLifecycle =
           !a.run.setup && !a.run.teardown
-            ? withRunSem
-            : withRunSem.pipe(
+            ? pipeline
+            : pipeline.pipe(
                 Effect.ensuring(
                   Effect.promise(async () => {
                     const lc = expLifecycles.get(a.run)!;
@@ -1244,13 +1506,13 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
                   }),
                 ),
               );
-        if (!a.run.experimentId) return withExpLifecycle;
+        if (!caseState) return withExpLifecycle;
         // 用例锁释放:这个 key 的全部 attempt(真实派发的与被 late-carry 跳过的)都 settle 后
         // 删锁,与上面的实验级 teardown 计数同一种「逐 attempt 收尾时递减,归零触发」模式,
         // 挂在最外层确保晚于实验级 teardown 计数结算(docs「用例全部 attempt 收尾(含沙箱销毁)
         // 后删除自己的锁」)。
         return withExpLifecycle.pipe(
-          Effect.ensuring(Effect.promise(() => releaseCaseLockIfDone(cacheKey(a.run, a.evalDef.id)))),
+          Effect.ensuring(Effect.promise(() => releaseCaseLockIfDone(caseState, a.attempt))),
         );
       },
       { concurrency: "unbounded", discard: true },
@@ -1267,6 +1529,8 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
     ),
     { signal: opts.signal },
   );
+  // 调度已经结算:任何被中断路径抛下的挂起轮询到下一个心跳周期自行收束,不无主空转。
+  dispatchClosed = true;
   await opts.otelPool?.close();
 
   // 实验级 teardown 兜底扫尾:正常路径由 per-attempt ensuring 的计数归零触发(见上),但一次

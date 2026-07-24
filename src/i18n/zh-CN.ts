@@ -73,6 +73,8 @@ export const zhCN = {
     "实验 {{experimentId}} 的强杀恢复收尾登记写入失败:{{message}}。本次运行照常继续,但这次运行期间若被 SIGKILL,`niceeval exp --teardown` 与启动自愈都无法找到它——检查 .niceeval/teardowns/ 下的磁盘空间或权限。\n",
   "runner.lockTakenOver":
     "接管了 {{experimentId}}/{{evalId}} 的过期用例锁(原持有者 pid {{pid}}@{{host}},心跳已过期)——那次运行大概率没能正常释放它;本次运行现在接手派发这条用例。\n",
+  "runner.gateLeaseTakenOver":
+    "接管了实验 {{experimentId}} 的过期并发名额租约(槽位 {{slot}},原持有者 pid {{pid}}@{{host}},心跳已过期)——那次运行大概率没能正常释放它;本次运行现在接手这个名额。\n",
   "judge.modelMissing":
     "judge 未配置模型:在 defineConfig({ judge: { model: \"...\" } })、eval 的 judge 配置或环境变量 NICEEVAL_JUDGE_MODEL 里指定裁判模型(没有内置默认模型)。\n" +
     "  文档:node_modules/niceeval/docs-site/zh/tutorials/scoring-guide.mdx",
