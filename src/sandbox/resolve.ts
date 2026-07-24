@@ -13,6 +13,12 @@ import { t } from "../i18n/index.ts";
 import { reportActivity, reportDiagnostic } from "../runner/feedback/sink.ts";
 import { withProvisionRetry, type ProvisionSlot } from "./retry.ts";
 import { currentRunIdentity } from "./run-identity.ts";
+import {
+  attachProvisionFailureScope,
+  classifyProvisionConfigCause,
+  provisionConfigCauseScope,
+  type SandboxProvisionErrorKind,
+} from "./errors.ts";
 
 /** 归一化后的沙箱描述:确定的 provider + 各 provider 参数(只有对应 provider 用得上的会有值)。 */
 export interface ResolvedSandbox {
@@ -148,6 +154,40 @@ export function createSandbox(opts: {
   );
 }
 
+/**
+ * spec 是否带 `environments` 表:决定「模板不存在」死因的 scope 定档(见 errors.ts 的
+ * `provisionConfigCauseScope`)。查表本身(profile → 具体产物)是 runner/sandbox-selection.ts
+ * 的规划期职责;这里只读字段是否存在——`environments` 在 spec 声明了就会随 `resolveSandbox()`
+ * 的展开(以及 profile 派生 spec 的浅覆盖)原样带到这里,不需要重新解析 profile。
+ */
+function hasEnvironmentsTable(r: ResolvedSandbox): boolean {
+  const environments = (r as { environments?: unknown }).environments;
+  return typeof environments === "object" && environments !== null;
+}
+
+/**
+ * provisioning 失败向外浮出确定性配置死因的 scope(契约见
+ * docs/feature/sandbox/architecture.md#provisioning-失败与重试「对外的空间轴映射」)。
+ * `work` 失败后,只有 provider 自身分类判定为 `"unknown"`(确定性)时才进一步细分死因;
+ * 瞬时失败(拒绝类/歧义类)不论是否重试耗尽都原样抛出,不附带 scope——死因不可证明为
+ * 兄弟共享。导出供单测直接注入 `work`/`classify`,不需要经过真实 provider SDK。
+ */
+export async function withDeterministicProvisionScope<T>(
+  work: () => Promise<T>,
+  classify: (e: unknown) => SandboxProvisionErrorKind,
+  r: ResolvedSandbox,
+): Promise<T> {
+  try {
+    return await work();
+  } catch (e) {
+    if (classify(e) === "unknown") {
+      const cause = classifyProvisionConfigCause(e);
+      if (cause) attachProvisionFailureScope(e, provisionConfigCauseScope(cause, hasEnvironmentsTable(r)));
+    }
+    throw e;
+  }
+}
+
 async function createProvider(
   r: ResolvedSandbox,
   feedback: ScopedFeedback,
@@ -167,20 +207,25 @@ async function createProvider(
       // 运行标识(host/pid/startedAt)与 provision token 同一 label 机制:强杀之后
       // `sandbox list --orphans` / `prune` 按它事后核对与收回(见 run-identity.ts)。
       const runIdentity = currentRunIdentity();
-      return withProvisionRetry(
+      return withDeterministicProvisionScope(
         () =>
-          DockerSandbox.create({
-            timeout,
-            runtime: r.runtime,
-            image: r.image,
+          withProvisionRetry(
+            () =>
+              DockerSandbox.create({
+                timeout,
+                runtime: r.runtime,
+                image: r.image,
+                feedback,
+                provisionToken: token,
+                runIdentity,
+              }),
+            classifyProvisionError,
+            provisionSlot,
             feedback,
-            provisionToken: token,
-            runIdentity,
-          }),
+            () => reconcileProvision(token),
+          ),
         classifyProvisionError,
-        provisionSlot,
-        feedback,
-        () => reconcileProvision(token),
+        r,
       );
     }
     case "vercel": {
@@ -188,11 +233,16 @@ async function createProvider(
         throw new Error(t("sandbox.dependencyMissing.vercel"));
       });
       // vercel SDK 没有按元数据检索实例的通道:不传 reconcile,歧义类第一次抛出。
-      return withProvisionRetry(
-        () => VercelSandbox.create({ timeout, runtime: r.runtime, snapshotId: r.snapshotId, feedback }),
+      return withDeterministicProvisionScope(
+        () =>
+          withProvisionRetry(
+            () => VercelSandbox.create({ timeout, runtime: r.runtime, snapshotId: r.snapshotId, feedback }),
+            classifyProvisionError,
+            provisionSlot,
+            feedback,
+          ),
         classifyProvisionError,
-        provisionSlot,
-        feedback,
+        r,
       );
     }
     case "e2b": {
@@ -201,19 +251,24 @@ async function createProvider(
       });
       const token = randomUUID();
       const runIdentity = currentRunIdentity();
-      return withProvisionRetry(
+      return withDeterministicProvisionScope(
         () =>
-          E2BSandbox.create({
-            timeout,
-            runtime: r.runtime,
-            template: r.template,
-            provisionToken: token,
-            runIdentity,
-          }),
+          withProvisionRetry(
+            () =>
+              E2BSandbox.create({
+                timeout,
+                runtime: r.runtime,
+                template: r.template,
+                provisionToken: token,
+                runIdentity,
+              }),
+            classifyProvisionError,
+            provisionSlot,
+            feedback,
+            () => reconcileProvision(token),
+          ),
         classifyProvisionError,
-        provisionSlot,
-        feedback,
-        () => reconcileProvision(token),
+        r,
       );
     }
     case "local": {

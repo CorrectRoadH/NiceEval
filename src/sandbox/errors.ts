@@ -3,6 +3,12 @@
 // 普通 Error,message 里带 "toomanyrequests")。resolve.ts 的 createProvider() 据此统一
 // 做退避重试,不需要认识任何 provider 专属的错误类型——分类逻辑留在各 provider 自己的
 // 文件里(见 e2b.ts / vercel.ts / docker.ts 的 classifyProvisionError)。
+//
+// FailureScope / FailureClass 是 src/context/turn-errors.ts 落地的执行失败分类两轴词表
+// (见 docs/feature/error-classification/architecture.md);这里只 import 类型,不反向依赖
+// context 层的任何运行时代码——sandbox 内部两维分类(性质+后果)自治,只有下面
+// classifyProvisionConfigCause 识别出的三档可证明配置死因才向外浮出 FailureClass。
+import type { FailureClass, FailureScope } from "../context/turn-errors.ts";
 
 /**
  * Provisioning 失败的两维分类(见 docs/feature/sandbox/architecture.md「Provisioning 失败与重试」):
@@ -117,4 +123,85 @@ function numericStatus(record: Record<string, unknown> | undefined): number | un
     if (typeof status === "number") return status;
   }
   return undefined;
+}
+
+/**
+ * 确定性 provisioning 死因的配置解析域细分(见
+ * docs/feature/sandbox/architecture.md「Provisioning 失败与重试」「对外的空间轴映射」)。
+ * 只在 provider 自身的 `classifyProvisionError` 判定为 `"unknown"`(性质轴:确定性,重试
+ * 没有意义)之后调用一次,进一步细分成三档可证明死因:凭据缺失、权限不足、模板不存在。
+ * 认不出的确定性错误(参数非法、通用 SDK 错误等)返回 `undefined`——不附带 scope 比误判
+ * 安全,悬空错误照常落成本 attempt `errored`,不触发实验 / eval 级止损。
+ */
+export type ProvisionConfigCause = "credentials" | "permission" | "template_not_found";
+
+// 凭据缺失:e2b `AuthenticationError`(.name,SDK 不挂 401 状态码)、vercel/其余 provider
+// 的 401 响应、常见 SDK 文案("invalid api key" 等)。
+const CREDENTIALS_PATTERN =
+  /unauthenticated|unauthoriz|authentication (?:failed|required)|invalid (?:api[_ ]?key|credentials|token)|missing (?:api[_ ]?key|credentials|token)/i;
+// 权限不足:403 响应、docker 私有仓库鉴权被拒的经典文案。
+const PERMISSION_PATTERN = /forbidden|permission denied|access denied|pull access denied|not authorized/i;
+// 模板 / 镜像 / 快照不存在:404/410 响应、vercel `snapshot_not_found` 错误码、docker 拉取
+// 未知镜像的 message 形态(dockerode 对拉取失败通常不带 statusCode,只能靠文案识别)。
+const TEMPLATE_NOT_FOUND_PATTERN =
+  /(template|image|snapshot).{0,40}(not found|does not exist|unknown|invalid)|no such image|manifest unknown|repository does not exist/i;
+
+export function classifyProvisionConfigCause(error: unknown): ProvisionConfigCause | undefined {
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && current != null; depth += 1) {
+    const record = typeof current === "object" ? (current as Record<string, unknown>) : undefined;
+    const name = record && typeof record.name === "string" ? record.name : "";
+    const message = current instanceof Error ? current.message : String(current);
+    const haystack = `${name} ${message}`;
+    const status = numericStatus(record);
+    const jsonErrorCode = provisionJsonErrorCode(record);
+
+    if (status === 401 || name === "AuthenticationError" || CREDENTIALS_PATTERN.test(haystack)) return "credentials";
+    if (status === 403 || PERMISSION_PATTERN.test(haystack)) return "permission";
+    if (status === 404 || status === 410 || jsonErrorCode === "snapshot_not_found" || TEMPLATE_NOT_FOUND_PATTERN.test(haystack)) {
+      return "template_not_found";
+    }
+    current = record?.cause;
+  }
+  return undefined;
+}
+
+/** vercel `APIError` 的 `snapshot_not_found` 落在 `err.json.error.code`,不是顶层字段。 */
+function provisionJsonErrorCode(record: Record<string, unknown> | undefined): string | undefined {
+  const json = record?.json;
+  if (!json || typeof json !== "object") return undefined;
+  const err = (json as Record<string, unknown>).error;
+  if (!err || typeof err !== "object") return undefined;
+  const code = (err as Record<string, unknown>).code;
+  return typeof code === "string" ? code : undefined;
+}
+
+/**
+ * 三档死因 → 空间轴映射,按配置解析域定档(判据单源见
+ * docs/feature/sandbox/architecture.md#provisioning-失败与重试):凭据缺失 / 权限不足
+ * 来自实验级配置,恒 `"experiment"`;模板不存在按 spec 是否带 `environments` 表二分——
+ * 带表时模板逐 eval 解析,可证明的档收紧到 `"eval"`(错杀健康模板的 eval 比多撞几次死
+ * 模板更贵);不带表时模板全实验共享,`"experiment"`。
+ */
+export function provisionConfigCauseScope(cause: ProvisionConfigCause, hasEnvironmentsTable: boolean): FailureScope {
+  if (cause === "template_not_found") return hasEnvironmentsTable ? "eval" : "experiment";
+  return "experiment";
+}
+
+// failureClassOf 的识别契约是数据结构(`_tag` + `class`),不是类身份(见
+// docs/feature/error-classification/architecture.md「识别糖衣类只依赖 _tag + class 结构,
+// 不依赖类身份」)——这里直接构造该结构,不 import 对应糖衣类,避免 sandbox 反向依赖
+// context 层。字面量与该文档定义的 `_tag` 值同源,是刻意的重复而非巧合。
+const CLASSIFIED_ERROR_TAG = "NiceevalClassifiedError";
+
+/**
+ * 把可证明的配置死因原地附着到 provisioning 错误对象上,供 `failureClassOf` 沿 cause 链
+ * 识别(第一道「抛出点携带的分类」即命中)。只用于确定性失败(`retryable: false`);瞬时
+ * 失败重试耗尽后不调用这个函数——死因不可证明为兄弟共享,原样抛出不带 scope。
+ */
+export function attachProvisionFailureScope(error: unknown, scope: FailureScope): void {
+  if (!error || typeof error !== "object") return;
+  const failureClass: FailureClass = { retryable: false, scope };
+  Object.defineProperty(error, "_tag", { value: CLASSIFIED_ERROR_TAG, enumerable: true, configurable: true });
+  Object.defineProperty(error, "class", { value: failureClass, enumerable: true, configurable: true });
 }
