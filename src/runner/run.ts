@@ -1184,9 +1184,11 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
         }
         // 取到锁就重查携带,**无条件**。启动时算的静态规划有效期只到「这条用例真正派发」为止:
         // 另一条 Invocation 完全可能在这中间把它整条跑完并释放锁,而我们随后干干净净地取到那把
-        // 空锁——既没等过也没接管过,任何「有没有碰上别人」的启发式在这条路径上都恒假(旧的
-        // multiOpenSeen 就是这么漏的:先起跑的一侧全程零信号,第二波里被对方跑掉的每一条都会
-        // 被重跑,是确定性的)。闭合性来自这条 happens-before 链:对方 result.json 落盘 → 对方
+        // 空锁——既没等过也没接管过。任何「有没有碰上别人」的启发式在这条路径上都恒假:那类
+        // 判据全是「此刻碰上了对方」或「对方死了」的证据,观测不到「对方干净地来过又走了」,
+        // 于是先起跑的一侧全程零信号,第二波里被对方跑掉的每一条都会被重跑,是确定性的,不是
+        // 低概率时序(见 memory 的 multi-open-residual-window-closed-by-narrow-read)。
+        // 闭合性来自这条 happens-before 链:对方 result.json 落盘 → 对方
         // 释放锁 → 我们取到锁 → 我们读盘,所以重查必须在取锁**之后**,顺序反了什么都不保证。
         // 收窄读把这次重查压到 ~0.3 ms,单开也付得起。
         await recheckCarry(st, undefined, priorHolder);
