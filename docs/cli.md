@@ -54,6 +54,15 @@ process.argv
 
 `exp` 是唯一进入 Effect 调度核心(`run.ts` → `attempt.ts`)的分支;其余命令要么是一次性的同步动作,要么是只读路径,不需要结构化并发或资源生命周期管理,因而不用 Effect(见下节)。
 
+## 装载用户 .ts:宿主模块形态无关
+
+CLI 唯一的运行前提是「装了 niceeval」。宿主项目 `package.json` 的 `type` 写什么(`"module"`、`"commonjs"`、不写)不影响任何命令——`npm init -y` 的默认产物(`"type": "commonjs"`)下,`init` 生成的 config 也必须能被下一条命令装载。用户的 `.ts`(`niceeval.config.ts`、`evals/`、`experiments/`、`--report` 报告文件)都经 `bin/niceeval.js` 注册的 tsx hook 动态 `import()` 进来,tsx 按离文件最近的 `package.json` 的 `type` 决定把它编成 ESM 还是 CJS,所以两条编译面都要走得通,靠两个机制共同保证、缺一不可:
+
+- **bin 同时注册 tsx 的 ESM 与 CJS 两个 hook**(`tsx/esm/api` + `tsx/cjs/api`)。宿主是 CJS 形态时用户文件落进 Node 的 CJS loader,没有 CJS hook 就没人转译,裸 TS 会被当 JS 解析直接语法报错。
+- **`package.json` 每个带 `import` 条件的 exports 出口同时带指向同一文件的 `require` 条件**。CJS 编译面下用户文件里的 `import ... from "niceeval/expect"` 会变成 `require(...)`,exports 表缺 `require` 条件时 Node 在解析入口就拒绝(`ERR_PACKAGE_PATH_NOT_EXPORTED`)。`require` 到 `.ts` 没问题——niceeval CLI 场景下 tsx 的 CJS hook 恒已注册,会转译。
+
+ESM 宿主仍是推荐形态:CJS 编译面下 config / eval 文件用不了顶层 `await`。因此 `init` 在最近的 `package.json`(从工作目录向上找,找不到视同 CJS)没有 `"type": "module"` 时,完成行之后追加一行提示建议补上;只提示,不改用户的 `package.json`。
+
 ## 反馈 coordinator:一个 run 只有一个终端协调者
 
 输出形态(人读文本 / `--json`)只决定"终端展示",不进入调度核心,也不是一种 `Reporter`。`Reporter`

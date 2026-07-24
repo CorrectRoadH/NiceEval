@@ -198,6 +198,8 @@ export const en = {
   "cli.fallbackCleanupTimeout": "\ngraceful cleanup timed out; force-cleaning sandboxes...\n",
   "cli.forceCleanupExit": "\nForce-cleaning sandboxes and exiting...\n",
   "cli.init.done": "Ready: evals/, niceeval.config.ts, and the niceeval agent-rules block in AGENTS.md (points coding agents at node_modules/niceeval/docs-site/zh).\n",
+  "cli.init.esmHint":
+    "tip: this project's package.json has no \"type\": \"module\". niceeval runs either way, but CommonJS mode disallows top-level await in config/eval files — add \"type\": \"module\" to package.json for the smoothest path.\n",
   "cli.interruptCleanup": "\nInterrupted; cleaning up sandbox containers... (press again to force cleanup and exit)\n",
   "cli.list.header": "Discovered {{count}} evals:\n",
   "cli.noAgent": "No agent specified (use --agent <name>).\n",

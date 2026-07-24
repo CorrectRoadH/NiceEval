@@ -7,8 +7,8 @@
 import { spawn } from "node:child_process";
 import { hostname } from "node:os";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
-import { join, relative, resolve as resolvePath } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, relative, resolve as resolvePath } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs as nodeParseArgs } from "node:util";
 import { discoverEvals, discoverExperiments } from "./runner/discover.ts";
@@ -453,6 +453,29 @@ function resolveAgentDocPath(cwd: string): string {
   return agentsPath;
 }
 
+// init 提示用:从 cwd 向上找最近的 package.json,判断宿主是否 ESM 形态。装载本身不挑形态
+// (bin 注册了 tsx 的 ESM+CJS 双 hook,exports 全出口带 require 条件,见 docs/cli.md
+// 「装载用户 .ts」),但 CJS 编译面下 config / eval 文件用不了顶层 await,ESM 仍是推荐形态;
+// 找不到 package.json 或解析失败按非 ESM 处理(tsx/Node 的缺省语义就是 CJS)。只提示,
+// 不改用户的 package.json。
+function hostPrefersEsm(cwd: string): boolean {
+  let dir = resolvePath(cwd);
+  while (true) {
+    const pkgPath = join(dir, "package.json");
+    if (existsSync(pkgPath)) {
+      try {
+        const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as { type?: unknown };
+        return pkg.type === "module";
+      } catch {
+        return false;
+      }
+    }
+    const parent = dirname(dir);
+    if (parent === dir) return false;
+    dir = parent;
+  }
+}
+
 async function initProject(cwd: string): Promise<void> {
   await mkdir(join(cwd, "evals"), { recursive: true });
   const configPath = join(cwd, "niceeval.config.ts");
@@ -668,6 +691,7 @@ async function main(): Promise<void> {
   if (command === "init") {
     await initProject(cwd);
     process.stdout.write(t("cli.init.done"));
+    if (!hostPrefersEsm(cwd)) process.stdout.write(t("cli.init.esmHint"));
     process.exit(0);
   }
 
