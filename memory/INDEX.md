@@ -243,11 +243,11 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 
 - 已修 [estimatecost-openai-inclusive-cache-double-billed](estimatecost-openai-inclusive-cache-double-billed.md) — OpenAI 系 adapter 的 cacheReadTokens 曾是 inputTokens 子集,estimateCost 按互斥桶相加把 cache 命中按全价+缓存价计两次,codex 成本虚高 ~5.5x;修为 Usage 桶恒互斥、七个 OpenAI 系生产点落桶前扣减(旧 run 落盘口径断代,对比需换算)
 - 已修 [insandbox-otlp-port-wait-3s-no-retry](insandbox-otlp-port-wait-3s-no-retry.md) — 远程沙箱内 OTLP collector 端口等待固定 3s、全链路零重试,冷启动抖动就把 attempt 打成 errored(还误标 phase=sandbox.create),重跑即过;修为墙钟 20s 预算 + 进程死了早退 + 换路径重试一轮,阶段归 telemetry.configure
-- [ai-sdk-otel-needsapproval-no-execute-tool-span](ai-sdk-otel-needsapproval-no-execute-tool-span.md) — @ai-sdk/otel 不给 `needsApproval:true` 的工具产 execute_tool span,action 断言派生不出
+- [ai-sdk-otel-needsapproval-no-execute-tool-span](ai-sdk-otel-needsapproval-no-execute-tool-span.md) — @ai-sdk/otel 不给 `needsApproval:true` 的工具产 execute_tool span,当年靠 span 派生事件的接法因此断不中;span→事件派生 API 已撤,现在 `uiMessageStreamAgent` 从协议帧直构 approve/deny 工具对(deny 理由内置默认),gap 够不着断言
 - [ai-sdk-agent-otel-timing-subtree-unlinked](ai-sdk-agent-otel-timing-subtree-unlinked.md) — `aiSdkAgent` 的 attempt-scope tracing 下 `show --execution` 的 span↔节点关联正常工作,但 `show --timing` 的 OTel 子树永远挂不出来:turn 从未拿到 `traceId`(shared-pool 才会赋值),就算强制走 shared-pool,window-attribution 生成的合成 traceId 也从不匹配真实 span traceId;未修,e2e/adapter/ai-sdk 的 verify.ts 已写成非 gating 断言;根因与 Agent 工厂无关,迁到 HTTP 传输层后同一缺口原样复现
 - [ai-sdk-official-entry-points-narrowed](ai-sdk-official-entry-points-narrowed.md) — 设计裁决:AI SDK 官方接入面收窄为 `uiMessageStreamAgent`/`fromAiSdk` 两个,`aiSdkAgent` 降级为进程内调用窄例外;e2e/adapter/ai-sdk 删 in-process 覆盖,OTel 证明改挂 HTTP 路径
-- [langsmith-dialect-langchain-completion-shape-gap](langsmith-dialect-langchain-completion-shape-gap.md) — langsmith 方言解析不了 LangChain ChatOpenAI 实际吐的 gen_ai.completion 形状,message 事件恒空
-- 已修 [codex-mapcodexspans-not-publicly-exported](codex-mapcodexspans-not-publicly-exported.md) — `mapCodexSpans` 曾没从 `niceeval/adapter` 公开导出,外部包只能省略 spanMapper 走通用 heuristic;现已从 `src/agents/index.ts`(即 `./adapter` 子路径)导出(正文早已记了这次修复,索引行漏标)
+- [langsmith-dialect-langchain-completion-shape-gap](langsmith-dialect-langchain-completion-shape-gap.md) — 当年 langsmith 方言解析不了 LangChain ChatOpenAI 实际吐的 `generations[0][0].text` 形状,message 事件恒空;方言连同 span→事件派生 API 已撤,消息/工具证据现在只能从协议帧直构,BatchSpanProcessor 收尾宽限(`OTEL_BSP_SCHEDULE_DELAY` + tier2 的 `OTEL_FLUSH_GRACE_MS`/`settleMs`)那条修法仍在用
+- 已修 [codex-mapcodexspans-not-publicly-exported](codex-mapcodexspans-not-publicly-exported.md) — `mapCodexSpans` 曾没从 `niceeval/adapter` 公开导出,外部包只能省略 spanMapper 走通用 heuristic;现已从 `src/agents/index.ts`(即 `./adapter` 子路径)导出,`tier2/codex-sdk` 在用;同批那个 `otel.codex` 方言随 span→事件派生 API 一起撤了,别照抄
 - [events-user-message-and-source-loc](events-user-message-and-source-loc.md) — 事件流 user message 曾丢失 + `t.event("message")` 计数翻倍的根因与修法
 - 已修 [sdk-stream-transformers-missing-canonical-tool](sdk-stream-transformers-missing-canonical-tool.md) — `fromCodexThreadEvents` 曾不发 `tool` 规范名,`calledTool("shell")` 在 SDK 流路径静默失配(修在 `src/agents/sdk-streams.ts`;`fromClaudeSdkMessages` 同类未修)
 - 已实现 [execution-tree-merges-events-and-otel-spans](execution-tree-merges-events-and-otel-spans.md) — 裁决(2026-07-12):`buildExecutionTree(events, spans)` 把标准事件流与 OTel span 合并进一棵树,事件当骨架、span 只补时间,推翻 `docs/observability.md` 现行"events 与 spans 永不合并"的旧决定;落在 `src/o11y/execution-tree.ts`(`60512063`),show `--execution` 与报告 web 面共用
@@ -301,7 +301,7 @@ memory 的召回全靠这份索引:漏索引的条目等于不存在。维护规
 
 - 已修 [design-status-from-docs-not-src](design-status-from-docs-not-src.md) — 设计讨论时 agent 两次从源码反推现状被推翻;修法=查询纪律与穷尽形状约定升格为 CLAUDE.md / docs 规则,architecture.md 职责纳入数据建模
 - 已修 [codex-agent-env-var-doc-drift](codex-agent-env-var-doc-drift.md) — codex agent 鉴权是 `CODEX_API_KEY` 不是 `OPENAI_API_KEY`,文档曾照名字直觉写错
-- 已修 [docs-otel-mixin-not-implemented](docs-otel-mixin-not-implemented.md) — connect-otel.mdx 曾把未落地的 `otelEvents()` 提案写成已实现 + 死链;走的是「从用户文档撤掉 API」而非实现它——`otelEvents` 现已全仓零命中,连带几条 memory 正文里的 `otelEvents({dialects:[...]})` 示例照抄即 import 不存在的符号
+- 已修 [docs-otel-mixin-not-implemented](docs-otel-mixin-not-implemented.md) — connect-otel.mdx 曾把未落地的 `otelEvents()` 提案写成已实现 + 死链;走的是「从用户文档撤掉 API」而非实现它——`otelEvents` 现已全仓零命中,连带失效的三条 memory(ai-sdk 审批 span / codex mapper / langsmith 方言)已于 2026-07-24 按当前 API 面重写,路标结清
 - [gen-diff-code-langgraph-config-stale](gen-diff-code-langgraph-config-stale.md) — gen-diff-code 的 langgraph 配对配置和 origin 实际语言对不上
 - 已修 [gen-diff-code-run-residue-and-stale-claims](gen-diff-code-run-residue-and-stale-claims.md) — 运行残留文件混进 diff 页;intro 里的事实声明会过期
 - [gen-diff-code-venv-oom](gen-diff-code-venv-oom.md) — gen-diff-code 不排除 `.venv`/`__pycache__`,生成 166MB mdx 把 mint validate 撑爆

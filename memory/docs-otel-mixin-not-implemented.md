@@ -18,4 +18,6 @@ metadata:
 
 **已修（2026-07-24 复核）**：走的是第 2 点里的第一条路——把 API 从用户文档里撤掉，而不是把它实现出来。判据：`otelEvents` 这个符号在 `src/`、`docs/`、`docs-site/`、`examples/` 全仓零命中，`docs-site/{,zh/}tutorials/connect-otel.mdx`（页面已从 `guides/` 移到 `tutorials/`）既不提 `otelEvents` 也不再链 `examples/zh/before/*`。设计文档 `docs/adapters/otel-mixin.md` 连同整个 `docs/adapters/` 目录也已不在，`docs/roadmap/adapters/` 只剩 README。
 
-**连带失效**：其它几条 memory 正文里仍写着 `events: otelEvents({dialects:[...]})` 的示例代码（`ai-sdk-otel-needsapproval-no-execute-tool-span`、`codex-mapcodexspans-not-publicly-exported`、`langsmith-dialect-langchain-completion-shape-gap`），那些是记录当时形态的历史片段，**照抄会 import 不存在的符号**——读到时先按本条核对 API 是否还在。
+**连带失效（2026-07-24 已处理）**：上一轮审计留的路标——其它三条 memory 正文里当时仍写着 `events: otelEvents({dialects:[...]})` 的示例代码，照抄会 import 不存在的符号。三条都已按当前 API 面重写：`ai-sdk-otel-needsapproval-no-execute-tool-span.md`、`codex-mapcodexspans-not-publicly-exported.md`、`langsmith-dialect-langchain-completion-shape-gap.md`。三条的「现象 / 根因 / 修法」实质不变，只是把不可跑的示例换成散文 + 现有落点指路，并各自在开头挂了 API 时效说明回指本条。以后再撤 API，按同一套办法处理：全仓 grep 确认符号真的没了 → 逐条改写受影响 memory 的示例 → 回到这里把路标结清。
+
+**其它过期引用**：本条正文里引的 `docs/adapters/authoring.md`（手写 `toStreamEvents` 的 remote-agent 套路）也已随 `docs/adapters/` 目录一起消失，当前对应的是 `docs/feature/adapters/library/writing-an-adapter.md` 与 `docs/origin-integration.md`（五个 origin 应用的 Tier 1 接入配方）。
