@@ -63,7 +63,7 @@ export async function verifyFormat(evidence: Evidence): Promise<void> {
   assert.equal((snapshot.producer as { name?: string } | undefined)?.name, "niceeval", 'snapshot.json.producer.name must be "niceeval" for the official writer');
   assert.equal(snapshot.experimentId, "main", "snapshot.json.experimentId must be the experiment id");
   assert.equal(snapshot.agent, "results-mechanism", "snapshot.json.agent must be the Agent's name");
-  assert.equal(snapshot.model, "deepseek-chat", "snapshot.json.model must be the experiment's model");
+  assert.equal(snapshot.model, "gpt5.6-luna", "snapshot.json.model must be the experiment's model");
   assert.equal(typeof snapshot.startedAt, "string", "snapshot.json.startedAt must be an ISO string");
   for (const perAttemptField of ["attempts", "evals", "results"]) {
     assert.ok(

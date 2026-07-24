@@ -8,7 +8,7 @@ const agent = aiSdkAgent<ModelMessage>({
   name: "results-mechanism",
   generate: ({ messages, model, signal }) =>
     generateText({
-      model: resolveModel(model ?? "deepseek-chat"),
+      model: resolveModel(model ?? "gpt5.6-luna"),
       messages,
       tools: stockTools(),
       stopWhen: stepCountIs(3),
@@ -24,7 +24,7 @@ const agent = aiSdkAgent<ModelMessage>({
 export default defineExperiment({
   description: "main:真实 Chat Completions 网关工具调用往返,跑两次验证 sources.json 跨 attempt 去重",
   agent,
-  model: "deepseek-chat",
+  model: "gpt5.6-luna",
   evals: ["tool-call"],
   runs: 2,
   earlyExit: false,

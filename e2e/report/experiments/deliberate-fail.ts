@@ -6,7 +6,7 @@ import { resolveModel } from "../src/model.ts";
 const agent = aiSdkAgent<ModelMessage>({
   name: "results-deliberate-fail",
   generate: ({ messages, model, signal }) =>
-    generateText({ model: resolveModel(model ?? "deepseek-chat"), messages, abortSignal: signal }),
+    generateText({ model: resolveModel(model ?? "gpt5.6-luna"), messages, abortSignal: signal }),
 });
 
 // Never calls the real gateway (deliberate-fail.eval.ts doesn't send). Exists to produce

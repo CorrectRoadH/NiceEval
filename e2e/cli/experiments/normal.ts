@@ -8,7 +8,7 @@ const agent = aiSdkAgent<ModelMessage>({
   name: "cli-mechanism",
   generate: ({ messages, model, signal }) =>
     generateText({
-      model: resolveModel(model ?? "deepseek-v4-flash"),
+      model: resolveModel(model ?? "gpt5.6-luna"),
       messages,
       tools: weatherTools(),
       stopWhen: stepCountIs(3),
@@ -19,8 +19,8 @@ const agent = aiSdkAgent<ModelMessage>({
 // 正常路径:两条正例(greet/、tool/ 两个 id 前缀),断言按 Eval 级折叠后整体退出 0。
 // 同时是缓存三步验收的基线实验——scripts/verify.ts 对它先 --force 再不带 --force 再 --force。
 export default defineExperiment({
-  description: "normal:真实 DeepSeek 网关,问候 + 工具调用两条正例",
+  description: "normal:真实 Chat Completions 网关,问候 + 工具调用两条正例",
   agent,
-  model: "deepseek-v4-flash",
+  model: "gpt5.6-luna",
   evals: ["greet", "tool"],
 });

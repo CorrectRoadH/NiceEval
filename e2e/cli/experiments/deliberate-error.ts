@@ -6,7 +6,7 @@ import { resolveModel } from "../src/model.ts";
 const agent = aiSdkAgent<ModelMessage>({
   name: "cli-deliberate-error",
   generate: ({ messages, model, signal }) =>
-    generateText({ model: resolveModel(model ?? "deepseek-v4-flash"), messages, abortSignal: signal }),
+    generateText({ model: resolveModel(model ?? "gpt5.6-luna"), messages, abortSignal: signal }),
 });
 
 // 只覆盖 deliberate-error/ 前缀下唯一的 eval:确定性执行错误,验证 attempt verdict = errored、
