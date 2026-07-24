@@ -8,7 +8,7 @@
 // (见 docs/feature/error-classification/architecture.md);这里只 import 类型,不反向依赖
 // context 层的任何运行时代码——sandbox 内部两维分类(性质+后果)自治,只有下面
 // classifyProvisionConfigCause 识别出的三档可证明配置死因才向外浮出 FailureClass。
-import type { FailureClass, FailureScope } from "../shared/failure-class.ts";
+import { attachFailureClass, type FailureClass, type FailureScope } from "../shared/failure-class.ts";
 
 /**
  * Provisioning 失败的两维分类(见 docs/feature/sandbox/architecture.md「Provisioning 失败与重试」):
@@ -188,20 +188,16 @@ export function provisionConfigCauseScope(cause: ProvisionConfigCause, hasEnviro
   return "experiment";
 }
 
-// failureClassOf 的识别契约是数据结构(`_tag` + `class`),不是类身份(见
-// docs/feature/error-classification/architecture.md「识别糖衣类只依赖 _tag + class 结构,
-// 不依赖类身份」)——这里直接构造该结构,不 import 对应糖衣类,避免 sandbox 反向依赖
-// context 层。字面量与该文档定义的 `_tag` 值同源,是刻意的重复而非巧合。
-const CLASSIFIED_ERROR_TAG = "NiceevalClassifiedError";
-
 /**
  * 把可证明的配置死因原地附着到 provisioning 错误对象上,供 `failureClassOf` 沿 cause 链
  * 识别(第一道「抛出点携带的分类」即命中)。只用于确定性失败(`retryable: false`);瞬时
  * 失败重试耗尽后不调用这个函数——死因不可证明为兄弟共享,原样抛出不带 scope。
+ *
+ * 附着走 shared 层同一个 `attachFailureClass`,不在这里重写一份:两个标记字段必须不可枚举
+ * (不进 JSON / console,只是路由标记),已携带分类的对象不覆盖,冻结对象静默跳过——这三条
+ * 纪律单源在那边,复制一份迟早漂移。shared 是中性层,不是 context,沙箱依赖它不构成反向依赖。
  */
 export function attachProvisionFailureScope(error: unknown, scope: FailureScope): void {
-  if (!error || typeof error !== "object") return;
   const failureClass: FailureClass = { retryable: false, scope };
-  Object.defineProperty(error, "_tag", { value: CLASSIFIED_ERROR_TAG, enumerable: true, configurable: true });
-  Object.defineProperty(error, "class", { value: failureClass, enumerable: true, configurable: true });
+  attachFailureClass(error, failureClass);
 }
