@@ -551,23 +551,28 @@ function assembleInvocationCompletion(state: RunFeedbackState): InvocationComple
   let interrupted = false;
   const reporterErrors: ReporterError[] = [];
   for (const d of state.diagnostics) {
-    if (d.key === "interrupted") {
+    // 归类按**稳定词法** `code`,不按 `key`:`key` 里编着折叠身份(experimentId / evalId /
+    // reporter 名),拿它做前缀匹配会在「把身份从 key 里摘出去」时静默失配——记账悄悄归零,
+    // 没有任何测试或类型会报警。`code` 省略时回落到 key 的首段:缺省 key 恒是
+    // `${code}:${identity}`(见 sink.ts 的 DiagnosticInput),首段即 code。
+    const code = d.code ?? d.key.split(":", 1)[0];
+    if (code === "interrupted") {
       interrupted = true;
-    } else if (d.key.startsWith("budget-exhausted:")) {
+    } else if (code === "budget-exhausted") {
       unstarted += d.count;
-    } else if (d.key.startsWith("fail-fast:")) {
+    } else if (code === "fail-fast") {
       // run 级 fail-fast 造成的未派发同样计入 unstarted(结论落 incomplete,见
       // docs/feature/experiments/architecture.md「Completion 与退出」)。
       unstarted += d.count;
       failFastSkipped += d.count;
-    } else if (d.key.startsWith("dispatch-halted:")) {
+    } else if (code === "dispatch-halted") {
       // 止损闸停派发造成的未派发(见 docs/feature/error-classification/architecture.md
       // 「记账」)。这条诊断的 count 是「同一死因被声明了几次」(重复声明折叠),不是未派发数——
       // 未派发数由 emitter 累计后写在 data.unstarted 里(与 budget-exhausted 同一口径)。
       const halted = typeof d.data?.unstarted === "number" ? d.data.unstarted : 0;
       unstarted += halted;
       haltedSkipped += halted;
-    } else if (d.key.startsWith("reporter-error:")) {
+    } else if (code === "reporter-error") {
       // required 决定这条错误是否写进 InvocationCompletion.reporterErrors 并让 completion 非 complete
       // (见 docs/cli.md「required reporter」);best-effort reporter 的失败只保留为 diagnostic。
       if (d.data?.required !== true) continue;

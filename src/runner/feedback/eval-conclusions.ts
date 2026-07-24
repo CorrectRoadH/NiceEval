@@ -40,12 +40,15 @@ export interface EvalConclusionRow {
   rate?: number;
 }
 
-/** `diagnostics` 里 `fail-fast:` 记录按 (experiment, eval) 求和的未派发次数;没有 `identity`
- *  的记录(理论上不应出现——fail-fast 诊断恒带 identity,见 run.ts)不计入任何 key。 */
+/** `diagnostics` 里 fail-fast 记录按 (experiment, eval) 求和的未派发次数;没有 `identity`
+ *  的记录(理论上不应出现——fail-fast 诊断恒带 identity,见 run.ts)不计入任何 key。
+ *  归类按稳定词法 `code`(省略时回落到 key 首段,缺省 key 恒是 `${code}:${identity}`),不按
+ *  `key` 前缀:key 里编着折叠身份,拿它匹配会在身份编码变动时静默失配,减不掉的那部分
+ *  fail-fast 份额会当成真实的 earlyExit 省略数报出去。 */
 function failFastByEval(diagnostics: readonly DiagnosticNotice[]): ReadonlyMap<string, number> {
   const result = new Map<string, number>();
   for (const d of diagnostics) {
-    if (!d.key.startsWith("fail-fast:") || !d.identity) continue;
+    if ((d.code ?? d.key.split(":", 1)[0]) !== "fail-fast" || !d.identity) continue;
     const key = evalConclusionKey(d.identity);
     result.set(key, (result.get(key) ?? 0) + d.count);
   }
