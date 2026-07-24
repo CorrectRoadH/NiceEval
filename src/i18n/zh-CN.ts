@@ -75,6 +75,8 @@ export const zhCN = {
     "接管了 {{experimentId}}/{{evalId}} 的过期用例锁(原持有者 pid {{pid}}@{{host}},心跳已过期)——那次运行大概率没能正常释放它;本次运行现在接手派发这条用例。\n",
   "runner.gateLeaseTakenOver":
     "接管了实验 {{experimentId}} 的过期并发名额租约(槽位 {{slot}},原持有者 pid {{pid}}@{{host}},心跳已过期)——那次运行大概率没能正常释放它;本次运行现在接手这个名额。\n",
+  "runner.gateLeaseWaiting":
+    "在等别的运行让出实验 {{experimentId}} 的并发名额:生效的 {{effectiveN}} 个位子全被占着({{holders}})。并行运行共用同一实验的名额,生效值取在场声明里最小的那个——本次运行声明的是 {{declaredN}}。名额腾出来之前不会派发任何 attempt;对方的名额会在它的 attempt 跑完时释放,它若已死则 30s 后过期被接管。\n",
   "runner.dispatchHaltedExperiment": "实验已止损(dispatch-halted):{{message}}\n",
   "runner.dispatchHaltedEval": "eval 已止损:{{message}}\n",
   "judge.modelMissing":

@@ -53,7 +53,7 @@ import {
   type CaseLockClaim,
   type CaseLockRecord,
 } from "./lock.ts";
-import { acquireGateSlot, type GateLeaseClaim } from "./gate-lease.ts";
+import { acquireGateSlot, type GateLeaseClaim, type GateLeaseRecord } from "./gate-lease.ts";
 import { loadLatestResultsForCase } from "../results/open.ts";
 import type {
   DiagnosticRecord,
@@ -1259,6 +1259,28 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
    * (gate-lease.ts);未声明的实验不走租约、不产生任何跨进程协调。取位在全局位之前——等名额
    * 的 attempt 不占别的实验的并发位。返回 undefined 表示等待期间被中断,这条 attempt 就此放弃。
    */
+  /**
+   * 撞满实验闸名额时报一条 warning:名额域跨 Invocation,所以「等」的对象是别的进程,用户无从
+   * 从本进程的面板推断。生效名额与本次声明分开报——两者不等就是 min-N 夹低了(别的运行声明了
+   * 更小的 maxConcurrency),这是「我明明写了 3 却只跑 1 条」的唯一解释,不说清就只能去翻锁目录。
+   * 按实验折叠:同一实验的一堆 attempt 会前后脚撞上同一批持有者,不该刷屏。
+   */
+  const reportGateLeaseWait = (
+    experimentId: string,
+    declaredN: number,
+    holders: readonly GateLeaseRecord[],
+  ): void => {
+    const effectiveN = holders.reduce((n, h) => Math.min(n, h.declaredN), declaredN);
+    const who = [...new Set(holders.map((h) => `pid ${h.pid}@${h.host}`))].join(", ") || "another run";
+    reportDiagnostic({
+      key: `gate-lease-waiting:${experimentId}`,
+      code: "gate-lease-waiting",
+      severity: "warning",
+      message: t("runner.gateLeaseWaiting", { experimentId, effectiveN, declaredN, holders: who }).trimEnd(),
+      data: { experimentId, effectiveN, declaredN },
+    });
+  };
+
   const acquireGateLease = async (
     experimentId: string,
     maxConcurrency: number,
@@ -1274,7 +1296,13 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
         experimentId,
         maxConcurrency,
         lockIdentity,
-        { signal },
+        {
+          signal,
+          // 撞满名额只发生在「别的 Invocation 正占着这个实验的位子」——本进程自己的并发早被
+          // gateLocalSems 挡在这一层之前了。不报的话面板就只剩 `0 running · N queued` 干等,
+          // 看不出在等什么、等谁,也看不出生效名额被对方更小的声明夹低了(min-N)。
+          onWaitStart: (holders) => reportGateLeaseWait(experimentId, maxConcurrency, holders),
+        },
       );
       if (takenOver) {
         const message = t("runner.gateLeaseTakenOver", {

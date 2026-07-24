@@ -2968,6 +2968,66 @@ describe("runEvals · 实验闸租约跨 runEvals 共享名额", () => {
       vi.useRealTimers();
     }
   }, SCHEDULING_TEST_TIMEOUT_MS);
+
+  // 撞满名额只可能是别的 Invocation 占着——本进程自己的并发早被进程内信号量挡住了。不报的话
+  // 面板只剩 `0 running · N queued` 干等,看不出在等谁,更看不出生效名额被对方更小的声明夹低。
+  // 这里让 B 声明 3 却撞上 A 的 declaredN: 1,断言诊断把「生效 1 / 本次声明 3」两个数都说出来。
+  it("撞满名额报 gate-lease-waiting:带上生效名额与本次声明,min-N 夹低时两个数都在", async () => {
+    vi.useFakeTimers();
+    try {
+      const root = await makeRoot();
+      const experimentId = "gate-wait-notice-exp";
+      const agent = makeAgent("agent-gate-wait");
+      const { barrier, release } = makeBarrier();
+
+      // A 先占住唯一的名额(declaredN: 1)并卡在 barrier 上,B 随后带着 declaredN: 3 进来撞满。
+      const runA = probeRun(agent, experimentId, ["w-a"], { maxConcurrency: 1 });
+      const runB = probeRun(agent, experimentId, ["w-b"], { maxConcurrency: 3 });
+      const probeA = newDispatchProbe();
+
+      const pa = runWithPriorResults([gatedEval("w-a", barrier, probeA)], [runA], {
+        priorResults: [],
+        root,
+        maxConcurrency: 4,
+      });
+      await advanceOnFakeClock(() => probeA.started.length === 1, 5_000, 40);
+
+      const plan: RunFeedbackPlan = {
+        shape: { evals: 1, configs: 1, totalAttempts: 1, maxConcurrency: 4 },
+        reused: 0,
+        reusedFailures: [],
+      };
+      const pb = withCoordinator(plan, async (coordinator) => {
+        let bDone = false;
+        const inner = runWithPriorResults([makeEval("w-b", async () => {})], [runB], {
+          priorResults: [],
+          root,
+          maxConcurrency: 4,
+        }).then((r) => {
+          bDone = true;
+          return r;
+        });
+
+        const waited = (): (typeof coordinator.state.diagnostics)[number] | undefined =>
+          coordinator.state.diagnostics.find((d) => d.code === "gate-lease-waiting");
+        await advanceOnFakeClock(() => waited() !== undefined, 5_000, 40);
+
+        const notice = waited();
+        expect(notice?.severity).toBe("warning");
+        expect(notice?.data).toMatchObject({ experimentId, effectiveN: 1, declaredN: 3 });
+        expect(notice?.message).toContain(experimentId);
+
+        release();
+        await advanceOnFakeClock(() => bDone, 20_000, 80);
+        return inner;
+      });
+
+      await Promise.all([pa, pb]);
+      expect(await lockFilesRemaining(root)).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  }, SCHEDULING_TEST_TIMEOUT_MS);
 });
 
 describe("runEvals · 用例锁: runs > 1 的兄弟 attempt 共享同一把锁", () => {
