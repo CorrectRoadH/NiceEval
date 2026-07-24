@@ -20,6 +20,7 @@ import { failureDetailFromResult } from "./runner/feedback/failure.ts";
 import { stopAllSandboxes, liveSandboxCount } from "./sandbox/registry.ts";
 import { drainExperimentTeardowns } from "./runner/experiment-cleanup-registry.ts";
 import { drainHeldCaseLocks, isCaseLockStale, readCaseLock } from "./runner/lock.ts";
+import { drainHeldGateLeases } from "./runner/gate-lease.ts";
 import { CLEANUP_TIMEOUT_MS, withCleanupTimeout } from "./runner/cleanup-timeout.ts";
 import type { ExperimentHookContext } from "./runner/types.ts";
 import { evalLevelStats } from "./shared/verdict.ts";
@@ -1040,6 +1041,7 @@ async function main(): Promise<void> {
         ...(runInFlight ? [runInFlight] : []),
         drainExperimentTeardowns(),
         drainHeldCaseLocks(),
+        drainHeldGateLeases(),
       ]);
       await Promise.race([
         settled.then(() => {}),
@@ -1116,11 +1118,12 @@ async function main(): Promise<void> {
   }
 
   // 正常返回(含被中断后走部分汇总)后再兜一刀:Scope finalizer 没停掉的残留沙箱、没被运行
-  // 路径消费的实验级 cleanup、没被 per-attempt Effect.ensuring 释放的用例锁在这里强清。
-  // 跑顺利时三份登记表都已空,是 no-op。
+  // 路径消费的实验级 cleanup、没被 per-attempt Effect.ensuring 释放的用例锁与实验闸租约在这里
+  // 强清。跑顺利时四份登记表都已空,是 no-op。
   await stopAllSandboxes();
   await drainExperimentTeardowns();
   await drainHeldCaseLocks();
+  await drainHeldGateLeases();
 
   // completion 要先算好,--junit 是否"这次真的写出"才有依据(见下)。
   const completion = assembleInvocationCompletion(coordinator.state);
@@ -1157,9 +1160,11 @@ async function main(): Promise<void> {
 
 main().catch(async (e) => {
   process.stderr.write(t("cli.error", { error: formatThrown(e) }));
-  // 真·崩溃路径也别留孤儿:强清还活着的沙箱(带超时)、排空实验级 cleanup 注册表与用例锁,再退。
+  // 真·崩溃路径也别留孤儿:强清还活着的沙箱(带超时)、排空实验级 cleanup 注册表、用例锁与
+  // 实验闸租约,再退。
   await stopAllSandboxes();
   await drainExperimentTeardowns();
   await drainHeldCaseLocks();
+  await drainHeldGateLeases();
   process.exit(2);
 });
