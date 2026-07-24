@@ -718,7 +718,9 @@ function formatActiveRow(
   evalWidth: number,
   whoWidth: number,
 ): string {
-  const elapsed = formatElapsed(io.clock.now() - active.phaseStartedAt).padStart(6);
+  // 时间列从 attempt 派发起算,阶段推进不重置(见 ActiveAttempt.startedAt):这一列是存活性的
+  // 唯一证明,归零会被读成「这条 eval 重跑了」。
+  const elapsed = formatElapsed(io.clock.now() - active.startedAt).padStart(6);
   const sym = "● ";
   const evalCol = padTrunc(active.identity.evalId, evalWidth);
   const whoCol = padTrunc(active.who, whoWidth);

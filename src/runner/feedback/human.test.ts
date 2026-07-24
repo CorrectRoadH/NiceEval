@@ -186,7 +186,7 @@ describe("live dashboard — 接线到 panel.ts", () => {
       failed: 2,
       elapsedMs: 134_000,
       estimatedCostUSD: 0.84,
-      active: new Map([[key, { identity, who: "compare/bub-e2b", phase: "eval.run", phaseStartedAt: 0 }]]),
+      active: new Map([[key, { identity, who: "compare/bub-e2b", phase: "eval.run", startedAt: 0 }]]),
     };
     renderer.onLifecycle?.({ type: "attempt:start", at: 0, identity, who: "compare/bub-e2b", phase: "eval.run" }, state);
     renderer.redrawDynamic?.(state);
@@ -265,7 +265,7 @@ describe("live dashboard — 宽终端下 ACTIVE 行与身份列分配", () => {
       failed: 2,
       elapsedMs: 134_000,
       active: new Map([
-        [key, { identity, who: "compare/bub-e2b", phase: "eval.run", phaseStartedAt: 0, detail: longDetail }],
+        [key, { identity, who: "compare/bub-e2b", phase: "eval.run", startedAt: 0, detail: longDetail }],
       ]),
     };
     renderer.onLifecycle?.(
@@ -315,7 +315,7 @@ describe("live dashboard — 宽终端下 ACTIVE 行与身份列分配", () => {
       ...createInitialRunFeedbackState(),
       total: 1,
       running: 1,
-      active: new Map([[key, { identity, who: "w1", phase: "eval.run", phaseStartedAt: 0 }]]),
+      active: new Map([[key, { identity, who: "w1", phase: "eval.run", startedAt: 0 }]]),
     };
     renderer.onLifecycle?.({ type: "attempt:start", at: 0, identity, who: "w1", phase: "eval.run" }, state);
     renderer.redrawDynamic?.(state);
@@ -324,6 +324,35 @@ describe("live dashboard — 宽终端下 ACTIVE 行与身份列分配", () => {
     // "e1"/"w1" 是本次运行里唯一出现过的值,列宽就该等于各自的实际长度——不是旧 bug 那样
     // 按比例把短 id 垫到一大段空白(memory 台账截图:eval 22 字符垫到 27、who 6 字符垫到 22)。
     expect(plain).toContain("● e1  w1  ");
+  });
+
+  it("时间列从 attempt 派发起算:阶段推进只换标签,不把时钟归零(存活性证明必须单调)", () => {
+    const { io, stderr, advance } = createFakeFeedbackIO({ stderr: { isTTY: true, columns: 200, rows: 30 } });
+    const renderer = createHumanRenderer({ io, command: "niceeval exp compare" });
+    const identity = { experimentId: "compare", evalId: "react-tooltip/pr-1271", attempt: 0 };
+    const who = "compare/codex--nowledge";
+    let state = reduceRunFeedback(createInitialRunFeedbackState(), {
+      type: "plan",
+      at: 0,
+      plan: { shape: { evals: 1, configs: 1, totalAttempts: 1, maxConcurrency: 1 }, reused: 0, reusedFailures: [] },
+    });
+    const start = { type: "attempt:start", at: 0, identity, who, phase: "eval.run" } as const;
+    state = reduceRunFeedback(state, start);
+    renderer.onLifecycle?.(start, state);
+    advance(262_000);
+    renderer.redrawDynamic?.(state);
+    expect(stripAnsi(stderr.writes.join(""))).toContain("4m 22s  running eval");
+
+    // eval.run(几分钟)→ workspace.diff(秒级)是真实运行里最刺眼的一跳:旧实现按当前 phase
+    // 计时,这里回到 0s,读起来像这条 eval 重跑了。时间列答的是「这条派发多久了」,不是
+    // 「当前阶段跑了多久」——阶段各自的耗时由结果的 timing.phases 负责。
+    const mark = stderr.writes.length;
+    state = reduceRunFeedback(state, { type: "attempt:phase", at: 262_000, identity, phase: "workspace.diff" });
+    advance(1_000);
+    renderer.redrawDynamic?.(state);
+    const frame2 = stripAnsi(stderr.writes.slice(mark).join(""));
+    expect(frame2).toContain("4m 23s  capturing diff");
+    expect(frame2).not.toContain(" 0s  ");
   });
 
   it("身份列跨帧单调:长 id 出现后,后续短 id 所在帧的列宽不回缩", () => {
@@ -340,7 +369,7 @@ describe("live dashboard — 宽终端下 ACTIVE 行与身份列分配", () => {
       total: 2,
       running: 1,
       queued: 1,
-      active: new Map([[longKey, { identity: longIdentity, who, phase: "eval.run", phaseStartedAt: 0 }]]),
+      active: new Map([[longKey, { identity: longIdentity, who, phase: "eval.run", startedAt: 0 }]]),
     };
     renderer.onLifecycle?.(
       { type: "attempt:start", at: 0, identity: longIdentity, who, phase: "eval.run" },
@@ -361,7 +390,7 @@ describe("live dashboard — 宽终端下 ACTIVE 行与身份列分配", () => {
       total: 2,
       running: 1,
       passed: 1,
-      active: new Map([[shortKey, { identity: shortIdentity, who, phase: "eval.run", phaseStartedAt: 1 }]]),
+      active: new Map([[shortKey, { identity: shortIdentity, who, phase: "eval.run", startedAt: 1 }]]),
     };
     renderer.onLifecycle?.(
       { type: "attempt:start", at: 1, identity: shortIdentity, who, phase: "eval.run" },
@@ -389,7 +418,7 @@ describe("live dashboard — 宽终端下 ACTIVE 行与身份列分配", () => {
       ...createInitialRunFeedbackState(),
       total: 1,
       running: 1,
-      active: new Map([[key, { identity, who: longWho, phase: "eval.run", phaseStartedAt: 0 }]]),
+      active: new Map([[key, { identity, who: longWho, phase: "eval.run", startedAt: 0 }]]),
     };
     renderer.onLifecycle?.({ type: "attempt:start", at: 0, identity, who: longWho, phase: "eval.run" }, state);
     renderer.redrawDynamic?.(state);

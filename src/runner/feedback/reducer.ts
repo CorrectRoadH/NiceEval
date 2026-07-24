@@ -96,7 +96,9 @@ export function reduceRunFeedback(state: RunFeedbackState, event: RunFeedbackEve
         identity: event.identity,
         who: event.who,
         phase: event.phase,
-        phaseStartedAt: event.at,
+        // active 行时间列的基准只在这里写一次:一条 attempt 的时间从派发起算,之后的阶段推进
+        // 只换标签不重置时钟(见 ActiveAttempt.startedAt 与下面的 attempt:phase 分支)。
+        startedAt: event.at,
       });
       return {
         ...state,
@@ -112,8 +114,9 @@ export function reduceRunFeedback(state: RunFeedbackState, event: RunFeedbackEve
       if (!existing) return state; // 防御:识别不到的 attempt 静默忽略,不让 renderer 崩
       const active = new Map(state.active);
       // 进入新 phase 清空旧 detail —— 次要文本是绑定到具体 phase 的(如 running 阶段的
-      // "tool: shell"),不该原样带进下一个 phase 显示。
-      active.set(key, { ...existing, phase: event.phase, phaseStartedAt: event.at, detail: undefined });
+      // "tool: shell"),不该原样带进下一个 phase 显示。`startedAt` 原样带过去(spread 保留):
+      // 阶段边界换的是「正在干什么」,不是「这条跑了多久」。
+      active.set(key, { ...existing, phase: event.phase, detail: undefined });
       return { ...state, active };
     }
 

@@ -460,6 +460,25 @@ describe("reduceRunFeedback: 守恒公式", () => {
     expect(activeAfterPhase?.phase).toBe("workspace.diff");
     expect(activeAfterPhase?.detail).toBeUndefined();
   });
+
+  it("phase 变化不重置 startedAt:时间列是 attempt 的存活性证明,阶段边界只换标签", () => {
+    const a = ref("memory/a");
+    let state = reduceRunFeedback(createInitialRunFeedbackState(), {
+      type: "plan",
+      at: 0,
+      plan: { shape: { evals: 1, configs: 1, totalAttempts: 1, maxConcurrency: 1 }, reused: 0, reusedFailures: [] },
+    });
+    state = reduceRunFeedback(state, { type: "attempt:start", at: 1_000, identity: a, who: "codex", phase: "sandbox.queue" });
+    for (const [at, phase] of [
+      [3_000, "sandbox.create"],
+      [9_000, "sandbox.setup"],
+      [21_000, "eval.run"],
+      [283_000, "workspace.diff"],
+    ] as const) {
+      state = reduceRunFeedback(state, { type: "attempt:phase", at, identity: a, phase });
+      expect([...state.active.values()][0]?.startedAt).toBe(1_000);
+    }
+  });
 });
 
 describe("reduceRunFeedback: judge 预检运行级行", () => {

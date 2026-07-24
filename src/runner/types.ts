@@ -841,8 +841,14 @@ export interface ActiveAttempt {
   /** 展示 label,等价 `runWho()` 的结果;渲染要用,但绝不作为 identity/key。 */
   who: string;
   phase: LifecyclePhase;
-  /** 进入当前 phase 的墙钟时间(epoch ms),用于渲染阶段耗时;每次 phase 变化都会更新。 */
-  phaseStartedAt: number;
+  /**
+   * 这条 attempt 被派发的墙钟时间(epoch ms,取 `attempt:start` 的 `at`)—— active 行时间列的
+   * **唯一**基准,`attempt:phase` 不得改写它:live 面板不做 spinner 动画,存活性完全由这一列
+   * 持续增长证明(见 docs/feature/experiments/cli.md「active 行的列序」),一列会归零的时间既
+   * 证明不了存活,也让人误以为这条 eval 重跑了。阶段各自的耗时不进这里——它由结果的
+   * `timing.phases` 完整落盘,live 面板要回答的是「这条还活着吗、跑了多久、正在干什么」。
+   */
+  startedAt: number;
   detail?: string;
 }
 
