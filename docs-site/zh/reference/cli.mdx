@@ -170,6 +170,7 @@ npx niceeval show weather/brooklyn
 npx niceeval show @1k2m9qrs
 npx niceeval show @1k2m9qrs --source
 npx niceeval show @1k2m9qrs --execution
+npx niceeval show @1k2m9qrs --execution --expand t2.c3
 npx niceeval show fixtures/button --diff
 npx niceeval show weather/brooklyn --history
 ```
@@ -177,6 +178,14 @@ npx niceeval show weather/brooklyn --history
 `show` 是终端结果入口，适合人直接阅读，也适合 coding agent 在上下文窗口里逐级下钻。位置参数选「看哪些评估用例」（ID 前缀）或直接用 `@<locator>` 精确选一个 attempt；不带位置参数时直接比较当前 Scope，`--exp` 按 experiment id 路径收窄。
 
 `@<locator>` 不带证据 flag 时给出该 attempt 的紧凑全景（断言摘要、执行摘要、可选 OTel 时间、diff 摘要）；`--source`、`--execution`、`--timing`、`--diff` 是证据切面，各自接受任意范围，不限于单个 `@<locator>`——范围含多个 attempt 时按 experiment id、eval id、attempt 序逐 attempt 分节。`--results <目录>` 指定结果根，`--history` 查看跨 run 趋势。`--exp` 可重复：出现一次收窄范围，两次以上进入对照语义（每个 `--exp` 必须恰好解析到一个 experiment，顺序即对照条件顺序）。完整的阅读顺序、输出示例和 artifact 说明见[查看结果](/zh/tutorials/viewing-results)。
+
+`--execution` 的卡片正文是有界预览：超过 8 KiB（UTF-8 字节）截断，截断尾巴报被折字符数并自带该卡片的展开句柄，整行就是可复制的完整命令：
+
+```text
+    (+263161 chars · niceeval show @1k2m9qrs --execution --expand t2.c3)
+```
+
+`--expand <handle>` 只与 `--execution` 组合、要求范围恰好命中一个 attempt，单独输出该卡片的完整落盘内容。句柄 `t<轮次>.c<轮内卡序>`（agent 事件卡）或 `cmd<n>`（失败 Sandbox 命令卡）从截断提示里抄，不自己数。落盘时已过 256 KiB 单值上限的内容展开后如实标注 `truncated` 与原始字节数。`--grep` 命中的卡片同样受预览预算，尾巴照带句柄；`--json` 恒输出完整值、从不截断，与 `--expand` 互斥。
 
 ## `--early-exit` 与 `--strict`
 

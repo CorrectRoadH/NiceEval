@@ -93,6 +93,16 @@ $ niceeval show @1qrdcfq8 --execution | grep "TOOL ·" | sort | uniq -c
 niceeval show @1qrdcfq8 --execution | grep proposals
 ```
 
+工具结果超过 8 KiB 时只显示预览，但截断尾巴自带这张卡片的展开句柄——整行复制就是看全量的下一条命令，不用去翻 `events.json`：
+
+```text
+  result · completed · exit 0
+    Proposal 1: …
+    (+18553 chars · niceeval show @1qrdcfq8 --execution --expand t1.c17)
+
+$ niceeval show @1qrdcfq8 --execution --expand t1.c17    # 只输出这张卡片，完整不截断
+```
+
 **3. 看它到底改了什么。** `--diff` 只显示 **agent 自己改动的文件**——你上传的起始文件、跑完后写入的验证材料不会混在里面，所以列表里的每一行都真的是 agent 干的：
 
 ```text
@@ -225,6 +235,7 @@ niceeval view --results site-data/run
 | 断言挂了，不知道为什么 | `show @loc` → `show @loc --source` |
 | 想知道 agent 当时做了什么 | `show @loc --execution` |
 | 想确认有没有调用过某个工具 / 搜对话关键词 | `show @loc --execution \| grep "TOOL ·" \| sort \| uniq -c` / `\| grep <关键词>` |
+| 工具结果被截断，想看完整内容 | 复制截断尾巴里的命令：`show @loc --execution --expand t2.c3` |
 | 想确认 agent 改了哪些文件 | `show @loc --diff` → `--diff=<path>` |
 | 哪一步慢 / 超时死在哪 | `show @loc`（看 `timing:` 行）→ `show @loc --timing` |
 | Sandbox 创建就失败（配额 / 凭据 / 镜像） | `show @loc` 看 error 的 code 与 cause → 查账号配额、核对凭据、降 `--max-concurrency`（没有现场可留） |
