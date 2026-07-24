@@ -1,223 +1,325 @@
-# Library 逐组件说明——图表族每个组件的契约与写法
+# Library:图表组件契约
 
-按组件遍历图表族:哪些容器接受子组件、每个子组件的 props、相对 recharts 的命名判定与两面投影,并给出写法示例;recharts 全部组件的逐个去向(含设计上不支持的图型)收口在文末[全家普查表](#recharts-全家的去向)。节点类别与容器解释机制见 [Architecture](architecture.md);真实报告图的结构对照见 [真实图表对照](gallery.md);现状组件的完整 props 契约见 [指标组件](../../feature/reports/library/metric-views.md)。
+候选图表 API 原样采用 Recharts 的容器、轴、series 和嵌套节点词汇,再用 niceeval 的 Metric、Dimension 与 `ReportInput` 替代裸对象 `data` / `dataKey` 取值。解析与 `ChartData` 见 [Architecture](architecture.md),真实图例见 [Gallery](gallery.md)。
 
-四件事 recharts 没有对应物、由 niceeval 既有契约自带,本页不逐组件重复:
+## 容器
 
-- **Metric 绑定与两级聚合**:series 永远绑定 `Metric` 实例(聚合口径、`better` 方向、单位),聚合值携带 `samples`/`refs` 证据——recharts 的每个数值只是原始对象数组里的一个字段。
-- **spec / data 双形态**:[`DataProps`](../../feature/reports/library/metric-views.md#共用数据形状) 照常适用;data 形态与子组件的交互规则见 [Architecture · 容器解释流程](architecture.md#容器解释流程)。
-- **text 面**:每个组件两面同源;子组件的 text 投影写在各自小节。
-- **`evals` 前缀过滤与 `attemptHref`/`pointHref` 下钻**:照常适用于全部图表容器。
-
-## 容器总览
-
-| 容器 | 子组件化 | 判定 |
+| 容器 | 直接 series 子节点 | 用途 |
 |---|---|---|
-| `MetricLine` | 接受 | series 随维度取值域增长,逐 series 覆盖与标注需要可插拔子节点 |
-| `MetricBars` | 接受 | 同上;另有省略 `columns` 的单维排行形态 |
-| `MetricComposed` | 接受(新容器) | 多 series 类型混合是它唯一的存在理由;对应 recharts `ComposedChart` |
-| `MetricScatter` | 不子组件化 | 概念数量固定(点、series、x、y),扁平 props 是更短的表达 |
-| `MetricMatrix` | 不子组件化 | 格子呈现没有可插拔的 series/标注概念 |
-| `MetricTable` / `DeltaTable` / `Scoreboard` | 不子组件化 | 表类组件,不属图表族 |
+| `LineChart` | `Line` | 数值参数趋势或维度折线 |
+| `BarChart` | `Bar` | 排行、分组柱与堆叠柱 |
+| `AreaChart` | `Area` | 强调累计量或区间的面积图 |
+| `ScatterChart` | `Scatter` | 两个 Metric 的点云或前沿 |
+| `ComposedChart` | `Line` / `Bar` / `Area` / `Scatter` | 同一坐标系混合多种 series |
 
-`MetricLine`/`MetricBars` 沿用现状名而不采用 recharts 的 `LineChart`/`BarChart`:这两个名字是 niceeval 已导出的定稿概念,子组件只扩展它们的组合能力,不打散已有心智;`MetricComposed` 是唯一的新容器名。无子组件时全部容器保持现状写法不变——子组件是可选扩展,不是替代。
+容器共用下列公开形状:
 
-## `MetricLine`
+```ts
+interface ChartPresentationProps {
+  width?: number | `${number}%`;
+  height?: number;
+  aspect?: number;
+  layout?: "horizontal" | "vertical";
+  margin?: Partial<{ top: number; right: number; bottom: number; left: number }>;
+  locale?: ReportLocale;
+  className?: string;
+}
 
-保留 `x` / `series` / `y` 容器 props;`y` 是容器级共享指标,`ChartSeries` 在它下面不收 `metric`。单 series、无定制的趋势图仍用扁平 props,一行是最短表达,子组件在这里不带来任何新能力:
-
-```tsx
-<MetricLine x={budget} series="agent" y={endToEndPassRate} />
+type ChartProps =
+  | ({ data: ChartData; input?: never; evals?: never; children: ChartChild | readonly ChartChild[] } & ChartPresentationProps)
+  | ({ input?: ReportInput; evals?: string | readonly string[]; data?: never; children: ChartChild | readonly ChartChild[] } & ChartPresentationProps);
 ```
 
-逐 series 单独定制视觉时,series 以子节点声明、各自携带专属呈现——`series` prop 只是分组维度,`LineData` 不携带按 series 区分的呈现字段,这个组合只有子组件形态能表达:
+`input` 省略时使用宿主注入的 Scope。容器 children 是唯一的轴、series 和局部 presentation 声明;不再提供 `rows` / `columns` / `cell` / `x` / `y` 扁平快捷 props。图表类型由 JSX 元素名表达,不再用字符串 `as`。
 
 ```tsx
-<MetricLine x={budget} y={endToEndPassRate}>
-  <ChartSeries value="compare/baseline" label="baseline" />
-  <ChartSeries value="compare/with-memory" label="+memory" strokeDasharray="4 2" />
-</MetricLine>
+<LineChart input={scope}>
+  <XAxis numeric={budget} />
+  <YAxis metric={endToEndPassRate} />
+  <Line metric={endToEndPassRate} by="agent" />
+</LineChart>
 ```
 
-追加标注是加子组件类型,不在容器 options 里开洞:
+## 轴
+
+### `XAxis`
+
+spec 形态有三个互斥绑定:
+
+```ts
+type XAxisBinding =
+  | { dimension: DimensionInput; numeric?: never; metric?: never; sort?: Metric }
+  | { numeric: NumericAxis; dimension?: never; metric?: never; sort?: never }
+  | { metric: Metric; dimension?: never; numeric?: never; sort?: never };
+
+interface XAxisPresentationProps {
+  xAxisId?: string | number;
+  orientation?: "top" | "bottom";
+  reversed?: boolean;
+  domain?: readonly [number | "auto", number | "auto"];
+  tick?: TickPresentation;
+  label?: LabelPresentation;
+}
+
+type XAxisProps =
+  | (XAxisBinding & XAxisPresentationProps)
+  | ({ xAxisId: string | number; dimension?: never; numeric?: never; metric?: never; sort?: never } & XAxisPresentationProps);
+```
+
+- `dimension` 是分类轴,用于排行、分组柱或按离散配置比较。
+- `numeric` 是 [`NumericAxis`](../../feature/reports/library/metrics.md#维度与数值轴),用于参数趋势;每个点保留数值原值和 `xDisplay` 等价显示值。
+- `metric` 是散点图横轴;格式、bounds 与 `better` 来自 Metric。
+- `sort` 只属于维度轴。它必须绑定图中一个已声明且有 `better` 的 Metric;方向跟随 `better`,同值以维度 key 稳定收口。
+
+`xAxisId` 默认 `0`。`orientation`、`domain`、`tick` 和 `label` 沿用 Recharts 同义名称;niceeval 根据 Metric/NumericAxis 提供默认值,显式 props 覆盖 presentation,不改变聚合数据。
+
+### `YAxis`
+
+```ts
+type YAxisBinding =
+  | { metric: Metric; dimension?: never; sort?: never }
+  | { dimension: DimensionInput; sort?: Metric; metric?: never };
+
+interface YAxisPresentationProps {
+  yAxisId?: string | number;
+  orientation?: "left" | "right";
+  reversed?: boolean;
+  domain?: readonly [number | "auto", number | "auto"];
+  tick?: TickPresentation;
+  label?: LabelPresentation;
+}
+
+type YAxisProps =
+  | (YAxisBinding & YAxisPresentationProps)
+  | ({ yAxisId: string | number; dimension?: never; metric?: never; sort?: never } & YAxisPresentationProps);
+```
+
+`metric` 是数值轴的完整语义声明,不是可省略的格式提示。它提供 label、单位、bounds、显示格式与 `better`;`dimension` 用于 `BarChart layout="vertical"` 的纵向分类轴,`sort` 规则与维度 `XAxis` 相同。series 通过 `yAxisId` 显式绑定。双轴不再用 `yAxis="right"` 猜轴:
 
 ```tsx
-<MetricLine x={budget} y={endToEndPassRate}>
-  <ChartSeries by="agent" />
-  <ReferenceLine y={0.8} label="目标" />
-</MetricLine>
+<YAxis yAxisId="cost" metric={costUSD} />
+<YAxis yAxisId="quality" metric={endToEndPassRate} orientation="right" />
+<Bar metric={costUSD} yAxisId="cost" />
+<Line metric={endToEndPassRate} yAxisId="quality" />
 ```
 
-面积呈现是 line 的填充变体,不开新容器:容器 prop `area`(布尔)把全部 series 画成填充面积;混合画布里逐 series 用 `as="area"`。
+data 形态下轴绑定已经在 `ChartData` 中,`XAxis` / `YAxis` 只给对应 id 附加 presentation;不得再给 `dimension`、`numeric` 或 `metric`。
 
-## `MetricBars`
+## Series
 
-两种数据形态,子组件规则与 `MetricLine` 相同(`cell` 是容器级指标):
+### 共用选择模型
 
-- **矩阵形态**:`rows` × `columns` 二维,消费 `MatrixData`,与现状一致。
-- **排行形态**:省略 `columns`,一个维度值一根条,条的维度即 series 维度;`sort` 沿用 [`MetricTable.sort`](../../feature/reports/library/metric-views.md#metrictable) 语义——必须是声明了 `better` 的同一个 Metric 实例,方向由 `better` 决定,省略时按行 key 字典序;条尾数值标签是默认呈现,text 面本来就以数字呈现,web 面同源。recharts 没有排序概念(作者自备排好序的 `data` 数组);niceeval 的条形数据产自聚合管线,作者手里没有中间数组,排序必须是组件选项。
+`Line`、`Bar`、`Area` 共用两种 spec 形态:
 
-排行 + 置信区间([真实图表对照 · 图 1](gallery.md#图-1单指标排行条形与置信区间)):
+```ts
+type SeriesSelection =
+  | { by?: never; value?: never }
+  | { by: DimensionInput; value?: never }
+  | { by: DimensionInput; value: string };
+
+interface SeriesAxisBinding {
+  xAxisId?: string | number;
+  yAxisId?: string | number;
+}
+
+type MetricSeriesBinding =
+  | ({ metric: Metric; dataKey?: string } & SeriesSelection & SeriesAxisBinding)
+  | ({ dataKey: string; metric?: never; by?: never; value?: never } & SeriesAxisBinding);
+```
+
+- 不给 `by`:一个 Metric 形成一个 series。
+- 只给 `by`:按该维度的已观测 domain 动态展开多个 series。
+- 同给 `by` 与 `value`:精确选择这个维度值,适合逐 series 定制。
+
+`value` 永远不能单独出现。若多个显式值需要相同默认 presentation,使用普通数组 map;不把一个动态 `by` 与若干 `value` 隐式合并成覆盖表。
+
+`name` 是图例显示名,`xAxisId` / `yAxisId` 绑定显式轴。`dataKey` 只定义或选择解析后 series 身份,不是对象属性路径。spec 形态可以省略;data 形态必须提供且不能再给数据绑定字段。
+
+动态 `by` 会解析成多个 dataKey,所以这种形态不能显式给单个 `dataKey`;无 `by` 或 `by + value` 恰好解析成一个 series 时才允许指定。
+
+### `Line`
+
+```ts
+type LineProps = MetricSeriesBinding & {
+  name?: LocalizedText;
+  type?: "linear" | "monotone" | "step";
+  stroke?: string;
+  strokeWidth?: number;
+  strokeDasharray?: string;
+  dot?: DotPresentation;
+  activeDot?: DotPresentation;
+  label?: LabelPresentation;
+  connectNulls?: boolean;
+};
+```
+
+`dot`、`activeDot` 与 `label` 沿用 Recharts 的定制阶梯。`connectNulls` 默认 `false`;开启时只跨缺失值连线,不会为缺失点制造 `MetricCell`。
+
+### `Bar`
+
+```ts
+type BarProps = MetricSeriesBinding & {
+  name?: LocalizedText;
+  stackId?: string | number;
+  fill?: string;
+  stroke?: string;
+  maxBarSize?: number;
+  radius?: number | readonly [number, number, number, number];
+  label?: LabelPresentation;
+};
+```
+
+`stackId` 沿用 Recharts 名称。同一 stack 必须绑定同一对轴且 Metric 可相加;柱顶总值可用 `LabelList position="top" value="stackTotal"` 显式声明,不作为无法关闭的隐式装饰。
+
+### `Area`
+
+```ts
+type AreaProps = MetricSeriesBinding & {
+  name?: LocalizedText;
+  stackId?: string | number;
+  type?: "linear" | "monotone" | "step";
+  stroke?: string;
+  fill?: string;
+  fillOpacity?: number;
+  dot?: DotPresentation;
+  label?: LabelPresentation;
+  connectNulls?: boolean;
+};
+```
+
+面积是独立 series 类型,不是 `LineChart area` 布尔开关;因此它保留自己的类型、props 与合法 children。
+
+### `Scatter`
+
+```ts
+type ScatterBinding =
+  | ({ points: DimensionInput; x: Metric; y: Metric; dataKey?: string } & SeriesSelection)
+  | { dataKey: string; points?: never; x?: never; y?: never; by?: never; value?: never };
+
+type ScatterProps = ScatterBinding & {
+  name?: LocalizedText;
+  xAxisId?: string | number;
+  yAxisId?: string | number;
+  line?: boolean | ScatterLinePresentation;
+  shape?: ShapePresentation;
+};
+```
+
+`points` 定义点身份,`by` 定义可选 series 维度。`line` 对应原 `connect`:开启后每个解析后 series 内按 x 原始值升序连线;text 面按同一顺序给逐段位移摘要。`x` / `y` 必须与所绑定的 Metric 轴一致。
 
 ```tsx
-<MetricBars rows="agent" cell={endToEndPassRate} sort={endToEndPassRate}>
-  <ErrorBar />
-</MetricBars>
+<ScatterChart>
+  <XAxis metric={costUSD} />
+  <YAxis metric={endToEndPassRate} />
+  <Scatter points="experiment" by="agent" x={costUSD} y={endToEndPassRate} line />
+</ScatterChart>
 ```
 
-![按单一指标排行的横向条形图,每条带置信区间须线与行尾数值](assets/pass-at-1-ranked-bars.png)
+## 嵌套节点
 
-多面板拼排用 `Grid` + JSX 遍历。niceeval 不设 facet 容器:报告是 TSX,「一次声明展开成面板」就是一次普通的数组 map,框架再包一层只是复述语言已有的能力。跨面板的集中共享图例同样不设——每块面板自带图例,「同一 series 跨面板同色」由配色的稳定散列契约(同键跨图同色,见[指标组件 · MetricScatter](../../feature/reports/library/metric-views.md#metricscatter))承担,一致性不依赖共享图例:
-
-```tsx
-<Grid columns={4}>
-  {["terminal-bench/", "swe-verified/", "swe-pro/", "swe-multilingual/"].map((prefix) => (
-    <MetricBars key={prefix} evals={prefix} rows="agent" cell={examScore}>
-      <ChartSeries by="agent" />
-      <ChartSeries value="ornith-9b" emphasis />
-    </MetricBars>
-  ))}
-</Grid>
-```
-
-![八个题集各一块条形小面板,同一组模型,其中一个模型全程强调](assets/per-eval-bar-panels.jpg)
-
-`by` 兜底展开全部取值、`value` 显式强调一个,按 [`ChartSeries` 合并规则](#chartseries)生效。
-
-## `MetricComposed`
-
-唯一的多 series 类型混合容器,对应 recharts 的 `ComposedChart`。没有容器级 `y`——混合的意义就是每个 series 指标可能不同,`metric` 是每个 `ChartSeries` 的必填项。混合类型限 `as="line" | "bar" | "area"`:散点不进混合画布——离散点云的逐点证据语义(`pointHref` 下钻)与聚合 series 在同一坐标系互相混淆,散点的领地是 `MetricScatter`。
-
-柱线混合,共享一条维度轴:
-
-```tsx
-<MetricComposed x="agent">
-  <ChartSeries as="bar" metric={costUSD} />
-  <ChartSeries as="line" metric={endToEndPassRate} yAxis="right" />
-</MetricComposed>
-```
-
-`yAxis="right"` 把 series 分配到右轴;每侧轴的单位、刻度与 `better` 方向从分配到该侧 series 的 `metric` 推导,同侧单位或 `better` 不一致按完整用户反馈报错(数据形状与推导细则见 [Architecture](architecture.md#metriccomposed-的数据形状))。
-
-堆叠:`stack` 同值的 series 堆进同一根柱,柱顶默认显示堆叠和标签——它是堆叠呈现的组成部分,不是独立组件([真实图表对照 · 图 3](gallery.md#图-3成本构成堆叠条形)):
-
-```tsx
-// plannerCostUSD / workerCostUSD 是作者自定义的成本构成指标
-<MetricComposed x="experiment">
-  <ChartSeries as="bar" metric={plannerCostUSD} stack="cost" />
-  <ChartSeries as="bar" metric={workerCostUSD} stack="cost" />
-</MetricComposed>
-```
-
-![每个模型组合一根柱,柱内按 Planner/Worker 成本构成堆叠,柱顶显示总成本](assets/stacked-cost-bars.webp)
-
-图题与脚注属排版层(`Col` + 文本节点),不进图表契约。
-
-## `MetricScatter`——不子组件化
-
-概念数量固定:点维度、series、x、y;x/y 对全部点共享,不存在「每个 series 各自不同指标」或「逐 series 覆盖呈现」的组合空间,扁平 props 保持现状。真实报告里最复杂的散点形态一行就能写([真实图表对照 · 图 4](gallery.md#图-4成本-质量前沿散点)):
-
-```tsx
-<MetricScatter points="experiment" series="agent" connect x={costUSD} y={endToEndPassRate} />
-```
-
-![各模型的成本-质量前沿:series 内沿成本轴连线,成本轴反向(便宜在右),单点与多点 series 混排](assets/cost-quality-frontier.png)
-
-`connect` 连线、`better: "lower"` 的成本轴反向、单点与多点 series 混排、点级直接标签都是现状契约。「series 名标注在线端以替代图例」设计上不支持:图例契约两面同源、顺序确定,点级直接标签已承担就近识别,线端标注是重复的识别通道。
-
-误差呈现同样走扁平 prop:`errorBars`(布尔)为每个点在两轴分别画置信区间须线(口径与 [`ErrorBar`](#errorbar) 相同,默认 ci95)——点的 x/y 都是聚合值、都携带样本证据,双轴误差不需要子组件语法,不改「不子组件化」的判定。
-
-## `MetricMatrix`——不子组件化
-
-格子热图没有可插拔的 series、轴或标注概念;「矩阵里一部分行画成柱、一部分画成线」不是矩阵的变体,是 `MetricComposed` 的场景。
-
-## 子组件
-
-子组件是结构描述节点:只携带配置、没有独立渲染面,校验与解释机制见 [Architecture](architecture.md#节点类别结构描述子节点)。命名判定:
-
-- **原样借用**:`Tooltip`、`Legend`、`CartesianGrid`、`ReferenceLine`、`ReferenceArea` 与 recharts 同名——它们是纯呈现,不绑定 Metric/Dimension 语义,recharts 的名字就是准确的名字;都不与 niceeval 现有导出撞名,从属关系靠容器的结构校验表达(`Tab` 只能在 `Tabs` 下同理),不用命名前缀。
-- **`ChartSeries`**:合并 recharts `Line`/`Bar`/`Area`/`Scatter` 四个 series 组件后的新名。四个组件的真正差异只在「怎么画」不在「怎么取数」(取数永远是绑定一个 `Metric`),拆四个名字会让「新增一种画法」等价于「照抄一个新组件」;不叫 `Series` 是因为这个词过泛、与无处不在的 `series` prop 撞读——`Chart` 前缀收窄名词,不表达从属(它出现在三个容器下)。
-- **`ErrorBar`**:与 recharts 同名、取数改造,见下文小节。
-- **不设的子组件**:`XAxis`/`YAxis`——recharts 需要独立轴组件是因为它的 `data` 只是裸数组,tick 格式、label、domain 全靠组件 props;niceeval 的 `Metric`/`NumericAxis` 对象自带这些字段,再包一层 JSX 是纯重复。`ResponsiveContainer`——响应式由 CSS 承担,`ResizeObserver` 首帧尺寸不定与「静态 HTML 先完整可读」不变量冲突([References · Recharts](../../references.md#recharts))。
-
-### `ChartSeries`
-
-一个 series 的声明。两种互斥形态,呼应 [`DeltaTable.conditions`](../../feature/reports/library/metric-views.md#deltatable) 字面有序数组与 `conditionsByFlag()` 派生声明并存的先例:
-
-```tsx
-// by:按维度展开取值域,每个值各成一个 series,呈现取默认
-<ChartSeries by="agent" />
-
-// value:字面量声明单个已知 series,携带专属呈现
-<ChartSeries value="compare/with-memory" label="+memory" strokeDasharray="4 2" />
-```
-
-**合并规则**(`by` 与 `value` 同容器混用):`by` 展开维度全域;每个 `value` 按键精确匹配域中的一个取值,把自己的呈现 props 与 `label` 覆盖到该 series 上——匹配到的取值仍是同一个 series,不重复出现。`value` 的键不在展开域中,或同一键出现多个 `value` 声明,计算以完整用户反馈失败;精确匹配、不做前缀或模糊匹配,与 `DeltaTable` 字面 `a`/`b` 的匹配规则同一先例。无 `by` 时,若干 `value` 就是字面量声明的完整 series 集合。
-
-**props**:
-
-- `metric: Metric` —— `MetricComposed` 下必填(没有容器级共享指标);`MetricLine`/`MetricBars` 有容器级 `y`/`cell`,不收。
-- `as: "line" | "bar" | "area"` —— 呈现类型,仅 `MetricComposed` 下有意义(单一类型容器由容器决定画法)。呈现 props 按 `as` 判别收窄(TS 判别联合):`strokeDasharray` 只属 line,`stack` 只属 bar,填充只属 area,不同呈现的专属参数不互相渗漏;单一类型容器下的 props 集即该容器画法的呈现集。
-- `stack?: string` —— 同容器内同值的 bar series 堆进同一根柱,不同值各成堆;recharts `stackId` 的对应物。
-- `emphasis?: boolean` —— 强调呈现,具体样式由主题决定。
-- `label?: LocalizedText` —— 图例显示名,缺省用维度值显示键。
-- `dot` / 逐点 `label` 等关键呈现点 —— 三态定制阶梯 `false | { 部分属性 } | 渲染函数`;渲染函数收到该 series 已解析的单点数据,只接管 web 面,text 投影保持默认。
-
-### `Tooltip`
-
-web 渐进增强层的悬停提示,默认内容是该点的轴值与证据引用;`content` 走三态阶梯。text 面无投影——悬停不存在于终端。
-
-### `Legend`
-
-控制图例显隐(默认显示);图例内容、顺序与两面投影沿用现状契约(series 按显示键字典序),子组件不改变它们。
-
-### `CartesianGrid`
-
-web 面背景网格线;text 面无投影。
-
-### `ReferenceLine` / `ReferenceArea` / `ReferenceDot`
-
-参考标注三件套,与 recharts 同名:参考线(`x` 或 `y` 给出位置)、参考区间(给两端)、参考点(`x` 与 `y` 同给,标注坐标系里一个具名位置,如「当前 run」);`label` 都可选。web 面画进坐标系;text 面在图例区以「label = 值」一行列出,不进字符坐标图。
+| 节点 | 合法直接父节点 | 作用域 |
+|---|---|---|
+| `ErrorBar` | `Line` / `Bar` / `Scatter` | 只作用于父 series |
+| `LabelList` | `Line` / `Bar` / `Area` / `Scatter` | 父 series 的每个图形项 |
+| `Cell` | `Bar` / `Scatter` | 父 series 中匹配的一个或一组图形项 |
+| `Label` | `XAxis` / `YAxis` / `ReferenceLine` / `ReferenceArea` / `ReferenceDot` | 父节点自己的标签 |
 
 ### `ErrorBar`
 
-误差线。容器的直接子节点,对图内全部 series 生效。与 recharts 同名但不收 `dataKey`:recharts 不知道数据从哪来,误差值只能作者自备;niceeval 的聚合值天然携带 attempt 级样本证据(`samples`/`refs`),让作者手工再算置信区间等于把管线已有的信息复写进报告。作者只选统计口径:`kind="ci95"`(默认)或 `"stderr"`。web 面画须线;text 面在数值后追加 `±` 区间。
+```ts
+interface ErrorBarProps {
+  kind?: "ci95" | "stderr";
+  direction?: "x" | "y";
+  stroke?: string;
+  strokeWidth?: number;
+}
+```
 
-## recharts 全家的去向
+`kind` 默认 `ci95`。`Line` / `Bar` 根据父 series 的 Metric 轴推定方向(常规布局是 y,横向 Bar 是 x);`Scatter` 必须显式选择 x 或 y,需要双轴误差时声明两个 `ErrorBar`。区间由父 series 对应 `MetricCell.samples` 计算,不收 Recharts 的裸字段 `dataKey`。
 
-对 recharts 全部组件与图表家族的逐个判定,上文各小节已覆盖的只给指向;niceeval 不做的图型写明「设计上不支持」与理由——图表族的比较单位是「配置 × 指标」,不落在这个单位上的图型不进契约:
+```tsx
+<Bar metric={endToEndPassRate}>
+  <ErrorBar kind="ci95" />
+</Bar>
+```
 
-| recharts | 去向 |
+### `LabelList`
+
+`LabelList` 使用 Recharts 的 `position`、`formatter` 与 `content`;默认值来自父 series 的 MetricCell。niceeval 增加 `value="stackTotal"`,只允许放在带 `stackId` 的 `Bar` / `Area` 下,表示同一 x 上该堆的可加总值。text 面把同一标签作为数值或图例附注输出。
+
+### `Cell`
+
+`Cell` 用来覆盖父 `Bar` / `Scatter` 的单项 presentation:
+
+```ts
+interface CellProps {
+  value: string;
+  dimension?: DimensionInput;
+  fill?: string;
+  stroke?: string;
+  emphasis?: boolean;
+}
+```
+
+`dimension` 省略时取父 `Bar` 的位置维度或父 `Scatter` 的 `points` 维度;无法唯一推定时要求显式给出。`value` 只在已知父数据边界内匹配图形项,不承担 series 取数。
+
+### `Label`
+
+`Label` 是轴或参考标注的标签子节点,支持 Recharts 的 `value`、`position`、`offset` 和 `content`。父 props 的短写 `label="..."` 与单个 `<Label value="..." />` 等价;两者同时给出时报错。
+
+## 图表直接子节点
+
+`CartesianGrid`、`Tooltip`、`Legend`、`ReferenceLine`、`ReferenceArea` 与 `ReferenceDot` 是所有 chart 容器的直接子节点。
+
+- `CartesianGrid`:web 面网格;text 面无字符投影。
+- `Tooltip`:web 面悬停显示轴值、Metric 显示值与证据;默认 text 面把同一证据放在图例/明细摘要,不存在悬停交互。
+- `Legend`:两面使用同一已解析 series 顺序与 `name`;可用 `content` 定制。
+- `ReferenceLine`:用 `x` 或 `y` + 对应 axis id 定位。
+- `ReferenceArea`:用 `x1` / `x2` 或 `y1` / `y2` + axis id 定位。
+- `ReferenceDot`:用 `x` / `y` + 两个 axis id 定位。
+
+参考标注在 web 面画进坐标系;text 面以 label、坐标和值域列入图例区。没有 label 时仍输出机器可辨的默认说明。
+
+## 呈现定制
+
+适用位置沿用 Recharts 的阶梯:
+
+```ts
+type WebRenderer<Props> = ReactNode | ((props: Props) => ReactNode);
+type TextRenderer<Props> = LocalizedText | ((props: Props) => LocalizedText);
+
+type Presentation<Props, Defaults> =
+  | false
+  | Partial<Defaults>
+  | WebRenderer<Props>
+  | { web: WebRenderer<Props>; text: TextRenderer<Props> };
+```
+
+- `false`:关闭该 presentation。
+- 部分属性对象:保留默认语义,只覆盖样式或位置。
+- ReactNode / function:只接管 web 面;text 面继续默认投影,两面内容可能不同。
+- `{ web, text }`:同时接管两面,用于标签、tooltip 或图例等有内容语义的定制。
+
+渲染回调只收到解析后的只读 `ChartData` 片段和 presentation context,不能触发第二次聚合。
+
+## Recharts 词汇的去向
+
+| Recharts | 候选契约 |
 |---|---|
-| `LineChart` / `BarChart` / `ComposedChart` / `ScatterChart` | [`MetricLine`](#metricline) / [`MetricBars`](#metricbars) / [`MetricComposed`](#metriccomposed) / [`MetricScatter`](#metricscatter不子组件化) |
-| `AreaChart` | 面积是 line 的填充变体:`MetricLine` 容器 prop `area`,混合画布 `as="area"`;不开新容器 |
-| Scatter 双轴误差(ScatterChartWithTwoErrorBars 例) | `MetricScatter` 扁平 prop `errorBars`,见[该节](#metricscatter不子组件化) |
-| `XAxis` / `YAxis` | 不设为组件:`Metric`/`NumericAxis` 自带轴配置,见[子组件·不设](#子组件) |
-| 时间轴(TimeSeries 例) | 不新增轴组件:时间显式映射为数值进 `NumericAxis`,刻度格式由轴声明——与「字符串配置必须显式映射到数值」同一条规则 |
-| tick 抽稀(EquidistantPreserveEnd 例)、`layout` 横竖切换(ChartLayout 例) | 轴渲染的内部策略与形态默认(排行横向、分组柱纵向),不暴露为组件或 prop——少一个自由度,两面同源少一处分叉 |
-| `CartesianGrid` / `Tooltip` / `Legend` / `ReferenceLine` / `ReferenceArea` / `ReferenceDot` / `ErrorBar` | 同名子组件,见上文各节 |
-| `Label` / `LabelList` | 不设为组件:数值标签是排行/堆叠形态的默认呈现,逐点 `label` 走三态阶梯 |
-| `Cell`(逐格/逐点覆盖) | 不设为组件:逐值覆盖由 `ChartSeries` 的 `value` 形态承担 |
-| `Brush`(区间刷选) | 设计上不支持:重交互能力,超出「静态 HTML + 轻量渐进增强」不变量;text 面无对应物 |
-| `syncId` 跨图联动(Synchronised 例)、动画、40 余个鼠标事件 props | 设计上不支持,[References · Recharts](../../references.md#recharts) 已记 |
-| `ResponsiveContainer` | 不设:响应式由 CSS 承担,[References · Recharts](../../references.md#recharts) 已记 |
-| `PieChart` / `RadialBarChart`(占比图) | 设计上不支持:饼图表达单一整体的构成,跨配置不可比;构成对比由 `stack` 堆叠承担,还能在配置间并排比较 |
-| `RadarChart` + Polar 轴族(`PolarGrid`/`PolarAngleAxis`/`PolarRadiusAxis`) | 设计上不支持:雷达图把不同单位的指标画上共用径向轴,轴间面积没有量纲意义;多指标横截面对比的契约是 `MetricTable`(列=指标)与 `Scoreboard` 分科 |
-| `FunnelChart` / `Treemap` / `Sankey` / `SunburstChart` | 设计上不支持:漏斗/层级/流量形态不落在「配置 × 指标」比较单位上,评测域没有对应诉求;出现真实诉求时按新图表容器单独立项,不预留半成品 |
-
-## 收益边界
-
-子组件语法的收益集中在两类真实能力,不是全面替代:
-
-- **逐值覆盖**(`value` 形态携带专属呈现)与**多类型混合**(`MetricComposed`)——扁平 props 表达不了的组合。
-- **追加标注**(`ReferenceLine`/`ErrorBar` 等)——把「容器 options 持续开洞」换成「新增子组件类型」,收的是长期维护成本。
-
-概念数量固定的组件(`MetricScatter`、`MetricMatrix`、表类)不子组件化;单 series、无定制的图,扁平 props 一行仍是最短表达。
+| `LineChart` / `BarChart` / `AreaChart` / `ScatterChart` / `ComposedChart` | 原名采用 |
+| `Line` / `Bar` / `Area` / `Scatter` | 原名采用,以 Metric/Dimension props 绑定数据 |
+| `XAxis` / `YAxis` | 原名采用,增加 `dimension` / `numeric` / `metric` |
+| `ErrorBar` / `LabelList` / `Cell` / `Label` | 原名及父子层级采用 |
+| `CartesianGrid` / `Tooltip` / `Legend` / `Reference*` | 原名采用 |
+| `dataKey` | 解析后 series 的稳定 id;不解析作者裸对象路径 |
+| `stackId` / `xAxisId` / `yAxisId` / `name` / `orientation` | 原名采用 |
+| `ResponsiveContainer` | 不提供;由 CSS 响应式承担 |
+| `Brush` / `syncId` / 动画 / 鼠标事件全集 | 不提供;超出静态 HTML + 轻量渐进增强边界 |
+| Polar、Pie、Radar、Funnel、Treemap、Sankey、Sunburst | 不提供;不落在配置 × 指标比较模型中 |
 
 ## 相关阅读
 
-- [README](README.md) —— 问题、recharts 模型与设计定案。
-- [Architecture](architecture.md) —— 结构描述子节点与容器解释机制。
-- [真实图表对照](gallery.md) —— 本页契约在四张真实报告图上的检验。
-- [指标组件](../../feature/reports/library/metric-views.md) —— 现状组件的完整 props 契约与数据形状。
-- [概览组件](../../feature/reports/library/summaries.md) —— `ExperimentComparison` 的多图并列组合方式。
+- [README](README.md) —— 问题、目标模型与边界。
+- [Architecture](architecture.md) —— 解析、校验、计算规格与 `ChartData`。
+- [Gallery](gallery.md) —— 真实报告图的结构验证。
+- [指标与维度](../../feature/reports/library/metrics.md) —— Metric、Dimension 与 NumericAxis。

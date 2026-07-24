@@ -1,8 +1,33 @@
 // cases: docs/engineering/testing/unit/experiments-runner.md
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+// 「取锁后重查携带」的读取面计数探针:两个 wrapper 都原样委派给真实实现,只在中间记一笔,
+// 因此对其余用例完全透明。工厂是惰性的——没有任何模块导入被 mock 的模块时它根本不执行,
+// 于是「派发路径上一次全树扫描都不做」这条断言的成本恒为零。
+const readSurfaceCalls = vi.hoisted(() => ({ forCase: 0, perEval: 0 }));
+vi.mock("../results/open.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../results/open.ts")>();
+  return {
+    ...actual,
+    loadLatestResultsForCase: (...args: Parameters<typeof actual.loadLatestResultsForCase>) => {
+      readSurfaceCalls.forCase += 1;
+      return actual.loadLatestResultsForCase(...args);
+    },
+  };
+});
+vi.mock("../view/data.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../view/data.ts")>();
+  return {
+    ...actual,
+    loadLatestResultsPerEval: (...args: Parameters<typeof actual.loadLatestResultsPerEval>) => {
+      readSurfaceCalls.perEval += 1;
+      return actual.loadLatestResultsPerEval(...args);
+    },
+  };
+});
 import { mkdtemp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { judgeProbeTargets, runEvals } from "./run.ts";
 import { defineSandbox, defineSandboxAgent } from "../define.ts";
@@ -2055,6 +2080,26 @@ async function lockFilesRemaining(root: string): Promise<string[]> {
   }
 }
 
+/** 锁目录里此刻被哪几条用例持有(条目文件名映回 evalId,按 `candidates` 的给定顺序返回)。
+ *  多开场景的分段点是「对方已经放手」,而这件事只在磁盘上可观测:对方的 attempt 跑完(探针
+ *  记到 started / inFlight 归零)只说明 test() 返回了,锁要到该用例全部 attempt 收尾之后才删。 */
+async function lockedEvalIds(root: string, experimentId: string, candidates: string[]): Promise<string[]> {
+  const files = new Set(await lockFilesRemaining(root));
+  return candidates.filter((id) => files.has(basename(caseLockPath(root, experimentId, id))));
+}
+
+/** 等一个要读磁盘的判据在假时钟上成立。推法与 `advanceOnFakeClock` 的收尾段相同(只喂真实
+ *  轮次、每轮顺手推 1ms 假时钟接住收尾链上的短定时器),但把虚拟时间的消耗压到最低:等待
+ *  期间本进程自己也持着锁,推过 30s 判死线会被对方当成过期锁接管,场景就变了。 */
+async function awaitDiskOnFakeClock(isDone: () => Promise<boolean>, budgetRealMs = 20_000): Promise<void> {
+  const until = realDateNow() + budgetRealMs;
+  while (realDateNow() < until) {
+    if (await isDone()) return;
+    await vi.advanceTimersByTimeAsync(1);
+    await new Promise<void>((resolve) => realSetTimeout(resolve, 5));
+  }
+}
+
 /** 模块装载期抓住的真实 setTimeout / Date.now:`vi.useFakeTimers()` 换掉的是全局绑定,
  *  这两个函数引用仍指向原生实现,假时钟场景里用它们换真实的宏任务轮次与真实墙钟。 */
 const realSetTimeout = globalThis.setTimeout;
@@ -2641,35 +2686,40 @@ describe("runEvals · 用例锁: 多开分工", () => {
     expect(pendingHeldCaseLockCount()).toBe(0);
   });
 
-  // 两条 runEvals 共用同一个 niceevalRoot(不是各自建一个临时根 —— 那测的是"零竞争各自跑")。
-  // 选择重叠:A 选 {m-1, m-2},B 把这两条连同 {m-3, m-4} 一起选上。先起 A 让它认领重叠的两条,
-  // 再起 B —— B 撞锁转而认领另外两条,于是"谁跑哪些"完全由锁自然分工,不靠测试摆布。
+  // 两条 runEvals 共用同一个 niceevalRoot(不是各自建一个临时根 —— 那测的是"零竞争各自跑"),
+  // 选择集完全相同:四条用例两边都选,各自全局上限 2,于是两边都必然剩下"第一波没抢到位"的
+  // 第二波。谁跑哪些完全由锁自然分工,不靠测试摆布。
   //
-  // 为什么不让两边选择完全相同:那样两边都会剩下"第一波没抢到位"的第二波 attempt,而第二波
-  // 摸锁的时刻与对方释放锁的时刻是真实竞争 —— 从没撞过锁、也没读到过别人记录的那一侧
-  // (multiOpenSeen 恒 false)会跳过重查携带,把对方刚跑完的用例再跑一遍。这是已登记的残留窗口
-  // (memory/dispatch-time-lock-needs-carry-recheck-on-fresh-acquire.md「残留窗口」),不是本测试
-  // 要验的契约点;让 A 没有第二波即可把它排除在外,三条断言面(不相交 / 并集覆盖 / 峰值)一条不少。
-  it("两条 runEvals 同 root、选择重叠:真实派发的用例集不相交、并集覆盖两边选择集,全局在飞峰值达到两边上限之和", async () => {
+  // 两段 barrier 是这条用例的关键:B 的第一波必须先真正收尾、把锁删掉,A 的第二波才会撞上
+  // 一把**空**锁 —— 那正是要钉的路径(取到锁没等过、没接管过,重查携带仍必须发生)。锁的删除
+  // 发生在该用例全部 attempt 收尾之后,所以分段点只能取"锁目录掉回只剩 A 手上的那两条",不能
+  // 取"B 的 test() 跑过了":放早了 A 的第二波撞的是新鲜锁、走挂起窗口,而挂起窗口本来就重查,
+  // 这条用例会绿得毫无意义(见 memory/multi-open-residual-window-closed-by-narrow-read.md)。
+  //
+  // 顺带钉住「携带来源不要求快照收尾」:A 的第二波携入 B 的结果时,B 整批还没跑完(它的两条
+  // 正挂在 A 的锁上等),快照 snapshot.json 尚无 completedAt。
+  it("两条 runEvals 同 root、选择集完全相同:真实派发的用例集不相交、并集覆盖选择集、全局在飞峰值达到两边上限之和,每条用例全局只被真实派发一次", async () => {
     vi.useFakeTimers();
     try {
       const root = await makeRoot();
       const experimentId = "multi-open-exp";
-      const sharedIds = ["m-1", "m-2"];
-      const soloIds = ["m-3", "m-4"];
+      const firstWave = ["m-1", "m-2"];
+      const secondWave = ["m-3", "m-4"];
+      const ids = [...firstWave, ...secondWave];
       const agent = makeAgent("agent-multi-open");
       const sandbox = fakeSandboxSpec();
 
-      const { barrier, release } = makeBarrier();
+      const gateA = makeBarrier();
+      const gateB = makeBarrier();
       const all = newDispatchProbe();
       const sideA = newDispatchProbe();
       const sideB = newDispatchProbe();
-      const evalsA = sharedIds.map((id) => gatedEval(id, barrier, sideA, all));
-      const evalsB = [...sharedIds, ...soloIds].map((id) => gatedEval(id, barrier, sideB, all));
+      const evalsA = ids.map((id) => gatedEval(id, gateA.barrier, sideA, all));
+      const evalsB = ids.map((id) => gatedEval(id, gateB.barrier, sideB, all));
       // 指纹只吃 (eval 源码 + experimentId/agent/model/flags/sandbox/strict),不吃 selectedEvalIds
-      // 与 runs —— 两侧选择不同但指纹相同,B 才能真的携入 A 跑出来的重叠部分。
-      const runA = probeRun(agent, experimentId, sharedIds, { sandbox });
-      const runB = probeRun(agent, experimentId, [...sharedIds, ...soloIds], { sandbox });
+      // 与 runs —— 两侧指纹相同,携入对方跑出来的那半边才可能发生。
+      const runA = probeRun(agent, experimentId, ids, { sandbox });
+      const runB = probeRun(agent, experimentId, ids, { sandbox });
 
       let aDone = false;
       let bDone = false;
@@ -2683,32 +2733,106 @@ describe("runEvals · 用例锁: 多开分工", () => {
         bDone = true;
         return r;
       });
-      try {
-        await waitForRealProgress(() => expect(sideB.inFlight).toBe(2));
+      await waitForRealProgress(() => expect(sideB.inFlight).toBe(2));
 
-        // ① 两边真实派发的用例集不相交;② 并集覆盖两边选择集的并集;③ 全局在飞峰值 = 2 + 2。
-        expect([...sideA.started].sort()).toEqual([...sharedIds].sort());
-        expect([...sideB.started].sort()).toEqual([...soloIds].sort());
-        expect(sideA.started.filter((id) => sideB.started.includes(id))).toEqual([]);
-        expect([...new Set(all.started)].sort()).toEqual([...sharedIds, ...soloIds].sort());
-        expect(all.peak).toBe(4);
-      } finally {
-        release();
-      }
+      // ① 两边真实派发的用例集不相交;② 并集覆盖选择集;③ 全局在飞峰值 = 2 + 2。
+      expect([...sideA.started].sort()).toEqual([...firstWave]);
+      expect([...sideB.started].sort()).toEqual([...secondWave]);
+      expect(sideA.started.filter((id) => sideB.started.includes(id))).toEqual([]);
+      expect(all.peak).toBe(4);
+      expect(await lockedEvalIds(root, experimentId, ids)).toEqual(ids);
 
+      // B 的第一波收尾:m-3 / m-4 落盘、锁被删掉,B 剩下的两条仍挂在 A 的锁上等。
+      gateB.release();
+      await awaitDiskOnFakeClock(async () => (await lockedEvalIds(root, experimentId, ids)).length === 2);
+      expect(await lockedEvalIds(root, experimentId, ids)).toEqual(firstWave);
+
+      // A 的第一波收尾 → A 的第二波拿到全局位 → 干干净净地取到 m-3 / m-4 的锁。
+      gateA.release();
       await advanceOnFakeClock(() => aDone && bDone, 10_000, 12);
       const [ra, rb] = await Promise.all([pa, pb]);
 
-      // 重叠的两条在 B 侧是携入(A 释放锁后重查携带命中),不是重跑:全局每条用例恰好被
-      // 真实派发一次。
-      expect([...all.started].sort()).toEqual([...sharedIds, ...soloIds].sort());
-      expect(ra.summary.results).toHaveLength(2);
+      // 双跑当场可见:started 不去重(去重恰好会把双跑抹掉),长度必须正好是用例数。
+      expect(all.started).toHaveLength(ids.length);
+      expect([...all.started].sort()).toEqual([...ids]);
+      expect(sideA.started).toEqual(firstWave);
+      expect(sideB.started).toEqual(secondWave);
+      // 两边各自结束时都拿到完整结果集,交集部分只花一份成本。
+      expect(ra.summary.results).toHaveLength(4);
       expect(rb.summary.results).toHaveLength(4);
+      expect(ra.summary.results.every((r) => r.verdict === "passed")).toBe(true);
       expect(rb.summary.results.every((r) => r.verdict === "passed")).toBe(true);
       expect(await lockFilesRemaining(root)).toEqual([]);
     } finally {
       vi.useRealTimers();
     }
+  }, SCHEDULING_TEST_TIMEOUT_MS);
+
+  // 零竞争的最小形态:全程没有任何"碰上别人"的信号——A 起跑时锁目录还不存在,它从没撞过锁、
+  // 没接管过、没等过实验闸名额。对方那条 runEvals 整体 await 到返回(跑完 c-2、落盘、删锁)
+  // 之后才放 barrier,所以 A 的第二波是干干净净地取到一把空锁。任何「有没有碰上别人」的启发式
+  // 在这条路径上都恒假,只有无条件重查才能让 c-2 不被重跑。
+  it("对方跑完并释放锁后干净取到锁:仍必须重查携带 —— c-2 全局只被真实派发一次,携入的那条经一对瞬时 lock_wait 迁进 reused", async () => {
+    const root = await makeRoot();
+    const experimentId = "multi-open-clean-exp";
+    const gatedId = "c-1";
+    const sharedId = "c-2";
+    const agent = makeAgent("agent-multi-open-clean");
+    const sandbox = fakeSandboxSpec();
+    const { barrier, release } = makeBarrier();
+    const all = newDispatchProbe();
+
+    // A:c-1 挂在 barrier 上占住唯一的全局位,c-2 排在队列里(还没摸过锁目录)。
+    const evalsA = [gatedEval(gatedId, barrier, all), gatedEval(sharedId, barrier, all)];
+    const runA = probeRun(agent, experimentId, [gatedId, sharedId], { sandbox });
+    // 对方:只选 c-2,不挂 barrier。
+    const evalsB = [gatedEval(sharedId, Promise.resolve(), all)];
+    const runB = probeRun(agent, experimentId, [sharedId], { sandbox });
+
+    // 反馈计数是进程级的,两条 runEvals 都报进同一个 coordinator:total 取两边之和(A 的 2 条
+    // + 对方的 1 条),五项恒等式必须在这个合计口径上成立。
+    const plan: RunFeedbackPlan = {
+      shape: { evals: 3, configs: 1, totalAttempts: 3, maxConcurrency: 1 },
+      reused: 0,
+      reusedFailures: [],
+    };
+
+    await withCoordinator(plan, async (coordinator) => {
+      const pa = runWithPriorResults(evalsA, [runA], { priorResults: [], root, maxConcurrency: 1 });
+      let peerLocator: string | undefined;
+      try {
+        await waitForRealProgress(() => expect(all.inFlight).toBe(1));
+        expect(all.started).toEqual([gatedId]); // c-2 还排着队,没取过锁
+
+        const { summary: peer } = await runWithPriorResults(evalsB, [runB], {
+          priorResults: [],
+          root,
+          maxConcurrency: 1,
+        });
+        expect(peer.results).toHaveLength(1);
+        expect(peer.results[0]!.verdict).toBe("passed");
+        peerLocator = peer.results[0]!.locator;
+        expect(await lockFilesRemaining(root)).toHaveLength(1); // 只剩 A 手上的 c-1
+      } finally {
+        release();
+      }
+
+      const { summary } = await pa;
+
+      expect(all.started.filter((id) => id === sharedId)).toHaveLength(1);
+      expect(all.started).toEqual([gatedId, sharedId]);
+      expect(summary.results).toHaveLength(2);
+      expect(summary.results.every((r) => r.verdict === "passed")).toBe(true);
+      // 携入的是对方那条结果本身(locator 原样透传),不是自己重跑出来的新条目。
+      expect(summary.results.find((r) => r.id === sharedId)!.locator).toBe(peerLocator);
+
+      // 没有等待窗口要关,携入的那条仍必须补一对瞬时的 started/resolved 才能从 queued 迁进
+      // reused —— 少发这一对,五项恒等式当场破。
+      expect(coordinator.state.reused).toBe(1);
+      expect(coordinator.state.elsewhere).toBe(0);
+      expectFiveCountIdentity(coordinator.state);
+      expect(await lockFilesRemaining(root)).toEqual([]);
+    });
   }, SCHEDULING_TEST_TIMEOUT_MS);
 });
 

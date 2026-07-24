@@ -1,58 +1,84 @@
-# 图表组件的声明式子组件语法
+# Recharts 组件树与 niceeval 数据绑定
 
-还没定为当前契约的候选设计,见 [Roadmap 约定](../README.md)。调研来源见 [References · Recharts](../../references.md#recharts)。图表族逐组件的契约与写法见 [Library 逐组件说明](library.md);节点类别与容器解释机制的技术方案见 [Architecture](architecture.md);四张真实报告图的结构对照见 [真实图表对照](gallery.md)。
+这是尚未定为当前契约的候选设计,见 [Roadmap 约定](../README.md)。图表逐组件契约见 [Library](library.md),解析与数据模型见 [Architecture](architecture.md),真实报告图的结构验证见 [Gallery](gallery.md),调研来源见 [References · Recharts](../../references.md#recharts)。
 
 ## 问题
 
-[指标组件](../../feature/reports/library/metric-views.md)里图表形态的成员——`MetricMatrix`/`MetricBars`/`MetricScatter`/`MetricLine`——都是「一个组件、一份扁平 options」:坐标轴、图例、每个点的呈现、连线规则,全部是同一个组件上并列的 props 字段。这个形状有两处随图表能力增长而变差的地方:
+[指标组件](../../feature/reports/library/metric-views.md)里的 `MetricLine`、`MetricBars`、`MetricScatter` 以一个组件加一份扁平 options 表达整张图。这个模型能表达固定形态,但不能自然承载两类增长:
 
-- **新增一种呈现细节 = 给已有组件继续加字段。** 要给 `MetricLine` 的某个 series 单独换线型,或在趋势图上加一条目标参考线,只能在同一个 options interface 里继续开洞(`seriesOverrides?: Record<string, {...}>`、`referenceLines?: Array<...>`)——props 表没有天然分区承载局部定制,而且 `Record<string, ...>` 形态要求 series 取值在声明时已知,与「`series` 从数据里发现取值域」的模型冲突。
-- **同一张图没法混合两种呈现。** `MetricMatrix` 与 `MetricBars` 消费同一份 `MatrixData`,但二者是两个组件、渲染各自整张图;没有"同一张图里一部分 series 画成柱、一部分画成线"的组合方式——[`ExperimentComparison`](../../feature/reports/library/summaries.md#experimentcomparison) 展示的组合方式是把多个独立组件按 `Col` 摞起来,是多张图并列,不是同一张图内部的组合。
+- 同一画布里混合柱、线、面积或散点,并让每个 series 独立选择轴、堆叠和误差呈现。
+- 给轴、series 或单个图形项追加局部配置时,不持续给容器 options 增加字段或 `Record<string, ...>` 侧表。
 
-recharts 用"容器 + 声明式子组件"解决了同一类问题:图表家族里新增一种坐标轴、一种 series 类型、一种参考线,都是加一个子组件类型,不是给已有容器组件继续加字段;`ComposedChart` 允许 `Area`/`Bar`/`Line` 三种 series 组件混进同一个容器。
+Recharts 已经为这些关系建立了清晰词汇:图表容器持有共享上下文,轴与 series 是容器子节点,误差线和标签又属于具体 series。niceeval 没有理由另造一套外观相似的组件树;它真正需要增加的是 Metric、Dimension、聚合证据和 text/web 双面投影。
 
-## 从 recharts 学到的模型
+## 目标模型
 
-完整调研记录在 [References · Recharts](../../references.md#recharts),这里只重复与本设计直接相关的形状:
+候选 API 采用 **Recharts 组件树 + niceeval 数据绑定**:
 
 ```tsx
-<LineChart data={data} responsive>
+<ComposedChart input={scope}>
   <CartesianGrid />
-  <XAxis dataKey="name" />
-  <YAxis />
+  <XAxis dimension="experiment" />
+  <YAxis yAxisId="cost" metric={costUSD} />
+  <YAxis yAxisId="quality" metric={endToEndPassRate} orientation="right" />
   <Tooltip />
   <Legend />
-  <Line dataKey="uv" stroke="var(--color-chart-1)" dot={{ fill: "..." }} />
-  <Line dataKey="pv" stroke="var(--color-chart-2)" />
-</LineChart>
+
+  <Bar metric={plannerCostUSD} stackId="cost" yAxisId="cost">
+    <ErrorBar kind="ci95" />
+  </Bar>
+  <Bar metric={workerCostUSD} stackId="cost" yAxisId="cost" />
+  <Line metric={endToEndPassRate} yAxisId="quality" dot={false} />
+  <ReferenceLine y={0.8} yAxisId="quality" label="目标" />
+</ComposedChart>
 ```
 
-- 容器(`LineChart`/`BarChart`/`ComposedChart`/…)只认领固定几个概念:数据源(`data`,一份对象数组)、尺寸与 margin。
-- 子组件是声明式配置:坐标轴、网格、图例、tooltip 各是独立组件;每个 series 组件(`Line`/`Bar`/`Area`/`Scatter`)用 `dataKey` 从容器共享的 `data` 里取自己的字段。子组件之间不要求特定顺序。
-- 同一个容器可以并列多种 series 组件类型(`ComposedChart` 里 `Area`+`Bar`+`Line`),新增一种呈现是加一个子组件类型,不改动容器或其它 series 组件。
-- 定制阶梯是同一个类型公式贯穿多个定制点:`false`(关)→ `{ 部分属性对象 }`(轻量覆盖)→ `ReactNode | Function`(整体接管),如 `Line` 的 `dot`/`activeDot`/`label`/`shape`、`Tooltip` 的 `content`。
+组件名、父子关系以及 `name`、`stackId`、`xAxisId`、`yAxisId`、`orientation`、`dot`、`content` 等同义 props 沿用 Recharts。niceeval 只在数据语义上扩展它:
 
-## 设计
+- 容器用 `input` 接收 `ReportInput`,不接收作者预聚合的裸对象数组。
+- `XAxis` 用 `dimension`、`numeric` 或 `metric` 声明横轴来源;`YAxis` 用 `dimension` 或 `metric` 声明纵轴来源,从而覆盖横向排行。
+- `Line`、`Bar`、`Area` 用 `metric` 绑定数值轴指标;`Scatter` 用 `points`、`x`、`y` 绑定点与两轴指标。
+- series 需要按维度拆分时用 `by`;选择其中一个值时必须同时给 `by` 与 `value`,不允许脱离维度的裸 `value`。
+- 聚合结果保留 `MetricCell.samples` / `refs`,由同一份 `ChartData` 驱动 text 与 web 两面。
 
-图表族容器接受声明式子组件。子组件是只携带配置、不产出独立渲染的**结构描述子节点**,由声明它的容器在 resolve 阶段解释,组装成选项后调用 `*Data` 计算函数;两面渲染完全自研,不引入 `recharts` 依赖。范围与组成:
+## 容器与层级
 
-- **接受子组件的容器**:`MetricLine`、`MetricBars`(并获得省略 `columns` 的单维排行形态与 `sort`)、新增的 `MetricComposed`(唯一的多 series 类型混合容器)。无子组件时全部容器保持现状写法——子组件是可选扩展,不是替代。
-- **子组件全家**:`ChartSeries`(series 声明,`by` 自动展开 / `value` 字面量双形态)、`Tooltip`、`Legend`、`CartesianGrid`、`ReferenceLine`、`ReferenceArea`、`ReferenceDot`、`ErrorBar`。逐组件契约、相对 recharts 的命名判定与两面投影见 [Library 逐组件说明](library.md);recharts 全部组件的逐个去向(含设计上不支持的图型及理由)见 [Library · recharts 全家的去向](library.md#recharts-全家的去向)。
-- **不子组件化的组件**:`MetricScatter`、`MetricMatrix` 概念数量固定,扁平 props 是更短的表达;`MetricTable`/`DeltaTable`/`Scoreboard` 是表类,不属图表族。判定见 [Library · 容器总览](library.md#容器总览),真实图上的验证见 [真实图表对照 · 图 4](gallery.md#图-4成本-质量前沿散点)。
-- **呈现定制公式**:关键呈现点(`dot`、逐点 `label`、`Tooltip.content` 等)沿用 recharts 的三态阶梯 `false | { 部分属性 } | 渲染函数`;渲染函数只接管 web 面,text 面投影保持默认,两面同源不因自定义渲染破例。
-- **架构代价**:`ReportNode` 需要新增「结构描述子节点」类别——无 text/web 面、豁免通用两面校验、只接受宿主容器解释。这是设计中最大的一处架构变化,节点类别、校验规则、容器解释流程与 `MetricComposed` 的数据形状见 [Architecture](architecture.md)。
+候选图表族包含 `LineChart`、`BarChart`、`AreaChart`、`ScatterChart` 和 `ComposedChart`。这是一次完整 API 重构,不保留 `MetricLine` / `MetricBars` / `MetricScatter` / `MetricComposed` 别名或扁平写法。
 
-## 评估过、不采纳的路线
+结构节点遵循 Recharts 的所有权层级,不是只能被 chart 收集的一层列表:
 
-- **把 recharts 用作 web 面的构建期 SVG 生成器**(书写语法不变,`web()` 内部 `renderToStaticMarkup` 生成静态 SVG):静态 SVG 字符串里没有 React 运行时,recharts 的 `Tooltip` 与全部交互层不工作,悬停增强仍要自研;`Legend` 布局依赖 DOM 测量,无浏览器环境下不可靠;能省下的只有坐标刻度与曲线插值,抵不过引入整包运行时依赖。`ResponsiveContainer` 的 `ResizeObserver` 测量已在 [References · Recharts](../../references.md#recharts) 单独记为不采纳。
-- **只加三态定制阶梯、不引入子组件语法**:改动最小,但解决不了「同一张图混合多种呈现」与「逐 series 覆盖」——[真实图表对照](gallery.md)与 [Library](library.md) 各节展示的真实报告形态里,这两类是必须能力,不是锦上添花。阶梯本身作为呈现定制公式并入设计(见上一节),不构成独立路线。
+```text
+Chart
+├── XAxis / YAxis
+│   └── Label
+├── Line / Bar / Area / Scatter
+│   ├── ErrorBar
+│   ├── LabelList
+│   └── Cell
+├── CartesianGrid / Tooltip / Legend
+└── ReferenceLine / ReferenceArea / ReferenceDot
+    └── Label
+```
+
+每类节点显式声明合法父组件集合。`ErrorBar` 因而只作用于自己的 series;`Cell` 只覆盖父 series 中匹配的图形项;轴 id 与 series 上的 `xAxisId` / `yAxisId` 形成可校验引用。完整宿主表见 [Library · 嵌套节点](library.md#嵌套节点),解析机制见 [Architecture · 结构树](architecture.md#结构树而不是一层-children)。
+
+## 双面投影边界
+
+数据、聚合口径、排序、轴值域与证据在 text/web 两面同源。默认 presentation 也有明确的两面投影:例如 web 的 tooltip 对应 text 的证据摘要,web 的误差须线对应 text 数值后的区间。
+
+Recharts 风格的 `ReactNode | render function` 只接管 web presentation。回调可以替换标签、数值甚至证据内容,所以此时只保证底层 `ChartData` 同源,不保证自定义 web 内容与默认 text 内容等价。作者需要双面语义定制时,使用 `{ web, text }` 形态同时声明两面,精确类型见 [Library · 呈现定制](library.md#呈现定制)。
+
+## 设计边界
+
+- 两面渲染仍由 niceeval 实现,不把 Recharts 引入生成管线。静态 SVG、终端字符图、证据链接与无浏览器首屏仍属于 niceeval 的职责。
+- `ResponsiveContainer`、动画、鼠标事件全集、`Brush` 与跨图 `syncId` 不进入契约;响应式继续由静态 HTML 的 CSS 布局承担。
+- 饼图、雷达图、漏斗、树图、Sankey 等不落在“配置 × 指标”比较模型里的图型不因组件改名而进入范围。
+- facet 继续使用 JSX `map` + `Grid`;组件树不重复实现语言已有的遍历能力。
 
 ## 相关阅读
 
-- [Library 逐组件说明](library.md) —— 图表族每个容器与子组件的契约、写法与命名判定。
-- [Architecture](architecture.md) —— 结构描述子节点的节点类别、校验规则与容器解释机制。
-- [真实图表对照](gallery.md) —— 四张真实报告图逐张拆结构、给写法,并列出设计上不支持的功能。
-- [References · Recharts](../../references.md#recharts) —— 调研原始记录:是什么、值得抄什么、不抄什么及理由。
-- [指标组件](../../feature/reports/library/metric-views.md) —— 现有图表组件的扁平 props 契约。
-- [排版原语与自定义组件](../../feature/reports/library/layout.md) —— `ReportNode`、`Grid`/`Tabs` 的子节点解释先例、`defineComponent` 两种形态。
-- [Architecture · 组件模型](../../feature/reports/architecture.md#组件模型解析面与渲染面) —— resolve/validate/render 管线与两面同源的不变量。
+- [Library](library.md) —— 容器、轴、series、嵌套节点与精确 props。
+- [Architecture](architecture.md) —— 结构树解析、动态 series、`ChartData` 与双面边界。
+- [Gallery](gallery.md) —— 四张真实报告图在候选 API 下的写法。
+- [指标组件](../../feature/reports/library/metric-views.md) —— 当前已定稿图表契约,用于理解本 Roadmap 要替换的范围。
+- [Reports Architecture](../../feature/reports/architecture.md) —— resolve/validate/render 管线与两面同源不变量。

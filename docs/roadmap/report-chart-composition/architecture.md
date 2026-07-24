@@ -1,60 +1,214 @@
-# Architecture——结构描述子节点与容器解释机制
+# Architecture:组件树解析与图表数据
 
-[README · 设计](README.md#设计)把图表子组件定为「只携带配置、不产出独立渲染的结构描述子节点」。本篇给出技术方案:这类节点在 `ReportNode` 里的类别定义与校验规则、容器怎样在 resolve 阶段解释它们、`MetricComposed` 的数据形状,以及刻意不引入的机制。
+本篇定义 [README](README.md) 候选组件树怎样进入 Reports 的 resolve/validate/render 管线,以及图表计算函数产生的可序列化数据形状。逐组件公开语法见 [Library](library.md)。
 
-## 节点类别:结构描述子节点
+## 结构树,而不是一层 `children`
 
-[`ReportNode`](../../feature/reports/library/layout.md#树的节点reportnode) 的通用规则是「节点只有一类来源:`defineComponent` 产物或内置原语」,`validate` 确保展开后每个节点都有 text 和 web 两面。结构描述子节点是第三类来源:
+图表声明节点是一类只携带 props 的结构节点。它没有独立 text/web 渲染面,由最近的合法拥有者解释。结构节点可以递归嵌套;每个节点类型声明合法父组件集合,而不是统一要求成为 chart 的直接子节点。
 
-- **只携带 props**:它是一段声明,没有自己的 text/web 渲染面,不参与独立取数,通用 resolve 不展开它。
-- **宿主白名单**:每类结构描述子节点声明自己的宿主容器集合(`ChartSeries`/`ErrorBar` → `MetricLine`/`MetricBars`/`MetricComposed`;`Tooltip`/`Legend`/`CartesianGrid`/`ReferenceLine`/`ReferenceArea`/`ReferenceDot` → 全部图表容器)。`validate` 检查它必须是宿主的**直接子节点**;出现在宿主之外或更深层级,按完整用户反馈报错。
-- **先例与差异**:[`Tabs`/`Tab`](../../feature/reports/library/layout.md#tabs) 与 [`Grid`](../../feature/reports/library/layout.md#grid-与-stat) 已经确立「子节点由特定父组件解释」,但 `Tab` 做分组、`Grid` 把子节点当不透明格子,都不读取子节点内部结构。图表容器的解释深一层:要从子节点 props 里读出 `metric`、`by`/`value` 这类取数选项——这是两面校验豁免必须成为显式节点类别、而不是特例约定的原因。
+解析器保留 JSX 中的所有权关系:
 
-## 容器解释流程
+1. chart 收集直接子节点里的轴、series、网格、图例、tooltip 与参考标注。
+2. series 收集自己的 `ErrorBar`、`LabelList` 与 `Cell`;轴和参考标注收集自己的 `Label`。
+3. 每个结构节点在原位置验证父类型。合法类型放错层级时,错误同时给出收到的父类型、允许的父类型和可复制的正确嵌套示例。
+4. 容器把计算字段归一成 `ChartSpec`,调用 `chartData(input, spec)`;presentation 字段保留在结构树上,不写进 Data。
+5. text/web renderer 消费同一份 `ChartData` 和同一棵已验证结构树,分别投影 presentation。
 
-接受子组件的容器在自己的 resolve 阶段依次:
+`Tabs` / `Tab` 已经提供“子节点由特定父组件解释”的先例;图表树只是把这个机制推广为可递归、可声明宿主集合的结构节点类别。通用 `ReportNode` 校验仍要求最终可渲染节点有两面;被宿主消费的结构节点不作为独立渲染节点进入该检查。
 
-1. **收集**直接子节点里的结构描述节点,按类型分组(series 声明 / 标注 / 呈现开关)。
-2. **合并 `ChartSeries` 声明**:`by` 展开维度全域,`value` 按键精确匹配覆盖;算法与报错点定稿于 [Library · ChartSeries](library.md#chartseries)。
-3. **组装 options,调计算函数**:`MetricLine`/`MetricBars` 组装出的 options 与扁平 props 写法产出**完全相同**的 `LineData`/`MatrixData`——子组件不改变数据形状,resolve 记忆化照旧;`MetricComposed` 调新增的 `metricComposedData`(形状见下节)。
-4. **呈现 props 不进 Data**:`strokeDasharray`、`emphasis`、`label` 这类呈现覆盖不写进 `*Data`(data 保持可序列化、与现状同形),渲染面按 series 键在绘制时应用。
+## 绑定与展开
 
-spec / data 双形态与子组件正交,但语义收窄:data 形态下容器不再取数,`ChartSeries` 只允许 `value` 形态、只做呈现覆盖(键按 data 里已有 series 匹配);`by` 携带取数语义(展开维度域),与 `data` 同给按完整用户反馈报错——与 [`DataProps`](../../feature/reports/library/metric-views.md#共用数据形状)「`data` 与 spec 字段互斥」同一条规则。
+一张图先由 `XAxis` 确立横轴来源,再由 series 声明取数口径:
 
-## `MetricComposed` 的数据形状
+- `Line` / `Bar` / `Area` 的一个解析后 series = 一个 Metric + 可选的 `(by dimension, value)`。
+- `Scatter` 的一个解析后 series = points dimension + x/y Metric + 可选的 `(by dimension, value)`。
+- 未给 `by` 时,组件产生一个 series;给 `by` 且未给 `value` 时,按该维度已观测 domain 展开;同时给 `by` 与 `value` 时只选择该精确值。
+- `value` 没有 `by`、值不在 `by` 的 domain、同一 `(component, by, value)` 重复声明,都以完整用户反馈失败。`value` 从不猜它属于 agent、experiment 还是 label。
+
+同一 metric 可以用一个动态声明展开,也可以用多个显式声明逐值定制:
+
+```tsx
+<Line metric={endToEndPassRate} by="agent" />
+
+<Line metric={endToEndPassRate} by="agent" value="baseline" name="baseline" />
+<Line
+  metric={endToEndPassRate}
+  by="agent"
+  value="with-memory"
+  name="+memory"
+  strokeDasharray="4 2"
+/>
+```
+
+两个形态是互斥的完整 series 集合,不做“一个 `by` 兜底,若干 `value` 再覆盖”的隐式合并。需要共享默认值时用普通 JSX map 或对象展开;这让每个声明对应哪批数据保持局部可读。
+
+## 轴引用与兼容性
+
+轴 id 使用与 Recharts 相同的 `xAxisId` / `yAxisId`;省略时引用 id `0`。每个引用必须恰好命中一个同向轴。
+
+- 维度 `XAxis` 可承载 `Line` / `Bar` / `Area`;数值 `XAxis` 可承载趋势 series;Metric `XAxis` 承载 `Scatter` 的 x 值。
+- Metric 轴定义 label、单位、格式、bounds 与 `better`;分配到该轴的 series metric 必须与其单位、格式、bounds 和方向兼容。常规布局的 Metric 轴是 Y,`BarChart layout="vertical"` 的 Metric 轴是 X。
+- `Scatter.x` / `Scatter.y` 必须分别与所绑定 X/Y 轴的 Metric 相同。其它 series 的 `metric` 必须与 Y 轴 Metric 相同,或通过 Metric 的显式轴兼容声明证明同单位同尺度。
+- 同一个 `stackId` 只允许绑定同一对轴的 `Bar` / `Area`;堆中指标必须可相加。字符串恰好相同不能越过单位或尺度校验。
+
+多轴、右轴与堆叠因此都是显式结构,不从 series 集合猜测:
+
+```tsx
+<YAxis yAxisId="cost" metric={costUSD} />
+<YAxis yAxisId="quality" metric={endToEndPassRate} orientation="right" />
+<Bar metric={plannerCostUSD} yAxisId="cost" stackId="cost" />
+<Line metric={endToEndPassRate} yAxisId="quality" />
+```
+
+## 计算规格
+
+JSX spec 形态与手工计算形态归一到同一个可序列化规格。presentation props 不属于这些类型:
 
 ```ts
-interface ComposedData {
-  /** 维度 x 用维度 name 作 key;NumericAxis x 与 LineData.x 同形。 */
-  x: { key: string; label: LocalizedText; unit?: string };
-  series: Array<{
-    key: string;
-    as: "line" | "bar" | "area";
-    stack?: string;
-    metric: MetricColumn;
-    yAxis: "left" | "right";
-    rows: Array<{ x: string; cell: MetricCell }>;
-  }>;
+type AxisId = string | number;
+
+type XAxisSpec =
+  | { xAxisId?: AxisId; dimension: DimensionInput; sort?: Metric; numeric?: never; metric?: never }
+  | { xAxisId?: AxisId; numeric: NumericAxis; dimension?: never; metric?: never }
+  | { xAxisId?: AxisId; metric: Metric; dimension?: never; numeric?: never };
+
+type YAxisSpec =
+  | { yAxisId?: AxisId; dimension: DimensionInput; sort?: Metric; metric?: never }
+  | { yAxisId?: AxisId; metric: Metric; dimension?: never; sort?: never };
+
+type MetricSeriesSpec = {
+  dataKey?: string;
+  metric: Metric;
+  by?: DimensionInput;
+  value?: string;
+  xAxisId?: AxisId;
+  yAxisId?: AxisId;
+};
+
+type ScatterSeriesSpec = {
+  dataKey?: string;
+  points: DimensionInput;
+  x: Metric;
+  y: Metric;
+  by?: DimensionInput;
+  value?: string;
+  xAxisId?: AxisId;
+  yAxisId?: AxisId;
+};
+
+interface ChartSpec {
+  evals?: string | readonly string[];
+  xAxes: readonly XAxisSpec[];
+  yAxes: readonly YAxisSpec[];
+  series: readonly (MetricSeriesSpec | ScatterSeriesSpec)[];
+}
+
+function chartData(input: ReportInput, spec: ChartSpec): Promise<ChartData>;
+```
+
+`dataKey` 是解析后 series 的稳定身份,不是从裸对象取值的路径。省略时由绑定种类、Metric key、`by` dimension/value 与轴 id 确定性生成;显式值在同一 chart 内必须唯一。它使 `data` 形态可以用 Recharts 熟悉的 `dataKey` 对某个已计算 series 应用 presentation,不会重新取数。
+
+## `ChartData`
+
+排行条形、维度柱线图、数值趋势和散点使用一份真正覆盖 category × series 的数据模型。它不复用要求 `columnDimension` 的 `MatrixData`,也不把维度 key 与数值 x 压成同一个 `string` 字段。
+
+```ts
+type AxisId = string | number;
+
+type XAxisData =
+  | {
+      kind: "dimension";
+      xAxisId: AxisId;
+      dimension: string;
+      values: Array<{ key: string; value: string; display: LocalizedText }>;
+    }
+  | {
+      kind: "numeric";
+      xAxisId: AxisId;
+      key: string;
+      label: LocalizedText;
+      unit?: string;
+      values: Array<{
+        key: string;
+        value: number | null;
+        display: LocalizedText;
+      }>;
+    }
+  | {
+      kind: "metric";
+      xAxisId: AxisId;
+      metric: MetricColumn;
+    };
+
+type YAxisData =
+  | {
+      kind: "dimension";
+      yAxisId: AxisId;
+      dimension: string;
+      values: Array<{ key: string; value: string; display: LocalizedText }>;
+    }
+  | {
+      kind: "metric";
+      yAxisId: AxisId;
+      metric: MetricColumn;
+    };
+
+type ChartSeriesData =
+  | {
+      kind: "metric";
+      dataKey: string;
+      metric: MetricColumn;
+      byDimension?: string;
+      byValue?: string;
+      xAxisId: AxisId;
+      yAxisId: AxisId;
+      /** 引用该 series 唯一的 dimension/numeric 位置轴值。 */
+      rows: Array<{ key: string; axisValueKey: string; cell: MetricCell }>;
+    }
+  | {
+      kind: "scatter";
+      dataKey: string;
+      pointDimension: string;
+      byDimension?: string;
+      byValue?: string;
+      xAxisId: AxisId;
+      yAxisId: AxisId;
+      x: MetricColumn;
+      y: MetricColumn;
+      rows: Array<{ key: string; x: MetricCell; y: MetricCell }>;
+    };
+
+interface ChartData {
+  xAxes: XAxisData[];
+  yAxes: YAxisData[];
+  series: ChartSeriesData[];
 }
 ```
 
-- 每个 `ChartSeries` 一个条目,`metric` 必填(容器没有共享 `y`);两级聚合口径遵循[指标聚合不变量](../../feature/reports/architecture.md#指标聚合不变量),`MetricCell` 照常携带 `samples`/`refs` 证据。
-- **双轴推导**:`yAxis="right"` 把 series 分配到右轴,缺省左轴;每侧轴的单位、刻度格式与 `better` 方向从分配到该侧 series 的 `metric` 推导,同侧多个 series 的单位或 `better` 不一致时计算以完整用户反馈失败——轴不猜混合单位怎么标。
-- **堆叠**:`stack` 值相同的 bar series 堆进同一根柱;柱顶总值标签 = 该堆 `MetricCell` 值之和,由渲染面计算,不进 Data。
+维度和数值位置轴的原始值、稳定 key 与本地化显示值各有独立字段。metric series 的 `axisValueKey` 必须命中它所绑定的唯一 dimension/numeric 轴值:常规布局是 X 轴,横向 Bar 是 Y 轴;另一个轴必须是兼容的 Metric 轴。scatter 的 x/y 值直接携带 `MetricCell`,因为两轴都需要样本和证据。`Line`、`Bar` 与 `Area` 是同一份 metric series 数据的三种 presentation,不写入 Data;`stackId`、颜色、线型、标签和误差口径也留在结构树中。
 
-## 两面投影
+纵向排行是 dimension X 轴 + Metric Y 轴;横向排行是 Metric X 轴 + dimension Y 轴。维度轴的 `sort` 在聚合后稳定排列 axis values,同值以 key 收口。两者都不制造虚假的 column dimension。
 
-结构描述子节点没有自己的渲染面;容器的 text/web 两面消化它们的投影,每个子组件的投影契约写在 [Library](library.md) 各小节(如 `ReferenceLine` 的 text 面在图例区列出、`Tooltip` 的 text 面无投影)。三态定制阶梯的渲染函数只接管 web 面,text 面投影保持默认——两面同源的不变量不因自定义渲染破例。
+## spec / data 两种形态
+
+spec 形态由容器的 `input` 与带数据绑定的结构子节点计算 `ChartData`。data 形态接收 `data={ChartData}`,不再取数:
+
+- data 形态的 `XAxis` / `YAxis` 只用 id 选择已有轴并追加 presentation。
+- data 形态的 `Line` / `Bar` / `Area` / `Scatter` 必须用 `dataKey` 选择已有 series;`metric`、`points`、`x`、`y`、`by`、`value` 禁止出现。
+- data 形态中每个要绘制的 series 必须由一个同 kind 的 series 节点引用;`ChartData` 不记录它应画成 line、bar、area 还是 scatter。没有被引用的数据可以留作调用方主动隐藏的 series,重复引用同一个 `dataKey` 则报错。
+- `ErrorBar`、`LabelList`、`Cell`、参考标注等 presentation 节点在两种形态下相同。
+- 同时给 `data` 与 `input` 或任何计算绑定字段时,以完整用户反馈失败。
+
+这保留 [`niceeval/report/react`](../../feature/reports/library/metric-views.md#共用数据形状) 所需的纯数据入口,又不让裸 `value` 或对象字段路径混回 spec 语义。
+
+## 聚合与双面不变量
+
+每个 series 桶内仍先按 experiment × eval 使用 Metric 的 `perEval`,再跨 eval 使用 `acrossEvals`;所有 `MetricCell` 保留 `samples` / `refs`。排序、缺失值、轴 domain、`better` 方向与证据顺序只计算一次,两面共用。
+
+web render function 属于 presentation,可以故意改变可见内容。默认 text 投影仍读取原始 `ChartData`;只有作者提供 `{ web, text }` 双面定制时才替换 text 内容。这个边界保证计算同源,不对任意 React 回调承诺无法验证的内容等价。
 
 ## 不引入的机制
 
-- **React context**:子组件是数据不是运行时组件,容器读 props 就够了,不需要 recharts 的 context 配对机制。
-- **`recharts` 依赖**:两面渲染完全自研,理由见 [README · 评估过、不采纳的路线](README.md#评估过不采纳的路线)。
-- **`ResizeObserver` 测量**:响应式继续由 CSS Grid + container query 承担([Architecture · 静态网页](../../feature/reports/architecture.md#静态网页))。
-
-## 相关阅读
-
-- [README](README.md) —— 问题、recharts 模型与设计定案。
-- [Library 逐组件说明](library.md) —— 每个容器与子组件的契约、写法与命名判定。
-- [排版原语与自定义组件](../../feature/reports/library/layout.md) —— `ReportNode`、`Tabs`/`Grid` 的子节点解释先例。
-- [Architecture · 组件模型](../../feature/reports/architecture.md#组件模型解析面与渲染面) —— resolve/validate/render 管线与两面同源的不变量。
+- 不引入 Recharts 运行时或 React context;组件树词汇同构不意味着渲染实现相同。
+- 不引入 `ResizeObserver`;响应式由静态 HTML 的 CSS Grid 和 container query 承担。
+- 不让结构节点独立取数;所有读取与聚合仍由 chart 的一次 resolve 完成并记忆化。
