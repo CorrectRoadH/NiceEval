@@ -48,6 +48,12 @@ show 的终端输出与 view 的 HTML 是渲染契约的唯一验收面，对真
 - **自定义报告的用户操作回归**：渲染验收不只对内建 `standard` 报告做。仓库签入一组代表性自定义报告文件（`extends: standard` 叠外壳、自定义多页、自定义组件与 attempt page），对每份用 `show --report` / `view --report` 走同一条读面与渲染验收：页导航与 `--page` 索引、折叠展开、过滤框、locator 深链与下钻命令在真实浏览器里逐项操作可达。用户改一份报告文件就能踩到的路径，回归也要踩到。
 - **候选包的外部消费边界**：把编排器注入的候选 `niceeval` tarball 链接进临时消费方项目，以独立 Node 进程从该项目 cwd 执行 `niceeval show --report`，对同一份真实 Results 分别覆盖消费方无 `tsconfig.json`、classic JSX 与 `react-jsx` 三种配置。三种场景都必须从 `niceeval/report/built-in` 成功装载 package-owned 预编译 ESM 并渲染真实证据，不得受消费方 JSX 配置影响或依赖全局 `React`；这个 case 证明的是发布包模块边界，不重复组件渲染断言。
 
+自定义报告验收按用户认识的公开组件族放在
+`e2e/report/scripts/report-components/<component-family>.scenarios.ts`。每个 scenario 只证明一个
+可观察行为，场景上方用中文 Given / When / Then 注释交代前提、操作和预期；文件边界不跟随
+renderer、data builder 或 CSS 等内部实现拆分。场景共享同一次真实 Evidence、每份报告的一次
+静态导出和一个浏览器进程，不能为了文件隔离重复跑模型或重复导出。
+
 渲染断言停在「用户可见规则生效、语义结构正确、交互可达」，不锁颜色值、像素或完整
 class 列表。class/tag selector 只是找到元素的手段，除非公开文档把它声明成 DOM、可访问性
 或导出格式契约，否则不能把具体 class/tag 本身写进预期；样式断言也应证明可见布局或交互
