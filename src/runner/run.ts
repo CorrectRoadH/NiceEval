@@ -2,7 +2,7 @@
 // 职责只有编排:指纹缓存在 fingerprint.ts,单 attempt 生命周期在 attempt.ts,
 // reporter 编排 / 汇总在 report.ts,Sandbox 适配器在 remote-sandbox.ts。
 
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { Effect, Cause, Exit } from "effect";
 import { probeJudge } from "../scoring/judge.ts";
 import { t } from "../i18n/index.ts";
@@ -42,6 +42,7 @@ import {
 import {
   acquireCaseLock,
   isCaseLockStale,
+  locksDirOf,
   readCaseLock,
   CASE_LOCK_HEARTBEAT_INTERVAL_MS,
   type CaseLockClaim,
@@ -849,6 +850,22 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
   const caseStateOf = (a: Attempt): CaseLockState | undefined =>
     a.run.experimentId ? caseLocks.get(cacheKey(a.run, a.evalDef.id)) : undefined;
 
+  /**
+   * 「这个结果根上还有别的 Invocation 在动」。多开下静态携带规划会过时:对方可能在我们规划
+   * 之后、派发之前把某条用例整条跑完并释放锁,我们随后干干净净地取到那把空锁,既没等过也没
+   * 接管过——不重查就会把对方刚跑完的用例再跑一遍(真机双终端实测:6 条用例里 1 条被双跑,
+   * 违反「交集部分只花一份成本」)。所以只要判定为多开,全新取锁也重查一次携带。
+   *
+   * 判据是尽力而为的:启动时锁目录非空(别人在跑,或上一次运行留了遗留条目),或运行中撞过
+   * 锁 / 接管过 / 取锁前读到过别人的记录。单开场景只付启动时一次 readdir,常见路径不因此
+   * 变贵。残留窗口(整条并行 Invocation 在我们启动扫描之后开始、在我们派发那条用例之前结束,
+   * 且全程与我们零碰撞)不闭合——那意味着双方几乎没有重叠,双跑一条的代价可接受。
+   */
+  let multiOpenSeen = await readdir(locksDirOf(niceevalRoot)).then(
+    (entries) => entries.length > 0,
+    () => false,
+  );
+
   /** 等待/接管之后值不值得重新读盘查携带。`--force` 下 opts.priorResults 恒为 undefined——
    *  force 关掉的是缓存,等完同样全部自跑;中断路径同样不再读盘。注意这只关掉「重查」,
    *  不关掉挂起窗口的 `resolved` 事件:少发一次 resolved,elsewhere 就永远挂着,五项恒等式
@@ -856,12 +873,14 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
   const carryRecheckEnabled = (): boolean => opts.priorResults !== undefined && !opts.signal?.aborted;
 
   /**
-   * 撞锁等待结束、或接管一把过期锁之后,对这个用例**重新做一次携带规划**:对方 Invocation
-   * 落盘的终态此刻已可读。判定逐 attempt 进行(见 memory 的
-   * carry-must-be-per-attempt-not-whole-eval-key —— 按整段 key 判定会让同 eval 里一个 attempt
-   * 的终态连带携入其它序号):命中的序号 elsewhere → reused 不再派发,仍缺的序号
-   * elsewhere → queued 自跑。`waitStartedAt` 省略表示这次重查没有对应的挂起窗口(接管路径),
-   * 补一个瞬时的 `started` 让计数迁移成立。
+   * 对这个用例**重新做一次携带规划**:别的 Invocation 落盘的终态此刻已可读。判定逐 attempt
+   * 进行(见 memory 的 carry-must-be-per-attempt-not-whole-eval-key —— 按整段 key 判定会让同
+   * eval 里一个 attempt 的终态连带携入其它序号):命中的序号 elsewhere → reused 不再派发,
+   * 仍缺的序号 elsewhere → queued 自跑。
+   *
+   * `waitStartedAt` 有值 = 这次重查在关闭一个真实的挂起窗口,`resolved` 必须发(哪怕一条都
+   * 没携入,不然 elsewhere 永远挂着);省略 = 没有窗口要关(接管 / 多开下的全新取锁),只有
+   * 真的携入了才补一对瞬时的 started/resolved 把这些 attempt 从 queued 迁进 reused。
    */
   const recheckCarry = async (
     st: CaseLockState,
@@ -869,21 +888,6 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
     holder: CaseLockRecord | undefined,
   ): Promise<void> => {
     const { experimentId, evalId } = st;
-    let startedAt = waitStartedAt;
-    if (startedAt === undefined) {
-      // 接管一把无人等待的过期锁也要重查,但此刻还没有对应的 "started" 事件——这批 attempt
-      // 仍停在 queued(从没被标记过 elsewhere),必须先补一个瞬时的 "started" 才能让下面的
-      // "resolved" 把它们正确迁走,否则会永远卡在 queued、打破五项恒等式。
-      startedAt = Date.now();
-      reportLockWait({
-        experimentId,
-        evalId,
-        status: "started",
-        ...(holder?.pid !== undefined ? { holderPid: holder.pid } : {}),
-        ...(holder?.host !== undefined ? { holderHost: holder.host } : {}),
-        attempts: st.pending.size,
-      });
-    }
     const pendingBefore = st.pending.size;
     const newlyCarried: number[] = [];
     if (carryRecheckEnabled()) {
@@ -905,6 +909,21 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
           passedKeys.add(`${experimentId}|${a0.run.agent.name}|${a0.run.model ?? ""}|${evalId}`);
         }
       }
+    }
+    let startedAt = waitStartedAt;
+    if (startedAt === undefined) {
+      if (newlyCarried.length === 0) return; // 没有窗口要关、也没有迁移要报:一个事件都不发
+      // 这批 attempt 此刻仍停在 queued(从没被标记过 elsewhere),必须先补一个瞬时的
+      // "started",下面的 "resolved" 才能把它们正确迁走,否则会打破五项恒等式。
+      startedAt = Date.now();
+      reportLockWait({
+        experimentId,
+        evalId,
+        status: "started",
+        ...(holder?.pid !== undefined ? { holderPid: holder.pid } : {}),
+        ...(holder?.host !== undefined ? { holderHost: holder.host } : {}),
+        attempts: pendingBefore,
+      });
     }
     reportLockWait({
       experimentId,
@@ -934,6 +953,8 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
       // 无副作用地读一眼当前记录(纯尽力而为:极端时序下这份快照可能已经不是真正被接管的
       // 那条记录,但诊断本来就是人读提示,不是判定依据)。
       const priorHolder = await readCaseLock(niceevalRoot, experimentId, evalId).catch(() => undefined);
+      // 取锁前就看到别人的记录:这个根上确实有(过)第二条 Invocation。
+      if (priorHolder !== undefined) multiOpenSeen = true;
       const giveUp = new AbortController();
       let busyWith: CaseLockRecord | undefined;
       try {
@@ -967,15 +988,20 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
             dedupeKey: `lock-taken-over:${experimentId}|${evalId}`,
             data: { experimentId, evalId },
           });
-          // 接管说明上一个持有者死在半路:它可能已经落盘了一部分终态,重查一次携带。
-          // 无携带可消费(--force / 中断)时整段跳过——这条路径还没有对应的挂起窗口要关,
-          // 不必为一次注定空手而归的重查凭空造一对 elsewhere 进出。
-          if (carryRecheckEnabled()) await recheckCarry(st, undefined, priorHolder);
+          multiOpenSeen = true;
         }
+        // 接管(上一个持有者死在半路,可能已经落盘了一部分终态)与多开(对方可能刚把这条
+        // 用例整条跑完再释放锁)两种情况下,静态携带规划都可能已经过时:重查一次。单开的
+        // 全新取锁不重查——没有任何别的进程碰过这个 key,结论不可能过时,这条最常见的路径
+        // 必须便宜。
+        if (takenOver || multiOpenSeen) await recheckCarry(st, undefined, priorHolder);
         return { kind: "acquired" };
       } catch (e) {
         // 撞新鲜锁:就地开(或加入)挂起窗口,窗口对象随结论一起交给调用方。
-        if (busyWith) return { kind: "busy", window: suspendUntilCaseFree(st, busyWith) };
+        if (busyWith) {
+          multiOpenSeen = true;
+          return { kind: "busy", window: suspendUntilCaseFree(st, busyWith) };
+        }
         if (opts.signal?.aborted) return { kind: "aborted" };
         throw e;
       }
@@ -1044,9 +1070,17 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
         experimentId,
         maxConcurrency,
         lockIdentity,
-        { signal },
+        {
+          signal,
+          // 名额被别人占满 = 这个根上确实有第二条 Invocation 在跑;等它让位的这段时间里对方
+          // 很可能跑完了若干条用例,我们等到名额后的取锁必须重查携带(见 multiOpenSeen)。
+          onWaitStart: () => {
+            multiOpenSeen = true;
+          },
+        },
       );
       if (takenOver) {
+        multiOpenSeen = true;
         const message = t("runner.gateLeaseTakenOver", {
           experimentId,
           slot: claim.slot,
