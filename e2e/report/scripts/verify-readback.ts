@@ -379,8 +379,26 @@ async function verifyHistoryAndPages(evidence: Evidence): Promise<void> {
   // 一次免费的复用运行(不带 --force):eval/agent/model 都没变,指纹匹配,于是刚创建的快照里的
   // 2 个 attempt 会原封不动地被 carry forward 进第三份快照。
   const reuseOutput = shExpectZero(`pnpm exec niceeval exp main`);
-  // 人读文本的缓存复用摘要行(feedback.human.reuse 文案):"M of N carried in from cache · K to run"。
-  assert.ok(/2 of 2 carried in from cache/.test(reuseOutput), `expected the no-force re-run to carry forward 2 attempts ("2 of 2 carried in from cache"); got: ${reuseOutput}`);
+  // 人读文本的缓存复用摘要行(feedback.human.reuse 文案):"M of N carried in from cache · K to run",
+  // 与收尾摘要的 "(K reused)"。
+  //
+  // 断言的是**两个数字一致**,不是某个固定值。携带资格判据里有一条是 `durationMs ≤ resolved
+  // timeoutMs`(这里解析到 niceeval.config.ts 的 60s),而这两个 attempt 打的是真实网关——某次慢过
+  // 60s 就合法地不可携带,写死 "2 of 2" 只会在网关慢的那天变成假红。真正的契约是 plan 预测的携入
+  // 数与 run 实际携入数不得分叉(两处必须共用同一份 planCarry 判据,见 memory 的
+  // live-carry-row-shows-waiting-forever);两边都算成 1 是对的,plan 说 2 而实际只携 1 才是 bug。
+  const planned = /(\d+) of (\d+) carried in from cache/.exec(reuseOutput);
+  assert.ok(planned, `expected the no-force re-run to print a cache-reuse summary line; got: ${reuseOutput}`);
+  assert.equal(planned[2], "2", `the re-run should still plan 2 attempts (runs:2); got: ${reuseOutput}`);
+  const actual = /\((\d+) reused\)/.exec(reuseOutput);
+  assert.ok(actual, `expected the run summary to report a reused count; got: ${reuseOutput}`);
+  assert.equal(
+    planned[1],
+    actual[1],
+    `plan predicted ${planned[1]} carried attempt(s) but the run actually reused ${actual[1]} — ` +
+      `the plan-time and dispatch-time carry judgements diverged; got: ${reuseOutput}`,
+  );
+  assert.ok(Number(planned[1]) >= 1, `no-force re-run carried nothing at all — fingerprints did not match; got: ${reuseOutput}`);
 
   const afterReuse = sh(`pnpm exec niceeval show tool-call --results ${root} --history`);
   const afterReuseRows = historyRows(afterReuse);
