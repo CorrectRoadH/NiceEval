@@ -13,7 +13,7 @@ ExperimentDef(运行配置 + 实验级 setup 钩子,experiments/ 下一文件一
 
 - **id 从路径推导**（`experiments/agents/bub/gpt-5.4.ts` → `agents/bub/gpt-5.4`），路径只表达身份与 CLI 前缀选择，禁止手写 id。
 - **`ExperimentDef` 携带实验级生命周期钩子对 `setup` / `teardown`**——整场一次、宿主机侧(语义见下文 [实验级生命周期](#实验级生命周期setup-与-teardown))。其余生命周期各归各位:沙箱内环境预置挂 `sandbox` 字段的 `SandboxSpec` 钩子链,任务 Fixture 属于 eval,连 agent 属于 `SandboxAgent.setup`,跨实验共享服务用外部编排(分工表见 [环境预置放哪](../sandbox/library.md#环境预置放哪))。
-- 同一次 `niceeval exp` Invocation 可以同时跑多个实验（文件夹展开），但每个实验各自开快照目录，没有跨实验成员关系或聚合落盘。Invocation 是瞬时编排边界，不分配持久化 id。
+- 同一次 `niceeval exp` Invocation 可以同时跑多个实验（文件夹展开），但每个实验各自开快照目录，没有跨实验成员关系或聚合落盘。Invocation 是瞬时编排边界，不分配持久化 id。多条 Invocation 也可以对同一仓库并行运行：快照互不覆盖，同一条 `(experiment, eval)` 不被双跑由[用例锁](#并发-invocation用例锁)保证。
 
 ## Resolved config：一次求值，处处同源
 
@@ -57,6 +57,22 @@ experiment 影响调度的字段就四个，语义单点在 [Runner](../../runne
 - **补执行是新进程语义。** 原进程的模块闭包已随强杀丢失,补执行时 teardown 读到的闭包变量是未赋值状态——这正是 teardown 既有防御契约(`tunnel?.stop()`)覆盖的形态;需要跨进程收尾的资源应由 teardown 从环境或自身的持久化(容器名、pid 文件、幂等的外部 down 脚本)找回,不依赖 `setup` 的内存产物。`ctx.selectedEvalIds` 从登记恢复,`ctx.signal` 绑定当前进程的中断。
 - **删登记是互斥点,义务至多补执行一次。** 补执行(启动自愈或 `--teardown`)先原子删除登记,删除成功者获得执行权;登记已被别的进程删除则跳过——同一份遗留义务不会被两个进程双跑。补执行失败按既有失败语义记 `experiment-teardown-failed` diagnostic,不自动重试;手动 `--teardown` 是重试入口。
 - **手动补收尾:`--teardown`。** `niceeval exp <experiment 路径> --teardown` 不派发 attempt、不跑 `setup`。它先逐条原子删除选中实验的遗留登记；删除成功者才执行相应 teardown，登记已被启动自愈或另一条 `--teardown` 路径删除则跳过，因而同一义务不会双跑。没有任何登记时仍照常执行一次，供「我知道有东西泄漏了」的场景使用；若扫描时已有登记但本进程未抢到删除权，不另行执行。teardown 抛错记 diagnostic 并退出 1，失败后不回写登记，重试入口仍是 `--teardown`。与 eval 前缀位置参数组合报用法错误——这个 flag 选择的是「只收尾」这种跑法,不参与 eval 选择。
+
+## 并发 Invocation:用例锁
+
+`.niceeval` 的快照目录天然支持多开——每条 Invocation 各开自己的快照目录,互不覆盖。多终端并行跑几条 `niceeval exp` 时,唯一要守住的是**同一条 `(experiment, eval)` 不被两条 Invocation 同时派发**:双跑烧双份沙箱与 token,还会并发踩踏有共享状态的实验。用例锁只守这一件事,不守任何数据。
+
+- **粒度是单条评估用例。** 锁键是 `(experimentId, evalId)`;持有者认领该用例本次计划的全部 attempt(含 runs 补跑的缺失序号),不按 attempt 拆锁——同一用例的 attempt 分属两个进程会把 `runs` 的通过率分母切成两半各自不完整。
+- **锁文件落在 `.niceeval/locks/`**,平铺目录、一条用例一个文件(与收尾登记同一套逐条目文件纪律)。文件名由身份 slug 加身份哈希构成,只须无碰撞、不承载解析;身份的权威在文件内容:`{ experimentId, evalId, pid, host, startedAt, heartbeatAt }`。
+- **取锁在携带规划之后、派发之前,逐用例进行。** 全部 attempt 都可携带的用例不取锁;要真实派发的用例先原子创建锁文件(独占创建,已存在即失败),成功才进入派发许可链。等锁的用例不触发实验级 `setup`——选中用例全部在等锁时,本实验没有要派发的 attempt,`setup` 照例不执行。
+- **心跳证明持有者活着。** 持有者每 10s 原子重写一次 `heartbeatAt`(写临时文件再 rename)。`heartbeatAt` 落后当前时间超过 30s(三个心跳周期)即视为持有者已死。判活只看心跳时间戳,不看 pid——容器与跨用户场景下 pid 判活不可靠,而心跳对任何死法(`SIGKILL`、断电、宿主蒸发)都收敛到同一个判据。
+- **撞上新鲜锁 = 等待,锁释放后重查携带。** 撞锁的用例进入等待:不派发、不占全局并发位,计入独立的 `elsewhere` 计数状态(别人在运行,与 `queued` 互斥——排队等的是本进程的并发位,`elsewhere` 等的是别的进程,混进同一个数字会把「资源不够」和「别人在跑」两种等待混为一谈),每个心跳周期重读一次锁文件;等待没有超时——心跳新鲜就一直等,用户中断照常退出。锁消失(正常释放)或过期(接管)后,该用例**重新做一次携带规划**:对方 Invocation 落盘的终态 attempt 此刻已可读,指纹匹配、[携带资格判据](../../runner.md#缓存指纹去重)通过的直接携入(零新成本),仍缺的 attempt 序号取锁补跑。这把[「重跑同一条命令就是续跑」](#carry自动携带)从串行重跑扩展到并发多开:两条选择有交集的 Invocation 各自结束时都拿到完整结果集,交集部分只花一份成本。
+- **锁不含指纹。** 键只有身份,不掺 resolved 配置:两边配置不同(携带必不匹配)时,等待换到的只剩「不同时双跑」——这仍然值得,它保护有共享状态的用例不被并发踩踏,判据也因此保持「读锁文件即可判定」的简单形态,不需要在锁上再算一遍指纹。
+- **过期锁经原子 rename 接管。** 竞争者把过期锁文件 rename 成自己的接管标记,rename 成功者获得执行权、随后写入自己的新锁;输者按撞锁处理,转入等待。与收尾登记的「删登记是互斥点」同构:同一把过期锁不会被两个进程双接管。接管记一条 warning 级运行 diagnostic(code `lock-taken-over`,按 dedupeKey 折叠)——它意味着某次 run 死得没来得及清锁,值得让操作者看见,但不值得中止任何事。
+- **释放与兜底。** 用例的全部 attempt 收尾(含沙箱销毁)后删除自己的锁;中断与强清退出路径由既有的宿主机侧兜底排空;`SIGKILL` / 断电不释放,由心跳过期接管兜底。锁目录不需要手工清理,也没有对应的清理命令。
+- **执行模式组合。** `--force` 不豁免锁:等待照旧,等完不消费携带、全部自跑——force 关掉的是缓存,不是「别双跑」。[`--reuse-sandbox`](../sandbox/serial-reuse.md) 与携带双向绝缘,等完同样自跑。[`--keep-sandbox`](../sandbox/cli.md) 的携带豁免规则照常作用于等待后的那次携带规划。`--dry` 不取锁、不等待,只读锁目录把撞锁用例如实标进计划(见 [CLI · 计划文档](cli.md#事件与计划文档的-typescript-形状))。
+
+**非目标**:用例锁不把并发闸扩展到跨进程——实验级 `maxConcurrency` 与全局并发位都是每条 Invocation 自己的,两条并行 Invocation 对 provider 与模型接口的总压力是各自之和,配额分配归用户(各自调低 `--max-concurrency`)。同一实验被两条 Invocation 选中时,实验级 `setup` 在每条 Invocation 各执行一次,跨进程共享服务的互斥仍归外部编排。它也不是跨机分布式锁:判据依赖同一份文件系统与同一只时钟,不同工作副本各有各的 `.niceeval`,天然不共享锁域。
 
 ## Carry：自动携带
 
