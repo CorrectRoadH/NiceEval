@@ -26,12 +26,15 @@ ExperimentDef(运行配置 + 实验级 setup 钩子,experiments/ 下一文件一
 
 ## 调度接口
 
-experiment 影响调度的字段就四个，语义单点在 [Runner](../../runner.md)：
+experiment 影响调度的字段就这五个：
 
 - `maxConcurrency` —— 实验级并发闸，先过它再占全局并发位；名额与 attempt 同生命周期（沙箱创建到销毁全程持有，turn 退避等内部等待不释放），串行化共享状态实验或给撞限额的实验单独降速。名额域是该实验所有并行 Invocation 共用的（租约机制见[并发 Invocation](#并发-invocation用例锁)），多开不叠加 N。
 - `earlyExit` —— 只由 `passed` 触发的首过即停；`errored` 不中止其余样本，确定性错误走 run 级 fail-fast（见 [Runner · 首过即停](../../runner.md#首过即停earlyexit)）。
 - `budget` —— 按已完成 attempt 实测花费停止派发的安全网。
 - `timeoutMs` —— 单 attempt 外层超时。不进 eval fingerprint 哈希,以携带资格判据参与 carry(`durationMs` ≤ 当前值才可携带,见 [Runner · 缓存](../../runner.md#缓存指纹去重));超时的证据保全与删失语义见 [Runner · 超时](../../runner.md#超时双层保护)。
+- `classifyFailure` —— 实验级失败分类器:识别以第三方错误形态浮出的自家共享基建死因(对共享隧道 host 的拒连),命中的 `scope` 触发止损闸停止派发。类型、分类链与止损语义单源在[执行失败分类](../error-classification/architecture.md#类型),写法见其 [Library](../error-classification/library.md#实验--eval-作者声明死因的波及范围)。
+
+前四个字段的调度语义单点在 [Runner](../../runner.md)。
 
 ## 实验级生命周期：setup 与 teardown
 
@@ -81,7 +84,7 @@ experiment 影响调度的字段就四个，语义单点在 [Runner](../../runne
 
 ## Invocation Completion 与退出
 
-当次 Invocation 的结论与逐 attempt 判定分开表达：`complete` / `incomplete` / `interrupted`（budget 耗尽、fail-fast 或中断造成的未派发计入 `unstarted`，让结论落在 `incomplete`，不伪装成全绿）；退出码按 `(experiment, eval)` 折叠判红。这是当场编排事实，不写入 Results；需要审计时由 `Json(path)` reporter 写 `InvocationSummary`。终端两种输出形态怎么呈现见 [CLI 预期反馈](cli.md)，完成状态的机器形状见 [Runner · 完成状态](../../runner.md#完成状态)。
+当次 Invocation 的结论与逐 attempt 判定分开表达：`complete` / `incomplete` / `interrupted`（budget 耗尽、fail-fast、止损闸或中断造成的未派发计入 `unstarted`，让结论落在 `incomplete`，不伪装成全绿）；退出码按 `(experiment, eval)` 折叠判红。这是当场编排事实，不写入 Results；需要审计时由 `Json(path)` reporter 写 `InvocationSummary`。终端两种输出形态怎么呈现见 [CLI 预期反馈](cli.md)，完成状态的机器形状见 [Runner · 完成状态](../../runner.md#完成状态)。
 
 ## 设计参照：从 agent-eval 砍掉了什么（以及为什么）
 

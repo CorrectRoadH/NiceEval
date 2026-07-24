@@ -80,6 +80,21 @@ npx niceeval exp compare/bub       # 终端 2
 
 限流、连接建立失败这类瞬时错误，NiceEval 会在同一个 Turn 里自动做有限次数的指数退避重试，不需要你重跑整个实验；等待重试的 Attempt 会把全局并发名额让给别的 Attempt，但实验自己的 `maxConcurrency` 名额不让——声明了 `maxConcurrency: 1` 的串行实验在退避期间也不会有第二个 Attempt 提前进场。只有能确认 Agent 还没开始处理这次输入的错误才会重试——请求已经开始、中途断流的情况不重试，直接记为 `errored`，避免 Agent 把已经做过的操作再做一遍。重试用尽仍失败时，该 Attempt 记为 `errored`，下次运行照常重试（见上面的缓存规则）。
 
+## 声明失败的波及范围
+
+有些失败你第一次看到就知道不止这一次：整个 Experiment 共享的服务死了，每条评估用例都会同样死；某条评估用例的 fixture 文件缺失，`runs: 5` 五次都会同样死。不声明的话，NiceEval 只能一条条撞——每个 Attempt 各自创建 Sandbox、各自失败，同一个死因烧几十遍。把你知道的告诉它，第一次撞上就停：
+
+```ts
+import { ExperimentFatalError } from "niceeval";
+
+// 在 setup 或校验代码里抛出:这个 Experiment 还没跑的 Attempt 全部停止派发
+throw new ExperimentFatalError("记忆服务探活失败——修好隧道、更新 .env 后重跑");
+```
+
+只影响一条评估用例的死因（fixture 缺失）抛 `EvalFatalError`，只停这一条的剩余 Attempt，别的评估用例照常跑。错误 message 会原样出现在终端通知和结果快照里，写成「现象 + 下一步」，就是留给修的人的字条。服务在 run 中途死掉、失败以连接错误的形态冒出来时，给 Experiment 配 `classifyFailure`，只认自己共享服务的 host 来识别它。
+
+停下来的 Attempt 计入 `unstarted`，这次运行的结论是 `incomplete`，不会伪装成全绿；同批其它 Experiment 不受影响。修好环境后重跑同一条命令就是续跑：已通过的照常复用，只补跑死掉与没跑的部分，没有任何标记要解除。只声明你能确定的死因——「看起来像基建问题」不算确定；拿不准就让它落成单条 Attempt 的失败，多烧的是一个 Sandbox 的钱，错停的是整批数据。
+
 ## 超时和预算
 
 ```bash
