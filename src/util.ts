@@ -22,14 +22,41 @@ export function stripComments(code: string): string {
   return code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
 }
 
+/** `cause` 链最多展开这么多层——足够穿透「包装了三四层」的常见形态,又不至于把整棵树倒出来。 */
+const CAUSE_CHAIN_DEPTH = 5;
+
+/**
+ * `cause` 链的多行后缀。`Error.stack` **不含** `cause`,而真实死因常常只在那里:`fetch failed`
+ * 的 stack 一个字都不说为什么失败,`error.cause.code` 才是 `ECONNRESET` / `ENOTFOUND` / 证书错误。
+ * 不展开这条链,用户拿到的就是一句无法行动的 `TypeError: fetch failed`。
+ * 逐层带上 `code`(有的话)——它比 message 更适合搜索和按值分支。
+ */
+function causeChainSuffix(error: Error): string {
+  const lines: string[] = [];
+  let current: unknown = (error as { cause?: unknown }).cause;
+  for (let depth = 0; depth < CAUSE_CHAIN_DEPTH && current != null; depth++) {
+    if (current instanceof Error) {
+      const code = (current as { code?: unknown }).code;
+      const label = typeof code === "string" ? `${current.name} (${code})` : current.name;
+      lines.push(`  caused by: ${label}: ${current.message}`);
+      current = (current as { cause?: unknown }).cause;
+    } else {
+      lines.push(`  caused by: ${String(current)}`);
+      break;
+    }
+  }
+  return lines.length > 0 ? `\n${lines.join("\n")}` : "";
+}
+
 /**
  * 把 catch 到的 e 转成报告用字符串。优先带 stack(定位到 eval 脚本抛错的具体 file:line),
- * 只在没有 stack 时才退化到 `name: message`。EvalResult.error 走这个,别再手写
- * `e instanceof Error ? e.message : String(e)`——那样用户永远看不出错误发生在哪一行。
+ * 只在没有 stack 时才退化到 `name: message`;两种形态都补上 `cause` 链。EvalResult.error 走
+ * 这个,别再手写 `e instanceof Error ? e.message : String(e)`——那样用户永远看不出错误发生在
+ * 哪一行、也看不到真实死因。`firstLine()` 的消费方不受影响:cause 恒在第一行之后。
  */
 export function formatThrown(e: unknown): string {
-  if (e instanceof Error) return e.stack ?? `${e.name}: ${e.message}`;
-  return String(e);
+  if (!(e instanceof Error)) return String(e);
+  return (e.stack ?? `${e.name}: ${e.message}`) + causeChainSuffix(e);
 }
 
 /**

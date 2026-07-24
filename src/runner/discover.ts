@@ -12,6 +12,24 @@ import type { DiscoveredEval, DiscoveredExperiment, EvalDef, ExperimentDef } fro
 
 const SKIP_DIRS = new Set(["node_modules", ".git", ".niceeval", "dist", ".next"]);
 
+/**
+ * 发现阶段的动态 import 会执行被加载文件的**顶层代码**(配置文件里现拉 registry、读 .env、
+ * 连服务都很常见)。裸抛出去的话用户只看到一个不知从何而来的 `TypeError: fetch failed`——
+ * 发现要遍历整棵 `evals/` / `experiments/` 树,一个文件炸了并不会告诉你是哪一个。
+ * 这里把文件路径钉进 message,原错误挂 `cause`(`formatThrown` 会展开成 `caused by:` 链)。
+ */
+async function importDiscovered<T>(file: string, root: string, kind: "eval" | "experiment"): Promise<T> {
+  try {
+    return (await import(pathToFileURL(file).href)) as T;
+  } catch (e) {
+    throw new Error(
+      `Failed to load ${kind} file ${relative(root, file)}: its top-level code threw while being imported. ` +
+        `Fix the error below, or move the work into the ${kind} body so it only runs when this ${kind} is selected.`,
+      { cause: e },
+    );
+  }
+}
+
 async function walkFiles(dir: string, match: (name: string) => boolean): Promise<string[]> {
   const out: string[] = [];
   async function walk(current: string): Promise<void> {
@@ -40,9 +58,9 @@ export async function discoverEvals(root: string): Promise<DiscoveredEval[]> {
   const files = (await walkFiles(dir, (n) => n.endsWith(".eval.ts") || n.endsWith(".eval.tsx"))).sort();
   const out: DiscoveredEval[] = [];
   for (const file of files) {
-    const mod = (await import(pathToFileURL(file).href)) as {
+    const mod = await importDiscovered<{
       default?: EvalDef | EvalDef[] | Record<string, EvalDef>;
-    };
+    }>(file, root, "eval");
     const def = mod.default;
     if (!def) continue;
     const baseId = relative(dir, file).replace(/\.eval\.tsx?$/, "").split(sep).join("/");
@@ -107,7 +125,7 @@ export async function discoverExperiments(root: string): Promise<DiscoveredExper
   const files = (await walkFiles(dir, (n) => n.endsWith(".ts") && !n.endsWith(".d.ts"))).sort();
   const out: DiscoveredExperiment[] = [];
   for (const file of files) {
-    const mod = (await import(pathToFileURL(file).href)) as { default?: ExperimentDef };
+    const mod = await importDiscovered<{ default?: ExperimentDef }>(file, root, "experiment");
     const def = mod.default;
     if (!def || !def.agent) continue;
     const id = relative(dir, file)
