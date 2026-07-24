@@ -485,7 +485,7 @@ async function verifyTerminalTypography(evidence: Evidence): Promise<void> {
 function extractMainRowFromText(showText: string): { tokens: string; cost: string; passRate: string } {
   const line = showText.split("\n").find((l) => l.trimStart().startsWith("main") && l.includes("tokens"));
   assert.ok(line, "couldn't find main's ExperimentList row (line 1) in text output");
-  const tokens = /(\d+(?:\.\d+)?) tokens/.exec(line!);
+  const tokens = /(\d+(?:\.\d+)?[kMB]?) tokens/.exec(line!);
   const cost = /(\$\d+(?:\.\d+)?)/.exec(line!);
   const passRate = /(\d+(?:\.\d+)?)%/.exec(line!);
   assert.ok(tokens && cost && passRate, `couldn't parse main's text row: ${JSON.stringify(line)}`);
@@ -498,7 +498,7 @@ function extractMainRowFromWeb(reportTpl: string): { tokens: string; cost: strin
   while ((m = entryRe.exec(reportTpl))) {
     if (!m[1]!.includes('data-sort-value="main"')) continue;
     const block = m[1]!;
-    const tokens = /(\d+(?:\.\d+)?) tokens/.exec(block);
+    const tokens = /(\d+(?:\.\d+)?[kMB]?) tokens/.exec(block);
     const cost = /(\$\d+(?:\.\d+)?)/.exec(block);
     const passRate = /title="[^"]*attempts measured">(\d+(?:\.\d+)?)%</.exec(block);
     assert.ok(tokens && cost && passRate, "couldn't parse main's web ExperimentList entry");
