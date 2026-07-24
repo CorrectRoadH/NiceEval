@@ -234,7 +234,7 @@ type LifecyclePhase =
   // 主链:从排队到 trace collect,覆盖到判定与主证据收集完成,按执行序
   | "sandbox.queue"        // 等待并发信号量(调度等待,唯一不属于某个 owner 的成员)
   | "sandbox.create"       // provider 起沙箱
-  | "sandbox.setup"        // SandboxSpec.setup() 钩子链
+  | "sandbox.setup"        // SandboxSpec.setup() 生命周期 Hook 链
   | "workspace.baseline"   // 变更分类账锚点(runner 私有 git ledger 首笔 commit)
   | "eval.setup"           // EvalDef.setup
   | "agent.setup"          // Agent.setup(装 CLI、写主配置)
@@ -247,7 +247,7 @@ type LifecyclePhase =
   // 收尾段:无论主链成败都执行,不计入 durationMs 口径,按执行序
   | "eval.teardown"        // EvalDef.teardown
   | "agent.teardown"
-  | "sandbox.teardown"     // SandboxSpec.teardown() 钩子链
+  | "sandbox.teardown"     // SandboxSpec.teardown() 生命周期 Hook 链
   | "sandbox.suspend"      // 留存提交后 provider 把现场转入休眠(docker stop / e2b pause);耗时可观(pause 随内存增长),必须可见
   | "sandbox.stop";        // provider 销毁沙箱;与 sandbox.suspend 同一 attempt 互斥
 
