@@ -924,9 +924,19 @@ export interface FailureNotice extends FailureDetail {
  * `data` 携带结构化字段(如 budget 的 experimentId/spent/unstarted),agent/ci 直接读取,
  * 不解析 `message`(`message` 只是 human 展示用的一句话)。
  */
+/**
+ * 止损闸落闸诊断的稳定词法(`--json` 的 `warning.code`、`snapshot.json` 的诊断 `code`,契约见
+ * docs/feature/error-classification/architecture.md「止损执行体」)。emitter(run.ts)与两种
+ * profile 的 renderer 共用这一个常量,谁都不在自己这边再写一遍字面量。
+ */
+export const HALT_DIAGNOSTIC_CODE = "dispatch-halted";
+
 export interface DiagnosticNotice {
   at: number;
   key: string;
+  /** 对外的稳定词法(`--json` 的 `warning.code`、human 诊断行标题);省略 = 与 `key` 相同。
+   *  `key` 可以把折叠身份(experimentId / evalId)编进去,`code` 恒是干净字面量。 */
+  code?: string;
   severity: "warning" | "error";
   message: string;
   /** 相同 key 累计出现的次数,由 reducer 去重时递增。 */
@@ -960,8 +970,10 @@ export interface InvocationCompletion {
  * cost 累计、failure/diagnostic 去重都只在 reducer 里算一次;三种 profile 的 renderer 只读取
  * 这份状态,不各自维护第二份推导。
  *
- * `total = reused + running + queued + completed` 在处理完每一个事件之后都成立,是 reducer 的
- * 不变量(见 reducer.test.ts 的表驱动用例,每一步都断言,不只在流程末尾断言一次)。
+ * `total = reused + running + elsewhere + queued + completed`(五项恒等式,见
+ * docs/feature/experiments/cli.md「等待并发 run 的显示」)在处理完每一个事件之后都成立,是
+ * reducer 的不变量:任何一次迁移都是「从一项减 x、往另一项加 x」,不存在两项同时计数或都不
+ * 计数的中间态(见 reducer.test.ts 的表驱动用例,每一步都断言,不只在流程末尾断言一次)。
  */
 export interface RunFeedbackState {
   total: number;
@@ -993,7 +1005,7 @@ export interface RunFeedbackState {
   active: ReadonlyMap<AttemptKey, ActiveAttempt>;
   /** 在飞的 judge 预检运行级行(见 `DurableFeedbackEvent` 的 "precheck" 变体):`started` 置位、
    *  `done` 清空。预检发生在任何 attempt 派发之前、作用于整次 invocation,不属于任何 attempt,
-   *  也不参与 `total = reused + running + queued + completed` 计数——预检期间 attempt 保持 `queued`,
+   *  也不参与五项恒等式计数——预检期间 attempt 保持 `queued`,
    *  这行就是「为什么它们还在排队」的解释。undefined = 当前没有在飞的预检。 */
   activePrecheck?: ActivePrecheck;
   /** 在飞的实验级钩子(experimentId → 运行级行状态),由 "experiment-hook" 事件增删、
@@ -1098,8 +1110,13 @@ export type DurableFeedbackEvent =
       type: "diagnostic";
       at: number;
       key: string;
+      /** 对外稳定词法(见 `DiagnosticNotice.code`);省略 = 与 `key` 相同。 */
+      code?: string;
       severity: "warning" | "error";
       message: string;
+      /** attempt 级诊断的归属身份。运行级诊断(实验闸 / eval 闸这类不属于任何单条 attempt 的
+       *  事实)不许伪造 identity——它们的 experimentId / evalId 走 `data` 的同名字段,
+       *  `--json` 的 `warning` 事件两处都读、identity 优先。 */
       identity?: AttemptRef;
       data?: Readonly<Record<string, JsonValue>>;
     }
@@ -1146,7 +1163,7 @@ export type DurableFeedbackEvent =
   /**
    * judge 配置预检的起止,由 runner 在探测真正开始/结束时各发一次(见 docs/feature/experiments/
    * cli.md「judge 预检的显示」)。预检作用于整次 invocation、发生在任何 attempt 派发之前,不属于
-   * 任何单个 attempt,也不触碰 `total = reused + running + queued + completed` 计数不变量。human
+   * 任何单个 attempt,也不触碰五项恒等式计数不变量。human
    * TTY 用它维护一条运行级 active 行(不写 scrollback),append-only profile 起止各追加一行。
    * 预检失败不走这个事件——它以既有错误路径中止本次运行。
    */

@@ -32,7 +32,7 @@ import {
 } from "./feedback/sink.ts";
 import { failureDetailFromResult } from "./feedback/failure.ts";
 import { encodeAttemptLocator, type AttemptLocator } from "../results/locator.ts";
-import { runWho } from "./types.ts";
+import { runWho, HALT_DIAGNOSTIC_CODE } from "./types.ts";
 import { prepareRunSandboxes, sandboxForEval } from "./sandbox-selection.ts";
 import { selectedEvalsForRun } from "./eval-selection.ts";
 import { registerExperimentTeardown, unregisterExperimentTeardown } from "./experiment-cleanup-registry.ts";
@@ -398,6 +398,7 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
       exclusiveConcurrencyWarned = true;
       reportDiagnostic({
         key: `provider-exclusive-serial:${resolved.provider}`,
+        code: "provider-exclusive-serial",
         severity: "warning",
         message: t("runner.providerExclusiveSerial", {
           provider: resolved.provider,
@@ -522,6 +523,7 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
       diagnostic: (input) => {
         reportDiagnostic({
           key: input.dedupeKey ?? `${input.code}:experiment:${experimentId}`,
+          code: input.code,
           severity: input.level,
           message: input.message,
           data: { experimentId, ...(input.data ?? {}) },
@@ -574,7 +576,7 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
             experimentId,
             message: e instanceof Error ? e.message : String(e),
           }).trimEnd();
-          reportDiagnostic({ key: `experiment-teardown-failed:${experimentId}`, severity: "warning", message, data: { experimentId } });
+          reportDiagnostic({ key: `experiment-teardown-failed:${experimentId}`, code: "experiment-teardown-failed", severity: "warning", message, data: { experimentId } });
           recordExperimentDiagnostic({
             experimentId: run.experimentId,
             code: "experiment-teardown-failed",
@@ -635,6 +637,7 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
         diagnostic: (input) => {
           reportDiagnostic({
             key: input.dedupeKey ?? `${input.code}:experiment:${experimentId}`,
+            code: input.code,
             severity: input.level,
             message: input.message,
             data: { experimentId, ...(input.data ?? {}) },
@@ -672,7 +675,7 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
           experimentId,
           message: e instanceof Error ? e.message : String(e),
         }).trimEnd();
-        reportDiagnostic({ key: `experiment-teardown-failed:${experimentId}`, severity: "warning", message, data: { experimentId } });
+        reportDiagnostic({ key: `experiment-teardown-failed:${experimentId}`, code: "experiment-teardown-failed", severity: "warning", message, data: { experimentId } });
         recordExperimentDiagnostic({
           experimentId: run.experimentId,
           code: "experiment-teardown-failed",
@@ -710,7 +713,7 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
               experimentId,
               message: e instanceof Error ? e.message : String(e),
             }).trimEnd();
-            reportDiagnostic({ key: `teardown-registration-write-failed:${experimentId}`, severity: "warning", message, data: { experimentId } });
+            reportDiagnostic({ key: `teardown-registration-write-failed:${experimentId}`, code: "teardown-registration-write-failed", severity: "warning", message, data: { experimentId } });
             recordExperimentDiagnostic({
               experimentId: run.experimentId,
               code: "teardown-registration-write-failed",
@@ -888,6 +891,9 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
   const reportHaltNotice = (gate: HaltGate): void => {
     reportDiagnostic({
       key: gate.dedupeKey,
+      // 稳定词法与持久化侧同一个字面量;折叠到哪一条实验 / 用例由 dedupeKey 与 data 的
+      // experimentId / evalId 回答,不编进 code(见 sink.ts 的 DiagnosticInput.code)。
+      code: HALT_DIAGNOSTIC_CODE,
       severity: "error",
       message: t(
         gate.scope === "experiment" ? "runner.dispatchHaltedExperiment" : "runner.dispatchHaltedEval",
@@ -918,7 +924,7 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
     // snapshot.json。裸 run 没有 Snapshot 可挂,recordExperimentDiagnostic 自己丢弃。
     recordExperimentDiagnostic({
       experimentId: gate.persistedExperimentId,
-      code: "dispatch-halted",
+      code: HALT_DIAGNOSTIC_CODE,
       level: "error",
       message,
       phase: declaration.phase,
@@ -1000,6 +1006,11 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
     trying?: Promise<CaseLockTry>;
     /** 在飞的挂起窗口:撞锁的兄弟全体等同一个 promise。 */
     suspension?: Promise<void>;
+    /** 已经用 `lock_wait started` 报进 `elsewhere`、还没被 `resolved` 报出来的 attempt 数。
+     *  五项恒等式要求「报进去多少条就要报出来多少条」:收尾时不能拿当下的 `pending.size`
+     *  当迁移数——等待期间被中断而提前 settle 的 attempt 会让 `pending` 缩水,差额就永远
+     *  挂在 `elsewhere` 上。 */
+    inElsewhere: number;
   }
   const caseLocks = new Map<string, CaseLockState>();
   for (const a of attempts) {
@@ -1013,6 +1024,7 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
         group: [],
         pending: new Set<number>(),
         carried: new Set<number>(),
+        inElsewhere: 0,
       };
       caseLocks.set(key, st);
     }
@@ -1060,7 +1072,9 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
     holder: CaseLockRecord | undefined,
   ): Promise<void> => {
     const { experimentId, evalId } = st;
-    const pendingBefore = st.pending.size;
+    // 这个窗口当初报进 elsewhere 的条数,收尾必须原数报回来(见 CaseLockState.inElsewhere)。
+    const inElsewhere = st.inElsewhere;
+    st.inElsewhere = 0;
     const newlyCarried: number[] = [];
     if (carryRecheckEnabled()) {
       const a0 = st.group[0]!;
@@ -1082,28 +1096,42 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
         }
       }
     }
-    let startedAt = waitStartedAt;
-    if (startedAt === undefined) {
+    if (waitStartedAt === undefined) {
       if (newlyCarried.length === 0) return; // 没有窗口要关、也没有迁移要报:一个事件都不发
-      // 这批 attempt 此刻仍停在 queued(从没被标记过 elsewhere),必须先补一个瞬时的
-      // "started",下面的 "resolved" 才能把它们正确迁走,否则会打破五项恒等式。
-      startedAt = Date.now();
+      // 没有等待窗口要关(接管 / 多开下的全新取锁)。真正携入的那几条此刻仍停在 queued
+      // (从没被标记过 elsewhere),必须先补一个瞬时的 "started",下面的 "resolved" 才能把
+      // 它们正确迁进 reused,否则会打破五项恒等式。**只报这几条**:没携入的兄弟从没离开
+      // queued,把它们也报一遍会在两条事件之间露出一帧「queued 被扣穿」的中间态——极端时序
+      // 下兄弟 attempt 可能已经在这次 await 期间进了 running,那一扣就是负数。
+      const startedAt = Date.now();
       reportLockWait({
         experimentId,
         evalId,
         status: "started",
         ...(holder?.pid !== undefined ? { holderPid: holder.pid } : {}),
         ...(holder?.host !== undefined ? { holderHost: holder.host } : {}),
-        attempts: pendingBefore,
+        attempts: newlyCarried.length,
       });
+      reportLockWait({
+        experimentId,
+        evalId,
+        status: "resolved",
+        carried: newlyCarried.length,
+        dispatched: 0,
+        waitedMs: Date.now() - startedAt,
+      });
+      return;
     }
+    // 真实挂起窗口收尾:carried + dispatched 恒等于 "started" 报进去的 attempts,这条
+    // 恒等式是 elsewhere 不挂账的唯一保证(reducer 只按事件携带的数字增减,不自己推)。
+    const carried = Math.min(newlyCarried.length, inElsewhere);
     reportLockWait({
       experimentId,
       evalId,
       status: "resolved",
-      carried: newlyCarried.length,
-      dispatched: pendingBefore - newlyCarried.length,
-      waitedMs: Date.now() - startedAt,
+      carried,
+      dispatched: inElsewhere - carried,
+      waitedMs: Date.now() - waitStartedAt,
     });
   };
 
@@ -1147,6 +1175,7 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
           }).trimEnd();
           reportDiagnostic({
             key: `lock-taken-over:${experimentId}|${evalId}`,
+            code: "lock-taken-over",
             severity: "warning",
             message,
             data: { experimentId, evalId },
@@ -1196,13 +1225,16 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
     // 窗口照常走完 recheckCarry 并发出 `lock_wait resolved`:少发一次 resolved,这批 attempt 就
     // 永远挂在 elsewhere 上,五项恒等式当场破。
     const waitSignal = haltAbortSignal(st.group[0]!);
+    // 窗口打开这一刻本组还没派发的 attempt 全在 queued(本进程没持锁 = 没有一条开跑),
+    // 整批迁进 elsewhere;记下条数,收尾的 resolved 原数迁回(见 CaseLockState.inElsewhere)。
+    st.inElsewhere = st.pending.size;
     reportLockWait({
       experimentId: st.experimentId,
       evalId: st.evalId,
       status: "started",
       holderPid: holder.pid,
       holderHost: holder.host,
-      attempts: st.pending.size,
+      attempts: st.inElsewhere,
     });
     const window = (async (): Promise<void> => {
       for (;;) {
@@ -1267,7 +1299,7 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
           host: takenOverFrom?.host ?? "?",
         }).trimEnd();
         const dedupeKey = `gate-lease-taken-over:${experimentId}`;
-        reportDiagnostic({ key: dedupeKey, severity: "warning", message, data: { experimentId } });
+        reportDiagnostic({ key: dedupeKey, code: "gate-lease-taken-over", severity: "warning", message, data: { experimentId } });
         recordExperimentDiagnostic({
           experimentId,
           code: "gate-lease-taken-over",
@@ -1449,6 +1481,7 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
               });
               reportDiagnostic({
                 key: `fail-fast:${a.key}`,
+                code: "fail-fast",
                 severity: "warning",
                 message: t("runner.failFast", { evalId: a.evalDef.id, code: failFast.code }).trimEnd(),
                 identity: feedbackIdentity(a),
@@ -1622,7 +1655,7 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
                   s.unenforceableWarned = true;
                   {
                     const message = t("runner.budgetUnenforceable", { budgetKey }).trimEnd();
-                    reportDiagnostic({ key: `budget-unenforceable:${budgetKey}`, severity: "warning", message, data: { budgetKey } });
+                    reportDiagnostic({ key: `budget-unenforceable:${budgetKey}`, code: "budget-unenforceable", severity: "warning", message, data: { budgetKey } });
                     recordExperimentDiagnostic({
                       experimentId: a.run.experimentId,
                       code: "budget-unenforceable",
@@ -1809,7 +1842,7 @@ export async function runEvals(opts: RunOptions): Promise<InvocationSummary> {
       if (!lc.teardownPromise) {
         const experimentId = run.experimentId ?? run.agent.name;
         const message = t("runner.experimentTeardownLate", { experimentId }).trimEnd();
-        reportDiagnostic({ key: `experiment-teardown-late:${experimentId}`, severity: "warning", message, data: { experimentId, remaining: lc.remaining } });
+        reportDiagnostic({ key: `experiment-teardown-late:${experimentId}`, code: "experiment-teardown-late", severity: "warning", message, data: { experimentId, remaining: lc.remaining } });
         recordExperimentDiagnostic({
           experimentId: run.experimentId,
           code: "experiment-teardown-late",

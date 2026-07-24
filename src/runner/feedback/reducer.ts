@@ -3,8 +3,15 @@
 // RunFeedbackState,不各自维护第二份推导,也不解析 message 里的人类文案(结构化字段都在
 // DiagnosticNotice.data / FailureNotice 的具名字段上,见 ../types.ts 的类型注释)。
 //
-// `total = reused + running + queued + completed` 在处理每一个事件之后都成立 —— 见
-// reducer.test.ts 的表驱动用例,每一步都断言这个不变量,不只在流程末尾断言一次。
+// `total = reused + running + elsewhere + queued + completed`(五项恒等式,契约见
+// docs/feature/experiments/cli.md「等待并发 run 的显示」)在处理每一个事件之后都成立 —— 见
+// reducer.test.ts 的表驱动用例,每一步都断言这个不变量,不只在流程末尾断言一次。五项是互斥
+// 状态划分:每一次迁移都是「从一项减 x、往另一项加 x」的原子操作(plan → queued;
+// attempt:start queued→running;attempt:complete running→completed;attempt:early-exit 与
+// budget-exhausted queued→completed;lock-wait started queued→elsewhere;lock-wait resolved
+// elsewhere→reused / elsewhere→queued),没有一个事件会让某条 attempt 同时落在两项里或凭空
+// 消失。emitter 侧的对应义务是「报进 elsewhere 多少条,就要报出来多少条」(见 run.ts 的
+// recheckCarry)。
 //
 // reducer 本身不读 Date.now()、不碰 process.stdout/stderr、不知道 profile 是 human/json ——
 // 纯函数 (state, event) => state,方便脱离真实 runner/terminal 单测。
@@ -257,6 +264,7 @@ export function reduceRunFeedback(state: RunFeedbackState, event: RunFeedbackEve
         diagnostics: upsertDiagnostic(state.diagnostics, {
           at: event.at,
           key: event.key,
+          ...(event.code !== undefined ? { code: event.code } : {}),
           severity: event.severity,
           message: event.message,
           identity: event.identity,

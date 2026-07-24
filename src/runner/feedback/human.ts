@@ -20,7 +20,7 @@ import { t } from "../../i18n/index.ts";
 import { verdictSymbol } from "../reporters/shared.ts";
 import { formatCost } from "../../shared/format.ts";
 import { assertionSummaryLines } from "../../scoring/display.ts";
-import { encodeAttemptKey } from "../types.ts";
+import { encodeAttemptKey, HALT_DIAGNOSTIC_CODE } from "../types.ts";
 import {
   panelCapabilityOf as panelCapability,
   panelContentWidth,
@@ -243,8 +243,21 @@ function buildDiagnosticLines(event: DurableFeedbackEvent & { type: "diagnostic"
   // count 从 state.diagnostics 读(reducer 已经按 key 去重累加),不在这里自己维护第二份计数。
   const count = state.diagnostics.find((d) => d.key === event.key)?.count ?? 1;
   const sym = event.severity === "error" ? "✗" : "!";
+  if (event.code === HALT_DIAGNOSTIC_CODE) {
+    // 止损闸落闸:一行 error 级通知,文案已经是完整的一句话(`experiment halted
+    // (dispatch-halted): <message>` / `eval halted: <message>`,见 docs/feature/
+    // error-classification/architecture.md「观察面」),不再加标题行、也不加 ×N 后缀——
+    // emitter 对每条未派发 attempt 都刷一次这条诊断以更新 data.unstarted,逐次打印就是
+    // 同一页文档明令禁止的「被中止的等待集 attempt 逐条刷屏」;未派发的数量由完成状态的
+    // `unstarted` 回答,不在这行重复。因此只在第一次出现时落一行(与 json profile 的
+    // isFirstOccurrence 同一条去重纪律)。
+    if (count > 1) return [];
+    return [`${sym} ${event.message}`];
+  }
+  // 标题用稳定词法(`code`),不是把折叠身份一起编进去的去重 key —— 人读的一行要能一眼认出
+  // 「这是哪一类诊断」,`compare/codex|memory/x` 那串身份属于 message 与机器面的具名字段。
   const suffix = count > 1 ? ` (${count} attempts)` : "";
-  return [`${sym} ${event.key}${suffix}`, `  ${event.message}`];
+  return [`${sym} ${event.code ?? event.key}${suffix}`, `  ${event.message}`];
 }
 
 /** 结束结论(`FAILED`/`PASSED`/…)+ `FAILURES`(有失败才出现)+ `KEPT SANDBOXES`(有留存才

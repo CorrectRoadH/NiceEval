@@ -199,6 +199,7 @@ export function createFeedbackCoordinator(options: FeedbackCoordinatorOptions): 
       type: "diagnostic",
       at: io.clock.now(),
       key: input.key,
+      ...(input.code !== undefined ? { code: input.code } : {}),
       severity: input.severity,
       message: input.message,
       identity: input.identity,

@@ -104,13 +104,24 @@ export function createJsonRenderer(options: JsonRendererOptions): FeedbackRender
           noteCheckpoint(event.at);
           if (!isFirstOccurrence(state, event.key)) return; // 去重后只追加一次(cli.md)
           const phase = typeof event.data?.phase === "string" ? (event.data.phase as LifecyclePhase) : undefined;
+          // `code` 是 cli.md `WarningEvent` 里那个稳定词法(`lock-taken-over` / `dispatch-halted`),
+          // **不是**去重 key:去重 key 常把折叠身份编进去(`lock-taken-over:<exp>|<eval>`),原样
+          // 透出会让消费方拿到一个每次运行都不同的 code、没法按值分支。折叠到哪一条实验/用例
+          // 由下面的 experimentId/evalId 两个具名字段回答。
+          const code = event.code ?? event.key;
+          // 身份两字段:attempt 级诊断从 identity 取;运行级诊断(实验闸 / eval 闸这类不属于
+          // 任何单条 attempt 的事实)不许伪造 identity,从 `data` 的同名字段取(见 ../types.ts
+          // "diagnostic" 变体的 identity 注释)。
+          const experimentId = event.identity?.experimentId ?? stringField(event.data?.experimentId);
+          const evalId = event.identity?.evalId ?? stringField(event.data?.evalId);
           writeEvent(io, {
             event: "warning",
-            code: event.key,
+            code,
             level: event.severity,
             message: event.message,
             ...(phase !== undefined ? { phase } : {}),
-            ...(event.identity?.experimentId !== undefined ? { experimentId: event.identity.experimentId } : {}),
+            ...(experimentId !== undefined ? { experimentId } : {}),
+            ...(evalId !== undefined ? { evalId } : {}),
           });
           return;
         }
@@ -244,6 +255,12 @@ export function createJsonRenderer(options: JsonRendererOptions): FeedbackRender
  *  `budget-exhausted:${experimentId}` / `"interrupted"` / `reporter-error:${reporter}`)。 */
 function isFirstOccurrence(state: RunFeedbackState, key: string): boolean {
   return (state.diagnostics.find((d) => d.key === key)?.count ?? 0) <= 1;
+}
+
+/** `data` 里的一个字符串字段;非字符串(或缺失)一律当没有,不把数字/对象硬塞进只接受
+ *  字符串的事件字段里。 */
+function stringField(value: JsonValue | undefined): string | undefined {
+  return typeof value === "string" ? value : undefined;
 }
 
 // ───────────────────────── failure / error 事件(不设上限) ─────────────────────────

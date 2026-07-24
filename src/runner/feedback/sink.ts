@@ -26,8 +26,13 @@ import type { AttemptLocator } from "../../results/locator.ts";
 export interface DiagnosticInput {
   /** 稳定去重 key —— 同一种 warning/error 用同一个 key(见 cli.md「同一 dedupeKey 并发出现时
    *  只留一条并显示次数」),不要把可变的实例细节(如具体 sandbox id)编进 key 本身,
-   *  那些细节放 `data`。 */
+   *  那些细节放 `data`。折叠身份(实验 / eval)可以编进 key,那是「折叠到多细」的表达;
+   *  对外展示的稳定词由 `code` 单独给,不从 key 反推。 */
   key: string;
+  /** 对外的稳定词法:`--json` 的 `warning.code`、human 诊断行的标题都读它(见 cli.md
+   *  `WarningEvent`,如 `lock-taken-over` / `dispatch-halted`)。省略 = 与 `key` 相同——
+   *  折叠身份不进 key 的那些诊断天生就是干净字面量,不必重复写一遍。 */
+  code?: string;
   severity: "warning" | "error";
   /** 一句话人类可读摘要;renderer 的 appendDurable 直接展示,不需要再解析。 */
   message: string;
