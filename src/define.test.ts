@@ -1,7 +1,7 @@
 // cases: docs/engineering/testing/unit/sandbox.md
 // SandboxSpec 链式钩子(.setup()/.teardown())的构造期契约:不可变、多次追加按顺序累加。
 // 执行顺序(setup 正序 / teardown 逆序 / LIFO cleanup)是 runner 的事,见
-// test/e2e-sandbox-hooks.test.ts;这里只测 dockerSandbox()/vercelSandbox()/e2bSandbox()/
+// src/runner/attempt.test.ts;这里只测 dockerSandbox()/vercelSandbox()/e2bSandbox()/
 // defineSandbox() 这四个工厂产出的 spec 对象本身的构造行为。
 import { describe, expect, it } from "vitest";
 import { dockerSandbox, e2bSandbox, vercelSandbox, defineSandbox } from "./define.ts";

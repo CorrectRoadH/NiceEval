@@ -12,10 +12,11 @@
 
 import "dotenv/config";
 import { spawnSync } from "node:child_process";
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import assert from "node:assert/strict";
 
 const CI_LOG = "logs/exp-ci.log";
+const ESC = "\x1b";
 
 function ensureDirs(): void {
   mkdirSync("logs", { recursive: true });
@@ -29,15 +30,54 @@ function ensureDirs(): void {
  * docs/feature/experiments/cli.md「用法错误」),合并后才能统一用 .includes() 断言,同时
  * e2e.ts 的失败分类也需要读到同一份完整证据。
  */
-function sh(cmd: string, expect: number | "nonzero" = 0): string {
+interface ShellResult {
+  status: number;
+  stdout: string;
+  stderr: string;
+  combined: string;
+}
+
+function shResult(cmd: string, expect: number | "nonzero" = 0): ShellResult {
   console.log(`\n$ ${cmd}`);
-  const res = spawnSync(cmd, { shell: true, encoding: "utf8" });
+  const res = spawnSync(cmd, {
+    shell: true,
+    encoding: "utf8",
+    env: { ...process.env, NICEEVAL_LANG: "en" },
+  });
   const exit = res.status ?? -1;
-  const combined = `${res.stdout ?? ""}${res.stderr ?? ""}`;
+  const stdout = res.stdout ?? "";
+  const stderr = res.stderr ?? "";
+  const combined = `${stdout}${stderr}`;
   appendFileSync(CI_LOG, `$ ${cmd}\n${combined}\n(exit ${exit})\n\n`);
   const ok = expect === "nonzero" ? exit !== 0 : exit === expect;
   assert.ok(ok, `${cmd}\n退出 ${exit},期望 ${expect}。输出尾部:\n${combined.slice(-2000)}`);
-  return combined;
+  return { status: exit, stdout, stderr, combined };
+}
+
+function sh(cmd: string, expect: number | "nonzero" = 0): string {
+  return shResult(cmd, expect).combined;
+}
+
+/**
+ * 用系统 `script` 分配真实 PTY。TTY 分支只在这里做「真实进程确实选中 dashboard renderer」
+ * 的 smoke；宽度、行高、折叠与逐帧几何由可控 IO 的 unit 精确证明，避免 E2E 复刻终端模拟器。
+ */
+function shPty(cmd: string, columns = 72, rows = 12): string {
+  const shellCommand = `stty cols ${columns} rows ${rows}; exec ${cmd}`;
+  const args =
+    process.platform === "darwin"
+      ? ["-q", "/dev/null", "/bin/sh", "-c", shellCommand]
+      : ["-qec", shellCommand, "/dev/null"];
+  console.log(`\n$ script (PTY ${columns}x${rows}) -- ${cmd}`);
+  const res = spawnSync("script", args, {
+    encoding: "utf8",
+    env: { ...process.env, NICEEVAL_LANG: "en" },
+  });
+  const exit = res.status ?? -1;
+  const output = `${res.stdout ?? ""}${res.stderr ?? ""}`;
+  appendFileSync(CI_LOG, `$ script (PTY ${columns}x${rows}) -- ${cmd}\n${output}\n(exit ${exit})\n\n`);
+  assert.equal(exit, 0, `PTY command exited ${exit}:\n${output.slice(-2000)}`);
+  return output;
 }
 
 function attemptLines(evalId: string): string[] {
@@ -146,8 +186,50 @@ function selectionNarrowing(): void {
   );
 }
 
+function cliFlagAndDryContracts(): void {
+  console.log("\n=== 4. public flag errors and --dry output contract ===");
+
+  for (const command of [
+    "pnpm --silent exec niceeval exp --output",
+    "pnpm --silent exec niceeval exp --output=ci",
+  ]) {
+    const result = shResult(command, "nonzero");
+    assert.equal(result.stdout, "", `${command} usage error should not write stdout`);
+    assert.match(result.stderr, /error: unknown option '--output'/);
+    assert.match(result.stderr, /fix:/);
+  }
+
+  const quiet = shResult("pnpm --silent exec niceeval exp --quiet", "nonzero");
+  assert.match(quiet.stderr.toLowerCase(), /quiet/, "--quiet must remain an unknown option, not a third output form");
+
+  const history = shResult("pnpm --silent exec niceeval exp --history", "nonzero");
+  assert.match(history.stderr, /`--history` only applies to niceeval show/);
+  assert.doesNotMatch(history.stdout, /PASSED|FAILED|"event":"result"/, "exp --history must fail before running");
+
+  const timing = shResult("pnpm --silent exec niceeval show --timing=verbose", "nonzero");
+  assert.match(timing.stderr, /--timing only accepts "summary" \(default\) or "full"/);
+
+  const humanJunit = "junit/dry-human.xml";
+  rmSync(humanJunit, { force: true });
+  const humanDry = shResult(`pnpm --silent exec niceeval exp normal --dry --junit ${humanJunit}`);
+  assert.ok(!humanDry.stdout.includes(ESC), "--dry human text must contain no ANSI when stdout/stderr are pipes");
+  assert.equal(existsSync(humanJunit), false, "--dry must not write the requested JUnit file");
+
+  const jsonJunit = "junit/dry-json.xml";
+  rmSync(jsonJunit, { force: true });
+  const jsonDry = shResult(`pnpm --silent exec niceeval exp normal --dry --json --junit ${jsonJunit}`);
+  assert.equal(jsonDry.stderr, "", "--dry --json success must keep stderr empty");
+  assert.ok(!jsonDry.stdout.includes(ESC), "--dry --json must contain no ANSI");
+  const lines = jsonDry.stdout.trim().split("\n").filter(Boolean);
+  assert.equal(lines.length, 1, "--dry --json must emit one plan document, not an event stream");
+  const plan = JSON.parse(lines[0]!) as ExpPlanDocument;
+  assert.equal(plan.format, "niceeval.exp-plan");
+  assert.ok(Array.isArray(plan.matrix));
+  assert.equal(existsSync(jsonJunit), false, "--dry --json must not write the requested JUnit file");
+}
+
 function exitCodeFoldingDeliberateFail(): void {
-  console.log("\n=== 4. exit-code folding: deliberate-fail → failed, <failure> ===");
+  console.log("\n=== 5. exit-code folding: deliberate-fail → failed, <failure> ===");
   sh("pnpm exec niceeval exp deliberate-fail --force --junit junit/fail.xml", "nonzero");
   const failXml = readFileSync("junit/fail.xml", "utf8");
   assert.ok(
@@ -163,7 +245,7 @@ function exitCodeFoldingDeliberateFail(): void {
 }
 
 function exitCodeFoldingDeliberateError(): void {
-  console.log("\n=== 5. exit-code folding: deliberate-error → errored, <error> ===");
+  console.log("\n=== 6. exit-code folding: deliberate-error → errored, <error> ===");
   sh("pnpm exec niceeval exp deliberate-error --force --junit junit/error.xml", "nonzero");
   const errorXml = readFileSync("junit/error.xml", "utf8");
   assert.ok(
@@ -186,7 +268,7 @@ interface NormalBaseline {
 
 /** 正常路径全部通过(真实 DeepSeek 调用),同时建立缓存三步的基线计数。 */
 function exitCodeFoldingNormal(): NormalBaseline {
-  console.log("\n=== 6. exit-code folding: normal (real DeepSeek calls) → passed, exit 0 ===");
+  console.log("\n=== 7. exit-code folding: normal (real DeepSeek calls) → passed, exit 0 ===");
   sh("pnpm exec niceeval exp normal --force --junit junit/normal.xml");
   const normalXml = readFileSync("junit/normal.xml", "utf8");
   assert.ok(
@@ -203,7 +285,7 @@ function exitCodeFoldingNormal(): NormalBaseline {
 }
 
 function cliReadBack(greetLine: string): void {
-  console.log("\n=== 7. CLI read-back: niceeval show @<locator> ===");
+  console.log("\n=== 8. CLI read-back: niceeval show @<locator> ===");
   const locator = greetLine.match(/@\S+/)?.[0];
   assert.ok(locator, `history 行里没有 @locator,读回没有入口:${greetLine}`);
   const shown = sh(`pnpm exec niceeval show ${locator}`);
@@ -211,8 +293,36 @@ function cliReadBack(greetLine: string): void {
   assert.ok(shown.includes("passed"), `niceeval show ${locator} 没有显示 verdict passed:\n${shown}`);
 }
 
+function feedbackOutputFormats(): void {
+  console.log("\n=== 9. feedback output forms: NDJSON, non-TTY human text, and real PTY smoke ===");
+
+  const json = shResult("pnpm --silent exec niceeval exp normal --json");
+  assert.equal(json.stderr, "", "--json normal events must stay on stdout");
+  assert.ok(!json.stdout.includes(ESC), "--json must never contain ANSI/control sequences");
+  const jsonLines = json.stdout.trim().split("\n").filter(Boolean);
+  const events = jsonLines.map((line) => JSON.parse(line) as Record<string, unknown>);
+  assert.deepEqual(
+    { format: events[0]?.format, schemaVersion: events[0]?.schemaVersion, event: events[0]?.event },
+    { format: "niceeval.exp", schemaVersion: 1, event: "start" },
+  );
+  assert.equal(events.at(-1)?.event, "result");
+  assert.equal(events.at(-1)?.status, "passed");
+
+  const human = shResult("pnpm --silent exec niceeval exp normal");
+  assert.equal(human.stderr, "", "non-TTY human success must use the single stdout append-only stream");
+  assert.ok(!human.stdout.includes(ESC), "non-TTY human output must contain no ANSI");
+  assert.match(human.stdout, /PASSED/);
+  assert.doesNotMatch(human.stdout, /"event":"result"/, "human output must not silently switch to NDJSON");
+
+  const tty = shPty("pnpm --silent exec niceeval exp normal");
+  assert.ok(tty.includes(ESC), "real PTY run did not emit dashboard cursor/control sequences");
+  assert.match(tty, /[╭╮╰╯]/, "real PTY run did not render boxed dashboard panels");
+  assert.match(tty, /PASSED/, "real PTY run did not reach the same passed completion state");
+  assert.doesNotMatch(tty, /"event":"result"/, "TTY human output must not switch to NDJSON");
+}
+
 function cacheThreeStep(baseline: NormalBaseline): void {
-  console.log("\n=== 8. cache three-step dance ===");
+  console.log("\n=== 10. cache three-step dance ===");
   const second = sh("pnpm exec niceeval exp normal"); // 不带 --force:复用
   assert.ok(second.includes("reused"), `第二次运行的摘要没有报告复用——缓存没生效:\n${second}`);
   assert.equal(
@@ -245,12 +355,14 @@ export async function runVerify(): Promise<void> {
   selectionExperimentUnmatched();
   selectionEvalUnmatched();
   selectionNarrowing();
+  cliFlagAndDryContracts();
 
   exitCodeFoldingDeliberateFail();
   exitCodeFoldingDeliberateError();
 
   const baseline = exitCodeFoldingNormal();
   cliReadBack(baseline.greetLine);
+  feedbackOutputFormats();
   cacheThreeStep(baseline);
 
   console.log("\ncli: all assertions passed.");

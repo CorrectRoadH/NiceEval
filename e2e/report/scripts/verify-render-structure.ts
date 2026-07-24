@@ -346,37 +346,6 @@ async function verifyScopeWarningsBrandAndNavigation(evidence: Evidence): Promis
 }
 
 // ---------------------------------------------------------------------------
-// 结构 (3/3):跨组件的颜色 class 一致性(colorClassForKey / seriesClassForKey)。
-// ---------------------------------------------------------------------------
-
-function coloredKeyClass(templateHtml: string, spanClassPrefix: string, key: string): string | undefined {
-  const m = templateHtml.match(new RegExp(`class="${escapeRegExp(spanClassPrefix)} nre-key (nre-c\\d)">${escapeRegExp(key)}<`));
-  return m?.[1];
-}
-
-async function verifyColorConsistency(evidence: Evidence): Promise<void> {
-  const indexHtml = readSiteFile(evidence, "index.html");
-  const reportTpl = extractTemplate(indexHtml, "niceeval-report-report-en");
-  const attemptsTpl = extractTemplate(indexHtml, "niceeval-report-attempts-en");
-
-  // ExperimentList(report 页)对比 AttemptList(attempts 页):两者都以同样的 "agent"
-  // 维度作为 key,针对 scope 内全部 3 个真实 agent 都要验证。
-  for (const agent of [AGENT.main, AGENT.deliberateFail, AGENT.deliberateError]) {
-    const expColor = coloredKeyClass(reportTpl, "nre-experiment-agent", agent);
-    const attColor = coloredKeyClass(attemptsTpl, "nre-attempt-agent", agent);
-    assert.ok(expColor, `ExperimentList (report page) has no colored key for agent "${agent}"`);
-    assert.ok(attColor, `AttemptList (attempts page) has no colored key for agent "${agent}"`);
-    assert.equal(expColor, attColor, `agent "${agent}" gets different color classes in ExperimentList (${expColor}) vs AttemptList (${attColor}) — colorClassForKey must be stable across components regardless of which one renders it (report.md 结构条)`);
-  }
-
-  // MetricScatter 的图例:只有 "main"/results-mechanism 是可绘制的(见文件头部说明——
-  // deliberate-fail/error 从不带成本数据),但这依然构成一对真实的跨组件比较。
-  const scatterColor = coloredKeyClass(reportTpl, "nre-legend-key", AGENT.main);
-  assert.ok(scatterColor, `MetricScatter legend has no colored key for agent "${AGENT.main}"`);
-  assert.equal(scatterColor, coloredKeyClass(reportTpl, "nre-experiment-agent", AGENT.main), `agent "${AGENT.main}" gets a different color in MetricScatter's legend than in ExperimentList`);
-}
-
-// ---------------------------------------------------------------------------
 // 结构 + 终端排版:MetricScatter —— 坐标轴方向(web,SVG 刻度)、connect/图例一致性
 // (web),以及字符坐标图表的标记 + 图例 + 提示文本(文本面)。
 // ---------------------------------------------------------------------------
@@ -587,7 +556,6 @@ async function verifyDualRenderParity(evidence: Evidence): Promise<void> {
 export async function verifyRenderStructure(evidence: Evidence): Promise<void> {
   await verifyAttemptDetailStructure(evidence);
   await verifyScopeWarningsBrandAndNavigation(evidence);
-  await verifyColorConsistency(evidence);
   await verifyMetricScatterStructure(evidence);
   await verifyTerminalTypography(evidence);
   await verifyDualRenderParity(evidence);

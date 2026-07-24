@@ -29,6 +29,7 @@ import { verifyReadback } from "./verify-readback.ts";
 import { verifyRenderStructure } from "./verify-render-structure.ts";
 import { verifyRenderVisual } from "./verify-render-visual.ts";
 import { verifyCustomReports } from "./verify-custom-reports.ts";
+import { verifyPackageConsumer } from "./verify-package-consumer.ts";
 // ── new verify-<domain>.ts imports go here (one line each) ──
 
 const EX_TEMPFAIL = 75;
@@ -78,6 +79,9 @@ async function main(): Promise<void> {
     // evidence.main/deliberateFail/deliberateError 的原始 locator(它自己独立的 `--out` 导出,
     // 与 evidence.siteExportDir 无关),同样必须排在 verifyReadback 之前(理由同上)。
     await verifyCustomReports(evidence);
+    // 候选 tarball 在外部消费方 cwd 的真实进程里装载 package-owned report ESM；消费的仍是
+    // 本次真实 Evidence，所以也必须排在 verifyReadback 改变 current() 水位之前。
+    verifyPackageConsumer(evidence);
     await verifyReadback(evidence);
     // verifyRenderVisual 只读 evidence.siteExportDir 已导出好的静态文件(attempt/<locator>.html
     // 走 file://,index.html 靠本地起的静态文件 HTTP server)——不现场调用 `niceeval show`/`view`

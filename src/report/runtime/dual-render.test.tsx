@@ -15,7 +15,7 @@ import { describe, expect, it } from "vitest";
 
 import type { AssertionResult, EvalResult, Verdict } from "../../types.ts";
 import type { AttemptHandle, Results, Scope, Snapshot } from "../../results/index.ts";
-import { resultsOf, scopeOf } from "../components/scope.harness.ts";
+import { attemptHandleOf, resultsOf, scopeOf } from "../components/scope.harness.ts";
 import {
   createTextContext,
   defineComponent,
@@ -80,21 +80,12 @@ function snap(spec: {
     schemaVersion: 1,
     dir: `/results/exp/snap-${runSeq}`,
   } as Snapshot;
-  const attempts: AttemptHandle[] = spec.results.map((r) => ({
-    evalId: r.id,
-    experimentId: spec.experimentId,
-    result: r,
-    ref: { snapshot: `exp/snap-${runSeq}`, attempt: `${r.id}/a${r.attempt}` },
-    snapshot,
-    carried: Boolean(r.artifactBase),
-    commands: async () => null,
-    events: async () => null,
-    trace: async () => null,
-    o11y: async () => null,
-    agentSetup: async () => null,
-    diff: async () => null,
-    sources: async () => null,
-  }));
+  const attempts: AttemptHandle[] = spec.results.map((r) =>
+    attemptHandleOf(snapshot, r, {
+      snapshot: `exp/snap-${runSeq}`,
+      attempt: `${r.id}/a${r.attempt}`,
+    }),
+  );
   const evals = new Map<string, AttemptHandle[]>();
   for (const attempt of attempts) evals.set(attempt.evalId, [...(evals.get(attempt.evalId) ?? []), attempt]);
   snapshot.evals = [...evals.entries()].map(([id, list]) => ({ id, attempts: list }));

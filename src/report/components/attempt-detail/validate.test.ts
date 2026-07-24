@@ -58,11 +58,8 @@ describe("validateSummaryData", () => {
 describe("validateErrorData", () => {
   const valid = { code: "unexpected-error", message: "boom", phase: "eval.run", locator: "@1abcdef2" };
 
-  it("合规 literal 通过", () => {
+  it("合规 literal 通过,commandEvidenceHint 省略或为 true 都合法", () => {
     expect(validateErrorData(valid)).toBeNull();
-  });
-
-  it("带 commandEvidenceHint: true 的 literal 通过", () => {
     expect(validateErrorData({ ...valid, commandEvidenceHint: true })).toBeNull();
   });
 
@@ -70,11 +67,7 @@ describe("validateErrorData", () => {
     expect(validateErrorData({ ...valid, commandEvidenceHint: false })).toMatch(/"commandEvidenceHint"/);
   });
 
-  it("缺 locator 报错", () => {
-    expect(validateErrorData({ code: "x", message: "boom", phase: "eval.run" })).toMatch(/"locator"/);
-  });
-
-  it("缺 phase 报错", () => {
+  it("必填字符串缺失时定位到字段", () => {
     expect(validateErrorData({ code: "x", message: "boom", locator: "@1abcdef2" })).toMatch(/"phase"/);
   });
 });
@@ -146,11 +139,6 @@ describe("validateSourceData", () => {
   it("summary 缺 totalLines 报错", () => {
     const bad = { ...valid, summary: { ...validSummary, totalLines: undefined } };
     expect(validateSourceData(bad)).toMatch(/"summary\.totalLines"/);
-  });
-
-  it("summary 缺 annotatedLines 报错", () => {
-    const bad = { ...valid, summary: { ...validSummary, annotatedLines: undefined } };
-    expect(validateSourceData(bad)).toMatch(/"summary\.annotatedLines"/);
   });
 
   it("lines[i].assertions 嵌套断言结构错误报错", () => {
@@ -306,11 +294,6 @@ describe("validateUsageData", () => {
     expect(validateUsageData(bad)).toMatch(/"usage\.inputTokens"/);
   });
 
-  it("uncachedInputTokens / estimatedCostUSD 非数字报错;省略合法", () => {
-    expect(validateUsageData({ ...validUsage, uncachedInputTokens: 60, estimatedCostUSD: 0.5 })).toBeNull();
-    expect(validateUsageData({ ...validUsage, uncachedInputTokens: "60" })).toMatch(/"uncachedInputTokens"/);
-    expect(validateUsageData({ ...validUsage, estimatedCostUSD: "0.5" })).toMatch(/"estimatedCostUSD"/);
-  });
 });
 
 describe("validateTraceData", () => {

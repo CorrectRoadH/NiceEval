@@ -8,7 +8,7 @@
 import { describe, expect, it } from "vitest";
 import type { EvalResult, ScoreEntry, Usage, Verdict } from "../../../types.ts";
 import type { AttemptHandle, Snapshot } from "../../../results/index.ts";
-import { scopeOf } from "../scope.harness.ts";
+import { attemptHandleOf, scopeOf } from "../scope.harness.ts";
 import { conditionsByFlag, deltaTableData } from "./compute.ts";
 import { validateDeltaData } from "./index.tsx";
 
@@ -53,21 +53,12 @@ function snap(
     dir: `/results/${experimentId}/snap-${runSeq}`,
     ...(opts.flags ? { experiment: { runs: 1, earlyExit: false, selectedEvalIds: [], flags: opts.flags } } : {}),
   } as Snapshot;
-  const attempts: AttemptHandle[] = results.map((r) => ({
-    evalId: r.id,
-    experimentId: r.experimentId ?? experimentId,
-    result: r,
-    ref: { snapshot: `${experimentId}/snap-${runSeq}`, attempt: `${r.id}/a${r.attempt}` },
-    snapshot,
-    carried: false,
-    commands: async () => null,
-    events: async () => null,
-    trace: async () => null,
-    o11y: async () => null,
-    agentSetup: async () => null,
-    diff: async () => null,
-    sources: async () => null,
-  }));
+  const attempts: AttemptHandle[] = results.map((r) =>
+    attemptHandleOf(snapshot, r, {
+      snapshot: `${experimentId}/snap-${runSeq}`,
+      attempt: `${r.id}/a${r.attempt}`,
+    }),
+  );
   const evals = new Map<string, AttemptHandle[]>();
   for (const a of attempts) evals.set(a.evalId, [...(evals.get(a.evalId) ?? []), a]);
   snapshot.evals = [...evals.entries()].map(([id, list]) => ({ id, attempts: list }));

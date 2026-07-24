@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 import type { EvalResult, Verdict } from "../../../types.ts";
 import type { AttemptHandle, Snapshot } from "../../../results/index.ts";
-import { scopeOf } from "../scope.harness.ts";
+import { attemptHandleOf, scopeOf } from "../scope.harness.ts";
 import { stabilityMatrixData } from "./compute.ts";
 import { validateStabilityMatrixData } from "./index.tsx";
 
@@ -42,21 +42,12 @@ function snap(
     schemaVersion: 1,
     dir: `/results/${experimentId}/snap-${runSeq}`,
   } as Snapshot;
-  const attempts: AttemptHandle[] = results.map((r) => ({
-    evalId: r.id,
-    experimentId,
-    result: r,
-    ref: { snapshot: `${experimentId}/snap-${runSeq}`, attempt: `${r.id}/a${r.attempt}` },
-    snapshot,
-    carried: false,
-    commands: async () => null,
-    events: async () => null,
-    trace: async () => null,
-    o11y: async () => null,
-    agentSetup: async () => null,
-    diff: async () => null,
-    sources: async () => null,
-  }));
+  const attempts: AttemptHandle[] = results.map((r) =>
+    attemptHandleOf(snapshot, r, {
+      snapshot: `${experimentId}/snap-${runSeq}`,
+      attempt: `${r.id}/a${r.attempt}`,
+    }),
+  );
   const evals = new Map<string, AttemptHandle[]>();
   for (const a of attempts) evals.set(a.evalId, [...(evals.get(a.evalId) ?? []), a]);
   snapshot.evals = [...evals.entries()].map(([id, list]) => ({ id, attempts: list }));

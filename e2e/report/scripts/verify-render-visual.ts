@@ -57,13 +57,14 @@ import { extname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { AddressInfo } from "node:net";
 import assert from "node:assert/strict";
-import { chromium, type Browser } from "@playwright/test";
+import { chromium, type Browser, type Locator } from "@playwright/test";
 import type { Evidence } from "./evidence.ts";
 
 /** 静态导出文档里,肉眼可见/参与断言的内容恒在这层包裹下(见 verify-render-structure.ts 的
  * englishLocaleSlice 同款约束):zh-CN 副本默认 `hidden`,不 scope 到这层选择器会在 Playwright
  * 严格模式下因为匹配到两份(en + 隐藏的 zh-CN)而报错。 */
 const EN_SCOPE = '[data-nre-locale="en"]';
+const AGENTS = ["results-mechanism", "results-deliberate-fail", "results-deliberate-error"] as const;
 
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -119,6 +120,27 @@ function colorAlpha(computedColor: string): number {
   return 1;
 }
 
+type VisualRect = { x: number; y: number; width: number; height: number };
+
+async function directChildRects(locator: Locator): Promise<VisualRect[]> {
+  return locator.evaluate((el) =>
+    Array.from(el.children).map((child) => {
+      const rect = child.getBoundingClientRect();
+      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+    }),
+  );
+}
+
+function assertSameVisualRow(rects: VisualRect[], label: string): void {
+  assert.ok(rects.length >= 2, `${label} 至少应有两个可见字段`);
+  const [first, second] = rects;
+  assert.ok(second!.x > first!.x, `${label} 的后一个字段应位于前一个字段右侧`);
+  assert.ok(
+    Math.abs(second!.y - first!.y) <= Math.max(first!.height, second!.height),
+    `${label} 的相邻字段应处于同一视觉行`,
+  );
+}
+
 // ---------------------------------------------------------------------------
 // 1/4:结构化布局非 UA 默认排版。
 // ---------------------------------------------------------------------------
@@ -128,40 +150,33 @@ async function verifyStructuredLayoutNotUaDefault(browser: Browser, evidence: Ev
   try {
     await page.goto(attemptFileUrl(evidence, evidence.deliberateFail.attempt.locator));
 
-    // AttemptSource 整块源码行容器:声明为 CSS grid + 整体横向滚动;UA 默认 <div> 是 block 且
-    // 不会横向滚动——这就是"结构化布局而非 UA 默认排版"最直接的证据。
+    // AttemptSource 整块源码行容器应整体横向滚动并使用等宽字体。具体由 grid、table 还是
+    // 其它 CSS 机制实现不属于用户契约。
     const lines = page.locator(`${EN_SCOPE} .nre-attempt-source-lines`);
     const linesStyle = await lines.evaluate((el) => {
       const cs = getComputedStyle(el);
-      return { display: cs.display, overflowX: cs.overflowX, fontFamily: cs.fontFamily };
+      return { overflowX: cs.overflowX, fontFamily: cs.fontFamily };
     });
-    assert.equal(linesStyle.display, "grid", `.nre-attempt-source-lines 的 computed display 应为 grid,实际 "${linesStyle.display}"`);
     assert.equal(linesStyle.overflowX, "auto", `.nre-attempt-source-lines 应整体横向滚动(overflow-x:auto),实际 "${linesStyle.overflowX}"`);
     assert.match(linesStyle.fontFamily.toLowerCase(), /mono/, `.nre-attempt-source-lines 的 font-family 应含等宽字体族,实际 "${linesStyle.fontFamily}"`);
 
-    // 单行 summary:三栏 grid(行号位 / 源码 / 右缘 meta),不是 <summary> 元素的 UA 默认排版。
-    const oneLineSummaryDisplay = await page
-      .locator(`${EN_SCOPE} .nre-attempt-source .nre-source-line-summary`)
-      .first()
-      .evaluate((el) => getComputedStyle(el).display);
-    assert.equal(oneLineSummaryDisplay, "grid", `单行 .nre-source-line-summary 应是 grid 布局,实际 "${oneLineSummaryDisplay}"`);
+    // 单行 summary 的行号位与源码应横向成栏；断言视觉几何，不规定 CSS display 值。
+    assertSameVisualRow(
+      await directChildRects(page.locator(`${EN_SCOPE} .nre-attempt-source .nre-source-line-summary`).first()),
+      "AttemptSource 单行的行号与源码",
+    );
 
-    // AttemptSummary 的 KPI 区块是 <dl>:声明为 grid,不是 <dl> 的 UA 默认纵向堆叠排版。
-    const kpisDisplay = await page.locator(`${EN_SCOPE} .nre-attempt-summary-kpis`).evaluate((el) => getComputedStyle(el).display);
-    assert.equal(kpisDisplay, "grid", `AttemptSummary 的 KPI 区块(<dl>)应是 grid 布局,实际 "${kpisDisplay}"`);
+    // AttemptSummary 的前两个 KPI 在桌面视口应横向成栏，不是 UA 默认纵向堆叠。
+    assertSameVisualRow(
+      await directChildRects(page.locator(`${EN_SCOPE} .nre-attempt-summary-kpis`)),
+      "AttemptSummary KPI",
+    );
 
-    // deliberateFail 的失败行默认展开,里面的 assertion 细节区块本身也是结构化布局
-    // (assertion 行 grid、assertion 头 flex),不是纯文本堆叠。
-    const assertionRowDisplay = await page
-      .locator(`${EN_SCOPE} .nre-attempt-source .nre-assertion-row`)
-      .first()
-      .evaluate((el) => getComputedStyle(el).display);
-    assert.equal(assertionRowDisplay, "grid", `assertion 展开细节(.nre-assertion-row)应是 grid 布局,实际 "${assertionRowDisplay}"`);
-    const assertionHeadDisplay = await page
-      .locator(`${EN_SCOPE} .nre-attempt-source .nre-source-assertion-head`)
-      .first()
-      .evaluate((el) => getComputedStyle(el).display);
-    assert.equal(assertionHeadDisplay, "flex", `assertion 头(.nre-source-assertion-head)应是 flex 布局,实际 "${assertionHeadDisplay}"`);
+    // deliberateFail 的失败行默认展开，badge 与断言名应处于同一视觉行。
+    assertSameVisualRow(
+      await directChildRects(page.locator(`${EN_SCOPE} .nre-attempt-source .nre-source-assertion-head`).first()),
+      "失败断言头",
+    );
 
     // 换到 main(passed)attempt,复核"conversation/send 区块"这一类:send 行展开区里的回复列表
     // 是 flex column、工具调用行是三栏 grid。main 没有 bad/warn/na 行,没有默认展开的 send 行,
@@ -171,16 +186,18 @@ async function verifyStructuredLayoutNotUaDefault(browser: Browser, evidence: Ev
     await sendDetails.evaluate((el) => {
       (el as HTMLDetailsElement).open = true;
     });
-    const repliesDisplay = await page
-      .locator(`${EN_SCOPE} .nre-attempt-source .nre-conv-replies`)
-      .first()
-      .evaluate((el) => getComputedStyle(el).display);
-    assert.equal(repliesDisplay, "flex", `send 行展开区的回复列表(.nre-conv-replies)应是 flex 布局,实际 "${repliesDisplay}"`);
-    const toolSummaryDisplay = await page
-      .locator(`${EN_SCOPE} .nre-attempt-source .nre-conv-tool > summary`)
-      .first()
-      .evaluate((el) => getComputedStyle(el).display);
-    assert.equal(toolSummaryDisplay, "grid", `send 行展开区里的工具调用行(.nre-conv-tool > summary)应是 grid 布局,实际 "${toolSummaryDisplay}"`);
+    const replyRects = await directChildRects(
+      page.locator(`${EN_SCOPE} .nre-attempt-source .nre-conv-replies`).first(),
+    );
+    assert.ok(replyRects.length >= 2, "send 行展开区应有多个可见回复条目");
+    assert.ok(
+      replyRects[1]!.y >= replyRects[0]!.y + replyRects[0]!.height,
+      "send 行展开区的回复条目应自上而下排列且不重叠",
+    );
+    assertSameVisualRow(
+      await directChildRects(page.locator(`${EN_SCOPE} .nre-attempt-source .nre-conv-tool > summary`).first()),
+      "工具调用摘要",
+    );
   } finally {
     await page.close();
   }
@@ -200,7 +217,7 @@ async function verifyAttemptSourceVisualMarkers(browser: Browser, evidence: Evid
     const sendLine = page.locator(`${EN_SCOPE} .nre-attempt-source details.nre-source-line-send`).first();
     const goodLine = page.locator(`${EN_SCOPE} .nre-attempt-source details.nre-source-line.nre-tone-good`).first();
     const plainLine = page.locator(`${EN_SCOPE} .nre-attempt-source .nre-source-line`).first();
-    assert.equal(await plainLine.evaluate((el) => el.tagName), "DIV", "普通源码行应是 <div>,不带任何状态标记");
+    assert.equal(await plainLine.locator("summary").count(), 0, "普通源码行不应具有可展开的 summary");
 
     const sendBg = await sendLine.locator("> summary").evaluate((el) => getComputedStyle(el).backgroundColor);
     const goodBg = await goodLine.locator("> summary").evaluate((el) => getComputedStyle(el).backgroundColor);
@@ -283,7 +300,7 @@ async function verifyClickToExpandInteraction(browser: Browser, evidence: Eviden
 
     // --- 普通行(无 assertion/send/turn):不是 <details>,点击不产生任何展开。
     const plainLine = page.locator(`${EN_SCOPE} .nre-attempt-source .nre-source-line`).first();
-    assert.equal(await plainLine.evaluate((el) => el.tagName), "DIV", "普通源码行应渲染成 <div>,不是 <details>");
+    assert.equal(await plainLine.locator("summary").count(), 0, "普通源码行不应具有可展开语义");
     await plainLine.click();
     const openCountAfterPlainClick = await page.locator(`${EN_SCOPE} details[open]`).count();
     assert.equal(openCountAfterPlainClick, 1, "点击普通行不应触发任何 <details> 展开(应仍只有前面手动重新展开的那一条)");
@@ -398,10 +415,38 @@ async function verifyIndexPageLive(browser: Browser, baseUrl: string, evidence: 
       "topbar 导航项应等于 standard 报告 navigation !== false 的三张 page,按声明顺序渲染(不是只验证驱动它的数据契约,是真实水合出的 DOM)",
     );
 
-    // 结构化布局非 UA 默认排版,index 面:ExperimentList 摘要行是 grid,不是 <summary> 的 UA
-    // 默认 list-item 排版。
-    const expSummaryDisplay = await page.locator(".nre-experiment-summary").first().evaluate((el) => getComputedStyle(el).display);
-    assert.equal(expSummaryDisplay, "grid", `index 页 ExperimentList 摘要行应是 grid 布局,实际 "${expSummaryDisplay}"`);
+    // ExperimentList 的前两个字段在桌面视口横向成栏；具体 CSS 布局机制不属于契约。
+    assertSameVisualRow(
+      await directChildRects(page.locator(".nre-experiment-summary").first()),
+      "ExperimentList 摘要",
+    );
+
+    // 同一 agent 跨 ExperimentList / AttemptList / MetricScatter 应呈现同一种颜色。class
+    // 只用于定位元素，预期比较的是浏览器实际绘制的颜色，不要求由哪一个散列函数或 class 实现。
+    const reportColors = new Map<string, string>();
+    for (const agent of AGENTS) {
+      const key = page.locator(".nre-experiment-agent", { hasText: agent }).first();
+      await key.waitFor({ state: "visible" });
+      reportColors.set(agent, await key.evaluate((el) => getComputedStyle(el).color));
+    }
+    const scatterMain = page.locator(".nre-legend-key", { hasText: AGENTS[0] }).first();
+    assert.equal(
+      await scatterMain.evaluate((el) => getComputedStyle(el).color),
+      reportColors.get(AGENTS[0]),
+      `同一 agent "${AGENTS[0]}" 在 MetricScatter 与 ExperimentList 中应呈现同一种颜色`,
+    );
+
+    await topbar.getByRole("tab", { name: "Attempts" }).click();
+    for (const agent of AGENTS) {
+      const key = page.locator(".nre-attempt-agent", { hasText: agent }).first();
+      await key.waitFor({ state: "visible" });
+      assert.equal(
+        await key.evaluate((el) => getComputedStyle(el).color),
+        reportColors.get(agent),
+        `同一 agent "${agent}" 在 AttemptList 与 ExperimentList 中应呈现同一种颜色`,
+      );
+    }
+    await topbar.getByRole("tab", { name: "Report" }).click();
 
     // 点击失败 attempt 的 locator:触发现场 fetch(attempt 文档)+ dialog,验证端到端工作且
     // dialog 里渲染出来的内容也带着真实的失败细节与状态染色。locator 链接挂在 ExperimentList

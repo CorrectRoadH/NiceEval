@@ -15,7 +15,7 @@ import { describe, expect, it } from "vitest";
 
 import type { AssertionResult, EvalResult, TraceSpan, Verdict } from "../../../types.ts";
 import type { AttemptHandle, Results, Scope, ScopeWarning, Snapshot } from "../../../results/index.ts";
-import { resultsOf, scopeOf } from "../scope.harness.ts";
+import { attemptHandleOf, resultsOf, scopeOf } from "../scope.harness.ts";
 import { defineComponent, resolveReportTree, ResolveMemo, type ReportNode } from "../../definition/tree.ts";
 import { buildReportMeta, defineReport, type ReportDefinition } from "../../definition/report.ts";
 import { pickReportPage, reportTitleText } from "../../runtime/text.ts";
@@ -66,21 +66,14 @@ function snap(spec: {
     dir: `/results/exp/snap-${runSeq}`,
     ...(spec.diagnostics ? { diagnostics: spec.diagnostics } : {}),
   } as Snapshot;
-  const attempts: AttemptHandle[] = spec.results.map((r) => ({
-    evalId: r.id,
-    experimentId: spec.experimentId,
-    result: r,
-    ref: { snapshot: `exp/snap-${runSeq}`, attempt: `${r.id}/a${r.attempt}` },
-    snapshot,
-    carried: Boolean(r.artifactBase),
-    commands: async () => null,
-    events: async () => null,
-    trace: async () => spec.traces?.[r.id] ?? null,
-    o11y: async () => null,
-    agentSetup: async () => null,
-    diff: async () => null,
-    sources: async () => null,
-  }));
+  const attempts: AttemptHandle[] = spec.results.map((r) =>
+    attemptHandleOf(
+      snapshot,
+      r,
+      { snapshot: `exp/snap-${runSeq}`, attempt: `${r.id}/a${r.attempt}` },
+      { trace: async () => spec.traces?.[r.id] ?? null },
+    ),
+  );
   const evals = new Map<string, AttemptHandle[]>();
   for (const attempt of attempts) evals.set(attempt.evalId, [...(evals.get(attempt.evalId) ?? []), attempt]);
   snapshot.evals = [...evals.entries()].map(([id, list]) => ({ id, attempts: list }));

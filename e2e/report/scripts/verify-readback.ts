@@ -155,11 +155,12 @@ function expectServerDoesNotStart(extraArgs: string[]): Promise<{ exitCode: numb
 // ---------------------------------------------------------------------------
 // 手写的最小 Results 格式 fixture(遵循 docs/feature/results/architecture.md 的 schema)——
 // 用来演示在本仓库真实证据中不会自然出现的那几种 Scope 警告,以及"无 phases → unavailable"
-// 场景。schemaVersion 从候选 niceeval 包的公开常量取值,不手抄数字——候选升版时 fixture
-// 自动跟随,不再产生「fixture 锁旧版、reader 拒读」的漂移(本模块仍从不读取 `.niceeval/`)。
+// 与 attempt facts 的公开读回场景。schemaVersion 是签入测试仓库的独立契约 oracle，取自
+// docs/feature/results/architecture.md，不从候选 niceeval 实现导入。公开格式升版时应由
+// 契约 diff 显式修改这里；若自动跟随候选常量，reader 与 fixture 可以一起错而测试仍然全绿。
 // ---------------------------------------------------------------------------
 
-import { RESULTS_SCHEMA_VERSION as FIXTURE_SCHEMA_VERSION } from "niceeval/results";
+const FIXTURE_SCHEMA_VERSION = 9;
 
 function fixtureSnapshotMeta(over: Record<string, unknown>) {
   return {
@@ -204,7 +205,15 @@ function buildScopeWarningsFixture(scratchRoot: string): ScopeWarningsFixture {
     knownEvalIds: ["eval-a", "eval-ghost"],
   }));
   // 没有 `phases` 字段——同时也是本模块对"落盘无 phases 时如实显示 unavailable"的 fixture。
-  writeJson(join(partialDir, "eval-a", "a0"), "result.json", fixtureResult({ id: "eval-a", verdict: "passed" }));
+  writeJson(
+    join(partialDir, "eval-a", "a0"),
+    "result.json",
+    fixtureResult({
+      id: "eval-a",
+      verdict: "passed",
+      facts: { "fixture.kind": "deterministic" },
+    }),
+  );
 
   // scratch-stale:单份「旧」快照,比 scratch-partial 落后 8 天 → 只触发 stale-snapshot
   // (这个 experiment 自始至终只有一份快照,所以不会有它自己的 partial-coverage)。
@@ -432,10 +441,22 @@ async function verifyEvidenceFacets(evidence: Evidence, fixture: ScopeWarningsFi
   const passedSource = sh(`pnpm exec niceeval show ${passedLocator} --source --results ${root}`);
   assert.ok(passedSource.includes("evals/tool-call.eval.ts"), "--source should name the eval source file");
   assert.ok(/\S+\s*·\s*completed\s*·/.test(passedSource), `--source should annotate the t.send() line with the turn's label + status + duration; got:\n${passedSource}`);
+  assert.ok(
+    passedSource.includes("assertions: 4 passed"),
+    `a fully-passed source view should collapse the four assertions into one visible summary; got:\n${passedSource}`,
+  );
+  assert.ok(
+    !passedSource.includes("gate ·"),
+    `a fully-passed source view should not expand individual assertion detail rows; got:\n${passedSource}`,
+  );
 
   const failedSource = sh(`pnpm exec niceeval show ${failedLocator} --source --results ${root}`);
   assert.ok(failedSource.includes("evals/deliberate-fail.eval.ts"), "--source should name deliberate-fail's eval source file");
   assert.ok(failedSource.includes("expected 3") && failedSource.includes("received 2"), "--source should annotate the failing assertion with expected/received");
+  assert.ok(
+    failedSource.includes("gate · equals(3)") && failedSource.includes("assertions: 1 gate failed"),
+    `a failed source view should expose the actionable failed assertion rather than a passed-summary row; got:\n${failedSource}`,
+  );
 
   // --execution 在真实证据上是能工作的(完整的节点覆盖已经在 verify-format.ts 的 README §4.3
   // 检查里断言过了);这里我们要断言的是"未采集 trace"时的诚实呈现——本仓库的 3 个 Experiment
@@ -475,6 +496,101 @@ async function verifyEvidenceFacets(evidence: Evidence, fixture: ScopeWarningsFi
   const noPhasesFull = sh(`pnpm exec niceeval show ${fixtureLocator} --timing=full --results ${fixture.root}`);
   assert.ok(noPhasesSummary.includes("phase timing unavailable"), `expected "phase timing unavailable" for a fixture attempt with no phases; got: ${noPhasesSummary}`);
   assert.ok(noPhasesFull.includes("phase timing unavailable"), `--timing=full should also say phase timing unavailable, not derive a fake tree; got: ${noPhasesFull}`);
+  const fixtureAttempt = sh(`pnpm exec niceeval show ${fixtureLocator} --results ${fixture.root}`);
+  assert.ok(
+    fixtureAttempt.includes("facts: fixture.kind=deterministic"),
+    `an attempt fact from the public Results fixture should be visible on the public attempt page; got:\n${fixtureAttempt}`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 用户可见的零配置切片。这里只走候选包公开 CLI，预期来自本仓库签入的 Experiment/Eval：
+// 不 import renderer、组件或 *Data，也不从实现树反推出应该显示什么。
+// ---------------------------------------------------------------------------
+
+function verifyVisibleSlices(evidence: Evidence): void {
+  const root = evidence.resultsRoot;
+  const passedLocator = evidence.main.attempts[0]!.locator;
+
+  const compare = sh(
+    `pnpm exec niceeval show --results ${root} --exp deliberate-fail --exp deliberate-error`,
+  );
+  assert.ok(
+    compare.includes("compare · 2 conditions") &&
+      compare.includes("baseline deliberate-fail") &&
+      compare.includes("deliberate-fail") &&
+      compare.includes("deliberate-error"),
+    `two public --exp flags should produce a visible comparison with the first condition as baseline; got:\n${compare}`,
+  );
+  assert.ok(
+    compare.includes("✗ failed") && compare.includes("! errored"),
+    `comparison output should keep failed and errored visibly distinct; got:\n${compare}`,
+  );
+
+  const stats = sh(`pnpm exec niceeval show --results ${root} --stats`);
+  assert.ok(
+    stats.includes("stability · 3 evals × 3 experiments") &&
+      stats.includes("all historical executions") &&
+      stats.includes("deliberate-fail") &&
+      stats.includes("deliberate-error"),
+    `--stats should expose the complete real-results scope and its evidence window; got:\n${stats}`,
+  );
+  const failedStatsLine = stats.split("\n").find((line) => line.startsWith("deliberate-fail"));
+  const erroredStatsLine = stats.split("\n").find((line) => line.startsWith("deliberate-error"));
+  assert.ok(failedStatsLine, `--stats did not render the deliberate-fail row:\n${stats}`);
+  assert.ok(erroredStatsLine, `--stats did not render the deliberate-error row:\n${stats}`);
+  assert.match(
+    failedStatsLine,
+    /✓0\s+✗[1-9]\d*\s+!0/,
+    "the deterministic failed eval should count under failed, not errored",
+  );
+  assert.match(
+    erroredStatsLine,
+    /✓0\s+✗0\s+![1-9]\d*/,
+    "the deterministic errored eval should count under errored, not failed",
+  );
+
+  const usage = sh(`pnpm exec niceeval show --results ${root} --usage`);
+  assert.ok(
+    usage.includes("usage · main · 2 attempts") &&
+      usage.includes("tool-call") &&
+      evidence.main.attempts.every((attempt) => usage.includes(attempt.locator)),
+    `--usage should list both real main attempts through their public locators; got:\n${usage}`,
+  );
+  assert.ok(
+    usage.includes("usage · deliberate-fail · 1 attempt") &&
+      usage.includes("usage · deliberate-error · 1 attempt") &&
+      usage.includes("—"),
+    `--usage should visibly preserve missing usage instead of inventing zeroes; got:\n${usage}`,
+  );
+
+  const usageCompare = sh(
+    `pnpm exec niceeval show --results ${root} --exp deliberate-fail --exp deliberate-error --usage`,
+  );
+  assert.ok(
+    usageCompare.includes("usage · 2 conditions") &&
+      usageCompare.includes("baseline deliberate-fail") &&
+      usageCompare.includes("deliberate-fail") &&
+      usageCompare.includes("deliberate-error"),
+    `--usage over two public conditions should render the user-facing comparison matrix; got:\n${usageCompare}`,
+  );
+
+  const matches = sh(
+    `pnpm exec niceeval show ${passedLocator} --results ${root} --execution --grep get_stock_price`,
+  );
+  assert.ok(
+    matches.includes("TOOL · get_stock_price") && /\d+ matches in 1 attempt/.test(matches),
+    `--grep should return the matching real tool card and a visible match summary; got:\n${matches}`,
+  );
+
+  const noMatches = sh(
+    `pnpm exec niceeval show ${passedLocator} --results ${root} --execution --grep definitely-not-present`,
+  );
+  assert.equal(
+    noMatches,
+    "0 matches in 1 attempt\n",
+    "--grep with no match should be a successful, explicit user-visible empty result",
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -651,6 +767,7 @@ export async function verifyReadback(evidence: Evidence): Promise<void> {
     // fixture/导出目录),所以彼此之间的先后顺序无关紧要。
     await verifySelectionAndNarrowing(evidence);
     await verifyEvidenceFacets(evidence, fixture);
+    verifyVisibleSlices(evidence);
     await verifyScopeWarnings(fixture);
     await verifyExportAndServer(evidence);
     await verifyHistoryAndPages(evidence);

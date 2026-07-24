@@ -168,7 +168,7 @@ npx tsx bench/compare.ts bench/.snapshots/docker-codex-<old>.json bench/.snapsho
 
 ## 框架自测:计时机制的 vitest 守护
 
-复用 `test/fixtures/sandbox-hooks` 这条既有 e2e 流水线(内存假 sandbox + mock send + 真实 CLI,全程不联网、不起容器)——它已经覆盖 setup 全序与抛错路径,phases 是同一条流水线的另一个观察面,新增断言不新增 fixture:
+复用 `src/runner/attempt.test.ts` 的 attempt 组件 fixture（内存 fake Sandbox + scripted Agent，不起 CLI、不联网、不起容器）——它已经覆盖 setup 全序与抛错路径，phases 是同一个组件边界的另一个观察面，新增断言不新增 fixture：
 
 1. **全序与闭集**:成功 attempt 的 `result.json` 里 phases 顺序与生命周期一致,阶段名全部落在 `LifecyclePhase` 闭集内且不含 `agent.run`,`durationMs ≥ 0` 且 ∑ 主链 phases ≤ 总 `durationMs`;收尾段条目总排在主链之后。
 2. **错误归因**:`sandbox.setup` 抛错的 fixture,主链止于 `sandbox.setup` 且该条 `failed: true`,其后无主链条目(`agent.setup` 从未出现);已创建沙箱的收尾段照常有条目。

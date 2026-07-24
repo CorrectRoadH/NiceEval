@@ -98,6 +98,8 @@ async function runOnce(
     evalDefOverrides?: Partial<DiscoveredEval>;
     onPhase?: (phase: LifecyclePhase) => void;
     timeoutMs?: number;
+    sandbox?: AgentRun["sandbox"];
+    experimentId?: string;
   } = {},
 ): Promise<import("../types.ts").EvalResult> {
   const evalDef: DiscoveredEval = {
@@ -114,7 +116,8 @@ async function runOnce(
     runs: 1,
     earlyExit: true,
     // 自定义 provider:create() 直接返回内存 fake,绕开真实沙箱 provider。
-    sandbox: defineSandbox({ name: "fake-provider", create: async () => asSandbox(box) }),
+    sandbox: opts.sandbox ?? defineSandbox({ name: "fake-provider", create: async () => asSandbox(box) }),
+    experimentId: opts.experimentId,
     timeoutMs: opts.timeoutMs ?? 5_000,
     selectedEvalIds: [evalDef.id],
   };
@@ -335,6 +338,105 @@ describe("runAttemptEffect · eval.teardown 的触发规则", () => {
 
     expect(result.error).toBeUndefined();
     expect(teardownCalls).toBe(1);
+  });
+});
+
+// cases: docs/engineering/testing/unit/sandbox.md「生命周期与资源释放」
+describe("runAttemptEffect · sandbox hook 链的执行与失败收尾", () => {
+  it("setup 按追加顺序、teardown 按 LIFO，且各层 ctx.experimentId 取同一运行身份", async () => {
+    const events: string[] = [];
+    const experimentId = "order/mock";
+    const record = (event: string, actualExperimentId: string | undefined) => {
+      expect(actualExperimentId).toBe(experimentId);
+      events.push(event);
+    };
+    const box = new FakeSandbox();
+    const sandbox = defineSandbox({ name: "fake-provider-hook-order", create: async () => asSandbox(box) })
+      .setup((_sandbox, ctx) => record("sandbox.setup:a", ctx.experimentId))
+      .setup((_sandbox, ctx) => record("sandbox.setup:b", ctx.experimentId))
+      .teardown((_sandbox, ctx) => record("sandbox.teardown:x", ctx.experimentId))
+      .teardown((_sandbox, ctx) => record("sandbox.teardown:y", ctx.experimentId));
+    const agent = defineSandboxAgent({
+      name: "fake-agent-hook-order",
+      setup: async (_sandbox, ctx) => record("agent.setup", ctx.experimentId),
+      send: async (_input, ctx) => {
+        record("agent.send", ctx.experimentId);
+        return { events: [], status: "completed" };
+      },
+      teardown: async (_sandbox, ctx) => record("agent.teardown", ctx.experimentId),
+    });
+
+    const result = await runOnce(agent, box, {
+      sandbox,
+      experimentId,
+      evalDefOverrides: {
+        setup: async (_sandbox, ctx) => record("eval.setup", ctx.experimentId),
+        test: async (t) => {
+          await t.send("go");
+        },
+        teardown: async (_sandbox, ctx) => record("eval.teardown", ctx.experimentId),
+      },
+    });
+
+    expect(result.error).toBeUndefined();
+    expect(events).toEqual([
+      "sandbox.setup:a",
+      "sandbox.setup:b",
+      "eval.setup",
+      "agent.setup",
+      "agent.send",
+      "eval.teardown",
+      "agent.teardown",
+      "sandbox.teardown:y",
+      "sandbox.teardown:x",
+    ]);
+  });
+
+  it("sandbox.setup 中途失败时后续 setup 与 agent 都不运行，但完整 teardown 链仍按 LIFO 扫尾", async () => {
+    const events: string[] = [];
+    const box = new FakeSandbox();
+    const sandbox = defineSandbox({ name: "fake-provider-hook-failure", create: async () => asSandbox(box) })
+      .setup(() => {
+        events.push("sandbox.setup:ok");
+      })
+      .setup(() => {
+        events.push("sandbox.setup:boom");
+        throw new Error("boom-from-sandbox-setup");
+      })
+      .setup(() => {
+        events.push("sandbox.setup:must-not-run");
+      })
+      .teardown(() => {
+        events.push("sandbox.teardown:first");
+      })
+      .teardown(() => {
+        events.push("sandbox.teardown:last");
+      });
+    const agent = defineSandboxAgent({
+      name: "fake-agent-must-not-start",
+      setup: async () => {
+        events.push("agent.setup:must-not-run");
+      },
+      send: async () => {
+        events.push("agent.send:must-not-run");
+        return { events: [], status: "completed" };
+      },
+      teardown: async () => {
+        events.push("agent.teardown:must-not-run");
+      },
+    });
+
+    const result = await runOnce(agent, box, { sandbox });
+
+    expect(result.verdict).toBe("errored");
+    expect(result.error?.phase).toBe("sandbox.setup");
+    expect(result.error?.message).toContain("boom-from-sandbox-setup");
+    expect(events).toEqual([
+      "sandbox.setup:ok",
+      "sandbox.setup:boom",
+      "sandbox.teardown:last",
+      "sandbox.teardown:first",
+    ]);
   });
 });
 
