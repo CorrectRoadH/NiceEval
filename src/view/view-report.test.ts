@@ -9,6 +9,8 @@
 // - 报告槽恒在:裸跑填充内建报告(三页声明序),--report 整槽替换不影响证据室索引,
 //   viewData 不携带统计产物(overview/table/overall),报告文件缺失或非法默认导出的完整反馈;
 // - 外壳标题取值链(def.title → 内置文案兜底)与 ReportLink.icon 原样透传进 viewData;
+// - viewData.report.pages 是外壳认识的全部 scope-input page,`navigation: false` 带标记出场
+//   (导航列不列由外壳按标记决定,内容块与 `#/page/<id>` 深链的键仍是这份列表);
 // - dev server 装载语义:报告文件变更 → 下次装载读取新内容(mtime cache-busting)。
 //
 // 渲染出的 HTML 结构、终端/web 双面逐字比对、--out 导出产物与本地 server 的进程级行为
@@ -261,6 +263,58 @@ describe("loadViewScan · 外壳标题与 ReportLink.icon", () => {
     const root = await seedRoot(); // seedRoot 的快照都没有 name
     const scan = await loadViewScan(root);
     expect(scan.viewData.report?.title).toEqual({ en: "Eval Results", "zh-CN": "Eval 运行结果" });
+  });
+});
+
+// ───────────────────── 外壳:页列表与 navigation 标记 ─────────────────────
+
+describe("loadViewScan · scope-input page 的 navigation 标记", () => {
+  /** 两张 scope-input page,第二张显式退出导航(不经包入口的最小报告,同上面两处姿势)。 */
+  function twoPageReportSource(): string {
+    const page = (id: string, extra: string) =>
+      `{ id: "${id}", title: "${id}", input: "scope"${extra}, content: { $$typeof: Symbol.for("react.transitional.element"), type: Block, props: {}, key: null } }`;
+    return [
+      'const FACES = Symbol.for("niceeval.report.faces");',
+      'const DEFINITION = Symbol.for("niceeval.report.definition");',
+      "const Block = (props) => Block[FACES].web(props);",
+      "Block[FACES] = {",
+      '  web: () => "PAGE_BODY",',
+      '  text: () => "PAGE_BODY",',
+      "};",
+      "const definition = {",
+      '  kind: "report",',
+      "  links: [],",
+      "  head: [],",
+      "  scripts: [],",
+      "  styles: [],",
+      `  pages: [${page("report", ", navigation: true")}, ${page("hidden", ", navigation: false")}],`,
+      "};",
+      "Object.defineProperty(definition, DEFINITION, { value: true });",
+      "export default definition;",
+      "",
+    ].join("\n");
+  }
+
+  it("navigation: false 的 scope-input page 带标记进 viewData.report.pages:退出导航但内容与深链仍在场", async () => {
+    const root = await seedRoot();
+    const path = join(root, "two-page-report.mjs");
+    await writeFile(path, twoPageReportSource(), "utf-8");
+    const scan = await loadViewScan(root, { report: { path, cwd: root } });
+    // 这份列表是外壳认识的全部 scope-input page(<template> 静态块与 `#/page/<id>` 路由的键),
+    // 退出导航的页照样在列——外壳按标记决定列不列,不靠从列表里删页实现。
+    expect(scan.viewData.report?.pages).toEqual([
+      { id: "report", title: "report" },
+      { id: "hidden", title: "hidden", navigation: false },
+    ]);
+    // 内容也照常渲染:退出导航不等于退出站点。
+    expect(scan.reportPages.map((p) => p.id)).toEqual(["report", "hidden"]);
+  });
+
+  it("未声明 navigation 的页不带标记出场(缺省即在导航里)", async () => {
+    const root = await seedRoot();
+    const scan = await loadViewScan(root);
+    // 内建报告的三张 scope-input page 都在导航里;attempt-input 的第四张更早一步就不进这份列表。
+    expect(scan.viewData.report?.pages.every((p) => !("navigation" in p))).toBe(true);
   });
 });
 

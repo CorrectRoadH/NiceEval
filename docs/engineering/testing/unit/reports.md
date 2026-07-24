@@ -125,7 +125,7 @@ helper”复制一条 case；只有引入新的 literal 约束、递归容器或
   `attemptPages.locators`）与报告槽 Selection 同步收窄；`viewData`
   只含证据室元信息（`composedRuns`、`skippedRuns`、`report` 元信息）不携带统计产物；外壳标题取值链与
   `ReportLink.icon` 原样透传进
-  `viewData.report`；报告文件缺失、非法默认导出、前缀 / 实验匹配不到、零可读结果的完整错误反馈；报告文件变更后下一次装载读取新内容（不复用陈旧模块缓存）。全部以返回结构、Map/Set 内容与错误对象为断言面，不断言渲染出的 HTML 或终端文本。
+  `viewData.report`；`viewData.report.pages` 是外壳认识的全部 scope-input page（同时是内容块与 `#/page/<id>` 路由的键），声明 `navigation: false` 的页带标记在列而不是被删掉——导航列不列由外壳按这个标记决定；报告文件缺失、非法默认导出、前缀 / 实验匹配不到、零可读结果的完整错误反馈；报告文件变更后下一次装载读取新内容（不复用陈旧模块缓存）。全部以返回结构、Map/Set 内容与错误对象为断言面，不断言渲染出的 HTML 或终端文本。
 - **Attempt 证据组件族**：`attempt*Data(evidence)`
   纯派生零 IO、装配恰好一次；组合组件的展开树构成与二选一规则；spec 缺省取注入 evidence、错位使用的完整反馈；对话数据的分轮与容错。渲染出的 DOM、默认展开标记、染色与交互归 E2E；改动这些组件后需要
   `pnpm run build:report`，改动 view 壳 / dialog 摆放后需要 `pnpm run view:build`。

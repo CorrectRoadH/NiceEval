@@ -25,10 +25,16 @@ export interface ViewReportPageHtml {
   html: ReportSlotHtml;
 }
 
-/** 导航里的一页(id = `#/page/<id>` 路由与 `--page` 的取值)。 */
+/** 外壳认识的一页(id = `#/page/<id>` 路由、`--page` 的取值与 <template> 静态块的键)。 */
 export interface ViewReportPageMeta {
   id: string;
   title: LocalizedText;
+  /**
+   * 报告声明的 `navigation: false`(docs/feature/reports/library/shell.md「导航的组成只有一条
+   * 规则」):该页退出导航,外壳不为它渲染 tab。这份列表本身不是导航列表——它同时是页内容块与
+   * `#/page/<id>` 路由的键,所以退出导航的页仍如实在列,只带上这个标记;缺省即在导航里。
+   */
+  navigation?: false;
 }
 
 /**

@@ -467,7 +467,10 @@ async function renderReportSlot(
     title: hostMeta.title,
     links: [...hostReport.links],
     ...(hostReport.footer !== undefined ? { footer: hostReport.footer } : {}),
-    pages: scopePages.map((p) => ({ id: p.id, title: p.title })),
+    // 每一张要烘进 index.html 的 scope-input page 都在列(这份列表同时是 <template> 静态块与
+    // `#/page/<id>` 路由的键),声明了 `navigation: false` 的带标记出场——导航列不列由外壳按标记
+    // 决定,不靠从列表里删页实现(docs/feature/reports/view.md「导航机器与品牌位」)。
+    pages: scopePages.map((p) => ({ id: p.id, title: p.title, ...(p.navigation === false ? { navigation: false as const } : {}) })),
     initialPageId,
   };
 

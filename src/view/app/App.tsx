@@ -82,6 +82,10 @@ export function App({ data, reportPages }: { data: ViewData; reportPages: Record
   const pages: ViewReportPageMeta[] = data.report?.pages?.length
     ? data.report.pages
     : [{ id: "report", title: { en: "Report", "zh-CN": "报告" } }];
+  // 导航只列 `navigation !== false` 的页,按声明序,宿主不追加任何项
+  // (docs/feature/reports/view.md「导航机器与品牌位」/ library/shell.md「导航的组成只有一条规则」)。
+  // 退出导航不等于退出站点:内容块与 `#/page/<id>` 深链仍走完整的 pages。
+  const navPages = pages.filter((page) => page.navigation !== false);
   const initialPageId = data.report?.initialPageId ?? pages[0]!.id;
 
   const [tab, setTab] = useState<Tab>(() => tabFromHash(location.hash, pages) ?? `page:${initialPageId}`);
@@ -215,7 +219,7 @@ export function App({ data, reportPages }: { data: ViewData; reportPages: Record
           <span>NiceEval</span>
         </a>
         <TabsList aria-label={t("nav.label")}>
-          {pages.map((page) => (
+          {navPages.map((page) => (
             <TabsTrigger key={`page:${page.id}`} value={`page:${page.id}`}>
               {localizedText(page.title, locale) ?? page.id}
             </TabsTrigger>
